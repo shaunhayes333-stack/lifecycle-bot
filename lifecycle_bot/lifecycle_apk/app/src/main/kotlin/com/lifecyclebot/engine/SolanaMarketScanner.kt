@@ -42,6 +42,7 @@ import java.util.concurrent.ConcurrentHashMap
  *  • DEX filter — configurable (all/raydium/orca/meteora/pump)
  *
  * MARKET MODES:
+ */
 
 class SolanaMarketScanner(
     private val cfg: () -> BotConfig,
