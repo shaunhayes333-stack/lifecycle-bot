@@ -369,6 +369,16 @@ class Executor(
             return
         }
 
+        // Update shadow learning engine with current price
+        if (ts.position.isOpen) {
+            ShadowLearningEngine.onPriceUpdate(
+                mint = ts.mint,
+                currentPrice = ts.ref,
+                liveStopLossPct = cfg().stopLossPct,
+                liveTakeProfitPct = 200.0,  // Default take profit threshold
+            )
+        }
+
         // Stale data check
         val freshness = security.checkDataFreshness(lastPollMs)
         if (freshness is GuardResult.Block) {
@@ -483,6 +493,18 @@ class Executor(
                 onLog("Insufficient capacity for new position on ${ts.symbol}", ts.mint)
                 return
             }
+
+            // Notify shadow learning engine of trade opportunity
+            ShadowLearningEngine.onTradeOpportunity(
+                mint = ts.mint,
+                symbol = ts.symbol,
+                currentPrice = ts.ref,
+                liveEntryScore = entryScore,
+                liveEntryThreshold = c.entryThreshold,
+                liveSizeSol = size,
+                phase = ts.phase,
+            )
+
             doBuy(ts, size, entryScore, wallet, walletSol)
         }
     }
@@ -812,6 +834,15 @@ class Executor(
         ts.lastExitPrice    = price
         ts.lastExitPnlPct   = pnlP
         ts.lastExitWasWin   = pnl > 0
+
+        // Notify shadow learning engine
+        ShadowLearningEngine.onLiveTradeExit(
+            mint = ts.mint,
+            exitPrice = price,
+            exitReason = reason,
+            livePnlSol = pnl,
+            isWin = pnl > 0,
+        )
     }
 
     private fun liveSell(ts: TokenState, reason: String,

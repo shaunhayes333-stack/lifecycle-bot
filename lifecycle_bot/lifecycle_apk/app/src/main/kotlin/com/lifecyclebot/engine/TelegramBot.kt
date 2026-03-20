@@ -181,6 +181,26 @@ object TelegramBot {
     }
 
     /**
+     * Send shadow learning insight.
+     */
+    fun alertLearningInsight(
+        insight: ShadowLearningEngine.LearningInsight,
+    ) {
+        val msg = buildString {
+            appendLine("🧠 *LEARNING INSIGHT*")
+            appendLine("━━━━━━━━━━━━━━━━")
+            appendLine("💡 ${insight.message}")
+            appendLine("")
+            appendLine("📌 *Suggested Action:*")
+            appendLine("${insight.suggestedAction}")
+            appendLine("")
+            appendLine("📊 Confidence: `${(insight.confidence * 100).toInt()}%`")
+            appendLine("📈 Improvement: `+${insight.improvement.toInt()}%` vs live")
+        }
+        send(msg, parseMode = "Markdown")
+    }
+
+    /**
      * Send daily summary.
      */
     fun alertDailySummary(
@@ -296,12 +316,32 @@ object TelegramBot {
             "/pnl" -> send(onPnlRequest())
             "/positions" -> send(onPositionsRequest())
             "/treasury" -> send(onTreasuryRequest())
+            "/shadow" -> send(ShadowLearningEngine.getStatusSummary(), "Markdown")
+            "/insights" -> {
+                val insights = ShadowLearningEngine.getInsights(5)
+                if (insights.isEmpty()) {
+                    send("No learning insights yet. Keep trading!", "Markdown")
+                } else {
+                    val msg = buildString {
+                        appendLine("🧠 *RECENT INSIGHTS*")
+                        appendLine("━━━━━━━━━━━━━━━━")
+                        insights.forEach { i ->
+                            appendLine("💡 ${i.message}")
+                            appendLine("   → ${i.suggestedAction}")
+                            appendLine("")
+                        }
+                    }
+                    send(msg, "Markdown")
+                }
+            }
             "/help" -> send(buildString {
                 appendLine("*Available Commands:*")
                 appendLine("/status — Current bot status")
                 appendLine("/pnl — Today's P&L")
                 appendLine("/positions — Open positions")
                 appendLine("/treasury — Treasury status")
+                appendLine("/shadow — Shadow learning status")
+                appendLine("/insights — Recent AI insights")
                 appendLine("/pause — Pause trading")
                 appendLine("/resume — Resume trading")
                 appendLine("/kill — Emergency stop")
