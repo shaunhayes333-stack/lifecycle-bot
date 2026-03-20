@@ -447,11 +447,9 @@ class Executor(
             if (ts.position.isOpen) return
             // No concurrent cap — SmartSizer 70% exposure ceiling is the guard
             if (cfg().scalingLogEnabled) { val _spx=WalletManager.lastKnownSolPrice; val (_tier,_)=ScalingMode.maxPositionForToken(ts.lastLiquidityUsd,ts.lastFdv,TreasuryManager.treasurySol*_spx,_spx); if(_tier!=ScalingMode.Tier.MICRO) onLog("${_tier.icon} ${_tier.label}: ${ts.symbol}", ts.mint) }
-            if (cfg().scalingLogEnabled) { val _spx=WalletManager.lastKnownSolPrice; val (_exTier,_)=ScalingMode.maxPositionForToken(ts.lastLiquidityUsd,ts.lastFdv,TreasuryManager.treasurySol*_spx,_spx); if(_exTier!=ScalingMode.Tier.MICRO) onLog("${_exTier.icon} ${_exTier.label}: ${ts.symbol}", ts.mint) }
             var size = buySizeSol(entryScore, walletSol, openPositionCount, totalExposureSol,
                 walletTotalTrades = walletTotalTrades,
                 liquidityUsd      = ts.lastLiquidityUsd,
-                mcapUsd           = ts.lastFdv)
                 mcapUsd           = ts.lastFdv)
 
             // Cross-token correlation guard (FIX 7: tier-aware)

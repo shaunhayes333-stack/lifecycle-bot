@@ -162,6 +162,11 @@ data class BotConfig(
     val topUpMinCooldownMins: Double = 5.0,     // min minutes between top-ups
     val topUpRequireEmaFan: Boolean = true,     // require BULL_FAN before topping up
     val topUpMaxTotalSol: Double = 0.50,        // max total position size including top-ups
+    // ── Remote kill switch ─────────────────────────────────────────────
+    // Host a JSON file anywhere (GitHub Gist, your server) for emergency control.
+    // Empty URL = disabled. See RemoteKillSwitch.kt for JSON format.
+    val remoteConfigUrl: String = "",
+    val remoteConfigPollSecs: Int = 60,
 )
 
 /** Persists config — private key stored in EncryptedSharedPreferences */
@@ -276,6 +281,8 @@ object ConfigStore {
             putBoolean("scan_raydium_new",             cfg.scanRaydiumNew)
             putBoolean("narrative_scan",               cfg.narrativeScanEnabled)
             putString("narrative_keywords",            cfg.narrativeKeywords.joinToString(","))
+            putString("remote_config_url",             cfg.remoteConfigUrl)
+            putInt("remote_config_poll_secs",          cfg.remoteConfigPollSecs)
             apply()
         }
     }
@@ -386,6 +393,8 @@ object ConfigStore {
             narrativeScanEnabled        = p.getBoolean("narrative_scan", false),
             narrativeKeywords           = (p.getString("narrative_keywords","") ?: "")
                                           .split(",").filter { it.isNotBlank() },
+            remoteConfigUrl             = p.getString("remote_config_url", "") ?: "",
+            remoteConfigPollSecs        = p.getInt("remote_config_poll_secs", 60),
         )
     }
 

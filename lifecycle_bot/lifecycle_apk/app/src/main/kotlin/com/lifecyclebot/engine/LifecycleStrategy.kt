@@ -104,7 +104,6 @@ class LifecycleStrategy(
         val pressScore = pressureScore(hist)
         val momScore   = momentumScore(prices)
         // On a bull-fan grinder with good gains, require stronger exhaustion confirmation
-        val prices     = hist.map { it.ref }
         val emafanQuick = calcEmaFan(prices)
         val inGrinder   = ts.position.isOpen
             && pct(ts.position.entryPrice, ts.ref) > 30.0

@@ -1,4 +1,10 @@
-# Lifecycle Bot — Solana Trading Bot APK
+# Lifecycle Bot v7.0 — Solana Trading Bot APK
+
+## What's New in v7.0
+- **Bug fixes**: Fixed duplicate variable declarations and copy-paste errors
+- **Rate Limiter**: Centralized API rate limiting prevents getting banned from data sources
+- **Remote Kill Switch**: Emergency remote control via hosted JSON file
+- **Improved Reconciliation**: Better crash recovery for positions
 
 ## How to get your APK (step by step)
 

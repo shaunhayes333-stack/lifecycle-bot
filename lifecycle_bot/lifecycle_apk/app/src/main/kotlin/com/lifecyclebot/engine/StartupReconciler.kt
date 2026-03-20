@@ -220,5 +220,5 @@ class StartupReconciler(
     }
 }
 
-private fun String.toMT() = this.toMediaType()
-private fun String.toRB(mt: okhttp3.MediaType) = okhttp3.this.toRequestBody(mt)
+private fun String.toMT() = okhttp3.MediaType.Companion.toMediaType(this)
+private fun String.toRB(mt: okhttp3.MediaType) = okhttp3.RequestBody.Companion.toRequestBody(this, mt)

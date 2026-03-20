@@ -12,8 +12,8 @@ android {
         applicationId = "com.lifecyclebot"
         minSdk = 26
         targetSdk = 34
-        versionCode = 7
-        versionName = "6.7.0"
+        versionCode = 8
+        versionName = "7.0.0"
     }
 
     buildTypes {

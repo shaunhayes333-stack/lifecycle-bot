@@ -106,6 +106,11 @@ class SecurityGuard(
         liquidityUsd: Double = 0.0,
     ): GuardResult {
 
+        // ── 0. Remote kill switch check ────────────────────────────────
+        if (RemoteKillSwitch.isKilled) {
+            return GuardResult.Block("REMOTE KILL: ${RemoteKillSwitch.killReason}", fatal = true)
+        }
+
         // ── 1. Full halt check ────────────────────────────────────────
         if (cbState.isHalted) {
             return GuardResult.Block("BOT HALTED: ${cbState.haltReason}", fatal = true)

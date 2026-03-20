@@ -1,6 +1,7 @@
 package com.lifecyclebot.network
 
 import com.lifecyclebot.data.Candle
+import com.lifecyclebot.engine.RateLimiter
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import org.json.JSONArray
@@ -27,6 +28,7 @@ class DexscreenerApi {
 
     /** Returns the best-scoring pair for this mint on Solana, or null. */
     fun getBestPair(mint: String): PairInfo? {
+        if (!RateLimiter.allowRequest("dexscreener")) return null
         val url = "https://api.dexscreener.com/token-pairs/v1/solana/$mint"
         val body = get(url) ?: return null
         val pairs = JSONArray(body)
@@ -45,6 +47,7 @@ class DexscreenerApi {
 
     /** Search by query string — used for token discovery */
     fun search(query: String): List<PairInfo> {
+        if (!RateLimiter.allowRequest("dexscreener")) return emptyList()
         val url = "https://api.dexscreener.com/latest/dex/search?q=${encode(query)}"
         val body = get(url) ?: return emptyList()
         val arr  = JSONObject(body).optJSONArray("pairs") ?: return emptyList()
