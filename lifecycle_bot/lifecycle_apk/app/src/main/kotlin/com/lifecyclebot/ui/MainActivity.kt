@@ -185,6 +185,37 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
+    override fun onPause() {
+        super.onPause()
+        // Auto-save settings when app goes to background
+        saveCurrentSettings()
+    }
+
+    override fun onStop() {
+        super.onStop()
+        // Auto-save settings when app is stopped
+        saveCurrentSettings()
+    }
+
+    /** Save current settings from UI fields */
+    private fun saveCurrentSettings() {
+        try {
+            val state = vm.ui.value
+            val cfg = state.config.copy(
+                heliusApiKey          = etHeliusKey.text.toString().trim(),
+                birdeyeApiKey         = etBirdeyeKey.text.toString().trim(),
+                groqApiKey            = etGroqKey.text.toString().trim(),
+                tgBotToken            = etTgBotToken.text.toString().trim(),
+                tgChatId              = etTgChatId.text.toString().trim(),
+                watchlist             = etWatchlist.text.toString()
+                                            .split(",")
+                                            .map { it.trim() }
+                                            .filter { it.isNotBlank() },
+            )
+            vm.saveConfig(cfg)
+        } catch (_: Exception) {}
+    }
+
     private fun checkBatteryOptimisation() {
         val pm = getSystemService(Context.POWER_SERVICE) as PowerManager
         if (!pm.isIgnoringBatteryOptimizations(packageName)) {
@@ -292,6 +323,9 @@ class MainActivity : AppCompatActivity() {
 
         // API key help links - open signup pages
         setupApiKeyHelpLinks()
+
+        // Clear settings button
+        setupClearSettingsButton()
 
         // decision log
         cardLogScores = try { findViewById(R.id.cardLogScores) } catch (_: Exception) { android.view.View(this) }
@@ -1153,6 +1187,54 @@ Sizer: $tier ${pct}×wallet  " +
                 }
             } catch (_: Exception) {}
         }
+    }
+
+    /** Setup clear settings button with confirmation */
+    private fun setupClearSettingsButton() {
+        try {
+            findViewById<android.widget.Button>(R.id.btnClearSettings)?.setOnClickListener {
+                AlertDialog.Builder(this)
+                    .setTitle("Clear All API Keys?")
+                    .setMessage("This will remove:\n\n" +
+                        "• Helius API key\n" +
+                        "• Birdeye API key\n" +
+                        "• Groq API key\n" +
+                        "• Telegram bot token\n" +
+                        "• Telegram chat ID\n\n" +
+                        "Your wallet and trading settings will be kept.")
+                    .setPositiveButton("Clear Keys") { dialog: android.content.DialogInterface, _: Int ->
+                        clearApiKeys()
+                    }
+                    .setNegativeButton("Cancel", null)
+                    .show()
+            }
+        } catch (_: Exception) {}
+    }
+
+    /** Clear all API keys from storage and UI */
+    private fun clearApiKeys() {
+        try {
+            // Clear UI fields
+            etHeliusKey.setText("")
+            etBirdeyeKey.setText("")
+            etGroqKey.setText("")
+            etTgBotToken.setText("")
+            etTgChatId.setText("")
+
+            // Save empty values
+            val state = vm.ui.value
+            val cfg = state.config.copy(
+                heliusApiKey = "",
+                birdeyeApiKey = "",
+                groqApiKey = "",
+                tgBotToken = "",
+                tgChatId = "",
+                telegramBotToken = "",
+            )
+            vm.saveConfig(cfg)
+
+            Toast.makeText(this, "API keys cleared", Toast.LENGTH_SHORT).show()
+        } catch (_: Exception) {}
     }
 }
 
