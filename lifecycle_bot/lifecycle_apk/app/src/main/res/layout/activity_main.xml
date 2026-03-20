@@ -1155,78 +1155,103 @@
                         android:paddingStart="@dimen/input_padding_h"
                         android:inputType="textUri" android:layout_marginBottom="10dp"/>
 
+                    <TextView android:id="@+id/tvTelegramHelp"
+                        android:layout_width="wrap_content" android:layout_height="wrap_content"
+                        android:text="📱 TELEGRAM BOT — t.me/BotFather"
+                        android:textColor="#14F195" android:textSize="10sp" android:fontFamily="monospace"
+                        android:layout_marginBottom="2dp"/>
                     <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
-                        android:text="TELEGRAM BOT TOKEN" android:textColor="#6B7280"
-                        android:textSize="10sp" android:fontFamily="monospace"
+                        android:text="1. Message @BotFather → /newbot → Copy token"
+                        android:textColor="#6B7280" android:textSize="9sp" android:fontFamily="monospace"
                         android:layout_marginBottom="4dp"/>
                     <EditText android:id="@+id/etTgBotToken"
                         android:layout_width="match_parent" android:layout_height="@dimen/input_height"
                         android:background="@drawable/input_bg" android:textColor="#FFFFFF"
                         android:textColorHint="#374151" android:textSize="@dimen/input_text_size"
-                        android:fontFamily="monospace" android:hint="optional…"
+                        android:fontFamily="monospace" android:hint="paste bot token here…"
                         android:inputType="textPassword"
                         android:paddingStart="@dimen/input_padding_h"
                         android:layout_marginBottom="6dp"/>
 
                     <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
-                        android:text="TELEGRAM CHAT ID (for trade alerts)"
-                        android:textColor="#6B7280" android:textSize="10sp" android:fontFamily="monospace"
+                        android:text="2. Message your new bot, then get Chat ID:"
+                        android:textColor="#6B7280" android:textSize="9sp" android:fontFamily="monospace"
                         android:layout_marginBottom="4dp"/>
                     <EditText android:id="@+id/etTgChatId"
                         android:layout_width="match_parent" android:layout_height="@dimen/input_height"
                         android:background="@drawable/input_bg" android:textColor="#FFFFFF"
                         android:textColorHint="#374151" android:textSize="@dimen/input_text_size"
-                        android:fontFamily="monospace" android:hint="your chat ID (from /start on your bot)"
-                        android:inputType="textEmailAddress"
+                        android:fontFamily="monospace" android:hint="paste chat id here…"
+                        android:inputType="number"
                         android:paddingStart="@dimen/input_padding_h"
                         android:layout_marginBottom="4dp"/>
                     <TextView android:layout_width="match_parent" android:layout_height="wrap_content"
-                        android:text="Get chat ID: message your bot, open api.telegram.org/bot&lt;TOKEN&gt;/getUpdates"
-                        android:textColor="#4B5563" android:textSize="10sp" android:fontFamily="monospace"
+                        android:text="💡 Get chat ID: api.telegram.org/bot&lt;TOKEN&gt;/getUpdates"
+                        android:textColor="#4B5563" android:textSize="9sp" android:fontFamily="monospace"
                         android:layout_marginBottom="10dp"/>
 
                     <!-- API Keys section -->
                     <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
-                        android:text="FREE API KEYS" android:textColor="#9945FF"
-                        android:textSize="10sp" android:fontFamily="monospace"
-                        android:letterSpacing="0.12" android:layout_marginBottom="6dp"
+                        android:text="🔑 FREE API KEYS" android:textColor="#9945FF"
+                        android:textSize="11sp" android:fontFamily="monospace"
+                        android:letterSpacing="0.12" android:layout_marginBottom="4dp"
                         android:layout_marginTop="6dp"/>
 
                     <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
-                        android:text="HELIUS KEY (helius.dev — free, real-time stream)"
-                        android:textColor="#6B7280" android:textSize="10sp" android:fontFamily="monospace"
+                        android:text="All keys are FREE. Click labels for signup links."
+                        android:textColor="#4B5563" android:textSize="9sp" android:fontFamily="monospace"
+                        android:layout_marginBottom="8dp"/>
+
+                    <TextView android:id="@+id/tvHeliusHelp"
+                        android:layout_width="wrap_content" android:layout_height="wrap_content"
+                        android:text="⚡ HELIUS KEY — helius.dev/signup"
+                        android:textColor="#14F195" android:textSize="10sp" android:fontFamily="monospace"
+                        android:layout_marginBottom="2dp"/>
+                    <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+                        android:text="Real-time Solana data. Sign up → Dashboard → API Keys → Copy"
+                        android:textColor="#6B7280" android:textSize="9sp" android:fontFamily="monospace"
                         android:layout_marginBottom="4dp"/>
                     <EditText android:id="@+id/etHeliusKey"
                         android:layout_width="match_parent" android:layout_height="@dimen/input_height"
                         android:background="@drawable/input_bg" android:textColor="#FFFFFF"
                         android:textColorHint="#374151" android:textSize="@dimen/input_text_size"
-                        android:fontFamily="monospace" android:hint="helius api key…"
+                        android:fontFamily="monospace" android:hint="paste helius api key here…"
                         android:inputType="textPassword"
                         android:paddingStart="@dimen/input_padding_h"
                         android:layout_marginBottom="10dp"/>
 
+                    <TextView android:id="@+id/tvBirdeyeHelp"
+                        android:layout_width="wrap_content" android:layout_height="wrap_content"
+                        android:text="📊 BIRDEYE KEY — birdeye.so"
+                        android:textColor="#14F195" android:textSize="10sp" android:fontFamily="monospace"
+                        android:layout_marginBottom="2dp"/>
                     <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
-                        android:text="BIRDEYE KEY (birdeye.so — free, OHLCV candles)"
-                        android:textColor="#6B7280" android:textSize="10sp" android:fontFamily="monospace"
+                        android:text="Price charts &amp; candles. Sign up → Profile → API → Generate Key"
+                        android:textColor="#6B7280" android:textSize="9sp" android:fontFamily="monospace"
                         android:layout_marginBottom="4dp"/>
                     <EditText android:id="@+id/etBirdeyeKey"
                         android:layout_width="match_parent" android:layout_height="@dimen/input_height"
                         android:background="@drawable/input_bg" android:textColor="#FFFFFF"
                         android:textColorHint="#374151" android:textSize="@dimen/input_text_size"
-                        android:fontFamily="monospace" android:hint="birdeye api key…"
+                        android:fontFamily="monospace" android:hint="paste birdeye api key here…"
                         android:inputType="textPassword"
                         android:paddingStart="@dimen/input_padding_h"
                         android:layout_marginBottom="10dp"/>
 
+                    <TextView android:id="@+id/tvGroqHelp"
+                        android:layout_width="wrap_content" android:layout_height="wrap_content"
+                        android:text="🧠 GROQ KEY — console.groq.com"
+                        android:textColor="#14F195" android:textSize="10sp" android:fontFamily="monospace"
+                        android:layout_marginBottom="2dp"/>
                     <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
-                        android:text="GROQ KEY (console.groq.com — free LLM sentiment)"
-                        android:textColor="#6B7280" android:textSize="10sp" android:fontFamily="monospace"
+                        android:text="AI sentiment analysis. Sign up → API Keys → Create → Copy"
+                        android:textColor="#6B7280" android:textSize="9sp" android:fontFamily="monospace"
                         android:layout_marginBottom="4dp"/>
                     <EditText android:id="@+id/etGroqKey"
                         android:layout_width="match_parent" android:layout_height="@dimen/input_height"
                         android:background="@drawable/input_bg" android:textColor="#FFFFFF"
                         android:textColorHint="#374151" android:textSize="@dimen/input_text_size"
-                        android:fontFamily="monospace" android:hint="groq api key…"
+                        android:fontFamily="monospace" android:hint="paste groq api key here…"
                         android:inputType="textPassword"
                         android:paddingStart="@dimen/input_padding_h"
                         android:layout_marginBottom="10dp"/>

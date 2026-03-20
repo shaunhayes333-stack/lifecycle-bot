@@ -290,6 +290,9 @@ class MainActivity : AppCompatActivity() {
         etGroqKey       = try { findViewById(R.id.etGroqKey) } catch (_: Exception) { EditText(this) }
         btnSave         = findViewById(R.id.btnSave)
 
+        // API key help links - open signup pages
+        setupApiKeyHelpLinks()
+
         // decision log
         cardLogScores = try { findViewById(R.id.cardLogScores) } catch (_: Exception) { android.view.View(this) }
         tvLogToken    = try { findViewById(R.id.tvLogToken)  } catch (_: Exception) { TextView(this) }
@@ -1120,6 +1123,35 @@ Sizer: $tier ${pct}×wallet  " +
                 ActivityCompat.requestPermissions(this,
                     arrayOf(android.Manifest.permission.POST_NOTIFICATIONS), 1001)
             }
+        }
+    }
+
+    /** Setup clickable help links for API key fields */
+    private fun setupApiKeyHelpLinks() {
+        val apiLinks = mapOf(
+            R.id.tvHeliusHelp to "https://dev.helius.xyz/signup",
+            R.id.tvBirdeyeHelp to "https://birdeye.so",
+            R.id.tvGroqHelp to "https://console.groq.com",
+            R.id.tvTelegramHelp to "https://t.me/BotFather"
+        )
+        
+        apiLinks.forEach { (viewId, url) ->
+            try {
+                findViewById<TextView>(viewId)?.apply {
+                    setOnClickListener {
+                        try {
+                            startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url)))
+                        } catch (_: Exception) {
+                            // Copy URL to clipboard as fallback
+                            val clipboard = getSystemService(CLIPBOARD_SERVICE) as android.content.ClipboardManager
+                            clipboard.setPrimaryClip(android.content.ClipData.newPlainText("URL", url))
+                            android.widget.Toast.makeText(this@MainActivity, "URL copied: $url", android.widget.Toast.LENGTH_SHORT).show()
+                        }
+                    }
+                    // Make it look clickable
+                    paintFlags = paintFlags or android.graphics.Paint.UNDERLINE_TEXT_FLAG
+                }
+            } catch (_: Exception) {}
         }
     }
 }
