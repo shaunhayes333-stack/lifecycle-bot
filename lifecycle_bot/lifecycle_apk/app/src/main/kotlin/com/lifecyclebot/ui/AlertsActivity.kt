@@ -44,7 +44,7 @@ class AlertsActivity : AppCompatActivity() {
             AlertDialog.Builder(this)
                 .setTitle("Clear Alert History")
                 .setMessage("Delete all ${history.getAll().size} alerts?")
-                .setPositiveButton("Clear") { _, _ ->
+                .setPositiveButton("Clear") { dialog: android.content.DialogInterface, _: Int ->
                     history.clear()
                     buildList()
                 }

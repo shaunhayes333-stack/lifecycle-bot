@@ -146,7 +146,7 @@ class WalletActivity : AppCompatActivity() {
             AlertDialog.Builder(this)
                 .setTitle("Disconnect Wallet")
                 .setMessage("This will remove your private key from the app. Are you sure?")
-                .setPositiveButton("Disconnect") { _, _ ->
+                .setPositiveButton("Disconnect") { dialog: android.content.DialogInterface, _: Int ->
                     vm.disconnectWallet()
                     etPrivKeyInput.setText("")
                     Toast.makeText(this, "Wallet disconnected", Toast.LENGTH_SHORT).show()
@@ -238,7 +238,7 @@ The treasury will be empty after this."
             AlertDialog.Builder(this)
                 .setTitle("Confirm Withdrawal")
                 .setMessage(confirmMsg)
-                .setPositiveButton(if (withdrawPct >= 100) "WITHDRAW ALL" else "Withdraw") { _, _ ->
+                .setPositiveButton(if (withdrawPct >= 100) "WITHDRAW ALL" else "Withdraw") { dialog: android.content.DialogInterface, _: Int ->
                     tvWithdrawStatus.text = "Processing…"
                     tvWithdrawStatus.setTextColor(0xFFFFB700.toInt())
                     btnWithdrawConfirm.isEnabled = false

@@ -192,7 +192,7 @@ class MainActivity : AppCompatActivity() {
                 .setTitle("Battery Optimisation")
                 .setMessage("LifecycleBot needs to be excluded from battery optimisation " +
                     "so trading continues in the background. Tap OK to open settings.")
-                .setPositiveButton("OK") { _, _ ->
+                .setPositiveButton("OK") { dialog: android.content.DialogInterface, _: Int ->
                     startActivity(Intent(
                         Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS,
                         Uri.parse("package:$packageName")
@@ -259,7 +259,7 @@ class MainActivity : AppCompatActivity() {
         ).forEach { (viewId, _) ->
             try {
                 val v = findViewById<android.widget.CompoundButton>(viewId)
-                v?.setOnCheckedChangeListener { _, _ -> saveScannerSettings() }
+                v?.setOnCheckedChangeListener { _: android.widget.CompoundButton, _: Boolean -> saveScannerSettings() }
             } catch (_: Exception) {}
         }
         btnOpenAlerts.setOnClickListener  { startActivity(android.content.Intent(this, AlertsActivity::class.java)) }
