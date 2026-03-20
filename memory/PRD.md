@@ -43,3 +43,20 @@ User built an Android APK for an advanced Solana trading bot with:
 ## Deployment
 - GitHub Actions workflow ready (build.yml)
 - Push to main branch → APK in artifacts
+
+## Update: v7.1.0 (Jan 2026)
+
+### New Modules Added
+- [x] TelegramBot.kt — Trade alerts + remote commands
+- [x] PerformanceAnalytics.kt — Win rate analysis, insights
+- [x] AntiRugEngine.kt — Liquidity lock, dev wallet tracking
+- [x] JitoMEVProtection.kt — MEV protection via bundles
+- [x] AutoCompoundEngine.kt — Smart profit reinvestment
+
+### Config Fields Added
+- jitoEnabled, jitoTipLamports
+- autoCompoundEnabled, compoundTreasuryPct, compoundPoolPct
+- antiRugEnabled, antiRugBlockCritical, antiRugMaxRiskScore
+
+### File Count: 61 Kotlin files
+### Version: 7.1.0 (versionCode 9)

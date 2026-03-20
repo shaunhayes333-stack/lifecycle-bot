@@ -167,6 +167,19 @@ data class BotConfig(
     // Empty URL = disabled. See RemoteKillSwitch.kt for JSON format.
     val remoteConfigUrl: String = "",
     val remoteConfigPollSecs: Int = 60,
+    // ── Jito MEV Protection ────────────────────────────────────────────
+    val jitoEnabled: Boolean = true,            // use Jito bundles for MEV protection
+    val jitoTipLamports: Long = 10000,          // tip per bundle (0.00001 SOL default)
+    // ── Auto-Compound ──────────────────────────────────────────────────
+    val autoCompoundEnabled: Boolean = true,
+    val compoundTreasuryPct: Double = 20.0,     // % of profit to treasury
+    val compoundPoolPct: Double = 40.0,         // % of profit to compound pool
+    val compoundWalletPct: Double = 40.0,       // % of profit to keep liquid
+    val compoundThreshold: Double = 0.5,        // SOL needed to boost position size
+    // ── Anti-Rug Settings ──────────────────────────────────────────────
+    val antiRugEnabled: Boolean = true,
+    val antiRugBlockCritical: Boolean = true,   // auto-block CRITICAL risk tokens
+    val antiRugMaxRiskScore: Int = 60,          // max risk score to trade (0-100)
 )
 
 /** Persists config — private key stored in EncryptedSharedPreferences */

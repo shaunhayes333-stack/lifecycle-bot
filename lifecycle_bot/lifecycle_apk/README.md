@@ -1,10 +1,43 @@
-# Lifecycle Bot v7.0 — Solana Trading Bot APK
+# Lifecycle Bot v7.1 — Solana Trading Bot APK
 
-## What's New in v7.0
-- **Bug fixes**: Fixed duplicate variable declarations and copy-paste errors
-- **Rate Limiter**: Centralized API rate limiting prevents getting banned from data sources
-- **Remote Kill Switch**: Emergency remote control via hosted JSON file
-- **Improved Reconciliation**: Better crash recovery for positions
+## What's New in v7.1
+### Bug Fixes
+- Fixed duplicate variable declarations in LifecycleStrategy.kt
+- Fixed duplicate mcapUsd assignment in Executor.kt
+- Fixed OkHttp extension syntax in StartupReconciler.kt
+
+### New Features
+- **🔔 Telegram Alerts** — Trade notifications, P&L updates, remote control via commands
+- **📊 Performance Analytics** — Win rate by phase/time/score, drawdown analysis, actionable insights
+- **🛡️ Anti-Rug Engine** — Liquidity lock verification, dev wallet tracking, top holder analysis
+- **⚡ Jito MEV Protection** — Bundle transactions to avoid sandwich attacks
+- **🔄 Auto-Compound** — Reinvest profits intelligently with streak bonuses
+- **🚦 Rate Limiter** — Centralized API rate limiting prevents getting banned
+- **🛑 Remote Kill Switch** — Emergency remote control via hosted JSON file
+
+## Features Overview
+
+### Core Trading
+- 3-layer self-learning (statistical + Groq LLM + regime detection)
+- EMA fan detection with multi-timeframe confirmation
+- Smart position sizing based on wallet balance
+- Treasury management with milestone profit locking
+
+### Risk Management  
+- Circuit breakers (consecutive loss protection)
+- Trailing stops with gain-based tightening
+- Partial sells at profit milestones
+- Whale/bonding curve detection
+
+### Telegram Commands
+Send these to your bot:
+- `/status` — Current positions, P&L, regime
+- `/pause` — Pause auto-trading
+- `/resume` — Resume auto-trading
+- `/kill` — Emergency stop
+- `/pnl` — Today's P&L summary
+- `/positions` — List open positions
+- `/treasury` — Treasury status
 
 ## How to get your APK (step by step)
 
