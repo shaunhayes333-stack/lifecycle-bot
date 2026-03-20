@@ -1,0 +1,1705 @@
+<?xml version="1.0" encoding="utf-8"?>
+<androidx.coordinatorlayout.widget.CoordinatorLayout
+    xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:background="#0A0A0F">
+
+    <!-- ── SCROLLABLE CONTENT ── -->
+    <androidx.core.widget.NestedScrollView
+        android:id="@+id/mainScrollView"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:paddingBottom="@dimen/content_bottom_padding"
+        android:clipToPadding="false"
+        android:fillViewport="true">
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="vertical">
+
+            <!-- ═══════════════════════════════
+                 TOP BAR
+                 ═══════════════════════════════ -->
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="@dimen/topbar_height"
+                android:orientation="horizontal"
+                android:gravity="center_vertical"
+                android:paddingStart="@dimen/screen_padding"
+                android:paddingEnd="@dimen/screen_padding">
+
+                <LinearLayout
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:orientation="horizontal"
+                    android:gravity="center_vertical">
+
+                    <TextView
+                        android:layout_width="@dimen/topbar_icon_size"
+                        android:layout_height="@dimen/topbar_icon_size"
+                        android:text="⬡"
+                        android:textColor="#9945FF"
+                        android:textSize="20sp"
+                        android:gravity="center"
+                        android:layout_marginEnd="10dp"/>
+
+                    <LinearLayout
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:orientation="vertical">
+                        <TextView
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:text="Lifecycle Bot"
+                            android:textColor="#FFFFFF"
+                            android:textSize="@dimen/section_title_size"
+                            android:textStyle="bold"/>
+                        <TextView
+                            android:id="@+id/tvNetworkLabel"
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:text="Solana Mainnet"
+                            android:textColor="#6B7280"
+                            android:textSize="11sp"/>
+                    </LinearLayout>
+                </LinearLayout>
+
+                <!-- Currency toggle button -->
+                <TextView
+                    android:id="@+id/btnCurrency"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="USD"
+                    android:textColor="#9945FF"
+                    android:textSize="11sp"
+                    android:fontFamily="monospace"
+                    android:textStyle="bold"
+                    android:background="@drawable/pill_bg"
+                    android:paddingStart="10dp"
+                    android:paddingEnd="10dp"
+                    android:paddingTop="5dp"
+                    android:paddingBottom="5dp"
+                    android:layout_marginEnd="8dp"
+                    android:clickable="true"
+                    android:focusable="true"/>
+
+                <!-- Wallet pill -->
+                <LinearLayout
+                    android:id="@+id/btnWalletTop"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:orientation="horizontal"
+                    android:gravity="center_vertical"
+                    android:background="@drawable/pill_bg"
+                    android:paddingStart="@dimen/inner_gap"
+                    android:paddingEnd="@dimen/inner_gap"
+                    android:paddingTop="6dp"
+                    android:paddingBottom="6dp"
+                    android:clickable="true"
+                    android:focusable="true">
+
+                    <View
+                        android:id="@+id/tvWalletDot"
+                        android:layout_width="@dimen/dot_size"
+                        android:layout_height="@dimen/dot_size"
+                        android:background="@drawable/dot_bg"
+                        android:layout_marginEnd="@dimen/dot_margin"/>
+
+                    <TextView
+                        android:id="@+id/tvWalletShort"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="Connect wallet"
+                        android:textColor="#9CA3AF"
+                        android:textSize="12sp"
+                        android:maxWidth="120dp"
+                        android:ellipsize="end"
+                        android:singleLine="true"/>
+                </LinearLayout>
+            </LinearLayout>
+
+            <!-- ═══════════════════════════════
+                 HERO BALANCE
+                 ═══════════════════════════════ -->
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="vertical"
+                android:paddingStart="@dimen/screen_padding"
+                android:paddingEnd="@dimen/screen_padding"
+                android:paddingBottom="@dimen/inner_gap">
+
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="BALANCE"
+                    android:textColor="#6B7280"
+                    android:textSize="10sp"
+                    android:letterSpacing="0.12"
+                    android:fontFamily="monospace"
+                    android:layout_marginBottom="4dp"/>
+
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="horizontal"
+                    android:gravity="bottom">
+
+                    <TextView
+                        android:id="@+id/tvBalanceLarge"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="—"
+                        android:textColor="#FFFFFF"
+                        android:textSize="@dimen/balance_text_size"
+                        android:textStyle="bold"
+                        android:maxLines="1"
+                        android:ellipsize="end"/>
+
+                    <TextView
+                        android:id="@+id/tvBalanceUsd"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text=""
+                        android:textColor="#6B7280"
+                        android:textSize="@dimen/balance_secondary_size"
+                        android:layout_marginStart="8dp"
+                        android:layout_marginBottom="5dp"/>
+                </LinearLayout>
+
+                <LinearLayout
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:orientation="horizontal"
+                    android:gravity="center_vertical"
+                    android:layout_marginTop="2dp">
+
+                    <TextView
+                        android:id="@+id/tvPnlChange"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text=""
+                        android:textColor="#10B981"
+                        android:textSize="@dimen/pnl_text_size"
+                        android:fontFamily="monospace"/>
+
+                    <TextView
+                        android:id="@+id/tvPnlChangePct"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text=""
+                        android:textColor="#6B7280"
+                        android:textSize="@dimen/pnl_text_size"
+                        android:layout_marginStart="6dp"/>
+                </LinearLayout>
+            </LinearLayout>
+
+            <!-- ═══════════════════════════════
+                 QUICK ACTIONS BAR
+                 ═══════════════════════════════ -->
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="horizontal"
+                android:gravity="center"
+                android:paddingStart="@dimen/screen_padding"
+                android:paddingEnd="@dimen/screen_padding"
+                android:layout_marginBottom="12dp">
+
+                <!-- Wallet -->
+                <LinearLayout
+                    android:id="@+id/btnQuickWallet"
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:orientation="vertical"
+                    android:gravity="center"
+                    android:padding="10dp"
+                    android:background="@drawable/section_card_bg"
+                    android:layout_marginEnd="6dp"
+                    android:clickable="true"
+                    android:focusable="true">
+                    <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+                        android:text="👛" android:textSize="20sp"/>
+                    <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+                        android:text="Wallet" android:textColor="#9CA3AF" android:textSize="10sp"
+                        android:layout_marginTop="2dp"/>
+                </LinearLayout>
+
+                <!-- Journal -->
+                <LinearLayout
+                    android:id="@+id/btnQuickJournal"
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:orientation="vertical"
+                    android:gravity="center"
+                    android:padding="10dp"
+                    android:background="@drawable/section_card_bg"
+                    android:layout_marginEnd="6dp"
+                    android:clickable="true"
+                    android:focusable="true">
+                    <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+                        android:text="📊" android:textSize="20sp"/>
+                    <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+                        android:text="Journal" android:textColor="#9CA3AF" android:textSize="10sp"
+                        android:layout_marginTop="2dp"/>
+                </LinearLayout>
+
+                <!-- Alerts -->
+                <LinearLayout
+                    android:id="@+id/btnQuickAlerts"
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:orientation="vertical"
+                    android:gravity="center"
+                    android:padding="10dp"
+                    android:background="@drawable/section_card_bg"
+                    android:layout_marginEnd="6dp"
+                    android:clickable="true"
+                    android:focusable="true">
+                    <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+                        android:text="🔔" android:textSize="20sp"/>
+                    <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+                        android:text="Alerts" android:textColor="#9CA3AF" android:textSize="10sp"
+                        android:layout_marginTop="2dp"/>
+                </LinearLayout>
+
+                <!-- Settings -->
+                <LinearLayout
+                    android:id="@+id/btnQuickSettings"
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:orientation="vertical"
+                    android:gravity="center"
+                    android:padding="10dp"
+                    android:background="@drawable/section_card_bg"
+                    android:clickable="true"
+                    android:focusable="true">
+                    <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+                        android:text="⚙️" android:textSize="20sp"/>
+                    <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+                        android:text="Settings" android:textColor="#9CA3AF" android:textSize="10sp"
+                        android:layout_marginTop="2dp"/>
+                </LinearLayout>
+            </LinearLayout>
+
+            <!-- ═══════════════════════════════
+                 BOT STATUS CARD
+                 ═══════════════════════════════ -->
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:background="@drawable/hero_card_bg"
+                android:layout_marginStart="@dimen/card_margin"
+                android:layout_marginEnd="@dimen/card_margin"
+                android:layout_marginBottom="@dimen/card_margin_bottom"
+                android:orientation="vertical"
+                android:padding="@dimen/card_padding">
+
+                <!-- Token name + signal -->
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="horizontal"
+                    android:gravity="center_vertical"
+                    android:layout_marginBottom="14dp">
+
+                    <LinearLayout
+                        android:layout_width="0dp"
+                        android:layout_height="wrap_content"
+                        android:layout_weight="1"
+                        android:orientation="vertical">
+
+                        <TextView
+                            android:id="@+id/tvTokenName"
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:text="No token selected"
+                            android:textColor="#FFFFFF"
+                            android:textSize="@dimen/token_name_size"
+                            android:textStyle="bold"
+                            android:maxLines="1"
+                            android:ellipsize="end"/>
+
+                        <TextView
+                            android:id="@+id/tvTokenPhase"
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:text="—"
+                            android:textColor="#6B7280"
+                            android:textSize="@dimen/token_phase_size"/>
+                    </LinearLayout>
+
+                    <TextView
+                        android:id="@+id/tvSignalChip"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="WAIT"
+                        android:textColor="#6B7280"
+                        android:textSize="@dimen/chip_text_size"
+                        android:fontFamily="monospace"
+                        android:textStyle="bold"
+                        android:background="@drawable/chip_neutral_bg"
+                        android:paddingStart="@dimen/chip_pad_h"
+                        android:paddingEnd="@dimen/chip_pad_h"
+                        android:paddingTop="@dimen/chip_pad_v"
+                        android:paddingBottom="@dimen/chip_pad_v"/>
+                </LinearLayout>
+
+                <!-- KPI row: price / mcap / position -->
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="horizontal"
+                    android:layout_marginBottom="14dp">
+
+                    <LinearLayout android:layout_width="0dp" android:layout_height="wrap_content"
+                        android:layout_weight="1" android:orientation="vertical">
+                        <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+                            android:text="PRICE" android:textColor="#6B7280"
+                            android:textSize="@dimen/kpi_label_size" android:fontFamily="monospace"
+                            android:letterSpacing="0.08"/>
+                        <TextView android:id="@+id/tvPrice"
+                            android:layout_width="wrap_content" android:layout_height="wrap_content"
+                            android:text="—" android:textColor="#FFFFFF"
+                            android:textSize="@dimen/kpi_value_size" android:fontFamily="monospace"
+                            android:maxLines="1" android:ellipsize="end"/>
+                    </LinearLayout>
+
+                    <LinearLayout android:layout_width="0dp" android:layout_height="wrap_content"
+                        android:layout_weight="1" android:orientation="vertical">
+                        <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+                            android:text="MCAP" android:textColor="#6B7280"
+                            android:textSize="@dimen/kpi_label_size" android:fontFamily="monospace"
+                            android:letterSpacing="0.08"/>
+                        <TextView android:id="@+id/tvMcap"
+                            android:layout_width="wrap_content" android:layout_height="wrap_content"
+                            android:text="—" android:textColor="#FFFFFF"
+                            android:textSize="@dimen/kpi_value_size" android:fontFamily="monospace"
+                            android:maxLines="1"/>
+                    </LinearLayout>
+
+                    <LinearLayout android:layout_width="0dp" android:layout_height="wrap_content"
+                        android:layout_weight="1" android:orientation="vertical">
+                        <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+                            android:text="POSITION" android:textColor="#6B7280"
+                            android:textSize="@dimen/kpi_label_size" android:fontFamily="monospace"
+                            android:letterSpacing="0.08"/>
+                        <TextView android:id="@+id/tvPosition"
+                            android:layout_width="wrap_content" android:layout_height="wrap_content"
+                            android:text="FLAT" android:textColor="#FFFFFF"
+                            android:textSize="@dimen/kpi_value_size" android:fontFamily="monospace"/>
+                    </LinearLayout>
+                </LinearLayout>
+
+                <!-- Score bars -->
+                <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content"
+                    android:orientation="horizontal" android:gravity="center_vertical"
+                    android:layout_marginBottom="5dp">
+                    <TextView android:layout_width="@dimen/bar_label_min_width" android:layout_height="wrap_content"
+                        android:text="ENTRY" android:textColor="#6B7280"
+                        android:textSize="@dimen/kpi_label_size" android:fontFamily="monospace"/>
+                    <ProgressBar android:id="@+id/pbEntry"
+                        style="@style/Widget.AppCompat.ProgressBar.Horizontal"
+                        android:layout_width="0dp" android:layout_height="@dimen/bar_height"
+                        android:layout_weight="1" android:max="100"
+                        android:progressTint="#9945FF" android:progressBackgroundTint="#1F2937"
+                        android:layout_marginStart="8dp" android:layout_marginEnd="8dp"/>
+                    <TextView android:id="@+id/tvEntryVal"
+                        android:layout_width="@dimen/bar_val_width" android:layout_height="wrap_content"
+                        android:text="0" android:textColor="#9CA3AF"
+                        android:textSize="@dimen/kpi_label_size" android:fontFamily="monospace"
+                        android:gravity="end"/>
+                </LinearLayout>
+
+                <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content"
+                    android:orientation="horizontal" android:gravity="center_vertical"
+                    android:layout_marginBottom="5dp">
+                    <TextView android:layout_width="@dimen/bar_label_min_width" android:layout_height="wrap_content"
+                        android:text="EXIT" android:textColor="#6B7280"
+                        android:textSize="@dimen/kpi_label_size" android:fontFamily="monospace"/>
+                    <ProgressBar android:id="@+id/pbExit"
+                        style="@style/Widget.AppCompat.ProgressBar.Horizontal"
+                        android:layout_width="0dp" android:layout_height="@dimen/bar_height"
+                        android:layout_weight="1" android:max="100"
+                        android:progressTint="#EF4444" android:progressBackgroundTint="#1F2937"
+                        android:layout_marginStart="8dp" android:layout_marginEnd="8dp"/>
+                    <TextView android:id="@+id/tvExitVal"
+                        android:layout_width="@dimen/bar_val_width" android:layout_height="wrap_content"
+                        android:text="0" android:textColor="#9CA3AF"
+                        android:textSize="@dimen/kpi_label_size" android:fontFamily="monospace"
+                        android:gravity="end"/>
+                </LinearLayout>
+
+                <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content"
+                    android:orientation="horizontal" android:gravity="center_vertical"
+                    android:layout_marginBottom="5dp">
+                    <TextView android:layout_width="@dimen/bar_label_min_width" android:layout_height="wrap_content"
+                        android:text="VOL" android:textColor="#6B7280"
+                        android:textSize="@dimen/kpi_label_size" android:fontFamily="monospace"/>
+                    <ProgressBar android:id="@+id/pbVol"
+                        style="@style/Widget.AppCompat.ProgressBar.Horizontal"
+                        android:layout_width="0dp" android:layout_height="@dimen/bar_height"
+                        android:layout_weight="1" android:max="100"
+                        android:progressTint="#3B82F6" android:progressBackgroundTint="#1F2937"
+                        android:layout_marginStart="8dp" android:layout_marginEnd="8dp"/>
+                    <TextView android:id="@+id/tvVolVal"
+                        android:layout_width="@dimen/bar_val_width" android:layout_height="wrap_content"
+                        android:text="0" android:textColor="#9CA3AF"
+                        android:textSize="@dimen/kpi_label_size" android:fontFamily="monospace"
+                        android:gravity="end"/>
+                </LinearLayout>
+
+                <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content"
+                    android:orientation="horizontal" android:gravity="center_vertical">
+                    <TextView android:layout_width="@dimen/bar_label_min_width" android:layout_height="wrap_content"
+                        android:text="BUY %" android:textColor="#6B7280"
+                        android:textSize="@dimen/kpi_label_size" android:fontFamily="monospace"/>
+                    <ProgressBar android:id="@+id/pbPress"
+                        style="@style/Widget.AppCompat.ProgressBar.Horizontal"
+                        android:layout_width="0dp" android:layout_height="@dimen/bar_height"
+                        android:layout_weight="1" android:max="100"
+                        android:progressTint="#10B981" android:progressBackgroundTint="#1F2937"
+                        android:layout_marginStart="8dp" android:layout_marginEnd="8dp"/>
+                    <TextView android:id="@+id/tvPressVal"
+                        android:layout_width="@dimen/bar_val_width" android:layout_height="wrap_content"
+                        android:text="0" android:textColor="#9CA3AF"
+                        android:textSize="@dimen/kpi_label_size" android:fontFamily="monospace"
+                        android:gravity="end"/>
+                </LinearLayout>
+            </LinearLayout>
+
+            <!-- ═══════════════════════════════
+                 OPEN POSITIONS
+                 ═══════════════════════════════ -->
+            <LinearLayout
+                android:id="@+id/cardOpenPositions"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:background="@drawable/section_card_bg"
+                android:layout_marginStart="@dimen/card_margin"
+                android:layout_marginEnd="@dimen/card_margin"
+                android:layout_marginBottom="@dimen/card_margin_bottom"
+                android:orientation="vertical"
+                android:padding="@dimen/card_padding"
+                android:visibility="gone">
+
+                <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content"
+                    android:orientation="horizontal" android:gravity="center_vertical"
+                    android:layout_marginBottom="10dp">
+                    <TextView android:layout_width="0dp" android:layout_height="wrap_content"
+                        android:layout_weight="1"
+                        android:text="Open Positions" android:textColor="#FFFFFF"
+                        android:textSize="@dimen/section_title_size" android:textStyle="bold"/>
+                    <TextView android:id="@+id/tvTotalExposure"
+                        android:layout_width="wrap_content" android:layout_height="wrap_content"
+                        android:text="" android:textColor="#6B7280"
+                        android:textSize="12sp" android:fontFamily="monospace"/>
+                    <TextView android:id="@+id/tvTotalUnrealisedPnl"
+                        android:layout_width="wrap_content" android:layout_height="wrap_content"
+                        android:text="" android:textColor="#10B981"
+                        android:textSize="12sp" android:fontFamily="monospace"
+                        android:layout_marginStart="8dp"/>
+                </LinearLayout>
+
+                <LinearLayout android:id="@+id/llOpenPositions"
+                    android:layout_width="match_parent" android:layout_height="wrap_content"
+                    android:orientation="vertical"/>
+            </LinearLayout>
+
+            <!-- ═══════════════════════════════
+                 BONDING CURVE + WHALE ROW
+                 ═══════════════════════════════ -->
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:background="@drawable/section_card_bg"
+                android:layout_marginStart="@dimen/card_margin"
+                android:layout_marginEnd="@dimen/card_margin"
+                android:layout_marginBottom="@dimen/card_margin_bottom"
+                android:orientation="vertical"
+                android:padding="@dimen/card_padding">
+
+                <!-- Bonding curve row -->
+                <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content"
+                    android:orientation="horizontal" android:gravity="center_vertical"
+                    android:layout_marginBottom="10dp">
+                    <LinearLayout android:layout_width="0dp" android:layout_height="wrap_content"
+                        android:layout_weight="1" android:orientation="vertical">
+                        <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+                            android:text="BONDING CURVE" android:textColor="#6B7280"
+                            android:textSize="9sp" android:fontFamily="monospace"
+                            android:layout_marginBottom="4dp"/>
+                        <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content"
+                            android:orientation="horizontal" android:gravity="center_vertical">
+                            <ProgressBar android:id="@+id/pbBondingCurve"
+                                style="@style/Widget.AppCompat.ProgressBar.Horizontal"
+                                android:layout_width="0dp" android:layout_height="@dimen/bar_height"
+                                android:layout_weight="1" android:max="100"
+                                android:progressTint="#9945FF"
+                                android:progressBackgroundTint="#1F2937"
+                                android:layout_marginEnd="8dp"/>
+                            <TextView android:id="@+id/tvCurveStage"
+                                android:layout_width="wrap_content" android:layout_height="wrap_content"
+                                android:text="—" android:textColor="#6B7280"
+                                android:textSize="11sp" android:fontFamily="monospace"
+                                android:maxWidth="200dp" android:ellipsize="end" android:singleLine="true"/>
+                        </LinearLayout>
+                    </LinearLayout>
+                </LinearLayout>
+
+                <!-- Whale + velocity row -->
+                <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content"
+                    android:orientation="horizontal" android:gravity="center_vertical">
+                    <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+                        android:text="WHALE" android:textColor="#6B7280"
+                        android:textSize="9sp" android:fontFamily="monospace"
+                        android:minWidth="@dimen/bar_label_min_width"/>
+                    <ProgressBar android:id="@+id/pbWhale"
+                        style="@style/Widget.AppCompat.ProgressBar.Horizontal"
+                        android:layout_width="0dp" android:layout_height="@dimen/bar_height"
+                        android:layout_weight="1" android:max="100"
+                        android:progressTint="#F59E0B"
+                        android:progressBackgroundTint="#1F2937"
+                        android:layout_marginStart="8dp" android:layout_marginEnd="8dp"/>
+                    <TextView android:id="@+id/tvWhaleSummary"
+                        android:layout_width="wrap_content" android:layout_height="wrap_content"
+                        android:text="—" android:textColor="#6B7280"
+                        android:textSize="10sp" android:fontFamily="monospace"
+                        android:maxWidth="140dp" android:ellipsize="end" android:singleLine="true"/>
+                </LinearLayout>
+            </LinearLayout>
+
+            <!-- ═══════════════════════════════
+                 PRICE CHART
+                 ═══════════════════════════════ -->
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:background="@drawable/section_card_bg"
+                android:layout_marginStart="@dimen/card_margin"
+                android:layout_marginEnd="@dimen/card_margin"
+                android:layout_marginBottom="@dimen/card_margin_bottom"
+                android:orientation="vertical"
+                android:padding="@dimen/card_padding">
+
+                <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content"
+                    android:orientation="horizontal" android:gravity="center_vertical"
+                    android:layout_marginBottom="10dp">
+                    <TextView android:layout_width="0dp" android:layout_height="wrap_content"
+                        android:layout_weight="1"
+                        android:text="Price" android:textColor="#FFFFFF"
+                        android:textSize="@dimen/section_title_size" android:textStyle="bold"/>
+                    <TextView android:id="@+id/tvSafetyChip"
+                        android:layout_width="wrap_content" android:layout_height="wrap_content"
+                        android:text="—" android:textColor="#6B7280"
+                        android:textSize="10sp" android:fontFamily="monospace"
+                        android:maxLines="1" android:ellipsize="end" android:maxWidth="160dp"/>
+                </LinearLayout>
+
+                <com.github.mikephil.charting.charts.LineChart
+                    android:id="@+id/priceChart"
+                    android:layout_width="match_parent"
+                    android:layout_height="@dimen/chart_height"/>
+            </LinearLayout>
+
+            <!-- ═══════════════════════════════
+                 SAFETY ROW
+                 ═══════════════════════════════ -->
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:background="@drawable/section_card_bg"
+                android:layout_marginStart="@dimen/card_margin"
+                android:layout_marginEnd="@dimen/card_margin"
+                android:layout_marginBottom="@dimen/card_margin_bottom"
+                android:orientation="horizontal"
+                android:gravity="center_vertical"
+                android:padding="@dimen/card_padding">
+
+                <LinearLayout android:layout_width="0dp" android:layout_height="wrap_content"
+                    android:layout_weight="1" android:orientation="vertical">
+                    <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+                        android:text="Token Safety" android:textColor="#FFFFFF"
+                        android:textSize="@dimen/section_title_size" android:textStyle="bold"
+                        android:layout_marginBottom="2dp"/>
+                    <TextView android:id="@+id/tvSafety"
+                        android:layout_width="wrap_content" android:layout_height="wrap_content"
+                        android:text="Not checked" android:textColor="#6B7280"
+                        android:textSize="12sp" android:fontFamily="monospace"
+                        android:maxLines="2"/>
+                </LinearLayout>
+                <TextView android:id="@+id/tvRugcheck"
+                    android:layout_width="wrap_content" android:layout_height="wrap_content"
+                    android:text="RC —" android:textColor="#6B7280"
+                    android:textSize="13sp" android:fontFamily="monospace" android:textStyle="bold"
+                    android:layout_marginStart="8dp"/>
+            </LinearLayout>
+
+            <!-- ═══════════════════════════════
+                 RECENT TRADES
+                 ═══════════════════════════════ -->
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:background="@drawable/section_card_bg"
+                android:layout_marginStart="@dimen/card_margin"
+                android:layout_marginEnd="@dimen/card_margin"
+                android:layout_marginBottom="@dimen/card_margin_bottom"
+                android:orientation="vertical"
+                android:padding="@dimen/card_padding">
+
+                <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content"
+                    android:orientation="horizontal" android:gravity="center_vertical"
+                    android:layout_marginBottom="10dp">
+                    <TextView android:layout_width="0dp" android:layout_height="wrap_content"
+                        android:layout_weight="1"
+                        android:text="Recent Trades" android:textColor="#FFFFFF"
+                        android:textSize="@dimen/section_title_size" android:textStyle="bold"/>
+                    <TextView android:id="@+id/tvTradeCount"
+                        android:layout_width="wrap_content" android:layout_height="wrap_content"
+                        android:text="" android:textColor="#6B7280" android:textSize="12sp"/>
+                    <TextView android:id="@+id/btnOpenJournal"
+                        android:layout_width="wrap_content" android:layout_height="wrap_content"
+                        android:text=" Journal"
+                        android:textColor="#9945FF" android:textSize="12sp"
+                        android:layout_marginStart="10dp"
+                        android:clickable="true" android:focusable="true"/>
+                    <TextView android:id="@+id/btnOpenAlerts"
+                        android:layout_width="wrap_content" android:layout_height="wrap_content"
+                        android:text=" Alerts"
+                        android:textColor="#9945FF" android:textSize="12sp"
+                        android:layout_marginStart="8dp"
+                        android:clickable="true" android:focusable="true"/>
+                </LinearLayout>
+
+                <LinearLayout android:id="@+id/llTradeList"
+                    android:layout_width="match_parent" android:layout_height="wrap_content"
+                    android:orientation="vertical"/>
+
+                <TextView android:id="@+id/tvNoTrades"
+                    android:layout_width="match_parent" android:layout_height="wrap_content"
+                    android:text="No trades yet" android:textColor="#4B5563"
+                    android:textSize="13sp" android:gravity="center"
+                    android:paddingTop="8dp" android:paddingBottom="8dp"/>
+            </LinearLayout>
+
+            <!-- ═══════════════════════════════
+                 DECISION LOG
+                 ═══════════════════════════════ -->
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:background="@drawable/section_card_bg"
+                android:layout_marginStart="@dimen/card_margin"
+                android:layout_marginEnd="@dimen/card_margin"
+                android:layout_marginBottom="@dimen/card_margin_bottom"
+                android:orientation="vertical"
+                android:padding="@dimen/card_padding">
+
+                <!-- Header row -->
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="horizontal"
+                    android:gravity="center_vertical"
+                    android:layout_marginBottom="10dp">
+
+                    <TextView
+                        android:layout_width="0dp"
+                        android:layout_height="wrap_content"
+                        android:layout_weight="1"
+                        android:text="📜 Decision Log"
+                        android:textColor="#FFFFFF"
+                        android:textSize="@dimen/section_title_size"
+                        android:textStyle="bold"/>
+
+                    <!-- Clear button -->
+                    <TextView
+                        android:id="@+id/btnClearLog"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="Clear"
+                        android:textColor="#6B7280"
+                        android:textSize="12sp"
+                        android:clickable="true"
+                        android:focusable="true"/>
+                </LinearLayout>
+
+                <!-- Score breakdown: last evaluated token -->
+                <LinearLayout
+                    android:id="@+id/cardLogScores"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:background="@drawable/card_bg"
+                    android:padding="10dp"
+                    android:orientation="vertical"
+                    android:layout_marginBottom="8dp"
+                    android:visibility="gone">
+
+                    <!-- Token + phase + signal in one row -->
+                    <LinearLayout
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:orientation="horizontal"
+                        android:gravity="center_vertical"
+                        android:layout_marginBottom="8dp">
+
+                        <TextView
+                            android:id="@+id/tvLogToken"
+                            android:layout_width="0dp"
+                            android:layout_height="wrap_content"
+                            android:layout_weight="1"
+                            android:text="—"
+                            android:textColor="#FFFFFF"
+                            android:textSize="13sp"
+                            android:fontFamily="monospace"
+                            android:textStyle="bold"/>
+
+                        <TextView
+                            android:id="@+id/tvLogPhase"
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:text="—"
+                            android:textColor="#9CA3AF"
+                            android:textSize="11sp"
+                            android:fontFamily="monospace"
+                            android:layout_marginEnd="8dp"/>
+
+                        <TextView
+                            android:id="@+id/tvLogSignal"
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:text="WAIT"
+                            android:textColor="#6B7280"
+                            android:textSize="11sp"
+                            android:fontFamily="monospace"
+                            android:textStyle="bold"
+                            android:background="@drawable/chip_neutral_bg"
+                            android:paddingStart="6dp"
+                            android:paddingEnd="6dp"
+                            android:paddingTop="2dp"
+                            android:paddingBottom="2dp"/>
+                    </LinearLayout>
+
+                    <!-- Score breakdown grid: 2 columns -->
+                    <LinearLayout
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:orientation="horizontal"
+                        android:layout_marginBottom="4dp">
+
+                        <TextView
+                            android:id="@+id/tvLogEntry"
+                            android:layout_width="0dp"
+                            android:layout_height="wrap_content"
+                            android:layout_weight="1"
+                            android:text="ENTRY  —"
+                            android:textColor="#9945FF"
+                            android:textSize="11sp"
+                            android:fontFamily="monospace"/>
+
+                        <TextView
+                            android:id="@+id/tvLogExit"
+                            android:layout_width="0dp"
+                            android:layout_height="wrap_content"
+                            android:layout_weight="1"
+                            android:text="EXIT  —"
+                            android:textColor="#EF4444"
+                            android:textSize="11sp"
+                            android:fontFamily="monospace"/>
+                    </LinearLayout>
+
+                    <LinearLayout
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:orientation="horizontal"
+                        android:layout_marginBottom="4dp">
+
+                        <TextView
+                            android:id="@+id/tvLogVol"
+                            android:layout_width="0dp"
+                            android:layout_height="wrap_content"
+                            android:layout_weight="1"
+                            android:text="VOL  —"
+                            android:textColor="#3B82F6"
+                            android:textSize="11sp"
+                            android:fontFamily="monospace"/>
+
+                        <TextView
+                            android:id="@+id/tvLogPress"
+                            android:layout_width="0dp"
+                            android:layout_height="wrap_content"
+                            android:layout_weight="1"
+                            android:text="BUY%  —"
+                            android:textColor="#10B981"
+                            android:textSize="11sp"
+                            android:fontFamily="monospace"/>
+                    </LinearLayout>
+
+                    <LinearLayout
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:orientation="horizontal"
+                        android:layout_marginBottom="4dp">
+
+                        <TextView
+                            android:id="@+id/tvLogMom"
+                            android:layout_width="0dp"
+                            android:layout_height="wrap_content"
+                            android:layout_weight="1"
+                            android:text="MOM  —"
+                            android:textColor="#F59E0B"
+                            android:textSize="11sp"
+                            android:fontFamily="monospace"/>
+
+                        <TextView
+                            android:id="@+id/tvLogEmaFan"
+                            android:layout_width="0dp"
+                            android:layout_height="wrap_content"
+                            android:layout_weight="1"
+                            android:text="EMA FAN  —"
+                            android:textColor="#9CA3AF"
+                            android:textSize="11sp"
+                            android:fontFamily="monospace"/>
+                    </LinearLayout>
+
+                    <!-- Active flags row: exhaustion / vol-div / ath-prox / stochrsi -->
+                    <TextView
+                        android:id="@+id/tvLogFlags"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:text=""
+                        android:textColor="#F59E0B"
+                        android:textSize="11sp"
+                        android:fontFamily="monospace"
+                        android:layout_marginTop="4dp"/>
+
+                    <!-- Reason line -->
+                    <TextView
+                        android:id="@+id/tvLogReason"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:text=""
+                        android:textColor="#6B7280"
+                        android:textSize="11sp"
+                        android:fontFamily="monospace"
+                        android:layout_marginTop="4dp"
+                        android:maxLines="2"/>
+                </LinearLayout>
+
+                <!-- Scrollable log lines -->
+                <ScrollView
+                    android:id="@+id/scrollLog"
+                    android:layout_width="match_parent"
+                    android:layout_height="160dp"
+                    android:fadeScrollbars="false">
+
+                    <TextView
+                        android:id="@+id/tvDecisionLog"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:text="Waiting for first evaluation…"
+                        android:textColor="#4B5563"
+                        android:textSize="11sp"
+                        android:fontFamily="monospace"
+                        android:lineSpacingExtra="2dp"
+                        android:paddingBottom="4dp"/>
+</ScrollView>
+
+            </LinearLayout>
+
+            <!-- ═══════════════════════════════
+                 TREASURY + SCALING TIER
+                 ═══════════════════════════════ -->
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:background="@drawable/section_card_bg"
+                android:layout_marginStart="@dimen/card_margin"
+                android:layout_marginEnd="@dimen/card_margin"
+                android:layout_marginBottom="@dimen/card_margin_bottom"
+                android:orientation="vertical"
+                android:padding="@dimen/card_padding">
+
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="horizontal"
+                    android:gravity="center_vertical"
+                    android:layout_marginBottom="12dp">
+
+                    <TextView
+                        android:layout_width="0dp"
+                        android:layout_height="wrap_content"
+                        android:layout_weight="1"
+                        android:text="🏦 Treasury"
+                        android:textColor="#FFFFFF"
+                        android:textSize="@dimen/section_title_size"
+                        android:textStyle="bold"/>
+
+                    <TextView
+                        android:id="@+id/tvTreasuryTier"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="Tier: None"
+                        android:textColor="#9945FF"
+                        android:textSize="@dimen/chip_text_size"
+                        android:fontFamily="monospace"
+                        android:textStyle="bold"
+                        android:background="@drawable/chip_neutral_bg"
+                        android:paddingStart="@dimen/chip_pad_h"
+                        android:paddingEnd="@dimen/chip_pad_h"
+                        android:paddingTop="@dimen/chip_pad_v"
+                        android:paddingBottom="@dimen/chip_pad_v"/>
+                </LinearLayout>
+
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="horizontal">
+
+                    <LinearLayout
+                        android:layout_width="0dp"
+                        android:layout_height="wrap_content"
+                        android:layout_weight="1"
+                        android:orientation="vertical">
+                        <TextView
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:text="LOCKED"
+                            android:textColor="#6B7280"
+                            android:textSize="@dimen/kpi_label_size"
+                            android:fontFamily="monospace"
+                            android:letterSpacing="0.08"/>
+                        <TextView
+                            android:id="@+id/tvTreasuryAmount"
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:text="—"
+                            android:textColor="#FFFFFF"
+                            android:textSize="@dimen/kpi_value_size"
+                            android:fontFamily="monospace"
+                            android:layout_marginTop="2dp"/>
+                    </LinearLayout>
+
+                    <LinearLayout
+                        android:layout_width="0dp"
+                        android:layout_height="wrap_content"
+                        android:layout_weight="1"
+                        android:orientation="vertical">
+                        <TextView
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:text="NEXT UNLOCK"
+                            android:textColor="#6B7280"
+                            android:textSize="@dimen/kpi_label_size"
+                            android:fontFamily="monospace"
+                            android:letterSpacing="0.08"/>
+                        <TextView
+                            android:id="@+id/tvTreasuryNext"
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:text="First: $500"
+                            android:textColor="#10B981"
+                            android:textSize="@dimen/kpi_value_size"
+                            android:fontFamily="monospace"
+                            android:layout_marginTop="2dp"/>
+                    </LinearLayout>
+                </LinearLayout>
+
+            </LinearLayout>
+
+            <!-- ═══════════════════════════════
+                 WATCHLIST
+                 ═══════════════════════════════ -->
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:background="@drawable/section_card_bg"
+                android:layout_marginStart="@dimen/card_margin"
+                android:layout_marginEnd="@dimen/card_margin"
+                android:layout_marginBottom="@dimen/card_margin_bottom"
+                android:orientation="vertical"
+                android:padding="@dimen/card_padding">
+
+                <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+                    android:text="👀 Watchlist" android:textColor="#FFFFFF"
+                    android:textSize="@dimen/section_title_size" android:textStyle="bold"
+                    android:layout_marginBottom="10dp"/>
+
+                <LinearLayout android:id="@+id/llTokenList"
+                    android:layout_width="match_parent" android:layout_height="wrap_content"
+                    android:orientation="vertical"/>
+
+                <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content"
+                    android:orientation="horizontal" android:gravity="center_vertical"
+                    android:layout_marginTop="10dp">
+                    <EditText android:id="@+id/etAddMint"
+                        android:layout_width="0dp" android:layout_height="@dimen/input_height"
+                        android:layout_weight="1"
+                        android:background="@drawable/input_bg"
+                        android:textColor="#FFFFFF" android:textColorHint="#374151"
+                        android:textSize="@dimen/input_text_size" android:fontFamily="monospace"
+                        android:hint="Add token mint…"
+                        android:paddingStart="@dimen/input_padding_h"
+                        android:paddingEnd="@dimen/input_padding_h"
+                        android:inputType="text" android:maxLines="1"/>
+                    <Button android:id="@+id/btnAddToken"
+                        android:layout_width="@dimen/input_height"
+                        android:layout_height="@dimen/input_height"
+                        android:text="+" android:textSize="18sp" android:textColor="#FFFFFF"
+                        android:backgroundTint="#9945FF"
+                        android:layout_marginStart="8dp" android:padding="0dp"/>
+                </LinearLayout>
+            </LinearLayout>
+
+            <!-- ═══════════════════════════════
+                 SETTINGS
+                 ═══════════════════════════════ -->
+            <LinearLayout
+                android:id="@+id/cardSettings"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:background="@drawable/section_card_bg"
+                android:layout_marginStart="@dimen/card_margin"
+                android:layout_marginEnd="@dimen/card_margin"
+                android:layout_marginBottom="@dimen/card_margin_bottom"
+                android:orientation="vertical"
+                android:padding="@dimen/card_padding">
+
+                <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+                    android:text="⚙️ Settings" android:textColor="#FFFFFF"
+                    android:textSize="@dimen/section_title_size" android:textStyle="bold"
+                    android:layout_marginBottom="14dp"/>
+
+                <!-- Active token -->
+                <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+                    android:text="ACTIVE TOKEN" android:textColor="#6B7280"
+                    android:textSize="10sp" android:fontFamily="monospace"
+                    android:letterSpacing="0.08" android:layout_marginBottom="4dp"/>
+                <EditText android:id="@+id/etActiveToken"
+                    android:layout_width="match_parent" android:layout_height="@dimen/input_height"
+                    android:background="@drawable/input_bg"
+                    android:textColor="#FFFFFF" android:textColorHint="#374151"
+                    android:textSize="@dimen/input_text_size" android:fontFamily="monospace"
+                    android:hint="Token mint address…"
+                    android:paddingStart="@dimen/input_padding_h"
+                    android:paddingEnd="@dimen/input_padding_h"
+                    android:inputType="text" android:maxLines="1"
+                    android:layout_marginBottom="10dp"/>
+
+                <!-- Mode row -->
+                <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content"
+                    android:orientation="horizontal" android:layout_marginBottom="10dp">
+                    <LinearLayout android:layout_width="0dp" android:layout_height="wrap_content"
+                        android:layout_weight="1" android:orientation="vertical"
+                        android:layout_marginEnd="6dp">
+                        <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+                            android:text="MODE" android:textColor="#6B7280"
+                            android:textSize="10sp" android:fontFamily="monospace"
+                            android:layout_marginBottom="4dp"/>
+                        <Spinner android:id="@+id/spMode"
+                            android:layout_width="match_parent" android:layout_height="@dimen/input_height"
+                            android:background="@drawable/input_bg"
+                            android:paddingStart="@dimen/input_padding_h"/>
+                    </LinearLayout>
+                    <LinearLayout android:layout_width="0dp" android:layout_height="wrap_content"
+                        android:layout_weight="1" android:orientation="vertical"
+                        android:layout_marginStart="6dp">
+                        <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+                            android:text="AUTO TRADE" android:textColor="#6B7280"
+                            android:textSize="10sp" android:fontFamily="monospace"
+                            android:layout_marginBottom="4dp"/>
+                        <Spinner android:id="@+id/spAutoTrade"
+                            android:layout_width="match_parent" android:layout_height="@dimen/input_height"
+                            android:background="@drawable/input_bg"
+                            android:paddingStart="@dimen/input_padding_h"/>
+                    </LinearLayout>
+                </LinearLayout>
+
+                <!-- Risk row -->
+                <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content"
+                    android:orientation="horizontal" android:layout_marginBottom="10dp">
+                    <LinearLayout android:layout_width="0dp" android:layout_height="wrap_content"
+                        android:layout_weight="1" android:orientation="vertical"
+                        android:layout_marginEnd="6dp">
+                        <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+                            android:text="STOP LOSS %" android:textColor="#6B7280"
+                            android:textSize="10sp" android:fontFamily="monospace"
+                            android:layout_marginBottom="4dp"/>
+                        <EditText android:id="@+id/etStopLoss"
+                            android:layout_width="match_parent" android:layout_height="@dimen/input_height"
+                            android:background="@drawable/input_bg"
+                            android:textColor="#FFFFFF" android:textSize="@dimen/input_text_size"
+                            android:fontFamily="monospace"
+                            android:paddingStart="@dimen/input_padding_h"
+                            android:inputType="numberDecimal" android:text="10.0"/>
+                    </LinearLayout>
+                    <LinearLayout android:layout_width="0dp" android:layout_height="wrap_content"
+                        android:layout_weight="1" android:orientation="vertical"
+                        android:layout_marginStart="6dp">
+                        <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+                            android:text="EXIT SCORE" android:textColor="#6B7280"
+                            android:textSize="10sp" android:fontFamily="monospace"
+                            android:layout_marginBottom="4dp"/>
+                        <EditText android:id="@+id/etExitScore"
+                            android:layout_width="match_parent" android:layout_height="@dimen/input_height"
+                            android:background="@drawable/input_bg"
+                            android:textColor="#FFFFFF" android:textSize="@dimen/input_text_size"
+                            android:fontFamily="monospace"
+                            android:paddingStart="@dimen/input_padding_h"
+                            android:inputType="numberDecimal" android:text="58.0"/>
+                    </LinearLayout>
+                </LinearLayout>
+
+                <!-- Advanced toggle -->
+                <TextView android:id="@+id/tvAdvancedToggle"
+                    android:layout_width="wrap_content" android:layout_height="wrap_content"
+                    android:text="Advanced settings ›"
+                    android:textColor="#6B7280" android:textSize="12sp"
+                    android:layout_marginBottom="10dp"
+                    android:clickable="true" android:focusable="true"/>
+
+                <!-- Advanced section (hidden by default) -->
+                <LinearLayout android:id="@+id/layoutAdvanced"
+                    android:layout_width="match_parent" android:layout_height="wrap_content"
+                    android:orientation="vertical" android:visibility="gone">
+
+                    <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content"
+                        android:orientation="horizontal" android:layout_marginBottom="10dp">
+                        <LinearLayout android:layout_width="0dp" android:layout_height="wrap_content"
+                            android:layout_weight="1" android:orientation="vertical"
+                            android:layout_marginEnd="6dp">
+                            <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+                                android:text="SMALL BUY (SOL)" android:textColor="#6B7280"
+                                android:textSize="10sp" android:fontFamily="monospace"
+                                android:layout_marginBottom="4dp"/>
+                            <EditText android:id="@+id/etSmallBuy"
+                                android:layout_width="match_parent" android:layout_height="@dimen/input_height"
+                                android:background="@drawable/input_bg" android:textColor="#FFFFFF"
+                                android:textSize="@dimen/input_text_size" android:fontFamily="monospace"
+                                android:paddingStart="@dimen/input_padding_h"
+                                android:inputType="numberDecimal" android:text="0.05"/>
+                        </LinearLayout>
+                        <LinearLayout android:layout_width="0dp" android:layout_height="wrap_content"
+                            android:layout_weight="1" android:orientation="vertical"
+                            android:layout_marginStart="6dp">
+                            <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+                                android:text="LARGE BUY (SOL)" android:textColor="#6B7280"
+                                android:textSize="10sp" android:fontFamily="monospace"
+                                android:layout_marginBottom="4dp"/>
+                            <EditText android:id="@+id/etLargeBuy"
+                                android:layout_width="match_parent" android:layout_height="@dimen/input_height"
+                                android:background="@drawable/input_bg" android:textColor="#FFFFFF"
+                                android:textSize="@dimen/input_text_size" android:fontFamily="monospace"
+                                android:paddingStart="@dimen/input_padding_h"
+                                android:inputType="numberDecimal" android:text="0.10"/>
+                        </LinearLayout>
+                    </LinearLayout>
+
+                    <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content"
+                        android:orientation="horizontal" android:layout_marginBottom="10dp">
+                        <LinearLayout android:layout_width="0dp" android:layout_height="wrap_content"
+                            android:layout_weight="1" android:orientation="vertical"
+                            android:layout_marginEnd="6dp">
+                            <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+                                android:text="SLIPPAGE BPS" android:textColor="#6B7280"
+                                android:textSize="10sp" android:fontFamily="monospace"
+                                android:layout_marginBottom="4dp"/>
+                            <EditText android:id="@+id/etSlippage"
+                                android:layout_width="match_parent" android:layout_height="@dimen/input_height"
+                                android:background="@drawable/input_bg" android:textColor="#FFFFFF"
+                                android:textSize="@dimen/input_text_size" android:fontFamily="monospace"
+                                android:paddingStart="@dimen/input_padding_h"
+                                android:inputType="number" android:text="200"/>
+                        </LinearLayout>
+                        <LinearLayout android:layout_width="0dp" android:layout_height="wrap_content"
+                            android:layout_weight="1" android:orientation="vertical"
+                            android:layout_marginStart="6dp">
+                            <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+                                android:text="POLL SECONDS" android:textColor="#6B7280"
+                                android:textSize="10sp" android:fontFamily="monospace"
+                                android:layout_marginBottom="4dp"/>
+                            <EditText android:id="@+id/etPoll"
+                                android:layout_width="match_parent" android:layout_height="@dimen/input_height"
+                                android:background="@drawable/input_bg" android:textColor="#FFFFFF"
+                                android:textSize="@dimen/input_text_size" android:fontFamily="monospace"
+                                android:paddingStart="@dimen/input_padding_h"
+                                android:inputType="number" android:text="8"/>
+                        </LinearLayout>
+                    </LinearLayout>
+
+                    <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+                        android:text="RPC URL" android:textColor="#6B7280"
+                        android:textSize="10sp" android:fontFamily="monospace"
+                        android:layout_marginBottom="4dp"/>
+                    <EditText android:id="@+id/etRpc"
+                        android:layout_width="match_parent" android:layout_height="@dimen/input_height"
+                        android:background="@drawable/input_bg" android:textColor="#FFFFFF"
+                        android:textColorHint="#374151" android:textSize="11sp"
+                        android:fontFamily="monospace"
+                        android:hint="https://api.mainnet-beta.solana.com"
+                        android:paddingStart="@dimen/input_padding_h"
+                        android:inputType="textUri" android:layout_marginBottom="10dp"/>
+
+                    <TextView android:id="@+id/tvTelegramHelp"
+                        android:layout_width="wrap_content" android:layout_height="wrap_content"
+                        android:text="📱 TELEGRAM BOT — t.me/BotFather"
+                        android:textColor="#14F195" android:textSize="10sp" android:fontFamily="monospace"
+                        android:layout_marginBottom="2dp"/>
+                    <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+                        android:text="1. Message @BotFather → /newbot → Copy token"
+                        android:textColor="#6B7280" android:textSize="9sp" android:fontFamily="monospace"
+                        android:layout_marginBottom="4dp"/>
+                    <EditText android:id="@+id/etTgBotToken"
+                        android:layout_width="match_parent" android:layout_height="@dimen/input_height"
+                        android:background="@drawable/input_bg" android:textColor="#FFFFFF"
+                        android:textColorHint="#374151" android:textSize="@dimen/input_text_size"
+                        android:fontFamily="monospace" android:hint="paste bot token here…"
+                        android:inputType="textPassword"
+                        android:paddingStart="@dimen/input_padding_h"
+                        android:layout_marginBottom="6dp"/>
+
+                    <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+                        android:text="2. Message your new bot, then get Chat ID:"
+                        android:textColor="#6B7280" android:textSize="9sp" android:fontFamily="monospace"
+                        android:layout_marginBottom="4dp"/>
+                    <EditText android:id="@+id/etTgChatId"
+                        android:layout_width="match_parent" android:layout_height="@dimen/input_height"
+                        android:background="@drawable/input_bg" android:textColor="#FFFFFF"
+                        android:textColorHint="#374151" android:textSize="@dimen/input_text_size"
+                        android:fontFamily="monospace" android:hint="paste chat id here…"
+                        android:inputType="number"
+                        android:paddingStart="@dimen/input_padding_h"
+                        android:layout_marginBottom="4dp"/>
+                    <TextView android:layout_width="match_parent" android:layout_height="wrap_content"
+                        android:text="💡 Get chat ID: api.telegram.org/bot&lt;TOKEN&gt;/getUpdates"
+                        android:textColor="#4B5563" android:textSize="9sp" android:fontFamily="monospace"
+                        android:layout_marginBottom="10dp"/>
+
+                    <!-- API Keys section -->
+                    <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+                        android:text="🔑 FREE API KEYS" android:textColor="#9945FF"
+                        android:textSize="11sp" android:fontFamily="monospace"
+                        android:letterSpacing="0.12" android:layout_marginBottom="4dp"
+                        android:layout_marginTop="6dp"/>
+
+                    <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+                        android:text="All keys are FREE. Click labels for signup links."
+                        android:textColor="#4B5563" android:textSize="9sp" android:fontFamily="monospace"
+                        android:layout_marginBottom="8dp"/>
+
+                    <TextView android:id="@+id/tvHeliusHelp"
+                        android:layout_width="wrap_content" android:layout_height="wrap_content"
+                        android:text="⚡ HELIUS KEY — helius.dev/signup"
+                        android:textColor="#14F195" android:textSize="10sp" android:fontFamily="monospace"
+                        android:layout_marginBottom="2dp"/>
+                    <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+                        android:text="Real-time Solana data. Sign up → Dashboard → API Keys → Copy"
+                        android:textColor="#6B7280" android:textSize="9sp" android:fontFamily="monospace"
+                        android:layout_marginBottom="4dp"/>
+                    <EditText android:id="@+id/etHeliusKey"
+                        android:layout_width="match_parent" android:layout_height="@dimen/input_height"
+                        android:background="@drawable/input_bg" android:textColor="#FFFFFF"
+                        android:textColorHint="#374151" android:textSize="@dimen/input_text_size"
+                        android:fontFamily="monospace" android:hint="paste helius api key here…"
+                        android:inputType="textPassword"
+                        android:paddingStart="@dimen/input_padding_h"
+                        android:layout_marginBottom="10dp"/>
+
+                    <TextView android:id="@+id/tvBirdeyeHelp"
+                        android:layout_width="wrap_content" android:layout_height="wrap_content"
+                        android:text="📊 BIRDEYE KEY — birdeye.so"
+                        android:textColor="#14F195" android:textSize="10sp" android:fontFamily="monospace"
+                        android:layout_marginBottom="2dp"/>
+                    <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+                        android:text="Price charts &amp; candles. Sign up → Profile → API → Generate Key"
+                        android:textColor="#6B7280" android:textSize="9sp" android:fontFamily="monospace"
+                        android:layout_marginBottom="4dp"/>
+                    <EditText android:id="@+id/etBirdeyeKey"
+                        android:layout_width="match_parent" android:layout_height="@dimen/input_height"
+                        android:background="@drawable/input_bg" android:textColor="#FFFFFF"
+                        android:textColorHint="#374151" android:textSize="@dimen/input_text_size"
+                        android:fontFamily="monospace" android:hint="paste birdeye api key here…"
+                        android:inputType="textPassword"
+                        android:paddingStart="@dimen/input_padding_h"
+                        android:layout_marginBottom="10dp"/>
+
+                    <TextView android:id="@+id/tvGroqHelp"
+                        android:layout_width="wrap_content" android:layout_height="wrap_content"
+                        android:text="🧠 GROQ KEY — console.groq.com"
+                        android:textColor="#14F195" android:textSize="10sp" android:fontFamily="monospace"
+                        android:layout_marginBottom="2dp"/>
+                    <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+                        android:text="AI sentiment analysis. Sign up → API Keys → Create → Copy"
+                        android:textColor="#6B7280" android:textSize="9sp" android:fontFamily="monospace"
+                        android:layout_marginBottom="4dp"/>
+                    <EditText android:id="@+id/etGroqKey"
+                        android:layout_width="match_parent" android:layout_height="@dimen/input_height"
+                        android:background="@drawable/input_bg" android:textColor="#FFFFFF"
+                        android:textColorHint="#374151" android:textSize="@dimen/input_text_size"
+                        android:fontFamily="monospace" android:hint="paste groq api key here…"
+                        android:inputType="textPassword"
+                        android:paddingStart="@dimen/input_padding_h"
+                        android:layout_marginBottom="10dp"/>
+
+                    <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+                        android:text="WATCHLIST (comma separated)" android:textColor="#6B7280"
+                        android:textSize="10sp" android:fontFamily="monospace"
+                        android:layout_marginBottom="4dp"/>
+                    <EditText android:id="@+id/etWatchlist"
+                        android:layout_width="match_parent" android:layout_height="wrap_content"
+                        android:background="@drawable/input_bg" android:textColor="#FFFFFF"
+                        android:textColorHint="#374151" android:textSize="@dimen/input_text_size"
+                        android:fontFamily="monospace" android:hint="mint1, mint2…"
+                        android:paddingStart="@dimen/input_padding_h"
+                        android:paddingTop="10dp" android:paddingBottom="10dp"
+                        android:minLines="2" android:layout_marginBottom="4dp"/>
+                </LinearLayout>
+
+                <Button android:id="@+id/btnSave"
+                    android:layout_width="match_parent"
+                    android:layout_height="@dimen/input_height"
+                    android:layout_marginTop="8dp"
+                    android:text="💾  Save Settings"
+                    android:textColor="#FFFFFF" android:textStyle="bold"
+                    android:textSize="@dimen/input_text_size"
+                    android:backgroundTint="#1F2937"/>
+
+                <Button android:id="@+id/btnClearSettings"
+                    android:layout_width="match_parent"
+                    android:layout_height="@dimen/input_height"
+                    android:layout_marginTop="8dp"
+                    android:text="🗑️  Clear All API Keys"
+                    android:textColor="#EF4444" android:textStyle="bold"
+                    android:textSize="@dimen/input_text_size"
+                    android:backgroundTint="#1F2937"/>
+            </LinearLayout>
+
+            <!-- ═══════════════════════════════
+                 TOP-UP / PYRAMID SETTINGS
+                 ═══════════════════════════════ -->
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:background="@drawable/section_card_bg"
+                android:layout_marginStart="@dimen/card_margin"
+                android:layout_marginEnd="@dimen/card_margin"
+                android:layout_marginBottom="@dimen/card_margin_bottom"
+                android:orientation="vertical"
+                android:padding="@dimen/card_padding">
+
+                <LinearLayout android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="horizontal"
+                    android:gravity="center_vertical"
+                    android:layout_marginBottom="12dp">
+                    <TextView android:layout_width="0dp" android:layout_height="wrap_content"
+                        android:layout_weight="1"
+                        android:text="🔺  Top-Up Strategy"
+                        android:textColor="#FFFFFF"
+                        android:textSize="@dimen/section_title_size"
+                        android:textStyle="bold"/>
+                    <Switch android:id="@+id/switchTopUp"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:checked="true"
+                        android:thumbTint="#9945FF"
+                        android:trackTint="#1F2937"/>
+                </LinearLayout>
+
+                <TextView android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:text="Automatically adds to winning positions. Each add is smaller than the last. Never averages down."
+                    android:textColor="#6B7280"
+                    android:textSize="11sp"
+                    android:layout_marginBottom="14dp"/>
+
+                <!-- Min gain for first top-up -->
+                <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+                    android:text="FIRST TOP-UP AT GAIN %" android:textColor="#6B7280"
+                    android:textSize="10sp" android:fontFamily="monospace"
+                    android:letterSpacing="0.08" android:layout_marginBottom="4dp"/>
+                <EditText android:id="@+id/etTopUpMinGain"
+                    android:layout_width="match_parent" android:layout_height="@dimen/input_height"
+                    android:background="@drawable/input_bg"
+                    android:textColor="#FFFFFF" android:textColorHint="#374151"
+                    android:textSize="@dimen/input_text_size" android:fontFamily="monospace"
+                    android:hint="25" android:inputType="numberDecimal"
+                    android:paddingStart="@dimen/input_padding_h"
+                    android:paddingEnd="@dimen/input_padding_h"
+                    android:layout_marginBottom="10dp"/>
+
+                <!-- Step between top-ups -->
+                <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+                    android:text="GAIN STEP BETWEEN ADDS %" android:textColor="#6B7280"
+                    android:textSize="10sp" android:fontFamily="monospace"
+                    android:letterSpacing="0.08" android:layout_marginBottom="4dp"/>
+                <EditText android:id="@+id/etTopUpGainStep"
+                    android:layout_width="match_parent" android:layout_height="@dimen/input_height"
+                    android:background="@drawable/input_bg"
+                    android:textColor="#FFFFFF" android:textColorHint="#374151"
+                    android:textSize="@dimen/input_text_size" android:fontFamily="monospace"
+                    android:hint="30" android:inputType="numberDecimal"
+                    android:paddingStart="@dimen/input_padding_h"
+                    android:paddingEnd="@dimen/input_padding_h"
+                    android:layout_marginBottom="10dp"/>
+
+                <!-- Max top-ups -->
+                <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+                    android:text="MAX TOP-UPS PER POSITION" android:textColor="#6B7280"
+                    android:textSize="10sp" android:fontFamily="monospace"
+                    android:letterSpacing="0.08" android:layout_marginBottom="4dp"/>
+                <EditText android:id="@+id/etTopUpMaxCount"
+                    android:layout_width="match_parent" android:layout_height="@dimen/input_height"
+                    android:background="@drawable/input_bg"
+                    android:textColor="#FFFFFF" android:textColorHint="#374151"
+                    android:textSize="@dimen/input_text_size" android:fontFamily="monospace"
+                    android:hint="3" android:inputType="number"
+                    android:paddingStart="@dimen/input_padding_h"
+                    android:paddingEnd="@dimen/input_padding_h"
+                    android:layout_marginBottom="10dp"/>
+
+                <!-- Max total position size -->
+                <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+                    android:text="MAX TOTAL POSITION SIZE (SOL)" android:textColor="#6B7280"
+                    android:textSize="10sp" android:fontFamily="monospace"
+                    android:letterSpacing="0.08" android:layout_marginBottom="4dp"/>
+                <EditText android:id="@+id/etTopUpMaxSol"
+                    android:layout_width="match_parent" android:layout_height="@dimen/input_height"
+                    android:background="@drawable/input_bg"
+                    android:textColor="#FFFFFF" android:textColorHint="#374151"
+                    android:textSize="@dimen/input_text_size" android:fontFamily="monospace"
+                    android:hint="0.50" android:inputType="numberDecimal"
+                    android:paddingStart="@dimen/input_padding_h"
+                    android:paddingEnd="@dimen/input_padding_h"
+                    android:layout_marginBottom="4dp"/>
+
+                <TextView android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:text="e.g. 0.1 SOL entry → tops up at +25% (+0.05), +55% (+0.025), +85% (+0.0125). Total max 0.50 SOL."
+                    android:textColor="#4B5563"
+                    android:textSize="10sp"
+                    android:fontFamily="monospace"/>
+
+            </LinearLayout>
+
+            <!-- Backtest link -->
+            <TextView
+                android:id="@+id/btnOpenBacktest"
+                android:layout_width="match_parent"
+                android:layout_height="48dp"
+                android:gravity="center"
+                android:text="📊  Open Backtest"
+                android:textColor="#9945FF"
+                android:textSize="14sp"
+                android:fontFamily="monospace"
+                android:background="?attr/selectableItemBackground"
+                android:layout_marginStart="@dimen/card_margin"
+                android:layout_marginEnd="@dimen/card_margin"
+                android:layout_marginBottom="8dp"/>
+
+            <!-- ═══════════════════════════════════
+                 MARKET SCANNER SETTINGS
+                 ═══════════════════════════════════ -->
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:background="@drawable/section_card_bg"
+                android:layout_marginStart="@dimen/card_margin"
+                android:layout_marginEnd="@dimen/card_margin"
+                android:layout_marginBottom="@dimen/card_margin_bottom"
+                android:orientation="vertical"
+                android:padding="@dimen/card_padding">
+
+                <LinearLayout android:layout_width="match_parent"
+                    android:layout_height="wrap_content" android:orientation="horizontal"
+                    android:gravity="center_vertical" android:layout_marginBottom="8dp">
+                    <TextView android:layout_width="0dp" android:layout_height="wrap_content"
+                        android:layout_weight="1" android:text="🌐  Full Solana Scanner"
+                        android:textColor="#FFFFFF" android:textSize="@dimen/section_title_size"
+                        android:textStyle="bold"/>
+                    <Switch android:id="@+id/switchFullScan"
+                        android:layout_width="wrap_content" android:layout_height="wrap_content"
+                        android:checked="true" android:thumbTint="#9945FF" android:trackTint="#1F2937"/>
+                </LinearLayout>
+
+                <TextView android:layout_width="match_parent" android:layout_height="wrap_content"
+                    android:text="Automatically discovers tokens across Raydium, Orca, Meteora and pump.fun graduates. No manual watchlist needed."
+                    android:textColor="#6B7280" android:textSize="11sp" android:layout_marginBottom="12dp"/>
+
+                <!-- Source toggles in 2-col grid -->
+                <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content"
+                    android:orientation="horizontal" android:layout_marginBottom="6dp">
+                    <CheckBox android:id="@+id/cbScanGraduates"
+                        android:layout_width="0dp" android:layout_height="wrap_content"
+                        android:layout_weight="1" android:text="Pump Graduates"
+                        android:textColor="#D1D5DB" android:textSize="11sp" android:checked="true"
+                        android:buttonTint="#9945FF"/>
+                    <CheckBox android:id="@+id/cbScanDexTrending"
+                        android:layout_width="0dp" android:layout_height="wrap_content"
+                        android:layout_weight="1" android:text="DEX Trending"
+                        android:textColor="#D1D5DB" android:textSize="11sp" android:checked="true"
+                        android:buttonTint="#9945FF"/>
+                </LinearLayout>
+                <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content"
+                    android:orientation="horizontal" android:layout_marginBottom="6dp">
+                    <CheckBox android:id="@+id/cbScanGainers"
+                        android:layout_width="0dp" android:layout_height="wrap_content"
+                        android:layout_weight="1" android:text="Top Gainers"
+                        android:textColor="#D1D5DB" android:textSize="11sp" android:checked="true"
+                        android:buttonTint="#9945FF"/>
+                    <CheckBox android:id="@+id/cbScanBoosted"
+                        android:layout_width="0dp" android:layout_height="wrap_content"
+                        android:layout_weight="1" android:text="Boosted Tokens"
+                        android:textColor="#D1D5DB" android:textSize="11sp" android:checked="true"
+                        android:buttonTint="#9945FF"/>
+                </LinearLayout>
+                <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content"
+                    android:orientation="horizontal" android:layout_marginBottom="10dp">
+                    <CheckBox android:id="@+id/cbScanRaydium"
+                        android:layout_width="0dp" android:layout_height="wrap_content"
+                        android:layout_weight="1" android:text="Raydium New Pools"
+                        android:textColor="#D1D5DB" android:textSize="11sp" android:checked="true"
+                        android:buttonTint="#9945FF"/>
+                    <CheckBox android:id="@+id/cbScanNarrative"
+                        android:layout_width="0dp" android:layout_height="wrap_content"
+                        android:layout_weight="1" android:text="Narrative Scan"
+                        android:textColor="#D1D5DB" android:textSize="11sp" android:checked="false"
+                        android:buttonTint="#9945FF"/>
+                </LinearLayout>
+
+                <!-- MC range -->
+                <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content"
+                    android:orientation="horizontal" android:layout_marginBottom="10dp">
+                    <LinearLayout android:layout_width="0dp" android:layout_height="wrap_content"
+                        android:layout_weight="1" android:orientation="vertical" android:layout_marginEnd="8dp">
+                        <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+                            android:text="MIN MC (USD)" android:textColor="#6B7280"
+                            android:textSize="10sp" android:fontFamily="monospace"
+                            android:letterSpacing="0.08" android:layout_marginBottom="4dp"/>
+                        <EditText android:id="@+id/etScanMinMc"
+                            android:layout_width="match_parent" android:layout_height="@dimen/input_height"
+                            android:background="@drawable/input_bg" android:textColor="#FFFFFF"
+                            android:textColorHint="#374151" android:textSize="@dimen/input_text_size"
+                            android:fontFamily="monospace" android:hint="5000"
+                            android:inputType="numberDecimal"
+                            android:paddingStart="@dimen/input_padding_h"
+                            android:paddingEnd="@dimen/input_padding_h"/>
+                    </LinearLayout>
+                    <LinearLayout android:layout_width="0dp" android:layout_height="wrap_content"
+                        android:layout_weight="1" android:orientation="vertical">
+                        <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+                            android:text="MAX MC (0=unlimited)" android:textColor="#6B7280"
+                            android:textSize="10sp" android:fontFamily="monospace"
+                            android:letterSpacing="0.08" android:layout_marginBottom="4dp"/>
+                        <EditText android:id="@+id/etScanMaxMc"
+                            android:layout_width="match_parent" android:layout_height="@dimen/input_height"
+                            android:background="@drawable/input_bg" android:textColor="#FFFFFF"
+                            android:textColorHint="#374151" android:textSize="@dimen/input_text_size"
+                            android:fontFamily="monospace" android:hint="0"
+                            android:inputType="numberDecimal"
+                            android:paddingStart="@dimen/input_padding_h"
+                            android:paddingEnd="@dimen/input_padding_h"/>
+                    </LinearLayout>
+                </LinearLayout>
+
+                <!-- Narrative keywords -->
+                <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+                    android:text="NARRATIVE KEYWORDS (comma-separated)" android:textColor="#6B7280"
+                    android:textSize="10sp" android:fontFamily="monospace"
+                    android:letterSpacing="0.08" android:layout_marginBottom="4dp"/>
+                <EditText android:id="@+id/etNarrativeKeywords"
+                    android:layout_width="match_parent" android:layout_height="@dimen/input_height"
+                    android:background="@drawable/input_bg" android:textColor="#FFFFFF"
+                    android:textColorHint="#374151" android:textSize="@dimen/input_text_size"
+                    android:fontFamily="monospace" android:hint="ai agent,depin,rwa,gamefi"
+                    android:inputType="text"
+                    android:paddingStart="@dimen/input_padding_h"
+                    android:paddingEnd="@dimen/input_padding_h"
+                    android:layout_marginBottom="4dp"/>
+                <TextView android:layout_width="match_parent" android:layout_height="wrap_content"
+                    android:text="Bot searches for tokens matching these themes every scan cycle."
+                    android:textColor="#4B5563" android:textSize="10sp" android:fontFamily="monospace"/>
+
+            </LinearLayout>
+
+        </LinearLayout>
+    </androidx.core.widget.NestedScrollView>
+
+    <!-- ═══════════════════════════════
+         BOTTOM BAR — pinned, auto-padded
+         ═══════════════════════════════ -->
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_gravity="bottom"
+        android:background="@drawable/bottom_bar_bg"
+        android:orientation="vertical"
+        android:paddingStart="@dimen/bottom_bar_padding_h"
+        android:paddingEnd="@dimen/bottom_bar_padding_h"
+        android:paddingTop="@dimen/bottom_bar_padding_top"
+        android:paddingBottom="@dimen/bottom_bar_padding_bottom">
+
+        <!-- Status row -->
+        <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content"
+            android:orientation="horizontal" android:gravity="center_vertical"
+            android:layout_marginBottom="8dp">
+
+            <View android:id="@+id/statusDot"
+                android:layout_width="@dimen/dot_size" android:layout_height="@dimen/dot_size"
+                android:background="@drawable/dot_bg"
+                android:layout_marginEnd="@dimen/dot_margin"/>
+
+            <TextView android:id="@+id/tvBotStatus"
+                android:layout_width="0dp" android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:text="Bot stopped"
+                android:textColor="#9CA3AF" android:textSize="13sp"
+                android:maxLines="1" android:ellipsize="end"/>
+
+            <LinearLayout android:layout_width="wrap_content" android:layout_height="wrap_content"
+                android:orientation="horizontal" android:gravity="center_vertical">
+                <!-- Auto mode badge -->
+                <TextView android:id="@+id/tvAutoMode"
+                    android:layout_width="wrap_content" android:layout_height="wrap_content"
+                    android:text="RANGE"
+                    android:textColor="#3B82F6" android:textSize="10sp"
+                    android:fontFamily="monospace" android:textStyle="bold"
+                    android:background="@drawable/chip_neutral_bg"
+                    android:paddingStart="8dp" android:paddingEnd="8dp"
+                    android:paddingTop="3dp" android:paddingBottom="3dp"
+                    android:layout_marginEnd="6dp"/>
+                <!-- Paper/Live badge -->
+                <TextView android:id="@+id/tvMode"
+                    android:layout_width="wrap_content" android:layout_height="wrap_content"
+                    android:text="PAPER"
+                    android:textColor="#F59E0B" android:textSize="10sp"
+                    android:fontFamily="monospace" android:textStyle="bold"
+                    android:background="@drawable/chip_warn_bg"
+                    android:paddingStart="8dp" android:paddingEnd="8dp"
+                    android:paddingTop="3dp" android:paddingBottom="3dp"/>
+            </LinearLayout>
+        </LinearLayout>
+
+        <!-- Start / Stop button -->
+        <Button android:id="@+id/btnToggle"
+            android:layout_width="match_parent"
+            android:layout_height="@dimen/bottom_bar_button_height"
+            android:text="Start Bot"
+            android:textColor="#FFFFFF"
+            android:textSize="@dimen/bottom_bar_button_text"
+            android:textStyle="bold"
+            android:backgroundTint="#9945FF"
+            android:stateListAnimator="@null"/>
+
+    </LinearLayout>
+
+</androidx.coordinatorlayout.widget.CoordinatorLayout>

@@ -1,0 +1,88 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+
+    <uses-permission android:name="android.permission.INTERNET"/>
+    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE"/>
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS"/>
+    <uses-permission android:name="android.permission.VIBRATE"/>
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE"/>
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC"/>
+    <!-- WAKE_LOCK: keeps CPU alive during transaction confirmation polling (45s window) -->
+    <uses-permission android:name="android.permission.WAKE_LOCK"/>
+    <!-- RECEIVE_BOOT_COMPLETED: allows auto-restart if user had bot running before reboot -->
+    <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED"/>
+    <!-- REQUEST_IGNORE_BATTERY_OPTIMIZATIONS: prevents Android killing the foreground service -->
+    <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS"/>
+
+    <application
+        android:allowBackup="false"
+        android:icon="@mipmap/ic_launcher"
+        android:roundIcon="@mipmap/ic_launcher_round"
+        android:label="@string/app_name"
+        android:supportsRtl="true"
+        android:theme="@style/Theme.LifecycleBot"
+        android:networkSecurityConfig="@xml/network_security_config">
+
+        <activity
+            android:name=".ui.MainActivity"
+            android:exported="true"
+            android:configChanges="orientation|screenSize|screenLayout|smallestScreenSize|fontScale"
+            android:windowSoftInputMode="adjustResize|stateHidden"
+            android:screenOrientation="portrait">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN"/>
+                <category android:name="android.intent.category.LAUNCHER"/>
+            </intent-filter>
+        </activity>
+
+        <activity android:name=".ui.AlertsActivity"  android:exported="false"/>
+        <activity android:name=".ui.JournalActivity" android:exported="false"/>
+
+        <provider
+            android:name="androidx.core.content.FileProvider"
+            android:authorities="${applicationId}.fileprovider"
+            android:exported="false"
+            android:grantUriPermissions="true">
+            <meta-data
+                android:name="android.support.FILE_PROVIDER_PATHS"
+                android:resource="@xml/file_paths"/>
+        </provider>
+
+        <activity android:name=".ui.CurrencyActivity"
+            android:exported="false"
+            android:label="Currency"/>
+
+        <activity
+            android:name=".ui.WalletActivity"
+            android:exported="false"
+            android:label="Wallet"
+            android:windowSoftInputMode="adjustResize"/>
+
+        <!-- Bot runs as a foreground service so Android doesn't kill it -->
+        <service
+            android:name=".engine.BotService"
+            android:exported="false"
+            android:foregroundServiceType="dataSync"/>
+
+        <!-- Auto-restart bot after device reboot if it was running -->
+        <receiver
+            android:name=".engine.BootReceiver"
+            android:exported="true"
+            android:enabled="true">
+            <intent-filter>
+                <action android:name="android.intent.action.BOOT_COMPLETED"/>
+                <action android:name="android.intent.action.MY_PACKAGE_REPLACED"/>
+            </intent-filter>
+        </receiver>
+
+        <!-- Network security: allow specific cleartext RPC endpoints -->
+        <meta-data
+            android:name="android.security.net.config"
+            android:resource="@xml/network_security_config"/>
+
+            <activity android:name=".ui.BacktestActivity"
+            android:screenOrientation="portrait"
+            android:windowSoftInputMode="adjustResize"/>
+    </application>
+
+</manifest>
