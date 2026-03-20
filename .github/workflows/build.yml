@@ -25,15 +25,15 @@ jobs:
         uses: android-actions/setup-android@v3
 
       - name: Make gradlew executable
-        working-directory: lifecycle_bot/lifecycle_apk
+        working-directory: lifecycle_apk
         run: chmod +x gradlew
 
       - name: Build APK
-        working-directory: lifecycle_bot/lifecycle_apk
+        working-directory: lifecycle_apk
         run: ./gradlew assembleDebug --no-daemon
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
           name: lifecycle-bot-apk
-          path: lifecycle_bot/lifecycle_apk/app/build/outputs/apk/debug/*.apk
+          path: lifecycle_apk/app/build/outputs/apk/debug/*.apk
