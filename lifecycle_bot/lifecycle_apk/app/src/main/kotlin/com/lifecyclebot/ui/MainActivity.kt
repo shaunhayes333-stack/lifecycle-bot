@@ -999,6 +999,7 @@ Sizer: $tier ${pct}×wallet  " +
     private fun renderWatchlist(state: UiState) {
         llTokenList.removeAllViews()
         val active = state.config.activeToken
+        val tradeSubSp = resources.getDimension(R.dimen.trade_sub_text) / resources.displayMetrics.scaledDensity
         state.tokens.values.forEach { ts ->
             val row = LinearLayout(this).apply {
                 orientation = LinearLayout.HORIZONTAL
