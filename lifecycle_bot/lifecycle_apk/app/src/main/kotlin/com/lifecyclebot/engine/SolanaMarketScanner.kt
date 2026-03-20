@@ -301,7 +301,7 @@ class SolanaMarketScanner(
         // Raydium public API for recently created pools
         val url = "https://api.raydium.io/v2/main/pairs"
         val body = get(url) ?: return
-        if (body.isBlank() || body.startsWith("{"success":false")) return
+        if (body.isBlank() || body.contains("\"success\":false")) return
         try {
             val arr = if (body.trimStart().startsWith("[")) JSONArray(body)
                       else JSONObject(body).optJSONArray("data") ?: return
