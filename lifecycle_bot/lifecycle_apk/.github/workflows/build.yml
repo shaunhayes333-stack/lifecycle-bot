@@ -10,7 +10,7 @@ jobs:
     runs-on: ubuntu-latest
     defaults:
       run:
-        working-directory: lifecycle_apk
+        working-directory: lifecycle_bot/lifecycle_apk
 
     steps:
       - uses: actions/checkout@v4
@@ -32,4 +32,4 @@ jobs:
       - uses: actions/upload-artifact@v4
         with:
           name: lifecycle-bot-apk
-          path: lifecycle_apk/app/build/outputs/apk/debug/*.apk
+          path: lifecycle_bot/lifecycle_apk/app/build/outputs/apk/debug/*.apk

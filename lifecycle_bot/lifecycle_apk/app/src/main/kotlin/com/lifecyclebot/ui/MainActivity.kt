@@ -1126,6 +1126,8 @@ Sizer: $tier ${pct}×wallet  " +
 
 // ── extensions ────────────────────────────────────────────────────────────────
 
+private fun Double.fmtRef(): String = "%.4f".format(this)
+
 private fun Double.fmtPrice(): String = when {
     this <= 0       -> "—"
     this >= 1.0     -> "$%.4f".format(this)
