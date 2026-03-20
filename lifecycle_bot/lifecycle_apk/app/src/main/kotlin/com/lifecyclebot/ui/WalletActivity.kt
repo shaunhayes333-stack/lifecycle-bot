@@ -226,12 +226,8 @@ class WalletActivity : AppCompatActivity() {
             val dest = etWithdrawDest.text.toString().trim()
             val destLabel = if (dest.isBlank()) "your bot wallet (self)" else "${dest.take(8)}…${dest.takeLast(4)}"
 
-            val confirmMsg = if (withdrawPct >= 100)
-                "⚠ FULL EXIT
-
-Withdraw ALL ${"%,.4f".format(amt)}◎ from treasury to $destLabel?
-
-The treasury will be empty after this."
+            val confirmMsg: String = if (withdrawPct >= 100)
+                "⚠ FULL EXIT\n\nWithdraw ALL ${"%,.4f".format(amt)}◎ from treasury to $destLabel?\n\nThe treasury will be empty after this."
             else
                 "Withdraw $withdrawPct% (${"%,.4f".format(amt)}◎) from treasury to $destLabel?"
 
