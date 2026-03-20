@@ -1,0 +1,62 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Base dimensions — small phones (< 360dp wide, e.g. old budget phones) -->
+<resources>
+    <!-- Spacing -->
+    <dimen name="screen_padding">12dp</dimen>
+    <dimen name="card_padding">14dp</dimen>
+    <dimen name="card_margin">12dp</dimen>
+    <dimen name="card_margin_bottom">10dp</dimen>
+    <dimen name="inner_gap">8dp</dimen>
+
+    <!-- Top bar -->
+    <dimen name="topbar_height">56dp</dimen>
+    <dimen name="topbar_icon_size">32dp</dimen>
+
+    <!-- Hero balance -->
+    <dimen name="balance_text_size">30sp</dimen>
+    <dimen name="balance_secondary_size">13sp</dimen>
+    <dimen name="pnl_text_size">12sp</dimen>
+
+    <!-- Token card -->
+    <dimen name="token_name_size">16sp</dimen>
+    <dimen name="token_phase_size">11sp</dimen>
+    <dimen name="kpi_value_size">14sp</dimen>
+    <dimen name="kpi_label_size">9sp</dimen>
+
+    <!-- Score bars -->
+    <dimen name="bar_height">4dp</dimen>
+    <dimen name="bar_label_min_width">36dp</dimen>
+    <dimen name="bar_val_width">24dp</dimen>
+
+    <!-- Chart -->
+    <dimen name="chart_height">120dp</dimen>
+
+    <!-- Section headings -->
+    <dimen name="section_title_size">13sp</dimen>
+
+    <!-- Input fields -->
+    <dimen name="input_height">42dp</dimen>
+    <dimen name="input_text_size">13sp</dimen>
+    <dimen name="input_padding_h">10dp</dimen>
+
+    <!-- Bottom bar -->
+    <dimen name="bottom_bar_button_height">50dp</dimen>
+    <dimen name="bottom_bar_button_text">15sp</dimen>
+    <dimen name="bottom_bar_padding_bottom">16dp</dimen>
+    <dimen name="bottom_bar_padding_h">16dp</dimen>
+    <dimen name="bottom_bar_padding_top">10dp</dimen>
+    <dimen name="content_bottom_padding">76dp</dimen>
+
+    <!-- Trade rows -->
+    <dimen name="trade_row_text">12sp</dimen>
+    <dimen name="trade_sub_text">10sp</dimen>
+
+    <!-- Signal chip -->
+    <dimen name="chip_text_size">10sp</dimen>
+    <dimen name="chip_pad_h">10dp</dimen>
+    <dimen name="chip_pad_v">4dp</dimen>
+
+    <!-- Dot indicator -->
+    <dimen name="dot_size">7dp</dimen>
+    <dimen name="dot_margin">6dp</dimen>
+</resources>

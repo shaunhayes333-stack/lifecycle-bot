@@ -1,0 +1,50 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Tablets and large phones — 600dp+ -->
+<resources>
+    <dimen name="screen_padding">24dp</dimen>
+    <dimen name="card_padding">20dp</dimen>
+    <dimen name="card_margin">20dp</dimen>
+    <dimen name="card_margin_bottom">16dp</dimen>
+    <dimen name="inner_gap">14dp</dimen>
+
+    <dimen name="topbar_height">68dp</dimen>
+    <dimen name="topbar_icon_size">42dp</dimen>
+
+    <dimen name="balance_text_size">42sp</dimen>
+    <dimen name="balance_secondary_size">18sp</dimen>
+    <dimen name="pnl_text_size">15sp</dimen>
+
+    <dimen name="token_name_size">22sp</dimen>
+    <dimen name="token_phase_size">14sp</dimen>
+    <dimen name="kpi_value_size">18sp</dimen>
+    <dimen name="kpi_label_size">11sp</dimen>
+
+    <dimen name="bar_height">6dp</dimen>
+    <dimen name="bar_label_min_width">52dp</dimen>
+    <dimen name="bar_val_width">36dp</dimen>
+
+    <dimen name="chart_height">200dp</dimen>
+
+    <dimen name="section_title_size">16sp</dimen>
+
+    <dimen name="input_height">52dp</dimen>
+    <dimen name="input_text_size">15sp</dimen>
+    <dimen name="input_padding_h">16dp</dimen>
+
+    <dimen name="bottom_bar_button_height">60dp</dimen>
+    <dimen name="bottom_bar_button_text">18sp</dimen>
+    <dimen name="bottom_bar_padding_bottom">28dp</dimen>
+    <dimen name="bottom_bar_padding_h">24dp</dimen>
+    <dimen name="bottom_bar_padding_top">14dp</dimen>
+    <dimen name="content_bottom_padding">100dp</dimen>
+
+    <dimen name="trade_row_text">15sp</dimen>
+    <dimen name="trade_sub_text">12sp</dimen>
+
+    <dimen name="chip_text_size">13sp</dimen>
+    <dimen name="chip_pad_h">16dp</dimen>
+    <dimen name="chip_pad_v">7dp</dimen>
+
+    <dimen name="dot_size">10dp</dimen>
+    <dimen name="dot_margin">10dp</dimen>
+</resources>

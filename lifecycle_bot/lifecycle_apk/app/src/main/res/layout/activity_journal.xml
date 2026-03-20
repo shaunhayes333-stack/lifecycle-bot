@@ -1,0 +1,87 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:background="#0A0A0F"
+    android:orientation="vertical">
+
+    <!-- Header -->
+    <LinearLayout android:layout_width="match_parent" android:layout_height="60dp"
+        android:orientation="horizontal" android:gravity="center_vertical"
+        android:paddingStart="16dp" android:paddingEnd="16dp"
+        android:background="#111118">
+        <TextView android:id="@+id/btnJournalBack"
+            android:layout_width="wrap_content" android:layout_height="wrap_content"
+            android:text="←" android:textColor="#9945FF" android:textSize="22sp"
+            android:paddingEnd="16dp" android:clickable="true" android:focusable="true"/>
+        <TextView android:layout_width="0dp" android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:text="Trade Journal" android:textColor="#FFFFFF"
+            android:textSize="18sp" android:textStyle="bold"/>
+        <TextView android:id="@+id/btnExportCsv"
+            android:layout_width="wrap_content" android:layout_height="wrap_content"
+            android:text="Export CSV"
+            android:textColor="#9945FF" android:textSize="13sp"
+            android:clickable="true" android:focusable="true"/>
+    </LinearLayout>
+
+    <View android:layout_width="match_parent" android:layout_height="1dp"
+        android:background="#1F2937"/>
+
+    <!-- Stats summary -->
+    <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content"
+        android:orientation="horizontal" android:background="#111118"
+        android:paddingStart="16dp" android:paddingEnd="16dp"
+        android:paddingTop="14dp" android:paddingBottom="14dp">
+        <LinearLayout android:layout_width="0dp" android:layout_height="wrap_content"
+            android:layout_weight="1" android:orientation="vertical">
+            <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+                android:text="TOTAL P&amp;L" android:textColor="#6B7280"
+                android:textSize="9sp" android:fontFamily="monospace"/>
+            <TextView android:id="@+id/tvJournalPnl"
+                android:layout_width="wrap_content" android:layout_height="wrap_content"
+                android:text="—" android:textColor="#10B981"
+                android:textSize="15sp" android:fontFamily="monospace" android:textStyle="bold"/>
+        </LinearLayout>
+        <LinearLayout android:layout_width="0dp" android:layout_height="wrap_content"
+            android:layout_weight="1" android:orientation="vertical">
+            <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+                android:text="WIN RATE" android:textColor="#6B7280"
+                android:textSize="9sp" android:fontFamily="monospace"/>
+            <TextView android:id="@+id/tvJournalWinRate"
+                android:layout_width="wrap_content" android:layout_height="wrap_content"
+                android:text="—" android:textColor="#FFFFFF"
+                android:textSize="15sp" android:fontFamily="monospace" android:textStyle="bold"/>
+        </LinearLayout>
+        <LinearLayout android:layout_width="0dp" android:layout_height="wrap_content"
+            android:layout_weight="1" android:orientation="vertical">
+            <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+                android:text="TRADES" android:textColor="#6B7280"
+                android:textSize="9sp" android:fontFamily="monospace"/>
+            <TextView android:id="@+id/tvJournalCount"
+                android:layout_width="wrap_content" android:layout_height="wrap_content"
+                android:text="0" android:textColor="#FFFFFF"
+                android:textSize="15sp" android:fontFamily="monospace" android:textStyle="bold"/>
+        </LinearLayout>
+        <LinearLayout android:layout_width="0dp" android:layout_height="wrap_content"
+            android:layout_weight="1" android:orientation="vertical">
+            <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+                android:text="AVG WIN" android:textColor="#6B7280"
+                android:textSize="9sp" android:fontFamily="monospace"/>
+            <TextView android:id="@+id/tvJournalAvgWin"
+                android:layout_width="wrap_content" android:layout_height="wrap_content"
+                android:text="—" android:textColor="#10B981"
+                android:textSize="15sp" android:fontFamily="monospace" android:textStyle="bold"/>
+        </LinearLayout>
+    </LinearLayout>
+
+    <View android:layout_width="match_parent" android:layout_height="1dp"
+        android:background="#1F2937"/>
+
+    <!-- Trade list -->
+    <ScrollView android:layout_width="match_parent" android:layout_height="match_parent">
+        <LinearLayout android:id="@+id/llJournalTrades"
+            android:layout_width="match_parent" android:layout_height="wrap_content"
+            android:orientation="vertical" android:paddingBottom="24dp"/>
+    </ScrollView>
+</LinearLayout>

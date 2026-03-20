@@ -1,0 +1,50 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Normal phones — 360dp+ (majority of Android devices) -->
+<resources>
+    <dimen name="screen_padding">16dp</dimen>
+    <dimen name="card_padding">16dp</dimen>
+    <dimen name="card_margin">16dp</dimen>
+    <dimen name="card_margin_bottom">12dp</dimen>
+    <dimen name="inner_gap">10dp</dimen>
+
+    <dimen name="topbar_height">60dp</dimen>
+    <dimen name="topbar_icon_size">36dp</dimen>
+
+    <dimen name="balance_text_size">36sp</dimen>
+    <dimen name="balance_secondary_size">15sp</dimen>
+    <dimen name="pnl_text_size">13sp</dimen>
+
+    <dimen name="token_name_size">18sp</dimen>
+    <dimen name="token_phase_size">12sp</dimen>
+    <dimen name="kpi_value_size">15sp</dimen>
+    <dimen name="kpi_label_size">9sp</dimen>
+
+    <dimen name="bar_height">5dp</dimen>
+    <dimen name="bar_label_min_width">40dp</dimen>
+    <dimen name="bar_val_width">28dp</dimen>
+
+    <dimen name="chart_height">140dp</dimen>
+
+    <dimen name="section_title_size">14sp</dimen>
+
+    <dimen name="input_height">44dp</dimen>
+    <dimen name="input_text_size">13sp</dimen>
+    <dimen name="input_padding_h">12dp</dimen>
+
+    <dimen name="bottom_bar_button_height">54dp</dimen>
+    <dimen name="bottom_bar_button_text">16sp</dimen>
+    <dimen name="bottom_bar_padding_bottom">20dp</dimen>
+    <dimen name="bottom_bar_padding_h">20dp</dimen>
+    <dimen name="bottom_bar_padding_top">12dp</dimen>
+    <dimen name="content_bottom_padding">88dp</dimen>
+
+    <dimen name="trade_row_text">13sp</dimen>
+    <dimen name="trade_sub_text">11sp</dimen>
+
+    <dimen name="chip_text_size">11sp</dimen>
+    <dimen name="chip_pad_h">12dp</dimen>
+    <dimen name="chip_pad_v">5dp</dimen>
+
+    <dimen name="dot_size">8dp</dimen>
+    <dimen name="dot_margin">8dp</dimen>
+</resources>
