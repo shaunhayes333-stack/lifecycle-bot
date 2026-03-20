@@ -327,6 +327,9 @@ class MainActivity : AppCompatActivity() {
         // Clear settings button
         setupClearSettingsButton()
 
+        // Quick action buttons
+        setupQuickActionButtons()
+
         // decision log
         cardLogScores = try { findViewById(R.id.cardLogScores) } catch (_: Exception) { android.view.View(this) }
         tvLogToken    = try { findViewById(R.id.tvLogToken)  } catch (_: Exception) { TextView(this) }
@@ -1186,6 +1189,33 @@ Sizer: $tier ${pct}×wallet  " +
                     paintFlags = paintFlags or android.graphics.Paint.UNDERLINE_TEXT_FLAG
                 }
             } catch (_: Exception) {}
+        }
+    }
+
+    /** Setup quick action icon buttons */
+    private fun setupQuickActionButtons() {
+        // Wallet button
+        findViewById<View>(R.id.btnQuickWallet)?.setOnClickListener {
+            startActivity(Intent(this, WalletActivity::class.java))
+        }
+
+        // Journal button
+        findViewById<View>(R.id.btnQuickJournal)?.setOnClickListener {
+            startActivity(Intent(this, JournalActivity::class.java))
+        }
+
+        // Alerts button
+        findViewById<View>(R.id.btnQuickAlerts)?.setOnClickListener {
+            startActivity(Intent(this, AlertsActivity::class.java))
+        }
+
+        // Settings button - scroll to settings section
+        findViewById<View>(R.id.btnQuickSettings)?.setOnClickListener {
+            val settingsSection = findViewById<View>(R.id.cardSettings)
+            settingsSection?.let {
+                val scrollView = findViewById<androidx.core.widget.NestedScrollView>(R.id.mainScrollView)
+                scrollView?.smoothScrollTo(0, it.top)
+            }
         }
     }
 

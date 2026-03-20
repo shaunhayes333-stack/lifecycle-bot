@@ -7,6 +7,7 @@
 
     <!-- ── SCROLLABLE CONTENT ── -->
     <androidx.core.widget.NestedScrollView
+        android:id="@+id/mainScrollView"
         android:layout_width="match_parent"
         android:layout_height="match_parent"
         android:paddingBottom="@dimen/content_bottom_padding"
@@ -193,6 +194,98 @@
                         android:textColor="#6B7280"
                         android:textSize="@dimen/pnl_text_size"
                         android:layout_marginStart="6dp"/>
+                </LinearLayout>
+            </LinearLayout>
+
+            <!-- ═══════════════════════════════
+                 QUICK ACTIONS BAR
+                 ═══════════════════════════════ -->
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="horizontal"
+                android:gravity="center"
+                android:paddingStart="@dimen/screen_padding"
+                android:paddingEnd="@dimen/screen_padding"
+                android:layout_marginBottom="12dp">
+
+                <!-- Wallet -->
+                <LinearLayout
+                    android:id="@+id/btnQuickWallet"
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:orientation="vertical"
+                    android:gravity="center"
+                    android:padding="10dp"
+                    android:background="@drawable/section_card_bg"
+                    android:layout_marginEnd="6dp"
+                    android:clickable="true"
+                    android:focusable="true">
+                    <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+                        android:text="👛" android:textSize="20sp"/>
+                    <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+                        android:text="Wallet" android:textColor="#9CA3AF" android:textSize="10sp"
+                        android:layout_marginTop="2dp"/>
+                </LinearLayout>
+
+                <!-- Journal -->
+                <LinearLayout
+                    android:id="@+id/btnQuickJournal"
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:orientation="vertical"
+                    android:gravity="center"
+                    android:padding="10dp"
+                    android:background="@drawable/section_card_bg"
+                    android:layout_marginEnd="6dp"
+                    android:clickable="true"
+                    android:focusable="true">
+                    <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+                        android:text="📊" android:textSize="20sp"/>
+                    <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+                        android:text="Journal" android:textColor="#9CA3AF" android:textSize="10sp"
+                        android:layout_marginTop="2dp"/>
+                </LinearLayout>
+
+                <!-- Alerts -->
+                <LinearLayout
+                    android:id="@+id/btnQuickAlerts"
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:orientation="vertical"
+                    android:gravity="center"
+                    android:padding="10dp"
+                    android:background="@drawable/section_card_bg"
+                    android:layout_marginEnd="6dp"
+                    android:clickable="true"
+                    android:focusable="true">
+                    <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+                        android:text="🔔" android:textSize="20sp"/>
+                    <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+                        android:text="Alerts" android:textColor="#9CA3AF" android:textSize="10sp"
+                        android:layout_marginTop="2dp"/>
+                </LinearLayout>
+
+                <!-- Settings -->
+                <LinearLayout
+                    android:id="@+id/btnQuickSettings"
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:orientation="vertical"
+                    android:gravity="center"
+                    android:padding="10dp"
+                    android:background="@drawable/section_card_bg"
+                    android:clickable="true"
+                    android:focusable="true">
+                    <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+                        android:text="⚙️" android:textSize="20sp"/>
+                    <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+                        android:text="Settings" android:textColor="#9CA3AF" android:textSize="10sp"
+                        android:layout_marginTop="2dp"/>
                 </LinearLayout>
             </LinearLayout>
 
@@ -622,7 +715,7 @@
                         android:layout_width="0dp"
                         android:layout_height="wrap_content"
                         android:layout_weight="1"
-                        android:text="Decision Log"
+                        android:text="📜 Decision Log"
                         android:textColor="#FFFFFF"
                         android:textSize="@dimen/section_title_size"
                         android:textStyle="bold"/>
@@ -846,7 +939,7 @@
                         android:layout_width="0dp"
                         android:layout_height="wrap_content"
                         android:layout_weight="1"
-                        android:text="Treasury"
+                        android:text="🏦 Treasury"
                         android:textColor="#FFFFFF"
                         android:textSize="@dimen/section_title_size"
                         android:textStyle="bold"/>
@@ -937,7 +1030,7 @@
                 android:padding="@dimen/card_padding">
 
                 <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
-                    android:text="Watchlist" android:textColor="#FFFFFF"
+                    android:text="👀 Watchlist" android:textColor="#FFFFFF"
                     android:textSize="@dimen/section_title_size" android:textStyle="bold"
                     android:layout_marginBottom="10dp"/>
 
@@ -971,6 +1064,7 @@
                  SETTINGS
                  ═══════════════════════════════ -->
             <LinearLayout
+                android:id="@+id/cardSettings"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:background="@drawable/section_card_bg"
@@ -981,7 +1075,7 @@
                 android:padding="@dimen/card_padding">
 
                 <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
-                    android:text="Settings" android:textColor="#FFFFFF"
+                    android:text="⚙️ Settings" android:textColor="#FFFFFF"
                     android:textSize="@dimen/section_title_size" android:textStyle="bold"
                     android:layout_marginBottom="14dp"/>
 
