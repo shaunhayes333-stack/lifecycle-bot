@@ -22,17 +22,40 @@ jobs:
       - name: Set up Android SDK
         uses: android-actions/setup-android@v3
 
-      - name: Setup Gradle
-        uses: gradle/actions/setup-gradle@v3
-        with:
-          gradle-version: '8.7'
+      - name: Find project directory
+        id: find-project
+        run: |
+          if [ -f "app/build.gradle.kts" ]; then
+            echo "project_dir=." >> $GITHUB_OUTPUT
+          elif [ -f "lifecycle_apk/app/build.gradle.kts" ]; then
+            echo "project_dir=lifecycle_apk" >> $GITHUB_OUTPUT
+          else
+            echo "Could not find project"
+            find . -name "build.gradle.kts" | head -5
+            exit 1
+          fi
+
+      - name: Setup Gradle wrapper
+        run: |
+          cd ${{ steps.find-project.outputs.project_dir }}
+          chmod +x gradlew 2>/dev/null || true
+          # Download gradle-wrapper.jar if missing
+          if [ ! -f "gradle/wrapper/gradle-wrapper.jar" ]; then
+            mkdir -p gradle/wrapper
+            curl -L -o gradle/wrapper/gradle-wrapper.jar \
+              "https://raw.githubusercontent.com/gradle/gradle/v8.7.0/gradle/wrapper/gradle-wrapper.jar"
+          fi
 
       - name: Build debug APK
-        run: gradle assembleDebug --stacktrace
+        run: |
+          cd ${{ steps.find-project.outputs.project_dir }}
+          ./gradlew assembleDebug --stacktrace --no-daemon
 
-      - name: Upload APK artifact
+      - name: Find and upload APK
         uses: actions/upload-artifact@v4
         with:
           name: lifecycle-bot-apk
-          path: app/build/outputs/apk/debug/app-debug.apk
+          path: |
+            **/app/build/outputs/apk/debug/*.apk
           retention-days: 30
+          if-no-files-found: error
