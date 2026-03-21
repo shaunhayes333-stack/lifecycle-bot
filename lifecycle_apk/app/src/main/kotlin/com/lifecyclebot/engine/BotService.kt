@@ -40,7 +40,20 @@ class BotService : Service() {
         lateinit var walletManager: WalletManager
     }
 
-    private val scope  = CoroutineScope(Dispatchers.IO + SupervisorJob())
+    // Coroutine exception handler - logs errors without crashing
+    private val exceptionHandler = CoroutineExceptionHandler { context, throwable ->
+        ErrorLogger.error("BotService", 
+            "Coroutine exception in ${context[CoroutineName]?.name ?: "unknown"}: " +
+            "${throwable.javaClass.simpleName}: ${throwable.message}", 
+            throwable
+        )
+        addLog("⚠️ Background error: ${throwable.javaClass.simpleName} - ${throwable.message?.take(50)}")
+        
+        // Don't crash - just log and continue
+        // The SupervisorJob ensures child coroutines don't cancel siblings
+    }
+
+    private val scope  = CoroutineScope(Dispatchers.IO + SupervisorJob() + exceptionHandler)
     private val dex    = DexscreenerApi()
     private var wakeLock: PowerManager.WakeLock? = null
     private var networkCallback: ConnectivityManager.NetworkCallback? = null
@@ -149,6 +162,26 @@ class BotService : Service() {
 
     override fun onDestroy() {
         super.onDestroy()
+        ErrorLogger.warn("BotService", "onDestroy() called - service being destroyed")
+        
+        // If the bot was supposed to be running, schedule a restart
+        if (status.running) {
+            ErrorLogger.warn("BotService", "Bot was running - scheduling restart in 5 seconds")
+            val restartIntent = Intent(applicationContext, BotService::class.java).apply {
+                action = ACTION_START
+            }
+            val pi = android.app.PendingIntent.getService(
+                this, 2, restartIntent,
+                android.app.PendingIntent.FLAG_ONE_SHOT or android.app.PendingIntent.FLAG_IMMUTABLE
+            )
+            val am = getSystemService(android.app.AlarmManager::class.java)
+            am?.setExactAndAllowWhileIdle(
+                android.app.AlarmManager.RTC_WAKEUP,
+                System.currentTimeMillis() + 5_000,  // Restart in 5 seconds
+                pi
+            )
+        }
+        
         scope.cancel()
     }
 
@@ -159,22 +192,25 @@ class BotService : Service() {
      */
     override fun onTaskRemoved(rootIntent: Intent?) {
         super.onTaskRemoved(rootIntent)
+        ErrorLogger.warn("BotService", "onTaskRemoved() called - app swiped from recents, running=${status.running}")
+        
         if (status.running) {
-            // Re-schedule start in 2 seconds
+            // Re-schedule start in 2 seconds with exact alarm
             val restartIntent = Intent(applicationContext, BotService::class.java).apply {
                 action = ACTION_START
             }
             val pi = android.app.PendingIntent.getService(
                 this, 1, restartIntent,
-                android.app.PendingIntent.FLAG_ONE_SHOT or
-                android.app.PendingIntent.FLAG_IMMUTABLE
+                android.app.PendingIntent.FLAG_ONE_SHOT or android.app.PendingIntent.FLAG_IMMUTABLE
             )
             val am = getSystemService(android.app.AlarmManager::class.java)
-            am?.set(
+            // Use setExactAndAllowWhileIdle for better reliability in Doze mode
+            am?.setExactAndAllowWhileIdle(
                 android.app.AlarmManager.RTC_WAKEUP,
                 System.currentTimeMillis() + 2_000,
                 pi
             )
+            ErrorLogger.info("BotService", "Scheduled restart alarm for 2 seconds")
         }
     }
 
@@ -382,11 +418,13 @@ class BotService : Service() {
                             // Seed candle history immediately
                             scope.launch {
                                 try {
-                                    val ts = status.tokens.getOrPut(mint) {
-                                        com.lifecyclebot.data.TokenState(
-                                            mint=mint, symbol=symbol, name=name,
-                                            candleTimeframeMinutes = 1
-                                        )
+                                    val ts = synchronized(status.tokens) {
+                                        status.tokens.getOrPut(mint) {
+                                            com.lifecyclebot.data.TokenState(
+                                                mint=mint, symbol=symbol, name=name,
+                                                candleTimeframeMinutes = 1
+                                            )
+                                        }
                                     }
                                     orchestrator?.onTokenAdded(mint, symbol)
                                 } catch (_: Exception) {}
@@ -571,8 +609,10 @@ class BotService : Service() {
                             TreasuryManager.save(applicationContext)
                         }
                     )
-                    // Gather all trades across all tokens for P&L
-                    val allTrades = status.tokens.values.flatMap { it.trades }
+                    // Gather all trades across all tokens for P&L - use synchronized copy
+                    val allTrades = synchronized(status.tokens) {
+                        status.tokens.values.toList().flatMap { it.trades.toList() }
+                    }
                     walletManager.updatePnl(allTrades)
                 } catch (_: Exception) {}
             }
@@ -785,8 +825,11 @@ class BotService : Service() {
             } // end map
             tokenJobs.forEach { it.join() }  // wait for all tokens this cycle
 
-            // Periodically persist session state
-            if (status.tokens.values.sumOf { it.trades.size } % 5 == 0 && status.running) {
+            // Periodically persist session state - use synchronized copy
+            val tradeCount = synchronized(status.tokens) {
+                status.tokens.values.toList().sumOf { it.trades.size }
+            }
+            if (tradeCount % 5 == 0 && status.running) {
                 try { SessionStore.save(applicationContext) } catch (_: Exception) {}
             }
             delay(cfg.pollSeconds * 1000L)
@@ -875,6 +918,9 @@ class BotService : Service() {
             .setContentText("Running — tap to open")
             .setOngoing(true)
             .setContentIntent(pi)
+            .setForegroundServiceBehavior(NotificationCompat.FOREGROUND_SERVICE_IMMEDIATE)
+            .setPriority(NotificationCompat.PRIORITY_LOW)
+            .setCategory(NotificationCompat.CATEGORY_SERVICE)
             .build()
     }
 }

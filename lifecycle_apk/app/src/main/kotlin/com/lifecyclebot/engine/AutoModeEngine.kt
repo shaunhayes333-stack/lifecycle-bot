@@ -169,9 +169,11 @@ class AutoModeEngine(
         val recentLosses = recentTrades.count { it.pnlSol < 0 }
         if (recentLosses >= 3) return BotMode.DEFENSIVE
 
-        // Check circuit breaker state
-        val cb = status.tokens.values
-            .firstOrNull()?.let { _ ->
+        // Check circuit breaker state - use synchronized copy
+        val firstToken = synchronized(status.tokens) {
+            status.tokens.values.firstOrNull()
+        }
+        val cb = firstToken?.let { _ ->
                 try { com.lifecyclebot.engine.BotService.instance
                     ?.let { svc ->
                         val f = svc.javaClass.getDeclaredField("securityGuard")

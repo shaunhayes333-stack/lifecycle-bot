@@ -24,13 +24,13 @@ jobs:
       - name: Setup Android SDK
         uses: android-actions/setup-android@v3
 
-      - name: Make gradlew executable
-        working-directory: lifecycle_apk
-        run: chmod +x gradlew
-
       - name: Build APK
         working-directory: lifecycle_apk
-        run: ./gradlew assembleDebug --no-daemon
+        run: |
+          chmod +x gradlew || true
+          mkdir -p gradle/wrapper
+          curl -sL -o gradle/wrapper/gradle-wrapper.jar "https://raw.githubusercontent.com/gradle/gradle/v8.7.0/gradle/wrapper/gradle-wrapper.jar"
+          ./gradlew assembleDebug --no-daemon
 
       - name: Upload APK
         uses: actions/upload-artifact@v4

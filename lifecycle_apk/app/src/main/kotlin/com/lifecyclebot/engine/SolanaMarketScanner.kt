@@ -104,7 +104,7 @@ class SolanaMarketScanner(
 
     // Track which mints we've already surfaced to avoid duplicates
     private val seenMints  = ConcurrentHashMap<String, Long>()
-    private val SEEN_TTL   = 2 * 60_000L   // forget after 2 min — allow faster token refresh
+    private val SEEN_TTL   = 60_000L   // forget after 1 min — allow faster token refresh (was 2 min)
     
     // Memory protection: limit concurrent operations
     private val semaphore = kotlinx.coroutines.sync.Semaphore(3)  // max 3 concurrent scans
@@ -116,8 +116,27 @@ class SolanaMarketScanner(
     // Scan rotation - alternate between different scan sources for variety
     @Volatile private var scanRotation = 0
     
+    // Search keyword rotation for diverse token discovery
+    private val searchKeywords = listOf(
+        "meme", "degen", "pepe", "wojak", "moon", "inu", "cat", "dog",
+        "ai", "agent", "gpt", "depin", "rwa", "trump", "elon",
+        "solana", "sol", "bonk", "wif", "jup", "ray",
+        "nft", "game", "metaverse", "casino", "bet"
+    )
+    @Volatile private var keywordRotation = 0
+    
     // Running state
     @Volatile private var isRunning = false
+    
+    // Coroutine exception handler for scanner - logs errors without crashing
+    private val scannerExceptionHandler = CoroutineExceptionHandler { _, throwable ->
+        ErrorLogger.error("Scanner", 
+            "Scanner coroutine exception: ${throwable.javaClass.simpleName}: ${throwable.message}", 
+            throwable
+        )
+        onLog("⚠️ Scanner error: ${throwable.javaClass.simpleName} - ${throwable.message?.take(50)}")
+        // Don't crash - just log and the scan loop will continue
+    }
 
     // ── Start / Stop ─────────────────────────────────────────────────
 
@@ -130,8 +149,8 @@ class SolanaMarketScanner(
         ErrorLogger.info("Scanner", "SolanaMarketScanner.start() called")
         isRunning = true
         
-        // Create a fresh scope each time we start
-        scope = CoroutineScope(Dispatchers.IO + SupervisorJob())
+        // Create a fresh scope each time we start - with exception handler
+        scope = CoroutineScope(Dispatchers.IO + SupervisorJob() + scannerExceptionHandler)
         scanJob = scope?.launch { 
             ErrorLogger.info("Scanner", "scanLoop starting...")
             
@@ -247,9 +266,12 @@ class SolanaMarketScanner(
             ErrorLogger.debug("Scanner", "Scan interval: ${scanIntervalMs}ms")
 
             try {
-                // Clean expired seen entries
+                // Clean expired seen entries - use safe iteration
                 val now = System.currentTimeMillis()
-                seenMints.entries.removeIf { now - it.value > SEEN_TTL }
+                val expiredKeys = seenMints.entries
+                    .filter { now - it.value > SEEN_TTL }
+                    .map { it.key }
+                expiredKeys.forEach { seenMints.remove(it) }
 
                 // ScalingMode tier logging
                 val sScanTier = ScalingMode.activeTier(
@@ -257,8 +279,8 @@ class SolanaMarketScanner(
                 val _tn = if (sScanTier != ScalingMode.Tier.MICRO)
                     " ${sScanTier.icon}${sScanTier.label}" else ""
                 
-                // MEMORY-OPTIMIZED: 3 cycles with pump.fun graduates included
-                scanRotation = (scanRotation + 1) % 3
+                // MEMORY-OPTIMIZED: 4 cycles with more variety
+                scanRotation = (scanRotation + 1) % 4
                 onLog("🌐 Scan #$scanRotation${_tn} - Starting scan cycle")
                 ErrorLogger.info("Scanner", "Scan cycle #$scanRotation starting")
                 
@@ -310,6 +332,20 @@ class SolanaMarketScanner(
                         try { scanDexTrending() } catch (e: Exception) { 
                             if (e is OutOfMemoryError) throw e
                             ErrorLogger.error("Scanner", "scanDexTrending: ${e.message}", e) 
+                        }
+                    }
+                    3 -> {
+                        // Top volume tokens scan - new diverse source
+                        onLog("🔍 Scanning: Top volume tokens...")
+                        try { scanTopVolumeTokens() } catch (e: Exception) { 
+                            if (e is OutOfMemoryError) throw e
+                            ErrorLogger.error("Scanner", "scanTopVolume: ${e.message}", e) 
+                        }
+                        delay(1000)
+                        onLog("🔍 Scanning: DexScreener gainers (alt keywords)...")
+                        try { scanDexGainers() } catch (e: Exception) { 
+                            if (e is OutOfMemoryError) throw e
+                            ErrorLogger.error("Scanner", "scanDexGainers: ${e.message}", e) 
                         }
                     }
                 }
@@ -398,9 +434,12 @@ class SolanaMarketScanner(
     // ── Source 2: Dexscreener gainers (top % movers last 1h) ─────────
 
     private suspend fun scanDexGainers() {
-        // Use search API to find trending Solana tokens
-        val url = "https://api.dexscreener.com/latest/dex/search?q=solana"
-        ErrorLogger.info("Scanner", "scanDexGainers: searching Solana tokens...")
+        // Rotate through different search keywords for variety
+        val keyword = searchKeywords[keywordRotation % searchKeywords.size]
+        keywordRotation++
+        
+        val url = "https://api.dexscreener.com/latest/dex/search?q=$keyword"
+        ErrorLogger.info("Scanner", "scanDexGainers: searching '$keyword' tokens...")
         val body = get(url)
         if (body == null) {
             ErrorLogger.warn("Scanner", "scanDexGainers: no response from API")
@@ -409,10 +448,10 @@ class SolanaMarketScanner(
         try {
             val pairs = JSONObject(body).optJSONArray("pairs")
             if (pairs == null || pairs.length() == 0) {
-                ErrorLogger.warn("Scanner", "scanDexGainers: no pairs in response")
+                ErrorLogger.warn("Scanner", "scanDexGainers: no pairs in response for '$keyword'")
                 return
             }
-            ErrorLogger.info("Scanner", "scanDexGainers: got ${pairs.length()} pairs")
+            ErrorLogger.info("Scanner", "scanDexGainers: got ${pairs.length()} pairs for '$keyword'")
             val now = System.currentTimeMillis()
             var found = 0
             var processed = 0
@@ -478,8 +517,8 @@ class SolanaMarketScanner(
                     onLog("$src: $symbol | liq=$${liq.toInt()} | vol=$${vol.toInt()}")
                 }
             }
-            if (found > 0) ErrorLogger.info("Scanner", "DexScreener scan: found $found tokens (processed $processed)")
-            else ErrorLogger.info("Scanner", "DexScreener scan: no tokens passed filters (processed $processed)")
+            if (found > 0) ErrorLogger.info("Scanner", "DexScreener scan '$keyword': found $found tokens (processed $processed)")
+            else ErrorLogger.info("Scanner", "DexScreener scan '$keyword': no tokens passed filters (processed $processed)")
         } catch (e: Exception) {
             ErrorLogger.error("Scanner", "scanDexGainers error: ${e.message}")
         }
@@ -522,8 +561,12 @@ class SolanaMarketScanner(
     // ── Source 4: Pump.fun graduates (Raydium migrations) ────────────
 
     private suspend fun scanPumpGraduates() {
-        // Search for new Solana tokens - potential pump.fun graduates
-        val url = "https://api.dexscreener.com/latest/dex/search?q=pump"
+        // Also use keyword rotation for pump graduates discovery
+        val pumpKeywords = listOf("pump", "fun", "degen", "meme", "moon", "ape", "chad", "based")
+        val keyword = pumpKeywords[keywordRotation % pumpKeywords.size]
+        
+        val url = "https://api.dexscreener.com/latest/dex/search?q=$keyword"
+        ErrorLogger.info("Scanner", "scanPumpGraduates: searching '$keyword' for graduates...")
         val body = get(url) ?: return
         try {
             val arr = JSONObject(body).optJSONArray("pairs") ?: return
@@ -590,7 +633,7 @@ class SolanaMarketScanner(
                     onLog("$label: $symbol | age=${ageHours.toInt()}h | liq=$${liq.toInt()}")
                 }
             }
-            if (found > 0) ErrorLogger.info("Scanner", "PumpGraduates: found $found tokens")
+            if (found > 0) ErrorLogger.info("Scanner", "PumpGraduates '$keyword': found $found tokens")
         } catch (e: Exception) {
             ErrorLogger.error("Scanner", "scanPumpGraduates error: ${e.message}")
         }
@@ -628,6 +671,90 @@ class SolanaMarketScanner(
         }
         System.gc()
     }
+
+    // ── Source 5b: Top Volume Tokens (new diverse source) ─────────────
+
+    private suspend fun scanTopVolumeTokens() {
+        // Scan different pairs endpoints for high volume Solana tokens
+        val endpoints = listOf(
+            "https://api.dexscreener.com/latest/dex/pairs/solana",  // Recent Solana pairs
+        )
+        
+        for (endpoint in endpoints) {
+            try {
+                val body = get(endpoint) ?: continue
+                val pairs = if (body.startsWith("[")) {
+                    JSONArray(body)
+                } else {
+                    JSONObject(body).optJSONArray("pairs") ?: continue
+                }
+                
+                ErrorLogger.info("Scanner", "scanTopVolume: got ${pairs.length()} pairs")
+                val now = System.currentTimeMillis()
+                var found = 0
+                
+                for (i in 0 until minOf(pairs.length(), 30)) {
+                    if (found >= 6) break
+                    val p = pairs.optJSONObject(i) ?: continue
+                    
+                    val chainId = p.optString("chainId", "solana")
+                    if (chainId != "solana") continue
+                    
+                    val mint = p.optJSONObject("baseToken")?.optString("address", "") ?: continue
+                    if (mint.isBlank() || mint.startsWith("0x") || isSeen(mint)) continue
+                    
+                    val symbol = p.optJSONObject("baseToken")?.optString("symbol", "") ?: continue
+                    if (symbol.uppercase() in listOf("SOL", "WSOL", "USDC", "USDT", "RAY", "JUP")) continue
+                    
+                    val liq = p.optJSONObject("liquidity")?.optDouble("usd", 0.0) ?: 0.0
+                    val vol = p.optJSONObject("volume")?.optDouble("h24", 0.0) ?: 0.0
+                    val mcap = p.optDouble("marketCap", 0.0)
+                    
+                    // Only high volume tokens
+                    if (liq < 5000 || vol < 10000) continue
+                    
+                    val created = p.optLong("pairCreatedAt", 0L)
+                    val ageHours = if (created > 0) (now - created) / 3_600_000.0 else 999.0
+                    
+                    val name = p.optJSONObject("baseToken")?.optString("name", "") ?: symbol
+                    val buys = p.optJSONObject("txns")?.optJSONObject("h24")?.optInt("buys", 0) ?: 0
+                    val sells = p.optJSONObject("txns")?.optJSONObject("h24")?.optInt("sells", 0) ?: 0
+                    val priceChange = p.optJSONObject("priceChange")?.optDouble("h24", 0.0) ?: 0.0
+                    val dexId = p.optString("dexId", "unknown")
+                    
+                    // High volume bonus
+                    val volBonus = if (vol > 100000) 20.0 else if (vol > 50000) 15.0 else 10.0
+                    
+                    val token = ScannedToken(
+                        mint               = mint,
+                        symbol             = symbol,
+                        name               = name,
+                        source             = TokenSource.DEX_TRENDING,
+                        liquidityUsd       = liq,
+                        volumeH1           = vol / 24,  // Approximate h1 from h24
+                        mcapUsd            = mcap,
+                        pairCreatedHoursAgo = ageHours,
+                        dexId              = dexId,
+                        priceChangeH1      = priceChange / 24,
+                        txCountH1          = (buys + sells) / 24,
+                        score              = scoreToken(liq, vol / 24, (buys + sells) / 24, mcap, priceChange, ageHours) + volBonus,
+                    )
+                    
+                    if (passesFilter(token)) {
+                        emit(token)
+                        found++
+                        onLog("📊 TopVol: $symbol | vol24h=$${(vol/1000).toInt()}K | liq=$${liq.toInt()}")
+                    }
+                }
+                
+                if (found > 0) ErrorLogger.info("Scanner", "scanTopVolume: found $found high-volume tokens")
+            } catch (e: Exception) {
+                ErrorLogger.error("Scanner", "scanTopVolume error: ${e.message}")
+            }
+        }
+        System.gc()
+    }
+
 
     // ── Source 6: CoinGecko trending ─────────────────────────────────
 

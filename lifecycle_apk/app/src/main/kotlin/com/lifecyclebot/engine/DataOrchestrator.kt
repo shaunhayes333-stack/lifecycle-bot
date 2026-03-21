@@ -82,7 +82,11 @@ class DataOrchestrator(
         scope.launch {
             while (isActive) {
                 delay(5 * 60_000L)
-                status.tokens.values.forEach { ts ->
+                // Copy tokens list to avoid concurrent modification
+                val tokensCopy = synchronized(status.tokens) {
+                    status.tokens.values.toList()
+                }
+                tokensCopy.forEach { ts ->
                     try {
                         val c5m = birdeye.getCandles(ts.mint, "5m", 30)
                         if (c5m.isNotEmpty()) {
@@ -289,7 +293,9 @@ class DataOrchestrator(
             onSwap            = { mint, isBuy, solAmt, tokenAmt, wallet, sig ->
                 lastWsEventMs[mint] = System.currentTimeMillis()
                 WhaleDetector.recordTrade(mint, wallet, solAmt, isBuy)
-                val ts = status.tokens.values.find { it.mint == mint } ?: return@HeliusWebSocket
+                val ts = synchronized(status.tokens) {
+                    status.tokens.values.find { it.mint == mint }
+                } ?: return@HeliusWebSocket
                 updateRealtimeCandle(ts, isBuy, solAmt)
             },
             onLargeWalletMove = { wallet, mint, solAmt, isBuy ->
