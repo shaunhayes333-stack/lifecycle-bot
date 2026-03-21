@@ -146,6 +146,7 @@ class MainActivity : AppCompatActivity() {
     // chart data
     private val chartEntries = mutableListOf<Entry>()
     private var chartIdx = 0f
+    private var lastChartTokenMint: String? = null  // Track which token's chart is displayed
     private var advancedExpanded = false
     private var settingsPopulated = false
 
@@ -573,7 +574,42 @@ class MainActivity : AppCompatActivity() {
         tvPressVal.text   = "${ts?.meta?.pressScore?.toInt() ?: 0}"
 
         // ── chart ─────────────────────────────────────────────────────
-        if (ts?.lastPrice != null && ts.lastPrice > 0) appendChart(ts.lastPrice)
+        // Build chart from token history when switching tokens
+        if (ts != null && ts.mint != lastChartTokenMint) {
+            // Clear and rebuild chart from history for new token
+            chartEntries.clear()
+            chartIdx = 0f
+            lastChartTokenMint = ts.mint
+            
+            // Build chart from historical candles
+            synchronized(ts.history) {
+                val historyList = ts.history.takeLast(100)
+                for (candle in historyList) {
+                    if (candle.priceUsd > 0) {
+                        chartEntries.add(Entry(chartIdx++, candle.priceUsd.toFloat()))
+                    }
+                }
+            }
+            
+            // Update chart display
+            if (chartEntries.isNotEmpty()) {
+                val ds = LineDataSet(chartEntries, "").apply {
+                    color           = purple
+                    lineWidth       = 1.8f
+                    setDrawCircles(false)
+                    setDrawValues(false)
+                    setDrawFilled(true)
+                    fillColor       = purple
+                    fillAlpha       = 30
+                    mode            = LineDataSet.Mode.CUBIC_BEZIER
+                }
+                miniChart.data = LineData(ds)
+                miniChart.invalidate()
+            }
+        } else if (ts?.lastPrice != null && ts.lastPrice > 0) {
+            // Append new price point
+            appendChart(ts.lastPrice)
+        }
 
         // ── open positions panel ─────────────────────────────────
         val openPos = state.openPositions
@@ -634,9 +670,9 @@ class MainActivity : AppCompatActivity() {
         }
 
         // ── whale indicator ───────────────────────────────────────
-        val whaleMeta = ts?.signal?.let { _ ->
+        val whaleMeta = if (ts != null && ts.lastPrice > 0) {
             com.lifecyclebot.engine.WhaleDetector.evaluate(ts.mint, ts)
-        }
+        } else null
         pbWhale.progress     = whaleMeta?.velocityScore?.toInt() ?: 0
         tvWhaleSummary.text  = whaleMeta?.summary?.ifBlank { "—" } ?: "—"
         tvWhaleSummary.setTextColor(when {
