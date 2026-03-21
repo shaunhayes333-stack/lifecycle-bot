@@ -10,6 +10,18 @@
         android:layout_height="wrap_content"
         android:orientation="vertical">
 
+        <!-- ── BACK BUTTON ── -->
+        <Button
+            android:id="@+id/btnBackToBot"
+            android:layout_width="match_parent"
+            android:layout_height="48dp"
+            android:text="← BACK TO BOT"
+            android:textColor="#00E5A0"
+            android:backgroundTint="#111720"
+            android:fontFamily="monospace"
+            android:textSize="14sp"
+            android:layout_marginBottom="16dp"/>
+
         <!-- ── CONNECTION STATUS ── -->
         <LinearLayout style="@style/Card" android:orientation="vertical">
             <TextView style="@style/CardLabel" android:text="WALLET CONNECTION"/>

@@ -29,6 +29,7 @@ class WalletActivity : AppCompatActivity() {
     private lateinit var btnChangeKey: Button
     private lateinit var layoutConnected: View
     private lateinit var layoutDisconnected: View
+    private lateinit var btnBackToBot: Button
 
     // balance section
     private lateinit var tvSolBalance: TextView
@@ -91,6 +92,13 @@ class WalletActivity : AppCompatActivity() {
             vm.ui.collect { state -> updateUi(state) }
         }
     }
+    
+    // Handle back button press - just close activity, don't disconnect wallet
+    @Deprecated("Deprecated in Java")
+    override fun onBackPressed() {
+        // Just finish the activity - wallet stays connected
+        finish()
+    }
 
     private fun bindViews() {
         tvConnectionStatus  = findViewById(R.id.tvConnectionStatus)
@@ -103,6 +111,7 @@ class WalletActivity : AppCompatActivity() {
         btnShowHideKey      = findViewById(R.id.btnShowHideKey)
         layoutConnected     = findViewById(R.id.layoutConnected)
         layoutDisconnected  = findViewById(R.id.layoutDisconnected)
+        btnBackToBot        = findViewById(R.id.btnBackToBot)
         tvSolBalance        = findViewById(R.id.tvSolBalance)
         tvUsdBalance        = findViewById(R.id.tvUsdBalance)
         tvSolPrice          = findViewById(R.id.tvSolPrice)
@@ -132,6 +141,11 @@ class WalletActivity : AppCompatActivity() {
     }
 
     private fun setupListeners() {
+        // Back to bot button - just finish activity, wallet stays connected
+        btnBackToBot.setOnClickListener {
+            finish()
+        }
+        
         btnConnect.setOnClickListener {
             val key = etPrivKeyInput.text.toString().trim()
             if (key.isBlank()) {
