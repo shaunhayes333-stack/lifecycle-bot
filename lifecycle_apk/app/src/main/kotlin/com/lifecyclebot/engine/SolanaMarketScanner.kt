@@ -227,7 +227,12 @@ class SolanaMarketScanner(
                     score = 50.0  // Force passing score for test
                 )
                 
-                // Skip filter for test - just emit directly
+                // Run through filters including impersonation check
+                if (!passesFilter(token)) {
+                    ErrorLogger.info("Scanner", "TEST: Token $symbol rejected by filters")
+                    continue
+                }
+                
                 emit(token)
                 added++
                 ErrorLogger.info("Scanner", "TEST: Added $symbol to watchlist")
