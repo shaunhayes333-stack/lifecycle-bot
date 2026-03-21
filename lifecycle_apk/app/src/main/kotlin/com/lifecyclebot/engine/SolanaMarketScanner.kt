@@ -86,7 +86,10 @@ class SolanaMarketScanner(
 
     private val dex        = DexscreenerApi()
     private val coingecko  = CoinGeckoTrending()
-    private val scope      = CoroutineScope(Dispatchers.IO + SupervisorJob())
+    
+    // Use a mutable scope that can be recreated when starting
+    private var scope: CoroutineScope? = null
+    private var scanJob: Job? = null
     
     // Create birdeye lazily with API key from config
     private val birdeye: BirdeyeApi
@@ -105,12 +108,24 @@ class SolanaMarketScanner(
     
     // Scan rotation - alternate between different scan sources for variety
     @Volatile private var scanRotation = 0
+    
+    // Running state
+    @Volatile private var isRunning = false
 
     // ── Start / Stop ─────────────────────────────────────────────────
 
     fun start() {
+        if (isRunning) {
+            ErrorLogger.warn("Scanner", "Scanner already running, ignoring start()")
+            return
+        }
+        
         ErrorLogger.info("Scanner", "SolanaMarketScanner.start() called")
-        scope.launch { 
+        isRunning = true
+        
+        // Create a fresh scope each time we start
+        scope = CoroutineScope(Dispatchers.IO + SupervisorJob())
+        scanJob = scope?.launch { 
             ErrorLogger.info("Scanner", "scanLoop starting...")
             scanLoop() 
         }
@@ -118,7 +133,12 @@ class SolanaMarketScanner(
     }
 
     fun stop() {
-        scope.cancel()
+        ErrorLogger.info("Scanner", "SolanaMarketScanner.stop() called")
+        isRunning = false
+        scanJob?.cancel()
+        scanJob = null
+        scope?.cancel()
+        scope = null
         onLog("SolanaMarketScanner stopped")
     }
 
@@ -126,7 +146,7 @@ class SolanaMarketScanner(
 
     private suspend fun scanLoop() {
         ErrorLogger.info("Scanner", "scanLoop() entered")
-        while (scope.isActive) {
+        while (isRunning) {
             val c = cfg()
             val scanIntervalMs = (c.scanIntervalSecs * 1000L).toLong()
             ErrorLogger.debug("Scanner", "Scan interval: ${scanIntervalMs}ms")
