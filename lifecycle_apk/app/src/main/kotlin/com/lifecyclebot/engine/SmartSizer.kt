@@ -91,10 +91,10 @@ object SmartSizer {
     ): SizeResult {
 
         // ── HARD MCAP FLOOR — never trade dust tokens ──────────────────
-        val HARD_MIN_MCAP = 15_000.0
+        val HARD_MIN_MCAP = 8_000.0
         if (mcapUsd > 0 && mcapUsd < HARD_MIN_MCAP) {
             return SizeResult(0.0, "blocked", 0.0, 1.0, 1.0, 1.0, 1.0, "mcap_too_low",
-                "Market cap \$${(mcapUsd/1000).toInt()}K below \$15K minimum — too risky")
+                "Market cap \$${(mcapUsd/1000).toInt()}K below \$8K minimum — too risky")
         }
 
         // ── Tradeable balance (reserve + treasury excluded) ──────────
