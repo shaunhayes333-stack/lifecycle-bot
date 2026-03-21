@@ -305,8 +305,8 @@ class SolanaMarketScanner(
                 val _tn = if (sScanTier != ScalingMode.Tier.MICRO)
                     " ${sScanTier.icon}${sScanTier.label}" else ""
                 
-                // MEMORY-OPTIMIZED: 4 cycles with more variety
-                scanRotation = (scanRotation + 1) % 4
+                // PUMP.FUN PRIORITY: Scan pump.fun EVERY cycle, plus rotate secondary sources
+                scanRotation = (scanRotation + 1) % 3
                 onLog("🌐 Scan #$scanRotation${_tn} - Starting scan cycle")
                 ErrorLogger.info("Scanner", "Scan cycle #$scanRotation starting")
                 
@@ -315,42 +315,36 @@ class SolanaMarketScanner(
                 
                 var tokensFoundThisCycle = 0
                 
+                // ALWAYS scan pump.fun first (priority)
+                onLog("🚀 Scanning: Pump.fun tokens (PRIORITY)...")
+                runScan("scanPumpFunActive") { scanPumpFunActive() }
+                delay(500)
+                
+                // Then rotate through secondary sources
                 when (scanRotation) {
                     0 -> {
-                        // PUMP.FUN FOCUS - Active pump.fun tokens with momentum
-                        onLog("🔍 Scanning: Pump.fun active tokens...")
-                        runScan("scanPumpFunActive") { scanPumpFunActive() }
-                        delay(1000)
+                        // Pump.fun graduates + boosted
+                        onLog("🔍 Scanning: Pump.fun graduates...")
+                        runScan("scanPumpGraduates") { scanPumpGraduates() }
+                        delay(500)
                         onLog("🔍 Scanning: DexScreener boosted...")
                         runScan("scanDexBoosted") { scanDexBoosted() }
                     }
                     1 -> {
-                        // PUMP.FUN GRADUATES - tokens that just graduated to Raydium
-                        onLog("🔍 Scanning: Pump.fun graduates...")
-                        runScan("scanPumpGraduates") { scanPumpGraduates() }
-                        delay(1000)
-                        onLog("🔍 Scanning: New Solana pairs...")
-                        runScan("scanDexGainers") { scanDexGainers() }
-                    }
-                    2 -> {
-                        // PUMP.FUN HIGH VOLUME - tokens with trading activity
+                        // Pump.fun volume + fresh launches
                         onLog("🔍 Scanning: Pump.fun high volume...")
                         runScan("scanPumpFunVolume") { scanPumpFunVolume() }
-                        delay(1000)
-                        onLog("🔍 Scanning: DexScreener trending...")
-                        runScan("scanDexTrending") { scanDexTrending() }
-                    }
-                    3 -> {
-                        // FRESH LAUNCHES - newest tokens for early entry
+                        delay(500)
                         onLog("🔍 Scanning: Fresh launches...")
                         runScan("scanFreshLaunches") { scanFreshLaunches() }
-                        delay(1000)
-                        if (c.birdeyeApiKey.isNotBlank()) {
-                            onLog("🔍 Scanning: Birdeye trending...")
-                            runScan("scanBirdeye") { scanBirdeyeTrending() }
-                        } else {
-                            runScan("scanDexGainers") { scanDexGainers() }
-                        }
+                    }
+                    2 -> {
+                        // DexScreener trending + gainers
+                        onLog("🔍 Scanning: DexScreener trending...")
+                        runScan("scanDexTrending") { scanDexTrending() }
+                        delay(500)
+                        onLog("🔍 Scanning: New Solana pairs...")
+                        runScan("scanDexGainers") { scanDexGainers() }
                     }
                 }
                 
