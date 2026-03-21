@@ -239,11 +239,52 @@ class WalletManager private constructor(private val ctx: Context) {
                 .header("Accept", "application/json")
                 .build()
             val resp = http.newCall(req).execute()
-            val body = resp.body?.string() ?: return _state.value.solPriceUsd
+            val body = resp.body?.string()
+            if (body == null) {
+                ErrorLogger.warn("Wallet", "SOL price fetch: empty response, using fallback")
+                return getFallbackSolPrice()
+            }
             val json = org.json.JSONObject(body)
-            json.optJSONObject("solana")?.optDouble("usd", 0.0) ?: 0.0
-        } catch (_: Exception) {
-            _state.value.solPriceUsd   // keep last known price on failure
+            val price = json.optJSONObject("solana")?.optDouble("usd", 0.0) ?: 0.0
+            if (price > 0) {
+                ErrorLogger.debug("Wallet", "SOL price: $${price}")
+                price
+            } else {
+                ErrorLogger.warn("Wallet", "SOL price is 0, using fallback")
+                getFallbackSolPrice()
+            }
+        } catch (e: Exception) {
+            ErrorLogger.error("Wallet", "SOL price fetch error: ${e.message}")
+            getFallbackSolPrice()
+        }
+    }
+    
+    private fun getFallbackSolPrice(): Double {
+        // Try DexScreener as fallback
+        return try {
+            val http = okhttp3.OkHttpClient.Builder()
+                .connectTimeout(5, java.util.concurrent.TimeUnit.SECONDS)
+                .readTimeout(8,  java.util.concurrent.TimeUnit.SECONDS)
+                .build()
+            val req = okhttp3.Request.Builder()
+                .url("https://api.dexscreener.com/latest/dex/tokens/So11111111111111111111111111111111111111112")
+                .header("Accept", "application/json")
+                .build()
+            val resp = http.newCall(req).execute()
+            val body = resp.body?.string() ?: return lastKnownSolPrice.takeIf { it > 0 } ?: 140.0
+            val json = org.json.JSONObject(body)
+            val pairs = json.optJSONArray("pairs")
+            if (pairs != null && pairs.length() > 0) {
+                val price = pairs.getJSONObject(0).optDouble("priceUsd", 0.0)
+                if (price > 0) {
+                    ErrorLogger.info("Wallet", "SOL price from DexScreener: $${price}")
+                    return price
+                }
+            }
+            lastKnownSolPrice.takeIf { it > 0 } ?: 140.0  // Last resort fallback
+        } catch (e: Exception) {
+            ErrorLogger.error("Wallet", "Fallback SOL price error: ${e.message}")
+            lastKnownSolPrice.takeIf { it > 0 } ?: 140.0
         }
     }
 

@@ -183,6 +183,16 @@ class MainActivity : AppCompatActivity() {
             } catch (_: Exception) {
                 com.lifecyclebot.engine.CurrencyManager(applicationContext)
             }
+            
+            // Refresh currency rates immediately
+            lifecycleScope.launch(kotlinx.coroutines.Dispatchers.IO) {
+                try {
+                    currency.refresh()
+                    com.lifecyclebot.engine.ErrorLogger.info("MainActivity", "Currency rates refreshed")
+                } catch (e: Exception) {
+                    com.lifecyclebot.engine.ErrorLogger.error("MainActivity", "Currency refresh error: ${e.message}")
+                }
+            }
 
             bindViews()
             setupChart()
@@ -205,6 +215,19 @@ class MainActivity : AppCompatActivity() {
         super.onPause()
         // Auto-save settings when app goes to background
         saveCurrentSettings()
+    }
+    
+    override fun onResume() {
+        super.onResume()
+        // Refresh currency rates and wallet balance when returning to activity
+        lifecycleScope.launch(kotlinx.coroutines.Dispatchers.IO) {
+            try {
+                currency.refresh()
+                com.lifecyclebot.engine.WalletManager.getInstance(applicationContext).refreshBalance()
+            } catch (e: Exception) {
+                com.lifecyclebot.engine.ErrorLogger.error("MainActivity", "onResume refresh error: ${e.message}")
+            }
+        }
     }
 
     override fun onStop() {
