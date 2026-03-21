@@ -117,11 +117,13 @@ class SolanaMarketScanner(
     @Volatile private var scanRotation = 0
     
     // Search keyword rotation for diverse token discovery
+    // Note: Avoid generic terms like "solana" which return impersonation scam tokens
     private val searchKeywords = listOf(
         "meme", "degen", "pepe", "wojak", "moon", "inu", "cat", "dog",
         "ai", "agent", "gpt", "depin", "rwa", "trump", "elon",
-        "solana", "sol", "bonk", "wif", "jup", "ray",
-        "nft", "game", "metaverse", "casino", "bet"
+        "bonk", "wif", "jup", "ray", "pyth", "jito",
+        "nft", "game", "metaverse", "casino", "bet",
+        "pump", "fun", "based", "chad", "frog", "monkey"
     )
     @Volatile private var keywordRotation = 0
     
@@ -166,8 +168,9 @@ class SolanaMarketScanner(
         // Simple test to verify API connectivity and add first token
         try {
             onLog("🧪 Running immediate test scan...")
-            val url = "https://api.dexscreener.com/latest/dex/search?q=solana"
-            ErrorLogger.info("Scanner", "TEST: Searching Solana tokens...")
+            // Use "pump" instead of "solana" to avoid impersonation tokens
+            val url = "https://api.dexscreener.com/latest/dex/search?q=pump"
+            ErrorLogger.info("Scanner", "TEST: Searching pump.fun tokens...")
             
             val body = get(url)
             if (body == null) {
@@ -919,6 +922,28 @@ class SolanaMarketScanner(
         if (scamPatterns.any { sym.contains(it) || name.contains(it) }) {
             ErrorLogger.debug("Scanner", "FILTER REJECT ${token.symbol}: scam pattern detected")
             return false
+        }
+        
+        // Block tokens impersonating major cryptocurrencies
+        // These are scam/meme tokens using deceptive names like "Solana" or "Bitcoin"
+        val impersonationNames = listOf(
+            "solana", "bitcoin", "ethereum", "bnb", "binance", "cardano", "ripple",
+            "dogecoin", "shiba", "polygon", "avalanche", "chainlink", "uniswap",
+            "wrapped sol", "wrapped solana"
+        )
+        // Only block if symbol OR name exactly matches (case-insensitive) or is very similar
+        val symLower = token.symbol.lowercase().trim()
+        val nameLower = token.name.lowercase().trim()
+        for (impersonation in impersonationNames) {
+            // Exact match or starts with the impersonated name
+            if (symLower == impersonation || 
+                symLower == "sol" ||  // Block fake SOL tokens
+                nameLower == impersonation ||
+                nameLower.startsWith("$impersonation ") ||  // "Solana The Pygmy Hippo"
+                nameLower.startsWith("the $impersonation")) {
+                ErrorLogger.info("Scanner", "FILTER REJECT ${token.symbol}: impersonates '$impersonation' (name='${token.name}')")
+                return false
+            }
         }
         
         // Token passed all filters!
