@@ -110,20 +110,32 @@ class BotViewModel(app: Application) : AndroidViewModel(app) {
     fun connectWallet(privateKeyB58: String, rpcUrl: String) {
         viewModelScope.launch(kotlinx.coroutines.Dispatchers.IO) {
             try {
+                com.lifecyclebot.engine.ErrorLogger.info("BotViewModel", "connectWallet called with RPC: ${rpcUrl.take(40)}...")
+                
                 val wm = com.lifecyclebot.engine.BotService.walletManager
+                com.lifecyclebot.engine.ErrorLogger.debug("BotViewModel", "Got walletManager, calling connect...")
+                
                 val success = wm.connect(privateKeyB58, rpcUrl)
-                if (!success) {
+                
+                if (success) {
+                    com.lifecyclebot.engine.ErrorLogger.info("BotViewModel", "Wallet connected successfully!")
+                    // Trigger balance refresh after successful connection
+                    wm.refreshBalance()
+                } else {
                     val error = wm.state.value.errorMessage
+                    com.lifecyclebot.engine.ErrorLogger.warn("BotViewModel", "Wallet connection failed: $error")
                     kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Main) {
                         android.widget.Toast.makeText(ctx, "Wallet error: $error", android.widget.Toast.LENGTH_LONG).show()
                     }
                 }
             } catch (e: UninitializedPropertyAccessException) {
+                com.lifecyclebot.engine.ErrorLogger.error("BotViewModel", "BotService not started - walletManager not available", e)
                 // BotService not started yet - start it first
                 kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Main) {
                     android.widget.Toast.makeText(ctx, "Start the bot first, then connect wallet", android.widget.Toast.LENGTH_LONG).show()
                 }
             } catch (e: Exception) {
+                com.lifecyclebot.engine.ErrorLogger.error("BotViewModel", "connectWallet exception: ${e.message}", e)
                 kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Main) {
                     android.widget.Toast.makeText(ctx, "Connection error: ${e.message}", android.widget.Toast.LENGTH_LONG).show()
                 }

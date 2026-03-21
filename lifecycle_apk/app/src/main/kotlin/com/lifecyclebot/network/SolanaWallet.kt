@@ -71,9 +71,18 @@ class SolanaWallet(privateKeyB58: String, val rpcUrl: String) {
     // ── balance ────────────────────────────────────────────
 
     fun getSolBalance(): Double {
-        val resp = rpc("getBalance", JSONArray().put(publicKeyB58))
-        val lam  = resp.optJSONObject("result")?.optLong("value", 0L) ?: 0L
-        return lam / 1_000_000_000.0
+        try {
+            val resp = rpc("getBalance", JSONArray().put(publicKeyB58))
+            val error = resp.optJSONObject("error")
+            if (error != null) {
+                throw RuntimeException("RPC error: ${error.optString("message", "unknown")}")
+            }
+            val lam = resp.optJSONObject("result")?.optLong("value", 0L) ?: 0L
+            return lam / 1_000_000_000.0
+        } catch (e: Exception) {
+            android.util.Log.e("SolanaWallet", "getSolBalance failed: ${e.message}", e)
+            throw e
+        }
     }
 
     // ── sign + broadcast ───────────────────────────────────

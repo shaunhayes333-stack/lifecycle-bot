@@ -131,10 +131,18 @@ class WalletManager(private val ctx: Context) {
     // ── balance refresh ───────────────────────────────────────────────
 
     fun refreshBalance() {
-        val w = wallet ?: return
+        val w = wallet ?: run {
+            ErrorLogger.warn("Wallet", "refreshBalance called but wallet is null")
+            return
+        }
         try {
-            val solBal    = w.getSolBalance()
-            val solPrice  = fetchSolPrice()
+            ErrorLogger.debug("Wallet", "Refreshing balance...")
+            val solBal = w.getSolBalance()
+            ErrorLogger.info("Wallet", "SOL Balance: $solBal")
+            
+            val solPrice = fetchSolPrice()
+            ErrorLogger.debug("Wallet", "SOL Price: $$solPrice")
+            
             if (solPrice > 0) WalletManager.lastKnownSolPrice = solPrice
             _state.value = _state.value.copy(
                 solBalance    = solBal,
@@ -149,7 +157,14 @@ class WalletManager(private val ctx: Context) {
                     .getOrNull(TreasuryManager.highestMilestoneHit + 1)
                     ?.thresholdUsd ?: 0.0,
             )
-        } catch (_: Exception) {}
+            ErrorLogger.info("Wallet", "Balance refresh complete: $solBal SOL ($${"%.2f".format(solBal * solPrice)})")
+        } catch (e: Exception) {
+            ErrorLogger.error("Wallet", "refreshBalance FAILED: ${e.message}", e)
+            // Update state with error
+            _state.value = _state.value.copy(
+                errorMessage = "Balance refresh failed: ${e.message}"
+            )
+        }
     }
 
     // ── SOL price (free, no key) ──────────────────────────────────────

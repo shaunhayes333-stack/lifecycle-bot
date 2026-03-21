@@ -191,8 +191,14 @@ class WalletActivity : AppCompatActivity() {
         btnRefreshBalance.setOnClickListener {
             lifecycleScope.launch(kotlinx.coroutines.Dispatchers.IO) {
                 try {
+                    com.lifecyclebot.engine.ErrorLogger.info("WalletActivity", "Manual balance refresh requested")
                     com.lifecyclebot.engine.BotService.walletManager.refreshBalance()
-                } catch (_: Exception) {}
+                } catch (e: Exception) {
+                    com.lifecyclebot.engine.ErrorLogger.error("WalletActivity", "Balance refresh failed: ${e.message}", e)
+                    kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Main) {
+                        Toast.makeText(this@WalletActivity, "Refresh failed: ${e.message}", Toast.LENGTH_SHORT).show()
+                    }
+                }
             }
             Toast.makeText(this, "Refreshing…", Toast.LENGTH_SHORT).show()
         }
