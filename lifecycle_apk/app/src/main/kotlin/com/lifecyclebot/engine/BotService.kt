@@ -568,6 +568,18 @@ class BotService : Service() {
                     addLog("📊 Processing: $firstTokens")
                 }
             }
+            
+            // AGGRESSIVE WATCHLIST CLEANUP - every 10 loops (about 50 seconds)
+            // Remove tokens that are blocked, stale, or underperforming
+            if (loopCount % 10 == 0 && watchlist.size > 5) {
+                scope.launch {
+                    try {
+                        cleanupWatchlist()
+                    } catch (e: Exception) {
+                        ErrorLogger.error("BotService", "Watchlist cleanup error: ${e.message}")
+                    }
+                }
+            }
 
             // Currency rate refresh + feed SOL price to bonding curve tracker
             scope.launch {
@@ -842,6 +854,100 @@ class BotService : Service() {
     }
 
     // ── logging ────────────────────────────────────────────
+
+    /**
+     * Aggressively clean up the watchlist to make room for new opportunities.
+     * Removes tokens that are:
+     * - Blocked by safety checker (rugcheck failed)
+     * - Stale (no price updates for 5+ minutes)
+     * - Dead (zero liquidity or volume)
+     * - Underperforming (flat price for 15+ minutes with no buys)
+     */
+    private suspend fun cleanupWatchlist() {
+        val cfg = ConfigStore.load(applicationContext)
+        val currentWatchlist = cfg.watchlist.toMutableList()
+        if (currentWatchlist.size <= 3) return  // Keep at least 3 tokens
+        
+        val tokensToRemove = mutableListOf<String>()
+        val now = System.currentTimeMillis()
+        val staleThresholdMs = 5 * 60_000L   // 5 minutes
+        val flatThresholdMs = 15 * 60_000L   // 15 minutes
+        
+        for (mint in currentWatchlist) {
+            val ts = status.tokens[mint]
+            
+            // Skip if we have an open position
+            if (ts?.currentPosition != null && ts.currentPosition != com.lifecyclebot.data.PositionSide.FLAT) {
+                continue
+            }
+            
+            // Remove if blocked by safety checker
+            if (ts?.safety?.blocked == true) {
+                tokensToRemove.add(mint)
+                addLog("🗑️ Removing ${ts.symbol}: BLOCKED", mint)
+                continue
+            }
+            
+            // Remove if explicitly blacklisted
+            if (TokenBlacklist.isBlocked(mint)) {
+                tokensToRemove.add(mint)
+                addLog("🗑️ Removing ${mint.take(8)}: blacklisted", mint)
+                continue
+            }
+            
+            // Check token state
+            if (ts != null) {
+                val lastUpdate = ts.history.lastOrNull()?.ts ?: 0L
+                val age = now - lastUpdate
+                
+                // Remove if stale (no data for 5+ minutes)
+                if (lastUpdate > 0 && age > staleThresholdMs) {
+                    tokensToRemove.add(mint)
+                    addLog("🗑️ Removing ${ts.symbol}: stale (${age/60000}m)", mint)
+                    continue
+                }
+                
+                // Remove if dead (zero liquidity)
+                if (ts.lastLiquidityUsd < 1000) {
+                    tokensToRemove.add(mint)
+                    addLog("🗑️ Removing ${ts.symbol}: low liq $${ts.lastLiquidityUsd.toInt()}", mint)
+                    continue
+                }
+                
+                // Remove if flat for too long with no volume
+                if (ts.history.size >= 10) {
+                    val recentCandles = ts.history.takeLast(10)
+                    val priceRange = recentCandles.maxOf { it.priceUsd } - recentCandles.minOf { it.priceUsd }
+                    val avgPrice = recentCandles.map { it.priceUsd }.average()
+                    val priceChangePercent = if (avgPrice > 0) (priceRange / avgPrice) * 100 else 0.0
+                    val totalBuys = recentCandles.sumOf { it.buysH1 }
+                    
+                    // Flat price (<2% range) AND no recent buys
+                    if (priceChangePercent < 2.0 && totalBuys < 5) {
+                        tokensToRemove.add(mint)
+                        addLog("🗑️ Removing ${ts.symbol}: flat & dead volume", mint)
+                        continue
+                    }
+                }
+            }
+        }
+        
+        // Apply removals
+        if (tokensToRemove.isNotEmpty()) {
+            val newWatchlist = currentWatchlist.filter { it !in tokensToRemove }
+            ConfigStore.save(applicationContext, cfg.copy(watchlist = newWatchlist))
+            
+            // Also remove from status.tokens
+            tokensToRemove.forEach { mint ->
+                synchronized(status.tokens) {
+                    status.tokens.remove(mint)
+                }
+            }
+            
+            ErrorLogger.info("BotService", "Watchlist cleanup: removed ${tokensToRemove.size} tokens, ${newWatchlist.size} remaining")
+            addLog("🧹 Cleaned ${tokensToRemove.size} tokens | Watchlist: ${newWatchlist.size}")
+        }
+    }
 
     private fun addLog(msg: String, mint: String = "") {
         val ts   = java.text.SimpleDateFormat("HH:mm:ss", java.util.Locale.US)
