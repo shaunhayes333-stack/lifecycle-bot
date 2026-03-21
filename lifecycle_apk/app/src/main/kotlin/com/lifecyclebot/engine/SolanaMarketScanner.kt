@@ -104,7 +104,11 @@ class SolanaMarketScanner(
 
     // Track which mints we've already surfaced to avoid duplicates
     private val seenMints  = ConcurrentHashMap<String, Long>()
-    private val SEEN_TTL   = 60_000L   // forget after 1 min — allow faster token refresh (was 2 min)
+    private val SEEN_TTL   = 30 * 60_000L   // forget after 30 min — don't keep rescanning same tokens
+    
+    // Track rejected tokens separately - longer cooldown
+    private val rejectedMints = ConcurrentHashMap<String, Long>()
+    private val REJECTED_TTL = 60 * 60_000L  // forget rejected tokens after 1 hour
     
     // Memory protection: limit concurrent operations
     private val semaphore = kotlinx.coroutines.sync.Semaphore(3)  // max 3 concurrent scans
@@ -359,6 +363,9 @@ class SolanaMarketScanner(
                 // GC after scan
                 System.gc()
                 onLog("✅ Scan cycle #$scanRotation complete")
+                
+                // Clean up old seen/rejected entries every cycle
+                cleanupSeenMaps()
                 
                 // GC after scan
                 System.gc()
@@ -1127,6 +1134,15 @@ class SolanaMarketScanner(
     // ── Filtering ─────────────────────────────────────────────────────
 
     private fun passesFilter(token: ScannedToken): Boolean {
+        val passed = passesFilterInternal(token)
+        if (!passed) {
+            // Mark rejected tokens so we don't keep re-scanning them
+            markRejected(token.mint)
+        }
+        return passed
+    }
+    
+    private fun passesFilterInternal(token: ScannedToken): Boolean {
         val c = cfg()
 
         // HARD MINIMUM MCAP - never trade tokens under $8K mcap
@@ -1252,16 +1268,38 @@ class SolanaMarketScanner(
 
     private fun isSeen(mint: String): Boolean {
         val now = System.currentTimeMillis()
-        val last = seenMints[mint] ?: return false
-        val seen = now - last < SEEN_TTL
-        if (seen) {
-            val secsRemaining = ((SEEN_TTL - (now - last)) / 1000).toInt()
-            // Only log occasionally to avoid spam
-            if (kotlin.random.Random.nextInt(10) == 0) {
-                ErrorLogger.debug("Scanner", "Token ${mint.take(8)}... seen, skip for ${secsRemaining}s")
-            }
+        
+        // Check if rejected (1 hour cooldown)
+        val rejectedAt = rejectedMints[mint]
+        if (rejectedAt != null && now - rejectedAt < REJECTED_TTL) {
+            return true  // Still in cooldown from rejection
         }
-        return seen
+        
+        // Check if recently seen (30 min cooldown)
+        val seenAt = seenMints[mint]
+        if (seenAt != null && now - seenAt < SEEN_TTL) {
+            return true
+        }
+        
+        // Check if already in watchlist (via config)
+        val watchlist = cfg().watchlist
+        if (mint in watchlist) {
+            return true  // Already being tracked
+        }
+        
+        return false
+    }
+    
+    // Mark a token as rejected (longer cooldown than just "seen")
+    private fun markRejected(mint: String) {
+        rejectedMints[mint] = System.currentTimeMillis()
+    }
+    
+    // Clean up old entries from seen/rejected maps periodically
+    private fun cleanupSeenMaps() {
+        val now = System.currentTimeMillis()
+        seenMints.entries.removeIf { now - it.value > SEEN_TTL }
+        rejectedMints.entries.removeIf { now - it.value > REJECTED_TTL }
     }
 
     private fun emit(token: ScannedToken) {
