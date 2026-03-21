@@ -313,16 +313,28 @@ class SolanaMarketScanner(
     private suspend fun scanDexGainers() {
         // Look for fresh Raydium pairs - potential pump.fun graduates
         val url = "https://api.dexscreener.com/latest/dex/pairs/solana/raydium"
-        val body = get(url) ?: return
+        ErrorLogger.info("Scanner", "scanDexGainers: fetching Raydium pairs...")
+        val body = get(url)
+        if (body == null) {
+            ErrorLogger.warn("Scanner", "scanDexGainers: no response from API")
+            return
+        }
         try {
-            val pairs = JSONObject(body).optJSONArray("pairs") ?: return
+            val pairs = JSONObject(body).optJSONArray("pairs")
+            if (pairs == null) {
+                ErrorLogger.warn("Scanner", "scanDexGainers: no pairs array in response")
+                return
+            }
+            ErrorLogger.info("Scanner", "scanDexGainers: got ${pairs.length()} Raydium pairs")
             val now = System.currentTimeMillis()
             val cutoff24h = now - 24 * 3_600_000L  // Pairs created in last 24 hours
             var found = 0
+            var processed = 0
             
             for (i in 0 until minOf(pairs.length(), 40)) {
                 if (found >= 8) break
                 val p = pairs.optJSONObject(i) ?: continue
+                processed++
                 
                 // Prefer newer tokens but don't require it
                 val created = p.optLong("pairCreatedAt", 0L)
@@ -371,7 +383,8 @@ class SolanaMarketScanner(
                     onLog("$src: $symbol | age=${ageHours.toInt()}h | liq=$${liq.toInt()}")
                 }
             }
-            if (found > 0) ErrorLogger.info("Scanner", "Raydium scan: found $found tokens")
+            if (found > 0) ErrorLogger.info("Scanner", "Raydium scan: found $found tokens (processed $processed)")
+            else ErrorLogger.info("Scanner", "Raydium scan: no tokens passed filters (processed $processed)")
         } catch (e: Exception) {
             ErrorLogger.error("Scanner", "scanDexGainers error: ${e.message}")
         }

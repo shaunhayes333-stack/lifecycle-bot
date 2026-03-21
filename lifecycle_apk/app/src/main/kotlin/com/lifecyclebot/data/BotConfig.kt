@@ -115,8 +115,8 @@ data class BotConfig(
     val convictionMult2: Double = 1.50,        // entry score 65+   → 1.50x size
     // 5. Liquidity/volume gate (replaces crude time filter)
     val liquidityGateEnabled: Boolean = true,
-    val minLiquidityUsd: Double = 8000.0,      // skip if liquidity < $8K
-    val minVolLiqRatio: Double = 0.30,         // skip if vol/liquidity < 0.3 (thin market)
+    val minLiquidityUsd: Double = 3000.0,      // skip if liquidity < $3K (lowered from $8K)
+    val minVolLiqRatio: Double = 0.20,         // skip if vol/liquidity < 0.2 (lowered from 0.3)
     // 6. Sentiment opt-in (only active when keys configured)
     val sentimentRequiresKeys: Boolean = false, // FIX 7: local sentiment always on; LLM needs keys
     // 7. Cross-token correlation guard
@@ -129,8 +129,8 @@ data class BotConfig(
     val fullMarketScanEnabled: Boolean = true,   // master switch
     val scanIntervalSecs: Int = 5,               // scan all sources every N seconds (fast refresh)
     val maxWatchlistSize: Int = 50,  // FIX 6: raised — parallel processing makes extra slots free              // auto-watchlist cap (pump.fun was 20)
-    val minDiscoveryScore: Double = 35.0,        // min composite score to add token
-    val scanMinMcapUsd: Double = 5_000.0,
+    val minDiscoveryScore: Double = 25.0,        // min composite score to add token (lowered from 35)
+    val scanMinMcapUsd: Double = 0.0,            // no min mcap (was $5K)
     val scalingModeEnabled: Boolean = true,
     val scalingLogEnabled: Boolean = true,
     val scalingTierOverride: String = "",
@@ -384,15 +384,15 @@ object ConfigStore {
             convictionMult1             = p.getFloat("conviction_mult1", 1.25f).toDouble(),
             convictionMult2             = p.getFloat("conviction_mult2", 1.50f).toDouble(),
             liquidityGateEnabled        = p.getBoolean("liquidity_gate", true),
-            minLiquidityUsd             = p.getFloat("min_liquidity_usd", 8000.0f).toDouble(),
+            minLiquidityUsd             = p.getFloat("min_liquidity_usd", 3000.0f).toDouble(),
             minVolLiqRatio              = p.getFloat("min_vol_liq_ratio", 0.30f).toDouble(),
             crossTokenGuardEnabled      = p.getBoolean("cross_token_guard", true),
             crossTokenWindowMins        = p.getFloat("cross_token_window", 15.0f).toDouble(),
             fullMarketScanEnabled       = p.getBoolean("full_market_scan", true),
             scanIntervalSecs            = p.getInt("scan_interval_secs", 45),
             maxWatchlistSize            = p.getInt("max_watchlist_size", 30),
-            minDiscoveryScore           = p.getFloat("min_discovery_score", 35.0f).toDouble(),
-            scanMinMcapUsd              = p.getFloat("scan_min_mcap", 5000.0f).toDouble(),
+            minDiscoveryScore           = p.getFloat("min_discovery_score", 25.0f).toDouble(),
+            scanMinMcapUsd              = p.getFloat("scan_min_mcap", 0.0f).toDouble(),
             scalingModeEnabled = p.getBoolean("scaling_mode_enabled", true),
             scalingLogEnabled  = p.getBoolean("scaling_log_enabled", true),
             scalingTierOverride = p.getString("scaling_tier_override", "") ?: "",
