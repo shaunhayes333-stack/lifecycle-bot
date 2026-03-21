@@ -704,6 +704,166 @@ Analyse this data and respond with ONLY valid JSON in this exact format:
 
     /** Size multiplier for current market regime */
     fun regimeSizeMultiplier(): Double = regimeBullMult
+    
+    /**
+     * Real-time learning from a completed trade.
+     * Updates internal state immediately for faster adaptation.
+     */
+    fun learnFromTrade(isWin: Boolean, phase: String, emaFan: String, source: String, pnlPct: Double) {
+        try {
+            // Track phase performance
+            val phaseWins = phaseWinCounts.getOrDefault(phase, 0)
+            val phaseLosses = phaseLossCounts.getOrDefault(phase, 0)
+            if (isWin) {
+                phaseWinCounts[phase] = phaseWins + 1
+            } else {
+                phaseLossCounts[phase] = phaseLosses + 1
+            }
+            
+            // Calculate real-time win rate for this phase
+            val totalForPhase = phaseWins + phaseLosses + 1
+            val winRate = (phaseWins + (if (isWin) 1 else 0)).toDouble() / totalForPhase * 100
+            
+            // Adjust phase boost based on real-time performance
+            if (totalForPhase >= 5) {
+                when {
+                    winRate >= 70 -> phaseBoosts[phase] = -5.0  // Lower entry bar = more aggressive
+                    winRate >= 55 -> phaseBoosts[phase] = 0.0   // Neutral
+                    winRate >= 40 -> phaseBoosts[phase] = 5.0   // Raise entry bar = more selective
+                    else -> phaseBoosts[phase] = 10.0           // High bar = very selective
+                }
+            }
+            
+            // Track source performance
+            val sourceWins = sourceWinCounts.getOrDefault(source, 0)
+            val sourceLosses = sourceLossCounts.getOrDefault(source, 0)
+            if (isWin) {
+                sourceWinCounts[source] = sourceWins + 1
+            } else {
+                sourceLossCounts[source] = sourceLosses + 1
+            }
+            
+            // Adjust source boost
+            val totalForSource = sourceWins + sourceLosses + 1
+            val sourceWinRate = (sourceWins + (if (isWin) 1 else 0)).toDouble() / totalForSource * 100
+            if (totalForSource >= 5) {
+                when {
+                    sourceWinRate >= 70 -> sourceBoosts[source] = 10.0   // Good source = boost score
+                    sourceWinRate >= 50 -> sourceBoosts[source] = 0.0    // Neutral
+                    else -> sourceBoosts[source] = -10.0                 // Bad source = penalize
+                }
+            }
+            
+            // Adjust global entry threshold based on recent performance
+            if (!isWin && pnlPct < -15) {
+                // Significant loss - become more cautious
+                entryThresholdDelta = (entryThresholdDelta + 1.0).coerceAtMost(15.0)
+            } else if (isWin && pnlPct > 30) {
+                // Good win - can be slightly more aggressive
+                entryThresholdDelta = (entryThresholdDelta - 0.5).coerceAtLeast(-5.0)
+            }
+            
+            // Track EMA fan performance for suppression
+            val key = "${phase}+${emaFan}"
+            if (!isWin) {
+                val currentLosses = patternLossCounts.getOrDefault(key, 0) + 1
+                patternLossCounts[key] = currentLosses
+                
+                // Auto-suppress patterns with 3+ consecutive losses
+                if (currentLosses >= 3) {
+                    onLog("🧠 Pattern '$key' suppressed after $currentLosses losses")
+                }
+            } else {
+                // Win resets the loss count for this pattern
+                patternLossCounts[key] = 0
+            }
+            
+            totalTradesLearned++
+            onLog("🧠 Learned: ${if(isWin) "WIN" else "LOSS"} ${pnlPct.toInt()}% | $phase | $source")
+        } catch (e: Exception) {
+            ErrorLogger.error("BotBrain", "learnFromTrade error: ${e.message}")
+        }
+    }
+    
+    // Real-time tracking maps
+    private val phaseWinCounts = mutableMapOf<String, Int>()
+    private val phaseLossCounts = mutableMapOf<String, Int>()
+    private val sourceWinCounts = mutableMapOf<String, Int>()
+    private val sourceLossCounts = mutableMapOf<String, Int>()
+    private val patternLossCounts = mutableMapOf<String, Int>()
+    private var totalTradesLearned = 0
+    
+    /**
+     * Get a risk-adjusted size multiplier for a specific trade context.
+     * Takes into account:
+     * - Suppressed patterns (reduce size for known bad patterns)
+     * - Source performance (reduce size for poor-performing sources)
+     * - Phase win rate (reduce size in losing phases)
+     * - Overall learned caution level
+     * Returns a multiplier between 0.3 and 1.5
+     */
+    fun getRiskAdjustedSizeMultiplier(phase: String, emaFan: String, source: String): Double {
+        var mult = regimeBullMult
+        
+        // Reduce size for suppressed patterns (risk reduction)
+        val suppressionPenalty = getSuppressionPenalty(phase, emaFan, source)
+        when {
+            suppressionPenalty >= 70 -> mult *= 0.3  // Near-blocked pattern = minimal size
+            suppressionPenalty >= 45 -> mult *= 0.5  // Confirmed bad = half size
+            suppressionPenalty >= 20 -> mult *= 0.7  // Monitoring = reduced size
+        }
+        
+        // Adjust for phase performance
+        val phaseBoost = phaseBoosts[phase] ?: 0.0
+        when {
+            phaseBoost <= -5.0 -> mult *= 1.2  // Winning phase = bigger size
+            phaseBoost >= 8.0 -> mult *= 0.6   // Losing phase = smaller size
+        }
+        
+        // Adjust for source performance
+        val sourceBoost = sourceBoosts[source] ?: 0.0
+        when {
+            sourceBoost >= 10.0 -> mult *= 1.15  // Good source = slightly bigger
+            sourceBoost <= -10.0 -> mult *= 0.7   // Bad source = smaller
+        }
+        
+        // Apply learned caution (entry threshold delta)
+        // High positive delta = brain is cautious = smaller sizes
+        // Negative delta = brain is confident = normal sizes
+        if (entryThresholdDelta > 5) mult *= 0.85
+        if (entryThresholdDelta > 10) mult *= 0.7
+        
+        return mult.coerceIn(0.3, 1.5)
+    }
+    
+    /**
+     * Should we skip this trade entirely based on learned risk?
+     * Returns true if the combination of factors is too risky.
+     */
+    fun shouldSkipTrade(phase: String, emaFan: String, source: String, entryScore: Double): Boolean {
+        // Hard suppression = skip
+        if (isHardSuppressed(phase, emaFan)) return true
+        
+        // Very cautious brain + low score = skip
+        if (entryThresholdDelta > 10 && entryScore < 55) return true
+        
+        // Multiple risk factors = skip
+        val suppressionPenalty = getSuppressionPenalty(phase, emaFan, source)
+        val phaseBoost = phaseBoosts[phase] ?: 0.0
+        val sourceBoost = sourceBoosts[source] ?: 0.0
+        
+        val riskFactors = listOf(
+            suppressionPenalty > 30,
+            phaseBoost >= 5,
+            sourceBoost <= -10,
+            currentRegime in listOf("BEAR", "BEAR_COLD", "DANGER"),
+        ).count { it }
+        
+        // 3+ risk factors = too risky
+        if (riskFactors >= 3 && entryScore < 70) return true
+        
+        return false
+    }
 
     /** Summary for UI display */
     fun getStatusSummary(): String = buildString {

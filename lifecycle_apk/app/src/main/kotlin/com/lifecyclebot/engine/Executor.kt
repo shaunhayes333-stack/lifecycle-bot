@@ -493,7 +493,27 @@ class Executor(
             }
             // Apply auto-mode size multiplier
             modeConfig?.let { size = size * it.positionSizeMultiplier }
-            brain?.let { size = (size * it.regimeSizeMultiplier()).coerceAtMost(walletSol * 0.20) }
+            
+            // BotBrain risk-adjusted sizing - uses learned patterns to adjust risk
+            brain?.let { b ->
+                // First check if brain says to skip this trade entirely
+                val emaFan = ts.meta.emafanAlignment
+                if (b.shouldSkipTrade(ts.phase, emaFan, ts.source, entryScore)) {
+                    onLog("🧠 Brain SKIP: ${ts.symbol} — too many risk factors", ts.mint)
+                    return
+                }
+                
+                // Apply risk-adjusted size multiplier
+                val riskMult = b.getRiskAdjustedSizeMultiplier(ts.phase, emaFan, ts.source)
+                size = (size * riskMult).coerceAtMost(walletSol * 0.20)
+                
+                if (riskMult < 0.8) {
+                    onLog("🧠 Brain risk adj: ${ts.symbol} size × ${String.format("%.2f", riskMult)} (${ts.phase}/${emaFan})", ts.mint)
+                } else if (riskMult > 1.1) {
+                    onLog("🧠 Brain confidence: ${ts.symbol} size × ${String.format("%.2f", riskMult)}", ts.mint)
+                }
+            }
+            
             if (size < 0.001) {
                 onLog("Insufficient capacity for new position on ${ts.symbol}", ts.mint)
                 return
@@ -830,11 +850,43 @@ class Executor(
                 description   = "Loss from source $src",
                 lossPct       = pnlP,
             )
+            // Record the exit reason as potential bad pattern
+            tradeDb?.recordBadObservation(
+                featureKey    = "exit_reason=${reason}",
+                behaviourType = "EXIT_PATTERN",
+                description   = "Exit via $reason resulted in loss",
+                lossPct       = pnlP,
+            )
+            // Record entry score range
+            val scoreRange = when {
+                pos.entryScore >= 80 -> "high_80+"
+                pos.entryScore >= 65 -> "medium_65-79"
+                pos.entryScore >= 50 -> "low_50-64"
+                else -> "very_low_<50"
+            }
+            tradeDb?.recordBadObservation(
+                featureKey    = "entry_score_range=${scoreRange}",
+                behaviourType = "SCORE_QUALITY",
+                description   = "Loss with entry score ${pos.entryScore.toInt()} ($scoreRange)",
+                lossPct       = pnlP,
+            )
+            
+            // Update BotBrain in real-time
+            brain?.let { b ->
+                b.learnFromTrade(isWin = false, phase = ph, emaFan = fanName, source = src, pnlPct = pnlP)
+            }
         } else {
             // Win — let the brain know this pattern is recovering
             val fanName = ts.meta.emafanAlignment
             val ph      = ts.position.entryPhase
+            val src     = ts.source.ifBlank { "UNKNOWN" }
             tradeDb?.recordGoodObservation("phase=${ph}+ema=${fanName}")
+            tradeDb?.recordGoodObservation("source=${src}")
+            
+            // Update BotBrain in real-time
+            brain?.let { b ->
+                b.learnFromTrade(isWin = true, phase = ph, emaFan = fanName, source = src, pnlPct = pnlP)
+            }
         }
 
         tradeDb?.insertTrade(TradeRecord(
