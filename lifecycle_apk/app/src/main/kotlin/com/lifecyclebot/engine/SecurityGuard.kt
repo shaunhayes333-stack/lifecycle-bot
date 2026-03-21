@@ -108,11 +108,13 @@ class SecurityGuard(
 
         // ── 0. Remote kill switch check ────────────────────────────────
         if (RemoteKillSwitch.isKilled) {
+            ErrorLogger.warn("Security", "REMOTE KILL: ${RemoteKillSwitch.killReason}")
             return GuardResult.Block("REMOTE KILL: ${RemoteKillSwitch.killReason}", fatal = true)
         }
 
         // ── 1. Full halt check ────────────────────────────────────────
         if (cbState.isHalted) {
+            ErrorLogger.warn("Security", "BOT HALTED: ${cbState.haltReason}")
             return GuardResult.Block("BOT HALTED: ${cbState.haltReason}", fatal = true)
         }
 

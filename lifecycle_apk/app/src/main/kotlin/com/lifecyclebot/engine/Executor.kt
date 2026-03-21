@@ -755,6 +755,7 @@ class Executor(
 
         } catch (e: Exception) {
             val safe = security.sanitiseForLog(e.message ?: "unknown")
+            ErrorLogger.error("Trade", "Live buy FAILED for ${ts.symbol}: $safe", e)
             onLog("Live buy FAILED: $safe", ts.mint)
             onNotify("⚠️ Buy Failed", "${ts.symbol}: ${safe.take(80)}", com.lifecyclebot.engine.NotificationHistory.NotifEntry.NotifType.INFO)
         }

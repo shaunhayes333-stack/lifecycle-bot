@@ -68,6 +68,10 @@ class BotService : Service() {
         instance = this
         
         try {
+            // Initialize error logger first so we can capture any init errors
+            ErrorLogger.init(applicationContext)
+            ErrorLogger.info("BotService", "onCreate starting")
+            
             createChannels()
 
             strategy        = LifecycleStrategy(
@@ -118,6 +122,7 @@ class BotService : Service() {
             sounds    = soundManager,
         )
         } catch (e: Exception) {
+            ErrorLogger.crash("BotService", "onCreate CRASH: ${e.javaClass.simpleName}: ${e.message}", e)
             android.util.Log.e("BotService", "onCreate CRASH: ${e.javaClass.simpleName}: ${e.message}", e)
             // Don't crash the service - log and continue
         }
@@ -170,9 +175,11 @@ class BotService : Service() {
         if (status.running) return
         
         try {
+            ErrorLogger.info("BotService", "startBot() called")
             addLog("🚀 Starting bot...")
             status.running = true
             startForeground(NOTIF_ID, buildRunningNotif())
+            ErrorLogger.info("BotService", "Foreground service started")
             addLog("✓ Foreground service started")
 
             // Register network callback to reconnect WebSocket after connectivity loss
@@ -397,12 +404,12 @@ class BotService : Service() {
         wakeLock = pm.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "lifecyclebot:trading")
             .also { it.acquire(12 * 60 * 60 * 1000L) }  // max 12h, released on stopBot
         addLog("Bot started — paper=${cfg.paperMode} auto=${cfg.autoTrade} sounds=${cfg.soundEnabled}")
+        ErrorLogger.info("BotService", "Bot started successfully")
         
         } catch (e: Exception) {
-            // Catch any crash and log it with full stack trace
-            val stackTrace = e.stackTraceToString().take(500)
+            // Catch any crash and log it with full stack trace to ErrorLogger
+            ErrorLogger.crash("BotService", "startBot CRASH: ${e.javaClass.simpleName}: ${e.message}", e)
             addLog("❌ Bot start CRASH: ${e.javaClass.simpleName}: ${e.message}")
-            addLog("Stack: $stackTrace")
             android.util.Log.e("BotService", "startBot CRASH", e)
             e.printStackTrace()
             status.running = false

@@ -1223,6 +1223,11 @@ class MainActivity : AppCompatActivity() {
                 scrollView?.smoothScrollTo(0, it.top)
             }
         }
+
+        // Error Logs button
+        findViewById<View>(R.id.btnQuickLogs)?.setOnClickListener {
+            startActivity(Intent(this, ErrorLogActivity::class.java))
+        }
     }
 
     /** Setup clear settings button with confirmation */

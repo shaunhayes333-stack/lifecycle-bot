@@ -66,6 +66,7 @@ class WalletManager(private val ctx: Context) {
     // ── connect / disconnect ──────────────────────────────────────────
 
     fun connect(privateKeyB58: String, rpcUrl: String): Boolean {
+        ErrorLogger.info("Wallet", "connect() called with RPC: ${rpcUrl.take(30)}...")
         _state.value = _state.value.copy(
             connectionState = WalletConnectionState.CONNECTING,
             errorMessage    = "",
@@ -73,6 +74,7 @@ class WalletManager(private val ctx: Context) {
         
         // Validate input first
         if (privateKeyB58.isBlank()) {
+            ErrorLogger.warn("Wallet", "Private key is empty")
             _state.value = _state.value.copy(
                 connectionState = WalletConnectionState.ERROR,
                 errorMessage    = "Private key is empty",
@@ -81,6 +83,7 @@ class WalletManager(private val ctx: Context) {
         }
         
         if (rpcUrl.isBlank()) {
+            ErrorLogger.warn("Wallet", "RPC URL is empty")
             _state.value = _state.value.copy(
                 connectionState = WalletConnectionState.ERROR,
                 errorMessage    = "RPC URL is empty",
@@ -89,8 +92,10 @@ class WalletManager(private val ctx: Context) {
         }
         
         return try {
+            ErrorLogger.debug("Wallet", "Creating SolanaWallet...")
             wallet = SolanaWallet(privateKeyB58, rpcUrl)
             val pubkey = wallet!!.publicKeyB58
+            ErrorLogger.info("Wallet", "Connected! Public key: ${pubkey.take(8)}...")
             _state.value = _state.value.copy(
                 connectionState = WalletConnectionState.CONNECTED,
                 publicKey       = pubkey,
@@ -98,6 +103,7 @@ class WalletManager(private val ctx: Context) {
             refreshBalance()
             true
         } catch (e: IllegalArgumentException) {
+            ErrorLogger.error("Wallet", "Invalid key format: ${e.message}", e)
             wallet = null
             _state.value = _state.value.copy(
                 connectionState = WalletConnectionState.ERROR,
@@ -105,6 +111,7 @@ class WalletManager(private val ctx: Context) {
             )
             false
         } catch (e: Exception) {
+            ErrorLogger.error("Wallet", "Connection failed: ${e.message}", e)
             wallet = null
             _state.value = _state.value.copy(
                 connectionState = WalletConnectionState.ERROR,

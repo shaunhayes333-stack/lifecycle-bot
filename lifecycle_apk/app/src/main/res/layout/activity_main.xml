@@ -287,6 +287,25 @@
                         android:text="Settings" android:textColor="#9CA3AF" android:textSize="10sp"
                         android:layout_marginTop="2dp"/>
                 </LinearLayout>
+
+                <!-- Error Logs -->
+                <LinearLayout
+                    android:id="@+id/btnQuickLogs"
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:orientation="vertical"
+                    android:gravity="center"
+                    android:padding="10dp"
+                    android:background="@drawable/section_card_bg"
+                    android:clickable="true"
+                    android:focusable="true">
+                    <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+                        android:text="🐛" android:textSize="20sp"/>
+                    <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+                        android:text="Logs" android:textColor="#9CA3AF" android:textSize="10sp"
+                        android:layout_marginTop="2dp"/>
+                </LinearLayout>
             </LinearLayout>
 
             <!-- ═══════════════════════════════
