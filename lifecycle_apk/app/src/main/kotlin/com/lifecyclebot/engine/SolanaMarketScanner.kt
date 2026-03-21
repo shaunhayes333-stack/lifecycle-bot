@@ -155,11 +155,14 @@ class SolanaMarketScanner(
     
     private suspend fun runTestScan() {
         // Simple test to verify API connectivity and add first token
-        // Uses the pairs endpoint - finds actual new Solana tokens by lifecycle
+        // Uses the search API which returns full pair data with liquidity, volume, etc.
         try {
             onLog("🧪 Running immediate test scan...")
-            val url = "https://api.dexscreener.com/token-profiles/latest/v1?chainId=solana"
-            ErrorLogger.info("Scanner", "TEST: Fetching recent Solana pairs...")
+            // Use search API with a popular meme term to find active tokens
+            val searchTerms = listOf("pepe", "doge", "cat", "dog", "ai", "meme")
+            val term = searchTerms[(System.currentTimeMillis() / 1000 % searchTerms.size).toInt()]
+            val url = "https://api.dexscreener.com/latest/dex/search?q=$term"
+            ErrorLogger.info("Scanner", "TEST: Searching for '$term' tokens...")
             
             val body = get(url)
             if (body == null) {
@@ -168,24 +171,21 @@ class SolanaMarketScanner(
                 return
             }
             
-            val pairs = if (body.startsWith("[")) {
-                org.json.JSONArray(body)
-            } else {
-                org.json.JSONObject(body).optJSONArray("pairs")
-            }
+            val pairs = JSONObject(body).optJSONArray("pairs")
             if (pairs == null || pairs.length() == 0) {
                 ErrorLogger.error("Scanner", "TEST FAILED: No pairs in response")
                 onLog("❌ API test failed - empty data")
                 return
             }
             
-            ErrorLogger.info("Scanner", "TEST OK: Got ${pairs.length()} pairs")
+            ErrorLogger.info("Scanner", "TEST OK: Got ${pairs.length()} pairs for '$term'")
             onLog("✅ API OK: ${pairs.length()} pairs received")
             
             // Try to add first valid token to watchlist
             var added = 0
-            for (i in 0 until minOf(pairs.length(), 30)) {
-                if (added >= 3) break  // Add up to 3 tokens
+            var rejected = 0
+            for (i in 0 until minOf(pairs.length(), 50)) {
+                if (added >= 5) break  // Add up to 5 tokens
                 
                 val p = pairs.optJSONObject(i) ?: continue
                 val chainId = p.optString("chainId", "")
@@ -198,45 +198,53 @@ class SolanaMarketScanner(
                 if (symbol.uppercase() in listOf("SOL", "WSOL", "USDC", "USDT", "RAY")) continue
                 
                 val liq = p.optJSONObject("liquidity")?.optDouble("usd", 0.0) ?: 0.0
-                if (liq < 2000) continue  // Very low threshold for test
+                // Very low threshold for test - just need some liquidity
+                if (liq < 1000) continue
                 
                 val mcap = p.optDouble("marketCap", 0.0)
                 val vol = p.optJSONObject("volume")?.optDouble("h1", 0.0) ?: 0.0
                 val name = p.optJSONObject("baseToken")?.optString("name", "") ?: symbol
                 val dexId = p.optString("dexId", "unknown")
+                val buys = p.optJSONObject("txns")?.optJSONObject("h1")?.optInt("buys", 0) ?: 0
+                val sells = p.optJSONObject("txns")?.optJSONObject("h1")?.optInt("sells", 0) ?: 0
+                val priceChange = p.optJSONObject("priceChange")?.optDouble("h1", 0.0) ?: 0.0
+                val created = p.optLong("pairCreatedAt", 0L)
+                val now = System.currentTimeMillis()
+                val ageHours = if (created > 0) (now - created) / 3_600_000.0 else 24.0
                 
                 val token = ScannedToken(
                     mint = mint,
                     symbol = symbol,
                     name = name,
-                    source = TokenSource.RAYDIUM_NEW_POOL,
+                    source = TokenSource.DEX_TRENDING,
                     liquidityUsd = liq,
                     volumeH1 = vol,
                     mcapUsd = mcap,
-                    pairCreatedHoursAgo = 1.0,
+                    pairCreatedHoursAgo = ageHours,
                     dexId = dexId,
-                    priceChangeH1 = 0.0,
-                    txCountH1 = 0,
-                    score = 50.0  // Force passing score for test
+                    priceChangeH1 = priceChange,
+                    txCountH1 = buys + sells,
+                    score = 60.0  // Give a good score for test tokens
                 )
                 
                 // Run through filters including impersonation check
                 if (!passesFilter(token)) {
-                    ErrorLogger.info("Scanner", "TEST: Token $symbol rejected by filters")
+                    rejected++
+                    ErrorLogger.info("Scanner", "TEST: Token $symbol rejected by filters (name='$name')")
                     continue
                 }
                 
                 emit(token)
                 added++
-                ErrorLogger.info("Scanner", "TEST: Added $symbol to watchlist")
-                onLog("🎯 Test added: $symbol | liq=$${liq.toInt()}")
+                ErrorLogger.info("Scanner", "TEST: Added $symbol to watchlist (liq=\$${liq.toInt()})")
+                onLog("🎯 Test added: $symbol | liq=\$${liq.toInt()} | vol=\$${vol.toInt()}")
             }
             
             if (added == 0) {
-                ErrorLogger.warn("Scanner", "TEST: Could not find any valid tokens to add")
-                onLog("⚠️ Test: No valid tokens found")
+                ErrorLogger.warn("Scanner", "TEST: Could not find valid tokens (rejected=$rejected)")
+                onLog("⚠️ Test: No valid tokens (${rejected} rejected by filters)")
             } else {
-                ErrorLogger.info("Scanner", "TEST COMPLETE: Added $added tokens")
+                ErrorLogger.info("Scanner", "TEST COMPLETE: Added $added tokens (rejected=$rejected)")
                 onLog("✅ Test complete: $added tokens added")
             }
             
