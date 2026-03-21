@@ -159,29 +159,45 @@ class MainActivity : AppCompatActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        setContentView(R.layout.activity_main)
-        supportActionBar?.hide()
-
-        // Transparent status bar
-        window.statusBarColor = Color.TRANSPARENT
-        window.decorView.systemUiVisibility = View.SYSTEM_UI_FLAG_LAYOUT_FULLSCREEN
-
-        vm       = ViewModelProvider(this)[BotViewModel::class.java]
-        currency = try {
-            com.lifecyclebot.engine.BotService.instance?.currencyManager
-                ?: com.lifecyclebot.engine.CurrencyManager(applicationContext)
-        } catch (_: Exception) {
-            com.lifecyclebot.engine.CurrencyManager(applicationContext)
+        
+        // Ensure ErrorLogger is initialized (backup - App class should have done this)
+        try {
+            com.lifecyclebot.engine.ErrorLogger.init(applicationContext)
+            com.lifecyclebot.engine.ErrorLogger.info("MainActivity", "onCreate started")
+        } catch (e: Exception) {
+            android.util.Log.e("MainActivity", "ErrorLogger init failed: ${e.message}")
         }
+        
+        try {
+            setContentView(R.layout.activity_main)
+            supportActionBar?.hide()
 
-        bindViews()
-        setupChart()
-        setupSettings()
-        requestNotifPermission()
-        checkBatteryOptimisation()
+            // Transparent status bar
+            window.statusBarColor = Color.TRANSPARENT
+            window.decorView.systemUiVisibility = View.SYSTEM_UI_FLAG_LAYOUT_FULLSCREEN
 
-        lifecycleScope.launch {
-            vm.ui.collect { state -> updateUi(state) }
+            vm       = ViewModelProvider(this)[BotViewModel::class.java]
+            currency = try {
+                com.lifecyclebot.engine.BotService.instance?.currencyManager
+                    ?: com.lifecyclebot.engine.CurrencyManager(applicationContext)
+            } catch (_: Exception) {
+                com.lifecyclebot.engine.CurrencyManager(applicationContext)
+            }
+
+            bindViews()
+            setupChart()
+            setupSettings()
+            requestNotifPermission()
+            checkBatteryOptimisation()
+
+            lifecycleScope.launch {
+                vm.ui.collect { state -> updateUi(state) }
+            }
+            
+            com.lifecyclebot.engine.ErrorLogger.info("MainActivity", "onCreate completed successfully")
+        } catch (e: Exception) {
+            com.lifecyclebot.engine.ErrorLogger.crash("MainActivity", "onCreate CRASH: ${e.message}", e)
+            throw e  // Re-throw to let the global handler catch it too
         }
     }
 
