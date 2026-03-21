@@ -150,7 +150,7 @@ object AutoCompoundEngine {
         )
 
         val message = buildString {
-            append("Split: ${treasuryPct.toInt()}%T/${compoundPct.toInt()}%C/${walletPct.toInt()}%W")
+            append("Split: ${treasuryPct.toInt()}T/${compoundPct.toInt()}C/${walletPct.toInt()}W")
             if (newStreak >= 3) append(" 🔥$newStreak")
             if (newMultiplier > state.currentSizeMultiplier) append(" ⬆️${newMultiplier}x")
         }
