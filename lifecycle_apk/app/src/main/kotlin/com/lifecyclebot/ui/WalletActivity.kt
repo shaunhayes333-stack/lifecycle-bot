@@ -322,11 +322,10 @@ class WalletActivity : AppCompatActivity() {
             }
         }
 
-        // Balance
-        tvSolBalance.text = currency.format(ws.solBalance)
-        tvUsdBalance.text = if (ws.solBalance > 0 && currency.selectedCurrency != "SOL")
-            "◎ %.4f".format(ws.solBalance) else if (ws.balanceUsd > 0) "\$%.2f".format(ws.balanceUsd) else "—"
-        tvSolPrice.text   = if (ws.solPriceUsd > 0) "SOL = $%.2f".format(ws.solPriceUsd) else "—"
+        // Balance - Fixed: SOL shows SOL, USD shows USD
+        tvSolBalance.text = "◎ %.4f".format(ws.solBalance)  // SOL balance with SOL symbol
+        tvUsdBalance.text = if (ws.balanceUsd > 0) "\$%.2f".format(ws.balanceUsd) else "—"  // USD value
+        tvSolPrice.text   = if (ws.solPriceUsd > 0) "SOL = \$%.2f".format(ws.solPriceUsd) else "—"
         if (ws.lastRefreshed > 0) {
             val sdf = java.text.SimpleDateFormat("HH:mm:ss", java.util.Locale.US)
             tvLastRefreshed.text = "Updated ${sdf.format(java.util.Date(ws.lastRefreshed))}"
