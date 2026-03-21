@@ -162,62 +162,73 @@ class BotService : Service() {
 
     fun startBot() {
         if (status.running) return
-        status.running = true
-        startForeground(NOTIF_ID, buildRunningNotif())
+        
+        try {
+            status.running = true
+            startForeground(NOTIF_ID, buildRunningNotif())
 
-        // Register network callback to reconnect WebSocket after connectivity loss
-        val cm = getSystemService(Context.CONNECTIVITY_SERVICE) as ConnectivityManager
-        val req = NetworkRequest.Builder()
-            .addCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET).build()
-        networkCallback = object : ConnectivityManager.NetworkCallback() {
-            override fun onAvailable(network: Network) {
-                if (status.running) {
-                    addLog("📡 Network restored — reconnecting streams")
-                    scope.launch {
-                        delay(2_000)  // brief delay to let connection stabilise
-                        orchestrator?.reconnectStreams()
+            // Register network callback to reconnect WebSocket after connectivity loss
+            val cm = getSystemService(Context.CONNECTIVITY_SERVICE) as ConnectivityManager
+            val req = NetworkRequest.Builder()
+                .addCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET).build()
+            networkCallback = object : ConnectivityManager.NetworkCallback() {
+                override fun onAvailable(network: Network) {
+                    if (status.running) {
+                        addLog("📡 Network restored — reconnecting streams")
+                        scope.launch {
+                            delay(2_000)  // brief delay to let connection stabilise
+                            try {
+                                orchestrator?.reconnectStreams()
+                            } catch (e: Exception) {
+                                addLog("Stream reconnect error: ${e.message}")
+                            }
+                        }
                     }
                 }
+                override fun onLost(network: Network) {
+                    if (status.running) addLog("📡 Network lost — WebSocket will reconnect on restore")
+                }
             }
-            override fun onLost(network: Network) {
-                if (status.running) addLog("📡 Network lost — WebSocket will reconnect on restore")
-            }
-        }
-        cm.registerNetworkCallback(req, networkCallback!!)
+            cm.registerNetworkCallback(req, networkCallback!!)
 
-        val cfg = ConfigStore.load(applicationContext)
-        wallet = if (!cfg.paperMode && cfg.privateKeyB58.isNotBlank()) {
-            val connected = walletManager.connect(cfg.privateKeyB58, cfg.rpcUrl)
-            if (connected) {
-                addLog("Wallet connected: ${walletManager.state.value.shortKey}")
-                walletManager.getWallet()
+            val cfg = ConfigStore.load(applicationContext)
+            wallet = if (!cfg.paperMode && cfg.privateKeyB58.isNotBlank()) {
+                try {
+                    val connected = walletManager.connect(cfg.privateKeyB58, cfg.rpcUrl)
+                    if (connected) {
+                        addLog("Wallet connected: ${walletManager.state.value.shortKey}")
+                        walletManager.getWallet()
+                    } else {
+                        addLog("Wallet error: ${walletManager.state.value.errorMessage} — paper mode")
+                        null
+                    }
+                } catch (e: Exception) {
+                    addLog("Wallet connection failed: ${e.message} — paper mode")
+                    null
+                }
             } else {
-                addLog("Wallet error: ${walletManager.state.value.errorMessage} — paper mode")
+                walletManager.disconnect()
                 null
             }
-        } else {
-            walletManager.disconnect()
-            null
-        }
 
-        // Run startup reconciliation to catch any state mismatch
-        // from previous crash, manual sells, or failed transactions
-        val liveWallet = wallet
-        if (liveWallet != null) {
-            scope.launch {
-                try {
-                    val reconciler = StartupReconciler(
-                        wallet  = liveWallet,
-                        status  = status,
-                        onLog   = { msg -> addLog(msg) },
-                        onAlert = { title, body ->
-                            sendTradeNotif(title, body,
-                                NotificationHistory.NotifEntry.NotifType.INFO)
-                        }
-                    )
-                    reconciler.reconcile()
-                } catch (e: Exception) {
-                    addLog("Reconciliation error: ${e.message}")
+            // Run startup reconciliation to catch any state mismatch
+            // from previous crash, manual sells, or failed transactions
+            val liveWallet = wallet
+            if (liveWallet != null) {
+                scope.launch {
+                    try {
+                        val reconciler = StartupReconciler(
+                            wallet  = liveWallet,
+                            status  = status,
+                            onLog   = { msg -> addLog(msg) },
+                            onAlert = { title, body ->
+                                sendTradeNotif(title, body,
+                                    NotificationHistory.NotifEntry.NotifType.INFO)
+                            }
+                        )
+                        reconciler.reconcile()
+                    } catch (e: Exception) {
+                        addLog("Reconciliation error: ${e.message}")
                 }
             }
         } else {
@@ -338,6 +349,15 @@ class BotService : Service() {
         wakeLock = pm.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "lifecyclebot:trading")
             .also { it.acquire(12 * 60 * 60 * 1000L) }  // max 12h, released on stopBot
         addLog("Bot started — paper=${cfg.paperMode} auto=${cfg.autoTrade} sounds=${cfg.soundEnabled}")
+        
+        } catch (e: Exception) {
+            // Catch any crash and log it, don't let the service crash
+            addLog("❌ Bot start error: ${e.message}")
+            status.running = false
+            try {
+                stopForeground(STOP_FOREGROUND_REMOVE)
+            } catch (_: Exception) {}
+        }
     }
 
     fun stopBot() {

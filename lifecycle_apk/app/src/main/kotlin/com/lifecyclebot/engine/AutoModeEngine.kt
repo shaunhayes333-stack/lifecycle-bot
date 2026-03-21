@@ -145,8 +145,19 @@ class AutoModeEngine(
         curveStage: BondingCurveTracker.CurveStage, utcHour: Int, c: BotConfig,
     ): BotMode {
 
-        // PAUSED — dead hours (01:00–07:00 UTC)
-        if (utcHour in 1..6) return BotMode.PAUSED
+        // PAUSED — dead hours (configurable, but allow trading if there's strong opportunity)
+        // Only pause if utcHour is within pause window AND no strong signals present
+        val inPauseWindow = utcHour >= c.tradingPauseUtcStart && utcHour < c.tradingPauseUtcEnd
+        val hasStrongSignal = whaleScore >= 75 || (trendingRank != null && trendingRank <= 3)
+        
+        // During quiet hours: only pause if no strong opportunities
+        if (inPauseWindow && !hasStrongSignal) {
+            // Check if there's any significant volume or activity
+            val recentActivity = ts.history.toList().takeLast(5)
+            val hasActivity = recentActivity.size >= 3 && 
+                recentActivity.any { it.volumeUsd > 10000 }
+            if (!hasActivity) return BotMode.PAUSED
+        }
 
         // COPY — active copy trigger (handled externally, just maintain)
         if (currentMode == BotMode.COPY &&
@@ -202,7 +213,7 @@ class AutoModeEngine(
         }
         BotMode.DEFENSIVE  -> "Loss streak detected"
         BotMode.COPY       -> "Copy wallet triggered"
-        BotMode.PAUSED     -> "Dead zone UTC $utcHour:00"
+        BotMode.PAUSED     -> "Quiet hours UTC $utcHour:00 (low activity)"
     }
 
     // ── mode configs ──────────────────────────────────────────────────
