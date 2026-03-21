@@ -69,10 +69,11 @@ class WalletManager(private val ctx: Context) {
         @Volatile var lastKnownSolPrice: Double = 0.0
         
         val FALLBACK_RPCS = listOf(
-            "https://api.mainnet-beta.solana.com",           // Official Solana (rate limited)
-            "https://rpc.ankr.com/solana",                   // Ankr public
-            "https://solana-mainnet.g.alchemy.com/v2/demo",  // Alchemy demo
-            "https://solana.public-rpc.com",                 // Public RPC
+            "https://api.mainnet-beta.solana.com",              // Official Solana
+            "https://solana-mainnet.rpc.extrnode.com",          // Extrnode  
+            "https://rpc.ankr.com/solana",                      // Ankr
+            "https://solana.public-rpc.com",                    // Public RPC
+            "https://mainnet.rpcpool.com",                      // RPC Pool
         )
     }
 
@@ -103,16 +104,20 @@ class WalletManager(private val ctx: Context) {
         rpcsToTry.addAll(FALLBACK_RPCS)
         
         // Try each RPC until one works
+        var lastError: String = "Unknown error"
         for (tryRpc in rpcsToTry) {
-            ErrorLogger.info("Wallet", "Trying RPC: ${tryRpc.take(40)}...")
+            ErrorLogger.info("Wallet", "Trying RPC: ${tryRpc.take(50)}...")
             try {
+                ErrorLogger.debug("Wallet", "Creating SolanaWallet with key length: ${privateKeyB58.length}")
                 wallet = SolanaWallet(privateKeyB58, tryRpc)
                 val pubkey = wallet!!.publicKeyB58
+                ErrorLogger.debug("Wallet", "Wallet created, pubkey: ${pubkey.take(12)}...")
                 
                 // Test the connection by getting balance
+                ErrorLogger.debug("Wallet", "Testing connection with getBalance...")
                 val testBalance = wallet!!.getSolBalance()
                 
-                ErrorLogger.info("Wallet", "Connected via ${tryRpc.take(30)}! Balance: $testBalance SOL")
+                ErrorLogger.info("Wallet", "SUCCESS! Connected via ${tryRpc.take(35)}! Balance: $testBalance SOL")
                 currentRpcUrl = tryRpc
                 _state.value = _state.value.copy(
                     connectionState = WalletConnectionState.CONNECTED,
@@ -123,25 +128,26 @@ class WalletManager(private val ctx: Context) {
                 return true
             } catch (e: IllegalArgumentException) {
                 // Invalid key format - don't try other RPCs
-                ErrorLogger.error("Wallet", "Invalid key format: ${e.message}", e)
+                ErrorLogger.error("Wallet", "INVALID KEY FORMAT: ${e.message}", e)
                 wallet = null
                 _state.value = _state.value.copy(
                     connectionState = WalletConnectionState.ERROR,
-                    errorMessage    = "Invalid key format: ${e.message}",
+                    errorMessage    = "Invalid private key format",
                 )
                 return false
             } catch (e: Exception) {
-                ErrorLogger.warn("Wallet", "RPC ${tryRpc.take(30)} failed: ${e.message}")
+                lastError = e.message ?: "Unknown"
+                ErrorLogger.warn("Wallet", "RPC FAILED [${tryRpc.take(35)}]: $lastError")
+                wallet = null
                 // Continue to next RPC
             }
         }
         
         // All RPCs failed
-        ErrorLogger.error("Wallet", "All RPCs failed")
-        wallet = null
+        ErrorLogger.error("Wallet", "ALL ${rpcsToTry.size} RPCs FAILED. Last error: $lastError")
         _state.value = _state.value.copy(
             connectionState = WalletConnectionState.ERROR,
-            errorMessage    = "All RPC endpoints failed. Check internet connection.",
+            errorMessage    = "All RPC endpoints failed: $lastError",
         )
         return false
     }
