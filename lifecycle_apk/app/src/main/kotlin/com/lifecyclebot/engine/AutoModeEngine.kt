@@ -155,7 +155,7 @@ class AutoModeEngine(
             // Check if there's any significant volume or activity
             val recentActivity = ts.history.toList().takeLast(5)
             val hasActivity = recentActivity.size >= 3 && 
-                recentActivity.any { it.volumeUsd > 10000 }
+                recentActivity.any { it.volumeH1 > 10000.0 }
             if (!hasActivity) return BotMode.PAUSED
         }
 
