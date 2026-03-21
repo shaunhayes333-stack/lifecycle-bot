@@ -11,7 +11,7 @@ data class BotConfig(
     val rpcUrl: String = "https://api.mainnet-beta.solana.com",
     // mode
     val paperMode: Boolean = true,
-    val autoTrade: Boolean = false,
+    val autoTrade: Boolean = true,  // ENABLED BY DEFAULT - bot is autonomous
     // tokens
     val watchlist: List<String> = emptyList(),
     val activeToken: String = "",
@@ -54,7 +54,7 @@ data class BotConfig(
     val heliusApiKey: String = "",      // helius.dev — free, real-time WS + creator history
     val birdeyeApiKey: String = "",     // birdeye.so — free, OHLCV candles
     val groqApiKey: String = "",        // console.groq.com — free LLM sentiment (llama-3.1-8b)
-    val autoAddNewTokens: Boolean = false, // auto-add new Pump.fun launches to watchlist
+    val autoAddNewTokens: Boolean = true, // ENABLED - auto-add new Pump.fun launches to watchlist
     // multi-position trading
     // Concurrent positions: no hard limit — SmartSizer exposure cap (70% of wallet)
     // naturally bounds how many positions can be open simultaneously.
@@ -308,7 +308,7 @@ object ConfigStore {
             walletAddress               = p.getString("wallet_address", "") ?: "",
             rpcUrl                      = p.getString("rpc_url", "https://api.mainnet-beta.solana.com") ?: "https://api.mainnet-beta.solana.com",
             paperMode                   = p.getBoolean("paper_mode", true),
-            autoTrade                   = p.getBoolean("auto_trade", false),
+            autoTrade                   = p.getBoolean("auto_trade", true),
             watchlist                   = (p.getString("watchlist", "") ?: "").split(",").filter { it.isNotBlank() },
             activeToken                 = p.getString("active_token", "") ?: "",
             smallBuySol                 = p.getFloat("small_buy_sol", 0.05f).toDouble(),
@@ -340,7 +340,7 @@ object ConfigStore {
             heliusApiKey                = s.getString("helius_api_key", "") ?: "",
             birdeyeApiKey               = s.getString("birdeye_api_key", "") ?: "",
             groqApiKey                  = s.getString("groq_api_key", "") ?: "",
-            autoAddNewTokens            = p.getBoolean("auto_add_new_tokens", false),
+            autoAddNewTokens            = p.getBoolean("auto_add_new_tokens", true),
             maxConcurrentPositions      = p.getInt("max_concurrent_positions", 3),
             maxTotalExposureSol         = p.getFloat("max_total_exposure_sol", 0.30f).toDouble(),
             minHoldMins                 = p.getFloat("min_hold_mins", 3.0f).toDouble(),
