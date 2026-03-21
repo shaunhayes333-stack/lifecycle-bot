@@ -62,6 +62,19 @@ class WalletManager(private val ctx: Context) {
     val state: StateFlow<WalletState> = _state
 
     private var wallet: SolanaWallet? = null
+    private var currentRpcUrl: String = ""
+    
+    // Fallback public RPC endpoints (free, no API key needed)
+    companion object {
+        @Volatile var lastKnownSolPrice: Double = 0.0
+        
+        val FALLBACK_RPCS = listOf(
+            "https://api.mainnet-beta.solana.com",           // Official Solana (rate limited)
+            "https://rpc.ankr.com/solana",                   // Ankr public
+            "https://solana-mainnet.g.alchemy.com/v2/demo",  // Alchemy demo
+            "https://solana.public-rpc.com",                 // Public RPC
+        )
+    }
 
     // ── connect / disconnect ──────────────────────────────────────────
 
@@ -82,51 +95,66 @@ class WalletManager(private val ctx: Context) {
             return false
         }
         
-        if (rpcUrl.isBlank()) {
-            ErrorLogger.warn("Wallet", "RPC URL is empty")
-            _state.value = _state.value.copy(
-                connectionState = WalletConnectionState.ERROR,
-                errorMessage    = "RPC URL is empty",
-            )
-            return false
+        // Build list of RPCs to try: user's RPC first, then fallbacks
+        val rpcsToTry = mutableListOf<String>()
+        if (rpcUrl.isNotBlank()) {
+            rpcsToTry.add(rpcUrl)
+        }
+        rpcsToTry.addAll(FALLBACK_RPCS)
+        
+        // Try each RPC until one works
+        for (tryRpc in rpcsToTry) {
+            ErrorLogger.info("Wallet", "Trying RPC: ${tryRpc.take(40)}...")
+            try {
+                wallet = SolanaWallet(privateKeyB58, tryRpc)
+                val pubkey = wallet!!.publicKeyB58
+                
+                // Test the connection by getting balance
+                val testBalance = wallet!!.getSolBalance()
+                
+                ErrorLogger.info("Wallet", "Connected via ${tryRpc.take(30)}! Balance: $testBalance SOL")
+                currentRpcUrl = tryRpc
+                _state.value = _state.value.copy(
+                    connectionState = WalletConnectionState.CONNECTED,
+                    publicKey       = pubkey,
+                    solBalance      = testBalance,
+                )
+                refreshBalance()
+                return true
+            } catch (e: IllegalArgumentException) {
+                // Invalid key format - don't try other RPCs
+                ErrorLogger.error("Wallet", "Invalid key format: ${e.message}", e)
+                wallet = null
+                _state.value = _state.value.copy(
+                    connectionState = WalletConnectionState.ERROR,
+                    errorMessage    = "Invalid key format: ${e.message}",
+                )
+                return false
+            } catch (e: Exception) {
+                ErrorLogger.warn("Wallet", "RPC ${tryRpc.take(30)} failed: ${e.message}")
+                // Continue to next RPC
+            }
         }
         
-        return try {
-            ErrorLogger.debug("Wallet", "Creating SolanaWallet...")
-            wallet = SolanaWallet(privateKeyB58, rpcUrl)
-            val pubkey = wallet!!.publicKeyB58
-            ErrorLogger.info("Wallet", "Connected! Public key: ${pubkey.take(8)}...")
-            _state.value = _state.value.copy(
-                connectionState = WalletConnectionState.CONNECTED,
-                publicKey       = pubkey,
-            )
-            refreshBalance()
-            true
-        } catch (e: IllegalArgumentException) {
-            ErrorLogger.error("Wallet", "Invalid key format: ${e.message}", e)
-            wallet = null
-            _state.value = _state.value.copy(
-                connectionState = WalletConnectionState.ERROR,
-                errorMessage    = "Invalid key format: ${e.message}",
-            )
-            false
-        } catch (e: Exception) {
-            ErrorLogger.error("Wallet", "Connection failed: ${e.message}", e)
-            wallet = null
-            _state.value = _state.value.copy(
-                connectionState = WalletConnectionState.ERROR,
-                errorMessage    = e.message ?: "Connection failed",
-            )
-            false
-        }
+        // All RPCs failed
+        ErrorLogger.error("Wallet", "All RPCs failed")
+        wallet = null
+        _state.value = _state.value.copy(
+            connectionState = WalletConnectionState.ERROR,
+            errorMessage    = "All RPC endpoints failed. Check internet connection.",
+        )
+        return false
     }
 
     fun disconnect() {
         wallet = null
+        currentRpcUrl = ""
         _state.value = WalletState(connectionState = WalletConnectionState.DISCONNECTED)
     }
 
     fun getWallet(): SolanaWallet? = wallet
+    
+    fun getCurrentRpcUrl(): String = currentRpcUrl
 
     // ── balance refresh ───────────────────────────────────────────────
 
@@ -169,11 +197,6 @@ class WalletManager(private val ctx: Context) {
 
     // ── SOL price (free, no key) ──────────────────────────────────────
     // Uses CoinGecko simple price endpoint — free, no auth, ~1 req/min ok
-
-    companion object {
-        /** Live SOL/USD price — updated every wallet refresh. Default 130 until first fetch. */
-        @Volatile var lastKnownSolPrice: Double = 130.0
-    }
 
     private fun fetchSolPrice(): Double {
         return try {
