@@ -104,11 +104,11 @@ class SolanaMarketScanner(
 
     // Track which mints we've already surfaced to avoid duplicates
     private val seenMints  = ConcurrentHashMap<String, Long>()
-    private val SEEN_TTL   = 10 * 60_000L   // forget after 10 min — faster token refresh
+    private val SEEN_TTL   = 5 * 60_000L    // forget after 5 min — faster token refresh
     
     // Track rejected tokens separately - shorter cooldown for faster retry
     private val rejectedMints = ConcurrentHashMap<String, Long>()
-    private val REJECTED_TTL = 15 * 60_000L  // forget rejected tokens after 15 min
+    private val REJECTED_TTL = 10 * 60_000L  // forget rejected tokens after 10 min
     
     // Memory protection: limit concurrent operations
     private val semaphore = kotlinx.coroutines.sync.Semaphore(3)  // max 3 concurrent scans
@@ -203,7 +203,7 @@ class SolanaMarketScanner(
             // For each token profile, get full pair data
             var added = 0
             var checked = 0
-            for (i in 0 until minOf(profiles.length(), 20)) {
+            for (i in 0 until minOf(profiles.length(), 50)) {
                 if (added >= 5) break
                 
                 val profile = profiles.optJSONObject(i) ?: continue
@@ -406,8 +406,8 @@ class SolanaMarketScanner(
             var found = 0
             var checked = 0
             
-            for (i in 0 until minOf(profiles.length(), 25)) {
-                if (found >= 8) break
+            for (i in 0 until minOf(profiles.length(), 50)) {
+                if (found >= 15) break
                 
                 val profile = profiles.optJSONObject(i) ?: continue
                 if (profile.optString("chainId", "") != "solana") continue
@@ -490,8 +490,8 @@ class SolanaMarketScanner(
             var found = 0
             var checked = 0
             
-            for (i in 0 until minOf(boosted.length(), 20)) {
-                if (found >= 8) break
+            for (i in 0 until minOf(boosted.length(), 50)) {
+                if (found >= 15) break
                 
                 val item = boosted.optJSONObject(i) ?: continue
                 
@@ -507,7 +507,7 @@ class SolanaMarketScanner(
                 if (pair.baseSymbol.uppercase() in listOf("SOL", "WSOL", "USDC", "USDT", "RAY")) continue
                 
                 val liq = pair.liquidity
-                if (liq < 2000) continue  // Boosted tokens should have some liquidity
+                if (liq < 1000) continue  // Boosted tokens should have some liquidity
                 
                 val vol = pair.candle.volumeH1
                 val mcap = pair.candle.marketCap
@@ -564,7 +564,7 @@ class SolanaMarketScanner(
             var found = 0
             
             for (i in 0 until minOf(profiles.length(), 30)) {
-                if (found >= 10) break
+                if (found >= 15) break
                 val profile = profiles.optJSONObject(i) ?: continue
                 
                 if (profile.optString("chainId", "") != "solana") continue
@@ -703,7 +703,7 @@ class SolanaMarketScanner(
             var checked = 0
             
             for (i in 0 until minOf(profiles.length(), 30)) {
-                if (found >= 10) break
+                if (found >= 15) break
                 
                 val profile = profiles.optJSONObject(i) ?: continue
                 if (profile.optString("chainId", "") != "solana") continue
@@ -720,7 +720,7 @@ class SolanaMarketScanner(
                 if (pair.baseSymbol.uppercase() in listOf("SOL", "WSOL", "USDC", "USDT", "RAY")) continue
                 
                 val liq = pair.liquidity
-                if (liq < 2000) continue  // Min $2K liquidity
+                if (liq < 1000) continue  // Min $2K liquidity
                 
                 val vol = pair.candle.volumeH1
                 val mcap = pair.candle.marketCap
@@ -823,8 +823,8 @@ class SolanaMarketScanner(
             var found = 0
             var checked = 0
             
-            for (i in 0 until minOf(boosted.length(), 25)) {
-                if (found >= 8) break
+            for (i in 0 until minOf(boosted.length(), 50)) {
+                if (found >= 15) break
                 
                 val item = boosted.optJSONObject(i) ?: continue
                 
@@ -840,7 +840,7 @@ class SolanaMarketScanner(
                 if (pair.baseSymbol.uppercase() in listOf("SOL", "WSOL", "USDC", "USDT", "RAY")) continue
                 
                 val liq = pair.liquidity
-                if (liq < 3000) continue  // Graduates should have decent liquidity
+                if (liq < 1500) continue  // Graduates should have decent liquidity
                 
                 val vol = pair.candle.volumeH1
                 val mcap = pair.candle.marketCap
@@ -937,8 +937,8 @@ class SolanaMarketScanner(
             var found = 0
             var checked = 0
             
-            for (i in 0 until minOf(profiles.length(), 25)) {
-                if (found >= 8) break
+            for (i in 0 until minOf(profiles.length(), 50)) {
+                if (found >= 15) break
                 
                 val profile = profiles.optJSONObject(i) ?: continue
                 if (profile.optString("chainId", "") != "solana") continue
@@ -955,7 +955,7 @@ class SolanaMarketScanner(
                 if (pair.baseSymbol.uppercase() in listOf("SOL", "WSOL", "USDC", "USDT", "RAY", "JUP")) continue
                 
                 val liq = pair.liquidity
-                if (liq < 2000) continue
+                if (liq < 1000) continue
                 
                 val vol = pair.candle.volumeH1
                 val mcap = pair.candle.marketCap
