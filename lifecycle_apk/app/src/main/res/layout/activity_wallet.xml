@@ -62,11 +62,24 @@
                         android:layout_marginStart="8dp"/>
                 </LinearLayout>
 
+                <TextView style="@style/FieldLabel" android:text="RPC URL (optional - leave blank for auto)"
+                    android:layout_marginTop="12dp"/>
+                <EditText android:id="@+id/etRpcUrl" style="@style/Input"
+                    android:layout_width="match_parent"
+                    android:hint="https://api.mainnet-beta.solana.com"
+                    android:inputType="textUri"
+                    android:singleLine="true"/>
+                <TextView
+                    android:layout_width="match_parent" android:layout_height="wrap_content"
+                    android:text="💡 Leave empty to auto-connect via public RPCs"
+                    android:textColor="#4A5E70" android:textSize="10sp"
+                    android:layout_marginTop="4dp"/>
+
                 <TextView
                     android:layout_width="match_parent" android:layout_height="wrap_content"
                     android:text="⚠ Use a dedicated burner wallet only. Never your main wallet."
                     android:textColor="#FFB700" android:textSize="11sp"
-                    android:fontFamily="monospace" android:layout_marginTop="6dp"
+                    android:fontFamily="monospace" android:layout_marginTop="10dp"
                     android:layout_marginBottom="10dp"/>
 
                 <Button android:id="@+id/btnChangeKey"

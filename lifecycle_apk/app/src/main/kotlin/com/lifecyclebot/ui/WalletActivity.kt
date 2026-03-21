@@ -24,6 +24,7 @@ class WalletActivity : AppCompatActivity() {
     private lateinit var btnConnect: Button
     private lateinit var btnDisconnect: Button
     private lateinit var etPrivKeyInput: EditText
+    private lateinit var etRpcUrl: EditText
     private lateinit var btnShowHideKey: Button
     private lateinit var btnChangeKey: Button
     private lateinit var layoutConnected: View
@@ -97,6 +98,7 @@ class WalletActivity : AppCompatActivity() {
         btnConnect          = findViewById(R.id.btnConnect)
         btnDisconnect       = findViewById(R.id.btnDisconnect)
         etPrivKeyInput      = findViewById(R.id.etPrivKeyInput)
+        etRpcUrl            = findViewById(R.id.etRpcUrl)
         btnChangeKey        = findViewById(R.id.btnChangeKey)
         btnShowHideKey      = findViewById(R.id.btnShowHideKey)
         layoutConnected     = findViewById(R.id.layoutConnected)
@@ -136,16 +138,23 @@ class WalletActivity : AppCompatActivity() {
                 Toast.makeText(this, "Enter your private key", Toast.LENGTH_SHORT).show()
                 return@setOnClickListener
             }
+            
+            // Get RPC URL from input field (can be empty - will use fallbacks)
+            val userRpcUrl = etRpcUrl.text.toString().trim()
+            
             // Save key first
             val cfg = ConfigStore.load(this)
-            val updatedCfg = cfg.copy(privateKeyB58 = key)
+            val updatedCfg = cfg.copy(privateKeyB58 = key, rpcUrl = userRpcUrl)
             vm.saveConfig(updatedCfg)
             
-            // Use Helius RPC if available, otherwise fall back to configured RPC
-            val rpcUrl = if (updatedCfg.heliusApiKey.isNotBlank()) {
-                "https://mainnet.helius-rpc.com/?api-key=${updatedCfg.heliusApiKey}"
-            } else {
-                updatedCfg.rpcUrl
+            // Determine RPC URL to use:
+            // 1. User's input (if provided)
+            // 2. Helius key from settings (if available)
+            // 3. Empty string (WalletManager will use fallbacks)
+            val rpcUrl = when {
+                userRpcUrl.isNotBlank() -> userRpcUrl
+                updatedCfg.heliusApiKey.isNotBlank() -> "https://mainnet.helius-rpc.com/?api-key=${updatedCfg.heliusApiKey}"
+                else -> ""  // Empty = use auto fallbacks
             }
             
             Toast.makeText(this, "Connecting wallet...", Toast.LENGTH_SHORT).show()
