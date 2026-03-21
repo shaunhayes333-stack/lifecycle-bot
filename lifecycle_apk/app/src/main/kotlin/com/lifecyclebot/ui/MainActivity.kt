@@ -506,7 +506,7 @@ class MainActivity : AppCompatActivity() {
         if (ws.totalTrades > 0) {
             tvPnlChange.text = currency.format(pnl, showPlus = true)
             tvPnlChange.setTextColor(if (pnl >= 0) green else red)
-            tvPnlChangePct.text = "%+.1f%%  •  ${ws.winRate}% wins".format(pnlPct)
+            tvPnlChangePct.text = "%+.1f%%  •  ${ws.winRate}%% wins".format(pnlPct)
         } else {
             tvPnlChange.text    = ""
             tvPnlChangePct.text = ""
