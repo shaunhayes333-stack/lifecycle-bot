@@ -116,20 +116,6 @@ class SolanaMarketScanner(
     // Scan rotation - alternate between different scan sources for variety
     @Volatile private var scanRotation = 0
     
-    // Search keyword rotation for diverse token discovery
-    // IMPORTANT: Avoid terms that return impersonation scam tokens (solana, pump, etc.)
-    // Focus on meme culture, trending topics, and unique token names
-    private val searchKeywords = listOf(
-        "pepe", "wojak", "degen", "moon", "inu", "shib",
-        "cat", "dog", "frog", "monkey", "ape",
-        "ai", "agent", "gpt", "bot", "neural",
-        "trump", "elon", "musk", "biden",
-        "wif", "bonk", "popcat", "mew", "bome",
-        "chad", "based", "wagmi", "gm", "ser",
-        "nft", "game", "pixel", "retro"
-    )
-    @Volatile private var keywordRotation = 0
-    
     // Running state
     @Volatile private var isRunning = false
     
@@ -169,11 +155,11 @@ class SolanaMarketScanner(
     
     private suspend fun runTestScan() {
         // Simple test to verify API connectivity and add first token
+        // Uses the pairs endpoint - finds actual new Solana tokens by lifecycle
         try {
             onLog("🧪 Running immediate test scan...")
-            // Use "pepe" - a common meme token search that returns real tokens
-            val url = "https://api.dexscreener.com/latest/dex/search?q=pepe"
-            ErrorLogger.info("Scanner", "TEST: Searching for meme tokens...")
+            val url = "https://api.dexscreener.com/latest/dex/pairs/solana"
+            ErrorLogger.info("Scanner", "TEST: Fetching recent Solana pairs...")
             
             val body = get(url)
             if (body == null) {
@@ -182,7 +168,11 @@ class SolanaMarketScanner(
                 return
             }
             
-            val pairs = org.json.JSONObject(body).optJSONArray("pairs")
+            val pairs = if (body.startsWith("[")) {
+                org.json.JSONArray(body)
+            } else {
+                org.json.JSONObject(body).optJSONArray("pairs")
+            }
             if (pairs == null || pairs.length() == 0) {
                 ErrorLogger.error("Scanner", "TEST FAILED: No pairs in response")
                 onLog("❌ API test failed - empty data")
@@ -442,42 +432,48 @@ class SolanaMarketScanner(
         System.gc()
     }
 
-    // ── Source 2: Dexscreener gainers (top % movers last 1h) ─────────
+    // ── Source 2: Dexscreener new Solana pairs (actual new tokens) ─────────
 
     private suspend fun scanDexGainers() {
-        // Rotate through different search keywords for variety
-        val keyword = searchKeywords[keywordRotation % searchKeywords.size]
-        keywordRotation++
-        
-        val url = "https://api.dexscreener.com/latest/dex/search?q=$keyword"
-        ErrorLogger.info("Scanner", "scanDexGainers: searching '$keyword' tokens...")
+        // Use the pairs endpoint to find actual new Solana tokens by creation time
+        // This finds tokens based on lifecycle, not keywords
+        val url = "https://api.dexscreener.com/latest/dex/pairs/solana"
+        ErrorLogger.info("Scanner", "scanDexGainers: fetching new Solana pairs...")
         val body = get(url)
         if (body == null) {
             ErrorLogger.warn("Scanner", "scanDexGainers: no response from API")
             return
         }
         try {
-            val pairs = JSONObject(body).optJSONArray("pairs")
-            if (pairs == null || pairs.length() == 0) {
-                ErrorLogger.warn("Scanner", "scanDexGainers: no pairs in response for '$keyword'")
+            val pairs = if (body.startsWith("[")) {
+                JSONArray(body)
+            } else {
+                JSONObject(body).optJSONArray("pairs") ?: return
+            }
+            
+            if (pairs.length() == 0) {
+                ErrorLogger.warn("Scanner", "scanDexGainers: no pairs in response")
                 return
             }
-            ErrorLogger.info("Scanner", "scanDexGainers: got ${pairs.length()} pairs for '$keyword'")
+            ErrorLogger.info("Scanner", "scanDexGainers: got ${pairs.length()} pairs")
             val now = System.currentTimeMillis()
             var found = 0
             var processed = 0
             
-            for (i in 0 until minOf(pairs.length(), 40)) {
+            for (i in 0 until minOf(pairs.length(), 50)) {
                 if (found >= 8) break
                 val p = pairs.optJSONObject(i) ?: continue
                 
                 // Only Solana pairs
-                val chainId = p.optString("chainId", "")
+                val chainId = p.optString("chainId", "solana")
                 if (chainId != "solana") continue
-                processed++
                 
                 val created = p.optLong("pairCreatedAt", 0L)
                 val ageHours = if (created > 0) (now - created) / 3_600_000.0 else 999.0
+                
+                // Focus on tokens < 48 hours old (lifecycle approach)
+                if (ageHours > 48) continue
+                processed++
                 
                 val mint = p.optJSONObject("baseToken")?.optString("address", "") ?: continue
                 if (mint.isBlank() || mint.startsWith("0x") || isSeen(mint)) continue
@@ -497,7 +493,16 @@ class SolanaMarketScanner(
                 val priceChange = p.optJSONObject("priceChange")?.optDouble("h1", 0.0) ?: 0.0
                 val dexId = p.optString("dexId", "unknown")
                 
-                val ageBonus = if (ageHours < 6) 20.0 else if (ageHours < 24) 10.0 else 0.0
+                // Lifecycle-based scoring - new tokens get bonus
+                val ageBonus = when {
+                    ageHours < 1 -> 30.0   // < 1 hour = very fresh
+                    ageHours < 6 -> 20.0   // < 6 hours = fresh
+                    ageHours < 24 -> 10.0  // < 24 hours = new
+                    else -> 0.0
+                }
+                
+                // Volume momentum bonus
+                val volBonus = if (vol > 50000) 15.0 else if (vol > 20000) 10.0 else 0.0
                 
                 val token = ScannedToken(
                     mint               = mint,
@@ -505,7 +510,7 @@ class SolanaMarketScanner(
                     name               = name,
                     source             = when {
                         dexId.contains("pump", ignoreCase = true) -> TokenSource.PUMP_FUN_NEW
-                        ageHours < 24 -> TokenSource.PUMP_FUN_GRADUATE
+                        ageHours < 12 -> TokenSource.PUMP_FUN_GRADUATE
                         else -> TokenSource.RAYDIUM_NEW_POOL
                     },
                     liquidityUsd       = liq,
@@ -515,27 +520,27 @@ class SolanaMarketScanner(
                     dexId              = dexId,
                     priceChangeH1      = priceChange,
                     txCountH1          = buys + sells,
-                    score              = scoreToken(liq, vol, buys + sells, mcap, priceChange, ageHours) + ageBonus,
+                    score              = scoreToken(liq, vol, buys + sells, mcap, priceChange, ageHours) + ageBonus + volBonus,
                 )
                 if (passesFilter(token)) { 
                     emit(token)
                     found++
                     val src = when {
-                        dexId.contains("pump", ignoreCase = true) -> "🚀 Pump"
-                        ageHours < 24 -> "🎓 Graduate"
+                        ageHours < 1 -> "🚀 FRESH"
+                        ageHours < 6 -> "🆕 NEW"
+                        ageHours < 24 -> "📈 YOUNG"
                         else -> "📊 $dexId"
                     }
-                    onLog("$src: $symbol | liq=$${liq.toInt()} | vol=$${vol.toInt()}")
+                    onLog("$src: $symbol | age=${ageHours.toInt()}h | liq=$${liq.toInt()} | vol=$${vol.toInt()}")
                 }
             }
-            if (found > 0) ErrorLogger.info("Scanner", "DexScreener scan '$keyword': found $found tokens (processed $processed)")
-            else ErrorLogger.info("Scanner", "DexScreener scan '$keyword': no tokens passed filters (processed $processed)")
+            if (found > 0) ErrorLogger.info("Scanner", "scanDexGainers: found $found new tokens (processed $processed)")
+            else ErrorLogger.info("Scanner", "scanDexGainers: no tokens passed filters (processed $processed)")
         } catch (e: Exception) {
             ErrorLogger.error("Scanner", "scanDexGainers error: ${e.message}")
         }
         System.gc()
     }
-
     // ── Source 3: Dexscreener boosted tokens ─────────────────────────
 
     private suspend fun scanDexBoosted() {
@@ -569,34 +574,42 @@ class SolanaMarketScanner(
         System.gc()
     }
 
-    // ── Source 4: Pump.fun graduates (Raydium migrations) ────────────
+    // ── Source 4: Recent Raydium Migrations (pump.fun graduates) ────────────
 
     private suspend fun scanPumpGraduates() {
-        // Use diverse keywords for finding recent graduates, avoid "pump" which returns scam tokens
-        val graduateKeywords = listOf("degen", "meme", "moon", "wif", "pepe", "bonk", "cat", "dog", "frog")
-        val keyword = graduateKeywords[keywordRotation % graduateKeywords.size]
-        
-        val url = "https://api.dexscreener.com/latest/dex/search?q=$keyword"
-        ErrorLogger.info("Scanner", "scanPumpGraduates: searching '$keyword' for graduates...")
+        // Use DexScreener to find recent Raydium pairs - these are often pump.fun graduates
+        // Focus on tokens that graduated in the last 24 hours with good liquidity
+        val url = "https://api.dexscreener.com/latest/dex/pairs/solana"
+        ErrorLogger.info("Scanner", "scanPumpGraduates: looking for recent Raydium migrations...")
         val body = get(url) ?: return
         try {
-            val arr = JSONObject(body).optJSONArray("pairs") ?: return
+            val pairs = if (body.startsWith("[")) {
+                JSONArray(body)
+            } else {
+                JSONObject(body).optJSONArray("pairs") ?: return
+            }
+            
             val now = System.currentTimeMillis()
-            val cutoff12h = now - 12 * 3_600_000L  // Last 12 hours for graduates
+            val cutoff24h = now - 24 * 3_600_000L  // Last 24 hours
             var found = 0
             
-            for (i in 0 until minOf(arr.length(), 25)) {
+            for (i in 0 until minOf(pairs.length(), 40)) {
                 if (found >= 8) break
-                val p = arr.optJSONObject(i) ?: continue
+                val p = pairs.optJSONObject(i) ?: continue
                 
-                val chainId = p.optString("chainId", "")
+                val chainId = p.optString("chainId", "solana")
                 if (chainId != "solana") continue
                 
                 val created = p.optLong("pairCreatedAt", 0L)
                 
-                // Score bonus for very fresh graduates
-                val ageHours = if (created > 0) (now - created) / 3_600_000.0 else 999.0
-                val isGraduate = created > cutoff12h
+                // Only tokens created in the last 24 hours (recent graduates)
+                if (created < cutoff24h) continue
+                
+                val ageHours = (now - created) / 3_600_000.0
+                val dexId = p.optString("dexId", "unknown")
+                
+                // Prioritize Raydium pairs (where pump.fun tokens graduate to)
+                val isRaydium = dexId.contains("raydium", ignoreCase = true)
                 
                 val mint = p.optJSONObject("baseToken")?.optString("address","") ?: continue
                 if (mint.isBlank() || mint.startsWith("0x") || isSeen(mint)) continue
@@ -605,46 +618,49 @@ class SolanaMarketScanner(
                 if (symbol.uppercase() in listOf("SOL", "WSOL", "USDC", "USDT")) continue
                 
                 val liq = p.optJSONObject("liquidity")?.optDouble("usd", 0.0) ?: 0.0
-                if (liq < 3000) continue  // Min $3K liquidity
+                if (liq < 5000) continue  // Graduates typically have higher liquidity
                 
                 val mcap = p.optDouble("marketCap", 0.0)
                 val vol = p.optJSONObject("volume")?.optDouble("h1", 0.0) ?: 0.0
                 val name = p.optJSONObject("baseToken")?.optString("name", "") ?: symbol
                 val buys = p.optJSONObject("txns")?.optJSONObject("h1")?.optInt("buys", 0) ?: 0
                 val sells = p.optJSONObject("txns")?.optJSONObject("h1")?.optInt("sells", 0) ?: 0
-                val dexId = p.optString("dexId", "unknown")
+                val priceChange = p.optJSONObject("priceChange")?.optDouble("h1", 0.0) ?: 0.0
                 
-                // Graduate bonus for fresh tokens
-                val graduateBonus = if (isGraduate) 25.0 else 0.0
+                // Graduate bonus scoring
+                val graduateBonus = when {
+                    ageHours < 1 && isRaydium -> 30.0  // Just graduated to Raydium
+                    ageHours < 6 && isRaydium -> 25.0  // Fresh graduate on Raydium
+                    ageHours < 12 -> 20.0              // Recent token
+                    else -> 15.0
+                }
                 
                 val token = ScannedToken(
                     mint               = mint,
                     symbol             = symbol,
                     name               = name,
-                    source             = if (dexId.contains("pump", ignoreCase = true)) TokenSource.PUMP_FUN_NEW 
-                                         else if (isGraduate) TokenSource.PUMP_FUN_GRADUATE 
-                                         else TokenSource.RAYDIUM_NEW_POOL,
+                    source             = if (isRaydium) TokenSource.PUMP_FUN_GRADUATE else TokenSource.RAYDIUM_NEW_POOL,
                     liquidityUsd       = liq,
                     volumeH1           = vol,
                     mcapUsd            = mcap,
                     pairCreatedHoursAgo = ageHours,
                     dexId              = dexId,
-                    priceChangeH1      = p.optJSONObject("priceChange")?.optDouble("h1", 0.0) ?: 0.0,
+                    priceChangeH1      = priceChange,
                     txCountH1          = buys + sells,
-                    score              = scoreToken(liq, vol, buys + sells, mcap, 0.0, ageHours) + graduateBonus,
+                    score              = scoreToken(liq, vol, buys + sells, mcap, priceChange, ageHours) + graduateBonus,
                 )
                 if (passesFilter(token)) { 
                     emit(token)
                     found++ 
                     val label = when {
-                        dexId.contains("pump", ignoreCase = true) -> "🚀 PUMP"
-                        isGraduate -> "🎓 GRADUATE"
-                        else -> "📊 $dexId"
+                        ageHours < 1 -> "🎓 JUST GRAD"
+                        ageHours < 6 -> "🎓 GRADUATE"
+                        else -> "🆕 NEW"
                     }
                     onLog("$label: $symbol | age=${ageHours.toInt()}h | liq=$${liq.toInt()}")
                 }
             }
-            if (found > 0) ErrorLogger.info("Scanner", "PumpGraduates '$keyword': found $found tokens")
+            if (found > 0) ErrorLogger.info("Scanner", "scanPumpGraduates: found $found recent tokens")
         } catch (e: Exception) {
             ErrorLogger.error("Scanner", "scanPumpGraduates error: ${e.message}")
         }
