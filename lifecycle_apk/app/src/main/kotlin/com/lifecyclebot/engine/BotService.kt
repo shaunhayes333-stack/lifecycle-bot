@@ -201,10 +201,17 @@ class BotService : Service() {
             val cfg = ConfigStore.load(applicationContext)
             addLog("✓ Config loaded: paperMode=${cfg.paperMode}")
             
+            // Determine best RPC URL - prefer Helius if key available
+            val rpcUrl = if (cfg.heliusApiKey.isNotBlank()) {
+                "https://mainnet.helius-rpc.com/?api-key=${cfg.heliusApiKey}"
+            } else {
+                cfg.rpcUrl
+            }
+            
             wallet = if (!cfg.paperMode && cfg.privateKeyB58.isNotBlank()) {
-                addLog("Attempting wallet connection...")
+                addLog("Attempting wallet connection to ${rpcUrl.take(40)}...")
                 try {
-                    val connected = walletManager.connect(cfg.privateKeyB58, cfg.rpcUrl)
+                    val connected = walletManager.connect(cfg.privateKeyB58, rpcUrl)
                     if (connected) {
                         addLog("✓ Wallet connected: ${walletManager.state.value.shortKey}")
                         walletManager.getWallet()
@@ -353,6 +360,14 @@ class BotService : Service() {
         val restored = SessionStore.restore(applicationContext)
         if (!restored) SmartSizer.resetSession()
         TreasuryManager.restore(applicationContext)   // load persisted treasury
+        
+        // Safety: if wallet is very low but treasury claims to have locked funds,
+        // something is wrong - reset treasury to allow trading
+        val currentBalance = walletManager.state.value.solBalance
+        if (currentBalance < 0.1 && TreasuryManager.treasurySol > 0.01) {
+            addLog("⚠️ Treasury state inconsistent - resetting to allow trading")
+            TreasuryManager.emergencyUnlock(applicationContext)
+        }
         orchestrator?.startMtfRefresh()
 
         // Self-learning brain

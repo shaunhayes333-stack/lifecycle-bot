@@ -136,14 +136,25 @@ class SecurityGuard(
         }
 
         // ── 4. Wallet reserve floor ───────────────────────────────────
-        // Available = gross balance minus operating reserve minus locked treasury
-        val treasuryLocked = TreasuryManager.treasurySol
+        // Available = gross balance minus operating reserve
+        // Treasury lock is now OPTIONAL and only applies if milestones were actually hit
+        val treasuryLocked = if (TreasuryManager.highestMilestoneHit >= 0) {
+            TreasuryManager.treasurySol
+        } else {
+            0.0  // No milestones hit = no lock
+        }
         val availableSol = (walletSol - MIN_WALLET_RESERVE_SOL - treasuryLocked).coerceAtLeast(0.0)
         if (availableSol <= 0) {
-            return GuardResult.Block(
-                "No tradeable balance: wallet ${walletSol.fmt(4)} SOL, " +
-                "reserve ${MIN_WALLET_RESERVE_SOL} SOL, treasury ${treasuryLocked.fmt(4)} SOL locked"
-            )
+            // Don't completely block - allow trading with minimum reserve
+            val emergencyAvailable = (walletSol - MIN_WALLET_RESERVE_SOL).coerceAtLeast(0.0)
+            if (emergencyAvailable <= 0) {
+                return GuardResult.Block(
+                    "Insufficient balance: wallet ${walletSol.fmt(4)} SOL, " +
+                    "need at least ${MIN_WALLET_RESERVE_SOL} SOL reserve"
+                )
+            }
+            // Log warning but allow trading
+            onLog("⚠️ Treasury lock overridden: using full balance for trading")
         }
 
         // ── 5a. Liq cap (ScalingMode tier-aware) ─────────────────────

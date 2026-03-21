@@ -306,7 +306,42 @@ object TreasuryManager {
             lifetimeWithdrawn    = obj.optDouble("lifetime_withdrawn", 0.0)
             lastWalletUsd        = obj.optDouble("last_wallet_usd", 0.0)
             peakWalletUsd        = obj.optDouble("peak_wallet_usd", 0.0)
-        } catch (_: Exception) {}
+            
+            // Safety check: if no milestones were ever hit but treasury has a value,
+            // this is corrupted state - reset it
+            if (highestMilestoneHit < 0 && treasurySol > 0) {
+                treasurySol = 0.0
+                treasuryUsd = 0.0
+            }
+        } catch (_: Exception) {
+            // On any error, start fresh - never block trading due to storage issues
+            treasurySol = 0.0
+            treasuryUsd = 0.0
+            highestMilestoneHit = -1
+        }
+    }
+    
+    /**
+     * Emergency unlock - allows user to fully unlock treasury if it's blocking trades.
+     * Called from settings UI or when user explicitly requests it.
+     */
+    fun emergencyUnlock(ctx: Context) {
+        val unlocked = treasurySol
+        treasurySol = 0.0
+        treasuryUsd = 0.0
+        highestMilestoneHit = -1
+        lifetimeLocked = 0.0
+        lastWalletUsd = 0.0
+        peakWalletUsd = 0.0
+        _events.clear()
+        addEvent(TreasuryEvent(
+            type        = TreasuryEventType.MANUAL_ADJUST,
+            amountSol   = unlocked,
+            description = "Emergency unlock: ${unlocked.fmtSol()}◎ released for trading",
+            walletUsd   = 0.0,
+            solPrice    = 0.0,
+        ))
+        save(ctx)
     }
 
     fun reset(ctx: Context) {

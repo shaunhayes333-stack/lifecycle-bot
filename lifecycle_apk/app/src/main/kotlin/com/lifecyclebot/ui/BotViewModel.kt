@@ -111,8 +111,23 @@ class BotViewModel(app: Application) : AndroidViewModel(app) {
         viewModelScope.launch(kotlinx.coroutines.Dispatchers.IO) {
             try {
                 val wm = com.lifecyclebot.engine.BotService.walletManager
-                wm.connect(privateKeyB58, rpcUrl)
-            } catch (_: Exception) {}
+                val success = wm.connect(privateKeyB58, rpcUrl)
+                if (!success) {
+                    val error = wm.state.value.errorMessage
+                    kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Main) {
+                        android.widget.Toast.makeText(ctx, "Wallet error: $error", android.widget.Toast.LENGTH_LONG).show()
+                    }
+                }
+            } catch (e: UninitializedPropertyAccessException) {
+                // BotService not started yet - start it first
+                kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Main) {
+                    android.widget.Toast.makeText(ctx, "Start the bot first, then connect wallet", android.widget.Toast.LENGTH_LONG).show()
+                }
+            } catch (e: Exception) {
+                kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Main) {
+                    android.widget.Toast.makeText(ctx, "Connection error: ${e.message}", android.widget.Toast.LENGTH_LONG).show()
+                }
+            }
         }
     }
 

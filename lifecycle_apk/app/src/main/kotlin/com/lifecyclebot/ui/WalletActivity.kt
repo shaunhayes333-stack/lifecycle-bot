@@ -136,10 +136,20 @@ class WalletActivity : AppCompatActivity() {
                 Toast.makeText(this, "Enter your private key", Toast.LENGTH_SHORT).show()
                 return@setOnClickListener
             }
+            // Save key first
             val cfg = ConfigStore.load(this)
-            // Save key and connect
-            vm.saveConfig(cfg.copy(privateKeyB58 = key))
-            vm.connectWallet(key, cfg.rpcUrl)
+            val updatedCfg = cfg.copy(privateKeyB58 = key)
+            vm.saveConfig(updatedCfg)
+            
+            // Use Helius RPC if available, otherwise fall back to configured RPC
+            val rpcUrl = if (updatedCfg.heliusApiKey.isNotBlank()) {
+                "https://mainnet.helius-rpc.com/?api-key=${updatedCfg.heliusApiKey}"
+            } else {
+                updatedCfg.rpcUrl
+            }
+            
+            Toast.makeText(this, "Connecting wallet...", Toast.LENGTH_SHORT).show()
+            vm.connectWallet(key, rpcUrl)
         }
 
         btnDisconnect.setOnClickListener {
