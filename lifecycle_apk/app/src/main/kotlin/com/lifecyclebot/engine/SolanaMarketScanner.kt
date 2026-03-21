@@ -170,8 +170,8 @@ class SolanaMarketScanner(
                 val _tn = if (sScanTier != ScalingMode.Tier.MICRO)
                     " ${sScanTier.icon}${sScanTier.label}" else ""
                 
-                // MEMORY-OPTIMIZED: Only 2 lightweight sources per cycle
-                scanRotation = (scanRotation + 1) % 2
+                // MEMORY-OPTIMIZED: 3 cycles with pump.fun graduates included
+                scanRotation = (scanRotation + 1) % 3
                 onLog("🌐 Scan #$scanRotation${_tn} - Starting scan cycle")
                 ErrorLogger.info("Scanner", "Scan cycle #$scanRotation starting")
                 
@@ -182,7 +182,7 @@ class SolanaMarketScanner(
                 
                 when (scanRotation) {
                     0 -> {
-                        // DexScreener trending only
+                        // DexScreener trending + boosted
                         onLog("🔍 Scanning: DexScreener trending...")
                         try { scanDexTrending() } catch (e: Exception) { 
                             if (e is OutOfMemoryError) throw e
@@ -196,19 +196,33 @@ class SolanaMarketScanner(
                         }
                     }
                     1 -> {
-                        // DexScreener gainers + Birdeye (if key available)
+                        // PUMP.FUN GRADUATES - high signal tokens
+                        onLog("🔍 Scanning: Pump.fun graduates...")
+                        try { scanPumpGraduates() } catch (e: Exception) { 
+                            if (e is OutOfMemoryError) throw e
+                            ErrorLogger.error("Scanner", "scanPumpGraduates: ${e.message}", e) 
+                        }
+                        delay(1000)
                         onLog("🔍 Scanning: DexScreener gainers...")
                         try { scanDexGainers() } catch (e: Exception) { 
                             if (e is OutOfMemoryError) throw e
                             ErrorLogger.error("Scanner", "scanDexGainers: ${e.message}", e) 
                         }
-                        delay(1000)
+                    }
+                    2 -> {
+                        // Birdeye (if key available) + DexScreener trending
                         if (c.birdeyeApiKey.isNotBlank()) {
                             onLog("🔍 Scanning: Birdeye trending...")
                             try { scanBirdeyeTrending() } catch (e: Exception) { 
                                 if (e is OutOfMemoryError) throw e
                                 ErrorLogger.error("Scanner", "scanBirdeye: ${e.message}", e) 
                             }
+                            delay(1000)
+                        }
+                        onLog("🔍 Scanning: DexScreener trending...")
+                        try { scanDexTrending() } catch (e: Exception) { 
+                            if (e is OutOfMemoryError) throw e
+                            ErrorLogger.error("Scanner", "scanDexTrending: ${e.message}", e) 
                         }
                     }
                 }
@@ -329,9 +343,55 @@ class SolanaMarketScanner(
     // ── Source 4: Pump.fun graduates (Raydium migrations) ────────────
 
     private suspend fun scanPumpGraduates() {
-        // Skip this heavy scan to save memory - graduates are rare and expensive to find
-        ErrorLogger.debug("Scanner", "Skipping pump graduates scan (memory optimization)")
-        return
+        // Query Dexscreener for recent raydium pairs - graduates are high signal tokens
+        val url = "https://api.dexscreener.com/latest/dex/pairs/solana/raydium?limit=20"
+        val body = get(url) ?: return
+        try {
+            val arr = JSONObject(body).optJSONArray("pairs") ?: return
+            val cutoff = System.currentTimeMillis() - 4 * 3_600_000L  // created in last 4h
+            var found = 0
+            for (i in 0 until minOf(arr.length(), 15)) {  // Limited to 15 items
+                if (found >= 5) break  // Max 5 graduates per scan
+                val p = arr.optJSONObject(i) ?: continue
+                val created = p.optLong("pairCreatedAt", 0L)
+                if (created < cutoff) continue  // too old
+                val mint = p.optJSONObject("baseToken")?.optString("address","") ?: continue
+                if (mint.isBlank() || isSeen(mint)) continue
+                
+                // Build token directly from the pair data to avoid extra API call
+                val liq = p.optJSONObject("liquidity")?.optDouble("usd", 0.0) ?: 0.0
+                val vol = p.optJSONObject("volume")?.optDouble("h1", 0.0) ?: 0.0
+                val mcap = p.optDouble("marketCap", 0.0)
+                val symbol = p.optJSONObject("baseToken")?.optString("symbol", "") ?: mint.take(6)
+                val name = p.optJSONObject("baseToken")?.optString("name", "") ?: symbol
+                val buys = p.optJSONObject("txns")?.optJSONObject("h1")?.optInt("buys", 0) ?: 0
+                val sells = p.optJSONObject("txns")?.optJSONObject("h1")?.optInt("sells", 0) ?: 0
+                
+                val token = ScannedToken(
+                    mint               = mint,
+                    symbol             = symbol,
+                    name               = name,
+                    source             = TokenSource.PUMP_FUN_GRADUATE,
+                    liquidityUsd       = liq,
+                    volumeH1           = vol,
+                    mcapUsd            = mcap,
+                    pairCreatedHoursAgo = (System.currentTimeMillis() - created) / 3_600_000.0,
+                    dexId              = "raydium",
+                    priceChangeH1      = p.optJSONObject("priceChange")?.optDouble("h1", 0.0) ?: 0.0,
+                    txCountH1          = buys + sells,
+                    score              = scoreToken(liq, vol, buys + sells, mcap, 0.0, 
+                                            (System.currentTimeMillis() - created) / 3_600_000.0) + 25.0,  // Graduate bonus
+                )
+                if (passesFilter(token)) { 
+                    emit(token)
+                    found++ 
+                }
+            }
+            ErrorLogger.info("Scanner", "PumpGraduates: found $found tokens")
+        } catch (e: Exception) {
+            ErrorLogger.error("Scanner", "scanPumpGraduates error: ${e.message}")
+        }
+        System.gc()
     }
 
     // ── Source 5: Birdeye trending ────────────────────────────────────
