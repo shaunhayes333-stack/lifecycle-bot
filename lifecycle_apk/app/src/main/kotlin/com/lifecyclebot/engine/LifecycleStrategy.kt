@@ -70,9 +70,11 @@ class LifecycleStrategy(
         val hist = ts.history.toList()
 
         if (hist.size < 3) {
+            ErrorLogger.debug("Strategy", "${ts.symbol}: bootstrap - only ${hist.size} candles")
             return StrategyResult("bootstrap", "WAIT", 0.0, 0.0, StrategyMeta())
         }
         if (!passesGates(hist)) {
+            ErrorLogger.debug("Strategy", "${ts.symbol}: thin_market - failed gates")
             return StrategyResult("thin_market", "WAIT", 0.0, 0.0, StrategyMeta())
         }
 
@@ -253,6 +255,13 @@ class LifecycleStrategy(
             ts, hist, prices, phase, mode,
             entryScore, exitScore, exhaust, pm, tokenAgeMins, emafan, volDiv, whale, curve,
             modeConf, volScore, pressScore)
+        
+        // Log signal for debugging
+        if (signal == "BUY") {
+            ErrorLogger.info("Strategy", "🟢 BUY SIGNAL: ${ts.symbol} | phase=$phase | entry=${entryScore.toInt()} | exit=${exitScore.toInt()}")
+        } else if (entryScore >= 30) {
+            ErrorLogger.debug("Strategy", "${ts.symbol}: signal=$signal phase=$phase entry=${entryScore.toInt()} exit=${exitScore.toInt()}")
+        }
 
         // Compute top-up readiness directly in strategy — full signal access here
         val gainPctNow   = if (ts.position.isOpen && ts.position.entryPrice > 0)
@@ -1351,6 +1360,7 @@ class LifecycleStrategy(
 
         when (mode) {
             TradingMode.LAUNCH_SNIPE -> {
+                ErrorLogger.debug("Strategy", "${ts.symbol}: LAUNCH_SNIPE mode, phase=$phase, adjEntry=${adjustedEntryScore.toInt()}")
                 when (phase) {
                     "pre_pump"      -> if (adjustedEntryScore >= (55 + brainAdj + tierThAdj) - adj) return "BUY"
                     "pumping"       -> if (adjustedEntryScore >= (42 + brainAdj + tierThAdj) - adj) return "BUY"
@@ -1359,6 +1369,7 @@ class LifecycleStrategy(
                 }
             }
             TradingMode.RANGE_TRADE -> {
+                ErrorLogger.debug("Strategy", "${ts.symbol}: RANGE_TRADE mode, phase=$phase, adjEntry=${adjustedEntryScore.toInt()}")
                 when (phase) {
                     "range" -> {
                         // Bottom 25% required + stability: 2+ of last 4 candles in bottom 30%

@@ -453,8 +453,12 @@ class Executor(
         }
 
         if (cfg().autoTrade && signal == "BUY" && !ts.position.isOpen) {
+            ErrorLogger.info("Executor", "BUY signal for ${ts.symbol} - autoTrade=${cfg().autoTrade}")
             val c = cfg()
-            if (ts.position.isOpen) return
+            if (ts.position.isOpen) {
+                ErrorLogger.debug("Executor", "Skipping ${ts.symbol} - position already open")
+                return
+            }
             // No concurrent cap — SmartSizer 70% exposure ceiling is the guard
             if (cfg().scalingLogEnabled) { val _spx=WalletManager.lastKnownSolPrice; val (_tier,_)=ScalingMode.maxPositionForToken(ts.lastLiquidityUsd,ts.lastFdv,TreasuryManager.treasurySol*_spx,_spx); if(_tier!=ScalingMode.Tier.MICRO) onLog("${_tier.icon} ${_tier.label}: ${ts.symbol}", ts.mint) }
             var size = buySizeSol(entryScore, walletSol, openPositionCount, totalExposureSol,
