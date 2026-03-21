@@ -44,7 +44,29 @@ class BotViewModel(app: Application) : AndroidViewModel(app) {
     private val walletManager = com.lifecyclebot.engine.WalletManager.getInstance(ctx)
 
     init {
-        viewModelScope.launch { pollLoop() }
+        viewModelScope.launch { 
+            // Auto-reconnect wallet if credentials are saved
+            autoReconnectWallet()
+            pollLoop() 
+        }
+    }
+    
+    private suspend fun autoReconnectWallet() {
+        try {
+            val wm = com.lifecyclebot.engine.WalletManager.getInstance(ctx)
+            // Only reconnect if not already connected
+            if (wm.state.value.connectionState != com.lifecyclebot.engine.WalletConnectionState.CONNECTED) {
+                val cfg = ConfigStore.load(ctx)
+                if (cfg.privateKeyB58.isNotBlank()) {
+                    com.lifecyclebot.engine.ErrorLogger.info("BotViewModel", "Auto-reconnecting wallet...")
+                    kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+                        wm.connect(cfg.privateKeyB58, cfg.rpcUrl)
+                    }
+                }
+            }
+        } catch (e: Exception) {
+            com.lifecyclebot.engine.ErrorLogger.error("BotViewModel", "Auto-reconnect failed: ${e.message}", e)
+        }
     }
 
     private suspend fun pollLoop() {
@@ -125,6 +147,16 @@ class BotViewModel(app: Application) : AndroidViewModel(app) {
                 
                 if (success) {
                     com.lifecyclebot.engine.ErrorLogger.info("BotViewModel", "Wallet connected successfully!")
+                    
+                    // SAVE credentials to config for auto-reconnect
+                    val cfg = ConfigStore.load(ctx)
+                    ConfigStore.save(ctx, cfg.copy(
+                        privateKeyB58 = privateKeyB58,
+                        rpcUrl = rpcUrl,
+                        walletAddress = wm.state.value.publicKey
+                    ))
+                    com.lifecyclebot.engine.ErrorLogger.info("BotViewModel", "Wallet credentials saved to config")
+                    
                     // Trigger balance refresh after successful connection
                     wm.refreshBalance()
                     kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Main) {
