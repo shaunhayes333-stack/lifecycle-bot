@@ -94,7 +94,7 @@ class SolanaMarketScanner(
 
     // Track which mints we've already surfaced to avoid duplicates
     private val seenMints  = ConcurrentHashMap<String, Long>()
-    private val SEEN_TTL   = 30 * 60_000L   // forget after 30 min — rescan if still active
+    private val SEEN_TTL   = 10 * 60_000L   // forget after 10 min — rescan more frequently
 
     // ── Start / Stop ─────────────────────────────────────────────────
 
