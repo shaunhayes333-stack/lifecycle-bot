@@ -164,8 +164,39 @@ class BotService : Service() {
         super.onDestroy()
         ErrorLogger.warn("BotService", "onDestroy() called - service being destroyed")
         
-        // If the bot was supposed to be running, schedule a restart
+        // Try to close open positions if bot was running and closePositionsOnStop is enabled
         if (status.running) {
+            try {
+                val cfg = ConfigStore.load(applicationContext)
+                
+                if (cfg.closePositionsOnStop) {
+                    val effectiveBalance = status.getEffectiveBalance(cfg.paperMode)
+                    
+                    // Get a synchronized copy of tokens
+                    val tokensCopy = synchronized(status.tokens) {
+                        status.tokens.toMap()
+                    }
+                    
+                    val openCount = tokensCopy.values.count { it.position.isOpen }
+                    if (openCount > 0) {
+                        ErrorLogger.warn("BotService", "onDestroy: Attempting to close $openCount open position(s)")
+                        
+                        // Try to close positions - this may fail if Android kills us mid-way
+                        executor.closeAllPositions(
+                            tokens = tokensCopy,
+                            wallet = wallet,
+                            walletSol = effectiveBalance,
+                            paperMode = cfg.paperMode,
+                        )
+                    }
+                } else {
+                    ErrorLogger.warn("BotService", "onDestroy: closePositionsOnStop=false, positions will remain open")
+                }
+            } catch (e: Exception) {
+                ErrorLogger.error("BotService", "onDestroy: Error closing positions: ${e.message}", e)
+            }
+            
+            // Schedule a restart
             ErrorLogger.warn("BotService", "Bot was running - scheduling restart in 5 seconds")
             val restartIntent = Intent(applicationContext, BotService::class.java).apply {
                 action = ACTION_START
@@ -515,6 +546,44 @@ class BotService : Service() {
     }
 
     fun stopBot() {
+        addLog("🛑 Stopping bot...")
+        
+        // IMPORTANT: Close all open positions BEFORE stopping (if enabled in config)
+        // This ensures funds are returned and no positions are left dangling
+        try {
+            val cfg = ConfigStore.load(applicationContext)
+            
+            if (cfg.closePositionsOnStop) {
+                val effectiveBalance = status.getEffectiveBalance(cfg.paperMode)
+                
+                // Get a synchronized copy of tokens to avoid ConcurrentModificationException
+                val tokensCopy = synchronized(status.tokens) {
+                    status.tokens.toMap()
+                }
+                
+                val closedCount = executor.closeAllPositions(
+                    tokens = tokensCopy,
+                    wallet = wallet,
+                    walletSol = effectiveBalance,
+                    paperMode = cfg.paperMode,
+                )
+                
+                if (closedCount > 0) {
+                    addLog("✅ Closed $closedCount position(s) before shutdown")
+                }
+            } else {
+                val openCount = synchronized(status.tokens) {
+                    status.tokens.values.count { it.position.isOpen }
+                }
+                if (openCount > 0) {
+                    addLog("⚠️ $openCount position(s) left open (closePositionsOnStop=false)")
+                }
+            }
+        } catch (e: Exception) {
+            addLog("⚠️ Error closing positions on shutdown: ${e.message}")
+            ErrorLogger.error("BotService", "Error closing positions on shutdown: ${e.message}", e)
+        }
+        
         status.running = false
         loopJob?.cancel()
         orchestrator?.stop()
@@ -540,7 +609,7 @@ class BotService : Service() {
             .edit().putBoolean("was_running_before_shutdown", false).apply()
         wakeLock?.let { if (it.isHeld) it.release() }
         wakeLock = null
-        addLog("Bot stopped. Wallet remains connected.")
+        addLog("Bot stopped. All positions closed. Wallet remains connected.")
     }
 
     // ── main loop ──────────────────────────────────────────

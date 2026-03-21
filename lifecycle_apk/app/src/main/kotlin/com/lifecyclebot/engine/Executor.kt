@@ -1080,6 +1080,81 @@ class Executor(
         ts.lastExitWasWin   = pnl > 0
     }
 
+    // ── Close all positions (for bot shutdown) ────────────────────────
+
+    /**
+     * Emergency close all open positions when bot is stopping.
+     * This ensures funds are returned and no positions are left dangling.
+     * Called by BotService.stopBot() before shutting down.
+     *
+     * @param tokens Map of all tracked tokens
+     * @param wallet The wallet to use for live sells (null for paper mode)
+     * @param walletSol Current wallet balance
+     * @param paperMode Whether we're in paper trading mode
+     * @return Number of positions closed
+     */
+    fun closeAllPositions(
+        tokens: Map<String, com.lifecyclebot.data.TokenState>,
+        wallet: SolanaWallet?,
+        walletSol: Double,
+        paperMode: Boolean,
+    ): Int {
+        var closedCount = 0
+        val openPositions = tokens.values.filter { it.position.isOpen }
+        
+        if (openPositions.isEmpty()) {
+            onLog("🛑 Bot stopping — no open positions to close", "shutdown")
+            return 0
+        }
+        
+        onLog("🛑 Bot stopping — closing ${openPositions.size} open position(s)...", "shutdown")
+        onNotify("🛑 Bot Stopping", 
+                 "Closing ${openPositions.size} open position(s)",
+                 com.lifecyclebot.engine.NotificationHistory.NotifEntry.NotifType.INFO)
+        
+        for (ts in openPositions) {
+            try {
+                val pos = ts.position
+                if (!pos.isOpen) continue
+                
+                val gainPct = if (pos.entryPrice > 0) {
+                    ((ts.ref - pos.entryPrice) / pos.entryPrice * 100)
+                } else 0.0
+                
+                onLog("🔴 EMERGENCY CLOSE: ${ts.symbol} @ ${gainPct.toInt()}% gain | reason=bot_shutdown", ts.mint)
+                
+                if (paperMode || wallet == null) {
+                    paperSell(ts, "bot_shutdown")
+                } else {
+                    liveSell(ts, "bot_shutdown", wallet, walletSol)
+                }
+                
+                closedCount++
+                
+            } catch (e: Exception) {
+                onLog("⚠️ Failed to close ${ts.symbol}: ${e.message}", ts.mint)
+                // For paper mode, force close even on error
+                if (paperMode) {
+                    try {
+                        val pos = ts.position
+                        val value = pos.qtyToken * ts.ref
+                        onPaperBalanceChange?.invoke(value)
+                        ts.position = com.lifecyclebot.data.Position()
+                        onLog("📝 Force-closed paper position: ${ts.symbol}", ts.mint)
+                        closedCount++
+                    } catch (_: Exception) {}
+                }
+            }
+        }
+        
+        onLog("✅ Closed $closedCount/${openPositions.size} positions on shutdown", "shutdown")
+        onNotify("✅ Positions Closed", 
+                 "Closed $closedCount position(s) on bot shutdown",
+                 com.lifecyclebot.engine.NotificationHistory.NotifEntry.NotifType.INFO)
+        
+        return closedCount
+    }
+
     // ── Jupiter helpers ───────────────────────────────────────────────
 
     private fun getQuoteWithSlippageGuard(

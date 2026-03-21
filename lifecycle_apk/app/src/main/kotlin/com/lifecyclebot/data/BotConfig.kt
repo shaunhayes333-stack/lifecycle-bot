@@ -50,6 +50,7 @@ data class BotConfig(
     val circuitBreakerLosses: Int = 5,
     val circuitBreakerPauseMin: Int = 15,
     val maxPriceImpactPct: Double = 3.0,
+    val closePositionsOnStop: Boolean = true, // SAFETY: close all positions when bot stops
     // external API keys (all free)
     val heliusApiKey: String = "",      // helius.dev — free, real-time WS + creator history
     val birdeyeApiKey: String = "",     // birdeye.so — free, OHLCV candles
@@ -229,6 +230,7 @@ object ConfigStore {
             putInt("circuit_breaker_losses",          cfg.circuitBreakerLosses)
             putInt("circuit_breaker_pause_min",       cfg.circuitBreakerPauseMin)
             putFloat("max_price_impact_pct",          cfg.maxPriceImpactPct.toFloat())
+            putBoolean("close_positions_on_stop",     cfg.closePositionsOnStop)
             putBoolean("auto_add_new_tokens",         cfg.autoAddNewTokens)
             putInt("max_concurrent_positions",        cfg.maxConcurrentPositions)
             putFloat("max_total_exposure_sol",        cfg.maxTotalExposureSol.toFloat())
@@ -337,6 +339,7 @@ object ConfigStore {
             circuitBreakerLosses        = p.getInt("circuit_breaker_losses", 5),
             circuitBreakerPauseMin      = p.getInt("circuit_breaker_pause_min", 15),
             maxPriceImpactPct           = p.getFloat("max_price_impact_pct", 3.0f).toDouble(),
+            closePositionsOnStop        = p.getBoolean("close_positions_on_stop", true),
             heliusApiKey                = s.getString("helius_api_key", "") ?: "",
             birdeyeApiKey               = s.getString("birdeye_api_key", "") ?: "",
             groqApiKey                  = s.getString("groq_api_key", "") ?: "",
