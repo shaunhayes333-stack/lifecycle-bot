@@ -871,9 +871,19 @@ class Executor(
                 lossPct       = pnlP,
             )
             
-            // Update BotBrain in real-time
+            // Update BotBrain in real-time — check if we should blacklist this token
             brain?.let { b ->
-                b.learnFromTrade(isWin = false, phase = ph, emaFan = fanName, source = src, pnlPct = pnlP)
+                val shouldBlacklist = b.learnFromTrade(
+                    isWin = false, phase = ph, emaFan = fanName, 
+                    source = src, pnlPct = pnlP, mint = ts.mint
+                )
+                if (shouldBlacklist) {
+                    TokenBlacklist.block(ts.mint, "2+ losses on ${ts.symbol}")
+                    onLog("🚫 BLACKLISTED: ${ts.symbol} after repeated losses", ts.mint)
+                    onNotify("🚫 Token Blacklisted", 
+                             "${ts.symbol}: 2+ losses — will not trade again",
+                             com.lifecyclebot.engine.NotificationHistory.NotifEntry.NotifType.INFO)
+                }
             }
         } else {
             // Win — let the brain know this pattern is recovering
@@ -885,7 +895,7 @@ class Executor(
             
             // Update BotBrain in real-time
             brain?.let { b ->
-                b.learnFromTrade(isWin = true, phase = ph, emaFan = fanName, source = src, pnlPct = pnlP)
+                b.learnFromTrade(isWin = true, phase = ph, emaFan = fanName, source = src, pnlPct = pnlP, mint = ts.mint)
             }
         }
 
@@ -982,6 +992,87 @@ class Executor(
 
         // pnl/pnlP are now valid (try succeeded, otherwise we returned above)
         val exitPrice = ts.ref  // capture before position reset clears it
+        
+        // Record bad behaviour observations for losing trades (same as paperSell)
+        if (pnl <= 0) {
+            val fanName = ts.meta.emafanAlignment
+            val ph      = pos.entryPhase
+            val src     = ts.source.ifBlank { "UNKNOWN" }
+
+            // Record the phase+ema combo as a bad observation
+            tradeDb?.recordBadObservation(
+                featureKey    = "phase=${ph}+ema=${fanName}",
+                behaviourType = "ENTRY_SIGNAL",
+                description   = "Loss on $ph + $fanName — pnl=${pnlP.toInt()}%",
+                lossPct       = pnlP,
+            )
+            // Record source if it contributed
+            if (src != "UNKNOWN") tradeDb?.recordBadObservation(
+                featureKey    = "source=${src}",
+                behaviourType = "SOURCE",
+                description   = "Loss from source $src",
+                lossPct       = pnlP,
+            )
+            // Record the exit reason as potential bad pattern
+            tradeDb?.recordBadObservation(
+                featureKey    = "exit_reason=${reason}",
+                behaviourType = "EXIT_PATTERN",
+                description   = "Exit via $reason resulted in loss",
+                lossPct       = pnlP,
+            )
+
+            // Update BotBrain — check if we should blacklist this token
+            brain?.let { b ->
+                val shouldBlacklist = b.learnFromTrade(
+                    isWin = false, phase = ph, emaFan = fanName, 
+                    source = src, pnlPct = pnlP, mint = ts.mint
+                )
+                if (shouldBlacklist) {
+                    TokenBlacklist.block(ts.mint, "2+ losses on ${ts.symbol}")
+                    onLog("🚫 BLACKLISTED: ${ts.symbol} after repeated losses", ts.mint)
+                    onNotify("🚫 Token Blacklisted", 
+                             "${ts.symbol}: 2+ losses — will not trade again",
+                             com.lifecyclebot.engine.NotificationHistory.NotifEntry.NotifType.INFO)
+                }
+            }
+        } else {
+            // Win — let the brain know this pattern is recovering
+            val fanName = ts.meta.emafanAlignment
+            val ph      = pos.entryPhase
+            val src     = ts.source.ifBlank { "UNKNOWN" }
+            tradeDb?.recordGoodObservation("phase=${ph}+ema=${fanName}")
+            tradeDb?.recordGoodObservation("source=${src}")
+            
+            brain?.let { b ->
+                b.learnFromTrade(isWin = true, phase = ph, emaFan = fanName, source = src, pnlPct = pnlP, mint = ts.mint)
+            }
+        }
+
+        // Record trade to database
+        tradeDb?.insertTrade(TradeRecord(
+            tsEntry=pos.entryTime, tsExit=System.currentTimeMillis(),
+            symbol=ts.symbol, mint=ts.mint,
+            mode=if(pos.entryPhase.contains("pump")) "LAUNCH" else "RANGE",
+            entryPrice=pos.entryPrice, entryScore=pos.entryScore,
+            entryPhase=pos.entryPhase, emaFan=ts.meta.emafanAlignment,
+            volScore=ts.meta.volScore, pressScore=ts.meta.pressScore, momScore=ts.meta.momScore,
+            holderCount=ts.history.lastOrNull()?.holderCount?:0,
+            holderGrowth=ts.holderGrowthRate, liquidityUsd=ts.lastLiquidityUsd, mcapUsd=ts.lastMcap,
+            exitPrice=exitPrice, exitPhase=ts.phase, exitReason=reason,
+            heldMins=(System.currentTimeMillis()-pos.entryTime)/60_000.0,
+            topUpCount=pos.topUpCount, partialSold=pos.partialSoldPct,
+            solIn=pos.costSol, solOut=pnl + pos.costSol, pnlSol=pnl, pnlPct=pnlP, isWin=pnl>0,
+        ))
+
+        // Notify shadow learning engine
+        ShadowLearningEngine.onLiveTradeExit(
+            mint = ts.mint,
+            exitPrice = exitPrice,
+            exitReason = reason,
+            livePnlSol = pnl,
+            isWin = pnl > 0,
+        )
+        
         ts.position         = Position()
         ts.lastExitTs       = System.currentTimeMillis()
         ts.lastExitPrice    = exitPrice

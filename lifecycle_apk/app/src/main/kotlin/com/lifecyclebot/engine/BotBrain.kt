@@ -708,8 +708,9 @@ Analyse this data and respond with ONLY valid JSON in this exact format:
     /**
      * Real-time learning from a completed trade.
      * Updates internal state immediately for faster adaptation.
+     * Returns true if the token should be blacklisted (2+ losses on same token).
      */
-    fun learnFromTrade(isWin: Boolean, phase: String, emaFan: String, source: String, pnlPct: Double) {
+    fun learnFromTrade(isWin: Boolean, phase: String, emaFan: String, source: String, pnlPct: Double, mint: String = ""): Boolean {
         try {
             // Track phase performance
             val phaseWins = phaseWinCounts.getOrDefault(phase, 0)
@@ -775,15 +776,32 @@ Analyse this data and respond with ONLY valid JSON in this exact format:
                 if (currentLosses >= 3) {
                     onLog("🧠 Pattern '$key' suppressed after $currentLosses losses")
                 }
+                
+                // Track losses per token for auto-blacklisting
+                if (mint.isNotBlank()) {
+                    val tokenLosses = tokenLossCounts.getOrDefault(mint, 0) + 1
+                    tokenLossCounts[mint] = tokenLosses
+                    
+                    if (tokenLosses >= TOKEN_LOSS_BLACKLIST_THRESHOLD) {
+                        onLog("🚫 Token ${mint.take(8)}... has $tokenLosses losses — BLACKLISTING")
+                        return true  // Signal to caller that token should be blacklisted
+                    }
+                }
             } else {
                 // Win resets the loss count for this pattern
                 patternLossCounts[key] = 0
+                // Win on a token also resets its loss count — second chance
+                if (mint.isNotBlank()) {
+                    tokenLossCounts[mint] = 0
+                }
             }
             
             totalTradesLearned++
             onLog("🧠 Learned: ${if(isWin) "WIN" else "LOSS"} ${pnlPct.toInt()}% | $phase | $source")
+            return false  // No blacklisting needed
         } catch (e: Exception) {
             ErrorLogger.error("BotBrain", "learnFromTrade error: ${e.message}")
+            return false
         }
     }
     
@@ -794,6 +812,11 @@ Analyse this data and respond with ONLY valid JSON in this exact format:
     private val sourceLossCounts = mutableMapOf<String, Int>()
     private val patternLossCounts = mutableMapOf<String, Int>()
     private var totalTradesLearned = 0
+    
+    // Track losses per token mint for auto-blacklisting
+    // Key = mint address, Value = number of losing trades on this token
+    private val tokenLossCounts = mutableMapOf<String, Int>()
+    private val TOKEN_LOSS_BLACKLIST_THRESHOLD = 2  // Blacklist after 2 losses on same token
     
     /**
      * Get a risk-adjusted size multiplier for a specific trade context.

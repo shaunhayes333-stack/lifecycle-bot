@@ -104,11 +104,11 @@ class SolanaMarketScanner(
 
     // Track which mints we've already surfaced to avoid duplicates
     private val seenMints  = ConcurrentHashMap<String, Long>()
-    private val SEEN_TTL   = 5 * 60_000L    // forget after 5 min — faster token refresh
+    private val SEEN_TTL   = 3 * 60_000L    // forget after 3 min — faster token refresh
     
     // Track rejected tokens separately - shorter cooldown for faster retry
     private val rejectedMints = ConcurrentHashMap<String, Long>()
-    private val REJECTED_TTL = 10 * 60_000L  // forget rejected tokens after 10 min
+    private val REJECTED_TTL = 5 * 60_000L  // forget rejected tokens after 5 min
     
     // Memory protection: limit concurrent operations
     private val semaphore = kotlinx.coroutines.sync.Semaphore(3)  // max 3 concurrent scans
@@ -122,6 +122,20 @@ class SolanaMarketScanner(
     
     // Running state
     @Volatile private var isRunning = false
+    
+    // Public status for debugging
+    fun getStatus(): String {
+        return "Scanner: running=$isRunning seenMints=${seenMints.size} rejectedMints=${rejectedMints.size} scanRotation=$scanRotation"
+    }
+    
+    // Force clear all maps (emergency reset)
+    fun forceReset() {
+        seenMints.clear()
+        rejectedMints.clear()
+        scanRotation = 0
+        ErrorLogger.info("Scanner", "Force reset - cleared all maps")
+        onLog("🔄 Scanner reset - maps cleared")
+    }
     
     // Coroutine exception handler for scanner - logs errors without crashing
     private val scannerExceptionHandler = CoroutineExceptionHandler { _, throwable ->
@@ -354,6 +368,13 @@ class SolanaMarketScanner(
                 
                 // Clean up old seen/rejected entries every cycle
                 cleanupSeenMaps()
+                
+                // Log map sizes every 3 cycles for debugging discovery issues
+                if (scanRotation == 0) {
+                    val watchlistSize = cfg().watchlist.size
+                    ErrorLogger.info("Scanner", "Discovery health: seen=${seenMints.size} rejected=${rejectedMints.size} watchlist=$watchlistSize")
+                    onLog("📊 Discovery: seen=${seenMints.size} rejected=${rejectedMints.size} watchlist=$watchlistSize")
+                }
                 
                 // GC after scan
                 System.gc()
@@ -1298,8 +1319,39 @@ class SolanaMarketScanner(
     // Clean up old entries from seen/rejected maps periodically
     private fun cleanupSeenMaps() {
         val now = System.currentTimeMillis()
-        seenMints.entries.removeIf { now - it.value > SEEN_TTL }
-        rejectedMints.entries.removeIf { now - it.value > REJECTED_TTL }
+        val seenBefore = seenMints.size
+        val rejectedBefore = rejectedMints.size
+        
+        // Use safer cleanup - iterate and remove explicitly
+        val seenToRemove = seenMints.entries.filter { now - it.value > SEEN_TTL }.map { it.key }
+        seenToRemove.forEach { seenMints.remove(it) }
+        
+        val rejectedToRemove = rejectedMints.entries.filter { now - it.value > REJECTED_TTL }.map { it.key }
+        rejectedToRemove.forEach { rejectedMints.remove(it) }
+        
+        val seenRemoved = seenBefore - seenMints.size
+        val rejectedRemoved = rejectedBefore - rejectedMints.size
+        
+        if (seenRemoved > 0 || rejectedRemoved > 0) {
+            ErrorLogger.info("Scanner", "Cleanup: removed $seenRemoved seen, $rejectedRemoved rejected. " +
+                "Remaining: ${seenMints.size} seen, ${rejectedMints.size} rejected")
+            onLog("🧹 Map cleanup: seen=${seenMints.size} rejected=${rejectedMints.size}")
+        }
+        
+        // Emergency cleanup if maps are getting too large
+        if (seenMints.size > 500) {
+            val toKeep = seenMints.entries.sortedByDescending { it.value }.take(200).map { it.key }
+            seenMints.keys.retainAll(toKeep.toSet())
+            ErrorLogger.warn("Scanner", "Emergency seen cleanup: reduced to ${seenMints.size}")
+            onLog("⚠️ Seen map overflow - reduced to ${seenMints.size}")
+        }
+        
+        if (rejectedMints.size > 1000) {
+            val toKeep = rejectedMints.entries.sortedByDescending { it.value }.take(400).map { it.key }
+            rejectedMints.keys.retainAll(toKeep.toSet())
+            ErrorLogger.warn("Scanner", "Emergency rejected cleanup: reduced to ${rejectedMints.size}")
+            onLog("⚠️ Rejected map overflow - reduced to ${rejectedMints.size}")
+        }
     }
 
     private fun emit(token: ScannedToken) {
