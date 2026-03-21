@@ -98,6 +98,10 @@ class SolanaMarketScanner(
 
     // Memory protection: limit concurrent operations
     private val semaphore = kotlinx.coroutines.sync.Semaphore(3)  // max 3 concurrent scans
+    
+    // Memory-safe mode - enables when OOM detected
+    @Volatile private var memorySafeMode = false
+    @Volatile private var oomCount = 0
 
     // ── Start / Stop ─────────────────────────────────────────────────
 
@@ -128,59 +132,46 @@ class SolanaMarketScanner(
                     TreasuryManager.treasurySol * WalletManager.lastKnownSolPrice)
                 val _tn = if (sScanTier != ScalingMode.Tier.MICRO)
                     " ${sScanTier.icon}${sScanTier.label}" else ""
+                
+                // Memory-safe mode: only run essential scans
+                if (memorySafeMode) {
+                    onLog("🌐 Scan (memory-safe mode)${_tn}")
+                    // Only run ONE scan in memory-safe mode
+                    try { scanDexTrending() } catch (e: Exception) { 
+                        ErrorLogger.error("Scanner", "scanDexTrending failed: ${e.message}", e) 
+                    }
+                    System.gc()
+                    delay(scanIntervalMs * 2)  // Longer delay in safe mode
+                    continue
+                }
+                
                 onLog("🌐 Scan cycle${_tn}")
 
-                // Run scans SEQUENTIALLY to avoid OutOfMemoryError
-                // Each scan completes before the next one starts
+                // Run only 3 essential scans to reduce memory
                 try { scanDexTrending() } catch (e: Exception) { 
                     ErrorLogger.error("Scanner", "scanDexTrending failed: ${e.message}", e) 
                 }
-                delay(500)  // Small delay between scans to let GC work
-                
-                try { scanDexGainers() } catch (e: Exception) { 
-                    ErrorLogger.error("Scanner", "scanDexGainers failed: ${e.message}", e) 
-                }
-                delay(500)
+                System.gc()
+                delay(1000)  // Longer delay between scans
                 
                 try { scanDexBoosted() } catch (e: Exception) { 
                     ErrorLogger.error("Scanner", "scanDexBoosted failed: ${e.message}", e) 
                 }
-                delay(500)
-                
-                try { scanPumpGraduates() } catch (e: Exception) { 
-                    ErrorLogger.error("Scanner", "scanPumpGraduates failed: ${e.message}", e) 
-                }
-                delay(500)
-                
-                try { scanBirdeyeTrending() } catch (e: Exception) { 
-                    ErrorLogger.error("Scanner", "scanBirdeyeTrending failed: ${e.message}", e) 
-                }
-                delay(500)
+                System.gc()
+                delay(1000)
                 
                 try { scanCoinGeckoTrending() } catch (e: Exception) { 
                     ErrorLogger.error("Scanner", "scanCoinGeckoTrending failed: ${e.message}", e) 
                 }
-                delay(500)
-                
-                try { scanRaydiumNewPools() } catch (e: Exception) { 
-                    ErrorLogger.error("Scanner", "scanRaydiumNewPools failed: ${e.message}", e) 
-                }
-                delay(500)
-                
-                if (c.narrativeScanEnabled) {
-                    try { scanNarratives(c.narrativeKeywords) } catch (e: Exception) { 
-                        ErrorLogger.error("Scanner", "scanNarratives failed: ${e.message}", e) 
-                    }
-                }
-                
-                // Force garbage collection after scan cycle
                 System.gc()
 
             } catch (e: OutOfMemoryError) {
-                ErrorLogger.crash("Scanner", "OutOfMemoryError in scan loop", Exception(e.message))
-                onLog("⚠️ Memory issue - reducing scan scope")
+                oomCount++
+                ErrorLogger.crash("Scanner", "OutOfMemoryError #$oomCount in scan loop", Exception(e.message))
+                onLog("⚠️ Memory issue #$oomCount - enabling safe mode")
+                memorySafeMode = true  // Enable memory-safe mode
                 System.gc()
-                delay(5000)  // Wait for memory to be freed
+                delay(10000)  // Wait 10s for memory to be freed
             } catch (e: Exception) {
                 ErrorLogger.error("Scanner", "Scanner error: ${e.message}", e)
                 onLog("Scanner error: ${e.message?.take(80)}")

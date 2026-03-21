@@ -39,6 +39,9 @@ class BotViewModel(app: Application) : AndroidViewModel(app) {
     private val ctx = app.applicationContext
     private val _ui = MutableStateFlow(UiState())
     val ui: StateFlow<UiState> = _ui
+    
+    // Standalone wallet manager - doesn't require BotService to be running
+    private val standaloneWalletManager = com.lifecyclebot.engine.WalletManager(ctx)
 
     init {
         viewModelScope.launch { pollLoop() }
@@ -49,7 +52,12 @@ class BotViewModel(app: Application) : AndroidViewModel(app) {
             val cfg    = ConfigStore.load(ctx)
             val status = BotService.status
             val active = status.tokens[cfg.activeToken]
-            val wm = try { com.lifecyclebot.engine.BotService.walletManager } catch (_: Exception) { null }
+            // Use BotService wallet manager if available, otherwise use standalone
+            val wm = try { 
+                com.lifecyclebot.engine.BotService.walletManager 
+            } catch (_: Exception) { 
+                standaloneWalletManager 
+            }
             val sg = try { com.lifecyclebot.engine.BotService.instance
                 ?.let { svc ->
                     val f = svc.javaClass.getDeclaredField("securityGuard")
@@ -63,7 +71,7 @@ class BotViewModel(app: Application) : AndroidViewModel(app) {
                 tokens       = status.tokens.toMap(),
                 logs         = synchronized(status.logs) { status.logs.toList().takeLast(200) },
                 config       = cfg,
-                walletState    = wm?.state?.value ?: com.lifecyclebot.engine.WalletState(),
+                walletState    = wm.state.value,
                 openPositions  = status.openPositions.toList(),
                 currentMode    = try { com.lifecyclebot.engine.BotService.instance?.autoMode?.currentMode
                     ?: com.lifecyclebot.engine.AutoModeEngine.BotMode.RANGE } catch (_: Exception) {
@@ -112,7 +120,15 @@ class BotViewModel(app: Application) : AndroidViewModel(app) {
             try {
                 com.lifecyclebot.engine.ErrorLogger.info("BotViewModel", "connectWallet called with RPC: ${rpcUrl.take(40)}...")
                 
-                val wm = com.lifecyclebot.engine.BotService.walletManager
+                // Use standalone wallet manager - doesn't require BotService
+                val wm = try {
+                    // If BotService is running, use its wallet manager
+                    com.lifecyclebot.engine.BotService.walletManager
+                } catch (_: Exception) {
+                    // Otherwise use standalone
+                    standaloneWalletManager
+                }
+                
                 com.lifecyclebot.engine.ErrorLogger.debug("BotViewModel", "Got walletManager, calling connect...")
                 
                 val success = wm.connect(privateKeyB58, rpcUrl)
@@ -121,18 +137,15 @@ class BotViewModel(app: Application) : AndroidViewModel(app) {
                     com.lifecyclebot.engine.ErrorLogger.info("BotViewModel", "Wallet connected successfully!")
                     // Trigger balance refresh after successful connection
                     wm.refreshBalance()
+                    kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Main) {
+                        android.widget.Toast.makeText(ctx, "Wallet connected!", android.widget.Toast.LENGTH_SHORT).show()
+                    }
                 } else {
                     val error = wm.state.value.errorMessage
                     com.lifecyclebot.engine.ErrorLogger.warn("BotViewModel", "Wallet connection failed: $error")
                     kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Main) {
                         android.widget.Toast.makeText(ctx, "Wallet error: $error", android.widget.Toast.LENGTH_LONG).show()
                     }
-                }
-            } catch (e: UninitializedPropertyAccessException) {
-                com.lifecyclebot.engine.ErrorLogger.error("BotViewModel", "BotService not started - walletManager not available", e)
-                // BotService not started yet - start it first
-                kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Main) {
-                    android.widget.Toast.makeText(ctx, "Start the bot first, then connect wallet", android.widget.Toast.LENGTH_LONG).show()
                 }
             } catch (e: Exception) {
                 com.lifecyclebot.engine.ErrorLogger.error("BotViewModel", "connectWallet exception: ${e.message}", e)
@@ -145,7 +158,12 @@ class BotViewModel(app: Application) : AndroidViewModel(app) {
 
     fun disconnectWallet() {
         try {
-            com.lifecyclebot.engine.BotService.walletManager.disconnect()
+            // Try BotService wallet manager first, then standalone
+            try {
+                com.lifecyclebot.engine.BotService.walletManager.disconnect()
+            } catch (_: Exception) {
+                standaloneWalletManager.disconnect()
+            }
         } catch (_: Exception) {}
         // Clear private key from config
         val cfg = ConfigStore.load(ctx)
