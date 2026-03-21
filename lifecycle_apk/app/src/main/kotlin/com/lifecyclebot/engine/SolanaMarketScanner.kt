@@ -228,7 +228,7 @@ class SolanaMarketScanner(
                     continue
                 }
                 
-                emit(token)
+                emitWithRugcheck(token)
                 added++
                 ErrorLogger.info("Scanner", "TEST: Added ${pair.baseSymbol} (age=${ageHours.toInt()}h)")
                 onLog("🎯 Test: ${pair.baseSymbol} | age=${ageHours.toInt()}h | liq=\$${liq.toInt()}")
@@ -464,7 +464,7 @@ class SolanaMarketScanner(
                 )
                 
                 if (passesFilter(token)) {
-                    emit(token)
+                    emitWithRugcheck(token)
                     found++
                     val freshIcon = if (ageHours < 1) "🆕" else if (ageHours < 6) "📈" else "📊"
                     onLog("$freshIcon NEW: ${pair.baseSymbol} | ${ageHours.toInt()}h old | liq=\$${liq.toInt()}")
@@ -539,7 +539,7 @@ class SolanaMarketScanner(
                 )
                 
                 if (passesFilter(token)) {
-                    emit(token)
+                    emitWithRugcheck(token)
                     found++
                     onLog("💎 BOOST: ${pair.baseSymbol} | age=${ageHours.toInt()}h | liq=\$${liq.toInt()}")
                 }
@@ -621,7 +621,7 @@ class SolanaMarketScanner(
                 )
                 
                 if (passesFilter(token)) {
-                    emit(token)
+                    emitWithRugcheck(token)
                     found++
                     onLog("🆕 FRESH: $symbol | ${ageMinutes.toInt()}m old | liq=\$${liq.toInt()}")
                 }
@@ -668,7 +668,7 @@ class SolanaMarketScanner(
                 val token = buildScannedToken(mint, pair, TokenSource.DEX_TRENDING) ?: continue
                 if (passesFilter(token)) {
                     val ageHours = (System.currentTimeMillis() - pair.pairCreatedAtMs) / 3_600_000.0
-                    emit(token)
+                    emitWithRugcheck(token)
                     passed++
                     onLog("📈 Trending: ${token.symbol} | age=${ageHours.toInt()}h | liq=$${token.liquidityUsd.toInt()}")
                 }
@@ -762,7 +762,7 @@ class SolanaMarketScanner(
                     score = scoreToken(liq, vol, buys + sells, mcap, 0.0, ageHours) + ageBonus,
                 )
                 if (passesFilter(token)) { 
-                    emit(token)
+                    emitWithRugcheck(token)
                     found++
                     val src = when {
                         ageHours < 1 -> "🚀 FRESH"
@@ -877,7 +877,7 @@ class SolanaMarketScanner(
                     score = scoreToken(liq, vol, buys + sells, mcap, 0.0, ageHours) + graduateBonus,
                 )
                 if (passesFilter(token)) { 
-                    emit(token)
+                    emitWithRugcheck(token)
                     found++ 
                     val label = when {
                         ageHours < 1 -> "🎓 JUST GRAD"
@@ -916,7 +916,7 @@ class SolanaMarketScanner(
                 val ageHours = (System.currentTimeMillis() - pair.pairCreatedAtMs) / 3_600_000.0
                 val token = buildScannedToken(mint, pair, TokenSource.BIRDEYE_TRENDING) ?: continue
                 if (passesFilter(token)) {
-                    emit(token)
+                    emitWithRugcheck(token)
                     onLog("🦅 Birdeye: ${token.symbol} | age=${ageHours.toInt()}h | liq=$${token.liquidityUsd.toInt()}")
                 }
             }
@@ -993,7 +993,7 @@ class SolanaMarketScanner(
                 )
                 
                 if (passesFilter(token)) {
-                    emit(token)
+                    emitWithRugcheck(token)
                     found++
                     onLog("📊 ACTIVE: ${pair.baseSymbol} | vol=\$${vol.toInt()} | liq=\$${liq.toInt()}")
                 }
@@ -1049,7 +1049,7 @@ class SolanaMarketScanner(
                                                     pair.candle.marketCap, 0.0,
                                                     (System.currentTimeMillis() - pair.pairCreatedAtMs)/3_600_000.0),
                 )
-                if (passesFilter(token)) emit(token)
+                if (passesFilter(token)) emitWithRugcheck(token)
             }
             delay(500)
         }
@@ -1262,6 +1262,85 @@ class SolanaMarketScanner(
               "vol=$${(token.volumeH1/1000).toInt()}K " +
               "score=${token.score.toInt()}")
         onTokenFound(token.mint, token.symbol, token.name, token.source, token.score)
+    }
+    
+    /**
+     * Check token against rugcheck.xyz API
+     * Returns: Pair(passed, riskInfo) - passed=true if safe, riskInfo contains details
+     */
+    private fun checkRugcheck(mint: String): Pair<Boolean, String> {
+        try {
+            val url = "https://api.rugcheck.xyz/v1/tokens/$mint/report/summary"
+            val body = get(url) ?: return Pair(true, "API unavailable")  // Pass if API fails
+            
+            val json = JSONObject(body)
+            
+            // score_normalised: 0-100 where higher = SAFER
+            val scoreNormalized = json.optInt("score_normalised", -1)
+            val lpLockedPct = json.optDouble("lpLockedPct", 0.0)
+            val risks = json.optJSONArray("risks")
+            
+            // Count high-risk factors
+            var criticalRisks = 0
+            var riskNames = mutableListOf<String>()
+            if (risks != null) {
+                for (i in 0 until risks.length()) {
+                    val risk = risks.optJSONObject(i) ?: continue
+                    val level = risk.optString("level", "")
+                    val name = risk.optString("name", "")
+                    if (level == "danger" || level == "critical") {
+                        criticalRisks++
+                        riskNames.add(name)
+                    }
+                }
+            }
+            
+            // BLOCK conditions:
+            // 1. Score < 20 (very risky)
+            // 2. 3+ critical/danger risks
+            // 3. LP locked < 1% AND score < 40
+            val blocked = when {
+                scoreNormalized in 0..19 -> true
+                criticalRisks >= 3 -> true
+                lpLockedPct < 0.01 && scoreNormalized < 40 -> true
+                else -> false
+            }
+            
+            val info = if (blocked) {
+                "Score:$scoreNormalized LP:${(lpLockedPct*100).toInt()}% Risks:${riskNames.take(2).joinToString(",")}"
+            } else {
+                "OK score:$scoreNormalized"
+            }
+            
+            return Pair(!blocked, info)
+            
+        } catch (e: Exception) {
+            ErrorLogger.warn("Scanner", "Rugcheck API error: ${e.message}")
+            return Pair(true, "Check failed")  // Pass if error (don't block on API issues)
+        }
+    }
+    
+    /**
+     * Emit token with rugcheck validation
+     * Blocks tokens that fail rugcheck safety checks
+     */
+    private suspend fun emitWithRugcheck(token: ScannedToken) {
+        // Run rugcheck in IO dispatcher to not block
+        val (passed, info) = withContext(Dispatchers.IO) { checkRugcheck(token.mint) }
+        
+        if (!passed) {
+            onLog("🚫 RUGCHECK BLOCK: ${token.symbol} - $info")
+            ErrorLogger.info("Scanner", "Rugcheck blocked ${token.symbol}: $info")
+            return
+        }
+        
+        // Log rugcheck result if it passed
+        if (info.startsWith("OK")) {
+            ErrorLogger.info("Scanner", "Rugcheck passed ${token.symbol}: $info")
+        }
+        
+        // Call the base emit function
+        emit(token)
     }
 
     private fun get(url: String, apiKey: String = ""): String? = try {
