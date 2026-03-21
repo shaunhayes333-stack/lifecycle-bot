@@ -292,11 +292,11 @@ class SolanaMarketScanner(
                 
                 when (scanRotation) {
                     0 -> {
-                        // DexScreener trending + boosted
-                        onLog("🔍 Scanning: DexScreener trending...")
-                        try { scanDexTrending() } catch (e: Exception) { 
+                        // PUMP.FUN FOCUS - Active pump.fun tokens with momentum
+                        onLog("🔍 Scanning: Pump.fun active tokens...")
+                        try { scanPumpFunActive() } catch (e: Exception) { 
                             if (e is OutOfMemoryError) throw e
-                            ErrorLogger.error("Scanner", "scanDexTrending: ${e.message}", e) 
+                            ErrorLogger.error("Scanner", "scanPumpFunActive: ${e.message}", e) 
                         }
                         delay(1000)
                         onLog("🔍 Scanning: DexScreener boosted...")
@@ -306,29 +306,27 @@ class SolanaMarketScanner(
                         }
                     }
                     1 -> {
-                        // PUMP.FUN GRADUATES - high signal tokens
+                        // PUMP.FUN GRADUATES - tokens that just graduated to Raydium
                         onLog("🔍 Scanning: Pump.fun graduates...")
                         try { scanPumpGraduates() } catch (e: Exception) { 
                             if (e is OutOfMemoryError) throw e
                             ErrorLogger.error("Scanner", "scanPumpGraduates: ${e.message}", e) 
                         }
                         delay(1000)
-                        onLog("🔍 Scanning: DexScreener gainers...")
+                        onLog("🔍 Scanning: New Solana pairs...")
                         try { scanDexGainers() } catch (e: Exception) { 
                             if (e is OutOfMemoryError) throw e
                             ErrorLogger.error("Scanner", "scanDexGainers: ${e.message}", e) 
                         }
                     }
                     2 -> {
-                        // Birdeye (if key available) + DexScreener trending
-                        if (c.birdeyeApiKey.isNotBlank()) {
-                            onLog("🔍 Scanning: Birdeye trending...")
-                            try { scanBirdeyeTrending() } catch (e: Exception) { 
-                                if (e is OutOfMemoryError) throw e
-                                ErrorLogger.error("Scanner", "scanBirdeye: ${e.message}", e) 
-                            }
-                            delay(1000)
+                        // PUMP.FUN HIGH VOLUME - tokens with trading activity
+                        onLog("🔍 Scanning: Pump.fun high volume...")
+                        try { scanPumpFunVolume() } catch (e: Exception) { 
+                            if (e is OutOfMemoryError) throw e
+                            ErrorLogger.error("Scanner", "scanPumpFunVolume: ${e.message}", e) 
                         }
+                        delay(1000)
                         onLog("🔍 Scanning: DexScreener trending...")
                         try { scanDexTrending() } catch (e: Exception) { 
                             if (e is OutOfMemoryError) throw e
@@ -336,17 +334,24 @@ class SolanaMarketScanner(
                         }
                     }
                     3 -> {
-                        // Top volume tokens scan - new diverse source
-                        onLog("🔍 Scanning: Top volume tokens...")
-                        try { scanTopVolumeTokens() } catch (e: Exception) { 
+                        // FRESH LAUNCHES - newest tokens for early entry
+                        onLog("🔍 Scanning: Fresh launches...")
+                        try { scanFreshLaunches() } catch (e: Exception) { 
                             if (e is OutOfMemoryError) throw e
-                            ErrorLogger.error("Scanner", "scanTopVolume: ${e.message}", e) 
+                            ErrorLogger.error("Scanner", "scanFreshLaunches: ${e.message}", e) 
                         }
                         delay(1000)
-                        onLog("🔍 Scanning: DexScreener gainers (alt keywords)...")
-                        try { scanDexGainers() } catch (e: Exception) { 
-                            if (e is OutOfMemoryError) throw e
-                            ErrorLogger.error("Scanner", "scanDexGainers: ${e.message}", e) 
+                        if (c.birdeyeApiKey.isNotBlank()) {
+                            onLog("🔍 Scanning: Birdeye trending...")
+                            try { scanBirdeyeTrending() } catch (e: Exception) { 
+                                if (e is OutOfMemoryError) throw e
+                                ErrorLogger.error("Scanner", "scanBirdeye: ${e.message}", e) 
+                            }
+                        } else {
+                            try { scanDexGainers() } catch (e: Exception) { 
+                                if (e is OutOfMemoryError) throw e
+                                ErrorLogger.error("Scanner", "scanDexGainers: ${e.message}", e) 
+                            }
                         }
                     }
                 }
@@ -382,6 +387,270 @@ class SolanaMarketScanner(
             delay(scanIntervalMs)
         }
     }
+
+
+    // ══════════════════════════════════════════════════════════════════════════
+    // PUMP.FUN FOCUSED SCANNING - Finding best profit opportunities
+    // ══════════════════════════════════════════════════════════════════════════
+
+    /**
+     * Scan for ACTIVE pump.fun tokens with trading momentum.
+     * Looks for tokens on pump.fun DEX with recent activity and good liquidity.
+     * These are pre-graduation opportunities.
+     */
+    private suspend fun scanPumpFunActive() {
+        val url = "https://api.dexscreener.com/latest/dex/pairs/solana"
+        ErrorLogger.info("Scanner", "scanPumpFunActive: looking for active pump.fun tokens...")
+        val body = get(url) ?: return
+        
+        try {
+            val pairs = if (body.startsWith("[")) JSONArray(body) 
+                       else JSONObject(body).optJSONArray("pairs") ?: return
+            
+            val now = System.currentTimeMillis()
+            var found = 0
+            var processed = 0
+            
+            for (i in 0 until minOf(pairs.length(), 60)) {
+                if (found >= 10) break
+                val p = pairs.optJSONObject(i) ?: continue
+                
+                val chainId = p.optString("chainId", "solana")
+                if (chainId != "solana") continue
+                
+                val dexId = p.optString("dexId", "")
+                // Focus on pump.fun tokens (pre-graduation)
+                val isPumpFun = dexId.contains("pump", ignoreCase = true)
+                if (!isPumpFun) continue
+                
+                processed++
+                
+                val mint = p.optJSONObject("baseToken")?.optString("address", "") ?: continue
+                if (mint.isBlank() || isSeen(mint)) continue
+                
+                val symbol = p.optJSONObject("baseToken")?.optString("symbol", "") ?: continue
+                val liq = p.optJSONObject("liquidity")?.optDouble("usd", 0.0) ?: 0.0
+                val vol = p.optJSONObject("volume")?.optDouble("h1", 0.0) ?: 0.0
+                val mcap = p.optDouble("marketCap", 0.0)
+                
+                // Pump.fun tokens - lower liquidity threshold but need activity
+                if (liq < 1000) continue
+                if (vol < 500) continue  // Need some volume
+                
+                val created = p.optLong("pairCreatedAt", 0L)
+                val ageHours = if (created > 0) (now - created) / 3_600_000.0 else 999.0
+                
+                // Focus on fresh pump.fun tokens (< 12 hours)
+                if (ageHours > 12) continue
+                
+                val name = p.optJSONObject("baseToken")?.optString("name", "") ?: symbol
+                val buys = p.optJSONObject("txns")?.optJSONObject("h1")?.optInt("buys", 0) ?: 0
+                val sells = p.optJSONObject("txns")?.optJSONObject("h1")?.optInt("sells", 0) ?: 0
+                val priceChange = p.optJSONObject("priceChange")?.optDouble("h1", 0.0) ?: 0.0
+                
+                // Momentum scoring for pump.fun
+                val momentumScore = when {
+                    priceChange > 50 && buys > 20 -> 35.0  // Strong pump
+                    priceChange > 20 && buys > 10 -> 25.0  // Good momentum
+                    priceChange > 0 && buys > 5 -> 15.0    // Positive
+                    else -> 5.0
+                }
+                
+                val ageBonus = when {
+                    ageHours < 0.5 -> 30.0  // < 30 mins = very fresh
+                    ageHours < 1 -> 25.0    // < 1 hour
+                    ageHours < 3 -> 20.0    // < 3 hours
+                    ageHours < 6 -> 10.0    // < 6 hours
+                    else -> 0.0
+                }
+                
+                val token = ScannedToken(
+                    mint = mint, symbol = symbol, name = name,
+                    source = TokenSource.PUMP_FUN_NEW,
+                    liquidityUsd = liq, volumeH1 = vol, mcapUsd = mcap,
+                    pairCreatedHoursAgo = ageHours, dexId = dexId,
+                    priceChangeH1 = priceChange, txCountH1 = buys + sells,
+                    score = scoreToken(liq, vol, buys + sells, mcap, priceChange, ageHours) + momentumScore + ageBonus
+                )
+                
+                if (passesFilter(token)) {
+                    emit(token)
+                    found++
+                    val momentum = if (priceChange > 20) "🔥" else if (priceChange > 0) "📈" else "📊"
+                    onLog("$momentum PUMP: $symbol | ${ageHours.toInt()}h | +${priceChange.toInt()}% | $buys buys")
+                }
+            }
+            ErrorLogger.info("Scanner", "scanPumpFunActive: found $found pump.fun tokens (processed $processed)")
+        } catch (e: Exception) {
+            ErrorLogger.error("Scanner", "scanPumpFunActive error: ${e.message}")
+        }
+        System.gc()
+    }
+
+    /**
+     * Scan for pump.fun tokens with HIGH VOLUME - indicates strong interest.
+     * Volume is the best indicator of profit potential.
+     */
+    private suspend fun scanPumpFunVolume() {
+        val url = "https://api.dexscreener.com/latest/dex/pairs/solana"
+        ErrorLogger.info("Scanner", "scanPumpFunVolume: looking for high volume pump.fun tokens...")
+        val body = get(url) ?: return
+        
+        try {
+            val pairs = if (body.startsWith("[")) JSONArray(body)
+                       else JSONObject(body).optJSONArray("pairs") ?: return
+            
+            val now = System.currentTimeMillis()
+            var found = 0
+            
+            // Collect pump.fun pairs and sort by volume
+            val pumpPairs = mutableListOf<Pair<JSONObject, Double>>()
+            
+            for (i in 0 until pairs.length()) {
+                val p = pairs.optJSONObject(i) ?: continue
+                if (p.optString("chainId", "") != "solana") continue
+                
+                val dexId = p.optString("dexId", "")
+                if (!dexId.contains("pump", ignoreCase = true)) continue
+                
+                val vol = p.optJSONObject("volume")?.optDouble("h1", 0.0) ?: 0.0
+                if (vol > 1000) {  // Minimum $1K volume
+                    pumpPairs.add(p to vol)
+                }
+            }
+            
+            // Sort by volume descending
+            pumpPairs.sortByDescending { it.second }
+            
+            for ((p, vol) in pumpPairs.take(15)) {
+                if (found >= 8) break
+                
+                val mint = p.optJSONObject("baseToken")?.optString("address", "") ?: continue
+                if (mint.isBlank() || isSeen(mint)) continue
+                
+                val symbol = p.optJSONObject("baseToken")?.optString("symbol", "") ?: continue
+                val liq = p.optJSONObject("liquidity")?.optDouble("usd", 0.0) ?: 0.0
+                val mcap = p.optDouble("marketCap", 0.0)
+                val created = p.optLong("pairCreatedAt", 0L)
+                val ageHours = if (created > 0) (now - created) / 3_600_000.0 else 999.0
+                
+                val name = p.optJSONObject("baseToken")?.optString("name", "") ?: symbol
+                val buys = p.optJSONObject("txns")?.optJSONObject("h1")?.optInt("buys", 0) ?: 0
+                val sells = p.optJSONObject("txns")?.optJSONObject("h1")?.optInt("sells", 0) ?: 0
+                val priceChange = p.optJSONObject("priceChange")?.optDouble("h1", 0.0) ?: 0.0
+                val dexId = p.optString("dexId", "pumpfun")
+                
+                // Volume bonus - higher volume = more interest
+                val volBonus = when {
+                    vol > 50000 -> 30.0
+                    vol > 20000 -> 25.0
+                    vol > 10000 -> 20.0
+                    vol > 5000 -> 15.0
+                    else -> 10.0
+                }
+                
+                val token = ScannedToken(
+                    mint = mint, symbol = symbol, name = name,
+                    source = TokenSource.PUMP_FUN_NEW,
+                    liquidityUsd = liq, volumeH1 = vol, mcapUsd = mcap,
+                    pairCreatedHoursAgo = ageHours, dexId = dexId,
+                    priceChangeH1 = priceChange, txCountH1 = buys + sells,
+                    score = scoreToken(liq, vol, buys + sells, mcap, priceChange, ageHours) + volBonus
+                )
+                
+                if (passesFilter(token)) {
+                    emit(token)
+                    found++
+                    val volK = (vol / 1000).toInt()
+                    onLog("💰 VOL: $symbol | \$${volK}K vol | $buys buys | +${priceChange.toInt()}%")
+                }
+            }
+            ErrorLogger.info("Scanner", "scanPumpFunVolume: found $found high-volume tokens")
+        } catch (e: Exception) {
+            ErrorLogger.error("Scanner", "scanPumpFunVolume error: ${e.message}")
+        }
+        System.gc()
+    }
+
+    /**
+     * Scan for FRESH LAUNCHES - tokens created in the last 30 minutes.
+     * Early entry = maximum profit potential (but also maximum risk).
+     */
+    private suspend fun scanFreshLaunches() {
+        val url = "https://api.dexscreener.com/latest/dex/pairs/solana"
+        ErrorLogger.info("Scanner", "scanFreshLaunches: looking for tokens < 30 mins old...")
+        val body = get(url) ?: return
+        
+        try {
+            val pairs = if (body.startsWith("[")) JSONArray(body)
+                       else JSONObject(body).optJSONArray("pairs") ?: return
+            
+            val now = System.currentTimeMillis()
+            val freshCutoff = now - 30 * 60_000L  // 30 minutes
+            var found = 0
+            
+            for (i in 0 until minOf(pairs.length(), 80)) {
+                if (found >= 10) break
+                val p = pairs.optJSONObject(i) ?: continue
+                
+                if (p.optString("chainId", "") != "solana") continue
+                
+                val created = p.optLong("pairCreatedAt", 0L)
+                if (created < freshCutoff) continue  // Skip tokens older than 30 mins
+                
+                val ageMinutes = (now - created) / 60_000.0
+                
+                val mint = p.optJSONObject("baseToken")?.optString("address", "") ?: continue
+                if (mint.isBlank() || isSeen(mint)) continue
+                
+                val symbol = p.optJSONObject("baseToken")?.optString("symbol", "") ?: continue
+                val liq = p.optJSONObject("liquidity")?.optDouble("usd", 0.0) ?: 0.0
+                
+                // Very fresh tokens - lower liquidity threshold
+                if (liq < 500) continue
+                
+                val vol = p.optJSONObject("volume")?.optDouble("h1", 0.0) ?: 0.0
+                val mcap = p.optDouble("marketCap", 0.0)
+                val name = p.optJSONObject("baseToken")?.optString("name", "") ?: symbol
+                val buys = p.optJSONObject("txns")?.optJSONObject("h1")?.optInt("buys", 0) ?: 0
+                val sells = p.optJSONObject("txns")?.optJSONObject("h1")?.optInt("sells", 0) ?: 0
+                val priceChange = p.optJSONObject("priceChange")?.optDouble("h1", 0.0) ?: 0.0
+                val dexId = p.optString("dexId", "unknown")
+                
+                // Fresh launch bonus - the newer, the better
+                val freshnessBonus = when {
+                    ageMinutes < 5 -> 40.0   // < 5 mins = ultra fresh
+                    ageMinutes < 10 -> 35.0  // < 10 mins
+                    ageMinutes < 15 -> 30.0  // < 15 mins
+                    ageMinutes < 20 -> 25.0  // < 20 mins
+                    else -> 20.0             // < 30 mins
+                }
+                
+                val ageHours = ageMinutes / 60.0
+                val token = ScannedToken(
+                    mint = mint, symbol = symbol, name = name,
+                    source = if (dexId.contains("pump", ignoreCase = true)) 
+                             TokenSource.PUMP_FUN_NEW else TokenSource.RAYDIUM_NEW_POOL,
+                    liquidityUsd = liq, volumeH1 = vol, mcapUsd = mcap,
+                    pairCreatedHoursAgo = ageHours, dexId = dexId,
+                    priceChangeH1 = priceChange, txCountH1 = buys + sells,
+                    score = scoreToken(liq, vol, buys + sells, mcap, priceChange, ageHours) + freshnessBonus
+                )
+                
+                if (passesFilter(token)) {
+                    emit(token)
+                    found++
+                    val isPump = if (dexId.contains("pump", ignoreCase = true)) "🚀" else "🆕"
+                    onLog("$isPump FRESH: $symbol | ${ageMinutes.toInt()}m old | liq=\$${liq.toInt()}")
+                }
+            }
+            ErrorLogger.info("Scanner", "scanFreshLaunches: found $found fresh tokens")
+        } catch (e: Exception) {
+            ErrorLogger.error("Scanner", "scanFreshLaunches error: ${e.message}")
+        }
+        System.gc()
+    }
+
 
     // ── Source 1: Dexscreener trending ───────────────────────────────
 
