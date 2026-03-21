@@ -472,7 +472,7 @@ class BotService : Service() {
                                 pairUrl    = pair.url,
                             )
                         }
-                        val ts = status.tokens[mint] ?: continue
+                        val ts = status.tokens[mint] ?: return@launch
                         ts.lastPrice        = pair.candle.priceUsd
                         ts.lastMcap         = pair.candle.marketCap
                         ts.lastLiquidityUsd = pair.liquidity
@@ -494,7 +494,7 @@ class BotService : Service() {
                         }
                     }
 
-                    val ts = status.tokens[mint] ?: continue
+                    val ts = status.tokens[mint] ?: return@launch
                     // ── Safety check (cached 10 min) ──────────────────────
                 val safetyAge = System.currentTimeMillis() - ts.lastSafetyCheck
                 if (safetyAge > 10 * 60_000L) {
