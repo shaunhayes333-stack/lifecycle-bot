@@ -388,6 +388,7 @@ class BotService : Service() {
 
     private suspend fun botLoop() {
         while (status.running) {
+          try {
             val cfg       = ConfigStore.load(applicationContext)
             val watchlist = cfg.watchlist.toMutableList()
             if (cfg.activeToken.isNotBlank() && cfg.activeToken !in watchlist)
@@ -634,6 +635,11 @@ class BotService : Service() {
                 try { SessionStore.save(applicationContext) } catch (_: Exception) {}
             }
             delay(cfg.pollSeconds * 1000L)
+          } catch (e: Exception) {
+            // Catch any crash in the main loop and log it
+            addLog("❌ Loop error: ${e.message}")
+            delay(5000) // wait 5 seconds before retrying
+          }
         }
     }
 

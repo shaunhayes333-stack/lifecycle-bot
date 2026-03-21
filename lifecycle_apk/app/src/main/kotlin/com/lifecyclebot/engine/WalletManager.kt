@@ -70,6 +70,24 @@ class WalletManager(private val ctx: Context) {
             connectionState = WalletConnectionState.CONNECTING,
             errorMessage    = "",
         )
+        
+        // Validate input first
+        if (privateKeyB58.isBlank()) {
+            _state.value = _state.value.copy(
+                connectionState = WalletConnectionState.ERROR,
+                errorMessage    = "Private key is empty",
+            )
+            return false
+        }
+        
+        if (rpcUrl.isBlank()) {
+            _state.value = _state.value.copy(
+                connectionState = WalletConnectionState.ERROR,
+                errorMessage    = "RPC URL is empty",
+            )
+            return false
+        }
+        
         return try {
             wallet = SolanaWallet(privateKeyB58, rpcUrl)
             val pubkey = wallet!!.publicKeyB58
@@ -79,11 +97,18 @@ class WalletManager(private val ctx: Context) {
             )
             refreshBalance()
             true
+        } catch (e: IllegalArgumentException) {
+            wallet = null
+            _state.value = _state.value.copy(
+                connectionState = WalletConnectionState.ERROR,
+                errorMessage    = "Invalid key format: ${e.message}",
+            )
+            false
         } catch (e: Exception) {
             wallet = null
             _state.value = _state.value.copy(
                 connectionState = WalletConnectionState.ERROR,
-                errorMessage    = e.message ?: "Invalid private key",
+                errorMessage    = e.message ?: "Connection failed",
             )
             false
         }
