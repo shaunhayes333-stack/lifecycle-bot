@@ -146,6 +146,12 @@ object TreasuryManager {
         MILESTONES.forEachIndexed { idx, milestone ->
             if (idx > highestMilestoneHit && walletUsd >= milestone.thresholdUsd) {
                 highestMilestoneHit = idx
+                
+                // Log milestone hit
+                ErrorLogger.info("Treasury", 
+                    "🏆 MILESTONE HIT: ${milestone.label} | Lock rate now ${(milestone.lockPct*100).toInt()}% | " +
+                    "Wallet: ${walletUsd.fmtUsd()}")
+                
                 addEvent(TreasuryEvent(
                     type        = TreasuryEventType.MILESTONE_HIT,
                     amountSol   = 0.0,
@@ -169,6 +175,11 @@ object TreasuryManager {
                 treasurySol     += lockSol
                 treasuryUsd     += lockUsd
                 lifetimeLocked  += lockSol
+
+                // Log the compounding action
+                ErrorLogger.info("Treasury", 
+                    "COMPOUND: +${delta.fmtUsd()} profit → locked ${lockSol.fmtSol()}◎ (${(lockPct*100).toInt()}%) | " +
+                    "Treasury now: ${treasurySol.fmtSol()}◎ (${treasuryUsd.fmtUsd()})")
 
                 addEvent(TreasuryEvent(
                     type        = TreasuryEventType.PROFIT_LOCKED,
