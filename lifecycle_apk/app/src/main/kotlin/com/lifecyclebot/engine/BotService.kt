@@ -230,24 +230,35 @@ class BotService : Service() {
                 cfg.rpcUrl
             }
             
+            // Check if wallet is already connected via singleton
+            val alreadyConnected = walletManager.state.value.connectionState == WalletConnectionState.CONNECTED
+            
             wallet = if (!cfg.paperMode && cfg.privateKeyB58.isNotBlank()) {
-                addLog("Attempting wallet connection to ${rpcUrl.take(40)}...")
-                try {
-                    val connected = walletManager.connect(cfg.privateKeyB58, rpcUrl)
-                    if (connected) {
-                        addLog("✓ Wallet connected: ${walletManager.state.value.shortKey}")
-                        walletManager.getWallet()
-                    } else {
-                        addLog("⚠️ Wallet error: ${walletManager.state.value.errorMessage} — using paper mode")
+                if (alreadyConnected) {
+                    // Wallet already connected - reuse it
+                    addLog("✓ Wallet already connected: ${walletManager.state.value.shortKey}")
+                    walletManager.getWallet()
+                } else {
+                    // Need to connect wallet
+                    addLog("Attempting wallet connection to ${rpcUrl.take(40)}...")
+                    try {
+                        val connected = walletManager.connect(cfg.privateKeyB58, rpcUrl)
+                        if (connected) {
+                            addLog("✓ Wallet connected: ${walletManager.state.value.shortKey}")
+                            walletManager.getWallet()
+                        } else {
+                            addLog("⚠️ Wallet error: ${walletManager.state.value.errorMessage} — using paper mode")
+                            null
+                        }
+                    } catch (e: Exception) {
+                        addLog("⚠️ Wallet connection failed: ${e.message} — using paper mode")
                         null
                     }
-                } catch (e: Exception) {
-                    addLog("⚠️ Wallet connection failed: ${e.message} — using paper mode")
-                    null
                 }
             } else {
                 addLog("Paper mode enabled or no key provided")
-                walletManager.disconnect()
+                // DON'T disconnect - just set local wallet to null for paper mode
+                // walletManager.disconnect() -- REMOVED: This was disconnecting the wallet!
                 null
             }
 
