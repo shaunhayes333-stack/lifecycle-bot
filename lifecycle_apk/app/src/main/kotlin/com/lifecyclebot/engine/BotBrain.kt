@@ -846,23 +846,23 @@ Analyse this data and respond with ONLY valid JSON in this exact format:
         // Hard suppression = skip
         if (isHardSuppressed(phase, emaFan)) return true
         
-        // Very cautious brain + low score = skip
-        if (entryThresholdDelta > 10 && entryScore < 55) return true
+        // Very cautious brain + very low score = skip (loosened from 55 to 40)
+        if (entryThresholdDelta > 15 && entryScore < 40) return true
         
-        // Multiple risk factors = skip
+        // Multiple risk factors = skip (only if 4+ factors, was 3)
         val suppressionPenalty = getSuppressionPenalty(phase, emaFan, source)
         val phaseBoost = phaseBoosts[phase] ?: 0.0
         val sourceBoost = sourceBoosts[source] ?: 0.0
         
         val riskFactors = listOf(
-            suppressionPenalty > 30,
-            phaseBoost >= 5,
-            sourceBoost <= -10,
-            currentRegime in listOf("BEAR", "BEAR_COLD", "DANGER"),
+            suppressionPenalty > 40,  // was 30
+            phaseBoost >= 10,         // was 5
+            sourceBoost <= -15,       // was -10
+            currentRegime in listOf("BEAR_COLD", "DANGER"),  // removed "BEAR"
         ).count { it }
         
-        // 3+ risk factors = too risky
-        if (riskFactors >= 3 && entryScore < 70) return true
+        // 4+ risk factors = too risky (was 3)
+        if (riskFactors >= 4 && entryScore < 60) return true  // was 70
         
         return false
     }

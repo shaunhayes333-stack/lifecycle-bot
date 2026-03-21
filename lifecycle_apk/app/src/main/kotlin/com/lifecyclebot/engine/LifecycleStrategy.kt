@@ -1362,10 +1362,11 @@ class LifecycleStrategy(
             TradingMode.LAUNCH_SNIPE -> {
                 ErrorLogger.debug("Strategy", "${ts.symbol}: LAUNCH_SNIPE mode, phase=$phase, adjEntry=${adjustedEntryScore.toInt()}")
                 when (phase) {
-                    "pre_pump"      -> if (adjustedEntryScore >= (55 + brainAdj + tierThAdj) - adj) return "BUY"
-                    "pumping"       -> if (adjustedEntryScore >= (42 + brainAdj + tierThAdj) - adj) return "BUY"
-                    "pump_pullback" -> if (adjustedEntryScore >= (30 + brainAdj + tierThAdj))       return "BUY"
-                    "early_unknown" -> if (adjustedEntryScore >= (65 + brainAdj + tierThAdj) - adj) return "BUY"
+                    // LOWERED THRESHOLDS for more aggressive buying
+                    "pre_pump"      -> if (adjustedEntryScore >= (40 + brainAdj + tierThAdj) - adj) return "BUY"  // was 55
+                    "pumping"       -> if (adjustedEntryScore >= (30 + brainAdj + tierThAdj) - adj) return "BUY"  // was 42
+                    "pump_pullback" -> if (adjustedEntryScore >= (20 + brainAdj + tierThAdj))       return "BUY"  // was 30
+                    "early_unknown" -> if (adjustedEntryScore >= (45 + brainAdj + tierThAdj) - adj) return "BUY"  // was 65
                 }
             }
             TradingMode.RANGE_TRADE -> {
@@ -1385,24 +1386,24 @@ class LifecycleStrategy(
                             }
                         }
                         val stableAtBottom = recentPosInRange.count { it < 30.0 } >= 2
-                        if (meta.posInRange < 25.0 && stableAtBottom && adjustedEntryScore >= 40 + tierThAdj - adj) return "BUY"
+                        if (meta.posInRange < 25.0 && stableAtBottom && adjustedEntryScore >= 30 + tierThAdj - adj) return "BUY"  // was 40
                     }
                     "strong_reclaim" -> {
                         val volOk = hist.takeLast(3).let {
                             it.size >= 2 && it.last().vol >= it.first().vol * 0.9
                         }
-                        if (adjustedEntryScore >= 38 - adj && volOk) return "BUY"
+                        if (adjustedEntryScore >= 28 - adj && volOk) return "BUY"  // was 38
                     }
                     "reclaim_attempt" -> {
                         val volOk = hist.takeLast(3).let {
                             it.size >= 2 && it.last().vol >= it.first().vol
                         }
-                        if (adjustedEntryScore >= 45 - adj && volOk) return "BUY"
+                        if (adjustedEntryScore >= 35 - adj && volOk) return "BUY"  // was 45
                     }
                     "cooling" -> {
                         val fanOk = emafan.alignment in listOf(
                             EmaAlignment.BULL_FAN, EmaAlignment.BULL_FLAT)
-                        if (adjustedEntryScore >= 50 - adj && meta.posInRange < 40.0 && fanOk) return "BUY"
+                        if (adjustedEntryScore >= 40 - adj && meta.posInRange < 40.0 && fanOk) return "BUY"  // was 50
                     }
                 }
             }

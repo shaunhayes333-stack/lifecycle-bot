@@ -177,10 +177,10 @@ class Executor(
         if (exitScore >= 35.0) return false
 
         // Don't add if entry score is very low (market structure weak)
-        if (entryScore < 30.0) return false
+        if (entryScore < 20.0) return false  // was 30.0 - lowered for more aggressive buying
 
         // Volume must be healthy
-        if (volScore < 35.0) return false
+        if (volScore < 30.0) return false  // was 35.0 - lowered
 
         // Must have room left
         val remainingRoom = c.topUpMaxTotalSol - pos.costSol
