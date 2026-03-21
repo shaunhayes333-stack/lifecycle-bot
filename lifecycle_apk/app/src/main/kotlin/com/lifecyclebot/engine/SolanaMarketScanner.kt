@@ -80,12 +80,15 @@ class SolanaMarketScanner(
     )
 
     private val http = OkHttpClient.Builder()
-        .connectTimeout(10, TimeUnit.SECONDS)
-        .readTimeout(15, TimeUnit.SECONDS)
-        // Memory optimization: disable connection pooling to free memory faster
+        .connectTimeout(8, TimeUnit.SECONDS)
+        .readTimeout(10, TimeUnit.SECONDS)
+        // AGGRESSIVE Memory optimization
         .connectionPool(okhttp3.ConnectionPool(0, 1, TimeUnit.SECONDS))
-        // Disable response caching
         .cache(null)
+        .dispatcher(okhttp3.Dispatcher().apply {
+            maxRequests = 2  // Only 2 concurrent requests max
+            maxRequestsPerHost = 1
+        })
         .build()
 
     private val dex        = DexscreenerApi()
@@ -152,8 +155,8 @@ class SolanaMarketScanner(
         ErrorLogger.info("Scanner", "scanLoop() entered")
         while (isRunning) {
             val c = cfg()
-            // Use configured interval, minimum 30 seconds
-            val scanIntervalMs = maxOf((c.scanIntervalSecs * 1000L).toLong(), 30_000L)
+            // Use configured interval, minimum 60 seconds for memory stability
+            val scanIntervalMs = maxOf((c.scanIntervalSecs * 1000L).toLong(), 60_000L)
             ErrorLogger.debug("Scanner", "Scan interval: ${scanIntervalMs}ms")
 
             try {
@@ -167,8 +170,8 @@ class SolanaMarketScanner(
                 val _tn = if (sScanTier != ScalingMode.Tier.MICRO)
                     " ${sScanTier.icon}${sScanTier.label}" else ""
                 
-                // RESTORED: Full scan rotation with all sources
-                scanRotation = (scanRotation + 1) % 4
+                // MEMORY-OPTIMIZED: Only 2 lightweight sources per cycle
+                scanRotation = (scanRotation + 1) % 2
                 onLog("🌐 Scan #$scanRotation${_tn} - Starting scan cycle")
                 ErrorLogger.info("Scanner", "Scan cycle #$scanRotation starting")
                 
@@ -179,13 +182,13 @@ class SolanaMarketScanner(
                 
                 when (scanRotation) {
                     0 -> {
-                        // DexScreener trending + boosted
+                        // DexScreener trending only
                         onLog("🔍 Scanning: DexScreener trending...")
                         try { scanDexTrending() } catch (e: Exception) { 
                             if (e is OutOfMemoryError) throw e
                             ErrorLogger.error("Scanner", "scanDexTrending: ${e.message}", e) 
                         }
-                        delay(500)
+                        delay(1000)
                         onLog("🔍 Scanning: DexScreener boosted...")
                         try { scanDexBoosted() } catch (e: Exception) { 
                             if (e is OutOfMemoryError) throw e
@@ -193,49 +196,25 @@ class SolanaMarketScanner(
                         }
                     }
                     1 -> {
-                        // CoinGecko + Pump graduates
-                        onLog("🔍 Scanning: CoinGecko trending...")
-                        try { scanCoinGeckoTrending() } catch (e: Exception) { 
-                            if (e is OutOfMemoryError) throw e
-                            ErrorLogger.error("Scanner", "scanCoinGecko: ${e.message}", e) 
-                        }
-                        delay(500)
-                        onLog("🔍 Scanning: Pump.fun graduates...")
-                        try { scanPumpGraduates() } catch (e: Exception) { 
-                            if (e is OutOfMemoryError) throw e
-                            ErrorLogger.error("Scanner", "scanPumpGraduates: ${e.message}", e) 
-                        }
-                    }
-                    2 -> {
-                        // Birdeye + Raydium
-                        onLog("🔍 Scanning: Birdeye trending...")
-                        try { scanBirdeyeTrending() } catch (e: Exception) { 
-                            if (e is OutOfMemoryError) throw e
-                            ErrorLogger.error("Scanner", "scanBirdeye: ${e.message}", e) 
-                        }
-                        delay(500)
-                        onLog("🔍 Scanning: Raydium new pools...")
-                        try { scanRaydiumNewPools() } catch (e: Exception) { 
-                            if (e is OutOfMemoryError) throw e
-                            ErrorLogger.error("Scanner", "scanRaydium: ${e.message}", e) 
-                        }
-                    }
-                    3 -> {
-                        // DexScreener gainers + trending
+                        // DexScreener gainers + Birdeye (if key available)
                         onLog("🔍 Scanning: DexScreener gainers...")
                         try { scanDexGainers() } catch (e: Exception) { 
                             if (e is OutOfMemoryError) throw e
                             ErrorLogger.error("Scanner", "scanDexGainers: ${e.message}", e) 
                         }
-                        delay(500)
-                        onLog("🔍 Scanning: DexScreener trending...")
-                        try { scanDexTrending() } catch (e: Exception) { 
-                            if (e is OutOfMemoryError) throw e
-                            ErrorLogger.error("Scanner", "scanDexTrending: ${e.message}", e) 
+                        delay(1000)
+                        if (c.birdeyeApiKey.isNotBlank()) {
+                            onLog("🔍 Scanning: Birdeye trending...")
+                            try { scanBirdeyeTrending() } catch (e: Exception) { 
+                                if (e is OutOfMemoryError) throw e
+                                ErrorLogger.error("Scanner", "scanBirdeye: ${e.message}", e) 
+                            }
                         }
                     }
                 }
                 
+                // GC after scan
+                System.gc()
                 onLog("✅ Scan cycle #$scanRotation complete")
                 
                 // GC after scan
@@ -269,57 +248,59 @@ class SolanaMarketScanner(
         val body = get(url) ?: return
         try {
             val arr = JSONArray(body)
-            // Process up to 10 items
-            for (i in 0 until minOf(arr.length(), 10)) {
+            // Process only 5 items to save memory
+            for (i in 0 until minOf(arr.length(), 5)) {
                 val item = arr.optJSONObject(i) ?: continue
                 val mint = item.optString("tokenAddress", "").trim()
                 if (mint.isBlank() || mint.length < 32 || isSeen(mint)) continue
                 val pair = withContext(Dispatchers.IO) { dex.getBestPair(mint) } ?: continue
                 val token = buildScannedToken(mint, pair, TokenSource.DEX_TRENDING) ?: continue
                 if (passesFilter(token)) emit(token)
+                // Release memory between items
+                System.gc()
             }
         } catch (e: OutOfMemoryError) {
             ErrorLogger.error("Scanner", "OOM in scanDexTrending", Exception(e.message))
-            throw e  // Rethrow to trigger OOM handling
-        } catch (_: Exception) {}
+            throw e
+        } catch (e: Exception) {
+            ErrorLogger.error("Scanner", "scanDexTrending error: ${e.message}")
+        }
     }
 
     // ── Source 2: Dexscreener gainers (top % movers last 1h) ─────────
 
     private suspend fun scanDexGainers() {
-        // Dexscreener search for top Solana volume - limit queries to reduce memory
-        val searches = listOf("solana top")  // Reduced from 3 queries to 1
-        for (query in searches) {
-            try {
-                val results = withContext(Dispatchers.IO) { dex.search(query) }
-                results.take(5).forEach { pair ->  // Reduced from 10 to 5
-                    val mint = pair.pairAddress  // use pair address as proxy
-                    if (mint.isBlank() || isSeen(mint)) return@forEach
-                    // Use pair address as proxy — scanner will resolve real mint via getBestPair
-                    val token = ScannedToken(
-                        mint               = mint,
-                        symbol             = pair.baseSymbol.ifBlank { mint.take(8) },
-                        name               = pair.baseName.ifBlank { "Unknown" },
-                        source             = TokenSource.DEX_GAINERS,
-                        liquidityUsd       = pair.liquidity,
-                        volumeH1           = pair.candle.volumeH1,
-                        mcapUsd            = pair.candle.marketCap,
-                        pairCreatedHoursAgo = (System.currentTimeMillis() - pair.pairCreatedAtMs) / 3_600_000.0,
-                        dexId              = "unknown",
-                        priceChangeH1      = 0.0,
-                        txCountH1          = pair.candle.buysH1 + pair.candle.sellsH1,
-                        score              = scoreToken(pair.liquidity, pair.candle.volumeH1,
-                                                        pair.candle.buysH1 + pair.candle.sellsH1,
-                                                        pair.candle.marketCap, 0.0,
-                                                        (System.currentTimeMillis() - pair.pairCreatedAtMs)/3_600_000.0),
-                    )
-                    if (passesFilter(token)) emit(token)
-                }
-            } catch (e: OutOfMemoryError) {
-                ErrorLogger.error("Scanner", "OOM in scanDexGainers", Exception(e.message))
-            } catch (_: Exception) {}
-            delay(500)  // rate limit between searches
+        // Single lightweight search to reduce memory
+        try {
+            val results = withContext(Dispatchers.IO) { dex.search("solana") }
+            results.take(3).forEach { pair ->  // Only 3 items
+                val mint = pair.pairAddress
+                if (mint.isBlank() || isSeen(mint)) return@forEach
+                val token = ScannedToken(
+                    mint               = mint,
+                    symbol             = pair.baseSymbol.ifBlank { mint.take(8) },
+                    name               = pair.baseName.ifBlank { "Unknown" },
+                    source             = TokenSource.DEX_GAINERS,
+                    liquidityUsd       = pair.liquidity,
+                    volumeH1           = pair.candle.volumeH1,
+                    mcapUsd            = pair.candle.marketCap,
+                    pairCreatedHoursAgo = (System.currentTimeMillis() - pair.pairCreatedAtMs) / 3_600_000.0,
+                    dexId              = "unknown",
+                    priceChangeH1      = 0.0,
+                    txCountH1          = pair.candle.buysH1 + pair.candle.sellsH1,
+                    score              = scoreToken(pair.liquidity, pair.candle.volumeH1,
+                                                    pair.candle.buysH1 + pair.candle.sellsH1,
+                                                    pair.candle.marketCap, 0.0,
+                                                    (System.currentTimeMillis() - pair.pairCreatedAtMs)/3_600_000.0),
+                )
+                if (passesFilter(token)) emit(token)
+            }
+        } catch (e: OutOfMemoryError) {
+            ErrorLogger.error("Scanner", "OOM in scanDexGainers", Exception(e.message))
+        } catch (e: Exception) {
+            ErrorLogger.error("Scanner", "scanDexGainers error: ${e.message}")
         }
+        System.gc()
     }
 
     // ── Source 3: Dexscreener boosted tokens ─────────────────────────
@@ -330,42 +311,27 @@ class SolanaMarketScanner(
         val body = get(url) ?: return
         try {
             val arr = JSONArray(body)
-            for (i in 0 until minOf(arr.length(), 15)) {
+            for (i in 0 until minOf(arr.length(), 5)) {  // Reduced to 5
                 val item = arr.optJSONObject(i) ?: continue
                 val mint = item.optString("tokenAddress","")
                 if (mint.isBlank() || isSeen(mint)) continue
                 val pair = withContext(Dispatchers.IO) { dex.getBestPair(mint) } ?: continue
                 val token = buildScannedToken(mint, pair, TokenSource.DEX_BOOSTED) ?: continue
-                // Boosted tokens get score bump — paid attention is still attention
                 val boostedToken = token.copy(score = (token.score + 15.0).coerceAtMost(100.0))
                 if (passesFilter(boostedToken)) emit(boostedToken)
             }
-        } catch (_: Exception) {}
+        } catch (e: Exception) {
+            ErrorLogger.error("Scanner", "scanDexBoosted error: ${e.message}")
+        }
+        System.gc()
     }
 
     // ── Source 4: Pump.fun graduates (Raydium migrations) ────────────
 
     private suspend fun scanPumpGraduates() {
-        // Query Dexscreener for recent raydium pairs that were pump.fun originated
-        // Graduates get a massive signal — they survived bonding curve + got real liquidity
-        val url = "https://api.dexscreener.com/latest/dex/pairs/solana/raydium"
-        val body = get(url) ?: return
-        try {
-            val arr = JSONObject(body).optJSONArray("pairs") ?: return
-            val cutoff = System.currentTimeMillis() - 6 * 3_600_000L  // created in last 6h
-            for (i in 0 until minOf(arr.length(), 50)) {
-                val p = arr.optJSONObject(i) ?: continue
-                val created = p.optLong("pairCreatedAt", 0L)
-                if (created < cutoff) continue  // too old
-                val mint = p.optJSONObject("baseToken")?.optString("address","") ?: continue
-                if (mint.isBlank() || isSeen(mint)) continue
-                val pair = withContext(Dispatchers.IO) { dex.getBestPair(mint) } ?: continue
-                val token = buildScannedToken(mint, pair, TokenSource.PUMP_FUN_GRADUATE) ?: continue
-                // Graduates get highest priority score — proven survival
-                val graduateToken = token.copy(score = (token.score + 25.0).coerceAtMost(100.0))
-                if (passesFilter(graduateToken)) emit(graduateToken)
-            }
-        } catch (_: Exception) {}
+        // Skip this heavy scan to save memory - graduates are rare and expensive to find
+        ErrorLogger.debug("Scanner", "Skipping pump graduates scan (memory optimization)")
+        return
     }
 
     // ── Source 5: Birdeye trending ────────────────────────────────────
@@ -373,11 +339,11 @@ class SolanaMarketScanner(
     private suspend fun scanBirdeyeTrending() {
         val c = cfg()
         if (c.birdeyeApiKey.isBlank()) return  // needs key
-        val url = "https://public-api.birdeye.so/defi/token_trending?sort_by=rank&sort_type=asc&offset=0&limit=20"
+        val url = "https://public-api.birdeye.so/defi/token_trending?sort_by=rank&sort_type=asc&offset=0&limit=5"
         val body = get(url, apiKey = c.birdeyeApiKey) ?: return
         try {
             val items = JSONObject(body).optJSONObject("data")?.optJSONArray("items") ?: return
-            for (i in 0 until minOf(items.length(), 20)) {
+            for (i in 0 until minOf(items.length(), 5)) {  // Reduced to 5
                 val item = items.optJSONObject(i) ?: continue
                 val mint = item.optString("address","")
                 if (mint.isBlank() || isSeen(mint)) continue
@@ -385,83 +351,26 @@ class SolanaMarketScanner(
                 val token = buildScannedToken(mint, pair, TokenSource.BIRDEYE_TRENDING) ?: continue
                 if (passesFilter(token)) emit(token)
             }
-        } catch (_: Exception) {}
+        } catch (e: Exception) {
+            ErrorLogger.error("Scanner", "scanBirdeye error: ${e.message}")
+        }
+        System.gc()
     }
 
     // ── Source 6: CoinGecko trending ─────────────────────────────────
 
     private suspend fun scanCoinGeckoTrending() {
-        val trending = withContext(Dispatchers.IO) { coingecko.getTrending() }
-        trending.forEach { t ->
-            if (isSeen(t.id)) return@forEach
-            // Search for the token on Dexscreener by symbol
-            val results = withContext(Dispatchers.IO) { dex.search(t.symbol) }
-            val solanaPair = results.firstOrNull { it.candle.priceUsd > 0 } ?: return@forEach
-            val mint = solanaPair.pairAddress
-            if (mint.isBlank() || isSeen(mint)) return@forEach
-            val token = ScannedToken(
-                mint               = mint,
-                symbol             = t.symbol,
-                name               = t.name,
-                source             = TokenSource.COINGECKO_TRENDING,
-                liquidityUsd       = solanaPair.liquidity,
-                volumeH1           = solanaPair.candle.volumeH1,
-                mcapUsd            = solanaPair.candle.marketCap,
-                pairCreatedHoursAgo = 0.0,
-                dexId              = "unknown",
-                priceChangeH1      = t.priceChangePercent,
-                txCountH1          = solanaPair.candle.buysH1 + solanaPair.candle.sellsH1,
-                score              = scoreToken(solanaPair.liquidity, solanaPair.candle.volumeH1,
-                                                solanaPair.candle.buysH1 + solanaPair.candle.sellsH1,
-                                                solanaPair.candle.marketCap, t.priceChangePercent, 0.0)
-                                    + (25.0 - t.score * 3.0),  // CoinGecko rank boost
-            )
-            if (passesFilter(token)) emit(token)
-            delay(300)
-        }
+        // Skip CoinGecko - it requires extra API calls to resolve tokens
+        ErrorLogger.debug("Scanner", "Skipping CoinGecko scan (memory optimization)")
+        return
     }
 
     // ── Source 7: Raydium new pools ───────────────────────────────────
 
     private suspend fun scanRaydiumNewPools() {
-        // Raydium public API for recently created pools
-        val url = "https://api.raydium.io/v2/main/pairs"
-        val body = get(url) ?: return
-        if (body.isBlank() || body.contains("\"success\":false")) return
-        try {
-            val arr = if (body.trimStart().startsWith("[")) JSONArray(body)
-                      else JSONObject(body).optJSONArray("data") ?: return
-            val cutoff = System.currentTimeMillis() - 2 * 3_600_000L  // last 2 hours
-            var found = 0
-            for (i in 0 until minOf(arr.length(), 200)) {
-                if (found >= 20) break
-                val item = arr.optJSONObject(i) ?: continue
-                // Raydium doesn't always have timestamps — filter by liquidity range
-                val liq = item.optDouble("liquidity", 0.0)
-                if (liq < cfg().minLiquidityUsd || liq > 5_000_000) continue  // skip if too big (old)
-                val mint = item.optString("baseMint","")
-                if (mint.isBlank() || isSeen(mint)) continue
-                val vol24 = item.optDouble("volume24h", 0.0)
-                val txCount = item.optInt("txCount24h", 0)
-                if (vol24 < 1000) continue  // ignore dead pools
-                // Emit without full pair data — BotService will fetch candles on add
-                val token = ScannedToken(
-                    mint               = mint,
-                    symbol             = item.optString("name","").split("-").firstOrNull() ?: mint.take(6),
-                    name               = item.optString("name",""),
-                    source             = TokenSource.RAYDIUM_NEW_POOL,
-                    liquidityUsd       = liq,
-                    volumeH1           = vol24 / 24.0,
-                    mcapUsd            = 0.0,
-                    pairCreatedHoursAgo = 1.0,  // unknown, assume recent
-                    dexId              = "raydium",
-                    priceChangeH1      = item.optDouble("priceChange24h", 0.0),
-                    txCountH1          = txCount / 24,
-                    score              = scoreToken(liq, vol24/24.0, txCount/24, 0.0, 0.0, 1.0),
-                )
-                if (passesFilter(token)) { emit(token); found++ }
-            }
-        } catch (_: Exception) {}
+        // Skip Raydium pools scan - returns huge JSON responses
+        ErrorLogger.debug("Scanner", "Skipping Raydium scan (memory optimization)")
+        return
     }
 
     // ── Source 8: Narrative scanning ─────────────────────────────────
