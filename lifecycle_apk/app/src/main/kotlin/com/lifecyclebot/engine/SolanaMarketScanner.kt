@@ -104,11 +104,11 @@ class SolanaMarketScanner(
 
     // Track which mints we've already surfaced to avoid duplicates
     private val seenMints  = ConcurrentHashMap<String, Long>()
-    private val SEEN_TTL   = 30 * 60_000L   // forget after 30 min — don't keep rescanning same tokens
+    private val SEEN_TTL   = 10 * 60_000L   // forget after 10 min — faster token refresh
     
-    // Track rejected tokens separately - longer cooldown
+    // Track rejected tokens separately - shorter cooldown for faster retry
     private val rejectedMints = ConcurrentHashMap<String, Long>()
-    private val REJECTED_TTL = 60 * 60_000L  // forget rejected tokens after 1 hour
+    private val REJECTED_TTL = 15 * 60_000L  // forget rejected tokens after 15 min
     
     // Memory protection: limit concurrent operations
     private val semaphore = kotlinx.coroutines.sync.Semaphore(3)  // max 3 concurrent scans
@@ -287,8 +287,8 @@ class SolanaMarketScanner(
         ErrorLogger.info("Scanner", "scanLoop() entered")
         while (isRunning) {
             val c = cfg()
-            // Use configured interval, minimum 15 seconds (was 60 - too slow!)
-            val scanIntervalMs = maxOf((c.scanIntervalSecs * 1000L).toLong(), 15_000L)
+            // Use configured interval, minimum 10 seconds for fast scanning
+            val scanIntervalMs = maxOf((c.scanIntervalSecs * 1000L).toLong(), 10_000L)
             ErrorLogger.debug("Scanner", "Scan interval: ${scanIntervalMs}ms")
 
             try {
@@ -318,7 +318,7 @@ class SolanaMarketScanner(
                 // ALWAYS scan pump.fun first (priority)
                 onLog("🚀 Scanning: Pump.fun tokens (PRIORITY)...")
                 runScan("scanPumpFunActive") { scanPumpFunActive() }
-                delay(500)
+                delay(300)
                 
                 // Then rotate through secondary sources
                 when (scanRotation) {
@@ -326,7 +326,7 @@ class SolanaMarketScanner(
                         // Pump.fun graduates + boosted
                         onLog("🔍 Scanning: Pump.fun graduates...")
                         runScan("scanPumpGraduates") { scanPumpGraduates() }
-                        delay(500)
+                        delay(300)
                         onLog("🔍 Scanning: DexScreener boosted...")
                         runScan("scanDexBoosted") { scanDexBoosted() }
                     }
@@ -334,7 +334,7 @@ class SolanaMarketScanner(
                         // Pump.fun volume + fresh launches
                         onLog("🔍 Scanning: Pump.fun high volume...")
                         runScan("scanPumpFunVolume") { scanPumpFunVolume() }
-                        delay(500)
+                        delay(300)
                         onLog("🔍 Scanning: Fresh launches...")
                         runScan("scanFreshLaunches") { scanFreshLaunches() }
                     }
@@ -342,7 +342,7 @@ class SolanaMarketScanner(
                         // DexScreener trending + gainers
                         onLog("🔍 Scanning: DexScreener trending...")
                         runScan("scanDexTrending") { scanDexTrending() }
-                        delay(500)
+                        delay(300)
                         onLog("🔍 Scanning: New Solana pairs...")
                         runScan("scanDexGainers") { scanDexGainers() }
                     }
