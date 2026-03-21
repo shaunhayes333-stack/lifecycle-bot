@@ -46,7 +46,7 @@ class BotService : Service() {
     private var networkCallback: ConnectivityManager.NetworkCallback? = null
     private var wallet: SolanaWallet? = null
     private lateinit var strategy: LifecycleStrategy
-    private lateinit var executor: Executor
+    internal lateinit var executor: Executor
     private lateinit var sentimentEngine: SentimentEngine
     private lateinit var safetyChecker: TokenSafetyChecker
     private lateinit var securityGuard: SecurityGuard
@@ -697,3 +697,6 @@ class BotService : Service() {
             .build()
     }
 }
+
+// Extension function for formatting doubles
+private fun Double.fmt(decimals: Int = 4) = "%.${decimals}f".format(this)

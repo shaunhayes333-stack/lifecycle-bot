@@ -1274,10 +1274,11 @@ class LifecycleStrategy(
         val inCooldown    = msSinceExit < cfg().entryCooldownSec * 1_000L
 
         // v4.4: Post-win re-entry boost — token proved itself, lower threshold temporarily
+        var adjustedEntryScore = entryScore
         val postWinActive = ts.lastExitWasWin
             && msSinceExit < (cfg().postWinReentryBoostMins * 60_000.0).toLong()
         if (postWinActive && !inCooldown) {
-            entryScore = (entryScore + cfg().postWinEntryThresholdBoost).coerceIn(0.0, 100.0)
+            adjustedEntryScore = (adjustedEntryScore + cfg().postWinEntryThresholdBoost).coerceIn(0.0, 100.0)
         }
 
         // CHANGE 7: Source quality propagates to entry score
@@ -1289,7 +1290,7 @@ class LifecycleStrategy(
                 else -> 0.0
             }
             if (srcBoost > 0)
-                entryScore = (entryScore + srcBoost).coerceIn(0.0, 100.0)
+                adjustedEntryScore = (adjustedEntryScore + srcBoost).coerceIn(0.0, 100.0)
         }
 
         // v5.1: Smart established token scoring (replaces blunt 30d cutoff)
@@ -1304,8 +1305,8 @@ class LifecycleStrategy(
         // The system applies adjustments (positive or negative) based on the
         // combination of these signals, not age alone.
         if (!ts.position.isOpen && mode == TradingMode.RANGE_TRADE) {
-            entryScore = applyEstablishedTokenScore(
-                entryScore = entryScore,
+            adjustedEntryScore = applyEstablishedTokenScore(
+                entryScore = adjustedEntryScore,
                 ts         = ts,
                 tokenAgeMins = tokenAgeMins,
                 hist       = hist,
@@ -1351,10 +1352,10 @@ class LifecycleStrategy(
         when (mode) {
             TradingMode.LAUNCH_SNIPE -> {
                 when (phase) {
-                    "pre_pump"      -> if (entryScore >= (55 + brainAdj + tierThAdj) - adj) return "BUY"
-                    "pumping"       -> if (entryScore >= (42 + brainAdj + tierThAdj) - adj) return "BUY"
-                    "pump_pullback" -> if (entryScore >= (30 + brainAdj + tierThAdj))       return "BUY"
-                    "early_unknown" -> if (entryScore >= (65 + brainAdj + tierThAdj) - adj) return "BUY"
+                    "pre_pump"      -> if (adjustedEntryScore >= (55 + brainAdj + tierThAdj) - adj) return "BUY"
+                    "pumping"       -> if (adjustedEntryScore >= (42 + brainAdj + tierThAdj) - adj) return "BUY"
+                    "pump_pullback" -> if (adjustedEntryScore >= (30 + brainAdj + tierThAdj))       return "BUY"
+                    "early_unknown" -> if (adjustedEntryScore >= (65 + brainAdj + tierThAdj) - adj) return "BUY"
                 }
             }
             TradingMode.RANGE_TRADE -> {
@@ -1373,24 +1374,24 @@ class LifecycleStrategy(
                             }
                         }
                         val stableAtBottom = recentPosInRange.count { it < 30.0 } >= 2
-                        if (meta.posInRange < 25.0 && stableAtBottom && entryScore >= 40 + tierThAdj - adj) return "BUY"
+                        if (meta.posInRange < 25.0 && stableAtBottom && adjustedEntryScore >= 40 + tierThAdj - adj) return "BUY"
                     }
                     "strong_reclaim" -> {
                         val volOk = hist.takeLast(3).let {
                             it.size >= 2 && it.last().vol >= it.first().vol * 0.9
                         }
-                        if (entryScore >= 38 - adj && volOk) return "BUY"
+                        if (adjustedEntryScore >= 38 - adj && volOk) return "BUY"
                     }
                     "reclaim_attempt" -> {
                         val volOk = hist.takeLast(3).let {
                             it.size >= 2 && it.last().vol >= it.first().vol
                         }
-                        if (entryScore >= 45 - adj && volOk) return "BUY"
+                        if (adjustedEntryScore >= 45 - adj && volOk) return "BUY"
                     }
                     "cooling" -> {
                         val fanOk = emafan.alignment in listOf(
                             EmaAlignment.BULL_FAN, EmaAlignment.BULL_FLAT)
-                        if (entryScore >= 50 - adj && meta.posInRange < 40.0 && fanOk) return "BUY"
+                        if (adjustedEntryScore >= 50 - adj && meta.posInRange < 40.0 && fanOk) return "BUY"
                     }
                 }
             }
@@ -1700,8 +1701,8 @@ class LifecycleStrategy(
         // Wick rejection: price touched high but closed much lower (>10% from high)
         val lastCandle = history.lastOrNull()
         val wickRejection = lastCandle?.let {
-            val candleRange = it.high - it.low
-            val upperWick = it.high - maxOf(it.open, it.close)
+            val candleRange = it.highUsd - it.lowUsd
+            val upperWick = it.highUsd - maxOf(it.openUsd, it.priceUsd)
             candleRange > 0 && upperWick / candleRange > 0.6
         } ?: false
         

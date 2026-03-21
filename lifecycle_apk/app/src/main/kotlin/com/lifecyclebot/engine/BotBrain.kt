@@ -179,7 +179,7 @@ class BotBrain(
     // ── Main brain loop ───────────────────────────────────────────────
 
     private suspend fun brainLoop() {
-        while (isActive) {
+        while (scope.isActive) {
             try {
                 val totalTrades = db.getTotalTrades()
                 totalTradesAnalysed = totalTrades

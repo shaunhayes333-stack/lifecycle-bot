@@ -3,6 +3,8 @@ package com.lifecyclebot.engine
 import com.lifecyclebot.data.BotStatus
 import com.lifecyclebot.data.TokenState
 import com.lifecyclebot.network.SolanaWallet
+import okhttp3.MediaType.Companion.toMediaType
+import okhttp3.RequestBody.Companion.toRequestBody
 
 /**
  * StartupReconciler
@@ -192,7 +194,7 @@ class StartupReconciler(
 
             val req  = okhttp3.Request.Builder()
                 .url(wallet.rpcUrl)
-                .post(payload.toString().toRB("application/json".toMT()))
+                .post(payload.toString().toRequestBody("application/json".toMediaType()))
                 .header("Content-Type", "application/json")
                 .build()
 
@@ -218,6 +220,3 @@ class StartupReconciler(
         } catch (_: Exception) { 0.0 }
     }
 }
-
-private fun String.toMT() = okhttp3.MediaType.Companion.toMediaType(this)
-private fun String.toRB(mt: okhttp3.MediaType) = okhttp3.RequestBody.Companion.toRequestBody(this, mt)

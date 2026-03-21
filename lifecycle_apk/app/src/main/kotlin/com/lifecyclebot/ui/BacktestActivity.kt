@@ -153,7 +153,7 @@ class BacktestActivity : AppCompatActivity() {
         val ts     = TokenState(mint = "backtest", symbol = symbol)
         status.tokens["backtest"] = ts
 
-        val strategy = LifecycleStrategy { cfg }
+        val strategy = LifecycleStrategy(cfg = { cfg })
         val trades   = mutableListOf<BacktestTrade>()
 
         val mode = when (tf) {

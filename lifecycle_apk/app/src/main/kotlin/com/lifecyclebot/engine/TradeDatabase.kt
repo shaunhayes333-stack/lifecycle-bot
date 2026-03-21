@@ -198,6 +198,7 @@ class TradeDatabase(ctx: Context) : SQLiteOpenHelper(ctx, DB_NAME, null, DB_VERS
     private fun pruneOldTrades() {
         try {
             val cutoff = System.currentTimeMillis() - (90L * 24 * 60 * 60 * 1000)
+            val db = writableDatabase
             val count  = db.rawQuery("SELECT COUNT(*) FROM trades", null).use {
                 if (it.moveToFirst()) it.getLong(0) else 0L
             }

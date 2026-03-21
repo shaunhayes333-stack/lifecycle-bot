@@ -235,8 +235,3 @@ class TelegramScraper(private val botToken: String = "") {
         if (resp.isSuccessful) resp.body?.string() else null
     } catch (_: Exception) { null }
 }
-
-// Extension functions for OkHttp
-private fun String.toMediaTypeExt() = okhttp3.MediaType.Companion.toMediaType(this)
-private fun String.toRequestBodyExt(mediaType: okhttp3.MediaType) = 
-    okhttp3.RequestBody.Companion.toRequestBody(this, mediaType)
