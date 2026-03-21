@@ -94,14 +94,17 @@ class SolanaMarketScanner(
 
     // Track which mints we've already surfaced to avoid duplicates
     private val seenMints  = ConcurrentHashMap<String, Long>()
-    private val SEEN_TTL   = 10 * 60_000L   // forget after 10 min — rescan more frequently
-
+    private val SEEN_TTL   = 2 * 60_000L   // forget after 2 min — allow faster token refresh
+    
     // Memory protection: limit concurrent operations
     private val semaphore = kotlinx.coroutines.sync.Semaphore(3)  // max 3 concurrent scans
     
     // Memory-safe mode - enables when OOM detected
     @Volatile private var memorySafeMode = false
     @Volatile private var oomCount = 0
+    
+    // Scan rotation - alternate between different scan sources for variety
+    @Volatile private var scanRotation = 0
 
     // ── Start / Stop ─────────────────────────────────────────────────
 
@@ -145,23 +148,55 @@ class SolanaMarketScanner(
                     continue
                 }
                 
-                onLog("🌐 Scan cycle${_tn}")
-
-                // Run only 3 essential scans to reduce memory
-                try { scanDexTrending() } catch (e: Exception) { 
-                    ErrorLogger.error("Scanner", "scanDexTrending failed: ${e.message}", e) 
-                }
-                System.gc()
-                delay(1000)  // Longer delay between scans
+                // ROTATE between different scan combinations for variety
+                scanRotation = (scanRotation + 1) % 4
+                onLog("🌐 Scan cycle #$scanRotation${_tn}")
                 
-                try { scanDexBoosted() } catch (e: Exception) { 
-                    ErrorLogger.error("Scanner", "scanDexBoosted failed: ${e.message}", e) 
-                }
-                System.gc()
-                delay(1000)
-                
-                try { scanCoinGeckoTrending() } catch (e: Exception) { 
-                    ErrorLogger.error("Scanner", "scanCoinGeckoTrending failed: ${e.message}", e) 
+                when (scanRotation) {
+                    0 -> {
+                        // Rotation 0: DexScreener trending + boosted
+                        try { scanDexTrending() } catch (e: Exception) { 
+                            ErrorLogger.error("Scanner", "scanDexTrending failed: ${e.message}", e) 
+                        }
+                        System.gc()
+                        delay(1000)
+                        try { scanDexBoosted() } catch (e: Exception) { 
+                            ErrorLogger.error("Scanner", "scanDexBoosted failed: ${e.message}", e) 
+                        }
+                    }
+                    1 -> {
+                        // Rotation 1: CoinGecko + Pump graduates
+                        try { scanCoinGeckoTrending() } catch (e: Exception) { 
+                            ErrorLogger.error("Scanner", "scanCoinGeckoTrending failed: ${e.message}", e) 
+                        }
+                        System.gc()
+                        delay(1000)
+                        try { scanPumpGraduates() } catch (e: Exception) { 
+                            ErrorLogger.error("Scanner", "scanPumpGraduates failed: ${e.message}", e) 
+                        }
+                    }
+                    2 -> {
+                        // Rotation 2: Birdeye + Raydium new pools
+                        try { scanBirdeyeTrending() } catch (e: Exception) { 
+                            ErrorLogger.error("Scanner", "scanBirdeyeTrending failed: ${e.message}", e) 
+                        }
+                        System.gc()
+                        delay(1000)
+                        try { scanRaydiumNewPools() } catch (e: Exception) { 
+                            ErrorLogger.error("Scanner", "scanRaydiumNewPools failed: ${e.message}", e) 
+                        }
+                    }
+                    3 -> {
+                        // Rotation 3: DexScreener gainers + trending
+                        try { scanDexGainers() } catch (e: Exception) { 
+                            ErrorLogger.error("Scanner", "scanDexGainers failed: ${e.message}", e) 
+                        }
+                        System.gc()
+                        delay(1000)
+                        try { scanDexTrending() } catch (e: Exception) { 
+                            ErrorLogger.error("Scanner", "scanDexTrending failed: ${e.message}", e) 
+                        }
+                    }
                 }
                 System.gc()
 
@@ -546,7 +581,15 @@ class SolanaMarketScanner(
     private fun isSeen(mint: String): Boolean {
         val now = System.currentTimeMillis()
         val last = seenMints[mint] ?: return false
-        return now - last < SEEN_TTL
+        val seen = now - last < SEEN_TTL
+        if (seen) {
+            val secsRemaining = ((SEEN_TTL - (now - last)) / 1000).toInt()
+            // Only log occasionally to avoid spam
+            if (kotlin.random.Random.nextInt(10) == 0) {
+                ErrorLogger.debug("Scanner", "Token ${mint.take(8)}... seen, skip for ${secsRemaining}s")
+            }
+        }
+        return seen
     }
 
     private fun emit(token: ScannedToken) {
