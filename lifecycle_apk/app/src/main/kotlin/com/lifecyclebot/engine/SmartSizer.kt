@@ -90,6 +90,13 @@ object SmartSizer {
         mcapUsd: Double = 0.0,           // market cap for ScalingMode tier selection
     ): SizeResult {
 
+        // ── HARD MCAP FLOOR — never trade dust tokens ──────────────────
+        val HARD_MIN_MCAP = 15_000.0
+        if (mcapUsd > 0 && mcapUsd < HARD_MIN_MCAP) {
+            return SizeResult(0.0, "blocked", 0.0, 1.0, 1.0, 1.0, 1.0, "mcap_too_low",
+                "Market cap \$${(mcapUsd/1000).toInt()}K below \$15K minimum — too risky")
+        }
+
         // ── Tradeable balance (reserve + treasury excluded) ──────────
         // treasurySol is the milestone-locked profit — never risked in trades.
         // walletReserveSol is the minimum operating reserve (gas + safety floor).

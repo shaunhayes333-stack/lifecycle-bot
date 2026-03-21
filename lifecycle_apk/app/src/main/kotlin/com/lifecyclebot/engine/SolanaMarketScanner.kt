@@ -1129,6 +1129,15 @@ class SolanaMarketScanner(
     private fun passesFilter(token: ScannedToken): Boolean {
         val c = cfg()
 
+        // HARD MINIMUM MCAP - never trade tokens under $15K mcap
+        // These are dust tokens that can go to zero instantly
+        val HARD_MIN_MCAP = 15_000.0
+        if (token.mcapUsd > 0 && token.mcapUsd < HARD_MIN_MCAP) {
+            onLog("🚫 BLOCK: ${token.symbol} - mcap \$${(token.mcapUsd/1000).toInt()}K too low")
+            ErrorLogger.info("Scanner", "FILTER REJECT ${token.symbol}: mcap $${token.mcapUsd.toInt()} < hard min $${HARD_MIN_MCAP.toInt()}")
+            return false
+        }
+
         // Minimum liquidity
         if (token.liquidityUsd < c.minLiquidityUsd && token.liquidityUsd > 0) {
             ErrorLogger.debug("Scanner", "FILTER REJECT ${token.symbol}: liq $${token.liquidityUsd.toInt()} < min $${c.minLiquidityUsd.toInt()}")
@@ -1141,7 +1150,7 @@ class SolanaMarketScanner(
             return false
         }
 
-        // MC range filter
+        // MC range filter (user configurable, in addition to hard minimum)
         if (c.scanMinMcapUsd > 0 && token.mcapUsd < c.scanMinMcapUsd) {
             ErrorLogger.debug("Scanner", "FILTER REJECT ${token.symbol}: mcap $${token.mcapUsd.toInt()} < min $${c.scanMinMcapUsd.toInt()}")
             return false
