@@ -899,7 +899,7 @@ class BotService : Service() {
                 tokensToRemove.add(mint)
                 val reason = ts.safety.hardBlockReasons.firstOrNull() ?: "Safety check failed"
                 addLog("🚫 BLOCKED: ${ts.symbol} - $reason", mint)
-                scanner?.markTokenRejected(mint)
+                marketScanner?.markTokenRejected(mint)
                 continue
             }
             
@@ -908,7 +908,7 @@ class BotService : Service() {
                 val reason = TokenBlacklist.getBlockReason(mint)
                 tokensToRemove.add(mint)
                 addLog("🚫 BLACKLIST: ${ts?.symbol ?: mint.take(8)} - $reason", mint)
-                scanner?.markTokenRejected(mint)
+                marketScanner?.markTokenRejected(mint)
                 continue
             }
             
@@ -922,7 +922,7 @@ class BotService : Service() {
                 if (lastUpdate > 0 && age > staleThresholdMs) {
                     tokensToRemove.add(mint)
                     addLog("⏰ STALE: ${ts.symbol}", mint)
-                    scanner?.markTokenRejected(mint)
+                    marketScanner?.markTokenRejected(mint)
                     continue
                 }
                 
@@ -930,7 +930,7 @@ class BotService : Service() {
                 if (ts.lastLiquidityUsd < 1000) {
                     tokensToRemove.add(mint)
                     addLog("💀 DEAD: ${ts.symbol}", mint)
-                    scanner?.markTokenRejected(mint)
+                    marketScanner?.markTokenRejected(mint)
                     continue
                 }
                 
@@ -939,7 +939,7 @@ class BotService : Service() {
                 if (timeInWatchlist > idleThresholdMs && neverActioned) {
                     tokensToRemove.add(mint)
                     addLog("😴 IDLE: ${ts.symbol} - removing", mint)
-                    scanner?.markTokenRejected(mint)
+                    marketScanner?.markTokenRejected(mint)
                     continue
                 }
                 
@@ -955,7 +955,7 @@ class BotService : Service() {
                     if (priceChangePercent < 2.0 && totalBuys < 2) {
                         tokensToRemove.add(mint)
                         addLog("📉 FLAT: ${ts.symbol}", mint)
-                        scanner?.markTokenRejected(mint)
+                        marketScanner?.markTokenRejected(mint)
                         continue
                     }
                 }
