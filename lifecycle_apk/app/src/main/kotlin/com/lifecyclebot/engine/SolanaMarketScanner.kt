@@ -263,11 +263,16 @@ class SolanaMarketScanner(
         try {
             val arr = JSONArray(body)
             // Process only 5 items to save memory
-            for (i in 0 until minOf(arr.length(), 5)) {
+            for (i in 0 until minOf(arr.length(), 8)) {
                 val item = arr.optJSONObject(i) ?: continue
                 val mint = item.optString("tokenAddress", "").trim()
-                if (mint.isBlank() || mint.length < 32 || isSeen(mint)) continue
+                // Skip if not valid Solana address or is SOL itself
+                if (mint.isBlank() || mint.length < 32 || mint.startsWith("0x") || isSeen(mint)) continue
+                
                 val pair = withContext(Dispatchers.IO) { dex.getBestPair(mint) } ?: continue
+                // Skip SOL/WSOL tokens
+                if (pair.baseSymbol.uppercase() in listOf("SOL", "WSOL", "WETH", "ETH", "USDC", "USDT")) continue
+                
                 val token = buildScannedToken(mint, pair, TokenSource.DEX_TRENDING) ?: continue
                 if (passesFilter(token)) emit(token)
                 // Release memory between items
@@ -284,35 +289,45 @@ class SolanaMarketScanner(
     // ── Source 2: Dexscreener gainers (top % movers last 1h) ─────────
 
     private suspend fun scanDexGainers() {
-        // Single lightweight search to reduce memory
-        try {
-            val results = withContext(Dispatchers.IO) { dex.search("solana") }
-            results.take(3).forEach { pair ->  // Only 3 items
-                val mint = pair.pairAddress
-                if (mint.isBlank() || isSeen(mint)) return@forEach
-                val token = ScannedToken(
-                    mint               = mint,
-                    symbol             = pair.baseSymbol.ifBlank { mint.take(8) },
-                    name               = pair.baseName.ifBlank { "Unknown" },
-                    source             = TokenSource.DEX_GAINERS,
-                    liquidityUsd       = pair.liquidity,
-                    volumeH1           = pair.candle.volumeH1,
-                    mcapUsd            = pair.candle.marketCap,
-                    pairCreatedHoursAgo = (System.currentTimeMillis() - pair.pairCreatedAtMs) / 3_600_000.0,
-                    dexId              = "unknown",
-                    priceChangeH1      = 0.0,
-                    txCountH1          = pair.candle.buysH1 + pair.candle.sellsH1,
-                    score              = scoreToken(pair.liquidity, pair.candle.volumeH1,
-                                                    pair.candle.buysH1 + pair.candle.sellsH1,
-                                                    pair.candle.marketCap, 0.0,
-                                                    (System.currentTimeMillis() - pair.pairCreatedAtMs)/3_600_000.0),
-                )
-                if (passesFilter(token)) emit(token)
+        // Search for trending meme tokens on Solana - use specific keywords
+        val searches = listOf("pump", "meme", "pepe", "doge", "cat", "ai")
+        for (query in searches) {
+            try {
+                val results = withContext(Dispatchers.IO) { dex.search(query) }
+                // Filter to only Solana chain tokens (address length 32-44 chars, base58)
+                results.filter { pair -> 
+                    pair.pairAddress.length in 32..44 && 
+                    !pair.pairAddress.startsWith("0x") &&
+                    pair.baseSymbol.uppercase() != "SOL" &&
+                    pair.baseSymbol.uppercase() != "WSOL"
+                }.take(2).forEach { pair ->
+                    val mint = pair.pairAddress
+                    if (mint.isBlank() || isSeen(mint)) return@forEach
+                    val token = ScannedToken(
+                        mint               = mint,
+                        symbol             = pair.baseSymbol.ifBlank { mint.take(8) },
+                        name               = pair.baseName.ifBlank { "Unknown" },
+                        source             = TokenSource.DEX_GAINERS,
+                        liquidityUsd       = pair.liquidity,
+                        volumeH1           = pair.candle.volumeH1,
+                        mcapUsd            = pair.candle.marketCap,
+                        pairCreatedHoursAgo = (System.currentTimeMillis() - pair.pairCreatedAtMs) / 3_600_000.0,
+                        dexId              = "solana",
+                        priceChangeH1      = 0.0,
+                        txCountH1          = pair.candle.buysH1 + pair.candle.sellsH1,
+                        score              = scoreToken(pair.liquidity, pair.candle.volumeH1,
+                                                        pair.candle.buysH1 + pair.candle.sellsH1,
+                                                        pair.candle.marketCap, 0.0,
+                                                        (System.currentTimeMillis() - pair.pairCreatedAtMs)/3_600_000.0),
+                    )
+                    if (passesFilter(token)) emit(token)
+                }
+            } catch (e: OutOfMemoryError) {
+                ErrorLogger.error("Scanner", "OOM in scanDexGainers", Exception(e.message))
+            } catch (e: Exception) {
+                ErrorLogger.error("Scanner", "scanDexGainers error: ${e.message}")
             }
-        } catch (e: OutOfMemoryError) {
-            ErrorLogger.error("Scanner", "OOM in scanDexGainers", Exception(e.message))
-        } catch (e: Exception) {
-            ErrorLogger.error("Scanner", "scanDexGainers error: ${e.message}")
+            delay(300)  // Small delay between searches
         }
         System.gc()
     }
@@ -325,11 +340,16 @@ class SolanaMarketScanner(
         val body = get(url) ?: return
         try {
             val arr = JSONArray(body)
-            for (i in 0 until minOf(arr.length(), 5)) {  // Reduced to 5
+            for (i in 0 until minOf(arr.length(), 8)) {
                 val item = arr.optJSONObject(i) ?: continue
                 val mint = item.optString("tokenAddress","")
-                if (mint.isBlank() || isSeen(mint)) continue
+                // Skip if not valid Solana address
+                if (mint.isBlank() || mint.startsWith("0x") || isSeen(mint)) continue
+                
                 val pair = withContext(Dispatchers.IO) { dex.getBestPair(mint) } ?: continue
+                // Skip SOL/WSOL and stablecoins
+                if (pair.baseSymbol.uppercase() in listOf("SOL", "WSOL", "WETH", "ETH", "USDC", "USDT")) continue
+                
                 val token = buildScannedToken(mint, pair, TokenSource.DEX_BOOSTED) ?: continue
                 val boostedToken = token.copy(score = (token.score + 15.0).coerceAtMost(100.0))
                 if (passesFilter(boostedToken)) emit(boostedToken)
@@ -356,13 +376,16 @@ class SolanaMarketScanner(
                 val created = p.optLong("pairCreatedAt", 0L)
                 if (created < cutoff) continue  // too old
                 val mint = p.optJSONObject("baseToken")?.optString("address","") ?: continue
-                if (mint.isBlank() || isSeen(mint)) continue
+                if (mint.isBlank() || mint.startsWith("0x") || isSeen(mint)) continue
+                
+                // Get symbol and skip SOL/stablecoins
+                val symbol = p.optJSONObject("baseToken")?.optString("symbol", "") ?: mint.take(6)
+                if (symbol.uppercase() in listOf("SOL", "WSOL", "WETH", "ETH", "USDC", "USDT", "RAY")) continue
                 
                 // Build token directly from the pair data to avoid extra API call
                 val liq = p.optJSONObject("liquidity")?.optDouble("usd", 0.0) ?: 0.0
                 val vol = p.optJSONObject("volume")?.optDouble("h1", 0.0) ?: 0.0
                 val mcap = p.optDouble("marketCap", 0.0)
-                val symbol = p.optJSONObject("baseToken")?.optString("symbol", "") ?: mint.take(6)
                 val name = p.optJSONObject("baseToken")?.optString("name", "") ?: symbol
                 val buys = p.optJSONObject("txns")?.optJSONObject("h1")?.optInt("buys", 0) ?: 0
                 val sells = p.optJSONObject("txns")?.optJSONObject("h1")?.optInt("sells", 0) ?: 0
