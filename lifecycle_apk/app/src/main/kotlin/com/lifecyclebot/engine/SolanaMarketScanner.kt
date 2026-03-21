@@ -1264,82 +1264,67 @@ class SolanaMarketScanner(
         onTokenFound(token.mint, token.symbol, token.name, token.source, token.score)
     }
     
+    // Separate HTTP client for rugcheck with SHORT timeout
+    private val rugcheckHttp = OkHttpClient.Builder()
+        .connectTimeout(2, TimeUnit.SECONDS)
+        .readTimeout(2, TimeUnit.SECONDS)
+        .writeTimeout(2, TimeUnit.SECONDS)
+        .build()
+    
     /**
-     * Check token against rugcheck.xyz API
-     * Returns: Pair(passed, riskInfo) - passed=true if safe, riskInfo contains details
+     * Quick rugcheck - returns immediately if API is slow
+     * Only blocks on OBVIOUS rugs (very low scores)
      */
-    private fun checkRugcheck(mint: String): Pair<Boolean, String> {
+    private fun quickRugcheck(mint: String): Boolean {
         try {
             val url = "https://api.rugcheck.xyz/v1/tokens/$mint/report/summary"
-            val body = get(url) ?: return Pair(true, "API unavailable")  // Pass if API fails
+            val request = Request.Builder()
+                .url(url)
+                .header("Accept", "application/json")
+                .build()
             
+            val resp = rugcheckHttp.newCall(request).execute()
+            if (!resp.isSuccessful) return true  // Pass if API error
+            
+            val body = resp.body?.string() ?: return true
             val json = JSONObject(body)
             
-            // score_normalised: 0-100 where higher = SAFER
-            val scoreNormalized = json.optInt("score_normalised", -1)
-            val lpLockedPct = json.optDouble("lpLockedPct", 0.0)
-            val risks = json.optJSONArray("risks")
+            // Only block on VERY obvious rugs
+            val scoreNormalized = json.optInt("score_normalised", 50)
             
-            // Count high-risk factors
-            var criticalRisks = 0
-            var riskNames = mutableListOf<String>()
-            if (risks != null) {
-                for (i in 0 until risks.length()) {
-                    val risk = risks.optJSONObject(i) ?: continue
-                    val level = risk.optString("level", "")
-                    val name = risk.optString("name", "")
-                    if (level == "danger" || level == "critical") {
-                        criticalRisks++
-                        riskNames.add(name)
-                    }
-                }
+            // Block if score < 10 (extremely risky)
+            if (scoreNormalized < 10) {
+                onLog("🚫 RUG: ${mint.take(8)}... score=$scoreNormalized")
+                return false
             }
             
-            // BLOCK conditions:
-            // 1. Score < 20 (very risky)
-            // 2. 3+ critical/danger risks
-            // 3. LP locked < 1% AND score < 40
-            val blocked = when {
-                scoreNormalized in 0..19 -> true
-                criticalRisks >= 3 -> true
-                lpLockedPct < 0.01 && scoreNormalized < 40 -> true
-                else -> false
-            }
-            
-            val info = if (blocked) {
-                "Score:$scoreNormalized LP:${(lpLockedPct*100).toInt()}% Risks:${riskNames.take(2).joinToString(",")}"
-            } else {
-                "OK score:$scoreNormalized"
-            }
-            
-            return Pair(!blocked, info)
+            return true  // Pass
             
         } catch (e: Exception) {
-            ErrorLogger.warn("Scanner", "Rugcheck API error: ${e.message}")
-            return Pair(true, "Check failed")  // Pass if error (don't block on API issues)
+            // Timeout or error - pass through (don't block on API issues)
+            return true
         }
     }
     
     /**
-     * Emit token with rugcheck validation
-     * Blocks tokens that fail rugcheck safety checks
+     * Emit with optional quick rugcheck
+     * Non-blocking - if rugcheck is slow, emit anyway
      */
     private suspend fun emitWithRugcheck(token: ScannedToken) {
-        // Run rugcheck in IO dispatcher to not block
-        val (passed, info) = withContext(Dispatchers.IO) { checkRugcheck(token.mint) }
+        // Quick check with 2-second timeout
+        val passed = withContext(Dispatchers.IO) { 
+            try {
+                withTimeout(2000L) { quickRugcheck(token.mint) }
+            } catch (e: Exception) {
+                true  // Timeout = pass through
+            }
+        }
         
         if (!passed) {
-            onLog("🚫 RUGCHECK BLOCK: ${token.symbol} - $info")
-            ErrorLogger.info("Scanner", "Rugcheck blocked ${token.symbol}: $info")
+            ErrorLogger.info("Scanner", "Rugcheck blocked ${token.symbol}")
             return
         }
         
-        // Log rugcheck result if it passed
-        if (info.startsWith("OK")) {
-            ErrorLogger.info("Scanner", "Rugcheck passed ${token.symbol}: $info")
-        }
-        
-        // Call the base emit function
         emit(token)
     }
 
