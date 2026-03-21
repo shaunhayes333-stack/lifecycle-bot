@@ -157,8 +157,7 @@ class BotViewModel(app: Application) : AndroidViewModel(app) {
                     ))
                     com.lifecyclebot.engine.ErrorLogger.info("BotViewModel", "Wallet credentials saved to config")
                     
-                    // Trigger balance refresh after successful connection
-                    wm.refreshBalance()
+                    // Balance already fetched during connect(), no need to call refreshBalance()
                     kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Main) {
                         android.widget.Toast.makeText(ctx, "Wallet connected!", android.widget.Toast.LENGTH_SHORT).show()
                     }

@@ -130,12 +130,19 @@ class WalletManager private constructor(private val ctx: Context) {
                 
                 ErrorLogger.info("Wallet", "SUCCESS! Connected via ${tryRpc.take(35)}! Balance: $testBalance SOL")
                 currentRpcUrl = tryRpc
+                
+                // Also fetch SOL price for USD conversion
+                val solPrice = fetchSolPrice()
+                if (solPrice > 0) WalletManager.lastKnownSolPrice = solPrice
+                
                 _state.value = _state.value.copy(
                     connectionState = WalletConnectionState.CONNECTED,
                     publicKey       = pubkey,
                     solBalance      = testBalance,
+                    balanceUsd      = testBalance * solPrice,
+                    solPriceUsd     = solPrice,
+                    lastRefreshed   = System.currentTimeMillis(),
                 )
-                refreshBalance()
                 return true
             } catch (e: IllegalArgumentException) {
                 // Invalid key format - don't try other RPCs
