@@ -80,7 +80,7 @@ class BotService : Service() {
             )
             sentimentEngine = SentimentEngine { ConfigStore.load(applicationContext) }
             safetyChecker   = TokenSafetyChecker { ConfigStore.load(applicationContext) }
-            walletManager   = WalletManager(applicationContext)
+            walletManager   = WalletManager.getInstance(applicationContext)  // Use singleton
             soundManager    = SoundManager(applicationContext)
             currencyManager = CurrencyManager(applicationContext)
             notifHistory    = NotificationHistory(applicationContext)

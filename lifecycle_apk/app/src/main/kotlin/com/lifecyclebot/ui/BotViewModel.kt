@@ -40,8 +40,8 @@ class BotViewModel(app: Application) : AndroidViewModel(app) {
     private val _ui = MutableStateFlow(UiState())
     val ui: StateFlow<UiState> = _ui
     
-    // Standalone wallet manager - doesn't require BotService to be running
-    private val standaloneWalletManager = com.lifecyclebot.engine.WalletManager(ctx)
+    // Use singleton wallet manager - persists across all activities
+    private val walletManager = com.lifecyclebot.engine.WalletManager.getInstance(ctx)
 
     init {
         viewModelScope.launch { pollLoop() }
@@ -52,12 +52,8 @@ class BotViewModel(app: Application) : AndroidViewModel(app) {
             val cfg    = ConfigStore.load(ctx)
             val status = BotService.status
             val active = status.tokens[cfg.activeToken]
-            // Use BotService wallet manager if available, otherwise use standalone
-            val wm = try { 
-                com.lifecyclebot.engine.BotService.walletManager 
-            } catch (_: Exception) { 
-                standaloneWalletManager 
-            }
+            // Use singleton wallet manager - always the same instance
+            val wm = com.lifecyclebot.engine.WalletManager.getInstance(ctx)
             val sg = try { com.lifecyclebot.engine.BotService.instance
                 ?.let { svc ->
                     val f = svc.javaClass.getDeclaredField("securityGuard")
@@ -120,16 +116,10 @@ class BotViewModel(app: Application) : AndroidViewModel(app) {
             try {
                 com.lifecyclebot.engine.ErrorLogger.info("BotViewModel", "connectWallet called with RPC: ${rpcUrl.take(40)}...")
                 
-                // Use standalone wallet manager - doesn't require BotService
-                val wm = try {
-                    // If BotService is running, use its wallet manager
-                    com.lifecyclebot.engine.BotService.walletManager
-                } catch (_: Exception) {
-                    // Otherwise use standalone
-                    standaloneWalletManager
-                }
+                // Use singleton wallet manager - same instance everywhere
+                val wm = com.lifecyclebot.engine.WalletManager.getInstance(ctx)
                 
-                com.lifecyclebot.engine.ErrorLogger.debug("BotViewModel", "Got walletManager, calling connect...")
+                com.lifecyclebot.engine.ErrorLogger.debug("BotViewModel", "Got singleton walletManager, calling connect...")
                 
                 val success = wm.connect(privateKeyB58, rpcUrl)
                 
@@ -158,12 +148,8 @@ class BotViewModel(app: Application) : AndroidViewModel(app) {
 
     fun disconnectWallet() {
         try {
-            // Try BotService wallet manager first, then standalone
-            try {
-                com.lifecyclebot.engine.BotService.walletManager.disconnect()
-            } catch (_: Exception) {
-                standaloneWalletManager.disconnect()
-            }
+            // Use singleton wallet manager
+            com.lifecyclebot.engine.WalletManager.getInstance(ctx).disconnect()
         } catch (_: Exception) {}
         // Clear private key from config
         val cfg = ConfigStore.load(ctx)

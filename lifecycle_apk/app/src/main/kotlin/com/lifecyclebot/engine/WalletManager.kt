@@ -56,7 +56,7 @@ data class PnlPoint(
 
 // ── Manager ───────────────────────────────────────────────────────────────────
 
-class WalletManager(private val ctx: Context) {
+class WalletManager private constructor(private val ctx: Context) {
 
     private val _state = MutableStateFlow(WalletState())
     val state: StateFlow<WalletState> = _state
@@ -75,6 +75,15 @@ class WalletManager(private val ctx: Context) {
             "https://solana.public-rpc.com",                    // Public RPC
             "https://mainnet.rpcpool.com",                      // RPC Pool
         )
+        
+        // SINGLETON: One wallet manager for the entire app
+        @Volatile private var INSTANCE: WalletManager? = null
+        
+        fun getInstance(ctx: Context): WalletManager {
+            return INSTANCE ?: synchronized(this) {
+                INSTANCE ?: WalletManager(ctx.applicationContext).also { INSTANCE = it }
+            }
+        }
     }
 
     // ── connect / disconnect ──────────────────────────────────────────
