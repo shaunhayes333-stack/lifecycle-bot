@@ -250,8 +250,8 @@ class BotService : Service() {
                     }
                 }
             } else {
-            addLog("Paper mode — skipping on-chain reconciliation")
-        }
+                addLog("Paper mode — skipping on-chain reconciliation")
+            }
 
         addLog("✓ Starting bot loop...")
         loopJob = scope.launch { botLoop() }
