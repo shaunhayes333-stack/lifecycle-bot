@@ -156,6 +156,8 @@ data class TokenState(
 data class BotStatus(
     var running: Boolean = false,
     var walletSol: Double = 0.0,
+    var paperWalletSol: Double = 1.0,  // Paper trading balance, starts at 1 SOL
+    var paperWalletInitialized: Boolean = false,  // Track if we've synced with real wallet
     val logs: ArrayDeque<String> = ArrayDeque(600),
     val tokens: MutableMap<String, TokenState> = mutableMapOf(),
 ) {
@@ -170,4 +172,9 @@ data class BotStatus(
     /** Number of open positions */
     val openPositionCount: Int
         get() = openPositions.size
+    
+    /** Get effective wallet balance for trading - uses paper balance in paper mode */
+    fun getEffectiveBalance(isPaperMode: Boolean): Double {
+        return if (isPaperMode) paperWalletSol else walletSol
+    }
 }

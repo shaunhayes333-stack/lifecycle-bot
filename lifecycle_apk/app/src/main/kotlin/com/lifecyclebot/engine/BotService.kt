@@ -321,7 +321,9 @@ class BotService : Service() {
                     if (pct >= 0.20) {
                         // Force immediate exit — dev dumping is a rug signal
                         scope.launch {
-                            executor.maybeAct(ts, "EXIT", 0.0, status.walletSol, wallet,
+                            val cfg = ConfigStore.load(applicationContext)
+                            val effectiveBalance = status.getEffectiveBalance(cfg.paperMode)
+                            executor.maybeAct(ts, "EXIT", 0.0, effectiveBalance, wallet,
                                 System.currentTimeMillis(), status.openPositionCount,
                                 status.totalExposureSol)
                         }
@@ -444,6 +446,13 @@ class BotService : Service() {
         )
         botBrain = brain2; brain2.start()
         executor.brain = brain2; executor.tradeDb = db2
+        
+        // Set up paper wallet balance tracking
+        executor.onPaperBalanceChange = { delta ->
+            status.paperWalletSol = (status.paperWalletSol + delta).coerceAtLeast(0.0)
+            ErrorLogger.info("PaperWallet", "Balance changed by ${delta}: new balance = ${status.paperWalletSol}")
+        }
+        
         // Persist running state so BootReceiver can restart after reboot
         getSharedPreferences("bot_runtime", android.content.Context.MODE_PRIVATE)
             .edit().putBoolean("was_running_before_shutdown", true).apply()
@@ -537,11 +546,20 @@ class BotService : Service() {
                     walletManager.refreshBalance()
                     val freshSol = walletManager.state.value.solBalance
                     status.walletSol = freshSol
+                    
+                    // Initialize paper wallet with real balance on first successful refresh
+                    val cfg = ConfigStore.load(applicationContext)
+                    if (cfg.paperMode && !status.paperWalletInitialized && freshSol > 0) {
+                        status.paperWalletSol = freshSol
+                        status.paperWalletInitialized = true
+                        ErrorLogger.info("PaperWallet", "Initialized with real balance: ${freshSol} SOL")
+                        addLog("📝 Paper wallet synced: ${freshSol.fmt(4)} SOL")
+                    }
 
                     // Treasury milestone check — runs every poll cycle
                     val solPx = WalletManager.lastKnownSolPrice
                     TreasuryManager.onWalletUpdate(
-                        walletSol    = freshSol,
+                        walletSol    = if (cfg.paperMode) status.paperWalletSol else freshSol,
                         solPrice     = solPx,
                         onMilestone  = { milestone, walletUsd ->
                             addLog("🏦 MILESTONE: ${milestone.label} hit @ \$${walletUsd.toLong()}", "treasury")
@@ -708,7 +726,8 @@ class BotService : Service() {
                 if (TokenBlacklist.isBlocked(mint)) {
                     if (ts.position.isOpen) {
                         // Force exit if we somehow hold a blacklisted token
-                        executor.maybeAct(ts, "EXIT", 0.0, status.walletSol, wallet,
+                        val effectiveBalance = status.getEffectiveBalance(cfg.paperMode)
+                        executor.maybeAct(ts, "EXIT", 0.0, effectiveBalance, wallet,
                             lastSuccessfulPollMs, status.openPositionCount, status.totalExposureSol)
                     }
                     return@launch
@@ -719,12 +738,13 @@ class BotService : Service() {
 
                 // Trade on ALL watchlist tokens simultaneously
                 val cbState = securityGuard.getCircuitBreakerState()
+                val effectiveBalance = status.getEffectiveBalance(cfg.paperMode)
                 if (!cbState.isHalted && !cbState.isPaused) {
                     executor.maybeAct(
                         ts                 = ts,
                         signal             = result.signal,
                         entryScore         = result.entryScore,
-                        walletSol          = status.walletSol,
+                        walletSol          = effectiveBalance,
                         wallet             = wallet,
                         lastPollMs         = lastSuccessfulPollMs,
                         openPositionCount  = status.openPositionCount,   // informational only

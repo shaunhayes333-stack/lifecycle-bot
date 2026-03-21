@@ -29,6 +29,7 @@ class Executor(
     private val jupiter       = JupiterApi()
     var brain: BotBrain? = null
     var tradeDb: TradeDatabase? = null
+    var onPaperBalanceChange: ((Double) -> Unit)? = null  // Callback to update paper wallet balance
     private val slippageGuard = SlippageGuard(jupiter)
     private var lastNewTokenSoundMs = 0L
 
@@ -687,6 +688,10 @@ class Executor(
         val trade = Trade("BUY", "paper", sol, price, System.currentTimeMillis(), score = score)
         ts.trades.add(trade)
         security.recordTrade(trade)
+        
+        // Update paper wallet balance (deduct buy amount)
+        onPaperBalanceChange?.invoke(-sol)
+        
         onLog("PAPER BUY  @ ${price.fmt()} | ${sol.fmt(4)} SOL | score=${score.toInt()}", ts.mint)
         onNotify("📈 Paper Buy", "${ts.symbol}  ${sol.fmt(3)} SOL  (score ${score.toInt()})", com.lifecyclebot.engine.NotificationHistory.NotifEntry.NotifType.INFO)
     }
@@ -784,6 +789,10 @@ class Executor(
                           System.currentTimeMillis(), reason, pnl, pnlP)
         ts.trades.add(trade)
         security.recordTrade(trade)
+        
+        // Update paper wallet balance (add sale proceeds)
+        onPaperBalanceChange?.invoke(value)
+        
         onLog("PAPER SELL @ ${price.fmt()} | $reason | pnl ${pnl.fmt(4)} SOL (${pnlP.fmtPct()})", ts.mint)
         onNotify("📉 Paper Sell", "${ts.symbol}  $reason  PnL ${pnlP.fmtPct()}", com.lifecyclebot.engine.NotificationHistory.NotifEntry.NotifType.INFO)
         // Play trade sound
