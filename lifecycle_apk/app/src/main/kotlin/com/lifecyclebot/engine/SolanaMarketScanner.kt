@@ -244,6 +244,10 @@ class SolanaMarketScanner(
                 onLog("✅ Test: $added diverse tokens added")
             }
             
+        } catch (e: kotlinx.coroutines.CancellationException) {
+            // Coroutine was cancelled - this is normal when scanner is stopped
+            ErrorLogger.info("Scanner", "TEST: Scan cancelled")
+            throw e  // Re-throw to properly cancel
         } catch (e: Exception) {
             ErrorLogger.error("Scanner", "TEST ERROR: ${e.message}", e)
             onLog("❌ Test error: ${e.message?.take(50)}")
@@ -1359,12 +1363,18 @@ class SolanaMarketScanner(
      */
     private suspend fun emitWithRugcheck(token: ScannedToken) {
         // Quick check with 2-second timeout
-        val passed = withContext(Dispatchers.IO) { 
-            try {
-                withTimeout(2000L) { quickRugcheck(token.mint) }
-            } catch (e: Exception) {
-                true  // Timeout = pass through
+        val passed = try {
+            withContext(Dispatchers.IO) { 
+                try {
+                    withTimeout(2000L) { quickRugcheck(token.mint) }
+                } catch (e: kotlinx.coroutines.TimeoutCancellationException) {
+                    true  // Timeout = pass through
+                }
             }
+        } catch (e: kotlinx.coroutines.CancellationException) {
+            throw e  // Re-throw job cancellation
+        } catch (e: Exception) {
+            true  // Any other error = pass through
         }
         
         if (!passed) {
