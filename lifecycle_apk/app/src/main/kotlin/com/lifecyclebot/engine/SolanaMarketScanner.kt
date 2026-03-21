@@ -169,19 +169,24 @@ class SolanaMarketScanner(
                 
                 // RESTORED: Full scan rotation with all sources
                 scanRotation = (scanRotation + 1) % 4
-                onLog("🌐 Scan #$scanRotation${_tn}")
+                onLog("🌐 Scan #$scanRotation${_tn} - Starting scan cycle")
+                ErrorLogger.info("Scanner", "Scan cycle #$scanRotation starting")
                 
                 // GC before scan
                 System.gc()
                 
+                var tokensFoundThisCycle = 0
+                
                 when (scanRotation) {
                     0 -> {
                         // DexScreener trending + boosted
+                        onLog("🔍 Scanning: DexScreener trending...")
                         try { scanDexTrending() } catch (e: Exception) { 
                             if (e is OutOfMemoryError) throw e
                             ErrorLogger.error("Scanner", "scanDexTrending: ${e.message}", e) 
                         }
                         delay(500)
+                        onLog("🔍 Scanning: DexScreener boosted...")
                         try { scanDexBoosted() } catch (e: Exception) { 
                             if (e is OutOfMemoryError) throw e
                             ErrorLogger.error("Scanner", "scanDexBoosted: ${e.message}", e) 
@@ -189,11 +194,13 @@ class SolanaMarketScanner(
                     }
                     1 -> {
                         // CoinGecko + Pump graduates
+                        onLog("🔍 Scanning: CoinGecko trending...")
                         try { scanCoinGeckoTrending() } catch (e: Exception) { 
                             if (e is OutOfMemoryError) throw e
                             ErrorLogger.error("Scanner", "scanCoinGecko: ${e.message}", e) 
                         }
                         delay(500)
+                        onLog("🔍 Scanning: Pump.fun graduates...")
                         try { scanPumpGraduates() } catch (e: Exception) { 
                             if (e is OutOfMemoryError) throw e
                             ErrorLogger.error("Scanner", "scanPumpGraduates: ${e.message}", e) 
@@ -201,11 +208,13 @@ class SolanaMarketScanner(
                     }
                     2 -> {
                         // Birdeye + Raydium
+                        onLog("🔍 Scanning: Birdeye trending...")
                         try { scanBirdeyeTrending() } catch (e: Exception) { 
                             if (e is OutOfMemoryError) throw e
                             ErrorLogger.error("Scanner", "scanBirdeye: ${e.message}", e) 
                         }
                         delay(500)
+                        onLog("🔍 Scanning: Raydium new pools...")
                         try { scanRaydiumNewPools() } catch (e: Exception) { 
                             if (e is OutOfMemoryError) throw e
                             ErrorLogger.error("Scanner", "scanRaydium: ${e.message}", e) 
@@ -213,17 +222,21 @@ class SolanaMarketScanner(
                     }
                     3 -> {
                         // DexScreener gainers + trending
+                        onLog("🔍 Scanning: DexScreener gainers...")
                         try { scanDexGainers() } catch (e: Exception) { 
                             if (e is OutOfMemoryError) throw e
                             ErrorLogger.error("Scanner", "scanDexGainers: ${e.message}", e) 
                         }
                         delay(500)
+                        onLog("🔍 Scanning: DexScreener trending...")
                         try { scanDexTrending() } catch (e: Exception) { 
                             if (e is OutOfMemoryError) throw e
                             ErrorLogger.error("Scanner", "scanDexTrending: ${e.message}", e) 
                         }
                     }
                 }
+                
+                onLog("✅ Scan cycle #$scanRotation complete")
                 
                 // GC after scan
                 System.gc()
@@ -558,14 +571,26 @@ class SolanaMarketScanner(
         val c = cfg()
 
         // Minimum liquidity
-        if (token.liquidityUsd < c.minLiquidityUsd && token.liquidityUsd > 0) return false
+        if (token.liquidityUsd < c.minLiquidityUsd && token.liquidityUsd > 0) {
+            ErrorLogger.debug("Scanner", "FILTER REJECT ${token.symbol}: liq $${token.liquidityUsd.toInt()} < min $${c.minLiquidityUsd.toInt()}")
+            return false
+        }
 
         // DEX filter — user can restrict to specific DEXs
-        if (c.allowedDexes.isNotEmpty() && token.dexId !in c.allowedDexes) return false
+        if (c.allowedDexes.isNotEmpty() && token.dexId !in c.allowedDexes) {
+            ErrorLogger.debug("Scanner", "FILTER REJECT ${token.symbol}: DEX ${token.dexId} not in allowed list")
+            return false
+        }
 
         // MC range filter
-        if (c.scanMinMcapUsd > 0 && token.mcapUsd < c.scanMinMcapUsd) return false
-        if (c.scanMaxMcapUsd > 0 && token.mcapUsd > c.scanMaxMcapUsd) return false
+        if (c.scanMinMcapUsd > 0 && token.mcapUsd < c.scanMinMcapUsd) {
+            ErrorLogger.debug("Scanner", "FILTER REJECT ${token.symbol}: mcap $${token.mcapUsd.toInt()} < min $${c.scanMinMcapUsd.toInt()}")
+            return false
+        }
+        if (c.scanMaxMcapUsd > 0 && token.mcapUsd > c.scanMaxMcapUsd) {
+            ErrorLogger.debug("Scanner", "FILTER REJECT ${token.symbol}: mcap $${token.mcapUsd.toInt()} > max $${c.scanMaxMcapUsd.toInt()}")
+            return false
+        }
 
         // Source filter — user can disable specific sources
         if (token.source == TokenSource.PUMP_FUN_NEW && !c.scanPumpFunNew) return false
@@ -574,14 +599,22 @@ class SolanaMarketScanner(
         if (token.source == TokenSource.RAYDIUM_NEW_POOL && !c.scanRaydiumNew) return false
 
         // Minimum discovery score
-        if (token.score < c.minDiscoveryScore) return false
+        if (token.score < c.minDiscoveryScore) {
+            ErrorLogger.debug("Scanner", "FILTER REJECT ${token.symbol}: score ${token.score.toInt()} < min ${c.minDiscoveryScore.toInt()}")
+            return false
+        }
 
         // Name/symbol scam heuristics
         val sym = token.symbol.lowercase()
         val name = token.name.lowercase()
         val scamPatterns = listOf("test","fake","scam","rug","honeypot","xxx","porn")
-        if (scamPatterns.any { sym.contains(it) || name.contains(it) }) return false
-
+        if (scamPatterns.any { sym.contains(it) || name.contains(it) }) {
+            ErrorLogger.debug("Scanner", "FILTER REJECT ${token.symbol}: scam pattern detected")
+            return false
+        }
+        
+        // Token passed all filters!
+        ErrorLogger.info("Scanner", "FILTER PASS ${token.symbol}: liq=$${token.liquidityUsd.toInt()} score=${token.score.toInt()}")
         return true
     }
 

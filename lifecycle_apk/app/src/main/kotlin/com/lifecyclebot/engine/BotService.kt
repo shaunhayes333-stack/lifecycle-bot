@@ -341,26 +341,46 @@ class BotService : Service() {
                     cfg          = { ConfigStore.load(applicationContext) },
                     onTokenFound = { mint, symbol, name, source, score ->
                         try {
-                            val wl = cfg.watchlist.toMutableList()
-                            if (mint !in wl && !TokenBlacklist.isBlocked(mint) && wl.size < cfg.maxWatchlistSize) {
-                                wl.add(mint)
-                                ConfigStore.save(applicationContext, cfg.copy(watchlist = wl))
-                                addLog("📡 ${source.name}: auto-added ${symbol} (score ${score.toInt()})", mint)
-                                soundManager.playNewToken()
-                                // Seed candle history immediately
-                                scope.launch {
-                                    try {
-                                        val ts = status.tokens.getOrPut(mint) {
-                                            com.lifecyclebot.data.TokenState(
-                                                mint=mint, symbol=symbol, name=name,
-                                                candleTimeframeMinutes = 1
-                                            )
-                                        }
-                                        orchestrator?.onTokenAdded(mint, symbol)
-                                    } catch (_: Exception) {}
-                                }
+                            val c = ConfigStore.load(applicationContext)
+                            val wl = c.watchlist.toMutableList()
+                            ErrorLogger.info("BotService", "Token found: $symbol ($mint) from ${source.name} score=$score")
+                            
+                            if (mint in wl) {
+                                ErrorLogger.debug("BotService", "Token $symbol already in watchlist")
+                                return@SolanaMarketScanner
                             }
-                        } catch (_: Exception) {}
+                            
+                            if (TokenBlacklist.isBlocked(mint)) {
+                                ErrorLogger.debug("BotService", "Token $symbol is blacklisted")
+                                return@SolanaMarketScanner
+                            }
+                            
+                            if (wl.size >= c.maxWatchlistSize) {
+                                ErrorLogger.debug("BotService", "Watchlist full (${wl.size}/${c.maxWatchlistSize})")
+                                return@SolanaMarketScanner
+                            }
+                            
+                            wl.add(mint)
+                            ConfigStore.save(applicationContext, c.copy(watchlist = wl))
+                            addLog("✅ ADDED: ${symbol} (${source.name}) score=${score.toInt()} | Watchlist now: ${wl.size}", mint)
+                            ErrorLogger.info("BotService", "Added $symbol to watchlist. New size: ${wl.size}")
+                            soundManager.playNewToken()
+                            
+                            // Seed candle history immediately
+                            scope.launch {
+                                try {
+                                    val ts = status.tokens.getOrPut(mint) {
+                                        com.lifecyclebot.data.TokenState(
+                                            mint=mint, symbol=symbol, name=name,
+                                            candleTimeframeMinutes = 1
+                                        )
+                                    }
+                                    orchestrator?.onTokenAdded(mint, symbol)
+                                } catch (_: Exception) {}
+                            }
+                        } catch (e: Exception) {
+                            ErrorLogger.error("BotService", "Error adding token $symbol: ${e.message}", e)
+                        }
                     },
                     onLog = ::addLog,
                 )
@@ -463,12 +483,28 @@ class BotService : Service() {
     // ── main loop ──────────────────────────────────────────
 
     private suspend fun botLoop() {
+        ErrorLogger.info("BotService", "botLoop() started")
+        var loopCount = 0
         while (status.running) {
           try {
+            loopCount++
             val cfg       = ConfigStore.load(applicationContext)
             val watchlist = cfg.watchlist.toMutableList()
             if (cfg.activeToken.isNotBlank() && cfg.activeToken !in watchlist)
                 watchlist.add(cfg.activeToken)
+
+            // Log watchlist status every 5 loops for better visibility
+            if (loopCount % 5 == 1) {
+                ErrorLogger.info("BotService", "Bot loop #$loopCount - Watchlist size: ${watchlist.size}")
+                addLog("🔄 Loop #$loopCount | Watchlist: ${watchlist.size} tokens | Scanner: ${if(marketScanner != null) "ACTIVE" else "INACTIVE"}")
+                if (watchlist.isEmpty()) {
+                    addLog("⚠️ Watchlist empty - waiting for scanner to discover tokens...")
+                } else {
+                    // Log first 3 tokens being processed
+                    val firstTokens = watchlist.take(3).joinToString(", ") { it.take(8) + "..." }
+                    addLog("📊 Processing: $firstTokens")
+                }
+            }
 
             // Currency rate refresh + feed SOL price to bonding curve tracker
             scope.launch {
@@ -625,6 +661,13 @@ class BotService : Service() {
                         ts.entryScore = result.entryScore
                         ts.exitScore  = result.exitScore
                         ts.meta       = result.meta
+                    }
+                    
+                    // Log trading signals for active analysis
+                    if (result.signal == "BUY" || result.entryScore >= 35) {
+                        ErrorLogger.info("BotService", 
+                            "SIGNAL: ${ts.symbol} | phase=${result.phase} signal=${result.signal} " +
+                            "entry=${result.entryScore.toInt()} exit=${result.exitScore.toInt()}")
                     }
 
                     // Sentiment refresh (every sentimentPollMins)
