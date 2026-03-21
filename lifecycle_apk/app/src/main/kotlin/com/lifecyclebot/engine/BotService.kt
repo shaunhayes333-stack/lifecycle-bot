@@ -569,9 +569,9 @@ class BotService : Service() {
                 }
             }
             
-            // AGGRESSIVE WATCHLIST CLEANUP - every 10 loops (about 50 seconds)
+            // AGGRESSIVE WATCHLIST CLEANUP - every 5 loops (about 25 seconds)
             // Remove tokens that are blocked, stale, or underperforming
-            if (loopCount % 10 == 0 && watchlist.size > 5) {
+            if (loopCount % 5 == 0 && watchlist.size > 3) {
                 scope.launch {
                     try {
                         cleanupWatchlist()
@@ -866,11 +866,11 @@ class BotService : Service() {
     private suspend fun cleanupWatchlist() {
         val cfg = ConfigStore.load(applicationContext)
         val currentWatchlist = cfg.watchlist.toMutableList()
-        if (currentWatchlist.size <= 3) return  // Keep at least 3 tokens
+        if (currentWatchlist.size <= 2) return  // Keep at least 2 tokens
         
         val tokensToRemove = mutableListOf<String>()
         val now = System.currentTimeMillis()
-        val staleThresholdMs = 5 * 60_000L   // 5 minutes
+        val staleThresholdMs = 2 * 60_000L   // 2 minutes (faster cleanup)
         
         for (mint in currentWatchlist) {
             val ts = status.tokens[mint]
@@ -883,14 +883,15 @@ class BotService : Service() {
             // Remove if blocked by safety checker
             if (ts?.safety?.isBlocked == true) {
                 tokensToRemove.add(mint)
-                addLog("🗑️ Removing ${ts.symbol}: BLOCKED", mint)
+                addLog("🚫 BLOCKED: ${ts.symbol} - ${ts.safety.blockReason}", mint)
                 continue
             }
             
             // Remove if explicitly blacklisted
             if (TokenBlacklist.isBlocked(mint)) {
+                val reason = TokenBlacklist.getBlockReason(mint)
                 tokensToRemove.add(mint)
-                addLog("🗑️ Removing ${mint.take(8)}: blacklisted", mint)
+                addLog("🚫 BLACKLIST: ${ts?.symbol ?: mint.take(8)} - $reason", mint)
                 continue
             }
             
@@ -899,32 +900,43 @@ class BotService : Service() {
                 val lastUpdate = ts.history.lastOrNull()?.ts ?: 0L
                 val age = now - lastUpdate
                 
-                // Remove if stale (no data for 5+ minutes)
+                // Remove if stale (no data for 2+ minutes)
                 if (lastUpdate > 0 && age > staleThresholdMs) {
                     tokensToRemove.add(mint)
-                    addLog("🗑️ Removing ${ts.symbol}: stale (${age/60000}m)", mint)
+                    addLog("⏰ STALE: ${ts.symbol} (${age/60000}m no data)", mint)
                     continue
                 }
                 
                 // Remove if dead (zero liquidity)
                 if (ts.lastLiquidityUsd < 1000) {
                     tokensToRemove.add(mint)
-                    addLog("🗑️ Removing ${ts.symbol}: low liq $${ts.lastLiquidityUsd.toInt()}", mint)
+                    addLog("💀 DEAD: ${ts.symbol} - liq $${ts.lastLiquidityUsd.toInt()}", mint)
                     continue
                 }
                 
-                // Remove if flat for too long with no volume
-                if (ts.history.size >= 10) {
-                    val recentCandles = ts.history.takeLast(10)
+                // Remove if flat for too long with no volume - check after 6 candles
+                if (ts.history.size >= 6) {
+                    val recentCandles = ts.history.takeLast(6)
                     val priceRange = recentCandles.maxOf { it.priceUsd } - recentCandles.minOf { it.priceUsd }
                     val avgPrice = recentCandles.map { it.priceUsd }.average()
                     val priceChangePercent = if (avgPrice > 0) (priceRange / avgPrice) * 100 else 0.0
                     val totalBuys = recentCandles.sumOf { it.buysH1 }
                     
-                    // Flat price (<2% range) AND no recent buys
-                    if (priceChangePercent < 2.0 && totalBuys < 5) {
+                    // Flat price (<1.5% range) AND no recent buys
+                    if (priceChangePercent < 1.5 && totalBuys < 3) {
                         tokensToRemove.add(mint)
-                        addLog("🗑️ Removing ${ts.symbol}: flat & dead volume", mint)
+                        addLog("📉 FLAT: ${ts.symbol} - no action", mint)
+                        continue
+                    }
+                }
+                
+                // Remove tokens with declining liquidity (lost >30% since add)
+                if (ts.history.size >= 3) {
+                    val firstLiq = ts.history.first().liqUsd
+                    val currentLiq = ts.lastLiquidityUsd
+                    if (firstLiq > 0 && currentLiq < firstLiq * 0.7) {
+                        tokensToRemove.add(mint)
+                        addLog("📉 RUG RISK: ${ts.symbol} - liq dropped ${((1 - currentLiq/firstLiq) * 100).toInt()}%", mint)
                         continue
                     }
                 }
@@ -944,7 +956,7 @@ class BotService : Service() {
             }
             
             ErrorLogger.info("BotService", "Watchlist cleanup: removed ${tokensToRemove.size} tokens, ${newWatchlist.size} remaining")
-            addLog("🧹 Cleaned ${tokensToRemove.size} tokens | Watchlist: ${newWatchlist.size}")
+            addLog("🧹 Cleaned ${tokensToRemove.size} | Remaining: ${newWatchlist.size}")
         }
     }
 

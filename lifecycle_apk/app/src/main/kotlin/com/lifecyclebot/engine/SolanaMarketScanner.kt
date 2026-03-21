@@ -1168,7 +1168,8 @@ class SolanaMarketScanner(
         val name = token.name.lowercase()
         val scamPatterns = listOf("test","fake","scam","rug","honeypot","xxx","porn")
         if (scamPatterns.any { sym.contains(it) || name.contains(it) }) {
-            ErrorLogger.debug("Scanner", "FILTER REJECT ${token.symbol}: scam pattern detected")
+            onLog("🚫 BLOCK: ${token.symbol} - scam pattern")
+            ErrorLogger.info("Scanner", "FILTER REJECT ${token.symbol}: scam pattern detected")
             return false
         }
         
@@ -1187,6 +1188,7 @@ class SolanaMarketScanner(
         // Block exact matches of major token symbols only
         val blockedSymbols = listOf("sol", "wsol", "usdt", "usdc", "ray", "jup")
         if (symLower in blockedSymbols) {
+            onLog("🚫 BLOCK: ${token.symbol} - reserved symbol")
             ErrorLogger.info("Scanner", "FILTER REJECT ${token.symbol}: blocked symbol '$symLower'")
             return false
         }
@@ -1194,6 +1196,7 @@ class SolanaMarketScanner(
         for (infra in infrastructureTokens) {
             // Only block exact name matches for infrastructure tokens
             if (nameLower == infra || nameLower.startsWith("$infra ")) {
+                onLog("🚫 BLOCK: ${token.symbol} - impersonates $infra")
                 ErrorLogger.info("Scanner", "FILTER REJECT ${token.symbol}: impersonates '$infra' (name='${token.name}')")
                 return false
             }
@@ -1201,6 +1204,7 @@ class SolanaMarketScanner(
         
         // Block tokens with suspicious market caps (over $500M is likely fake data)
         if (token.mcapUsd > 500_000_000) {
+            onLog("🚫 BLOCK: ${token.symbol} - fake mcap \$${(token.mcapUsd/1_000_000).toInt()}M")
             ErrorLogger.info("Scanner", "FILTER REJECT ${token.symbol}: suspicious mcap $${(token.mcapUsd/1_000_000).toInt()}M")
             return false
         }
