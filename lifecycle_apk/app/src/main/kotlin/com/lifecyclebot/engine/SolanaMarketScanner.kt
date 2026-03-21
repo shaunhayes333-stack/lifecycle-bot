@@ -221,7 +221,6 @@ class SolanaMarketScanner(
             onLog("❌ Test error: ${e.message?.take(50)}")
         }
     }
-    }
 
     fun stop() {
         ErrorLogger.info("Scanner", "SolanaMarketScanner.stop() called")
