@@ -871,18 +871,20 @@ class BotService : Service() {
      * Aggressively clean up the watchlist to make room for new opportunities.
      * Removes tokens that are:
      * - Blocked by safety checker (rugcheck failed)
-     * - Stale (no price updates for 5+ minutes)
+     * - Stale (no price updates)
      * - Dead (zero liquidity or volume)
-     * - Underperforming (flat price for 15+ minutes with no buys)
+     * - IDLE too long without getting a buy signal
+     * - Underperforming (flat price with no buys)
      */
     private suspend fun cleanupWatchlist() {
         val cfg = ConfigStore.load(applicationContext)
         val currentWatchlist = cfg.watchlist.toMutableList()
-        if (currentWatchlist.size <= 2) return  // Keep at least 2 tokens
+        if (currentWatchlist.size <= 1) return  // Keep at least 1 token
         
         val tokensToRemove = mutableListOf<String>()
         val now = System.currentTimeMillis()
-        val staleThresholdMs = 2 * 60_000L   // 2 minutes (faster cleanup)
+        val staleThresholdMs = 90_000L           // 1.5 minutes stale
+        val idleThresholdMs = 2 * 60_000L        // 2 minutes max idle time
         
         for (mint in currentWatchlist) {
             val ts = status.tokens[mint]
@@ -897,6 +899,7 @@ class BotService : Service() {
                 tokensToRemove.add(mint)
                 val reason = ts.safety.hardBlockReasons.firstOrNull() ?: "Safety check failed"
                 addLog("🚫 BLOCKED: ${ts.symbol} - $reason", mint)
+                scanner?.markTokenRejected(mint)
                 continue
             }
             
@@ -905,43 +908,60 @@ class BotService : Service() {
                 val reason = TokenBlacklist.getBlockReason(mint)
                 tokensToRemove.add(mint)
                 addLog("🚫 BLACKLIST: ${ts?.symbol ?: mint.take(8)} - $reason", mint)
+                scanner?.markTokenRejected(mint)
                 continue
             }
             
             // Check token state
             if (ts != null) {
-                val lastUpdate = ts.history.lastOrNull()?.ts ?: 0L
+                val lastUpdate = ts.history.lastOrNull()?.ts ?: ts.addedToWatchlistAt
                 val age = now - lastUpdate
+                val timeInWatchlist = now - ts.addedToWatchlistAt
                 
-                // Remove if stale (no data for 2+ minutes)
+                // Remove if stale (no data for 1.5+ minutes)
                 if (lastUpdate > 0 && age > staleThresholdMs) {
                     tokensToRemove.add(mint)
-                    addLog("⏰ STALE: ${ts.symbol} (${age/60000}m no data)", mint)
+                    addLog("⏰ STALE: ${ts.symbol}", mint)
+                    scanner?.markTokenRejected(mint)
                     continue
                 }
                 
                 // Remove if dead (zero liquidity)
                 if (ts.lastLiquidityUsd < 1000) {
                     tokensToRemove.add(mint)
-                    addLog("💀 DEAD: ${ts.symbol} - liq \$${ts.lastLiquidityUsd.toInt()}", mint)
+                    addLog("💀 DEAD: ${ts.symbol}", mint)
+                    scanner?.markTokenRejected(mint)
                     continue
                 }
                 
-                // Remove if flat for too long with no volume - check after 6 candles
-                if (ts.history.size >= 6) {
-                    val recentCandles = ts.history.takeLast(6)
+                // Remove if IDLE too long - 2+ minutes without buy signal or trade
+                val neverActioned = ts.signal != "BUY" && !ts.position.isOpen && ts.trades.isEmpty()
+                if (timeInWatchlist > idleThresholdMs && neverActioned) {
+                    tokensToRemove.add(mint)
+                    addLog("😴 IDLE: ${ts.symbol} - removing", mint)
+                    scanner?.markTokenRejected(mint)
+                    continue
+                }
+                
+                // Remove if flat - check after 4 candles
+                if (ts.history.size >= 4) {
+                    val recentCandles = ts.history.takeLast(4)
                     val priceRange = recentCandles.maxOf { it.priceUsd } - recentCandles.minOf { it.priceUsd }
                     val avgPrice = recentCandles.map { it.priceUsd }.average()
                     val priceChangePercent = if (avgPrice > 0) (priceRange / avgPrice) * 100 else 0.0
                     val totalBuys = recentCandles.sumOf { it.buysH1 }
                     
-                    // Flat price (<1.5% range) AND no recent buys
-                    if (priceChangePercent < 1.5 && totalBuys < 3) {
+                    // Flat price (<2% range) AND no recent buys
+                    if (priceChangePercent < 2.0 && totalBuys < 2) {
                         tokensToRemove.add(mint)
-                        addLog("📉 FLAT: ${ts.symbol} - no action", mint)
+                        addLog("📉 FLAT: ${ts.symbol}", mint)
+                        scanner?.markTokenRejected(mint)
                         continue
                     }
                 }
+            } else {
+                // No token state - remove it
+                tokensToRemove.add(mint)
             }
         }
         

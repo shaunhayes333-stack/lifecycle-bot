@@ -1289,6 +1289,12 @@ class SolanaMarketScanner(
         rejectedMints[mint] = System.currentTimeMillis()
     }
     
+    // Public function for BotService to mark tokens as rejected
+    fun markTokenRejected(mint: String) {
+        rejectedMints[mint] = System.currentTimeMillis()
+        ErrorLogger.info("Scanner", "Token ${mint.take(12)} marked as rejected for ${REJECTED_TTL/60000}min")
+    }
+    
     // Clean up old entries from seen/rejected maps periodically
     private fun cleanupSeenMaps() {
         val now = System.currentTimeMillis()

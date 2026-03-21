@@ -125,6 +125,7 @@ data class TokenState(
     var meta: StrategyMeta = StrategyMeta(),
     // price
     var source: String = "",              // how this token was discovered (PUMP_FUN_NEW etc)
+    var addedToWatchlistAt: Long = System.currentTimeMillis(),  // when token was added to watchlist
     var candleTimeframeMinutes: Int = 1,  // timeframe of history[] candles (1=1M, 60=1H, 240=4H, 1440=1D)
     var lastPrice: Double = 0.0,
     var lastMcap: Double = 0.0,
