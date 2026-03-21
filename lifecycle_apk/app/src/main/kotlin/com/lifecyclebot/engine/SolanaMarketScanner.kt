@@ -134,9 +134,93 @@ class SolanaMarketScanner(
         scope = CoroutineScope(Dispatchers.IO + SupervisorJob())
         scanJob = scope?.launch { 
             ErrorLogger.info("Scanner", "scanLoop starting...")
+            
+            // IMMEDIATE TEST SCAN - verify API works before main loop
+            runTestScan()
+            
             scanLoop() 
         }
         onLog("SolanaMarketScanner started")
+    }
+    
+    private suspend fun runTestScan() {
+        // Simple test to verify API connectivity and add first token
+        try {
+            onLog("🧪 Running immediate test scan...")
+            val url = "https://api.dexscreener.com/latest/dex/pairs/solana/raydium"
+            ErrorLogger.info("Scanner", "TEST: Fetching Raydium pairs...")
+            
+            val body = get(url)
+            if (body == null) {
+                ErrorLogger.error("Scanner", "TEST FAILED: No response from DexScreener API")
+                onLog("❌ API test failed - no response")
+                return
+            }
+            
+            val pairs = org.json.JSONObject(body).optJSONArray("pairs")
+            if (pairs == null || pairs.length() == 0) {
+                ErrorLogger.error("Scanner", "TEST FAILED: No pairs in response")
+                onLog("❌ API test failed - empty data")
+                return
+            }
+            
+            ErrorLogger.info("Scanner", "TEST OK: Got ${pairs.length()} Raydium pairs")
+            onLog("✅ API OK: ${pairs.length()} pairs received")
+            
+            // Try to add first valid token to watchlist
+            var added = 0
+            for (i in 0 until minOf(pairs.length(), 30)) {
+                if (added >= 3) break  // Add up to 3 tokens
+                
+                val p = pairs.optJSONObject(i) ?: continue
+                val mint = p.optJSONObject("baseToken")?.optString("address", "") ?: continue
+                if (mint.isBlank() || mint.startsWith("0x") || isSeen(mint)) continue
+                
+                val symbol = p.optJSONObject("baseToken")?.optString("symbol", "") ?: continue
+                if (symbol.uppercase() in listOf("SOL", "WSOL", "USDC", "USDT", "RAY")) continue
+                
+                val liq = p.optJSONObject("liquidity")?.optDouble("usd", 0.0) ?: 0.0
+                if (liq < 2000) continue  // Very low threshold for test
+                
+                val mcap = p.optDouble("marketCap", 0.0)
+                val vol = p.optJSONObject("volume")?.optDouble("h1", 0.0) ?: 0.0
+                val name = p.optJSONObject("baseToken")?.optString("name", "") ?: symbol
+                
+                val token = ScannedToken(
+                    mint = mint,
+                    symbol = symbol,
+                    name = name,
+                    source = TokenSource.RAYDIUM_NEW_POOL,
+                    liquidityUsd = liq,
+                    volumeH1 = vol,
+                    mcapUsd = mcap,
+                    pairCreatedHoursAgo = 1.0,
+                    dexId = "raydium",
+                    priceChangeH1 = 0.0,
+                    txCountH1 = 0,
+                    score = 50.0  // Force passing score for test
+                )
+                
+                // Skip filter for test - just emit directly
+                emit(token)
+                added++
+                ErrorLogger.info("Scanner", "TEST: Added $symbol to watchlist")
+                onLog("🎯 Test added: $symbol | liq=$${liq.toInt()}")
+            }
+            
+            if (added == 0) {
+                ErrorLogger.warn("Scanner", "TEST: Could not find any valid tokens to add")
+                onLog("⚠️ Test: No valid tokens found")
+            } else {
+                ErrorLogger.info("Scanner", "TEST COMPLETE: Added $added tokens")
+                onLog("✅ Test complete: $added tokens added")
+            }
+            
+        } catch (e: Exception) {
+            ErrorLogger.error("Scanner", "TEST ERROR: ${e.message}", e)
+            onLog("❌ Test error: ${e.message?.take(50)}")
+        }
+    }
     }
 
     fun stop() {
@@ -155,8 +239,8 @@ class SolanaMarketScanner(
         ErrorLogger.info("Scanner", "scanLoop() entered")
         while (isRunning) {
             val c = cfg()
-            // Use configured interval, minimum 60 seconds for memory stability
-            val scanIntervalMs = maxOf((c.scanIntervalSecs * 1000L).toLong(), 60_000L)
+            // Use configured interval, minimum 15 seconds (was 60 - too slow!)
+            val scanIntervalMs = maxOf((c.scanIntervalSecs * 1000L).toLong(), 15_000L)
             ErrorLogger.debug("Scanner", "Scan interval: ${scanIntervalMs}ms")
 
             try {
