@@ -883,7 +883,8 @@ class BotService : Service() {
             // Remove if blocked by safety checker
             if (ts?.safety?.isBlocked == true) {
                 tokensToRemove.add(mint)
-                addLog("🚫 BLOCKED: ${ts.symbol} - ${ts.safety.blockReason}", mint)
+                val reason = ts.safety.hardBlockReasons.firstOrNull() ?: "Safety check failed"
+                addLog("🚫 BLOCKED: ${ts.symbol} - $reason", mint)
                 continue
             }
             
@@ -910,7 +911,7 @@ class BotService : Service() {
                 // Remove if dead (zero liquidity)
                 if (ts.lastLiquidityUsd < 1000) {
                     tokensToRemove.add(mint)
-                    addLog("💀 DEAD: ${ts.symbol} - liq $${ts.lastLiquidityUsd.toInt()}", mint)
+                    addLog("💀 DEAD: ${ts.symbol} - liq \$${ts.lastLiquidityUsd.toInt()}", mint)
                     continue
                 }
                 
@@ -926,17 +927,6 @@ class BotService : Service() {
                     if (priceChangePercent < 1.5 && totalBuys < 3) {
                         tokensToRemove.add(mint)
                         addLog("📉 FLAT: ${ts.symbol} - no action", mint)
-                        continue
-                    }
-                }
-                
-                // Remove tokens with declining liquidity (lost >30% since add)
-                if (ts.history.size >= 3) {
-                    val firstLiq = ts.history.first().liqUsd
-                    val currentLiq = ts.lastLiquidityUsd
-                    if (firstLiq > 0 && currentLiq < firstLiq * 0.7) {
-                        tokensToRemove.add(mint)
-                        addLog("📉 RUG RISK: ${ts.symbol} - liq dropped ${((1 - currentLiq/firstLiq) * 100).toInt()}%", mint)
                         continue
                     }
                 }
