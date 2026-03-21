@@ -73,7 +73,18 @@ class BotViewModel(app: Application) : AndroidViewModel(app) {
         while (true) {
             val cfg    = ConfigStore.load(ctx)
             val status = BotService.status
-            val active = status.tokens[cfg.activeToken]
+            
+            // Auto-select token: prioritize configured activeToken, then any open position, then first watchlist token
+            var active = status.tokens[cfg.activeToken]
+            if (active == null) {
+                // Try to find a token with an open position
+                active = status.openPositions.firstOrNull()
+                if (active == null && status.tokens.isNotEmpty()) {
+                    // Fall back to first token in watchlist
+                    active = status.tokens.values.firstOrNull()
+                }
+            }
+            
             // Use singleton wallet manager - always the same instance
             val wm = com.lifecyclebot.engine.WalletManager.getInstance(ctx)
             val sg = try { com.lifecyclebot.engine.BotService.instance
