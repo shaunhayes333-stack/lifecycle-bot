@@ -39,21 +39,46 @@ data class SafetyReport(
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Known token blocklist — names/symbols we block clones of
+// WHITELIST — Known legitimate token MINTS that should ALWAYS be allowed
+// These are verified contract addresses of major Solana tokens
 // ─────────────────────────────────────────────────────────────────────────────
 
-private val KNOWN_TOKEN_BLOCKLIST = setOf(
-    // Tier 1 majors — any clone of these is almost certainly a scam
-    "bonk", "wif", "dogwifhat", "pepe", "shib", "shibinu", "doge", "dogecoin",
-    "floki", "samo", "samoyedcoin", "orca", "raydium", "serum", "mango",
-    "solana", "sol", "usdc", "usdt", "dai", "eth", "bitcoin", "btc",
-    "jupiter", "jup", "pyth", "drift", "jito", "marinade", "msol",
-    "render", "helium", "hnt", "stepn", "gmt", "gene", "star atlas",
-    "cope", "media", "monkey", "monke", "gorilla",
-    // Common pump patterns
-    "elon", "trump", "biden", "maga", "grok", "ai", "gpt", "openai",
+private val WHITELISTED_MINTS = setOf(
+    // Native SOL (wrapped)
+    "So11111111111111111111111111111111111111112",
+    // USDC
+    "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v",
+    // USDT
+    "Es9vMFrzaCERmJfrF4H2FYD4KCoNkY11McCe8BenwNYB",
+    // Bonk
+    "DezXAZ8z7PnrnRJjz3wXBoRgixCa6xjnB7YaB1pPB263",
+    // WIF (dogwifhat)
+    "EKpQGSJtjMFqKZ9KQanSqYXRcF8fBopzLHYxdM65zcjm",
+    // JUP (Jupiter)
+    "JUPyiwrYJFskUPiHa7hkeR8VUtAeFoSYbKedZNsDvCN",
+    // RAY (Raydium)
+    "4k3Dyjzvzp8eMZWUXbBCjEvwSkkk59S5iCNLY3QrkX6R",
+    // ORCA
+    "orcaEKTdK7LKz57vaAYr9QeNsVEPfiu6QeMU1kektZE",
+    // mSOL (Marinade)
+    "mSoLzYCxHdYgdzU16g5QSh3i5K3z3KZK7ytfqcJm7So",
+    // PYTH
+    "HZ1JovNiVvGrGNiiYvEozEVgZ58xaU3RKwX8eACQBCt3",
+    // JITO
+    "J1toso1uCk3RLmjorhTtrVwY9HJ7X8V9yYac6Y7kGCPn",
+    // RENDER
+    "rndrizKT3MK1iimdxRdWabcF7Zg7AR5T4nud4EkHBof",
+)
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Known CLONE patterns — names/symbols that indicate FAKE versions of real tokens
+// We only block if the symbol/name EXACTLY matches AND the mint is NOT whitelisted
+// ─────────────────────────────────────────────────────────────────────────────
+
+private val CLONE_INDICATOR_NAMES = setOf(
+    // These are scam indicators when paired with major token names
     "official", "real", "og", "original", "v2", "v3", "relaunch", "relaunched",
-    "new", "2.0", "2024", "2025", "redux", "classic", "legacy",
+    "new", "2.0", "2024", "2025", "redux", "classic", "legacy", "airdrop",
 )
 
 // Patterns that in a token NAME strongly suggest a clone/scam
@@ -84,11 +109,22 @@ class TokenSafetyChecker(private val cfg: () -> BotConfig) {
     private val cache = mutableMapOf<String, SafetyReport>()
 
     // ── public interface ──────────────────────────────────────────────
+    
+    companion object {
+        /** Check if a token mint is in the whitelist of verified major tokens */
+        fun isWhitelisted(mint: String): Boolean = mint in WHITELISTED_MINTS
+        
+        /** Get the list of all whitelisted mints */
+        fun getWhitelistedMints(): Set<String> = WHITELISTED_MINTS
+    }
 
     /**
      * Run all safety checks for a token.
      * Returns cached result if < 10 min old.
      * Designed to run on a background thread.
+     * 
+     * WHITELISTED tokens (major SOL coins like SOL, USDC, BONK, JUP, etc.)
+     * are automatically marked SAFE without any checks.
      */
     fun check(
         mint: String,
@@ -96,6 +132,17 @@ class TokenSafetyChecker(private val cfg: () -> BotConfig) {
         name: String,
         pairCreatedAtMs: Long = 0L,
     ): SafetyReport {
+        // FAST PATH: Whitelisted tokens are always safe
+        if (mint in WHITELISTED_MINTS) {
+            val safeReport = SafetyReport(
+                tier = SafetyTier.SAFE,
+                summary = "✅ VERIFIED: $symbol is a whitelisted major token",
+                checkedAt = System.currentTimeMillis(),
+            )
+            cache[mint] = safeReport
+            return safeReport
+        }
+        
         val cached = cache[mint]
         if (cached != null && !cached.isStale) return cached
 
@@ -180,18 +227,22 @@ class TokenSafetyChecker(private val cfg: () -> BotConfig) {
             true  -> { /* safe */ }
         }
 
-        // ── 4. LP lock hard block ─────────────────────────────────────
+        // ── 4. LP lock — soft penalty only (no hard block) ───────────
+        // Many legitimate tokens don't have 80% LP locked, especially early stage
         when {
-            lpLockPct < 0       -> { soft.add("LP lock status unknown" to 8); penalty += 8 }
-            lpLockPct < 80.0    -> hard.add("LP only ${lpLockPct.toInt()}% locked (minimum 80%)")
-            lpLockPct < 90.0    -> { soft.add("LP ${lpLockPct.toInt()}% locked (low)" to 5); penalty += 5 }
+            lpLockPct < 0       -> { /* unknown - don't penalize */ }
+            lpLockPct < 50.0    -> { soft.add("LP only ${lpLockPct.toInt()}% locked (low)" to 15); penalty += 15 }
+            lpLockPct < 70.0    -> { soft.add("LP ${lpLockPct.toInt()}% locked (moderate)" to 8); penalty += 8 }
+            lpLockPct < 90.0    -> { soft.add("LP ${lpLockPct.toInt()}% locked" to 3); penalty += 3 }
         }
 
-        // ── 5. Holder concentration hard block ───────────────────────
+        // ── 5. Holder concentration — soft penalty only ───────────────
+        // High concentration is a yellow flag, not a hard block
         when {
-            topHolderPct < 0    -> { soft.add("Holder concentration unknown" to 5); penalty += 5 }
-            topHolderPct > 60.0 -> hard.add("Top 10 holders own ${topHolderPct.toInt()}% of supply")
-            topHolderPct > 40.0 -> { soft.add("Top holders concentrated (${topHolderPct.toInt()}%)" to 15); penalty += 15 }
+            topHolderPct < 0    -> { /* unknown - don't penalize */ }
+            topHolderPct > 80.0 -> { soft.add("Top holders very concentrated (${topHolderPct.toInt()}%)" to 20); penalty += 20 }
+            topHolderPct > 60.0 -> { soft.add("Top holders concentrated (${topHolderPct.toInt()}%)" to 12); penalty += 12 }
+            topHolderPct > 40.0 -> { soft.add("Top holders moderate (${topHolderPct.toInt()}%)" to 5); penalty += 5 }
         }
 
         // ── 6. Token age — informational only, no penalty ────────────
@@ -204,7 +255,7 @@ class TokenSafetyChecker(private val cfg: () -> BotConfig) {
         // Age is stored in the report for UI display only — no score impact.
 
         // ── 7. Name / symbol duplicate detection ─────────────────────
-        val nameFlag = checkNameDuplicate(symbol, name)
+        val nameFlag = checkNameDuplicate(symbol, name, mint)
         when {
             nameFlag.startsWith("HARD:") -> hard.add(nameFlag.removePrefix("HARD: "))
             nameFlag.startsWith("SOFT:") -> {
@@ -215,18 +266,26 @@ class TokenSafetyChecker(private val cfg: () -> BotConfig) {
         }
 
         // ── 8. ScalingMode tier safety gates ─────────────────────────
-        val solPxSc  = WalletManager.lastKnownSolPrice
-        val trsUsdSc = TreasuryManager.treasurySol * solPxSc
-        val sTier    = ScalingMode.activeTier(trsUsdSc)
-        if (rcScore in 0..99 && rcScore < sTier.minRugcheckScore) {
-            if (sTier.minRugcheckScore > 80)
-                hard.add("Rugcheck $rcScore < ${sTier.minRugcheckScore} (${sTier.label} min)")
-            else { soft.add("Below tier rugcheck min ($rcScore/${sTier.minRugcheckScore})" to 15); penalty += 15 }
+        // Skip tier gates for whitelisted tokens (they're verified major coins)
+        if (mint !in WHITELISTED_MINTS) {
+            val solPxSc  = WalletManager.lastKnownSolPrice
+            val trsUsdSc = TreasuryManager.treasurySol * solPxSc
+            val sTier    = ScalingMode.activeTier(trsUsdSc)
+            if (rcScore in 0..99 && rcScore < sTier.minRugcheckScore) {
+                // Only soft penalty, not hard block - allows trading with caution
+                soft.add("Rugcheck $rcScore below tier min ${sTier.minRugcheckScore}" to 15)
+                penalty += 15
+            }
+            // LP lock and top holder requirements are now soft penalties only
+            if (sTier.requireLpLock90 && lpLockPct in 0.0..89.9) {
+                soft.add("LP ${lpLockPct.toInt()}% — ${sTier.label} prefers 90%+" to 10)
+                penalty += 10
+            }
+            if (sTier.requireTopHolder30 && topHolderPct > 30.0) {
+                soft.add("Top10 ${topHolderPct.toInt()}% — ${sTier.label} prefers <30%" to 10)
+                penalty += 10
+            }
         }
-        if (sTier.requireLpLock90 && lpLockPct in 0.0..89.9)
-            hard.add("LP ${lpLockPct.toInt()}% — ${sTier.label} requires 90%+")
-        if (sTier.requireTopHolder30 && topHolderPct > 30.0)
-            hard.add("Top10 ${topHolderPct.toInt()}% — ${sTier.label} requires <30%")
 
         // ── Build report ──────────────────────────────────────────────
         val tier = if (hard.isNotEmpty()) SafetyTier.HARD_BLOCK
@@ -309,35 +368,29 @@ class TokenSafetyChecker(private val cfg: () -> BotConfig) {
      *   "HARD: <reason>"  — hard block
      *   "SOFT: <reason>"  — soft penalty
      *   ""                — clean
+     *   
+     * IMPORTANT: Whitelisted mints are ALWAYS clean - they are the real tokens
      */
-    private fun checkNameDuplicate(symbol: String, name: String): String {
+    private fun checkNameDuplicate(symbol: String, name: String, mint: String = ""): String {
+        // If this is a whitelisted mint, it's the REAL token - always allow
+        if (mint.isNotBlank() && mint in WHITELISTED_MINTS) {
+            return ""  // Clean - this is a verified legitimate token
+        }
+        
         val symLower  = symbol.lowercase().trim()
         val nameLower = name.lowercase().trim()
 
-        // 1. Exact symbol match against blocklist
-        if (symLower in KNOWN_TOKEN_BLOCKLIST) {
-            return "HARD: Symbol \"$symbol\" matches known major token — likely clone/scam"
+        // Check for clone indicators in the name (but not if it's a whitelisted token)
+        for (indicator in CLONE_INDICATOR_NAMES) {
+            if (nameLower.contains(indicator)) {
+                return "SOFT: Name contains suspicious pattern: \"$indicator\""
+            }
         }
 
-        // 2. Clone pattern in name
+        // Check for clone patterns
         for (pattern in CLONE_PATTERNS) {
             if (pattern.containsMatchIn(nameLower)) {
                 return "SOFT: Name contains clone pattern: \"${pattern.pattern}\""
-            }
-        }
-
-        // 3. Fuzzy similarity: is this symbol suspiciously close to a known token?
-        for (known in KNOWN_TOKEN_BLOCKLIST) {
-            val sim = similarity(symLower, known)
-            if (sim > 0.82 && symLower != known) {
-                return "SOFT: Symbol \"$symbol\" is ${(sim * 100).toInt()}% similar to \"$known\""
-            }
-        }
-
-        // 4. Name contains a known token name as substring
-        for (known in KNOWN_TOKEN_BLOCKLIST) {
-            if (known.length >= 4 && nameLower.contains(known) && symLower != known) {
-                return "SOFT: Name \"$name\" references known token \"$known\""
             }
         }
 

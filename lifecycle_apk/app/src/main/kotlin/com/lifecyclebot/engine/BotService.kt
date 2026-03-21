@@ -66,23 +66,25 @@ class BotService : Service() {
     override fun onCreate() {
         super.onCreate()
         instance = this
-        createChannels()
+        
+        try {
+            createChannels()
 
-        strategy        = LifecycleStrategy(
-            cfg   = { ConfigStore.load(applicationContext) },
-            brain = { botBrain },
-        )
-        sentimentEngine = SentimentEngine { ConfigStore.load(applicationContext) }
-        safetyChecker   = TokenSafetyChecker { ConfigStore.load(applicationContext) }
-        walletManager   = WalletManager(applicationContext)
-        soundManager    = SoundManager(applicationContext)
-        currencyManager = CurrencyManager(applicationContext)
-        notifHistory    = NotificationHistory(applicationContext)
-        tradeJournal    = TradeJournal(applicationContext)
-        autoMode        = AutoModeEngine(
-            cfg         = { ConfigStore.load(applicationContext) },
-            status      = status,
-            onModeChange = { from, to, reason ->
+            strategy        = LifecycleStrategy(
+                cfg   = { ConfigStore.load(applicationContext) },
+                brain = { botBrain },
+            )
+            sentimentEngine = SentimentEngine { ConfigStore.load(applicationContext) }
+            safetyChecker   = TokenSafetyChecker { ConfigStore.load(applicationContext) }
+            walletManager   = WalletManager(applicationContext)
+            soundManager    = SoundManager(applicationContext)
+            currencyManager = CurrencyManager(applicationContext)
+            notifHistory    = NotificationHistory(applicationContext)
+            tradeJournal    = TradeJournal(applicationContext)
+            autoMode        = AutoModeEngine(
+                cfg         = { ConfigStore.load(applicationContext) },
+                status      = status,
+                onModeChange = { from, to, reason ->
                 addLog("⚡ MODE: ${from.label} → ${to.label}  ($reason)")
                 sendTradeNotif("Mode Switch", "${to.label}: $reason",
                     NotificationHistory.NotifEntry.NotifType.INFO)
@@ -115,6 +117,10 @@ class BotService : Service() {
             security  = securityGuard,
             sounds    = soundManager,
         )
+        } catch (e: Exception) {
+            android.util.Log.e("BotService", "onCreate CRASH: ${e.javaClass.simpleName}: ${e.message}", e)
+            // Don't crash the service - log and continue
+        }
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
@@ -393,8 +399,11 @@ class BotService : Service() {
         addLog("Bot started — paper=${cfg.paperMode} auto=${cfg.autoTrade} sounds=${cfg.soundEnabled}")
         
         } catch (e: Exception) {
-            // Catch any crash and log it, don't let the service crash
-            addLog("❌ Bot start error: ${e.javaClass.simpleName}: ${e.message}")
+            // Catch any crash and log it with full stack trace
+            val stackTrace = e.stackTraceToString().take(500)
+            addLog("❌ Bot start CRASH: ${e.javaClass.simpleName}: ${e.message}")
+            addLog("Stack: $stackTrace")
+            android.util.Log.e("BotService", "startBot CRASH", e)
             e.printStackTrace()
             status.running = false
             try {
