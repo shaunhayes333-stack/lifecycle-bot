@@ -246,6 +246,10 @@ class SolanaMarketScanner(
                     delay(300_000)  // 5 minute pause, then continue
                     oomCount = 0  // Reset counter to try again
                 }
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                // Normal cancellation - don't log as error
+                ErrorLogger.info("Scanner", "Scanner coroutine cancelled (normal shutdown)")
+                throw e  // Re-throw to properly cancel
             } catch (e: Exception) {
                 ErrorLogger.error("Scanner", "Scanner error: ${e.message}", e)
                 onLog("Scanner: ${e.message?.take(50)}")

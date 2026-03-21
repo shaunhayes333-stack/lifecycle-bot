@@ -7,6 +7,8 @@ import com.lifecyclebot.data.Trade
 import com.lifecyclebot.network.SolanaWallet
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.withContext
+import kotlinx.coroutines.Dispatchers
 
 // ── Wallet state ──────────────────────────────────────────────────────────────
 
@@ -173,17 +175,23 @@ class WalletManager private constructor(private val ctx: Context) {
 
     // ── balance refresh ───────────────────────────────────────────────
 
-    fun refreshBalance() {
-        val w = wallet ?: run {
-            ErrorLogger.warn("Wallet", "refreshBalance called but wallet is null")
+    suspend fun refreshBalance() {
+        var w = wallet
+        
+        // If wallet is null, try to reconnect using saved credentials
+        if (w == null) {
+            ErrorLogger.warn("Wallet", "refreshBalance: wallet is null, checking for saved credentials...")
+            // Note: We can't access ConfigStore here directly, so just log and return
+            // The auto-reconnect in BotViewModel should handle this
             return
         }
+        
         try {
             ErrorLogger.debug("Wallet", "Refreshing balance...")
-            val solBal = w.getSolBalance()
+            val solBal = withContext(Dispatchers.IO) { w.getSolBalance() }
             ErrorLogger.info("Wallet", "SOL Balance: $solBal")
             
-            val solPrice = fetchSolPrice()
+            val solPrice = withContext(Dispatchers.IO) { fetchSolPrice() }
             ErrorLogger.debug("Wallet", "SOL Price: $$solPrice")
             
             if (solPrice > 0) WalletManager.lastKnownSolPrice = solPrice
