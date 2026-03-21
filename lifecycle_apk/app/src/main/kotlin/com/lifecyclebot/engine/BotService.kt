@@ -129,6 +129,15 @@ class BotService : Service() {
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+        // CRITICAL: Call startForeground IMMEDIATELY to avoid ForegroundServiceDidNotStartInTimeException
+        // Android gives us only 5 seconds after startForegroundService() is called
+        try {
+            startForeground(NOTIF_ID, buildRunningNotif())
+            ErrorLogger.info("BotService", "Foreground started in onStartCommand")
+        } catch (e: Exception) {
+            ErrorLogger.error("BotService", "startForeground failed in onStartCommand: ${e.message}", e)
+        }
+        
         when (intent?.action) {
             ACTION_START -> startBot()
             ACTION_STOP  -> stopBot()
@@ -178,7 +187,7 @@ class BotService : Service() {
             ErrorLogger.info("BotService", "startBot() called")
             addLog("🚀 Starting bot...")
             status.running = true
-            startForeground(NOTIF_ID, buildRunningNotif())
+            // Note: startForeground is already called in onStartCommand to meet Android's 5-second requirement
             ErrorLogger.info("BotService", "Foreground service started")
             addLog("✓ Foreground service started")
 
