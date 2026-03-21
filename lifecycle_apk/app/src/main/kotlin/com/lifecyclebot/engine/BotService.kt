@@ -835,7 +835,19 @@ class BotService : Service() {
                 }
               } // end scope.launch
             } // end map
-            tokenJobs.forEach { it.join() }  // wait for all tokens this cycle
+            
+            // Wait for all tokens with a maximum timeout of 8 seconds total
+            // This prevents the watchlist from hanging on slow API calls
+            try {
+                kotlinx.coroutines.withTimeout(8000L) {
+                    tokenJobs.forEach { it.join() }
+                }
+            } catch (e: kotlinx.coroutines.TimeoutCancellationException) {
+                addLog("⏰ Watchlist scan timeout - moving to next cycle")
+                ErrorLogger.warn("BotService", "Token processing batch timeout - some tokens skipped")
+                // Cancel any still-running jobs
+                tokenJobs.forEach { if (it.isActive) it.cancel() }
+            }
 
             // Periodically persist session state - use synchronized copy
             val tradeCount = synchronized(status.tokens) {
