@@ -125,12 +125,29 @@ class SolanaMarketScanner(
     
     // Coroutine exception handler for scanner - logs errors without crashing
     private val scannerExceptionHandler = CoroutineExceptionHandler { _, throwable ->
+        // Don't log cancellation as error - it's normal when scanner stops
+        if (throwable is kotlinx.coroutines.CancellationException) {
+            ErrorLogger.info("Scanner", "Scanner coroutine cancelled (normal shutdown)")
+            return@CoroutineExceptionHandler
+        }
         ErrorLogger.error("Scanner", 
             "Scanner coroutine exception: ${throwable.javaClass.simpleName}: ${throwable.message}", 
             throwable
         )
         onLog("⚠️ Scanner error: ${throwable.javaClass.simpleName} - ${throwable.message?.take(50)}")
         // Don't crash - just log and the scan loop will continue
+    }
+    
+    // Helper to run scan functions with proper cancellation handling
+    private suspend fun runScan(name: String, block: suspend () -> Unit) {
+        try {
+            block()
+        } catch (e: kotlinx.coroutines.CancellationException) {
+            // Normal cancellation - re-throw to stop properly
+            throw e
+        } catch (e: kotlinx.coroutines.CancellationException) { throw e } catch (e: Exception) {
+            ErrorLogger.warn("Scanner", "$name error: ${e.message}")
+        }
     }
 
     // ── Start / Stop ─────────────────────────────────────────────────
@@ -248,7 +265,7 @@ class SolanaMarketScanner(
             // Coroutine was cancelled - this is normal when scanner is stopped
             ErrorLogger.info("Scanner", "TEST: Scan cancelled")
             throw e  // Re-throw to properly cancel
-        } catch (e: Exception) {
+        } catch (e: kotlinx.coroutines.CancellationException) { throw e } catch (e: Exception) {
             ErrorLogger.error("Scanner", "TEST ERROR: ${e.message}", e)
             onLog("❌ Test error: ${e.message?.take(50)}")
         }
@@ -302,64 +319,37 @@ class SolanaMarketScanner(
                     0 -> {
                         // PUMP.FUN FOCUS - Active pump.fun tokens with momentum
                         onLog("🔍 Scanning: Pump.fun active tokens...")
-                        try { scanPumpFunActive() } catch (e: Exception) { 
-                            if (e is OutOfMemoryError) throw e
-                            ErrorLogger.error("Scanner", "scanPumpFunActive: ${e.message}", e) 
-                        }
+                        runScan("scanPumpFunActive") { scanPumpFunActive() }
                         delay(1000)
                         onLog("🔍 Scanning: DexScreener boosted...")
-                        try { scanDexBoosted() } catch (e: Exception) { 
-                            if (e is OutOfMemoryError) throw e
-                            ErrorLogger.error("Scanner", "scanDexBoosted: ${e.message}", e) 
-                        }
+                        runScan("scanDexBoosted") { scanDexBoosted() }
                     }
                     1 -> {
                         // PUMP.FUN GRADUATES - tokens that just graduated to Raydium
                         onLog("🔍 Scanning: Pump.fun graduates...")
-                        try { scanPumpGraduates() } catch (e: Exception) { 
-                            if (e is OutOfMemoryError) throw e
-                            ErrorLogger.error("Scanner", "scanPumpGraduates: ${e.message}", e) 
-                        }
+                        runScan("scanPumpGraduates") { scanPumpGraduates() }
                         delay(1000)
                         onLog("🔍 Scanning: New Solana pairs...")
-                        try { scanDexGainers() } catch (e: Exception) { 
-                            if (e is OutOfMemoryError) throw e
-                            ErrorLogger.error("Scanner", "scanDexGainers: ${e.message}", e) 
-                        }
+                        runScan("scanDexGainers") { scanDexGainers() }
                     }
                     2 -> {
                         // PUMP.FUN HIGH VOLUME - tokens with trading activity
                         onLog("🔍 Scanning: Pump.fun high volume...")
-                        try { scanPumpFunVolume() } catch (e: Exception) { 
-                            if (e is OutOfMemoryError) throw e
-                            ErrorLogger.error("Scanner", "scanPumpFunVolume: ${e.message}", e) 
-                        }
+                        runScan("scanPumpFunVolume") { scanPumpFunVolume() }
                         delay(1000)
                         onLog("🔍 Scanning: DexScreener trending...")
-                        try { scanDexTrending() } catch (e: Exception) { 
-                            if (e is OutOfMemoryError) throw e
-                            ErrorLogger.error("Scanner", "scanDexTrending: ${e.message}", e) 
-                        }
+                        runScan("scanDexTrending") { scanDexTrending() }
                     }
                     3 -> {
                         // FRESH LAUNCHES - newest tokens for early entry
                         onLog("🔍 Scanning: Fresh launches...")
-                        try { scanFreshLaunches() } catch (e: Exception) { 
-                            if (e is OutOfMemoryError) throw e
-                            ErrorLogger.error("Scanner", "scanFreshLaunches: ${e.message}", e) 
-                        }
+                        runScan("scanFreshLaunches") { scanFreshLaunches() }
                         delay(1000)
                         if (c.birdeyeApiKey.isNotBlank()) {
                             onLog("🔍 Scanning: Birdeye trending...")
-                            try { scanBirdeyeTrending() } catch (e: Exception) { 
-                                if (e is OutOfMemoryError) throw e
-                                ErrorLogger.error("Scanner", "scanBirdeye: ${e.message}", e) 
-                            }
+                            runScan("scanBirdeye") { scanBirdeyeTrending() }
                         } else {
-                            try { scanDexGainers() } catch (e: Exception) { 
-                                if (e is OutOfMemoryError) throw e
-                                ErrorLogger.error("Scanner", "scanDexGainers: ${e.message}", e) 
-                            }
+                            runScan("scanDexGainers") { scanDexGainers() }
                         }
                     }
                 }
@@ -390,7 +380,7 @@ class SolanaMarketScanner(
                 // Normal cancellation - don't log as error
                 ErrorLogger.info("Scanner", "Scanner coroutine cancelled (normal shutdown)")
                 throw e  // Re-throw to properly cancel
-            } catch (e: Exception) {
+            } catch (e: kotlinx.coroutines.CancellationException) { throw e } catch (e: Exception) {
                 ErrorLogger.error("Scanner", "Scanner error: ${e.message}", e)
                 onLog("Scanner: ${e.message?.take(50)}")
             }
@@ -482,7 +472,7 @@ class SolanaMarketScanner(
                 }
             }
             ErrorLogger.info("Scanner", "scanPumpFunActive: found $found tokens (checked $checked)")
-        } catch (e: Exception) {
+        } catch (e: kotlinx.coroutines.CancellationException) { throw e } catch (e: Exception) {
             ErrorLogger.error("Scanner", "scanPumpFunActive error: ${e.message}")
         }
         System.gc()
@@ -556,7 +546,7 @@ class SolanaMarketScanner(
                 }
             }
             ErrorLogger.info("Scanner", "scanPumpFunVolume: found $found boosted tokens (checked $checked)")
-        } catch (e: Exception) {
+        } catch (e: kotlinx.coroutines.CancellationException) { throw e } catch (e: Exception) {
             ErrorLogger.error("Scanner", "scanPumpFunVolume error: ${e.message}")
         }
         System.gc()
@@ -638,7 +628,7 @@ class SolanaMarketScanner(
                 }
             }
             ErrorLogger.info("Scanner", "scanFreshLaunches: found $found fresh tokens")
-        } catch (e: Exception) {
+        } catch (e: kotlinx.coroutines.CancellationException) { throw e } catch (e: Exception) {
             ErrorLogger.error("Scanner", "scanFreshLaunches error: ${e.message}")
         }
         System.gc()
@@ -688,7 +678,7 @@ class SolanaMarketScanner(
         } catch (e: OutOfMemoryError) {
             ErrorLogger.error("Scanner", "OOM in scanDexTrending", Exception(e.message))
             throw e
-        } catch (e: Exception) {
+        } catch (e: kotlinx.coroutines.CancellationException) { throw e } catch (e: Exception) {
             ErrorLogger.error("Scanner", "scanDexTrending error: ${e.message}")
         }
         System.gc()
@@ -786,7 +776,7 @@ class SolanaMarketScanner(
             }
             if (found > 0) ErrorLogger.info("Scanner", "scanDexGainers: found $found tokens (checked $checked)")
             else ErrorLogger.info("Scanner", "scanDexGainers: no tokens passed filters (checked $checked)")
-        } catch (e: Exception) {
+        } catch (e: kotlinx.coroutines.CancellationException) { throw e } catch (e: Exception) {
             ErrorLogger.error("Scanner", "scanDexGainers error: ${e.message}")
         }
         System.gc()
@@ -818,7 +808,7 @@ class SolanaMarketScanner(
                     onLog("💎 Boosted: ${token.symbol} | age=${ageHours.toInt()}h | liq=$${token.liquidityUsd.toInt()}")
                 }
             }
-        } catch (e: Exception) {
+        } catch (e: kotlinx.coroutines.CancellationException) { throw e } catch (e: Exception) {
             ErrorLogger.error("Scanner", "scanDexBoosted error: ${e.message}")
         }
         System.gc()
@@ -899,7 +889,7 @@ class SolanaMarketScanner(
                 }
             }
             if (found > 0) ErrorLogger.info("Scanner", "scanPumpGraduates: found $found tokens (checked $checked)")
-        } catch (e: Exception) {
+        } catch (e: kotlinx.coroutines.CancellationException) { throw e } catch (e: Exception) {
             ErrorLogger.error("Scanner", "scanPumpGraduates error: ${e.message}")
         }
         System.gc()
@@ -931,7 +921,7 @@ class SolanaMarketScanner(
                     onLog("🦅 Birdeye: ${token.symbol} | age=${ageHours.toInt()}h | liq=$${token.liquidityUsd.toInt()}")
                 }
             }
-        } catch (e: Exception) {
+        } catch (e: kotlinx.coroutines.CancellationException) { throw e } catch (e: Exception) {
             ErrorLogger.error("Scanner", "scanBirdeye error: ${e.message}")
         }
         System.gc()
@@ -1011,7 +1001,7 @@ class SolanaMarketScanner(
             }
             
             if (found > 0) ErrorLogger.info("Scanner", "scanTopVolume: found $found tokens (checked $checked)")
-        } catch (e: Exception) {
+        } catch (e: kotlinx.coroutines.CancellationException) { throw e } catch (e: Exception) {
             ErrorLogger.error("Scanner", "scanTopVolume error: ${e.message}")
         }
         System.gc()
@@ -1351,7 +1341,7 @@ class SolanaMarketScanner(
             
             return true  // Pass
             
-        } catch (e: Exception) {
+        } catch (e: kotlinx.coroutines.CancellationException) { throw e } catch (e: Exception) {
             // Timeout or error - pass through (don't block on API issues)
             return true
         }
@@ -1373,7 +1363,7 @@ class SolanaMarketScanner(
             }
         } catch (e: kotlinx.coroutines.CancellationException) {
             throw e  // Re-throw job cancellation
-        } catch (e: Exception) {
+        } catch (e: kotlinx.coroutines.CancellationException) { throw e } catch (e: Exception) {
             true  // Any other error = pass through
         }
         
