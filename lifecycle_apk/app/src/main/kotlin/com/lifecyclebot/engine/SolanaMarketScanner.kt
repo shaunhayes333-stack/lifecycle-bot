@@ -258,27 +258,24 @@ class SolanaMarketScanner(
     // ── Source 1: Dexscreener trending ───────────────────────────────
 
     private suspend fun scanDexTrending() {
-        // Look for trending Solana tokens - these often include fresh launches
+        // Look for trending Solana tokens
         val url = "https://api.dexscreener.com/token-profiles/v1/latest?chainIds=solana"
         val body = get(url) ?: return
         try {
             val arr = JSONArray(body)
-            for (i in 0 until minOf(arr.length(), 12)) {
+            for (i in 0 until minOf(arr.length(), 15)) {
                 val item = arr.optJSONObject(i) ?: continue
                 val mint = item.optString("tokenAddress", "").trim()
                 if (mint.isBlank() || mint.length < 32 || mint.startsWith("0x") || isSeen(mint)) continue
                 
                 val pair = withContext(Dispatchers.IO) { dex.getBestPair(mint) } ?: continue
                 
-                // LIFECYCLE FILTER: Skip major/established tokens
-                if (pair.baseSymbol.uppercase() in listOf("SOL", "WSOL", "WETH", "ETH", "USDC", "USDT", "RAY", "JUP", "BONK", "WIF", "ORCA")) continue
-                
-                // LIFECYCLE FILTER: Token age - prefer tokens < 24h old
-                val ageHours = (System.currentTimeMillis() - pair.pairCreatedAtMs) / 3_600_000.0
-                if (ageHours > 48) continue  // Skip tokens older than 48 hours
+                // Skip major stablecoins only
+                if (pair.baseSymbol.uppercase() in listOf("SOL", "WSOL", "USDC", "USDT")) continue
                 
                 val token = buildScannedToken(mint, pair, TokenSource.DEX_TRENDING) ?: continue
                 if (passesFilter(token)) {
+                    val ageHours = (System.currentTimeMillis() - pair.pairCreatedAtMs) / 3_600_000.0
                     emit(token)
                     onLog("📈 Trending: ${token.symbol} | age=${ageHours.toInt()}h | liq=$${token.liquidityUsd.toInt()}")
                 }
@@ -295,49 +292,50 @@ class SolanaMarketScanner(
     // ── Source 2: Dexscreener gainers (top % movers last 1h) ─────────
 
     private suspend fun scanDexGainers() {
-        // Look for tokens in LIFECYCLE phases - not just any movers
-        // Focus on Raydium pairs created recently (fresh migrations from pump.fun)
+        // Look for fresh Raydium pairs - potential pump.fun graduates
         val url = "https://api.dexscreener.com/latest/dex/pairs/solana/raydium"
         val body = get(url) ?: return
         try {
             val pairs = JSONObject(body).optJSONArray("pairs") ?: return
             val now = System.currentTimeMillis()
-            val cutoff6h = now - 6 * 3_600_000L  // Only pairs < 6 hours old
+            val cutoff24h = now - 24 * 3_600_000L  // Pairs created in last 24 hours
             var found = 0
             
-            for (i in 0 until minOf(pairs.length(), 30)) {
-                if (found >= 5) break
+            for (i in 0 until minOf(pairs.length(), 40)) {
+                if (found >= 8) break
                 val p = pairs.optJSONObject(i) ?: continue
                 
-                // LIFECYCLE FILTER: Only tokens created in last 6 hours
+                // Prefer newer tokens but don't require it
                 val created = p.optLong("pairCreatedAt", 0L)
-                if (created < cutoff6h) continue
+                val ageHours = if (created > 0) (now - created) / 3_600_000.0 else 999.0
                 
                 val mint = p.optJSONObject("baseToken")?.optString("address", "") ?: continue
                 if (mint.isBlank() || mint.startsWith("0x") || isSeen(mint)) continue
                 
                 val symbol = p.optJSONObject("baseToken")?.optString("symbol", "") ?: continue
-                // Skip stablecoins and major tokens
-                if (symbol.uppercase() in listOf("SOL", "WSOL", "USDC", "USDT", "RAY", "ORCA", "JUP")) continue
+                // Skip only stablecoins
+                if (symbol.uppercase() in listOf("SOL", "WSOL", "USDC", "USDT")) continue
                 
                 val liq = p.optJSONObject("liquidity")?.optDouble("usd", 0.0) ?: 0.0
                 val vol = p.optJSONObject("volume")?.optDouble("h1", 0.0) ?: 0.0
                 val mcap = p.optDouble("marketCap", 0.0)
                 
-                // LIFECYCLE FILTER: Must have reasonable liquidity (not dead)
-                if (liq < 5000 || liq > 500000) continue  // Sweet spot: $5K-$500K liq
+                // Basic liquidity filter only
+                if (liq < 3000) continue  // Min $3K liquidity
                 
                 val name = p.optJSONObject("baseToken")?.optString("name", "") ?: symbol
                 val buys = p.optJSONObject("txns")?.optJSONObject("h1")?.optInt("buys", 0) ?: 0
                 val sells = p.optJSONObject("txns")?.optJSONObject("h1")?.optInt("sells", 0) ?: 0
                 val priceChange = p.optJSONObject("priceChange")?.optDouble("h1", 0.0) ?: 0.0
-                val ageHours = (now - created) / 3_600_000.0
+                
+                // Score bonus for fresh tokens
+                val ageBonus = if (ageHours < 6) 20.0 else if (ageHours < 24) 10.0 else 0.0
                 
                 val token = ScannedToken(
                     mint               = mint,
                     symbol             = symbol,
                     name               = name,
-                    source             = TokenSource.RAYDIUM_NEW_POOL,
+                    source             = if (ageHours < 24) TokenSource.PUMP_FUN_GRADUATE else TokenSource.RAYDIUM_NEW_POOL,
                     liquidityUsd       = liq,
                     volumeH1           = vol,
                     mcapUsd            = mcap,
@@ -345,15 +343,16 @@ class SolanaMarketScanner(
                     dexId              = "raydium",
                     priceChangeH1      = priceChange,
                     txCountH1          = buys + sells,
-                    score              = scoreToken(liq, vol, buys + sells, mcap, priceChange, ageHours),
+                    score              = scoreToken(liq, vol, buys + sells, mcap, priceChange, ageHours) + ageBonus,
                 )
                 if (passesFilter(token)) { 
                     emit(token)
                     found++
-                    onLog("🎓 Fresh graduate: $symbol | age=${ageHours.toInt()}h | liq=$${liq.toInt()}")
+                    val src = if (ageHours < 24) "🎓 Graduate" else "📊 Raydium"
+                    onLog("$src: $symbol | age=${ageHours.toInt()}h | liq=$${liq.toInt()}")
                 }
             }
-            if (found > 0) ErrorLogger.info("Scanner", "Fresh Raydium: found $found tokens")
+            if (found > 0) ErrorLogger.info("Scanner", "Raydium scan: found $found tokens")
         } catch (e: Exception) {
             ErrorLogger.error("Scanner", "scanDexGainers error: ${e.message}")
         }
@@ -363,27 +362,24 @@ class SolanaMarketScanner(
     // ── Source 3: Dexscreener boosted tokens ─────────────────────────
 
     private suspend fun scanDexBoosted() {
-        // Boosted = paid promotion = attention arriving - but check lifecycle
+        // Boosted = paid promotion = attention arriving
         val url = "https://api.dexscreener.com/token-boosts/top/v1?chainIds=solana"
         val body = get(url) ?: return
         try {
             val arr = JSONArray(body)
-            for (i in 0 until minOf(arr.length(), 10)) {
+            for (i in 0 until minOf(arr.length(), 12)) {
                 val item = arr.optJSONObject(i) ?: continue
                 val mint = item.optString("tokenAddress","")
                 if (mint.isBlank() || mint.startsWith("0x") || isSeen(mint)) continue
                 
                 val pair = withContext(Dispatchers.IO) { dex.getBestPair(mint) } ?: continue
                 
-                // LIFECYCLE FILTER: Skip major tokens
-                if (pair.baseSymbol.uppercase() in listOf("SOL", "WSOL", "WETH", "ETH", "USDC", "USDT", "RAY", "JUP", "BONK", "WIF")) continue
+                // Skip only stablecoins
+                if (pair.baseSymbol.uppercase() in listOf("SOL", "WSOL", "USDC", "USDT")) continue
                 
-                // LIFECYCLE FILTER: Prefer recent tokens
                 val ageHours = (System.currentTimeMillis() - pair.pairCreatedAtMs) / 3_600_000.0
-                if (ageHours > 72) continue  // Skip tokens older than 72 hours
-                
                 val token = buildScannedToken(mint, pair, TokenSource.DEX_BOOSTED) ?: continue
-                // Boosted tokens get score bump — paid attention is still attention
+                // Boosted tokens get score bump
                 val boostedToken = token.copy(score = (token.score + 15.0).coerceAtMost(100.0))
                 if (passesFilter(boostedToken)) {
                     emit(boostedToken)
@@ -399,47 +395,47 @@ class SolanaMarketScanner(
     // ── Source 4: Pump.fun graduates (Raydium migrations) ────────────
 
     private suspend fun scanPumpGraduates() {
-        // LIFECYCLE STAGE: Just graduated tokens - behavior shift opportunity
-        // These are tokens that completed pump.fun bonding curve and migrated to Raydium
+        // Graduated tokens - completed pump.fun bonding curve
         val url = "https://api.dexscreener.com/latest/dex/pairs/solana/raydium"
         val body = get(url) ?: return
         try {
             val arr = JSONObject(body).optJSONArray("pairs") ?: return
             val now = System.currentTimeMillis()
-            val cutoff4h = now - 4 * 3_600_000L  // Only graduated in last 4 hours
+            val cutoff12h = now - 12 * 3_600_000L  // Last 12 hours for graduates
             var found = 0
             
-            for (i in 0 until minOf(arr.length(), 20)) {
-                if (found >= 5) break  // Max 5 graduates per scan
+            for (i in 0 until minOf(arr.length(), 25)) {
+                if (found >= 8) break
                 val p = arr.optJSONObject(i) ?: continue
                 val created = p.optLong("pairCreatedAt", 0L)
-                if (created < cutoff4h) continue  // too old - not a fresh graduate
+                
+                // Score bonus for very fresh graduates
+                val ageHours = if (created > 0) (now - created) / 3_600_000.0 else 999.0
+                val isGraduate = created > cutoff12h
                 
                 val mint = p.optJSONObject("baseToken")?.optString("address","") ?: continue
                 if (mint.isBlank() || mint.startsWith("0x") || isSeen(mint)) continue
                 
                 val symbol = p.optJSONObject("baseToken")?.optString("symbol", "") ?: mint.take(6)
-                if (symbol.uppercase() in listOf("SOL", "WSOL", "USDC", "USDT", "RAY", "ORCA", "JUP")) continue
+                if (symbol.uppercase() in listOf("SOL", "WSOL", "USDC", "USDT")) continue
                 
-                // Check mcap - graduates typically start around $10K-$20K mcap
-                val mcap = p.optDouble("marketCap", 0.0)
                 val liq = p.optJSONObject("liquidity")?.optDouble("usd", 0.0) ?: 0.0
+                if (liq < 3000) continue  // Min $3K liquidity
                 
-                // LIFECYCLE FILTER: Fresh graduate sweet spot
-                if (liq < 5000 || liq > 200000) continue  // Sweet spot for graduates
-                if (mcap < 8000 || mcap > 500000) continue
-                
+                val mcap = p.optDouble("marketCap", 0.0)
                 val vol = p.optJSONObject("volume")?.optDouble("h1", 0.0) ?: 0.0
                 val name = p.optJSONObject("baseToken")?.optString("name", "") ?: symbol
                 val buys = p.optJSONObject("txns")?.optJSONObject("h1")?.optInt("buys", 0) ?: 0
                 val sells = p.optJSONObject("txns")?.optJSONObject("h1")?.optInt("sells", 0) ?: 0
-                val ageHours = (now - created) / 3_600_000.0
+                
+                // Graduate bonus for fresh tokens
+                val graduateBonus = if (isGraduate) 25.0 else 0.0
                 
                 val token = ScannedToken(
                     mint               = mint,
                     symbol             = symbol,
                     name               = name,
-                    source             = TokenSource.PUMP_FUN_GRADUATE,
+                    source             = if (isGraduate) TokenSource.PUMP_FUN_GRADUATE else TokenSource.RAYDIUM_NEW_POOL,
                     liquidityUsd       = liq,
                     volumeH1           = vol,
                     mcapUsd            = mcap,
@@ -447,16 +443,16 @@ class SolanaMarketScanner(
                     dexId              = "raydium",
                     priceChangeH1      = p.optJSONObject("priceChange")?.optDouble("h1", 0.0) ?: 0.0,
                     txCountH1          = buys + sells,
-                    // Graduate bonus +25 - proven survival through bonding curve
-                    score              = scoreToken(liq, vol, buys + sells, mcap, 0.0, ageHours) + 25.0,
+                    score              = scoreToken(liq, vol, buys + sells, mcap, 0.0, ageHours) + graduateBonus,
                 )
                 if (passesFilter(token)) { 
                     emit(token)
                     found++ 
-                    onLog("🎓 GRADUATE: $symbol | age=${ageHours.toInt()}h | liq=$${liq.toInt()} | mcap=$${mcap.toInt()}")
+                    val label = if (isGraduate) "🎓 GRADUATE" else "📊 Raydium"
+                    onLog("$label: $symbol | age=${ageHours.toInt()}h | liq=$${liq.toInt()}")
                 }
             }
-            if (found > 0) ErrorLogger.info("Scanner", "PumpGraduates: found $found fresh graduates")
+            if (found > 0) ErrorLogger.info("Scanner", "PumpGraduates: found $found tokens")
         } catch (e: Exception) {
             ErrorLogger.error("Scanner", "scanPumpGraduates error: ${e.message}")
         }
@@ -468,25 +464,21 @@ class SolanaMarketScanner(
     private suspend fun scanBirdeyeTrending() {
         val c = cfg()
         if (c.birdeyeApiKey.isBlank()) return  // needs key
-        // Birdeye trending - look for new tokens gaining traction
-        val url = "https://public-api.birdeye.so/defi/token_trending?sort_by=rank&sort_type=asc&offset=0&limit=10"
+        val url = "https://public-api.birdeye.so/defi/token_trending?sort_by=rank&sort_type=asc&offset=0&limit=15"
         val body = get(url, apiKey = c.birdeyeApiKey) ?: return
         try {
             val items = JSONObject(body).optJSONObject("data")?.optJSONArray("items") ?: return
-            for (i in 0 until minOf(items.length(), 8)) {
+            for (i in 0 until minOf(items.length(), 12)) {
                 val item = items.optJSONObject(i) ?: continue
                 val mint = item.optString("address","")
                 if (mint.isBlank() || isSeen(mint)) continue
                 
                 val pair = withContext(Dispatchers.IO) { dex.getBestPair(mint) } ?: continue
                 
-                // LIFECYCLE FILTER: Skip established tokens
-                if (pair.baseSymbol.uppercase() in listOf("SOL", "WSOL", "USDC", "USDT", "RAY", "JUP", "BONK", "WIF", "ORCA", "PYTH", "JITO")) continue
+                // Skip only stablecoins
+                if (pair.baseSymbol.uppercase() in listOf("SOL", "WSOL", "USDC", "USDT")) continue
                 
-                // LIFECYCLE FILTER: Prefer younger tokens
                 val ageHours = (System.currentTimeMillis() - pair.pairCreatedAtMs) / 3_600_000.0
-                if (ageHours > 72) continue  // Skip tokens older than 72 hours
-                
                 val token = buildScannedToken(mint, pair, TokenSource.BIRDEYE_TRENDING) ?: continue
                 if (passesFilter(token)) {
                     emit(token)
