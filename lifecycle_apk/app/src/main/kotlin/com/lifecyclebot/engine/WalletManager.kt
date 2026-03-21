@@ -195,10 +195,16 @@ class WalletManager private constructor(private val ctx: Context) {
         
         try {
             ErrorLogger.debug("Wallet", "Refreshing balance...")
-            val solBal = withContext(Dispatchers.IO) { w.getSolBalance() }
+            
+            // Use NonCancellable to ensure balance refresh completes even if parent job is cancelled
+            val solBal = kotlinx.coroutines.withContext(Dispatchers.IO + kotlinx.coroutines.NonCancellable) { 
+                w.getSolBalance() 
+            }
             ErrorLogger.info("Wallet", "SOL Balance: $solBal")
             
-            val solPrice = withContext(Dispatchers.IO) { fetchSolPrice() }
+            val solPrice = kotlinx.coroutines.withContext(Dispatchers.IO + kotlinx.coroutines.NonCancellable) { 
+                fetchSolPrice() 
+            }
             ErrorLogger.debug("Wallet", "SOL Price: $$solPrice")
             
             if (solPrice > 0) WalletManager.lastKnownSolPrice = solPrice
@@ -216,6 +222,9 @@ class WalletManager private constructor(private val ctx: Context) {
                     ?.thresholdUsd ?: 0.0,
             )
             ErrorLogger.info("Wallet", "Balance refresh complete: $solBal SOL ($${"%.2f".format(solBal * solPrice)})")
+        } catch (e: kotlinx.coroutines.CancellationException) {
+            // Silently ignore cancellation - this is expected during bot stop
+            ErrorLogger.debug("Wallet", "refreshBalance cancelled (expected during shutdown)")
         } catch (e: Exception) {
             ErrorLogger.error("Wallet", "refreshBalance FAILED: ${e.message}", e)
             // Update state with error
