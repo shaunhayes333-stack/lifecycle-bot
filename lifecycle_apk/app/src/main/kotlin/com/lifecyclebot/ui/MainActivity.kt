@@ -1267,6 +1267,33 @@ class MainActivity : AppCompatActivity() {
         findViewById<View>(R.id.btnQuickLogs)?.setOnClickListener {
             startActivity(Intent(this, ErrorLogActivity::class.java))
         }
+        
+        // Long-press Logs button to run full trade simulation
+        findViewById<View>(R.id.btnQuickLogs)?.setOnLongClickListener {
+            AlertDialog.Builder(this)
+                .setTitle("🧪 Run Trade Simulation?")
+                .setMessage("This will simulate a full trade cycle:\n\n" +
+                    "1. Search for token\n" +
+                    "2. Add to watchlist\n" +
+                    "3. Run safety checks\n" +
+                    "4. Evaluate strategy\n" +
+                    "5. Calculate position size\n" +
+                    "6. Execute paper buy\n" +
+                    "7. Execute paper sell\n" +
+                    "8. Process treasury\n\n" +
+                    "Results will appear in the log feed.")
+                .setPositiveButton("Run Simulation") { _, _ ->
+                    try {
+                        com.lifecyclebot.engine.BotService.instance?.runFullTradeSimulation()
+                            ?: android.widget.Toast.makeText(this, "Start bot first", android.widget.Toast.LENGTH_SHORT).show()
+                    } catch (e: Exception) {
+                        android.widget.Toast.makeText(this, "Error: ${e.message}", android.widget.Toast.LENGTH_SHORT).show()
+                    }
+                }
+                .setNegativeButton("Cancel", null)
+                .show()
+            true
+        }
     }
 
     /** Setup clear settings button with confirmation */
