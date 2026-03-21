@@ -96,6 +96,9 @@ class SolanaMarketScanner(
     private val seenMints  = ConcurrentHashMap<String, Long>()
     private val SEEN_TTL   = 10 * 60_000L   // forget after 10 min — rescan more frequently
 
+    // Memory protection: limit concurrent operations
+    private val semaphore = kotlinx.coroutines.sync.Semaphore(3)  // max 3 concurrent scans
+
     // ── Start / Stop ─────────────────────────────────────────────────
 
     fun start() {
@@ -127,22 +130,59 @@ class SolanaMarketScanner(
                     " ${sScanTier.icon}${sScanTier.label}" else ""
                 onLog("🌐 Scan cycle${_tn}")
 
-                // Run all enabled sources in parallel
-                coroutineScope {
-                    val jobs = listOf(
-                        async { scanDexTrending() },
-                        async { scanDexGainers() },
-                        async { scanDexBoosted() },
-                        async { scanPumpGraduates() },
-                        async { scanBirdeyeTrending() },
-                        async { scanCoinGeckoTrending() },
-                        async { scanRaydiumNewPools() },
-                        async { if (c.narrativeScanEnabled) scanNarratives(c.narrativeKeywords) },
-                    )
-                    jobs.forEach { it.await() }
+                // Run scans SEQUENTIALLY to avoid OutOfMemoryError
+                // Each scan completes before the next one starts
+                try { scanDexTrending() } catch (e: Exception) { 
+                    ErrorLogger.error("Scanner", "scanDexTrending failed: ${e.message}", e) 
                 }
+                delay(500)  // Small delay between scans to let GC work
+                
+                try { scanDexGainers() } catch (e: Exception) { 
+                    ErrorLogger.error("Scanner", "scanDexGainers failed: ${e.message}", e) 
+                }
+                delay(500)
+                
+                try { scanDexBoosted() } catch (e: Exception) { 
+                    ErrorLogger.error("Scanner", "scanDexBoosted failed: ${e.message}", e) 
+                }
+                delay(500)
+                
+                try { scanPumpGraduates() } catch (e: Exception) { 
+                    ErrorLogger.error("Scanner", "scanPumpGraduates failed: ${e.message}", e) 
+                }
+                delay(500)
+                
+                try { scanBirdeyeTrending() } catch (e: Exception) { 
+                    ErrorLogger.error("Scanner", "scanBirdeyeTrending failed: ${e.message}", e) 
+                }
+                delay(500)
+                
+                try { scanCoinGeckoTrending() } catch (e: Exception) { 
+                    ErrorLogger.error("Scanner", "scanCoinGeckoTrending failed: ${e.message}", e) 
+                }
+                delay(500)
+                
+                try { scanRaydiumNewPools() } catch (e: Exception) { 
+                    ErrorLogger.error("Scanner", "scanRaydiumNewPools failed: ${e.message}", e) 
+                }
+                delay(500)
+                
+                if (c.narrativeScanEnabled) {
+                    try { scanNarratives(c.narrativeKeywords) } catch (e: Exception) { 
+                        ErrorLogger.error("Scanner", "scanNarratives failed: ${e.message}", e) 
+                    }
+                }
+                
+                // Force garbage collection after scan cycle
+                System.gc()
 
+            } catch (e: OutOfMemoryError) {
+                ErrorLogger.crash("Scanner", "OutOfMemoryError in scan loop", Exception(e.message))
+                onLog("⚠️ Memory issue - reducing scan scope")
+                System.gc()
+                delay(5000)  // Wait for memory to be freed
             } catch (e: Exception) {
+                ErrorLogger.error("Scanner", "Scanner error: ${e.message}", e)
                 onLog("Scanner error: ${e.message?.take(80)}")
             }
 
@@ -157,7 +197,8 @@ class SolanaMarketScanner(
         val body = get(url) ?: return
         try {
             val arr = JSONArray(body)
-            for (i in 0 until minOf(arr.length(), 30)) {
+            // Limit to 15 items max to reduce memory usage
+            for (i in 0 until minOf(arr.length(), 15)) {
                 val item = arr.optJSONObject(i) ?: continue
                 val mint = item.optString("tokenAddress", "").trim()
                 if (mint.isBlank() || mint.length < 32 || isSeen(mint)) continue
@@ -165,39 +206,45 @@ class SolanaMarketScanner(
                 val token = buildScannedToken(mint, pair, TokenSource.DEX_TRENDING) ?: continue
                 if (passesFilter(token)) emit(token)
             }
+        } catch (e: OutOfMemoryError) {
+            ErrorLogger.error("Scanner", "OOM in scanDexTrending", Exception(e.message))
         } catch (_: Exception) {}
     }
 
     // ── Source 2: Dexscreener gainers (top % movers last 1h) ─────────
 
     private suspend fun scanDexGainers() {
-        // Dexscreener search for top Solana volume
-        val searches = listOf("solana top", "sol pump", "sol moon")
+        // Dexscreener search for top Solana volume - limit queries to reduce memory
+        val searches = listOf("solana top")  // Reduced from 3 queries to 1
         for (query in searches) {
-            val results = withContext(Dispatchers.IO) { dex.search(query) }
-            results.take(10).forEach { pair ->
-                val mint = pair.pairAddress  // use pair address as proxy
-                if (mint.isBlank() || isSeen(mint)) return@forEach
-                // Use pair address as proxy — scanner will resolve real mint via getBestPair
-                val token = ScannedToken(
-                    mint               = mint,
-                    symbol             = pair.baseSymbol.ifBlank { mint.take(8) },
-                    name               = pair.baseName.ifBlank { "Unknown" },
-                    source             = TokenSource.DEX_GAINERS,
-                    liquidityUsd       = pair.liquidity,
-                    volumeH1           = pair.candle.volumeH1,
-                    mcapUsd            = pair.candle.marketCap,
-                    pairCreatedHoursAgo = (System.currentTimeMillis() - pair.pairCreatedAtMs) / 3_600_000.0,
-                    dexId              = "unknown",
-                    priceChangeH1      = 0.0,
-                    txCountH1          = pair.candle.buysH1 + pair.candle.sellsH1,
-                    score              = scoreToken(pair.liquidity, pair.candle.volumeH1,
-                                                    pair.candle.buysH1 + pair.candle.sellsH1,
-                                                    pair.candle.marketCap, 0.0,
-                                                    (System.currentTimeMillis() - pair.pairCreatedAtMs)/3_600_000.0),
-                )
-                if (passesFilter(token)) emit(token)
-            }
+            try {
+                val results = withContext(Dispatchers.IO) { dex.search(query) }
+                results.take(5).forEach { pair ->  // Reduced from 10 to 5
+                    val mint = pair.pairAddress  // use pair address as proxy
+                    if (mint.isBlank() || isSeen(mint)) return@forEach
+                    // Use pair address as proxy — scanner will resolve real mint via getBestPair
+                    val token = ScannedToken(
+                        mint               = mint,
+                        symbol             = pair.baseSymbol.ifBlank { mint.take(8) },
+                        name               = pair.baseName.ifBlank { "Unknown" },
+                        source             = TokenSource.DEX_GAINERS,
+                        liquidityUsd       = pair.liquidity,
+                        volumeH1           = pair.candle.volumeH1,
+                        mcapUsd            = pair.candle.marketCap,
+                        pairCreatedHoursAgo = (System.currentTimeMillis() - pair.pairCreatedAtMs) / 3_600_000.0,
+                        dexId              = "unknown",
+                        priceChangeH1      = 0.0,
+                        txCountH1          = pair.candle.buysH1 + pair.candle.sellsH1,
+                        score              = scoreToken(pair.liquidity, pair.candle.volumeH1,
+                                                        pair.candle.buysH1 + pair.candle.sellsH1,
+                                                        pair.candle.marketCap, 0.0,
+                                                        (System.currentTimeMillis() - pair.pairCreatedAtMs)/3_600_000.0),
+                    )
+                    if (passesFilter(token)) emit(token)
+                }
+            } catch (e: OutOfMemoryError) {
+                ErrorLogger.error("Scanner", "OOM in scanDexGainers", Exception(e.message))
+            } catch (_: Exception) {}
             delay(500)  // rate limit between searches
         }
     }
