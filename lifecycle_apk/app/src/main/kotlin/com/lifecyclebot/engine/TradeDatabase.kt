@@ -24,6 +24,9 @@ class TradeDatabase(ctx: Context) : SQLiteOpenHelper(ctx, DB_NAME, null, DB_VERS
     companion object {
         const val DB_NAME    = "lifecycle_trades.db"
         const val DB_VERSION = 4
+        const val MIN_EVIDENCE        = 8     // trades before pattern can be CONFIRMED_BAD
+        const val SUPPRESS_THRESHOLD  = 38.0  // win rate at or below this = bad pattern
+        const val HARD_SUPPRESS_THRESHOLD = 25.0  // this bad = SUPPRESSED (hard block)
     }
 
     override fun onCreate(db: SQLiteDatabase) {
@@ -351,12 +354,6 @@ class TradeDatabase(ctx: Context) : SQLiteOpenHelper(ctx, DB_NAME, null, DB_VERS
     }
 
     // ── Bad behaviour API ─────────────────────────────────────────────
-
-    companion object {
-        const val MIN_EVIDENCE        = 8     // trades before pattern can be CONFIRMED_BAD
-        const val SUPPRESS_THRESHOLD  = 38.0  // win rate at or below this = bad pattern
-        const val HARD_SUPPRESS_THRESHOLD = 25.0  // this bad = SUPPRESSED (hard block)
-    }
 
     /** Record a loss against a feature key. Called after every losing trade. */
     fun recordBadObservation(featureKey: String, behaviourType: String,

@@ -269,5 +269,5 @@ object SmartSizer {
     }
 }
 
-private fun Double.fmt() = "%.4f".format(this)
+private fun Double.fmt(d: Int = 4) = "%.${d}f".format(this)
 private val Double.fmt1 get() = "%.2f".format(this)

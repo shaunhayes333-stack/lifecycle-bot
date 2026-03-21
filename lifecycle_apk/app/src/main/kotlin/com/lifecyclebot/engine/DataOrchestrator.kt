@@ -73,7 +73,7 @@ class DataOrchestrator(
         try {
             heliusWs?.disconnect(); delay(1_000); heliusWs?.connect()
             pumpWs?.disconnect();  delay(500);   pumpWs?.connect()
-        } catch (e: Exception) { onLog("Stream reconnect: ${e.message?.take(40)}") }
+        } catch (e: Exception) { onLog("Stream reconnect: ${e.message?.take(40)}", "") }
     }
 
     // Refresh 5m/15m candles for all active tokens every 5 minutes

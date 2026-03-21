@@ -26,7 +26,9 @@ class BotService : Service() {
 
     companion object {
         @Volatile private var _instance: java.lang.ref.WeakReference<BotService>? = null
-        var instance: BotService? get() = _instance?.get() set(v) { _instance = if (v != null) java.lang.ref.WeakReference(v) else null }
+        var instance: BotService?
+            get() = _instance?.get()
+            set(value) { _instance = if (value != null) java.lang.ref.WeakReference(value) else null }
         const val ACTION_START  = "com.lifecyclebot.START"
         const val ACTION_STOP   = "com.lifecyclebot.STOP"
         const val CHANNEL_ID    = "bot_running"
@@ -508,6 +510,15 @@ class BotService : Service() {
                 }
 
                 lastSuccessfulPollMs = System.currentTimeMillis()
+                
+                // Auto-mode evaluation - must come before strategy.evaluate
+                val curveState = BondingCurveTracker.evaluate(ts)
+                val whaleState = WhaleDetector.evaluate(mint, ts)
+                val trendRank  = try { null } catch (_: Exception) { null } // from CoinGecko cache
+                val modeConf   = if (cfg.autoMode) {
+                    autoMode.evaluate(ts, whaleState.whaleScore, trendRank, curveState.stage)
+                } else null
+                
                 val modeConfForEval = if (cfg.autoMode) modeConf else null
                 val result = strategy.evaluate(ts, modeConfForEval)
 
@@ -544,19 +555,11 @@ class BotService : Service() {
                         executor.maybeAct(ts, "EXIT", 0.0, status.walletSol, wallet,
                             lastSuccessfulPollMs, status.openPositionCount, status.totalExposureSol)
                     }
-                    continue
+                    return@launch
                 }
 
-                // Auto-mode evaluation
-                val curveState = BondingCurveTracker.evaluate(ts)
-                val whaleState = WhaleDetector.evaluate(mint, ts)
-                val trendRank  = try { null } catch (_: Exception) { null } // from CoinGecko cache
-                val modeConf   = if (cfg.autoMode) {
-                    autoMode.evaluate(ts, whaleState.whaleScore, trendRank, curveState.stage)
-                } else null
-
                 // In PAUSED mode: no new entries (existing positions still managed)
-                if (modeConf?.mode == AutoModeEngine.BotMode.PAUSED && !ts.position.isOpen) continue
+                if (modeConf?.mode == AutoModeEngine.BotMode.PAUSED && !ts.position.isOpen) return@launch
 
                 // Trade on ALL watchlist tokens simultaneously
                 val cbState = securityGuard.getCircuitBreakerState()

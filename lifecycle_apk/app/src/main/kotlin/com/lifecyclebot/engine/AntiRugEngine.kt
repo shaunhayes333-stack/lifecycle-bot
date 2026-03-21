@@ -38,7 +38,7 @@ object AntiRugEngine {
     private const val CACHE_TTL_MS = 300_000L  // 5 minutes
 
     // Known rug deployer addresses
-    private val knownRugDeployers = setOf(
+    private val knownRugDeployers = setOf<String>(
         // Add known scammer addresses here
     )
 

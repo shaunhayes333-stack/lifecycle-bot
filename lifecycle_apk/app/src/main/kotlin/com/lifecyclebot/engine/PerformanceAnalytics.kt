@@ -1,6 +1,6 @@
 package com.lifecyclebot.engine
 
-import com.lifecyclebot.data.TradeRecord
+import com.lifecyclebot.engine.TradeRecord
 import kotlin.math.abs
 import kotlin.math.max
 import kotlin.math.min

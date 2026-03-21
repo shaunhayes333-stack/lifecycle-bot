@@ -85,9 +85,12 @@ class SolanaMarketScanner(
         .build()
 
     private val dex        = DexscreenerApi()
-    private val birdeye    = BirdeyeApi()
     private val coingecko  = CoinGeckoTrending()
     private val scope      = CoroutineScope(Dispatchers.IO + SupervisorJob())
+    
+    // Create birdeye lazily with API key from config
+    private val birdeye: BirdeyeApi
+        get() = BirdeyeApi(cfg().birdeyeApiKey)
 
     // Track which mints we've already surfaced to avoid duplicates
     private val seenMints  = ConcurrentHashMap<String, Long>()
@@ -108,7 +111,7 @@ class SolanaMarketScanner(
     // ── Main scan loop ────────────────────────────────────────────────
 
     private suspend fun scanLoop() {
-        while (isActive) {
+        while (scope.isActive) {
             val c = cfg()
             val scanIntervalMs = (c.scanIntervalSecs * 1000L).toLong()
 
@@ -122,20 +125,22 @@ class SolanaMarketScanner(
                     TreasuryManager.treasurySol * WalletManager.lastKnownSolPrice)
                 val _tn = if (sScanTier != ScalingMode.Tier.MICRO)
                     " ${sScanTier.icon}${sScanTier.label}" else ""
-                onLog("🌐 Scan cycle${_tn}", "")
+                onLog("🌐 Scan cycle${_tn}")
 
                 // Run all enabled sources in parallel
-                val jobs = listOf(
-                    async { scanDexTrending() },
-                    async { scanDexGainers() },
-                    async { scanDexBoosted() },
-                    async { scanPumpGraduates() },
-                    async { scanBirdeyeTrending() },
-                    async { scanCoinGeckoTrending() },
-                    async { scanRaydiumNewPools() },
-                    async { if (c.narrativeScanEnabled) scanNarratives(c.narrativeKeywords) },
-                )
-                jobs.forEach { it.await() }
+                coroutineScope {
+                    val jobs = listOf(
+                        async { scanDexTrending() },
+                        async { scanDexGainers() },
+                        async { scanDexBoosted() },
+                        async { scanPumpGraduates() },
+                        async { scanBirdeyeTrending() },
+                        async { scanCoinGeckoTrending() },
+                        async { scanRaydiumNewPools() },
+                        async { if (c.narrativeScanEnabled) scanNarratives(c.narrativeKeywords) },
+                    )
+                    jobs.forEach { it.await() }
+                }
 
             } catch (e: Exception) {
                 onLog("Scanner error: ${e.message?.take(80)}")
@@ -157,7 +162,7 @@ class SolanaMarketScanner(
                 val mint = item.optString("tokenAddress", "").trim()
                 if (mint.isBlank() || mint.length < 32 || isSeen(mint)) continue
                 val pair = withContext(Dispatchers.IO) { dex.getBestPair(mint) } ?: continue
-                val token = buildScannedToken(mint, pair, TokenSource.DEX_TRENDING) ?: return@launch
+                val token = buildScannedToken(mint, pair, TokenSource.DEX_TRENDING) ?: continue
                 if (passesFilter(token)) emit(token)
             }
         } catch (_: Exception) {}
@@ -210,7 +215,7 @@ class SolanaMarketScanner(
                 val mint = item.optString("tokenAddress","")
                 if (mint.isBlank() || isSeen(mint)) continue
                 val pair = withContext(Dispatchers.IO) { dex.getBestPair(mint) } ?: continue
-                val token = buildScannedToken(mint, pair, TokenSource.DEX_BOOSTED) ?: return@launch
+                val token = buildScannedToken(mint, pair, TokenSource.DEX_BOOSTED) ?: continue
                 // Boosted tokens get score bump — paid attention is still attention
                 val boostedToken = token.copy(score = (token.score + 15.0).coerceAtMost(100.0))
                 if (passesFilter(boostedToken)) emit(boostedToken)
@@ -235,7 +240,7 @@ class SolanaMarketScanner(
                 val mint = p.optJSONObject("baseToken")?.optString("address","") ?: continue
                 if (mint.isBlank() || isSeen(mint)) continue
                 val pair = withContext(Dispatchers.IO) { dex.getBestPair(mint) } ?: continue
-                val token = buildScannedToken(mint, pair, TokenSource.PUMP_FUN_GRADUATE) ?: return@launch
+                val token = buildScannedToken(mint, pair, TokenSource.PUMP_FUN_GRADUATE) ?: continue
                 // Graduates get highest priority score — proven survival
                 val graduateToken = token.copy(score = (token.score + 25.0).coerceAtMost(100.0))
                 if (passesFilter(graduateToken)) emit(graduateToken)
@@ -257,7 +262,7 @@ class SolanaMarketScanner(
                 val mint = item.optString("address","")
                 if (mint.isBlank() || isSeen(mint)) continue
                 val pair = withContext(Dispatchers.IO) { dex.getBestPair(mint) } ?: continue
-                val token = buildScannedToken(mint, pair, TokenSource.BIRDEYE_TRENDING) ?: return@launch
+                val token = buildScannedToken(mint, pair, TokenSource.BIRDEYE_TRENDING) ?: continue
                 if (passesFilter(token)) emit(token)
             }
         } catch (_: Exception) {}

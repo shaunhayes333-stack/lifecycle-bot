@@ -105,8 +105,8 @@ class BotBrain(
         restoreFromDatabase()
         scope.launch { brainLoop() }
         onLog("🧠 BotBrain online — self-learning active " +
-              "(entry delta ${entryThresholdDelta:+.1f}, " +
-              "regime mult ${regimeBullMult:.2f}×)")
+              "(entry delta ${String.format("%+.1f", entryThresholdDelta)}, " +
+              "regime mult ${String.format("%.2f", regimeBullMult)}×)")
     }
 
     /**
@@ -167,8 +167,8 @@ class BotBrain(
             evaluateBadBehaviours()
 
             onLog("🧠 Brain restored from ${trades.size} trades: " +
-                  "WR ${(wr*100).toInt()}% entry_delta=${entryThresholdDelta:+.1f} " +
-                  "regime=${regimeBullMult:.2f}×")
+                  "WR ${(wr*100).toInt()}% entry_delta=${String.format("%+.1f", entryThresholdDelta)} " +
+                  "regime=${String.format("%.2f", regimeBullMult)}×")
         } catch (e: Exception) {
             onLog("🧠 Brain restore failed (fresh start): ${e.message}")
         }
@@ -383,7 +383,7 @@ class BotBrain(
         }
 
         // ── Overall win rate ─────────────────────────────────────────
-        val overallWr = trades.count { it.isWin }.toDouble() / trades.size * 100
+        // Use overallWr computed earlier in CHANGE 8
         val avgWinPnl = trades.filter { it.isWin }.map { it.pnlPct }.let { if (it.isEmpty()) 0.0 else it.average() }
         val avgLossPnl = trades.filter { !it.isWin }.map { it.pnlPct }.let { if (it.isEmpty()) 0.0 else it.average() }
         report.appendLine("  Overall: ${overallWr.toInt()}% WR  avgWin:+${avgWinPnl.toInt()}%  avgLoss:${avgLossPnl.toInt()}%")

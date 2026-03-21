@@ -474,7 +474,7 @@ class Executor(
                 val thisTier = ScalingMode.tierForToken(ts.lastLiquidityUsd, ts.lastFdv)
                 ts.recentEntryTimes.removeIf { it < cutoff }
                 // Count only same-tier entries in the window
-                val sameTierCount = status.openPositions.count { other ->
+                val sameTierCount = BotService.status.openPositions.count { other ->
                     other.mint != ts.mint &&
                     ScalingMode.tierForToken(other.lastLiquidityUsd, other.lastFdv) == thisTier &&
                     (System.currentTimeMillis() - other.position.entryTime) < windowMs
@@ -499,8 +499,8 @@ class Executor(
                 mint = ts.mint,
                 symbol = ts.symbol,
                 currentPrice = ts.ref,
-                liveEntryScore = entryScore,
-                liveEntryThreshold = c.entryThreshold,
+                liveEntryScore = entryScore.toInt(),
+                liveEntryThreshold = 42,  // base entry threshold
                 liveSizeSol = size,
                 phase = ts.phase,
             )

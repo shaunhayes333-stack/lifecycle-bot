@@ -88,7 +88,6 @@ class StartupReconciler(
                             ?: ts.lastPrice.takeIf { it > 0 }
                         if (crashPrice != null && crashPrice > 0 && !ts.position.isOpen) {
                             ts.position = com.lifecyclebot.data.Position(
-                                isOpen     = true,
                                 entryPrice = crashPrice,
                                 entryTime  = System.currentTimeMillis() - 60_000L,
                                 qtyToken   = qty,

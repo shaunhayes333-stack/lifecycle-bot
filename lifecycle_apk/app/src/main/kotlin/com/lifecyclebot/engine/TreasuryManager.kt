@@ -211,8 +211,7 @@ object TreasuryManager {
         return WithdrawalResult(
             approvedSol = requested,
             message     = "Withdraw ${(clampedPct*100).toInt()}%: ${requested.fmtSol()}◎" +
-                          " (${(requested*solPrice).fmtUsd()})
-" +
+                          " (${(requested*solPrice).fmtUsd()})\n" +
                           "Remaining treasury: ${remaining.fmtSol()}◎",
         )
     }
@@ -230,8 +229,7 @@ object TreasuryManager {
         val remaining = (treasurySol - clamped).coerceAtLeast(0.0)
         return WithdrawalResult(
             approvedSol = clamped,
-            message     = "Withdraw ${clamped.fmtSol()}◎ (${(clamped*solPrice).fmtUsd()})
-" +
+            message     = "Withdraw ${clamped.fmtSol()}◎ (${(clamped*solPrice).fmtUsd()})\n" +
                           "Remaining: ${remaining.fmtSol()}◎",
         )
     }

@@ -174,7 +174,7 @@ class LifecycleStrategy(
 
         var exitScore = calcExitScore(
             ts, phase, mode, volScore, pressScore, momScore,
-            exhaust, txnDrop, tokenAgeMins, stochRsi, volDiv, athProx, emafan)
+            exhaust, txnDrop, tokenAgeMins, stochRsi, volDiv, athProx, emafan, tfScale)
 
         // MTF exit suppression — 5m bull fan suppresses 1m wobble exits (MOONDO fix)
         if (ts.position.isOpen && mtf5m == MtfTrend.BULL) {
@@ -251,7 +251,8 @@ class LifecycleStrategy(
 
         val signal = decideSignal(
             ts, hist, prices, phase, mode,
-            entryScore, exitScore, exhaust, pm, tokenAgeMins, emafan, volDiv, whale, curve)
+            entryScore, exitScore, exhaust, pm, tokenAgeMins, emafan, volDiv, whale, curve,
+            modeConf, volScore, pressScore)
 
         // Compute top-up readiness directly in strategy — full signal access here
         val gainPctNow   = if (ts.position.isOpen && ts.position.entryPrice > 0)
@@ -983,6 +984,7 @@ class LifecycleStrategy(
         volDiv: Boolean,
         athProx: Double,
         emafan: EmaFanSignal,
+        tfScale: Double = 1.0,
     ): Double {
         val pos = ts.position
         if (!pos.isOpen) return 0.0
@@ -1219,6 +1221,9 @@ class LifecycleStrategy(
         volDiv: Boolean,
         whale: WhaleDetector.WhaleSignal,
         curve: BondingCurveTracker.CurveState,
+        modeConf: AutoModeEngine.ModeConfig? = null,
+        vol: Double = 0.0,
+        press: Double = 0.0,
     ): String {
         val c   = cfg()
         val pos = ts.position
@@ -1655,5 +1660,59 @@ class LifecycleStrategy(
         if (sentiment.concentrationBlocked) es = 0.0
 
         return es to xs
+    }
+
+    // ── Spike detection helper ────────────────────────────────────────
+
+    data class SpikeResult(
+        val isSpike: Boolean = false,
+        val isPostSpike: Boolean = false,
+        val protectMode: Boolean = false,
+        val wickRejection: Boolean = false,
+        val urgency: Double = 0.0,
+    )
+
+    /**
+     * Detect price spikes and wick rejections for exit/entry decisions.
+     * A spike is a rapid price increase followed by reversal - classic pump-and-dump pattern.
+     */
+    private fun detectSpikeTop(
+        history: List<Candle>,
+        prices: List<Double>,
+        gainPct: Double,
+    ): SpikeResult {
+        if (history.size < 5 || prices.size < 5) return SpikeResult()
+        
+        val recent = prices.takeLast(5)
+        val peak = recent.max()
+        val current = recent.last()
+        val dropFromPeak = if (peak > 0) (peak - current) / peak * 100 else 0.0
+        
+        // Spike detection: rapid gain followed by >15% drop from recent peak
+        val isSpike = gainPct > 50 && dropFromPeak > 15
+        
+        // Post-spike: we've already seen the spike and price is declining
+        val isPostSpike = gainPct > 30 && dropFromPeak > 25
+        
+        // Protect mode: large gain, should be cautious
+        val protectMode = gainPct > 100
+        
+        // Wick rejection: price touched high but closed much lower (>10% from high)
+        val lastCandle = history.lastOrNull()
+        val wickRejection = lastCandle?.let {
+            val candleRange = it.high - it.low
+            val upperWick = it.high - maxOf(it.open, it.close)
+            candleRange > 0 && upperWick / candleRange > 0.6
+        } ?: false
+        
+        // Calculate exit urgency
+        val urgency = when {
+            isPostSpike -> 50.0
+            isSpike -> 35.0
+            wickRejection && gainPct > 30 -> 25.0
+            else -> 0.0
+        }
+        
+        return SpikeResult(isSpike, isPostSpike, protectMode, wickRejection, urgency)
     }
 }

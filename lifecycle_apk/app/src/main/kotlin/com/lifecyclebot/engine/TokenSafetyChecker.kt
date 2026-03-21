@@ -409,9 +409,9 @@ class TokenSafetyChecker(private val cfg: () -> BotConfig) {
     } catch (_: Exception) { null }
 
     private fun post(url: String, body: String): String? = try {
-        val rb   = okhttp3.body.toRequestBody(
-            okhttp3."application/json".toMediaType())
-        val req  = Request.Builder().url(url).post(rb)
+        val mediaType = "application/json".toMediaType()
+        val rb = body.toRequestBody(mediaType)
+        val req = Request.Builder().url(url).post(rb)
             .header("Content-Type", "application/json").build()
         val resp = http.newCall(req).execute()
         if (resp.isSuccessful) resp.body?.string() else null
