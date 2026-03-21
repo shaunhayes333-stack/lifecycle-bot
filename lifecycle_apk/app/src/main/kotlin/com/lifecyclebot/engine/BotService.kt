@@ -481,14 +481,19 @@ class BotService : Service() {
         TreasuryManager.save(applicationContext)
         botBrain?.stop(); botBrain = null
         tradeDb?.close(); tradeDb = null
-        walletManager.disconnect()
+        // REMOVED: walletManager.disconnect() 
+        // Wallet should ONLY disconnect when user explicitly requests it
+        // This allows wallet to stay connected when:
+        // - Bot is stopped
+        // - App is minimized
+        // - App crashes and restarts
         stopForeground(STOP_FOREGROUND_REMOVE)
         stopSelf()
         getSharedPreferences("bot_runtime", android.content.Context.MODE_PRIVATE)
             .edit().putBoolean("was_running_before_shutdown", false).apply()
         wakeLock?.let { if (it.isHeld) it.release() }
         wakeLock = null
-        addLog("Bot stopped.")
+        addLog("Bot stopped. Wallet remains connected.")
     }
 
     // ── main loop ──────────────────────────────────────────
