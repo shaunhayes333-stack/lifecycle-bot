@@ -109,7 +109,11 @@ class SolanaMarketScanner(
     // ── Start / Stop ─────────────────────────────────────────────────
 
     fun start() {
-        scope.launch { scanLoop() }
+        ErrorLogger.info("Scanner", "SolanaMarketScanner.start() called")
+        scope.launch { 
+            ErrorLogger.info("Scanner", "scanLoop starting...")
+            scanLoop() 
+        }
         onLog("SolanaMarketScanner started")
     }
 
@@ -121,9 +125,11 @@ class SolanaMarketScanner(
     // ── Main scan loop ────────────────────────────────────────────────
 
     private suspend fun scanLoop() {
+        ErrorLogger.info("Scanner", "scanLoop() entered")
         while (scope.isActive) {
             val c = cfg()
             val scanIntervalMs = (c.scanIntervalSecs * 1000L).toLong()
+            ErrorLogger.debug("Scanner", "Scan interval: ${scanIntervalMs}ms")
 
             try {
                 // Clean expired seen entries

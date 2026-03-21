@@ -333,8 +333,10 @@ class BotService : Service() {
 
         // Start full Solana market scanner
         val scanCfg = ConfigStore.load(applicationContext)
+        ErrorLogger.info("BotService", "fullMarketScanEnabled = ${scanCfg.fullMarketScanEnabled}")
         if (scanCfg.fullMarketScanEnabled) {
             try {
+                ErrorLogger.info("BotService", "Creating market scanner...")
                 marketScanner = SolanaMarketScanner(
                     cfg          = { ConfigStore.load(applicationContext) },
                     onTokenFound = { mint, symbol, name, source, score ->
@@ -362,11 +364,17 @@ class BotService : Service() {
                     },
                     onLog = ::addLog,
                 )
+                ErrorLogger.info("BotService", "Starting market scanner...")
                 marketScanner?.start()
                 addLog("🌐 Full Solana market scanner active — ${scanCfg.maxWatchlistSize} token watchlist")
+                ErrorLogger.info("BotService", "Market scanner started!")
             } catch (e: Exception) {
+                ErrorLogger.error("BotService", "Market scanner error: ${e.message}", e)
                 addLog("⚠️ Market scanner error: ${e.message}")
             }
+        } else {
+            ErrorLogger.warn("BotService", "Market scanner DISABLED in config")
+            addLog("⚠️ Market scanner disabled — enable in settings")
         }
 
         // Seed candle history for all watchlist tokens
