@@ -368,10 +368,17 @@ class MainActivity : AppCompatActivity() {
         btnAddToken.setOnClickListener { addToken() }
         btnSave.setOnClickListener { saveSettings() }
         tvAdvancedToggle.setOnClickListener {
-            advancedExpanded = !advancedExpanded
-            layoutAdvanced.visibility = if (advancedExpanded) View.VISIBLE else View.GONE
-            tvAdvancedToggle.text = if (advancedExpanded) "Advanced settings ›" else "Advanced settings ›"
+            try {
+                advancedExpanded = !advancedExpanded
+                layoutAdvanced.visibility = if (advancedExpanded) View.VISIBLE else View.GONE
+                tvAdvancedToggle.text = if (advancedExpanded) "▼ Advanced settings (tap to hide)" else "► Advanced settings (tap to show)"
+                tvAdvancedToggle.setTextColor(if (advancedExpanded) 0xFF14F195.toInt() else 0xFF6B7280.toInt())
+            } catch (e: Exception) {
+                android.widget.Toast.makeText(this, "Error: ${e.message}", android.widget.Toast.LENGTH_SHORT).show()
+            }
         }
+        // Initialize text
+        tvAdvancedToggle.text = "► Advanced settings (tap to show)"
     }
 
     // ── chart ─────────────────────────────────────────────────────────

@@ -1161,11 +1161,14 @@
 
                 <!-- Advanced toggle -->
                 <TextView android:id="@+id/tvAdvancedToggle"
-                    android:layout_width="wrap_content" android:layout_height="wrap_content"
-                    android:text="Advanced settings ›"
-                    android:textColor="#6B7280" android:textSize="12sp"
+                    android:layout_width="match_parent" android:layout_height="wrap_content"
+                    android:text="► Advanced settings (tap to show)"
+                    android:textColor="#14F195" android:textSize="13sp"
                     android:layout_marginBottom="10dp"
-                    android:clickable="true" android:focusable="true"/>
+                    android:padding="8dp"
+                    android:background="#1F2937"
+                    android:clickable="true" android:focusable="true"
+                    android:foreground="?android:attr/selectableItemBackground"/>
 
                 <!-- Advanced section (hidden by default) -->
                 <LinearLayout android:id="@+id/layoutAdvanced"
