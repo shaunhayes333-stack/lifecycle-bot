@@ -9,11 +9,14 @@ android {
     compileSdk = 34
 
     defaultConfig {
-        applicationId = "com.lifecyclebot"
+        applicationId = "com.lifecyclebot.beta"  // Different ID = installs as separate app
         minSdk = 26
         targetSdk = 34
-        versionCode = 9
-        versionName = "7.1.0"
+        versionCode = 10
+        versionName = "7.2.0-beta"
+        
+        // Add suffix to app name for easy identification
+        resValue("string", "app_name_override", "Lifecycle Bot BETA")
     }
 
     buildTypes {
@@ -26,6 +29,8 @@ android {
         }
         debug {
             isDebuggable = true
+            // Debug builds get DEV suffix
+            resValue("string", "app_name_override", "Lifecycle Bot DEV")
         }
     }
 
