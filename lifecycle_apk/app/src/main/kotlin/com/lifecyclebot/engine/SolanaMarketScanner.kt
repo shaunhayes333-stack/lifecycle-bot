@@ -1226,32 +1226,29 @@ class SolanaMarketScanner(
             return false
         }
         
-        // Block tokens impersonating major cryptocurrencies
-        // These are scam/meme tokens using deceptive names like "Solana" or "Bitcoin"
-        val impersonationNames = listOf(
-            "solana", "bitcoin", "ethereum", "bnb", "binance", "cardano", "ripple",
-            "dogecoin", "shiba", "polygon", "avalanche", "chainlink", "uniswap",
-            "wrapped sol", "wrapped solana", "pump", "pumpfun", "pump.fun",
-            "raydium", "jupiter", "jito", "pyth", "marinade", "orca"
+        // Block tokens impersonating ONLY the actual major infrastructure tokens
+        // We want meme coins like "Baby Doge" or "Shiba Moon" - those are fine
+        // We only block tokens pretending to BE Solana/Raydium/Jupiter etc.
+        val infrastructureTokens = listOf(
+            "solana", "wrapped sol", "wrapped solana",  // Core chain token
+            "raydium", "jupiter", "jito", "pyth", "marinade", "orca",  // Solana infrastructure
+            "pump", "pumpfun", "pump.fun"  // Pump.fun itself
         )
-        // Only block if symbol OR name exactly matches (case-insensitive) or is very similar
+        
         val symLower = token.symbol.lowercase().trim()
         val nameLower = token.name.lowercase().trim()
         
-        // Block exact matches of major token symbols
-        val blockedSymbols = listOf("sol", "btc", "eth", "bnb", "usdt", "usdc", "pump")
+        // Block exact matches of major token symbols only
+        val blockedSymbols = listOf("sol", "wsol", "usdt", "usdc", "ray", "jup")
         if (symLower in blockedSymbols) {
             ErrorLogger.info("Scanner", "FILTER REJECT ${token.symbol}: blocked symbol '$symLower'")
             return false
         }
         
-        for (impersonation in impersonationNames) {
-            // Exact match or starts with the impersonated name
-            if (symLower == impersonation || 
-                nameLower == impersonation ||
-                nameLower.startsWith("$impersonation ") ||  // "Solana The Pygmy Hippo"
-                nameLower.startsWith("the $impersonation")) {
-                ErrorLogger.info("Scanner", "FILTER REJECT ${token.symbol}: impersonates '$impersonation' (name='${token.name}')")
+        for (infra in infrastructureTokens) {
+            // Only block exact name matches for infrastructure tokens
+            if (nameLower == infra || nameLower.startsWith("$infra ")) {
+                ErrorLogger.info("Scanner", "FILTER REJECT ${token.symbol}: impersonates '$infra' (name='${token.name}')")
                 return false
             }
         }
