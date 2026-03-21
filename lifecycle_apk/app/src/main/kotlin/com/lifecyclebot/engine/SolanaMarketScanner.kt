@@ -117,13 +117,16 @@ class SolanaMarketScanner(
     @Volatile private var scanRotation = 0
     
     // Search keyword rotation for diverse token discovery
-    // Note: Avoid generic terms like "solana" which return impersonation scam tokens
+    // IMPORTANT: Avoid terms that return impersonation scam tokens (solana, pump, etc.)
+    // Focus on meme culture, trending topics, and unique token names
     private val searchKeywords = listOf(
-        "meme", "degen", "pepe", "wojak", "moon", "inu", "cat", "dog",
-        "ai", "agent", "gpt", "depin", "rwa", "trump", "elon",
-        "bonk", "wif", "jup", "ray", "pyth", "jito",
-        "nft", "game", "metaverse", "casino", "bet",
-        "pump", "fun", "based", "chad", "frog", "monkey"
+        "pepe", "wojak", "degen", "moon", "inu", "shib",
+        "cat", "dog", "frog", "monkey", "ape",
+        "ai", "agent", "gpt", "bot", "neural",
+        "trump", "elon", "musk", "biden",
+        "wif", "bonk", "popcat", "mew", "bome",
+        "chad", "based", "wagmi", "gm", "ser",
+        "nft", "game", "pixel", "retro"
     )
     @Volatile private var keywordRotation = 0
     
@@ -168,9 +171,9 @@ class SolanaMarketScanner(
         // Simple test to verify API connectivity and add first token
         try {
             onLog("🧪 Running immediate test scan...")
-            // Use "pump" instead of "solana" to avoid impersonation tokens
-            val url = "https://api.dexscreener.com/latest/dex/search?q=pump"
-            ErrorLogger.info("Scanner", "TEST: Searching pump.fun tokens...")
+            // Use "pepe" - a common meme token search that returns real tokens
+            val url = "https://api.dexscreener.com/latest/dex/search?q=pepe"
+            ErrorLogger.info("Scanner", "TEST: Searching for meme tokens...")
             
             val body = get(url)
             if (body == null) {
@@ -569,9 +572,9 @@ class SolanaMarketScanner(
     // ── Source 4: Pump.fun graduates (Raydium migrations) ────────────
 
     private suspend fun scanPumpGraduates() {
-        // Also use keyword rotation for pump graduates discovery
-        val pumpKeywords = listOf("pump", "fun", "degen", "meme", "moon", "ape", "chad", "based")
-        val keyword = pumpKeywords[keywordRotation % pumpKeywords.size]
+        // Use diverse keywords for finding recent graduates, avoid "pump" which returns scam tokens
+        val graduateKeywords = listOf("degen", "meme", "moon", "wif", "pepe", "bonk", "cat", "dog", "frog")
+        val keyword = graduateKeywords[keywordRotation % graduateKeywords.size]
         
         val url = "https://api.dexscreener.com/latest/dex/search?q=$keyword"
         ErrorLogger.info("Scanner", "scanPumpGraduates: searching '$keyword' for graduates...")
@@ -934,21 +937,35 @@ class SolanaMarketScanner(
         val impersonationNames = listOf(
             "solana", "bitcoin", "ethereum", "bnb", "binance", "cardano", "ripple",
             "dogecoin", "shiba", "polygon", "avalanche", "chainlink", "uniswap",
-            "wrapped sol", "wrapped solana"
+            "wrapped sol", "wrapped solana", "pump", "pumpfun", "pump.fun",
+            "raydium", "jupiter", "jito", "pyth", "marinade", "orca"
         )
         // Only block if symbol OR name exactly matches (case-insensitive) or is very similar
         val symLower = token.symbol.lowercase().trim()
         val nameLower = token.name.lowercase().trim()
+        
+        // Block exact matches of major token symbols
+        val blockedSymbols = listOf("sol", "btc", "eth", "bnb", "usdt", "usdc", "pump")
+        if (symLower in blockedSymbols) {
+            ErrorLogger.info("Scanner", "FILTER REJECT ${token.symbol}: blocked symbol '$symLower'")
+            return false
+        }
+        
         for (impersonation in impersonationNames) {
             // Exact match or starts with the impersonated name
             if (symLower == impersonation || 
-                symLower == "sol" ||  // Block fake SOL tokens
                 nameLower == impersonation ||
                 nameLower.startsWith("$impersonation ") ||  // "Solana The Pygmy Hippo"
                 nameLower.startsWith("the $impersonation")) {
                 ErrorLogger.info("Scanner", "FILTER REJECT ${token.symbol}: impersonates '$impersonation' (name='${token.name}')")
                 return false
             }
+        }
+        
+        // Block tokens with suspicious market caps (over $500M is likely fake data)
+        if (token.mcapUsd > 500_000_000) {
+            ErrorLogger.info("Scanner", "FILTER REJECT ${token.symbol}: suspicious mcap $${(token.mcapUsd/1_000_000).toInt()}M")
+            return false
         }
         
         // Token passed all filters!
