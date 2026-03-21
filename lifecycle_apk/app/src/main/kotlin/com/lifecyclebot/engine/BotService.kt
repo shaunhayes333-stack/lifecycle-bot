@@ -871,18 +871,17 @@ class BotService : Service() {
         val tokensToRemove = mutableListOf<String>()
         val now = System.currentTimeMillis()
         val staleThresholdMs = 5 * 60_000L   // 5 minutes
-        val flatThresholdMs = 15 * 60_000L   // 15 minutes
         
         for (mint in currentWatchlist) {
             val ts = status.tokens[mint]
             
             // Skip if we have an open position
-            if (ts?.currentPosition != null && ts.currentPosition != com.lifecyclebot.data.PositionSide.FLAT) {
+            if (ts?.position?.isOpen == true) {
                 continue
             }
             
             // Remove if blocked by safety checker
-            if (ts?.safety?.blocked == true) {
+            if (ts?.safety?.isBlocked == true) {
                 tokensToRemove.add(mint)
                 addLog("🗑️ Removing ${ts.symbol}: BLOCKED", mint)
                 continue
