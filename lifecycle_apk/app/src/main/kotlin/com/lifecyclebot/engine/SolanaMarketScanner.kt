@@ -264,15 +264,28 @@ class SolanaMarketScanner(
     private suspend fun scanDexTrending() {
         // Look for trending Solana tokens
         val url = "https://api.dexscreener.com/token-profiles/v1/latest?chainIds=solana"
-        val body = get(url) ?: return
+        ErrorLogger.info("Scanner", "scanDexTrending: fetching from DexScreener...")
+        val body = get(url)
+        if (body == null) {
+            ErrorLogger.warn("Scanner", "scanDexTrending: no response from API")
+            return
+        }
         try {
             val arr = JSONArray(body)
+            ErrorLogger.info("Scanner", "scanDexTrending: got ${arr.length()} token profiles")
+            var processed = 0
+            var passed = 0
             for (i in 0 until minOf(arr.length(), 15)) {
                 val item = arr.optJSONObject(i) ?: continue
                 val mint = item.optString("tokenAddress", "").trim()
                 if (mint.isBlank() || mint.length < 32 || mint.startsWith("0x") || isSeen(mint)) continue
+                processed++
                 
-                val pair = withContext(Dispatchers.IO) { dex.getBestPair(mint) } ?: continue
+                val pair = withContext(Dispatchers.IO) { dex.getBestPair(mint) }
+                if (pair == null) {
+                    ErrorLogger.debug("Scanner", "scanDexTrending: no pair for ${mint.take(12)}")
+                    continue
+                }
                 
                 // Skip major stablecoins only
                 if (pair.baseSymbol.uppercase() in listOf("SOL", "WSOL", "USDC", "USDT")) continue
@@ -281,9 +294,11 @@ class SolanaMarketScanner(
                 if (passesFilter(token)) {
                     val ageHours = (System.currentTimeMillis() - pair.pairCreatedAtMs) / 3_600_000.0
                     emit(token)
+                    passed++
                     onLog("📈 Trending: ${token.symbol} | age=${ageHours.toInt()}h | liq=$${token.liquidityUsd.toInt()}")
                 }
             }
+            ErrorLogger.info("Scanner", "scanDexTrending: processed=$processed passed=$passed")
         } catch (e: OutOfMemoryError) {
             ErrorLogger.error("Scanner", "OOM in scanDexTrending", Exception(e.message))
             throw e
@@ -720,7 +735,18 @@ class SolanaMarketScanner(
             .header("User-Agent", "lifecycle-bot-android/6.0")
             .header("Accept", "application/json")
         if (apiKey.isNotBlank()) builder.header("X-API-KEY", apiKey)
+        ErrorLogger.debug("Scanner", "HTTP GET: ${url.take(60)}...")
         val resp = http.newCall(builder.build()).execute()
-        if (resp.isSuccessful) resp.body?.string() else null
-    } catch (_: Exception) { null }
+        if (resp.isSuccessful) {
+            val body = resp.body?.string()
+            ErrorLogger.debug("Scanner", "HTTP OK: ${body?.length ?: 0} bytes from ${url.take(40)}")
+            body
+        } else {
+            ErrorLogger.warn("Scanner", "HTTP FAIL: ${resp.code} from ${url.take(50)}")
+            null
+        }
+    } catch (e: Exception) { 
+        ErrorLogger.error("Scanner", "HTTP ERROR: ${e.message} for ${url.take(50)}")
+        null 
+    }
 }
