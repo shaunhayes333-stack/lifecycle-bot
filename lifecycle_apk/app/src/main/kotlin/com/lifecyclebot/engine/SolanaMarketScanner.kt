@@ -82,6 +82,10 @@ class SolanaMarketScanner(
     private val http = OkHttpClient.Builder()
         .connectTimeout(10, TimeUnit.SECONDS)
         .readTimeout(15, TimeUnit.SECONDS)
+        // Memory optimization: disable connection pooling to free memory faster
+        .connectionPool(okhttp3.ConnectionPool(0, 1, TimeUnit.SECONDS))
+        // Disable response caching
+        .cache(null)
         .build()
 
     private val dex        = DexscreenerApi()
@@ -148,7 +152,8 @@ class SolanaMarketScanner(
         ErrorLogger.info("Scanner", "scanLoop() entered")
         while (isRunning) {
             val c = cfg()
-            val scanIntervalMs = (c.scanIntervalSecs * 1000L).toLong()
+            // Use longer interval to reduce memory pressure
+            val scanIntervalMs = maxOf((c.scanIntervalSecs * 1000L).toLong(), 60_000L)  // Min 60 seconds
             ErrorLogger.debug("Scanner", "Scan interval: ${scanIntervalMs}ms")
 
             try {
@@ -162,80 +167,53 @@ class SolanaMarketScanner(
                 val _tn = if (sScanTier != ScalingMode.Tier.MICRO)
                     " ${sScanTier.icon}${sScanTier.label}" else ""
                 
-                // Memory-safe mode: only run essential scans
-                if (memorySafeMode) {
-                    onLog("🌐 Scan (memory-safe mode)${_tn}")
-                    // Only run ONE scan in memory-safe mode
-                    try { scanDexTrending() } catch (e: Exception) { 
-                        ErrorLogger.error("Scanner", "scanDexTrending failed: ${e.message}", e) 
-                    }
-                    System.gc()
-                    delay(scanIntervalMs * 2)  // Longer delay in safe mode
-                    continue
-                }
+                // ULTRA-LIGHTWEIGHT MODE: Only ONE scan per cycle to minimize memory
+                scanRotation = (scanRotation + 1) % 3
+                onLog("🌐 Scan #$scanRotation${_tn}")
                 
-                // ROTATE between different scan combinations for variety
-                scanRotation = (scanRotation + 1) % 4
-                onLog("🌐 Scan cycle #$scanRotation${_tn}")
+                // Force GC BEFORE scan
+                System.gc()
+                delay(500)
                 
                 when (scanRotation) {
                     0 -> {
-                        // Rotation 0: DexScreener trending + boosted
                         try { scanDexTrending() } catch (e: Exception) { 
+                            if (e is OutOfMemoryError) throw e
                             ErrorLogger.error("Scanner", "scanDexTrending failed: ${e.message}", e) 
-                        }
-                        System.gc()
-                        delay(1000)
-                        try { scanDexBoosted() } catch (e: Exception) { 
-                            ErrorLogger.error("Scanner", "scanDexBoosted failed: ${e.message}", e) 
                         }
                     }
                     1 -> {
-                        // Rotation 1: CoinGecko + Pump graduates
                         try { scanCoinGeckoTrending() } catch (e: Exception) { 
+                            if (e is OutOfMemoryError) throw e
                             ErrorLogger.error("Scanner", "scanCoinGeckoTrending failed: ${e.message}", e) 
-                        }
-                        System.gc()
-                        delay(1000)
-                        try { scanPumpGraduates() } catch (e: Exception) { 
-                            ErrorLogger.error("Scanner", "scanPumpGraduates failed: ${e.message}", e) 
                         }
                     }
                     2 -> {
-                        // Rotation 2: Birdeye + Raydium new pools
-                        try { scanBirdeyeTrending() } catch (e: Exception) { 
-                            ErrorLogger.error("Scanner", "scanBirdeyeTrending failed: ${e.message}", e) 
-                        }
-                        System.gc()
-                        delay(1000)
-                        try { scanRaydiumNewPools() } catch (e: Exception) { 
-                            ErrorLogger.error("Scanner", "scanRaydiumNewPools failed: ${e.message}", e) 
-                        }
-                    }
-                    3 -> {
-                        // Rotation 3: DexScreener gainers + trending
-                        try { scanDexGainers() } catch (e: Exception) { 
-                            ErrorLogger.error("Scanner", "scanDexGainers failed: ${e.message}", e) 
-                        }
-                        System.gc()
-                        delay(1000)
-                        try { scanDexTrending() } catch (e: Exception) { 
-                            ErrorLogger.error("Scanner", "scanDexTrending failed: ${e.message}", e) 
+                        try { scanDexBoosted() } catch (e: Exception) { 
+                            if (e is OutOfMemoryError) throw e
+                            ErrorLogger.error("Scanner", "scanDexBoosted failed: ${e.message}", e) 
                         }
                     }
                 }
+                
+                // Force GC AFTER scan
                 System.gc()
 
             } catch (e: OutOfMemoryError) {
                 oomCount++
                 ErrorLogger.crash("Scanner", "OutOfMemoryError #$oomCount in scan loop", Exception(e.message))
-                onLog("⚠️ Memory issue #$oomCount - enabling safe mode")
-                memorySafeMode = true  // Enable memory-safe mode
+                onLog("⚠️ Memory critical #$oomCount - pausing scanner for 2 minutes")
                 System.gc()
-                delay(10000)  // Wait 10s for memory to be freed
+                delay(120_000)  // Wait 2 MINUTES for memory to recover
+                if (oomCount >= 3) {
+                    onLog("⛔ Too many OOM errors - scanner disabled. Add tokens manually.")
+                    ErrorLogger.error("Scanner", "Scanner disabled after $oomCount OOM errors")
+                    isRunning = false
+                    return
+                }
             } catch (e: Exception) {
                 ErrorLogger.error("Scanner", "Scanner error: ${e.message}", e)
-                onLog("Scanner error: ${e.message?.take(80)}")
+                onLog("Scanner error: ${e.message?.take(50)}")
             }
 
             delay(scanIntervalMs)
@@ -249,17 +227,23 @@ class SolanaMarketScanner(
         val body = get(url) ?: return
         try {
             val arr = JSONArray(body)
-            // Limit to 15 items max to reduce memory usage
-            for (i in 0 until minOf(arr.length(), 15)) {
+            // Only process 5 items to minimize memory
+            for (i in 0 until minOf(arr.length(), 5)) {
                 val item = arr.optJSONObject(i) ?: continue
                 val mint = item.optString("tokenAddress", "").trim()
                 if (mint.isBlank() || mint.length < 32 || isSeen(mint)) continue
                 val pair = withContext(Dispatchers.IO) { dex.getBestPair(mint) } ?: continue
                 val token = buildScannedToken(mint, pair, TokenSource.DEX_TRENDING) ?: continue
                 if (passesFilter(token)) emit(token)
+                // Break early if memory is low
+                if (Runtime.getRuntime().freeMemory() < 5_000_000) {
+                    ErrorLogger.warn("Scanner", "Low memory - stopping early")
+                    break
+                }
             }
         } catch (e: OutOfMemoryError) {
             ErrorLogger.error("Scanner", "OOM in scanDexTrending", Exception(e.message))
+            throw e  // Rethrow to trigger OOM handling
         } catch (_: Exception) {}
     }
 
