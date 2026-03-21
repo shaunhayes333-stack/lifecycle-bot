@@ -603,8 +603,8 @@ class MainActivity : AppCompatActivity() {
                     fillAlpha       = 30
                     mode            = LineDataSet.Mode.CUBIC_BEZIER
                 }
-                miniChart.data = LineData(ds)
-                miniChart.invalidate()
+                priceChart.data = LineData(ds)
+                priceChart.invalidate()
             }
         } else if (ts?.lastPrice != null && ts.lastPrice > 0) {
             // Append new price point
