@@ -726,12 +726,13 @@ Analyse this data and respond with ONLY valid JSON in this exact format:
             
             // Adjust phase boost based on real-time performance
             if (totalForPhase >= 5) {
-                when {
-                    winRate >= 70 -> phaseBoosts[phase] = -5.0  // Lower entry bar = more aggressive
-                    winRate >= 55 -> phaseBoosts[phase] = 0.0   // Neutral
-                    winRate >= 40 -> phaseBoosts[phase] = 5.0   // Raise entry bar = more selective
-                    else -> phaseBoosts[phase] = 10.0           // High bar = very selective
+                val newBoost = when {
+                    winRate >= 70 -> -5.0  // Lower entry bar = more aggressive
+                    winRate >= 55 -> 0.0   // Neutral
+                    winRate >= 40 -> 5.0   // Raise entry bar = more selective
+                    else -> 10.0           // High bar = very selective
                 }
+                phaseBoosts = phaseBoosts.toMutableMap().apply { put(phase, newBoost) }
             }
             
             // Track source performance
@@ -747,11 +748,12 @@ Analyse this data and respond with ONLY valid JSON in this exact format:
             val totalForSource = sourceWins + sourceLosses + 1
             val sourceWinRate = (sourceWins + (if (isWin) 1 else 0)).toDouble() / totalForSource * 100
             if (totalForSource >= 5) {
-                when {
-                    sourceWinRate >= 70 -> sourceBoosts[source] = 10.0   // Good source = boost score
-                    sourceWinRate >= 50 -> sourceBoosts[source] = 0.0    // Neutral
-                    else -> sourceBoosts[source] = -10.0                 // Bad source = penalize
+                val newSourceBoost = when {
+                    sourceWinRate >= 70 -> 10.0   // Good source = boost score
+                    sourceWinRate >= 50 -> 0.0    // Neutral
+                    else -> -10.0                 // Bad source = penalize
                 }
+                sourceBoosts = sourceBoosts.toMutableMap().apply { put(source, newSourceBoost) }
             }
             
             // Adjust global entry threshold based on recent performance
