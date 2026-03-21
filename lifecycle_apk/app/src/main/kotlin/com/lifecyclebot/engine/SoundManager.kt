@@ -3,6 +3,7 @@ package com.lifecyclebot.engine
 import android.content.Context
 import android.media.AudioAttributes
 import android.media.AudioManager
+import android.media.MediaPlayer
 import android.media.SoundPool
 import android.media.ToneGenerator
 import android.os.Handler
@@ -16,13 +17,17 @@ import android.os.Build
  * SoundManager
  *
  * Plays synthesised sounds for trading events using Android's ToneGenerator
- * and SoundPool. No audio files needed — all sounds are generated programmatically.
+ * and SoundPool. Also supports custom audio clips for fun reactions!
  *
  * PROFIT SELL  → Classic cash register: ascending ding sequence
  * LOSS/STOP    → Warning siren: descending wail
  * MILESTONE    → Escalating tones at 50%, 100%, 200% gain while holding
  * NEW TOKEN    → Short alert ping (Pump.fun WebSocket new token detected)
  * SAFETY BLOCK → Low buzzer (token blocked by safety checker)
+ * 
+ * CUSTOM SOUNDS (add your own MP3s to res/raw/):
+ * BUY TOKEN    → Homer Simpson "Woohoo!" (res/raw/woohoo.mp3)
+ * BLOCK TOKEN  → Peter Griffin "No no no!" (res/raw/nonono.mp3)
  *
  * All sounds respect the device's volume and Do Not Disturb settings.
  * Can be muted from settings.
@@ -31,6 +36,54 @@ class SoundManager(private val ctx: Context) {
 
     private val mainHandler = Handler(Looper.getMainLooper())
     private var enabled = true
+    
+    // SoundPool for custom audio clips
+    private val soundPool: SoundPool by lazy {
+        SoundPool.Builder()
+            .setMaxStreams(3)
+            .setAudioAttributes(
+                AudioAttributes.Builder()
+                    .setUsage(AudioAttributes.USAGE_NOTIFICATION)
+                    .setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION)
+                    .build()
+            )
+            .build()
+    }
+    
+    // Sound IDs for custom clips (loaded lazily)
+    private var woohooSoundId: Int = -1
+    private var nononoSoundId: Int = -1
+    private var soundsLoaded = false
+    
+    init {
+        // Try to load custom sounds if they exist
+        loadCustomSounds()
+    }
+    
+    private fun loadCustomSounds() {
+        try {
+            // Try to load Homer's "Woohoo!" for buy events
+            val woohooResId = ctx.resources.getIdentifier("woohoo", "raw", ctx.packageName)
+            if (woohooResId != 0) {
+                woohooSoundId = soundPool.load(ctx, woohooResId, 1)
+            }
+            
+            // Try to load Peter's "No no no!" for block events  
+            val nononoResId = ctx.resources.getIdentifier("nonono", "raw", ctx.packageName)
+            if (nononoResId != 0) {
+                nononoSoundId = soundPool.load(ctx, nononoResId, 1)
+            }
+            
+            soundsLoaded = woohooSoundId > 0 || nononoSoundId > 0
+            if (soundsLoaded) {
+                ErrorLogger.info("SoundManager", "Custom sounds loaded! 🎵 Woohoo!")
+            }
+        } catch (e: Exception) {
+            // Sounds not found - will use default tones
+            soundsLoaded = false
+            ErrorLogger.debug("SoundManager", "Custom sounds not available, using default tones")
+        }
+    }
 
     // ToneGenerator for simple synthesised tones
     private fun makeTone(): ToneGenerator? = try {
@@ -47,6 +100,44 @@ class SoundManager(private val ctx: Context) {
     }
 
     fun setEnabled(v: Boolean) { enabled = v }
+    
+    // ── BUY TOKEN - Homer's "Woohoo!" ──────────────────────────────────
+    fun playBuySound() {
+        if (!enabled) return
+        mainHandler.post {
+            if (soundsLoaded && woohooSoundId > 0) {
+                soundPool.play(woohooSoundId, 1.0f, 1.0f, 1, 0, 1.0f)
+                vibratePattern(longArrayOf(0, 50, 30, 100))
+            } else {
+                // Fallback: happy ascending tones
+                playSequence(listOf(
+                    Pair(ToneGenerator.TONE_PROP_BEEP, 80),
+                    Pair(ToneGenerator.TONE_PROP_BEEP2, 100),
+                    Pair(ToneGenerator.TONE_PROP_ACK, 120),
+                ), delayMs = 50)
+                vibratePattern(longArrayOf(0, 50, 30, 100))
+            }
+        }
+    }
+    
+    // ── BLOCK TOKEN - Peter's "No no no!" ──────────────────────────────
+    fun playBlockSound() {
+        if (!enabled) return
+        mainHandler.post {
+            if (soundsLoaded && nononoSoundId > 0) {
+                soundPool.play(nononoSoundId, 1.0f, 1.0f, 1, 0, 1.0f)
+                vibratePattern(longArrayOf(0, 100, 50, 100, 50, 100))
+            } else {
+                // Fallback: descending "nope" tones
+                playSequence(listOf(
+                    Pair(ToneGenerator.TONE_SUP_ERROR, 150),
+                    Pair(ToneGenerator.TONE_PROP_NACK, 150),
+                    Pair(ToneGenerator.TONE_PROP_NACK, 200),
+                ), delayMs = 100)
+                vibratePattern(longArrayOf(0, 100, 50, 100, 50, 100))
+            }
+        }
+    }
 
     // ── Cash register (profitable sell) ──────────────────────────────
     // Classic "cha-ching" — ascending notes then a long ring
@@ -117,14 +208,20 @@ class SoundManager(private val ctx: Context) {
         }
     }
 
-    // ── Safety block alert ────────────────────────────────────────────
+    // ── Safety block alert - Peter's "No no no!" ──────────────────────
     fun playSafetyBlock() {
         if (!enabled) return
         mainHandler.post {
-            playSequence(listOf(
-                Pair(ToneGenerator.TONE_PROP_NACK, 150),
-                Pair(ToneGenerator.TONE_PROP_NACK, 150),
-            ), delayMs = 120)
+            if (soundsLoaded && nononoSoundId > 0) {
+                // 🎵 Peter Griffin "No no no!"
+                soundPool.play(nononoSoundId, 1.0f, 1.0f, 1, 0, 1.0f)
+            } else {
+                // Fallback tones
+                playSequence(listOf(
+                    Pair(ToneGenerator.TONE_PROP_NACK, 150),
+                    Pair(ToneGenerator.TONE_PROP_NACK, 150),
+                ), delayMs = 120)
+            }
             vibratePattern(longArrayOf(0, 80, 40, 80))
         }
     }

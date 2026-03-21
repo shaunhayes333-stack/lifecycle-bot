@@ -661,6 +661,8 @@ class Executor(
             when (guard) {
                 is GuardResult.Block -> {
                     onLog("🚫 Buy blocked: ${guard.reason}", ts.mint)
+                    // 🎵 Peter Griffin "No no no!"
+                    sounds?.playBlockSound()
                     if (guard.fatal) onNotify("🛑 Bot Halted", guard.reason, com.lifecyclebot.engine.NotificationHistory.NotifEntry.NotifType.INFO)
                     return
                 }
@@ -691,6 +693,9 @@ class Executor(
         
         // Update paper wallet balance (deduct buy amount)
         onPaperBalanceChange?.invoke(-sol)
+        
+        // 🎵 Homer Simpson "Woohoo!" 
+        sounds?.playBuySound()
         
         onLog("PAPER BUY  @ ${price.fmt()} | ${sol.fmt(4)} SOL | score=${score.toInt()}", ts.mint)
         onNotify("📈 Paper Buy", "${ts.symbol}  ${sol.fmt(3)} SOL  (score ${score.toInt()})", com.lifecyclebot.engine.NotificationHistory.NotifEntry.NotifType.INFO)
@@ -757,6 +762,9 @@ class Executor(
                               score = score, sig = sig)
             ts.trades.add(trade)
             security.recordTrade(trade)
+            
+            // 🎵 Homer Simpson "Woohoo!"
+            sounds?.playBuySound()
 
             onLog("LIVE BUY  @ ${price.fmt()} | ${sol.fmt(4)} SOL | " +
                   "impact=${quote.priceImpactPct.fmt(2)}% | sig=${sig.take(16)}…", ts.mint)
