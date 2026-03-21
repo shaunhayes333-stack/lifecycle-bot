@@ -1132,6 +1132,12 @@ class SolanaMarketScanner(
         if (!passed) {
             // Mark rejected tokens so we don't keep re-scanning them
             markRejected(token.mint)
+        } else {
+            // Mark PASSING tokens as seen immediately to prevent duplicate processing
+            // This prevents the same token from being evaluated multiple times
+            // while waiting for rugcheck or other async operations
+            seenMints[token.mint] = System.currentTimeMillis()
+            ErrorLogger.info("Scanner", "FILTER PASS ${token.symbol}: liq=\$${token.liquidityUsd.toInt()} score=${token.score.toInt()}")
         }
         return passed
     }
@@ -1349,21 +1355,23 @@ class SolanaMarketScanner(
     
     /**
      * Emit with optional quick rugcheck
-     * Non-blocking - if rugcheck is slow, emit anyway
+     * Non-blocking - if rugcheck is slow or fails, emit anyway
      */
     private suspend fun emitWithRugcheck(token: ScannedToken) {
-        // Quick check with 2-second timeout
+        // Quick check with 2-second timeout - always pass on any error
         val passed = try {
             withContext(Dispatchers.IO) { 
                 try {
                     withTimeout(2000L) { quickRugcheck(token.mint) }
                 } catch (e: kotlinx.coroutines.TimeoutCancellationException) {
                     true  // Timeout = pass through
+                } catch (e: Exception) {
+                    true  // Any error = pass through
                 }
             }
         } catch (e: kotlinx.coroutines.CancellationException) {
             throw e  // Re-throw job cancellation
-        } catch (e: kotlinx.coroutines.CancellationException) { throw e } catch (e: Exception) {
+        } catch (e: Exception) {
             true  // Any other error = pass through
         }
         
