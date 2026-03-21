@@ -27,7 +27,7 @@ import android.os.Build
  * 
  * CUSTOM SOUNDS (add your own MP3s to res/raw/):
  * BUY TOKEN    → Homer Simpson "Woohoo!" (res/raw/woohoo.mp3)
- * BLOCK TOKEN  → Peter Griffin "No no no!" (res/raw/nonono.mp3)
+ * BLOCK TOKEN  → "Awesome!" (res/raw/awesome.mp3)
  *
  * All sounds respect the device's volume and Do Not Disturb settings.
  * Can be muted from settings.
@@ -52,7 +52,7 @@ class SoundManager(private val ctx: Context) {
     
     // Sound IDs for custom clips (loaded lazily)
     private var woohooSoundId: Int = -1
-    private var nononoSoundId: Int = -1
+    private var awesomeSoundId: Int = -1
     private var soundsLoaded = false
     
     init {
@@ -68,13 +68,13 @@ class SoundManager(private val ctx: Context) {
                 woohooSoundId = soundPool.load(ctx, woohooResId, 1)
             }
             
-            // Try to load Peter's "No no no!" for block events  
-            val nononoResId = ctx.resources.getIdentifier("nonono", "raw", ctx.packageName)
-            if (nononoResId != 0) {
-                nononoSoundId = soundPool.load(ctx, nononoResId, 1)
+            // Try to load "Awesome!" for block events  
+            val awesomeResId = ctx.resources.getIdentifier("awesome", "raw", ctx.packageName)
+            if (awesomeResId != 0) {
+                awesomeSoundId = soundPool.load(ctx, awesomeResId, 1)
             }
             
-            soundsLoaded = woohooSoundId > 0 || nononoSoundId > 0
+            soundsLoaded = woohooSoundId > 0 || awesomeSoundId > 0
             if (soundsLoaded) {
                 ErrorLogger.info("SoundManager", "Custom sounds loaded! 🎵 Woohoo!")
             }
@@ -120,12 +120,12 @@ class SoundManager(private val ctx: Context) {
         }
     }
     
-    // ── BLOCK TOKEN - Peter's "No no no!" ──────────────────────────────
+    // ── BLOCK TOKEN - "Awesome!" ──────────────────────────────────────
     fun playBlockSound() {
         if (!enabled) return
         mainHandler.post {
-            if (soundsLoaded && nononoSoundId > 0) {
-                soundPool.play(nononoSoundId, 1.0f, 1.0f, 1, 0, 1.0f)
+            if (soundsLoaded && awesomeSoundId > 0) {
+                soundPool.play(awesomeSoundId, 1.0f, 1.0f, 1, 0, 1.0f)
                 vibratePattern(longArrayOf(0, 100, 50, 100, 50, 100))
             } else {
                 // Fallback: descending "nope" tones
@@ -208,13 +208,13 @@ class SoundManager(private val ctx: Context) {
         }
     }
 
-    // ── Safety block alert - Peter's "No no no!" ──────────────────────
+    // ── Safety block alert - "Awesome!" ────────────────────────────────
     fun playSafetyBlock() {
         if (!enabled) return
         mainHandler.post {
-            if (soundsLoaded && nononoSoundId > 0) {
-                // 🎵 Peter Griffin "No no no!"
-                soundPool.play(nononoSoundId, 1.0f, 1.0f, 1, 0, 1.0f)
+            if (soundsLoaded && awesomeSoundId > 0) {
+                // 🎵 "Awesome!"
+                soundPool.play(awesomeSoundId, 1.0f, 1.0f, 1, 0, 1.0f)
             } else {
                 // Fallback tones
                 playSequence(listOf(
