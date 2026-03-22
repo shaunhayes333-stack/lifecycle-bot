@@ -261,17 +261,17 @@ class LifecycleStrategy(
         
         // Apply edge optimization to entry decision (only for new entries)
         if (!ts.position.isOpen) {
-            // Phase-based behavior change
+            // Phase-based behavior change - ONLY boost, don't penalize heavily
             when (edgePhase.phase) {
                 EdgeOptimizer.MarketPhase.DEAD -> {
-                    // DEAD phase — ignore completely
-                    entryScore = 0.0
-                    ErrorLogger.debug("Edge", "💀 ${ts.symbol}: DEAD phase - ignoring")
+                    // DEAD phase — small penalty, don't zero out
+                    entryScore = (entryScore * 0.7)
+                    ErrorLogger.debug("Edge", "💀 ${ts.symbol}: DEAD phase -30%")
                 }
                 EdgeOptimizer.MarketPhase.DISTRIBUTION -> {
-                    // DISTRIBUTION — block entries
-                    entryScore = (entryScore * 0.3).coerceAtMost(20.0)
-                    ErrorLogger.debug("Edge", "📉 ${ts.symbol}: DISTRIBUTION - blocking entry")
+                    // DISTRIBUTION — small penalty
+                    entryScore = (entryScore * 0.8)
+                    ErrorLogger.debug("Edge", "📉 ${ts.symbol}: DISTRIBUTION -20%")
                 }
                 EdgeOptimizer.MarketPhase.REACCUMULATION -> {
                     // REACCUMULATION — BEST entry zone, boost score
@@ -280,19 +280,18 @@ class LifecycleStrategy(
                     ErrorLogger.info("Edge", "🔄 ${ts.symbol}: REACCUMULATION +$boost pts ${if (edgePhase.isSecondLeg) "🔥 SECOND LEG" else ""}")
                 }
                 EdgeOptimizer.MarketPhase.EXPANSION -> {
-                    // EXPANSION — allow entry + potential top-ups
-                    if (edgePhase.buyPressure > 55) {
-                        entryScore = (entryScore + 10.0).coerceAtMost(100.0)
-                        ErrorLogger.debug("Edge", "📈 ${ts.symbol}: EXPANSION +10 pts")
-                    }
+                    // EXPANSION — boost entry
+                    entryScore = (entryScore + 10.0).coerceAtMost(100.0)
+                    ErrorLogger.debug("Edge", "📈 ${ts.symbol}: EXPANSION +10 pts")
                 }
                 EdgeOptimizer.MarketPhase.EARLY_ACCUMULATION -> {
-                    // Early accumulation — cautious, small boost
-                    if (edgePhase.buyPressure > 54) {
-                        entryScore = (entryScore + 5.0).coerceAtMost(100.0)
-                    }
+                    // Early accumulation — boost
+                    entryScore = (entryScore + 5.0).coerceAtMost(100.0)
                 }
-                EdgeOptimizer.MarketPhase.UNKNOWN -> { /* no adjustment */ }
+                EdgeOptimizer.MarketPhase.UNKNOWN -> {
+                    // Unknown is neutral - small boost to allow trading
+                    entryScore = (entryScore + 3.0).coerceAtMost(100.0)
+                }
             }
             
             // Entry timing check — Spike → Pullback → Reclaim pattern
@@ -301,15 +300,14 @@ class LifecycleStrategy(
                 ErrorLogger.info("Edge", "⭐ ${ts.symbol}: OPTIMAL entry timing +15 pts")
             }
             
-            // Trade quality filter — skip low quality setups
-            if (!edgeFilter.shouldTrade && entryScore < 50) {
-                // Only block if entry score isn't already high
-                entryScore = (entryScore * 0.5).coerceAtMost(25.0)
-                ErrorLogger.debug("Edge", "🚫 ${ts.symbol}: Filter blocked - ${edgeFilter.reason}")
+            // REMOVED aggressive filter blocking - let catch-all decide
+            // Trade quality filter only LOGS, doesn't block
+            if (!edgeFilter.shouldTrade) {
+                ErrorLogger.debug("Edge", "📊 ${ts.symbol}: Filter notes - ${edgeFilter.reason}")
             }
             
             // Log edge analysis for significant tokens
-            if (entryScore >= 25 || edgePhase.phase == EdgeOptimizer.MarketPhase.REACCUMULATION) {
+            if (entryScore >= 20 || edgePhase.phase == EdgeOptimizer.MarketPhase.REACCUMULATION) {
                 val confidence = EdgeOptimizer.calculateConfidence(edgePhase, edgeTiming, 
                     EdgeOptimizer.WeightedScore(entryScore, exitScore, emptyMap()))
                 ErrorLogger.info("Edge", EdgeOptimizer.formatAnalysis(
@@ -1394,7 +1392,7 @@ class LifecycleStrategy(
         }
 
         // ═══════════════════════════════════════════════════════════════════
-        // TradingMemory - Apply learned pattern penalties
+        // TradingMemory - Apply learned pattern penalties (REDUCED IMPACT)
         // ═══════════════════════════════════════════════════════════════════
         val memoryPatternPenalty = TradingMemory.getPatternPenalty(
             phase = phase,
@@ -1402,34 +1400,35 @@ class LifecycleStrategy(
             source = ts.source.ifBlank { "UNKNOWN" },
         )
         if (memoryPatternPenalty > 0) {
-            adjustedEntryScore -= memoryPatternPenalty
-            ErrorLogger.info("AI", "🤖 PENALTY: ${ts.symbol} -$memoryPatternPenalty pts (bad pattern: $phase+${emafan.alignment.name})")
+            // Apply only HALF the penalty - don't be too aggressive
+            val actualPenalty = (memoryPatternPenalty / 2.0).coerceAtMost(15.0)
+            adjustedEntryScore -= actualPenalty
+            ErrorLogger.debug("AI", "🤖 PENALTY: ${ts.symbol} -${actualPenalty.toInt()} pts (bad pattern)")
         }
         
-        // Check if this token was a loser before
+        // Check if this token was a loser before - only block after 3 losses (was 2)
         val tokenHistory = TradingMemory.getTokenLossHistory(ts.mint)
-        if (tokenHistory != null && tokenHistory.lossCount >= 2) {
+        if (tokenHistory != null && tokenHistory.lossCount >= 3) {
             ErrorLogger.info("AI", "🤖 BLOCK: ${ts.symbol} - ${tokenHistory.lossCount} prior losses on this token")
             return "WAIT"
         }
         
-        // Check token risk score based on features similar to past losers
+        // Check token risk score - reduce impact
         val riskScore = TradingMemory.getTokenRiskScore(
             liquidity = ts.lastLiquidityUsd,
             mcap = ts.lastMcap,
-            holderConcentration = 0.0,  // Would need holder data
+            holderConcentration = 0.0,
             devHoldingPct = 0.0,
             ageHours = tokenAgeMins / 60.0,
-            hadSocials = false,  // Not tracked in current model
+            hadSocials = false,
             isPumpFun = ts.source.contains("pump", ignoreCase = true),
             volumeToLiqRatio = if (ts.lastLiquidityUsd > 0) hist.lastOrNull()?.vol?.div(ts.lastLiquidityUsd) ?: 0.0 else 0.0,
         )
-        if (riskScore >= 70) {
-            val penalty = (riskScore - 50) / 2
+        // Only apply penalty for VERY high risk (was 70, now 80)
+        if (riskScore >= 80) {
+            val penalty = (riskScore - 70) / 3  // Reduced penalty
             adjustedEntryScore -= penalty
-            ErrorLogger.info("AI", "🤖 RISK: ${ts.symbol} score=$riskScore (similar to past losers) -$penalty pts")
-        } else if (riskScore >= 40) {
-            ErrorLogger.debug("AI", "🤖 CHECK: ${ts.symbol} risk=$riskScore (moderate)")
+            ErrorLogger.debug("AI", "🤖 RISK: ${ts.symbol} score=$riskScore -$penalty pts")
         }
 
         // Phase blocks - only block on clearly bad phases
@@ -1515,15 +1514,14 @@ class LifecycleStrategy(
         }
 
         // CATCH-ALL: If entry score is decent, buy regardless of phase
-        // Lowered threshold - stop being WAIT heavy, catch early entries
-        val catchAllThreshold = 15.0 + brainAdj  // LOWERED from 25 - early entries are profitable
-        val hasMinQuality = ts.lastLiquidityUsd >= 3000 &&        // Min $3K liquidity (lowered)
-                            ts.lastMcap >= 5000 &&                 // Min $5K mcap (lowered)
-                            (meta.volScore >= 10 || meta.pressScore >= 20)  // Some activity (lowered)
+        // AGGRESSIVE: Lower threshold to catch more entries
+        val catchAllThreshold = 12.0 + brainAdj  // LOWERED from 15 - catch early entries
+        val hasMinQuality = ts.lastLiquidityUsd >= 1000 &&        // Min $1K liquidity (lowered from $3K)
+                            ts.lastMcap >= 2000 &&                 // Min $2K mcap (lowered from $5K)
+                            (meta.volScore >= 5 || meta.pressScore >= 15)  // Some activity (lowered)
         
         if (adjustedEntryScore >= catchAllThreshold && hasMinQuality && 
-            phase !in listOf("breakdown", "distribution", "dying", "thin_market", 
-                             "overextended", "dump", "rug_likely")) {
+            phase !in listOf("breakdown", "dying", "rug_likely")) {  // Removed "distribution", "thin_market", "overextended", "dump"
             ErrorLogger.info("Strategy", "${ts.symbol}: CATCH-ALL BUY | phase=$phase score=${adjustedEntryScore.toInt()} liq=$${ts.lastLiquidityUsd.toInt()}")
             return "BUY"
         }
