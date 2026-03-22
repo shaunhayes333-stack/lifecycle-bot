@@ -72,7 +72,7 @@ object PatternBacktester {
         val phaseStats = analyzeByField(trades) { it.entryPhase }
 
         // Analyze by source
-        val sourceStats = analyzeByField(trades) { it.source ?: "UNKNOWN" }
+        val sourceStats = analyzeByField(trades) { it.source.ifEmpty { "UNKNOWN" } }
 
         // Analyze chart patterns (from entry phase or logs)
         // Note: Chart patterns are detected during entry and stored in entryPhase
