@@ -503,7 +503,8 @@ class Executor(
         }
 
         if (cfg().autoTrade && signal == "BUY" && !ts.position.isOpen) {
-            ErrorLogger.info("Executor", "BUY signal for ${ts.symbol} - autoTrade=${cfg().autoTrade}")
+            val isPaper = cfg().paperMode
+            ErrorLogger.info("Executor", "🔔 BUY signal for ${ts.symbol} | paper=$isPaper | wallet=${walletSol.fmt(4)} | autoTrade=${cfg().autoTrade}")
             
             // ════════════════════════════════════════════════════════════════
             // V8: State Machine Integration
@@ -569,6 +570,7 @@ class Executor(
             } catch (e: Exception) { 50.0 }
             
             // AI-DRIVEN SIZING: Pass confidence, phase, source, and brain to SmartSizer
+            ErrorLogger.info("Executor", "📊 ${ts.symbol} SIZING: wallet=$walletSol | liq=${ts.lastLiquidityUsd} | mcap=${ts.lastFdv} | conf=$aiConfidence | entry=$entryScore")
             var size = buySizeSol(
                 entryScore = entryScore, 
                 walletSol = walletSol, 
@@ -622,9 +624,13 @@ class Executor(
             }
             
             if (size < 0.001) {
-                onLog("Insufficient capacity for new position on ${ts.symbol}", ts.mint)
+                ErrorLogger.error("Executor", "❌ ${ts.symbol} SIZE TOO SMALL: $size | wallet=$walletSol | paper=$isPaperMode | liq=${ts.lastLiquidityUsd}")
+                onLog("Insufficient capacity for new position on ${ts.symbol} (size=$size)", ts.mint)
                 return
             }
+            
+            // Size OK - proceed with buy
+            ErrorLogger.info("Executor", "✅ ${ts.symbol} SIZE OK: $size SOL - proceeding to doBuy()")
 
             // Notify shadow learning engine of trade opportunity
             ShadowLearningEngine.onTradeOpportunity(
@@ -988,10 +994,13 @@ class Executor(
                     source = src, pnlPct = pnlP, mint = ts.mint
                 )
                 if (shouldBlacklist) {
+                    // Session blacklist (cleared on restart)
                     TokenBlacklist.block(ts.mint, "2+ losses on ${ts.symbol}")
-                    onLog("🚫 BLACKLISTED: ${ts.symbol} after repeated losses", ts.mint)
-                    onNotify("🚫 Token Blacklisted", 
-                             "${ts.symbol}: 2+ losses — will not trade again",
+                    // Permanent ban (persisted across restarts)
+                    BannedTokens.ban(ts.mint, "2+ losses on ${ts.symbol}")
+                    onLog("🚫 PERMANENTLY BANNED: ${ts.symbol} after repeated losses", ts.mint)
+                    onNotify("🚫 Token Banned", 
+                             "${ts.symbol}: 2+ losses — permanently banned",
                              com.lifecyclebot.engine.NotificationHistory.NotifEntry.NotifType.INFO)
                 }
             }
@@ -1168,10 +1177,13 @@ class Executor(
                     source = src, pnlPct = pnlP, mint = ts.mint
                 )
                 if (shouldBlacklist) {
+                    // Session blacklist (cleared on restart)
                     TokenBlacklist.block(ts.mint, "2+ losses on ${ts.symbol}")
-                    onLog("🚫 BLACKLISTED: ${ts.symbol} after repeated losses", ts.mint)
-                    onNotify("🚫 Token Blacklisted", 
-                             "${ts.symbol}: 2+ losses — will not trade again",
+                    // Permanent ban (persisted across restarts)
+                    BannedTokens.ban(ts.mint, "2+ losses on ${ts.symbol}")
+                    onLog("🚫 PERMANENTLY BANNED: ${ts.symbol} after repeated losses", ts.mint)
+                    onNotify("🚫 Token Banned", 
+                             "${ts.symbol}: 2+ losses — permanently banned",
                              com.lifecyclebot.engine.NotificationHistory.NotifEntry.NotifType.INFO)
                 }
             }

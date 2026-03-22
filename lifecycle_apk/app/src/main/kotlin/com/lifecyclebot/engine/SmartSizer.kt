@@ -1,6 +1,7 @@
 package com.lifecyclebot.engine
 
 import com.lifecyclebot.data.BotConfig
+import com.lifecyclebot.engine.ErrorLogger
 
 /**
  * SmartSizer — wallet-aware dynamic position sizing
@@ -96,6 +97,7 @@ object SmartSizer {
     ): SizeResult {
 
         val isPaperMode = cfg.paperMode
+        ErrorLogger.info("SmartSizer", "📏 SIZING: paper=$isPaperMode wallet=$walletSol reserve=${cfg.walletReserveSol} mcap=$mcapUsd liq=$liquidityUsd")
         
         // ── HARD MCAP FLOOR — DISABLED IN PAPER MODE ──────────────────
         if (!isPaperMode) {
@@ -108,8 +110,18 @@ object SmartSizer {
 
         // ── Tradeable balance (reserve + treasury excluded) ──────────
         val treasuryFloor = TreasuryManager.treasurySol
-        val tradeable = (walletSol - cfg.walletReserveSol - treasuryFloor).coerceAtLeast(0.0)
+        
+        // PAPER MODE: Use full wallet, ignore reserve/treasury - we want to learn
+        val tradeable = if (isPaperMode) {
+            walletSol.coerceAtLeast(0.0)
+        } else {
+            (walletSol - cfg.walletReserveSol - treasuryFloor).coerceAtLeast(0.0)
+        }
+        
+        ErrorLogger.info("SmartSizer", "📏 tradeable=$tradeable (wallet=$walletSol - reserve=${cfg.walletReserveSol} - treasury=$treasuryFloor | paper=$isPaperMode)")
+        
         if (tradeable < 0.005) {
+            ErrorLogger.error("SmartSizer", "❌ BLOCKED: tradeable $tradeable < 0.005 floor | paper=$isPaperMode")
             return SizeResult(0.0, "insufficient", 0.0, 1.0, 1.0, 1.0, 1.0, "reserve",
                 "Wallet below reserve floor — no trades (treasury: ${treasuryFloor.fmt(4)}◎ locked)")
         }
@@ -205,20 +217,28 @@ object SmartSizer {
         size *= memoryMult
 
         // ── Performance multiplier ────────────────────────────────────
-        val perfMult = when {
-            perf.lossStreak >= 4                       -> 0.50  // bad streak — cut back hard
-            perf.lossStreak >= 3                       -> 0.70
-            perf.recentWinRate >= 70 && perf.totalTrades >= 5 -> 1.30  // hot streak - go bigger
-            perf.recentWinRate >= 60 && perf.totalTrades >= 5 -> 1.15
-            perf.recentWinRate < 40  && perf.totalTrades >= 5 -> 0.60
-            perf.recentWinRate < 50  && perf.totalTrades >= 5 -> 0.80
-            perf.winStreak >= 3                        -> 1.20  // win streak bonus
-            else                                       -> 1.0
+        // PAPER MODE: No performance penalty - we want to learn from losses too
+        val perfMult = if (isPaperMode) {
+            1.0  // No streak penalty in paper mode
+        } else {
+            when {
+                perf.lossStreak >= 4                       -> 0.50  // bad streak — cut back hard
+                perf.lossStreak >= 3                       -> 0.70
+                perf.recentWinRate >= 70 && perf.totalTrades >= 5 -> 1.30  // hot streak - go bigger
+                perf.recentWinRate >= 60 && perf.totalTrades >= 5 -> 1.15
+                perf.recentWinRate < 40  && perf.totalTrades >= 5 -> 0.60
+                perf.recentWinRate < 50  && perf.totalTrades >= 5 -> 0.80
+                perf.winStreak >= 3                        -> 1.20  // win streak bonus
+                else                                       -> 1.0
+            }
         }
         size *= perfMult
 
         // ── Drawdown protection ───────────────────────────────────────
-        val drawdownMult = if (perf.sessionPeakSol > 0) {
+        // PAPER MODE: No drawdown protection - we want to learn from everything
+        val drawdownMult = if (isPaperMode) {
+            1.0  // No drawdown penalty in paper mode
+        } else if (perf.sessionPeakSol > 0) {
             val recovery = walletSol / perf.sessionPeakSol
             when {
                 recovery < 0.40 -> 0.0   // circuit breaker
@@ -229,6 +249,7 @@ object SmartSizer {
         } else 1.0
 
         if (drawdownMult == 0.0) {
+            ErrorLogger.error("SmartSizer", "❌ BLOCKED: drawdown circuit breaker | paper=$isPaperMode")
             return SizeResult(0.0, tier, basePct, aiScoreMult, perfMult, 0.0, 1.0,
                 "drawdown_circuit_breaker",
                 "Wallet down 60%+ from peak — entries paused")
@@ -241,44 +262,62 @@ object SmartSizer {
         // ── Hard limits ───────────────────────────────────────────────
         var cappedBy = "none"
 
-        // Max per-trade: 20% of tradeable
-        val maxPerTrade = tradeable * 0.20
-        if (size > maxPerTrade) { size = maxPerTrade; cappedBy = "maxPct_20" }
+        // PAPER MODE: Relax per-trade and exposure caps significantly
+        if (isPaperMode) {
+            // Paper: Allow 40% per trade (was 20%)
+            val maxPerTrade = tradeable * 0.40
+            if (size > maxPerTrade) { size = maxPerTrade; cappedBy = "maxPct_40_paper" }
+            
+            // Paper: Allow 95% total exposure (was 70%) - learn more
+            val exposureRoom = (tradeable * 0.95) - currentTotalExposure
+            ErrorLogger.info("SmartSizer", "📏 PAPER exposureRoom=$exposureRoom (tradeable*0.95=${tradeable*0.95} - exposure=$currentTotalExposure)")
+            if (size > exposureRoom) { size = exposureRoom.coerceAtLeast(0.0); cappedBy = "exposureCap_paper" }
+        } else {
+            // REAL MODE: Normal caps
+            // Max per-trade: 20% of tradeable
+            val maxPerTrade = tradeable * 0.20
+            if (size > maxPerTrade) { size = maxPerTrade; cappedBy = "maxPct_20" }
 
-        // Total exposure cap: 70% of tradeable deployed simultaneously
-        // 30% stays as dry powder for new opportunities and gas fees.
-        // SmartSizer drawdown protection further reduces this when losing.
-        val exposureRoom = (tradeable * 0.70) - currentTotalExposure
-        if (size > exposureRoom) { size = exposureRoom.coerceAtLeast(0.0); cappedBy = "exposureCap" }
-
-        // ── Liquidity ownership cap (ScalingMode tier-aware) ─────────
-        // Ownership % scales down as treasury grows and pools get larger:
-        //   MICRO/STANDARD: 4%  |  GROWTH: 3%  |  SCALED: 2%  |  INSTITUTIONAL: 1%
-        val trsUsdCap = TreasuryManager.treasurySol * solPriceUsd
-        val (capTier, tierMaxSol) = ScalingMode.maxPositionForToken(
-            liquidityUsd = liquidityUsd,
-            mcapUsd      = mcapUsd,
-            treasuryUsd  = trsUsdCap,
-            solPriceUsd  = solPriceUsd,
-        )
-        if (liquidityUsd > 0.0 && solPriceUsd > 0.0) {
-            if (size > tierMaxSol) {
-                size     = tierMaxSol
-                cappedBy = "liqOwnership_${(capTier.ownershipCapPct*100).toInt()}pct_${capTier.label}"
-            }
-        } else if (liquidityUsd <= 0.0) {
-            if (size > 20.0) { size = 20.0; cappedBy = "liqUnknown_20sol" }
+            // Total exposure cap: 70% of tradeable deployed simultaneously
+            val exposureRoom = (tradeable * 0.70) - currentTotalExposure
+            ErrorLogger.info("SmartSizer", "📏 exposureRoom=$exposureRoom (tradeable*0.7=${tradeable*0.7} - exposure=$currentTotalExposure)")
+            if (size > exposureRoom) { size = exposureRoom.coerceAtLeast(0.0); cappedBy = "exposureCap" }
         }
 
-        // Dust floor
+        // ── Liquidity ownership cap (ScalingMode tier-aware) ─────────
+        // PAPER MODE: Skip liquidity ownership cap - we want to learn
+        if (!isPaperMode) {
+            // Ownership % scales down as treasury grows and pools get larger:
+            //   MICRO/STANDARD: 4%  |  GROWTH: 3%  |  SCALED: 2%  |  INSTITUTIONAL: 1%
+            val trsUsdCap = TreasuryManager.treasurySol * solPriceUsd
+            val (capTier, tierMaxSol) = ScalingMode.maxPositionForToken(
+                liquidityUsd = liquidityUsd,
+                mcapUsd      = mcapUsd,
+                treasuryUsd  = trsUsdCap,
+                solPriceUsd  = solPriceUsd,
+            )
+            if (liquidityUsd > 0.0 && solPriceUsd > 0.0) {
+                if (size > tierMaxSol) {
+                    size     = tierMaxSol
+                    cappedBy = "liqOwnership_${(capTier.ownershipCapPct*100).toInt()}pct_${capTier.label}"
+                }
+            } else if (liquidityUsd <= 0.0) {
+                if (size > 20.0) { size = 20.0; cappedBy = "liqUnknown_20sol" }
+            }
+        }
+
+        // Dust floor - lower for paper mode
         size = size.coerceAtLeast(0.0)
-        if (size < 0.005) {
+        val dustFloor = if (isPaperMode) 0.001 else 0.005  // 0.001 SOL in paper, 0.005 in real
+        if (size < dustFloor) {
+            ErrorLogger.error("SmartSizer", "❌ BLOCKED: dust floor | size=$size < $dustFloor | paper=$isPaperMode")
             return SizeResult(0.0, tier, basePct, aiScoreMult, perfMult, drawdownMult, concMult,
                 "dust", "Calculated size below dust floor")
         }
 
         // Round to 4dp
         size = (size * 10000).toLong() / 10000.0
+        ErrorLogger.info("SmartSizer", "✅ SIZE OK: $size SOL | tier=$tier | paper=$isPaperMode")
 
         val explanation = buildString {
             append("AI conf=${aiConfidence.toInt()} ")

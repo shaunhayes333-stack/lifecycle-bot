@@ -1226,6 +1226,15 @@ class SolanaMarketScanner(
     private fun passesFilterInternal(token: ScannedToken): Boolean {
         val c = cfg()
 
+        // ═══════════════════════════════════════════════════════════════════
+        // FIRST CHECK: Is this token permanently banned?
+        // This happens BEFORE all other checks to save processing time
+        // ═══════════════════════════════════════════════════════════════════
+        if (BannedTokens.isBanned(token.mint)) {
+            ErrorLogger.debug("Scanner", "FILTER REJECT ${token.symbol}: PERMANENTLY BANNED")
+            return false
+        }
+
         // HARD MINIMUM MCAP - VERY LOW to catch early pump.fun tokens
         val HARD_MIN_MCAP = 2_000.0  // Lowered from $5K
         if (token.mcapUsd > 0 && token.mcapUsd < HARD_MIN_MCAP) {

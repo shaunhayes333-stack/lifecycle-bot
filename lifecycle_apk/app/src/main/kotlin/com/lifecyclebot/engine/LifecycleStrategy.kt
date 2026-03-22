@@ -518,7 +518,18 @@ class LifecycleStrategy(
 
     private fun passesGates(hist: List<Candle>): Boolean {
         val latest = hist.last()
+        val isPaperMode = cfg().paperMode
+        
         if (latest.priceUsd <= 0) return false
+        
+        // PAPER MODE: Very lenient - we want to learn from more tokens
+        if (isPaperMode) {
+            // Only require price exists and some minimal volume
+            if (latest.vol < 1.0 && hist.size > 5) return false
+            return true  // Skip all other gates in paper mode
+        }
+        
+        // REAL MODE: Apply all gates
         if (latest.vol < 10.0 && hist.size > 5) return false
 
         // v4.4: Signal-based liquidity gate — replaces crude time filter
@@ -1481,12 +1492,12 @@ class LifecycleStrategy(
         
         if (isPaperMode) {
             // PAPER MODE: Got past filters = BUY immediately
-            // Only requirement: some liquidity exists
-            if (ts.lastLiquidityUsd >= 200) {
-                ErrorLogger.info("Strategy", "${ts.symbol}: PAPER BUY (filter pass) | phase=$phase liq=$${ts.lastLiquidityUsd.toInt()}")
+            // Very low liquidity requirement - we want to learn from many tokens
+            if (ts.lastLiquidityUsd >= 50 || ts.lastFdv >= 1000) {  // lowered from $200 to $50 liq OR $1K mcap
+                ErrorLogger.info("Strategy", "🟢 ${ts.symbol}: PAPER BUY (filter pass) | phase=$phase liq=$${ts.lastLiquidityUsd.toInt()} mcap=$${ts.lastFdv.toInt()} entry=${adjustedEntryScore.toInt()}")
                 return "BUY"
             } else {
-                ErrorLogger.debug("Strategy", "${ts.symbol}: Paper skip - no liquidity")
+                ErrorLogger.info("Strategy", "⏸️ ${ts.symbol}: Paper skip - liq=$${ts.lastLiquidityUsd.toInt()} mcap=$${ts.lastFdv.toInt()} | phase=$phase entry=${adjustedEntryScore.toInt()}")
                 return "WAIT"
             }
         }

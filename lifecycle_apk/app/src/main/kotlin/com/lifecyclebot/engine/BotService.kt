@@ -528,6 +528,10 @@ class BotService : Service() {
         TradingMemory.init(applicationContext)
         addLog("📚 ${TradingMemory.getStats()}")
         
+        // Initialize BannedTokens for permanent token bans
+        BannedTokens.init(applicationContext)
+        addLog("🚫 ${BannedTokens.getStats()}")
+        
         // Initialize KillSwitch for account protection
         val effectiveBalance = status.getEffectiveBalance(cfg.paperMode)
         KillSwitch.init(applicationContext, effectiveBalance)
@@ -842,6 +846,18 @@ class BotService : Service() {
 
                     val ts = status.tokens[mint] ?: return@launch
                     
+                    // ═══════════════════════════════════════════════════════════════════
+                    // Skip permanently banned tokens immediately
+                    // ═══════════════════════════════════════════════════════════════════
+                    if (BannedTokens.isBanned(mint)) {
+                        // Remove from watchlist to stop wasting resources
+                        synchronized(status.tokens) {
+                            status.tokens.remove(mint)
+                        }
+                        ErrorLogger.debug("BotService", "Removing banned token ${ts.symbol} from watchlist")
+                        return@launch
+                    }
+                    
                     // ── Rug Detection - Learn from sudden liquidity/price drops ──
                     if (ts.history.size >= 3) {
                         val recentCandles = ts.history.takeLast(3)
@@ -904,6 +920,13 @@ class BotService : Service() {
                                     sendTradeNotif("Token Blocked", "${ts.symbol}: ${report.summary}",
                                         NotificationHistory.NotifEntry.NotifType.SAFETY_BLOCK)
                                     TokenBlacklist.block(mint, "Safety: $reason")
+                                    // Permanent ban for rug/scam patterns
+                                    if (reason.contains("rug", ignoreCase = true) || 
+                                        reason.contains("honeypot", ignoreCase = true) ||
+                                        reason.contains("scam", ignoreCase = true)) {
+                                        BannedTokens.ban(mint, "Safety: $reason")
+                                        addLog("🚫 PERMANENTLY BANNED: ${ts.symbol} - $reason", mint)
+                                    }
                                     soundManager.playSafetyBlock()
                                 }
                                 SafetyTier.CAUTION -> {
@@ -978,6 +1001,12 @@ class BotService : Service() {
                 // Trade on ALL watchlist tokens simultaneously
                 val cbState = securityGuard.getCircuitBreakerState()
                 val effectiveBalance = status.getEffectiveBalance(cfg.paperMode)
+                
+                // DEBUG: Log when BUY signal is received
+                if (result.signal == "BUY") {
+                    ErrorLogger.info("BotService", "🔔 BUY SIGNAL: ${ts.symbol} | balance=$effectiveBalance | paper=${cfg.paperMode} | entry=${result.entryScore.toInt()}")
+                }
+                
                 if (!cbState.isHalted && !cbState.isPaused) {
                     executor.maybeAct(
                         ts                 = ts,
