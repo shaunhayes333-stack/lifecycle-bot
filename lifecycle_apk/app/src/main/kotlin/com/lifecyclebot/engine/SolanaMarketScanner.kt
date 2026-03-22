@@ -1412,7 +1412,8 @@ class SolanaMarketScanner(
         if (token.source == TokenSource.RAYDIUM_NEW_POOL && !c.scanRaydiumNew) return false
 
         // Minimum discovery score - VERY LOW for maximum discovery
-        val MIN_SCORE = 10.0  // Hard minimum, ignore config
+        // We want to discover as many tokens as possible - let strategy filter
+        val MIN_SCORE = 5.0  // Lowered from 10 - let more through
         if (token.score < MIN_SCORE) {
             ErrorLogger.debug("Scanner", "FILTER REJECT ${token.symbol}: score ${token.score.toInt()} < min ${MIN_SCORE.toInt()}")
             return false

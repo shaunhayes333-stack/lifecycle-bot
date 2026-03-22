@@ -1504,13 +1504,14 @@ class LifecycleStrategy(
         
         // REAL MODE: Still check score thresholds but less strict
         // If we got past all safety/phase blocks, we're already filtered
-        if (adjustedEntryScore >= 10 && ts.lastLiquidityUsd >= 500) {
+        // LOWERED: Enter earlier with score >= 5 (was 10)
+        if (adjustedEntryScore >= 5 && ts.lastLiquidityUsd >= 300) {
             ErrorLogger.info("Strategy", "${ts.symbol}: REAL BUY (filter pass) | score=${adjustedEntryScore.toInt()} phase=$phase")
             return "BUY"
         }
 
         // v4: block on volume divergence ONLY if severe (REAL MODE ONLY)
-        if (volDiv && adjustedEntryScore < 40) return "WAIT"
+        if (volDiv && adjustedEntryScore < 30) return "WAIT"  // raised from 40 to let more trades through
 
         // Pullback entry — lower thresholds when buying a confirmed dip
         val pb = isPullbackEntry(hist, prices)
@@ -1524,15 +1525,16 @@ class LifecycleStrategy(
         val tokenTh   = ScalingMode.tierForToken(ts.lastLiquidityUsd, ts.lastFdv)
         // FIX 8: Regime compounds with tier threshold adj
         // In BEAR regime, higher-tier entries need even stronger signals
+        // BUT keep adjustments minimal to avoid over-filtering
         val regimeCompound = when {
-            brain()?.regimeBullMult != null && (brain()?.regimeBullMult ?: 1.0) < 0.80 -> 5.0  // brain sees bear
+            brain()?.regimeBullMult != null && (brain()?.regimeBullMult ?: 1.0) < 0.70 -> 3.0  // bear = only +3 (was +5)
             else -> 0.0
         }
         val tierThAdj = if (tokenTh.ordinal >= sTierTh.ordinal) when (sTierTh) {
-            ScalingMode.Tier.INSTITUTIONAL -> 15.0 + regimeCompound
-            ScalingMode.Tier.SCALED        -> 10.0 + regimeCompound
-            ScalingMode.Tier.GROWTH        ->  5.0 + regimeCompound
-            else                           ->  0.0 + regimeCompound
+            ScalingMode.Tier.INSTITUTIONAL -> 8.0 + regimeCompound   // was 15
+            ScalingMode.Tier.SCALED        -> 5.0 + regimeCompound   // was 10
+            ScalingMode.Tier.GROWTH        -> 2.0 + regimeCompound   // was 5
+            else                           -> 0.0 + regimeCompound
         } else regimeCompound
 
                 val brainAdj = try { brain()?.entryThresholdDelta ?: 0.0 } catch (_: Exception) { 0.0 }
@@ -1541,11 +1543,12 @@ class LifecycleStrategy(
             TradingMode.LAUNCH_SNIPE -> {
                 ErrorLogger.debug("Strategy", "${ts.symbol}: LAUNCH_SNIPE mode, phase=$phase, adjEntry=${adjustedEntryScore.toInt()}")
                 when (phase) {
-                    // ULTRA AGGRESSIVE - very low thresholds for more trades
-                    "pre_pump"      -> if (adjustedEntryScore >= (30 + brainAdj + tierThAdj) - adj) return "BUY"  // lowered from 40
-                    "pumping"       -> if (adjustedEntryScore >= (25 + brainAdj + tierThAdj) - adj) return "BUY"  // lowered from 30
-                    "pump_pullback" -> if (adjustedEntryScore >= (15 + brainAdj + tierThAdj))       return "BUY"  // lowered from 20
-                    "early_unknown" -> if (adjustedEntryScore >= (35 + brainAdj + tierThAdj) - adj) return "BUY"  // lowered from 45
+                    // ULTRA AGGRESSIVE - enter as early as possible
+                    "pre_pump"      -> if (adjustedEntryScore >= (20 + brainAdj + tierThAdj) - adj) return "BUY"  // lowered from 30
+                    "pumping"       -> if (adjustedEntryScore >= (15 + brainAdj + tierThAdj) - adj) return "BUY"  // lowered from 25
+                    "pump_pullback" -> if (adjustedEntryScore >= (10 + brainAdj + tierThAdj))       return "BUY"  // lowered from 15
+                    "early_unknown" -> if (adjustedEntryScore >= (25 + brainAdj + tierThAdj) - adj) return "BUY"  // lowered from 35
+                    "accumulation"  -> if (adjustedEntryScore >= (15 + brainAdj + tierThAdj) - adj) return "BUY"  // NEW - enter accumulation early
                 }
             }
             TradingMode.RANGE_TRADE -> {
