@@ -139,13 +139,28 @@ class BotViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     fun saveConfig(cfg: BotConfig) {
-        // Only save and restart if config actually changed
+        // Only save and restart if IMPORTANT settings changed (not watchlist)
         val currentCfg = ConfigStore.load(ctx)
-        if (cfg == currentCfg) return  // No change, skip restart
         
+        // Compare settings that matter (exclude watchlist which changes constantly)
+        val settingsChanged = cfg.paperMode != currentCfg.paperMode ||
+            cfg.autoTrade != currentCfg.autoTrade ||
+            cfg.buySizeSol != currentCfg.buySizeSol ||
+            cfg.heliusApiKey != currentCfg.heliusApiKey ||
+            cfg.birdeyeApiKey != currentCfg.birdeyeApiKey ||
+            cfg.groqApiKey != currentCfg.groqApiKey ||
+            cfg.telegramBotToken != currentCfg.telegramBotToken ||
+            cfg.telegramChatId != currentCfg.telegramChatId ||
+            cfg.soundEnabled != currentCfg.soundEnabled
+        
+        // Always save the config (to persist watchlist changes etc)
         ConfigStore.save(ctx, cfg)
-        // Restart loop to pick up new config (only if bot is running AND config changed)
-        if (_ui.value.running) { stopBot(); startBot() }
+        
+        // Only restart if important settings changed (not just watchlist)
+        if (settingsChanged && _ui.value.running) { 
+            stopBot()
+            startBot() 
+        }
     }
 
     fun connectWallet(privateKeyB58: String, rpcUrl: String) {

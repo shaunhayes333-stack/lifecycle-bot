@@ -321,6 +321,16 @@ class SolanaMarketScanner(
                 
                 // PUMP.FUN PRIORITY: Scan pump.fun EVERY cycle, plus rotate secondary sources
                 scanRotation = (scanRotation + 1) % 4  // 4 rotations for more variety
+                
+                // FORCE RESET every 20 cycles to prevent scanner staleness
+                if (scanRotation == 0 && seenMints.size > 50) {
+                    val resetCount = seenMints.size
+                    seenMints.clear()
+                    rejectedMints.entries.removeIf { System.currentTimeMillis() - it.value > 60_000 }  // Keep only recent rejects
+                    onLog("🔄 Scanner refresh: cleared $resetCount seen tokens")
+                    ErrorLogger.info("Scanner", "Forced refresh: cleared $resetCount seen mints")
+                }
+                
                 onLog("🌐 Scan #$scanRotation${_tn} - Starting scan cycle")
                 ErrorLogger.info("Scanner", "Scan cycle #$scanRotation starting")
                 
@@ -377,11 +387,19 @@ class SolanaMarketScanner(
                 // Clean up old seen/rejected entries every cycle
                 cleanupSeenMaps()
                 
-                // Log map sizes every 3 cycles for debugging discovery issues
+                // Log map sizes every cycle for debugging discovery issues
+                val watchlistSize = cfg().watchlist.size
                 if (scanRotation == 0) {
-                    val watchlistSize = cfg().watchlist.size
                     ErrorLogger.info("Scanner", "Discovery health: seen=${seenMints.size} rejected=${rejectedMints.size} watchlist=$watchlistSize")
                     onLog("📊 Discovery: seen=${seenMints.size} rejected=${rejectedMints.size} watchlist=$watchlistSize")
+                }
+                
+                // AUTO-RECOVER: If watchlist is empty or very small, force scanner refresh
+                if (watchlistSize <= 2 && seenMints.size > 30) {
+                    onLog("⚠️ Watchlist depleted - forcing scanner refresh")
+                    ErrorLogger.warn("Scanner", "Auto-recovery: watchlist=$watchlistSize, clearing ${seenMints.size} seen mints")
+                    seenMints.clear()
+                    rejectedMints.clear()
                 }
                 
                 // GC after scan
