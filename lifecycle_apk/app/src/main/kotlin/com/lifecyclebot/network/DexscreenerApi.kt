@@ -29,21 +29,30 @@ class DexscreenerApi {
     // Simple cache for getBestPair results - avoids repeated API calls
     private data class CachedPair(val pair: PairInfo?, val timestamp: Long)
     private val pairCache = java.util.concurrent.ConcurrentHashMap<String, CachedPair>()
-    private val CACHE_TTL_MS = 15_000L  // 15 seconds cache
+    private val CACHE_TTL_MS = 45_000L  // 45 seconds cache (was 15) - reduce API calls
 
     /** Returns the best-scoring pair for this mint on Solana, or null. */
     fun getBestPair(mint: String): PairInfo? {
-        // Check cache first
+        // Check cache first - ALWAYS use cache if available and not too old
         val cached = pairCache[mint]
-        if (cached != null && System.currentTimeMillis() - cached.timestamp < CACHE_TTL_MS) {
-            return cached.pair  // Return cached result (even if null)
+        val now = System.currentTimeMillis()
+        
+        // Use cache if fresh (45 seconds)
+        if (cached != null && now - cached.timestamp < CACHE_TTL_MS) {
+            return cached.pair
         }
         
-        if (!RateLimiter.allowRequest("dexscreener")) {
-            com.lifecyclebot.engine.ErrorLogger.debug("DexAPI", "Rate limited: getBestPair for ${mint.take(12)}")
-            // Return stale cache if available, otherwise null
-            return cached?.pair
+        // Use stale cache if rate limited (up to 2 minutes old)
+        if (cached != null && now - cached.timestamp < CACHE_TTL_MS * 3) {
+            if (!RateLimiter.allowRequest("dexscreener")) {
+                // Silently return stale cache - don't log rate limit spam
+                return cached.pair
+            }
+        } else if (!RateLimiter.allowRequest("dexscreener")) {
+            // No cache and rate limited - just return null silently
+            return null
         }
+        
         val url = "https://api.dexscreener.com/token-pairs/v1/solana/$mint"
         val body = get(url) ?: run {
             // Cache null result to avoid hammering API
@@ -81,7 +90,7 @@ class DexscreenerApi {
     /** Search by query string — used for token discovery */
     fun search(query: String): List<PairInfo> {
         if (!RateLimiter.allowRequest("dexscreener")) {
-            com.lifecyclebot.engine.ErrorLogger.debug("DexAPI", "Rate limited: search for $query")
+            // Silently return empty - don't spam logs
             return emptyList()
         }
         val url = "https://api.dexscreener.com/latest/dex/search?q=${encode(query)}"

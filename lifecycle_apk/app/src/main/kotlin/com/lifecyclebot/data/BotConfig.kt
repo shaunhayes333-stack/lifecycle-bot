@@ -128,8 +128,8 @@ data class BotConfig(
 
     // ── Full Solana Market Scanner ────────────────────────────────────
     val fullMarketScanEnabled: Boolean = true,   // master switch
-    val scanIntervalSecs: Int = 5,               // scan all sources every N seconds (fast refresh)
-    val maxWatchlistSize: Int = 50,  // INCREASED for more opportunities
+    val scanIntervalSecs: Int = 15,              // scan all sources every 15 seconds (was 5 - too fast)
+    val maxWatchlistSize: Int = 30,              // Reduced from 50 to reduce API calls
     val minDiscoveryScore: Double = 10.0,        // LOWERED - let more tokens through for evaluation
     val scanMinMcapUsd: Double = 0.0,            // no min mcap
     val scalingModeEnabled: Boolean = true,
@@ -392,8 +392,8 @@ object ConfigStore {
             crossTokenGuardEnabled      = p.getBoolean("cross_token_guard", true),
             crossTokenWindowMins        = p.getFloat("cross_token_window", 15.0f).toDouble(),
             fullMarketScanEnabled       = p.getBoolean("full_market_scan", true),
-            scanIntervalSecs            = p.getInt("scan_interval_secs", 5),  // FASTER
-            maxWatchlistSize            = p.getInt("max_watchlist_size", 50), // BIGGER
+            scanIntervalSecs            = p.getInt("scan_interval_secs", 15),  // 15 sec scan (was 5 - too fast)
+            maxWatchlistSize            = p.getInt("max_watchlist_size", 30),  // Reduced to 30
             minDiscoveryScore           = p.getFloat("min_discovery_score", 10.0f).toDouble(), // LOWERED
             scanMinMcapUsd              = p.getFloat("scan_min_mcap", 0.0f).toDouble(),
             scalingModeEnabled = p.getBoolean("scaling_mode_enabled", true),
