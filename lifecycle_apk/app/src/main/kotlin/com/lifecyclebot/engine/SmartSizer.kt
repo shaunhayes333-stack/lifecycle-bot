@@ -268,10 +268,9 @@ object SmartSizer {
             val maxPerTrade = tradeable * 0.40
             if (size > maxPerTrade) { size = maxPerTrade; cappedBy = "maxPct_40_paper" }
             
-            // Paper: Allow 95% total exposure (was 70%) - learn more
-            val exposureRoom = (tradeable * 0.95) - currentTotalExposure
-            ErrorLogger.info("SmartSizer", "📏 PAPER exposureRoom=$exposureRoom (tradeable*0.95=${tradeable*0.95} - exposure=$currentTotalExposure)")
-            if (size > exposureRoom) { size = exposureRoom.coerceAtLeast(0.0); cappedBy = "exposureCap_paper" }
+            // Paper: IGNORE exposure cap completely - we want maximum learning
+            // The bot will trade even if already exposed, so AI can learn from overlapping positions
+            ErrorLogger.info("SmartSizer", "📏 PAPER MODE: ignoring exposure cap | size=$size | exposure=$currentTotalExposure")
         } else {
             // REAL MODE: Normal caps
             // Max per-trade: 20% of tradeable
@@ -309,10 +308,20 @@ object SmartSizer {
         // Dust floor - lower for paper mode
         size = size.coerceAtLeast(0.0)
         val dustFloor = if (isPaperMode) 0.001 else 0.005  // 0.001 SOL in paper, 0.005 in real
+        
+        // PAPER MODE MINIMUM: Always trade at least 0.01 SOL (or 5% of wallet) to ensure learning
+        if (isPaperMode && size < dustFloor) {
+            val minPaperSize = maxOf(0.01, tradeable * 0.05)  // At least 0.01 SOL or 5% of wallet
+            if (tradeable >= 0.02) {  // Only if we have at least 0.02 SOL
+                size = minPaperSize
+                ErrorLogger.info("SmartSizer", "📏 PAPER MIN SIZE: forcing $size SOL (was below dust)")
+            }
+        }
+        
         if (size < dustFloor) {
-            ErrorLogger.error("SmartSizer", "❌ BLOCKED: dust floor | size=$size < $dustFloor | paper=$isPaperMode")
+            ErrorLogger.error("SmartSizer", "❌ BLOCKED: dust floor | size=$size < $dustFloor | paper=$isPaperMode | wallet=$walletSol")
             return SizeResult(0.0, tier, basePct, aiScoreMult, perfMult, drawdownMult, concMult,
-                "dust", "Calculated size below dust floor")
+                "dust", "Calculated size below dust floor (wallet too small?)")
         }
 
         // Round to 4dp
