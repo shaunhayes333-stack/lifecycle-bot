@@ -529,6 +529,11 @@ class BotService : Service() {
         val pm = getSystemService(Context.POWER_SERVICE) as PowerManager
         wakeLock = pm.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "lifecyclebot:trading")
             .also { it.acquire(12 * 60 * 60 * 1000L) }  // max 12h, released on stopBot
+        
+        // Schedule a repeating keep-alive alarm every 60 seconds
+        // This ensures the service restarts if Android kills it
+        scheduleKeepAliveAlarm()
+        
         addLog("Bot started — paper=${cfg.paperMode} auto=${cfg.autoTrade} sounds=${cfg.soundEnabled}")
         ErrorLogger.info("BotService", "Bot started successfully")
         
@@ -597,6 +602,8 @@ class BotService : Service() {
         TreasuryManager.save(applicationContext)
         botBrain?.stop(); botBrain = null
         tradeDb?.close(); tradeDb = null
+        // Cancel keep-alive alarm
+        cancelKeepAliveAlarm()
         // REMOVED: walletManager.disconnect() 
         // Wallet should ONLY disconnect when user explicitly requests it
         // This allows wallet to stay connected when:
@@ -610,6 +617,39 @@ class BotService : Service() {
         wakeLock?.let { if (it.isHeld) it.release() }
         wakeLock = null
         addLog("Bot stopped. All positions closed. Wallet remains connected.")
+    }
+    
+    // Keep-alive alarm to ensure service restarts if killed
+    private fun scheduleKeepAliveAlarm() {
+        val restartIntent = Intent(applicationContext, BotService::class.java).apply {
+            action = ACTION_START
+        }
+        val pi = android.app.PendingIntent.getService(
+            this, 999, restartIntent,
+            android.app.PendingIntent.FLAG_UPDATE_CURRENT or android.app.PendingIntent.FLAG_IMMUTABLE
+        )
+        val am = getSystemService(android.app.AlarmManager::class.java)
+        // Schedule repeating alarm every 60 seconds
+        am?.setRepeating(
+            android.app.AlarmManager.RTC_WAKEUP,
+            System.currentTimeMillis() + 60_000,
+            60_000,  // Every 60 seconds
+            pi
+        )
+        ErrorLogger.info("BotService", "Keep-alive alarm scheduled")
+    }
+    
+    private fun cancelKeepAliveAlarm() {
+        val restartIntent = Intent(applicationContext, BotService::class.java).apply {
+            action = ACTION_START
+        }
+        val pi = android.app.PendingIntent.getService(
+            this, 999, restartIntent,
+            android.app.PendingIntent.FLAG_UPDATE_CURRENT or android.app.PendingIntent.FLAG_IMMUTABLE
+        )
+        val am = getSystemService(android.app.AlarmManager::class.java)
+        am?.cancel(pi)
+        ErrorLogger.info("BotService", "Keep-alive alarm cancelled")
     }
 
     // ── main loop ──────────────────────────────────────────
@@ -1136,8 +1176,9 @@ class BotService : Service() {
             .setOngoing(true)
             .setContentIntent(pi)
             .setForegroundServiceBehavior(NotificationCompat.FOREGROUND_SERVICE_IMMEDIATE)
-            .setPriority(NotificationCompat.PRIORITY_LOW)
+            .setPriority(NotificationCompat.PRIORITY_HIGH)  // Higher priority to keep alive
             .setCategory(NotificationCompat.CATEGORY_SERVICE)
+            .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
             .build()
     }
 }
