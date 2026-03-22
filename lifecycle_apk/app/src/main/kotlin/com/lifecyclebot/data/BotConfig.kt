@@ -87,8 +87,8 @@ data class BotConfig(
     val soundOnNewToken: Boolean = true,
     // auto mode
     val autoMode: Boolean = true,           // auto-switch between modes
-    val tradingPauseUtcStart: Int = 1,      // UTC hour to pause (default 1am)
-    val tradingPauseUtcEnd: Int = 7,        // UTC hour to resume (default 7am)
+    val tradingPauseUtcStart: Int = 4,      // UTC hour to pause (default 4am - shortest dead window)
+    val tradingPauseUtcEnd: Int = 6,        // UTC hour to resume (default 6am - only 2 hours pause)
     val defensiveLossThreshold: Int = 3,    // losses before defensive mode
     val aggressiveWhaleThreshold: Double = 70.0,
     // copy trading
@@ -361,8 +361,8 @@ object ConfigStore {
             soundEnabled                = p.getBoolean("sound_enabled", true),
             soundOnNewToken             = p.getBoolean("sound_on_new_token", true),
             autoMode                    = p.getBoolean("auto_mode", true),
-            tradingPauseUtcStart        = p.getInt("trading_pause_utc_start", 1),
-            tradingPauseUtcEnd          = p.getInt("trading_pause_utc_end", 7),
+            tradingPauseUtcStart        = p.getInt("trading_pause_utc_start", 4),
+            tradingPauseUtcEnd          = p.getInt("trading_pause_utc_end", 6),
             defensiveLossThreshold      = p.getInt("defensive_loss_threshold", 3),
             aggressiveWhaleThreshold    = p.getFloat("aggressive_whale_threshold", 70.0f).toDouble(),
             copyTradingEnabled          = p.getBoolean("copy_trading_enabled", false),
