@@ -147,7 +147,9 @@ class HeliusCreatorHistory(private val apiKey: String) {
                 .build()
             val resp = http.newCall(req).execute()
             val body = resp.body?.string() ?: return -1
-            JSONObject(body).optInt("score", -1)
+            val json = JSONObject(body)
+            // Use score_normalised (0-100), fallback to raw score only if not present
+            json.optInt("score_normalised", json.optInt("score", -1))
         } catch (_: Exception) { -1 }
     }
 

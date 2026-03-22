@@ -152,7 +152,8 @@ class TokenSafetyChecker(private val cfg: () -> BotConfig) {
 
         // ── 1. Rugcheck.xyz composite report (free, no key) ───────────
         val rugcheck = fetchRugcheck(mint)
-        val rcScore  = rugcheck?.optInt("score", -1) ?: -1
+        // Use score_normalised (0-100) not raw score (can be thousands)
+        val rcScore  = rugcheck?.optInt("score_normalised", rugcheck.optInt("score", -1)) ?: -1
         var mintDisabled   : Boolean? = null
         var freezeDisabled : Boolean? = null
         var lpLockPct      = -1.0
