@@ -1541,7 +1541,7 @@ class LifecycleStrategy(
         // CATCH-ALL: If entry score is decent, buy regardless of phase
         // PAPER MODE: Much more aggressive to help brain learn faster
         // REAL MODE: Use learned thresholds, be more conservative
-        val isPaperMode = cfg().paperMode
+        // (isPaperMode already defined above)
         
         val catchAllThreshold = if (isPaperMode) {
             // PAPER MODE: Very low threshold - trade a lot to learn
