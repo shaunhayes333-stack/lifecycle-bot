@@ -1226,18 +1226,17 @@ class SolanaMarketScanner(
     private fun passesFilterInternal(token: ScannedToken): Boolean {
         val c = cfg()
 
-        // HARD MINIMUM MCAP - lowered to $5K for more aggressive trading
-        // Small caps are risky but can offer big returns
-        val HARD_MIN_MCAP = 5_000.0
+        // HARD MINIMUM MCAP - VERY LOW to catch early pump.fun tokens
+        val HARD_MIN_MCAP = 2_000.0  // Lowered from $5K
         if (token.mcapUsd > 0 && token.mcapUsd < HARD_MIN_MCAP) {
-            onLog("🚫 BLOCK: ${token.symbol} - mcap \$${(token.mcapUsd/1000).toInt()}K too low")
-            ErrorLogger.info("Scanner", "FILTER REJECT ${token.symbol}: mcap $${token.mcapUsd.toInt()} < hard min $${HARD_MIN_MCAP.toInt()}")
+            ErrorLogger.debug("Scanner", "FILTER REJECT ${token.symbol}: mcap $${token.mcapUsd.toInt()} < hard min $${HARD_MIN_MCAP.toInt()}")
             return false
         }
 
-        // Minimum liquidity
-        if (token.liquidityUsd < c.minLiquidityUsd && token.liquidityUsd > 0) {
-            ErrorLogger.debug("Scanner", "FILTER REJECT ${token.symbol}: liq $${token.liquidityUsd.toInt()} < min $${c.minLiquidityUsd.toInt()}")
+        // Minimum liquidity - VERY LOW for early discovery
+        val HARD_MIN_LIQ = 500.0  // $500 minimum - catch very early tokens
+        if (token.liquidityUsd < HARD_MIN_LIQ && token.liquidityUsd > 0) {
+            ErrorLogger.debug("Scanner", "FILTER REJECT ${token.symbol}: liq $${token.liquidityUsd.toInt()} < min $${HARD_MIN_LIQ.toInt()}")
             return false
         }
 
@@ -1263,9 +1262,10 @@ class SolanaMarketScanner(
         if (token.source == TokenSource.DEX_TRENDING && !c.scanDexTrending) return false
         if (token.source == TokenSource.RAYDIUM_NEW_POOL && !c.scanRaydiumNew) return false
 
-        // Minimum discovery score
-        if (token.score < c.minDiscoveryScore) {
-            ErrorLogger.debug("Scanner", "FILTER REJECT ${token.symbol}: score ${token.score.toInt()} < min ${c.minDiscoveryScore.toInt()}")
+        // Minimum discovery score - VERY LOW for maximum discovery
+        val MIN_SCORE = 10.0  // Hard minimum, ignore config
+        if (token.score < MIN_SCORE) {
+            ErrorLogger.debug("Scanner", "FILTER REJECT ${token.symbol}: score ${token.score.toInt()} < min ${MIN_SCORE.toInt()}")
             return false
         }
 

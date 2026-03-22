@@ -129,9 +129,9 @@ data class BotConfig(
     // ── Full Solana Market Scanner ────────────────────────────────────
     val fullMarketScanEnabled: Boolean = true,   // master switch
     val scanIntervalSecs: Int = 5,               // scan all sources every N seconds (fast refresh)
-    val maxWatchlistSize: Int = 20,  // Reduced for faster turnover and better opportunities
-    val minDiscoveryScore: Double = 25.0,        // min composite score to add token (lowered from 35)
-    val scanMinMcapUsd: Double = 0.0,            // no min mcap (was $5K)
+    val maxWatchlistSize: Int = 50,  // INCREASED for more opportunities
+    val minDiscoveryScore: Double = 10.0,        // LOWERED - let more tokens through for evaluation
+    val scanMinMcapUsd: Double = 0.0,            // no min mcap
     val scalingModeEnabled: Boolean = true,
     val scalingLogEnabled: Boolean = true,
     val scalingTierOverride: String = "",
@@ -387,14 +387,14 @@ object ConfigStore {
             convictionMult1             = p.getFloat("conviction_mult1", 1.25f).toDouble(),
             convictionMult2             = p.getFloat("conviction_mult2", 1.50f).toDouble(),
             liquidityGateEnabled        = p.getBoolean("liquidity_gate", true),
-            minLiquidityUsd             = p.getFloat("min_liquidity_usd", 3000.0f).toDouble(),
-            minVolLiqRatio              = p.getFloat("min_vol_liq_ratio", 0.30f).toDouble(),
+            minLiquidityUsd             = p.getFloat("min_liquidity_usd", 500.0f).toDouble(),  // LOWERED
+            minVolLiqRatio              = p.getFloat("min_vol_liq_ratio", 0.10f).toDouble(),   // LOWERED
             crossTokenGuardEnabled      = p.getBoolean("cross_token_guard", true),
             crossTokenWindowMins        = p.getFloat("cross_token_window", 15.0f).toDouble(),
             fullMarketScanEnabled       = p.getBoolean("full_market_scan", true),
-            scanIntervalSecs            = p.getInt("scan_interval_secs", 45),
-            maxWatchlistSize            = p.getInt("max_watchlist_size", 30),
-            minDiscoveryScore           = p.getFloat("min_discovery_score", 25.0f).toDouble(),
+            scanIntervalSecs            = p.getInt("scan_interval_secs", 5),  // FASTER
+            maxWatchlistSize            = p.getInt("max_watchlist_size", 50), // BIGGER
+            minDiscoveryScore           = p.getFloat("min_discovery_score", 10.0f).toDouble(), // LOWERED
             scanMinMcapUsd              = p.getFloat("scan_min_mcap", 0.0f).toDouble(),
             scalingModeEnabled = p.getBoolean("scaling_mode_enabled", true),
             scalingLogEnabled  = p.getBoolean("scaling_log_enabled", true),
