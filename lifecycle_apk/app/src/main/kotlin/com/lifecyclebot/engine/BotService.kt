@@ -527,6 +527,18 @@ class BotService : Service() {
         TradingMemory.init(applicationContext)
         addLog("📚 ${TradingMemory.getStats()}")
         
+        // Initialize KillSwitch for account protection
+        val effectiveBalance = status.getEffectiveBalance(cfg.paperMode)
+        KillSwitch.init(applicationContext, effectiveBalance)
+        KillSwitch.onKillTriggered = { reason ->
+            addLog("🛑 KILL SWITCH: $reason")
+            sendTradeNotif("🛑 KILL SWITCH", reason, NotificationHistory.NotifEntry.NotifType.WARNING)
+        }
+        KillSwitch.onWarning = { warning ->
+            addLog("⚠️ Risk Warning: $warning")
+        }
+        addLog("🛡️ KillSwitch initialized: peak=$${effectiveBalance.toInt()}")
+        
         // Set up paper wallet balance tracking
         executor.onPaperBalanceChange = { delta ->
             status.paperWalletSol = (status.paperWalletSol + delta).coerceAtLeast(0.0)

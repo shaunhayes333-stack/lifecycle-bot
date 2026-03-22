@@ -25,7 +25,7 @@ class NotificationHistory(ctx: Context) {
     ) {
         enum class NotifType {
             TRADE_WIN, TRADE_LOSS, SAFETY_BLOCK, CIRCUIT_BREAKER,
-            NEW_TOKEN, WHALE, GRADUATION, DEV_SELL, INFO, HALT
+            NEW_TOKEN, WHALE, GRADUATION, DEV_SELL, INFO, HALT, WARNING
         }
     }
 

@@ -84,6 +84,25 @@ object PrecisionExitLogic {
             return ExitSignal(false, "WAIT", Urgency.NONE, "Insufficient data")
         }
         
+        // ════════════════════════════════════════════════════════════════
+        // 2.5 DISTRIBUTION DETECTION (THE MONEY SIGNAL)
+        // ════════════════════════════════════════════════════════════════
+        val distribution = DistributionDetector.detect(
+            mint = ts.mint,
+            ts = ts,
+            currentExitScore = exitScore,
+            history = history,
+        )
+        
+        if (distribution.isDistributing && distribution.confidence >= 70) {
+            return ExitSignal(
+                shouldExit = true,
+                reason = "DISTRIBUTION",
+                urgency = Urgency.HIGH,
+                details = "conf=${distribution.confidence}% | ${distribution.details}"
+            )
+        }
+        
         val recentCandles = history.takeLast(3)
         val olderCandles = if (history.size >= 6) history.takeLast(6).take(3) else recentCandles
         
