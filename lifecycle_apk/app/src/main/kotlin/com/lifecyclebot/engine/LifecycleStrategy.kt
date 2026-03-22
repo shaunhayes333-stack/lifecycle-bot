@@ -1475,14 +1475,27 @@ class LifecycleStrategy(
         if (phase in phaseBlockList) return "WAIT"
 
         // ══════════════════════════════════════════════════════════════
-        // PAPER MODE FAST PATH: Skip complex logic, just trade to learn
+        // FILTER PASS = BUY (both modes, but paper is more aggressive)
+        // If we got past all the blocks above, we SHOULD trade
         // ══════════════════════════════════════════════════════════════
+        
         if (isPaperMode) {
-            // In paper mode, if we got this far and have ANY positive score, BUY
-            if (adjustedEntryScore > 0 && ts.lastLiquidityUsd >= 300) {
-                ErrorLogger.info("Strategy", "${ts.symbol}: PAPER BUY | score=${adjustedEntryScore.toInt()} liq=$${ts.lastLiquidityUsd.toInt()}")
+            // PAPER MODE: Got past filters = BUY immediately
+            // Only requirement: some liquidity exists
+            if (ts.lastLiquidityUsd >= 200) {
+                ErrorLogger.info("Strategy", "${ts.symbol}: PAPER BUY (filter pass) | phase=$phase liq=$${ts.lastLiquidityUsd.toInt()}")
                 return "BUY"
+            } else {
+                ErrorLogger.debug("Strategy", "${ts.symbol}: Paper skip - no liquidity")
+                return "WAIT"
             }
+        }
+        
+        // REAL MODE: Still check score thresholds but less strict
+        // If we got past all safety/phase blocks, we're already filtered
+        if (adjustedEntryScore >= 10 && ts.lastLiquidityUsd >= 500) {
+            ErrorLogger.info("Strategy", "${ts.symbol}: REAL BUY (filter pass) | score=${adjustedEntryScore.toInt()} phase=$phase")
+            return "BUY"
         }
 
         // v4: block on volume divergence ONLY if severe (REAL MODE ONLY)
