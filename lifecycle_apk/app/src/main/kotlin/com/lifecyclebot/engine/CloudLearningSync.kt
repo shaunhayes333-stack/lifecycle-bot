@@ -46,7 +46,7 @@ object CloudLearningSync {
     // More users = smarter bots for everyone!
     
     private const val SUPABASE_URL = "https://rnhjixrfdjxggvejgjhz.supabase.co"
-    private const val SUPABASE_ANON_KEY = "sb_publishable_LNM7cOm7XjEHmQYVY_QZzw_Y_sFqrkd"
+    private const val SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InJuaGppeHJmZGp4Z2d2ZWpnamh6Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzQyMDA2MDUsImV4cCI6MjA4OTc3NjYwNX0.lqfA7tp-Nh3iUIDUaODKEC3mJIO2_Y6AtANAWoOzaUI"
     
     // Minimum trades required to contribute (prevents noisy data)
     private const val MIN_TRADES_TO_CONTRIBUTE = 20
