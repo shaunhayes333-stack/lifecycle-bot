@@ -373,78 +373,62 @@ class LifecycleStrategy(
             val chartPattern = detectChartPattern(prices, hist)
             
             if (chartPattern.pattern != ChartPattern.NONE && chartPattern.confidence >= 50.0) {
-                // Apply auto-tuned multiplier to chart pattern boost
-                val tunerMult = PatternAutoTuner.getPatternMultiplier(chartPattern.pattern.name)
-                val adjustedBoost = chartPattern.entryBoost * tunerMult
-                entryScore = (entryScore + adjustedBoost).coerceAtMost(100.0)
-                
-                val tuneNote = if (tunerMult != 1.0) " [tuned:${String.format("%.2f", tunerMult)}x]" else ""
+                // Chart patterns always apply - they're based on price action, not learned data
+                entryScore = (entryScore + chartPattern.entryBoost).coerceAtMost(100.0)
                 ErrorLogger.info("ChartPattern", "📈 ${ts.symbol}: ${chartPattern.pattern.name} detected! " +
-                    "+${adjustedBoost.toInt()} pts (${chartPattern.confidence.toInt()}% conf)$tuneNote | ${chartPattern.details}")
+                    "+${chartPattern.entryBoost.toInt()} pts (${chartPattern.confidence.toInt()}% conf) | ${chartPattern.details}")
             }
             // ═══════════════════════════════════════════════════════════════════
             
             // ═══════════════════════════════════════════════════════════════════
-            // V5: AUTO-TUNE FINAL ADJUSTMENT
+            // V5: AUTO-TUNE & ADAPTIVE LEARNING (DISABLED UNTIL ENOUGH DATA)
             // ═══════════════════════════════════════════════════════════════════
-            // Apply learned EMA fan and phase multipliers to final entry score
-            val emaMultiplier = PatternAutoTuner.getEmaMultiplier(emafan.alignment.name)
-            val phaseMultiplier = PatternAutoTuner.getPhaseMultiplier(phase)
-            
-            // Combine multipliers with diminishing returns
-            val combinedMult = ((emaMultiplier + phaseMultiplier) / 2.0).coerceIn(0.5, 1.4)
-            if (combinedMult != 1.0) {
-                val oldScore = entryScore
-                entryScore = (entryScore * combinedMult).coerceIn(0.0, 100.0)
-                if (entryScore >= 30 && kotlin.math.abs(entryScore - oldScore) >= 3) {
-                    ErrorLogger.debug("AutoTune", "🎛️ ${ts.symbol}: " +
-                        "ema=${String.format("%.2f", emaMultiplier)} phase=${String.format("%.2f", phaseMultiplier)} " +
-                        "→ score ${oldScore.toInt()}→${entryScore.toInt()}")
-                }
-            }
-            // ═══════════════════════════════════════════════════════════════════
-            
-            // ═══════════════════════════════════════════════════════════════════
-            // V5: ADAPTIVE LEARNING ENGINE - Feature-weighted scoring
-            // ═══════════════════════════════════════════════════════════════════
-            // This is the "AI" part - uses learned weights from past trades
-            // IMPORTANT: Only apply after we have enough trades to learn from
-            // Otherwise the untrained weights can block good trades
+            // These features require historical trade data to work properly.
+            // Skip them entirely until we have enough trades to learn from.
+            // This prevents untrained weights from blocking good trades.
             val tradeCount = AdaptiveLearningEngine.getTradeCount()
             
-            if (tradeCount >= 15) {  // Need at least 15 trades before adaptive scoring kicks in
-                val tokenAgeMins = (System.currentTimeMillis() - ts.addedToWatchlistAt) / 60_000.0
-                val adaptiveScore = AdaptiveLearningEngine.calculateAdaptiveScore(
-                    mcapUsd = ts.lastMcap,
-                    tokenAgeMinutes = tokenAgeMins,
-                    buyRatioPct = pressScore,
-                    volumeUsd = ts.lastLiquidityUsd * volScore / 50.0,
-                    liquidityUsd = ts.lastLiquidityUsd,
-                    holderCount = ts.history.lastOrNull()?.holderCount ?: 0,
-                    topHolderPct = ts.safety.topHolderPct,
-                    holderGrowthRate = ts.holderGrowthRate,
-                    devWalletPct = 0.0,  // Not tracked in SafetyReport
-                    bondingCurveProgress = 100.0,  // Default to graduated
-                    rugcheckScore = ts.safety.rugcheckScore.toDouble(),
-                    emaFanState = emafan.alignment.name,
-                    baseEntryScore = entryScore,
-                )
+            if (tradeCount >= 25) {  // Need 25+ trades for any AI adjustments
+                // AUTO-TUNE: Apply learned EMA fan and phase multipliers
+                val emaMultiplier = PatternAutoTuner.getEmaMultiplier(emafan.alignment.name)
+                val phaseMultiplier = PatternAutoTuner.getPhaseMultiplier(phase)
+                val combinedMult = ((emaMultiplier + phaseMultiplier) / 2.0).coerceIn(0.7, 1.3)  // Tighter range
                 
-                // Conservative blend: 80% base + 20% adaptive (was 40/60)
-                // This lets adaptive influence without dominating
-                val blendRatio = when {
-                    tradeCount >= 50 -> 0.35  // More confidence after 50 trades
-                    tradeCount >= 30 -> 0.25  // Medium confidence
-                    else -> 0.15              // Low confidence, mostly base score
+                if (combinedMult != 1.0 && kotlin.math.abs(combinedMult - 1.0) > 0.05) {
+                    val oldScore = entryScore
+                    entryScore = (entryScore * combinedMult).coerceIn(0.0, 100.0)
+                    ErrorLogger.debug("AutoTune", "🎛️ ${ts.symbol}: mult=${String.format("%.2f", combinedMult)} " +
+                        "→ score ${oldScore.toInt()}→${entryScore.toInt()}")
                 }
-                val blendedScore = (entryScore * (1 - blendRatio) + adaptiveScore.score * blendRatio)
                 
-                if (kotlin.math.abs(blendedScore - entryScore) >= 3) {
-                    ErrorLogger.debug("AdaptiveLearning", "🧬 ${ts.symbol}: " +
-                        "adaptive=${adaptiveScore.score.toInt()} (${adaptiveScore.recommendation}) " +
-                        "blend=${blendedScore.toInt()} (${(blendRatio*100).toInt()}% weight) | ${adaptiveScore.explanation}")
+                // ADAPTIVE LEARNING: Feature-weighted scoring (only after 40+ trades)
+                if (tradeCount >= 40) {
+                    val tokenAgeMins = (System.currentTimeMillis() - ts.addedToWatchlistAt) / 60_000.0
+                    val adaptiveScore = AdaptiveLearningEngine.calculateAdaptiveScore(
+                        mcapUsd = ts.lastMcap,
+                        tokenAgeMinutes = tokenAgeMins,
+                        buyRatioPct = pressScore,
+                        volumeUsd = ts.lastLiquidityUsd * volScore / 50.0,
+                        liquidityUsd = ts.lastLiquidityUsd,
+                        holderCount = ts.history.lastOrNull()?.holderCount ?: 0,
+                        topHolderPct = ts.safety.topHolderPct,
+                        holderGrowthRate = ts.holderGrowthRate,
+                        devWalletPct = 0.0,
+                        bondingCurveProgress = 100.0,
+                        rugcheckScore = ts.safety.rugcheckScore.toDouble(),
+                        emaFanState = emafan.alignment.name,
+                        baseEntryScore = entryScore,
+                    )
+                    
+                    // Very conservative blend: 90% base + 10% adaptive
+                    val blendRatio = when {
+                        tradeCount >= 100 -> 0.20  // More confidence after 100 trades
+                        tradeCount >= 60 -> 0.15   // Medium confidence
+                        else -> 0.10               // Low confidence
+                    }
+                    val blendedScore = (entryScore * (1 - blendRatio) + adaptiveScore.score * blendRatio)
+                    entryScore = blendedScore.coerceIn(0.0, 100.0)
                 }
-                entryScore = blendedScore.coerceIn(0.0, 100.0)
             }
             // ═══════════════════════════════════════════════════════════════════
         }
