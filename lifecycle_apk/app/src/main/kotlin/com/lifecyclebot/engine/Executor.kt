@@ -885,6 +885,22 @@ class Executor(
                              com.lifecyclebot.engine.NotificationHistory.NotifEntry.NotifType.INFO)
                 }
             }
+            
+            // Learn from bad trade in TradingMemory
+            TradingMemory.learnFromBadTrade(
+                mint = ts.mint,
+                symbol = ts.symbol,
+                lossPct = pnlP,
+                phase = ph,
+                emaFan = fanName,
+                source = src,
+                liquidity = ts.lastLiquidityUsd,
+                mcap = ts.lastMcap,
+                ageHours = (System.currentTimeMillis() - (ts.history.firstOrNull()?.ts ?: System.currentTimeMillis())) / 3_600_000.0,
+                hadSocials = ts.meta.hasSocials,
+                isPumpFun = ts.source.contains("pump", ignoreCase = true),
+                volumeToLiqRatio = if (ts.lastLiquidityUsd > 0) ts.history.lastOrNull()?.vol?.div(ts.lastLiquidityUsd) ?: 0.0 else 0.0,
+            )
         } else {
             // Win — let the brain know this pattern is recovering
             val fanName = ts.meta.emafanAlignment
@@ -897,6 +913,18 @@ class Executor(
             brain?.let { b ->
                 b.learnFromTrade(isWin = true, phase = ph, emaFan = fanName, source = src, pnlPct = pnlP, mint = ts.mint)
             }
+            
+            // Learn from winning trade in TradingMemory
+            val holdTimeMinutes = (System.currentTimeMillis() - ts.position.entryTime) / 60_000.0
+            TradingMemory.learnFromWinningTrade(
+                mint = ts.mint,
+                symbol = ts.symbol,
+                winPct = pnlP,
+                phase = ph,
+                emaFan = fanName,
+                source = src,
+                holdTimeMinutes = holdTimeMinutes,
+            )
         }
 
         tradeDb?.insertTrade(TradeRecord(

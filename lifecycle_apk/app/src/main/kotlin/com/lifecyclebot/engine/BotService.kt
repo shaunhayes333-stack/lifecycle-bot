@@ -523,6 +523,10 @@ class BotService : Service() {
         botBrain = brain2; brain2.start()
         executor.brain = brain2; executor.tradeDb = db2
         
+        // Initialize TradingMemory for persistent pattern learning
+        TradingMemory.init(applicationContext)
+        addLog("📚 ${TradingMemory.getStats()}")
+        
         // Set up paper wallet balance tracking
         executor.onPaperBalanceChange = { delta ->
             status.paperWalletSol = (status.paperWalletSol + delta).coerceAtLeast(0.0)
@@ -811,6 +815,46 @@ class BotService : Service() {
                     }
 
                     val ts = status.tokens[mint] ?: return@launch
+                    
+                    // ── Rug Detection - Learn from sudden liquidity/price drops ──
+                    if (ts.history.size >= 3) {
+                        val recentCandles = ts.history.takeLast(3)
+                        val olderCandles = ts.history.takeLast(6).take(3)
+                        
+                        val recentLiq = pair.liquidity
+                        val olderLiq = olderCandles.firstOrNull()?.let { 
+                            // Estimate older liquidity from mcap if available
+                            ts.history.takeLast(6).firstOrNull()?.marketCap?.let { it * 0.1 } ?: recentLiq 
+                        } ?: recentLiq
+                        
+                        val recentPrice = recentCandles.lastOrNull()?.priceUsd ?: 0.0
+                        val olderPrice = olderCandles.firstOrNull()?.priceUsd ?: recentPrice
+                        
+                        // Detect potential rug: >50% price drop or liquidity collapse
+                        if (olderPrice > 0 && recentPrice > 0) {
+                            val priceDropPct = ((olderPrice - recentPrice) / olderPrice) * 100
+                            val liqDropPct = if (olderLiq > 0) ((olderLiq - recentLiq) / olderLiq) * 100 else 0.0
+                            
+                            if (priceDropPct >= 50 || liqDropPct >= 70) {
+                                val ageHours = (System.currentTimeMillis() - (ts.addedToWatchlistAt)) / 3_600_000.0
+                                val volumeSpike = recentCandles.sumOf { it.vol } > olderCandles.sumOf { it.vol } * 2
+                                
+                                TradingMemory.learnFromRug(
+                                    mint = mint,
+                                    symbol = ts.symbol,
+                                    creatorWallet = null,  // Would need API to get this
+                                    liquidityDropPct = liqDropPct,
+                                    priceDropPct = priceDropPct,
+                                    volumeSpikeBeforeRug = volumeSpike,
+                                    holderDumpDetected = ts.holderGrowthRate < -20,
+                                    timeFromLaunchHours = ageHours,
+                                )
+                                addLog("🚨 RUG DETECTED: ${ts.symbol} price=${priceDropPct.toInt()}% liq=${liqDropPct.toInt()}%", mint)
+                                TokenBlacklist.block(mint, "Rug detected: price -${priceDropPct.toInt()}%")
+                            }
+                        }
+                    }
+                    
                     // ── Safety check (cached 10 min) ──────────────────────
                 val safetyAge = System.currentTimeMillis() - ts.lastSafetyCheck
                 if (safetyAge > 10 * 60_000L) {

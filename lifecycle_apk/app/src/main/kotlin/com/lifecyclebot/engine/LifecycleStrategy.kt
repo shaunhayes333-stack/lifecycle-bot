@@ -1326,6 +1326,42 @@ class LifecycleStrategy(
             if (!smartReentry(ts, phase, hist, whale, curve)) return "WAIT"
         }
 
+        // ═══════════════════════════════════════════════════════════════════
+        // TradingMemory - Apply learned pattern penalties
+        // ═══════════════════════════════════════════════════════════════════
+        val memoryPatternPenalty = TradingMemory.getPatternPenalty(
+            phase = phase,
+            emaFan = emafan.alignment.name,
+            source = ts.source.ifBlank { "UNKNOWN" },
+        )
+        if (memoryPatternPenalty > 0) {
+            adjustedEntryScore -= memoryPatternPenalty
+            ErrorLogger.debug("Strategy", "${ts.symbol}: TradingMemory penalty -$memoryPatternPenalty for pattern")
+        }
+        
+        // Check if this token was a loser before
+        val tokenHistory = TradingMemory.getTokenLossHistory(ts.mint)
+        if (tokenHistory != null && tokenHistory.lossCount >= 2) {
+            ErrorLogger.info("Strategy", "${ts.symbol}: Blocking - TradingMemory shows ${tokenHistory.lossCount} prior losses")
+            return "WAIT"
+        }
+        
+        // Check token risk score based on features similar to past losers
+        val riskScore = TradingMemory.getTokenRiskScore(
+            liquidity = ts.lastLiquidityUsd,
+            mcap = ts.lastMcap,
+            holderConcentration = 0.0,  // Would need holder data
+            devHoldingPct = 0.0,
+            ageHours = tokenAgeMins / 60.0,
+            hadSocials = ts.meta.hasSocials,
+            isPumpFun = ts.source.contains("pump", ignoreCase = true),
+            volumeToLiqRatio = if (ts.lastLiquidityUsd > 0) hist.lastOrNull()?.vol?.div(ts.lastLiquidityUsd) ?: 0.0 else 0.0,
+        )
+        if (riskScore >= 70) {
+            adjustedEntryScore -= (riskScore - 50) / 2  // Penalize high-risk tokens
+            ErrorLogger.debug("Strategy", "${ts.symbol}: High risk score $riskScore, penalizing entry")
+        }
+
         // Phase blocks
         if (phase in listOf("breakdown", "distribution", "expansion_peak", "overextended",
                             "dying", "thin_market", "micro_cap_wait", "choppy_range")) return "WAIT"
