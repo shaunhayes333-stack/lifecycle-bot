@@ -1409,6 +1409,15 @@ class LifecycleStrategy(
             }
         }
 
+        // CATCH-ALL: If entry score is very high, buy regardless of phase
+        // This ensures we don't miss good opportunities just because the phase doesn't match
+        val catchAllThreshold = 20.0 + brainAdj  // Very low threshold for aggressive trading
+        if (adjustedEntryScore >= catchAllThreshold && phase !in listOf("breakdown", "distribution", 
+                "dying", "thin_market", "overextended", "choppy_range")) {
+            ErrorLogger.info("Strategy", "${ts.symbol}: CATCH-ALL BUY | phase=$phase score=${adjustedEntryScore.toInt()} >= $catchAllThreshold")
+            return "BUY"
+        }
+
         return when (phase) {
             "pre_pump"        -> "WAIT_BUILDING"
             "pumping"         -> "WAIT_PULLBACK"

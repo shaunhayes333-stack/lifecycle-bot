@@ -866,26 +866,26 @@ Analyse this data and respond with ONLY valid JSON in this exact format:
      * Returns true if the combination of factors is too risky.
      */
     fun shouldSkipTrade(phase: String, emaFan: String, source: String, entryScore: Double): Boolean {
-        // Hard suppression = skip
-        if (isHardSuppressed(phase, emaFan)) return true
+        // Hard suppression = skip (but only if score is very low)
+        if (isHardSuppressed(phase, emaFan) && entryScore < 30) return true
         
-        // Very cautious brain + very low score = skip (loosened from 55 to 40)
-        if (entryThresholdDelta > 15 && entryScore < 40) return true
+        // Very cautious brain + very low score = skip
+        if (entryThresholdDelta > 20 && entryScore < 25) return true  // loosened further
         
-        // Multiple risk factors = skip (only if 4+ factors, was 3)
+        // Multiple risk factors = skip (only if ALL 4 factors present AND very low score)
         val suppressionPenalty = getSuppressionPenalty(phase, emaFan, source)
         val phaseBoost = phaseBoosts[phase] ?: 0.0
         val sourceBoost = sourceBoosts[source] ?: 0.0
         
         val riskFactors = listOf(
-            suppressionPenalty > 40,  // was 30
-            phaseBoost >= 10,         // was 5
-            sourceBoost <= -15,       // was -10
-            currentRegime in listOf("BEAR_COLD", "DANGER"),  // removed "BEAR"
+            suppressionPenalty > 50,  // raised threshold
+            phaseBoost >= 15,         // raised threshold
+            sourceBoost <= -20,       // raised threshold
+            currentRegime == "DANGER",  // only block on DANGER, not BEAR
         ).count { it }
         
-        // 4+ risk factors = too risky (was 3)
-        if (riskFactors >= 4 && entryScore < 60) return true  // was 70
+        // ALL 4 risk factors = too risky (very rare)
+        if (riskFactors == 4 && entryScore < 40) return true
         
         return false
     }
