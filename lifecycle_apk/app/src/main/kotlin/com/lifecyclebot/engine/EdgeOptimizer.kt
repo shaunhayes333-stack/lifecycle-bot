@@ -86,7 +86,7 @@ object EdgeOptimizer {
         
         // Calculate buy pressure from recent candles
         val recentBuyRatios = hist.takeLast(6).map { 
-            if (it.buys + it.sells > 0) it.buys.toDouble() / (it.buys + it.sells) else 0.5 
+            if (it.buysH1 + it.sellsH1 > 0) it.buysH1.toDouble() / (it.buysH1 + it.sellsH1) else 0.5 
         }
         val buyPressure = (recentBuyRatios.average() * 100).coerceIn(0.0, 100.0)
         
@@ -174,10 +174,10 @@ object EdgeOptimizer {
         
         // Check if buy pressure is rising again
         val recentBuys = hist.takeLast(3).map { 
-            if (it.buys + it.sells > 0) it.buys.toDouble() / (it.buys + it.sells) else 0.5 
+            if (it.buysH1 + it.sellsH1 > 0) it.buysH1.toDouble() / (it.buysH1 + it.sellsH1) else 0.5 
         }
         val olderBuys = hist.dropLast(3).takeLast(3).map { 
-            if (it.buys + it.sells > 0) it.buys.toDouble() / (it.buys + it.sells) else 0.5 
+            if (it.buysH1 + it.sellsH1 > 0) it.buysH1.toDouble() / (it.buysH1 + it.sellsH1) else 0.5 
         }
         
         val buyRising = recentBuys.average() > olderBuys.average() + 0.02
