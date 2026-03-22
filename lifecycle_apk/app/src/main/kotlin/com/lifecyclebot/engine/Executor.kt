@@ -347,8 +347,8 @@ class Executor(
             ts = ts,
             currentPrice = price,
             entryPrice = pos.entryPrice,
-            history = ts.history,
-            exitScore = ts.meta.exitScore,
+            history = ts.history.toList(),
+            exitScore = ts.exitScore,
             stopLossPct = modeConf?.stopLossPct ?: cfg().stopLossPct,
         )
         

@@ -1,6 +1,6 @@
 package com.lifecyclebot.engine
 
-import com.lifecyclebot.data.CandleSnapshot
+import com.lifecyclebot.data.Candle
 import com.lifecyclebot.data.TokenState
 
 /**
@@ -48,7 +48,7 @@ object PrecisionExitLogic {
         ts: TokenState,
         currentPrice: Double,
         entryPrice: Double,
-        history: List<CandleSnapshot>,
+        history: List<Candle>,
         exitScore: Double,
         stopLossPct: Double = DEFAULT_STOP_LOSS_PCT,
     ): ExitSignal {
@@ -134,11 +134,11 @@ object PrecisionExitLogic {
         // ════════════════════════════════════════════════════════════════
         // 5. WHALE DISTRIBUTION (whale activity + price stalls)
         // ════════════════════════════════════════════════════════════════
-        val whaleActivity = ts.meta.whaleScore
-        val priceStalling = priceChangePct < 2.0 && ts.history.takeLast(5).let { h ->
-            if (h.size >= 5) {
-                val high = h.maxOf { it.priceUsd }
-                val low = h.minOf { it.priceUsd }
+        val whaleActivity = ts.meta.velocityScore  // Using velocityScore as proxy for whale activity
+        val priceStalling = priceChangePct < 2.0 && ts.history.takeLast(5).let { candles ->
+            if (candles.size >= 5) {
+                val high = candles.maxOf { c -> c.priceUsd }
+                val low = candles.minOf { c -> c.priceUsd }
                 val range = if (low > 0) ((high - low) / low) * 100 else 0.0
                 range < 3.0  // Price stuck in tight range
             } else false
