@@ -536,6 +536,10 @@ class BotService : Service() {
         PatternAutoTuner.init(applicationContext)
         addLog("🎛️ ${PatternAutoTuner.getStatus()}")
         
+        // Initialize AdaptiveLearningEngine for feature-weighted scoring
+        AdaptiveLearningEngine.init(applicationContext)
+        addLog("🧬 ${AdaptiveLearningEngine.getStatus()}")
+        
         // Initialize KillSwitch for account protection
         val effectiveBalance = status.getEffectiveBalance(cfg.paperMode)
         KillSwitch.init(applicationContext, effectiveBalance)
@@ -743,6 +747,9 @@ class BotService : Service() {
                     "suppressed=${b.totalSuppressedPatterns}"
                 } ?: "🧠 Brain not initialized"
                 addLog(brainStatus)
+                
+                // Log adaptive learning status
+                addLog("🧬 ${AdaptiveLearningEngine.getStatus()}")
             }
             
             // Pattern Backtest - Run daily (every ~1440 loops at 1min intervals, or ~320 at 45s)

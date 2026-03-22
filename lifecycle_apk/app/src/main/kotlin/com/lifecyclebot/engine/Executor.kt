@@ -1276,6 +1276,43 @@ class Executor(
             topUpCount=ts.position.topUpCount, partialSold=ts.position.partialSoldPct,
             solIn=ts.position.costSol, solOut=value, pnlSol=pnl, pnlPct=pnlP, isWin=pnl>0,
         ))
+        
+        // ═══════════════════════════════════════════════════════════════════
+        // ADAPTIVE LEARNING: Capture features and learn from trade
+        // ═══════════════════════════════════════════════════════════════════
+        try {
+            val holdMins = (System.currentTimeMillis() - ts.position.entryTime) / 60_000.0
+            val features = AdaptiveLearningEngine.captureFeatures(
+                entryMcapUsd = ts.position.entryLiquidityUsd * 2,  // Approximate
+                tokenAgeMinutes = ts.tokenAgeMinutes,
+                buyRatioPct = ts.meta.pressScore,  // Use press score as buy ratio proxy
+                volumeUsd = ts.lastLiquidityUsd * ts.meta.volScore / 50.0,  // Approximate
+                liquidityUsd = ts.lastLiquidityUsd,
+                holderCount = ts.history.lastOrNull()?.holderCount ?: 0,
+                topHolderPct = ts.safety.topHolderPct,
+                holderGrowthRate = ts.holderGrowthRate,
+                devWalletPct = ts.safety.devWalletPct,
+                bondingCurveProgress = ts.bondingProgress,
+                rugcheckScore = ts.safety.rugcheckScore,
+                emaFanState = ts.meta.emafanAlignment,
+                entryScore = ts.position.entryScore,
+                priceFromAth = if (ts.position.highestPrice > 0) 
+                    ((ts.position.highestPrice - ts.position.entryPrice) / ts.position.entryPrice * 100) else 0.0,
+                pnlPct = pnlP,
+                maxGainPct = if (ts.position.entryPrice > 0) 
+                    ((ts.position.highestPrice - ts.position.entryPrice) / ts.position.entryPrice * 100) else 0.0,
+                maxDrawdownPct = if (ts.position.entryPrice > 0 && ts.position.lowestPrice > 0)
+                    ((ts.position.entryPrice - ts.position.lowestPrice) / ts.position.entryPrice * 100) else 0.0,
+                timeToPeakMins = holdMins * 0.5,  // Estimate
+                holdTimeMins = holdMins,
+                exitReason = reason,
+            )
+            AdaptiveLearningEngine.learnFromTrade(features)
+        } catch (e: Exception) {
+            ErrorLogger.debug("AdaptiveLearning", "Feature capture error: ${e.message}")
+        }
+        // ═══════════════════════════════════════════════════════════════════
+        
         ts.position         = Position()
         ts.lastExitTs       = System.currentTimeMillis()
         ts.lastExitPrice    = price
@@ -1429,6 +1466,42 @@ class Executor(
             topUpCount=pos.topUpCount, partialSold=pos.partialSoldPct,
             solIn=pos.costSol, solOut=pnl + pos.costSol, pnlSol=pnl, pnlPct=pnlP, isWin=pnl>0,
         ))
+
+        // ═══════════════════════════════════════════════════════════════════
+        // ADAPTIVE LEARNING: Capture features and learn from LIVE trade
+        // ═══════════════════════════════════════════════════════════════════
+        try {
+            val holdMins = (System.currentTimeMillis() - pos.entryTime) / 60_000.0
+            val features = AdaptiveLearningEngine.captureFeatures(
+                entryMcapUsd = pos.entryLiquidityUsd * 2,
+                tokenAgeMinutes = ts.tokenAgeMinutes,
+                buyRatioPct = ts.meta.pressScore,
+                volumeUsd = ts.lastLiquidityUsd * ts.meta.volScore / 50.0,
+                liquidityUsd = ts.lastLiquidityUsd,
+                holderCount = ts.history.lastOrNull()?.holderCount ?: 0,
+                topHolderPct = ts.safety.topHolderPct,
+                holderGrowthRate = ts.holderGrowthRate,
+                devWalletPct = ts.safety.devWalletPct,
+                bondingCurveProgress = ts.bondingProgress,
+                rugcheckScore = ts.safety.rugcheckScore,
+                emaFanState = ts.meta.emafanAlignment,
+                entryScore = pos.entryScore,
+                priceFromAth = if (pos.highestPrice > 0) 
+                    ((pos.highestPrice - pos.entryPrice) / pos.entryPrice * 100) else 0.0,
+                pnlPct = pnlP,
+                maxGainPct = if (pos.entryPrice > 0) 
+                    ((pos.highestPrice - pos.entryPrice) / pos.entryPrice * 100) else 0.0,
+                maxDrawdownPct = if (pos.entryPrice > 0 && pos.lowestPrice > 0)
+                    ((pos.entryPrice - pos.lowestPrice) / pos.entryPrice * 100) else 0.0,
+                timeToPeakMins = holdMins * 0.5,
+                holdTimeMins = holdMins,
+                exitReason = reason,
+            )
+            AdaptiveLearningEngine.learnFromTrade(features)
+        } catch (e: Exception) {
+            ErrorLogger.debug("AdaptiveLearning", "Feature capture error: ${e.message}")
+        }
+        // ═══════════════════════════════════════════════════════════════════
 
         // Notify shadow learning engine
         ShadowLearningEngine.onLiveTradeExit(

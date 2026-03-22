@@ -403,6 +403,36 @@ class LifecycleStrategy(
                 }
             }
             // ═══════════════════════════════════════════════════════════════════
+            
+            // ═══════════════════════════════════════════════════════════════════
+            // V5: ADAPTIVE LEARNING ENGINE - Feature-weighted scoring
+            // ═══════════════════════════════════════════════════════════════════
+            // This is the "AI" part - uses learned weights from past trades
+            val adaptiveScore = AdaptiveLearningEngine.calculateAdaptiveScore(
+                mcapUsd = ts.lastMcap,
+                tokenAgeMinutes = ts.tokenAgeMinutes,
+                buyRatioPct = pressScore,
+                volumeUsd = ts.lastLiquidityUsd * volScore / 50.0,
+                liquidityUsd = ts.lastLiquidityUsd,
+                holderCount = ts.history.lastOrNull()?.holderCount ?: 0,
+                topHolderPct = ts.safety.topHolderPct,
+                holderGrowthRate = ts.holderGrowthRate,
+                devWalletPct = ts.safety.devWalletPct,
+                bondingCurveProgress = ts.bondingProgress,
+                rugcheckScore = ts.safety.rugcheckScore,
+                emaFanState = emafan.alignment.name,
+                baseEntryScore = entryScore,
+            )
+            
+            // Blend adaptive score with current score (60/40 split)
+            val blendedScore = (entryScore * 0.4 + adaptiveScore.score * 0.6)
+            if (kotlin.math.abs(blendedScore - entryScore) >= 5) {
+                ErrorLogger.debug("AdaptiveLearning", "🧬 ${ts.symbol}: " +
+                    "adaptive=${adaptiveScore.score.toInt()} (${adaptiveScore.recommendation}) " +
+                    "blend=${blendedScore.toInt()} | ${adaptiveScore.explanation}")
+            }
+            entryScore = blendedScore.coerceIn(0.0, 100.0)
+            // ═══════════════════════════════════════════════════════════════════
         }
         // ═══════════════════════════════════════════════════════════════════
 
