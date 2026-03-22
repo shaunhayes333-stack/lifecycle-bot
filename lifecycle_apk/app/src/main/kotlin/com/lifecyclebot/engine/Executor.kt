@@ -48,6 +48,11 @@ class Executor(
         walletTotalTrades: Int = 0,
         liquidityUsd: Double = 0.0,
         mcapUsd: Double = 0.0,
+        // NEW: AI-driven parameters
+        aiConfidence: Double = 50.0,
+        phase: String = "unknown",
+        source: String = "unknown",
+        brain: BotBrain? = null,
     ): Double {
         // Update session peak
         SmartSizer.updateSessionPeak(walletSol)
@@ -65,15 +70,19 @@ class Executor(
             liquidityUsd         = liquidityUsd,
             solPriceUsd          = solPx,
             mcapUsd              = mcapUsd,
+            aiConfidence         = aiConfidence,
+            phase                = phase,
+            source               = source,
+            brain                = brain,
         )
 
         if (result.solAmount <= 0.0) {
-            onLog("📊 SmartSizer blocked: ${result.explanation}", "sizing")
+            onLog("📊 AI Sizer blocked: ${result.explanation}", "sizing")
         } else {
-            onLog("📊 SmartSizer: ${result.explanation}", "sizing")
+            onLog("📊 AI Sizer: conf=${aiConfidence.toInt()} → ${result.explanation}", "sizing")
         }
 
-        return result.solAmount  // no hard cap — SmartSizer + wallet balance are the limits
+        return result.solAmount
     }
 
     // ── top-up sizing ─────────────────────────────────────────────────
@@ -543,10 +552,33 @@ class Executor(
             }
             // No concurrent cap — SmartSizer 70% exposure ceiling is the guard
             if (cfg().scalingLogEnabled) { val _spx=WalletManager.lastKnownSolPrice; val (_tier,_)=ScalingMode.maxPositionForToken(ts.lastLiquidityUsd,ts.lastFdv,TreasuryManager.treasurySol*_spx,_spx); if(_tier!=ScalingMode.Tier.MICRO) onLog("${_tier.icon} ${_tier.label}: ${ts.symbol}", ts.mint) }
-            var size = buySizeSol(entryScore, walletSol, openPositionCount, totalExposureSol,
+            
+            // Calculate AI confidence for sizing
+            val aiConfidence = try {
+                val hist = ts.history.toList()
+                val prices = hist.map { it.ref }
+                if (hist.size >= 6) {
+                    val edgePhase = EdgeOptimizer.detectMarketPhase(hist, prices)
+                    val edgeTiming = EdgeOptimizer.checkEntryTiming(edgePhase, hist, prices, ts.meta.pressScore)
+                    EdgeOptimizer.calculateConfidence(edgePhase, edgeTiming,
+                        EdgeOptimizer.WeightedScore(entryScore, 0.0, emptyMap()))
+                } else 50.0
+            } catch (e: Exception) { 50.0 }
+            
+            // AI-DRIVEN SIZING: Pass confidence, phase, source, and brain to SmartSizer
+            var size = buySizeSol(
+                entryScore = entryScore, 
+                walletSol = walletSol, 
+                currentOpenPositions = openPositionCount, 
+                currentTotalExposure = totalExposureSol,
                 walletTotalTrades = walletTotalTrades,
-                liquidityUsd      = ts.lastLiquidityUsd,
-                mcapUsd           = ts.lastFdv)
+                liquidityUsd = ts.lastLiquidityUsd,
+                mcapUsd = ts.lastFdv,
+                aiConfidence = aiConfidence,
+                phase = ts.phase,
+                source = ts.source,
+                brain = brain,
+            )
 
             // Cross-token correlation guard (FIX 7: tier-aware)
             // Penalise clustering only within the same ScalingMode tier.
@@ -575,59 +607,13 @@ class Executor(
             // Apply auto-mode size multiplier
             modeConfig?.let { size = size * it.positionSizeMultiplier }
             
-            // BotBrain risk-adjusted sizing - uses learned patterns to adjust risk
+            // BotBrain skip check only (sizing is now in SmartSizer)
             brain?.let { b ->
-                // First check if brain says to skip this trade entirely
                 val emaFan = ts.meta.emafanAlignment
                 if (b.shouldSkipTrade(ts.phase, emaFan, ts.source, entryScore)) {
                     onLog("🧠 Brain SKIP: ${ts.symbol} — too many risk factors", ts.mint)
                     return
                 }
-                
-                // Apply risk-adjusted size multiplier
-                val riskMult = b.getRiskAdjustedSizeMultiplier(ts.phase, emaFan, ts.source)
-                size = (size * riskMult).coerceAtMost(walletSol * 0.20)
-                
-                if (riskMult < 0.8) {
-                    onLog("🧠 Brain risk adj: ${ts.symbol} size × ${String.format("%.2f", riskMult)} (${ts.phase}/${emaFan})", ts.mint)
-                } else if (riskMult > 1.1) {
-                    onLog("🧠 Brain confidence: ${ts.symbol} size × ${String.format("%.2f", riskMult)}", ts.mint)
-                }
-            }
-            
-            // EDGE OPTIMIZER: Dynamic position sizing based on confidence
-            // High confidence setups get larger positions
-            try {
-                val hist = ts.history.toList()
-                val prices = hist.map { it.ref }
-                if (hist.size >= 6) {
-                    val edgePhase = EdgeOptimizer.detectMarketPhase(hist, prices)
-                    val edgeTiming = EdgeOptimizer.checkEntryTiming(edgePhase, hist, prices, ts.meta.pressScore)
-                    val edgeFilter = EdgeOptimizer.filterTrade(edgePhase, ts.meta.volScore, ts.meta.pressScore, edgeTiming)
-                    val confidence = EdgeOptimizer.calculateConfidence(edgePhase, edgeTiming,
-                        EdgeOptimizer.WeightedScore(entryScore, 0.0, emptyMap()))
-                    
-                    // Dynamic sizing based on confidence
-                    val confMult = when {
-                        confidence > 80 -> 1.5   // High confidence = 50% larger
-                        confidence > 70 -> 1.3   // Good confidence = 30% larger
-                        confidence > 60 -> 1.15  // Moderate = 15% larger
-                        confidence > 50 -> 1.0   // Normal
-                        confidence > 40 -> 0.8   // Low = 20% smaller
-                        else -> 0.6              // Very low = 40% smaller
-                    }
-                    
-                    val oldSize = size
-                    size = (size * confMult).coerceAtMost(walletSol * 0.15)
-                    
-                    if (confMult != 1.0) {
-                        val emoji = if (confMult > 1.0) "📈" else "📉"
-                        onLog("$emoji Edge sizing: ${ts.symbol} conf=${confidence.toInt()} × ${String.format("%.2f", confMult)} " +
-                              "(${edgePhase.phase.name} ${edgeFilter.quality})", ts.mint)
-                    }
-                }
-            } catch (e: Exception) {
-                ErrorLogger.debug("Executor", "Edge sizing skipped: ${e.message}")
             }
             
             if (size < 0.001) {

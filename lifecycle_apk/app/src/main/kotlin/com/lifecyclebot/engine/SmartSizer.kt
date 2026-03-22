@@ -87,19 +87,22 @@ object SmartSizer {
         currentTotalExposure: Double = 0.0,
         liquidityUsd: Double = 0.0,
         solPriceUsd: Double = 0.0,
-        mcapUsd: Double = 0.0,           // market cap for ScalingMode tier selection
+        mcapUsd: Double = 0.0,
+        // NEW: AI-driven parameters
+        aiConfidence: Double = 50.0,      // 0-100 from EdgeOptimizer
+        phase: String = "unknown",
+        source: String = "unknown",
+        brain: BotBrain? = null,
     ): SizeResult {
 
         // ── HARD MCAP FLOOR — never trade dust tokens ──────────────────
-        val HARD_MIN_MCAP = 5_000.0  // lowered from $8K to match scanner
+        val HARD_MIN_MCAP = 2_000.0  // lowered from $5K - let AI decide
         if (mcapUsd > 0 && mcapUsd < HARD_MIN_MCAP) {
             return SizeResult(0.0, "blocked", 0.0, 1.0, 1.0, 1.0, 1.0, "mcap_too_low",
-                "Market cap \$${(mcapUsd/1000).toInt()}K below \$5K minimum — too risky")
+                "Market cap \$${(mcapUsd/1000).toInt()}K below \$2K minimum")
         }
 
         // ── Tradeable balance (reserve + treasury excluded) ──────────
-        // treasurySol is the milestone-locked profit — never risked in trades.
-        // walletReserveSol is the minimum operating reserve (gas + safety floor).
         val treasuryFloor = TreasuryManager.treasurySol
         val tradeable = (walletSol - cfg.walletReserveSol - treasuryFloor).coerceAtLeast(0.0)
         if (tradeable < 0.005) {
@@ -107,34 +110,93 @@ object SmartSizer {
                 "Wallet below reserve floor — no trades (treasury: ${treasuryFloor.fmt(4)}◎ locked)")
         }
 
-        // ── Tier + base percentage ────────────────────────────────────
-        // Tier percentages — higher base % means more capital deployed per trade
-        // as wallet grows. Drawdown protection still kicks in if things go wrong.
-        val (tier, basePct) = when {
-            tradeable < 0.5  -> "micro"  to 0.08   // 8% — small wallets need meaningful trades
-            tradeable < 2.0  -> "small"  to 0.10   // 10%
-            tradeable < 10.0 -> "medium" to 0.10   // 10%
-            tradeable < 50.0 -> "large"  to 0.08   // 8% — diversify more at scale
-            else             -> "whale"  to 0.06   // 6% — large positions, wider spread
+        // ══════════════════════════════════════════════════════════════
+        // AI-DRIVEN SIZING: Let the brain decide base size
+        // ══════════════════════════════════════════════════════════════
+        
+        // Base percentage determined by AI confidence, not just wallet tier
+        val aiBasePct = when {
+            aiConfidence >= 85 -> 0.15  // 15% - very high confidence
+            aiConfidence >= 75 -> 0.12  // 12% - high confidence
+            aiConfidence >= 65 -> 0.10  // 10% - good confidence
+            aiConfidence >= 55 -> 0.08  // 8% - moderate confidence
+            aiConfidence >= 45 -> 0.06  // 6% - low confidence
+            else -> 0.04                 // 4% - very low confidence
         }
+        
+        // Wallet tier still affects maximum, not base
+        val (tier, tierMaxPct) = when {
+            tradeable < 0.5  -> "micro"  to 0.15
+            tradeable < 2.0  -> "small"  to 0.15
+            tradeable < 10.0 -> "medium" to 0.12
+            tradeable < 50.0 -> "large"  to 0.10
+            else             -> "whale"  to 0.08
+        }
+        
+        // Use AI base, capped by tier max
+        val basePct = minOf(aiBasePct, tierMaxPct)
         var size = tradeable * basePct
 
-        // ── Conviction multiplier ─────────────────────────────────────
-        val convMult = when {
-            entryScore >= 80 -> if (cfg.convictionSizingEnabled) 1.75 else 1.0
-            entryScore >= 65 -> if (cfg.convictionSizingEnabled) cfg.convictionMult2 else 1.0
-            entryScore >= 55 -> if (cfg.convictionSizingEnabled) cfg.convictionMult1 else 1.0
-            else             -> 1.0
+        // ── AI Entry Score Multiplier (replaces conviction) ───────────
+        val aiScoreMult = when {
+            entryScore >= 80 -> 1.50  // High entry score = bigger position
+            entryScore >= 65 -> 1.30
+            entryScore >= 50 -> 1.15
+            entryScore >= 35 -> 1.00
+            entryScore >= 20 -> 0.85
+            else             -> 0.70
         }
-        size *= convMult
+        size *= aiScoreMult
+
+        // ── BotBrain Source/Phase Adjustment ─────────────────────────
+        var brainMult = 1.0
+        brain?.let { b ->
+            // Source boost/penalty from learned win rates
+            val sourceBoost = b.getSourceBoost(source)
+            when {
+                sourceBoost >= 15 -> brainMult *= 1.30  // This source wins a lot
+                sourceBoost >= 10 -> brainMult *= 1.20
+                sourceBoost >= 5  -> brainMult *= 1.10
+                sourceBoost <= -15 -> brainMult *= 0.60 // This source loses a lot
+                sourceBoost <= -10 -> brainMult *= 0.70
+                sourceBoost <= -5  -> brainMult *= 0.85
+            }
+            
+            // Phase boost from learned patterns
+            val phaseBoost = b.getPhaseBoost(phase)
+            when {
+                phaseBoost >= 10 -> brainMult *= 1.20
+                phaseBoost >= 5  -> brainMult *= 1.10
+                phaseBoost <= -10 -> brainMult *= 0.70
+                phaseBoost <= -5  -> brainMult *= 0.85
+            }
+            
+            // Overall regime adjustment
+            brainMult *= b.regimeBullMult
+        }
+        size *= brainMult
+
+        // ── TradingMemory Pattern Check ─────────────────────────────
+        val memoryMult = run {
+            val patternPenalty = TradingMemory.getPatternPenalty(phase, "UNKNOWN", source)
+            when {
+                patternPenalty >= 20 -> 0.50  // Known bad pattern - half size
+                patternPenalty >= 10 -> 0.70
+                patternPenalty >= 5  -> 0.85
+                else -> 1.0
+            }
+        }
+        size *= memoryMult
 
         // ── Performance multiplier ────────────────────────────────────
         val perfMult = when {
-            perf.lossStreak >= 3                       -> 0.70  // loss streak — cut back
-            perf.recentWinRate >= 70 && perf.totalTrades >= 5 -> 1.20  // hot streak
-            perf.recentWinRate < 40  && perf.totalTrades >= 5 -> 0.60  // struggling
-            perf.recentWinRate < 55  && perf.totalTrades >= 5 -> 0.80  // cooling
-            perf.winStreak >= 3                        -> 1.10  // win streak bonus
+            perf.lossStreak >= 4                       -> 0.50  // bad streak — cut back hard
+            perf.lossStreak >= 3                       -> 0.70
+            perf.recentWinRate >= 70 && perf.totalTrades >= 5 -> 1.30  // hot streak - go bigger
+            perf.recentWinRate >= 60 && perf.totalTrades >= 5 -> 1.15
+            perf.recentWinRate < 40  && perf.totalTrades >= 5 -> 0.60
+            perf.recentWinRate < 50  && perf.totalTrades >= 5 -> 0.80
+            perf.winStreak >= 3                        -> 1.20  // win streak bonus
             else                                       -> 1.0
         }
         size *= perfMult
@@ -143,37 +205,27 @@ object SmartSizer {
         val drawdownMult = if (perf.sessionPeakSol > 0) {
             val recovery = walletSol / perf.sessionPeakSol
             when {
-                recovery < 0.40 -> 0.0   // circuit breaker — no new entries
-                recovery < 0.60 -> 0.50  // half size
-                recovery < 0.80 -> 0.75  // reduced
+                recovery < 0.40 -> 0.0   // circuit breaker
+                recovery < 0.60 -> 0.50
+                recovery < 0.80 -> 0.75
                 else            -> 1.0
             }
         } else 1.0
 
         if (drawdownMult == 0.0) {
-            return SizeResult(0.0, tier, basePct, convMult, perfMult, 0.0, 1.0,
+            return SizeResult(0.0, tier, basePct, aiScoreMult, perfMult, 0.0, 1.0,
                 "drawdown_circuit_breaker",
-                "Wallet down 60%+ from peak — entries paused to protect capital")
+                "Wallet down 60%+ from peak — entries paused")
         }
         size *= drawdownMult
 
         // ── Concurrent position scaling ────────────────────────────────
-        // We WANT many positions simultaneously — that's how we maximise opportunities.
-        // Each position gets a wallet-percentage slice, so more positions = more
-        // total deployment, not smaller per-position sizes.
-        //
-        // The total exposure cap (35% of tradeable) is the real guard here.
-        // Per-position size stays constant — the cap naturally limits how many
-        // positions can be open simultaneously based on wallet size.
-        //
-        // No penalty for concurrent positions. We scale per-position size UP
-        // when wallet grows (via tier system) not down when we have more positions.
-        val concMult = 1.0  // no penalty — wallet % allocation handles exposure
+        val concMult = 1.0  // no penalty
 
         // ── Hard limits ───────────────────────────────────────────────
         var cappedBy = "none"
 
-        // Max per-trade: 20% of tradeable (raised — larger wallet = bigger individual positions)
+        // Max per-trade: 20% of tradeable
         val maxPerTrade = tradeable * 0.20
         if (size > maxPerTrade) { size = maxPerTrade; cappedBy = "maxPct_20" }
 
