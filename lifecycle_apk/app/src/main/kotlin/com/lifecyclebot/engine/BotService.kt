@@ -952,8 +952,9 @@ class BotService : Service() {
         
         val tokensToRemove = mutableListOf<String>()
         val now = System.currentTimeMillis()
-        val staleThresholdMs = 90_000L           // 1.5 minutes stale
-        val idleThresholdMs = 2 * 60_000L        // 2 minutes max idle time
+        val staleThresholdMs = 60_000L            // 1 minute stale (was 1.5)
+        val idleThresholdMs = 60_000L             // 1 minute max idle time (was 2)
+        val maxWatchlistAge = 5 * 60_000L         // Remove any token after 5 mins if no trade
         
         for (mint in currentWatchlist) {
             val ts = status.tokens[mint]
@@ -987,7 +988,7 @@ class BotService : Service() {
                 val age = now - lastUpdate
                 val timeInWatchlist = now - ts.addedToWatchlistAt
                 
-                // Remove if stale (no data for 1.5+ minutes)
+                // Remove if stale (no data for 1+ minute)
                 if (lastUpdate > 0 && age > staleThresholdMs) {
                     tokensToRemove.add(mint)
                     addLog("⏰ STALE: ${ts.symbol}", mint)
@@ -1003,7 +1004,15 @@ class BotService : Service() {
                     continue
                 }
                 
-                // Remove if IDLE too long - 2+ minutes without buy signal or trade
+                // AGGRESSIVE: Remove any token after 5 minutes if no trade executed
+                if (timeInWatchlist > maxWatchlistAge && ts.trades.isEmpty()) {
+                    tokensToRemove.add(mint)
+                    addLog("⏳ TIMEOUT: ${ts.symbol} - 5min no trade", mint)
+                    marketScanner?.markTokenRejected(mint)
+                    continue
+                }
+                
+                // Remove if IDLE too long - 1+ minute without buy signal
                 val neverActioned = ts.signal != "BUY" && !ts.position.isOpen && ts.trades.isEmpty()
                 if (timeInWatchlist > idleThresholdMs && neverActioned) {
                     tokensToRemove.add(mint)

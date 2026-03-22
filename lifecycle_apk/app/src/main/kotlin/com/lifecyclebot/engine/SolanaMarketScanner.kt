@@ -104,11 +104,11 @@ class SolanaMarketScanner(
 
     // Track which mints we've already surfaced to avoid duplicates
     private val seenMints  = ConcurrentHashMap<String, Long>()
-    private val SEEN_TTL   = 3 * 60_000L    // forget after 3 min — faster token refresh
+    private val SEEN_TTL   = 60_000L          // forget after 1 min — ultra fast refresh
     
     // Track rejected tokens separately - shorter cooldown for faster retry
     private val rejectedMints = ConcurrentHashMap<String, Long>()
-    private val REJECTED_TTL = 5 * 60_000L  // forget rejected tokens after 5 min
+    private val REJECTED_TTL = 2 * 60_000L    // forget rejected tokens after 2 min
     
     // Memory protection: limit concurrent operations
     private val semaphore = kotlinx.coroutines.sync.Semaphore(3)  // max 3 concurrent scans
@@ -320,7 +320,7 @@ class SolanaMarketScanner(
                     " ${sScanTier.icon}${sScanTier.label}" else ""
                 
                 // PUMP.FUN PRIORITY: Scan pump.fun EVERY cycle, plus rotate secondary sources
-                scanRotation = (scanRotation + 1) % 3
+                scanRotation = (scanRotation + 1) % 4  // 4 rotations for more variety
                 onLog("🌐 Scan #$scanRotation${_tn} - Starting scan cycle")
                 ErrorLogger.info("Scanner", "Scan cycle #$scanRotation starting")
                 
@@ -332,33 +332,41 @@ class SolanaMarketScanner(
                 // ALWAYS scan pump.fun first (priority)
                 onLog("🚀 Scanning: Pump.fun tokens (PRIORITY)...")
                 runScan("scanPumpFunActive") { scanPumpFunActive() }
-                delay(300)
+                delay(200)  // Faster delays
                 
-                // Then rotate through secondary sources
+                // Then rotate through secondary sources - MORE VARIETY
                 when (scanRotation) {
                     0 -> {
                         // Pump.fun graduates + boosted
                         onLog("🔍 Scanning: Pump.fun graduates...")
                         runScan("scanPumpGraduates") { scanPumpGraduates() }
-                        delay(300)
+                        delay(200)
                         onLog("🔍 Scanning: DexScreener boosted...")
                         runScan("scanDexBoosted") { scanDexBoosted() }
                     }
                     1 -> {
-                        // Pump.fun volume + fresh launches
-                        onLog("🔍 Scanning: Pump.fun high volume...")
-                        runScan("scanPumpFunVolume") { scanPumpFunVolume() }
-                        delay(300)
+                        // Fresh launches + trending
                         onLog("🔍 Scanning: Fresh launches...")
                         runScan("scanFreshLaunches") { scanFreshLaunches() }
-                    }
-                    2 -> {
-                        // DexScreener trending + gainers
+                        delay(200)
                         onLog("🔍 Scanning: DexScreener trending...")
                         runScan("scanDexTrending") { scanDexTrending() }
-                        delay(300)
+                    }
+                    2 -> {
+                        // Volume + gainers
+                        onLog("🔍 Scanning: Pump.fun high volume...")
+                        runScan("scanPumpFunVolume") { scanPumpFunVolume() }
+                        delay(200)
                         onLog("🔍 Scanning: New Solana pairs...")
                         runScan("scanDexGainers") { scanDexGainers() }
+                    }
+                    3 -> {
+                        // Different combo - boosted + fresh
+                        onLog("🔍 Scanning: DexScreener boosted...")
+                        runScan("scanDexBoosted") { scanDexBoosted() }
+                        delay(200)
+                        onLog("🔍 Scanning: Fresh profiles...")
+                        runScan("scanFreshLaunches") { scanFreshLaunches() }
                     }
                 }
                 
@@ -1338,19 +1346,19 @@ class SolanaMarketScanner(
             onLog("🧹 Map cleanup: seen=${seenMints.size} rejected=${rejectedMints.size}")
         }
         
-        // Emergency cleanup if maps are getting too large
-        if (seenMints.size > 500) {
-            val toKeep = seenMints.entries.sortedByDescending { it.value }.take(200).map { it.key }
+        // AGGRESSIVE cleanup if maps are getting large - keep fewer entries
+        if (seenMints.size > 100) {
+            val toKeep = seenMints.entries.sortedByDescending { it.value }.take(50).map { it.key }
             seenMints.keys.retainAll(toKeep.toSet())
-            ErrorLogger.warn("Scanner", "Emergency seen cleanup: reduced to ${seenMints.size}")
-            onLog("⚠️ Seen map overflow - reduced to ${seenMints.size}")
+            ErrorLogger.warn("Scanner", "Aggressive seen cleanup: reduced to ${seenMints.size}")
+            onLog("⚠️ Seen map trimmed to ${seenMints.size}")
         }
         
-        if (rejectedMints.size > 1000) {
-            val toKeep = rejectedMints.entries.sortedByDescending { it.value }.take(400).map { it.key }
+        if (rejectedMints.size > 200) {
+            val toKeep = rejectedMints.entries.sortedByDescending { it.value }.take(100).map { it.key }
             rejectedMints.keys.retainAll(toKeep.toSet())
-            ErrorLogger.warn("Scanner", "Emergency rejected cleanup: reduced to ${rejectedMints.size}")
-            onLog("⚠️ Rejected map overflow - reduced to ${rejectedMints.size}")
+            ErrorLogger.warn("Scanner", "Aggressive rejected cleanup: reduced to ${rejectedMints.size}")
+            onLog("⚠️ Rejected map trimmed to ${rejectedMints.size}")
         }
     }
 
