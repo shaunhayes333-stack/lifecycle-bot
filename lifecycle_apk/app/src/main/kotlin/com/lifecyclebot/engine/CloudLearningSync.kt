@@ -267,7 +267,7 @@ object CloudLearningSync {
                 }
             }))
             put("app_version", appVersion)
-            put("created_at", java.text.SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss'Z'").format(java.util.Date(timestamp)))
+            put("created_at", timestamp.toString())  // Store as epoch ms
         }
     }
 
