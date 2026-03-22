@@ -42,11 +42,20 @@ object CloudLearningSync {
     // ═══════════════════════════════════════════════════════════════════
     // SUPABASE CONFIGURATION
     // ═══════════════════════════════════════════════════════════════════
-    // This is a shared community project - all bot instances connect here
-    // The anon key only allows insert/read on specific tables via RLS
+    // 
+    // TO SET UP COMMUNITY SHARING:
+    // 1. Create free Supabase project at https://supabase.com
+    // 2. Run docs/SUPABASE_SCHEMA.sql in SQL Editor
+    // 3. Replace URL and KEY below with your project's values
+    // 4. Share your credentials with the community!
+    //
+    // See docs/CLOUD_SETUP.md for detailed instructions.
+    //
+    // NOTE: The app works fine without this - it just won't sync.
+    // Set both to empty string "" to disable cloud sync.
     
-    private const val SUPABASE_URL = "https://lifecyclebot-community.supabase.co"
-    private const val SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImxpZmVjeWNsZWJvdC1jb21tdW5pdHkiLCJyb2xlIjoiYW5vbiIsImlhdCI6MTcwMDAwMDAwMCwiZXhwIjoyMDAwMDAwMDAwfQ.placeholder_key_replace_with_real"
+    private const val SUPABASE_URL = ""  // e.g., "https://abcd1234.supabase.co"
+    private const val SUPABASE_ANON_KEY = ""  // e.g., "eyJhbGciOiJIUzI1NiIs..."
     
     // Minimum trades required to contribute (prevents noisy data)
     private const val MIN_TRADES_TO_CONTRIBUTE = 20
@@ -182,6 +191,13 @@ object CloudLearningSync {
     // ═══════════════════════════════════════════════════════════════════
 
     /**
+     * Check if cloud sync is configured (has valid Supabase credentials)
+     */
+    private fun isConfigured(): Boolean {
+        return SUPABASE_URL.isNotBlank() && SUPABASE_ANON_KEY.isNotBlank()
+    }
+
+    /**
      * Upload learned weights to community database.
      * Called periodically by BotService.
      */
@@ -191,6 +207,11 @@ object CloudLearningSync {
         featureWeights: Map<String, Double>,
         patternStats: List<PatternBacktester.PatternStats>,
     ): Boolean {
+        if (!isConfigured()) {
+            ErrorLogger.debug("CloudSync", "Upload skipped: not configured (see docs/CLOUD_SETUP.md)")
+            return false
+        }
+        
         if (!isOptedIn) {
             ErrorLogger.debug("CloudSync", "Upload skipped: opted out")
             return false
@@ -265,6 +286,11 @@ object CloudLearningSync {
      * Called on app start and periodically.
      */
     suspend fun downloadCommunityWeights(): CommunityWeights? {
+        if (!isConfigured()) {
+            ErrorLogger.debug("CloudSync", "Download skipped: not configured")
+            return communityWeights  // Return cached
+        }
+        
         if (!useCommunityWeights) {
             ErrorLogger.debug("CloudSync", "Download skipped: community weights disabled")
             return communityWeights  // Return cached
@@ -440,6 +466,9 @@ object CloudLearningSync {
     fun isUsingCommunityWeights() = useCommunityWeights
 
     fun getStatus(): String {
+        if (!isConfigured()) {
+            return "CloudSync: Not configured (see docs/CLOUD_SETUP.md)"
+        }
         val community = communityWeights
         return if (community != null) {
             "CloudSync: ${community.totalContributors} contributors, ${community.totalTrades} trades | " +
