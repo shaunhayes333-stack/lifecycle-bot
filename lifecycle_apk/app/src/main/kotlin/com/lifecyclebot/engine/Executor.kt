@@ -1293,9 +1293,9 @@ class Executor(
                 holderCount = ts.history.lastOrNull()?.holderCount ?: 0,
                 topHolderPct = ts.safety.topHolderPct,
                 holderGrowthRate = ts.holderGrowthRate,
-                devWalletPct = ts.safety.devWalletPct,
+                devWalletPct = 0.0,  // Not tracked in SafetyReport
                 bondingCurveProgress = 100.0,  // Default to graduated
-                rugcheckScore = ts.safety.rugcheckScore,
+                rugcheckScore = ts.safety.rugcheckScore.toDouble(),
                 emaFanState = ts.meta.emafanAlignment,
                 entryScore = ts.position.entryScore,
                 priceFromAth = if (ts.position.highestPrice > 0) 
@@ -1483,9 +1483,9 @@ class Executor(
                 holderCount = ts.history.lastOrNull()?.holderCount ?: 0,
                 topHolderPct = ts.safety.topHolderPct,
                 holderGrowthRate = ts.holderGrowthRate,
-                devWalletPct = ts.safety.devWalletPct,
+                devWalletPct = 0.0,  // Not tracked
                 bondingCurveProgress = 100.0,
-                rugcheckScore = ts.safety.rugcheckScore,
+                rugcheckScore = ts.safety.rugcheckScore.toDouble(),
                 emaFanState = ts.meta.emafanAlignment,
                 entryScore = pos.entryScore,
                 priceFromAth = if (pos.highestPrice > 0) 

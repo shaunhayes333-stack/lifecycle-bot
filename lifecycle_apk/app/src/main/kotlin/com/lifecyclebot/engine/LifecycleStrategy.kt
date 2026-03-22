@@ -418,9 +418,9 @@ class LifecycleStrategy(
                 holderCount = ts.history.lastOrNull()?.holderCount ?: 0,
                 topHolderPct = ts.safety.topHolderPct,
                 holderGrowthRate = ts.holderGrowthRate,
-                devWalletPct = ts.safety.devWalletPct,
+                devWalletPct = 0.0,  // Not tracked in SafetyReport
                 bondingCurveProgress = 100.0,  // Default to graduated
-                rugcheckScore = ts.safety.rugcheckScore,
+                rugcheckScore = ts.safety.rugcheckScore.toDouble(),
                 emaFanState = emafan.alignment.name,
                 baseEntryScore = entryScore,
             )
