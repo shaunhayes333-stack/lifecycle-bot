@@ -1475,15 +1475,15 @@ class SolanaMarketScanner(
                 return false
             }
             
-            // HARD BLOCK: Score < 30 (was 10 - now more skeptical)
-            if (scoreNormalized < 30) {
-                onLog("🚫 RUG: ${mint.take(8)}... score=$scoreNormalized (<30)")
+            // HARD BLOCK: Score < 20 (very dangerous only)
+            if (scoreNormalized < 20) {
+                onLog("🚫 RUG: ${mint.take(8)}... score=$scoreNormalized (<20)")
                 return false
             }
             
-            // SOFT CONCERN: Score 30-50 - log warning but pass
-            if (scoreNormalized in 30..49) {
-                onLog("⚠️ RC WARNING: ${mint.take(8)}... score=$scoreNormalized (borderline)")
+            // SOFT CONCERN: Score 20-40 - log warning but pass
+            if (scoreNormalized in 20..39) {
+                onLog("⚠️ RC WARNING: ${mint.take(8)}... score=$scoreNormalized (risky)")
             }
             
             return true  // Pass

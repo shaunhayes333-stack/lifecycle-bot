@@ -1365,12 +1365,11 @@ class LifecycleStrategy(
             ErrorLogger.debug("AI", "🤖 CHECK: ${ts.symbol} risk=$riskScore (moderate)")
         }
 
-        // Phase blocks
-        if (phase in listOf("breakdown", "distribution", "expansion_peak", "overextended",
-                            "dying", "thin_market", "micro_cap_wait", "choppy_range")) return "WAIT"
+        // Phase blocks - only block on clearly bad phases
+        if (phase in listOf("breakdown", "distribution", "dying", "rug_likely")) return "WAIT"
 
-        // v4: block on volume divergence
-        if (volDiv) return "WAIT"
+        // v4: block on volume divergence ONLY if severe
+        if (volDiv && adjustedEntryScore < 40) return "WAIT"
 
         // Pullback entry — lower thresholds when buying a confirmed dip
         val pb = isPullbackEntry(hist, prices)
