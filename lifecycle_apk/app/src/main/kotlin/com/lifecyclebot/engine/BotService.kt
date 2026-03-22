@@ -532,6 +532,10 @@ class BotService : Service() {
         BannedTokens.init(applicationContext)
         addLog("🚫 ${BannedTokens.getStats()}")
         
+        // Initialize PatternAutoTuner for dynamic pattern weight adjustment
+        PatternAutoTuner.init(applicationContext)
+        addLog("🎛️ ${PatternAutoTuner.getStatus()}")
+        
         // Initialize KillSwitch for account protection
         val effectiveBalance = status.getEffectiveBalance(cfg.paperMode)
         KillSwitch.init(applicationContext, effectiveBalance)
@@ -764,10 +768,9 @@ class BotService : Service() {
                                     }
                                 addLog("═══════════════════════════════════════════")
                                 
-                                // Store confidence adjustments for patterns
-                                val adjustments = PatternBacktester.getConfidenceAdjustments(report)
-                                // These can be used by LifecycleStrategy to tune pattern weights
-                                ErrorLogger.info("Backtest", "Confidence adjustments: $adjustments")
+                                // AUTO-TUNE: Apply backtest results to pattern weights
+                                PatternAutoTuner.updateFromBacktest(report)
+                                addLog("🎛️ ${PatternAutoTuner.getStatus()}")
                             }
                         }
                     } catch (e: Exception) {

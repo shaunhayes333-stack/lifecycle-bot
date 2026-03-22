@@ -373,9 +373,34 @@ class LifecycleStrategy(
             val chartPattern = detectChartPattern(prices, hist)
             
             if (chartPattern.pattern != ChartPattern.NONE && chartPattern.confidence >= 50.0) {
-                entryScore = (entryScore + chartPattern.entryBoost).coerceAtMost(100.0)
+                // Apply auto-tuned multiplier to chart pattern boost
+                val tunerMult = PatternAutoTuner.getPatternMultiplier(chartPattern.pattern.name)
+                val adjustedBoost = chartPattern.entryBoost * tunerMult
+                entryScore = (entryScore + adjustedBoost).coerceAtMost(100.0)
+                
+                val tuneNote = if (tunerMult != 1.0) " [tuned:${String.format("%.2f", tunerMult)}x]" else ""
                 ErrorLogger.info("ChartPattern", "📈 ${ts.symbol}: ${chartPattern.pattern.name} detected! " +
-                    "+${chartPattern.entryBoost.toInt()} pts (${chartPattern.confidence.toInt()}% conf) | ${chartPattern.details}")
+                    "+${adjustedBoost.toInt()} pts (${chartPattern.confidence.toInt()}% conf)$tuneNote | ${chartPattern.details}")
+            }
+            // ═══════════════════════════════════════════════════════════════════
+            
+            // ═══════════════════════════════════════════════════════════════════
+            // V5: AUTO-TUNE FINAL ADJUSTMENT
+            // ═══════════════════════════════════════════════════════════════════
+            // Apply learned EMA fan and phase multipliers to final entry score
+            val emaMultiplier = PatternAutoTuner.getEmaMultiplier(emafan.alignment.name)
+            val phaseMultiplier = PatternAutoTuner.getPhaseMultiplier(phase)
+            
+            // Combine multipliers with diminishing returns
+            val combinedMult = ((emaMultiplier + phaseMultiplier) / 2.0).coerceIn(0.5, 1.4)
+            if (combinedMult != 1.0) {
+                val oldScore = entryScore
+                entryScore = (entryScore * combinedMult).coerceIn(0.0, 100.0)
+                if (entryScore >= 30 && kotlin.math.abs(entryScore - oldScore) >= 3) {
+                    ErrorLogger.debug("AutoTune", "🎛️ ${ts.symbol}: " +
+                        "ema=${String.format("%.2f", emaMultiplier)} phase=${String.format("%.2f", phaseMultiplier)} " +
+                        "→ score ${oldScore.toInt()}→${entryScore.toInt()}")
+                }
             }
             // ═══════════════════════════════════════════════════════════════════
         }
