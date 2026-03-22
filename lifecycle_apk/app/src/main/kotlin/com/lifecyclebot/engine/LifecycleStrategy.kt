@@ -1392,28 +1392,43 @@ class LifecycleStrategy(
         }
 
         // ═══════════════════════════════════════════════════════════════════
-        // TradingMemory - Apply learned pattern penalties (REDUCED IMPACT)
+        // TradingMemory - Apply learned pattern penalties
+        // PAPER MODE: Minimal penalties - learn from everything
+        // REAL MODE: Apply learned penalties to minimize risk
         // ═══════════════════════════════════════════════════════════════════
+        val isPaperMode = cfg().paperMode
+        
         val memoryPatternPenalty = TradingMemory.getPatternPenalty(
             phase = phase,
             emaFan = emafan.alignment.name,
             source = ts.source.ifBlank { "UNKNOWN" },
         )
         if (memoryPatternPenalty > 0) {
-            // Apply only HALF the penalty - don't be too aggressive
-            val actualPenalty = (memoryPatternPenalty / 2.0).coerceAtMost(15.0)
+            val actualPenalty = if (isPaperMode) {
+                // PAPER MODE: Minimal penalty - we want to trade to learn
+                (memoryPatternPenalty / 4.0).coerceAtMost(5.0)
+            } else {
+                // REAL MODE: Apply learned penalty
+                (memoryPatternPenalty / 2.0).coerceAtMost(15.0)
+            }
             adjustedEntryScore -= actualPenalty
-            ErrorLogger.debug("AI", "🤖 PENALTY: ${ts.symbol} -${actualPenalty.toInt()} pts (bad pattern)")
+            ErrorLogger.debug("AI", "🤖 PENALTY: ${ts.symbol} -${actualPenalty.toInt()} pts (${if (isPaperMode) "paper" else "real"})")
         }
         
-        // Check if this token was a loser before - only block after 3 losses (was 2)
+        // Check if this token was a loser before
         val tokenHistory = TradingMemory.getTokenLossHistory(ts.mint)
-        if (tokenHistory != null && tokenHistory.lossCount >= 3) {
-            ErrorLogger.info("AI", "🤖 BLOCK: ${ts.symbol} - ${tokenHistory.lossCount} prior losses on this token")
-            return "WAIT"
+        val lossBlockThreshold = if (isPaperMode) 5 else 3  // Paper mode: more tolerance
+        if (tokenHistory != null && tokenHistory.lossCount >= lossBlockThreshold) {
+            // In paper mode, still log but don't block as aggressively
+            if (!isPaperMode) {
+                ErrorLogger.info("AI", "🤖 BLOCK: ${ts.symbol} - ${tokenHistory.lossCount} prior losses")
+                return "WAIT"
+            } else {
+                ErrorLogger.debug("AI", "🤖 PAPER NOTE: ${ts.symbol} - ${tokenHistory.lossCount} losses (would block in real)")
+            }
         }
         
-        // Check token risk score - reduce impact
+        // Check token risk score
         val riskScore = TradingMemory.getTokenRiskScore(
             liquidity = ts.lastLiquidityUsd,
             mcap = ts.lastMcap,
@@ -1424,15 +1439,25 @@ class LifecycleStrategy(
             isPumpFun = ts.source.contains("pump", ignoreCase = true),
             volumeToLiqRatio = if (ts.lastLiquidityUsd > 0) hist.lastOrNull()?.vol?.div(ts.lastLiquidityUsd) ?: 0.0 else 0.0,
         )
-        // Only apply penalty for VERY high risk (was 70, now 80)
-        if (riskScore >= 80) {
-            val penalty = (riskScore - 70) / 3  // Reduced penalty
+        
+        val riskThreshold = if (isPaperMode) 90 else 80  // Paper: more risk tolerance
+        if (riskScore >= riskThreshold) {
+            val penalty = if (isPaperMode) {
+                (riskScore - 80) / 5  // Smaller penalty in paper mode
+            } else {
+                (riskScore - 70) / 3
+            }
             adjustedEntryScore -= penalty
             ErrorLogger.debug("AI", "🤖 RISK: ${ts.symbol} score=$riskScore -$penalty pts")
         }
 
-        // Phase blocks - only block on clearly bad phases
-        if (phase in listOf("breakdown", "distribution", "dying", "rug_likely")) return "WAIT"
+        // Phase blocks - PAPER MODE blocks less
+        val phaseBlockList = if (isPaperMode) {
+            listOf("rug_likely")  // Only block obvious rugs in paper mode
+        } else {
+            listOf("breakdown", "distribution", "dying", "rug_likely")
+        }
+        if (phase in phaseBlockList) return "WAIT"
 
         // v4: block on volume divergence ONLY if severe
         if (volDiv && adjustedEntryScore < 40) return "WAIT"
@@ -1514,15 +1539,40 @@ class LifecycleStrategy(
         }
 
         // CATCH-ALL: If entry score is decent, buy regardless of phase
-        // AGGRESSIVE: Lower threshold to catch more entries
-        val catchAllThreshold = 12.0 + brainAdj  // LOWERED from 15 - catch early entries
-        val hasMinQuality = ts.lastLiquidityUsd >= 1000 &&        // Min $1K liquidity (lowered from $3K)
-                            ts.lastMcap >= 2000 &&                 // Min $2K mcap (lowered from $5K)
-                            (meta.volScore >= 5 || meta.pressScore >= 15)  // Some activity (lowered)
+        // PAPER MODE: Much more aggressive to help brain learn faster
+        // REAL MODE: Use learned thresholds, be more conservative
+        val isPaperMode = cfg().paperMode
         
-        if (adjustedEntryScore >= catchAllThreshold && hasMinQuality && 
-            phase !in listOf("breakdown", "dying", "rug_likely")) {  // Removed "distribution", "thin_market", "overextended", "dump"
-            ErrorLogger.info("Strategy", "${ts.symbol}: CATCH-ALL BUY | phase=$phase score=${adjustedEntryScore.toInt()} liq=$${ts.lastLiquidityUsd.toInt()}")
+        val catchAllThreshold = if (isPaperMode) {
+            // PAPER MODE: Very low threshold - trade a lot to learn
+            5.0 + brainAdj
+        } else {
+            // REAL MODE: Use brain's learned threshold adjustment
+            15.0 + brainAdj
+        }
+        
+        val hasMinQuality = if (isPaperMode) {
+            // PAPER MODE: Minimal requirements - learn from everything
+            ts.lastLiquidityUsd >= 500 &&
+            ts.lastMcap >= 1000
+        } else {
+            // REAL MODE: Stricter quality requirements
+            ts.lastLiquidityUsd >= 1000 &&
+            ts.lastMcap >= 2000 &&
+            (meta.volScore >= 5 || meta.pressScore >= 15)
+        }
+        
+        val blockedPhases = if (isPaperMode) {
+            // PAPER MODE: Only block obvious rugs
+            listOf("rug_likely")
+        } else {
+            // REAL MODE: Block more risky phases
+            listOf("breakdown", "dying", "rug_likely")
+        }
+        
+        if (adjustedEntryScore >= catchAllThreshold && hasMinQuality && phase !in blockedPhases) {
+            val modeLabel = if (isPaperMode) "PAPER" else "REAL"
+            ErrorLogger.info("Strategy", "${ts.symbol}: CATCH-ALL BUY [$modeLabel] | phase=$phase score=${adjustedEntryScore.toInt()} threshold=${catchAllThreshold.toInt()}")
             return "BUY"
         }
 

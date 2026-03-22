@@ -112,16 +112,29 @@ object SmartSizer {
 
         // ══════════════════════════════════════════════════════════════
         // AI-DRIVEN SIZING: Let the brain decide base size
+        // PAPER MODE: Larger positions for faster learning
+        // REAL MODE: Conservative positions based on confidence
         // ══════════════════════════════════════════════════════════════
+        val isPaperMode = cfg.paperMode
         
-        // Base percentage determined by AI confidence, not just wallet tier
-        val aiBasePct = when {
-            aiConfidence >= 85 -> 0.15  // 15% - very high confidence
-            aiConfidence >= 75 -> 0.12  // 12% - high confidence
-            aiConfidence >= 65 -> 0.10  // 10% - good confidence
-            aiConfidence >= 55 -> 0.08  // 8% - moderate confidence
-            aiConfidence >= 45 -> 0.06  // 6% - low confidence
-            else -> 0.04                 // 4% - very low confidence
+        // Base percentage determined by AI confidence
+        val aiBasePct = if (isPaperMode) {
+            // PAPER MODE: Larger fixed positions - learn faster
+            when {
+                aiConfidence >= 70 -> 0.15  // 15%
+                aiConfidence >= 50 -> 0.12  // 12%
+                else -> 0.10                 // 10% minimum in paper
+            }
+        } else {
+            // REAL MODE: Conservative, confidence-driven
+            when {
+                aiConfidence >= 85 -> 0.15  // 15% - very high confidence
+                aiConfidence >= 75 -> 0.12  // 12% - high confidence
+                aiConfidence >= 65 -> 0.10  // 10% - good confidence
+                aiConfidence >= 55 -> 0.08  // 8% - moderate confidence
+                aiConfidence >= 45 -> 0.06  // 6% - low confidence
+                else -> 0.04                 // 4% - very low confidence
+            }
         }
         
         // Wallet tier still affects maximum, not base
