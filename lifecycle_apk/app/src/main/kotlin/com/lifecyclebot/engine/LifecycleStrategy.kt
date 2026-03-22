@@ -365,6 +365,19 @@ class LifecycleStrategy(
                 ErrorLogger.debug("WinPattern", "⚠️ ${ts.symbol}: High holder concentration " +
                     "-${penalty.toInt()} pts (${ts.safety.topHolderPct.toInt()}%)")
             }
+            
+            // ═══════════════════════════════════════════════════════════════════
+            // V5: CLASSIC CHART PATTERN DETECTION
+            // ═══════════════════════════════════════════════════════════════════
+            // Double Bottom, Cup & Handle, Bull Flag - time-tested patterns
+            val chartPattern = detectChartPattern(prices, hist)
+            
+            if (chartPattern.pattern != ChartPattern.NONE && chartPattern.confidence >= 50.0) {
+                entryScore = (entryScore + chartPattern.entryBoost).coerceAtMost(100.0)
+                ErrorLogger.info("ChartPattern", "📈 ${ts.symbol}: ${chartPattern.pattern.name} detected! " +
+                    "+${chartPattern.entryBoost.toInt()} pts (${chartPattern.confidence.toInt()}% conf) | ${chartPattern.details}")
+            }
+            // ═══════════════════════════════════════════════════════════════════
         }
         // ═══════════════════════════════════════════════════════════════════
 
@@ -927,6 +940,301 @@ class LifecycleStrategy(
             details = details.joinToString("|"),
         )
     }
+
+    // ─────────────────────────────────────────────────────────────────
+    // V5: Classic Chart Pattern Detection
+    // ─────────────────────────────────────────────────────────────────
+    
+    enum class ChartPattern {
+        NONE,
+        DOUBLE_BOTTOM,      // W pattern - bullish reversal
+        CUP_AND_HANDLE,     // U shape with small pullback - bullish continuation
+        BULL_FLAG,          // Strong move up + tight consolidation - bullish continuation
+        ASCENDING_TRIANGLE, // Higher lows, flat resistance - bullish
+    }
+    
+    data class ChartPatternSignal(
+        val pattern: ChartPattern,
+        val confidence: Double,     // 0-100
+        val entryBoost: Double,     // Score boost to apply
+        val details: String,
+    )
+    
+    /**
+     * Detect classic bullish chart patterns that precede big moves.
+     * These are time-tested patterns that work across all markets.
+     */
+    private fun detectChartPattern(
+        prices: List<Double>,
+        hist: List<Candle>,
+    ): ChartPatternSignal {
+        if (prices.size < 15) {
+            return ChartPatternSignal(ChartPattern.NONE, 0.0, 0.0, "Insufficient data")
+        }
+        
+        // Try each pattern detector and return the strongest match
+        val doubleBottom = detectDoubleBottom(prices, hist)
+        val cupHandle = detectCupAndHandle(prices, hist)
+        val bullFlag = detectBullFlag(prices, hist)
+        
+        // Return the pattern with highest confidence
+        return listOf(doubleBottom, cupHandle, bullFlag)
+            .maxByOrNull { it.confidence } 
+            ?: ChartPatternSignal(ChartPattern.NONE, 0.0, 0.0, "No pattern")
+    }
+    
+    /**
+     * Double Bottom (W Pattern) - Classic bullish reversal
+     * 
+     * Structure:
+     * 1. First low (left bottom)
+     * 2. Recovery peak (neckline)
+     * 3. Second low near first low level (right bottom)
+     * 4. Break above neckline = confirmation
+     * 
+     * Entry: On break above neckline or during second bottom formation
+     */
+    private fun detectDoubleBottom(
+        prices: List<Double>,
+        hist: List<Candle>,
+    ): ChartPatternSignal {
+        if (prices.size < 12) return ChartPatternSignal(ChartPattern.NONE, 0.0, 0.0, "")
+        
+        val window = prices.takeLast(15)
+        val windowHist = hist.takeLast(15)
+        
+        // Find the two lowest points
+        val minIdx1 = window.indices.minByOrNull { window[it] } ?: return noPattern()
+        val low1 = window[minIdx1]
+        
+        // Find second low (must be at least 3 candles away from first)
+        val searchRange = window.indices.filter { kotlin.math.abs(it - minIdx1) >= 3 }
+        if (searchRange.isEmpty()) return noPattern()
+        
+        val minIdx2 = searchRange.minByOrNull { window[it] } ?: return noPattern()
+        val low2 = window[minIdx2]
+        
+        // Lows must be within 5% of each other
+        val lowDiff = kotlin.math.abs(low1 - low2) / kotlin.math.min(low1, low2) * 100
+        if (lowDiff > 5.0) return noPattern()
+        
+        // Find the peak between the two lows (neckline)
+        val peakRange = if (minIdx1 < minIdx2) (minIdx1 + 1 until minIdx2) else (minIdx2 + 1 until minIdx1)
+        if (peakRange.isEmpty()) return noPattern()
+        
+        val peakIdx = peakRange.maxByOrNull { window[it] } ?: return noPattern()
+        val neckline = window[peakIdx]
+        
+        // Neckline must be meaningfully higher than lows (at least 8%)
+        val necklineLift = (neckline - kotlin.math.min(low1, low2)) / kotlin.math.min(low1, low2) * 100
+        if (necklineLift < 8.0) return noPattern()
+        
+        // Current price position
+        val currentPrice = prices.last()
+        val priceVsNeckline = (currentPrice - neckline) / neckline * 100
+        
+        // Confidence based on pattern quality
+        var confidence = 50.0
+        
+        // Tighter bottoms = higher confidence
+        if (lowDiff < 2.0) confidence += 15.0
+        else if (lowDiff < 3.5) confidence += 10.0
+        
+        // Volume confirmation: second bottom should have less selling volume
+        if (windowHist.size >= 12) {
+            val firstBottomVol = windowHist.getOrNull(minIdx1)?.vol ?: 0.0
+            val secondBottomVol = windowHist.getOrNull(minIdx2)?.vol ?: 0.0
+            if (secondBottomVol < firstBottomVol * 0.8) {
+                confidence += 15.0  // Bullish divergence
+            }
+        }
+        
+        // Breaking neckline = strongest signal
+        if (priceVsNeckline > 2.0) confidence += 20.0
+        else if (priceVsNeckline > -3.0) confidence += 10.0  // Near neckline
+        
+        if (confidence < 50.0) return noPattern()
+        
+        val boost = when {
+            confidence >= 80.0 -> 25.0
+            confidence >= 65.0 -> 18.0
+            confidence >= 50.0 -> 12.0
+            else -> 0.0
+        }
+        
+        return ChartPatternSignal(
+            pattern = ChartPattern.DOUBLE_BOTTOM,
+            confidence = confidence.coerceIn(0.0, 100.0),
+            entryBoost = boost,
+            details = "W_BOTTOM|lows=${lowDiff.toInt()}%_diff|neck_lift=${necklineLift.toInt()}%"
+        )
+    }
+    
+    /**
+     * Cup and Handle - Bullish continuation pattern
+     * 
+     * Structure:
+     * 1. Rounded bottom (the cup) - gradual decline then gradual recovery
+     * 2. Small pullback near highs (the handle)
+     * 3. Breakout from handle = entry signal
+     */
+    private fun detectCupAndHandle(
+        prices: List<Double>,
+        hist: List<Candle>,
+    ): ChartPatternSignal {
+        if (prices.size < 15) return noPattern()
+        
+        val window = prices.takeLast(18)
+        
+        // Cup needs: high -> low -> high structure
+        val startHigh = window.take(4).max()
+        val midLow = window.drop(4).take(8).min()
+        val endHigh = window.takeLast(5).max()
+        
+        // Cup depth: should be 15-50% from high to low
+        val cupDepth = (startHigh - midLow) / startHigh * 100
+        if (cupDepth < 12.0 || cupDepth > 55.0) return noPattern()
+        
+        // Recovery: end high should be close to start high (within 10%)
+        val recoveryPct = (endHigh - startHigh) / startHigh * 100
+        if (recoveryPct < -12.0) return noPattern()  // Didn't recover enough
+        
+        // Check for handle: small pullback (3-12%) from recent high
+        val recentHigh = window.takeLast(8).max()
+        val currentPrice = prices.last()
+        val handleDepth = (recentHigh - currentPrice) / recentHigh * 100
+        
+        // Handle should be shallow (3-12% pullback)
+        val hasHandle = handleDepth in 3.0..15.0
+        
+        // Cup should be rounded (not V-shaped)
+        // Check if middle prices are between high and low (not sharp V)
+        val midPrices = window.drop(3).take(10)
+        val avgMid = midPrices.average()
+        val expectedMid = (startHigh + midLow) / 2
+        val isRounded = avgMid > midLow * 1.05  // Middle should be above the low
+        
+        if (!isRounded) return noPattern()
+        
+        var confidence = 45.0
+        
+        // Better cup shape
+        if (cupDepth in 20.0..40.0) confidence += 15.0
+        
+        // Good recovery
+        if (recoveryPct > -5.0) confidence += 15.0
+        
+        // Has handle formation
+        if (hasHandle) confidence += 20.0
+        
+        // Volume declining during cup, increasing on recovery
+        if (hist.size >= 15) {
+            val cupVol = hist.drop(4).take(6).map { it.vol }.average()
+            val recoveryVol = hist.takeLast(4).map { it.vol }.average()
+            if (recoveryVol > cupVol * 1.2) confidence += 10.0
+        }
+        
+        if (confidence < 50.0) return noPattern()
+        
+        val boost = when {
+            confidence >= 80.0 -> 22.0
+            confidence >= 65.0 -> 15.0
+            confidence >= 50.0 -> 10.0
+            else -> 0.0
+        }
+        
+        return ChartPatternSignal(
+            pattern = ChartPattern.CUP_AND_HANDLE,
+            confidence = confidence.coerceIn(0.0, 100.0),
+            entryBoost = boost,
+            details = "CUP_HANDLE|depth=${cupDepth.toInt()}%|handle=${handleDepth.toInt()}%"
+        )
+    }
+    
+    /**
+     * Bull Flag - Bullish continuation after strong move
+     * 
+     * Structure:
+     * 1. Strong upward move (the pole) - at least 15%
+     * 2. Tight consolidation (the flag) - sideways or slight downward drift
+     * 3. Breakout from flag = entry signal
+     * 
+     * The flag should be tight (low volatility) with declining volume
+     */
+    private fun detectBullFlag(
+        prices: List<Double>,
+        hist: List<Candle>,
+    ): ChartPatternSignal {
+        if (prices.size < 12) return noPattern()
+        
+        val window = prices.takeLast(15)
+        val windowHist = hist.takeLast(15)
+        
+        // Find the pole: strong move in first part
+        val poleStart = window.take(3).min()
+        val poleEnd = window.drop(2).take(5).max()
+        val poleMove = (poleEnd - poleStart) / poleStart * 100
+        
+        // Pole must be substantial (at least 12% move)
+        if (poleMove < 12.0) return noPattern()
+        
+        // Flag: consolidation in latter part
+        val flagPrices = window.takeLast(6)
+        val flagHigh = flagPrices.max()
+        val flagLow = flagPrices.min()
+        val flagRange = (flagHigh - flagLow) / flagLow * 100
+        
+        // Flag should be tight (range < 8% for good flag, < 12% acceptable)
+        if (flagRange > 15.0) return noPattern()
+        
+        // Flag should be near the top of the pole (not deep retracement)
+        val flagMid = (flagHigh + flagLow) / 2
+        val retracement = (poleEnd - flagMid) / (poleEnd - poleStart) * 100
+        if (retracement > 50.0) return noPattern()  // Retraced more than 50% = not a flag
+        
+        var confidence = 50.0
+        
+        // Stronger pole = better
+        if (poleMove >= 25.0) confidence += 15.0
+        else if (poleMove >= 18.0) confidence += 10.0
+        
+        // Tighter flag = better
+        if (flagRange < 5.0) confidence += 20.0
+        else if (flagRange < 8.0) confidence += 12.0
+        
+        // Shallow retracement = better
+        if (retracement < 25.0) confidence += 10.0
+        
+        // Volume declining during flag
+        if (windowHist.size >= 12) {
+            val poleVol = windowHist.take(6).map { it.vol }.average()
+            val flagVol = windowHist.takeLast(5).map { it.vol }.average()
+            if (flagVol < poleVol * 0.7) confidence += 15.0
+        }
+        
+        // Current price near top of flag (ready to break out)
+        val currentPrice = prices.last()
+        val posInFlag = (currentPrice - flagLow) / (flagHigh - flagLow) * 100
+        if (posInFlag > 70.0) confidence += 10.0
+        
+        if (confidence < 50.0) return noPattern()
+        
+        val boost = when {
+            confidence >= 80.0 -> 28.0  // Bull flags are high-probability
+            confidence >= 65.0 -> 20.0
+            confidence >= 50.0 -> 12.0
+            else -> 0.0
+        }
+        
+        return ChartPatternSignal(
+            pattern = ChartPattern.BULL_FLAG,
+            confidence = confidence.coerceIn(0.0, 100.0),
+            entryBoost = boost,
+            details = "BULL_FLAG|pole=${poleMove.toInt()}%|flag=${flagRange.toInt()}%|retrace=${retracement.toInt()}%"
+        )
+    }
+    
+    private fun noPattern() = ChartPatternSignal(ChartPattern.NONE, 0.0, 0.0, "")
 
     /**
      * v4: EMA fan — the core "keep riding" signal on multi-hour grinders.

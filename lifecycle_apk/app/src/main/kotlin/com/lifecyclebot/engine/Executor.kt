@@ -201,32 +201,129 @@ class Executor(
     }
 
     // ── trailing stop ─────────────────────────────────────────────────
-    // IMPROVED: Let winners run further before tightening trail
-
+    // V5: SMART RUNNER CAPTURE - Dynamic trailing based on trend health
+    
+    /**
+     * Smart Trailing Floor - Dynamically adjusts based on:
+     * 1. Gain percentage (base adjustment)
+     * 2. EMA fan health (widening fan = looser trail)
+     * 3. Volume trend (increasing = looser trail)
+     * 4. Buy pressure (strong = looser trail)
+     * 
+     * The goal is to ride runners to their full potential while still
+     * protecting gains when momentum starts to fade.
+     */
     fun trailingFloor(pos: Position, current: Double,
-                       modeConf: AutoModeEngine.ModeConfig? = null): Double {
+                       modeConf: AutoModeEngine.ModeConfig? = null,
+                       // V5: Additional signals for smart trailing
+                       emaFanAlignment: String = "FLAT",
+                       emaFanWidening: Boolean = false,
+                       volScore: Double = 50.0,
+                       pressScore: Double = 50.0,
+                       exhaust: Boolean = false): Double {
         val base    = modeConf?.trailingStopPct ?: cfg().trailingStopBasePct
         val gainPct = pct(pos.entryPrice, current)
         
         // FIX 3c: Trail tightens after partial sells — gains locked, ride tighter
         val partialFactor = when {
-            pos.partialSoldPct >= 50.0 -> 0.40  // loosened from 0.20
-            pos.partialSoldPct >= 25.0 -> 0.55  // loosened from 0.28
+            pos.partialSoldPct >= 50.0 -> 0.40
+            pos.partialSoldPct >= 25.0 -> 0.55
             else                       -> 1.0
         }
         
-        // IMPROVED TRAILING: Let runners run much further
-        // Don't tighten trail until 100%+ gains - capture the full move
-        val trail = when {
-            gainPct >= 500 -> base * 0.25 * partialFactor  // 5x+ → tight trail (lock gains)
-            gainPct >= 300 -> base * 0.35 * partialFactor  // 3x+ → moderate trail
-            gainPct >= 200 -> base * 0.45 * partialFactor  // 2x+ → still loose
-            gainPct >= 100 -> base * 0.55 * partialFactor  // 100%+ → start tightening slightly
-            gainPct >= 50  -> base * 0.70 * partialFactor  // 50%+ → loose trail, let it run
-            gainPct >= 30  -> base * 0.85 * partialFactor  // 30%+ → very loose
-            else           -> base * partialFactor         // under 30% → full trail width
+        // ═══════════════════════════════════════════════════════════════════
+        // V5: SMART TRAIL MULTIPLIER based on trend health
+        // ═══════════════════════════════════════════════════════════════════
+        // 
+        // If the trend is healthy (EMA fan, volume, pressure), we want LOOSER
+        // trails to capture more of the move. If trend is weakening, tighten.
+        //
+        // Multiplier > 1.0 = looser trail (let it run)
+        // Multiplier < 1.0 = tighter trail (protect gains)
+        
+        var healthMultiplier = 1.0
+        
+        // EMA Fan Health - MOST IMPORTANT for runners
+        // Widening bull fan = strong trend, give it room
+        when {
+            emaFanAlignment == "BULL_FAN" && emaFanWidening -> {
+                healthMultiplier += 0.35  // Very loose - let it RUN
+            }
+            emaFanAlignment == "BULL_FAN" -> {
+                healthMultiplier += 0.20  // Loose
+            }
+            emaFanAlignment == "BULL_FLAT" -> {
+                healthMultiplier += 0.10  // Slightly loose
+            }
+            emaFanAlignment == "BEAR_FLAT" -> {
+                healthMultiplier -= 0.15  // Tighten - trend weakening
+            }
+            emaFanAlignment == "BEAR_FAN" -> {
+                healthMultiplier -= 0.30  // Very tight - trend broken
+            }
         }
-        return pos.highestPrice * (1.0 - trail / 100.0)
+        
+        // Volume Score - High volume supports the move
+        when {
+            volScore >= 70 -> healthMultiplier += 0.15
+            volScore >= 55 -> healthMultiplier += 0.08
+            volScore < 35  -> healthMultiplier -= 0.12  // Volume dying
+            volScore < 25  -> healthMultiplier -= 0.20  // No volume = exit soon
+        }
+        
+        // Buy Pressure - Strong buyers = trend continuing
+        when {
+            pressScore >= 65 -> healthMultiplier += 0.12
+            pressScore >= 55 -> healthMultiplier += 0.05
+            pressScore < 40  -> healthMultiplier -= 0.15  // Sellers taking over
+            pressScore < 30  -> healthMultiplier -= 0.25  // Heavy selling
+        }
+        
+        // Exhaustion = immediate tightening
+        if (exhaust) {
+            healthMultiplier -= 0.30
+        }
+        
+        // Clamp multiplier to reasonable range
+        healthMultiplier = healthMultiplier.coerceIn(0.5, 1.6)
+        
+        // ═══════════════════════════════════════════════════════════════════
+        // Base trail calculation with health adjustment
+        // ═══════════════════════════════════════════════════════════════════
+        
+        val baseTrail = when {
+            gainPct >= 500 -> base * 0.25  // 5x+ → base tight
+            gainPct >= 300 -> base * 0.35  // 3x+ → moderate
+            gainPct >= 200 -> base * 0.45  // 2x+ → still loose
+            gainPct >= 100 -> base * 0.55  // 100%+ → starting to tighten
+            gainPct >= 50  -> base * 0.70  // 50%+ → loose
+            gainPct >= 30  -> base * 0.85  // 30%+ → very loose
+            else           -> base         // under 30% → full width
+        }
+        
+        // Apply health multiplier - healthy trend = looser trail
+        val smartTrail = baseTrail * healthMultiplier * partialFactor
+        
+        // Log significant adjustments for runners (>100% gain)
+        if (gainPct >= 100.0 && healthMultiplier != 1.0) {
+            val direction = if (healthMultiplier > 1.0) "LOOSE" else "TIGHT"
+            ErrorLogger.debug("SmartTrail", "🎯 Runner ${gainPct.toInt()}%: " +
+                "health=${healthMultiplier.fmt(2)} ($direction) | " +
+                "fan=$emaFanAlignment wide=$emaFanWidening | " +
+                "vol=${volScore.toInt()} press=${pressScore.toInt()} | " +
+                "trail=${smartTrail.fmt(2)}%")
+        }
+        
+        return pos.highestPrice * (1.0 - smartTrail / 100.0)
+    }
+    
+    /**
+     * Backward-compatible version for calls without trend signals.
+     * Uses basic gain-based trailing.
+     */
+    fun trailingFloorBasic(pos: Position, current: Double,
+                            modeConf: AutoModeEngine.ModeConfig? = null): Double {
+        return trailingFloor(pos, current, modeConf)
     }
 
     // ── partial sell ─────────────────────────────────────────────────
@@ -425,7 +522,19 @@ class Executor(
 
         val effectiveStopPct = modeConf?.stopLossPct ?: cfg().stopLossPct
         if (gainPct <= -effectiveStopPct) return "stop_loss"
-        if (price < trailingFloor(pos, price, modeConf)) return "trailing_stop"
+        
+        // V5: Smart trailing with trend health signals
+        val smartFloor = trailingFloor(
+            pos = pos,
+            current = price,
+            modeConf = modeConf,
+            emaFanAlignment = ts.meta.emafanAlignment,
+            emaFanWidening = ts.meta.emafanAlignment == "BULL_FAN" && ts.meta.volScore >= 55,  // Proxy for widening
+            volScore = ts.meta.volScore,
+            pressScore = ts.meta.pressScore,
+            exhaust = ts.meta.exhaustion,
+        )
+        if (price < smartFloor) return "trailing_stop"
         return null
     }
 
