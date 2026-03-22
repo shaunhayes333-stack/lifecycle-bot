@@ -509,9 +509,10 @@ class Executor(
             // V8: State Machine Integration
             // ════════════════════════════════════════════════════════════════
             val tradeState = TradeStateMachine.getState(ts.mint)
+            val isPaperMode = cfg().paperMode
             
-            // Check cooldown
-            if (TradeStateMachine.isInCooldown(ts.mint)) {
+            // Check cooldown - SKIP IN PAPER MODE
+            if (!isPaperMode && TradeStateMachine.isInCooldown(ts.mint)) {
                 onLog("⏸️ ${ts.symbol}: In cooldown, skipping", ts.mint)
                 return
             }
@@ -522,12 +523,14 @@ class Executor(
             }
             
             // Check entry pattern (spike → pullback → re-acceleration)
+            // SKIP PATTERN REQUIREMENT IN PAPER MODE - trade immediately to learn
             val priceHistory = ts.history.map { it.priceUsd }
-            val optimalEntry = TradeStateMachine.detectEntryPattern(ts.mint, ts.ref, priceHistory)
+            val optimalEntry = if (isPaperMode) true else TradeStateMachine.detectEntryPattern(ts.mint, ts.ref, priceHistory)
             
             // If we have entry pattern requirement enabled, wait for optimal entry
+            // DISABLED IN PAPER MODE
             val c = cfg()
-            val requireOptimalEntry = c.smallBuySol < 0.1  // Only for small positions, be more patient
+            val requireOptimalEntry = !isPaperMode && c.smallBuySol < 0.1  // Only for small positions in real mode
             
             if (requireOptimalEntry && !optimalEntry && tradeState.entryPattern != EntryPattern.NONE) {
                 // We've seen a spike but waiting for pullback+reaccel
@@ -539,7 +542,7 @@ class Executor(
                 return  // Wait for optimal entry
             }
             
-            if (optimalEntry) {
+            if (optimalEntry && !isPaperMode) {
                 onLog("🎯 ${ts.symbol}: OPTIMAL ENTRY - Spike→Pullback→ReAccel pattern!", ts.mint)
             }
             

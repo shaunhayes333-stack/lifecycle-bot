@@ -243,12 +243,26 @@ class LifecycleStrategy(
         }
 
         // ── Safety overlay ────────────────────────────────────────────
+        // PAPER MODE: Don't zero out entry score, just log warnings
         val safety = ts.safety
+        val isPaperModeEarly = cfg().paperMode
+        
         if (safety.isBlocked) {
-            entryScore = 0.0
-            if (ts.position.isOpen) exitScore = 100.0
+            if (isPaperModeEarly) {
+                // Paper mode: Log but don't block - we want to learn
+                ErrorLogger.debug("Safety", "🛡️ PAPER: ${ts.symbol} would be blocked (${safety.hardBlockReasons.firstOrNull()})")
+                // Only zero out for actual rugs
+                if (safety.hardBlockReasons.any { it.contains("rug", ignoreCase = true) }) {
+                    entryScore = 0.0
+                }
+            } else {
+                // Real mode: Block as normal
+                entryScore = 0.0
+                if (ts.position.isOpen) exitScore = 100.0
+            }
         } else if (safety.tier == SafetyTier.CAUTION) {
-            entryScore = (entryScore - safety.entryScorePenalty).coerceAtLeast(0.0)
+            val penalty = if (isPaperModeEarly) safety.entryScorePenalty / 2 else safety.entryScorePenalty
+            entryScore = (entryScore - penalty).coerceAtLeast(0.0)
         }
 
         // ═══════════════════════════════════════════════════════════════════
