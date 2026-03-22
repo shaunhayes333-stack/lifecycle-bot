@@ -629,7 +629,7 @@ class Executor(
             // WALLET INTELLIGENCE: Fetch advanced data (top holders, whale ratio, insider risk)
             val pipelineData = try {
                 if (!isPaperMode && ts.lastLiquidityUsd > 5000) {  // Only for real mode + decent liquidity
-                    DataPipeline.fetchAllData(ts.mint, cfg().birdeyeApiKey, cfg().heliusApiKey) { msg ->
+                    DataPipeline.getAlphaSignals(ts.mint, cfg()) { msg ->
                         onLog("📊 $msg", ts.mint)
                     }
                 } else null
@@ -637,8 +637,14 @@ class Executor(
             
             // INSIDER RISK CHECK: Block if wallet intelligence detects high risk
             if (!isPaperMode && pipelineData != null) {
-                if (pipelineData.insiderRiskScore > 70) {
-                    onLog("🚨 INSIDER RISK: ${ts.symbol} score=${pipelineData.insiderRiskScore.toInt()} - skipping", ts.mint)
+                // repeatWalletScore high = coordinated bot activity
+                if (pipelineData.repeatWalletScore > 70) {
+                    onLog("🚨 BOT FARM: ${ts.symbol} score=${pipelineData.repeatWalletScore.toInt()} - skipping", ts.mint)
+                    return
+                }
+                // whaleRatio high = concentrated ownership risk
+                if (pipelineData.whaleRatio > 0.60) {
+                    onLog("🚨 WHALE RISK: ${ts.symbol} ${(pipelineData.whaleRatio*100).toInt()}% whale-owned - skipping", ts.mint)
                     return
                 }
                 if (pipelineData.topHolderPct > 60) {
