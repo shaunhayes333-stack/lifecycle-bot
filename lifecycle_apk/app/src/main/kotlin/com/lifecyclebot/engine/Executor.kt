@@ -561,8 +561,8 @@ class Executor(
             // DYNAMIC RE-ENTRY: Allow re-entry if last trade was profitable and conditions improved
             if (!isPaperMode && TradeStateMachine.isInCooldown(ts.mint)) {
                 val lastTrade = ts.trades.lastOrNull()
-                val wasProfit = lastTrade?.let { it.type == "SELL" && (it.pnlPct ?: 0.0) > 0 } ?: false
-                val priceDroppedFromExit = lastTrade?.let { ts.ref < it.priceUsd * 0.85 } ?: false  // 15%+ below exit
+                val wasProfit = lastTrade?.let { it.side == "SELL" && (it.pnlPct ?: 0.0) > 0 } ?: false
+                val priceDroppedFromExit = lastTrade?.let { ts.ref < it.price * 0.85 } ?: false  // 15%+ below exit
                 val scoreImproved = entryScore >= 50  // Good entry score
                 
                 // Allow re-entry if: profitable last trade + price dipped + good score
