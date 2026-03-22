@@ -472,6 +472,7 @@ class BotService : Service() {
                         }
                     },
                     onLog = ::addLog,
+                    getBrain = { brain },  // AI learning integration
                 )
                 ErrorLogger.info("BotService", "Starting market scanner...")
                 marketScanner?.start()
@@ -726,6 +727,14 @@ class BotService : Service() {
             // Periodic AI stats logging (every ~5 minutes = 6-7 loops at 45s intervals)
             if (loopCount % 7 == 0) {
                 addLog("🤖 AI STATUS: ${TradingMemory.getStats()}")
+                // Also log BotBrain learning state
+                val brainStatus = brain?.let { b ->
+                    "🧠 Brain: entry_adj=${String.format("%+.0f", b.entryThresholdDelta)} " +
+                    "regime=${b.currentRegime} " +
+                    "size_mult=${String.format("%.0f%%", b.regimeBullMult * 100)} " +
+                    "suppressed=${b.totalSuppressedPatterns}"
+                } ?: "🧠 Brain not initialized"
+                addLog(brainStatus)
             }
 
             // Balance + P&L refresh

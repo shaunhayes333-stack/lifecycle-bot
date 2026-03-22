@@ -49,6 +49,7 @@ class SolanaMarketScanner(
     private val onTokenFound: (mint: String, symbol: String, name: String,
                                source: TokenSource, score: Double) -> Unit,
     private val onLog: (String) -> Unit,
+    private val getBrain: () -> BotBrain? = { null },  // AI learning integration
 ) {
     enum class TokenSource {
         PUMP_FUN_NEW,       // brand new pump.fun launch
@@ -1165,6 +1166,45 @@ class SolanaMarketScanner(
 
         return s.coerceIn(0.0, 100.0)
     }
+    
+    /**
+     * Get AI-driven boost for a source based on historical win rates.
+     * Returns a score adjustment (-20 to +20) based on how well this source has performed.
+     */
+    private fun getAISourceBoost(source: TokenSource): Double {
+        val brain = getBrain() ?: return 0.0
+        val sourceName = source.name
+        val boost = brain.getSourceBoost(sourceName)
+        
+        // Scale the boost for discovery scoring
+        return when {
+            boost >= 15.0 -> 15.0   // Highly profitable source — prioritize
+            boost >= 10.0 -> 10.0
+            boost >= 5.0 -> 5.0
+            boost <= -15.0 -> -15.0  // Consistently losing source — deprioritize
+            boost <= -10.0 -> -10.0
+            boost <= -5.0 -> -5.0
+            else -> 0.0
+        }
+    }
+    
+    /**
+     * Get AI-driven risk check for a token based on TradingMemory.
+     * Returns true if the token should be skipped.
+     */
+    private fun aiShouldSkipToken(mint: String, symbol: String, liquidity: Double, mcap: Double): Boolean {
+        // Check TradingMemory for past losses on this token
+        val tokenHistory = TradingMemory.getTokenLossHistory(mint)
+        if (tokenHistory != null && tokenHistory.lossCount >= 2) {
+            onLog("🤖 AI SKIP: $symbol — ${tokenHistory.lossCount} prior losses")
+            return true
+        }
+        
+        // Check for creator blacklist (if available via TradingMemory)
+        // Note: Would need creator wallet to check, but we don't have it in scanner
+        
+        return false
+    }
 
     // ── Filtering ─────────────────────────────────────────────────────
 
@@ -1381,12 +1421,23 @@ class SolanaMarketScanner(
     }
 
     private fun emit(token: ScannedToken) {
+        // AI check - skip tokens that have failed repeatedly
+        if (aiShouldSkipToken(token.mint, token.symbol, token.liquidityUsd, token.mcapUsd)) {
+            return  // Don't emit - AI says this token is bad
+        }
+        
+        // Apply AI-driven source boost to score
+        val aiBoost = getAISourceBoost(token.source)
+        val adjustedScore = (token.score + aiBoost).coerceIn(0.0, 100.0)
+        val adjustedToken = token.copy(score = adjustedScore)
+        
         seenMints[token.mint] = System.currentTimeMillis()
-        onLog("🔍 Found: ${token.symbol} (${token.source.name}) " +
+        val boostIndicator = if (aiBoost != 0.0) " AI${if(aiBoost>0) "+" else ""}${aiBoost.toInt()}" else ""
+        onLog("🔍 Found: ${token.symbol} (${token.source.name}$boostIndicator) " +
               "liq=$${(token.liquidityUsd/1000).toInt()}K " +
               "vol=$${(token.volumeH1/1000).toInt()}K " +
-              "score=${token.score.toInt()}")
-        onTokenFound(token.mint, token.symbol, token.name, token.source, token.score)
+              "score=${adjustedScore.toInt()}")
+        onTokenFound(adjustedToken.mint, adjustedToken.symbol, adjustedToken.name, adjustedToken.source, adjustedToken.score)
     }
     
     // Separate HTTP client for rugcheck with SHORT timeout
