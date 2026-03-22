@@ -4,19 +4,19 @@ import android.os.Bundle
 import android.view.View
 import android.widget.*
 import androidx.appcompat.app.AppCompatActivity
-import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.lifecycleScope
 import com.lifecyclebot.R
 import com.lifecyclebot.engine.BotService
 import com.lifecyclebot.engine.CurrencyManager
 import com.lifecyclebot.engine.TradeJournal
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import java.text.SimpleDateFormat
 import java.util.*
 
 class JournalActivity : AppCompatActivity() {
 
-    private lateinit var vm: BotViewModel
+    // NO ViewModel - directly read from BotService.status to avoid restarts
     private lateinit var llJournalTrades: LinearLayout
     private lateinit var tvJournalPnl: TextView
     private lateinit var tvJournalWinRate: TextView
@@ -40,8 +40,7 @@ class JournalActivity : AppCompatActivity() {
         setContentView(R.layout.activity_journal)
         supportActionBar?.hide()
 
-        vm = ViewModelProvider(this)[BotViewModel::class.java]
-
+        // Don't use ViewModel - read directly from service
         journal  = try { BotService.instance?.tradeJournal ?: TradeJournal(applicationContext) }
                    catch (_: Exception) { TradeJournal(applicationContext) }
         currency = try { BotService.instance?.currencyManager ?: CurrencyManager(applicationContext) }
@@ -56,14 +55,23 @@ class JournalActivity : AppCompatActivity() {
         findViewById<View>(R.id.btnJournalBack).setOnClickListener { finish() }
         findViewById<View>(R.id.btnExportCsv).setOnClickListener { exportCsv() }
 
+        // Simple polling loop - no ViewModel, just read from BotService
         lifecycleScope.launch {
-            vm.ui.collect { state -> buildJournal(state) }
+            while (true) {
+                try {
+                    val tokens = synchronized(BotService.status.tokens) {
+                        BotService.status.tokens.toMap()
+                    }
+                    buildJournal(tokens)
+                } catch (_: Exception) {}
+                delay(2000)
+            }
         }
     }
 
-    private fun buildJournal(state: UiState) {
-        val stats = journal.getStats(state.tokens)
-        val entries = journal.buildJournal(state.tokens)
+    private fun buildJournal(tokens: Map<String, com.lifecyclebot.data.TokenState>) {
+        val stats = journal.getStats(tokens)
+        val entries = journal.buildJournal(tokens)
 
         // Stats header
         tvJournalPnl.text = currency.format(stats.totalPnlSol, showPlus = true)
@@ -157,8 +165,10 @@ class JournalActivity : AppCompatActivity() {
 
     private fun exportCsv() {
         lifecycleScope.launch {
-            val state  = vm.ui.value
-            val intent = journal.exportCsv(state.tokens)
+            val tokens = synchronized(BotService.status.tokens) {
+                BotService.status.tokens.toMap()
+            }
+            val intent = journal.exportCsv(tokens)
             if (intent != null) {
                 startActivity(android.content.Intent.createChooser(intent, "Export Trade Journal"))
             } else {

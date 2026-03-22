@@ -142,23 +142,29 @@ class BotViewModel(app: Application) : AndroidViewModel(app) {
         // Only save and restart if IMPORTANT settings changed (not watchlist)
         val currentCfg = ConfigStore.load(ctx)
         
-        // Compare settings that matter (exclude watchlist which changes constantly)
+        // Compare settings that REQUIRE a restart (use trim to avoid whitespace issues)
+        // Only restart for settings that affect the bot's core operation
         val settingsChanged = cfg.paperMode != currentCfg.paperMode ||
             cfg.autoTrade != currentCfg.autoTrade ||
-            cfg.smallBuySol != currentCfg.smallBuySol ||
-            cfg.largeBuySol != currentCfg.largeBuySol ||
-            cfg.heliusApiKey != currentCfg.heliusApiKey ||
-            cfg.birdeyeApiKey != currentCfg.birdeyeApiKey ||
-            cfg.groqApiKey != currentCfg.groqApiKey ||
-            cfg.telegramBotToken != currentCfg.telegramBotToken ||
-            cfg.telegramChatId != currentCfg.telegramChatId ||
-            cfg.soundEnabled != currentCfg.soundEnabled
+            // Compare with tolerance for floating point
+            kotlin.math.abs(cfg.smallBuySol - currentCfg.smallBuySol) > 0.0001 ||
+            kotlin.math.abs(cfg.largeBuySol - currentCfg.largeBuySol) > 0.0001 ||
+            // Trim strings to avoid whitespace false positives
+            cfg.heliusApiKey.trim() != currentCfg.heliusApiKey.trim() ||
+            cfg.birdeyeApiKey.trim() != currentCfg.birdeyeApiKey.trim() ||
+            cfg.groqApiKey.trim() != currentCfg.groqApiKey.trim()
+            // NOTE: Telegram settings and sound do NOT require a restart
+            // They can be picked up on next use
         
         // Always save the config (to persist watchlist changes etc)
         ConfigStore.save(ctx, cfg)
         
         // Only restart if important settings changed (not just watchlist)
         if (settingsChanged && _ui.value.running) { 
+            com.lifecyclebot.engine.ErrorLogger.info("BotViewModel", 
+                "RESTART TRIGGERED: paperMode=${cfg.paperMode != currentCfg.paperMode} " +
+                "autoTrade=${cfg.autoTrade != currentCfg.autoTrade} " +
+                "helius=${cfg.heliusApiKey.trim() != currentCfg.heliusApiKey.trim()}")
             stopBot()
             startBot() 
         }
