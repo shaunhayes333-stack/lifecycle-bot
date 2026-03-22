@@ -740,6 +740,41 @@ class BotService : Service() {
                 } ?: "🧠 Brain not initialized"
                 addLog(brainStatus)
             }
+            
+            // Pattern Backtest - Run daily (every ~1440 loops at 1min intervals, or ~320 at 45s)
+            // This analyzes historical trades to find which patterns work best
+            if (loopCount % 300 == 0 && loopCount > 0) {
+                scope.launch {
+                    try {
+                        tradeDb?.let { db ->
+                            val report = PatternBacktester.runBacktest(db)
+                            if (report.totalTrades >= 10) {
+                                addLog("═══════════════════════════════════════════")
+                                addLog("📊 PATTERN BACKTEST (${report.totalTrades} trades)")
+                                addLog("Overall Win Rate: ${report.overallWinRate.toInt()}%")
+                                
+                                // Log top insights
+                                report.insights.take(5).forEach { addLog(it) }
+                                
+                                // Log pattern recommendations
+                                report.patterns.filter { it.recommendation in listOf("BOOST", "DISABLE") }
+                                    .take(3).forEach { p ->
+                                        addLog("${p.recommendation}: ${p.patternName} " +
+                                            "(${p.winRate.toInt()}% win, PF=${String.format("%.1f", p.profitFactor)})")
+                                    }
+                                addLog("═══════════════════════════════════════════")
+                                
+                                // Store confidence adjustments for patterns
+                                val adjustments = PatternBacktester.getConfidenceAdjustments(report)
+                                // These can be used by LifecycleStrategy to tune pattern weights
+                                ErrorLogger.info("Backtest", "Confidence adjustments: $adjustments")
+                            }
+                        }
+                    } catch (e: Exception) {
+                        ErrorLogger.error("Backtest", "Pattern backtest error: ${e.message}")
+                    }
+                }
+            }
 
             // Balance + P&L refresh
             scope.launch {
