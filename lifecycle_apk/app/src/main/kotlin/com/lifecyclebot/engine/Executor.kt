@@ -595,6 +595,41 @@ class Executor(
                 }
             }
             
+            // EDGE OPTIMIZER: Dynamic position sizing based on confidence
+            // High confidence setups get larger positions
+            try {
+                val hist = ts.history.toList()
+                val prices = hist.map { it.ref }
+                if (hist.size >= 6) {
+                    val edgePhase = EdgeOptimizer.detectMarketPhase(hist, prices)
+                    val edgeTiming = EdgeOptimizer.checkEntryTiming(edgePhase, hist, prices, ts.meta.pressScore)
+                    val edgeFilter = EdgeOptimizer.filterTrade(edgePhase, ts.meta.volScore, ts.meta.pressScore, edgeTiming)
+                    val confidence = EdgeOptimizer.calculateConfidence(edgePhase, edgeTiming,
+                        EdgeOptimizer.WeightedScore(entryScore, 0.0, emptyMap()))
+                    
+                    // Dynamic sizing based on confidence
+                    val confMult = when {
+                        confidence > 80 -> 1.5   // High confidence = 50% larger
+                        confidence > 70 -> 1.3   // Good confidence = 30% larger
+                        confidence > 60 -> 1.15  // Moderate = 15% larger
+                        confidence > 50 -> 1.0   // Normal
+                        confidence > 40 -> 0.8   // Low = 20% smaller
+                        else -> 0.6              // Very low = 40% smaller
+                    }
+                    
+                    val oldSize = size
+                    size = (size * confMult).coerceAtMost(walletSol * 0.15)
+                    
+                    if (confMult != 1.0) {
+                        val emoji = if (confMult > 1.0) "📈" else "📉"
+                        onLog("$emoji Edge sizing: ${ts.symbol} conf=${confidence.toInt()} × ${String.format("%.2f", confMult)} " +
+                              "(${edgePhase.phase.name} ${edgeFilter.quality})", ts.mint)
+                    }
+                }
+            } catch (e: Exception) {
+                ErrorLogger.debug("Executor", "Edge sizing skipped: ${e.message}")
+            }
+            
             if (size < 0.001) {
                 onLog("Insufficient capacity for new position on ${ts.symbol}", ts.mint)
                 return

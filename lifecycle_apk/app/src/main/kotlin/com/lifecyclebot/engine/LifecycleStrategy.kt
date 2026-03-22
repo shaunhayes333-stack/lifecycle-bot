@@ -251,6 +251,73 @@ class LifecycleStrategy(
             entryScore = (entryScore - safety.entryScorePenalty).coerceAtLeast(0.0)
         }
 
+        // ═══════════════════════════════════════════════════════════════════
+        // PHASE 2: EDGE OPTIMIZATION — This is where money is made
+        // ═══════════════════════════════════════════════════════════════════
+        val edgePhase = EdgeOptimizer.detectMarketPhase(hist, prices)
+        val currentBuyPct = pressScore  // pressScore is essentially buy pressure
+        val edgeTiming = EdgeOptimizer.checkEntryTiming(edgePhase, hist, prices, currentBuyPct)
+        val edgeFilter = EdgeOptimizer.filterTrade(edgePhase, volScore, currentBuyPct, edgeTiming)
+        
+        // Apply edge optimization to entry decision (only for new entries)
+        if (!ts.position.isOpen) {
+            // Phase-based behavior change
+            when (edgePhase.phase) {
+                EdgeOptimizer.MarketPhase.DEAD -> {
+                    // DEAD phase — ignore completely
+                    entryScore = 0.0
+                    ErrorLogger.debug("Edge", "💀 ${ts.symbol}: DEAD phase - ignoring")
+                }
+                EdgeOptimizer.MarketPhase.DISTRIBUTION -> {
+                    // DISTRIBUTION — block entries
+                    entryScore = (entryScore * 0.3).coerceAtMost(20.0)
+                    ErrorLogger.debug("Edge", "📉 ${ts.symbol}: DISTRIBUTION - blocking entry")
+                }
+                EdgeOptimizer.MarketPhase.REACCUMULATION -> {
+                    // REACCUMULATION — BEST entry zone, boost score
+                    val boost = if (edgePhase.isSecondLeg) 25.0 else 15.0
+                    entryScore = (entryScore + boost).coerceAtMost(100.0)
+                    ErrorLogger.info("Edge", "🔄 ${ts.symbol}: REACCUMULATION +$boost pts ${if (edgePhase.isSecondLeg) "🔥 SECOND LEG" else ""}")
+                }
+                EdgeOptimizer.MarketPhase.EXPANSION -> {
+                    // EXPANSION — allow entry + potential top-ups
+                    if (edgePhase.buyPressure > 55) {
+                        entryScore = (entryScore + 10.0).coerceAtMost(100.0)
+                        ErrorLogger.debug("Edge", "📈 ${ts.symbol}: EXPANSION +10 pts")
+                    }
+                }
+                EdgeOptimizer.MarketPhase.EARLY_ACCUMULATION -> {
+                    // Early accumulation — cautious, small boost
+                    if (edgePhase.buyPressure > 54) {
+                        entryScore = (entryScore + 5.0).coerceAtMost(100.0)
+                    }
+                }
+                EdgeOptimizer.MarketPhase.UNKNOWN -> { /* no adjustment */ }
+            }
+            
+            // Entry timing check — Spike → Pullback → Reclaim pattern
+            if (edgeTiming.isOptimalEntry) {
+                entryScore = (entryScore + 15.0).coerceAtMost(100.0)
+                ErrorLogger.info("Edge", "⭐ ${ts.symbol}: OPTIMAL entry timing +15 pts")
+            }
+            
+            // Trade quality filter — skip low quality setups
+            if (!edgeFilter.shouldTrade && entryScore < 50) {
+                // Only block if entry score isn't already high
+                entryScore = (entryScore * 0.5).coerceAtMost(25.0)
+                ErrorLogger.debug("Edge", "🚫 ${ts.symbol}: Filter blocked - ${edgeFilter.reason}")
+            }
+            
+            // Log edge analysis for significant tokens
+            if (entryScore >= 25 || edgePhase.phase == EdgeOptimizer.MarketPhase.REACCUMULATION) {
+                val confidence = EdgeOptimizer.calculateConfidence(edgePhase, edgeTiming, 
+                    EdgeOptimizer.WeightedScore(entryScore, exitScore, emptyMap()))
+                ErrorLogger.info("Edge", EdgeOptimizer.formatAnalysis(
+                    ts.symbol, edgePhase, edgeTiming, edgeFilter, confidence))
+            }
+        }
+        // ═══════════════════════════════════════════════════════════════════
+
         val signal = decideSignal(
             ts, hist, prices, phase, mode,
             entryScore, exitScore, exhaust, pm, tokenAgeMins, emafan, volDiv, whale, curve,
