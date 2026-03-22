@@ -1353,7 +1353,7 @@ class LifecycleStrategy(
             holderConcentration = 0.0,  // Would need holder data
             devHoldingPct = 0.0,
             ageHours = tokenAgeMins / 60.0,
-            hadSocials = ts.meta.hasSocials,
+            hadSocials = false,  // Not tracked in current model
             isPumpFun = ts.source.contains("pump", ignoreCase = true),
             volumeToLiqRatio = if (ts.lastLiquidityUsd > 0) hist.lastOrNull()?.vol?.div(ts.lastLiquidityUsd) ?: 0.0 else 0.0,
         )

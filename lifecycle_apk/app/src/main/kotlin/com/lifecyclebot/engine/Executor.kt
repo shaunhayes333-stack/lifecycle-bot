@@ -897,7 +897,7 @@ class Executor(
                 liquidity = ts.lastLiquidityUsd,
                 mcap = ts.lastMcap,
                 ageHours = (System.currentTimeMillis() - (ts.history.firstOrNull()?.ts ?: System.currentTimeMillis())) / 3_600_000.0,
-                hadSocials = ts.meta.hasSocials,
+                hadSocials = false,  // Not tracked in current model
                 isPumpFun = ts.source.contains("pump", ignoreCase = true),
                 volumeToLiqRatio = if (ts.lastLiquidityUsd > 0) ts.history.lastOrNull()?.vol?.div(ts.lastLiquidityUsd) ?: 0.0 else 0.0,
             )
