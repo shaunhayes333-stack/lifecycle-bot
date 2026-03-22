@@ -901,6 +901,7 @@ class Executor(
                 isPumpFun = ts.source.contains("pump", ignoreCase = true),
                 volumeToLiqRatio = if (ts.lastLiquidityUsd > 0) ts.history.lastOrNull()?.vol?.div(ts.lastLiquidityUsd) ?: 0.0 else 0.0,
             )
+            onLog("🤖 AI LEARNED: Loss on ${ts.symbol} | phase=$ph ema=$fanName | Pattern recorded", ts.mint)
         } else {
             // Win — let the brain know this pattern is recovering
             val fanName = ts.meta.emafanAlignment
@@ -925,6 +926,7 @@ class Executor(
                 source = src,
                 holdTimeMinutes = holdTimeMinutes,
             )
+            onLog("🤖 AI LEARNED: Win on ${ts.symbol} +${pnlP.toInt()}% | Pattern reinforced", ts.mint)
         }
 
         tradeDb?.insertTrade(TradeRecord(

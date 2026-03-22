@@ -710,6 +710,11 @@ class BotService : Service() {
                     if (sol > 0) BondingCurveTracker.updateSolPrice(sol)
                 } catch (_: Exception) {}
             }
+            
+            // Periodic AI stats logging (every ~5 minutes = 6-7 loops at 45s intervals)
+            if (loopCount % 7 == 0) {
+                addLog("🤖 AI STATUS: ${TradingMemory.getStats()}")
+            }
 
             // Balance + P&L refresh
             scope.launch {
@@ -849,7 +854,7 @@ class BotService : Service() {
                                     holderDumpDetected = ts.holderGrowthRate < -20,
                                     timeFromLaunchHours = ageHours,
                                 )
-                                addLog("🚨 RUG DETECTED: ${ts.symbol} price=${priceDropPct.toInt()}% liq=${liqDropPct.toInt()}%", mint)
+                                addLog("🤖 AI RUG LEARNED: ${ts.symbol} | price -${priceDropPct.toInt()}% liq -${liqDropPct.toInt()}% | Pattern saved", mint)
                                 TokenBlacklist.block(mint, "Rug detected: price -${priceDropPct.toInt()}%")
                             }
                         }
