@@ -230,15 +230,18 @@ object CloudLearningSync {
 
         return withContext(Dispatchers.IO) {
             try {
+                // Convert external PatternStats to our local format
+                val localPatternStats = patternStats.map { 
+                    PatternStat(it.patternName, it.winRate, it.profitFactor, it.totalTrades) 
+                }
+                
                 val payload = ContributionPayload(
                     instanceId = instanceId,
                     tradeCount = tradeCount,
                     winRate = winRate,
                     featureWeights = featureWeights,
-                    patternStats = patternStats.map { 
-                        PatternStat(it.patternName, it.winRate, it.profitFactor, it.totalTrades) 
-                    },
-                    appVersion = "1.0.0",  // TODO: Get from BuildConfig
+                    patternStats = localPatternStats,
+                    appVersion = "1.0.0",
                     timestamp = now,
                 )
                 
