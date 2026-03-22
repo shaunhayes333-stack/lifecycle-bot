@@ -25,17 +25,36 @@ class DexscreenerApi {
         .connectTimeout(10, TimeUnit.SECONDS)
         .readTimeout(15, TimeUnit.SECONDS)
         .build()
+    
+    // Simple cache for getBestPair results - avoids repeated API calls
+    private data class CachedPair(val pair: PairInfo?, val timestamp: Long)
+    private val pairCache = java.util.concurrent.ConcurrentHashMap<String, CachedPair>()
+    private val CACHE_TTL_MS = 15_000L  // 15 seconds cache
 
     /** Returns the best-scoring pair for this mint on Solana, or null. */
     fun getBestPair(mint: String): PairInfo? {
+        // Check cache first
+        val cached = pairCache[mint]
+        if (cached != null && System.currentTimeMillis() - cached.timestamp < CACHE_TTL_MS) {
+            return cached.pair  // Return cached result (even if null)
+        }
+        
         if (!RateLimiter.allowRequest("dexscreener")) {
             com.lifecyclebot.engine.ErrorLogger.debug("DexAPI", "Rate limited: getBestPair for ${mint.take(12)}")
-            return null
+            // Return stale cache if available, otherwise null
+            return cached?.pair
         }
         val url = "https://api.dexscreener.com/token-pairs/v1/solana/$mint"
-        val body = get(url) ?: return null
+        val body = get(url) ?: run {
+            // Cache null result to avoid hammering API
+            pairCache[mint] = CachedPair(null, System.currentTimeMillis())
+            return null
+        }
         val pairs = JSONArray(body)
-        if (pairs.length() == 0) return null
+        if (pairs.length() == 0) {
+            pairCache[mint] = CachedPair(null, System.currentTimeMillis())
+            return null
+        }
 
         // Score each pair by liquidity + volume + tx count
         var best: JSONObject? = null
@@ -45,7 +64,18 @@ class DexscreenerApi {
             val score = scorePair(p)
             if (score > bestScore) { bestScore = score; best = p }
         }
-        return best?.let { parsePair(it) }
+        val result = best?.let { parsePair(it) }
+        
+        // Cache the result
+        pairCache[mint] = CachedPair(result, System.currentTimeMillis())
+        
+        // Clean up old cache entries periodically
+        if (pairCache.size > 200) {
+            val now = System.currentTimeMillis()
+            pairCache.entries.removeIf { now - it.value.timestamp > CACHE_TTL_MS * 4 }
+        }
+        
+        return result
     }
 
     /** Search by query string — used for token discovery */

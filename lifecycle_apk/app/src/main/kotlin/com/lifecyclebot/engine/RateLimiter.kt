@@ -35,7 +35,7 @@ object RateLimiter {
     )
 
     private val configs = mapOf(
-        "dexscreener"  to RateConfig(120),  // Increased from 30 - needed for scanner
+        "dexscreener"  to RateConfig(300, 10),  // Increased to 300/min with burst of 10
         "birdeye"      to RateConfig(60),
         "helius"       to RateConfig(100),
         "jupiter"      to RateConfig(60),
