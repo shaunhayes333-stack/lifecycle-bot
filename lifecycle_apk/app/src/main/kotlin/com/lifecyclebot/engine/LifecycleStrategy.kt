@@ -408,9 +408,10 @@ class LifecycleStrategy(
             // V5: ADAPTIVE LEARNING ENGINE - Feature-weighted scoring
             // ═══════════════════════════════════════════════════════════════════
             // This is the "AI" part - uses learned weights from past trades
+            val tokenAgeMins = (System.currentTimeMillis() - ts.addedToWatchlistAt) / 60_000.0
             val adaptiveScore = AdaptiveLearningEngine.calculateAdaptiveScore(
                 mcapUsd = ts.lastMcap,
-                tokenAgeMinutes = ts.tokenAgeMinutes,
+                tokenAgeMinutes = tokenAgeMins,
                 buyRatioPct = pressScore,
                 volumeUsd = ts.lastLiquidityUsd * volScore / 50.0,
                 liquidityUsd = ts.lastLiquidityUsd,
@@ -418,7 +419,7 @@ class LifecycleStrategy(
                 topHolderPct = ts.safety.topHolderPct,
                 holderGrowthRate = ts.holderGrowthRate,
                 devWalletPct = ts.safety.devWalletPct,
-                bondingCurveProgress = ts.bondingProgress,
+                bondingCurveProgress = 100.0,  // Default to graduated
                 rugcheckScore = ts.safety.rugcheckScore,
                 emaFanState = emafan.alignment.name,
                 baseEntryScore = entryScore,

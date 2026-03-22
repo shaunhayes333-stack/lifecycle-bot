@@ -1282,9 +1282,11 @@ class Executor(
         // ═══════════════════════════════════════════════════════════════════
         try {
             val holdMins = (System.currentTimeMillis() - ts.position.entryTime) / 60_000.0
+            // Compute token age from when it was added to watchlist (proxy for discovery time)
+            val tokenAgeMins = (System.currentTimeMillis() - ts.addedToWatchlistAt) / 60_000.0
             val features = AdaptiveLearningEngine.captureFeatures(
                 entryMcapUsd = ts.position.entryLiquidityUsd * 2,  // Approximate
-                tokenAgeMinutes = ts.tokenAgeMinutes,
+                tokenAgeMinutes = tokenAgeMins,
                 buyRatioPct = ts.meta.pressScore,  // Use press score as buy ratio proxy
                 volumeUsd = ts.lastLiquidityUsd * ts.meta.volScore / 50.0,  // Approximate
                 liquidityUsd = ts.lastLiquidityUsd,
@@ -1292,7 +1294,7 @@ class Executor(
                 topHolderPct = ts.safety.topHolderPct,
                 holderGrowthRate = ts.holderGrowthRate,
                 devWalletPct = ts.safety.devWalletPct,
-                bondingCurveProgress = ts.bondingProgress,
+                bondingCurveProgress = 100.0,  // Default to graduated
                 rugcheckScore = ts.safety.rugcheckScore,
                 emaFanState = ts.meta.emafanAlignment,
                 entryScore = ts.position.entryScore,
@@ -1301,8 +1303,7 @@ class Executor(
                 pnlPct = pnlP,
                 maxGainPct = if (ts.position.entryPrice > 0) 
                     ((ts.position.highestPrice - ts.position.entryPrice) / ts.position.entryPrice * 100) else 0.0,
-                maxDrawdownPct = if (ts.position.entryPrice > 0 && ts.position.lowestPrice > 0)
-                    ((ts.position.entryPrice - ts.position.lowestPrice) / ts.position.entryPrice * 100) else 0.0,
+                maxDrawdownPct = 0.0,  // Not tracked in Position
                 timeToPeakMins = holdMins * 0.5,  // Estimate
                 holdTimeMins = holdMins,
                 exitReason = reason,
@@ -1472,9 +1473,10 @@ class Executor(
         // ═══════════════════════════════════════════════════════════════════
         try {
             val holdMins = (System.currentTimeMillis() - pos.entryTime) / 60_000.0
+            val tokenAgeMins = (System.currentTimeMillis() - ts.addedToWatchlistAt) / 60_000.0
             val features = AdaptiveLearningEngine.captureFeatures(
                 entryMcapUsd = pos.entryLiquidityUsd * 2,
-                tokenAgeMinutes = ts.tokenAgeMinutes,
+                tokenAgeMinutes = tokenAgeMins,
                 buyRatioPct = ts.meta.pressScore,
                 volumeUsd = ts.lastLiquidityUsd * ts.meta.volScore / 50.0,
                 liquidityUsd = ts.lastLiquidityUsd,
@@ -1482,7 +1484,7 @@ class Executor(
                 topHolderPct = ts.safety.topHolderPct,
                 holderGrowthRate = ts.holderGrowthRate,
                 devWalletPct = ts.safety.devWalletPct,
-                bondingCurveProgress = ts.bondingProgress,
+                bondingCurveProgress = 100.0,
                 rugcheckScore = ts.safety.rugcheckScore,
                 emaFanState = ts.meta.emafanAlignment,
                 entryScore = pos.entryScore,
@@ -1491,8 +1493,7 @@ class Executor(
                 pnlPct = pnlP,
                 maxGainPct = if (pos.entryPrice > 0) 
                     ((pos.highestPrice - pos.entryPrice) / pos.entryPrice * 100) else 0.0,
-                maxDrawdownPct = if (pos.entryPrice > 0 && pos.lowestPrice > 0)
-                    ((pos.entryPrice - pos.lowestPrice) / pos.entryPrice * 100) else 0.0,
+                maxDrawdownPct = 0.0,
                 timeToPeakMins = holdMins * 0.5,
                 holdTimeMins = holdMins,
                 exitReason = reason,
