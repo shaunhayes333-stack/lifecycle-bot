@@ -197,12 +197,25 @@ class TokenSafetyChecker(private val cfg: () -> BotConfig) {
                 if (pct >= 0) topHolderPct = pct
             }
 
-            // Score-based hard block
-            if (rcScore in 0..69) {
-                hard.add("Rugcheck score $rcScore/100 (minimum 70 required)")
-            } else if (rcScore in 70..79) {
-                soft.add("Rugcheck score borderline ($rcScore/100)" to 10)
-                penalty += 10
+            // V8+ SKEPTICAL scoring - don't blindly trust rugcheck scores
+            // Many scam tokens game the rugcheck system
+            when {
+                rcScore in 0..49 -> {
+                    hard.add("Rugcheck score $rcScore/100 (DANGEROUS)")
+                }
+                rcScore in 50..64 -> {
+                    hard.add("Rugcheck score $rcScore/100 (minimum 65 required)")
+                }
+                rcScore in 65..74 -> {
+                    soft.add("Rugcheck score borderline ($rcScore/100)" to 15)
+                    penalty += 15
+                }
+                rcScore in 75..84 -> {
+                    // Skeptical of "good" scores - apply small penalty
+                    soft.add("Rugcheck score $rcScore/100 (skeptical)" to 5)
+                    penalty += 5
+                }
+                // 85+ = genuinely safe, no penalty
             }
         }
 

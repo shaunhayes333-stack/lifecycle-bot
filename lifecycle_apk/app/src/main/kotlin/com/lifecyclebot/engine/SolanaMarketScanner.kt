@@ -1398,7 +1398,7 @@ class SolanaMarketScanner(
     
     /**
      * Quick rugcheck - returns immediately if API is slow
-     * Only blocks on OBVIOUS rugs (very low scores)
+     * V8+ SKEPTICAL: Don't blindly trust high scores - check for red flags
      */
     private fun quickRugcheck(mint: String): Boolean {
         try {
@@ -1414,13 +1414,25 @@ class SolanaMarketScanner(
             val body = resp.body?.string() ?: return true
             val json = JSONObject(body)
             
-            // Only block on VERY obvious rugs
+            // V8+ SKEPTICAL rugcheck evaluation
             val scoreNormalized = json.optInt("score_normalised", 50)
+            val rugged = json.optString("rugged", "").lowercase()
             
-            // Block if score < 10 (extremely risky)
-            if (scoreNormalized < 10) {
-                onLog("🚫 RUG: ${mint.take(8)}... score=$scoreNormalized")
+            // HARD BLOCK: Already rugged
+            if (rugged == "true" || rugged == "yes") {
+                onLog("🚫 RUG: ${mint.take(8)}... ALREADY RUGGED")
                 return false
+            }
+            
+            // HARD BLOCK: Score < 30 (was 10 - now more skeptical)
+            if (scoreNormalized < 30) {
+                onLog("🚫 RUG: ${mint.take(8)}... score=$scoreNormalized (<30)")
+                return false
+            }
+            
+            // SOFT CONCERN: Score 30-50 - log warning but pass
+            if (scoreNormalized in 30..49) {
+                onLog("⚠️ RC WARNING: ${mint.take(8)}... score=$scoreNormalized (borderline)")
             }
             
             return true  // Pass
