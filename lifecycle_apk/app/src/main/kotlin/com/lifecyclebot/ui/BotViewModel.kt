@@ -139,8 +139,12 @@ class BotViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     fun saveConfig(cfg: BotConfig) {
+        // Only save and restart if config actually changed
+        val currentCfg = ConfigStore.load(ctx)
+        if (cfg == currentCfg) return  // No change, skip restart
+        
         ConfigStore.save(ctx, cfg)
-        // Restart loop to pick up new config
+        // Restart loop to pick up new config (only if bot is running AND config changed)
         if (_ui.value.running) { stopBot(); startBot() }
     }
 

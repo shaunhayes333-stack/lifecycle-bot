@@ -1409,12 +1409,17 @@ class LifecycleStrategy(
             }
         }
 
-        // CATCH-ALL: If entry score is very high, buy regardless of phase
-        // This ensures we don't miss good opportunities just because the phase doesn't match
-        val catchAllThreshold = 20.0 + brainAdj  // Very low threshold for aggressive trading
-        if (adjustedEntryScore >= catchAllThreshold && phase !in listOf("breakdown", "distribution", 
-                "dying", "thin_market", "overextended", "choppy_range")) {
-            ErrorLogger.info("Strategy", "${ts.symbol}: CATCH-ALL BUY | phase=$phase score=${adjustedEntryScore.toInt()} >= $catchAllThreshold")
+        // CATCH-ALL: If entry score is high, buy regardless of phase
+        // BUT require minimum quality metrics to avoid bad tokens
+        val catchAllThreshold = 25.0 + brainAdj  // Raised slightly for quality
+        val hasMinQuality = ts.lastLiquidityUsd >= 5000 &&        // Min $5K liquidity
+                            ts.lastMcap >= 10000 &&                // Min $10K mcap
+                            (meta.volScore >= 20 || meta.pressScore >= 30)  // Some activity
+        
+        if (adjustedEntryScore >= catchAllThreshold && hasMinQuality && 
+            phase !in listOf("breakdown", "distribution", "dying", "thin_market", 
+                             "overextended", "choppy_range", "dump", "rug_likely")) {
+            ErrorLogger.info("Strategy", "${ts.symbol}: CATCH-ALL BUY | phase=$phase score=${adjustedEntryScore.toInt()} liq=$${ts.lastLiquidityUsd.toInt()}")
             return "BUY"
         }
 
