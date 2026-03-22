@@ -1336,13 +1336,13 @@ class LifecycleStrategy(
         )
         if (memoryPatternPenalty > 0) {
             adjustedEntryScore -= memoryPatternPenalty
-            onLog("🤖 AI PENALTY: ${ts.symbol} -$memoryPatternPenalty pts (bad pattern: $phase+${emafan.alignment.name})", ts.mint)
+            ErrorLogger.info("AI", "🤖 PENALTY: ${ts.symbol} -$memoryPatternPenalty pts (bad pattern: $phase+${emafan.alignment.name})")
         }
         
         // Check if this token was a loser before
         val tokenHistory = TradingMemory.getTokenLossHistory(ts.mint)
         if (tokenHistory != null && tokenHistory.lossCount >= 2) {
-            onLog("🤖 AI BLOCK: ${ts.symbol} - ${tokenHistory.lossCount} prior losses on this token", ts.mint)
+            ErrorLogger.info("AI", "🤖 BLOCK: ${ts.symbol} - ${tokenHistory.lossCount} prior losses on this token")
             return "WAIT"
         }
         
@@ -1360,9 +1360,9 @@ class LifecycleStrategy(
         if (riskScore >= 70) {
             val penalty = (riskScore - 50) / 2
             adjustedEntryScore -= penalty
-            onLog("🤖 AI RISK: ${ts.symbol} score=$riskScore (similar to past losers) -$penalty pts", ts.mint)
+            ErrorLogger.info("AI", "🤖 RISK: ${ts.symbol} score=$riskScore (similar to past losers) -$penalty pts")
         } else if (riskScore >= 40) {
-            onLog("🤖 AI CHECK: ${ts.symbol} risk=$riskScore (moderate)", ts.mint)
+            ErrorLogger.debug("AI", "🤖 CHECK: ${ts.symbol} risk=$riskScore (moderate)")
         }
 
         // Phase blocks
