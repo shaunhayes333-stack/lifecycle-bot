@@ -662,7 +662,7 @@ class SolanaMarketScanner(
 
     private suspend fun scanDexTrending() {
         // Look for trending Solana tokens
-        val url = "https://api.dexscreener.com/token-profiles/v1/latest?chainIds=solana"
+        val url = "https://api.dexscreener.com/token-profiles/latest/v1?chainId=solana"
         ErrorLogger.info("Scanner", "scanDexTrending: fetching from DexScreener...")
         val body = get(url)
         if (body == null) {
