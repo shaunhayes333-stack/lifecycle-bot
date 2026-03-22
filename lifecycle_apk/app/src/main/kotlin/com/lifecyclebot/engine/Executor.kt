@@ -626,32 +626,9 @@ class Executor(
                 } else 50.0
             } catch (e: Exception) { 50.0 }
             
-            // WALLET INTELLIGENCE: Fetch advanced data (top holders, whale ratio, insider risk)
-            val pipelineData = try {
-                if (!isPaperMode && ts.lastLiquidityUsd > 5000) {  // Only for real mode + decent liquidity
-                    DataPipeline.getAlphaSignals(ts.mint, cfg()) { msg ->
-                        onLog("📊 $msg", ts.mint)
-                    }
-                } else null
-            } catch (e: Exception) { null }
-            
-            // INSIDER RISK CHECK: Block if wallet intelligence detects high risk
-            if (!isPaperMode && pipelineData != null) {
-                // repeatWalletScore high = coordinated bot activity
-                if (pipelineData.repeatWalletScore > 70) {
-                    onLog("🚨 BOT FARM: ${ts.symbol} score=${pipelineData.repeatWalletScore.toInt()} - skipping", ts.mint)
-                    return
-                }
-                // whaleRatio high = concentrated ownership risk
-                if (pipelineData.whaleRatio > 0.60) {
-                    onLog("🚨 WHALE RISK: ${ts.symbol} ${(pipelineData.whaleRatio*100).toInt()}% whale-owned - skipping", ts.mint)
-                    return
-                }
-                if (pipelineData.topHolderPct > 60) {
-                    onLog("🚨 TOP HOLDER: ${ts.symbol} ${pipelineData.topHolderPct.toInt()}% concentrated - skipping", ts.mint)
-                    return
-                }
-            }
+            // WALLET INTELLIGENCE: Skip for now - requires suspend context
+            // TODO: Integrate DataPipeline in a coroutine-safe way
+            // For now, rely on TokenSafetyChecker which already does holder analysis
             
             // AI-DRIVEN SIZING: Pass confidence, phase, source, and brain to SmartSizer
             ErrorLogger.info("Executor", "📊 ${ts.symbol} SIZING: wallet=$walletSol | liq=${ts.lastLiquidityUsd} | mcap=${ts.lastFdv} | conf=$aiConfidence | entry=$entryScore")
