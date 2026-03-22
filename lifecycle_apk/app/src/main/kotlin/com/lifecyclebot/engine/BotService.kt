@@ -808,16 +808,16 @@ class BotService : Service() {
                                         ts.lastFdv          = ov.marketCap
                                         // Create synthetic candle for history
                                         val syntheticCandle = com.lifecyclebot.data.Candle(
-                                            timestampMs = System.currentTimeMillis(),
+                                            ts          = System.currentTimeMillis(),
                                             priceUsd    = ov.priceUsd,
+                                            marketCap   = ov.marketCap,
                                             volumeH1    = 0.0,
+                                            volume24h   = 0.0,
                                             buysH1      = 0,
                                             sellsH1     = 0,
-                                            marketCap   = ov.marketCap,
-                                            ref         = ov.priceUsd,
-                                            high        = ov.priceUsd,
-                                            low         = ov.priceUsd,
-                                            open        = ov.priceUsd,
+                                            highUsd     = ov.priceUsd,
+                                            lowUsd      = ov.priceUsd,
+                                            openUsd     = ov.priceUsd,
                                         )
                                         synchronized(ts.history) {
                                             ts.history.addLast(syntheticCandle)
@@ -825,10 +825,8 @@ class BotService : Service() {
                                         }
                                     }
                                     addLog("📡 Birdeye data for ${ts.symbol}: \$${ov.priceUsd}", mint)
-                                    // Continue with the rest of the polling cycle
-                                    null  // Return null to trigger pump.fun fallback below
-                                } else null
-                            } catch (_: Exception) { null }
+                                }
+                            } catch (_: Exception) {}
                             
                             // Try pump.fun API directly for bonding curve tokens
                             if (ts.lastPrice <= 0) {
@@ -857,16 +855,16 @@ class BotService : Service() {
                                                     ts.lastLiquidityUsd = mcap * 0.1  // Estimate
                                                     // Create synthetic candle
                                                     val syntheticCandle = com.lifecyclebot.data.Candle(
-                                                        timestampMs = System.currentTimeMillis(),
+                                                        ts          = System.currentTimeMillis(),
                                                         priceUsd    = price,
+                                                        marketCap   = mcap,
                                                         volumeH1    = 0.0,
+                                                        volume24h   = 0.0,
                                                         buysH1      = 0,
                                                         sellsH1     = 0,
-                                                        marketCap   = mcap,
-                                                        ref         = price,
-                                                        high        = price,
-                                                        low         = price,
-                                                        open        = price,
+                                                        highUsd     = price,
+                                                        lowUsd      = price,
+                                                        openUsd     = price,
                                                     )
                                                     synchronized(ts.history) {
                                                         ts.history.addLast(syntheticCandle)
