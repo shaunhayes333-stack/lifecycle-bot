@@ -95,11 +95,15 @@ object SmartSizer {
         brain: BotBrain? = null,
     ): SizeResult {
 
-        // ── HARD MCAP FLOOR — never trade dust tokens ──────────────────
-        val HARD_MIN_MCAP = 2_000.0  // lowered from $5K - let AI decide
-        if (mcapUsd > 0 && mcapUsd < HARD_MIN_MCAP) {
-            return SizeResult(0.0, "blocked", 0.0, 1.0, 1.0, 1.0, 1.0, "mcap_too_low",
-                "Market cap \$${(mcapUsd/1000).toInt()}K below \$2K minimum")
+        val isPaperMode = cfg.paperMode
+        
+        // ── HARD MCAP FLOOR — DISABLED IN PAPER MODE ──────────────────
+        if (!isPaperMode) {
+            val HARD_MIN_MCAP = 2_000.0
+            if (mcapUsd > 0 && mcapUsd < HARD_MIN_MCAP) {
+                return SizeResult(0.0, "blocked", 0.0, 1.0, 1.0, 1.0, 1.0, "mcap_too_low",
+                    "Market cap \$${(mcapUsd/1000).toInt()}K below \$2K minimum")
+            }
         }
 
         // ── Tradeable balance (reserve + treasury excluded) ──────────
@@ -115,7 +119,6 @@ object SmartSizer {
         // PAPER MODE: Larger positions for faster learning
         // REAL MODE: Conservative positions based on confidence
         // ══════════════════════════════════════════════════════════════
-        val isPaperMode = cfg.paperMode
         
         // Base percentage determined by AI confidence
         val aiBasePct = if (isPaperMode) {

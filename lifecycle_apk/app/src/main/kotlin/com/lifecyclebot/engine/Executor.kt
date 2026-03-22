@@ -610,12 +610,14 @@ class Executor(
             // Apply auto-mode size multiplier
             modeConfig?.let { size = size * it.positionSizeMultiplier }
             
-            // BotBrain skip check only (sizing is now in SmartSizer)
-            brain?.let { b ->
-                val emaFan = ts.meta.emafanAlignment
-                if (b.shouldSkipTrade(ts.phase, emaFan, ts.source, entryScore)) {
-                    onLog("🧠 Brain SKIP: ${ts.symbol} — too many risk factors", ts.mint)
-                    return
+            // BotBrain skip check - DISABLED IN PAPER MODE
+            if (!isPaperMode) {
+                brain?.let { b ->
+                    val emaFan = ts.meta.emafanAlignment
+                    if (b.shouldSkipTrade(ts.phase, emaFan, ts.source, entryScore)) {
+                        onLog("🧠 Brain SKIP: ${ts.symbol} — too many risk factors", ts.mint)
+                        return
+                    }
                 }
             }
             
