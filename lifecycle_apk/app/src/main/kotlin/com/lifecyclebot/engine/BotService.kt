@@ -1164,16 +1164,16 @@ class BotService : Service() {
     private suspend fun cleanupWatchlist() {
         val cfg = ConfigStore.load(applicationContext)
         val currentWatchlist = cfg.watchlist.toMutableList()
-        if (currentWatchlist.size <= 1) return  // Keep at least 1 token
+        if (currentWatchlist.size <= 3) return  // Keep at least 3 tokens
         
         val tokensToRemove = mutableListOf<String>()
         val now = System.currentTimeMillis()
         val isPaperMode = cfg.paperMode
         
-        // ULTRA AGGRESSIVE CLEANUP for faster token turnover
-        val staleThresholdMs = if (isPaperMode) 15_000L else 30_000L   // 15 sec in paper mode
-        val idleThresholdMs = if (isPaperMode) 20_000L else 45_000L    // 20 sec idle in paper mode
-        val maxWatchlistAge = if (isPaperMode) 60_000L else 180_000L   // 1 min max in paper mode
+        // MUCH LESS AGGRESSIVE - give tokens time to develop and generate signals
+        val staleThresholdMs = if (isPaperMode) 120_000L else 180_000L   // 2 min in paper, 3 min in real
+        val idleThresholdMs = if (isPaperMode) 180_000L else 300_000L    // 3 min idle in paper, 5 min in real
+        val maxWatchlistAge = if (isPaperMode) 600_000L else 900_000L    // 10 min max in paper, 15 min in real
         
         for (mint in currentWatchlist) {
             val ts = status.tokens[mint]
@@ -1207,10 +1207,11 @@ class BotService : Service() {
                 val age = now - lastUpdate
                 val timeInWatchlist = now - ts.addedToWatchlistAt
                 
-                // AGGRESSIVE: Remove "idle" phase tokens quickly
-                if (ts.phase == "idle" && timeInWatchlist > idleThresholdMs) {
+                // Remove "idle" phase tokens ONLY if they've been idle for a while
+                // Give them time to transition to a better phase
+                if (ts.phase == "idle" && timeInWatchlist > idleThresholdMs && ts.history.size < 5) {
                     tokensToRemove.add(mint)
-                    addLog("😴 IDLE PHASE: ${ts.symbol} - rotating out", mint)
+                    addLog("😴 IDLE PHASE: ${ts.symbol} - no activity", mint)
                     marketScanner?.markTokenRejected(mint)
                     continue
                 }
@@ -1231,40 +1232,43 @@ class BotService : Service() {
                     continue
                 }
                 
-                // Remove if dead (very low liquidity)
-                if (ts.lastLiquidityUsd < 500) {
+                // Remove if dead (very low liquidity) - but keep if we're in paper mode learning
+                if (ts.lastLiquidityUsd < 200 && !isPaperMode) {
                     tokensToRemove.add(mint)
                     addLog("💀 NO LIQ: ${ts.symbol}", mint)
                     marketScanner?.markTokenRejected(mint)
                     continue
                 }
                 
-                // Remove any token after 3 minutes if no trade executed
+                // Remove any token after max time if no trade executed
+                // But be generous - tokens need time to develop
                 if (timeInWatchlist > maxWatchlistAge && ts.trades.isEmpty()) {
                     tokensToRemove.add(mint)
-                    addLog("⏳ TIMEOUT: ${ts.symbol} - 3min no trade", mint)
+                    addLog("⏳ TIMEOUT: ${ts.symbol} - ${(maxWatchlistAge/60000)}min no trade", mint)
                     marketScanner?.markTokenRejected(mint)
                     continue
                 }
                 
-                // Remove if WAIT signal for too long (1 minute)
-                if (ts.signal == "WAIT" && timeInWatchlist > 60_000L && ts.trades.isEmpty()) {
+                // Remove if WAIT signal for too long - but give more time in paper mode
+                val waitTimeout = if (isPaperMode) 300_000L else 120_000L  // 5 min in paper, 2 min in real
+                if (ts.signal == "WAIT" && timeInWatchlist > waitTimeout && ts.trades.isEmpty()) {
                     tokensToRemove.add(mint)
                     addLog("⏳ WAIT TIMEOUT: ${ts.symbol}", mint)
                     marketScanner?.markTokenRejected(mint)
                     continue
                 }
                 
-                // Remove if flat - check after 4 candles
-                if (ts.history.size >= 4) {
-                    val recentCandles = ts.history.takeLast(4)
+                // Remove if flat - but only after enough candles and in real mode
+                // Paper mode keeps flat tokens to learn from them too
+                if (!isPaperMode && ts.history.size >= 6) {
+                    val recentCandles = ts.history.takeLast(6)
                     val priceRange = recentCandles.maxOf { it.priceUsd } - recentCandles.minOf { it.priceUsd }
                     val avgPrice = recentCandles.map { it.priceUsd }.average()
                     val priceChangePercent = if (avgPrice > 0) (priceRange / avgPrice) * 100 else 0.0
                     val totalBuys = recentCandles.sumOf { it.buysH1 }
                     
-                    // Flat price (<2% range) AND no recent buys
-                    if (priceChangePercent < 2.0 && totalBuys < 2) {
+                    // Flat price (<1.5% range) AND no recent buys
+                    if (priceChangePercent < 1.5 && totalBuys < 2) {
                         tokensToRemove.add(mint)
                         addLog("📉 FLAT: ${ts.symbol}", mint)
                         marketScanner?.markTokenRejected(mint)
