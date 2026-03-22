@@ -6,6 +6,8 @@ import com.lifecyclebot.data.*
 import com.lifecyclebot.network.JupiterApi
 import com.lifecyclebot.network.SolanaWallet
 import com.lifecyclebot.util.pct
+import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.withTimeoutOrNull
 
 /**
  * Executor v3 — SecurityGuard integrated
@@ -626,9 +628,49 @@ class Executor(
                 } else 50.0
             } catch (e: Exception) { 50.0 }
             
-            // WALLET INTELLIGENCE: Skip for now - requires suspend context
-            // TODO: Integrate DataPipeline in a coroutine-safe way
-            // For now, rely on TokenSafetyChecker which already does holder analysis
+            // WALLET INTELLIGENCE: DataPipeline integration
+            // Fetches advanced alpha signals: whale ratio, repeat wallet detection, etc.
+            var walletIntelligenceBlocked = false
+            val alphaSignals = try {
+                runBlocking {
+                    withTimeoutOrNull(3000L) {  // 3 second timeout
+                        DataPipeline.getAlphaSignals(ts.mint, cfg()) { msg ->
+                            ErrorLogger.debug("DataPipeline", msg)
+                        }
+                    }
+                }
+            } catch (e: Exception) {
+                ErrorLogger.debug("DataPipeline", "Error fetching alpha signals: ${e.message}")
+                null
+            }
+            
+            // Apply wallet intelligence signals to block risky trades
+            if (alphaSignals != null && !isPaper) {
+                // Block on bot farm detection (repeat wallets across tokens)
+                if (alphaSignals.repeatWalletScore > 60.0) {
+                    onLog("🤖 WALLET INTEL: Bot farm detected (repeat wallets ${alphaSignals.repeatWalletScore.toInt()}%) — blocking", ts.mint)
+                    walletIntelligenceBlocked = true
+                }
+                // Block on distribution pattern (volume up, price flat)
+                if (alphaSignals.volumePriceDivergence > 70.0) {
+                    onLog("📉 WALLET INTEL: Distribution detected (vol/price div ${alphaSignals.volumePriceDivergence.toInt()}) — blocking", ts.mint)
+                    walletIntelligenceBlocked = true
+                }
+                // Block on extreme whale concentration
+                if (alphaSignals.whaleRatio > 0.6) {
+                    onLog("🐋 WALLET INTEL: Whale concentration too high (${(alphaSignals.whaleRatio * 100).toInt()}%) — blocking", ts.mint)
+                    walletIntelligenceBlocked = true
+                }
+                // Log grade for info
+                if (alphaSignals.overallGrade in listOf("D", "F")) {
+                    onLog("⚠️ WALLET INTEL: Low grade (${alphaSignals.overallGrade}) — ${DataPipeline.formatAlphaSignals(ts.mint, alphaSignals)}", ts.mint)
+                }
+            }
+            
+            if (walletIntelligenceBlocked) {
+                ErrorLogger.info("Executor", "❌ ${ts.symbol} blocked by wallet intelligence")
+                return
+            }
             
             // AI-DRIVEN SIZING: Pass confidence, phase, source, and brain to SmartSizer
             ErrorLogger.info("Executor", "📊 ${ts.symbol} SIZING: wallet=$walletSol | liq=${ts.lastLiquidityUsd} | mcap=${ts.lastFdv} | conf=$aiConfidence | entry=$entryScore")

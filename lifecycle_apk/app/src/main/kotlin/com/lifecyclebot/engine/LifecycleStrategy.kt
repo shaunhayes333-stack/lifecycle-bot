@@ -329,6 +329,44 @@ class LifecycleStrategy(
             }
         }
         // ═══════════════════════════════════════════════════════════════════
+        
+        // ═══════════════════════════════════════════════════════════════════
+        // V5: WINNING PUMP.FUN PATTERN DETECTION
+        // ═══════════════════════════════════════════════════════════════════
+        // Patterns identified from user's profitable trade screenshots:
+        // - EMA5 > EMA10 > EMA20 (bullish fan)
+        // - Low top-holder concentration (<20-25%)
+        // - Steady uptrend
+        // - Healthy RSI (50-80)
+        // - Positive holder growth
+        if (!ts.position.isOpen) {
+            val winningPattern = detectWinningPattern(ts, prices, hist, emafan)
+            
+            if (winningPattern.isWinningSetup) {
+                // SIGNIFICANT BOOST for matching the winning pattern
+                val patternBoost = (winningPattern.score * 0.35).coerceIn(5.0, 35.0)
+                entryScore = (entryScore + patternBoost).coerceAtMost(100.0)
+                ErrorLogger.info("WinPattern", "🎯 ${ts.symbol}: WINNING SETUP DETECTED! " +
+                    "+${patternBoost.toInt()} pts | ${winningPattern.details}")
+            } else if (winningPattern.score >= 40.0) {
+                // Partial match - smaller boost
+                val partialBoost = (winningPattern.score * 0.15).coerceIn(0.0, 15.0)
+                entryScore = (entryScore + partialBoost).coerceAtMost(100.0)
+                if (entryScore >= 30) {
+                    ErrorLogger.debug("WinPattern", "📊 ${ts.symbol}: Partial match " +
+                        "+${partialBoost.toInt()} pts | ${winningPattern.details}")
+                }
+            }
+            
+            // PENALTY for bad holder distribution (high concentration = rug risk)
+            if (!winningPattern.hasGoodHolderDist && ts.safety.topHolderPct > 35.0) {
+                val penalty = ((ts.safety.topHolderPct - 35.0) * 0.5).coerceIn(0.0, 20.0)
+                entryScore = (entryScore - penalty).coerceAtLeast(0.0)
+                ErrorLogger.debug("WinPattern", "⚠️ ${ts.symbol}: High holder concentration " +
+                    "-${penalty.toInt()} pts (${ts.safety.topHolderPct.toInt()}%)")
+            }
+        }
+        // ═══════════════════════════════════════════════════════════════════
 
         val signal = decideSignal(
             ts, hist, prices, phase, mode,
@@ -769,6 +807,126 @@ class LifecycleStrategy(
         val spreadPct: Double,
         val widening: Boolean,
     )
+
+    // ─────────────────────────────────────────────────────────────────
+    // V5: Winning Pump.fun Pattern Detection
+    // ─────────────────────────────────────────────────────────────────
+    
+    /**
+     * Winning Pump.fun Pattern Signal - based on user-identified profitable setups:
+     * 1. EMA Bullish Fan: EMA5 > EMA10 > EMA20 (mandatory)
+     * 2. Low top-holder concentration: < 25% (ideal < 20%)
+     * 3. Steady uptrend: Price consistently above EMA20
+     * 4. Healthy RSI: 50-80 range (not overbought, not oversold)
+     * 5. Positive holder growth: New wallets joining
+     */
+    data class WinningPatternSignal(
+        val isWinningSetup: Boolean,
+        val score: Double,           // 0-100 - how well it matches the pattern
+        val hasEmaFan: Boolean,
+        val hasGoodHolderDist: Boolean,
+        val hasSteadyUptrend: Boolean,
+        val hasHealthyMomentum: Boolean,
+        val hasPositiveGrowth: Boolean,
+        val details: String,
+    )
+    
+    /**
+     * Detect if token matches winning pump.fun patterns.
+     * Based on analysis of MOONDO (+6960%), Optimistic (+10590%), etc.
+     */
+    private fun detectWinningPattern(
+        ts: TokenState,
+        prices: List<Double>,
+        hist: List<Candle>,
+        emafan: EmaFanSignal,
+    ): WinningPatternSignal {
+        if (prices.size < 20 || hist.size < 8) {
+            return WinningPatternSignal(false, 0.0, false, false, false, false, false, "Insufficient data")
+        }
+        
+        val details = mutableListOf<String>()
+        var patternScore = 0.0
+        
+        // 1. EMA Bullish Fan (MANDATORY for winning setup)
+        val hasEmaFan = emafan.alignment == EmaAlignment.BULL_FAN
+        val hasWideningFan = hasEmaFan && emafan.widening
+        if (hasWideningFan) {
+            patternScore += 30.0
+            details.add("EMA_FAN_WIDENING")
+        } else if (hasEmaFan) {
+            patternScore += 20.0
+            details.add("EMA_FAN")
+        }
+        
+        // 2. Top Holder Concentration (from TokenState safety data)
+        val topHolderPct = ts.safety.topHolderPct
+        val hasGoodHolderDist = topHolderPct < 25.0
+        when {
+            topHolderPct < 15.0 -> { patternScore += 20.0; details.add("TOP_HOLD_<15%") }
+            topHolderPct < 20.0 -> { patternScore += 15.0; details.add("TOP_HOLD_<20%") }
+            topHolderPct < 25.0 -> { patternScore += 10.0; details.add("TOP_HOLD_<25%") }
+            topHolderPct < 35.0 -> { patternScore += 0.0 }  // Neutral
+            else -> { patternScore -= 10.0; details.add("HIGH_CONCENTRATION") }
+        }
+        
+        // 3. Steady Uptrend - Price above EMA20 for majority of recent candles
+        val ema20 = ema(prices.takeLast(22), 20)
+        val recentPrices = prices.takeLast(10)
+        val candlesAboveEma20 = recentPrices.count { it > ema20 }
+        val uptrendRatio = candlesAboveEma20.toDouble() / recentPrices.size
+        val hasSteadyUptrend = uptrendRatio >= 0.7  // 70%+ above EMA20
+        when {
+            uptrendRatio >= 0.9 -> { patternScore += 15.0; details.add("STRONG_UPTREND") }
+            uptrendRatio >= 0.7 -> { patternScore += 10.0; details.add("STEADY_UPTREND") }
+            uptrendRatio >= 0.5 -> { patternScore += 5.0 }
+            else -> { patternScore -= 5.0 }
+        }
+        
+        // 4. Healthy Momentum (RSI proxy via buy ratio)
+        // RSI 50-80 = healthy momentum, not overbought
+        val recentBuyRatios = hist.takeLast(5).map { it.buyRatio }
+        val avgBuyRatio = recentBuyRatios.average()
+        val rsiProxy = avgBuyRatio * 100  // Convert to 0-100 scale
+        val hasHealthyMomentum = rsiProxy in 50.0..80.0
+        when {
+            rsiProxy in 55.0..75.0 -> { patternScore += 15.0; details.add("IDEAL_RSI") }
+            rsiProxy in 50.0..80.0 -> { patternScore += 10.0; details.add("HEALTHY_RSI") }
+            rsiProxy > 85.0 -> { patternScore -= 10.0; details.add("OVERBOUGHT") }
+            rsiProxy < 45.0 -> { patternScore -= 10.0; details.add("WEAK_MOMENTUM") }
+        }
+        
+        // 5. Positive Holder Growth
+        val holderGrowth = ts.holderGrowthRate
+        val hasPositiveGrowth = holderGrowth > 0
+        when {
+            holderGrowth >= 10.0 -> { patternScore += 20.0; details.add("HOLDER_BOOM") }
+            holderGrowth >= 5.0 -> { patternScore += 15.0; details.add("HOLDER_GROWING") }
+            holderGrowth >= 0.0 -> { patternScore += 5.0; details.add("HOLDER_STABLE") }
+            holderGrowth < -5.0 -> { patternScore -= 15.0; details.add("HOLDER_EXODUS") }
+        }
+        
+        // Determine if this is a winning setup (need EMA fan + at least 2 other signals)
+        val positiveSignals = listOf(hasEmaFan, hasGoodHolderDist, hasSteadyUptrend, hasHealthyMomentum, hasPositiveGrowth).count { it }
+        val isWinningSetup = hasEmaFan && positiveSignals >= 3
+        
+        // Bonus for having ALL signals
+        if (positiveSignals == 5) {
+            patternScore += 10.0
+            details.add("PERFECT_SETUP")
+        }
+        
+        return WinningPatternSignal(
+            isWinningSetup = isWinningSetup,
+            score = patternScore.coerceIn(0.0, 100.0),
+            hasEmaFan = hasEmaFan,
+            hasGoodHolderDist = hasGoodHolderDist,
+            hasSteadyUptrend = hasSteadyUptrend,
+            hasHealthyMomentum = hasHealthyMomentum,
+            hasPositiveGrowth = hasPositiveGrowth,
+            details = details.joinToString("|"),
+        )
+    }
 
     /**
      * v4: EMA fan — the core "keep riding" signal on multi-hour grinders.
