@@ -340,10 +340,12 @@ class SolanaMarketScanner(
                 
                 var tokensFoundThisCycle = 0
                 
-                // ALWAYS scan pump.fun first (priority)
+                // ALWAYS scan pump.fun first (priority) - BOTH direct API and profiles
                 onLog("🚀 Scanning: Pump.fun tokens (PRIORITY)...")
-                runScan("scanPumpFunActive") { scanPumpFunActive() }
-                delay(200)  // Faster delays
+                runScan("scanPumpFunDirect") { scanPumpFunDirect() }  // Direct pump.fun API
+                delay(200)
+                runScan("scanPumpFunActive") { scanPumpFunActive() }  // DexScreener profiles
+                delay(200)
                 
                 // Then rotate through secondary sources - MORE VARIETY
                 when (scanRotation) {
@@ -516,6 +518,127 @@ class SolanaMarketScanner(
             ErrorLogger.info("Scanner", "scanPumpFunActive: found $found tokens (checked $checked)")
         } catch (e: kotlinx.coroutines.CancellationException) { throw e } catch (e: Exception) {
             ErrorLogger.error("Scanner", "scanPumpFunActive error: ${e.message}")
+        }
+        System.gc()
+    }
+
+    /**
+     * DIRECT PUMP.FUN SCAN - Fetch newest tokens directly from pump.fun API
+     * This is the PRIMARY source for early pump.fun entries
+     */
+    private suspend fun scanPumpFunDirect() {
+        // Pump.fun has an undocumented API for new coins
+        val urls = listOf(
+            "https://frontend-api.pump.fun/coins?offset=0&limit=50&sort=created_timestamp&order=DESC&includeNsfw=false",
+            "https://frontend-api.pump.fun/coins/king-of-the-hill?includeNsfw=false"
+        )
+        
+        ErrorLogger.info("Scanner", "scanPumpFunDirect: fetching from pump.fun APIs...")
+        
+        var totalFound = 0
+        
+        for (url in urls) {
+            try {
+                val body = get(url) ?: continue
+                
+                // Parse response - could be array or object with coins property
+                val coins: JSONArray = when {
+                    body.startsWith("[") -> JSONArray(body)
+                    body.startsWith("{") -> {
+                        val obj = JSONObject(body)
+                        obj.optJSONArray("coins") ?: obj.optJSONArray("data") ?: continue
+                    }
+                    else -> continue
+                }
+                
+                val now = System.currentTimeMillis()
+                var found = 0
+                
+                for (i in 0 until minOf(coins.length(), 30)) {
+                    if (found >= 10) break
+                    
+                    val coin = coins.optJSONObject(i) ?: continue
+                    
+                    // Pump.fun coin structure
+                    val mint = coin.optString("mint", "")
+                        .ifBlank { coin.optString("address", "") }
+                        .ifBlank { coin.optString("token_address", "") }
+                    
+                    if (mint.isBlank() || isSeen(mint)) continue
+                    
+                    val symbol = coin.optString("symbol", "")
+                        .ifBlank { coin.optString("ticker", "") }
+                    val name = coin.optString("name", "")
+                    
+                    if (symbol.isBlank()) continue
+                    
+                    // Get additional data from DexScreener for liquidity/volume
+                    val pair = withContext(Dispatchers.IO) { dex.getBestPair(mint) }
+                    
+                    val liq = pair?.liquidity ?: coin.optDouble("usd_market_cap", 0.0) * 0.1
+                    val mcap = pair?.candle?.marketCap ?: coin.optDouble("usd_market_cap", 0.0)
+                    val vol = pair?.candle?.volumeH1 ?: 0.0
+                    
+                    // Calculate age from created_timestamp
+                    val createdTs = coin.optLong("created_timestamp", 0L)
+                    val ageHours = if (createdTs > 0) {
+                        (now - createdTs) / 3_600_000.0
+                    } else {
+                        (pair?.pairCreatedAtMs?.let { (now - it) / 3_600_000.0 }) ?: 24.0
+                    }
+                    
+                    // Skip very old tokens (focus on fresh ones)
+                    if (ageHours > 48) continue
+                    
+                    // Pump.fun specific bonus - these are the tokens we want!
+                    val pumpBonus = when {
+                        ageHours < 0.25 -> 50.0  // < 15 mins = VERY fresh
+                        ageHours < 0.5 -> 45.0   // < 30 mins
+                        ageHours < 1 -> 40.0     // < 1 hour
+                        ageHours < 3 -> 30.0     // < 3 hours
+                        ageHours < 6 -> 20.0     // < 6 hours
+                        else -> 10.0
+                    }
+                    
+                    val token = ScannedToken(
+                        mint = mint,
+                        symbol = symbol,
+                        name = name,
+                        source = TokenSource.PUMP_FUN_NEW,
+                        liquidityUsd = liq,
+                        volumeH1 = vol,
+                        mcapUsd = mcap,
+                        pairCreatedHoursAgo = ageHours,
+                        dexId = "pump.fun",
+                        priceChangeH1 = 0.0,
+                        txCountH1 = pair?.candle?.let { it.buysH1 + it.sellsH1 } ?: 0,
+                        score = scoreToken(liq, vol, 0, mcap, 0.0, ageHours) + pumpBonus
+                    )
+                    
+                    if (passesFilter(token)) {
+                        emitWithRugcheck(token)
+                        found++
+                        totalFound++
+                        val freshIcon = when {
+                            ageHours < 0.25 -> "🔥"
+                            ageHours < 1 -> "🆕"
+                            ageHours < 6 -> "📈"
+                            else -> "📊"
+                        }
+                        onLog("$freshIcon PUMP: $symbol | ${(ageHours * 60).toInt()}m old | mcap=\$${mcap.toInt()}")
+                    }
+                }
+                
+                ErrorLogger.info("Scanner", "scanPumpFunDirect: found $found from ${url.take(50)}...")
+                delay(100)  // Small delay between API calls
+                
+            } catch (e: kotlinx.coroutines.CancellationException) { throw e } catch (e: Exception) {
+                ErrorLogger.warn("Scanner", "scanPumpFunDirect error: ${e.message}")
+            }
+        }
+        
+        if (totalFound > 0) {
+            onLog("🚀 Pump.fun direct: $totalFound new tokens found")
         }
         System.gc()
     }
@@ -1235,15 +1358,20 @@ class SolanaMarketScanner(
             return false
         }
 
-        // HARD MINIMUM MCAP - VERY LOW to catch early pump.fun tokens
-        val HARD_MIN_MCAP = 2_000.0  // Lowered from $5K
+        // Check if this is a pump.fun token - they get special treatment
+        val isPumpFunToken = token.source == TokenSource.PUMP_FUN_NEW || 
+                             token.dexId == "pump.fun" ||
+                             token.pairCreatedHoursAgo < 1.0  // Very new = likely pump.fun
+        
+        // HARD MINIMUM MCAP - LOWER for pump.fun tokens
+        val HARD_MIN_MCAP = if (isPumpFunToken) 500.0 else 2_000.0
         if (token.mcapUsd > 0 && token.mcapUsd < HARD_MIN_MCAP) {
             ErrorLogger.debug("Scanner", "FILTER REJECT ${token.symbol}: mcap $${token.mcapUsd.toInt()} < hard min $${HARD_MIN_MCAP.toInt()}")
             return false
         }
 
-        // Minimum liquidity - VERY LOW for early discovery
-        val HARD_MIN_LIQ = 500.0  // $500 minimum - catch very early tokens
+        // Minimum liquidity - MUCH LOWER for pump.fun to catch early entries
+        val HARD_MIN_LIQ = if (isPumpFunToken) 100.0 else 500.0
         if (token.liquidityUsd < HARD_MIN_LIQ && token.liquidityUsd > 0) {
             ErrorLogger.debug("Scanner", "FILTER REJECT ${token.symbol}: liq $${token.liquidityUsd.toInt()} < min $${HARD_MIN_LIQ.toInt()}")
             return false
