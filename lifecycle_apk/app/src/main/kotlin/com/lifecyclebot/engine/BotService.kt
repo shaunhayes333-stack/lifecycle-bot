@@ -152,7 +152,14 @@ class BotService : Service() {
         }
         
         when (intent?.action) {
-            ACTION_START -> startBot()
+            ACTION_START -> {
+                if (!status.running) {
+                    startBot()
+                } else {
+                    // Bot already running - just reschedule keep-alive
+                    scheduleKeepAliveAlarm()
+                }
+            }
             ACTION_STOP  -> stopBot()
         }
         return START_STICKY
@@ -629,14 +636,15 @@ class BotService : Service() {
             android.app.PendingIntent.FLAG_UPDATE_CURRENT or android.app.PendingIntent.FLAG_IMMUTABLE
         )
         val am = getSystemService(android.app.AlarmManager::class.java)
-        // Schedule repeating alarm every 60 seconds
-        am?.setRepeating(
+        
+        // Use setExactAndAllowWhileIdle for better reliability on all devices
+        // This will fire once, then reschedule itself in onStartCommand
+        am?.setExactAndAllowWhileIdle(
             android.app.AlarmManager.RTC_WAKEUP,
-            System.currentTimeMillis() + 60_000,
-            60_000,  // Every 60 seconds
+            System.currentTimeMillis() + 120_000,  // 2 minutes
             pi
         )
-        ErrorLogger.info("BotService", "Keep-alive alarm scheduled")
+        ErrorLogger.info("BotService", "Keep-alive alarm scheduled for 2 minutes")
     }
     
     private fun cancelKeepAliveAlarm() {
@@ -1176,9 +1184,8 @@ class BotService : Service() {
             .setOngoing(true)
             .setContentIntent(pi)
             .setForegroundServiceBehavior(NotificationCompat.FOREGROUND_SERVICE_IMMEDIATE)
-            .setPriority(NotificationCompat.PRIORITY_HIGH)  // Higher priority to keep alive
+            .setPriority(NotificationCompat.PRIORITY_DEFAULT)  // Default priority
             .setCategory(NotificationCompat.CATEGORY_SERVICE)
-            .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
             .build()
     }
 }
