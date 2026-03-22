@@ -52,7 +52,7 @@ data class BotConfig(
     val maxPriceImpactPct: Double = 3.0,
     val closePositionsOnStop: Boolean = true, // SAFETY: close all positions when bot stops
     // external API keys (all free)
-    val heliusApiKey: String = "",      // helius.dev — free, real-time WS + creator history
+    val heliusApiKey: String = "7ec2e508-5c52-48a6-8761-78932324922e",  // helius.dev — faster RPC + real-time WS
     val birdeyeApiKey: String = "",     // birdeye.so — free, OHLCV candles
     val groqApiKey: String = "",        // console.groq.com — free LLM sentiment (llama-3.1-8b)
     val autoAddNewTokens: Boolean = true, // ENABLED - auto-add new Pump.fun launches to watchlist
@@ -340,7 +340,7 @@ object ConfigStore {
             circuitBreakerPauseMin      = p.getInt("circuit_breaker_pause_min", 15),
             maxPriceImpactPct           = p.getFloat("max_price_impact_pct", 3.0f).toDouble(),
             closePositionsOnStop        = p.getBoolean("close_positions_on_stop", true),
-            heliusApiKey                = s.getString("helius_api_key", "") ?: "",
+            heliusApiKey                = s.getString("helius_api_key", "7ec2e508-5c52-48a6-8761-78932324922e") ?: "7ec2e508-5c52-48a6-8761-78932324922e",
             birdeyeApiKey               = s.getString("birdeye_api_key", "") ?: "",
             groqApiKey                  = s.getString("groq_api_key", "") ?: "",
             autoAddNewTokens            = p.getBoolean("auto_add_new_tokens", true),
