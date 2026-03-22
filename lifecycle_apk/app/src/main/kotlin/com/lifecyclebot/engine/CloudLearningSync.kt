@@ -40,22 +40,13 @@ object CloudLearningSync {
     private const val KEY_COMMUNITY_WEIGHTS = "cached_community_weights"
 
     // ═══════════════════════════════════════════════════════════════════
-    // SUPABASE CONFIGURATION
+    // SUPABASE CONFIGURATION - COMMUNITY SHARED DATABASE
     // ═══════════════════════════════════════════════════════════════════
-    // 
-    // TO SET UP COMMUNITY SHARING:
-    // 1. Create free Supabase project at https://supabase.com
-    // 2. Run docs/SUPABASE_SCHEMA.sql in SQL Editor
-    // 3. Replace URL and KEY below with your project's values
-    // 4. Share your credentials with the community!
-    //
-    // See docs/CLOUD_SETUP.md for detailed instructions.
-    //
-    // NOTE: The app works fine without this - it just won't sync.
-    // Set both to empty string "" to disable cloud sync.
+    // All bot instances share this database for collective learning
+    // More users = smarter bots for everyone!
     
-    private const val SUPABASE_URL = ""  // e.g., "https://abcd1234.supabase.co"
-    private const val SUPABASE_ANON_KEY = ""  // e.g., "eyJhbGciOiJIUzI1NiIs..."
+    private const val SUPABASE_URL = "https://rnhjixrfdjxggvejgjhz.supabase.co"
+    private const val SUPABASE_ANON_KEY = "sb_publishable_LNM7cOm7XjEHmQYVY_QZzw_Y_sFqrkd"
     
     // Minimum trades required to contribute (prevents noisy data)
     private const val MIN_TRADES_TO_CONTRIBUTE = 20
