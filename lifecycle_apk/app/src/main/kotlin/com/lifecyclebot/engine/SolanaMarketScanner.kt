@@ -527,10 +527,12 @@ class SolanaMarketScanner(
      * This is the PRIMARY source for early pump.fun entries
      */
     private suspend fun scanPumpFunDirect() {
-        // Pump.fun has an undocumented API for new coins
+        // Pump.fun API endpoints - try multiple in case some are blocked/changed
         val urls = listOf(
+            // Primary: newest coins sorted by creation
             "https://frontend-api.pump.fun/coins?offset=0&limit=50&sort=created_timestamp&order=DESC&includeNsfw=false",
-            "https://frontend-api.pump.fun/coins/king-of-the-hill?includeNsfw=false"
+            // Alternative: recently updated/active
+            "https://frontend-api.pump.fun/coins?offset=0&limit=30&sort=last_trade_timestamp&order=DESC&includeNsfw=false",
         )
         
         ErrorLogger.info("Scanner", "scanPumpFunDirect: fetching from pump.fun APIs...")
@@ -1669,8 +1671,13 @@ class SolanaMarketScanner(
 
     private fun get(url: String, apiKey: String = ""): String? = try {
         val builder = Request.Builder().url(url)
-            .header("User-Agent", "lifecycle-bot-android/6.0")
-            .header("Accept", "application/json")
+            // Use browser-like headers to avoid Cloudflare blocks
+            .header("User-Agent", "Mozilla/5.0 (Linux; Android 14; Pixel 8) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36")
+            .header("Accept", "application/json, text/plain, */*")
+            .header("Accept-Language", "en-US,en;q=0.9")
+            .header("Accept-Encoding", "gzip, deflate")
+            .header("Connection", "keep-alive")
+            .header("Cache-Control", "no-cache")
         if (apiKey.isNotBlank()) builder.header("X-API-KEY", apiKey)
         ErrorLogger.debug("Scanner", "HTTP GET: ${url.take(60)}...")
         val resp = http.newCall(builder.build()).execute()
@@ -1679,7 +1686,10 @@ class SolanaMarketScanner(
             ErrorLogger.debug("Scanner", "HTTP OK: ${body?.length ?: 0} bytes from ${url.take(40)}")
             body
         } else {
-            ErrorLogger.warn("Scanner", "HTTP FAIL: ${resp.code} from ${url.take(50)}")
+            // Don't spam logs with 429/530 errors - just return null
+            if (resp.code != 429 && resp.code != 530) {
+                ErrorLogger.warn("Scanner", "HTTP FAIL: ${resp.code} from ${url.take(50)}")
+            }
             null
         }
     } catch (e: Exception) { 
