@@ -145,7 +145,8 @@ class BotViewModel(app: Application) : AndroidViewModel(app) {
         // Compare settings that matter (exclude watchlist which changes constantly)
         val settingsChanged = cfg.paperMode != currentCfg.paperMode ||
             cfg.autoTrade != currentCfg.autoTrade ||
-            cfg.buySizeSol != currentCfg.buySizeSol ||
+            cfg.smallBuySol != currentCfg.smallBuySol ||
+            cfg.largeBuySol != currentCfg.largeBuySol ||
             cfg.heliusApiKey != currentCfg.heliusApiKey ||
             cfg.birdeyeApiKey != currentCfg.birdeyeApiKey ||
             cfg.groqApiKey != currentCfg.groqApiKey ||
