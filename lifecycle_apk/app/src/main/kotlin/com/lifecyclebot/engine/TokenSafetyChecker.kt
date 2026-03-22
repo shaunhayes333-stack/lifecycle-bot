@@ -149,6 +149,9 @@ class TokenSafetyChecker(private val cfg: () -> BotConfig) {
         val hard    = mutableListOf<String>()
         val soft    = mutableListOf<Pair<String, Int>>()
         var penalty = 0
+        
+        // Paper mode flag - used for lenient safety checks
+        val isPaperMode = cfg().paperMode
 
         // ── 1. Rugcheck.xyz composite report (free, no key) ───────────
         val rugcheck = fetchRugcheck(mint)
@@ -201,7 +204,6 @@ class TokenSafetyChecker(private val cfg: () -> BotConfig) {
             // V8+ SKEPTICAL scoring - don't blindly trust rugcheck scores
             // But also don't block aggressively - new tokens often have lower scores
             // PAPER MODE: Much more lenient - only block truly dangerous tokens
-            val isPaperMode = cfg().paperMode
             when {
                 rcScore in 0..9 -> {
                     // Very dangerous - block even in paper mode
