@@ -762,7 +762,6 @@ class BotService : Service() {
                     addLog("☁️ ${CloudLearningSync.getStatus()}")
                 }
             }
-            }
             
             // Pattern Backtest - Run daily (every ~1440 loops at 1min intervals, or ~320 at 45s)
             // This analyzes historical trades to find which patterns work best
