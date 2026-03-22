@@ -1070,12 +1070,12 @@ class BotService : Service() {
         
         val tokensToRemove = mutableListOf<String>()
         val now = System.currentTimeMillis()
+        val isPaperMode = cfg.paperMode
         
-        // AGGRESSIVE CLEANUP THRESHOLDS - force turnover
-        val staleThresholdMs = 30_000L            // 30 seconds stale - was 1 minute
-        val idleThresholdMs = 45_000L             // 45 seconds max idle - was 1 minute  
-        val maxWatchlistAge = 3 * 60_000L         // Remove after 3 mins if no trade - was 5
-        val deadPhaseThresholdMs = 30_000L        // Remove DEAD phase tokens after 30 sec
+        // ULTRA AGGRESSIVE CLEANUP for faster token turnover
+        val staleThresholdMs = if (isPaperMode) 15_000L else 30_000L   // 15 sec in paper mode
+        val idleThresholdMs = if (isPaperMode) 20_000L else 45_000L    // 20 sec idle in paper mode
+        val maxWatchlistAge = if (isPaperMode) 60_000L else 180_000L   // 1 min max in paper mode
         
         for (mint in currentWatchlist) {
             val ts = status.tokens[mint]

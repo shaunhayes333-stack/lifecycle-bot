@@ -128,9 +128,9 @@ data class BotConfig(
 
     // ── Full Solana Market Scanner ────────────────────────────────────
     val fullMarketScanEnabled: Boolean = true,   // master switch
-    val scanIntervalSecs: Int = 15,              // scan all sources every 15 seconds (was 5 - too fast)
-    val maxWatchlistSize: Int = 30,              // Reduced from 50 to reduce API calls
-    val minDiscoveryScore: Double = 10.0,        // LOWERED - let more tokens through for evaluation
+    val scanIntervalSecs: Int = 10,              // scan every 10 seconds (paper mode needs fast discovery)
+    val maxWatchlistSize: Int = 15,              // Small watchlist = faster turnover
+    val minDiscoveryScore: Double = 5.0,         // Very low - let everything through
     val scanMinMcapUsd: Double = 0.0,            // no min mcap
     val scalingModeEnabled: Boolean = true,
     val scalingLogEnabled: Boolean = true,

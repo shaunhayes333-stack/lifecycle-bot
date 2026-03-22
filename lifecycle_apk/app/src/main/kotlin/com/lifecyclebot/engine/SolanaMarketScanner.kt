@@ -105,11 +105,11 @@ class SolanaMarketScanner(
 
     // Track which mints we've already surfaced to avoid duplicates
     private val seenMints  = ConcurrentHashMap<String, Long>()
-    private val SEEN_TTL   = 30_000L          // forget after 30 sec — force fresh discovery
+    private val SEEN_TTL   = 15_000L          // forget after 15 sec — ULTRA fast refresh
     
-    // Track rejected tokens separately - shorter cooldown for faster retry
+    // Track rejected tokens separately - very short cooldown for paper mode learning
     private val rejectedMints = ConcurrentHashMap<String, Long>()
-    private val REJECTED_TTL = 60_000L        // forget rejected tokens after 1 min (was 2)
+    private val REJECTED_TTL = 30_000L        // forget rejected tokens after 30 sec
     
     // Memory protection: limit concurrent operations
     private val semaphore = kotlinx.coroutines.sync.Semaphore(3)  // max 3 concurrent scans
