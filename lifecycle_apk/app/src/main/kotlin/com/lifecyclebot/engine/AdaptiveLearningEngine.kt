@@ -5,8 +5,6 @@ import android.content.SharedPreferences
 import org.json.JSONArray
 import org.json.JSONObject
 import kotlin.math.abs
-import kotlin.math.exp
-import kotlin.math.ln
 
 /**
  * AdaptiveLearningEngine — The brain that learns from every trade
