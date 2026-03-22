@@ -257,7 +257,7 @@ object SmartSizer {
         // Dust floor
         size = size.coerceAtLeast(0.0)
         if (size < 0.005) {
-            return SizeResult(0.0, tier, basePct, convMult, perfMult, drawdownMult, concMult,
+            return SizeResult(0.0, tier, basePct, aiScoreMult, perfMult, drawdownMult, concMult,
                 "dust", "Calculated size below dust floor")
         }
 
@@ -265,17 +265,18 @@ object SmartSizer {
         size = (size * 10000).toLong() / 10000.0
 
         val explanation = buildString {
-            append("Tier=$tier(${(basePct*100).toInt()}%)  ")
-            append("base=${(tradeable*basePct).fmt()}◎  ")
-            append("×conv=${convMult.fmt1}  ")
-            if (perfMult != 1.0) append("×perf=${perfMult.fmt1}  ")
-            if (drawdownMult != 1.0) append("×dd=${drawdownMult.fmt1}  ")
-            if (concMult != 1.0) append("×conc=${concMult.fmt1}  ")
+            append("AI conf=${aiConfidence.toInt()} ")
+            append("base=${(basePct*100).toInt()}% ")
+            append("×score=${aiScoreMult.fmt1} ")
+            if (brainMult != 1.0) append("×brain=${brainMult.fmt1} ")
+            if (memoryMult != 1.0) append("×mem=${memoryMult.fmt1} ")
+            if (perfMult != 1.0) append("×perf=${perfMult.fmt1} ")
+            if (drawdownMult != 1.0) append("×dd=${drawdownMult.fmt1} ")
             append("→${size.fmt()}◎")
-            if (cappedBy != "none") append("  [capped:$cappedBy]")
+            if (cappedBy != "none") append(" [cap:$cappedBy]")
         }
 
-        return SizeResult(size, tier, basePct, convMult, perfMult,
+        return SizeResult(size, tier, basePct, aiScoreMult, perfMult,
                           drawdownMult, concMult, cappedBy, explanation)
     }
 
