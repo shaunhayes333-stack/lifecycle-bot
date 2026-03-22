@@ -340,6 +340,30 @@ class Executor(
         // Clear milestones when position closes
         if (!pos.isOpen) milestonesHit.remove(ts.mint)
 
+        // ════════════════════════════════════════════════════════════════
+        // V8: Precision Exit Logic - Full evaluation
+        // ════════════════════════════════════════════════════════════════
+        val exitSignal = PrecisionExitLogic.evaluate(
+            ts = ts,
+            currentPrice = price,
+            entryPrice = pos.entryPrice,
+            history = ts.history,
+            exitScore = ts.meta.exitScore,
+            stopLossPct = modeConf?.stopLossPct ?: cfg().stopLossPct,
+        )
+        
+        if (exitSignal.shouldExit) {
+            val urgencyEmoji = when (exitSignal.urgency) {
+                PrecisionExitLogic.Urgency.CRITICAL -> "🚨"
+                PrecisionExitLogic.Urgency.HIGH -> "⚠️"
+                PrecisionExitLogic.Urgency.MEDIUM -> "📊"
+                else -> "ℹ️"
+            }
+            onLog("$urgencyEmoji V8 EXIT: ${ts.symbol} | ${exitSignal.reason} | ${exitSignal.details}", ts.mint)
+            TradeStateMachine.startCooldown(ts.mint)
+            return "v8_${exitSignal.reason.lowercase()}"
+        }
+
         // Wick protection: skip stop in first 90s unless extreme loss
         if (heldSecs < 90.0 && gainPct > -cfg().stopLossPct * 1.5) return null
 
@@ -378,6 +402,22 @@ class Executor(
                 liveStopLossPct = cfg().stopLossPct,
                 liveTakeProfitPct = 200.0,  // Default take profit threshold
             )
+            
+            // ════════════════════════════════════════════════════════════════
+            // V8: Precision Exit Logic - Quick check for urgent exits
+            // ════════════════════════════════════════════════════════════════
+            val quickExit = PrecisionExitLogic.quickCheck(
+                mint = ts.mint,
+                currentPrice = ts.ref,
+                entryPrice = ts.position.entryPrice,
+                stopLossPct = cfg().stopLossPct,
+            )
+            if (quickExit != null && quickExit.shouldExit) {
+                onLog("🚨 V8 QUICK EXIT: ${ts.symbol} | ${quickExit.reason} | ${quickExit.details}", ts.mint)
+                doSell(ts, "v8_${quickExit.reason.lowercase()}", wallet, walletSol)
+                TradeStateMachine.startCooldown(ts.mint)
+                return
+            }
         }
 
         // Stale data check
@@ -455,7 +495,48 @@ class Executor(
 
         if (cfg().autoTrade && signal == "BUY" && !ts.position.isOpen) {
             ErrorLogger.info("Executor", "BUY signal for ${ts.symbol} - autoTrade=${cfg().autoTrade}")
+            
+            // ════════════════════════════════════════════════════════════════
+            // V8: State Machine Integration
+            // ════════════════════════════════════════════════════════════════
+            val tradeState = TradeStateMachine.getState(ts.mint)
+            
+            // Check cooldown
+            if (TradeStateMachine.isInCooldown(ts.mint)) {
+                onLog("⏸️ ${ts.symbol}: In cooldown, skipping", ts.mint)
+                return
+            }
+            
+            // Transition to WATCH state if not already
+            if (tradeState.state == TradeState.SCAN) {
+                TradeStateMachine.setState(ts.mint, TradeState.WATCH, "BUY signal received")
+            }
+            
+            // Check entry pattern (spike → pullback → re-acceleration)
+            val priceHistory = ts.history.map { it.priceUsd }
+            val optimalEntry = TradeStateMachine.detectEntryPattern(ts.mint, ts.ref, priceHistory)
+            
+            // If we have entry pattern requirement enabled, wait for optimal entry
             val c = cfg()
+            val requireOptimalEntry = c.smallBuySol < 0.1  // Only for small positions, be more patient
+            
+            if (requireOptimalEntry && !optimalEntry && tradeState.entryPattern != EntryPattern.NONE) {
+                // We've seen a spike but waiting for pullback+reaccel
+                if (tradeState.entryPattern == EntryPattern.FIRST_SPIKE) {
+                    onLog("📈 ${ts.symbol}: Spike detected, waiting for pullback...", ts.mint)
+                } else if (tradeState.entryPattern == EntryPattern.PULLBACK) {
+                    onLog("📉 ${ts.symbol}: Pullback detected, waiting for re-acceleration...", ts.mint)
+                }
+                return  // Wait for optimal entry
+            }
+            
+            if (optimalEntry) {
+                onLog("🎯 ${ts.symbol}: OPTIMAL ENTRY - Spike→Pullback→ReAccel pattern!", ts.mint)
+            }
+            
+            // Transition to ENTER state
+            TradeStateMachine.setState(ts.mint, TradeState.ENTER, "executing buy")
+            
             if (ts.position.isOpen) {
                 ErrorLogger.debug("Executor", "Skipping ${ts.symbol} - position already open")
                 return
@@ -710,6 +791,9 @@ class Executor(
         val trade = Trade("BUY", "paper", sol, price, System.currentTimeMillis(), score = score)
         ts.trades.add(trade)
         security.recordTrade(trade)
+        
+        // V8: Transition to MONITOR state
+        TradeStateMachine.setState(ts.mint, TradeState.MONITOR, "position opened")
         
         // Update paper wallet balance (deduct buy amount)
         onPaperBalanceChange?.invoke(-sol)
