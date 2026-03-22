@@ -199,22 +199,30 @@ class Executor(
     }
 
     // ── trailing stop ─────────────────────────────────────────────────
+    // IMPROVED: Let winners run further before tightening trail
 
     fun trailingFloor(pos: Position, current: Double,
                        modeConf: AutoModeEngine.ModeConfig? = null): Double {
         val base    = modeConf?.trailingStopPct ?: cfg().trailingStopBasePct
         val gainPct = pct(pos.entryPrice, current)
+        
         // FIX 3c: Trail tightens after partial sells — gains locked, ride tighter
         val partialFactor = when {
-            pos.partialSoldPct >= 50.0 -> 0.20  // 2+ partials → very tight
-            pos.partialSoldPct >= 25.0 -> 0.28  // 1 partial → tighter
+            pos.partialSoldPct >= 50.0 -> 0.40  // loosened from 0.20
+            pos.partialSoldPct >= 25.0 -> 0.55  // loosened from 0.28
             else                       -> 1.0
         }
+        
+        // IMPROVED TRAILING: Let runners run much further
+        // Don't tighten trail until 100%+ gains - capture the full move
         val trail = when {
-            gainPct >= 50 -> base * 0.35 * partialFactor
-            gainPct >= 30 -> base * 0.50 * partialFactor
-            gainPct >= 20 -> base * 0.65 * partialFactor
-            else          -> base * partialFactor
+            gainPct >= 500 -> base * 0.25 * partialFactor  // 5x+ → tight trail (lock gains)
+            gainPct >= 300 -> base * 0.35 * partialFactor  // 3x+ → moderate trail
+            gainPct >= 200 -> base * 0.45 * partialFactor  // 2x+ → still loose
+            gainPct >= 100 -> base * 0.55 * partialFactor  // 100%+ → start tightening slightly
+            gainPct >= 50  -> base * 0.70 * partialFactor  // 50%+ → loose trail, let it run
+            gainPct >= 30  -> base * 0.85 * partialFactor  // 30%+ → very loose
+            else           -> base * partialFactor         // under 30% → full trail width
         }
         return pos.highestPrice * (1.0 - trail / 100.0)
     }
@@ -390,6 +398,28 @@ class Executor(
                 return "liquidity_drain"
             }
         }
+        
+        // WHALE/DEV DUMP DETECTION: Exit if seeing heavy sell pressure
+        if (ts.history.size >= 3) {
+            val recentCandles = ts.history.takeLast(3)
+            val totalSells = recentCandles.sumOf { it.sellsH1 }
+            val totalBuys = recentCandles.sumOf { it.buysH1 }
+            val sellRatio = if (totalBuys + totalSells > 0) totalSells.toDouble() / (totalBuys + totalSells) else 0.0
+            
+            // If sells > 80% of activity AND price dropping AND we're in profit, protect gains
+            if (sellRatio > 0.80 && gainPct > 10 && ts.meta.pressScore < -30) {
+                onLog("🐋 WHALE DUMP: ${ts.symbol} sell ratio ${(sellRatio*100).toInt()}% | protecting gains", ts.mint)
+                return "whale_dump"
+            }
+            
+            // Large volume spike with mostly sells = likely dev dump
+            val avgVol = recentCandles.map { it.volumeH1 }.average()
+            val lastVol = recentCandles.last().volumeH1
+            if (lastVol > avgVol * 3 && sellRatio > 0.70 && gainPct < 0) {
+                onLog("🚨 DEV DUMP: ${ts.symbol} volume spike ${(lastVol/avgVol).toInt()}x with heavy sells", ts.mint)
+                return "dev_dump"
+            }
+        }
 
         val effectiveStopPct = modeConf?.stopLossPct ?: cfg().stopLossPct
         if (gainPct <= -effectiveStopPct) return "stop_loss"
@@ -528,9 +558,21 @@ class Executor(
             val isPaperMode = cfg().paperMode
             
             // Check cooldown - SKIP IN PAPER MODE
+            // DYNAMIC RE-ENTRY: Allow re-entry if last trade was profitable and conditions improved
             if (!isPaperMode && TradeStateMachine.isInCooldown(ts.mint)) {
-                onLog("⏸️ ${ts.symbol}: In cooldown, skipping", ts.mint)
-                return
+                val lastTrade = ts.trades.lastOrNull()
+                val wasProfit = lastTrade?.let { it.type == "SELL" && (it.pnlPct ?: 0.0) > 0 } ?: false
+                val priceDroppedFromExit = lastTrade?.let { ts.ref < it.priceUsd * 0.85 } ?: false  // 15%+ below exit
+                val scoreImproved = entryScore >= 50  // Good entry score
+                
+                // Allow re-entry if: profitable last trade + price dipped + good score
+                if (wasProfit && priceDroppedFromExit && scoreImproved) {
+                    onLog("🔄 RE-ENTRY: ${ts.symbol} dipped 15%+ from profitable exit, score=$entryScore", ts.mint)
+                    TradeStateMachine.clearCooldown(ts.mint)  // Clear cooldown for re-entry
+                } else {
+                    onLog("⏸️ ${ts.symbol}: In cooldown, skipping", ts.mint)
+                    return
+                }
             }
             
             // Transition to WATCH state if not already

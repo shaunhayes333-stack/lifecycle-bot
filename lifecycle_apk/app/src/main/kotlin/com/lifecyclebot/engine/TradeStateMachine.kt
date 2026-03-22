@@ -105,6 +105,17 @@ object TradeStateMachine {
     }
     
     /**
+     * Clear cooldown for dynamic re-entry
+     */
+    fun clearCooldown(mint: String) {
+        val ts = getState(mint)
+        ts.state = TradeState.WATCH
+        ts.cooldownUntil = 0
+        ts.entryPattern = EntryPattern.NONE
+        ErrorLogger.info("StateMachine", "🔄 ${mint.take(8)}: Cooldown cleared for re-entry")
+    }
+    
+    /**
      * Detect entry pattern: SPIKE → PULLBACK → RE_ACCELERATION
      * Returns true if optimal entry point detected
      */

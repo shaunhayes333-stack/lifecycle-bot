@@ -215,6 +215,32 @@ object SmartSizer {
             }
         }
         size *= memoryMult
+        
+        // ── LIQUIDITY DEPTH ADJUSTMENT ─────────────────────────────────
+        // Scale position based on liquidity - bigger positions when more depth
+        val liquidityMult = when {
+            liquidityUsd >= 500_000 -> 1.50  // Very deep liquidity - can size up
+            liquidityUsd >= 200_000 -> 1.30
+            liquidityUsd >= 100_000 -> 1.15
+            liquidityUsd >= 50_000  -> 1.00  // Normal
+            liquidityUsd >= 20_000  -> 0.85  // Low liquidity - smaller positions
+            liquidityUsd >= 10_000  -> 0.70
+            else                    -> 0.60  // Very low - minimal position
+        }
+        size *= liquidityMult
+        
+        // ── VOLATILITY/CONFIDENCE ADJUSTMENT ───────────────────────────
+        // Higher confidence = accept more risk, lower = reduce exposure
+        val confidenceMult = when {
+            aiConfidence >= 85 -> 1.30  // Very high confidence - size up
+            aiConfidence >= 70 -> 1.15
+            aiConfidence >= 55 -> 1.00  // Normal
+            aiConfidence >= 40 -> 0.85
+            else               -> 0.70  // Low confidence = minimal exposure
+        }
+        size *= confidenceMult
+        
+        ErrorLogger.info("SmartSizer", "📏 Mults: score=${aiScoreMult} brain=${brainMult.fmt1} mem=${memoryMult} liq=${liquidityMult} conf=${confidenceMult}")
 
         // ── Performance multiplier ────────────────────────────────────
         // PAPER MODE: No performance penalty - we want to learn from losses too
