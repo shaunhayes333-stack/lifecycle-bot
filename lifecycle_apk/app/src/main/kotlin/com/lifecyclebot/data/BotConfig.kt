@@ -181,6 +181,10 @@ data class BotConfig(
     val antiRugEnabled: Boolean = true,
     val antiRugBlockCritical: Boolean = true,   // auto-block CRITICAL risk tokens
     val antiRugMaxRiskScore: Int = 60,          // max risk score to trade (0-100)
+    // ── Cloud Learning Sync ──────────────────────────────────────────────
+    // Share learnings with community for collective intelligence
+    val cloudSyncEnabled: Boolean = true,       // opt-in to share learnings (privacy-safe)
+    val cloudUseCommWeights: Boolean = true,    // use community-learned weights
 )
 
 /** Persists config — private key stored in EncryptedSharedPreferences */

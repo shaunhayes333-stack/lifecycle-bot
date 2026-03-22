@@ -540,6 +540,22 @@ class BotService : Service() {
         AdaptiveLearningEngine.init(applicationContext)
         addLog("🧬 ${AdaptiveLearningEngine.getStatus()}")
         
+        // Initialize CloudLearningSync for community shared learning
+        CloudLearningSync.init(applicationContext)
+        addLog("☁️ ${CloudLearningSync.getStatus()}")
+        
+        // Download community weights on startup (async)
+        scope.launch {
+            try {
+                val communityWeights = CloudLearningSync.downloadCommunityWeights()
+                if (communityWeights != null) {
+                    addLog("☁️ ${CloudLearningSync.getCommunityStats()}")
+                }
+            } catch (e: Exception) {
+                ErrorLogger.debug("CloudSync", "Startup download failed: ${e.message}")
+            }
+        }
+        
         // Initialize KillSwitch for account protection
         val effectiveBalance = status.getEffectiveBalance(cfg.paperMode)
         KillSwitch.init(applicationContext, effectiveBalance)
@@ -750,6 +766,12 @@ class BotService : Service() {
                 
                 // Log adaptive learning status
                 addLog("🧬 ${AdaptiveLearningEngine.getStatus()}")
+                
+                // Log cloud sync status (every ~35 mins = 5x7 loops)
+                if (loopCount % 35 == 0) {
+                    addLog("☁️ ${CloudLearningSync.getStatus()}")
+                }
+            }
             }
             
             // Pattern Backtest - Run daily (every ~1440 loops at 1min intervals, or ~320 at 45s)
@@ -778,6 +800,24 @@ class BotService : Service() {
                                 // AUTO-TUNE: Apply backtest results to pattern weights
                                 PatternAutoTuner.updateFromBacktest(report)
                                 addLog("🎛️ ${PatternAutoTuner.getStatus()}")
+                                
+                                // CLOUD SYNC: Upload learnings to community database
+                                scope.launch {
+                                    try {
+                                        val weights = AdaptiveLearningEngine.getDetailedWeights()
+                                        val uploaded = CloudLearningSync.uploadLearnings(
+                                            tradeCount = report.totalTrades,
+                                            winRate = report.overallWinRate,
+                                            featureWeights = weights,
+                                            patternStats = report.patterns,
+                                        )
+                                        if (uploaded) {
+                                            addLog("☁️ Shared learnings with community!")
+                                        }
+                                    } catch (e: Exception) {
+                                        ErrorLogger.debug("CloudSync", "Upload error: ${e.message}")
+                                    }
+                                }
                             }
                         }
                     } catch (e: Exception) {
