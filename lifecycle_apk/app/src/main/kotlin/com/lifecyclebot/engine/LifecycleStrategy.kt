@@ -68,9 +68,12 @@ class LifecycleStrategy(
 
     fun evaluate(ts: TokenState, modeConf: AutoModeEngine.ModeConfig? = null): StrategyResult {
         val hist = ts.history.toList()
+        val isPaperMode = cfg().paperMode
 
-        if (hist.size < 3) {
-            ErrorLogger.debug("Strategy", "${ts.symbol}: bootstrap - only ${hist.size} candles")
+        // PAPER MODE: Lower candle requirement to trade faster
+        val minCandles = if (isPaperMode) 1 else 3
+        if (hist.size < minCandles) {
+            ErrorLogger.debug("Strategy", "${ts.symbol}: bootstrap - only ${hist.size} candles (need $minCandles)")
             return StrategyResult("bootstrap", "WAIT", 0.0, 0.0, StrategyMeta())
         }
         if (!passesGates(hist)) {
@@ -2010,15 +2013,11 @@ class LifecycleStrategy(
         // ══════════════════════════════════════════════════════════════
         
         if (isPaperMode) {
-            // PAPER MODE: Got past filters = BUY immediately
-            // Very low liquidity requirement - we want to learn from many tokens
-            if (ts.lastLiquidityUsd >= 50 || ts.lastFdv >= 1000) {  // lowered from $200 to $50 liq OR $1K mcap
-                ErrorLogger.info("Strategy", "🟢 ${ts.symbol}: PAPER BUY (filter pass) | phase=$phase liq=$${ts.lastLiquidityUsd.toInt()} mcap=$${ts.lastFdv.toInt()} entry=${adjustedEntryScore.toInt()}")
-                return "BUY"
-            } else {
-                ErrorLogger.info("Strategy", "⏸️ ${ts.symbol}: Paper skip - liq=$${ts.lastLiquidityUsd.toInt()} mcap=$${ts.lastFdv.toInt()} | phase=$phase entry=${adjustedEntryScore.toInt()}")
-                return "WAIT"
-            }
+            // PAPER MODE: ULTRA AGGRESSIVE - BUY anything that made it past filters
+            // No liquidity/mcap requirements at all in paper mode
+            // We want MAXIMUM trading activity to learn patterns fast
+            ErrorLogger.info("Strategy", "🟢 ${ts.symbol}: PAPER BUY (auto) | phase=$phase liq=$${ts.lastLiquidityUsd.toInt()} mcap=$${ts.lastFdv.toInt()} entry=${adjustedEntryScore.toInt()}")
+            return "BUY"
         }
         
         // REAL MODE: Still check score thresholds but less strict
