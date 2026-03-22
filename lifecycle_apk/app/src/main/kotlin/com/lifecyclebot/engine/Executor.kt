@@ -376,6 +376,21 @@ class Executor(
         // Wick protection: skip stop in first 90s unless extreme loss
         if (heldSecs < 90.0 && gainPct > -cfg().stopLossPct * 1.5) return null
 
+        // LIQUIDITY COLLAPSE DETECTION: Emergency exit if liquidity drops significantly
+        val currentLiq = ts.lastLiquidityUsd
+        val entryLiq = pos.entryLiquidityUsd
+        if (entryLiq > 0 && currentLiq > 0) {
+            val liqDropPct = ((entryLiq - currentLiq) / entryLiq) * 100
+            if (liqDropPct > 50) {  // Liquidity dropped 50%+
+                onLog("🚨 LIQ COLLAPSE: ${ts.symbol} liq dropped ${liqDropPct.toInt()}% | exit NOW", ts.mint)
+                return "liquidity_collapse"
+            }
+            if (liqDropPct > 30 && gainPct < 0) {  // 30% drop AND we're losing
+                onLog("⚠️ LIQ DRAIN: ${ts.symbol} liq dropped ${liqDropPct.toInt()}% while losing | exit", ts.mint)
+                return "liquidity_drain"
+            }
+        }
+
         val effectiveStopPct = modeConf?.stopLossPct ?: cfg().stopLossPct
         if (gainPct <= -effectiveStopPct) return "stop_loss"
         if (price < trailingFloor(pos, price, modeConf)) return "trailing_stop"
@@ -568,6 +583,27 @@ class Executor(
                         EdgeOptimizer.WeightedScore(entryScore, 0.0, emptyMap()))
                 } else 50.0
             } catch (e: Exception) { 50.0 }
+            
+            // WALLET INTELLIGENCE: Fetch advanced data (top holders, whale ratio, insider risk)
+            val pipelineData = try {
+                if (!isPaperMode && ts.lastLiquidityUsd > 5000) {  // Only for real mode + decent liquidity
+                    DataPipeline.fetchAllData(ts.mint, cfg().birdeyeApiKey, cfg().heliusApiKey) { msg ->
+                        onLog("📊 $msg", ts.mint)
+                    }
+                } else null
+            } catch (e: Exception) { null }
+            
+            // INSIDER RISK CHECK: Block if wallet intelligence detects high risk
+            if (!isPaperMode && pipelineData != null) {
+                if (pipelineData.insiderRiskScore > 70) {
+                    onLog("🚨 INSIDER RISK: ${ts.symbol} score=${pipelineData.insiderRiskScore.toInt()} - skipping", ts.mint)
+                    return
+                }
+                if (pipelineData.topHolderPct > 60) {
+                    onLog("🚨 TOP HOLDER: ${ts.symbol} ${pipelineData.topHolderPct.toInt()}% concentrated - skipping", ts.mint)
+                    return
+                }
+            }
             
             // AI-DRIVEN SIZING: Pass confidence, phase, source, and brain to SmartSizer
             ErrorLogger.info("Executor", "📊 ${ts.symbol} SIZING: wallet=$walletSol | liq=${ts.lastLiquidityUsd} | mcap=${ts.lastFdv} | conf=$aiConfidence | entry=$entryScore")
@@ -819,6 +855,7 @@ class Executor(
             highestPrice = price,
             entryPhase   = ts.phase,
             entryScore   = score,
+            entryLiquidityUsd = ts.lastLiquidityUsd,  // Track liquidity for collapse detection
         )
         val trade = Trade("BUY", "paper", sol, price, System.currentTimeMillis(), score = score)
         ts.trades.add(trade)
@@ -893,6 +930,7 @@ class Executor(
                 highestPrice = price,
                 entryPhase   = ts.phase,
                 entryScore   = score,
+                entryLiquidityUsd = ts.lastLiquidityUsd,  // Track liquidity for collapse detection
             )
             val trade = Trade("BUY", "live", sol, price, System.currentTimeMillis(),
                               score = score, sig = sig)

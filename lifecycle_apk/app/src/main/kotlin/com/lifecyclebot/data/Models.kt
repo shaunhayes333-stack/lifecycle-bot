@@ -50,6 +50,7 @@ data class Position(
     var highestPrice: Double = 0.0,
     val entryPhase: String = "",
     val entryScore: Double = 0.0,
+    val entryLiquidityUsd: Double = 0.0,  // liquidity at entry for collapse detection
     // Top-up tracking
     val topUpCount: Int = 0,
     val topUpCostSol: Double = 0.0,
