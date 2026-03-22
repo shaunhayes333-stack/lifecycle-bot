@@ -1070,9 +1070,12 @@ class BotService : Service() {
         
         val tokensToRemove = mutableListOf<String>()
         val now = System.currentTimeMillis()
-        val staleThresholdMs = 60_000L            // 1 minute stale (was 1.5)
-        val idleThresholdMs = 60_000L             // 1 minute max idle time (was 2)
-        val maxWatchlistAge = 5 * 60_000L         // Remove any token after 5 mins if no trade
+        
+        // AGGRESSIVE CLEANUP THRESHOLDS - force turnover
+        val staleThresholdMs = 30_000L            // 30 seconds stale - was 1 minute
+        val idleThresholdMs = 45_000L             // 45 seconds max idle - was 1 minute  
+        val maxWatchlistAge = 3 * 60_000L         // Remove after 3 mins if no trade - was 5
+        val deadPhaseThresholdMs = 30_000L        // Remove DEAD phase tokens after 30 sec
         
         for (mint in currentWatchlist) {
             val ts = status.tokens[mint]
@@ -1106,7 +1109,23 @@ class BotService : Service() {
                 val age = now - lastUpdate
                 val timeInWatchlist = now - ts.addedToWatchlistAt
                 
-                // Remove if stale (no data for 1+ minute)
+                // AGGRESSIVE: Remove "idle" phase tokens quickly
+                if (ts.phase == "idle" && timeInWatchlist > idleThresholdMs) {
+                    tokensToRemove.add(mint)
+                    addLog("😴 IDLE PHASE: ${ts.symbol} - rotating out", mint)
+                    marketScanner?.markTokenRejected(mint)
+                    continue
+                }
+                
+                // AGGRESSIVE: Remove "dying", "dead", "rug_likely" phases immediately
+                if (ts.phase in listOf("dying", "dead", "rug_likely", "distribution")) {
+                    tokensToRemove.add(mint)
+                    addLog("💀 BAD PHASE: ${ts.symbol} (${ts.phase})", mint)
+                    marketScanner?.markTokenRejected(mint)
+                    continue
+                }
+                
+                // Remove if stale (no data for 30 seconds)
                 if (lastUpdate > 0 && age > staleThresholdMs) {
                     tokensToRemove.add(mint)
                     addLog("⏰ STALE: ${ts.symbol}", mint)
@@ -1114,27 +1133,26 @@ class BotService : Service() {
                     continue
                 }
                 
-                // Remove if dead (zero liquidity)
-                if (ts.lastLiquidityUsd < 1000) {
+                // Remove if dead (very low liquidity)
+                if (ts.lastLiquidityUsd < 500) {
                     tokensToRemove.add(mint)
-                    addLog("💀 DEAD: ${ts.symbol}", mint)
+                    addLog("💀 NO LIQ: ${ts.symbol}", mint)
                     marketScanner?.markTokenRejected(mint)
                     continue
                 }
                 
-                // AGGRESSIVE: Remove any token after 5 minutes if no trade executed
+                // Remove any token after 3 minutes if no trade executed
                 if (timeInWatchlist > maxWatchlistAge && ts.trades.isEmpty()) {
                     tokensToRemove.add(mint)
-                    addLog("⏳ TIMEOUT: ${ts.symbol} - 5min no trade", mint)
+                    addLog("⏳ TIMEOUT: ${ts.symbol} - 3min no trade", mint)
                     marketScanner?.markTokenRejected(mint)
                     continue
                 }
                 
-                // Remove if IDLE too long - 1+ minute without buy signal
-                val neverActioned = ts.signal != "BUY" && !ts.position.isOpen && ts.trades.isEmpty()
-                if (timeInWatchlist > idleThresholdMs && neverActioned) {
+                // Remove if WAIT signal for too long (1 minute)
+                if (ts.signal == "WAIT" && timeInWatchlist > 60_000L && ts.trades.isEmpty()) {
                     tokensToRemove.add(mint)
-                    addLog("😴 IDLE: ${ts.symbol} - removing", mint)
+                    addLog("⏳ WAIT TIMEOUT: ${ts.symbol}", mint)
                     marketScanner?.markTokenRejected(mint)
                     continue
                 }
