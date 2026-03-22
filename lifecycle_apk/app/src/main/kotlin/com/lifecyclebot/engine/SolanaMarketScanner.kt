@@ -814,6 +814,11 @@ class SolanaMarketScanner(
             return
         }
         try {
+            // Validate JSON array format
+            if (!body.trim().startsWith("[")) {
+                ErrorLogger.warn("Scanner", "scanDexTrending: invalid response format")
+                return
+            }
             val arr = JSONArray(body)
             ErrorLogger.info("Scanner", "scanDexTrending: got ${arr.length()} token profiles")
             var processed = 0
@@ -955,6 +960,11 @@ class SolanaMarketScanner(
         val url = "https://api.dexscreener.com/token-boosts/top/v1?chainIds=solana"
         val body = get(url) ?: return
         try {
+            // Validate JSON array format
+            if (!body.trim().startsWith("[")) {
+                ErrorLogger.warn("Scanner", "scanDexBoosted: invalid response format")
+                return
+            }
             val arr = JSONArray(body)
             for (i in 0 until minOf(arr.length(), 12)) {
                 val item = arr.optJSONObject(i) ?: continue
@@ -1673,21 +1683,25 @@ class SolanaMarketScanner(
         val builder = Request.Builder().url(url)
             // Use browser-like headers to avoid Cloudflare blocks
             .header("User-Agent", "Mozilla/5.0 (Linux; Android 14; Pixel 8) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36")
-            .header("Accept", "application/json, text/plain, */*")
+            .header("Accept", "application/json")
             .header("Accept-Language", "en-US,en;q=0.9")
-            .header("Accept-Encoding", "gzip, deflate")
             .header("Connection", "keep-alive")
-            .header("Cache-Control", "no-cache")
         if (apiKey.isNotBlank()) builder.header("X-API-KEY", apiKey)
         ErrorLogger.debug("Scanner", "HTTP GET: ${url.take(60)}...")
         val resp = http.newCall(builder.build()).execute()
         if (resp.isSuccessful) {
             val body = resp.body?.string()
-            ErrorLogger.debug("Scanner", "HTTP OK: ${body?.length ?: 0} bytes from ${url.take(40)}")
-            body
+            // Validate it looks like JSON before returning
+            if (body != null && (body.trim().startsWith("{") || body.trim().startsWith("["))) {
+                ErrorLogger.debug("Scanner", "HTTP OK: ${body.length} bytes from ${url.take(40)}")
+                body
+            } else {
+                ErrorLogger.warn("Scanner", "HTTP non-JSON response from ${url.take(50)}")
+                null
+            }
         } else {
             // Don't spam logs with 429/530 errors - just return null
-            if (resp.code != 429 && resp.code != 530) {
+            if (resp.code != 429 && resp.code != 530 && resp.code != 403) {
                 ErrorLogger.warn("Scanner", "HTTP FAIL: ${resp.code} from ${url.take(50)}")
             }
             null
