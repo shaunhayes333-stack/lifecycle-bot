@@ -235,9 +235,36 @@ class WalletManager private constructor(private val ctx: Context) {
     }
 
     // ── SOL price (free, no key) ──────────────────────────────────────
-    // Uses CoinGecko simple price endpoint — free, no auth, ~1 req/min ok
+    // Multiple fallback sources for reliability
 
     private fun fetchSolPrice(): Double {
+        // Try CoinGecko first (most reliable)
+        val coinGeckoPrice = tryCoinGecko()
+        if (coinGeckoPrice > 50.0) {  // Sanity check: SOL should be > $50
+            lastKnownSolPrice = coinGeckoPrice
+            return coinGeckoPrice
+        }
+        
+        // Try Binance as second source
+        val binancePrice = tryBinance()
+        if (binancePrice > 50.0) {
+            lastKnownSolPrice = binancePrice
+            return binancePrice
+        }
+        
+        // Try Jupiter price API as third source
+        val jupiterPrice = tryJupiter()
+        if (jupiterPrice > 50.0) {
+            lastKnownSolPrice = jupiterPrice
+            return jupiterPrice
+        }
+        
+        // Last resort: use cached price or hardcoded fallback
+        ErrorLogger.warn("Wallet", "All SOL price sources failed! Using fallback: $${lastKnownSolPrice.takeIf { it > 50 } ?: 140.0}")
+        return lastKnownSolPrice.takeIf { it > 50.0 } ?: 140.0
+    }
+    
+    private fun tryCoinGecko(): Double {
         return try {
             val http = okhttp3.OkHttpClient.Builder()
                 .connectTimeout(5, java.util.concurrent.TimeUnit.SECONDS)
@@ -248,54 +275,71 @@ class WalletManager private constructor(private val ctx: Context) {
                 .header("Accept", "application/json")
                 .build()
             val resp = http.newCall(req).execute()
-            val body = resp.body?.string()
-            if (body == null) {
-                ErrorLogger.warn("Wallet", "SOL price fetch: empty response, using fallback")
-                return getFallbackSolPrice()
-            }
+            val body = resp.body?.string() ?: return 0.0
             val json = org.json.JSONObject(body)
             val price = json.optJSONObject("solana")?.optDouble("usd", 0.0) ?: 0.0
-            if (price > 0) {
-                ErrorLogger.debug("Wallet", "SOL price: $${price}")
-                price
-            } else {
-                ErrorLogger.warn("Wallet", "SOL price is 0, using fallback")
-                getFallbackSolPrice()
+            if (price > 50.0) {
+                ErrorLogger.info("Wallet", "SOL price from CoinGecko: $${String.format("%.2f", price)}")
             }
+            price
         } catch (e: Exception) {
-            ErrorLogger.error("Wallet", "SOL price fetch error: ${e.message}")
-            getFallbackSolPrice()
+            ErrorLogger.debug("Wallet", "CoinGecko SOL price error: ${e.message}")
+            0.0
         }
     }
     
-    private fun getFallbackSolPrice(): Double {
-        // Try DexScreener as fallback
+    private fun tryBinance(): Double {
         return try {
             val http = okhttp3.OkHttpClient.Builder()
                 .connectTimeout(5, java.util.concurrent.TimeUnit.SECONDS)
                 .readTimeout(8,  java.util.concurrent.TimeUnit.SECONDS)
                 .build()
             val req = okhttp3.Request.Builder()
-                .url("https://api.dexscreener.com/latest/dex/tokens/So11111111111111111111111111111111111111112")
+                .url("https://api.binance.com/api/v3/ticker/price?symbol=SOLUSDT")
                 .header("Accept", "application/json")
                 .build()
             val resp = http.newCall(req).execute()
-            val body = resp.body?.string() ?: return lastKnownSolPrice.takeIf { it > 0 } ?: 140.0
+            val body = resp.body?.string() ?: return 0.0
             val json = org.json.JSONObject(body)
-            val pairs = json.optJSONArray("pairs")
-            if (pairs != null && pairs.length() > 0) {
-                val price = pairs.getJSONObject(0).optDouble("priceUsd", 0.0)
-                if (price > 0) {
-                    ErrorLogger.info("Wallet", "SOL price from DexScreener: $${price}")
-                    return price
-                }
+            val price = json.optString("price", "0").toDoubleOrNull() ?: 0.0
+            if (price > 50.0) {
+                ErrorLogger.info("Wallet", "SOL price from Binance: $${String.format("%.2f", price)}")
             }
-            lastKnownSolPrice.takeIf { it > 0 } ?: 140.0  // Last resort fallback
+            price
         } catch (e: Exception) {
-            ErrorLogger.error("Wallet", "Fallback SOL price error: ${e.message}")
-            lastKnownSolPrice.takeIf { it > 0 } ?: 140.0
+            ErrorLogger.debug("Wallet", "Binance SOL price error: ${e.message}")
+            0.0
         }
     }
+    
+    private fun tryJupiter(): Double {
+        return try {
+            val http = okhttp3.OkHttpClient.Builder()
+                .connectTimeout(5, java.util.concurrent.TimeUnit.SECONDS)
+                .readTimeout(8,  java.util.concurrent.TimeUnit.SECONDS)
+                .build()
+            // Jupiter price API - SOL mint
+            val req = okhttp3.Request.Builder()
+                .url("https://price.jup.ag/v6/price?ids=So11111111111111111111111111111111111111112")
+                .header("Accept", "application/json")
+                .build()
+            val resp = http.newCall(req).execute()
+            val body = resp.body?.string() ?: return 0.0
+            val json = org.json.JSONObject(body)
+            val data = json.optJSONObject("data")
+            val solData = data?.optJSONObject("So11111111111111111111111111111111111111112")
+            val price = solData?.optDouble("price", 0.0) ?: 0.0
+            if (price > 50.0) {
+                ErrorLogger.info("Wallet", "SOL price from Jupiter: $${String.format("%.2f", price)}")
+            }
+            price
+        } catch (e: Exception) {
+            ErrorLogger.debug("Wallet", "Jupiter SOL price error: ${e.message}")
+            0.0
+        }
+    }
+    
+    // Legacy fallback removed - now using multiple sources above
 
     // ── P&L calculation from trade history ───────────────────────────
 

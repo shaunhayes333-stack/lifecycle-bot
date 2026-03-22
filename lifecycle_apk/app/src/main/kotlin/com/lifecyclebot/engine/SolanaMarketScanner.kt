@@ -1160,9 +1160,9 @@ class SolanaMarketScanner(
     private fun passesFilterInternal(token: ScannedToken): Boolean {
         val c = cfg()
 
-        // HARD MINIMUM MCAP - never trade tokens under $8K mcap
-        // These are extremely high-risk micro caps
-        val HARD_MIN_MCAP = 8_000.0
+        // HARD MINIMUM MCAP - lowered to $5K for more aggressive trading
+        // Small caps are risky but can offer big returns
+        val HARD_MIN_MCAP = 5_000.0
         if (token.mcapUsd > 0 && token.mcapUsd < HARD_MIN_MCAP) {
             onLog("🚫 BLOCK: ${token.symbol} - mcap \$${(token.mcapUsd/1000).toInt()}K too low")
             ErrorLogger.info("Scanner", "FILTER REJECT ${token.symbol}: mcap $${token.mcapUsd.toInt()} < hard min $${HARD_MIN_MCAP.toInt()}")

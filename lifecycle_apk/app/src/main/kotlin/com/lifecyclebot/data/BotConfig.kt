@@ -116,7 +116,7 @@ data class BotConfig(
     val convictionMult2: Double = 1.50,        // entry score 65+   → 1.50x size
     // 5. Liquidity/volume gate (replaces crude time filter)
     val liquidityGateEnabled: Boolean = true,
-    val minLiquidityUsd: Double = 3000.0,      // skip if liquidity < $3K (lowered from $8K)
+    val minLiquidityUsd: Double = 1500.0,      // skip if liquidity < $1.5K (lowered from $3K for more trades)
     val minVolLiqRatio: Double = 0.20,         // skip if vol/liquidity < 0.2 (lowered from 0.3)
     // 6. Sentiment opt-in (only active when keys configured)
     val sentimentRequiresKeys: Boolean = false, // FIX 7: local sentiment always on; LLM needs keys
