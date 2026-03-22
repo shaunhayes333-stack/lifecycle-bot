@@ -802,21 +802,19 @@ class BotService : Service() {
                                 addLog("🎛️ ${PatternAutoTuner.getStatus()}")
                                 
                                 // CLOUD SYNC: Upload learnings to community database
-                                scope.launch {
-                                    try {
-                                        val weights = AdaptiveLearningEngine.getDetailedWeights()
-                                        val uploaded = CloudLearningSync.uploadLearnings(
-                                            tradeCount = report.totalTrades,
-                                            winRate = report.overallWinRate,
-                                            featureWeights = weights,
-                                            patternStats = report.patterns,
-                                        )
-                                        if (uploaded) {
-                                            addLog("☁️ Shared learnings with community!")
-                                        }
-                                    } catch (e: Exception) {
-                                        ErrorLogger.debug("CloudSync", "Upload error: ${e.message}")
+                                try {
+                                    val weights = AdaptiveLearningEngine.getDetailedWeights()
+                                    val uploaded = CloudLearningSync.uploadLearnings(
+                                        tradeCount = report.totalTrades,
+                                        winRate = report.overallWinRate,
+                                        featureWeights = weights,
+                                        patternStats = report.patterns,
+                                    )
+                                    if (uploaded) {
+                                        addLog("☁️ Shared learnings with community!")
                                     }
+                                } catch (e: Exception) {
+                                    ErrorLogger.debug("CloudSync", "Upload error: ${e.message}")
                                 }
                             }
                         }

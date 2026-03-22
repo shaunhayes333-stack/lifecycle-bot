@@ -318,7 +318,7 @@ object PatternBacktester {
         }
 
         sb.appendLine("═══════════════════════════════════════════════════════════")
-        sb.appendLine("Generated: ${java.text.SimpleDateFormat("yyyy-MM-dd HH:mm").format(report.generatedAt)}")
+        sb.appendLine("Generated: ${report.generatedAt}")
 
         return sb.toString()
     }
