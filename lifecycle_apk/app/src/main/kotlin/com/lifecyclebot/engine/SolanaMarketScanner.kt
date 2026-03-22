@@ -1459,8 +1459,11 @@ class SolanaMarketScanner(
     /**
      * Quick rugcheck - returns immediately if API is slow
      * V8+ SKEPTICAL: Don't blindly trust high scores - check for red flags
+     * PAPER MODE: More lenient - we want to trade and learn
      */
     private fun quickRugcheck(mint: String): Boolean {
+        val isPaperMode = cfg().paperMode
+        
         try {
             val url = "https://api.rugcheck.xyz/v1/tokens/$mint/report/summary"
             val request = Request.Builder()
@@ -1478,20 +1481,23 @@ class SolanaMarketScanner(
             val scoreNormalized = json.optInt("score_normalised", 50)
             val rugged = json.optString("rugged", "").lowercase()
             
-            // HARD BLOCK: Already rugged
+            // HARD BLOCK: Already rugged (even in paper mode - no point trading a dead token)
             if (rugged == "true" || rugged == "yes") {
                 onLog("🚫 RUG: ${mint.take(8)}... ALREADY RUGGED")
                 return false
             }
             
-            // HARD BLOCK: Score < 20 (very dangerous only)
-            if (scoreNormalized < 20) {
-                onLog("🚫 RUG: ${mint.take(8)}... score=$scoreNormalized (<20)")
+            // PAPER MODE: Very lenient - only block if score < 5 (nearly guaranteed rug)
+            // REAL MODE: Block if score < 20
+            val blockThreshold = if (isPaperMode) 5 else 20
+            if (scoreNormalized < blockThreshold) {
+                onLog("🚫 BLOCKED: ${mint.take(8)}... score=$scoreNormalized (<$blockThreshold)")
                 return false
             }
             
-            // SOFT CONCERN: Score 20-40 - log warning but pass
-            if (scoreNormalized in 20..39) {
+            // SOFT CONCERN: Score 5-30 in paper, 20-40 in real - log warning but pass
+            val warningThreshold = if (isPaperMode) 30 else 40
+            if (scoreNormalized < warningThreshold) {
                 onLog("⚠️ RC WARNING: ${mint.take(8)}... score=$scoreNormalized (risky)")
             }
             

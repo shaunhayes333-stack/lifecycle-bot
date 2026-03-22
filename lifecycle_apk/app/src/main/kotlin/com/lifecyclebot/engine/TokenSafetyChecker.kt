@@ -200,9 +200,21 @@ class TokenSafetyChecker(private val cfg: () -> BotConfig) {
 
             // V8+ SKEPTICAL scoring - don't blindly trust rugcheck scores
             // But also don't block aggressively - new tokens often have lower scores
+            // PAPER MODE: Much more lenient - only block truly dangerous tokens
+            val isPaperMode = cfg().paperMode
             when {
-                rcScore in 0..39 -> {
-                    hard.add("Rugcheck score $rcScore/100 (DANGEROUS)")
+                rcScore in 0..9 -> {
+                    // Very dangerous - block even in paper mode
+                    hard.add("Rugcheck score $rcScore/100 (EXTREMELY DANGEROUS)")
+                }
+                rcScore in 10..39 -> {
+                    // Dangerous - hard block in real mode, soft penalty in paper mode
+                    if (isPaperMode) {
+                        soft.add("Rugcheck score risky ($rcScore/100)" to 25)
+                        penalty += 25
+                    } else {
+                        hard.add("Rugcheck score $rcScore/100 (DANGEROUS)")
+                    }
                 }
                 rcScore in 40..54 -> {
                     // Soft penalty instead of hard block - let other factors decide
@@ -229,16 +241,30 @@ class TokenSafetyChecker(private val cfg: () -> BotConfig) {
             if (freezeDisabled == null) freezeDisabled = rpcResult.second
         }
 
-        // ── 2. Mint authority hard block ──────────────────────────────
+        // ── 2. Mint authority — hard block in REAL mode, soft penalty in PAPER ──
         when (mintDisabled) {
-            false -> hard.add("Mint authority is ACTIVE — devs can print new tokens")
+            false -> {
+                if (isPaperMode) {
+                    soft.add("Mint authority ACTIVE (risky)" to 30)
+                    penalty += 30
+                } else {
+                    hard.add("Mint authority is ACTIVE — devs can print new tokens")
+                }
+            }
             null  -> { soft.add("Mint authority status unknown" to 5); penalty += 5 }
             true  -> { /* safe */ }
         }
 
-        // ── 3. Freeze authority hard block ────────────────────────────
+        // ── 3. Freeze authority — hard block in REAL mode, soft penalty in PAPER ──
         when (freezeDisabled) {
-            false -> hard.add("Freeze authority is ACTIVE — devs can freeze your tokens")
+            false -> {
+                if (isPaperMode) {
+                    soft.add("Freeze authority ACTIVE (risky)" to 30)
+                    penalty += 30
+                } else {
+                    hard.add("Freeze authority is ACTIVE — devs can freeze your tokens")
+                }
+            }
             null  -> { soft.add("Freeze authority status unknown" to 5); penalty += 5 }
             true  -> { /* safe */ }
         }
