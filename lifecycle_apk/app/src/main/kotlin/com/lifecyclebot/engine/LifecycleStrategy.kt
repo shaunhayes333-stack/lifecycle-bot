@@ -1387,7 +1387,8 @@ class LifecycleStrategy(
             )
         }
 
-        if (inCooldown) {
+        if (inCooldown && !cfg().paperMode) {
+            // Skip cooldown check in paper mode - we want to trade more to learn
             if (!smartReentry(ts, phase, hist, whale, curve)) return "WAIT"
         }
 
@@ -1459,7 +1460,18 @@ class LifecycleStrategy(
         }
         if (phase in phaseBlockList) return "WAIT"
 
-        // v4: block on volume divergence ONLY if severe
+        // ══════════════════════════════════════════════════════════════
+        // PAPER MODE FAST PATH: Skip complex logic, just trade to learn
+        // ══════════════════════════════════════════════════════════════
+        if (isPaperMode) {
+            // In paper mode, if we got this far and have ANY positive score, BUY
+            if (adjustedEntryScore > 0 && ts.lastLiquidityUsd >= 300) {
+                ErrorLogger.info("Strategy", "${ts.symbol}: PAPER BUY | score=${adjustedEntryScore.toInt()} liq=$${ts.lastLiquidityUsd.toInt()}")
+                return "BUY"
+            }
+        }
+
+        // v4: block on volume divergence ONLY if severe (REAL MODE ONLY)
         if (volDiv && adjustedEntryScore < 40) return "WAIT"
 
         // Pullback entry — lower thresholds when buying a confirmed dip
