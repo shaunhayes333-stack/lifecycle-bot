@@ -733,6 +733,12 @@ object AdaptiveLearningEngine {
     // STATUS & UTILITIES
     // ═══════════════════════════════════════════════════════════════════
     
+    /**
+     * Get the number of trades the engine has learned from.
+     * Used to determine when to start applying adaptive scoring.
+     */
+    fun getTradeCount(): Int = tradeCount
+    
     fun getStatus(): String {
         return "AdaptiveLearning: $tradeCount trades | " +
             "Weights: buy=${featureWeights.buyRatioWeight.fmt()} " +

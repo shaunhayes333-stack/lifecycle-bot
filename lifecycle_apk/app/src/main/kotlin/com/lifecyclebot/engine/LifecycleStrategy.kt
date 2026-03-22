@@ -408,31 +408,44 @@ class LifecycleStrategy(
             // V5: ADAPTIVE LEARNING ENGINE - Feature-weighted scoring
             // ═══════════════════════════════════════════════════════════════════
             // This is the "AI" part - uses learned weights from past trades
-            val tokenAgeMins = (System.currentTimeMillis() - ts.addedToWatchlistAt) / 60_000.0
-            val adaptiveScore = AdaptiveLearningEngine.calculateAdaptiveScore(
-                mcapUsd = ts.lastMcap,
-                tokenAgeMinutes = tokenAgeMins,
-                buyRatioPct = pressScore,
-                volumeUsd = ts.lastLiquidityUsd * volScore / 50.0,
-                liquidityUsd = ts.lastLiquidityUsd,
-                holderCount = ts.history.lastOrNull()?.holderCount ?: 0,
-                topHolderPct = ts.safety.topHolderPct,
-                holderGrowthRate = ts.holderGrowthRate,
-                devWalletPct = 0.0,  // Not tracked in SafetyReport
-                bondingCurveProgress = 100.0,  // Default to graduated
-                rugcheckScore = ts.safety.rugcheckScore.toDouble(),
-                emaFanState = emafan.alignment.name,
-                baseEntryScore = entryScore,
-            )
+            // IMPORTANT: Only apply after we have enough trades to learn from
+            // Otherwise the untrained weights can block good trades
+            val tradeCount = AdaptiveLearningEngine.getTradeCount()
             
-            // Blend adaptive score with current score (60/40 split)
-            val blendedScore = (entryScore * 0.4 + adaptiveScore.score * 0.6)
-            if (kotlin.math.abs(blendedScore - entryScore) >= 5) {
-                ErrorLogger.debug("AdaptiveLearning", "🧬 ${ts.symbol}: " +
-                    "adaptive=${adaptiveScore.score.toInt()} (${adaptiveScore.recommendation}) " +
-                    "blend=${blendedScore.toInt()} | ${adaptiveScore.explanation}")
+            if (tradeCount >= 15) {  // Need at least 15 trades before adaptive scoring kicks in
+                val tokenAgeMins = (System.currentTimeMillis() - ts.addedToWatchlistAt) / 60_000.0
+                val adaptiveScore = AdaptiveLearningEngine.calculateAdaptiveScore(
+                    mcapUsd = ts.lastMcap,
+                    tokenAgeMinutes = tokenAgeMins,
+                    buyRatioPct = pressScore,
+                    volumeUsd = ts.lastLiquidityUsd * volScore / 50.0,
+                    liquidityUsd = ts.lastLiquidityUsd,
+                    holderCount = ts.history.lastOrNull()?.holderCount ?: 0,
+                    topHolderPct = ts.safety.topHolderPct,
+                    holderGrowthRate = ts.holderGrowthRate,
+                    devWalletPct = 0.0,  // Not tracked in SafetyReport
+                    bondingCurveProgress = 100.0,  // Default to graduated
+                    rugcheckScore = ts.safety.rugcheckScore.toDouble(),
+                    emaFanState = emafan.alignment.name,
+                    baseEntryScore = entryScore,
+                )
+                
+                // Conservative blend: 80% base + 20% adaptive (was 40/60)
+                // This lets adaptive influence without dominating
+                val blendRatio = when {
+                    tradeCount >= 50 -> 0.35  // More confidence after 50 trades
+                    tradeCount >= 30 -> 0.25  // Medium confidence
+                    else -> 0.15              // Low confidence, mostly base score
+                }
+                val blendedScore = (entryScore * (1 - blendRatio) + adaptiveScore.score * blendRatio)
+                
+                if (kotlin.math.abs(blendedScore - entryScore) >= 3) {
+                    ErrorLogger.debug("AdaptiveLearning", "🧬 ${ts.symbol}: " +
+                        "adaptive=${adaptiveScore.score.toInt()} (${adaptiveScore.recommendation}) " +
+                        "blend=${blendedScore.toInt()} (${(blendRatio*100).toInt()}% weight) | ${adaptiveScore.explanation}")
+                }
+                entryScore = blendedScore.coerceIn(0.0, 100.0)
             }
-            entryScore = blendedScore.coerceIn(0.0, 100.0)
             // ═══════════════════════════════════════════════════════════════════
         }
         // ═══════════════════════════════════════════════════════════════════
