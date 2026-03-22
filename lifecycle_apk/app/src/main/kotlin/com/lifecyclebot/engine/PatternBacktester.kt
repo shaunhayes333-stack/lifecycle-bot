@@ -358,51 +358,50 @@ fun TradeDatabase.getAllTrades(): List<TradeRecord> {
         "SELECT * FROM trades ORDER BY ts_exit DESC LIMIT 1000", null
     )
 
-    cursor.use {
-        while (it.moveToNext()) {
+    cursor.use { c ->
+        while (c.moveToNext()) {
             try {
-                val getColIdx: (String) -> Int = { name ->
-                    it.getColumnIndex(name).takeIf { idx -> idx >= 0 } ?: -1
-                }
+                fun getCol(name: String): Int = c.getColumnIndex(name).coerceAtLeast(0)
+                fun getColOrNeg(name: String): Int = c.getColumnIndex(name)
                 
                 trades.add(TradeRecord(
-                    id = it.getLong(getColIdx("id").coerceAtLeast(0)),
-                    tsEntry = it.getLong(getColIdx("ts_entry").coerceAtLeast(0)),
-                    tsExit = it.getLong(getColIdx("ts_exit").coerceAtLeast(0)),
-                    symbol = it.getString(getColIdx("symbol").coerceAtLeast(0)) ?: "",
-                    mint = it.getString(getColIdx("mint").coerceAtLeast(0)) ?: "",
-                    mode = it.getString(getColIdx("mode").coerceAtLeast(0)) ?: "",
-                    dex = it.getString(getColIdx("dex").coerceAtLeast(0)) ?: "",
-                    entryPrice = if (getColIdx("entry_price") >= 0) it.getDouble(getColIdx("entry_price")) else 0.0,
-                    entryScore = if (getColIdx("entry_score") >= 0) it.getDouble(getColIdx("entry_score")) else 0.0,
-                    entryPhase = it.getString(getColIdx("entry_phase").coerceAtLeast(0)) ?: "",
-                    emaFan = it.getString(getColIdx("ema_fan").coerceAtLeast(0)) ?: "",
-                    volScore = if (getColIdx("vol_score") >= 0) it.getDouble(getColIdx("vol_score")) else 0.0,
-                    pressScore = if (getColIdx("press_score") >= 0) it.getDouble(getColIdx("press_score")) else 0.0,
-                    momScore = if (getColIdx("mom_score") >= 0) it.getDouble(getColIdx("mom_score")) else 0.0,
-                    stochSignal = if (getColIdx("stoch_signal") >= 0) it.getInt(getColIdx("stoch_signal")) else 0,
-                    volDiv = if (getColIdx("vol_div") >= 0) it.getInt(getColIdx("vol_div")) == 1 else false,
-                    mtf5m = it.getString(getColIdx("mtf_5m").coerceAtLeast(0)) ?: "NEUTRAL",
-                    tokenAgeHours = if (getColIdx("token_age_hours") >= 0) it.getDouble(getColIdx("token_age_hours")) else 0.0,
-                    holderCount = if (getColIdx("holder_count") >= 0) it.getInt(getColIdx("holder_count")) else 0,
-                    holderGrowth = if (getColIdx("holder_growth") >= 0) it.getDouble(getColIdx("holder_growth")) else 0.0,
-                    liquidityUsd = if (getColIdx("liquidity_usd") >= 0) it.getDouble(getColIdx("liquidity_usd")) else 0.0,
-                    mcapUsd = if (getColIdx("mcap_usd") >= 0) it.getDouble(getColIdx("mcap_usd")) else 0.0,
-                    pullbackEntry = if (getColIdx("pullback_entry") >= 0) it.getInt(getColIdx("pullback_entry")) == 1 else false,
-                    exitPrice = if (getColIdx("exit_price") >= 0) it.getDouble(getColIdx("exit_price")) else 0.0,
-                    exitScore = if (getColIdx("exit_score") >= 0) it.getDouble(getColIdx("exit_score")) else 0.0,
-                    exitPhase = it.getString(getColIdx("exit_phase").coerceAtLeast(0)) ?: "",
-                    exitReason = it.getString(getColIdx("exit_reason").coerceAtLeast(0)) ?: "",
-                    heldMins = if (getColIdx("held_mins") >= 0) it.getDouble(getColIdx("held_mins")) else 0.0,
-                    topUpCount = if (getColIdx("top_up_count") >= 0) it.getInt(getColIdx("top_up_count")) else 0,
-                    partialSold = if (getColIdx("partial_sold") >= 0) it.getDouble(getColIdx("partial_sold")) else 0.0,
-                    solIn = if (getColIdx("sol_in") >= 0) it.getDouble(getColIdx("sol_in")) else 0.0,
-                    solOut = if (getColIdx("sol_out") >= 0) it.getDouble(getColIdx("sol_out")) else 0.0,
-                    pnlSol = if (getColIdx("pnl_sol") >= 0) it.getDouble(getColIdx("pnl_sol")) else 0.0,
-                    pnlPct = if (getColIdx("pnl_pct") >= 0) it.getDouble(getColIdx("pnl_pct")) else 0.0,
-                    isWin = if (getColIdx("is_win") >= 0) it.getInt(getColIdx("is_win")) == 1 else false,
-                    source = it.getString(getColIdx("source").coerceAtLeast(0)) ?: "",
-                    extraJson = it.getString(getColIdx("extra_json").coerceAtLeast(0)) ?: "",
+                    id = c.getLong(getCol("id")),
+                    tsEntry = c.getLong(getCol("ts_entry")),
+                    tsExit = c.getLong(getCol("ts_exit")),
+                    symbol = c.getString(getCol("symbol")) ?: "",
+                    mint = c.getString(getCol("mint")) ?: "",
+                    mode = c.getString(getCol("mode")) ?: "",
+                    dex = c.getString(getCol("dex")) ?: "",
+                    entryPrice = if (getColOrNeg("entry_price") >= 0) c.getDouble(getCol("entry_price")) else 0.0,
+                    entryScore = if (getColOrNeg("entry_score") >= 0) c.getDouble(getCol("entry_score")) else 0.0,
+                    entryPhase = c.getString(getCol("entry_phase")) ?: "",
+                    emaFan = c.getString(getCol("ema_fan")) ?: "",
+                    volScore = if (getColOrNeg("vol_score") >= 0) c.getDouble(getCol("vol_score")) else 0.0,
+                    pressScore = if (getColOrNeg("press_score") >= 0) c.getDouble(getCol("press_score")) else 0.0,
+                    momScore = if (getColOrNeg("mom_score") >= 0) c.getDouble(getCol("mom_score")) else 0.0,
+                    stochSignal = if (getColOrNeg("stoch_signal") >= 0) c.getInt(getCol("stoch_signal")) else 0,
+                    volDiv = if (getColOrNeg("vol_div") >= 0) c.getInt(getCol("vol_div")) == 1 else false,
+                    mtf5m = c.getString(getCol("mtf_5m")) ?: "NEUTRAL",
+                    tokenAgeHours = if (getColOrNeg("token_age_hours") >= 0) c.getDouble(getCol("token_age_hours")) else 0.0,
+                    holderCount = if (getColOrNeg("holder_count") >= 0) c.getInt(getCol("holder_count")) else 0,
+                    holderGrowth = if (getColOrNeg("holder_growth") >= 0) c.getDouble(getCol("holder_growth")) else 0.0,
+                    liquidityUsd = if (getColOrNeg("liquidity_usd") >= 0) c.getDouble(getCol("liquidity_usd")) else 0.0,
+                    mcapUsd = if (getColOrNeg("mcap_usd") >= 0) c.getDouble(getCol("mcap_usd")) else 0.0,
+                    pullbackEntry = if (getColOrNeg("pullback_entry") >= 0) c.getInt(getCol("pullback_entry")) == 1 else false,
+                    exitPrice = if (getColOrNeg("exit_price") >= 0) c.getDouble(getCol("exit_price")) else 0.0,
+                    exitScore = if (getColOrNeg("exit_score") >= 0) c.getDouble(getCol("exit_score")) else 0.0,
+                    exitPhase = c.getString(getCol("exit_phase")) ?: "",
+                    exitReason = c.getString(getCol("exit_reason")) ?: "",
+                    heldMins = if (getColOrNeg("held_mins") >= 0) c.getDouble(getCol("held_mins")) else 0.0,
+                    topUpCount = if (getColOrNeg("top_up_count") >= 0) c.getInt(getCol("top_up_count")) else 0,
+                    partialSold = if (getColOrNeg("partial_sold") >= 0) c.getDouble(getCol("partial_sold")) else 0.0,
+                    solIn = if (getColOrNeg("sol_in") >= 0) c.getDouble(getCol("sol_in")) else 0.0,
+                    solOut = if (getColOrNeg("sol_out") >= 0) c.getDouble(getCol("sol_out")) else 0.0,
+                    pnlSol = if (getColOrNeg("pnl_sol") >= 0) c.getDouble(getCol("pnl_sol")) else 0.0,
+                    pnlPct = if (getColOrNeg("pnl_pct") >= 0) c.getDouble(getCol("pnl_pct")) else 0.0,
+                    isWin = if (getColOrNeg("is_win") >= 0) c.getInt(getCol("is_win")) == 1 else false,
+                    source = c.getString(getCol("source")) ?: "",
+                    extraJson = c.getString(getCol("extra_json")) ?: "",
                 ))
             } catch (e: Exception) {
                 // Skip malformed records
