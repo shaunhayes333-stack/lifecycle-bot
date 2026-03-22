@@ -544,17 +544,7 @@ class BotService : Service() {
         CloudLearningSync.init(applicationContext)
         addLog("☁️ ${CloudLearningSync.getStatus()}")
         
-        // Download community weights on startup (async)
-        scope.launch {
-            try {
-                val communityWeights = CloudLearningSync.downloadCommunityWeights()
-                if (communityWeights != null) {
-                    addLog("☁️ ${CloudLearningSync.getCommunityStats()}")
-                }
-            } catch (e: Exception) {
-                ErrorLogger.debug("CloudSync", "Startup download failed: ${e.message}")
-            }
-        }
+        // Note: Community weights download happens in main loop after first iteration
         
         // Initialize KillSwitch for account protection
         val effectiveBalance = status.getEffectiveBalance(cfg.paperMode)
