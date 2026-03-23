@@ -1569,9 +1569,36 @@ class Executor(
         if (pnl > 0) sounds?.playMilestone(pnlP)
         SmartSizer.recordTrade(pnl > 0)
 
-        // Record bad behaviour observations for every losing trade
-        // This feeds the bad_behaviour table in TradeDatabase for pattern analysis
-        if (pnl <= 0) {
+        // ═══════════════════════════════════════════════════════════════════
+        // TRADE OUTCOME CLASSIFICATION
+        // Properly categorize trades to avoid learning from non-events:
+        // 1. SCRATCH (-2% to +2%): Not meaningful - ignore for learning
+        // 2. SMALL_LOSS (-2% to -10%): Weak loss - mild negative signal
+        // 3. MEANINGFUL_LOSS (<-10%): Real loss - strong negative signal
+        // 4. SMALL_WIN (+2% to +10%): Weak win - mild positive signal
+        // 5. MEANINGFUL_WIN (>+10%): Real win - strong positive signal
+        // ═══════════════════════════════════════════════════════════════════
+        
+        val holdTimeMins = (System.currentTimeMillis() - pos.entryTime) / 60_000.0
+        val tradeClassification = when {
+            pnlP in -2.0..2.0 -> "SCRATCH"           // Near breakeven - not meaningful
+            pnlP in -10.0..-2.0 -> "SMALL_LOSS"      // Weak loss
+            pnlP < -10.0 -> "MEANINGFUL_LOSS"        // Real loss
+            pnlP in 2.0..10.0 -> "SMALL_WIN"         // Weak win
+            pnlP > 10.0 -> "MEANINGFUL_WIN"          // Real win
+            else -> "SCRATCH"
+        }
+        
+        // Only learn from MEANINGFUL outcomes, not scratches
+        val shouldLearnAsLoss = tradeClassification in listOf("MEANINGFUL_LOSS", "SMALL_LOSS")
+        val shouldLearnAsWin = tradeClassification in listOf("MEANINGFUL_WIN", "SMALL_WIN")
+        
+        ErrorLogger.info("Executor", "📊 ${ts.symbol} CLASSIFIED: $tradeClassification | " +
+            "pnl=${pnlP.toInt()}% | hold=${holdTimeMins.toInt()}min | " +
+            "learnLoss=$shouldLearnAsLoss learnWin=$shouldLearnAsWin")
+        
+        // Record bad behaviour observations ONLY for meaningful losses
+        if (shouldLearnAsLoss) {
             val fanName = ts.meta.emafanAlignment
             val ph      = ts.position.entryPhase
             val src     = ts.source.ifBlank { "UNKNOWN" }
@@ -1651,8 +1678,8 @@ class Executor(
                 volumeToLiqRatio = if (ts.lastLiquidityUsd > 0) ts.history.lastOrNull()?.vol?.div(ts.lastLiquidityUsd) ?: 0.0 else 0.0,
             )
             onLog("🤖 AI LEARNED: Loss on ${ts.symbol} | phase=$ph ema=$fanName | Pattern recorded", ts.mint)
-        } else {
-            // Win — let the brain know this pattern is recovering
+        } else if (shouldLearnAsWin) {
+            // Meaningful win — let the brain know this pattern is working
             val fanName = ts.meta.emafanAlignment
             val ph      = ts.position.entryPhase
             val src     = ts.source.ifBlank { "UNKNOWN" }
@@ -1665,7 +1692,6 @@ class Executor(
             }
             
             // Learn from winning trade in TradingMemory
-            val holdTimeMinutes = (System.currentTimeMillis() - ts.position.entryTime) / 60_000.0
             TradingMemory.learnFromWinningTrade(
                 mint = ts.mint,
                 symbol = ts.symbol,
@@ -1673,9 +1699,12 @@ class Executor(
                 phase = ph,
                 emaFan = fanName,
                 source = src,
-                holdTimeMinutes = holdTimeMinutes,
+                holdTimeMinutes = holdTimeMins,
             )
             onLog("🤖 AI LEARNED: Win on ${ts.symbol} +${pnlP.toInt()}% | Pattern reinforced", ts.mint)
+        } else {
+            // SCRATCH trade - near breakeven, not meaningful for learning
+            onLog("📊 ${ts.symbol}: Scratch trade (${pnlP.toInt()}%) - skipped for learning", ts.mint)
         }
 
         tradeDb?.insertTrade(TradeRecord(

@@ -139,6 +139,13 @@ object TradingMemory {
         priceVolatility: Double = 0.0,
         volumeToLiqRatio: Double = 0.0,
     ) {
+        // SAFETY: Only learn from MEANINGFUL losses (> 2% loss)
+        // Scratch trades (-2% to +2%) are noise, not signal
+        if (lossPct > -2.0) {
+            ErrorLogger.debug("TradingMemory", "Skipped scratch trade: $symbol loss=${lossPct.toInt()}%")
+            return
+        }
+        
         val now = System.currentTimeMillis()
         
         // 1. Record bad token features
