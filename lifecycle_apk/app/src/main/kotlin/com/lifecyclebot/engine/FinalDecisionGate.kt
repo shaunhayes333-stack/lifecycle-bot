@@ -1,0 +1,380 @@
+package com.lifecyclebot.engine
+
+import com.lifecyclebot.data.BotConfig
+import com.lifecyclebot.data.CandidateDecision
+import com.lifecyclebot.data.TokenState
+
+/**
+ * FinalDecisionGate (FDG)
+ * ═══════════════════════════════════════════════════════════════════════════════
+ * 
+ * The SINGLE AUTHORITATIVE CHECKPOINT that ALL trades must pass before execution.
+ * 
+ * Flow:
+ *   Scanner → Strategy → Edge → Safety → Learning → SmartSizer → ✅ FDG → Executor
+ * 
+ * HARD HIERARCHY (non-negotiable, order matters):
+ *   1. HARD BLOCKS (rugcheck, extreme sell pressure, zero liq) → instant ❌
+ *   2. EDGE veto (quality = SKIP) → ❌
+ *   3. CONFIDENCE threshold → ❌ if below minimum
+ *   4. MODE rules (paper vs live strictness)
+ *   5. SIZING validation
+ * 
+ * ABSOLUTE RULE:
+ *   if (blockReason != null) → shouldTrade = false
+ *   NO EXCEPTIONS. Not even in paper mode. Not even for "learning".
+ * 
+ * If you want to learn from blocked trades:
+ *   - Log them
+ *   - Simulate them
+ *   - DO NOT execute them
+ */
+object FinalDecisionGate {
+    
+    // ═══════════════════════════════════════════════════════════════════════════
+    // FINAL DECISION - The canonical output all modules feed into
+    // ═══════════════════════════════════════════════════════════════════════════
+    
+    data class FinalDecision(
+        val shouldTrade: Boolean,
+        val mode: TradeMode,
+        val quality: String,           // "A+", "A", "B", "C"
+        val confidence: Double,        // 0-100%
+        val edge: EdgeVerdict,
+        val blockReason: String?,      // null = no block, string = blocked
+        val blockLevel: BlockLevel?,   // How severe the block is
+        val sizeSol: Double,
+        val tags: List<String>,        // ["distribution", "early", "pump_fun", etc]
+        val mint: String,
+        val symbol: String,
+        
+        // Audit trail
+        val gateChecks: List<GateCheck>,  // What checks were run
+    ) {
+        /**
+         * ABSOLUTE RULE: Cannot trade if blocked.
+         * This is redundant with shouldTrade but makes intent crystal clear.
+         */
+        fun canExecute(): Boolean = shouldTrade && blockReason == null
+        
+        fun summary(): String = buildString {
+            append(if (shouldTrade) "✅" else "❌")
+            append(" $symbol | $quality | ${confidence.toInt()}% | ${edge.name}")
+            if (blockReason != null) append(" | BLOCKED: $blockReason")
+            if (shouldTrade) append(" | ${sizeSol.format(3)} SOL")
+        }
+    }
+    
+    enum class TradeMode {
+        PAPER,      // Paper trading - executes FDG-approved trades
+        LIVE,       // Live trading - strictest rules
+    }
+    
+    enum class EdgeVerdict {
+        STRONG,     // High quality setup
+        WEAK,       // Acceptable but not great
+        SKIP,       // Do not trade
+    }
+    
+    enum class BlockLevel {
+        HARD,       // Absolute block - rugcheck, zero liq, etc. NEVER bypass.
+        EDGE,       // Edge optimizer says skip
+        CONFIDENCE, // Below confidence threshold
+        MODE,       // Mode-specific restriction
+        SIZE,       // Position sizing issue
+    }
+    
+    data class GateCheck(
+        val name: String,
+        val passed: Boolean,
+        val reason: String?,
+    )
+    
+    // ═══════════════════════════════════════════════════════════════════════════
+    // THRESHOLDS - Can be learned/adjusted by BotBrain
+    // ═══════════════════════════════════════════════════════════════════════════
+    
+    // Hard block thresholds (non-negotiable)
+    var hardBlockRugcheckMin = 10          // Block if rugcheck score <= this
+    var hardBlockBuyPressureMin = 15.0     // Block if buy pressure < this %
+    var hardBlockTopHolderMax = 70.0       // Block if top holder > this %
+    
+    // Confidence thresholds by mode
+    var paperConfidenceMin = 25.0          // Paper can take lower confidence
+    var liveConfidenceMin = 40.0           // Live needs higher confidence
+    
+    // Edge can be overridden only in specific conditions
+    var allowEdgeOverrideInPaper = false   // Should paper mode allow edge override?
+    
+    // ═══════════════════════════════════════════════════════════════════════════
+    // MAIN GATE FUNCTION
+    // ═══════════════════════════════════════════════════════════════════════════
+    
+    /**
+     * Evaluate a trade candidate through the Final Decision Gate.
+     * 
+     * @param ts TokenState with all market data
+     * @param candidate CandidateDecision from strategy evaluation
+     * @param config Current bot configuration
+     * @param proposedSizeSol Size from SmartSizer
+     * @param brain Optional BotBrain for learned thresholds
+     * 
+     * @return FinalDecision - the ONLY object Executor should look at
+     */
+    fun evaluate(
+        ts: TokenState,
+        candidate: CandidateDecision,
+        config: BotConfig,
+        proposedSizeSol: Double,
+        brain: BotBrain? = null,
+    ): FinalDecision {
+        val checks = mutableListOf<GateCheck>()
+        var blockReason: String? = null
+        var blockLevel: BlockLevel? = null
+        val tags = mutableListOf<String>()
+        
+        val mode = if (config.paperMode) TradeMode.PAPER else TradeMode.LIVE
+        
+        // Use learned thresholds if available
+        val rugcheckThreshold = brain?.learnedRugcheckThreshold ?: hardBlockRugcheckMin
+        val buyPressureThreshold = brain?.learnedMinBuyPressure ?: hardBlockBuyPressureMin
+        val topHolderThreshold = brain?.learnedMaxTopHolder ?: hardBlockTopHolderMax
+        
+        // ─────────────────────────────────────────────────────────────────────
+        // GATE 1: HARD BLOCKS (non-negotiable, checked first)
+        // ─────────────────────────────────────────────────────────────────────
+        
+        // 1a. Zero liquidity - impossible to trade
+        if (ts.lastLiquidityUsd <= 0) {
+            blockReason = "HARD_BLOCK_ZERO_LIQUIDITY"
+            blockLevel = BlockLevel.HARD
+            checks.add(GateCheck("liquidity", false, "liq=${ts.lastLiquidityUsd}"))
+        } else {
+            checks.add(GateCheck("liquidity", true, null))
+        }
+        
+        // 1b. Rugcheck score critically low
+        if (blockReason == null && ts.safety.rugcheckScore <= rugcheckThreshold) {
+            blockReason = "HARD_BLOCK_RUGCHECK_${ts.safety.rugcheckScore}"
+            blockLevel = BlockLevel.HARD
+            checks.add(GateCheck("rugcheck", false, "score=${ts.safety.rugcheckScore} <= $rugcheckThreshold"))
+            tags.add("low_rugcheck")
+        } else if (blockReason == null) {
+            checks.add(GateCheck("rugcheck", true, null))
+        }
+        
+        // 1c. Extreme sell pressure (mass dumping)
+        if (blockReason == null && ts.meta.pressScore < buyPressureThreshold) {
+            blockReason = "HARD_BLOCK_SELL_PRESSURE_${ts.meta.pressScore.toInt()}%"
+            blockLevel = BlockLevel.HARD
+            checks.add(GateCheck("buy_pressure", false, "buy%=${ts.meta.pressScore.toInt()} < $buyPressureThreshold"))
+            tags.add("sell_pressure")
+        } else if (blockReason == null) {
+            checks.add(GateCheck("buy_pressure", true, null))
+        }
+        
+        // 1d. Single whale controls supply
+        if (blockReason == null && ts.safety.topHolderPct > topHolderThreshold) {
+            blockReason = "HARD_BLOCK_TOP_HOLDER_${ts.safety.topHolderPct.toInt()}%"
+            blockLevel = BlockLevel.HARD
+            checks.add(GateCheck("top_holder", false, "holder=${ts.safety.topHolderPct.toInt()}% > $topHolderThreshold"))
+            tags.add("whale_control")
+        } else if (blockReason == null) {
+            checks.add(GateCheck("top_holder", true, null))
+        }
+        
+        // 1e. Banned token or deployer
+        if (blockReason == null && (ts.safety.isBanned || ts.safety.isRuggedDeployer)) {
+            blockReason = if (ts.safety.isBanned) "HARD_BLOCK_BANNED" else "HARD_BLOCK_RUGGED_DEPLOYER"
+            blockLevel = BlockLevel.HARD
+            checks.add(GateCheck("banned", false, "banned=${ts.safety.isBanned} rugged=${ts.safety.isRuggedDeployer}"))
+            tags.add("banned")
+        } else if (blockReason == null) {
+            checks.add(GateCheck("banned", true, null))
+        }
+        
+        // 1f. Freeze authority in LIVE mode (honeypot risk)
+        if (blockReason == null && !config.paperMode && ts.safety.freezeAuthority) {
+            blockReason = "HARD_BLOCK_FREEZE_AUTHORITY"
+            blockLevel = BlockLevel.HARD
+            checks.add(GateCheck("freeze_auth", false, "freezeAuth=true (live mode)"))
+            tags.add("freeze_auth")
+        } else if (blockReason == null) {
+            checks.add(GateCheck("freeze_auth", true, null))
+        }
+        
+        // 1g. Check candidate's own hard blocks
+        if (blockReason == null && candidate.hardBlockReason != null) {
+            blockReason = candidate.hardBlockReason
+            blockLevel = BlockLevel.HARD
+            checks.add(GateCheck("candidate_block", false, candidate.hardBlockReason))
+        } else if (blockReason == null) {
+            checks.add(GateCheck("candidate_block", true, null))
+        }
+        
+        // ─────────────────────────────────────────────────────────────────────
+        // GATE 2: EDGE VETO
+        // ─────────────────────────────────────────────────────────────────────
+        
+        val edgeVerdict = when (candidate.edgeQuality.uppercase()) {
+            "STRONG", "A", "A+" -> EdgeVerdict.STRONG
+            "WEAK", "B", "OK" -> EdgeVerdict.WEAK
+            else -> EdgeVerdict.SKIP
+        }
+        
+        if (blockReason == null && edgeVerdict == EdgeVerdict.SKIP) {
+            // Edge says skip - check if we should block or allow
+            val canOverride = config.paperMode && allowEdgeOverrideInPaper && 
+                              candidate.finalScore >= 70 && 
+                              candidate.confidence >= 50
+            
+            if (!canOverride) {
+                blockReason = "EDGE_VETO_${candidate.edgeQuality}"
+                blockLevel = BlockLevel.EDGE
+                checks.add(GateCheck("edge", false, "edge=${candidate.edgeQuality}"))
+                tags.add("edge_skip")
+            } else {
+                checks.add(GateCheck("edge", true, "override allowed in paper"))
+                tags.add("edge_override")
+            }
+        } else if (blockReason == null) {
+            checks.add(GateCheck("edge", true, null))
+        }
+        
+        // ─────────────────────────────────────────────────────────────────────
+        // GATE 3: CONFIDENCE THRESHOLD
+        // ─────────────────────────────────────────────────────────────────────
+        
+        val confidenceThreshold = if (config.paperMode) paperConfidenceMin else liveConfidenceMin
+        
+        if (blockReason == null && candidate.confidence < confidenceThreshold) {
+            blockReason = "LOW_CONFIDENCE_${candidate.confidence.toInt()}%"
+            blockLevel = BlockLevel.CONFIDENCE
+            checks.add(GateCheck("confidence", false, "conf=${candidate.confidence.toInt()}% < $confidenceThreshold"))
+            tags.add("low_confidence")
+        } else if (blockReason == null) {
+            checks.add(GateCheck("confidence", true, null))
+        }
+        
+        // ─────────────────────────────────────────────────────────────────────
+        // GATE 4: MODE-SPECIFIC RULES
+        // ─────────────────────────────────────────────────────────────────────
+        
+        if (blockReason == null && !config.paperMode) {
+            // LIVE MODE additional restrictions
+            
+            // Must have autoTrade enabled
+            if (!config.autoTrade) {
+                blockReason = "LIVE_AUTO_TRADE_DISABLED"
+                blockLevel = BlockLevel.MODE
+                checks.add(GateCheck("auto_trade", false, "autoTrade=false"))
+            }
+            
+            // Stricter quality requirement in live
+            if (blockReason == null && candidate.quality == "C") {
+                blockReason = "LIVE_QUALITY_TOO_LOW"
+                blockLevel = BlockLevel.MODE
+                checks.add(GateCheck("live_quality", false, "quality=C (live requires B+)"))
+            }
+        }
+        
+        if (blockReason == null) {
+            checks.add(GateCheck("mode_rules", true, null))
+        }
+        
+        // ─────────────────────────────────────────────────────────────────────
+        // GATE 5: SIZING VALIDATION
+        // ─────────────────────────────────────────────────────────────────────
+        
+        var finalSize = proposedSizeSol
+        
+        if (blockReason == null) {
+            // Minimum size check
+            val minSize = if (config.paperMode) 0.001 else 0.01
+            if (finalSize < minSize) {
+                blockReason = "SIZE_TOO_SMALL"
+                blockLevel = BlockLevel.SIZE
+                checks.add(GateCheck("min_size", false, "size=$finalSize < $minSize"))
+            } else {
+                checks.add(GateCheck("min_size", true, null))
+            }
+            
+            // Maximum size cap (safety)
+            val maxSize = if (config.paperMode) 1.0 else 0.5
+            if (finalSize > maxSize) {
+                finalSize = maxSize
+                checks.add(GateCheck("max_size", true, "capped from $proposedSizeSol to $maxSize"))
+                tags.add("size_capped")
+            }
+        }
+        
+        // ─────────────────────────────────────────────────────────────────────
+        // BUILD FINAL DECISION
+        // ─────────────────────────────────────────────────────────────────────
+        
+        // Add source/phase tags
+        if (ts.source.isNotBlank()) tags.add("src:${ts.source}")
+        if (ts.phase.isNotBlank()) tags.add("phase:${ts.phase}")
+        
+        val shouldTrade = blockReason == null && candidate.shouldTrade
+        
+        return FinalDecision(
+            shouldTrade = shouldTrade,
+            mode = mode,
+            quality = candidate.quality,
+            confidence = candidate.confidence,
+            edge = edgeVerdict,
+            blockReason = blockReason,
+            blockLevel = blockLevel,
+            sizeSol = finalSize,
+            tags = tags,
+            mint = ts.mint,
+            symbol = ts.symbol,
+            gateChecks = checks,
+        )
+    }
+    
+    /**
+     * Log a blocked trade for learning purposes.
+     * This is how we "learn" from blocked trades without executing them.
+     */
+    fun logBlockedTrade(decision: FinalDecision, onLog: (String) -> Unit) {
+        onLog("🚫 FDG BLOCKED: ${decision.symbol} | ${decision.blockReason} | " +
+              "quality=${decision.quality} conf=${decision.confidence.toInt()}% " +
+              "edge=${decision.edge.name}")
+        
+        // Log the gate checks for debugging
+        val failedChecks = decision.gateChecks.filter { !it.passed }
+        if (failedChecks.isNotEmpty()) {
+            onLog("   Failed checks: ${failedChecks.joinToString { "${it.name}(${it.reason})" }}")
+        }
+    }
+    
+    /**
+     * Log an approved trade.
+     */
+    fun logApprovedTrade(decision: FinalDecision, onLog: (String) -> Unit) {
+        onLog("✅ FDG APPROVED: ${decision.symbol} | ${decision.quality} | " +
+              "${decision.confidence.toInt()}% | ${decision.sizeSol.format(3)} SOL | " +
+              "tags=${decision.tags.joinToString(",")}")
+    }
+    
+    // ═══════════════════════════════════════════════════════════════════════════
+    // THRESHOLD LEARNING (called by BotBrain after trades)
+    // ═══════════════════════════════════════════════════════════════════════════
+    
+    /**
+     * Update thresholds based on learned values from BotBrain.
+     */
+    fun updateThresholds(
+        rugcheckMin: Int? = null,
+        buyPressureMin: Double? = null,
+        topHolderMax: Double? = null,
+    ) {
+        rugcheckMin?.let { hardBlockRugcheckMin = it }
+        buyPressureMin?.let { hardBlockBuyPressureMin = it }
+        topHolderMax?.let { hardBlockTopHolderMax = it }
+    }
+    
+    private fun Double.format(decimals: Int) = "%.${decimals}f".format(this)
+}

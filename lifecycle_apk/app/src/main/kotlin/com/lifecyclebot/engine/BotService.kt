@@ -1251,33 +1251,94 @@ class BotService : Service() {
                 val cbState = securityGuard.getCircuitBreakerState()
                 val effectiveBalance = status.getEffectiveBalance(cfg.paperMode)
                 
-                // DEBUG: Log when BUY signal is received with unified decision info
-                if (decision.finalSignal == "BUY" && !ts.position.isOpen) {
-                    ErrorLogger.info("BotService", "🔔 UNIFIED BUY: ${ts.symbol} | " +
-                        "balance=$effectiveBalance | paper=${cfg.paperMode} | " +
-                        "quality=${decision.finalQuality} | shouldTrade=${decision.shouldTrade} | " +
-                        "conf=${decision.aiConfidence.toInt()}%")
+                // ═══════════════════════════════════════════════════════════════════
+                // FINAL DECISION GATE (FDG)
+                // Single authoritative checkpoint - ALL trades must pass
+                // Order: HARD BLOCKS → EDGE → CONFIDENCE → MODE → SIZING
+                // ═══════════════════════════════════════════════════════════════════
+                
+                if (!ts.position.isOpen && decision.finalSignal == "BUY") {
+                    // Calculate proposed size first
+                    val proposedSize = executor.calculateBuySize(
+                        ts = ts,
+                        walletSol = effectiveBalance,
+                        totalExposureSol = status.totalExposureSol,
+                        openPositionCount = status.openPositionCount,
+                        quality = decision.finalQuality,
+                    )
+                    
+                    // Run through Final Decision Gate
+                    val fdgDecision = FinalDecisionGate.evaluate(
+                        ts = ts,
+                        candidate = decision,
+                        config = cfg,
+                        proposedSizeSol = proposedSize,
+                        brain = executor.brain,
+                    )
+                    
+                    if (fdgDecision.canExecute()) {
+                        // ✅ APPROVED - proceed to executor
+                        FinalDecisionGate.logApprovedTrade(fdgDecision) { addLog(it, mint) }
+                        
+                        ErrorLogger.info("BotService", "✅ FDG APPROVED: ${ts.symbol} | " +
+                            "quality=${fdgDecision.quality} | conf=${fdgDecision.confidence.toInt()}% | " +
+                            "size=${fdgDecision.sizeSol}")
+                        
+                        if (!cbState.isHalted && !cbState.isPaused) {
+                            executor.maybeActWithDecision(
+                                ts                 = ts,
+                                decision           = decision,
+                                walletSol          = effectiveBalance,
+                                wallet             = wallet,
+                                lastPollMs         = lastSuccessfulPollMs,
+                                openPositionCount  = status.openPositionCount,
+                                totalExposureSol   = status.totalExposureSol,
+                                modeConfig         = modeConf,
+                                fdgApprovedSize    = fdgDecision.sizeSol,  // Use FDG-approved size
+                                walletTotalTrades  = try {
+                                    com.lifecyclebot.engine.BotService.walletManager
+                                        ?.state?.value?.totalTrades ?: 0
+                                } catch (_: Exception) { 0 },
+                            )
+                        }
+                    } else {
+                        // ❌ BLOCKED - log for learning but DO NOT EXECUTE
+                        FinalDecisionGate.logBlockedTrade(fdgDecision) { addLog(it, mint) }
+                        
+                        ErrorLogger.info("BotService", "🚫 FDG BLOCKED: ${ts.symbol} | " +
+                            "reason=${fdgDecision.blockReason} | level=${fdgDecision.blockLevel}")
+                        
+                        // Record this for learning (simulation only, no execution)
+                        executor.brain?.recordBlockedTrade(
+                            mint = ts.mint,
+                            phase = ts.phase,
+                            source = ts.source,
+                            blockReason = fdgDecision.blockReason ?: "UNKNOWN",
+                            quality = fdgDecision.quality,
+                            confidence = fdgDecision.confidence,
+                        )
+                    }
+                } else if (ts.position.isOpen) {
+                    // Position management (exits) - still use existing flow
+                    if (!cbState.isHalted && !cbState.isPaused) {
+                        executor.maybeActWithDecision(
+                            ts                 = ts,
+                            decision           = decision,
+                            walletSol          = effectiveBalance,
+                            wallet             = wallet,
+                            lastPollMs         = lastSuccessfulPollMs,
+                            openPositionCount  = status.openPositionCount,
+                            totalExposureSol   = status.totalExposureSol,
+                            modeConfig         = modeConf,
+                            walletTotalTrades  = try {
+                                com.lifecyclebot.engine.BotService.walletManager
+                                    ?.state?.value?.totalTrades ?: 0
+                            } catch (_: Exception) { 0 },
+                        )
+                    }
                 }
                 
-                if (!cbState.isHalted && !cbState.isPaused) {
-                    // ═══════════════════════════════════════════════════════════════════
-                    // PRIORITY 2: Use maybeActWithDecision for unified execution
-                    // ═══════════════════════════════════════════════════════════════════
-                    executor.maybeActWithDecision(
-                        ts                 = ts,
-                        decision           = decision,
-                        walletSol          = effectiveBalance,
-                        wallet             = wallet,
-                        lastPollMs         = lastSuccessfulPollMs,
-                        openPositionCount  = status.openPositionCount,
-                        totalExposureSol   = status.totalExposureSol,
-                        modeConfig         = modeConf,
-                        walletTotalTrades  = try {
-                            com.lifecyclebot.engine.BotService.walletManager
-                                ?.state?.value?.totalTrades ?: 0
-                        } catch (_: Exception) { 0 },
-                    )
-                } else if (cbState.isHalted) {
+                if (cbState.isHalted) {
                     if (mint == cfg.activeToken) addLog("🛑 HALTED: ${cbState.haltReason}", mint)
                 } else {
                     if (mint == cfg.activeToken) addLog("⏸ CB: ${cbState.pauseRemainingSecs}s", mint)

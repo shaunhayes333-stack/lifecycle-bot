@@ -800,6 +800,69 @@ Analyse this data and respond with ONLY valid JSON in this exact format:
     /** Size multiplier for current market regime */
     fun regimeSizeMultiplier(): Double = regimeBullMult
     
+    // ═══════════════════════════════════════════════════════════════════════════
+    // FDG INTEGRATION - Record blocked trades for learning (without execution)
+    // ═══════════════════════════════════════════════════════════════════════════
+    
+    private val blockedTradesByReason = mutableMapOf<String, Int>()
+    private val blockedTradesByPhase = mutableMapOf<String, Int>()
+    private val blockedTradesBySource = mutableMapOf<String, Int>()
+    
+    /**
+     * Record a trade that was blocked by the Final Decision Gate.
+     * This allows learning from blocked opportunities without executing them.
+     * 
+     * Use cases:
+     * - Track which block reasons fire most often (may need threshold adjustment)
+     * - Track which phases/sources get blocked (pattern detection)
+     * - Inform future threshold learning
+     */
+    fun recordBlockedTrade(
+        mint: String,
+        phase: String,
+        source: String,
+        blockReason: String,
+        quality: String,
+        confidence: Double,
+    ) {
+        try {
+            // Count blocks by reason
+            blockedTradesByReason[blockReason] = (blockedTradesByReason[blockReason] ?: 0) + 1
+            
+            // Count blocks by phase
+            blockedTradesByPhase[phase] = (blockedTradesByPhase[phase] ?: 0) + 1
+            
+            // Count blocks by source
+            blockedTradesBySource[source] = (blockedTradesBySource[source] ?: 0) + 1
+            
+            // Log for visibility
+            val totalBlocks = blockedTradesByReason.values.sum()
+            onLog("🚫 FDG Block recorded: $blockReason | phase=$phase | src=$source | " +
+                  "total_blocks=$totalBlocks")
+            
+            // If a hard block fires too often on high-quality setups, it might be too strict
+            if (quality in listOf("A+", "A") && confidence >= 60) {
+                val reasonCount = blockedTradesByReason[blockReason] ?: 0
+                if (reasonCount >= 10 && blockReason.startsWith("HARD_BLOCK_")) {
+                    onLog("⚠️ High-quality setup blocked $reasonCount times by $blockReason - " +
+                          "consider threshold adjustment")
+                }
+            }
+        } catch (e: Exception) {
+            ErrorLogger.error("BotBrain", "recordBlockedTrade error: ${e.message}")
+        }
+    }
+    
+    /**
+     * Get blocked trade statistics for debugging/UI.
+     */
+    fun getBlockedTradeStats(): Map<String, Any> = mapOf(
+        "byReason" to blockedTradesByReason.toMap(),
+        "byPhase" to blockedTradesByPhase.toMap(),
+        "bySource" to blockedTradesBySource.toMap(),
+        "totalBlocks" to blockedTradesByReason.values.sum(),
+    )
+    
     /**
      * Real-time learning from a completed trade.
      * Updates internal state immediately for faster adaptation.

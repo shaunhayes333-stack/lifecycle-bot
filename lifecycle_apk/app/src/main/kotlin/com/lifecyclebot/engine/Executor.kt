@@ -138,6 +138,33 @@ class Executor(
 
         return result.solAmount
     }
+    
+    /**
+     * Calculate buy size for FDG evaluation.
+     * Simplified wrapper around buySizeSol for the Final Decision Gate.
+     */
+    fun calculateBuySize(
+        ts: TokenState,
+        walletSol: Double,
+        totalExposureSol: Double,
+        openPositionCount: Int,
+        quality: String,
+    ): Double {
+        return buySizeSol(
+            entryScore = ts.entryScore,
+            walletSol = walletSol,
+            currentOpenPositions = openPositionCount,
+            currentTotalExposure = totalExposureSol,
+            walletTotalTrades = 0,  // Not critical for size calc
+            liquidityUsd = ts.lastLiquidityUsd,
+            mcapUsd = ts.lastMcap,
+            aiConfidence = ts.meta.aiConfidence,
+            phase = ts.phase,
+            source = ts.source,
+            brain = brain,
+            setupQuality = quality,
+        )
+    }
 
     // ── top-up sizing ─────────────────────────────────────────────────
 
@@ -1061,6 +1088,7 @@ class Executor(
      * @param openPositionCount Current open position count
      * @param totalExposureSol Current total exposure in SOL
      * @param modeConfig Auto-mode configuration
+     * @param fdgApprovedSize Optional FDG-approved size (skips recalculation if provided)
      * @param walletTotalTrades Total trades for this wallet
      */
     fun maybeActWithDecision(
@@ -1072,6 +1100,7 @@ class Executor(
         openPositionCount: Int = 0,
         totalExposureSol: Double = 0.0,
         modeConfig: AutoModeEngine.ModeConfig? = null,
+        fdgApprovedSize: Double? = null,
         walletTotalTrades: Int = 0,
     ) {
         // Halt check
@@ -1192,8 +1221,8 @@ class Executor(
         // Transition to ENTER state
         TradeStateMachine.setState(ts.mint, TradeState.ENTER, "executing buy via unified decision")
         
-        // Calculate size using AI-driven SmartSizer
-        var size = buySizeSol(
+        // Calculate size - use FDG-approved size if available, otherwise calculate
+        var size = fdgApprovedSize ?: buySizeSol(
             entryScore = decision.entryScore,
             walletSol = walletSol,
             currentOpenPositions = openPositionCount,
@@ -1208,8 +1237,8 @@ class Executor(
             setupQuality = decision.setupQuality,
         )
         
-        // Apply quality penalty from unified decision
-        if (decision.qualityPenalty < 1.0 && decision.qualityPenalty > 0.0) {
+        // Apply quality penalty from unified decision (only if not FDG-approved)
+        if (fdgApprovedSize == null && decision.qualityPenalty < 1.0 && decision.qualityPenalty > 0.0) {
             val oldSize = size
             size *= decision.qualityPenalty
             ErrorLogger.info("Executor", "📉 ${ts.symbol} size reduced: ${oldSize.fmt(3)} → ${size.fmt(3)} " +
