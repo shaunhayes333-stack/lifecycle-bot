@@ -14,6 +14,120 @@ import java.util.concurrent.TimeUnit
 import java.util.concurrent.ConcurrentHashMap
 
 /**
+ * ScannerLearning — Tracks which sources/characteristics produce winners
+ * ═══════════════════════════════════════════════════════════════════════
+ * 
+ * Learns over time:
+ *  - Which TokenSource produces most winners
+ *  - Which liquidity ranges perform best
+ *  - Which age profiles (fresh vs established) win more
+ *  - Which mcap ranges are optimal
+ *
+ * Used to boost/penalize discovery scores based on historical performance.
+ */
+object ScannerLearning {
+    // Track wins/losses by source
+    private val sourceWins = ConcurrentHashMap<String, Int>()
+    private val sourceLosses = ConcurrentHashMap<String, Int>()
+    
+    // Track by liquidity bucket (0-5k, 5k-20k, 20k-100k, 100k+)
+    private val liqBucketWins = ConcurrentHashMap<String, Int>()
+    private val liqBucketLosses = ConcurrentHashMap<String, Int>()
+    
+    // Track by age bucket (0-1h, 1-6h, 6-24h, 24h+)
+    private val ageBucketWins = ConcurrentHashMap<String, Int>()
+    private val ageBucketLosses = ConcurrentHashMap<String, Int>()
+    
+    fun recordTrade(source: String, liqUsd: Double, ageHours: Double, isWin: Boolean) {
+        // Source tracking
+        if (isWin) sourceWins.merge(source, 1) { a, b -> a + b }
+        else sourceLosses.merge(source, 1) { a, b -> a + b }
+        
+        // Liquidity bucket tracking
+        val liqBucket = when {
+            liqUsd < 5_000 -> "liq_0_5k"
+            liqUsd < 20_000 -> "liq_5k_20k"
+            liqUsd < 100_000 -> "liq_20k_100k"
+            else -> "liq_100k_plus"
+        }
+        if (isWin) liqBucketWins.merge(liqBucket, 1) { a, b -> a + b }
+        else liqBucketLosses.merge(liqBucket, 1) { a, b -> a + b }
+        
+        // Age bucket tracking
+        val ageBucket = when {
+            ageHours < 1 -> "age_0_1h"
+            ageHours < 6 -> "age_1_6h"
+            ageHours < 24 -> "age_6_24h"
+            else -> "age_24h_plus"
+        }
+        if (isWin) ageBucketWins.merge(ageBucket, 1) { a, b -> a + b }
+        else ageBucketLosses.merge(ageBucket, 1) { a, b -> a + b }
+        
+        ErrorLogger.info("ScannerLearning", "📊 Recorded ${if (isWin) "WIN" else "LOSS"}: src=$source liq=$liqBucket age=$ageBucket")
+    }
+    
+    // Get win rate for a source (0.0 to 1.0)
+    fun getSourceWinRate(source: String): Double {
+        val wins = sourceWins[source] ?: 0
+        val losses = sourceLosses[source] ?: 0
+        val total = wins + losses
+        return if (total >= 5) wins.toDouble() / total else 0.5  // Default 50% until enough data
+    }
+    
+    // Get score bonus/penalty based on historical performance
+    fun getDiscoveryBonus(source: String, liqUsd: Double, ageHours: Double): Double {
+        var bonus = 0.0
+        
+        // Source-based bonus (-10 to +10)
+        val srcRate = getSourceWinRate(source)
+        bonus += (srcRate - 0.5) * 20.0  // 60% win rate = +2, 40% = -2
+        
+        // Liquidity-based bonus
+        val liqBucket = when {
+            liqUsd < 5_000 -> "liq_0_5k"
+            liqUsd < 20_000 -> "liq_5k_20k"
+            liqUsd < 100_000 -> "liq_20k_100k"
+            else -> "liq_100k_plus"
+        }
+        val liqWins = liqBucketWins[liqBucket] ?: 0
+        val liqLosses = liqBucketLosses[liqBucket] ?: 0
+        val liqTotal = liqWins + liqLosses
+        if (liqTotal >= 5) {
+            val liqRate = liqWins.toDouble() / liqTotal
+            bonus += (liqRate - 0.5) * 15.0
+        }
+        
+        // Age-based bonus
+        val ageBucket = when {
+            ageHours < 1 -> "age_0_1h"
+            ageHours < 6 -> "age_1_6h"
+            ageHours < 24 -> "age_6_24h"
+            else -> "age_24h_plus"
+        }
+        val ageWins = ageBucketWins[ageBucket] ?: 0
+        val ageLosses = ageBucketLosses[ageBucket] ?: 0
+        val ageTotal = ageWins + ageLosses
+        if (ageTotal >= 5) {
+            val ageRate = ageWins.toDouble() / ageTotal
+            bonus += (ageRate - 0.5) * 15.0
+        }
+        
+        return bonus.coerceIn(-20.0, 20.0)
+    }
+    
+    fun getStats(): String {
+        val sources = (sourceWins.keys + sourceLosses.keys).distinct()
+        val stats = sources.map { src ->
+            val w = sourceWins[src] ?: 0
+            val l = sourceLosses[src] ?: 0
+            val rate = if (w + l > 0) (w * 100 / (w + l)) else 50
+            "$src: ${w}W/${l}L ($rate%)"
+        }
+        return "ScannerLearning: ${stats.joinToString(" | ")}"
+    }
+}
+
+/**
  * SolanaMarketScanner — full Solana DEX opportunity discovery
  * ═══════════════════════════════════════════════════════════════
  *
@@ -1603,11 +1717,20 @@ class SolanaMarketScanner(
         
         // Apply AI-driven source boost to score
         val aiBoost = getAISourceBoost(token.source)
-        val adjustedScore = (token.score + aiBoost).coerceIn(0.0, 100.0)
+        
+        // Apply ScannerLearning boost (from historical trade outcomes)
+        val scannerLearningBoost = ScannerLearning.getDiscoveryBonus(
+            source = token.source.name,
+            liqUsd = token.liquidityUsd,
+            ageHours = if (token.pairCreatedHoursAgo > 0) token.pairCreatedHoursAgo else 1.0
+        )
+        
+        val totalBoost = aiBoost + scannerLearningBoost
+        val adjustedScore = (token.score + totalBoost).coerceIn(0.0, 100.0)
         val adjustedToken = token.copy(score = adjustedScore)
         
         seenMints[token.mint] = System.currentTimeMillis()
-        val boostIndicator = if (aiBoost != 0.0) " AI${if(aiBoost>0) "+" else ""}${aiBoost.toInt()}" else ""
+        val boostIndicator = if (totalBoost != 0.0) " AI${if(totalBoost>0) "+" else ""}${totalBoost.toInt()}" else ""
         onLog("🔍 Found: ${token.symbol} (${token.source.name}$boostIndicator) " +
               "liq=$${(token.liquidityUsd/1000).toInt()}K " +
               "vol=$${(token.volumeH1/1000).toInt()}K " +

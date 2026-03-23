@@ -1324,6 +1324,15 @@ class Executor(
                 exitReason = reason,
             )
             AdaptiveLearningEngine.learnFromTrade(features)
+            
+            // Scanner learning - track what discovery characteristics produce wins
+            val tokenAgeHours = (System.currentTimeMillis() - ts.addedToWatchlistAt) / 3_600_000.0
+            ScannerLearning.recordTrade(
+                source = ts.source.ifEmpty { "UNKNOWN" },
+                liqUsd = ts.lastLiquidityUsd,
+                ageHours = tokenAgeHours,
+                isWin = pnlP > 0
+            )
         } catch (e: Exception) {
             ErrorLogger.debug("AdaptiveLearning", "Feature capture error: ${e.message}")
         }
@@ -1520,6 +1529,15 @@ class Executor(
                 exitReason = reason,
             )
             AdaptiveLearningEngine.learnFromTrade(features)
+            
+            // Scanner learning - track what discovery characteristics produce wins
+            val tokenAgeHours2 = (System.currentTimeMillis() - ts.addedToWatchlistAt) / 3_600_000.0
+            ScannerLearning.recordTrade(
+                source = ts.source.ifEmpty { "UNKNOWN" },
+                liqUsd = ts.lastLiquidityUsd,
+                ageHours = tokenAgeHours2,
+                isWin = pnlP > 0
+            )
         } catch (e: Exception) {
             ErrorLogger.debug("AdaptiveLearning", "Feature capture error: ${e.message}")
         }
