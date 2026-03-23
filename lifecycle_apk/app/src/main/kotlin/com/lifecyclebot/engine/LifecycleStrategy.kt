@@ -735,11 +735,14 @@ class LifecycleStrategy(
     private fun checkHardBlocks(ts: TokenState, result: StrategyResult): String? {
         val safety = ts.safety
         val pressScore = result.meta.pressScore
+        val isPaperMode = cfg().paperMode
         
         // 1. RUGCHECK BLOCKED - Score too low (dangerous token)
-        // Threshold: 30 or below is extremely risky
-        if (safety.rugcheckScore in 0..30) {
-            return "Rugcheck score ${safety.rugcheckScore}/100 (DANGEROUS)"
+        // PAPER MODE: Threshold 10 (only block truly dangerous)
+        // LIVE MODE: Threshold 25 (more conservative)
+        val rugcheckThreshold = if (isPaperMode) 10 else 25
+        if (safety.rugcheckScore in 0..rugcheckThreshold) {
+            return "Rugcheck score ${safety.rugcheckScore}/100 (threshold=$rugcheckThreshold)"
         }
         
         // 2. LIQUIDITY = 0 - Cannot trade, no liquidity pool
@@ -747,23 +750,27 @@ class LifecycleStrategy(
             return "Zero liquidity - no pool"
         }
         
-        // 3. EXTREME SELL PRESSURE - Buy% below 20% is mass dumping
-        if (pressScore < 20.0) {
-            return "Extreme sell pressure (buy%=${pressScore.toInt()})"
+        // 3. EXTREME SELL PRESSURE - Buy% below threshold is mass dumping
+        // PAPER MODE: 15% (more permissive for learning)
+        // LIVE MODE: 20% (safer)
+        val sellPressureThreshold = if (isPaperMode) 15.0 else 20.0
+        if (pressScore < sellPressureThreshold) {
+            return "Extreme sell pressure (buy%=${pressScore.toInt()}, threshold=$sellPressureThreshold)"
         }
         
         // 4. FREEZE AUTHORITY ENABLED - Token can be frozen (honeypot risk)
-        if (safety.freezeAuthorityDisabled == false) {
+        // Only block in LIVE mode - paper can learn from these
+        if (!isPaperMode && safety.freezeAuthorityDisabled == false) {
             return "Freeze authority enabled (honeypot risk)"
         }
         
         // 5. MINT AUTHORITY ENABLED - More tokens can be minted (inflation risk)
-        // Note: Some legitimate tokens have this, so we check rugcheck too
-        if (safety.mintAuthorityDisabled == false && safety.rugcheckScore < 50) {
+        // Only block in LIVE mode with low rugcheck
+        if (!isPaperMode && safety.mintAuthorityDisabled == false && safety.rugcheckScore < 50) {
             return "Mint authority enabled + low rugcheck (rug risk)"
         }
         
-        // 6. BANNED TOKEN / DEPLOYER - Known bad actor
+        // 6. BANNED TOKEN / DEPLOYER - Known bad actor (ALWAYS BLOCK)
         if (RuggedContracts.isBlacklisted(ts.mint)) {
             return "Contract blacklisted (previous rug)"
         }
@@ -772,33 +779,38 @@ class LifecycleStrategy(
         }
         
         // 7. HIGH DISTRIBUTION CONFIDENCE - Clear distribution phase with high confidence
-        // This is different from edge veto - this is a HARD block for obvious dumps
-        val hist = ts.history.toList()
-        if (hist.size >= 5) {
-            val prices = hist.map { it.ref }
-            val edgePhase = EdgeOptimizer.detectMarketPhase(hist, prices)
-            
-            // DISTRIBUTION + high confidence + sell pressure = clear dump
-            if (edgePhase.phase == EdgeOptimizer.MarketPhase.DISTRIBUTION && 
-                edgePhase.confidence > 70.0 && 
-                pressScore < 40.0) {
-                return "High-confidence distribution (${edgePhase.confidence.toInt()}%) + sell pressure"
-            }
-            
-            // DEAD phase with high confidence = token is dying
-            if (edgePhase.phase == EdgeOptimizer.MarketPhase.DEAD && 
-                edgePhase.confidence > 60.0) {
-                return "Token in DEAD phase (confidence ${edgePhase.confidence.toInt()}%)"
+        // Only block in LIVE mode - paper learns from these mistakes
+        if (!isPaperMode) {
+            val hist = ts.history.toList()
+            if (hist.size >= 5) {
+                val prices = hist.map { it.ref }
+                val edgePhase = EdgeOptimizer.detectMarketPhase(hist, prices)
+                
+                // DISTRIBUTION + high confidence + sell pressure = clear dump
+                if (edgePhase.phase == EdgeOptimizer.MarketPhase.DISTRIBUTION && 
+                    edgePhase.confidence > 70.0 && 
+                    pressScore < 40.0) {
+                    return "High-confidence distribution (${edgePhase.confidence.toInt()}%) + sell pressure"
+                }
+                
+                // DEAD phase with high confidence = token is dying
+                if (edgePhase.phase == EdgeOptimizer.MarketPhase.DEAD && 
+                    edgePhase.confidence > 60.0) {
+                    return "Token in DEAD phase (confidence ${edgePhase.confidence.toInt()}%)"
+                }
             }
         }
         
-        // 8. TOP HOLDER CONCENTRATION - Single holder owns too much (>50%)
-        if (safety.topHolderPct > 50.0) {
-            return "Top holder owns ${safety.topHolderPct.toInt()}% (rug risk)"
+        // 8. TOP HOLDER CONCENTRATION - Single holder owns too much
+        // PAPER MODE: >70% (more permissive)
+        // LIVE MODE: >50% (safer)
+        val topHolderThreshold = if (isPaperMode) 70.0 else 50.0
+        if (safety.topHolderPct > topHolderThreshold) {
+            return "Top holder owns ${safety.topHolderPct.toInt()}% (threshold=$topHolderThreshold)"
         }
         
-        // 9. HARD BLOCKS FROM SAFETY REPORT
-        if (safety.isBlocked && safety.hardBlockReasons.isNotEmpty()) {
+        // 9. HARD BLOCKS FROM SAFETY REPORT - Only in LIVE mode
+        if (!isPaperMode && safety.isBlocked && safety.hardBlockReasons.isNotEmpty()) {
             return "Safety: ${safety.hardBlockReasons.first()}"
         }
         
