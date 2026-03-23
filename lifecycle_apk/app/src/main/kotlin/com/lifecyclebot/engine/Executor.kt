@@ -1153,6 +1153,15 @@ class Executor(
         // NEW ENTRY LOGIC - Using unified CandidateDecision
         // ══════════════════════════════════════════════════════════════════
         
+        // Check if we should act on buys
+        // PAPER MODE: ALWAYS trade for learning
+        // LIVE MODE: Requires autoTrade to be enabled
+        val shouldActOnBuy = cfg().paperMode || cfg().autoTrade
+        if (!shouldActOnBuy) {
+            ErrorLogger.debug("Executor", "📊 ${ts.symbol}: Buy skipped - autoTrade disabled")
+            return
+        }
+        
         // Early return if decision says no trade
         if (!decision.shouldTrade) {
             if (decision.finalSignal == "BUY" && decision.blockReason.isNotEmpty()) {
@@ -1164,7 +1173,8 @@ class Executor(
         val isPaper = cfg().paperMode
         ErrorLogger.info("Executor", "🔔 UNIFIED BUY: ${ts.symbol} | " +
             "quality=${decision.finalQuality} | edge=${decision.edgePhase} | " +
-            "conf=${decision.aiConfidence.toInt()}% | penalty=${decision.qualityPenalty}")
+            "conf=${decision.aiConfidence.toInt()}% | penalty=${decision.qualityPenalty} | " +
+            "paper=$isPaper | autoTrade=${cfg().autoTrade}")
         
         // Rugged contracts check (by mint address)
         if (RuggedContracts.isBlacklisted(ts.mint)) {
@@ -1226,7 +1236,14 @@ class Executor(
         }
         
         // Execute buy
-        ErrorLogger.info("Executor", "✅ ${ts.symbol} UNIFIED BUY: $size SOL - quality=${decision.finalQuality}")
+        if (isPaper) {
+            ErrorLogger.info("Executor", "📄 ${ts.symbol} PAPER BUY: $size SOL - quality=${decision.finalQuality}")
+        } else {
+            // LIVE MODE: Explicit logging before real trade
+            ErrorLogger.info("Executor", "💰 ${ts.symbol} LIVE BUY ATTEMPT: $size SOL - " +
+                "quality=${decision.finalQuality} | wallet=$walletSol | autoTrade=${cfg().autoTrade}")
+            onLog("💰 LIVE BUY: ${ts.symbol} | ${size.fmt(4)} SOL | quality=${decision.finalQuality}", ts.mint)
+        }
         
         // Notify shadow learning
         ShadowLearningEngine.onTradeOpportunity(
