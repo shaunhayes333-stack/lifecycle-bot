@@ -658,7 +658,16 @@ class Executor(
             }
         }
 
-        if (cfg().autoTrade && signal == "BUY" && !ts.position.isOpen) {
+        // PAPER MODE: ALWAYS trade regardless of autoTrade setting
+        // We want maximum trading activity for learning
+        val shouldActOnBuy = cfg().paperMode || cfg().autoTrade
+        
+        // DEBUG: Log why we might not be executing buys
+        if (signal == "BUY") {
+            ErrorLogger.debug("Executor", "BUY CHECK: ${ts.symbol} | shouldAct=$shouldActOnBuy | posOpen=${ts.position.isOpen} | autoTrade=${cfg().autoTrade} | paper=${cfg().paperMode}")
+        }
+        
+        if (shouldActOnBuy && signal == "BUY" && !ts.position.isOpen) {
             val isPaper = cfg().paperMode
             ErrorLogger.info("Executor", "🔔 BUY signal for ${ts.symbol} | paper=$isPaper | wallet=${walletSol.fmt(4)} | autoTrade=${cfg().autoTrade}")
             
