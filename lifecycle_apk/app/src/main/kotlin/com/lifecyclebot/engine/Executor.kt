@@ -1102,11 +1102,17 @@ class Executor(
         modeConfig: AutoModeEngine.ModeConfig? = null,
         fdgApprovedSize: Double? = null,
         walletTotalTrades: Int = 0,
+        tradeIdentity: TradeIdentity? = null,  // Canonical identity for consistent tracking
     ) {
+        // ═══════════════════════════════════════════════════════════════════════════
+        // TRADE IDENTITY: Use identity for consistent mint/symbol throughout
+        // ═══════════════════════════════════════════════════════════════════════════
+        val identity = tradeIdentity ?: TradeIdentityManager.getOrCreate(ts.mint, ts.symbol, ts.source)
+        
         // Halt check
         val cbState = security.getCircuitBreakerState()
         if (cbState.isHalted) {
-            onLog("🛑 Halted: ${cbState.haltReason}", ts.mint)
+            onLog("🛑 Halted: ${cbState.haltReason}", identity.mint)
             return
         }
         
@@ -1114,15 +1120,15 @@ class Executor(
         if (ts.position.isOpen) {
             // V8 quick exit check
             val quickExit = PrecisionExitLogic.quickCheck(
-                mint = ts.mint,
+                mint = identity.mint,
                 currentPrice = ts.ref,
                 entryPrice = ts.position.entryPrice,
                 stopLossPct = cfg().stopLossPct,
             )
             if (quickExit != null && quickExit.shouldExit) {
-                onLog("🚨 V8 QUICK EXIT: ${ts.symbol} | ${quickExit.reason} | ${quickExit.details}", ts.mint)
-                doSell(ts, "v8_${quickExit.reason.lowercase()}", wallet, walletSol)
-                TradeStateMachine.startCooldown(ts.mint)
+                onLog("🚨 V8 QUICK EXIT: ${identity.symbol} | ${quickExit.reason} | ${quickExit.details}", identity.mint)
+                doSell(ts, "v8_${quickExit.reason.lowercase()}", wallet, walletSol, identity)
+                TradeStateMachine.startCooldown(identity.mint)
                 return
             }
             
@@ -1132,13 +1138,13 @@ class Executor(
             // Risk check
             val reason = riskCheck(ts, modeConfig)
             if (reason != null) {
-                doSell(ts, reason, wallet, walletSol)
+                doSell(ts, reason, wallet, walletSol, identity)
                 return
             }
             
             // Explicit sell/exit signal
             if (decision.finalSignal in listOf("SELL", "EXIT")) {
-                doSell(ts, decision.finalSignal.lowercase(), wallet, walletSol)
+                doSell(ts, decision.finalSignal.lowercase(), wallet, walletSol, identity)
                 return
             }
             
@@ -1147,7 +1153,7 @@ class Executor(
                 val held = (System.currentTimeMillis() - ts.position.entryTime) / 60_000.0
                 val tf = ts.candleTimeframeMinutes.toDouble().coerceAtLeast(1.0)
                 if (held > modeConfig.maxHoldMins * tf) {
-                    doSell(ts, "mode_maxhold_${modeConfig.mode.name.lowercase()}", wallet, walletSol)
+                    doSell(ts, "mode_maxhold_${modeConfig.mode.name.lowercase()}", wallet, walletSol, identity)
                     return
                 }
             }
@@ -1418,14 +1424,18 @@ class Executor(
     // ── buy ───────────────────────────────────────────────────────────
 
     private fun doBuy(ts: TokenState, sol: Double, score: Double,
-                      wallet: SolanaWallet?, walletSol: Double) {
+                      wallet: SolanaWallet?, walletSol: Double,
+                      identity: TradeIdentity? = null) {
+        // Get or create canonical identity
+        val tradeId = identity ?: TradeIdentityManager.getOrCreate(ts.mint, ts.symbol, ts.source)
+        
         if (cfg().paperMode || wallet == null) {
-            paperBuy(ts, sol, score)
+            paperBuy(ts, sol, score, tradeId)
         } else {
             // Pre-flight security check
             val guard = security.checkBuy(
-                mint         = ts.mint,
-                symbol       = ts.symbol,
+                mint         = tradeId.mint,
+                symbol       = tradeId.symbol,
                 solAmount    = sol,
                 walletSol    = walletSol,
                 currentPrice = ts.lastPrice,
@@ -1434,23 +1444,28 @@ class Executor(
             )
             when (guard) {
                 is GuardResult.Block -> {
-                    onLog("🚫 Buy blocked: ${guard.reason}", ts.mint)
+                    onLog("🚫 Buy blocked: ${guard.reason}", tradeId.mint)
                     // 🎵 Peter Griffin "No no no!"
                     sounds?.playBlockSound()
                     if (guard.fatal) onNotify("🛑 Bot Halted", guard.reason, com.lifecyclebot.engine.NotificationHistory.NotifEntry.NotifType.INFO)
                     return
                 }
-                is GuardResult.Allow -> liveBuy(ts, sol, score, wallet, walletSol)
+                is GuardResult.Allow -> liveBuy(ts, sol, score, wallet, walletSol, tradeId)
             }
         }
     }
 
-    fun paperBuy(ts: TokenState, sol: Double, score: Double) {
+    fun paperBuy(ts: TokenState, sol: Double, score: Double, identity: TradeIdentity? = null) {
+        // ═══════════════════════════════════════════════════════════════════════════
+        // TRADE IDENTITY: Use canonical identity for consistent tracking
+        // ═══════════════════════════════════════════════════════════════════════════
+        val tradeId = identity ?: TradeIdentityManager.getOrCreate(ts.mint, ts.symbol, ts.source)
+        
         val price = ts.ref
         if (price <= 0) return
         // Single position enforcement
         if (ts.position.isOpen) {
-            onLog("⚠ Buy skipped: position already open", ts.mint); return
+            onLog("⚠ Buy skipped: position already open", tradeId.mint); return
         }
         
         // GRADUATED BUILDING: start with partial size for B+ setups
@@ -1475,14 +1490,20 @@ class Executor(
         ts.trades.add(trade)
         security.recordTrade(trade)
         
-        // V8: Transition to MONITOR state
-        TradeStateMachine.setState(ts.mint, TradeState.MONITOR, "position opened")
+        // V8: Transition to MONITOR state (use identity.mint)
+        TradeStateMachine.setState(tradeId.mint, TradeState.MONITOR, "position opened")
         
         // ═══════════════════════════════════════════════════════════════════
-        // LIFECYCLE: EXECUTED → MONITORING
+        // TRADE IDENTITY: Mark as executed and monitoring
         // ═══════════════════════════════════════════════════════════════════
-        TradeLifecycle.executed(ts.mint, price, actualSol)
-        TradeLifecycle.monitoring(ts.mint, 0.0)
+        tradeId.executed(price, actualSol, isPaper = true)
+        tradeId.monitoring()
+        
+        // ═══════════════════════════════════════════════════════════════════
+        // LIFECYCLE: EXECUTED → MONITORING (use identity.mint for consistency)
+        // ═══════════════════════════════════════════════════════════════════
+        TradeLifecycle.executed(tradeId.mint, price, actualSol)
+        TradeLifecycle.monitoring(tradeId.mint, 0.0)
         
         // Update paper wallet balance (deduct buy amount)
         onPaperBalanceChange?.invoke(-actualSol)
@@ -1491,18 +1512,24 @@ class Executor(
         sounds?.playBuySound()
         
         val buildInfo = if (buildPhase == 1) " [BUILD 1/3]" else ""
-        onLog("PAPER BUY  @ ${price.fmt()} | ${actualSol.fmt(4)} SOL | score=${score.toInt()}$buildInfo", ts.mint)
-        onNotify("📈 Paper Buy", "${ts.symbol}  ${actualSol.fmt(3)} SOL$buildInfo", com.lifecyclebot.engine.NotificationHistory.NotifEntry.NotifType.INFO)
+        onLog("PAPER BUY  @ ${price.fmt()} | ${actualSol.fmt(4)} SOL | score=${score.toInt()}$buildInfo", tradeId.mint)
+        onNotify("📈 Paper Buy", "${tradeId.symbol}  ${actualSol.fmt(3)} SOL$buildInfo", com.lifecyclebot.engine.NotificationHistory.NotifEntry.NotifType.INFO)
     }
 
     private fun liveBuy(ts: TokenState, sol: Double, score: Double,
-                        wallet: SolanaWallet, walletSol: Double) {
+                        wallet: SolanaWallet, walletSol: Double,
+                        identity: TradeIdentity? = null) {
+        // ═══════════════════════════════════════════════════════════════════════════
+        // TRADE IDENTITY: Use canonical identity for consistent tracking
+        // ═══════════════════════════════════════════════════════════════════════════
+        val tradeId = identity ?: TradeIdentityManager.getOrCreate(ts.mint, ts.symbol, ts.source)
+        
         val c = cfg()
 
         // Keypair integrity check
         if (!security.verifyKeypairIntegrity(wallet.publicKeyB58,
                 c.walletAddress.ifBlank { wallet.publicKeyB58 })) {
-            onLog("🛑 Keypair integrity failure — trade aborted", ts.mint)
+            onLog("🛑 Keypair integrity failure — trade aborted", tradeId.mint)
             return
         }
 
@@ -1562,32 +1589,47 @@ class Executor(
             sounds?.playBuySound()
             
             // ═══════════════════════════════════════════════════════════════════
-            // LIFECYCLE: EXECUTED → MONITORING (LIVE)
+            // TRADE IDENTITY: Mark as executed and monitoring
             // ═══════════════════════════════════════════════════════════════════
-            TradeLifecycle.executed(ts.mint, price, sol)
-            TradeLifecycle.monitoring(ts.mint, 0.0)
+            tradeId.executed(price, sol, isPaper = false, signature = sig)
+            tradeId.monitoring()
+            
+            // ═══════════════════════════════════════════════════════════════════
+            // LIFECYCLE: EXECUTED → MONITORING (LIVE) - use identity.mint
+            // ═══════════════════════════════════════════════════════════════════
+            TradeLifecycle.executed(tradeId.mint, price, sol)
+            TradeLifecycle.monitoring(tradeId.mint, 0.0)
 
             onLog("LIVE BUY  @ ${price.fmt()} | ${sol.fmt(4)} SOL | " +
-                  "impact=${quote.priceImpactPct.fmt(2)}% | sig=${sig.take(16)}…", ts.mint)
-            onNotify("✅ Live Buy", "${ts.symbol}  ${sol.fmt(3)} SOL", com.lifecyclebot.engine.NotificationHistory.NotifEntry.NotifType.INFO)
+                  "impact=${quote.priceImpactPct.fmt(2)}% | sig=${sig.take(16)}…", tradeId.mint)
+            onNotify("✅ Live Buy", "${tradeId.symbol}  ${sol.fmt(3)} SOL", com.lifecyclebot.engine.NotificationHistory.NotifEntry.NotifType.INFO)
 
         } catch (e: Exception) {
             val safe = security.sanitiseForLog(e.message ?: "unknown")
-            ErrorLogger.error("Trade", "Live buy FAILED for ${ts.symbol}: $safe", e)
-            onLog("Live buy FAILED: $safe", ts.mint)
-            onNotify("⚠️ Buy Failed", "${ts.symbol}: ${safe.take(80)}", com.lifecyclebot.engine.NotificationHistory.NotifEntry.NotifType.INFO)
+            ErrorLogger.error("Trade", "Live buy FAILED for ${tradeId.symbol}: $safe", e)
+            onLog("Live buy FAILED: $safe", tradeId.mint)
+            onNotify("⚠️ Buy Failed", "${tradeId.symbol}: ${safe.take(80)}", com.lifecyclebot.engine.NotificationHistory.NotifEntry.NotifType.INFO)
         }
     }
 
     // ── sell ──────────────────────────────────────────────────────────
 
     private fun doSell(ts: TokenState, reason: String,
-                       wallet: SolanaWallet?, walletSol: Double) {
-        if (cfg().paperMode || wallet == null) paperSell(ts, reason)
-        else liveSell(ts, reason, wallet, walletSol)
+                       wallet: SolanaWallet?, walletSol: Double,
+                       identity: TradeIdentity? = null) {
+        // Get or create canonical identity
+        val tradeId = identity ?: TradeIdentityManager.getOrCreate(ts.mint, ts.symbol, ts.source)
+        
+        if (cfg().paperMode || wallet == null) paperSell(ts, reason, tradeId)
+        else liveSell(ts, reason, wallet, walletSol, tradeId)
     }
 
-    fun paperSell(ts: TokenState, reason: String) {
+    fun paperSell(ts: TokenState, reason: String, identity: TradeIdentity? = null) {
+        // ═══════════════════════════════════════════════════════════════════════════
+        // TRADE IDENTITY: Use canonical identity for consistent tracking
+        // ═══════════════════════════════════════════════════════════════════════════
+        val tradeId = identity ?: TradeIdentityManager.getOrCreate(ts.mint, ts.symbol, ts.source)
+        
         val pos   = ts.position
         val price = ts.ref
         if (!pos.isOpen || price == 0.0) return
@@ -1602,8 +1644,9 @@ class Executor(
         // Update paper wallet balance (add sale proceeds)
         onPaperBalanceChange?.invoke(value)
         
-        onLog("PAPER SELL @ ${price.fmt()} | $reason | pnl ${pnl.fmt(4)} SOL (${pnlP.fmtPct()})", ts.mint)
-        onNotify("📉 Paper Sell", "${ts.symbol}  $reason  PnL ${pnlP.fmtPct()}", com.lifecyclebot.engine.NotificationHistory.NotifEntry.NotifType.INFO)
+        // Use identity for consistent logging
+        onLog("PAPER SELL @ ${price.fmt()} | $reason | pnl ${pnl.fmt(4)} SOL (${pnlP.fmtPct()})", tradeId.mint)
+        onNotify("📉 Paper Sell", "${tradeId.symbol}  $reason  PnL ${pnlP.fmtPct()}", com.lifecyclebot.engine.NotificationHistory.NotifEntry.NotifType.INFO)
         // Play trade sound
         if (pnl > 0) sounds?.playCashRegister() else sounds?.playWarningSiren()
         // Milestone sounds while still holding (for live mode this fires on sell)
@@ -1634,7 +1677,8 @@ class Executor(
         val shouldLearnAsLoss = tradeClassification in listOf("MEANINGFUL_LOSS", "SMALL_LOSS")
         val shouldLearnAsWin = tradeClassification in listOf("MEANINGFUL_WIN", "SMALL_WIN")
         
-        ErrorLogger.info("Executor", "📊 ${ts.symbol} CLASSIFIED: $tradeClassification | " +
+        // Use identity for consistent logging
+        ErrorLogger.info("Executor", "📊 ${tradeId.symbol} CLASSIFIED: $tradeClassification | " +
             "pnl=${pnlP.toInt()}% | hold=${holdTimeMins.toInt()}min | " +
             "learnLoss=$shouldLearnAsLoss learnWin=$shouldLearnAsWin")
         
@@ -1871,16 +1915,24 @@ class Executor(
         // ═══════════════════════════════════════════════════════════════════
         
         // ═══════════════════════════════════════════════════════════════════
-        // LIFECYCLE: CLOSED → CLASSIFIED
+        // TRADE IDENTITY: Update canonical identity state
         // ═══════════════════════════════════════════════════════════════════
-        TradeLifecycle.closed(ts.mint, price, pnlP, reason)
         val classification = when {
             isScratchTrade -> "SCRATCH"
             shouldLearnAsWin -> "WIN"
             shouldLearnAsLoss -> "LOSS"
             else -> "UNKNOWN"
         }
-        TradeLifecycle.classified(ts.mint, classification, if (isScratchTrade) null else shouldLearnAsWin)
+        
+        // Update TradeIdentity with close info
+        tradeId.closed(price, pnlP, pnl, reason)
+        tradeId.classified(classification, if (isScratchTrade) null else shouldLearnAsWin)
+        
+        // ═══════════════════════════════════════════════════════════════════
+        // LIFECYCLE: CLOSED → CLASSIFIED (use identity.mint for consistency)
+        // ═══════════════════════════════════════════════════════════════════
+        TradeLifecycle.closed(tradeId.mint, price, pnlP, reason)
+        TradeLifecycle.classified(tradeId.mint, classification, if (isScratchTrade) null else shouldLearnAsWin)
         
         ts.position         = Position()
         ts.lastExitTs       = System.currentTimeMillis()
@@ -1891,7 +1943,7 @@ class Executor(
         // Notify shadow learning engine - but skip scratch trades
         if (!isScratchTrade) {
             ShadowLearningEngine.onLiveTradeExit(
-                mint = ts.mint,
+                mint = tradeId.mint,
                 exitPrice = price,
                 exitReason = reason,
                 livePnlSol = pnl,
@@ -1901,7 +1953,13 @@ class Executor(
     }
 
     private fun liveSell(ts: TokenState, reason: String,
-                         wallet: SolanaWallet, walletSol: Double) {
+                         wallet: SolanaWallet, walletSol: Double,
+                         identity: TradeIdentity? = null) {
+        // ═══════════════════════════════════════════════════════════════════════════
+        // TRADE IDENTITY: Use canonical identity for consistent tracking
+        // ═══════════════════════════════════════════════════════════════════════════
+        val tradeId = identity ?: TradeIdentityManager.getOrCreate(ts.mint, ts.symbol, ts.source)
+        
         val c   = cfg()
         val pos = ts.position
         if (!pos.isOpen) return
@@ -1909,7 +1967,7 @@ class Executor(
         // Keypair integrity check
         if (!security.verifyKeypairIntegrity(wallet.publicKeyB58,
                 c.walletAddress.ifBlank { wallet.publicKeyB58 })) {
-            onLog("🛑 Keypair integrity failure — sell aborted", ts.mint)
+            onLog("🛑 Keypair integrity failure — sell aborted", tradeId.mint)
             return
         }
 
@@ -1986,7 +2044,8 @@ class Executor(
         val shouldLearnAsLoss = tradeClassification in listOf("MEANINGFUL_LOSS", "SMALL_LOSS")
         val shouldLearnAsWin = tradeClassification in listOf("MEANINGFUL_WIN", "SMALL_WIN")
         
-        ErrorLogger.info("Executor", "📊 LIVE ${ts.symbol} CLASSIFIED: $tradeClassification | " +
+        // Use tradeId for consistent logging
+        ErrorLogger.info("Executor", "📊 LIVE ${tradeId.symbol} CLASSIFIED: $tradeClassification | " +
             "pnl=${pnlP.toInt()}% | hold=${holdTimeMins.toInt()}min")
         
         // Record bad behaviour observations for MEANINGFUL losing trades only
@@ -2163,7 +2222,7 @@ class Executor(
         // Notify shadow learning engine - skip scratch trades
         if (!isScratchTradeLive) {
             ShadowLearningEngine.onLiveTradeExit(
-                mint = ts.mint,
+                mint = tradeId.mint,
                 exitPrice = exitPrice,
                 exitReason = reason,
                 livePnlSol = pnl,
@@ -2172,16 +2231,24 @@ class Executor(
         }
         
         // ═══════════════════════════════════════════════════════════════════
-        // LIFECYCLE: CLOSED → CLASSIFIED (LIVE)
+        // TRADE IDENTITY: Update canonical identity state
         // ═══════════════════════════════════════════════════════════════════
-        TradeLifecycle.closed(ts.mint, exitPrice, pnlP, reason)
         val classificationLive = when {
             isScratchTradeLive -> "SCRATCH"
             shouldLearnAsWin -> "WIN"
             shouldLearnAsLoss -> "LOSS"
             else -> "UNKNOWN"
         }
-        TradeLifecycle.classified(ts.mint, classificationLive, if (isScratchTradeLive) null else shouldLearnAsWin)
+        
+        // Update TradeIdentity with close info
+        tradeId.closed(exitPrice, pnlP, pnl, reason)
+        tradeId.classified(classificationLive, if (isScratchTradeLive) null else shouldLearnAsWin)
+        
+        // ═══════════════════════════════════════════════════════════════════
+        // LIFECYCLE: CLOSED → CLASSIFIED (LIVE) - use identity.mint for consistency
+        // ═══════════════════════════════════════════════════════════════════
+        TradeLifecycle.closed(tradeId.mint, exitPrice, pnlP, reason)
+        TradeLifecycle.classified(tradeId.mint, classificationLive, if (isScratchTradeLive) null else shouldLearnAsWin)
         
         ts.position         = Position()
         ts.lastExitTs       = System.currentTimeMillis()

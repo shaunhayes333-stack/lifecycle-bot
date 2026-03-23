@@ -432,50 +432,61 @@ class BotService : Service() {
                             val wl = c.watchlist.toMutableList()
                             
                             // ═══════════════════════════════════════════════════════════════════
-                            // LIFECYCLE: DISCOVERED
+                            // TRADE IDENTITY: Create canonical identity for this trade
+                            // All subsequent tracking uses this identity for consistency
                             // ═══════════════════════════════════════════════════════════════════
-                            TradeLifecycle.discovered(mint, symbol, score, source.name)
+                            val identity = TradeIdentityManager.getOrCreate(mint, symbol, source.name)
                             
-                            ErrorLogger.info("BotService", "Token found: $symbol ($mint) from ${source.name} score=$score")
+                            // ═══════════════════════════════════════════════════════════════════
+                            // LIFECYCLE: DISCOVERED (using identity for consistent mint/symbol)
+                            // ═══════════════════════════════════════════════════════════════════
+                            TradeLifecycle.discovered(identity.mint, identity.symbol, score, source.name)
                             
-                            if (mint in wl) {
-                                ErrorLogger.debug("BotService", "Token $symbol already in watchlist")
+                            ErrorLogger.info("BotService", "Token found: ${identity.symbol} (${identity.mint}) from ${source.name} score=$score")
+                            
+                            if (identity.mint in wl) {
+                                ErrorLogger.debug("BotService", "Token ${identity.symbol} already in watchlist")
                                 return@SolanaMarketScanner
                             }
                             
                             // PAPER MODE: Skip blacklist check - we want to trade everything
-                            if (!c.paperMode && TokenBlacklist.isBlocked(mint)) {
-                                TradeLifecycle.rejected(mint, "Blacklisted")
-                                ErrorLogger.debug("BotService", "Token $symbol is blacklisted")
+                            if (!c.paperMode && TokenBlacklist.isBlocked(identity.mint)) {
+                                TradeLifecycle.rejected(identity.mint, "Blacklisted")
+                                ErrorLogger.debug("BotService", "Token ${identity.symbol} is blacklisted")
                                 return@SolanaMarketScanner
                             }
                             
                             // PAPER MODE: Much larger watchlist for more learning
                             val effectiveMaxWatchlist = if (c.paperMode) 100 else c.maxWatchlistSize
                             if (wl.size >= effectiveMaxWatchlist) {
-                                TradeLifecycle.filtered(mint, "Watchlist full")
+                                TradeLifecycle.filtered(identity.mint, "Watchlist full")
                                 ErrorLogger.debug("BotService", "Watchlist full (${wl.size}/${effectiveMaxWatchlist})")
                                 return@SolanaMarketScanner
                             }
                             
                             // ═══════════════════════════════════════════════════════════════════
+                            // TRADE IDENTITY: Mark as eligible
+                            // ═══════════════════════════════════════════════════════════════════
+                            identity.eligible(score, "Added to watchlist")
+                            
+                            // ═══════════════════════════════════════════════════════════════════
                             // LIFECYCLE: ELIGIBLE (passed initial filters)
                             // ═══════════════════════════════════════════════════════════════════
-                            TradeLifecycle.eligible(mint, score, "Added to watchlist")
+                            TradeLifecycle.eligible(identity.mint, score, "Added to watchlist")
                             
-                            wl.add(mint)
+                            wl.add(identity.mint)
                             ConfigStore.save(applicationContext, c.copy(watchlist = wl))
-                            addLog("✅ ADDED: ${symbol} (${source.name}) score=${score.toInt()} | Watchlist now: ${wl.size}", mint)
-                            ErrorLogger.info("BotService", "Added $symbol to watchlist. New size: ${wl.size}")
+                            addLog("✅ ADDED: ${identity.symbol} (${source.name}) score=${score.toInt()} | Watchlist now: ${wl.size}", identity.mint)
+                            ErrorLogger.info("BotService", "Added ${identity.symbol} to watchlist. New size: ${wl.size}")
                             soundManager.playNewToken()
                             
                             // Seed candle history immediately
                             scope.launch {
                                 try {
                                     val ts = synchronized(status.tokens) {
-                                        status.tokens.getOrPut(mint) {
+                                        status.tokens.getOrPut(identity.mint) {
                                             com.lifecyclebot.data.TokenState(
-                                                mint=mint, symbol=symbol, name=name,
+                                                mint=identity.mint, symbol=identity.symbol, name=name,
                                                 candleTimeframeMinutes = 1,
                                                 source = source.name,  // Track discovery source for learning
                                             )
@@ -1273,6 +1284,12 @@ class BotService : Service() {
                 val effectiveBalance = status.getEffectiveBalance(cfg.paperMode)
                 
                 // ═══════════════════════════════════════════════════════════════════
+                // TRADE IDENTITY: Get or create canonical identity for this token
+                // This ensures mint/symbol are always consistent across all systems
+                // ═══════════════════════════════════════════════════════════════════
+                val identity = TradeIdentityManager.getOrCreate(ts.mint, ts.symbol, ts.source)
+                
+                // ═══════════════════════════════════════════════════════════════════
                 // FINAL DECISION GATE (FDG)
                 // Single authoritative checkpoint - ALL trades must pass
                 // Order: HARD BLOCKS → EDGE → CONFIDENCE → MODE → SIZING
@@ -1280,10 +1297,15 @@ class BotService : Service() {
                 
                 if (!ts.position.isOpen && decision.finalSignal == "BUY") {
                     // ═══════════════════════════════════════════════════════════════════
+                    // TRADE IDENTITY: Mark as candidate
+                    // ═══════════════════════════════════════════════════════════════════
+                    identity.candidate(decision.entryScore, decision.phase, decision.setupQuality)
+                    
+                    // ═══════════════════════════════════════════════════════════════════
                     // LIFECYCLE: CANDIDATE (strategy generated BUY signal)
                     // ═══════════════════════════════════════════════════════════════════
                     TradeLifecycle.candidate(
-                        ts.mint, 
+                        identity.mint, 
                         decision.entryScore, 
                         decision.phase, 
                         decision.setupQuality
@@ -1298,9 +1320,14 @@ class BotService : Service() {
                     )
                     
                     // ═══════════════════════════════════════════════════════════════════
+                    // TRADE IDENTITY: Mark as proposed
+                    // ═══════════════════════════════════════════════════════════════════
+                    identity.proposed()
+                    
+                    // ═══════════════════════════════════════════════════════════════════
                     // LIFECYCLE: PROPOSED → FDG evaluation
                     // ═══════════════════════════════════════════════════════════════════
-                    TradeLifecycle.proposed(ts.mint)
+                    TradeLifecycle.proposed(identity.mint)
                     
                     // Run through Final Decision Gate
                     val fdgDecision = FinalDecisionGate.evaluate(
@@ -1313,14 +1340,19 @@ class BotService : Service() {
                     
                     if (fdgDecision.canExecute()) {
                         // ═══════════════════════════════════════════════════════════════════
+                        // TRADE IDENTITY: Mark as approved
+                        // ═══════════════════════════════════════════════════════════════════
+                        identity.approved(fdgDecision.sizeSol, fdgDecision.quality, fdgDecision.confidence)
+                        
+                        // ═══════════════════════════════════════════════════════════════════
                         // LIFECYCLE: FDG_APPROVED → SIZED
                         // ═══════════════════════════════════════════════════════════════════
-                        TradeLifecycle.fdgApproved(ts.mint, fdgDecision.quality, fdgDecision.confidence)
-                        TradeLifecycle.sized(ts.mint, fdgDecision.sizeSol, "medium")
+                        TradeLifecycle.fdgApproved(identity.mint, fdgDecision.quality, fdgDecision.confidence)
+                        TradeLifecycle.sized(identity.mint, fdgDecision.sizeSol, "medium")
                         
                         FinalDecisionGate.logApprovedTrade(fdgDecision) { addLog(it, mint) }
                         
-                        ErrorLogger.info("BotService", "✅ FDG APPROVED: ${ts.symbol} | " +
+                        ErrorLogger.info("BotService", "✅ FDG APPROVED: ${identity.symbol} | " +
                             "quality=${fdgDecision.quality} | conf=${fdgDecision.confidence.toInt()}% | " +
                             "size=${fdgDecision.sizeSol}")
                         
@@ -1339,28 +1371,39 @@ class BotService : Service() {
                                     com.lifecyclebot.engine.BotService.walletManager
                                         ?.state?.value?.totalTrades ?: 0
                                 } catch (_: Exception) { 0 },
+                                tradeIdentity      = identity,  // Pass canonical identity
                             )
                         }
                     } else {
                         // ═══════════════════════════════════════════════════════════════════
-                        // LIFECYCLE: FDG_BLOCKED
+                        // TRADE IDENTITY: Mark as blocked
+                        // ═══════════════════════════════════════════════════════════════════
+                        identity.blocked(
+                            fdgDecision.blockReason ?: "UNKNOWN",
+                            fdgDecision.blockLevel?.name ?: "UNKNOWN",
+                            fdgDecision.quality,
+                            fdgDecision.confidence
+                        )
+                        
+                        // ═══════════════════════════════════════════════════════════════════
+                        // LIFECYCLE: FDG_BLOCKED (using identity for consistency)
                         // ═══════════════════════════════════════════════════════════════════
                         TradeLifecycle.fdgBlocked(
-                            ts.mint, 
+                            identity.mint, 
                             fdgDecision.blockReason ?: "UNKNOWN",
                             fdgDecision.blockLevel?.name ?: "UNKNOWN"
                         )
                         
                         FinalDecisionGate.logBlockedTrade(fdgDecision) { addLog(it, mint) }
                         
-                        ErrorLogger.info("BotService", "🚫 FDG BLOCKED: ${ts.symbol} | " +
+                        ErrorLogger.info("BotService", "🚫 FDG BLOCKED: ${identity.symbol} | " +
                             "reason=${fdgDecision.blockReason} | level=${fdgDecision.blockLevel}")
                         
                         // Record this for learning (simulation only, no execution)
                         executor.brain?.recordBlockedTrade(
-                            mint = ts.mint,
-                            phase = ts.phase,
-                            source = ts.source,
+                            mint = identity.mint,
+                            phase = identity.phase,
+                            source = identity.source,
                             blockReason = fdgDecision.blockReason ?: "UNKNOWN",
                             quality = fdgDecision.quality,
                             confidence = fdgDecision.confidence,
@@ -1373,15 +1416,15 @@ class BotService : Service() {
                         // ═══════════════════════════════════════════════════════════════════
                         if (cfg.paperMode) {
                             ShadowLearningEngine.onFdgBlockedTrade(
-                                mint = ts.mint,
-                                symbol = ts.symbol,
+                                mint = identity.mint,
+                                symbol = identity.symbol,
                                 blockReason = fdgDecision.blockReason ?: "UNKNOWN",
                                 blockLevel = fdgDecision.blockLevel?.name ?: "UNKNOWN",
                                 currentPrice = ts.ref,
                                 proposedSizeSol = proposedSize,
                                 quality = fdgDecision.quality,
                                 confidence = fdgDecision.confidence,
-                                phase = ts.phase,
+                                phase = identity.phase,
                             )
                         }
                     }
