@@ -1639,10 +1639,20 @@ class Executor(
             )
             
             // Update BotBrain in real-time — check if we should blacklist this token
+            // Pass additional metrics for rolling memory system
             brain?.let { b ->
                 val shouldBlacklist = b.learnFromTrade(
-                    isWin = false, phase = ph, emaFan = fanName, 
-                    source = src, pnlPct = pnlP, mint = ts.mint
+                    isWin = false, 
+                    phase = ph, 
+                    emaFan = fanName, 
+                    source = src, 
+                    pnlPct = pnlP, 
+                    mint = ts.mint,
+                    // Rolling memory metrics
+                    rugcheckScore = ts.safety.rugcheckScore,
+                    buyPressure = ts.meta.pressScore,
+                    topHolderPct = ts.safety.topHolderPct,
+                    liquidityUsd = ts.lastLiquidityUsd,
                 )
                 // Paper mode: Still BAN tokens to build the list for live mode
                 // but we don't CHECK the list in paper mode (handled in scanner/watchlist)
@@ -1687,8 +1697,21 @@ class Executor(
             tradeDb?.recordGoodObservation("source=${src}")
             
             // Update BotBrain in real-time
+            // Pass additional metrics for rolling memory system
             brain?.let { b ->
-                b.learnFromTrade(isWin = true, phase = ph, emaFan = fanName, source = src, pnlPct = pnlP, mint = ts.mint)
+                b.learnFromTrade(
+                    isWin = true, 
+                    phase = ph, 
+                    emaFan = fanName, 
+                    source = src, 
+                    pnlPct = pnlP, 
+                    mint = ts.mint,
+                    // Rolling memory metrics
+                    rugcheckScore = ts.safety.rugcheckScore,
+                    buyPressure = ts.meta.pressScore,
+                    topHolderPct = ts.safety.topHolderPct,
+                    liquidityUsd = ts.lastLiquidityUsd,
+                )
             }
             
             // Learn from winning trade in TradingMemory
@@ -1924,10 +1947,20 @@ class Executor(
             )
 
             // Update BotBrain — check if we should blacklist this token
+            // Pass additional metrics for rolling memory system
             brain?.let { b ->
                 val shouldBlacklist = b.learnFromTrade(
-                    isWin = false, phase = ph, emaFan = fanName, 
-                    source = src, pnlPct = pnlP, mint = ts.mint
+                    isWin = false, 
+                    phase = ph, 
+                    emaFan = fanName, 
+                    source = src, 
+                    pnlPct = pnlP, 
+                    mint = ts.mint,
+                    // Rolling memory metrics
+                    rugcheckScore = ts.safety.rugcheckScore,
+                    buyPressure = ts.meta.pressScore,
+                    topHolderPct = ts.safety.topHolderPct,
+                    liquidityUsd = ts.lastLiquidityUsd,
                 )
                 // Paper mode: Still BAN tokens to build the list for live mode
                 // but we don't CHECK the list in paper mode (handled in scanner/watchlist)
@@ -1954,8 +1987,22 @@ class Executor(
             tradeDb?.recordGoodObservation("phase=${ph}+ema=${fanName}")
             tradeDb?.recordGoodObservation("source=${src}")
             
+            // Update BotBrain for winning trade
+            // Pass additional metrics for rolling memory system
             brain?.let { b ->
-                b.learnFromTrade(isWin = true, phase = ph, emaFan = fanName, source = src, pnlPct = pnlP, mint = ts.mint)
+                b.learnFromTrade(
+                    isWin = true, 
+                    phase = ph, 
+                    emaFan = fanName, 
+                    source = src, 
+                    pnlPct = pnlP, 
+                    mint = ts.mint,
+                    // Rolling memory metrics
+                    rugcheckScore = ts.safety.rugcheckScore,
+                    buyPressure = ts.meta.pressScore,
+                    topHolderPct = ts.safety.topHolderPct,
+                    liquidityUsd = ts.lastLiquidityUsd,
+                )
             }
         } else {
             // SCRATCH trade - not meaningful for learning

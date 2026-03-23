@@ -108,6 +108,63 @@ class BotBrain(
     private val topHolderLosses = mutableMapOf<Int, Int>() // holder% bucket → loss count
     private val topHolderWins = mutableMapOf<Int, Int>()   // holder% bucket → win count
 
+    // ══════════════════════════════════════════════════════════════════
+    // ROLLING MEMORY SYSTEM
+    // Split into global (long-term) and recent (current market) memory
+    // Recent trades have higher weight for adaptive behavior
+    // ══════════════════════════════════════════════════════════════════
+    
+    companion object {
+        const val RECENT_MEMORY_SIZE = 200      // Last 200 trades = high weight
+        const val GLOBAL_MEMORY_SIZE = 2000     // Long-term pattern storage
+        const val RECENT_WEIGHT = 0.7           // 70% weight to recent memory
+        const val GLOBAL_WEIGHT = 0.3           // 30% weight to global memory
+        const val DECAY_HALF_LIFE = 50          // Trades until weight halves
+    }
+    
+    /**
+     * Trade record for memory storage with timestamp for decay calculation
+     */
+    data class MemoryTrade(
+        val timestamp: Long,
+        val isWin: Boolean,
+        val pnlPct: Double,
+        val phase: String,
+        val emaFan: String,
+        val source: String,
+        val rugcheckScore: Int,
+        val buyPressure: Double,
+        val topHolderPct: Double,
+        val liquidityUsd: Double,
+    )
+    
+    // Recent memory - last N trades, high weight, adapts quickly
+    private val recentMemory = ArrayDeque<MemoryTrade>(RECENT_MEMORY_SIZE + 10)
+    
+    // Global memory - long-term patterns, lower weight, stable knowledge
+    private val globalMemory = ArrayDeque<MemoryTrade>(GLOBAL_MEMORY_SIZE + 10)
+    
+    // Aggregated stats from both memories (computed periodically)
+    data class MemoryStats(
+        val recentWinRate: Double,
+        val globalWinRate: Double,
+        val blendedWinRate: Double,
+        val recentAvgPnl: Double,
+        val globalAvgPnl: Double,
+        val recentTradeCount: Int,
+        val globalTradeCount: Int,
+        val topPhases: List<Pair<String, Double>>,      // phase → win rate
+        val topSources: List<Pair<String, Double>>,     // source → win rate
+        val dangerZones: List<String>,                   // patterns to avoid
+    )
+    
+    @Volatile var memoryStats: MemoryStats = MemoryStats(
+        recentWinRate = 0.0, globalWinRate = 0.0, blendedWinRate = 0.0,
+        recentAvgPnl = 0.0, globalAvgPnl = 0.0,
+        recentTradeCount = 0, globalTradeCount = 0,
+        topPhases = emptyList(), topSources = emptyList(), dangerZones = emptyList()
+    )
+
     private var lastStatAnalysisTrades = 0
     @Volatile private var analysisRunning = false
     private var lastLlmAnalysisTrades  = 0
@@ -128,11 +185,13 @@ class BotBrain(
         // so the brain doesn't reset to zero on every restart
         restoreFromDatabase()
         loadThresholdsFromPrefs()  // Load adaptive thresholds
+        loadMemoryFromPrefs()      // Load rolling memory system
         scope.launch { brainLoop() }
         onLog("🧠 BotBrain online — self-learning active " +
               "(entry delta ${String.format("%+.1f", entryThresholdDelta)}, " +
               "regime mult ${String.format("%.2f", regimeBullMult)}×, " +
-              "rugcheck≤$learnedRugcheckThreshold)")
+              "rugcheck≤$learnedRugcheckThreshold, " +
+              "memory[${recentMemory.size}/${globalMemory.size}])")
     }
 
     /**
@@ -200,7 +259,13 @@ class BotBrain(
         }
     }
 
-    fun stop() { scope.cancel() }
+    fun stop() { 
+        // Save rolling memory before stopping
+        saveMemoryToPrefs()
+        saveThresholdsToPrefs()
+        scope.cancel() 
+        onLog("🧠 BotBrain stopped — memory saved (${recentMemory.size} recent, ${globalMemory.size} global)")
+    }
 
     // ── Main brain loop ───────────────────────────────────────────────
 
@@ -734,11 +799,60 @@ Analyse this data and respond with ONLY valid JSON in this exact format:
     /**
      * Real-time learning from a completed trade.
      * Updates internal state immediately for faster adaptation.
+     * 
+     * ROLLING MEMORY INTEGRATION:
+     * This function now records trades to the rolling memory system, which prioritizes
+     * recent trades (last 200) over global historical data (up to 2000).
+     * 
+     * FAST-CHANGING METRICS (prioritize recent memory only):
+     * - Momentum strength (tracked via phase performance)
+     * - Source quality (tracked weekly)
+     * - Market regime
+     * - Optimal entry aggressiveness
+     * - Launch type profitability
+     * 
+     * These metrics are calculated primarily from recent memory to adapt quickly
+     * to changing market conditions.
+     * 
      * Returns true if the token should be blacklisted (2+ losses on same token).
      */
-    fun learnFromTrade(isWin: Boolean, phase: String, emaFan: String, source: String, pnlPct: Double, mint: String = ""): Boolean {
+    fun learnFromTrade(
+        isWin: Boolean, 
+        phase: String, 
+        emaFan: String, 
+        source: String, 
+        pnlPct: Double, 
+        mint: String = "",
+        // Optional: additional metrics for rolling memory
+        rugcheckScore: Int = 50,
+        buyPressure: Double = 50.0,
+        topHolderPct: Double = 10.0,
+        liquidityUsd: Double = 10000.0,
+    ): Boolean {
         try {
-            // Track phase performance
+            // ═══════════════════════════════════════════════════════════════════
+            // ROLLING MEMORY: Record trade for adaptive learning
+            // This is the NEW primary learning mechanism
+            // ═══════════════════════════════════════════════════════════════════
+            recordToMemory(
+                isWin = isWin,
+                pnlPct = pnlPct,
+                phase = phase,
+                emaFan = emaFan,
+                source = source,
+                rugcheckScore = rugcheckScore,
+                buyPressure = buyPressure,
+                topHolderPct = topHolderPct,
+                liquidityUsd = liquidityUsd,
+            )
+            
+            // ═══════════════════════════════════════════════════════════════════
+            // FAST-CHANGING METRICS: Use RECENT MEMORY primarily
+            // These should NOT be dominated by global/historical data
+            // ═══════════════════════════════════════════════════════════════════
+            
+            // Track phase performance in session counters (reset on restart)
+            // These give immediate feedback, rolling memory provides context
             val phaseWins = phaseWinCounts.getOrDefault(phase, 0)
             val phaseLosses = phaseLossCounts.getOrDefault(phase, 0)
             if (isWin) {
@@ -747,17 +861,15 @@ Analyse this data and respond with ONLY valid JSON in this exact format:
                 phaseLossCounts[phase] = phaseLosses + 1
             }
             
-            // Calculate real-time win rate for this phase
-            val totalForPhase = phaseWins + phaseLosses + 1
-            val winRate = (phaseWins + (if (isWin) 1 else 0)).toDouble() / totalForPhase * 100
-            
-            // Adjust phase boost based on real-time performance
-            if (totalForPhase >= 5) {
+            // Phase boost: Use RECENT MEMORY win rate (not global)
+            // This ensures fast adaptation to current market conditions
+            val recentPhaseWinRate = getRecentPhaseWinRate(phase)
+            if (recentPhaseWinRate != null) {
                 val newBoost = when {
-                    winRate >= 70 -> -5.0  // Lower entry bar = more aggressive
-                    winRate >= 55 -> 0.0   // Neutral
-                    winRate >= 40 -> 5.0   // Raise entry bar = more selective
-                    else -> 10.0           // High bar = very selective
+                    recentPhaseWinRate >= 0.70 -> -5.0  // Lower entry bar = more aggressive
+                    recentPhaseWinRate >= 0.55 -> 0.0   // Neutral
+                    recentPhaseWinRate >= 0.40 -> 5.0   // Raise entry bar = more selective
+                    else -> 10.0                         // High bar = very selective
                 }
                 phaseBoosts = phaseBoosts.toMutableMap().apply { put(phase, newBoost) }
             }
@@ -771,28 +883,39 @@ Analyse this data and respond with ONLY valid JSON in this exact format:
                 sourceLossCounts[source] = sourceLosses + 1
             }
             
-            // Adjust source boost
-            val totalForSource = sourceWins + sourceLosses + 1
-            val sourceWinRate = (sourceWins + (if (isWin) 1 else 0)).toDouble() / totalForSource * 100
-            if (totalForSource >= 5) {
+            // Source boost: Use RECENT MEMORY win rate
+            // Source quality changes quickly week-to-week
+            val recentSourceWinRate = getRecentSourceWinRate(source)
+            if (recentSourceWinRate != null) {
                 val newSourceBoost = when {
-                    sourceWinRate >= 70 -> 10.0   // Good source = boost score
-                    sourceWinRate >= 50 -> 0.0    // Neutral
-                    else -> -10.0                 // Bad source = penalize
+                    recentSourceWinRate >= 0.70 -> 10.0   // Good source = boost score
+                    recentSourceWinRate >= 0.50 -> 0.0    // Neutral
+                    else -> -10.0                          // Bad source = penalize
                 }
                 sourceBoosts = sourceBoosts.toMutableMap().apply { put(source, newSourceBoost) }
             }
             
-            // Adjust global entry threshold based on recent performance
-            if (!isWin && pnlPct < -15) {
-                // Significant loss - become more cautious
-                entryThresholdDelta = (entryThresholdDelta + 1.0).coerceAtMost(15.0)
-            } else if (isWin && pnlPct > 30) {
-                // Good win - can be slightly more aggressive
-                entryThresholdDelta = (entryThresholdDelta - 0.5).coerceAtLeast(-5.0)
+            // ═══════════════════════════════════════════════════════════════════
+            // ENTRY THRESHOLD: Blend recent + global (30/70 recent bias)
+            // This is a balance between quick adaptation and stable baseline
+            // ═══════════════════════════════════════════════════════════════════
+            val blendedWinRate = memoryStats.blendedWinRate
+            if (memoryStats.recentTradeCount >= 10) {
+                // Use blended rate but weight recent changes more heavily
+                val recentRecentWinRate = memoryStats.recentWinRate
+                entryThresholdDelta = when {
+                    recentRecentWinRate >= 0.75 -> -4.0   // Hot streak - be aggressive
+                    recentRecentWinRate >= 0.65 -> -2.0
+                    recentRecentWinRate >= 0.55 -> 0.0
+                    recentRecentWinRate >= 0.45 -> 3.0
+                    recentRecentWinRate >= 0.35 -> 6.0
+                    else -> 10.0                           // Cold streak - be selective
+                }.coerceIn(-12.0, 15.0)
             }
             
-            // Track EMA fan performance for suppression
+            // ═══════════════════════════════════════════════════════════════════
+            // PATTERN SUPPRESSION: Track EMA fan performance
+            // ═══════════════════════════════════════════════════════════════════
             val key = "${phase}+${emaFan}"
             if (!isWin) {
                 val currentLosses = patternLossCounts.getOrDefault(key, 0) + 1
@@ -823,13 +946,59 @@ Analyse this data and respond with ONLY valid JSON in this exact format:
             }
             
             totalTradesLearned++
-            onLog("🧠 Learned: ${if(isWin) "WIN" else "LOSS"} ${pnlPct.toInt()}% | $phase | $source")
+            
+            // Log with memory context
+            val memSize = recentMemory.size
+            val globalSize = globalMemory.size
+            onLog("🧠 Learned: ${if(isWin) "WIN" else "LOSS"} ${pnlPct.toInt()}% | $phase | $source | mem[$memSize/$globalSize]")
+            
+            // Save memory periodically (every 5 trades)
+            if (totalTradesLearned % 5 == 0) {
+                saveMemoryToPrefs()
+            }
+            
             return false  // No blacklisting needed
         } catch (e: Exception) {
             ErrorLogger.error("BotBrain", "learnFromTrade error: ${e.message}")
             return false
         }
     }
+    
+    /**
+     * Get win rate for a phase from RECENT MEMORY only.
+     * This ensures fast-changing metrics adapt quickly.
+     * Returns null if not enough data (< 3 trades).
+     */
+    private fun getRecentPhaseWinRate(phase: String): Double? {
+        val recentTrades = synchronized(recentMemory) { recentMemory.filter { it.phase == phase } }
+        if (recentTrades.size < 3) return null
+        val wins = recentTrades.count { it.isWin }
+        return wins.toDouble() / recentTrades.size
+    }
+    
+    /**
+     * Get win rate for a source from RECENT MEMORY only.
+     * Source quality changes weekly, so we only look at recent trades.
+     * Returns null if not enough data (< 3 trades).
+     */
+    private fun getRecentSourceWinRate(source: String): Double? {
+        val recentTrades = synchronized(recentMemory) { recentMemory.filter { it.source == source } }
+        if (recentTrades.size < 3) return null
+        val wins = recentTrades.count { it.isWin }
+        return wins.toDouble() / recentTrades.size
+    }
+    
+    /**
+     * Get blended win rate for entry aggressiveness decisions.
+     * Uses 70% recent / 30% global weighting.
+     */
+    fun getBlendedWinRate(): Double = memoryStats.blendedWinRate
+    
+    /**
+     * Check if current market regime (from recent trades) is favorable.
+     * Returns true if recent win rate >= 50%.
+     */
+    fun isRecentRegimeFavorable(): Boolean = memoryStats.recentWinRate >= 0.50
     
     // Real-time tracking maps
     private val phaseWinCounts = mutableMapOf<String, Int>()
@@ -1076,4 +1245,309 @@ Analyse this data and respond with ONLY valid JSON in this exact format:
         val topHolderMax: Double,
         val liquidityMin: Double,
     )
+    
+    // ══════════════════════════════════════════════════════════════════
+    // ROLLING MEMORY FUNCTIONS
+    // ══════════════════════════════════════════════════════════════════
+    
+    /**
+     * Record a trade to both recent and global memory.
+     * Recent memory maintains last N trades with high weight.
+     * Global memory stores long-term patterns with decay.
+     */
+    fun recordToMemory(
+        isWin: Boolean,
+        pnlPct: Double,
+        phase: String,
+        emaFan: String,
+        source: String,
+        rugcheckScore: Int,
+        buyPressure: Double,
+        topHolderPct: Double,
+        liquidityUsd: Double,
+    ) {
+        val trade = MemoryTrade(
+            timestamp = System.currentTimeMillis(),
+            isWin = isWin,
+            pnlPct = pnlPct,
+            phase = phase,
+            emaFan = emaFan,
+            source = source,
+            rugcheckScore = rugcheckScore,
+            buyPressure = buyPressure,
+            topHolderPct = topHolderPct,
+            liquidityUsd = liquidityUsd,
+        )
+        
+        // Add to recent memory (FIFO, keeps last N)
+        synchronized(recentMemory) {
+            recentMemory.addLast(trade)
+            while (recentMemory.size > RECENT_MEMORY_SIZE) {
+                // Move oldest to global memory before removing
+                recentMemory.removeFirst()?.let { old ->
+                    synchronized(globalMemory) {
+                        globalMemory.addLast(old)
+                        while (globalMemory.size > GLOBAL_MEMORY_SIZE) {
+                            globalMemory.removeFirst()
+                        }
+                    }
+                }
+            }
+        }
+        
+        // Recompute stats periodically (every 10 trades)
+        if ((recentMemory.size + globalMemory.size) % 10 == 0) {
+            recomputeMemoryStats()
+        }
+        
+        ErrorLogger.debug("BotBrain", "📝 Memory: recent=${recentMemory.size} global=${globalMemory.size}")
+    }
+    
+    /**
+     * Calculate weight for a trade based on age.
+     * Newer trades have weight closer to 1.0, older trades decay toward 0.
+     */
+    private fun calculateDecayWeight(trade: MemoryTrade, referenceTime: Long): Double {
+        val ageMs = referenceTime - trade.timestamp
+        val ageHours = ageMs / 3_600_000.0
+        // Exponential decay: weight = 0.5^(age/halfLife)
+        // Half-life of ~24 hours means a trade from yesterday has 50% weight
+        val halfLifeHours = 24.0
+        return Math.pow(0.5, ageHours / halfLifeHours).coerceIn(0.1, 1.0)
+    }
+    
+    /**
+     * Recompute aggregated stats from recent and global memory.
+     * Uses weighted averages with decay for older trades.
+     */
+    private fun recomputeMemoryStats() {
+        val now = System.currentTimeMillis()
+        
+        // Recent memory stats (high weight, no decay)
+        val recentTrades = synchronized(recentMemory) { recentMemory.toList() }
+        val recentWins = recentTrades.count { it.isWin }
+        val recentWinRate = if (recentTrades.isNotEmpty()) 
+            recentWins.toDouble() / recentTrades.size else 0.0
+        val recentAvgPnl = if (recentTrades.isNotEmpty())
+            recentTrades.map { it.pnlPct }.average() else 0.0
+        
+        // Global memory stats (with decay weighting)
+        val globalTrades = synchronized(globalMemory) { globalMemory.toList() }
+        var globalWeightedWins = 0.0
+        var globalTotalWeight = 0.0
+        var globalWeightedPnl = 0.0
+        
+        for (trade in globalTrades) {
+            val weight = calculateDecayWeight(trade, now)
+            globalTotalWeight += weight
+            if (trade.isWin) globalWeightedWins += weight
+            globalWeightedPnl += trade.pnlPct * weight
+        }
+        
+        val globalWinRate = if (globalTotalWeight > 0)
+            globalWeightedWins / globalTotalWeight else 0.0
+        val globalAvgPnl = if (globalTotalWeight > 0)
+            globalWeightedPnl / globalTotalWeight else 0.0
+        
+        // Blended win rate: 70% recent, 30% global
+        val blendedWinRate = (RECENT_WEIGHT * recentWinRate) + (GLOBAL_WEIGHT * globalWinRate)
+        
+        // Find top performing phases (from recent memory for adaptiveness)
+        val phaseStats = recentTrades.groupBy { it.phase }
+            .mapValues { (_, trades) -> 
+                val wins = trades.count { it.isWin }
+                if (trades.size >= 3) wins.toDouble() / trades.size else 0.0
+            }
+            .toList()
+            .sortedByDescending { it.second }
+            .take(5)
+        
+        // Find top performing sources
+        val sourceStats = recentTrades.groupBy { it.source }
+            .mapValues { (_, trades) ->
+                val wins = trades.count { it.isWin }
+                if (trades.size >= 3) wins.toDouble() / trades.size else 0.0
+            }
+            .toList()
+            .sortedByDescending { it.second }
+            .take(5)
+        
+        // Find danger zones (patterns with >70% loss rate in recent memory)
+        val dangerZones = mutableListOf<String>()
+        
+        // Check phases with high loss rate
+        for ((phase, trades) in recentTrades.groupBy { it.phase }) {
+            if (trades.size >= 5) {
+                val lossRate = trades.count { !it.isWin }.toDouble() / trades.size
+                if (lossRate > 0.70) {
+                    dangerZones.add("phase:$phase (${(lossRate*100).toInt()}% loss)")
+                }
+            }
+        }
+        
+        // Check sources with high loss rate
+        for ((source, trades) in recentTrades.groupBy { it.source }) {
+            if (trades.size >= 5) {
+                val lossRate = trades.count { !it.isWin }.toDouble() / trades.size
+                if (lossRate > 0.70) {
+                    dangerZones.add("source:$source (${(lossRate*100).toInt()}% loss)")
+                }
+            }
+        }
+        
+        memoryStats = MemoryStats(
+            recentWinRate = recentWinRate,
+            globalWinRate = globalWinRate,
+            blendedWinRate = blendedWinRate,
+            recentAvgPnl = recentAvgPnl,
+            globalAvgPnl = globalAvgPnl,
+            recentTradeCount = recentTrades.size,
+            globalTradeCount = globalTrades.size,
+            topPhases = phaseStats,
+            topSources = sourceStats,
+            dangerZones = dangerZones,
+        )
+        
+        ErrorLogger.info("BotBrain", "📊 MEMORY STATS: " +
+            "recent=${recentTrades.size} (${(recentWinRate*100).toInt()}% win) | " +
+            "global=${globalTrades.size} (${(globalWinRate*100).toInt()}% win) | " +
+            "blended=${(blendedWinRate*100).toInt()}% | " +
+            "dangers=${dangerZones.size}")
+        
+        // Update phase/source boosts based on memory
+        updateBoostsFromMemory()
+    }
+    
+    /**
+     * Update phase and source boosts based on memory stats.
+     * High-performing patterns get positive boosts, low-performing get negative.
+     */
+    private fun updateBoostsFromMemory() {
+        // Phase boosts: +10 for >60% win rate, -10 for <40% win rate
+        val newPhaseBoosts = mutableMapOf<String, Double>()
+        for ((phase, winRate) in memoryStats.topPhases) {
+            val boost = when {
+                winRate >= 0.60 -> 10.0
+                winRate >= 0.50 -> 5.0
+                winRate < 0.30 -> -15.0
+                winRate < 0.40 -> -10.0
+                else -> 0.0
+            }
+            if (boost != 0.0) newPhaseBoosts[phase] = boost
+        }
+        phaseBoosts = newPhaseBoosts
+        
+        // Source boosts: similar logic
+        val newSourceBoosts = mutableMapOf<String, Double>()
+        for ((source, winRate) in memoryStats.topSources) {
+            val boost = when {
+                winRate >= 0.60 -> 10.0
+                winRate >= 0.50 -> 5.0
+                winRate < 0.30 -> -15.0
+                winRate < 0.40 -> -10.0
+                else -> 0.0
+            }
+            if (boost != 0.0) newSourceBoosts[source] = boost
+        }
+        sourceBoosts = newSourceBoosts
+        
+        if (newPhaseBoosts.isNotEmpty() || newSourceBoosts.isNotEmpty()) {
+            ErrorLogger.info("BotBrain", "🎯 BOOSTS UPDATED: " +
+                "phases=$newPhaseBoosts | sources=$newSourceBoosts")
+        }
+    }
+    
+    /**
+     * Check if a pattern is in a danger zone based on recent memory.
+     */
+    fun isInDangerZone(phase: String, source: String): Boolean {
+        return memoryStats.dangerZones.any { 
+            it.contains("phase:$phase") || it.contains("source:$source")
+        }
+    }
+    
+    /**
+     * Get memory summary for UI display.
+     */
+    fun getMemorySummary(): String = buildString {
+        appendLine("📊 Rolling Memory:")
+        appendLine("  Recent: ${memoryStats.recentTradeCount} trades (${(memoryStats.recentWinRate*100).toInt()}% win, avg ${memoryStats.recentAvgPnl.toInt()}%)")
+        appendLine("  Global: ${memoryStats.globalTradeCount} trades (${(memoryStats.globalWinRate*100).toInt()}% win)")
+        appendLine("  Blended: ${(memoryStats.blendedWinRate*100).toInt()}% win rate")
+        if (memoryStats.dangerZones.isNotEmpty()) {
+            appendLine("  ⚠️ Danger zones: ${memoryStats.dangerZones.joinToString(", ")}")
+        }
+        if (memoryStats.topPhases.isNotEmpty()) {
+            val top = memoryStats.topPhases.firstOrNull()
+            if (top != null) appendLine("  🏆 Best phase: ${top.first} (${(top.second*100).toInt()}%)")
+        }
+    }
+    
+    /**
+     * Save memory to persistent storage.
+     */
+    fun saveMemoryToPrefs() {
+        try {
+            val prefs = ctx.getSharedPreferences("bot_brain_memory", Context.MODE_PRIVATE)
+            val recentJson = synchronized(recentMemory) {
+                org.json.JSONArray().apply {
+                    recentMemory.forEach { trade ->
+                        put(org.json.JSONObject().apply {
+                            put("ts", trade.timestamp)
+                            put("win", trade.isWin)
+                            put("pnl", trade.pnlPct)
+                            put("phase", trade.phase)
+                            put("ema", trade.emaFan)
+                            put("src", trade.source)
+                            put("rug", trade.rugcheckScore)
+                            put("press", trade.buyPressure)
+                            put("holder", trade.topHolderPct)
+                            put("liq", trade.liquidityUsd)
+                        })
+                    }
+                }.toString()
+            }
+            prefs.edit().putString("recent_memory", recentJson).apply()
+            ErrorLogger.info("BotBrain", "💾 Memory saved: ${recentMemory.size} recent trades")
+        } catch (e: Exception) {
+            ErrorLogger.error("BotBrain", "Failed to save memory: ${e.message}")
+        }
+    }
+    
+    /**
+     * Load memory from persistent storage.
+     */
+    fun loadMemoryFromPrefs() {
+        try {
+            val prefs = ctx.getSharedPreferences("bot_brain_memory", Context.MODE_PRIVATE)
+            val recentJson = prefs.getString("recent_memory", null) ?: return
+            
+            val jsonArray = org.json.JSONArray(recentJson)
+            synchronized(recentMemory) {
+                recentMemory.clear()
+                for (i in 0 until jsonArray.length()) {
+                    val obj = jsonArray.getJSONObject(i)
+                    recentMemory.addLast(MemoryTrade(
+                        timestamp = obj.getLong("ts"),
+                        isWin = obj.getBoolean("win"),
+                        pnlPct = obj.getDouble("pnl"),
+                        phase = obj.optString("phase", ""),
+                        emaFan = obj.optString("ema", ""),
+                        source = obj.optString("src", ""),
+                        rugcheckScore = obj.optInt("rug", 50),
+                        buyPressure = obj.optDouble("press", 50.0),
+                        topHolderPct = obj.optDouble("holder", 0.0),
+                        liquidityUsd = obj.optDouble("liq", 0.0),
+                    ))
+                }
+            }
+            
+            // Recompute stats after loading
+            recomputeMemoryStats()
+            
+            ErrorLogger.info("BotBrain", "📂 Memory loaded: ${recentMemory.size} recent trades")
+        } catch (e: Exception) {
+            ErrorLogger.error("BotBrain", "Failed to load memory: ${e.message}")
+        }
+    }
 }
