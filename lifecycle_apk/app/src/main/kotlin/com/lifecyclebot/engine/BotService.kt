@@ -823,13 +823,13 @@ class BotService : Service() {
                     val freshSol = walletManager.state.value.solBalance
                     status.walletSol = freshSol
                     
-                    // Initialize paper wallet with real balance on first successful refresh
+                    // Initialize paper wallet with 5000 SOL for full feature testing
                     val cfg = ConfigStore.load(applicationContext)
-                    if (cfg.paperMode && !status.paperWalletInitialized && freshSol > 0) {
-                        status.paperWalletSol = freshSol
+                    if (cfg.paperMode && !status.paperWalletInitialized) {
+                        status.paperWalletSol = 5000.0  // Fixed 5000 SOL for paper trading
                         status.paperWalletInitialized = true
-                        ErrorLogger.info("PaperWallet", "Initialized with real balance: ${freshSol} SOL")
-                        addLog("📝 Paper wallet synced: ${freshSol.fmt(4)} SOL")
+                        ErrorLogger.info("PaperWallet", "Initialized with 5000 SOL for testing")
+                        addLog("📝 Paper wallet: 5000 SOL (test mode)")
                     }
 
                     // Treasury milestone check — runs every poll cycle

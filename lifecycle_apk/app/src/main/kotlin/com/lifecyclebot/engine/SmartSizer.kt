@@ -153,7 +153,11 @@ object SmartSizer {
         }
         
         // Wallet tier still affects maximum, not base
-        val (tier, tierMaxPct) = when {
+        // Wallet tier affects maximum percentage
+        // PAPER MODE with large balance: Use higher percentages to test all features
+        val (tier, tierMaxPct) = if (isPaperMode && tradeable >= 1000) {
+            "paper_whale" to 0.20  // 20% max for paper whale - test bigger positions
+        } else when {
             tradeable < 0.5  -> "micro"  to 0.15
             tradeable < 2.0  -> "small"  to 0.15
             tradeable < 10.0 -> "medium" to 0.12
