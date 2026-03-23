@@ -37,13 +37,33 @@ object AdaptiveLearningEngine {
     // ═══════════════════════════════════════════════════════════════════
     
     enum class TradeLabel {
-        GOOD_RUNNER,        // Strong runner, +20%+ clean move
-        GOOD_CONTINUATION,  // Solid continuation, volume confirms
-        MID_SMALL_WIN,      // Small win, no follow-through
-        MID_CHOP,           // Flat/choppy, no clear direction
-        BAD_DUMP,           // Dump after entry, likely coordinated sell
-        BAD_RUG,            // Rug pull / liquidity collapse
-        BAD_FAKE_PRESSURE,  // Fake buy pressure, price didn't follow
+        // ═══════════════════════════════════════════════════════════════════
+        // PRIORITY 3: IMPROVED LEARNING LABELS
+        // More granular classification for better AI learning
+        // ═══════════════════════════════════════════════════════════════════
+        
+        // GOOD outcomes (positive learning signal)
+        GOOD_RUNNER,            // Strong runner, +20%+ clean move
+        GOOD_CONTINUATION,      // Solid continuation, volume confirms
+        GOOD_SECOND_LEG,        // Successful re-entry on second leg (reaccumulation)
+        
+        // MID outcomes (neutral/weak learning signal)
+        MID_SMALL_WIN,          // Small win (+5-15%), no strong follow-through
+        MID_FLAT_CHOP,          // Flat/choppy, price went nowhere (-5% to +5%)
+        MID_WEAK_FOLLOW,        // Had momentum but fizzled, weak follow-through
+        MID_STOPPED_OUT,        // Stopped out near breakeven, normal trade management
+        
+        // BAD outcomes (negative learning signal)
+        BAD_DUMP,               // Dump after entry, likely coordinated sell
+        BAD_RUG,                // Rug pull / liquidity collapse
+        BAD_FAKE_PRESSURE,      // Fake buy pressure, price didn't follow
+        BAD_DISTRIBUTION,       // Entered during distribution phase
+        BAD_DEAD_CAT,           // Entered dead cat bounce, trend already broken
+        BAD_CHASING_TOP,        // Chased the top, entered too late in move
+        
+        // Legacy aliases for backward compatibility
+        @Deprecated("Use MID_FLAT_CHOP instead")
+        MID_CHOP,               // Alias for MID_FLAT_CHOP
     }
 
     // ═══════════════════════════════════════════════════════════════════
@@ -136,10 +156,21 @@ object AdaptiveLearningEngine {
         timeToPeakMins: Double,
         holdTimeMins: Double,
         exitReason: String,
+        // PRIORITY 3: New parameters for improved classification
+        entryPhase: String = "",
     ): TradeFeatures {
         val volLiqRatio = if (liquidityUsd > 0) volumeUsd / liquidityUsd else 0.0
         val outcomeScore = calculateOutcomeScore(pnlPct, maxGainPct, timeToPeakMins)
-        val label = classifyTrade(pnlPct, maxGainPct, maxDrawdownPct, exitReason, topHolderPct)
+        val label = classifyTrade(
+            pnlPct = pnlPct,
+            maxGainPct = maxGainPct,
+            maxDrawdownPct = maxDrawdownPct,
+            exitReason = exitReason,
+            topHolderPct = topHolderPct,
+            entryPhase = entryPhase,
+            holdTimeMins = holdTimeMins,
+            emaFanAtEntry = emaFanState,
+        )
         
         return TradeFeatures(
             entryMcapUsd = entryMcapUsd,
@@ -169,7 +200,13 @@ object AdaptiveLearningEngine {
     }
 
     /**
-     * Classify trade into GOOD/BAD/MID categories.
+     * PRIORITY 3: Enhanced trade classification with granular labels.
+     * 
+     * Classification hierarchy:
+     * 1. Check for clear wins (GOOD_*)
+     * 2. Check for severe losses (BAD_RUG, BAD_DUMP)
+     * 3. Check for pattern-based losses (BAD_DISTRIBUTION, BAD_DEAD_CAT, etc.)
+     * 4. Check for weak outcomes (MID_*)
      */
     private fun classifyTrade(
         pnlPct: Double,
@@ -177,30 +214,89 @@ object AdaptiveLearningEngine {
         maxDrawdownPct: Double,
         exitReason: String,
         topHolderPct: Double,
+        // NEW parameters for improved classification
+        entryPhase: String = "",
+        holdTimeMins: Double = 0.0,
+        emaFanAtEntry: String = "",
     ): TradeLabel {
+        val reasonLower = exitReason.lowercase()
+        
         return when {
-            // GOOD: Strong runner
+            // ═══════════════════════════════════════════════════════════════
+            // GOOD OUTCOMES
+            // ═══════════════════════════════════════════════════════════════
+            
+            // GOOD_RUNNER: Strong move with follow-through
             pnlPct >= 20.0 && maxGainPct >= 25.0 -> TradeLabel.GOOD_RUNNER
             
-            // GOOD: Solid continuation
+            // GOOD_SECOND_LEG: Re-entry on reaccumulation worked
+            pnlPct >= 15.0 && entryPhase.contains("reclaim", ignoreCase = true) -> 
+                TradeLabel.GOOD_SECOND_LEG
+            
+            // GOOD_CONTINUATION: Solid trend continuation
             pnlPct >= 10.0 && maxDrawdownPct < 10.0 -> TradeLabel.GOOD_CONTINUATION
             
-            // BAD: Rug pull (massive sudden loss)
-            exitReason.contains("rug", ignoreCase = true) ||
+            // ═══════════════════════════════════════════════════════════════
+            // BAD OUTCOMES - SEVERE
+            // ═══════════════════════════════════════════════════════════════
+            
+            // BAD_RUG: Liquidity collapse or rug pull
+            reasonLower.contains("rug") ||
+            reasonLower.contains("liquidity_collapse") ||
             (pnlPct < -30.0 && maxDrawdownPct > 40.0) -> TradeLabel.BAD_RUG
             
-            // BAD: Dump (coordinated sell)
-            exitReason.contains("dump", ignoreCase = true) ||
+            // BAD_DUMP: Coordinated whale/dev dump
+            reasonLower.contains("dump") ||
+            reasonLower.contains("whale_dump") ||
+            reasonLower.contains("dev_dump") ||
             (pnlPct < -15.0 && topHolderPct > 30.0) -> TradeLabel.BAD_DUMP
             
-            // BAD: Fake pressure (high buy ratio but price dropped)
-            pnlPct < -10.0 && maxGainPct < 5.0 -> TradeLabel.BAD_FAKE_PRESSURE
+            // ═══════════════════════════════════════════════════════════════
+            // BAD OUTCOMES - PATTERN-BASED
+            // ═══════════════════════════════════════════════════════════════
             
-            // MID: Small win
+            // BAD_CHASING_TOP: Entered overextended, price immediately dropped
+            pnlPct < -10.0 && maxGainPct < 3.0 && 
+            entryPhase.contains("overextend", ignoreCase = true) -> 
+                TradeLabel.BAD_CHASING_TOP
+            
+            // BAD_DISTRIBUTION: Entered during distribution phase
+            pnlPct < -10.0 && 
+            (entryPhase.contains("distribution", ignoreCase = true) ||
+             emaFanAtEntry in listOf("BEAR_FAN", "BEAR_FLAT")) -> 
+                TradeLabel.BAD_DISTRIBUTION
+            
+            // BAD_DEAD_CAT: Entered what looked like recovery but wasn't
+            pnlPct < -10.0 && maxGainPct in 3.0..12.0 &&
+            entryPhase.contains("reclaim", ignoreCase = true) ->
+                TradeLabel.BAD_DEAD_CAT
+            
+            // BAD_FAKE_PRESSURE: High buy ratio but price dropped
+            pnlPct < -10.0 && maxGainPct < 5.0 && maxDrawdownPct > 15.0 -> 
+                TradeLabel.BAD_FAKE_PRESSURE
+            
+            // ═══════════════════════════════════════════════════════════════
+            // MID OUTCOMES
+            // ═══════════════════════════════════════════════════════════════
+            
+            // MID_SMALL_WIN: Profitable but weak
+            pnlPct in 5.0..15.0 -> TradeLabel.MID_SMALL_WIN
+            
+            // MID_STOPPED_OUT: Normal stop loss, managed exit
+            pnlPct in -10.0..-1.0 && reasonLower.contains("stop") -> 
+                TradeLabel.MID_STOPPED_OUT
+            
+            // MID_WEAK_FOLLOW: Had some momentum but fizzled
+            pnlPct in -5.0..5.0 && maxGainPct >= 8.0 -> TradeLabel.MID_WEAK_FOLLOW
+            
+            // MID_FLAT_CHOP: No movement, choppy market
+            pnlPct in -5.0..5.0 && maxGainPct < 8.0 -> TradeLabel.MID_FLAT_CHOP
+            
+            // Small win not captured above
             pnlPct > 0 -> TradeLabel.MID_SMALL_WIN
             
-            // MID: Chop
-            else -> TradeLabel.MID_CHOP
+            // Default: flat chop
+            else -> TradeLabel.MID_FLAT_CHOP
         }
     }
 
@@ -411,15 +507,25 @@ object AdaptiveLearningEngine {
         // Adjust feature weights based on outcome
         adjustWeights(features)
         
-        // Log the learning
+        // Log the learning with expanded emoji mapping for new labels
         val labelEmoji = when (features.label) {
+            // GOOD outcomes
             TradeLabel.GOOD_RUNNER -> "🚀"
             TradeLabel.GOOD_CONTINUATION -> "✅"
+            TradeLabel.GOOD_SECOND_LEG -> "🔄"
+            // MID outcomes
             TradeLabel.MID_SMALL_WIN -> "📊"
-            TradeLabel.MID_CHOP -> "〰️"
-            TradeLabel.BAD_DUMP -> "📉"
+            TradeLabel.MID_FLAT_CHOP -> "〰️"
+            TradeLabel.MID_CHOP -> "〰️"  // Legacy alias
+            TradeLabel.MID_WEAK_FOLLOW -> "📉"
+            TradeLabel.MID_STOPPED_OUT -> "🛑"
+            // BAD outcomes
+            TradeLabel.BAD_DUMP -> "💔"
             TradeLabel.BAD_RUG -> "💀"
             TradeLabel.BAD_FAKE_PRESSURE -> "🎭"
+            TradeLabel.BAD_DISTRIBUTION -> "📤"
+            TradeLabel.BAD_DEAD_CAT -> "🐱"
+            TradeLabel.BAD_CHASING_TOP -> "⛰️"
         }
         
         ErrorLogger.info("AdaptiveLearning", "$labelEmoji Trade #$tradeCount: ${features.label.name} " +
@@ -697,9 +803,18 @@ object AdaptiveLearningEngine {
                 "holderConc=${goodPattern.featureRanges["holderConc"]?.fmt()}")
         }
         
-        // Extract BAD patterns (rugs and dumps)
+        // Extract BAD patterns (rugs, dumps, and other severe losses)
+        // PRIORITY 3: Include all severe BAD labels for better pattern detection
         badPatterns.clear()
-        val rugTrades = badTrades.filter { it.label in listOf(TradeLabel.BAD_RUG, TradeLabel.BAD_DUMP) }
+        val severeLabels = listOf(
+            TradeLabel.BAD_RUG, 
+            TradeLabel.BAD_DUMP, 
+            TradeLabel.BAD_DISTRIBUTION,
+            TradeLabel.BAD_DEAD_CAT,
+            TradeLabel.BAD_CHASING_TOP,
+            TradeLabel.BAD_FAKE_PRESSURE,
+        )
+        val rugTrades = badTrades.filter { it.label in severeLabels }
         if (rugTrades.size >= 5) {
             val badPattern = LearnedPattern(
                 name = "RUG_PATTERN",

@@ -1706,6 +1706,8 @@ class Executor(
                 timeToPeakMins = holdMins * 0.5,  // Estimate
                 holdTimeMins = holdMins,
                 exitReason = reason,
+                // PRIORITY 3: Pass entry phase for improved classification
+                entryPhase = ts.position.entryPhase,
             )
             AdaptiveLearningEngine.learnFromTrade(features)
             
@@ -1917,6 +1919,8 @@ class Executor(
                 timeToPeakMins = holdMins * 0.5,
                 holdTimeMins = holdMins,
                 exitReason = reason,
+                // PRIORITY 3: Pass entry phase for improved classification
+                entryPhase = pos.entryPhase,
             )
             AdaptiveLearningEngine.learnFromTrade(features)
             
