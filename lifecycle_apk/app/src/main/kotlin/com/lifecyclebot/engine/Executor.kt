@@ -1478,6 +1478,12 @@ class Executor(
         // V8: Transition to MONITOR state
         TradeStateMachine.setState(ts.mint, TradeState.MONITOR, "position opened")
         
+        // ═══════════════════════════════════════════════════════════════════
+        // LIFECYCLE: EXECUTED → MONITORING
+        // ═══════════════════════════════════════════════════════════════════
+        TradeLifecycle.executed(ts.mint, price, actualSol)
+        TradeLifecycle.monitoring(ts.mint, 0.0)
+        
         // Update paper wallet balance (deduct buy amount)
         onPaperBalanceChange?.invoke(-actualSol)
         
@@ -1853,6 +1859,18 @@ class Executor(
             ErrorLogger.debug("AdaptiveLearning", "Feature capture error: ${e.message}")
         }
         // ═══════════════════════════════════════════════════════════════════
+        
+        // ═══════════════════════════════════════════════════════════════════
+        // LIFECYCLE: CLOSED → CLASSIFIED
+        // ═══════════════════════════════════════════════════════════════════
+        TradeLifecycle.closed(ts.mint, price, pnlP, reason)
+        val classification = when {
+            isScratchTrade -> "SCRATCH"
+            shouldLearnAsWin -> "WIN"
+            shouldLearnAsLoss -> "LOSS"
+            else -> "UNKNOWN"
+        }
+        TradeLifecycle.classified(ts.mint, classification, if (isScratchTrade) null else shouldLearnAsWin)
         
         ts.position         = Position()
         ts.lastExitTs       = System.currentTimeMillis()

@@ -430,6 +430,12 @@ class BotService : Service() {
                         try {
                             val c = ConfigStore.load(applicationContext)
                             val wl = c.watchlist.toMutableList()
+                            
+                            // ═══════════════════════════════════════════════════════════════════
+                            // LIFECYCLE: DISCOVERED
+                            // ═══════════════════════════════════════════════════════════════════
+                            TradeLifecycle.discovered(mint, symbol, score, source.name)
+                            
                             ErrorLogger.info("BotService", "Token found: $symbol ($mint) from ${source.name} score=$score")
                             
                             if (mint in wl) {
@@ -439,6 +445,7 @@ class BotService : Service() {
                             
                             // PAPER MODE: Skip blacklist check - we want to trade everything
                             if (!c.paperMode && TokenBlacklist.isBlocked(mint)) {
+                                TradeLifecycle.rejected(mint, "Blacklisted")
                                 ErrorLogger.debug("BotService", "Token $symbol is blacklisted")
                                 return@SolanaMarketScanner
                             }
@@ -446,9 +453,15 @@ class BotService : Service() {
                             // PAPER MODE: Much larger watchlist for more learning
                             val effectiveMaxWatchlist = if (c.paperMode) 100 else c.maxWatchlistSize
                             if (wl.size >= effectiveMaxWatchlist) {
+                                TradeLifecycle.filtered(mint, "Watchlist full")
                                 ErrorLogger.debug("BotService", "Watchlist full (${wl.size}/${effectiveMaxWatchlist})")
                                 return@SolanaMarketScanner
                             }
+                            
+                            // ═══════════════════════════════════════════════════════════════════
+                            // LIFECYCLE: ELIGIBLE (passed initial filters)
+                            // ═══════════════════════════════════════════════════════════════════
+                            TradeLifecycle.eligible(mint, score, "Added to watchlist")
                             
                             wl.add(mint)
                             ConfigStore.save(applicationContext, c.copy(watchlist = wl))
@@ -1258,6 +1271,15 @@ class BotService : Service() {
                 // ═══════════════════════════════════════════════════════════════════
                 
                 if (!ts.position.isOpen && decision.finalSignal == "BUY") {
+                    // ═══════════════════════════════════════════════════════════════════
+                    // LIFECYCLE: CANDIDATE (strategy generated BUY signal)
+                    // ═══════════════════════════════════════════════════════════════════
+                    TradeLifecycle.candidate(
+                        ts.mint, 
+                        decision.entryScore, 
+                        decision.phase, 
+                        decision.setupQuality
+                    )
                     // Calculate proposed size first
                     val proposedSize = executor.calculateBuySize(
                         ts = ts,
@@ -1266,6 +1288,11 @@ class BotService : Service() {
                         openPositionCount = status.openPositionCount,
                         quality = decision.finalQuality,
                     )
+                    
+                    // ═══════════════════════════════════════════════════════════════════
+                    // LIFECYCLE: PROPOSED → FDG evaluation
+                    // ═══════════════════════════════════════════════════════════════════
+                    TradeLifecycle.proposed(ts.mint)
                     
                     // Run through Final Decision Gate
                     val fdgDecision = FinalDecisionGate.evaluate(
@@ -1277,7 +1304,12 @@ class BotService : Service() {
                     )
                     
                     if (fdgDecision.canExecute()) {
-                        // ✅ APPROVED - proceed to executor
+                        // ═══════════════════════════════════════════════════════════════════
+                        // LIFECYCLE: FDG_APPROVED → SIZED
+                        // ═══════════════════════════════════════════════════════════════════
+                        TradeLifecycle.fdgApproved(ts.mint, fdgDecision.quality, fdgDecision.confidence)
+                        TradeLifecycle.sized(ts.mint, fdgDecision.sizeSol, "medium")
+                        
                         FinalDecisionGate.logApprovedTrade(fdgDecision) { addLog(it, mint) }
                         
                         ErrorLogger.info("BotService", "✅ FDG APPROVED: ${ts.symbol} | " +
@@ -1302,7 +1334,15 @@ class BotService : Service() {
                             )
                         }
                     } else {
-                        // ❌ BLOCKED - log for learning but DO NOT EXECUTE
+                        // ═══════════════════════════════════════════════════════════════════
+                        // LIFECYCLE: FDG_BLOCKED
+                        // ═══════════════════════════════════════════════════════════════════
+                        TradeLifecycle.fdgBlocked(
+                            ts.mint, 
+                            fdgDecision.blockReason ?: "UNKNOWN",
+                            fdgDecision.blockLevel?.name ?: "UNKNOWN"
+                        )
+                        
                         FinalDecisionGate.logBlockedTrade(fdgDecision) { addLog(it, mint) }
                         
                         ErrorLogger.info("BotService", "🚫 FDG BLOCKED: ${ts.symbol} | " +
