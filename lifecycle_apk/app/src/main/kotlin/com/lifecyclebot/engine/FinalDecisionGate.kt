@@ -94,17 +94,17 @@ object FinalDecisionGate {
     // THRESHOLDS - Can be learned/adjusted by BotBrain
     // ═══════════════════════════════════════════════════════════════════════════
     
-    // Hard block thresholds (non-negotiable)
+    // Hard block thresholds (non-negotiable - these are DANGEROUS)
     var hardBlockRugcheckMin = 10          // Block if rugcheck score <= this
     var hardBlockBuyPressureMin = 15.0     // Block if buy pressure < this %
     var hardBlockTopHolderMax = 70.0       // Block if top holder > this %
     
     // Confidence thresholds by mode
-    var paperConfidenceMin = 25.0          // Paper can take lower confidence
+    var paperConfidenceMin = 0.0           // Paper mode: NO confidence minimum (learn from all)
     var liveConfidenceMin = 40.0           // Live needs higher confidence
     
-    // Edge can be overridden only in specific conditions
-    var allowEdgeOverrideInPaper = false   // Should paper mode allow edge override?
+    // PAPER MODE LEARNING: Allow edge overrides so bot can learn from trades
+    var allowEdgeOverrideInPaper = true    // Paper mode bypasses edge veto for learning
     
     // ═══════════════════════════════════════════════════════════════════════════
     // MAIN GATE FUNCTION
@@ -215,6 +215,8 @@ object FinalDecisionGate {
         
         // ─────────────────────────────────────────────────────────────────────
         // GATE 2: EDGE VETO
+        // In PAPER MODE: Edge veto is BYPASSED to allow learning
+        // In LIVE MODE: Edge veto is enforced strictly
         // ─────────────────────────────────────────────────────────────────────
         
         val edgeVerdict = when (candidate.edgeQuality.uppercase()) {
@@ -224,19 +226,17 @@ object FinalDecisionGate {
         }
         
         if (blockReason == null && edgeVerdict == EdgeVerdict.SKIP) {
-            // Edge says skip - check if we should block or allow
-            val canOverride = config.paperMode && allowEdgeOverrideInPaper && 
-                              candidate.entryScore >= 70 && 
-                              candidate.aiConfidence >= 50
-            
-            if (!canOverride) {
+            // Edge says skip - but paper mode allows override for learning
+            if (config.paperMode && allowEdgeOverrideInPaper) {
+                // PAPER MODE: Allow the trade for learning purposes
+                checks.add(GateCheck("edge", true, "PAPER MODE - edge veto bypassed for learning"))
+                tags.add("edge_override_learning")
+            } else {
+                // LIVE MODE: Enforce edge veto
                 blockReason = "EDGE_VETO_${candidate.edgeQuality}"
                 blockLevel = BlockLevel.EDGE
                 checks.add(GateCheck("edge", false, "edge=${candidate.edgeQuality}"))
                 tags.add("edge_skip")
-            } else {
-                checks.add(GateCheck("edge", true, "override allowed in paper"))
-                tags.add("edge_override")
             }
         } else if (blockReason == null) {
             checks.add(GateCheck("edge", true, null))
