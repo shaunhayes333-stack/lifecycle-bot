@@ -86,7 +86,7 @@ class LifecycleStrategy(
             } else {
                 // NO POSITION = BUY IMMEDIATELY IN PAPER MODE
                 // Don't analyze, don't score, just trade to learn
-                val phase = try { detectPhase(ts, hist) } catch (_: Exception) { "unknown" }
+                val phase = "paper_entry"  // Simple placeholder phase
                 val entry = 50.0  // Placeholder score
                 
                 // Only block obvious rugs (price dropped 90%+)
