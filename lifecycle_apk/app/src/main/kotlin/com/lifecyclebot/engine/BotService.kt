@@ -543,6 +543,10 @@ class BotService : Service() {
         AdaptiveLearningEngine.init(applicationContext)
         addLog("🧬 ${AdaptiveLearningEngine.getStatus()}")
         
+        // Initialize ScannerLearning for source/liquidity/age performance tracking
+        ScannerLearning.init(applicationContext)
+        addLog("📊 ${ScannerLearning.getStats()}")
+        
         // Initialize CloudLearningSync for community shared learning
         CloudLearningSync.init(applicationContext)
         addLog("☁️ ${CloudLearningSync.getStatus()}")

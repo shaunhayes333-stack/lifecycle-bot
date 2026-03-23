@@ -1,5 +1,6 @@
 package com.lifecyclebot.engine
 
+import android.content.Context
 import com.lifecyclebot.data.BotConfig
 import com.lifecyclebot.data.Candle
 import com.lifecyclebot.network.DexscreenerApi
@@ -26,6 +27,9 @@ import java.util.concurrent.ConcurrentHashMap
  * Used to boost/penalize discovery scores based on historical performance.
  */
 object ScannerLearning {
+    private const val PREFS_NAME = "scanner_learning"
+    private var ctx: Context? = null
+    
     // Track wins/losses by source
     private val sourceWins = ConcurrentHashMap<String, Int>()
     private val sourceLosses = ConcurrentHashMap<String, Int>()
@@ -37,6 +41,13 @@ object ScannerLearning {
     // Track by age bucket (0-1h, 1-6h, 6-24h, 24h+)
     private val ageBucketWins = ConcurrentHashMap<String, Int>()
     private val ageBucketLosses = ConcurrentHashMap<String, Int>()
+    
+    // Initialize with context and load saved state
+    fun init(context: Context) {
+        ctx = context.applicationContext
+        load()
+        ErrorLogger.info("ScannerLearning", "📊 Loaded state: ${getStats()}")
+    }
     
     fun recordTrade(source: String, liqUsd: Double, ageHours: Double, isWin: Boolean) {
         // Source tracking
@@ -62,6 +73,9 @@ object ScannerLearning {
         }
         if (isWin) ageBucketWins.merge(ageBucket, 1) { a, b -> a + b }
         else ageBucketLosses.merge(ageBucket, 1) { a, b -> a + b }
+        
+        // Save after each trade
+        save()
         
         ErrorLogger.info("ScannerLearning", "📊 Recorded ${if (isWin) "WIN" else "LOSS"}: src=$source liq=$liqBucket age=$ageBucket")
     }
@@ -124,6 +138,51 @@ object ScannerLearning {
             "$src: ${w}W/${l}L ($rate%)"
         }
         return "ScannerLearning: ${stats.joinToString(" | ")}"
+    }
+    
+    // ── Persistence ─────────────────────────────────────────────────────
+    
+    private fun save() {
+        val c = ctx ?: return
+        try {
+            val prefs = c.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+            prefs.edit().apply {
+                putString("sourceWins", mapToJson(sourceWins))
+                putString("sourceLosses", mapToJson(sourceLosses))
+                putString("liqBucketWins", mapToJson(liqBucketWins))
+                putString("liqBucketLosses", mapToJson(liqBucketLosses))
+                putString("ageBucketWins", mapToJson(ageBucketWins))
+                putString("ageBucketLosses", mapToJson(ageBucketLosses))
+                apply()
+            }
+        } catch (_: Exception) {}
+    }
+    
+    private fun load() {
+        val c = ctx ?: return
+        try {
+            val prefs = c.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+            jsonToMap(prefs.getString("sourceWins", null)).forEach { (k, v) -> sourceWins[k] = v }
+            jsonToMap(prefs.getString("sourceLosses", null)).forEach { (k, v) -> sourceLosses[k] = v }
+            jsonToMap(prefs.getString("liqBucketWins", null)).forEach { (k, v) -> liqBucketWins[k] = v }
+            jsonToMap(prefs.getString("liqBucketLosses", null)).forEach { (k, v) -> liqBucketLosses[k] = v }
+            jsonToMap(prefs.getString("ageBucketWins", null)).forEach { (k, v) -> ageBucketWins[k] = v }
+            jsonToMap(prefs.getString("ageBucketLosses", null)).forEach { (k, v) -> ageBucketLosses[k] = v }
+        } catch (_: Exception) {}
+    }
+    
+    private fun mapToJson(map: Map<String, Int>): String {
+        val obj = org.json.JSONObject()
+        map.forEach { (k, v) -> obj.put(k, v) }
+        return obj.toString()
+    }
+    
+    private fun jsonToMap(json: String?): Map<String, Int> {
+        if (json.isNullOrBlank()) return emptyMap()
+        return try {
+            val obj = org.json.JSONObject(json)
+            obj.keys().asSequence().associateWith { obj.optInt(it, 0) }
+        } catch (_: Exception) { emptyMap() }
     }
 }
 
