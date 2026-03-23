@@ -1848,52 +1848,29 @@ class LifecycleStrategy(
     ): String {
         val c   = cfg()
         val pos = ts.position
-        val isPaperMode = c.paperMode
 
         if (pos.isOpen) {
-            // ════════════════════════════════════════════════════════════════
-            // PAPER MODE: Relax exit signals to let trades play out longer
-            // We need to see real price movements to learn what works
-            // ════════════════════════════════════════════════════════════════
-            val heldMinsPaper = (System.currentTimeMillis() - pos.entryTime) / 60_000.0
-            val gainPctPaper = pct(pos.entryPrice, ts.ref)
-            
-            if (isPaperMode) {
-                val PAPER_MIN_HOLD = 10.0  // Minutes
+            // PAPER MODE: Simplified exit logic for learning
+            if (c.paperMode) {
+                val paperHeldMins = (System.currentTimeMillis() - pos.entryTime) / 60_000.0
+                val paperGainPct = pct(pos.entryPrice, ts.ref)
                 
-                // In paper mode, only exit on:
-                // 1. Severe loss (>30% down) - obvious rug
-                // 2. Big win (>50% up) - take profits
-                // 3. Max hold time exceeded (30 mins) - move on
-                
-                if (heldMinsPaper < PAPER_MIN_HOLD) {
-                    if (gainPctPaper <= -30.0) {
-                        ErrorLogger.info("Strategy", "🚨 PAPER EXIT: ${ts.symbol} severe loss ${gainPctPaper.toInt()}%")
-                        return "EXIT"
-                    }
-                    // Otherwise, keep holding regardless of other signals
+                // Minimum hold: 10 mins (skip all exits)
+                if (paperHeldMins < 10.0) {
+                    // Only exit on severe rug (-30%)
+                    if (paperGainPct <= -30.0) return "EXIT"
                     return "WAIT"
                 }
                 
-                // After minimum hold time, still be more relaxed
-                if (gainPctPaper >= 50.0) {
-                    ErrorLogger.info("Strategy", "🎯 PAPER EXIT: ${ts.symbol} taking profit ${gainPctPaper.toInt()}%")
-                    return "EXIT"
-                }
-                if (gainPctPaper <= -30.0) {
-                    ErrorLogger.info("Strategy", "🚨 PAPER EXIT: ${ts.symbol} stopping loss ${gainPctPaper.toInt()}%")
-                    return "EXIT"
-                }
-                if (heldMinsPaper > 30.0) {
-                    ErrorLogger.info("Strategy", "⏰ PAPER EXIT: ${ts.symbol} max hold ${heldMinsPaper.toInt()}m | pnl=${gainPctPaper.toInt()}%")
-                    return "EXIT"
-                }
+                // After 10 mins: exit on big moves or timeout
+                if (paperGainPct >= 50.0) return "EXIT"   // Take big profit
+                if (paperGainPct <= -30.0) return "EXIT"  // Cut big loss
+                if (paperHeldMins >= 30.0) return "EXIT"  // Move on after 30 mins
                 
-                // Paper mode: Keep holding, don't react to distribution/breakdown signals
-                return "WAIT"
+                return "WAIT"  // Keep holding
             }
             
-            // REAL MODE: Normal exit logic below
+            // REAL MODE: Full exit logic
             if (phase in listOf("breakdown", "dying")) return "EXIT"
             // FIX 1c: Brain exit threshold — negative delta = tighter exits (take profit sooner)
             val brainExitAdj    = try { brain()?.exitThresholdDelta ?: 0.0 } catch (_: Exception) { 0.0 }
