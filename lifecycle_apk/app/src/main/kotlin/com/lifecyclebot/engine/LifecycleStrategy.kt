@@ -1855,17 +1855,37 @@ class LifecycleStrategy(
                 val paperHeldMins = (System.currentTimeMillis() - pos.entryTime) / 60_000.0
                 val paperGainPct = pct(pos.entryPrice, ts.ref)
                 
-                // Minimum hold: 10 mins (skip all exits)
-                if (paperHeldMins < 10.0) {
-                    // Only exit on severe rug (-30%)
-                    if (paperGainPct <= -30.0) return "EXIT"
+                // Minimum hold: 5 mins (reduced from 10 to catch more moves)
+                if (paperHeldMins < 5.0) {
+                    // Only exit on severe rug (-20%)
+                    if (paperGainPct <= -20.0) return "EXIT"
                     return "WAIT"
                 }
                 
-                // After 10 mins: exit on big moves or timeout
-                if (paperGainPct >= 50.0) return "EXIT"   // Take big profit
-                if (paperGainPct <= -30.0) return "EXIT"  // Cut big loss
-                if (paperHeldMins >= 30.0) return "EXIT"  // Move on after 30 mins
+                // After 5 mins: take profits earlier, cut losses
+                if (paperGainPct >= 15.0) {
+                    ErrorLogger.info("Strategy", "🎯 PAPER PROFIT: ${ts.symbol} +${paperGainPct.toInt()}% after ${paperHeldMins.toInt()}m")
+                    return "EXIT"   // Take profit at +15%
+                }
+                if (paperGainPct <= -15.0) {
+                    ErrorLogger.info("Strategy", "🛑 PAPER LOSS: ${ts.symbol} ${paperGainPct.toInt()}% after ${paperHeldMins.toInt()}m")
+                    return "EXIT"  // Cut loss at -15%
+                }
+                if (paperHeldMins >= 20.0) {
+                    ErrorLogger.info("Strategy", "⏰ PAPER TIMEOUT: ${ts.symbol} ${paperGainPct.toInt()}% after ${paperHeldMins.toInt()}m")
+                    return "EXIT"  // Move on after 20 mins
+                }
+                
+                // Check for momentum - if gaining, hold longer
+                if (paperGainPct >= 5.0 && paperHeldMins < 15.0) {
+                    return "WAIT"  // In profit, keep holding
+                }
+                
+                // If flat or slightly down after 10 mins, exit
+                if (paperHeldMins >= 10.0 && paperGainPct < 5.0) {
+                    ErrorLogger.info("Strategy", "📉 PAPER STALE: ${ts.symbol} ${paperGainPct.toInt()}% after ${paperHeldMins.toInt()}m - moving on")
+                    return "EXIT"
+                }
                 
                 return "WAIT"  // Keep holding
             }
