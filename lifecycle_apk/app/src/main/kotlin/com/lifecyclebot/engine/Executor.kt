@@ -55,6 +55,7 @@ class Executor(
         phase: String = "unknown",
         source: String = "unknown",
         brain: BotBrain? = null,
+        setupQuality: String = "C",    // A+ / B / C from strategy
     ): Double {
         // Update session peak
         SmartSizer.updateSessionPeak(walletSol)
@@ -76,6 +77,7 @@ class Executor(
             phase                = phase,
             source               = source,
             brain                = brain,
+            setupQuality         = setupQuality,
         )
 
         if (result.solAmount <= 0.0) {
@@ -790,8 +792,9 @@ class Executor(
                 return
             }
             
-            // AI-DRIVEN SIZING: Pass confidence, phase, source, and brain to SmartSizer
-            ErrorLogger.info("Executor", "📊 ${ts.symbol} SIZING: wallet=$walletSol | liq=${ts.lastLiquidityUsd} | mcap=${ts.lastFdv} | conf=$aiConfidence | entry=$entryScore")
+            // AI-DRIVEN SIZING: Pass confidence, phase, source, brain, and setup quality to SmartSizer
+            val setupQuality = ts.meta.setupQuality  // From LifecycleStrategy quality grading
+            ErrorLogger.info("Executor", "📊 ${ts.symbol} SIZING: wallet=$walletSol | liq=${ts.lastLiquidityUsd} | mcap=${ts.lastFdv} | conf=$aiConfidence | entry=$entryScore | quality=$setupQuality")
             var size = buySizeSol(
                 entryScore = entryScore, 
                 walletSol = walletSol, 
@@ -804,6 +807,7 @@ class Executor(
                 phase = ts.phase,
                 source = ts.source,
                 brain = brain,
+                setupQuality = setupQuality,
             )
 
             // Cross-token correlation guard (FIX 7: tier-aware)

@@ -48,6 +48,7 @@ data class Position(
     val entryTime: Long = 0L,
     val costSol: Double = 0.0,         // total SOL invested including top-ups
     var highestPrice: Double = 0.0,
+    var peakGainPct: Double = 0.0,     // Track highest % gain for trailing stop
     val entryPhase: String = "",
     val entryScore: Double = 0.0,
     val entryLiquidityUsd: Double = 0.0,  // liquidity at entry for collapse detection
@@ -102,6 +103,10 @@ data class StrategyMeta(
     val spikeDetected: Boolean = false,    // spike top forming this tick
     val protectMode: Boolean = false,      // gain > 500% — tightest trail
     val topUpReady: Boolean = false,       // strategy says conditions met to add
+    val chartPattern: String = "",         // Detected chart pattern (BULL_FLAG, etc)
+    val chartPatternConf: Double = 0.0,    // Pattern confidence 0-100
+    val holderConcentration: Double = 0.0, // Top holder % 
+    val setupQuality: String = "C",        // A+ / B / C - for position sizing
 )
 
 data class StrategyResult(

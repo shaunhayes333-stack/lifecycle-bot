@@ -94,10 +94,11 @@ object SmartSizer {
         phase: String = "unknown",
         source: String = "unknown",
         brain: BotBrain? = null,
+        setupQuality: String = "C",       // A+ / B / C from strategy
     ): SizeResult {
 
         val isPaperMode = cfg.paperMode
-        ErrorLogger.info("SmartSizer", "📏 SIZING: paper=$isPaperMode wallet=$walletSol reserve=${cfg.walletReserveSol} mcap=$mcapUsd liq=$liquidityUsd")
+        ErrorLogger.info("SmartSizer", "📏 SIZING: paper=$isPaperMode wallet=$walletSol reserve=${cfg.walletReserveSol} mcap=$mcapUsd liq=$liquidityUsd quality=$setupQuality")
         
         // ── HARD MCAP FLOOR — DISABLED IN PAPER MODE ──────────────────
         if (!isPaperMode) {
@@ -207,6 +208,19 @@ object SmartSizer {
             brainMult *= b.regimeBullMult
         }
         size *= brainMult
+
+        // ══════════════════════════════════════════════════════════════
+        // IMPROVEMENT #3: SETUP QUALITY MULTIPLIER
+        // A+ setups get larger positions, C setups get smaller
+        // ══════════════════════════════════════════════════════════════
+        val qualityMult = when (setupQuality) {
+            "A+" -> 1.50   // Excellent setup: +50% size
+            "B"  -> 1.20   // Good setup: +20% size
+            "C"  -> 1.00   // Basic setup: normal size
+            else -> 0.80   // Unknown/poor: -20% size
+        }
+        size *= qualityMult
+        ErrorLogger.debug("SmartSizer", "📊 Quality mult: $setupQuality → ${qualityMult}x")
 
         // ── TradingMemory Pattern Check ─────────────────────────────
         val memoryMult = run {

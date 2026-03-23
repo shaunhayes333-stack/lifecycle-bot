@@ -465,6 +465,45 @@ class LifecycleStrategy(
             && ts.position.partialSoldPct < 75.0
             && mtf5m != MtfTrend.BEAR
 
+        // ══════════════════════════════════════════════════════════════
+        // IMPROVEMENT #3: SETUP QUALITY GRADING (A+ / B / C)
+        // Calculate here so it's available in StrategyMeta for SmartSizer
+        // ══════════════════════════════════════════════════════════════
+        var setupQuality = "C"  // Default: basic setup
+        var qualityScore = 0
+        
+        // Only compute for potential entries (BUY signal)
+        if (signal == "BUY" && !ts.position.isOpen) {
+            // Check for quality signals
+            val chartPattern = detectChartPattern(prices, hist)
+            if (chartPattern.pattern != ChartPattern.NONE && chartPattern.confidence >= 60) qualityScore += 3
+            if (emafan.alignment == EmaAlignment.BULL_FAN) qualityScore += 2
+            if (emafan.widening) qualityScore += 1  // Widening fan is extra bullish
+            if (ts.safety.topHolderPct < 15) qualityScore += 2  // Excellent holder distribution
+            else if (ts.safety.topHolderPct < 25) qualityScore += 1  // Good holder distribution
+            if (volScore > 60) qualityScore += 2  // Strong volume
+            else if (volScore > 50) qualityScore += 1
+            if (pressScore > 65) qualityScore += 2  // Strong buy pressure
+            else if (pressScore > 55) qualityScore += 1
+            if (ts.holderGrowthRate > 5) qualityScore += 1  // Growing community
+            
+            // Deductions
+            if (phase == "distribution") qualityScore -= 2
+            if (phase == "overextended") qualityScore -= 2
+            if (ts.safety.topHolderPct > 40) qualityScore -= 2  // Too concentrated
+            if (volDiv) qualityScore -= 1  // Volume divergence (price up, vol down)
+            
+            setupQuality = when {
+                qualityScore >= 7 -> "A+"   // Excellent setup
+                qualityScore >= 4 -> "B"    // Good setup  
+                else -> "C"                  // Basic setup
+            }
+            
+            if (setupQuality != "C") {
+                ErrorLogger.info("Strategy", "⭐ ${ts.symbol}: Setup quality=$setupQuality (score=$qualityScore)")
+            }
+        }
+
         return StrategyResult(
             phase, signal,
             entryScore.coerceIn(0.0, 100.0),
@@ -482,6 +521,7 @@ class LifecycleStrategy(
                 spikeDetected    = spikeNow.isSpike || spikeNow.isPostSpike,
                 protectMode      = spikeNow.protectMode,
                 topUpReady       = topUpReadyNow,
+                setupQuality     = setupQuality,
             )
         )
     }
@@ -1850,44 +1890,74 @@ class LifecycleStrategy(
         val pos = ts.position
 
         if (pos.isOpen) {
-            // PAPER MODE: Simplified exit logic for learning
+            // ════════════════════════════════════════════════════════════════
+            // PAPER MODE: DYNAMIC TRAILING STOP + SMART EXITS
+            // Improvement #2: Let winners run with trailing stop
+            // ════════════════════════════════════════════════════════════════
             if (c.paperMode) {
                 val paperHeldMins = (System.currentTimeMillis() - pos.entryTime) / 60_000.0
                 val paperGainPct = pct(pos.entryPrice, ts.ref)
+                val peakGain = pos.peakGainPct.coerceAtLeast(paperGainPct)  // Track highest gain
                 
-                // Minimum hold: 5 mins (reduced from 10 to catch more moves)
-                if (paperHeldMins < 5.0) {
-                    // Only exit on severe rug (-20%)
-                    if (paperGainPct <= -20.0) return "EXIT"
+                // Update peak gain tracking
+                if (paperGainPct > pos.peakGainPct) {
+                    pos.peakGainPct = paperGainPct
+                }
+                
+                // Minimum hold: 3 mins (let trade develop)
+                if (paperHeldMins < 3.0) {
+                    if (paperGainPct <= -25.0) {
+                        ErrorLogger.info("Strategy", "🚨 PAPER RUG: ${ts.symbol} ${paperGainPct.toInt()}% - fast exit")
+                        return "EXIT"
+                    }
                     return "WAIT"
                 }
                 
-                // After 5 mins: take profits earlier, cut losses
-                if (paperGainPct >= 15.0) {
-                    ErrorLogger.info("Strategy", "🎯 PAPER PROFIT: ${ts.symbol} +${paperGainPct.toInt()}% after ${paperHeldMins.toInt()}m")
-                    return "EXIT"   // Take profit at +15%
-                }
-                if (paperGainPct <= -15.0) {
-                    ErrorLogger.info("Strategy", "🛑 PAPER LOSS: ${ts.symbol} ${paperGainPct.toInt()}% after ${paperHeldMins.toInt()}m")
-                    return "EXIT"  // Cut loss at -15%
-                }
-                if (paperHeldMins >= 20.0) {
-                    ErrorLogger.info("Strategy", "⏰ PAPER TIMEOUT: ${ts.symbol} ${paperGainPct.toInt()}% after ${paperHeldMins.toInt()}m")
-                    return "EXIT"  // Move on after 20 mins
+                // ── DYNAMIC TRAILING STOP ──
+                // Trail gets tighter as gains increase
+                val trailPct = when {
+                    peakGain >= 100.0 -> 20.0   // At +100%, trail at 20% from peak
+                    peakGain >= 50.0 -> 25.0    // At +50%, trail at 25% from peak
+                    peakGain >= 30.0 -> 30.0    // At +30%, trail at 30% from peak
+                    peakGain >= 15.0 -> 40.0    // At +15%, trail at 40% from peak
+                    else -> 50.0                 // Below +15%, trail at 50%
                 }
                 
-                // Check for momentum - if gaining, hold longer
-                if (paperGainPct >= 5.0 && paperHeldMins < 15.0) {
-                    return "WAIT"  // In profit, keep holding
-                }
+                val drawdownFromPeak = peakGain - paperGainPct
                 
-                // If flat or slightly down after 10 mins, exit
-                if (paperHeldMins >= 10.0 && paperGainPct < 5.0) {
-                    ErrorLogger.info("Strategy", "📉 PAPER STALE: ${ts.symbol} ${paperGainPct.toInt()}% after ${paperHeldMins.toInt()}m - moving on")
+                // Exit if we've given back too much from peak
+                if (peakGain >= 10.0 && drawdownFromPeak >= trailPct) {
+                    val lockedProfit = (peakGain - drawdownFromPeak).toInt()
+                    ErrorLogger.info("Strategy", "📉 PAPER TRAIL HIT: ${ts.symbol} peak +${peakGain.toInt()}% → now +${paperGainPct.toInt()}% (gave back ${drawdownFromPeak.toInt()}%)")
                     return "EXIT"
                 }
                 
-                return "WAIT"  // Keep holding
+                // ── STOP LOSS ──
+                if (paperGainPct <= -12.0) {
+                    ErrorLogger.info("Strategy", "🛑 PAPER STOP: ${ts.symbol} ${paperGainPct.toInt()}%")
+                    return "EXIT"
+                }
+                
+                // ── TIME-BASED EXITS ──
+                // Stale trade: no movement after 8 mins
+                if (paperHeldMins >= 8.0 && paperGainPct < 5.0 && paperGainPct > -5.0) {
+                    ErrorLogger.info("Strategy", "😴 PAPER STALE: ${ts.symbol} ${paperGainPct.toInt()}% after ${paperHeldMins.toInt()}m - moving on")
+                    return "EXIT"
+                }
+                
+                // Max hold: 30 mins (but only if not running)
+                if (paperHeldMins >= 30.0 && paperGainPct < 20.0) {
+                    ErrorLogger.info("Strategy", "⏰ PAPER TIMEOUT: ${ts.symbol} ${paperGainPct.toInt()}% after ${paperHeldMins.toInt()}m")
+                    return "EXIT"
+                }
+                
+                // Let big runners run longer (up to 60 mins)
+                if (paperHeldMins >= 60.0) {
+                    ErrorLogger.info("Strategy", "🏃 PAPER RUNNER EXIT: ${ts.symbol} +${paperGainPct.toInt()}% after ${paperHeldMins.toInt()}m - locking profits")
+                    return "EXIT"
+                }
+                
+                return "WAIT"  // Keep holding with trail
             }
             
             // REAL MODE: Full exit logic
@@ -2049,15 +2119,78 @@ class LifecycleStrategy(
         if (phase in phaseBlockList) return "WAIT"
 
         // ══════════════════════════════════════════════════════════════
+        // IMPROVEMENT #1: SMARTER ENTRY TIMING - Don't chase pumps
+        // Wait for pullback/consolidation instead of buying at peaks
+        // ══════════════════════════════════════════════════════════════
+        val recentHigh = if (prices.size >= 5) prices.takeLast(5).maxOrNull() ?: ts.ref else ts.ref
+        val distanceFromHigh = if (recentHigh > 0) ((recentHigh - ts.ref) / recentHigh) * 100 else 0.0
+        val isPullback = distanceFromHigh >= 5.0  // 5%+ below recent high = pullback
+        val isChasing = distanceFromHigh < 2.0 && phase == "pumping"  // Near highs while pumping = chasing
+        
+        // Check RSI for oversold bounce (if we have enough data)
+        val rsiOversold = if (prices.size >= 14) {
+            val gains = mutableListOf<Double>()
+            val losses = mutableListOf<Double>()
+            for (i in 1 until minOf(14, prices.size)) {
+                val change = prices[prices.size - i] - prices[prices.size - i - 1]
+                if (change > 0) gains.add(change) else losses.add(-change)
+            }
+            val avgGain = if (gains.isNotEmpty()) gains.average() else 0.0
+            val avgLoss = if (losses.isNotEmpty()) losses.average() else 0.001
+            val rs = avgGain / avgLoss
+            val rsi = 100 - (100 / (1 + rs))
+            rsi < 35  // RSI below 35 = oversold
+        } else false
+        
+        // ══════════════════════════════════════════════════════════════
+        // IMPROVEMENT #3: SETUP QUALITY GRADING (A+ / B / C)
+        // Better setups get larger position sizes via meta.setupQuality
+        // ══════════════════════════════════════════════════════════════
+        var setupQuality = "C"  // Default: basic setup
+        var qualityScore = 0
+        
+        // Check for quality signals
+        if (meta.chartPattern.isNotEmpty() && meta.chartPatternConf >= 60) qualityScore += 3  // Chart pattern
+        if (emafan.alignment == EmaAlignment.BULL_FAN) qualityScore += 2  // EMA fan bullish
+        if (isPullback) qualityScore += 2  // Buying pullback not peak
+        if (rsiOversold) qualityScore += 2  // RSI oversold bounce
+        if (meta.holderConcentration < 15) qualityScore += 1  // Good holder distribution
+        if (vol > 50) qualityScore += 1  // Strong volume
+        if (press > 60) qualityScore += 1  // Buy pressure
+        
+        // Deductions
+        if (isChasing) qualityScore -= 3  // Chasing pump = bad
+        if (phase == "distribution") qualityScore -= 2
+        if (meta.holderConcentration > 40) qualityScore -= 2  // Too concentrated
+        
+        setupQuality = when {
+            qualityScore >= 6 -> "A+"   // Excellent setup
+            qualityScore >= 3 -> "B"    // Good setup
+            else -> "C"                  // Basic setup
+        }
+        
+        // Store quality in meta for SmartSizer to use
+        val enhancedMeta = meta.copy(setupQuality = setupQuality)
+        
+        // ══════════════════════════════════════════════════════════════
         // FILTER PASS = BUY (both modes, but paper is more aggressive)
         // If we got past all the blocks above, we SHOULD trade
         // ══════════════════════════════════════════════════════════════
         
         if (isPaperMode) {
-            // PAPER MODE: ULTRA AGGRESSIVE - BUY anything that made it past filters
-            // No liquidity/mcap requirements at all in paper mode
-            // We want MAXIMUM trading activity to learn patterns fast
-            ErrorLogger.info("Strategy", "🟢 ${ts.symbol}: PAPER BUY (auto) | phase=$phase liq=$${ts.lastLiquidityUsd.toInt()} mcap=$${ts.lastFdv.toInt()} entry=${adjustedEntryScore.toInt()}")
+            // PAPER MODE: Still buy but penalize chasing
+            if (isChasing && !isPullback) {
+                ErrorLogger.debug("Strategy", "⚠️ ${ts.symbol}: Chasing pump - waiting for pullback")
+                return "WAIT"
+            }
+            
+            val entryType = when {
+                isPullback && rsiOversold -> "PULLBACK+RSI"
+                isPullback -> "PULLBACK"
+                rsiOversold -> "RSI_BOUNCE"
+                else -> "MOMENTUM"
+            }
+            ErrorLogger.info("Strategy", "🟢 ${ts.symbol}: PAPER BUY ($entryType) | quality=$setupQuality phase=$phase liq=$${ts.lastLiquidityUsd.toInt()} entry=${adjustedEntryScore.toInt()}")
             return "BUY"
         }
         
