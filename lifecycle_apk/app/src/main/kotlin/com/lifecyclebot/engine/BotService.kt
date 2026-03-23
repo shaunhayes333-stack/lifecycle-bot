@@ -595,6 +595,13 @@ class BotService : Service() {
         addLog("Bot started — paper=${cfg.paperMode} auto=${cfg.autoTrade} sounds=${cfg.soundEnabled}")
         ErrorLogger.info("BotService", "Bot started successfully")
         
+        // Send Telegram notification for bot start
+        sendTradeNotif(
+            "🚀 Bot Started",
+            "Paper=${cfg.paperMode} | Auto=${cfg.autoTrade} | Sounds=${cfg.soundEnabled}",
+            NotificationHistory.NotifEntry.NotifType.INFO
+        )
+        
         } catch (e: Exception) {
             // Catch any crash and log it with full stack trace to ErrorLogger
             ErrorLogger.crash("BotService", "startBot CRASH: ${e.javaClass.simpleName}: ${e.message}", e)
@@ -675,6 +682,13 @@ class BotService : Service() {
         wakeLock?.let { if (it.isHeld) it.release() }
         wakeLock = null
         addLog("Bot stopped. All positions closed. Wallet remains connected.")
+        
+        // Send Telegram notification for bot stop
+        sendTradeNotif(
+            "🛑 Bot Stopped",
+            "All positions closed. Wallet remains connected.",
+            NotificationHistory.NotifEntry.NotifType.INFO
+        )
     }
     
     // Keep-alive alarm to ensure service restarts if killed
