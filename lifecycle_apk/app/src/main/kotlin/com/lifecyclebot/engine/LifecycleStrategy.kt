@@ -1855,8 +1855,8 @@ class LifecycleStrategy(
             // PAPER MODE: Relax exit signals to let trades play out longer
             // We need to see real price movements to learn what works
             // ════════════════════════════════════════════════════════════════
-            val heldMins = (System.currentTimeMillis() - pos.entryTime) / 60_000.0
-            val gainPct = pct(pos.entryPrice, ts.ref)
+            val heldMinsPaper = (System.currentTimeMillis() - pos.entryTime) / 60_000.0
+            val gainPctPaper = pct(pos.entryPrice, ts.ref)
             
             if (isPaperMode) {
                 val PAPER_MIN_HOLD = 10.0  // Minutes
@@ -1866,9 +1866,9 @@ class LifecycleStrategy(
                 // 2. Big win (>50% up) - take profits
                 // 3. Max hold time exceeded (30 mins) - move on
                 
-                if (heldMins < PAPER_MIN_HOLD) {
-                    if (gainPct <= -30.0) {
-                        ErrorLogger.info("Strategy", "🚨 PAPER EXIT: ${ts.symbol} severe loss ${gainPct.toInt()}%")
+                if (heldMinsPaper < PAPER_MIN_HOLD) {
+                    if (gainPctPaper <= -30.0) {
+                        ErrorLogger.info("Strategy", "🚨 PAPER EXIT: ${ts.symbol} severe loss ${gainPctPaper.toInt()}%")
                         return "EXIT"
                     }
                     // Otherwise, keep holding regardless of other signals
@@ -1876,16 +1876,16 @@ class LifecycleStrategy(
                 }
                 
                 // After minimum hold time, still be more relaxed
-                if (gainPct >= 50.0) {
-                    ErrorLogger.info("Strategy", "🎯 PAPER EXIT: ${ts.symbol} taking profit ${gainPct.toInt()}%")
+                if (gainPctPaper >= 50.0) {
+                    ErrorLogger.info("Strategy", "🎯 PAPER EXIT: ${ts.symbol} taking profit ${gainPctPaper.toInt()}%")
                     return "EXIT"
                 }
-                if (gainPct <= -30.0) {
-                    ErrorLogger.info("Strategy", "🚨 PAPER EXIT: ${ts.symbol} stopping loss ${gainPct.toInt()}%")
+                if (gainPctPaper <= -30.0) {
+                    ErrorLogger.info("Strategy", "🚨 PAPER EXIT: ${ts.symbol} stopping loss ${gainPctPaper.toInt()}%")
                     return "EXIT"
                 }
-                if (heldMins > 30.0) {
-                    ErrorLogger.info("Strategy", "⏰ PAPER EXIT: ${ts.symbol} max hold ${heldMins.toInt()}m | pnl=${gainPct.toInt()}%")
+                if (heldMinsPaper > 30.0) {
+                    ErrorLogger.info("Strategy", "⏰ PAPER EXIT: ${ts.symbol} max hold ${heldMinsPaper.toInt()}m | pnl=${gainPctPaper.toInt()}%")
                     return "EXIT"
                 }
                 
