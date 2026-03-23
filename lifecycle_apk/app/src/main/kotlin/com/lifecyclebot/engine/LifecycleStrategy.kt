@@ -449,14 +449,28 @@ class LifecycleStrategy(
         // ═══════════════════════════════════════════════════════════════════
         // PRIORITY 1: EDGE VETO - If Edge said SKIP, suppress BUY signal
         // PAPER MODE: Relaxed veto - only block on DISTRIBUTION + low buy pressure
-        // LIVE MODE: Full veto logic for safety
+        // LIVE MODE: Smart veto - Edge can be overridden by strong learned confidence
         // ═══════════════════════════════════════════════════════════════════
         val shouldApplyEdgeVeto = if (isPaperMode) {
             // Paper mode: Only veto on clear danger signals to allow learning
             edgeVeto && edgePhase.phase == EdgeOptimizer.MarketPhase.DISTRIBUTION && pressScore < 35.0
         } else {
-            // Live mode: Full veto for safety
-            edgeVeto
+            // Live mode: Edge veto can be overridden by STRONG signals
+            // High entry score (>70) + good phase = learned confidence override
+            val hasStrongLearning = entryScore >= 70 && phase !in listOf("early_unknown", "bootstrap")
+            val isAcceptablePhase = edgePhase.phase in listOf(
+                EdgeOptimizer.MarketPhase.REACCUMULATION,
+                EdgeOptimizer.MarketPhase.EXPANSION,
+                EdgeOptimizer.MarketPhase.EARLY_ACCUMULATION
+            )
+            
+            // Override edge veto if we have strong learned confidence + good phase
+            if (edgeVeto && hasStrongLearning && isAcceptablePhase) {
+                ErrorLogger.info("Strategy", "✅ ${ts.symbol}: Edge veto OVERRIDDEN (entry=$entryScore, phase=$phase)")
+                false  // Don't apply veto
+            } else {
+                edgeVeto  // Apply normal veto
+            }
         }
         
         if (signal == "BUY" && shouldApplyEdgeVeto && !ts.position.isOpen) {
