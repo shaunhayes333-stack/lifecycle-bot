@@ -1345,14 +1345,20 @@ class BotService : Service() {
                         identity.approved(fdgDecision.sizeSol, fdgDecision.quality, fdgDecision.confidence)
                         
                         // ═══════════════════════════════════════════════════════════════════
-                        // LIFECYCLE: FDG_APPROVED → SIZED
+                        // LIFECYCLE: FDG_APPROVED → SIZED (with explicit approval class)
                         // ═══════════════════════════════════════════════════════════════════
-                        TradeLifecycle.fdgApproved(identity.mint, fdgDecision.quality, fdgDecision.confidence)
+                        TradeLifecycle.fdgApproved(
+                            identity.mint, 
+                            fdgDecision.quality, 
+                            fdgDecision.confidence,
+                            fdgDecision.approvalClass.name  // LIVE, PAPER_BENCHMARK, or PAPER_EXPLORATION
+                        )
                         TradeLifecycle.sized(identity.mint, fdgDecision.sizeSol, "medium")
                         
                         FinalDecisionGate.logApprovedTrade(fdgDecision) { addLog(it, mint) }
                         
-                        ErrorLogger.info("BotService", "✅ FDG APPROVED: ${identity.symbol} | " +
+                        ErrorLogger.info("BotService", "${if(fdgDecision.isBenchmarkQuality()) "🟢" else "🟡"} " +
+                            "FDG ${fdgDecision.approvalClass}: ${identity.symbol} | " +
                             "quality=${fdgDecision.quality} | conf=${fdgDecision.confidence.toInt()}% | " +
                             "size=${fdgDecision.sizeSol}")
                         
@@ -1372,6 +1378,7 @@ class BotService : Service() {
                                         ?.state?.value?.totalTrades ?: 0
                                 } catch (_: Exception) { 0 },
                                 tradeIdentity      = identity,  // Pass canonical identity
+                                fdgApprovalClass   = fdgDecision.approvalClass,  // Pass approval class for learning
                             )
                         }
                     } else {

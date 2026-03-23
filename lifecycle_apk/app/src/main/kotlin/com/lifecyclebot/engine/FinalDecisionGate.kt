@@ -38,6 +38,7 @@ object FinalDecisionGate {
     data class FinalDecision(
         val shouldTrade: Boolean,
         val mode: TradeMode,
+        val approvalClass: ApprovalClass,  // LIVE, PAPER_BENCHMARK, PAPER_EXPLORATION, BLOCKED
         val quality: String,           // "A+", "A", "B", "C"
         val confidence: Double,        // 0-100%
         val edge: EdgeVerdict,
@@ -48,6 +49,9 @@ object FinalDecisionGate {
         val mint: String,
         val symbol: String,
         
+        // Why this approval class was assigned
+        val approvalReason: String,
+        
         // Audit trail
         val gateChecks: List<GateCheck>,  // What checks were run
     ) {
@@ -57,9 +61,19 @@ object FinalDecisionGate {
          */
         fun canExecute(): Boolean = shouldTrade && blockReason == null
         
+        /**
+         * Is this a benchmark-quality trade that would pass live rules?
+         */
+        fun isBenchmarkQuality(): Boolean = approvalClass in listOf(ApprovalClass.LIVE, ApprovalClass.PAPER_BENCHMARK)
+        
+        /**
+         * Is this an exploration trade for learning?
+         */
+        fun isExploration(): Boolean = approvalClass == ApprovalClass.PAPER_EXPLORATION
+        
         fun summary(): String = buildString {
             append(if (shouldTrade) "✅" else "❌")
-            append(" $symbol | $quality | ${confidence.toInt()}% | ${edge.name}")
+            append(" $symbol | $approvalClass | $quality | ${confidence.toInt()}% | ${edge.name}")
             if (blockReason != null) append(" | BLOCKED: $blockReason")
             if (shouldTrade) append(" | ${sizeSol.format(3)} SOL")
         }
@@ -82,6 +96,20 @@ object FinalDecisionGate {
         CONFIDENCE, // Below confidence threshold
         MODE,       // Mode-specific restriction
         SIZE,       // Position sizing issue
+    }
+    
+    /**
+     * APPROVAL CLASS - Explicit categorization for analytics separation
+     * 
+     * This enables clean reporting:
+     *   - Benchmark stats: "How good is strategy under strict rules?"
+     *   - Exploration stats: "What did we learn from weaker setups?"
+     */
+    enum class ApprovalClass {
+        LIVE,              // Live mode approval - strictest rules, real money
+        PAPER_BENCHMARK,   // Paper mode, would PASS live rules - benchmark quality
+        PAPER_EXPLORATION, // Paper mode, relaxed rules - learning from weaker setups
+        BLOCKED,           // Not approved
     }
     
     data class GateCheck(
@@ -331,9 +359,48 @@ object FinalDecisionGate {
         
         val shouldTrade = blockReason == null && candidate.shouldTrade
         
+        // ─────────────────────────────────────────────────────────────────────
+        // DETERMINE APPROVAL CLASS
+        // This enables clean analytics separation between:
+        //   - Benchmark: Strategy quality under strict rules
+        //   - Exploration: Learning from weaker setups
+        // ─────────────────────────────────────────────────────────────────────
+        
+        val (approvalClass, approvalReason) = when {
+            // Blocked trades
+            !shouldTrade -> ApprovalClass.BLOCKED to "blocked: ${blockReason ?: "unknown"}"
+            
+            // Live mode - all approvals are strict
+            !config.paperMode -> ApprovalClass.LIVE to "live mode approval"
+            
+            // Paper mode - determine if benchmark or exploration
+            else -> {
+                // Would this trade pass LIVE mode rules?
+                val wouldPassLiveEdge = edgeVerdict != EdgeVerdict.SKIP
+                val wouldPassLiveQuality = candidate.setupQuality in listOf("A+", "A", "B")
+                val wouldPassLiveConfidence = candidate.aiConfidence >= liveConfidenceMin
+                
+                if (wouldPassLiveEdge && wouldPassLiveQuality && wouldPassLiveConfidence) {
+                    // This is benchmark quality - would pass in live mode
+                    ApprovalClass.PAPER_BENCHMARK to "benchmark: passes live rules (edge=$wouldPassLiveEdge quality=${candidate.setupQuality} conf=${candidate.aiConfidence.toInt()}%)"
+                } else {
+                    // This is exploration - relaxed for learning
+                    val relaxedReasons = mutableListOf<String>()
+                    if (!wouldPassLiveEdge) relaxedReasons.add("edge=${edgeVerdict.name}")
+                    if (!wouldPassLiveQuality) relaxedReasons.add("quality=${candidate.setupQuality}")
+                    if (!wouldPassLiveConfidence) relaxedReasons.add("conf=${candidate.aiConfidence.toInt()}%<${liveConfidenceMin.toInt()}%")
+                    ApprovalClass.PAPER_EXPLORATION to "exploration: relaxed ${relaxedReasons.joinToString(", ")}"
+                }
+            }
+        }
+        
+        // Add approval class to tags for easy filtering
+        tags.add("class:${approvalClass.name}")
+        
         return FinalDecision(
             shouldTrade = shouldTrade,
             mode = mode,
+            approvalClass = approvalClass,
             quality = candidate.finalQuality,
             confidence = candidate.aiConfidence,
             edge = edgeVerdict,
@@ -343,6 +410,7 @@ object FinalDecisionGate {
             tags = tags,
             mint = ts.mint,
             symbol = ts.symbol,
+            approvalReason = approvalReason,
             gateChecks = checks,
         )
     }
@@ -364,12 +432,17 @@ object FinalDecisionGate {
     }
     
     /**
-     * Log an approved trade.
+     * Log an approved trade with explicit approval class.
      */
     fun logApprovedTrade(decision: FinalDecision, onLog: (String) -> Unit) {
-        onLog("✅ FDG APPROVED: ${decision.symbol} | ${decision.quality} | " +
-              "${decision.confidence.toInt()}% | ${decision.sizeSol.format(3)} SOL | " +
-              "tags=${decision.tags.joinToString(",")}")
+        val classIcon = when (decision.approvalClass) {
+            ApprovalClass.LIVE -> "🔴"
+            ApprovalClass.PAPER_BENCHMARK -> "🟢"
+            ApprovalClass.PAPER_EXPLORATION -> "🟡"
+            ApprovalClass.BLOCKED -> "⬛"
+        }
+        onLog("$classIcon FDG ${decision.approvalClass}: ${decision.symbol} | ${decision.quality} | " +
+              "${decision.confidence.toInt()}% | ${decision.sizeSol.format(3)} SOL")
     }
     
     // ═══════════════════════════════════════════════════════════════════════════

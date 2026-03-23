@@ -173,6 +173,7 @@ data class TradeIdentity(
     var fdgDecision: String = "",       // "APPROVED" or "BLOCKED: reason"
     var fdgQuality: String = "",        // "A+", "A", "B", "C"
     var fdgConfidence: Double = 0.0,
+    var fdgApprovalClass: String = "",  // "LIVE", "PAPER_BENCHMARK", "PAPER_EXPLORATION", "BLOCKED"
     var approvedSizeSol: Double = 0.0,
     var blockReason: String = "",
     var blockLevel: String = "",

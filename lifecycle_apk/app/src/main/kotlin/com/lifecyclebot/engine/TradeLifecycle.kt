@@ -241,14 +241,21 @@ object TradeLifecycle {
     /**
      * FDG approved the trade
      */
-    fun fdgApproved(mint: String, quality: String, confidence: Double) {
+    fun fdgApproved(mint: String, quality: String, confidence: Double, approvalClass: String = "UNKNOWN") {
         lifecycles[mint]?.let { lc ->
             lc.fdgDecision = "APPROVED"
-            lc.transition(State.FDG_APPROVED, "Trade approved", mapOf(
+            lc.transition(State.FDG_APPROVED, "Trade approved ($approvalClass)", mapOf(
                 "quality" to quality,
                 "confidence" to confidence,
+                "approvalClass" to approvalClass,
             ))
-            ErrorLogger.info("Lifecycle", "✅ FDG_APPROVED: ${lc.symbol} | quality=$quality | conf=${confidence.toInt()}%")
+            val classIcon = when (approvalClass) {
+                "LIVE" -> "🔴"
+                "PAPER_BENCHMARK" -> "🟢"
+                "PAPER_EXPLORATION" -> "🟡"
+                else -> "✅"
+            }
+            ErrorLogger.info("Lifecycle", "$classIcon FDG_APPROVED_$approvalClass: ${lc.symbol} | quality=$quality | conf=${confidence.toInt()}%")
         }
     }
     

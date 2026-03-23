@@ -1103,11 +1103,15 @@ class Executor(
         fdgApprovedSize: Double? = null,
         walletTotalTrades: Int = 0,
         tradeIdentity: TradeIdentity? = null,  // Canonical identity for consistent tracking
+        fdgApprovalClass: FinalDecisionGate.ApprovalClass? = null,  // LIVE, PAPER_BENCHMARK, PAPER_EXPLORATION
     ) {
         // ═══════════════════════════════════════════════════════════════════════════
         // TRADE IDENTITY: Use identity for consistent mint/symbol throughout
         // ═══════════════════════════════════════════════════════════════════════════
         val identity = tradeIdentity ?: TradeIdentityManager.getOrCreate(ts.mint, ts.symbol, ts.source)
+        
+        // Store approval class in identity for later analytics
+        fdgApprovalClass?.let { identity.fdgApprovalClass = it.name }
         
         // Halt check
         val cbState = security.getCircuitBreakerState()
