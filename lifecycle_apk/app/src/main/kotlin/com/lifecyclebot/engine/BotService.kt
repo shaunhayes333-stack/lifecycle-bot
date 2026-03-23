@@ -602,8 +602,15 @@ class BotService : Service() {
         // This ensures the service restarts if Android kills it
         scheduleKeepAliveAlarm()
         
+        // Schedule WorkManager watchdog (more reliable than AlarmManager on newer Android)
+        ServiceWatchdog.schedule(applicationContext)
+        
         addLog("Bot started — paper=${cfg.paperMode} auto=${cfg.autoTrade} sounds=${cfg.soundEnabled}")
         ErrorLogger.info("BotService", "Bot started successfully")
+        
+        // Log watchdog stats for debugging
+        val watchdogStats = ServiceWatchdog.getStats(applicationContext)
+        addLog("🐕 Watchdog: ${watchdogStats.format()}")
         
         // Show Toast on UI thread for immediate feedback
         android.os.Handler(android.os.Looper.getMainLooper()).post {
@@ -688,6 +695,8 @@ class BotService : Service() {
         tradeDb?.close(); tradeDb = null
         // Cancel keep-alive alarm
         cancelKeepAliveAlarm()
+        // Cancel watchdog (user explicitly stopped)
+        ServiceWatchdog.cancel(applicationContext)
         // REMOVED: walletManager.disconnect() 
         // Wallet should ONLY disconnect when user explicitly requests it
         // This allows wallet to stay connected when:
@@ -777,6 +786,9 @@ class BotService : Service() {
                     val firstTokens = watchlist.take(3).joinToString(", ") { it.take(8) + "..." }
                     addLog("📊 Processing: $firstTokens")
                 }
+                
+                // Record healthy status for watchdog (every 5 loops ~ 25 seconds)
+                ServiceWatchdog.recordHealthy(applicationContext)
             }
             
             // AGGRESSIVE WATCHLIST CLEANUP - every 5 loops (about 25 seconds)

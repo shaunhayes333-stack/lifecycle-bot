@@ -4,6 +4,7 @@ import android.app.Application
 import android.content.Intent
 import com.lifecyclebot.engine.BotService
 import com.lifecyclebot.engine.ErrorLogger
+import com.lifecyclebot.engine.ServiceWatchdog
 
 /**
  * LifecycleBotApp — Application class
@@ -17,6 +18,7 @@ import com.lifecyclebot.engine.ErrorLogger
  * - For non-fatal exceptions (ConcurrentModification, NullPointer in background),
  *   attempt to continue without crashing
  * - Schedule service restart if bot was running
+ * - WorkManager watchdog for reliable service monitoring
  */
 class LifecycleBotApp : Application() {
 
@@ -33,6 +35,19 @@ class LifecycleBotApp : Application() {
         
         // Set up global uncaught exception handler
         setupCrashHandler()
+        
+        // Initialize ServiceWatchdog if bot was supposed to be running
+        // This ensures the watchdog is scheduled even after app restart
+        try {
+            val prefs = getSharedPreferences("bot_runtime", MODE_PRIVATE)
+            val wasRunning = prefs.getBoolean("was_running_before_shutdown", false)
+            if (wasRunning) {
+                ServiceWatchdog.schedule(this)
+                ErrorLogger.info("App", "ServiceWatchdog scheduled (bot was running)")
+            }
+        } catch (e: Exception) {
+            ErrorLogger.error("App", "Failed to schedule watchdog: ${e.message}", e)
+        }
         
         ErrorLogger.info("App", "Application started successfully")
     }
