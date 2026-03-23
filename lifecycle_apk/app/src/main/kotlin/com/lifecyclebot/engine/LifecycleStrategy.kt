@@ -70,6 +70,18 @@ class LifecycleStrategy(
         val hist = ts.history.toList()
         val isPaperMode = cfg().paperMode
 
+        // ═══════════════════════════════════════════════════════════════════
+        // PRE-STRATEGY HARD ELIGIBILITY GATE
+        // These checks happen BEFORE any phase/edge/strategy processing.
+        // If a token fails these, we don't waste CPU on analysis.
+        // ═══════════════════════════════════════════════════════════════════
+        
+        val hardBlockReason = preStrategyHardBlock(ts, isPaperMode)
+        if (hardBlockReason != null) {
+            ErrorLogger.debug("Strategy", "🛑 ${ts.symbol}: PRE-BLOCK - $hardBlockReason")
+            return StrategyResult("hard_blocked", "WAIT", 0.0, 0.0, StrategyMeta())
+        }
+
         // REAL MODE or any evaluation: Normal logic continues below
         val minCandles = if (isPaperMode) 1 else 3
         if (hist.size < minCandles) {
@@ -719,6 +731,53 @@ class LifecycleStrategy(
         }
         
         return result to decision
+    }
+
+    // ═══════════════════════════════════════════════════════════════════
+    // PRE-STRATEGY HARD ELIGIBILITY GATE
+    // These are absolute blocks checked BEFORE any strategy processing.
+    // They prevent wasted CPU on tokens that can never be traded.
+    // ═══════════════════════════════════════════════════════════════════
+    
+    /**
+     * Pre-strategy eligibility check. These blocks happen BEFORE:
+     * - Phase scoring
+     * - Edge scoring  
+     * - Strategy generation
+     * - Exploration overrides
+     * 
+     * Returns block reason if ineligible, null if OK to proceed.
+     */
+    private fun preStrategyHardBlock(ts: TokenState, isPaperMode: Boolean): String? {
+        val safety = ts.safety
+        
+        // 1. ZERO LIQUIDITY - Cannot trade, no pool exists
+        if (ts.lastLiquidityUsd <= 0.0) {
+            return "HARD_BLOCK_ZERO_LIQUIDITY"
+        }
+        
+        // 2. RUGCHECK CRITICAL - Extremely dangerous token (score ≤ 5)
+        // This is a floor that even paper mode cannot bypass
+        if (safety.rugcheckScore in 0..5) {
+            return "HARD_BLOCK_RUGCHECK_CRITICAL (score=${safety.rugcheckScore})"
+        }
+        
+        // 3. BANNED TOKEN - Known bad token from previous losses
+        if (BannedTokens.isBanned(ts.mint)) {
+            return "HARD_BLOCK_BANNED"
+        }
+        
+        // 4. RUGGED CONTRACT - Deployer has rugged before
+        if (RuggedContracts.isBlacklisted(ts.mint)) {
+            return "HARD_BLOCK_RUGGED_DEPLOYER"
+        }
+        
+        // 5. FREEZE AUTHORITY + LIVE MODE - Honeypot risk
+        if (!isPaperMode && safety.freezeAuthorityDisabled == false) {
+            return "HARD_BLOCK_FREEZE_AUTHORITY"
+        }
+        
+        return null  // Eligible for strategy processing
     }
 
     // ═══════════════════════════════════════════════════════════════════

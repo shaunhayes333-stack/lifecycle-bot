@@ -1773,13 +1773,18 @@ class Executor(
             AdaptiveLearningEngine.learnFromTrade(features)
             
             // Scanner learning - track what discovery characteristics produce wins
-            val tokenAgeHours = (System.currentTimeMillis() - ts.addedToWatchlistAt) / 3_600_000.0
-            ScannerLearning.recordTrade(
-                source = ts.source.ifEmpty { "UNKNOWN" },
-                liqUsd = ts.lastLiquidityUsd,
-                ageHours = tokenAgeHours,
-                isWin = pnlP > 0
-            )
+            // ONLY record meaningful outcomes, NOT scratch trades
+            if (shouldLearnAsWin || shouldLearnAsLoss) {
+                val tokenAgeHours = (System.currentTimeMillis() - ts.addedToWatchlistAt) / 3_600_000.0
+                ScannerLearning.recordTrade(
+                    source = ts.source.ifEmpty { "UNKNOWN" },
+                    liqUsd = ts.lastLiquidityUsd,
+                    ageHours = tokenAgeHours,
+                    isWin = shouldLearnAsWin  // Use classified outcome, not raw pnl
+                )
+            } else {
+                ErrorLogger.debug("ScannerLearning", "Skipped scratch trade for ${ts.symbol} (pnl=${pnlP.toInt()}%)")
+            }
         } catch (e: Exception) {
             ErrorLogger.debug("AdaptiveLearning", "Feature capture error: ${e.message}")
         }
@@ -1871,8 +1876,27 @@ class Executor(
         // pnl/pnlP are now valid (try succeeded, otherwise we returned above)
         val exitPrice = ts.ref  // capture before position reset clears it
         
-        // Record bad behaviour observations for losing trades (same as paperSell)
-        if (pnl <= 0) {
+        // ═══════════════════════════════════════════════════════════════════
+        // TRADE OUTCOME CLASSIFICATION (same as paperSell)
+        // ═══════════════════════════════════════════════════════════════════
+        val holdTimeMins = (System.currentTimeMillis() - pos.entryTime) / 60_000.0
+        val tradeClassification = when {
+            pnlP in -2.0..2.0 -> "SCRATCH"
+            pnlP in -10.0..-2.0 -> "SMALL_LOSS"
+            pnlP < -10.0 -> "MEANINGFUL_LOSS"
+            pnlP in 2.0..10.0 -> "SMALL_WIN"
+            pnlP > 10.0 -> "MEANINGFUL_WIN"
+            else -> "SCRATCH"
+        }
+        
+        val shouldLearnAsLoss = tradeClassification in listOf("MEANINGFUL_LOSS", "SMALL_LOSS")
+        val shouldLearnAsWin = tradeClassification in listOf("MEANINGFUL_WIN", "SMALL_WIN")
+        
+        ErrorLogger.info("Executor", "📊 LIVE ${ts.symbol} CLASSIFIED: $tradeClassification | " +
+            "pnl=${pnlP.toInt()}% | hold=${holdTimeMins.toInt()}min")
+        
+        // Record bad behaviour observations for MEANINGFUL losing trades only
+        if (shouldLearnAsLoss) {
             val fanName = ts.meta.emafanAlignment
             val ph      = pos.entryPhase
             val src     = ts.source.ifBlank { "UNKNOWN" }
@@ -1922,8 +1946,8 @@ class Executor(
                     }
                 }
             }
-        } else {
-            // Win — let the brain know this pattern is recovering
+        } else if (shouldLearnAsWin) {
+            // Meaningful win — let the brain know this pattern is working
             val fanName = ts.meta.emafanAlignment
             val ph      = pos.entryPhase
             val src     = ts.source.ifBlank { "UNKNOWN" }
@@ -1933,6 +1957,9 @@ class Executor(
             brain?.let { b ->
                 b.learnFromTrade(isWin = true, phase = ph, emaFan = fanName, source = src, pnlPct = pnlP, mint = ts.mint)
             }
+        } else {
+            // SCRATCH trade - not meaningful for learning
+            ErrorLogger.debug("Executor", "LIVE ${ts.symbol}: Scratch trade (${pnlP.toInt()}%) - skipped for learning")
         }
 
         // Record trade to database
@@ -1986,13 +2013,16 @@ class Executor(
             AdaptiveLearningEngine.learnFromTrade(features)
             
             // Scanner learning - track what discovery characteristics produce wins
-            val tokenAgeHours2 = (System.currentTimeMillis() - ts.addedToWatchlistAt) / 3_600_000.0
-            ScannerLearning.recordTrade(
-                source = ts.source.ifEmpty { "UNKNOWN" },
-                liqUsd = ts.lastLiquidityUsd,
-                ageHours = tokenAgeHours2,
-                isWin = pnlP > 0
-            )
+            // ONLY record meaningful outcomes, NOT scratch trades
+            if (shouldLearnAsWin || shouldLearnAsLoss) {
+                val tokenAgeHours2 = (System.currentTimeMillis() - ts.addedToWatchlistAt) / 3_600_000.0
+                ScannerLearning.recordTrade(
+                    source = ts.source.ifEmpty { "UNKNOWN" },
+                    liqUsd = ts.lastLiquidityUsd,
+                    ageHours = tokenAgeHours2,
+                    isWin = shouldLearnAsWin  // Use classified outcome, not raw pnl
+                )
+            }
         } catch (e: Exception) {
             ErrorLogger.debug("AdaptiveLearning", "Feature capture error: ${e.message}")
         }
