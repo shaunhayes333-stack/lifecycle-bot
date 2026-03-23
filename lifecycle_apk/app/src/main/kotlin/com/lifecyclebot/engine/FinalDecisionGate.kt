@@ -154,13 +154,25 @@ object FinalDecisionGate {
         }
         
         // 1b. Rugcheck score critically low
-        if (blockReason == null && ts.safety.rugcheckScore <= rugcheckThreshold) {
+        // PAPER MODE: Allow -1 (API error/no data) to enable learning
+        // LIVE MODE: Block both -1 and low scores for safety
+        val rugcheckBlock = when {
+            ts.safety.rugcheckScore == -1 && config.paperMode -> false  // Paper: allow API errors
+            ts.safety.rugcheckScore <= rugcheckThreshold -> true         // Block low scores
+            else -> false
+        }
+        if (blockReason == null && rugcheckBlock) {
             blockReason = "HARD_BLOCK_RUGCHECK_${ts.safety.rugcheckScore}"
             blockLevel = BlockLevel.HARD
             checks.add(GateCheck("rugcheck", false, "score=${ts.safety.rugcheckScore} <= $rugcheckThreshold"))
             tags.add("low_rugcheck")
         } else if (blockReason == null) {
-            checks.add(GateCheck("rugcheck", true, null))
+            // Log if paper mode allowed -1
+            if (ts.safety.rugcheckScore == -1 && config.paperMode) {
+                checks.add(GateCheck("rugcheck", true, "score=-1 (paper: allowed for learning)"))
+            } else {
+                checks.add(GateCheck("rugcheck", true, null))
+            }
         }
         
         // 1c. Extreme sell pressure (mass dumping)
