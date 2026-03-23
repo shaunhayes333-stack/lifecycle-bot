@@ -53,6 +53,7 @@ class SoundManager(private val ctx: Context) {
     // Sound IDs for custom clips (loaded lazily)
     private var woohooSoundId: Int = -1
     private var awesomeSoundId: Int = -1
+    private var aplusAlertSoundId: Int = -1
     private var soundsLoaded = false
     
     init {
@@ -74,7 +75,13 @@ class SoundManager(private val ctx: Context) {
                 awesomeSoundId = soundPool.load(ctx, awesomeResId, 1)
             }
             
-            soundsLoaded = woohooSoundId > 0 || awesomeSoundId > 0
+            // Try to load A+ setup alert sound
+            val aplusResId = ctx.resources.getIdentifier("aplus_alert", "raw", ctx.packageName)
+            if (aplusResId != 0) {
+                aplusAlertSoundId = soundPool.load(ctx, aplusResId, 1)
+            }
+            
+            soundsLoaded = woohooSoundId > 0 || awesomeSoundId > 0 || aplusAlertSoundId > 0
             if (soundsLoaded) {
                 ErrorLogger.info("SoundManager", "Custom sounds loaded! 🎵 Woohoo!")
             }
@@ -223,6 +230,25 @@ class SoundManager(private val ctx: Context) {
                 ), delayMs = 120)
             }
             vibratePattern(longArrayOf(0, 80, 40, 80))
+        }
+    }
+
+    // ── A+ SETUP ALERT ────────────────────────────────────────────────
+    fun playAplusAlert() {
+        if (!enabled) return
+        mainHandler.post {
+            if (soundsLoaded && aplusAlertSoundId > 0) {
+                soundPool.play(aplusAlertSoundId, 1.0f, 1.0f, 1, 0, 1.0f)
+            } else if (soundsLoaded && woohooSoundId > 0) {
+                soundPool.play(woohooSoundId, 1.0f, 1.0f, 1, 0, 1.0f)
+            } else {
+                playSequence(listOf(
+                    Pair(ToneGenerator.TONE_PROP_BEEP, 100),
+                    Pair(ToneGenerator.TONE_PROP_BEEP2, 100),
+                    Pair(ToneGenerator.TONE_PROP_ACK, 150),
+                ), delayMs = 60)
+            }
+            vibratePattern(longArrayOf(0, 100, 50, 100, 50, 200))
         }
     }
 

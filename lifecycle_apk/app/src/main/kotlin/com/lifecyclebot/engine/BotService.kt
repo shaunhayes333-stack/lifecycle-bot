@@ -1104,6 +1104,12 @@ class BotService : Service() {
                         ts.meta       = result.meta
                     }
                     
+                    // A+ SETUP ALERT
+                    if (result.signal == "BUY" && result.meta.setupQuality == "A+" && !ts.position.isOpen) {
+                        soundManager.playAplusAlert()
+                        addLog("⭐ A+ SETUP: ${ts.symbol}", mint)
+                    }
+                    
                     // Log trading signals for active analysis
                     if (result.signal == "BUY" || result.entryScore >= 35) {
                         ErrorLogger.info("BotService", 
@@ -1197,10 +1203,10 @@ class BotService : Service() {
               } // end scope.launch
             } // end map
             
-            // Wait for all tokens with a maximum timeout of 8 seconds total
-            // This prevents the watchlist from hanging on slow API calls
+            // Wait for all tokens with a maximum timeout of 15 seconds total
+            // Increased from 8s to process more tokens per cycle
             try {
-                kotlinx.coroutines.withTimeout(8000L) {
+                kotlinx.coroutines.withTimeout(15000L) {
                     tokenJobs.forEach { it.join() }
                 }
             } catch (e: kotlinx.coroutines.TimeoutCancellationException) {
