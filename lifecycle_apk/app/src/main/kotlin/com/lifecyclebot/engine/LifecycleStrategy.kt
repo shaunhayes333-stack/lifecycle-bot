@@ -70,7 +70,45 @@ class LifecycleStrategy(
         val hist = ts.history.toList()
         val isPaperMode = cfg().paperMode
 
-        // PAPER MODE: Lower candle requirement to trade faster
+        // ═══════════════════════════════════════════════════════════════════
+        // PAPER MODE: MAXIMUM AGGRESSION - Just trade to learn!
+        // Skip almost all checks and just BUY everything we can
+        // ═══════════════════════════════════════════════════════════════════
+        if (isPaperMode) {
+            // Only skip if no candles at all
+            if (hist.isEmpty()) {
+                return StrategyResult("no_data", "WAIT", 0.0, 0.0, StrategyMeta())
+            }
+            
+            // If we have a position, handle exits normally
+            if (ts.position.isOpen) {
+                // Let the normal exit logic run (below)
+            } else {
+                // NO POSITION = BUY IMMEDIATELY IN PAPER MODE
+                // Don't analyze, don't score, just trade to learn
+                val phase = try { detectPhase(ts, hist) } catch (_: Exception) { "unknown" }
+                val entry = 50.0  // Placeholder score
+                
+                // Only block obvious rugs (price dropped 90%+)
+                if (hist.size >= 2) {
+                    val firstPrice = hist.first().close
+                    val lastPrice = hist.last().close
+                    if (firstPrice > 0 && lastPrice / firstPrice < 0.1) {
+                        ErrorLogger.debug("Strategy", "${ts.symbol}: PAPER skip - rugged (90%+ drop)")
+                        return StrategyResult("rug_likely", "WAIT", entry, 0.0, StrategyMeta())
+                    }
+                }
+                
+                ErrorLogger.info("Strategy", "🟢 ${ts.symbol}: PAPER BUY (auto) | phase=$phase liq=$${ts.lastLiquidityUsd.toInt()} mcap=$${ts.lastFdv.toInt()} entry=${entry.toInt()}")
+                return StrategyResult(phase, "BUY", entry, 0.0, StrategyMeta(
+                    emafanAlignment = "PAPER",
+                    volumeTrend = "PAPER",
+                    holderTrend = "PAPER"
+                ))
+            }
+        }
+
+        // REAL MODE or PAPER EXIT HANDLING: Normal logic continues below
         val minCandles = if (isPaperMode) 1 else 3
         if (hist.size < minCandles) {
             ErrorLogger.debug("Strategy", "${ts.symbol}: bootstrap - only ${hist.size} candles (need $minCandles)")

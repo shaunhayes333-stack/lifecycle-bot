@@ -443,8 +443,10 @@ class BotService : Service() {
                                 return@SolanaMarketScanner
                             }
                             
-                            if (wl.size >= c.maxWatchlistSize) {
-                                ErrorLogger.debug("BotService", "Watchlist full (${wl.size}/${c.maxWatchlistSize})")
+                            // PAPER MODE: Much larger watchlist for more learning
+                            val effectiveMaxWatchlist = if (c.paperMode) 100 else c.maxWatchlistSize
+                            if (wl.size >= effectiveMaxWatchlist) {
+                                ErrorLogger.debug("BotService", "Watchlist full (${wl.size}/${effectiveMaxWatchlist})")
                                 return@SolanaMarketScanner
                             }
                             
