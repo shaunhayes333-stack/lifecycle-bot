@@ -602,6 +602,21 @@ class LifecycleStrategy(
             return result to decision
         }
         
+        // ═══════════════════════════════════════════════════════════════════
+        // HARD BLOCKS - These CANNOT be bypassed even in paper mode
+        // Safety-critical checks that protect from catastrophic losses
+        // ═══════════════════════════════════════════════════════════════════
+        
+        val hardBlockReason = checkHardBlocks(ts, result)
+        if (hardBlockReason != null) {
+            ErrorLogger.info("Strategy", "🛑 ${ts.symbol}: HARD BLOCKED - $hardBlockReason")
+            val decision = CandidateDecision.blocked(
+                reason = "HARD BLOCK: $hardBlockReason",
+                meta = result.meta
+            )
+            return result to decision
+        }
+        
         val edgePhase = EdgeOptimizer.detectMarketPhase(hist, prices)
         val pressScore = result.meta.pressScore
         val volScore = result.meta.volScore
@@ -702,6 +717,92 @@ class LifecycleStrategy(
         }
         
         return result to decision
+    }
+
+    // ═══════════════════════════════════════════════════════════════════
+    // HARD BLOCKS - Safety-critical checks that CANNOT be bypassed
+    // Even paper mode must respect these to avoid learning from impossible trades
+    // ═══════════════════════════════════════════════════════════════════
+    
+    /**
+     * Check for hard block conditions that should NEVER be bypassed.
+     * Returns the block reason if blocked, null if OK to trade.
+     * 
+     * These blocks apply to BOTH paper and live mode because:
+     * 1. Paper mode shouldn't learn from trades that would fail in live
+     * 2. These represent fundamental token issues, not market timing
+     */
+    private fun checkHardBlocks(ts: TokenState, result: StrategyResult): String? {
+        val safety = ts.safety
+        val pressScore = result.meta.pressScore
+        
+        // 1. RUGCHECK BLOCKED - Score too low (dangerous token)
+        // Threshold: 30 or below is extremely risky
+        if (safety.rugcheckScore in 0..30) {
+            return "Rugcheck score ${safety.rugcheckScore}/100 (DANGEROUS)"
+        }
+        
+        // 2. LIQUIDITY = 0 - Cannot trade, no liquidity pool
+        if (ts.lastLiquidityUsd <= 0.0) {
+            return "Zero liquidity - no pool"
+        }
+        
+        // 3. EXTREME SELL PRESSURE - Buy% below 20% is mass dumping
+        if (pressScore < 20.0) {
+            return "Extreme sell pressure (buy%=${pressScore.toInt()})"
+        }
+        
+        // 4. FREEZE AUTHORITY ENABLED - Token can be frozen (honeypot risk)
+        if (safety.freezeAuthorityDisabled == false) {
+            return "Freeze authority enabled (honeypot risk)"
+        }
+        
+        // 5. MINT AUTHORITY ENABLED - More tokens can be minted (inflation risk)
+        // Note: Some legitimate tokens have this, so we check rugcheck too
+        if (safety.mintAuthorityDisabled == false && safety.rugcheckScore < 50) {
+            return "Mint authority enabled + low rugcheck (rug risk)"
+        }
+        
+        // 6. BANNED TOKEN / DEPLOYER - Known bad actor
+        if (RuggedContracts.isBlacklisted(ts.mint)) {
+            return "Contract blacklisted (previous rug)"
+        }
+        if (BannedTokens.isBanned(ts.mint)) {
+            return "Token banned (repeated losses)"
+        }
+        
+        // 7. HIGH DISTRIBUTION CONFIDENCE - Clear distribution phase with high confidence
+        // This is different from edge veto - this is a HARD block for obvious dumps
+        val hist = ts.history.toList()
+        if (hist.size >= 5) {
+            val prices = hist.map { it.ref }
+            val edgePhase = EdgeOptimizer.detectMarketPhase(hist, prices)
+            
+            // DISTRIBUTION + high confidence + sell pressure = clear dump
+            if (edgePhase.phase == EdgeOptimizer.MarketPhase.DISTRIBUTION && 
+                edgePhase.confidence > 70.0 && 
+                pressScore < 40.0) {
+                return "High-confidence distribution (${edgePhase.confidence.toInt()}%) + sell pressure"
+            }
+            
+            // DEAD phase with high confidence = token is dying
+            if (edgePhase.phase == EdgeOptimizer.MarketPhase.DEAD && 
+                edgePhase.confidence > 60.0) {
+                return "Token in DEAD phase (confidence ${edgePhase.confidence.toInt()}%)"
+            }
+        }
+        
+        // 8. TOP HOLDER CONCENTRATION - Single holder owns too much (>50%)
+        if (safety.topHolderPct > 50.0) {
+            return "Top holder owns ${safety.topHolderPct.toInt()}% (rug risk)"
+        }
+        
+        // 9. HARD BLOCKS FROM SAFETY REPORT
+        if (safety.isBlocked && safety.hardBlockReasons.isNotEmpty()) {
+            return "Safety: ${safety.hardBlockReasons.first()}"
+        }
+        
+        return null  // No hard block
     }
 
     private enum class TradingMode { LAUNCH_SNIPE, RANGE_TRADE }
