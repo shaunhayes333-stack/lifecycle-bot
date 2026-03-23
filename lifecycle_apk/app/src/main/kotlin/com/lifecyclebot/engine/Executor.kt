@@ -1207,18 +1207,21 @@ class Executor(
                     isWin = false, phase = ph, emaFan = fanName, 
                     source = src, pnlPct = pnlP, mint = ts.mint
                 )
-                // PAPER MODE: Don't ban tokens - we want to keep trading them to learn
-                if (shouldBlacklist && !cfg().paperMode) {
+                // Paper mode: Still BAN tokens to build the list for live mode
+                // but we don't CHECK the list in paper mode (handled in scanner/watchlist)
+                if (shouldBlacklist) {
                     // Session blacklist (cleared on restart)
                     TokenBlacklist.block(ts.mint, "2+ losses on ${ts.symbol}")
-                    // Permanent ban (persisted across restarts)
+                    // Permanent ban (persisted across restarts) - ALWAYS add, even in paper mode
                     BannedTokens.ban(ts.mint, "2+ losses on ${ts.symbol}")
-                    onLog("🚫 PERMANENTLY BANNED: ${ts.symbol} after repeated losses", ts.mint)
-                    onNotify("🚫 Token Banned", 
-                             "${ts.symbol}: 2+ losses — permanently banned",
-                             com.lifecyclebot.engine.NotificationHistory.NotifEntry.NotifType.INFO)
-                } else if (shouldBlacklist) {
-                    onLog("📝 PAPER: Would ban ${ts.symbol} (skipped for learning)", ts.mint)
+                    if (cfg().paperMode) {
+                        onLog("📝 PAPER LEARNED: ${ts.symbol} added to ban list (still trading for learning)", ts.mint)
+                    } else {
+                        onLog("🚫 PERMANENTLY BANNED: ${ts.symbol} after repeated losses", ts.mint)
+                        onNotify("🚫 Token Banned", 
+                                 "${ts.symbol}: 2+ losses — permanently banned",
+                                 com.lifecyclebot.engine.NotificationHistory.NotifEntry.NotifType.INFO)
+                    }
                 }
             }
             
@@ -1431,18 +1434,21 @@ class Executor(
                     isWin = false, phase = ph, emaFan = fanName, 
                     source = src, pnlPct = pnlP, mint = ts.mint
                 )
-                // PAPER MODE: Don't ban tokens - we want to keep trading them to learn
-                if (shouldBlacklist && !cfg().paperMode) {
+                // Paper mode: Still BAN tokens to build the list for live mode
+                // but we don't CHECK the list in paper mode (handled in scanner/watchlist)
+                if (shouldBlacklist) {
                     // Session blacklist (cleared on restart)
                     TokenBlacklist.block(ts.mint, "2+ losses on ${ts.symbol}")
-                    // Permanent ban (persisted across restarts)
+                    // Permanent ban (persisted across restarts) - ALWAYS add, even in paper mode
                     BannedTokens.ban(ts.mint, "2+ losses on ${ts.symbol}")
-                    onLog("🚫 PERMANENTLY BANNED: ${ts.symbol} after repeated losses", ts.mint)
-                    onNotify("🚫 Token Banned", 
-                             "${ts.symbol}: 2+ losses — permanently banned",
-                             com.lifecyclebot.engine.NotificationHistory.NotifEntry.NotifType.INFO)
-                } else if (shouldBlacklist) {
-                    onLog("📝 PAPER: Would ban ${ts.symbol} (skipped for learning)", ts.mint)
+                    if (cfg().paperMode) {
+                        onLog("📝 PAPER LEARNED: ${ts.symbol} added to ban list (still trading for learning)", ts.mint)
+                    } else {
+                        onLog("🚫 PERMANENTLY BANNED: ${ts.symbol} after repeated losses", ts.mint)
+                        onNotify("🚫 Token Banned", 
+                                 "${ts.symbol}: 2+ losses — permanently banned",
+                                 com.lifecyclebot.engine.NotificationHistory.NotifEntry.NotifType.INFO)
+                    }
                 }
             }
         } else {
