@@ -1207,7 +1207,8 @@ class Executor(
                     isWin = false, phase = ph, emaFan = fanName, 
                     source = src, pnlPct = pnlP, mint = ts.mint
                 )
-                if (shouldBlacklist) {
+                // PAPER MODE: Don't ban tokens - we want to keep trading them to learn
+                if (shouldBlacklist && !cfg().paperMode) {
                     // Session blacklist (cleared on restart)
                     TokenBlacklist.block(ts.mint, "2+ losses on ${ts.symbol}")
                     // Permanent ban (persisted across restarts)
@@ -1216,6 +1217,8 @@ class Executor(
                     onNotify("🚫 Token Banned", 
                              "${ts.symbol}: 2+ losses — permanently banned",
                              com.lifecyclebot.engine.NotificationHistory.NotifEntry.NotifType.INFO)
+                } else if (shouldBlacklist) {
+                    onLog("📝 PAPER: Would ban ${ts.symbol} (skipped for learning)", ts.mint)
                 }
             }
             
@@ -1428,7 +1431,8 @@ class Executor(
                     isWin = false, phase = ph, emaFan = fanName, 
                     source = src, pnlPct = pnlP, mint = ts.mint
                 )
-                if (shouldBlacklist) {
+                // PAPER MODE: Don't ban tokens - we want to keep trading them to learn
+                if (shouldBlacklist && !cfg().paperMode) {
                     // Session blacklist (cleared on restart)
                     TokenBlacklist.block(ts.mint, "2+ losses on ${ts.symbol}")
                     // Permanent ban (persisted across restarts)
@@ -1437,6 +1441,8 @@ class Executor(
                     onNotify("🚫 Token Banned", 
                              "${ts.symbol}: 2+ losses — permanently banned",
                              com.lifecyclebot.engine.NotificationHistory.NotifEntry.NotifType.INFO)
+                } else if (shouldBlacklist) {
+                    onLog("📝 PAPER: Would ban ${ts.symbol} (skipped for learning)", ts.mint)
                 }
             }
         } else {

@@ -437,7 +437,8 @@ class BotService : Service() {
                                 return@SolanaMarketScanner
                             }
                             
-                            if (TokenBlacklist.isBlocked(mint)) {
+                            // PAPER MODE: Skip blacklist check - we want to trade everything
+                            if (!c.paperMode && TokenBlacklist.isBlocked(mint)) {
                                 ErrorLogger.debug("BotService", "Token $symbol is blacklisted")
                                 return@SolanaMarketScanner
                             }
@@ -988,9 +989,10 @@ class BotService : Service() {
                     val ts = status.tokens[mint] ?: return@launch
                     
                     // ═══════════════════════════════════════════════════════════════════
-                    // Skip permanently banned tokens immediately
+                    // Skip permanently banned tokens immediately (REAL MODE ONLY)
+                    // In paper mode, we want to keep trading banned tokens for learning
                     // ═══════════════════════════════════════════════════════════════════
-                    if (BannedTokens.isBanned(mint)) {
+                    if (!cfg.paperMode && BannedTokens.isBanned(mint)) {
                         // Remove from watchlist to stop wasting resources
                         synchronized(status.tokens) {
                             status.tokens.remove(mint)

@@ -1360,12 +1360,13 @@ class SolanaMarketScanner(
     
     private fun passesFilterInternal(token: ScannedToken): Boolean {
         val c = cfg()
+        val isPaperMode = c.paperMode
 
         // ═══════════════════════════════════════════════════════════════════
-        // FIRST CHECK: Is this token permanently banned?
-        // This happens BEFORE all other checks to save processing time
+        // PAPER MODE: Skip permanent ban check - we want to trade everything
+        // This allows learning from tokens that were previously banned
         // ═══════════════════════════════════════════════════════════════════
-        if (BannedTokens.isBanned(token.mint)) {
+        if (!isPaperMode && BannedTokens.isBanned(token.mint)) {
             ErrorLogger.debug("Scanner", "FILTER REJECT ${token.symbol}: PERMANENTLY BANNED")
             return false
         }
@@ -1375,6 +1376,15 @@ class SolanaMarketScanner(
                              token.dexId == "pump.fun" ||
                              token.pairCreatedHoursAgo < 1.0  // Very new = likely pump.fun
         
+        // PAPER MODE: No hard minimums - trade everything to learn
+        if (isPaperMode) {
+            // Only reject if literally zero or negative values
+            if (token.mcapUsd < 0) return false
+            // Allow everything else in paper mode
+            return true
+        }
+        
+        // REAL MODE: Apply filters as normal
         // HARD MINIMUM MCAP - LOWER for pump.fun tokens
         val HARD_MIN_MCAP = if (isPumpFunToken) 500.0 else 2_000.0
         if (token.mcapUsd > 0 && token.mcapUsd < HARD_MIN_MCAP) {
