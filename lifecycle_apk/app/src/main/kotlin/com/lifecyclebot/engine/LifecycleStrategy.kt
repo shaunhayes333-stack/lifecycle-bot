@@ -101,9 +101,7 @@ class LifecycleStrategy(
                 
                 ErrorLogger.info("Strategy", "🟢 ${ts.symbol}: PAPER BUY (auto) | phase=$phase liq=$${ts.lastLiquidityUsd.toInt()} mcap=$${ts.lastFdv.toInt()} entry=${entry.toInt()}")
                 return StrategyResult(phase, "BUY", entry, 0.0, StrategyMeta(
-                    emafanAlignment = "PAPER",
-                    volumeTrend = "PAPER",
-                    holderTrend = "PAPER"
+                    emafanAlignment = "PAPER"
                 ))
             }
         }
