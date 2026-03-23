@@ -202,6 +202,66 @@ class Executor(
         return true
     }
 
+    // ══════════════════════════════════════════════════════════════
+    // GRADUATED POSITION BUILDING
+    // Split entry into phases: 40% initial, 30% confirm, 30% full
+    // ══════════════════════════════════════════════════════════════
+
+    fun graduatedInitialSize(fullSize: Double, quality: String): Double {
+        val pct = when (quality) {
+            "A+" -> 0.50
+            "B"  -> 0.40
+            else -> 0.35
+        }
+        return fullSize * pct
+    }
+
+    fun shouldGraduatedAdd(pos: Position, currentPrice: Double, volScore: Double): Pair<Double, Int>? {
+        if (pos.isFullyBuilt || pos.targetBuildSol <= 0) return null
+        if (pos.buildPhase !in listOf(1, 2)) return null
+        
+        val gainPct = pct(pos.entryPrice, currentPrice)
+        val remaining = pos.targetBuildSol - pos.costSol
+        val timeSince = System.currentTimeMillis() - pos.entryTime
+        
+        // Phase 2: 3%+ gain, 30s delay
+        if (pos.buildPhase == 1 && gainPct >= 3.0 && timeSince >= 30_000 && volScore >= 35) {
+            val add = remaining * 0.50
+            if (add >= 0.005) return Pair(add, 2)
+        }
+        
+        // Phase 3: 8%+ gain
+        if (pos.buildPhase == 2 && gainPct >= 8.0) {
+            val add = remaining.coerceAtLeast(0.005)
+            if (add >= 0.005) return Pair(add, 3)
+        }
+        
+        return null
+    }
+
+    fun doGraduatedAdd(ts: TokenState, addSol: Double, newPhase: Int) {
+        val price = ts.ref
+        if (price <= 0 || !ts.position.isOpen) return
+        
+        val addTokens = addSol / maxOf(price, 1e-12)
+        val newQty = ts.position.qtyToken + addTokens
+        val newCost = ts.position.costSol + addSol
+        
+        ts.position = ts.position.copy(
+            qtyToken = newQty,
+            costSol = newCost,
+            buildPhase = newPhase
+        )
+        
+        val trade = Trade("BUY", "paper", addSol, price, System.currentTimeMillis(), score = 0.0)
+        ts.trades.add(trade)
+        security.recordTrade(trade)
+        onPaperBalanceChange?.invoke(-addSol)
+        
+        val emoji = if (newPhase == 3) "🎯" else "📈"
+        onLog("$emoji BUILD P$newPhase | +${addSol.fmt(3)} SOL", ts.mint)
+    }
+
     // ── trailing stop ─────────────────────────────────────────────────
     // V5: SMART RUNNER CAPTURE - Dynamic trailing based on trend health
     
@@ -660,6 +720,15 @@ class Executor(
             }
         }
 
+        // GRADUATED BUILDING - check for phase 2/3 adds
+        if (cfg().paperMode && ts.position.isOpen && !ts.position.isFullyBuilt) {
+            val result = shouldGraduatedAdd(ts.position, ts.ref, ts.meta.volScore)
+            if (result != null) {
+                val (addSol, newPhase) = result
+                doGraduatedAdd(ts, addSol, newPhase)
+            }
+        }
+
         // PAPER MODE: ALWAYS trade regardless of autoTrade setting
         // We want maximum trading activity for learning
         val shouldActOnBuy = cfg().paperMode || cfg().autoTrade
@@ -1036,17 +1105,26 @@ class Executor(
         if (ts.position.isOpen) {
             onLog("⚠ Buy skipped: position already open", ts.mint); return
         }
+        
+        // GRADUATED BUILDING: start with partial size for B+ setups
+        val quality = ts.meta.setupQuality
+        val actualSol = if (quality != "C") graduatedInitialSize(sol, quality) else sol
+        val buildPhase = if (quality != "C") 1 else 3
+        val targetBuild = if (quality != "C") sol else 0.0
+        
         ts.position = Position(
-            qtyToken     = sol / maxOf(price, 1e-12),
+            qtyToken     = actualSol / maxOf(price, 1e-12),
             entryPrice   = price,
             entryTime    = System.currentTimeMillis(),
-            costSol      = sol,
+            costSol      = actualSol,
             highestPrice = price,
             entryPhase   = ts.phase,
             entryScore   = score,
-            entryLiquidityUsd = ts.lastLiquidityUsd,  // Track liquidity for collapse detection
+            entryLiquidityUsd = ts.lastLiquidityUsd,
+            buildPhase   = buildPhase,
+            targetBuildSol = targetBuild,
         )
-        val trade = Trade("BUY", "paper", sol, price, System.currentTimeMillis(), score = score)
+        val trade = Trade("BUY", "paper", actualSol, price, System.currentTimeMillis(), score = score)
         ts.trades.add(trade)
         security.recordTrade(trade)
         
@@ -1054,13 +1132,14 @@ class Executor(
         TradeStateMachine.setState(ts.mint, TradeState.MONITOR, "position opened")
         
         // Update paper wallet balance (deduct buy amount)
-        onPaperBalanceChange?.invoke(-sol)
+        onPaperBalanceChange?.invoke(-actualSol)
         
         // 🎵 Homer Simpson "Woohoo!" 
         sounds?.playBuySound()
         
-        onLog("PAPER BUY  @ ${price.fmt()} | ${sol.fmt(4)} SOL | score=${score.toInt()}", ts.mint)
-        onNotify("📈 Paper Buy", "${ts.symbol}  ${sol.fmt(3)} SOL  (score ${score.toInt()})", com.lifecyclebot.engine.NotificationHistory.NotifEntry.NotifType.INFO)
+        val buildInfo = if (buildPhase == 1) " [BUILD 1/3]" else ""
+        onLog("PAPER BUY  @ ${price.fmt()} | ${actualSol.fmt(4)} SOL | score=${score.toInt()}$buildInfo", ts.mint)
+        onNotify("📈 Paper Buy", "${ts.symbol}  ${actualSol.fmt(3)} SOL$buildInfo", com.lifecyclebot.engine.NotificationHistory.NotifEntry.NotifType.INFO)
     }
 
     private fun liveBuy(ts: TokenState, sol: Double, score: Double,

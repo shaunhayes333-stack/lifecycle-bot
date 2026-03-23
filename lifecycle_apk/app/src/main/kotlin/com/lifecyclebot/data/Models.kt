@@ -59,10 +59,14 @@ data class Position(
     val lastTopUpPrice: Double = 0.0,
     val partialSoldPct: Double = 0.0,
     val isLongHold: Boolean = false,   // promoted to conviction long-hold mode
+    // Graduated building
+    val buildPhase: Int = 0,           // 0=none, 1=initial, 2=confirm, 3=full
+    val targetBuildSol: Double = 0.0,
 ) {
     val isOpen get() = qtyToken > 0.0
     val initialCostSol get() = costSol - topUpCostSol  // original entry size
     val avgEntryCost get() = if (qtyToken > 0) costSol else 0.0
+    val isFullyBuilt get() = buildPhase >= 3 || targetBuildSol <= 0 || costSol >= targetBuildSol * 0.95
 }
 
 data class Trade(
