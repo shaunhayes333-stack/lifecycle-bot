@@ -1848,8 +1848,52 @@ class LifecycleStrategy(
     ): String {
         val c   = cfg()
         val pos = ts.position
+        val isPaperMode = c.paperMode
 
         if (pos.isOpen) {
+            // ════════════════════════════════════════════════════════════════
+            // PAPER MODE: Relax exit signals to let trades play out longer
+            // We need to see real price movements to learn what works
+            // ════════════════════════════════════════════════════════════════
+            val heldMins = (System.currentTimeMillis() - pos.entryTime) / 60_000.0
+            val gainPct = pct(pos.entryPrice, ts.ref)
+            
+            if (isPaperMode) {
+                val PAPER_MIN_HOLD = 10.0  // Minutes
+                
+                // In paper mode, only exit on:
+                // 1. Severe loss (>30% down) - obvious rug
+                // 2. Big win (>50% up) - take profits
+                // 3. Max hold time exceeded (30 mins) - move on
+                
+                if (heldMins < PAPER_MIN_HOLD) {
+                    if (gainPct <= -30.0) {
+                        ErrorLogger.info("Strategy", "🚨 PAPER EXIT: ${ts.symbol} severe loss ${gainPct.toInt()}%")
+                        return "EXIT"
+                    }
+                    // Otherwise, keep holding regardless of other signals
+                    return "WAIT"
+                }
+                
+                // After minimum hold time, still be more relaxed
+                if (gainPct >= 50.0) {
+                    ErrorLogger.info("Strategy", "🎯 PAPER EXIT: ${ts.symbol} taking profit ${gainPct.toInt()}%")
+                    return "EXIT"
+                }
+                if (gainPct <= -30.0) {
+                    ErrorLogger.info("Strategy", "🚨 PAPER EXIT: ${ts.symbol} stopping loss ${gainPct.toInt()}%")
+                    return "EXIT"
+                }
+                if (heldMins > 30.0) {
+                    ErrorLogger.info("Strategy", "⏰ PAPER EXIT: ${ts.symbol} max hold ${heldMins.toInt()}m | pnl=${gainPct.toInt()}%")
+                    return "EXIT"
+                }
+                
+                // Paper mode: Keep holding, don't react to distribution/breakdown signals
+                return "WAIT"
+            }
+            
+            // REAL MODE: Normal exit logic below
             if (phase in listOf("breakdown", "dying")) return "EXIT"
             // FIX 1c: Brain exit threshold — negative delta = tighter exits (take profit sooner)
             val brainExitAdj    = try { brain()?.exitThresholdDelta ?: 0.0 } catch (_: Exception) { 0.0 }

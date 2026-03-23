@@ -559,6 +559,33 @@ class Executor(
             return
         }
 
+        // ════════════════════════════════════════════════════════════════
+        // PAPER MODE: MINIMUM HOLD TIME - Let trades play out for learning
+        // We need to see actual price movement to learn what works
+        // ════════════════════════════════════════════════════════════════
+        val isPaperMode = cfg().paperMode
+        if (isPaperMode && ts.position.isOpen) {
+            val heldMins = (System.currentTimeMillis() - ts.position.entryTime) / 60_000.0
+            val PAPER_MIN_HOLD_MINS = 10.0  // Hold at least 10 minutes in paper mode
+            
+            if (heldMins < PAPER_MIN_HOLD_MINS) {
+                // Only allow exit on severe loss (>30% down) to protect from total rugs
+                val pnlPct = if (ts.position.entryPrice > 0) {
+                    ((ts.ref - ts.position.entryPrice) / ts.position.entryPrice) * 100.0
+                } else 0.0
+                
+                if (pnlPct > -30.0) {
+                    // Not a severe loss, keep holding for learning
+                    if (signal in listOf("SELL", "EXIT")) {
+                        ErrorLogger.debug("Executor", "📚 PAPER HOLD: ${ts.symbol} | ${heldMins.toInt()}m < ${PAPER_MIN_HOLD_MINS.toInt()}m min | pnl=${pnlPct.toInt()}%")
+                    }
+                    return  // Skip ALL exit logic until minimum hold time
+                } else {
+                    ErrorLogger.info("Executor", "🚨 PAPER EMERGENCY EXIT: ${ts.symbol} | pnl=${pnlPct.toInt()}% severe loss")
+                }
+            }
+        }
+
         // Update shadow learning engine with current price
         if (ts.position.isOpen) {
             ShadowLearningEngine.onPriceUpdate(
