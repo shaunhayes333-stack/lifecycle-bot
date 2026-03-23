@@ -1706,6 +1706,21 @@ class Executor(
             // SCRATCH trade - near breakeven, not meaningful for learning
             onLog("📊 ${ts.symbol}: Scratch trade (${pnlP.toInt()}%) - skipped for learning", ts.mint)
         }
+        
+        // ═══════════════════════════════════════════════════════════════════
+        // ADAPTIVE THRESHOLD LEARNING
+        // Teach BotBrain what rugcheck/pressure/holder levels lead to wins/losses
+        // ═══════════════════════════════════════════════════════════════════
+        if (shouldLearnAsWin || shouldLearnAsLoss) {
+            brain?.learnThreshold(
+                isWin = shouldLearnAsWin,
+                rugcheckScore = ts.safety.rugcheckScore,
+                buyPressure = ts.meta.pressScore,
+                topHolderPct = ts.safety.topHolderPct,
+                liquidityUsd = ts.lastLiquidityUsd,
+                pnlPct = pnlP,
+            )
+        }
 
         tradeDb?.insertTrade(TradeRecord(
             tsEntry=ts.position.entryTime, tsExit=System.currentTimeMillis(),

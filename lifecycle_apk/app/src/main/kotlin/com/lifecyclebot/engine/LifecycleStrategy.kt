@@ -579,11 +579,13 @@ class LifecycleStrategy(
      * scoring signals.
      * 
      * @param isPaperMode If true, Edge veto is relaxed to allow more learning trades
+     * @param brain BotBrain for adaptive threshold learning (optional)
      */
     fun evaluateWithDecision(
         ts: TokenState,
         modeConf: AutoModeEngine.ModeConfig? = null,
         isPaperMode: Boolean = false,
+        brain: BotBrain? = null,
     ): Pair<StrategyResult, CandidateDecision> {
         // Get base strategy result
         val result = evaluate(ts, modeConf)
@@ -604,10 +606,10 @@ class LifecycleStrategy(
         
         // ═══════════════════════════════════════════════════════════════════
         // HARD BLOCKS - These CANNOT be bypassed even in paper mode
-        // Safety-critical checks that protect from catastrophic losses
+        // Thresholds are LEARNED by BotBrain based on actual trade outcomes
         // ═══════════════════════════════════════════════════════════════════
         
-        val hardBlockReason = checkHardBlocks(ts, result)
+        val hardBlockReason = checkHardBlocks(ts, result, brain)
         if (hardBlockReason != null) {
             ErrorLogger.info("Strategy", "🛑 ${ts.symbol}: HARD BLOCKED - $hardBlockReason")
             val decision = CandidateDecision.blocked(
@@ -721,41 +723,56 @@ class LifecycleStrategy(
 
     // ═══════════════════════════════════════════════════════════════════
     // HARD BLOCKS - Safety-critical checks that CANNOT be bypassed
-    // Even paper mode must respect these to avoid learning from impossible trades
+    // Thresholds are LEARNED by BotBrain based on actual trade outcomes
     // ═══════════════════════════════════════════════════════════════════
     
     /**
      * Check for hard block conditions that should NEVER be bypassed.
      * Returns the block reason if blocked, null if OK to trade.
      * 
-     * These blocks apply to BOTH paper and live mode because:
-     * 1. Paper mode shouldn't learn from trades that would fail in live
-     * 2. These represent fundamental token issues, not market timing
+     * Thresholds are dynamically learned by BotBrain:
+     * - If trades at low rugcheck scores keep losing → raise threshold
+     * - If trades at high top holder % keep losing → lower threshold
+     * 
+     * Paper mode has minimum floors to allow learning.
+     * Live mode uses fully learned thresholds.
      */
-    private fun checkHardBlocks(ts: TokenState, result: StrategyResult): String? {
+    private fun checkHardBlocks(ts: TokenState, result: StrategyResult, brain: BotBrain? = null): String? {
         val safety = ts.safety
         val pressScore = result.meta.pressScore
         val isPaperMode = cfg().paperMode
         
+        // Get learned thresholds from BotBrain (or use defaults)
+        val learned = brain?.getLearnedThresholds()
+        
         // 1. RUGCHECK BLOCKED - Score too low (dangerous token)
-        // PAPER MODE: Threshold 10 (only block truly dangerous)
-        // LIVE MODE: Threshold 25 (more conservative)
-        val rugcheckThreshold = if (isPaperMode) 10 else 25
+        // PAPER MODE: Use learned or minimum floor of 5
+        // LIVE MODE: Use learned or minimum floor of 15
+        val rugcheckThreshold = if (isPaperMode) {
+            (learned?.rugcheckMin ?: 10).coerceIn(5, 20)  // Paper: 5-20 range
+        } else {
+            (learned?.rugcheckMin ?: 20).coerceIn(15, 40)  // Live: 15-40 range
+        }
         if (safety.rugcheckScore in 0..rugcheckThreshold) {
-            return "Rugcheck score ${safety.rugcheckScore}/100 (threshold=$rugcheckThreshold)"
+            return "Rugcheck score ${safety.rugcheckScore}/100 (learned threshold=$rugcheckThreshold)"
         }
         
-        // 2. LIQUIDITY = 0 - Cannot trade, no liquidity pool
-        if (ts.lastLiquidityUsd <= 0.0) {
-            return "Zero liquidity - no pool"
+        // 2. LIQUIDITY - Must have minimum pool
+        val minLiquidity = if (isPaperMode) 0.0 else (learned?.liquidityMin ?: 100.0)
+        if (ts.lastLiquidityUsd < minLiquidity) {
+            return "Low liquidity \$${ts.lastLiquidityUsd.toInt()} (min=\$${minLiquidity.toInt()})"
         }
         
-        // 3. EXTREME SELL PRESSURE - Buy% below threshold is mass dumping
-        // PAPER MODE: 15% (more permissive for learning)
-        // LIVE MODE: 20% (safer)
-        val sellPressureThreshold = if (isPaperMode) 15.0 else 20.0
-        if (pressScore < sellPressureThreshold) {
-            return "Extreme sell pressure (buy%=${pressScore.toInt()}, threshold=$sellPressureThreshold)"
+        // 3. EXTREME SELL PRESSURE - Buy% below learned threshold
+        // PAPER MODE: Use learned or minimum floor of 10%
+        // LIVE MODE: Use learned or minimum floor of 15%
+        val minBuyPressure = if (isPaperMode) {
+            (learned?.buyPressureMin ?: 12.0).coerceIn(10.0, 25.0)
+        } else {
+            (learned?.buyPressureMin ?: 18.0).coerceIn(15.0, 35.0)
+        }
+        if (pressScore < minBuyPressure) {
+            return "Extreme sell pressure (buy%=${pressScore.toInt()}, learned threshold=${minBuyPressure.toInt()})"
         }
         
         // 4. FREEZE AUTHORITY ENABLED - Token can be frozen (honeypot risk)
@@ -802,11 +819,14 @@ class LifecycleStrategy(
         }
         
         // 8. TOP HOLDER CONCENTRATION - Single holder owns too much
-        // PAPER MODE: >70% (more permissive)
-        // LIVE MODE: >50% (safer)
-        val topHolderThreshold = if (isPaperMode) 70.0 else 50.0
-        if (safety.topHolderPct > topHolderThreshold) {
-            return "Top holder owns ${safety.topHolderPct.toInt()}% (threshold=$topHolderThreshold)"
+        // Use LEARNED threshold from BotBrain
+        val maxTopHolder = if (isPaperMode) {
+            (learned?.topHolderMax ?: 75.0).coerceIn(60.0, 85.0)  // Paper: 60-85% range
+        } else {
+            (learned?.topHolderMax ?: 55.0).coerceIn(40.0, 70.0)  // Live: 40-70% range
+        }
+        if (safety.topHolderPct > maxTopHolder) {
+            return "Top holder owns ${safety.topHolderPct.toInt()}% (learned threshold=${maxTopHolder.toInt()}%)"
         }
         
         // 9. HARD BLOCKS FROM SAFETY REPORT - Only in LIVE mode

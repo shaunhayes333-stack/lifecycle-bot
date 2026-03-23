@@ -1176,9 +1176,10 @@ class BotService : Service() {
                 // ═══════════════════════════════════════════════════════════════════
                 // PRIORITY 2: Use unified evaluateWithDecision for complete analysis
                 // Pass isPaperMode to relax Edge veto in paper mode for better learning
+                // Pass brain for adaptive threshold learning
                 // ═══════════════════════════════════════════════════════════════════
                 val modeConfForEval = if (cfg.autoMode) modeConf else null
-                val (result, decision) = strategy.evaluateWithDecision(ts, modeConfForEval, cfg.paperMode)
+                val (result, decision) = strategy.evaluateWithDecision(ts, modeConfForEval, cfg.paperMode, executor.brain)
 
                     synchronized(ts) {
                         ts.phase      = result.phase

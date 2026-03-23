@@ -84,6 +84,30 @@ class BotBrain(
     @Volatile var totalTradesAnalysed: Int     = 0
     @Volatile var lastLlmInsight: String       = ""
 
+    // ── ADAPTIVE HARD BLOCK THRESHOLDS ───────────────────────────────────
+    // These thresholds are learned from trade outcomes.
+    // Start with defaults and adjust based on what actually causes losses.
+    
+    /** Rugcheck score threshold - tokens below this are blocked */
+    @Volatile var learnedRugcheckThreshold: Int = 15  // Default: block ≤15
+    
+    /** Minimum buy pressure % - below this is extreme sell pressure */
+    @Volatile var learnedMinBuyPressure: Double = 15.0  // Default: block <15%
+    
+    /** Max top holder % - above this is rug risk */
+    @Volatile var learnedMaxTopHolder: Double = 70.0  // Default: block >70%
+    
+    /** Min liquidity USD - below this can't trade effectively */
+    @Volatile var learnedMinLiquidity: Double = 100.0  // Default: block <$100
+    
+    // Stats for threshold learning
+    private val rugcheckLosses = mutableMapOf<Int, Int>()  // score bucket → loss count
+    private val rugcheckWins = mutableMapOf<Int, Int>()    // score bucket → win count
+    private val pressureLosses = mutableMapOf<Int, Int>()  // pressure bucket → loss count
+    private val pressureWins = mutableMapOf<Int, Int>()    // pressure bucket → win count
+    private val topHolderLosses = mutableMapOf<Int, Int>() // holder% bucket → loss count
+    private val topHolderWins = mutableMapOf<Int, Int>()   // holder% bucket → win count
+
     private var lastStatAnalysisTrades = 0
     @Volatile private var analysisRunning = false
     private var lastLlmAnalysisTrades  = 0
@@ -103,10 +127,12 @@ class BotBrain(
         // Restore learned state from database before the first trade
         // so the brain doesn't reset to zero on every restart
         restoreFromDatabase()
+        loadThresholdsFromPrefs()  // Load adaptive thresholds
         scope.launch { brainLoop() }
         onLog("🧠 BotBrain online — self-learning active " +
               "(entry delta ${String.format("%+.1f", entryThresholdDelta)}, " +
-              "regime mult ${String.format("%.2f", regimeBullMult)}×)")
+              "regime mult ${String.format("%.2f", regimeBullMult)}×, " +
+              "rugcheck≤$learnedRugcheckThreshold)")
     }
 
     /**
@@ -896,10 +922,158 @@ Analyse this data and respond with ONLY valid JSON in this exact format:
         appendLine("Regime: $currentRegime  SizeMult: ${(regimeBullMult*100).toInt()}%")
         appendLine("Entry Δ: ${entryThresholdDelta.toInt()}  Exit Δ: ${exitThresholdDelta.toInt()}")
         appendLine("Bad patterns: $totalSuppressedPatterns suppressed")
+        appendLine("📊 Thresholds: rugcheck≤$learnedRugcheckThreshold buy%≥${learnedMinBuyPressure.toInt()} topHolder≤${learnedMaxTopHolder.toInt()}%")
         if (lastLlmInsight.isNotBlank()) appendLine("💡 $lastLlmInsight")
         appendLine(lastAnalysis)
     }
 
     /** Full bad behaviour report for UI (delegated to detail method) */
     fun getFullBadBehaviourReport(): String = getBadBehaviourReport()
+    
+    // ══════════════════════════════════════════════════════════════════
+    // ADAPTIVE THRESHOLD LEARNING
+    // Learn optimal hard block thresholds from actual trade outcomes
+    // ══════════════════════════════════════════════════════════════════
+    
+    /**
+     * Record a trade outcome to learn optimal thresholds.
+     * Called after every trade closes.
+     */
+    fun learnThreshold(
+        isWin: Boolean,
+        rugcheckScore: Int,
+        buyPressure: Double,
+        topHolderPct: Double,
+        liquidityUsd: Double,
+        pnlPct: Double,
+    ) {
+        // Bucket the values for statistical analysis
+        val rugBucket = (rugcheckScore / 10) * 10  // 0, 10, 20, 30...
+        val pressBucket = (buyPressure / 10).toInt() * 10  // 0, 10, 20, 30...
+        val holderBucket = (topHolderPct / 10).toInt() * 10  // 0, 10, 20...
+        
+        if (isWin) {
+            rugcheckWins[rugBucket] = (rugcheckWins[rugBucket] ?: 0) + 1
+            pressureWins[pressBucket] = (pressureWins[pressBucket] ?: 0) + 1
+            topHolderWins[holderBucket] = (topHolderWins[holderBucket] ?: 0) + 1
+        } else {
+            rugcheckLosses[rugBucket] = (rugcheckLosses[rugBucket] ?: 0) + 1
+            pressureLosses[pressBucket] = (pressureLosses[pressBucket] ?: 0) + 1
+            topHolderLosses[holderBucket] = (topHolderLosses[holderBucket] ?: 0) + 1
+        }
+        
+        // Recalculate thresholds periodically (every 10 trades)
+        val totalTrades = rugcheckWins.values.sum() + rugcheckLosses.values.sum()
+        if (totalTrades >= 10 && totalTrades % 10 == 0) {
+            recalculateThresholds()
+        }
+    }
+    
+    /**
+     * Recalculate optimal thresholds based on win/loss ratios at each bucket.
+     * The goal is to find the threshold where losses significantly outweigh wins.
+     */
+    private fun recalculateThresholds() {
+        // RUGCHECK: Find the score below which losses dominate
+        var newRugThreshold = 15  // Default
+        for (bucket in listOf(0, 10, 20, 30)) {
+            val wins = rugcheckWins[bucket] ?: 0
+            val losses = rugcheckLosses[bucket] ?: 0
+            val total = wins + losses
+            if (total >= 3) {
+                val lossRate = losses.toDouble() / total
+                // If loss rate > 70% at this bucket, set threshold above it
+                if (lossRate > 0.70) {
+                    newRugThreshold = bucket + 10
+                }
+            }
+        }
+        // Don't go too extreme
+        learnedRugcheckThreshold = newRugThreshold.coerceIn(5, 40)
+        
+        // BUY PRESSURE: Find the pressure below which losses dominate
+        var newPressThreshold = 15.0
+        for (bucket in listOf(0, 10, 20, 30)) {
+            val wins = pressureWins[bucket] ?: 0
+            val losses = pressureLosses[bucket] ?: 0
+            val total = wins + losses
+            if (total >= 3) {
+                val lossRate = losses.toDouble() / total
+                if (lossRate > 0.70) {
+                    newPressThreshold = (bucket + 10).toDouble()
+                }
+            }
+        }
+        learnedMinBuyPressure = newPressThreshold.coerceIn(10.0, 35.0)
+        
+        // TOP HOLDER: Find the holder% above which losses dominate
+        var newHolderThreshold = 70.0
+        for (bucket in listOf(40, 50, 60, 70, 80)) {
+            val wins = topHolderWins[bucket] ?: 0
+            val losses = topHolderLosses[bucket] ?: 0
+            val total = wins + losses
+            if (total >= 3) {
+                val lossRate = losses.toDouble() / total
+                // If loss rate > 60% at this bucket, set threshold to this level
+                if (lossRate > 0.60) {
+                    newHolderThreshold = bucket.toDouble()
+                    break  // Use first bucket that's bad
+                }
+            }
+        }
+        learnedMaxTopHolder = newHolderThreshold.coerceIn(40.0, 80.0)
+        
+        ErrorLogger.info("BotBrain", "📊 THRESHOLDS UPDATED: " +
+            "rugcheck≤$learnedRugcheckThreshold buy%≥${learnedMinBuyPressure.toInt()} topHolder≤${learnedMaxTopHolder.toInt()}%")
+        
+        // Save to prefs for persistence
+        saveThresholdsToPrefs()
+    }
+    
+    private fun saveThresholdsToPrefs() {
+        try {
+            val prefs = ctx.getSharedPreferences("bot_brain_thresholds", Context.MODE_PRIVATE)
+            prefs.edit()
+                .putInt("rugcheck_threshold", learnedRugcheckThreshold)
+                .putFloat("min_buy_pressure", learnedMinBuyPressure.toFloat())
+                .putFloat("max_top_holder", learnedMaxTopHolder.toFloat())
+                .putFloat("min_liquidity", learnedMinLiquidity.toFloat())
+                .apply()
+        } catch (e: Exception) {
+            ErrorLogger.error("BotBrain", "Failed to save thresholds: ${e.message}")
+        }
+    }
+    
+    private fun loadThresholdsFromPrefs() {
+        try {
+            val prefs = ctx.getSharedPreferences("bot_brain_thresholds", Context.MODE_PRIVATE)
+            learnedRugcheckThreshold = prefs.getInt("rugcheck_threshold", 15)
+            learnedMinBuyPressure = prefs.getFloat("min_buy_pressure", 15f).toDouble()
+            learnedMaxTopHolder = prefs.getFloat("max_top_holder", 70f).toDouble()
+            learnedMinLiquidity = prefs.getFloat("min_liquidity", 100f).toDouble()
+            
+            ErrorLogger.info("BotBrain", "📊 THRESHOLDS LOADED: " +
+                "rugcheck≤$learnedRugcheckThreshold buy%≥${learnedMinBuyPressure.toInt()} topHolder≤${learnedMaxTopHolder.toInt()}%")
+        } catch (e: Exception) {
+            ErrorLogger.error("BotBrain", "Failed to load thresholds: ${e.message}")
+        }
+    }
+    
+    /**
+     * Get the current learned thresholds for use in hard blocks.
+     * Returns a data class with all threshold values.
+     */
+    fun getLearnedThresholds() = LearnedThresholds(
+        rugcheckMin = learnedRugcheckThreshold,
+        buyPressureMin = learnedMinBuyPressure,
+        topHolderMax = learnedMaxTopHolder,
+        liquidityMin = learnedMinLiquidity,
+    )
+    
+    data class LearnedThresholds(
+        val rugcheckMin: Int,
+        val buyPressureMin: Double,
+        val topHolderMax: Double,
+        val liquidityMin: Double,
+    )
 }
