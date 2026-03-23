@@ -125,23 +125,29 @@ class TradeJournal(private val ctx: Context) {
         val avgWinPct: Double,
         val avgLossPct: Double,
         val totalVolumeSol: Double,
+        val scratchCount: Int = 0,  // Trades between -2% and +2% (excluded from win/loss)
     )
 
     fun getStats(tokens: Map<String, TokenState>): JournalStats {
         val sells = buildJournal(tokens).filter { it.side == "SELL" }
-        val wins  = sells.filter { it.pnlSol > 0 }
-        val loss  = sells.filter { it.pnlSol <= 0 }
+        // IMPORTANT: Exclude scratch trades (-2% to +2%) from win/loss calculations
+        // These are near-breakeven and should not affect learning or stats
+        val meaningfulTrades = sells.filter { it.pnlPct < -2.0 || it.pnlPct > 2.0 }
+        val scratchTrades = sells.filter { it.pnlPct >= -2.0 && it.pnlPct <= 2.0 }
+        val wins  = meaningfulTrades.filter { it.pnlPct > 2.0 }
+        val loss  = meaningfulTrades.filter { it.pnlPct < -2.0 }
         return JournalStats(
-            totalTrades   = sells.size,
+            totalTrades   = meaningfulTrades.size,  // Only count meaningful trades
             totalWins     = wins.size,
             totalLosses   = loss.size,
-            winRate       = if (sells.isNotEmpty()) wins.size.toDouble() / sells.size * 100 else 0.0,
-            totalPnlSol   = sells.sumOf { it.pnlSol },
+            winRate       = if (meaningfulTrades.isNotEmpty()) wins.size.toDouble() / meaningfulTrades.size * 100 else 0.0,
+            totalPnlSol   = sells.sumOf { it.pnlSol },  // Total P&L includes all trades
             bestTrade     = sells.maxByOrNull { it.pnlPct },
             worstTrade    = sells.minByOrNull { it.pnlPct },
             avgWinPct     = if (wins.isNotEmpty()) wins.map { it.pnlPct }.average() else 0.0,
             avgLossPct    = if (loss.isNotEmpty()) loss.map { it.pnlPct }.average() else 0.0,
             totalVolumeSol = sells.sumOf { it.solAmount },
+            scratchCount  = scratchTrades.size,  // Track how many scratch trades
         )
     }
 

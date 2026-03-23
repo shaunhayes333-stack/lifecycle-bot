@@ -23,7 +23,7 @@ class TradeDatabase(ctx: Context) : SQLiteOpenHelper(ctx, DB_NAME, null, DB_VERS
 
     companion object {
         const val DB_NAME    = "lifecycle_trades.db"
-        const val DB_VERSION = 4
+        const val DB_VERSION = 5  // Incremented for is_scratch column
         const val MIN_EVIDENCE        = 8     // trades before pattern can be CONFIRMED_BAD
         const val SUPPRESS_THRESHOLD  = 38.0  // win rate at or below this = bad pattern
         const val HARD_SUPPRESS_THRESHOLD = 25.0  // this bad = SUPPRESSED (hard block)
@@ -73,7 +73,8 @@ class TradeDatabase(ctx: Context) : SQLiteOpenHelper(ctx, DB_NAME, null, DB_VERS
                 sol_out         REAL,
                 pnl_sol         REAL,
                 pnl_pct         REAL,
-                is_win          INTEGER,          -- 1/0
+                is_win          INTEGER,          -- 1=win, 0=loss, -1=scratch (null)
+                is_scratch      INTEGER DEFAULT 0, -- 1 if scratch trade (-2% to +2% PnL)
                 
                 -- Discovery
                 source          TEXT,             -- PUMP_FUN_NEW | DEX_TRENDING etc
@@ -186,6 +187,12 @@ class TradeDatabase(ctx: Context) : SQLiteOpenHelper(ctx, DB_NAME, null, DB_VERS
                 )
             """.trimIndent())}
         }
+        if (old < 5) {
+            // Add is_scratch column to identify scratch trades (-2% to +2% PnL)
+            runCatching { db.execSQL("ALTER TABLE trades ADD COLUMN is_scratch INTEGER DEFAULT 0") }
+            // Update existing 0% trades to mark them as scratch
+            runCatching { db.execSQL("UPDATE trades SET is_scratch = 1, is_win = -1 WHERE pnl_pct > -2.0 AND pnl_pct < 2.0") }
+        }
     }
 
     // ── Write a completed trade ───────────────────────────────────────
@@ -244,13 +251,18 @@ class TradeDatabase(ctx: Context) : SQLiteOpenHelper(ctx, DB_NAME, null, DB_VERS
             put("sol_out",        t.solOut)
             put("pnl_sol",        t.pnlSol)
             put("pnl_pct",        t.pnlPct)
-            put("is_win",         if (t.isWin) 1 else 0)
+            // Handle nullable isWin: null = scratch trade (-1), true = win (1), false = loss (0)
+            put("is_win",         when(t.isWin) { true -> 1; false -> 0; null -> -1 })
+            put("is_scratch",     if (t.isScratch) 1 else 0)
             put("source",         t.source)
             put("extra_json",     t.extraJson)
         }
         val id = writableDatabase.insertWithOnConflict(
             "trades", null, cv, SQLiteDatabase.CONFLICT_REPLACE)
-        updateSignalStats(t)
+        // Only update signal stats for non-scratch trades
+        if (!t.isScratch) {
+            updateSignalStats(t)
+        }
         pruneOldTrades()   // keep DB size bounded
         pruneOldTrades()
         return id
@@ -514,7 +526,13 @@ class TradeDatabase(ctx: Context) : SQLiteOpenHelper(ctx, DB_NAME, null, DB_VERS
         solOut       = c.getDouble(c.getColumnIndexOrThrow("sol_out")),
         pnlSol       = c.getDouble(c.getColumnIndexOrThrow("pnl_sol")),
         pnlPct       = c.getDouble(c.getColumnIndexOrThrow("pnl_pct")),
-        isWin        = c.getInt(c.getColumnIndexOrThrow("is_win")) == 1,
+        // Handle nullable isWin: -1 = scratch (null), 0 = loss, 1 = win
+        isWin        = when(c.getInt(c.getColumnIndexOrThrow("is_win"))) { 
+            1 -> true
+            0 -> false
+            else -> null  // -1 or any other value = scratch
+        },
+        isScratch    = try { c.getInt(c.getColumnIndexOrThrow("is_scratch")) == 1 } catch (_: Exception) { false },
         source       = c.getString(c.getColumnIndexOrThrow("source")) ?: "",
         extraJson    = c.getString(c.getColumnIndexOrThrow("extra_json")) ?: "",
     )
@@ -557,7 +575,8 @@ data class TradeRecord(
     val solOut: Double = 0.0,
     val pnlSol: Double = 0.0,
     val pnlPct: Double = 0.0,
-    val isWin: Boolean = false,
+    val isWin: Boolean? = false,  // null = scratch trade (neither win nor loss)
+    val isScratch: Boolean = false,  // Flag for UI filtering
     val source: String = "",
     val extraJson: String = "",
 )

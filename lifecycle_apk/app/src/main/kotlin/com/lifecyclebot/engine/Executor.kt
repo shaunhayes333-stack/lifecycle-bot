@@ -1745,6 +1745,16 @@ class Executor(
             )
         }
 
+        // Determine win/loss/scratch for database record
+        // IMPORTANT: Scratch trades (-2% to +2%) should NOT count as wins or losses
+        // We store them with a special marker so they can be filtered in reports
+        val isScratchTrade = pnlP in -2.0..2.0
+        val dbIsWin = when {
+            isScratchTrade -> null  // Scratch trades are neither win nor loss
+            pnlP > 2.0 -> true      // Clear win
+            else -> false           // Clear loss
+        }
+        
         tradeDb?.insertTrade(TradeRecord(
             tsEntry=ts.position.entryTime, tsExit=System.currentTimeMillis(),
             symbol=ts.symbol, mint=ts.mint,
@@ -1757,7 +1767,9 @@ class Executor(
             exitPrice=price, exitPhase=ts.phase, exitReason=reason,
             heldMins=(System.currentTimeMillis()-ts.position.entryTime)/60_000.0,
             topUpCount=ts.position.topUpCount, partialSold=ts.position.partialSoldPct,
-            solIn=ts.position.costSol, solOut=value, pnlSol=pnl, pnlPct=pnlP, isWin=pnl>0,
+            solIn=ts.position.costSol, solOut=value, pnlSol=pnl, pnlPct=pnlP, 
+            isWin=dbIsWin,  // null for scratch, true for win, false for loss
+            isScratch=isScratchTrade,  // Flag for UI filtering
         ))
         
         // ═══════════════════════════════════════════════════════════════════
@@ -1817,16 +1829,18 @@ class Executor(
         ts.lastExitTs       = System.currentTimeMillis()
         ts.lastExitPrice    = price
         ts.lastExitPnlPct   = pnlP
-        ts.lastExitWasWin   = pnl > 0
+        ts.lastExitWasWin   = pnlP > 2.0  // Only clear wins, not scratch trades
 
-        // Notify shadow learning engine
-        ShadowLearningEngine.onLiveTradeExit(
-            mint = ts.mint,
-            exitPrice = price,
-            exitReason = reason,
-            livePnlSol = pnl,
-            isWin = pnl > 0,
-        )
+        // Notify shadow learning engine - but skip scratch trades
+        if (!isScratchTrade) {
+            ShadowLearningEngine.onLiveTradeExit(
+                mint = ts.mint,
+                exitPrice = price,
+                exitReason = reason,
+                livePnlSol = pnl,
+                isWin = pnlP > 2.0,
+            )
+        }
     }
 
     private fun liveSell(ts: TokenState, reason: String,
@@ -2009,6 +2023,14 @@ class Executor(
             ErrorLogger.debug("Executor", "LIVE ${ts.symbol}: Scratch trade (${pnlP.toInt()}%) - skipped for learning")
         }
 
+        // Determine win/loss/scratch for database record (same as paperSell)
+        val isScratchTradeLive = pnlP in -2.0..2.0
+        val dbIsWinLive = when {
+            isScratchTradeLive -> null  // Scratch trades are neither win nor loss
+            pnlP > 2.0 -> true      // Clear win
+            else -> false           // Clear loss
+        }
+        
         // Record trade to database
         tradeDb?.insertTrade(TradeRecord(
             tsEntry=pos.entryTime, tsExit=System.currentTimeMillis(),
@@ -2022,7 +2044,9 @@ class Executor(
             exitPrice=exitPrice, exitPhase=ts.phase, exitReason=reason,
             heldMins=(System.currentTimeMillis()-pos.entryTime)/60_000.0,
             topUpCount=pos.topUpCount, partialSold=pos.partialSoldPct,
-            solIn=pos.costSol, solOut=pnl + pos.costSol, pnlSol=pnl, pnlPct=pnlP, isWin=pnl>0,
+            solIn=pos.costSol, solOut=pnl + pos.costSol, pnlSol=pnl, pnlPct=pnlP, 
+            isWin=dbIsWinLive,
+            isScratch=isScratchTradeLive,
         ))
 
         // ═══════════════════════════════════════════════════════════════════
@@ -2075,14 +2099,16 @@ class Executor(
         }
         // ═══════════════════════════════════════════════════════════════════
 
-        // Notify shadow learning engine
-        ShadowLearningEngine.onLiveTradeExit(
-            mint = ts.mint,
-            exitPrice = exitPrice,
-            exitReason = reason,
-            livePnlSol = pnl,
-            isWin = pnl > 0,
-        )
+        // Notify shadow learning engine - skip scratch trades
+        if (!isScratchTradeLive) {
+            ShadowLearningEngine.onLiveTradeExit(
+                mint = ts.mint,
+                exitPrice = exitPrice,
+                exitReason = reason,
+                livePnlSol = pnl,
+                isWin = pnlP > 2.0,
+            )
+        }
         
         ts.position         = Position()
         ts.lastExitTs       = System.currentTimeMillis()
