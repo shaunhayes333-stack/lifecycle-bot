@@ -763,6 +763,17 @@ class BotService : Service() {
                 // Log cloud sync status (every ~35 mins = 5x7 loops)
                 if (loopCount % 35 == 0) {
                     addLog("☁️ ${CloudLearningSync.getStatus()}")
+                    
+                    // Auto-discover top whale wallets
+                    scope.launch {
+                        try {
+                            val added = copyTradeEngine.autoDiscoverTopWallets(maxWallets = 3, minPnlSol = 20.0)
+                            if (added > 0) {
+                                val stats = copyTradeEngine.getStats()
+                                addLog("🐋 Whale discovery: +$added | tracking ${stats.activeWallets}")
+                            }
+                        } catch (_: Exception) {}
+                    }
                 }
             }
             

@@ -180,6 +180,46 @@ class CopyTradeEngine(
         } catch (_: Exception) { emptyList() }
     }
 
+    /**
+     * Auto-discover and add top performing wallets from Pump.fun leaderboard.
+     */
+    fun autoDiscoverTopWallets(maxWallets: Int = 5, minPnlSol: Double = 10.0): Int {
+        val topWallets = discoverTopWallets()
+        var added = 0
+        
+        for ((addr, pnl) in topWallets) {
+            if (added >= maxWallets) break
+            if (wallets.containsKey(addr)) continue
+            if (pnl < minPnlSol) continue
+            
+            val pnlLabel = if (pnl >= 100) "+${pnl.toInt()}" else "+${String.format("%.1f", pnl)}"
+            val label = "TopTrader_${addr.take(4)}_$pnlLabel"
+            
+            wallets[addr] = CopyWallet(
+                address = addr, label = label, isActive = true,
+                totalCopied = 0, wins = 0, losses = 0, totalPnlSol = 0.0,
+                addedAt = System.currentTimeMillis(), lastSeenMs = 0L
+            )
+            added++
+            onLog("🐋 Auto-added: $label")
+        }
+        
+        if (added > 0) saveWallets()
+        return added
+    }
+
+    /**
+     * Get summary stats for all tracked wallets.
+     */
+    fun getStats(): CopyStats {
+        val active = wallets.values.count { it.isActive && !it.isPaused }
+        val totalTrades = wallets.values.sumOf { it.totalCopied }
+        val totalPnl = wallets.values.sumOf { it.totalPnlSol }
+        return CopyStats(active, totalTrades, totalPnl)
+    }
+    
+    data class CopyStats(val activeWallets: Int, val totalTrades: Int, val totalPnlSol: Double)
+
     // ── persistence ───────────────────────────────────────────────────
 
     private fun saveWallets() {
