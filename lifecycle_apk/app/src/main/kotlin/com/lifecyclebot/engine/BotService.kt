@@ -1131,8 +1131,11 @@ class BotService : Service() {
                     autoMode.evaluate(ts, whaleState.whaleScore, trendRank, curveState.stage)
                 } else null
                 
+                // ═══════════════════════════════════════════════════════════════════
+                // PRIORITY 2: Use unified evaluateWithDecision for complete analysis
+                // ═══════════════════════════════════════════════════════════════════
                 val modeConfForEval = if (cfg.autoMode) modeConf else null
-                val result = strategy.evaluate(ts, modeConfForEval)
+                val (result, decision) = strategy.evaluateWithDecision(ts, modeConfForEval)
 
                     synchronized(ts) {
                         ts.phase      = result.phase
@@ -1142,17 +1145,18 @@ class BotService : Service() {
                         ts.meta       = result.meta
                     }
                     
-                    // A+ SETUP ALERT
-                    if (result.signal == "BUY" && result.meta.setupQuality == "A+" && !ts.position.isOpen) {
+                    // A+ SETUP ALERT - now uses unified decision quality
+                    if (decision.finalSignal == "BUY" && decision.finalQuality == "A+" && !ts.position.isOpen) {
                         soundManager.playAplusAlert()
-                        addLog("⭐ A+ SETUP: ${ts.symbol}", mint)
+                        addLog("⭐ A+ SETUP: ${ts.symbol} (conf=${decision.aiConfidence.toInt()}%)", mint)
                     }
                     
-                    // Log trading signals for active analysis
-                    if (result.signal == "BUY" || result.entryScore >= 35) {
+                    // Log trading signals with unified decision info
+                    if (decision.finalSignal == "BUY" || result.entryScore >= 35) {
                         ErrorLogger.info("BotService", 
-                            "SIGNAL: ${ts.symbol} | phase=${result.phase} signal=${result.signal} " +
-                            "entry=${result.entryScore.toInt()} exit=${result.exitScore.toInt()}")
+                            "SIGNAL: ${ts.symbol} | phase=${result.phase} signal=${decision.finalSignal} " +
+                            "entry=${result.entryScore.toInt()} exit=${result.exitScore.toInt()} " +
+                            "quality=${decision.finalQuality} edge=${decision.edgePhase}")
                     }
 
                     // Sentiment refresh (every sentimentPollMins)
@@ -1191,21 +1195,26 @@ class BotService : Service() {
                 val cbState = securityGuard.getCircuitBreakerState()
                 val effectiveBalance = status.getEffectiveBalance(cfg.paperMode)
                 
-                // DEBUG: Log when BUY signal is received
-                if (result.signal == "BUY") {
-                    ErrorLogger.info("BotService", "🔔 BUY SIGNAL: ${ts.symbol} | balance=$effectiveBalance | paper=${cfg.paperMode} | entry=${result.entryScore.toInt()}")
+                // DEBUG: Log when BUY signal is received with unified decision info
+                if (decision.finalSignal == "BUY" && !ts.position.isOpen) {
+                    ErrorLogger.info("BotService", "🔔 UNIFIED BUY: ${ts.symbol} | " +
+                        "balance=$effectiveBalance | paper=${cfg.paperMode} | " +
+                        "quality=${decision.finalQuality} | shouldTrade=${decision.shouldTrade} | " +
+                        "conf=${decision.aiConfidence.toInt()}%")
                 }
                 
                 if (!cbState.isHalted && !cbState.isPaused) {
-                    executor.maybeAct(
+                    // ═══════════════════════════════════════════════════════════════════
+                    // PRIORITY 2: Use maybeActWithDecision for unified execution
+                    // ═══════════════════════════════════════════════════════════════════
+                    executor.maybeActWithDecision(
                         ts                 = ts,
-                        signal             = result.signal,
-                        entryScore         = result.entryScore,
+                        decision           = decision,
                         walletSol          = effectiveBalance,
                         wallet             = wallet,
                         lastPollMs         = lastSuccessfulPollMs,
-                        openPositionCount  = status.openPositionCount,   // informational only
-                        totalExposureSol   = status.totalExposureSol,   // passed to SmartSizer
+                        openPositionCount  = status.openPositionCount,
+                        totalExposureSol   = status.totalExposureSol,
                         modeConfig         = modeConf,
                         walletTotalTrades  = try {
                             com.lifecyclebot.engine.BotService.walletManager
