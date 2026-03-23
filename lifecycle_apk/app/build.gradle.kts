@@ -12,8 +12,8 @@ android {
         applicationId = "com.lifecyclebot.beta"  // Different ID = installs as separate app
         minSdk = 26
         targetSdk = 34
-        versionCode = 10
-        versionName = "7.2.0-beta"
+        versionCode = 100
+        versionName = "1.0.0"
         
         // Add suffix to app name for easy identification
         resValue("string", "app_name_override", "Lifecycle Bot BETA")
