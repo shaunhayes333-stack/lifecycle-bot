@@ -189,3 +189,90 @@ data class BotStatus(
         return if (isPaperMode) paperWalletSol else walletSol
     }
 }
+
+/**
+ * PRIORITY 2: Unified Candidate Decision
+ * 
+ * Single source of truth for a trade candidate's evaluation.
+ * Aggregates all scoring signals from Strategy, Edge Optimizer, and Quality Gates
+ * into one coherent structure that the Executor uses for final decisions.
+ * 
+ * This eliminates the fragmented decision logic where different modules
+ * could have conflicting views on the same trade.
+ */
+data class CandidateDecision(
+    // Core scores from LifecycleStrategy
+    val entryScore: Double,
+    val exitScore: Double,
+    val phase: String,
+    val signal: String,              // RAW signal from strategy (BUY/SELL/WAIT)
+    
+    // Quality assessment
+    val setupQuality: String,        // A+ / B / C from strategy
+    val edgeQuality: String,         // A / B / C / SKIP from EdgeOptimizer
+    val finalQuality: String,        // Combined quality rating
+    
+    // Edge Optimizer analysis
+    val edgePhase: String,           // REACCUMULATION / EXPANSION / DISTRIBUTION / DEAD / UNKNOWN
+    val edgeConfidence: Double,      // 0-100 from EdgeOptimizer
+    val isOptimalEntry: Boolean,     // Spike → Pullback → Reclaim pattern
+    val edgeVeto: Boolean,           // Edge says SKIP → veto BUY
+    
+    // Final verdict
+    val shouldTrade: Boolean,        // After all gates and vetoes
+    val finalSignal: String,         // Effective signal (may be WAIT if vetoed)
+    val blockReason: String,         // Why blocked (empty if not blocked)
+    
+    // Sizing hints
+    val qualityPenalty: Double,      // 0.0-1.0, multiply size by this
+    val aiConfidence: Double,        // For SmartSizer
+    
+    // Strategy metadata passthrough
+    val meta: StrategyMeta,
+) {
+    /**
+     * Quick check if this is a high-quality setup worth trading.
+     * Used for logging and notifications.
+     */
+    val isHighQuality: Boolean
+        get() = finalQuality in listOf("A+", "A", "B") && !edgeVeto
+    
+    /**
+     * Number of red flags (low quality, unknown phase, low confidence).
+     * Used for size penalty calculation.
+     */
+    val redFlagCount: Int
+        get() {
+            var count = 0
+            if (setupQuality == "C") count++
+            if (phase.contains("unknown", ignoreCase = true)) count++
+            if (aiConfidence < 30.0) count++
+            return count
+        }
+    
+    companion object {
+        /**
+         * Factory method to create a BLOCKED decision.
+         * Used when gates prevent any trading.
+         */
+        fun blocked(reason: String, meta: StrategyMeta = StrategyMeta()) = CandidateDecision(
+            entryScore = 0.0,
+            exitScore = 0.0,
+            phase = "blocked",
+            signal = "WAIT",
+            setupQuality = "C",
+            edgeQuality = "SKIP",
+            finalQuality = "SKIP",
+            edgePhase = "UNKNOWN",
+            edgeConfidence = 0.0,
+            isOptimalEntry = false,
+            edgeVeto = true,
+            shouldTrade = false,
+            finalSignal = "WAIT",
+            blockReason = reason,
+            qualityPenalty = 0.0,
+            aiConfidence = 0.0,
+            meta = meta,
+        )
+    }
+}

@@ -516,26 +516,144 @@ class LifecycleStrategy(
             }
         }
 
+        // Build final StrategyMeta
+        val finalMeta = pm.copy(
+            volScore         = volScore,
+            pressScore       = pressScore,
+            momScore         = momScore,
+            exhaustion       = exhaust,
+            curveStage       = curve.stageLabel,
+            curveProgress    = curve.progressPct,
+            whaleSummary     = whale.summary,
+            velocityScore    = whale.velocityScore,
+            emafanAlignment  = emafan.alignment.name,
+            spikeDetected    = spikeNow.isSpike || spikeNow.isPostSpike,
+            protectMode      = spikeNow.protectMode,
+            topUpReady       = topUpReadyNow,
+            setupQuality     = setupQuality,
+        )
+        
         return StrategyResult(
             phase, signal,
             entryScore.coerceIn(0.0, 100.0),
             exitScore.coerceIn(0.0, 100.0),
-            pm.copy(
-                volScore         = volScore,
-                pressScore       = pressScore,
-                momScore         = momScore,
-                exhaustion       = exhaust,
-                curveStage       = curve.stageLabel,
-                curveProgress    = curve.progressPct,
-                whaleSummary     = whale.summary,
-                velocityScore    = whale.velocityScore,
-                emafanAlignment  = emafan.alignment.name,
-                spikeDetected    = spikeNow.isSpike || spikeNow.isPostSpike,
-                protectMode      = spikeNow.protectMode,
-                topUpReady       = topUpReadyNow,
-                setupQuality     = setupQuality,
-            )
+            finalMeta
         )
+    }
+    
+    /**
+     * PRIORITY 2: Unified Candidate Decision Builder
+     * 
+     * Wraps the standard evaluate() and builds a CandidateDecision object
+     * that serves as the single source of truth for trade decisions.
+     * 
+     * The Executor should call this method instead of evaluate() when
+     * making BUY decisions to get a complete, unified view of all
+     * scoring signals.
+     */
+    fun evaluateWithDecision(
+        ts: TokenState,
+        modeConf: AutoModeEngine.ModeConfig? = null,
+    ): Pair<StrategyResult, CandidateDecision> {
+        // Get base strategy result
+        val result = evaluate(ts, modeConf)
+        
+        // Re-compute Edge analysis for the decision (already computed in evaluate, 
+        // but we need the values for the decision object)
+        val hist = ts.history.toList()
+        val prices = hist.map { it.ref }
+        
+        // Handle bootstrap/thin_market early returns
+        if (hist.size < 3 || result.phase in listOf("bootstrap", "thin_market")) {
+            val decision = CandidateDecision.blocked(
+                reason = "Insufficient data: ${result.phase}",
+                meta = result.meta
+            )
+            return result to decision
+        }
+        
+        val edgePhase = EdgeOptimizer.detectMarketPhase(hist, prices)
+        val pressScore = result.meta.pressScore
+        val volScore = result.meta.volScore
+        val edgeTiming = EdgeOptimizer.checkEntryTiming(edgePhase, hist, prices, pressScore)
+        val edgeFilter = EdgeOptimizer.filterTrade(edgePhase, volScore, pressScore, edgeTiming)
+        
+        val edgeVeto = edgeFilter.quality == "SKIP"
+        val edgeConfidence = EdgeOptimizer.calculateConfidence(
+            edgePhase, edgeTiming,
+            EdgeOptimizer.WeightedScore(result.entryScore, result.exitScore, emptyMap())
+        )
+        
+        // Determine final quality (combine strategy quality with edge quality)
+        val setupQuality = result.meta.setupQuality
+        val finalQuality = when {
+            edgeVeto -> "SKIP"
+            setupQuality == "A+" && edgeFilter.quality in listOf("A", "B") -> "A+"
+            setupQuality == "A+" -> "A"
+            setupQuality == "B" && edgeFilter.quality in listOf("A", "B") -> "B"
+            setupQuality == "B" -> "C"
+            edgeFilter.quality == "SKIP" -> "SKIP"
+            else -> "C"
+        }
+        
+        // Determine if trade should execute
+        val rawSignal = result.signal
+        val finalSignal = when {
+            rawSignal == "BUY" && edgeVeto -> "WAIT"  // Edge veto blocks BUY
+            else -> rawSignal
+        }
+        val shouldTrade = finalSignal == "BUY" && !ts.position.isOpen
+        val blockReason = when {
+            rawSignal == "BUY" && edgeVeto -> "Edge veto: ${edgeFilter.reason}"
+            rawSignal != "BUY" -> "Signal is $rawSignal, not BUY"
+            ts.position.isOpen -> "Position already open"
+            else -> ""
+        }
+        
+        // Calculate quality penalty for sizing
+        val isLowQuality = setupQuality == "C"
+        val isUnknownPhase = result.phase.contains("unknown", ignoreCase = true)
+        val isLowConfidence = edgeConfidence < 30.0
+        val redFlagCount = listOf(isLowQuality, isUnknownPhase, isLowConfidence).count { it }
+        
+        val qualityPenalty = when (redFlagCount) {
+            3 -> 0.0     // All red flags = block
+            2 -> 0.25    // 75% reduction
+            1 -> 0.60    // 40% reduction
+            else -> 1.0  // No penalty
+        }
+        
+        val decision = CandidateDecision(
+            entryScore = result.entryScore,
+            exitScore = result.exitScore,
+            phase = result.phase,
+            signal = rawSignal,
+            setupQuality = setupQuality,
+            edgeQuality = edgeFilter.quality,
+            finalQuality = finalQuality,
+            edgePhase = edgePhase.phase.name,
+            edgeConfidence = edgeConfidence,
+            isOptimalEntry = edgeTiming.isOptimalEntry,
+            edgeVeto = edgeVeto,
+            shouldTrade = shouldTrade && qualityPenalty > 0.0,
+            finalSignal = finalSignal,
+            blockReason = if (redFlagCount >= 3) "All quality gates failed" else blockReason,
+            qualityPenalty = qualityPenalty,
+            aiConfidence = edgeConfidence,
+            meta = result.meta,
+        )
+        
+        // Log decision for debugging
+        if (rawSignal == "BUY" && !ts.position.isOpen) {
+            ErrorLogger.info("Decision", "📊 ${ts.symbol}: " +
+                "quality=$finalQuality | edge=${edgeFilter.quality} | " +
+                "conf=${edgeConfidence.toInt()}% | " +
+                "penalty=${qualityPenalty} | " +
+                "shouldTrade=${decision.shouldTrade} | " +
+                (if (decision.blockReason.isNotEmpty()) "blocked: ${decision.blockReason}" else ""))
+        }
+        
+        return result to decision
     }
 
     private enum class TradingMode { LAUNCH_SNIPE, RANGE_TRADE }

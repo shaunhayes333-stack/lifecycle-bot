@@ -1042,6 +1042,206 @@ class Executor(
         }
     }
 
+    // ══════════════════════════════════════════════════════════════════
+    // PRIORITY 2: UNIFIED CANDIDATE DECISION SUPPORT
+    // ══════════════════════════════════════════════════════════════════
+    
+    /**
+     * Execute trade action using the unified CandidateDecision.
+     * 
+     * This method provides a cleaner interface where all scoring and 
+     * quality decisions have already been made by the strategy.
+     * The Executor simply executes based on the final verdict.
+     * 
+     * @param ts Token state
+     * @param decision Unified decision from strategy's evaluateWithDecision()
+     * @param walletSol Available wallet balance
+     * @param wallet Solana wallet for live trading
+     * @param lastPollMs Last successful data poll timestamp
+     * @param openPositionCount Current open position count
+     * @param totalExposureSol Current total exposure in SOL
+     * @param modeConfig Auto-mode configuration
+     * @param walletTotalTrades Total trades for this wallet
+     */
+    fun maybeActWithDecision(
+        ts: TokenState,
+        decision: CandidateDecision,
+        walletSol: Double,
+        wallet: SolanaWallet?,
+        lastPollMs: Long = System.currentTimeMillis(),
+        openPositionCount: Int = 0,
+        totalExposureSol: Double = 0.0,
+        modeConfig: AutoModeEngine.ModeConfig? = null,
+        walletTotalTrades: Int = 0,
+    ) {
+        // Halt check
+        val cbState = security.getCircuitBreakerState()
+        if (cbState.isHalted) {
+            onLog("🛑 Halted: ${cbState.haltReason}", ts.mint)
+            return
+        }
+        
+        // Handle open positions (exits, stop-losses, etc.)
+        if (ts.position.isOpen) {
+            // V8 quick exit check
+            val quickExit = PrecisionExitLogic.quickCheck(
+                mint = ts.mint,
+                currentPrice = ts.ref,
+                entryPrice = ts.position.entryPrice,
+                stopLossPct = cfg().stopLossPct,
+            )
+            if (quickExit != null && quickExit.shouldExit) {
+                onLog("🚨 V8 QUICK EXIT: ${ts.symbol} | ${quickExit.reason} | ${quickExit.details}", ts.mint)
+                doSell(ts, "v8_${quickExit.reason.lowercase()}", wallet, walletSol)
+                TradeStateMachine.startCooldown(ts.mint)
+                return
+            }
+            
+            // Partial sell check
+            checkPartialSell(ts, wallet, walletSol)
+            
+            // Risk check
+            val reason = riskCheck(ts, modeConfig)
+            if (reason != null) {
+                doSell(ts, reason, wallet, walletSol)
+                return
+            }
+            
+            // Explicit sell/exit signal
+            if (decision.finalSignal in listOf("SELL", "EXIT")) {
+                doSell(ts, decision.finalSignal.lowercase(), wallet, walletSol)
+                return
+            }
+            
+            // Mode max hold
+            if (modeConfig != null) {
+                val held = (System.currentTimeMillis() - ts.position.entryTime) / 60_000.0
+                val tf = ts.candleTimeframeMinutes.toDouble().coerceAtLeast(1.0)
+                if (held > modeConfig.maxHoldMins * tf) {
+                    doSell(ts, "mode_maxhold_${modeConfig.mode.name.lowercase()}", wallet, walletSol)
+                    return
+                }
+            }
+            
+            // Top-up and graduated building
+            if (cfg().autoTrade && decision.meta.topUpReady) {
+                val topUpReady = shouldTopUp(
+                    ts = ts,
+                    entryScore = decision.entryScore,
+                    exitScore = decision.exitScore,
+                    emafanAlignment = decision.meta.emafanAlignment,
+                    volScore = decision.meta.volScore,
+                    exhaust = decision.meta.exhaustion,
+                )
+                if (topUpReady) {
+                    doTopUp(ts, walletSol, wallet, totalExposureSol)
+                }
+            }
+            
+            if (cfg().paperMode && !ts.position.isFullyBuilt) {
+                val result = shouldGraduatedAdd(ts.position, ts.ref, decision.meta.volScore)
+                if (result != null) {
+                    val (addSol, newPhase) = result
+                    doGraduatedAdd(ts, addSol, newPhase)
+                }
+            }
+            
+            return  // Position already open, no new entry
+        }
+        
+        // ══════════════════════════════════════════════════════════════════
+        // NEW ENTRY LOGIC - Using unified CandidateDecision
+        // ══════════════════════════════════════════════════════════════════
+        
+        // Early return if decision says no trade
+        if (!decision.shouldTrade) {
+            if (decision.finalSignal == "BUY" && decision.blockReason.isNotEmpty()) {
+                ErrorLogger.debug("Executor", "📊 ${ts.symbol}: Blocked - ${decision.blockReason}")
+            }
+            return
+        }
+        
+        val isPaper = cfg().paperMode
+        ErrorLogger.info("Executor", "🔔 UNIFIED BUY: ${ts.symbol} | " +
+            "quality=${decision.finalQuality} | edge=${decision.edgePhase} | " +
+            "conf=${decision.aiConfidence.toInt()}% | penalty=${decision.qualityPenalty}")
+        
+        // Rugged contracts check (by mint address)
+        if (RuggedContracts.isBlacklisted(ts.mint)) {
+            ErrorLogger.info("Executor", "🚫 ${ts.symbol} BLACKLISTED: Previously rugged")
+            onLog("💀 ${ts.symbol}: Blacklisted contract", ts.mint)
+            return
+        }
+        
+        // State machine cooldown (skip in paper mode)
+        if (!isPaper && TradeStateMachine.isInCooldown(ts.mint)) {
+            onLog("⏸️ ${ts.symbol}: In cooldown, skipping", ts.mint)
+            return
+        }
+        
+        // Transition to ENTER state
+        TradeStateMachine.setState(ts.mint, TradeState.ENTER, "executing buy via unified decision")
+        
+        // Calculate size using AI-driven SmartSizer
+        var size = buySizeSol(
+            entryScore = decision.entryScore,
+            walletSol = walletSol,
+            currentOpenPositions = openPositionCount,
+            currentTotalExposure = totalExposureSol,
+            walletTotalTrades = walletTotalTrades,
+            liquidityUsd = ts.lastLiquidityUsd,
+            mcapUsd = ts.lastFdv,
+            aiConfidence = decision.aiConfidence,
+            phase = decision.phase,
+            source = ts.source,
+            brain = brain,
+            setupQuality = decision.setupQuality,
+        )
+        
+        // Apply quality penalty from unified decision
+        if (decision.qualityPenalty < 1.0 && decision.qualityPenalty > 0.0) {
+            val oldSize = size
+            size *= decision.qualityPenalty
+            ErrorLogger.info("Executor", "📉 ${ts.symbol} size reduced: ${oldSize.fmt(3)} → ${size.fmt(3)} " +
+                "(penalty=${decision.qualityPenalty}x, redFlags=${decision.redFlagCount})")
+        }
+        
+        // Apply auto-mode size multiplier
+        modeConfig?.let { size *= it.positionSizeMultiplier }
+        
+        // BotBrain skip check (skip in paper mode)
+        if (!isPaper) {
+            brain?.let { b ->
+                if (b.shouldSkipTrade(decision.phase, decision.meta.emafanAlignment, ts.source, decision.entryScore)) {
+                    onLog("🧠 Brain SKIP: ${ts.symbol} — too many risk factors", ts.mint)
+                    return
+                }
+            }
+        }
+        
+        if (size < 0.001) {
+            ErrorLogger.error("Executor", "❌ ${ts.symbol} SIZE TOO SMALL: $size | quality=${decision.finalQuality}")
+            onLog("Insufficient capacity for ${ts.symbol} (size=$size)", ts.mint)
+            return
+        }
+        
+        // Execute buy
+        ErrorLogger.info("Executor", "✅ ${ts.symbol} UNIFIED BUY: $size SOL - quality=${decision.finalQuality}")
+        
+        // Notify shadow learning
+        ShadowLearningEngine.onTradeOpportunity(
+            mint = ts.mint,
+            symbol = ts.symbol,
+            currentPrice = ts.ref,
+            liveEntryScore = decision.entryScore.toInt(),
+            liveEntryThreshold = 42,
+            liveSizeSol = size,
+            phase = decision.phase,
+        )
+        
+        doBuy(ts, size, decision.entryScore, wallet, walletSol)
+    }
+
     // ── top-up (pyramid add) ─────────────────────────────────────────
 
     fun doTopUp(
