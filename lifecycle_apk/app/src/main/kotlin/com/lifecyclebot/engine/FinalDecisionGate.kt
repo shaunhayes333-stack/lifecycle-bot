@@ -183,31 +183,32 @@ object FinalDecisionGate {
             checks.add(GateCheck("top_holder", true, null))
         }
         
-        // 1e. Banned token or deployer
-        if (blockReason == null && (ts.safety.isBanned || ts.safety.isRuggedDeployer)) {
-            blockReason = if (ts.safety.isBanned) "HARD_BLOCK_BANNED" else "HARD_BLOCK_RUGGED_DEPLOYER"
+        // 1e. Check hard block reasons from safety checker
+        if (blockReason == null && ts.safety.hardBlockReasons.isNotEmpty()) {
+            blockReason = "HARD_BLOCK_SAFETY_${ts.safety.hardBlockReasons.first().take(30)}"
             blockLevel = BlockLevel.HARD
-            checks.add(GateCheck("banned", false, "banned=${ts.safety.isBanned} rugged=${ts.safety.isRuggedDeployer}"))
-            tags.add("banned")
+            checks.add(GateCheck("safety_block", false, ts.safety.hardBlockReasons.joinToString(", ")))
+            tags.add("safety_blocked")
         } else if (blockReason == null) {
-            checks.add(GateCheck("banned", true, null))
+            checks.add(GateCheck("safety_block", true, null))
         }
         
         // 1f. Freeze authority in LIVE mode (honeypot risk)
-        if (blockReason == null && !config.paperMode && ts.safety.freezeAuthority) {
+        // freezeAuthorityDisabled == false means freeze IS enabled (bad)
+        if (blockReason == null && !config.paperMode && ts.safety.freezeAuthorityDisabled == false) {
             blockReason = "HARD_BLOCK_FREEZE_AUTHORITY"
             blockLevel = BlockLevel.HARD
-            checks.add(GateCheck("freeze_auth", false, "freezeAuth=true (live mode)"))
+            checks.add(GateCheck("freeze_auth", false, "freezeAuth=enabled (live mode)"))
             tags.add("freeze_auth")
         } else if (blockReason == null) {
             checks.add(GateCheck("freeze_auth", true, null))
         }
         
-        // 1g. Check candidate's own hard blocks
-        if (blockReason == null && candidate.hardBlockReason != null) {
-            blockReason = candidate.hardBlockReason
+        // 1g. Check candidate's own block reason
+        if (blockReason == null && candidate.blockReason.isNotEmpty()) {
+            blockReason = candidate.blockReason
             blockLevel = BlockLevel.HARD
-            checks.add(GateCheck("candidate_block", false, candidate.hardBlockReason))
+            checks.add(GateCheck("candidate_block", false, candidate.blockReason))
         } else if (blockReason == null) {
             checks.add(GateCheck("candidate_block", true, null))
         }
@@ -225,8 +226,8 @@ object FinalDecisionGate {
         if (blockReason == null && edgeVerdict == EdgeVerdict.SKIP) {
             // Edge says skip - check if we should block or allow
             val canOverride = config.paperMode && allowEdgeOverrideInPaper && 
-                              candidate.finalScore >= 70 && 
-                              candidate.confidence >= 50
+                              candidate.entryScore >= 70 && 
+                              candidate.aiConfidence >= 50
             
             if (!canOverride) {
                 blockReason = "EDGE_VETO_${candidate.edgeQuality}"
@@ -247,10 +248,10 @@ object FinalDecisionGate {
         
         val confidenceThreshold = if (config.paperMode) paperConfidenceMin else liveConfidenceMin
         
-        if (blockReason == null && candidate.confidence < confidenceThreshold) {
-            blockReason = "LOW_CONFIDENCE_${candidate.confidence.toInt()}%"
+        if (blockReason == null && candidate.aiConfidence < confidenceThreshold) {
+            blockReason = "LOW_CONFIDENCE_${candidate.aiConfidence.toInt()}%"
             blockLevel = BlockLevel.CONFIDENCE
-            checks.add(GateCheck("confidence", false, "conf=${candidate.confidence.toInt()}% < $confidenceThreshold"))
+            checks.add(GateCheck("confidence", false, "conf=${candidate.aiConfidence.toInt()}% < $confidenceThreshold"))
             tags.add("low_confidence")
         } else if (blockReason == null) {
             checks.add(GateCheck("confidence", true, null))
@@ -271,7 +272,7 @@ object FinalDecisionGate {
             }
             
             // Stricter quality requirement in live
-            if (blockReason == null && candidate.quality == "C") {
+            if (blockReason == null && candidate.setupQuality == "C") {
                 blockReason = "LIVE_QUALITY_TOO_LOW"
                 blockLevel = BlockLevel.MODE
                 checks.add(GateCheck("live_quality", false, "quality=C (live requires B+)"))
@@ -321,8 +322,8 @@ object FinalDecisionGate {
         return FinalDecision(
             shouldTrade = shouldTrade,
             mode = mode,
-            quality = candidate.quality,
-            confidence = candidate.confidence,
+            quality = candidate.finalQuality,
+            confidence = candidate.aiConfidence,
             edge = edgeVerdict,
             blockReason = blockReason,
             blockLevel = blockLevel,
