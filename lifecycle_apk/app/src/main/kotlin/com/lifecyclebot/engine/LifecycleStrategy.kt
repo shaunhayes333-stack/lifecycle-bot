@@ -550,10 +550,13 @@ class LifecycleStrategy(
      * The Executor should call this method instead of evaluate() when
      * making BUY decisions to get a complete, unified view of all
      * scoring signals.
+     * 
+     * @param isPaperMode If true, Edge veto is relaxed to allow more learning trades
      */
     fun evaluateWithDecision(
         ts: TokenState,
         modeConf: AutoModeEngine.ModeConfig? = null,
+        isPaperMode: Boolean = false,
     ): Pair<StrategyResult, CandidateDecision> {
         // Get base strategy result
         val result = evaluate(ts, modeConf)
@@ -578,7 +581,19 @@ class LifecycleStrategy(
         val edgeTiming = EdgeOptimizer.checkEntryTiming(edgePhase, hist, prices, pressScore)
         val edgeFilter = EdgeOptimizer.filterTrade(edgePhase, volScore, pressScore, edgeTiming)
         
-        val edgeVeto = edgeFilter.quality == "SKIP"
+        // ═══════════════════════════════════════════════════════════════════
+        // PAPER MODE: Relax Edge veto to allow learning
+        // In paper mode, we only veto on severe red flags (DISTRIBUTION + low buy%)
+        // This allows the bot to take more trades and learn from outcomes
+        // ═══════════════════════════════════════════════════════════════════
+        val edgeVeto = if (isPaperMode) {
+            // Paper mode: Only veto on DISTRIBUTION phase with very low buy pressure
+            edgePhase.phase.name == "DISTRIBUTION" && pressScore < 35.0
+        } else {
+            // Live mode: Full Edge veto logic
+            edgeFilter.quality == "SKIP"
+        }
+        
         val edgeConfidence = EdgeOptimizer.calculateConfidence(
             edgePhase, edgeTiming,
             EdgeOptimizer.WeightedScore(result.entryScore, result.exitScore, emptyMap())
@@ -592,7 +607,7 @@ class LifecycleStrategy(
             setupQuality == "A+" -> "A"
             setupQuality == "B" && edgeFilter.quality in listOf("A", "B") -> "B"
             setupQuality == "B" -> "C"
-            edgeFilter.quality == "SKIP" -> "SKIP"
+            !isPaperMode && edgeFilter.quality == "SKIP" -> "SKIP"  // Only apply in live mode
             else -> "C"
         }
         
@@ -611,10 +626,16 @@ class LifecycleStrategy(
         }
         
         // Calculate quality penalty for sizing
+        // In paper mode, reduce penalties to allow more aggressive learning
         val isLowQuality = setupQuality == "C"
         val isUnknownPhase = result.phase.contains("unknown", ignoreCase = true)
         val isLowConfidence = edgeConfidence < 30.0
-        val redFlagCount = listOf(isLowQuality, isUnknownPhase, isLowConfidence).count { it }
+        val redFlagCount = if (isPaperMode) {
+            // Paper mode: Only count severe flags
+            listOf(isLowQuality && isLowConfidence).count { it }
+        } else {
+            listOf(isLowQuality, isUnknownPhase, isLowConfidence).count { it }
+        }
         
         val qualityPenalty = when (redFlagCount) {
             3 -> 0.0     // All red flags = block
