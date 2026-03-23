@@ -220,7 +220,7 @@ object ScannerLearning {
 class SolanaMarketScanner(
     private val cfg: () -> BotConfig,
     private val onTokenFound: (mint: String, symbol: String, name: String,
-                               source: TokenSource, score: Double) -> Unit,
+                               source: TokenSource, score: Double, liquidityUsd: Double) -> Unit,
     private val onLog: (String) -> Unit,
     private val getBrain: () -> BotBrain? = { null },  // AI learning integration
 ) {
@@ -1794,7 +1794,7 @@ class SolanaMarketScanner(
               "liq=$${(token.liquidityUsd/1000).toInt()}K " +
               "vol=$${(token.volumeH1/1000).toInt()}K " +
               "score=${adjustedScore.toInt()}")
-        onTokenFound(adjustedToken.mint, adjustedToken.symbol, adjustedToken.name, adjustedToken.source, adjustedToken.score)
+        onTokenFound(adjustedToken.mint, adjustedToken.symbol, adjustedToken.name, adjustedToken.source, adjustedToken.score, adjustedToken.liquidityUsd)
     }
     
     // Separate HTTP client for rugcheck with SHORT timeout

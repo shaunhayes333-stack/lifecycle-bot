@@ -426,7 +426,7 @@ class BotService : Service() {
                 ErrorLogger.info("BotService", "Creating market scanner...")
                 marketScanner = SolanaMarketScanner(
                     cfg          = { ConfigStore.load(applicationContext) },
-                    onTokenFound = { mint, symbol, name, source, score ->
+                    onTokenFound = { mint, symbol, name, source, score, liquidityUsd ->
                         try {
                             val c = ConfigStore.load(applicationContext)
                             val wl = c.watchlist.toMutableList()
@@ -442,7 +442,7 @@ class BotService : Service() {
                             // ═══════════════════════════════════════════════════════════════════
                             TradeLifecycle.discovered(identity.mint, identity.symbol, score, source.name)
                             
-                            ErrorLogger.debug("BotService", "DISCOVERED: ${identity.symbol} (${identity.mint.take(8)}...) from ${source.name} score=$score")
+                            ErrorLogger.debug("BotService", "DISCOVERED: ${identity.symbol} | liq=$${liquidityUsd.toInt()} | score=$score | src=${source.name}")
                             
                             // Already tracked?
                             if (identity.mint in wl) {
@@ -455,24 +455,33 @@ class BotService : Service() {
                             // Minimum prerequisites: liquidity, safety, not banned
                             // ═══════════════════════════════════════════════════════════════════
                             
-                            // Check 2a: Blacklist (skip in paper mode - we want to learn)
+                            // Check 2a: MINIMUM LIQUIDITY (most important filter!)
+                            // Zero-liq tokens are untradeable junk - don't waste watchlist space
+                            val minLiquidity = if (c.paperMode) 1000.0 else 3000.0  // $1K paper, $3K live
+                            if (liquidityUsd < minLiquidity) {
+                                TradeLifecycle.ineligible(identity.mint, "Liquidity too low: $${liquidityUsd.toInt()} < $${minLiquidity.toInt()}")
+                                ErrorLogger.debug("BotService", "INELIGIBLE: ${identity.symbol} - liq $${liquidityUsd.toInt()} < $${minLiquidity.toInt()}")
+                                return@SolanaMarketScanner
+                            }
+                            
+                            // Check 2b: Blacklist (skip in paper mode - we want to learn)
                             if (!c.paperMode && TokenBlacklist.isBlocked(identity.mint)) {
                                 TradeLifecycle.ineligible(identity.mint, "Blacklisted")
                                 ErrorLogger.debug("BotService", "INELIGIBLE: ${identity.symbol} - blacklisted")
                                 return@SolanaMarketScanner
                             }
                             
-                            // Check 2b: Minimum score threshold (scanner already filtered, but double-check)
-                            val minScore = if (c.paperMode) 30.0 else 40.0  // Lower bar in paper mode for learning
+                            // Check 2c: Minimum score threshold
+                            val minScore = if (c.paperMode) 30.0 else 40.0
                             if (score < minScore) {
                                 TradeLifecycle.ineligible(identity.mint, "Score too low: $score < $minScore")
                                 ErrorLogger.debug("BotService", "INELIGIBLE: ${identity.symbol} - score $score < $minScore")
                                 return@SolanaMarketScanner
                             }
                             
-                            // Mark as ELIGIBLE (passed prereqs)
+                            // Mark as ELIGIBLE (passed all prereqs)
                             identity.eligible(score, "Passed eligibility checks")
-                            TradeLifecycle.eligible(identity.mint, score, "score=$score, not blacklisted")
+                            TradeLifecycle.eligible(identity.mint, score, "liq=$${liquidityUsd.toInt()}, score=$score")
                             
                             // ═══════════════════════════════════════════════════════════════════
                             // STAGE 3: WATCHLIST ADMISSION (capacity check)
@@ -496,8 +505,8 @@ class BotService : Service() {
                             identity.watchlisted("admitted for strategy evaluation")
                             TradeLifecycle.watchlisted(identity.mint, wl.size, "admitted for strategy evaluation")
                             
-                            addLog("📋 WATCHLISTED: ${identity.symbol} (${source.name}) score=${score.toInt()} | #${wl.size}", identity.mint)
-                            ErrorLogger.info("BotService", "WATCHLISTED: ${identity.symbol} | watchlist=${wl.size}")
+                            addLog("📋 WATCHLISTED: ${identity.symbol} (${source.name}) liq=$${liquidityUsd.toInt()} score=${score.toInt()} | #${wl.size}", identity.mint)
+                            ErrorLogger.info("BotService", "WATCHLISTED: ${identity.symbol} | liq=$${liquidityUsd.toInt()} | watchlist=${wl.size}")
                             soundManager.playNewToken()
                             
                             // Seed candle history immediately
