@@ -655,27 +655,27 @@ class LifecycleStrategy(
             EdgeOptimizer.WeightedScore(result.entryScore, result.exitScore, emptyMap())
         )
         
-        // Determine final quality (combine strategy quality with edge quality)
+        // ═══════════════════════════════════════════════════════════════════
+        // QUALITY DETERMINATION
+        // setupQuality = Technical setup quality from strategy (A+/A/B/C)
+        // edgeQuality = Edge optimizer assessment (A/B/C/SKIP)
+        // finalQuality = USE SETUP QUALITY (edge is separate concern)
+        // ═══════════════════════════════════════════════════════════════════
         val setupQuality = result.meta.setupQuality
         val finalQuality = when {
-            edgeVeto -> "SKIP"
-            setupQuality == "A+" && edgeFilter.quality in listOf("A", "B") -> "A+"
-            setupQuality == "A+" -> "A"
-            setupQuality == "B" && edgeFilter.quality in listOf("A", "B") -> "B"
-            setupQuality == "B" -> "C"
-            !isPaperMode && edgeFilter.quality == "SKIP" -> "SKIP"  // Only apply in live mode
-            else -> "C"
+            edgeVeto && !isPaperMode -> "SKIP"  // Edge veto only blocks in live mode
+            else -> setupQuality  // Use setup quality directly - no downgrading
         }
         
         // Determine if trade should execute
         val rawSignal = result.signal
         val finalSignal = when {
-            rawSignal == "BUY" && edgeVeto -> "WAIT"  // Edge veto blocks BUY
+            rawSignal == "BUY" && edgeVeto && !isPaperMode -> "WAIT"  // Edge veto only in live
             else -> rawSignal
         }
         val shouldTrade = finalSignal == "BUY" && !ts.position.isOpen
         val blockReason = when {
-            rawSignal == "BUY" && edgeVeto -> "Edge veto: ${edgeFilter.reason}"
+            rawSignal == "BUY" && edgeVeto && !isPaperMode -> "Edge veto: ${edgeFilter.reason}"
             rawSignal != "BUY" -> "Signal is $rawSignal, not BUY"
             ts.position.isOpen -> "Position already open"
             else -> ""
@@ -707,7 +707,7 @@ class LifecycleStrategy(
             signal = rawSignal,
             setupQuality = setupQuality,
             edgeQuality = edgeFilter.quality,
-            finalQuality = finalQuality,
+            finalQuality = finalQuality,  // Now matches setupQuality
             edgePhase = edgePhase.phase.name,
             edgeConfidence = edgeConfidence,
             isOptimalEntry = edgeTiming.isOptimalEntry,
@@ -720,10 +720,10 @@ class LifecycleStrategy(
             meta = result.meta,
         )
         
-        // Log decision for debugging
+        // Log decision for debugging - CONSISTENT quality naming
         if (rawSignal == "BUY" && !ts.position.isOpen) {
             ErrorLogger.info("Decision", "📊 ${ts.symbol}: " +
-                "quality=$finalQuality | edge=${edgeFilter.quality} | " +
+                "quality=$setupQuality | edge=${edgeFilter.quality} | " +
                 "conf=${edgeConfidence.toInt()}% | " +
                 "penalty=${qualityPenalty} | " +
                 "shouldTrade=${decision.shouldTrade} | " +
