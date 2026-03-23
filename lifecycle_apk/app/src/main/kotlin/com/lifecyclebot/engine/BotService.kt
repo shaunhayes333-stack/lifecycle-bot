@@ -534,7 +534,17 @@ class BotService : Service() {
         
         // Initialize TradingMemory for persistent pattern learning
         TradingMemory.init(applicationContext)
-        addLog("📚 ${TradingMemory.getStats()}")
+        val memoryStats = TradingMemory.getStats()
+        addLog("📚 $memoryStats")
+        
+        // Show learning applied toast
+        android.os.Handler(android.os.Looper.getMainLooper()).post {
+            android.widget.Toast.makeText(
+                applicationContext,
+                "📚 Learning Applied\n$memoryStats",
+                android.widget.Toast.LENGTH_LONG
+            ).show()
+        }
         
         // Initialize BannedTokens for permanent token bans
         BannedTokens.init(applicationContext)
@@ -594,6 +604,15 @@ class BotService : Service() {
         
         addLog("Bot started — paper=${cfg.paperMode} auto=${cfg.autoTrade} sounds=${cfg.soundEnabled}")
         ErrorLogger.info("BotService", "Bot started successfully")
+        
+        // Show Toast on UI thread for immediate feedback
+        android.os.Handler(android.os.Looper.getMainLooper()).post {
+            android.widget.Toast.makeText(
+                applicationContext,
+                "🚀 Bot Started\nPaper=${cfg.paperMode} | Learning applied",
+                android.widget.Toast.LENGTH_LONG
+            ).show()
+        }
         
         // Send Telegram notification for bot start
         sendTradeNotif(
@@ -682,6 +701,15 @@ class BotService : Service() {
         wakeLock?.let { if (it.isHeld) it.release() }
         wakeLock = null
         addLog("Bot stopped. All positions closed. Wallet remains connected.")
+        
+        // Show Toast on UI thread for immediate feedback
+        android.os.Handler(android.os.Looper.getMainLooper()).post {
+            android.widget.Toast.makeText(
+                applicationContext,
+                "🛑 Bot Stopped\nAll positions closed",
+                android.widget.Toast.LENGTH_LONG
+            ).show()
+        }
         
         // Send Telegram notification for bot stop
         sendTradeNotif(
