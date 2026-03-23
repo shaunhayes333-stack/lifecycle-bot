@@ -570,6 +570,10 @@ class BotService : Service() {
         }
         addLog("🛡️ KillSwitch initialized: peak=$${effectiveBalance.toInt()}")
         
+        // Initialize RuggedContracts blacklist
+        RuggedContracts.init(applicationContext)
+        addLog("💀 RuggedContracts: ${RuggedContracts.getCount()} blacklisted")
+        
         // Set up paper wallet balance tracking
         executor.onPaperBalanceChange = { delta ->
             status.paperWalletSol = (status.paperWalletSol + delta).coerceAtLeast(0.0)
@@ -852,21 +856,24 @@ class BotService : Service() {
                         addLog("📝 Paper wallet: 5.6 SOL (~\$500)")
                     }
 
-                    // Treasury milestone check — runs every poll cycle
-                    val solPx = WalletManager.lastKnownSolPrice
-                    TreasuryManager.onWalletUpdate(
-                        walletSol    = if (cfg.paperMode) status.paperWalletSol else freshSol,
-                        solPrice     = solPx,
-                        onMilestone  = { milestone, walletUsd ->
-                            addLog("🏦 MILESTONE: ${milestone.label} hit @ \$${walletUsd.toLong()}", "treasury")
-                            if (milestone.celebrateOnHit) {
-                                sendTradeNotif("🎉 ${milestone.label}!",
-                                    "Treasury now locking ${(milestone.lockPct*100).toInt()}% of profits",
-                                    NotificationHistory.NotifEntry.NotifType.INFO)
+                    // Treasury milestone check — ONLY for LIVE mode
+                    // FIX #4: Paper and live accounting completely separate
+                    if (!cfg.paperMode) {
+                        val solPx = WalletManager.lastKnownSolPrice
+                        TreasuryManager.onWalletUpdate(
+                            walletSol    = freshSol,
+                            solPrice     = solPx,
+                            onMilestone  = { milestone, walletUsd ->
+                                addLog("🏦 MILESTONE: ${milestone.label} hit @ \$${walletUsd.toLong()}", "treasury")
+                                if (milestone.celebrateOnHit) {
+                                    sendTradeNotif("🎉 ${milestone.label}!",
+                                        "Treasury now locking ${(milestone.lockPct*100).toInt()}% of profits",
+                                        NotificationHistory.NotifEntry.NotifType.INFO)
+                                }
+                                TreasuryManager.save(applicationContext)
                             }
-                            TreasuryManager.save(applicationContext)
-                        }
-                    )
+                        )
+                    }
                     // Gather all trades across all tokens for P&L - use synchronized copy
                     val allTrades = synchronized(status.tokens) {
                         status.tokens.values.toList().flatMap { it.trades.toList() }

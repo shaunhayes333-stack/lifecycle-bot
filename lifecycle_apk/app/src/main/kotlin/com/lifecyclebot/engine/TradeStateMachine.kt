@@ -60,8 +60,11 @@ data class TokenTradeState(
 object TradeStateMachine {
     
     private val tokenStates = java.util.concurrent.ConcurrentHashMap<String, TokenTradeState>()
-    private const val COOLDOWN_MS = 5 * 60_000L  // 5 minute cooldown after exit
-    private const val WATCH_TIMEOUT_MS = 3 * 60_000L  // 3 minutes max in WATCH state
+    
+    // FIX #6: Real cooldown timers - minimum 5 minutes
+    private const val COOLDOWN_MS = 5 * 60_000L        // 5 minute cooldown after exit
+    private const val MIN_COOLDOWN_MS = 60_000L        // Minimum 1 minute even for dynamic clear
+    private const val WATCH_TIMEOUT_MS = 3 * 60_000L   // 3 minutes max in WATCH state
     
     // Entry pattern thresholds
     private const val SPIKE_THRESHOLD_PCT = 5.0      // 5% rise = spike detected
@@ -101,14 +104,36 @@ object TradeStateMachine {
         ts.entryPattern = EntryPattern.NONE
         ts.spikeHighPrice = 0.0
         ts.pullbackLowPrice = 0.0
-        ErrorLogger.info("StateMachine", "⏸️ ${mint.take(8)}: Cooldown for ${COOLDOWN_MS/1000}s")
+        val minsLeft = COOLDOWN_MS / 60_000
+        ErrorLogger.info("StateMachine", "⏸️ ${mint.take(8)}: Cooldown for ${minsLeft}min")
     }
     
     /**
-     * Clear cooldown for dynamic re-entry
+     * Get remaining cooldown time in minutes
+     */
+    fun getCooldownRemaining(mint: String): Long {
+        val ts = getState(mint)
+        if (ts.state != TradeState.COOLDOWN) return 0
+        val remaining = ts.cooldownUntil - System.currentTimeMillis()
+        return if (remaining > 0) remaining / 60_000 else 0
+    }
+    
+    /**
+     * Clear cooldown for dynamic re-entry - but enforce minimum cooldown
+     * FIX #6: Never allow instant re-entry
      */
     fun clearCooldown(mint: String) {
         val ts = getState(mint)
+        val now = System.currentTimeMillis()
+        val timeInCooldown = now - ts.stateEnteredAt
+        
+        // Enforce minimum cooldown even when dynamically clearing
+        if (timeInCooldown < MIN_COOLDOWN_MS) {
+            val secsLeft = (MIN_COOLDOWN_MS - timeInCooldown) / 1000
+            ErrorLogger.info("StateMachine", "⏸️ ${mint.take(8)}: Min cooldown enforced - ${secsLeft}s remaining")
+            return  // Don't clear yet
+        }
+        
         ts.state = TradeState.WATCH
         ts.cooldownUntil = 0
         ts.entryPattern = EntryPattern.NONE

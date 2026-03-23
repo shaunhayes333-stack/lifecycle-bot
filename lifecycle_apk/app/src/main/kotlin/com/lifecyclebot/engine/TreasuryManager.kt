@@ -163,35 +163,45 @@ object TreasuryManager {
             }
         }
 
-        // Lock profits from any growth since last poll
-        val delta = walletUsd - lastWalletUsd
-        if (delta > 0 && highestMilestoneHit >= 0 && lastWalletUsd > 0) {
-            // Use the lock rate of the highest milestone achieved
-            val lockPct    = MILESTONES[highestMilestoneHit].lockPct
-            val lockUsd    = delta * lockPct
-            val lockSol    = lockUsd / solPrice
-
-            if (lockSol >= 0.0001) {
-                treasurySol     += lockSol
-                treasuryUsd     += lockUsd
-                lifetimeLocked  += lockSol
-
-                // Log the compounding action
-                ErrorLogger.info("Treasury", 
-                    "COMPOUND: +${delta.fmtUsd()} profit → locked ${lockSol.fmtSol()}◎ (${(lockPct*100).toInt()}%) | " +
-                    "Treasury now: ${treasurySol.fmtSol()}◎ (${treasuryUsd.fmtUsd()})")
-
-                addEvent(TreasuryEvent(
-                    type        = TreasuryEventType.PROFIT_LOCKED,
-                    amountSol   = lockSol,
-                    description = "Locked ${(lockPct*100).toInt()}% of +${delta.fmtUsd()} profit",
-                    walletUsd   = walletUsd,
-                    solPrice    = solPrice,
-                ))
-            }
-        }
-
+        // FIX #5: DON'T lock profits from wallet delta (unrealized gains)
+        // Treasury should ONLY grow from realized closed PnL
+        // The old code here locked on wallet growth which included unrealized gains
+        // Now we use lockRealizedProfit() called from Executor on trade close
+        
         lastWalletUsd = walletUsd
+    }
+    
+    /**
+     * FIX #5: Lock profits from REALIZED closed trades only.
+     * Called by Executor after a winning trade is closed.
+     * 
+     * @param realizedProfitSol  The actual SOL profit from a closed trade
+     * @param solPrice           Current SOL/USD price
+     */
+    fun lockRealizedProfit(realizedProfitSol: Double, solPrice: Double) {
+        if (realizedProfitSol <= 0 || highestMilestoneHit < 0) return
+        
+        val lockPct = MILESTONES[highestMilestoneHit].lockPct
+        val lockSol = realizedProfitSol * lockPct
+        val lockUsd = lockSol * solPrice
+        
+        if (lockSol >= 0.0001) {
+            treasurySol += lockSol
+            treasuryUsd += lockUsd
+            lifetimeLocked += lockSol
+            
+            ErrorLogger.info("Treasury",
+                "🏦 REALIZED LOCK: +${realizedProfitSol.fmtSol()}◎ profit → locked ${lockSol.fmtSol()}◎ (${(lockPct*100).toInt()}%) | " +
+                "Treasury: ${treasurySol.fmtSol()}◎")
+            
+            addEvent(TreasuryEvent(
+                type = TreasuryEventType.PROFIT_LOCKED,
+                amountSol = lockSol,
+                description = "Locked ${(lockPct*100).toInt()}% of realized +${realizedProfitSol.fmtSol()}◎",
+                walletUsd = peakWalletUsd,
+                solPrice = solPrice,
+            ))
+        }
     }
 
     // ── Withdrawal ────────────────────────────────────────────────────

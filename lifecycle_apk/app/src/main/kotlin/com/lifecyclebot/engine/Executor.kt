@@ -1,5 +1,6 @@
 package com.lifecyclebot.engine
 
+import android.content.Context
 import com.lifecyclebot.engine.NotificationHistory
 
 import com.lifecyclebot.data.*
@@ -8,6 +9,55 @@ import com.lifecyclebot.network.SolanaWallet
 import com.lifecyclebot.util.pct
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withTimeoutOrNull
+import java.util.concurrent.ConcurrentHashMap
+
+/**
+ * FIX #3: Rugged contracts blacklist - stores by mint address (not ticker)
+ * Persists across restarts. No rebuy after -33% loss.
+ */
+object RuggedContracts {
+    private const val PREFS_NAME = "rugged_contracts"
+    private var ctx: Context? = null
+    private val blacklist = ConcurrentHashMap<String, Double>()  // mint -> loss%
+    
+    fun init(context: Context) {
+        ctx = context.applicationContext
+        load()
+        ErrorLogger.info("RuggedContracts", "💀 Loaded ${blacklist.size} blacklisted contracts")
+    }
+    
+    fun add(mint: String, symbol: String, lossPct: Double) {
+        blacklist[mint] = lossPct
+        save()
+        ErrorLogger.info("RuggedContracts", "💀 Blacklisted $symbol ($mint) - lost ${lossPct.toInt()}%")
+    }
+    
+    fun isBlacklisted(mint: String): Boolean = blacklist.containsKey(mint)
+    
+    fun getCount(): Int = blacklist.size
+    
+    private fun save() {
+        val c = ctx ?: return
+        try {
+            val prefs = c.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+            val json = org.json.JSONObject()
+            blacklist.forEach { (k, v) -> json.put(k, v) }
+            prefs.edit().putString("blacklist", json.toString()).apply()
+        } catch (_: Exception) {}
+    }
+    
+    private fun load() {
+        val c = ctx ?: return
+        try {
+            val prefs = c.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+            val json = prefs.getString("blacklist", null) ?: return
+            val obj = org.json.JSONObject(json)
+            obj.keys().forEach { key ->
+                blacklist[key] = obj.optDouble(key, 0.0)
+            }
+        } catch (_: Exception) {}
+    }
+}
 
 /**
  * Executor v3 — SecurityGuard integrated
@@ -742,6 +792,27 @@ class Executor(
             val isPaper = cfg().paperMode
             ErrorLogger.info("Executor", "🔔 BUY signal for ${ts.symbol} | paper=$isPaper | wallet=${walletSol.fmt(4)} | autoTrade=${cfg().autoTrade}")
             
+            // ══════════════════════════════════════════════════════════════
+            // FIX #3: SEVERE-LOSS QUARANTINE (by contract address)
+            // No rebuy after -33% rug - check BEFORE any other logic
+            // ══════════════════════════════════════════════════════════════
+            val severeLossThreshold = -33.0
+            val lastExitPnl = ts.lastExitPnlPct
+            if (lastExitPnl < severeLossThreshold) {
+                ErrorLogger.info("Executor", "🚫 ${ts.symbol} QUARANTINED: Previous exit was ${lastExitPnl.toInt()}% (< $severeLossThreshold%)")
+                onLog("💀 ${ts.symbol}: QUARANTINED (rugged ${lastExitPnl.toInt()}%)", ts.mint)
+                // Add to permanent blacklist by contract
+                RuggedContracts.add(ts.mint, ts.symbol, lastExitPnl)
+                return
+            }
+            
+            // Also check if this contract is already blacklisted
+            if (RuggedContracts.isBlacklisted(ts.mint)) {
+                ErrorLogger.info("Executor", "🚫 ${ts.symbol} BLACKLISTED: Previously rugged")
+                onLog("💀 ${ts.symbol}: Blacklisted contract", ts.mint)
+                return
+            }
+            
             // ════════════════════════════════════════════════════════════════
             // V8: State Machine Integration
             // ════════════════════════════════════════════════════════════════
@@ -861,9 +932,32 @@ class Executor(
                 return
             }
             
+            // ══════════════════════════════════════════════════════════════
+            // FIX #2: HARD CONFIDENCE AND QUALITY GATES
+            // No huge buys on C / early_unknown / low confidence
+            // ══════════════════════════════════════════════════════════════
+            val setupQuality = ts.meta.setupQuality
+            val isLowQuality = setupQuality == "C"
+            val isUnknownPhase = ts.phase.contains("unknown", ignoreCase = true)
+            val isLowConfidence = aiConfidence < 30.0
+            
+            // Block outright if ALL three red flags present
+            if (isLowQuality && isUnknownPhase && isLowConfidence) {
+                ErrorLogger.info("Executor", "❌ ${ts.symbol} BLOCKED: C quality + unknown phase + low conf (${aiConfidence.toInt()}%)")
+                onLog("🚫 ${ts.symbol}: Blocked (C + unknown + low conf)", ts.mint)
+                return
+            }
+            
+            // Severely limit size if any two red flags present
+            val redFlagCount = listOf(isLowQuality, isUnknownPhase, isLowConfidence).count { it }
+            val qualityPenalty = when (redFlagCount) {
+                2 -> 0.25  // 75% size reduction
+                1 -> 0.60  // 40% size reduction for single red flag
+                else -> 1.0
+            }
+            
             // AI-DRIVEN SIZING: Pass confidence, phase, source, brain, and setup quality to SmartSizer
-            val setupQuality = ts.meta.setupQuality  // From LifecycleStrategy quality grading
-            ErrorLogger.info("Executor", "📊 ${ts.symbol} SIZING: wallet=$walletSol | liq=${ts.lastLiquidityUsd} | mcap=${ts.lastFdv} | conf=$aiConfidence | entry=$entryScore | quality=$setupQuality")
+            ErrorLogger.info("Executor", "📊 ${ts.symbol} SIZING: wallet=$walletSol | liq=${ts.lastLiquidityUsd} | mcap=${ts.lastFdv} | conf=$aiConfidence | entry=$entryScore | quality=$setupQuality | redFlags=$redFlagCount")
             var size = buySizeSol(
                 entryScore = entryScore, 
                 walletSol = walletSol, 
@@ -878,6 +972,13 @@ class Executor(
                 brain = brain,
                 setupQuality = setupQuality,
             )
+            
+            // Apply quality penalty from hard gates
+            if (qualityPenalty < 1.0) {
+                val oldSize = size
+                size *= qualityPenalty
+                ErrorLogger.info("Executor", "📉 ${ts.symbol} size reduced: ${oldSize.fmt(3)} → ${size.fmt(3)} (penalty=${qualityPenalty}x, redFlags=$redFlagCount)")
+            }
 
             // Cross-token correlation guard (FIX 7: tier-aware)
             // Penalise clustering only within the same ScalingMode tier.
@@ -1482,6 +1583,12 @@ class Executor(
             security.recordTrade(trade)
 
             SmartSizer.recordTrade(pnl > 0)  // inside try — pnl is valid here
+            
+            // FIX #5: Lock realized profit to treasury (LIVE mode only)
+            if (pnl > 0) {
+                val solPrice = WalletManager.lastKnownSolPrice
+                TreasuryManager.lockRealizedProfit(pnl, solPrice)
+            }
 
             onLog("LIVE SELL @ ${price.fmt()} | $reason | pnl ${pnl.fmt(4)} SOL " +
                   "(${pnlP.fmtPct()}) | sig=${sig.take(16)}…", ts.mint)

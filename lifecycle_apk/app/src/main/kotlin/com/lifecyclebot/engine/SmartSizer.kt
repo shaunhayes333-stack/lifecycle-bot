@@ -306,26 +306,14 @@ object SmartSizer {
         // ── Hard limits ───────────────────────────────────────────────
         var cappedBy = "none"
 
-        // PAPER MODE: Relax per-trade and exposure caps significantly
-        if (isPaperMode) {
-            // Paper: Allow 40% per trade (was 20%)
-            val maxPerTrade = tradeable * 0.40
-            if (size > maxPerTrade) { size = maxPerTrade; cappedBy = "maxPct_40_paper" }
-            
-            // Paper: IGNORE exposure cap completely - we want maximum learning
-            // The bot will trade even if already exposed, so AI can learn from overlapping positions
-            ErrorLogger.info("SmartSizer", "📏 PAPER MODE: ignoring exposure cap | size=$size | exposure=$currentTotalExposure")
-        } else {
-            // REAL MODE: Normal caps
-            // Max per-trade: 20% of tradeable
-            val maxPerTrade = tradeable * 0.20
-            if (size > maxPerTrade) { size = maxPerTrade; cappedBy = "maxPct_20" }
+        // Max per-trade: 20% of tradeable (same for paper and live)
+        val maxPerTrade = tradeable * 0.20
+        if (size > maxPerTrade) { size = maxPerTrade; cappedBy = "maxPct_20" }
 
-            // Total exposure cap: 70% of tradeable deployed simultaneously
-            val exposureRoom = (tradeable * 0.70) - currentTotalExposure
-            ErrorLogger.info("SmartSizer", "📏 exposureRoom=$exposureRoom (tradeable*0.7=${tradeable*0.7} - exposure=$currentTotalExposure)")
-            if (size > exposureRoom) { size = exposureRoom.coerceAtLeast(0.0); cappedBy = "exposureCap" }
-        }
+        // Total exposure cap: 70% of tradeable deployed simultaneously (same for paper and live)
+        val exposureRoom = (tradeable * 0.70) - currentTotalExposure
+        ErrorLogger.info("SmartSizer", "📏 exposureRoom=$exposureRoom (tradeable*0.7=${tradeable*0.7} - exposure=$currentTotalExposure)")
+        if (size > exposureRoom) { size = exposureRoom.coerceAtLeast(0.0); cappedBy = "exposureCap" }
 
         // ── Liquidity ownership cap (ScalingMode tier-aware) ─────────
         // PAPER MODE: Skip liquidity ownership cap - we want to learn
