@@ -120,6 +120,13 @@ class BotBrain(
         const val RECENT_WEIGHT = 0.7           // 70% weight to recent memory
         const val GLOBAL_WEIGHT = 0.3           // 30% weight to global memory
         const val DECAY_HALF_LIFE = 50          // Trades until weight halves
+        
+        // LIVE TRADE WEIGHTING
+        // Live trades count 3x more than paper trades because:
+        // 1. They're validated with real money
+        // 2. They prove the strategy works in production
+        // 3. They include real slippage, fees, and execution factors
+        const val LIVE_TRADE_WEIGHT = 3.0
     }
     
     /**
@@ -895,23 +902,36 @@ Analyse this data and respond with ONLY valid JSON in this exact format:
         buyPressure: Double = 50.0,
         topHolderPct: Double = 10.0,
         liquidityUsd: Double = 10000.0,
+        // LIVE TRADE WEIGHTING: Live trades count more than paper trades
+        isLiveTrade: Boolean = false,
     ): Boolean {
+        // Live trades have 3x weight - they're validated with real money
+        val tradeWeight = if (isLiveTrade) LIVE_TRADE_WEIGHT else 1.0
+        
         try {
             // ═══════════════════════════════════════════════════════════════════
             // ROLLING MEMORY: Record trade for adaptive learning
             // This is the NEW primary learning mechanism
+            // Live trades recorded multiple times for extra weight
             // ═══════════════════════════════════════════════════════════════════
-            recordToMemory(
-                isWin = isWin,
-                pnlPct = pnlPct,
-                phase = phase,
-                emaFan = emaFan,
-                source = source,
-                rugcheckScore = rugcheckScore,
-                buyPressure = buyPressure,
-                topHolderPct = topHolderPct,
-                liquidityUsd = liquidityUsd,
-            )
+            val recordCount = if (isLiveTrade) LIVE_TRADE_WEIGHT.toInt() else 1
+            repeat(recordCount) {
+                recordToMemory(
+                    isWin = isWin,
+                    pnlPct = pnlPct,
+                    phase = phase,
+                    emaFan = emaFan,
+                    source = source,
+                    rugcheckScore = rugcheckScore,
+                    buyPressure = buyPressure,
+                    topHolderPct = topHolderPct,
+                    liquidityUsd = liquidityUsd,
+                )
+            }
+            
+            if (isLiveTrade) {
+                onLog("🔴 LIVE TRADE learning (${tradeWeight.toInt()}x weight): ${if(isWin) "WIN" else "LOSS"} ${pnlPct.toInt()}%")
+            }
             
             // ═══════════════════════════════════════════════════════════════════
             // FAST-CHANGING METRICS: Use RECENT MEMORY primarily

@@ -1681,6 +1681,7 @@ class Executor(
             
             // Update BotBrain in real-time — check if we should blacklist this token
             // Pass additional metrics for rolling memory system
+            // PAPER MODE: isLiveTrade = false (1x weight)
             brain?.let { b ->
                 val shouldBlacklist = b.learnFromTrade(
                     isWin = false, 
@@ -1694,6 +1695,7 @@ class Executor(
                     buyPressure = ts.meta.pressScore,
                     topHolderPct = ts.safety.topHolderPct,
                     liquidityUsd = ts.lastLiquidityUsd,
+                    isLiveTrade = false,  // Paper trade = 1x weight
                 )
                 // Paper mode: Still BAN tokens to build the list for live mode
                 // but we don't CHECK the list in paper mode (handled in scanner/watchlist)
@@ -1739,6 +1741,7 @@ class Executor(
             
             // Update BotBrain in real-time
             // Pass additional metrics for rolling memory system
+            // PAPER MODE: isLiveTrade = false (1x weight)
             brain?.let { b ->
                 b.learnFromTrade(
                     isWin = true, 
@@ -1752,6 +1755,7 @@ class Executor(
                     buyPressure = ts.meta.pressScore,
                     topHolderPct = ts.safety.topHolderPct,
                     liquidityUsd = ts.lastLiquidityUsd,
+                    isLiveTrade = false,  // Paper trade = 1x weight
                 )
             }
             
@@ -2015,6 +2019,7 @@ class Executor(
 
             // Update BotBrain — check if we should blacklist this token
             // Pass additional metrics for rolling memory system
+            // LIVE MODE: isLiveTrade = true (3x weight!)
             brain?.let { b ->
                 val shouldBlacklist = b.learnFromTrade(
                     isWin = false, 
@@ -2028,6 +2033,7 @@ class Executor(
                     buyPressure = ts.meta.pressScore,
                     topHolderPct = ts.safety.topHolderPct,
                     liquidityUsd = ts.lastLiquidityUsd,
+                    isLiveTrade = true,  // LIVE trade = 3x weight!
                 )
                 // Paper mode: Still BAN tokens to build the list for live mode
                 // but we don't CHECK the list in paper mode (handled in scanner/watchlist)
@@ -2056,6 +2062,7 @@ class Executor(
             
             // Update BotBrain for winning trade
             // Pass additional metrics for rolling memory system
+            // LIVE MODE: isLiveTrade = true (3x weight!)
             brain?.let { b ->
                 b.learnFromTrade(
                     isWin = true, 
@@ -2069,6 +2076,7 @@ class Executor(
                     buyPressure = ts.meta.pressScore,
                     topHolderPct = ts.safety.topHolderPct,
                     liquidityUsd = ts.lastLiquidityUsd,
+                    isLiveTrade = true,  // LIVE trade = 3x weight!
                 )
             }
         } else {
