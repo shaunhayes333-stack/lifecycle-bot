@@ -1560,6 +1560,12 @@ class Executor(
             
             // 🎵 Homer Simpson "Woohoo!"
             sounds?.playBuySound()
+            
+            // ═══════════════════════════════════════════════════════════════════
+            // LIFECYCLE: EXECUTED → MONITORING (LIVE)
+            // ═══════════════════════════════════════════════════════════════════
+            TradeLifecycle.executed(ts.mint, price, sol)
+            TradeLifecycle.monitoring(ts.mint, 0.0)
 
             onLog("LIVE BUY  @ ${price.fmt()} | ${sol.fmt(4)} SOL | " +
                   "impact=${quote.priceImpactPct.fmt(2)}% | sig=${sig.take(16)}…", ts.mint)
@@ -2156,6 +2162,18 @@ class Executor(
                 isWin = pnlP > 2.0,
             )
         }
+        
+        // ═══════════════════════════════════════════════════════════════════
+        // LIFECYCLE: CLOSED → CLASSIFIED (LIVE)
+        // ═══════════════════════════════════════════════════════════════════
+        TradeLifecycle.closed(ts.mint, exitPrice, pnlP, reason)
+        val classificationLive = when {
+            isScratchTradeLive -> "SCRATCH"
+            shouldLearnAsWin -> "WIN"
+            shouldLearnAsLoss -> "LOSS"
+            else -> "UNKNOWN"
+        }
+        TradeLifecycle.classified(ts.mint, classificationLive, if (isScratchTradeLive) null else shouldLearnAsWin)
         
         ts.position         = Position()
         ts.lastExitTs       = System.currentTimeMillis()
