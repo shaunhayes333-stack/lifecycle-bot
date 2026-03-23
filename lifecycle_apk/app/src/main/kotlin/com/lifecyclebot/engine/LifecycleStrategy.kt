@@ -448,10 +448,23 @@ class LifecycleStrategy(
         
         // ═══════════════════════════════════════════════════════════════════
         // PRIORITY 1: EDGE VETO - If Edge said SKIP, suppress BUY signal
+        // PAPER MODE: Relaxed veto - only block on DISTRIBUTION + low buy pressure
+        // LIVE MODE: Full veto logic for safety
         // ═══════════════════════════════════════════════════════════════════
-        if (signal == "BUY" && edgeVeto && !ts.position.isOpen) {
+        val shouldApplyEdgeVeto = if (isPaperMode) {
+            // Paper mode: Only veto on clear danger signals to allow learning
+            edgeVeto && edgePhase.phase == EdgeOptimizer.MarketPhase.DISTRIBUTION && pressScore < 35.0
+        } else {
+            // Live mode: Full veto for safety
+            edgeVeto
+        }
+        
+        if (signal == "BUY" && shouldApplyEdgeVeto && !ts.position.isOpen) {
             ErrorLogger.info("Strategy", "🚫 ${ts.symbol}: BUY VETOED by Edge (quality=SKIP)")
             signal = "WAIT"
+        } else if (signal == "BUY" && edgeVeto && isPaperMode && !ts.position.isOpen) {
+            // Paper mode: Log that we're allowing despite edge veto
+            ErrorLogger.info("Strategy", "📄 ${ts.symbol}: PAPER BUY (Edge veto relaxed for learning)")
         }
         
         // Log signal for debugging
