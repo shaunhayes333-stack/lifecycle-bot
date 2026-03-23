@@ -158,7 +158,7 @@ class Executor(
             walletTotalTrades = 0,  // Not critical for size calc
             liquidityUsd = ts.lastLiquidityUsd,
             mcapUsd = ts.lastMcap,
-            aiConfidence = ts.meta.aiConfidence,
+            aiConfidence = 50.0,  // Default confidence for FDG size calc
             phase = ts.phase,
             source = ts.source,
             brain = brain,
