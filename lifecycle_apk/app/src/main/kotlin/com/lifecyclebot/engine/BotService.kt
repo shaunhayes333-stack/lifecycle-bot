@@ -463,9 +463,14 @@ class BotService : Service() {
                                         status.tokens.getOrPut(mint) {
                                             com.lifecyclebot.data.TokenState(
                                                 mint=mint, symbol=symbol, name=name,
-                                                candleTimeframeMinutes = 1
+                                                candleTimeframeMinutes = 1,
+                                                source = source.name,  // Track discovery source for learning
                                             )
                                         }
+                                    }
+                                    // Also update source if token already existed but had no source
+                                    if (ts.source.isEmpty()) {
+                                        ts.source = source.name
                                     }
                                     orchestrator?.onTokenAdded(mint, symbol)
                                 } catch (_: Exception) {}
@@ -979,9 +984,20 @@ class BotService : Service() {
                                 name       = pair.baseName,
                                 pairAddress = pair.pairAddress,
                                 pairUrl    = pair.url,
+                                source     = "WATCHLIST",  // Tokens loaded from config
                             )
                         }
                         val ts = status.tokens[mint] ?: return@launch
+                        
+                        // Try to infer source if unknown
+                        if (ts.source.isEmpty() || ts.source == "UNKNOWN") {
+                            ts.source = when {
+                                pair.url.contains("pump.fun") -> "PUMP_FUN_GRADUATE"
+                                pair.url.contains("raydium") -> "RAYDIUM_NEW_POOL"
+                                else -> "DEX_TRENDING"
+                            }
+                        }
+                        
                         ts.lastPrice        = pair.candle.priceUsd
                         ts.lastMcap         = pair.candle.marketCap
                         ts.lastLiquidityUsd = pair.liquidity
