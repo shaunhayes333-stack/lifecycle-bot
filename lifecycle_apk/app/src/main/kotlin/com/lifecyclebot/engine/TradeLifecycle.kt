@@ -31,11 +31,17 @@ object TradeLifecycle {
     
     /**
      * Lifecycle states a token can be in
+     * 
+     * DISCOVERY FUNNEL (3-tier filter to reduce noise):
+     *   DISCOVERED = seen by scanner (raw count)
+     *   ELIGIBLE = passes minimum liquidity + safety prerequisites
+     *   WATCHLISTED = actually admitted for strategy evaluation
      */
     enum class State {
-        // ── Discovery Phase ──
-        DISCOVERED,      // Scanner found the token
-        ELIGIBLE,        // Passed initial filters (liq, age, rugcheck)
+        // ── Discovery Phase (3-tier funnel) ──
+        DISCOVERED,      // Scanner found the token (raw, unfiltered)
+        ELIGIBLE,        // Passed minimum prereqs (liq >= $3k, not banned, basic safety)
+        WATCHLISTED,     // Admitted to watchlist for active strategy evaluation
         
         // ── Evaluation Phase ──
         CANDIDATE,       // Strategy generated a BUY signal
@@ -59,6 +65,7 @@ object TradeLifecycle {
         // ── Terminal States ──
         REJECTED,        // Rejected during discovery (banned, etc.)
         FILTERED,        // Filtered out (didn't meet criteria)
+        INELIGIBLE,      // Failed eligibility prereqs (liq too low, unsafe)
         NO_SIGNAL,       // Strategy didn't generate BUY signal
         EXPIRED,         // Watchlist timeout
     }
@@ -164,6 +171,12 @@ object TradeLifecycle {
     /**
      * Token passed initial filters
      */
+    /**
+     * Token passed minimum eligibility prerequisites:
+     * - Liquidity >= minimum threshold
+     * - Not banned/blacklisted
+     * - Basic safety checks passed
+     */
     fun eligible(mint: String, score: Double, reason: String) {
         lifecycles[mint]?.let { lc ->
             lc.eligibilityScore = score
@@ -173,7 +186,28 @@ object TradeLifecycle {
     }
     
     /**
-     * Token filtered out
+     * Token failed eligibility prerequisites (liq too low, unsafe, etc.)
+     */
+    fun ineligible(mint: String, reason: String) {
+        lifecycles[mint]?.let { lc ->
+            lc.transition(State.INELIGIBLE, reason)
+            ErrorLogger.debug("Lifecycle", "✗ INELIGIBLE: ${lc.symbol} | $reason")
+        }
+    }
+    
+    /**
+     * Token admitted to watchlist for active strategy evaluation.
+     * This is the final gate before strategy runs on the token.
+     */
+    fun watchlisted(mint: String, watchlistSize: Int, reason: String = "admitted for evaluation") {
+        lifecycles[mint]?.let { lc ->
+            lc.transition(State.WATCHLISTED, reason, mapOf("watchlistSize" to watchlistSize))
+            ErrorLogger.info("Lifecycle", "📋 WATCHLISTED: ${lc.symbol} | watchlist=$watchlistSize")
+        }
+    }
+    
+    /**
+     * Token filtered out (watchlist full, already tracked, etc.)
      */
     fun filtered(mint: String, reason: String) {
         lifecycles[mint]?.let { lc ->

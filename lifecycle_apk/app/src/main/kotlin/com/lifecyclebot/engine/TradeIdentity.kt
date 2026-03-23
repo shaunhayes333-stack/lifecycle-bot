@@ -105,6 +105,9 @@ object TradeIdentityManager {
         return IdentityStats(
             total = all.size,
             discovered = all.count { it.state == IdentityState.DISCOVERED },
+            eligible = all.count { it.state == IdentityState.ELIGIBLE },
+            watchlisted = all.count { it.state == IdentityState.WATCHLISTED },
+            ineligible = all.count { it.state == IdentityState.INELIGIBLE },
             approved = all.count { it.state == IdentityState.APPROVED },
             executed = all.count { it.state == IdentityState.EXECUTED },
             monitoring = all.count { it.state == IdentityState.MONITORING },
@@ -117,10 +120,14 @@ object TradeIdentityManager {
 
 /**
  * Identity states - simplified, clear lifecycle
+ * 
+ * DISCOVERY FUNNEL (3-tier):
+ *   DISCOVERED → ELIGIBLE → WATCHLISTED
  */
 enum class IdentityState {
-    DISCOVERED,   // Scanner found token
-    ELIGIBLE,     // Passed initial filters
+    DISCOVERED,   // Scanner found token (raw)
+    ELIGIBLE,     // Passed minimum prereqs (liq, safety, not banned)
+    WATCHLISTED,  // Admitted for strategy evaluation
     CANDIDATE,    // Strategy generated BUY signal
     PROPOSED,     // Submitted to FDG
     BLOCKED,      // FDG blocked
@@ -129,6 +136,7 @@ enum class IdentityState {
     MONITORING,   // Position open
     CLOSED,       // Position closed
     CLASSIFIED,   // Learning complete
+    INELIGIBLE,   // Failed eligibility prereqs
 }
 
 /**
@@ -237,11 +245,25 @@ data class TradeIdentity(
     }
     
     /**
-     * Mark as eligible (passed initial filters)
+     * Mark as eligible (passed minimum prereqs)
      */
     fun eligible(score: Double, reason: String = "") {
         discoveryScore = score
         transition(IdentityState.ELIGIBLE, reason)
+    }
+    
+    /**
+     * Mark as watchlisted (admitted for strategy evaluation)
+     */
+    fun watchlisted(reason: String = "admitted for evaluation") {
+        transition(IdentityState.WATCHLISTED, reason)
+    }
+    
+    /**
+     * Mark as ineligible (failed prereqs)
+     */
+    fun ineligible(reason: String) {
+        transition(IdentityState.INELIGIBLE, reason)
     }
     
     /**
@@ -424,6 +446,9 @@ data class TradeIdentity(
 data class IdentityStats(
     val total: Int,
     val discovered: Int,
+    val eligible: Int,
+    val watchlisted: Int,
+    val ineligible: Int,
     val approved: Int,
     val executed: Int,
     val monitoring: Int,
@@ -432,6 +457,23 @@ data class IdentityStats(
     val blocked: Int,
 ) {
     fun summary(): String = "Identities: $total | " +
-        "discovered=$discovered approved=$approved executed=$executed " +
-        "monitoring=$monitoring closed=$closed classified=$classified blocked=$blocked"
+        "discovered=$discovered eligible=$eligible watchlisted=$watchlisted ineligible=$ineligible | " +
+        "approved=$approved executed=$executed monitoring=$monitoring | " +
+        "closed=$closed classified=$classified blocked=$blocked"
+    
+    /**
+     * Funnel conversion rates
+     */
+    fun funnelReport(): String = buildString {
+        appendLine("═══ DISCOVERY FUNNEL ═══")
+        appendLine("DISCOVERED: $discovered")
+        val eligRate = if (discovered > 0) (eligible * 100.0 / discovered) else 0.0
+        appendLine("  → ELIGIBLE: $eligible (${eligRate.toInt()}%)")
+        val watchRate = if (eligible > 0) (watchlisted * 100.0 / eligible) else 0.0
+        appendLine("    → WATCHLISTED: $watchlisted (${watchRate.toInt()}%)")
+        appendLine("    → INELIGIBLE: $ineligible")
+        val approveRate = if (watchlisted > 0) (approved * 100.0 / watchlisted) else 0.0
+        appendLine("      → APPROVED: $approved (${approveRate.toInt()}%)")
+        appendLine("        → EXECUTED: $executed")
+    }
 }

@@ -438,46 +438,66 @@ class BotService : Service() {
                             val identity = TradeIdentityManager.getOrCreate(mint, symbol, source.name)
                             
                             // ═══════════════════════════════════════════════════════════════════
-                            // LIFECYCLE: DISCOVERED (using identity for consistent mint/symbol)
+                            // STAGE 1: DISCOVERED (raw scanner hit)
                             // ═══════════════════════════════════════════════════════════════════
                             TradeLifecycle.discovered(identity.mint, identity.symbol, score, source.name)
                             
-                            ErrorLogger.info("BotService", "Token found: ${identity.symbol} (${identity.mint}) from ${source.name} score=$score")
+                            ErrorLogger.debug("BotService", "DISCOVERED: ${identity.symbol} (${identity.mint.take(8)}...) from ${source.name} score=$score")
                             
+                            // Already tracked?
                             if (identity.mint in wl) {
                                 ErrorLogger.debug("BotService", "Token ${identity.symbol} already in watchlist")
                                 return@SolanaMarketScanner
                             }
                             
-                            // PAPER MODE: Skip blacklist check - we want to trade everything
+                            // ═══════════════════════════════════════════════════════════════════
+                            // STAGE 2: ELIGIBILITY CHECKS (filter junk before watchlisting)
+                            // Minimum prerequisites: liquidity, safety, not banned
+                            // ═══════════════════════════════════════════════════════════════════
+                            
+                            // Check 2a: Blacklist (skip in paper mode - we want to learn)
                             if (!c.paperMode && TokenBlacklist.isBlocked(identity.mint)) {
-                                TradeLifecycle.rejected(identity.mint, "Blacklisted")
-                                ErrorLogger.debug("BotService", "Token ${identity.symbol} is blacklisted")
+                                TradeLifecycle.ineligible(identity.mint, "Blacklisted")
+                                ErrorLogger.debug("BotService", "INELIGIBLE: ${identity.symbol} - blacklisted")
                                 return@SolanaMarketScanner
                             }
                             
-                            // PAPER MODE: Much larger watchlist for more learning
+                            // Check 2b: Minimum score threshold (scanner already filtered, but double-check)
+                            val minScore = if (c.paperMode) 30.0 else 40.0  // Lower bar in paper mode for learning
+                            if (score < minScore) {
+                                TradeLifecycle.ineligible(identity.mint, "Score too low: $score < $minScore")
+                                ErrorLogger.debug("BotService", "INELIGIBLE: ${identity.symbol} - score $score < $minScore")
+                                return@SolanaMarketScanner
+                            }
+                            
+                            // Mark as ELIGIBLE (passed prereqs)
+                            identity.eligible(score, "Passed eligibility checks")
+                            TradeLifecycle.eligible(identity.mint, score, "score=$score, not blacklisted")
+                            
+                            // ═══════════════════════════════════════════════════════════════════
+                            // STAGE 3: WATCHLIST ADMISSION (capacity check)
+                            // ═══════════════════════════════════════════════════════════════════
+                            
+                            // Check 3a: Watchlist capacity
                             val effectiveMaxWatchlist = if (c.paperMode) 100 else c.maxWatchlistSize
                             if (wl.size >= effectiveMaxWatchlist) {
-                                TradeLifecycle.filtered(identity.mint, "Watchlist full")
-                                ErrorLogger.debug("BotService", "Watchlist full (${wl.size}/${effectiveMaxWatchlist})")
+                                TradeLifecycle.filtered(identity.mint, "Watchlist full (${wl.size}/${effectiveMaxWatchlist})")
+                                ErrorLogger.debug("BotService", "FILTERED: ${identity.symbol} - watchlist full")
                                 return@SolanaMarketScanner
                             }
                             
                             // ═══════════════════════════════════════════════════════════════════
-                            // TRADE IDENTITY: Mark as eligible
+                            // ADMITTED TO WATCHLIST
                             // ═══════════════════════════════════════════════════════════════════
-                            identity.eligible(score, "Added to watchlist")
-                            
-                            // ═══════════════════════════════════════════════════════════════════
-                            // LIFECYCLE: ELIGIBLE (passed initial filters)
-                            // ═══════════════════════════════════════════════════════════════════
-                            TradeLifecycle.eligible(identity.mint, score, "Added to watchlist")
-                            
                             wl.add(identity.mint)
                             ConfigStore.save(applicationContext, c.copy(watchlist = wl))
-                            addLog("✅ ADDED: ${identity.symbol} (${source.name}) score=${score.toInt()} | Watchlist now: ${wl.size}", identity.mint)
-                            ErrorLogger.info("BotService", "Added ${identity.symbol} to watchlist. New size: ${wl.size}")
+                            
+                            // Mark as WATCHLISTED (both TradeIdentity and TradeLifecycle)
+                            identity.watchlisted("admitted for strategy evaluation")
+                            TradeLifecycle.watchlisted(identity.mint, wl.size, "admitted for strategy evaluation")
+                            
+                            addLog("📋 WATCHLISTED: ${identity.symbol} (${source.name}) score=${score.toInt()} | #${wl.size}", identity.mint)
+                            ErrorLogger.info("BotService", "WATCHLISTED: ${identity.symbol} | watchlist=${wl.size}")
                             soundManager.playNewToken()
                             
                             // Seed candle history immediately
