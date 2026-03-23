@@ -198,13 +198,17 @@ class BotBrain(
      * Restore learned state from the trade database.
      * Called once on start — rebuilds thresholds, boosts, and regime mult
      * from all trades seen so far so learning survives restarts.
+     * 
+     * NOTE: Scratch trades (isWin == null) are excluded from learning calculations.
      */
     private fun restoreFromDatabase() {
         try {
-            val trades = db.getRecentTrades(500)
+            val allTrades = db.getRecentTrades(500)
+            // Filter out scratch trades - only learn from meaningful outcomes
+            val trades = allTrades.filter { it.isWin != null }
             if (trades.size < 10) return
 
-            val wr = trades.count { it.isWin }.toDouble() / trades.size
+            val wr = trades.count { it.isWin == true }.toDouble() / trades.size
 
             // Restore entry threshold delta from overall win rate
             entryThresholdDelta = when {
@@ -227,7 +231,7 @@ class BotBrain(
             val newPhaseBoosts = mutableMapOf<String, Double>()
             trades.groupBy { it.entryPhase }.forEach { (phase, pt) ->
                 if (pt.size >= 8) {
-                    val pWr = pt.count { it.isWin }.toDouble() / pt.size
+                    val pWr = pt.count { it.isWin == true }.toDouble() / pt.size
                     newPhaseBoosts[phase] = when {
                         pWr >= 0.75 -> -5.0
                         pWr <= 0.40 ->  8.0
@@ -241,7 +245,7 @@ class BotBrain(
             val newSourceBoosts = mutableMapOf<String, Double>()
             trades.groupBy { it.source }.forEach { (src, st) ->
                 if (st.size >= 8) {
-                    val sWr = st.count { it.isWin }.toDouble() / st.size
+                    val sWr = st.count { it.isWin == true }.toDouble() / st.size
                     if (sWr >= 0.70) newSourceBoosts[src] = -3.0
                     else if (sWr <= 0.45) newSourceBoosts[src] = 5.0
                 }
@@ -325,7 +329,7 @@ class BotBrain(
         val phaseGroups = trades.groupBy { it.entryPhase }
         phaseGroups.forEach { (phase, phaseTrades) ->
             if (phaseTrades.size < 8) return@forEach
-            val wr = phaseTrades.count { it.isWin }.toDouble() / phaseTrades.size * 100
+            val wr = phaseTrades.count { it.isWin == true }.toDouble() / phaseTrades.size * 100
             val avgPnl = phaseTrades.map { it.pnlPct }.average()
             val expected = 60.0  // baseline expected win rate
 
@@ -353,9 +357,9 @@ class BotBrain(
         // to the bad_behaviour table so it accumulates evidence over time.
         phaseGroups.forEach { (phase, phaseTrades) ->
             if (phaseTrades.size < 4) return@forEach
-            val wr = phaseTrades.count { it.isWin }.toDouble() / phaseTrades.size * 100
+            val wr = phaseTrades.count { it.isWin == true }.toDouble() / phaseTrades.size * 100
             if (wr <= 45.0) {
-                phaseTrades.filter { !it.isWin }.forEach { t ->
+                phaseTrades.filter { it.isWin == false }.forEach { t ->
                     val key = "phase=${phase}+ema=${t.emaFan}"
                     db.recordBadObservation(
                         featureKey    = key,
@@ -366,7 +370,7 @@ class BotBrain(
                 }
             }
             // Also record wins to allow recovery
-            if (wr >= 60.0) phaseTrades.filter { it.isWin }.forEach { t ->
+            if (wr >= 60.0) phaseTrades.filter { it.isWin == true }.forEach { t ->
                 db.recordGoodObservation("phase=${phase}+ema=${t.emaFan}")
             }
         }
@@ -375,7 +379,7 @@ class BotBrain(
         val fanGroups = trades.groupBy { it.emaFan }
         fanGroups.forEach { (fan, fanTrades) ->
             if (fanTrades.size < 8) return@forEach
-            val wr = fanTrades.count { it.isWin }.toDouble() / fanTrades.size * 100
+            val wr = fanTrades.count { it.isWin == true }.toDouble() / fanTrades.size * 100
             when {
                 fan == "BULL_FAN" && wr >= 70 -> {
                     entryDelta -= 3.0
@@ -390,8 +394,8 @@ class BotBrain(
 
         // CHANGE 8: Press position sizing on hot streaks
         // When the edge is working, deploy more capital (within SmartSizer caps)
-        val overallWr = trades.count { it.isWin }.toDouble() / trades.size * 100
-        val last10Win = trades.takeLast(10).count { it.isWin }
+        val overallWr = trades.count { it.isWin == true }.toDouble() / trades.size * 100
+        val last10Win = trades.takeLast(10).count { it.isWin == true }
         when {
             overallWr >= 80 && trades.size >= 20 -> {
                 regimeBullMult = (regimeBullMult * 1.20).coerceAtMost(1.50)
@@ -413,7 +417,7 @@ class BotBrain(
         val sourceGroups = trades.groupBy { it.source }
         sourceGroups.forEach { (source, srcTrades) ->
             if (srcTrades.size < 5) return@forEach
-            val wr = srcTrades.count { it.isWin }.toDouble() / srcTrades.size * 100
+            val wr = srcTrades.count { it.isWin == true }.toDouble() / srcTrades.size * 100
             val avgPnl = srcTrades.map { it.pnlPct }.average()
             when {
                 wr >= 70 -> { newSourceBoosts[source] = +10.0
@@ -427,9 +431,9 @@ class BotBrain(
         // Record bad sources
         sourceGroups.forEach { (source, srcTrades) ->
             if (srcTrades.size < 5) return@forEach
-            val wr = srcTrades.count { it.isWin }.toDouble() / srcTrades.size * 100
+            val wr = srcTrades.count { it.isWin == true }.toDouble() / srcTrades.size * 100
             if (wr <= 40.0) {
-                srcTrades.filter { !it.isWin }.forEach { t ->
+                srcTrades.filter { it.isWin == false }.forEach { t ->
                     db.recordBadObservation(
                         featureKey    = "source=${source}",
                         behaviourType = "SOURCE",
@@ -441,8 +445,8 @@ class BotBrain(
         }
 
         // ── Hold time analysis ────────────────────────────────────────
-        val avgHoldWins  = trades.filter { it.isWin && it.heldMins > 0 }.map { it.heldMins }.let { if (it.isEmpty()) 0.0 else it.average() }
-        val avgHoldLoss  = trades.filter { !it.isWin && it.heldMins > 0 }.map { it.heldMins }.let { if (it.isEmpty()) 0.0 else it.average() }
+        val avgHoldWins  = trades.filter { it.isWin == true && it.heldMins > 0 }.map { it.heldMins }.let { if (it.isEmpty()) 0.0 else it.average() }
+        val avgHoldLoss  = trades.filter { it.isWin == false && it.heldMins > 0 }.map { it.heldMins }.let { if (it.isEmpty()) 0.0 else it.average() }
         if (avgHoldLoss > avgHoldWins * 1.5 && avgHoldLoss > 10) {
             exitDelta += 3.0
             report.appendLine("  ⏱ Losses held ${avgHoldLoss.toInt()}m vs wins ${avgHoldWins.toInt()}m → tighten exit")
@@ -463,7 +467,7 @@ class BotBrain(
         val mtfGroups = trades.groupBy { it.mtf5m }
         mtfGroups.forEach { (mtf, mtfTrades) ->
             if (mtfTrades.size < 8) return@forEach
-            val wr = mtfTrades.count { it.isWin }.toDouble() / mtfTrades.size * 100
+            val wr = mtfTrades.count { it.isWin == true }.toDouble() / mtfTrades.size * 100
             if (mtf == "BEAR" && wr <= 40) {
                 entryDelta += 6.0
                 report.appendLine("  📉 MTF BEAR ${wr.toInt()}% WR → raise threshold in bear 5m")
@@ -475,8 +479,8 @@ class BotBrain(
 
         // ── Overall win rate ─────────────────────────────────────────
         // Use overallWr computed earlier in CHANGE 8
-        val avgWinPnl = trades.filter { it.isWin }.map { it.pnlPct }.let { if (it.isEmpty()) 0.0 else it.average() }
-        val avgLossPnl = trades.filter { !it.isWin }.map { it.pnlPct }.let { if (it.isEmpty()) 0.0 else it.average() }
+        val avgWinPnl = trades.filter { it.isWin == true }.map { it.pnlPct }.let { if (it.isEmpty()) 0.0 else it.average() }
+        val avgLossPnl = trades.filter { it.isWin == false }.map { it.pnlPct }.let { if (it.isEmpty()) 0.0 else it.average() }
         report.appendLine("  Overall: ${overallWr.toInt()}% WR  avgWin:+${avgWinPnl.toInt()}%  avgLoss:${avgLossPnl.toInt()}%")
 
         // ── Apply changes with safety bounds ─────────────────────────
@@ -624,9 +628,9 @@ You are analysing trade data for a Solana DEX trading bot. Your job is to identi
 and suggest specific parameter adjustments to improve performance.
 
 RECENT TRADE SUMMARY (${trades.size} trades):
-Overall win rate: ${(trades.count{it.isWin}.toDouble()/trades.size*100).toInt()}%
-Avg win: +${trades.filter{it.isWin}.map{it.pnlPct}.let{if(it.isEmpty())0.0 else it.average()}.toInt()}%
-Avg loss: ${trades.filter{!it.isWin}.map{it.pnlPct}.let{if(it.isEmpty())0.0 else it.average()}.toInt()}%
+Overall win rate: ${(trades.count{it.isWin == true}.toDouble()/trades.size*100).toInt()}%
+Avg win: +${trades.filter{it.isWin == true}.map{it.pnlPct}.let{if(it.isEmpty())0.0 else it.average()}.toInt()}%
+Avg loss: ${trades.filter{it.isWin == false}.map{it.pnlPct}.let{if(it.isEmpty())0.0 else it.average()}.toInt()}%
 
 TOP PERFORMING SIGNALS:
 ${topSignals.joinToString("\n") { "  ${it.featureKey}: ${it.winRate.toInt()}% WR avg +${it.avgPnlPct.toInt()}% (${it.trades} trades)" }}
@@ -724,7 +728,7 @@ Analyse this data and respond with ONLY valid JSON in this exact format:
 
             db.recordParamChange("llm_entry_delta", entryThresholdDelta - eDelta,
                 entryThresholdDelta, "llm_analysis: $insight", trades.size,
-                trades.count{it.isWin}.toDouble()/trades.size*100)
+                trades.count{it.isWin == true}.toDouble()/trades.size*100)
 
             onLog("🧠 LLM insight: $insight")
             onLog("🧠 Entry delta → ${entryThresholdDelta.toInt()}  Exit delta → ${exitThresholdDelta.toInt()}")
@@ -972,7 +976,7 @@ Analyse this data and respond with ONLY valid JSON in this exact format:
     private fun getRecentPhaseWinRate(phase: String): Double? {
         val recentTrades = synchronized(recentMemory) { recentMemory.filter { it.phase == phase } }
         if (recentTrades.size < 3) return null
-        val wins = recentTrades.count { it.isWin }
+        val wins = recentTrades.count { it.isWin == true }
         return wins.toDouble() / recentTrades.size
     }
     
@@ -984,7 +988,7 @@ Analyse this data and respond with ONLY valid JSON in this exact format:
     private fun getRecentSourceWinRate(source: String): Double? {
         val recentTrades = synchronized(recentMemory) { recentMemory.filter { it.source == source } }
         if (recentTrades.size < 3) return null
-        val wins = recentTrades.count { it.isWin }
+        val wins = recentTrades.count { it.isWin == true }
         return wins.toDouble() / recentTrades.size
     }
     
@@ -1325,7 +1329,7 @@ Analyse this data and respond with ONLY valid JSON in this exact format:
         
         // Recent memory stats (high weight, no decay)
         val recentTrades = synchronized(recentMemory) { recentMemory.toList() }
-        val recentWins = recentTrades.count { it.isWin }
+        val recentWins = recentTrades.count { it.isWin == true }
         val recentWinRate = if (recentTrades.isNotEmpty()) 
             recentWins.toDouble() / recentTrades.size else 0.0
         val recentAvgPnl = if (recentTrades.isNotEmpty())
@@ -1340,7 +1344,7 @@ Analyse this data and respond with ONLY valid JSON in this exact format:
         for (trade in globalTrades) {
             val weight = calculateDecayWeight(trade, now)
             globalTotalWeight += weight
-            if (trade.isWin) globalWeightedWins += weight
+            if (trade.isWin == true) globalWeightedWins += weight
             globalWeightedPnl += trade.pnlPct * weight
         }
         
@@ -1355,7 +1359,7 @@ Analyse this data and respond with ONLY valid JSON in this exact format:
         // Find top performing phases (from recent memory for adaptiveness)
         val phaseStats = recentTrades.groupBy { it.phase }
             .mapValues { (_, trades) -> 
-                val wins = trades.count { it.isWin }
+                val wins = trades.count { it.isWin == true }
                 if (trades.size >= 3) wins.toDouble() / trades.size else 0.0
             }
             .toList()
@@ -1365,7 +1369,7 @@ Analyse this data and respond with ONLY valid JSON in this exact format:
         // Find top performing sources
         val sourceStats = recentTrades.groupBy { it.source }
             .mapValues { (_, trades) ->
-                val wins = trades.count { it.isWin }
+                val wins = trades.count { it.isWin == true }
                 if (trades.size >= 3) wins.toDouble() / trades.size else 0.0
             }
             .toList()
@@ -1378,7 +1382,7 @@ Analyse this data and respond with ONLY valid JSON in this exact format:
         // Check phases with high loss rate
         for ((phase, trades) in recentTrades.groupBy { it.phase }) {
             if (trades.size >= 5) {
-                val lossRate = trades.count { !it.isWin }.toDouble() / trades.size
+                val lossRate = trades.count { it.isWin == false }.toDouble() / trades.size
                 if (lossRate > 0.70) {
                     dangerZones.add("phase:$phase (${(lossRate*100).toInt()}% loss)")
                 }
@@ -1388,7 +1392,7 @@ Analyse this data and respond with ONLY valid JSON in this exact format:
         // Check sources with high loss rate
         for ((source, trades) in recentTrades.groupBy { it.source }) {
             if (trades.size >= 5) {
-                val lossRate = trades.count { !it.isWin }.toDouble() / trades.size
+                val lossRate = trades.count { it.isWin == false }.toDouble() / trades.size
                 if (lossRate > 0.70) {
                     dangerZones.add("source:$source (${(lossRate*100).toInt()}% loss)")
                 }

@@ -282,7 +282,8 @@ class TradeDatabase(ctx: Context) : SQLiteOpenHelper(ctx, DB_NAME, null, DB_VERS
             "source=${t.source}",
         )
         val db = writableDatabase
-        val win = if (t.isWin) 1 else 0
+        // Handle nullable isWin - treat null (scratch) as false for signal stats
+        val win = if (t.isWin == true) 1 else 0
         val now = System.currentTimeMillis()
         keys.forEach { key ->
             db.execSQL("""
@@ -295,7 +296,7 @@ class TradeDatabase(ctx: Context) : SQLiteOpenHelper(ctx, DB_NAME, null, DB_VERS
                     avg_pnl_pct   = (total_pnl_pct + excluded.total_pnl_pct) / (trades + 1),
                     win_rate      = CAST(wins + excluded.wins AS REAL) / (trades + 1) * 100,
                     last_updated  = excluded.last_updated
-            """, arrayOf(key, win, t.pnlPct, t.pnlPct, if(t.isWin) 100.0 else 0.0, now))
+            """, arrayOf(key, win, t.pnlPct, t.pnlPct, if(t.isWin == true) 100.0 else 0.0, now))
         }
     }
 

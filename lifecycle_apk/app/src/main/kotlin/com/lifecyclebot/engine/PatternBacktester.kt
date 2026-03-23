@@ -63,7 +63,7 @@ object PatternBacktester {
             )
         }
 
-        val overallWinRate = trades.count { it.isWin }.toDouble() / trades.size * 100
+        val overallWinRate = trades.count { it.isWin == true }.toDouble() / trades.size * 100
 
         // Analyze by EMA fan state
         val emaFanStats = analyzeByField(trades) { it.emaFan }
@@ -143,8 +143,8 @@ object PatternBacktester {
      * Compute comprehensive statistics for a group of trades.
      */
     private fun computeStats(name: String, trades: List<TradeRecord>): PatternStats {
-        val wins = trades.filter { it.isWin }
-        val losses = trades.filter { !it.isWin }
+        val wins = trades.filter { it.isWin == true }
+        val losses = trades.filter { it.isWin == false }
 
         val winRate = if (trades.isNotEmpty()) wins.size.toDouble() / trades.size * 100 else 0.0
         val avgWinPct = if (wins.isNotEmpty()) wins.map { it.pnlPct }.average() else 0.0
@@ -235,8 +235,8 @@ object PatternBacktester {
         }
 
         // Hold time analysis
-        val avgHoldWins = trades.filter { it.isWin }.map { it.heldMins }.average()
-        val avgHoldLosses = trades.filter { !it.isWin }.map { it.heldMins }.average()
+        val avgHoldWins = trades.filter { it.isWin == true }.map { it.heldMins }.average()
+        val avgHoldLosses = trades.filter { it.isWin == false }.map { it.heldMins }.average()
         if (avgHoldWins > 0 && avgHoldLosses > 0) {
             if (avgHoldWins > avgHoldLosses * 1.5) {
                 insights.add("⏱️ Winners held ${avgHoldWins.toInt()}min vs losers ${avgHoldLosses.toInt()}min - let winners run longer!")
@@ -253,8 +253,8 @@ object PatternBacktester {
         // Recent performance (last 20 trades)
         val recentTrades = trades.sortedByDescending { it.tsExit }.take(20)
         if (recentTrades.size >= 10) {
-            val recentWinRate = recentTrades.count { it.isWin }.toDouble() / recentTrades.size * 100
-            val overallWinRate = trades.count { it.isWin }.toDouble() / trades.size * 100
+            val recentWinRate = recentTrades.count { it.isWin == true }.toDouble() / recentTrades.size * 100
+            val overallWinRate = trades.count { it.isWin == true }.toDouble() / trades.size * 100
             if (recentWinRate > overallWinRate + 10) {
                 insights.add("📊 Recent performance improving: ${recentWinRate.toInt()}% vs ${overallWinRate.toInt()}% overall")
             } else if (recentWinRate < overallWinRate - 10) {
