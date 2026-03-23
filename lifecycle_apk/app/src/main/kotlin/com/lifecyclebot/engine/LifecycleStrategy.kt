@@ -276,6 +276,9 @@ class LifecycleStrategy(
         val edgeTiming = EdgeOptimizer.checkEntryTiming(edgePhase, hist, prices, currentBuyPct)
         val edgeFilter = EdgeOptimizer.filterTrade(edgePhase, volScore, currentBuyPct, edgeTiming)
         
+        // PRIORITY 1: Track if Edge says SKIP (will veto BUY later)
+        val edgeVeto = edgeFilter.quality == "SKIP"
+        
         // Apply edge optimization to entry decision (only for new entries)
         if (!ts.position.isOpen) {
             // Phase-based behavior change - ONLY boost, don't penalize heavily
@@ -317,9 +320,10 @@ class LifecycleStrategy(
                 ErrorLogger.info("Edge", "⭐ ${ts.symbol}: OPTIMAL entry timing +15 pts")
             }
             
-            // REMOVED aggressive filter blocking - let catch-all decide
-            // Trade quality filter only LOGS, doesn't block
-            if (!edgeFilter.shouldTrade) {
+            // PRIORITY 1: Log Edge veto clearly
+            if (edgeVeto) {
+                ErrorLogger.info("Edge", "🚫 ${ts.symbol}: VETOED - ${edgeFilter.reason}")
+            } else if (!edgeFilter.shouldTrade) {
                 ErrorLogger.debug("Edge", "📊 ${ts.symbol}: Filter notes - ${edgeFilter.reason}")
             }
             
@@ -437,10 +441,18 @@ class LifecycleStrategy(
         }
         // ═══════════════════════════════════════════════════════════════════
 
-        val signal = decideSignal(
+        var signal = decideSignal(
             ts, hist, prices, phase, mode,
             entryScore, exitScore, exhaust, pm, tokenAgeMins, emafan, volDiv, whale, curve,
             modeConf, volScore, pressScore)
+        
+        // ═══════════════════════════════════════════════════════════════════
+        // PRIORITY 1: EDGE VETO - If Edge said SKIP, suppress BUY signal
+        // ═══════════════════════════════════════════════════════════════════
+        if (signal == "BUY" && edgeVeto && !ts.position.isOpen) {
+            ErrorLogger.info("Strategy", "🚫 ${ts.symbol}: BUY VETOED by Edge (quality=SKIP)")
+            signal = "WAIT"
+        }
         
         // Log signal for debugging
         if (signal == "BUY") {
