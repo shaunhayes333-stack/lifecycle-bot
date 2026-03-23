@@ -118,6 +118,45 @@ object ShadowLearningEngine {
     private var liveTotalPnl = 0.0
     private var liveTrades = 0
     private var liveWins = 0
+    
+    // ══════════════════════════════════════════════════════════════════
+    // FDG-BLOCKED TRADE SHADOW TRACKING (Paper Mode Learning)
+    // Track what would have happened if we traded blocked opportunities
+    // ══════════════════════════════════════════════════════════════════
+    
+    data class BlockedTradeShadow(
+        val mint: String,
+        val symbol: String,
+        val blockReason: String,
+        val blockLevel: String,
+        val entryPrice: Double,
+        val entryTimeMs: Long,
+        val proposedSizeSol: Double,
+        val quality: String,
+        val confidence: Double,
+        val phase: String,
+        // Tracking fields
+        var highestPrice: Double = 0.0,
+        var lowestPrice: Double = 0.0,
+        var currentPrice: Double = 0.0,
+        var peakPnlPct: Double = 0.0,
+        var troughPnlPct: Double = 0.0,
+        var lastUpdateMs: Long = 0,
+        var outcomeClassified: Boolean = false,
+        var wouldHaveBeenWin: Boolean? = null,  // null = not yet determined
+        var hypotheticalPnlPct: Double = 0.0,
+        var exitReason: String = "",
+    )
+    
+    // Store blocked trade shadows for tracking
+    private val blockedTradeShadows = ConcurrentHashMap<String, BlockedTradeShadow>()
+    
+    // Stats for learning
+    @Volatile var blockedTradesTracked = 0
+    @Volatile var blockedWouldHaveWon = 0
+    @Volatile var blockedWouldHaveLost = 0
+    @Volatile var blockedCorrectBlocks = 0  // Blocks that prevented losses
+    @Volatile var blockedMissedWins = 0     // Blocks that prevented wins (overly strict)
 
     // ══════════════════════════════════════════════════════════════════
     // INITIALIZATION
@@ -344,6 +383,226 @@ object ShadowLearningEngine {
         variants.values.forEach { variant ->
             shadowTrades[variant.id]?.filter { it.mint == mint && it.isOpen }?.forEach { trade ->
                 closeShadowTrade(trade, exitPrice, "LIVE_EXIT: $exitReason")
+            }
+        }
+    }
+    
+    // ══════════════════════════════════════════════════════════════════
+    // FDG-BLOCKED TRADE TRACKING (Paper Mode Learning)
+    // ══════════════════════════════════════════════════════════════════
+    
+    /**
+     * Track an FDG-blocked trade opportunity in paper mode.
+     * This enables learning from what WOULD have happened if we traded.
+     * 
+     * Call this when FDG blocks a trade in paper mode to start shadow tracking.
+     */
+    fun onFdgBlockedTrade(
+        mint: String,
+        symbol: String,
+        blockReason: String,
+        blockLevel: String,
+        currentPrice: Double,
+        proposedSizeSol: Double,
+        quality: String,
+        confidence: Double,
+        phase: String,
+    ) {
+        // Remove stale entries (older than 2 hours)
+        val cutoff = System.currentTimeMillis() - 2 * 60 * 60 * 1000
+        blockedTradeShadows.entries.removeIf { it.value.entryTimeMs < cutoff }
+        
+        val shadow = BlockedTradeShadow(
+            mint = mint,
+            symbol = symbol,
+            blockReason = blockReason,
+            blockLevel = blockLevel,
+            entryPrice = currentPrice,
+            entryTimeMs = System.currentTimeMillis(),
+            proposedSizeSol = proposedSizeSol,
+            quality = quality,
+            confidence = confidence,
+            phase = phase,
+            highestPrice = currentPrice,
+            lowestPrice = currentPrice,
+            currentPrice = currentPrice,
+            lastUpdateMs = System.currentTimeMillis(),
+        )
+        
+        blockedTradeShadows[mint] = shadow
+        blockedTradesTracked++
+        
+        ErrorLogger.info("ShadowLearning", "📊 TRACKING BLOCKED: $symbol | $blockReason | " +
+            "price=$currentPrice | quality=$quality | Will track outcome...")
+    }
+    
+    /**
+     * Update price for all tracked blocked trades.
+     * Call this during price polling to track how blocked trades would have performed.
+     */
+    fun updateBlockedTradePrices(mint: String, currentPrice: Double) {
+        val shadow = blockedTradeShadows[mint] ?: return
+        if (shadow.outcomeClassified) return
+        
+        shadow.currentPrice = currentPrice
+        shadow.lastUpdateMs = System.currentTimeMillis()
+        
+        // Track high/low
+        if (currentPrice > shadow.highestPrice) {
+            shadow.highestPrice = currentPrice
+            val peakPnl = ((currentPrice - shadow.entryPrice) / shadow.entryPrice) * 100
+            shadow.peakPnlPct = peakPnl
+        }
+        if (currentPrice < shadow.lowestPrice) {
+            shadow.lowestPrice = currentPrice
+            val troughPnl = ((currentPrice - shadow.entryPrice) / shadow.entryPrice) * 100
+            shadow.troughPnlPct = troughPnl
+        }
+        
+        // Classify outcome after sufficient time (10 minutes)
+        val ageMs = System.currentTimeMillis() - shadow.entryTimeMs
+        if (ageMs > 10 * 60 * 1000 && !shadow.outcomeClassified) {
+            classifyBlockedTradeOutcome(shadow)
+        }
+    }
+    
+    /**
+     * Classify whether the blocked trade would have been a win or loss.
+     * Uses simulated stop loss (-15%) and take profit (+30%) levels.
+     */
+    private fun classifyBlockedTradeOutcome(shadow: BlockedTradeShadow) {
+        val simulatedStopLoss = -15.0  // Would have stopped out at -15%
+        val simulatedTakeProfit = 30.0  // Would have taken profit at +30%
+        
+        shadow.outcomeClassified = true
+        
+        // Determine what would have happened
+        val hitStopFirst = shadow.troughPnlPct <= simulatedStopLoss
+        val hitTpFirst = shadow.peakPnlPct >= simulatedTakeProfit
+        
+        when {
+            hitStopFirst && !hitTpFirst -> {
+                // Would have stopped out - BLOCK WAS CORRECT
+                shadow.wouldHaveBeenWin = false
+                shadow.hypotheticalPnlPct = simulatedStopLoss
+                shadow.exitReason = "WOULD_HIT_STOP"
+                blockedWouldHaveLost++
+                blockedCorrectBlocks++
+                ErrorLogger.info("ShadowLearning", "✅ CORRECT BLOCK: ${shadow.symbol} | " +
+                    "Would have lost ${shadow.troughPnlPct.toInt()}% | Block: ${shadow.blockReason}")
+            }
+            hitTpFirst -> {
+                // Would have hit take profit - BLOCK WAS WRONG (too strict)
+                shadow.wouldHaveBeenWin = true
+                shadow.hypotheticalPnlPct = shadow.peakPnlPct
+                shadow.exitReason = "WOULD_HIT_TP"
+                blockedWouldHaveWon++
+                blockedMissedWins++
+                ErrorLogger.info("ShadowLearning", "⚠️ MISSED WIN: ${shadow.symbol} | " +
+                    "Would have gained ${shadow.peakPnlPct.toInt()}% | Block: ${shadow.blockReason}")
+            }
+            shadow.peakPnlPct > 10.0 -> {
+                // Moderate gain - BLOCK WAS WRONG
+                shadow.wouldHaveBeenWin = true
+                shadow.hypotheticalPnlPct = shadow.peakPnlPct
+                shadow.exitReason = "MODERATE_GAIN"
+                blockedWouldHaveWon++
+                blockedMissedWins++
+                ErrorLogger.info("ShadowLearning", "⚠️ MISSED GAIN: ${shadow.symbol} | " +
+                    "Would have gained ${shadow.peakPnlPct.toInt()}% | Block: ${shadow.blockReason}")
+            }
+            shadow.troughPnlPct < -5.0 -> {
+                // Moderate loss - BLOCK WAS CORRECT
+                shadow.wouldHaveBeenWin = false
+                shadow.hypotheticalPnlPct = shadow.troughPnlPct
+                shadow.exitReason = "MODERATE_LOSS"
+                blockedWouldHaveLost++
+                blockedCorrectBlocks++
+                ErrorLogger.info("ShadowLearning", "✅ AVOIDED LOSS: ${shadow.symbol} | " +
+                    "Would have lost ${shadow.troughPnlPct.toInt()}% | Block: ${shadow.blockReason}")
+            }
+            else -> {
+                // Scratch trade - neutral
+                shadow.wouldHaveBeenWin = null
+                shadow.hypotheticalPnlPct = ((shadow.currentPrice - shadow.entryPrice) / shadow.entryPrice) * 100
+                shadow.exitReason = "SCRATCH"
+                ErrorLogger.info("ShadowLearning", "📊 SCRATCH: ${shadow.symbol} | " +
+                    "Would have been ~${shadow.hypotheticalPnlPct.toInt()}%")
+            }
+        }
+    }
+    
+    /**
+     * Get learning stats for blocked trades.
+     * Returns insights about whether blocks are too strict or appropriate.
+     */
+    fun getBlockedTradeStats(): BlockedTradeStats {
+        val classified = blockedTradeShadows.values.filter { it.outcomeClassified }
+        val wins = classified.count { it.wouldHaveBeenWin == true }
+        val losses = classified.count { it.wouldHaveBeenWin == false }
+        val scratches = classified.count { it.wouldHaveBeenWin == null }
+        
+        val blockAccuracy = if (classified.isNotEmpty()) {
+            losses.toDouble() / classified.size * 100  // % of blocks that prevented losses
+        } else 0.0
+        
+        return BlockedTradeStats(
+            totalTracked = blockedTradesTracked,
+            classified = classified.size,
+            wouldHaveWon = wins,
+            wouldHaveLost = losses,
+            scratches = scratches,
+            blockAccuracy = blockAccuracy,
+            recommendation = when {
+                wins > losses * 2 -> "FDG is TOO STRICT - missing too many wins"
+                losses > wins * 2 -> "FDG is WELL CALIBRATED - blocking losers"
+                else -> "FDG is BALANCED"
+            }
+        )
+    }
+    
+    data class BlockedTradeStats(
+        val totalTracked: Int,
+        val classified: Int,
+        val wouldHaveWon: Int,
+        val wouldHaveLost: Int,
+        val scratches: Int,
+        val blockAccuracy: Double,
+        val recommendation: String,
+    ) {
+        fun summary(): String = "Blocked: $totalTracked tracked | " +
+            "wins=$wouldHaveWon losses=$wouldHaveLost | " +
+            "accuracy=${blockAccuracy.toInt()}% | $recommendation"
+    }
+    
+    /**
+     * Get detailed report of blocked trade shadows for UI.
+     */
+    fun getBlockedTradesReport(): String = buildString {
+        appendLine("═══ FDG BLOCKED TRADE LEARNING ═══")
+        appendLine("Tracked: $blockedTradesTracked | Won: $blockedWouldHaveWon | Lost: $blockedWouldHaveLost")
+        appendLine("Correct blocks: $blockedCorrectBlocks | Missed wins: $blockedMissedWins")
+        appendLine()
+        
+        val stats = getBlockedTradeStats()
+        appendLine("📊 ${stats.recommendation}")
+        appendLine()
+        
+        // Show recent classified shadows
+        val recent = blockedTradeShadows.values
+            .filter { it.outcomeClassified }
+            .sortedByDescending { it.entryTimeMs }
+            .take(10)
+        
+        if (recent.isNotEmpty()) {
+            appendLine("Recent outcomes:")
+            recent.forEach { s ->
+                val icon = when (s.wouldHaveBeenWin) {
+                    true -> "⚠️"
+                    false -> "✅"
+                    null -> "📊"
+                }
+                appendLine("  $icon ${s.symbol}: ${s.blockReason} → ${s.exitReason} (${s.hypotheticalPnlPct.toInt()}%)")
             }
         }
     }

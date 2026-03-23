@@ -1096,6 +1096,14 @@ class BotService : Service() {
                     val ts = status.tokens[mint] ?: return@launch
                     
                     // ═══════════════════════════════════════════════════════════════════
+                    // PAPER MODE LEARNING: Update shadow tracking for blocked trades
+                    // Track what would have happened if we traded FDG-blocked opportunities
+                    // ═══════════════════════════════════════════════════════════════════
+                    if (cfg.paperMode && ts.ref > 0) {
+                        ShadowLearningEngine.updateBlockedTradePrices(mint, ts.ref)
+                    }
+                    
+                    // ═══════════════════════════════════════════════════════════════════
                     // Skip permanently banned tokens immediately (REAL MODE ONLY)
                     // In paper mode, we want to keep trading banned tokens for learning
                     // ═══════════════════════════════════════════════════════════════════
@@ -1357,6 +1365,25 @@ class BotService : Service() {
                             quality = fdgDecision.quality,
                             confidence = fdgDecision.confidence,
                         )
+                        
+                        // ═══════════════════════════════════════════════════════════════════
+                        // PAPER MODE LEARNING: Shadow track blocked trades
+                        // Track what WOULD have happened if we traded this opportunity
+                        // This enables learning whether the FDG is too strict or appropriate
+                        // ═══════════════════════════════════════════════════════════════════
+                        if (cfg.paperMode) {
+                            ShadowLearningEngine.onFdgBlockedTrade(
+                                mint = ts.mint,
+                                symbol = ts.symbol,
+                                blockReason = fdgDecision.blockReason ?: "UNKNOWN",
+                                blockLevel = fdgDecision.blockLevel?.name ?: "UNKNOWN",
+                                currentPrice = ts.ref,
+                                proposedSizeSol = proposedSize,
+                                quality = fdgDecision.quality,
+                                confidence = fdgDecision.confidence,
+                                phase = ts.phase,
+                            )
+                        }
                     }
                 } else if (ts.position.isOpen) {
                     // Position management (exits) - still use existing flow
