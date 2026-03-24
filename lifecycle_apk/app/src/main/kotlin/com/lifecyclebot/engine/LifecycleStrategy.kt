@@ -2411,7 +2411,7 @@ class LifecycleStrategy(
                 }
                 
                 if (paperHeldMins >= maxHoldForGain) {
-                    ErrorLogger.info("Strategy", "🏃 PAPER RUNNER EXIT: ${ts.symbol} +${paperGainPct.toInt()}% after ${paperHeldMins.toInt()}m (max=${maxHoldForGain.toInt()}m, learnedMult=${learnedHoldMultiplier.fmt(2)})")
+                    ErrorLogger.info("Strategy", "🏃 PAPER RUNNER EXIT: ${ts.symbol} +${paperGainPct.toInt()}% after ${paperHeldMins.toInt()}m (max=${maxHoldForGain.toInt()}m, learnedMult=${String.format("%.2f", learnedHoldMultiplier)})")
                     return "EXIT"
                 }
                 
