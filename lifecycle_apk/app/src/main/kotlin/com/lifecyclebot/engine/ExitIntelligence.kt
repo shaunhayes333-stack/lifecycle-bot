@@ -68,7 +68,7 @@ object ExitIntelligence {
         var qualityStopAdjust: Double = 2.0,        // Better quality = tighter stop allowed
         
         // Take profit parameters
-        var baseTakeProfit: Double = 15.0,         // Base take profit %
+        var baseTakeProfit: Double = 20.0,         // Base take profit % (increased for bigger wins)
         var greedFactor: Double = 1.0,             // Learned greed (>1 = let winners run)
         
         // Trailing stop parameters

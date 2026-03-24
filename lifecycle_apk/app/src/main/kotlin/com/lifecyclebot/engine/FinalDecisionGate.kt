@@ -142,7 +142,7 @@ object FinalDecisionGate {
     // ═══════════════════════════════════════════════════════════════════════════
     
     private val distributionCooldowns = java.util.concurrent.ConcurrentHashMap<String, Long>()
-    private const val DISTRIBUTION_COOLDOWN_MS = 4 * 60 * 1000L  // 4 minutes - fast paper learning
+    private const val DISTRIBUTION_COOLDOWN_MS = 2 * 60 * 1000L  // 2 minutes - aggressive paper learning
     
     /**
      * Record that a token was closed due to distribution.
@@ -193,7 +193,7 @@ object FinalDecisionGate {
     )
     
     private val edgeVetoes = java.util.concurrent.ConcurrentHashMap<String, EdgeVeto>()
-    private const val EDGE_VETO_COOLDOWN_MS = 3 * 60 * 1000L  // 3 minutes - reduced for faster paper learning
+    private const val EDGE_VETO_COOLDOWN_MS = 90 * 1000L  // 90 seconds - very fast for aggressive paper learning
     
     /**
      * Record an Edge veto for a token.
@@ -456,8 +456,8 @@ object FinalDecisionGate {
         // ═══════════════════════════════════════════════════════════════════════
         
         if (blockReason == null && config.paperMode) {
-            val minBuyPressurePaper = 42.0  // LOWERED: 42% to allow more learning trades
-            val minLiquidityPaper = 2000.0  // $2000 minimum
+            val minBuyPressurePaper = 40.0  // LOWERED: 40% - aggressive learning
+            val minLiquidityPaper = 1500.0  // $1500 minimum - more trades
             
             val hasBuyerInterest = ts.meta.pressScore >= minBuyPressurePaper
             val hasLiquidity = ts.lastLiquidityUsd >= minLiquidityPaper
@@ -540,24 +540,27 @@ object FinalDecisionGate {
         
         if (blockReason == null && edgeVerdict == EdgeVerdict.SKIP) {
             if (config.paperMode) {
-                // PAPER MODE: Override edge veto with decent market confirmation
-                // Changed to OR logic - either strong buyers OR good liquidity is enough
-                val minBuyPressureOverride = 48.0  // LOWERED from 50%
-                val minLiquidityOverride = 2500.0  // LOWERED from 3000
+                // PAPER MODE: Very lenient edge override for maximum learning
+                // Allow trades with either decent buyers OR any liquidity above minimum
+                val minBuyPressureOverride = 45.0  // LOWERED from 48% - just above distribution
+                val minLiquidityOverride = 2000.0  // LOWERED from 2500
                 
                 val hasStrongBuyers = ts.meta.pressScore >= minBuyPressureOverride
                 val hasGoodLiquidity = ts.lastLiquidityUsd >= minLiquidityOverride
                 
-                if (hasStrongBuyers || hasGoodLiquidity) {
+                // Also allow if setup quality is B+ regardless of edge
+                val hasGoodQuality = candidate.setupQuality in listOf("A+", "A", "B")
+                
+                if (hasStrongBuyers || hasGoodLiquidity || hasGoodQuality) {
                     // Market confirmation - override edge veto for learning
                     checks.add(GateCheck("edge", true, 
-                        "PAPER: edge override (buy%=${ts.meta.pressScore.toInt()}>=$minBuyPressureOverride OR liq=$${ts.lastLiquidityUsd.toInt()}>=$minLiquidityOverride)"))
+                        "PAPER: edge override (buy%=${ts.meta.pressScore.toInt()}>=$minBuyPressureOverride OR liq=$${ts.lastLiquidityUsd.toInt()}>=$minLiquidityOverride OR quality=${candidate.setupQuality})"))
                     tags.add("edge_override_confirmed")
                 } else {
                     // No confirmation - respect edge veto
                     blockReason = "EDGE_VETO_NO_CONFIRMATION"
                     blockLevel = BlockLevel.EDGE
-                    checks.add(GateCheck("edge", false, "edge=${candidate.edgeQuality} no confirm: buy%=${ts.meta.pressScore.toInt()}<$minBuyPressureOverride AND liq<$minLiquidityOverride"))
+                    checks.add(GateCheck("edge", false, "edge=${candidate.edgeQuality} no confirm: buy%=${ts.meta.pressScore.toInt()}<$minBuyPressureOverride AND liq<$minLiquidityOverride AND quality=${candidate.setupQuality}"))
                     tags.add("edge_skip_unconfirmed")
                 }
             } else {
