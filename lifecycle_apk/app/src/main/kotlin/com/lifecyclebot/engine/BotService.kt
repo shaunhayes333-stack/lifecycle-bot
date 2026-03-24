@@ -886,6 +886,9 @@ class BotService : Service() {
             val watchlist = cfg.watchlist.toMutableList()
             if (cfg.activeToken.isNotBlank() && cfg.activeToken !in watchlist)
                 watchlist.add(cfg.activeToken)
+            
+            // Update FinalDecisionGate mode for veto cooldown timing
+            FinalDecisionGate.setModeForVeto(cfg.paperMode)
 
             // Log watchlist status every 5 loops for better visibility
             if (loopCount % 5 == 1) {

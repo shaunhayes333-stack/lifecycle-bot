@@ -120,7 +120,7 @@ object EdgeOptimizer {
                 MarketPhase.EARLY_ACCUMULATION to (priceTrend + buyPressure - 50).coerceIn(20.0, 70.0)
             }
             
-            else -> MarketPhase.UNKNOWN to 30.0
+            else -> MarketPhase.UNKNOWN to 25.0  // LOWERED from 30% - allow more trades in unknown phase
         }
         
         // Determine entry quality based on phase
@@ -518,8 +518,11 @@ object EdgeOptimizer {
             )
         }
         
-        // Entry timing — PAPER: advisory only, LIVE: required
-        if (requireOptimalTiming && !entryTiming.shouldEnter) {
+        // Entry timing — PAPER: advisory only, LIVE: conditionally required
+        // CHANGED: Allow UNKNOWN phase in live mode if buy pressure is strong
+        val allowUnknownWithBuyPressure = phase.phase == MarketPhase.UNKNOWN && buyPct >= 55.0
+        
+        if (requireOptimalTiming && !entryTiming.shouldEnter && !allowUnknownWithBuyPressure) {
             return FilterResult(
                 shouldTrade = false,
                 reason = entryTiming.reason,
@@ -534,6 +537,8 @@ object EdgeOptimizer {
             entryTiming.isOptimalEntry -> "B"
             phase.phase == MarketPhase.EXPANSION -> "B"
             phase.phase == MarketPhase.EARLY_ACCUMULATION && buyPct > 50 -> "B"
+            // NEW: UNKNOWN phase with strong buyers gets C (not SKIP)
+            phase.phase == MarketPhase.UNKNOWN && buyPct >= 55 -> "C"
             isPaperMode && buyPct >= 45 -> "C"  // Paper: allow C quality for learning
             else -> "C"
         }

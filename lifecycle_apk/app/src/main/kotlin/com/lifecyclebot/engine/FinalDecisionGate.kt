@@ -375,7 +375,19 @@ object FinalDecisionGate {
     )
     
     private val edgeVetoes = java.util.concurrent.ConcurrentHashMap<String, EdgeVeto>()
-    private const val EDGE_VETO_COOLDOWN_MS = 90 * 1000L  // 90 seconds - very fast for aggressive paper learning
+    
+    // Edge veto cooldown - MODE AWARE
+    // Paper mode: 90 seconds (fast learning)
+    // Live mode: 60 seconds (reduced from 90s to allow more opportunities)
+    private const val EDGE_VETO_COOLDOWN_PAPER_MS = 90 * 1000L  // 90 seconds for paper
+    private const val EDGE_VETO_COOLDOWN_LIVE_MS = 60 * 1000L   // 60 seconds for live (REDUCED)
+    
+    // Track current mode for veto cooldown
+    @Volatile private var _isPaperModeForVeto = true
+    fun setModeForVeto(isPaper: Boolean) { _isPaperModeForVeto = isPaper }
+    
+    private fun getVetoCooldownMs(): Long = 
+        if (_isPaperModeForVeto) EDGE_VETO_COOLDOWN_PAPER_MS else EDGE_VETO_COOLDOWN_LIVE_MS
     
     /**
      * Record an Edge veto for a token.
@@ -398,7 +410,7 @@ object FinalDecisionGate {
     fun hasActiveEdgeVeto(mint: String): EdgeVeto? {
         val veto = edgeVetoes[mint] ?: return null
         val elapsed = System.currentTimeMillis() - veto.timestamp
-        return if (elapsed < EDGE_VETO_COOLDOWN_MS) veto else null
+        return if (elapsed < getVetoCooldownMs()) veto else null
     }
     
     /**
@@ -407,7 +419,7 @@ object FinalDecisionGate {
     fun getVetoRemainingSeconds(mint: String): Int {
         val veto = edgeVetoes[mint] ?: return 0
         val elapsed = System.currentTimeMillis() - veto.timestamp
-        val remaining = EDGE_VETO_COOLDOWN_MS - elapsed
+        val remaining = getVetoCooldownMs() - elapsed
         return if (remaining > 0) (remaining / 1000).toInt() else 0
     }
     
@@ -746,11 +758,43 @@ object FinalDecisionGate {
                     tags.add("edge_skip_unconfirmed")
                 }
             } else {
-                // LIVE MODE: Enforce edge veto strictly
-                blockReason = "EDGE_VETO_${candidate.edgeQuality}"
-                blockLevel = BlockLevel.EDGE
-                checks.add(GateCheck("edge", false, "edge=${candidate.edgeQuality} quality=${candidate.setupQuality}"))
-                tags.add("edge_skip")
+                // ═══════════════════════════════════════════════════════════════════
+                // LIVE MODE: Edge veto with MARKET CONFIRMATION OVERRIDE
+                // 
+                // Edge can be WRONG. If the market shows strong interest, we allow
+                // the trade even if Edge says SKIP. This prevents missing good setups
+                // just because the phase is "unknown".
+                // 
+                // Override conditions (must meet ALL):
+                //   - Buy pressure >= 55% (strong buyer interest)
+                //   - Liquidity >= $5000 (real money in the pool)
+                //   - Entry score >= 30 (not total garbage)
+                // ═══════════════════════════════════════════════════════════════════
+                val liveMinBuyPressure = 55.0   // Stricter than paper (55% vs 45%)
+                val liveMinLiquidity = 5000.0   // Higher than paper ($5k vs $2k)
+                val liveMinEntryScore = 30.0    // Minimum quality bar
+                
+                val hasStrongBuyers = ts.meta.pressScore >= liveMinBuyPressure
+                val hasGoodLiquidity = ts.lastLiquidityUsd >= liveMinLiquidity
+                val hasDecentScore = candidate.entryScore >= liveMinEntryScore
+                
+                if (hasStrongBuyers && hasGoodLiquidity && hasDecentScore) {
+                    // Market confirmation in LIVE mode - override Edge veto
+                    checks.add(GateCheck("edge", true, 
+                        "LIVE: edge override (buy%=${ts.meta.pressScore.toInt()}>=$liveMinBuyPressure AND liq=$${ts.lastLiquidityUsd.toInt()}>=$liveMinLiquidity AND score=${candidate.entryScore.toInt()}>=$liveMinEntryScore)"))
+                    tags.add("live_edge_override")
+                } else {
+                    // No market confirmation - respect Edge veto
+                    val missingReasons = mutableListOf<String>()
+                    if (!hasStrongBuyers) missingReasons.add("buy%=${ts.meta.pressScore.toInt()}<$liveMinBuyPressure")
+                    if (!hasGoodLiquidity) missingReasons.add("liq=$${ts.lastLiquidityUsd.toInt()}<$liveMinLiquidity")
+                    if (!hasDecentScore) missingReasons.add("score=${candidate.entryScore.toInt()}<$liveMinEntryScore")
+                    
+                    blockReason = "EDGE_VETO_${candidate.edgeQuality}"
+                    blockLevel = BlockLevel.EDGE
+                    checks.add(GateCheck("edge", false, "edge=${candidate.edgeQuality} | no override: ${missingReasons.joinToString(", ")}"))
+                    tags.add("edge_skip")
+                }
             }
         } else if (blockReason == null) {
             checks.add(GateCheck("edge", true, null))
