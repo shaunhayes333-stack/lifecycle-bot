@@ -75,6 +75,7 @@ class Executor(
     private val cfg: () -> com.lifecyclebot.data.BotConfig,
     private val onLog: (String, String) -> Unit,
     private val onNotify: (String, String, com.lifecyclebot.engine.NotificationHistory.NotifEntry.NotifType) -> Unit,
+    private val onToast: (String) -> Unit = {},  // Toast callback for immediate visual feedback
     val security: SecurityGuard,
     private val sounds: SoundManager? = null,
 ) {
@@ -1925,12 +1926,18 @@ class Executor(
             onLog("LIVE BUY  @ ${price.fmt()} | ${sol.fmt(4)} SOL | " +
                   "impact=${quote.priceImpactPct.fmt(2)}% | sig=${sig.take(16)}…", tradeId.mint)
             onNotify("✅ Live Buy", "${tradeId.symbol}  ${sol.fmt(3)} SOL", com.lifecyclebot.engine.NotificationHistory.NotifEntry.NotifType.INFO)
+            
+            // 🔔 TOAST: Immediate visual feedback for live buy
+            onToast("✅ LIVE BUY: ${tradeId.symbol}\n${sol.fmt(4)} SOL @ ${price.fmt()}")
 
         } catch (e: Exception) {
             val safe = security.sanitiseForLog(e.message ?: "unknown")
             ErrorLogger.error("Trade", "Live buy FAILED for ${tradeId.symbol}: $safe", e)
             onLog("Live buy FAILED: $safe", tradeId.mint)
             onNotify("⚠️ Buy Failed", "${tradeId.symbol}: ${safe.take(80)}", com.lifecyclebot.engine.NotificationHistory.NotifEntry.NotifType.INFO)
+            
+            // 🔔 TOAST: Immediate visual feedback for failed buy
+            onToast("❌ BUY FAILED: ${tradeId.symbol}\n${safe.take(50)}")
         }
     }
 
@@ -2431,6 +2438,10 @@ class Executor(
             onNotify("✅ Live Sell",
                 "${ts.symbol}  $reason  PnL ${pnlP.fmtPct()}",
                 com.lifecyclebot.engine.NotificationHistory.NotifEntry.NotifType.INFO)
+            
+            // 🔔 TOAST: Immediate visual feedback for live sell
+            val emoji = if (pnlP >= 0) "✅" else "📉"
+            onToast("$emoji LIVE SELL: ${ts.symbol}\nPnL: ${pnlP.fmtPct()} (${pnl.fmt(4)} SOL)")
 
         } catch (e: Exception) {
             val safe = security.sanitiseForLog(e.message ?: "unknown")
@@ -2438,6 +2449,9 @@ class Executor(
             onNotify("⚠️ Sell Failed",
                 "${ts.symbol}: ${safe.take(80)}",
                 com.lifecyclebot.engine.NotificationHistory.NotifEntry.NotifType.INFO)
+            
+            // 🔔 TOAST: Immediate visual feedback for failed sell
+            onToast("❌ SELL FAILED: ${ts.symbol}\n${safe.take(50)}")
             return  // don't clear position — retry next tick
         }
 

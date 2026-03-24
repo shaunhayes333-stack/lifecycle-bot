@@ -131,6 +131,7 @@ class BotService : Service() {
             cfg       = { ConfigStore.load(applicationContext) },
             onLog     = ::addLog,
             onNotify  = { title, body, type -> sendTradeNotif(title, body, type) },
+            onToast   = { msg -> showToast(msg) },
             security  = securityGuard,
             sounds    = soundManager,
         )
@@ -2094,6 +2095,20 @@ class BotService : Service() {
             soundManager.playCashRegister()
         } else {
             soundManager.playWarningSiren()
+        }
+    }
+    
+    /**
+     * Show a Toast message on the UI thread.
+     * Used for immediate visual feedback on trade actions.
+     */
+    private fun showToast(message: String) {
+        android.os.Handler(android.os.Looper.getMainLooper()).post {
+            android.widget.Toast.makeText(
+                applicationContext,
+                message,
+                android.widget.Toast.LENGTH_LONG
+            ).show()
         }
     }
 
