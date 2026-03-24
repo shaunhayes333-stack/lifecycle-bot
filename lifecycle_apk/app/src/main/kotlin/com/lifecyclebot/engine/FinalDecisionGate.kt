@@ -135,6 +135,46 @@ object FinalDecisionGate {
     var allowEdgeOverrideInPaper = false   // NO MORE EDGE OVERRIDE - causes garbage data
     
     // ═══════════════════════════════════════════════════════════════════════════
+    // DISTRIBUTION COOLDOWN TRACKER
+    // 
+    // When a token exits due to distribution, block it from being bought again
+    // for a cooldown period. This prevents the buy→dump→buy→dump loop.
+    // ═══════════════════════════════════════════════════════════════════════════
+    
+    private val distributionCooldowns = java.util.concurrent.ConcurrentHashMap<String, Long>()
+    private const val DISTRIBUTION_COOLDOWN_MS = 30 * 60 * 1000L  // 30 minutes
+    
+    /**
+     * Record that a token was closed due to distribution.
+     * Call this from Executor when a trade exits with distribution reason.
+     */
+    fun recordDistributionExit(mint: String) {
+        distributionCooldowns[mint] = System.currentTimeMillis()
+        // Clean up old entries (older than 2 hours)
+        val twoHoursAgo = System.currentTimeMillis() - (2 * 60 * 60 * 1000L)
+        distributionCooldowns.entries.removeIf { it.value < twoHoursAgo }
+    }
+    
+    /**
+     * Check if a token is in distribution cooldown.
+     */
+    fun isInDistributionCooldown(mint: String): Boolean {
+        val exitTime = distributionCooldowns[mint] ?: return false
+        val elapsed = System.currentTimeMillis() - exitTime
+        return elapsed < DISTRIBUTION_COOLDOWN_MS
+    }
+    
+    /**
+     * Get remaining cooldown time in minutes.
+     */
+    fun getRemainingCooldownMinutes(mint: String): Int {
+        val exitTime = distributionCooldowns[mint] ?: return 0
+        val elapsed = System.currentTimeMillis() - exitTime
+        val remaining = DISTRIBUTION_COOLDOWN_MS - elapsed
+        return if (remaining > 0) (remaining / 60000).toInt() else 0
+    }
+    
+    // ═══════════════════════════════════════════════════════════════════════════
     // MAIN GATE FUNCTION
     // ═══════════════════════════════════════════════════════════════════════════
     
@@ -260,43 +300,56 @@ object FinalDecisionGate {
         // actively DUMPING. The outcome is predictable: you will lose.
         // 
         // We check MULTIPLE signals:
-        //   1. EdgeOptimizer phase detection (edgePhase == "DISTRIBUTION")
-        //   2. TokenState phase tag (ts.phase contains "distribution")
-        //   3. DistributionDetector direct check (confidence >= 50%)
+        //   1. Distribution COOLDOWN (token recently exited due to distribution)
+        //   2. EdgeOptimizer phase detection (edgePhase == "DISTRIBUTION")
+        //   3. TokenState phase tag (ts.phase contains "distribution")
+        //   4. DistributionDetector direct check (confidence >= 50%)
         // 
         // Even paper mode should NOT take these trades.
         // ═══════════════════════════════════════════════════════════════════════
         
         if (blockReason == null) {
-            val isDistributionPhase = candidate.edgePhase.uppercase() == "DISTRIBUTION"
-            val hasDistributionTag = ts.phase.lowercase().contains("distribution")
+            // First check: Is this token in distribution cooldown?
+            val inCooldown = isInDistributionCooldown(ts.mint)
+            val cooldownMinutes = if (inCooldown) getRemainingCooldownMinutes(ts.mint) else 0
             
-            // Also run DistributionDetector directly for more accurate detection
-            val distSignal = if (ts.history.size >= 5) {
-                DistributionDetector.detect(
-                    mint = ts.mint,
-                    ts = ts,
-                    currentExitScore = candidate.exitScore,
-                    history = ts.history
-                )
-            } else null
-            
-            val isDistributorConfident = distSignal?.isDistributing == true && distSignal.confidence >= 50
-            
-            if (isDistributionPhase || hasDistributionTag || isDistributorConfident) {
-                val reason = when {
-                    isDistributionPhase -> "edgePhase=DISTRIBUTION"
-                    hasDistributionTag -> "tsPhase=${ts.phase}"
-                    isDistributorConfident -> "detector=${distSignal?.confidence}% (${distSignal?.details})"
-                    else -> "unknown"
-                }
-                blockReason = "HARD_BLOCK_DISTRIBUTION"
+            if (inCooldown) {
+                blockReason = "DISTRIBUTION_COOLDOWN_${cooldownMinutes}min"
                 blockLevel = BlockLevel.HARD
-                checks.add(GateCheck("distribution", false, reason))
-                tags.add("distribution_block")
+                checks.add(GateCheck("distribution", false, "Recently exited distribution, cooldown=${cooldownMinutes}min remaining"))
+                tags.add("distribution_cooldown")
             } else {
-                val detectorInfo = if (distSignal != null) " detector=${distSignal.confidence}%" else ""
-                checks.add(GateCheck("distribution", true, "edgePhase=${candidate.edgePhase}$detectorInfo"))
+                // Check other distribution signals
+                val isDistributionPhase = candidate.edgePhase.uppercase() == "DISTRIBUTION"
+                val hasDistributionTag = ts.phase.lowercase().contains("distribution")
+                
+                // Also run DistributionDetector directly for more accurate detection
+                val distSignal = if (ts.history.size >= 5) {
+                    DistributionDetector.detect(
+                        mint = ts.mint,
+                        ts = ts,
+                        currentExitScore = candidate.exitScore,
+                        history = ts.history
+                    )
+                } else null
+                
+                val isDistributorConfident = distSignal?.isDistributing == true && distSignal.confidence >= 50
+                
+                if (isDistributionPhase || hasDistributionTag || isDistributorConfident) {
+                    val reason = when {
+                        isDistributionPhase -> "edgePhase=DISTRIBUTION"
+                        hasDistributionTag -> "tsPhase=${ts.phase}"
+                        isDistributorConfident -> "detector=${distSignal?.confidence}% (${distSignal?.details})"
+                        else -> "unknown"
+                    }
+                    blockReason = "HARD_BLOCK_DISTRIBUTION"
+                    blockLevel = BlockLevel.HARD
+                    checks.add(GateCheck("distribution", false, reason))
+                    tags.add("distribution_block")
+                } else {
+                    val detectorInfo = if (distSignal != null) " detector=${distSignal.confidence}%" else ""
+                    checks.add(GateCheck("distribution", true, "edgePhase=${candidate.edgePhase}$detectorInfo"))
+                }
             }
         }
         

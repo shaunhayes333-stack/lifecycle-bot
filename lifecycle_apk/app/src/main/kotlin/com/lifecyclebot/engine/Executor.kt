@@ -1936,6 +1936,15 @@ class Executor(
         TradeLifecycle.closed(tradeId.mint, price, pnlP, reason)
         TradeLifecycle.classified(tradeId.mint, classification, if (isScratchTrade) null else shouldLearnAsWin)
         
+        // ═══════════════════════════════════════════════════════════════════
+        // DISTRIBUTION COOLDOWN: Record if exited due to distribution
+        // This prevents the buy→dump→buy→dump loop
+        // ═══════════════════════════════════════════════════════════════════
+        if (reason.lowercase().contains("distribution")) {
+            FinalDecisionGate.recordDistributionExit(tradeId.mint)
+            onLog("🚫 Distribution cooldown: ${ts.symbol} blocked for 30min", tradeId.mint)
+        }
+        
         ts.position         = Position()
         ts.lastExitTs       = System.currentTimeMillis()
         ts.lastExitPrice    = price
@@ -2250,6 +2259,15 @@ class Executor(
         // ═══════════════════════════════════════════════════════════════════
         TradeLifecycle.closed(tradeId.mint, exitPrice, pnlP, reason)
         TradeLifecycle.classified(tradeId.mint, classificationLive, if (isScratchTradeLive) null else shouldLearnAsWin)
+        
+        // ═══════════════════════════════════════════════════════════════════
+        // DISTRIBUTION COOLDOWN: Record if exited due to distribution
+        // This prevents the buy→dump→buy→dump loop
+        // ═══════════════════════════════════════════════════════════════════
+        if (reason.lowercase().contains("distribution")) {
+            FinalDecisionGate.recordDistributionExit(tradeId.mint)
+            onLog("🚫 Distribution cooldown: ${ts.symbol} blocked for 30min", tradeId.mint)
+        }
         
         ts.position         = Position()
         ts.lastExitTs       = System.currentTimeMillis()
