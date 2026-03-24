@@ -2390,19 +2390,28 @@ class LifecycleStrategy(
                 //   100000%+  → max 72 hours (1000x+ GENERATIONAL WEALTH)
                 //   1000000%+ → NO TIME LIMIT (10,000x+ LIFE CHANGING - ride til death)
                 // 
+                // LEARNING LAYER: ExitIntelligence learned optimal hold times influence this.
+                // If AI learned longer holds are more profitable, extend the limits.
+                // 
+                val learnedHoldMultiplier = if (ExitIntelligence.getTotalExits() >= 20) {
+                    // If learned optimal hold > 10 mins, scale up time limits
+                    val learnedOptimal = ExitIntelligence.getLearnedOptimalHoldMinutes()
+                    (learnedOptimal.toDouble() / 10.0).coerceIn(0.8, 2.5)
+                } else 1.0  // Not enough data
+                
                 val maxHoldForGain = when {
                     paperGainPct >= 1000000.0 -> Double.MAX_VALUE  // 10,000x+ → NO LIMIT
-                    paperGainPct >= 100000.0  -> 72.0 * 60.0       // 1,000x+ → 72 hours
-                    paperGainPct >= 10000.0   -> 48.0 * 60.0       // 100x+ → 48 hours
-                    paperGainPct >= 2000.0    -> 24.0 * 60.0       // 20x+ → 24 hours
-                    paperGainPct >= 500.0     -> 12.0 * 60.0       // 5x+ → 12 hours
-                    paperGainPct >= 100.0     -> 6.0 * 60.0        // 2x+ → 6 hours
-                    paperGainPct >= 50.0      -> 2.0 * 60.0        // 50%+ → 2 hours
-                    else                      -> 45.0              // Small gains → 45 mins
+                    paperGainPct >= 100000.0  -> 72.0 * 60.0 * learnedHoldMultiplier  // 1,000x+
+                    paperGainPct >= 10000.0   -> 48.0 * 60.0 * learnedHoldMultiplier  // 100x+
+                    paperGainPct >= 2000.0    -> 24.0 * 60.0 * learnedHoldMultiplier  // 20x+
+                    paperGainPct >= 500.0     -> 12.0 * 60.0 * learnedHoldMultiplier  // 5x+
+                    paperGainPct >= 100.0     -> 6.0 * 60.0 * learnedHoldMultiplier   // 2x+
+                    paperGainPct >= 50.0      -> 2.0 * 60.0 * learnedHoldMultiplier   // 50%+
+                    else                      -> 45.0 * learnedHoldMultiplier         // Small gains
                 }
                 
                 if (paperHeldMins >= maxHoldForGain) {
-                    ErrorLogger.info("Strategy", "🏃 PAPER RUNNER EXIT: ${ts.symbol} +${paperGainPct.toInt()}% after ${paperHeldMins.toInt()}m - hit max hold for this gain level")
+                    ErrorLogger.info("Strategy", "🏃 PAPER RUNNER EXIT: ${ts.symbol} +${paperGainPct.toInt()}% after ${paperHeldMins.toInt()}m (max=${maxHoldForGain.toInt()}m, learnedMult=${learnedHoldMultiplier.fmt(2)})")
                     return "EXIT"
                 }
                 

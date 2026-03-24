@@ -152,6 +152,10 @@ object FinalDecisionGate {
         val timeSinceLastLossMs: Long = Long.MAX_VALUE,
         val sessionPnlPct: Double = 0.0,      // Session P&L percentage
         val totalSessionTrades: Int = 0,
+        // LEARNING LAYER DATA
+        val entryAiWinRate: Double = 50.0,    // EntryIntelligence learned win rate
+        val exitAiAvgPnl: Double = 0.0,       // ExitIntelligence average P&L
+        val edgeLearningAccuracy: Double = 50.0, // EdgeLearning veto accuracy
     )
     
     // Current market conditions (updated by BotService)
@@ -167,6 +171,9 @@ object FinalDecisionGate {
         timeSinceLastLossMs: Long? = null,
         sessionPnlPct: Double? = null,
         totalSessionTrades: Int? = null,
+        entryAiWinRate: Double? = null,
+        exitAiAvgPnl: Double? = null,
+        edgeLearningAccuracy: Double? = null,
     ) {
         currentConditions = currentConditions.copy(
             avgVolatility = avgVolatility ?: currentConditions.avgVolatility,
@@ -175,6 +182,9 @@ object FinalDecisionGate {
             timeSinceLastLossMs = timeSinceLastLossMs ?: currentConditions.timeSinceLastLossMs,
             sessionPnlPct = sessionPnlPct ?: currentConditions.sessionPnlPct,
             totalSessionTrades = totalSessionTrades ?: currentConditions.totalSessionTrades,
+            entryAiWinRate = entryAiWinRate ?: currentConditions.entryAiWinRate,
+            exitAiAvgPnl = exitAiAvgPnl ?: currentConditions.exitAiAvgPnl,
+            edgeLearningAccuracy = edgeLearningAccuracy ?: currentConditions.edgeLearningAccuracy,
         )
     }
     
@@ -304,6 +314,46 @@ object FinalDecisionGate {
             }
         } catch (_: Exception) { 0.0 }
         adjustment += treasuryAdj
+        
+        // ─────────────────────────────────────────────────────────────────
+        // FACTOR 8: LEARNING LAYER INFLUENCE
+        // 
+        // The AI learning systems (Entry/Exit/Edge) provide feedback:
+        // - High EntryAI win rate = entries are good = can be more aggressive
+        // - High ExitAI avg P&L = exits are optimized = more confident in holds
+        // - High Edge accuracy = vetoes are correct = trust the system more
+        // ─────────────────────────────────────────────────────────────────
+        val learningAdj = if (currentConditions.totalSessionTrades >= 10) {
+            var adj = 0.0
+            
+            // EntryAI learned win rate influence
+            when {
+                currentConditions.entryAiWinRate >= 60.0 -> adj -= 5.0  // Great entries → more aggressive
+                currentConditions.entryAiWinRate >= 50.0 -> adj -= 2.0  // Good entries
+                currentConditions.entryAiWinRate >= 40.0 -> adj += 0.0  // Average
+                currentConditions.entryAiWinRate >= 30.0 -> adj += 3.0  // Below average
+                else -> adj += 6.0                                       // Poor entries → be cautious
+            }
+            
+            // ExitAI average P&L influence
+            when {
+                currentConditions.exitAiAvgPnl >= 20.0 -> adj -= 4.0   // Exits capturing 20%+ avg → aggressive
+                currentConditions.exitAiAvgPnl >= 10.0 -> adj -= 2.0   // Good exits
+                currentConditions.exitAiAvgPnl >= 0.0  -> adj += 0.0   // Breakeven+
+                else -> adj += 4.0                                      // Negative avg → cautious
+            }
+            
+            // Edge learning accuracy influence
+            when {
+                currentConditions.edgeLearningAccuracy >= 70.0 -> adj -= 3.0  // Edge vetoes are very accurate
+                currentConditions.edgeLearningAccuracy >= 55.0 -> adj -= 1.0  // Good accuracy
+                currentConditions.edgeLearningAccuracy >= 45.0 -> adj += 0.0  // Neutral
+                else -> adj += 3.0                                             // Edge needs more learning
+            }
+            
+            adj
+        } else 0.0  // Not enough trades for learning influence
+        adjustment += learningAdj
         
         // ─────────────────────────────────────────────────────────────────
         // CALCULATE FINAL ADAPTIVE CONFIDENCE

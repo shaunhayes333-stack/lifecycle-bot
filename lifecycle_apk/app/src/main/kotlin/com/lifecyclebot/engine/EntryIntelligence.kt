@@ -434,4 +434,18 @@ object EntryIntelligence {
         val winRate = if (weights.totalTrades > 0) (weights.winningTrades.toDouble() / weights.totalTrades * 100).toInt() else 0
         return "EntryAI: ${weights.totalTrades} trades, ${winRate}% win, buy%=${weights.optimalBuyPressureMin.toInt()}-${weights.optimalBuyPressureMax.toInt()}"
     }
+    
+    /**
+     * Get learned win rate for adaptive confidence integration.
+     */
+    fun getWinRate(): Double {
+        return if (weights.totalTrades > 0) {
+            weights.winningTrades.toDouble() / weights.totalTrades * 100.0
+        } else 50.0  // Default to 50% if no data
+    }
+    
+    /**
+     * Get total trades for learning maturity check.
+     */
+    fun getTotalTrades(): Int = weights.totalTrades
 }

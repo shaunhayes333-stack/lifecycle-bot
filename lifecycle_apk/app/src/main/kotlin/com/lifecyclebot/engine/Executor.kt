@@ -458,6 +458,19 @@ class Executor(
         healthMultiplier = healthMultiplier.coerceIn(0.5, 1.6)
         
         // ═══════════════════════════════════════════════════════════════════
+        // LEARNING LAYER INFLUENCE ON TRAILING STOP
+        // 
+        // ExitIntelligence learns optimal trailing stop distance.
+        // If we have enough exits (20+), blend learned value with base.
+        // ═══════════════════════════════════════════════════════════════════
+        val learnedTrailInfluence = if (ExitIntelligence.getTotalExits() >= 20) {
+            val learnedStop = ExitIntelligence.getLearnedTrailingStopDistance()
+            // If learned stop is larger than base, use it (AI learned to hold longer)
+            // Scale: learned 5% default, if AI learned 8% → multiplier = 1.6
+            (learnedStop / 5.0).coerceIn(0.8, 2.0)
+        } else 1.0  // Not enough data, use default
+        
+        // ═══════════════════════════════════════════════════════════════════
         // Base trail calculation with health adjustment
         // 
         // MOONSHOT SCALING: Real runners do 10,000,000%+ (SHIB, PEPE, etc.)
@@ -505,15 +518,17 @@ class Executor(
         }
         
         // Apply health multiplier - healthy trend = looser trail
-        val smartTrail = baseTrail * healthMultiplier * partialFactor
+        // Also apply learning influence from ExitIntelligence
+        val smartTrail = baseTrail * healthMultiplier * partialFactor * learnedTrailInfluence
         
         // Log significant adjustments for runners (>100% gain)
-        if (gainPct >= 100.0 && healthMultiplier != 1.0) {
+        if (gainPct >= 100.0 && (healthMultiplier != 1.0 || learnedTrailInfluence != 1.0)) {
             val direction = if (healthMultiplier > 1.0) "LOOSE" else "TIGHT"
             ErrorLogger.debug("SmartTrail", "🎯 Runner ${gainPct.toInt()}%: " +
                 "health=${healthMultiplier.fmt(2)} ($direction) | " +
                 "fan=$emaFanAlignment wide=$emaFanWidening | " +
                 "vol=${volScore.toInt()} press=${pressScore.toInt()} | " +
+                "learnedMult=${learnedTrailInfluence.fmt(2)} | " +
                 "trail=${smartTrail.fmt(2)}%")
         }
         

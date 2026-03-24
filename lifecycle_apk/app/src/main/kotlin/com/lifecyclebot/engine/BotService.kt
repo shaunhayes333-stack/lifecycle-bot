@@ -983,6 +983,10 @@ class BotService : Service() {
                         timeSinceLastLossMs = timeSinceLastLossMs,
                         sessionPnlPct = sessionPnlPct,
                         totalSessionTrades = perfContext.totalTrades,
+                        // LEARNING LAYER DATA
+                        entryAiWinRate = EntryIntelligence.getWinRate(),
+                        exitAiAvgPnl = ExitIntelligence.getAveragePnl(),
+                        edgeLearningAccuracy = EdgeLearning.getVetoAccuracy() * 100.0,
                     )
                     
                     // Log adaptive confidence status every 5 loops

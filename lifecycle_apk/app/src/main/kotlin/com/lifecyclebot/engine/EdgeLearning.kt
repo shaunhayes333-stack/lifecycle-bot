@@ -358,6 +358,23 @@ object EdgeLearning {
     fun getLiveVolumeMin(): Double = thresholds.liveVolumeMin
     fun getVetoStickyMinutes(): Int = thresholds.vetoStickyMinutes
     
+    /**
+     * Get veto accuracy for adaptive confidence integration.
+     * Returns value 0.0-1.0 representing how often vetoes were correct.
+     */
+    fun getVetoAccuracy(): Double = stats.vetoAccuracy
+    
+    /**
+     * Get approval accuracy for learning health check.
+     * Returns value 0.0-1.0 representing how often approvals won.
+     */
+    fun getApprovalAccuracy(): Double = stats.approvalAccuracy
+    
+    /**
+     * Get total trades for learning maturity check.
+     */
+    fun getTotalTrades(): Int = stats.totalTrades
+    
     fun logStats() {
         ErrorLogger.info("EdgeLearning", """
             |📊 EDGE LEARNING STATS

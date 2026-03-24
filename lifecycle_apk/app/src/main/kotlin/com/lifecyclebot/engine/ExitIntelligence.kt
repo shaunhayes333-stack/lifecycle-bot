@@ -524,4 +524,45 @@ object ExitIntelligence {
     fun resetPosition(mint: String) {
         activePositions.remove(mint)
     }
+    
+    /**
+     * Get average P&L from learned exits for adaptive confidence integration.
+     */
+    fun getAveragePnl(): Double {
+        return if (params.totalExits > 0) {
+            // Weighted average of winning and losing P&L
+            val winWeight = params.profitableExits.toDouble() / params.totalExits
+            val lossWeight = 1.0 - winWeight
+            (params.avgWinningPnl * winWeight) + (params.avgLosingPnl * lossWeight)
+        } else 0.0  // Default to 0 if no data
+    }
+    
+    /**
+     * Get profitable exit rate for learning maturity check.
+     */
+    fun getProfitableRate(): Double {
+        return if (params.totalExits > 0) {
+            params.profitableExits.toDouble() / params.totalExits * 100.0
+        } else 50.0
+    }
+    
+    /**
+     * Get total exits for learning maturity check.
+     */
+    fun getTotalExits(): Int = params.totalExits
+    
+    /**
+     * Get learned optimal hold time for moonshot time limits.
+     */
+    fun getLearnedOptimalHoldMinutes(): Int = params.optimalHoldMinutes
+    
+    /**
+     * Get learned max hold time.
+     */
+    fun getLearnedMaxHoldMinutes(): Int = params.maxHoldMinutes
+    
+    /**
+     * Get learned trailing stop distance for moonshot trails.
+     */
+    fun getLearnedTrailingStopDistance(): Double = params.trailingStopDistance
 }
