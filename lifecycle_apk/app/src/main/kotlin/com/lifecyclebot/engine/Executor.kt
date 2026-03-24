@@ -1761,6 +1761,11 @@ class Executor(
         )
         EntryIntelligence.recordEntry(tradeId.mint, entryConditions)
         
+        // ═══════════════════════════════════════════════════════════════════
+        // LIQUIDITY DEPTH AI: Record entry liquidity for change tracking
+        // ═══════════════════════════════════════════════════════════════════
+        LiquidityDepthAI.recordEntryLiquidity(tradeId.mint, ts.lastLiquidityUsd)
+        
         // 🎵 Homer Simpson "Woohoo!" 
         sounds?.playBuySound()
         
@@ -1898,6 +1903,11 @@ class Executor(
                 candlePattern = "none",
             )
             EntryIntelligence.recordEntry(tradeId.mint, entryConditionsLive)
+            
+            // ═══════════════════════════════════════════════════════════════════
+            // LIQUIDITY DEPTH AI: Record entry liquidity for change tracking
+            // ═══════════════════════════════════════════════════════════════════
+            LiquidityDepthAI.recordEntryLiquidity(tradeId.mint, ts.lastLiquidityUsd)
             
             onLog("LIVE BUY  @ ${price.fmt()} | ${sol.fmt(4)} SOL | " +
                   "impact=${quote.priceImpactPct.fmt(2)}% | sig=${sig.take(16)}…", tradeId.mint)
@@ -2303,6 +2313,12 @@ class Executor(
             TimeOptimizationAI.recordOutcome(pnlP)
         } catch (_: Exception) {}
         
+        // LiquidityDepthAI: Learn which liquidity patterns are profitable
+        try {
+            LiquidityDepthAI.recordOutcome(ts.mint, pnlP, pnlP > 0)
+            LiquidityDepthAI.clearEntryLiquidity(ts.mint)  // Clean up entry reference
+        } catch (_: Exception) {}
+        
         ts.position         = Position()
         ts.lastExitTs       = System.currentTimeMillis()
         ts.lastExitPrice    = price
@@ -2690,6 +2706,15 @@ class Executor(
             TimeOptimizationAI.recordOutcome(pnlP)
             TimeOptimizationAI.recordOutcome(pnlP)
             TimeOptimizationAI.recordOutcome(pnlP)
+        } catch (_: Exception) {}
+        
+        // LiquidityDepthAI: Learn which liquidity patterns are profitable (LIVE trades - 3x weight!)
+        try {
+            // Record 3x for live trades
+            LiquidityDepthAI.recordOutcome(ts.mint, pnlP, pnl > 0)
+            LiquidityDepthAI.recordOutcome(ts.mint, pnlP, pnl > 0)
+            LiquidityDepthAI.recordOutcome(ts.mint, pnlP, pnl > 0)
+            LiquidityDepthAI.clearEntryLiquidity(ts.mint)  // Clean up entry reference
         } catch (_: Exception) {}
         
         ts.position         = Position()

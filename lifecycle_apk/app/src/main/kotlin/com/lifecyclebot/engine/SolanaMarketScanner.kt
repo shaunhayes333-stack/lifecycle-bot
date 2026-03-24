@@ -1794,6 +1794,15 @@ class SolanaMarketScanner(
               "liq=$${(token.liquidityUsd/1000).toInt()}K " +
               "vol=$${(token.volumeH1/1000).toInt()}K " +
               "score=${adjustedScore.toInt()}")
+        
+        // Record liquidity snapshot for LiquidityDepthAI
+        LiquidityDepthAI.recordSnapshot(
+            mint = token.mint,
+            liquidityUsd = token.liquidityUsd,
+            mcapUsd = token.mcapUsd,
+            holderCount = 0  // Holder count not available from scanner
+        )
+        
         onTokenFound(adjustedToken.mint, adjustedToken.symbol, adjustedToken.name, adjustedToken.source, adjustedToken.score, adjustedToken.liquidityUsd)
     }
     

@@ -283,6 +283,21 @@ class LifecycleStrategy(
                     }
                 }
             } catch (_: Exception) {}
+            
+            // ── LIQUIDITY DEPTH AI - Exit urgency ────────────────────────────
+            // If liquidity is draining or collapsing, add exit urgency
+            try {
+                val liqExitUrgency = LiquidityDepthAI.getExitUrgency(ts.mint, ts.symbol)
+                if (liqExitUrgency > 0) {
+                    exitScore = (exitScore + liqExitUrgency).coerceIn(0.0, 100.0)
+                    val liqSignal = LiquidityDepthAI.getSignal(ts.mint, ts.symbol, isOpenPosition = true)
+                    if (liqSignal.signal == LiquidityDepthAI.SignalType.LIQUIDITY_COLLAPSE) {
+                        ErrorLogger.warn("LiquidityAI", "💧 ${ts.symbol}: LIQUIDITY COLLAPSE - EXIT URGENTLY (+${liqExitUrgency.toInt()} exit)")
+                    } else if (liqSignal.signal == LiquidityDepthAI.SignalType.LIQUIDITY_DRAINING) {
+                        ErrorLogger.warn("LiquidityAI", "💧 ${ts.symbol}: Liquidity draining (+${liqExitUrgency.toInt()} exit)")
+                    }
+                }
+            } catch (_: Exception) {}
         }
 
         // ── Bonding curve overlay ─────────────────────────────────────
@@ -426,6 +441,28 @@ class LifecycleStrategy(
                         ErrorLogger.debug("TimeAI", "⏰ ${ts.symbol}: GOLDEN HOUR (+${timeAdj.toInt()} pts)")
                     } else if (TimeOptimizationAI.isDangerZone()) {
                         ErrorLogger.debug("TimeAI", "⏰ ${ts.symbol}: DANGER ZONE (${timeAdj.toInt()} pts)")
+                    }
+                }
+            } catch (_: Exception) {}
+            
+            // ── LIQUIDITY DEPTH AI ───────────────────────────────────────────
+            // Monitors LP changes in real-time - growing liquidity is bullish
+            try {
+                val liqAdj = LiquidityDepthAI.getEntryScoreAdjustment(ts.mint, ts.symbol)
+                if (liqAdj != 0.0) {
+                    entryScore = (entryScore + liqAdj).coerceIn(0.0, 100.0)
+                    val liqSignal = LiquidityDepthAI.getSignal(ts.mint, ts.symbol, isOpenPosition = false)
+                    when (liqSignal.signal) {
+                        LiquidityDepthAI.SignalType.LIQUIDITY_SPIKE -> {
+                            ErrorLogger.info("LiquidityAI", "💧 ${ts.symbol}: LIQUIDITY SPIKE (+${liqAdj.toInt()} pts)")
+                        }
+                        LiquidityDepthAI.SignalType.LIQUIDITY_GROWING -> {
+                            ErrorLogger.debug("LiquidityAI", "💧 ${ts.symbol}: Growing liquidity (+${liqAdj.toInt()} pts)")
+                        }
+                        LiquidityDepthAI.SignalType.LIQUIDITY_DRAINING -> {
+                            ErrorLogger.warn("LiquidityAI", "💧 ${ts.symbol}: Draining liquidity (${liqAdj.toInt()} pts)")
+                        }
+                        else -> { /* no log for stable/unknown */ }
                     }
                 }
             } catch (_: Exception) {}

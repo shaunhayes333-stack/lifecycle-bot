@@ -296,6 +296,15 @@ class BotService : Service() {
             ErrorLogger.error("BotService", "Failed to save TimeOptimizationAI: ${e.message}", e)
         }
         
+        // Save LiquidityDepthAI
+        try {
+            val liqAiPrefs = getSharedPreferences("liquidity_depth_ai", android.content.Context.MODE_PRIVATE)
+            liqAiPrefs.edit().putString("data", LiquidityDepthAI.saveToJson().toString()).apply()
+            ErrorLogger.info("BotService", "💾 LiquidityDepthAI saved before destroy")
+        } catch (e: Exception) {
+            ErrorLogger.error("BotService", "Failed to save LiquidityDepthAI: ${e.message}", e)
+        }
+        
         scope.cancel()
     }
 
@@ -809,6 +818,18 @@ class BotService : Service() {
             ErrorLogger.error("BotService", "Failed to load TimeOptimizationAI: ${e.message}", e)
         }
         
+        // Initialize LiquidityDepthAI - monitor LP changes in real-time
+        try {
+            val liqAiPrefs = getSharedPreferences("liquidity_depth_ai", android.content.Context.MODE_PRIVATE)
+            val liqJson = liqAiPrefs.getString("data", null)
+            if (liqJson != null) {
+                LiquidityDepthAI.loadFromJson(org.json.JSONObject(liqJson))
+            }
+            addLog("💧 ${LiquidityDepthAI.getStats()}")
+        } catch (e: Exception) {
+            ErrorLogger.error("BotService", "Failed to load LiquidityDepthAI: ${e.message}", e)
+        }
+        
         // Set up paper wallet balance tracking
         executor.onPaperBalanceChange = { delta ->
             status.paperWalletSol = (status.paperWalletSol + delta).coerceAtLeast(0.0)
@@ -1167,12 +1188,14 @@ class BotService : Service() {
                 addLog("🚀 ${MomentumPredictorAI.getStats()}")
                 addLog("📖 ${NarrativeDetectorAI.getStats()}")
                 addLog("⏰ ${TimeOptimizationAI.getStats()}")
+                addLog("💧 ${LiquidityDepthAI.getStats()}")
                 
                 // Clean up old momentum data
                 MomentumPredictorAI.cleanup()
                 WhaleTrackerAI.cleanup()
                 NarrativeDetectorAI.cleanup()
                 TimeOptimizationAI.cleanup()
+                LiquidityDepthAI.cleanup()
                 
                 // Refresh time-based stats
                 TimeOptimizationAI.refreshStats()

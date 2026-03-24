@@ -470,6 +470,15 @@ object FinalDecisionGate {
         adjustment += timeAdj
         
         // ─────────────────────────────────────────────────────────────────
+        // FACTOR 14: LIQUIDITY DEPTH AI INFLUENCE
+        // 
+        // Growing liquidity = more aggressive (project is healthy)
+        // Draining liquidity = more cautious (potential rug)
+        // Note: Uses generic adjustment since we don't have specific token info here
+        // ─────────────────────────────────────────────────────────────────
+        // (Liquidity AI is integrated at token-level in shouldApprove method)
+        
+        // ─────────────────────────────────────────────────────────────────
         // CALCULATE FINAL ADAPTIVE CONFIDENCE
         // 
         // BOOTSTRAP MODE: When totalSessionTrades < 30, the AI systems 
@@ -1124,10 +1133,62 @@ object FinalDecisionGate {
         }
         
         // ─────────────────────────────────────────────────────────────────────
+        // GATE 4.5: LIQUIDITY DEPTH AI CHECK
+        // 
+        // Monitor real-time liquidity changes:
+        // - COLLAPSE (>30% drop) = HARD BLOCK (rug likely)
+        // - DRAINING = Warning, reduce size
+        // - GROWING = Boost (project health)
+        // ─────────────────────────────────────────────────────────────────────
+        
+        if (blockReason == null) {
+            val liqSignal = LiquidityDepthAI.getSignal(ts.mint, ts.symbol, isOpenPosition = false)
+            
+            // Hard block on liquidity collapse
+            if (liqSignal.shouldBlock && !config.paperMode) {
+                blockReason = liqSignal.blockReason ?: "LIQUIDITY_COLLAPSE"
+                blockLevel = BlockLevel.HARD
+                checks.add(GateCheck("liquidity_ai", false, 
+                    "COLLAPSE: ${liqSignal.reason}"))
+                tags.add("liquidity_collapse")
+            } else if (liqSignal.shouldBlock && config.paperMode) {
+                // Paper mode: Log warning but allow trade for learning
+                checks.add(GateCheck("liquidity_ai", true, 
+                    "PAPER: collapse warning (${liqSignal.reason}) - allowed for learning"))
+                tags.add("liquidity_collapse_paper")
+            } else {
+                // Log liquidity trend for debugging
+                val depthLabel = liqSignal.depthQuality.name.lowercase()
+                checks.add(GateCheck("liquidity_ai", true, 
+                    "trend=${liqSignal.trend.name.lowercase()} depth=$depthLabel adj=${liqSignal.entryAdjustment.toInt()}"))
+                
+                // Tag significant trends
+                when (liqSignal.signal) {
+                    LiquidityDepthAI.SignalType.LIQUIDITY_SPIKE -> tags.add("liquidity_spike")
+                    LiquidityDepthAI.SignalType.LIQUIDITY_GROWING -> tags.add("liquidity_growing")
+                    LiquidityDepthAI.SignalType.LIQUIDITY_DRAINING -> tags.add("liquidity_draining")
+                    else -> { /* no tag */ }
+                }
+            }
+        }
+        
+        // ─────────────────────────────────────────────────────────────────────
         // GATE 5: SIZING VALIDATION
         // ─────────────────────────────────────────────────────────────────────
         
         var finalSize = proposedSizeSol
+        
+        // Apply liquidity depth size multiplier
+        val liqSizeMultiplier = LiquidityDepthAI.getSizeMultiplier(ts.mint, ts.symbol)
+        if (liqSizeMultiplier < 1.0) {
+            val originalSize = finalSize
+            finalSize = (finalSize * liqSizeMultiplier).coerceAtLeast(0.01)
+            if (finalSize < originalSize) {
+                tags.add("size_reduced_liq_depth")
+                checks.add(GateCheck("liquidity_size", true, 
+                    "Size adjusted ${originalSize.format(3)} → ${finalSize.format(3)} (depth=${liqSizeMultiplier.format(2)}x)"))
+            }
+        }
         
         if (blockReason == null) {
             // Minimum size check
