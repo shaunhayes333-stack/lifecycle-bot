@@ -456,13 +456,15 @@ object EdgeOptimizer {
      * 
      * PAPER MODE: More lenient thresholds to allow learning.
      * LIVE MODE: Strict thresholds to protect capital.
+     * 
+     * ADAPTIVE: Thresholds are learned from trade outcomes via EdgeLearning.
      */
     fun filterTrade(
         phase: PhaseAnalysis,
         volumeScore: Double,
         buyPct: Double,
         entryTiming: EntryTiming,
-        isPaperMode: Boolean = false,  // NEW: Paper mode flag
+        isPaperMode: Boolean = false,
     ): FilterResult {
         // DEAD phase — always skip (even paper mode)
         if (phase.phase == MarketPhase.DEAD) {
@@ -483,18 +485,26 @@ object EdgeOptimizer {
         }
         
         // ═══════════════════════════════════════════════════════════════════
-        // PAPER MODE: More lenient thresholds for learning
+        // ADAPTIVE THRESHOLDS - Learned from trade outcomes via EdgeLearning
         // ═══════════════════════════════════════════════════════════════════
         
-        val minVolume = if (isPaperMode) 10 else 15      // Paper: 10, Live: 15
-        val minBuyPct = if (isPaperMode) 40 else 50      // Paper: 40%, Live: 50%
-        val requireOptimalTiming = !isPaperMode          // Paper: NO, Live: YES
+        val minVolume = if (isPaperMode) 
+            EdgeLearning.getPaperVolumeMin() 
+        else 
+            EdgeLearning.getLiveVolumeMin()
+            
+        val minBuyPct = if (isPaperMode) 
+            EdgeLearning.getPaperBuyPctMin() 
+        else 
+            EdgeLearning.getLiveBuyPctMin()
+            
+        val requireOptimalTiming = !isPaperMode  // Paper: advisory, Live: required
         
         // Volume too low — skip
         if (volumeScore < minVolume) {
             return FilterResult(
                 shouldTrade = false,
-                reason = "Volume too low (${volumeScore.toInt()} < $minVolume)",
+                reason = "Volume too low (${volumeScore.toInt()} < ${minVolume.toInt()})",
                 quality = "SKIP"
             )
         }
@@ -503,7 +513,7 @@ object EdgeOptimizer {
         if (buyPct < minBuyPct) {
             return FilterResult(
                 shouldTrade = false,
-                reason = "Buy% too low (${buyPct.toInt()}% < $minBuyPct%)",
+                reason = "Buy% too low (${buyPct.toInt()}% < ${minBuyPct.toInt()}%)",
                 quality = "SKIP"
             )
         }

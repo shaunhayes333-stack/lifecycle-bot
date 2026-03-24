@@ -220,6 +220,15 @@ class BotService : Service() {
             )
         }
         
+        // Save EdgeLearning thresholds before shutdown
+        try {
+            val edgeLearningPrefs = getSharedPreferences("edge_learning", android.content.Context.MODE_PRIVATE)
+            EdgeLearning.saveToPrefs(edgeLearningPrefs)
+            ErrorLogger.info("BotService", "💾 EdgeLearning saved before destroy")
+        } catch (e: Exception) {
+            ErrorLogger.error("BotService", "Failed to save EdgeLearning: ${e.message}", e)
+        }
+        
         scope.cancel()
     }
 
@@ -505,8 +514,8 @@ class BotService : Service() {
                             identity.watchlisted("admitted for strategy evaluation")
                             TradeLifecycle.watchlisted(identity.mint, wl.size, "admitted for strategy evaluation")
                             
-                            addLog("📋 WATCHLISTED: ${identity.symbol} (${source.name}) liq=$${liquidityUsd.toInt()} score=${score.toInt()} | #${wl.size}", identity.mint)
-                            ErrorLogger.info("BotService", "WATCHLISTED: ${identity.symbol} | liq=$${liquidityUsd.toInt()} | watchlist=${wl.size}")
+                            addLog("📋 WATCHLISTED: ${identity.symbol} (${source.name}) liq=$${liquidityUsd.toInt()} score=${score.toInt()} | now #${wl.size}", identity.mint)
+                            ErrorLogger.info("BotService", "WATCHLISTED: ${identity.symbol} | liq=$${liquidityUsd.toInt()} | watchlist now=${wl.size}")
                             soundManager.playNewToken()
                             
                             // Seed candle history immediately
@@ -636,6 +645,20 @@ class BotService : Service() {
         // Initialize RuggedContracts blacklist
         RuggedContracts.init(applicationContext)
         addLog("💀 RuggedContracts: ${RuggedContracts.getCount()} blacklisted")
+        
+        // Initialize EdgeLearning for adaptive threshold learning
+        val edgeLearningPrefs = getSharedPreferences("edge_learning", android.content.Context.MODE_PRIVATE)
+        EdgeLearning.loadFromPrefs(edgeLearningPrefs)
+        addLog("🧠 EdgeLearning: paper(buy>=${EdgeLearning.getPaperBuyPctMin().toInt()}%) live(buy>=${EdgeLearning.getLiveBuyPctMin().toInt()}%)")
+        
+        // Set up periodic save callback for EdgeLearning
+        EdgeLearning.onThresholdsChanged = {
+            try {
+                EdgeLearning.saveToPrefs(edgeLearningPrefs)
+            } catch (e: Exception) {
+                ErrorLogger.error("EdgeLearning", "Failed to save: ${e.message}", e)
+            }
+        }
         
         // Set up paper wallet balance tracking
         executor.onPaperBalanceChange = { delta ->
@@ -1706,8 +1729,8 @@ class BotService : Service() {
                 }
             }
             
-            ErrorLogger.info("BotService", "Watchlist cleanup: removed ${tokensToRemove.size} tokens, ${newWatchlist.size} remaining")
-            addLog("🧹 Cleaned ${tokensToRemove.size} | Remaining: ${newWatchlist.size}")
+            ErrorLogger.info("BotService", "Watchlist cleanup: removed ${tokensToRemove.size} tokens, now ${newWatchlist.size} remaining")
+            addLog("🧹 Cleanup: -${tokensToRemove.size} | now ${newWatchlist.size}")
         }
     }
 

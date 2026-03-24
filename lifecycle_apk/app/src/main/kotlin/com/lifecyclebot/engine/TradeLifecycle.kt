@@ -202,7 +202,7 @@ object TradeLifecycle {
     fun watchlisted(mint: String, watchlistSize: Int, reason: String = "admitted for evaluation") {
         lifecycles[mint]?.let { lc ->
             lc.transition(State.WATCHLISTED, reason, mapOf("watchlistSize" to watchlistSize))
-            ErrorLogger.info("Lifecycle", "📋 WATCHLISTED: ${lc.symbol} | watchlist=$watchlistSize")
+            ErrorLogger.info("Lifecycle", "📋 WATCHLISTED: ${lc.symbol} | watchlist now=$watchlistSize")
         }
     }
     

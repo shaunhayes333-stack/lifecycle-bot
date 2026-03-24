@@ -1512,6 +1512,22 @@ class Executor(
         // Update paper wallet balance (deduct buy amount)
         onPaperBalanceChange?.invoke(-actualSol)
         
+        // ═══════════════════════════════════════════════════════════════════
+        // EDGE LEARNING: Record entry state for later learning
+        // ═══════════════════════════════════════════════════════════════════
+        EdgeLearning.recordEntry(
+            mint = tradeId.mint,
+            symbol = tradeId.symbol,
+            buyPct = ts.meta.pressScore,
+            volumeScore = ts.meta.volScore,
+            phase = ts.phase,
+            edgeQuality = ts.meta.setupQuality,
+            wasVetoed = false,  // If we got here, we weren't vetoed
+            vetoReason = null,
+            entryPrice = price,
+            isPaperMode = true,
+        )
+        
         // 🎵 Homer Simpson "Woohoo!" 
         sounds?.playBuySound()
         
@@ -1604,6 +1620,22 @@ class Executor(
             TradeLifecycle.executed(tradeId.mint, price, sol)
             TradeLifecycle.monitoring(tradeId.mint, 0.0)
 
+            // ═══════════════════════════════════════════════════════════════════
+            // EDGE LEARNING: Record entry state for later learning
+            // ═══════════════════════════════════════════════════════════════════
+            EdgeLearning.recordEntry(
+                mint = tradeId.mint,
+                symbol = tradeId.symbol,
+                buyPct = ts.meta.pressScore,
+                volumeScore = ts.meta.volScore,
+                phase = ts.phase,
+                edgeQuality = ts.meta.setupQuality,
+                wasVetoed = false,  // If we got here, we weren't vetoed
+                vetoReason = null,
+                entryPrice = price,
+                isPaperMode = false,
+            )
+            
             onLog("LIVE BUY  @ ${price.fmt()} | ${sol.fmt(4)} SOL | " +
                   "impact=${quote.priceImpactPct.fmt(2)}% | sig=${sig.take(16)}…", tradeId.mint)
             onNotify("✅ Live Buy", "${tradeId.symbol}  ${sol.fmt(3)} SOL", com.lifecyclebot.engine.NotificationHistory.NotifEntry.NotifType.INFO)
@@ -1944,6 +1976,16 @@ class Executor(
             FinalDecisionGate.recordDistributionExit(tradeId.mint)
             onLog("🚫 Distribution cooldown: ${ts.symbol} blocked for 30min", tradeId.mint)
         }
+        
+        // ═══════════════════════════════════════════════════════════════════
+        // EDGE LEARNING: Learn from trade outcome to adjust thresholds
+        // ═══════════════════════════════════════════════════════════════════
+        EdgeLearning.learnFromOutcome(
+            mint = tradeId.mint,
+            exitPrice = price,
+            pnlPercent = pnlP,
+            wasExecuted = true,
+        )
         
         ts.position         = Position()
         ts.lastExitTs       = System.currentTimeMillis()
