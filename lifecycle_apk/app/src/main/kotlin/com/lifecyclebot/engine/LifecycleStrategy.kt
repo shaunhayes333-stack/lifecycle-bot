@@ -332,9 +332,11 @@ class LifecycleStrategy(
                 ErrorLogger.info("Edge", "⭐ ${ts.symbol}: OPTIMAL entry timing +15 pts")
             }
             
-            // PRIORITY 1: Log Edge veto clearly
+            // PRIORITY 1: Log Edge veto clearly and RECORD IT for sticky blocking
             if (edgeVeto) {
                 ErrorLogger.info("Edge", "🚫 ${ts.symbol}: VETOED - ${edgeFilter.reason}")
+                // Record sticky veto in FDG - this prevents re-buying for 5 minutes
+                FinalDecisionGate.recordEdgeVeto(ts.mint, edgeFilter.reason, edgeFilter.quality)
             } else if (!edgeFilter.shouldTrade) {
                 ErrorLogger.debug("Edge", "📊 ${ts.symbol}: Filter notes - ${edgeFilter.reason}")
             }

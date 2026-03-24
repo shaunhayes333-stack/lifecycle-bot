@@ -175,6 +175,68 @@ object FinalDecisionGate {
     }
     
     // ═══════════════════════════════════════════════════════════════════════════
+    // EDGE VETO TRACKER (STICKY VETOES)
+    // 
+    // When Edge says "VETOED", that decision is AUTHORITATIVE for a cooldown period.
+    // This prevents the bug where:
+    //   1. Edge vetoes at T+0
+    //   2. Strategy says BUY at T+10 seconds
+    //   3. FDG approves because it only sees the latest signal
+    // 
+    // Rule: Once vetoed, stay vetoed for EDGE_VETO_COOLDOWN_MS
+    // ═══════════════════════════════════════════════════════════════════════════
+    
+    data class EdgeVeto(
+        val timestamp: Long,
+        val reason: String,
+        val quality: String,  // The edge quality when vetoed (SKIP, etc.)
+    )
+    
+    private val edgeVetoes = java.util.concurrent.ConcurrentHashMap<String, EdgeVeto>()
+    private const val EDGE_VETO_COOLDOWN_MS = 5 * 60 * 1000L  // 5 minutes - veto is sticky for 5 min
+    
+    /**
+     * Record an Edge veto for a token.
+     * Called from BotService when Edge returns a veto.
+     */
+    fun recordEdgeVeto(mint: String, reason: String, quality: String) {
+        edgeVetoes[mint] = EdgeVeto(
+            timestamp = System.currentTimeMillis(),
+            reason = reason,
+            quality = quality,
+        )
+        // Clean up old entries (older than 30 minutes)
+        val thirtyMinutesAgo = System.currentTimeMillis() - (30 * 60 * 1000L)
+        edgeVetoes.entries.removeIf { it.value.timestamp < thirtyMinutesAgo }
+    }
+    
+    /**
+     * Check if a token has an active Edge veto.
+     */
+    fun hasActiveEdgeVeto(mint: String): EdgeVeto? {
+        val veto = edgeVetoes[mint] ?: return null
+        val elapsed = System.currentTimeMillis() - veto.timestamp
+        return if (elapsed < EDGE_VETO_COOLDOWN_MS) veto else null
+    }
+    
+    /**
+     * Get remaining veto time in seconds.
+     */
+    fun getVetoRemainingSeconds(mint: String): Int {
+        val veto = edgeVetoes[mint] ?: return 0
+        val elapsed = System.currentTimeMillis() - veto.timestamp
+        val remaining = EDGE_VETO_COOLDOWN_MS - elapsed
+        return if (remaining > 0) (remaining / 1000).toInt() else 0
+    }
+    
+    /**
+     * Clear a veto (e.g., when conditions significantly improve)
+     */
+    fun clearEdgeVeto(mint: String) {
+        edgeVetoes.remove(mint)
+    }
+    
+    // ═══════════════════════════════════════════════════════════════════════════
     // MAIN GATE FUNCTION
     // ═══════════════════════════════════════════════════════════════════════════
     
@@ -354,7 +416,34 @@ object FinalDecisionGate {
         }
         
         // ═══════════════════════════════════════════════════════════════════════
-        // GATE 1i: PAPER MODE QUALITY FILTER
+        // GATE 1i: STICKY EDGE VETO (AUTHORITATIVE - applies to ALL modes)
+        // 
+        // When Edge says "VETOED", that decision is AUTHORITATIVE.
+        // The veto is STICKY for 5 minutes to prevent:
+        //   1. Edge vetoes at T+0
+        //   2. Strategy says BUY at T+10 seconds 
+        //   3. FDG approves because it only sees the latest signal
+        // 
+        // Rule: Once vetoed by Edge, stay blocked for EDGE_VETO_COOLDOWN_MS
+        // This ensures Edge's "do not enter" is respected, not overridden.
+        // ═══════════════════════════════════════════════════════════════════════
+        
+        if (blockReason == null) {
+            val activeVeto = hasActiveEdgeVeto(ts.mint)
+            if (activeVeto != null) {
+                val remainingSec = getVetoRemainingSeconds(ts.mint)
+                blockReason = "EDGE_VETO_ACTIVE"
+                blockLevel = BlockLevel.EDGE
+                checks.add(GateCheck("edge_veto_sticky", false, 
+                    "Vetoed ${remainingSec}s ago: ${activeVeto.reason} (quality=${activeVeto.quality})"))
+                tags.add("edge_veto_sticky")
+            } else {
+                checks.add(GateCheck("edge_veto_sticky", true, "No active veto"))
+            }
+        }
+        
+        // ═══════════════════════════════════════════════════════════════════════
+        // GATE 1j: PAPER MODE QUALITY FILTER
         // 
         // For QUALITY training data, paper mode still needs SOME filters.
         // We want trades with real market signals, not pure garbage.
