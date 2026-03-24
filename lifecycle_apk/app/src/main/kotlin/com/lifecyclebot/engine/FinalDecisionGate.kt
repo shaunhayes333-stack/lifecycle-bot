@@ -289,23 +289,33 @@ object FinalDecisionGate {
         }
         
         // ═══════════════════════════════════════════════════════════════════════
-        // GATE 1i: PHASE FILTER (CRITICAL)
-        // phase=early_unknown is basically gambling
-        // Skip unless: score > 80 AND buy_pressure > 65
+        // GATE 1i: PHASE FILTER
+        // phase=early_unknown needs higher conviction to trade
+        // 
+        // LIVE MODE: Strict - score >= 80 AND buy_pressure >= 65
+        // PAPER MODE: Moderate - score >= 50 AND buy_pressure >= 50 (allow learning)
+        // 
+        // This still filters true garbage while allowing paper mode to learn
         // ═══════════════════════════════════════════════════════════════════════
         
         if (blockReason == null && candidate.phase.lowercase().contains("unknown")) {
-            val isHighScore = candidate.entryScore >= 80
-            val isHighBuyPressure = ts.meta.pressScore >= 65
+            val (minScore, minBuyPressure) = if (config.paperMode) {
+                50.0 to 50.0  // Paper: moderate threshold for learning
+            } else {
+                80.0 to 65.0  // Live: strict threshold for real money
+            }
+            
+            val isHighScore = candidate.entryScore >= minScore
+            val isHighBuyPressure = ts.meta.pressScore >= minBuyPressure
             
             if (!isHighScore || !isHighBuyPressure) {
                 blockReason = "UNKNOWN_PHASE_LOW_CONVICTION"
                 blockLevel = BlockLevel.CONFIDENCE
                 checks.add(GateCheck("phase_filter", false, 
-                    "phase=${candidate.phase} score=${candidate.entryScore.toInt()}<80 OR buy%=${ts.meta.pressScore.toInt()}<65"))
+                    "phase=${candidate.phase} score=${candidate.entryScore.toInt()}<${minScore.toInt()} OR buy%=${ts.meta.pressScore.toInt()}<${minBuyPressure.toInt()}"))
                 tags.add("phase_unknown_weak")
             } else {
-                checks.add(GateCheck("phase_filter", true, "high conviction unknown phase"))
+                checks.add(GateCheck("phase_filter", true, "unknown phase OK (score=${candidate.entryScore.toInt()} buy%=${ts.meta.pressScore.toInt()})"))
             }
         } else if (blockReason == null) {
             checks.add(GateCheck("phase_filter", true, "phase=${candidate.phase}"))
@@ -313,8 +323,10 @@ object FinalDecisionGate {
         
         // ─────────────────────────────────────────────────────────────────────
         // GATE 2: EDGE VETO
-        // In PAPER MODE: Edge veto is BYPASSED to allow learning
-        // In LIVE MODE: Edge veto is enforced strictly
+        // 
+        // LIVE MODE: Edge veto is ENFORCED strictly
+        // PAPER MODE: Edge veto RELAXED for quality B+ setups with decent confidence
+        //             This allows learning from moderate setups without taking garbage
         // ─────────────────────────────────────────────────────────────────────
         
         val edgeVerdict = when (candidate.edgeQuality.uppercase()) {
@@ -324,16 +336,20 @@ object FinalDecisionGate {
         }
         
         if (blockReason == null && edgeVerdict == EdgeVerdict.SKIP) {
-            // Edge says skip - but paper mode allows override for learning
-            if (config.paperMode && allowEdgeOverrideInPaper) {
-                // PAPER MODE: Allow the trade for learning purposes
-                checks.add(GateCheck("edge", true, "PAPER MODE - edge veto bypassed for learning"))
-                tags.add("edge_override_learning")
+            // Edge says skip - check if we should override
+            val isQualitySetup = candidate.setupQuality in listOf("A+", "A", "B")
+            val hasDecentConfidence = candidate.aiConfidence >= 15.0
+            val canOverride = config.paperMode && isQualitySetup && hasDecentConfidence
+            
+            if (canOverride) {
+                // PAPER MODE: Allow B+ quality setups with decent confidence for learning
+                checks.add(GateCheck("edge", true, "PAPER: edge override (quality=${candidate.setupQuality} conf=${candidate.aiConfidence.toInt()}%)"))
+                tags.add("edge_override_quality")
             } else {
-                // LIVE MODE: Enforce edge veto
+                // Block: Either live mode, or paper mode with garbage quality
                 blockReason = "EDGE_VETO_${candidate.edgeQuality}"
                 blockLevel = BlockLevel.EDGE
-                checks.add(GateCheck("edge", false, "edge=${candidate.edgeQuality}"))
+                checks.add(GateCheck("edge", false, "edge=${candidate.edgeQuality} quality=${candidate.setupQuality}"))
                 tags.add("edge_skip")
             }
         } else if (blockReason == null) {
