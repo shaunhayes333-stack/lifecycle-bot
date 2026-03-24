@@ -519,16 +519,43 @@ class Executor(
         
         // Apply health multiplier - healthy trend = looser trail
         // Also apply learning influence from ExitIntelligence
-        val smartTrail = baseTrail * healthMultiplier * partialFactor * learnedTrailInfluence
+        var smartTrail = baseTrail * healthMultiplier * partialFactor * learnedTrailInfluence
+        
+        // ═══════════════════════════════════════════════════════════════════
+        // MARKET REGIME AI INFLUENCE ON TRAILING STOP
+        // 
+        // Bull market = can hold looser (more room for gains)
+        // Bear market = tighter stops (protect gains)
+        // ═══════════════════════════════════════════════════════════════════
+        val regimeTrailMult = try {
+            val regime = MarketRegimeAI.getCurrentRegime()
+            val confidence = MarketRegimeAI.getRegimeConfidence()
+            
+            if (confidence >= 40.0) {
+                when (regime) {
+                    MarketRegimeAI.Regime.STRONG_BULL -> 1.2    // Very bullish: 20% looser trails
+                    MarketRegimeAI.Regime.BULL -> 1.1           // Bullish: 10% looser
+                    MarketRegimeAI.Regime.NEUTRAL -> 1.0        // Neutral
+                    MarketRegimeAI.Regime.CRAB -> 0.95          // Choppy: 5% tighter
+                    MarketRegimeAI.Regime.BEAR -> 0.85          // Bearish: 15% tighter
+                    MarketRegimeAI.Regime.STRONG_BEAR -> 0.75   // Very bearish: 25% tighter
+                    MarketRegimeAI.Regime.HIGH_VOLATILITY -> 0.9 // Volatile: 10% tighter
+                }
+            } else 1.0
+        } catch (_: Exception) { 1.0 }
+        
+        smartTrail *= regimeTrailMult
         
         // Log significant adjustments for runners (>100% gain)
-        if (gainPct >= 100.0 && (healthMultiplier != 1.0 || learnedTrailInfluence != 1.0)) {
+        if (gainPct >= 100.0 && (healthMultiplier != 1.0 || learnedTrailInfluence != 1.0 || regimeTrailMult != 1.0)) {
             val direction = if (healthMultiplier > 1.0) "LOOSE" else "TIGHT"
+            val regimeLabel = try { MarketRegimeAI.getCurrentRegime().label } catch (_: Exception) { "?" }
             ErrorLogger.debug("SmartTrail", "🎯 Runner ${gainPct.toInt()}%: " +
                 "health=${healthMultiplier.fmt(2)} ($direction) | " +
                 "fan=$emaFanAlignment wide=$emaFanWidening | " +
                 "vol=${volScore.toInt()} press=${pressScore.toInt()} | " +
                 "learnedMult=${learnedTrailInfluence.fmt(2)} | " +
+                "regime=$regimeLabel(${regimeTrailMult.fmt(2)}) | " +
                 "trail=${smartTrail.fmt(2)}%")
         }
         
@@ -2235,6 +2262,37 @@ class Executor(
         ExitIntelligence.learnFromExit(tradeId.mint, reason, pnlP, holdMinutes)
         ExitIntelligence.resetPosition(tradeId.mint)
         
+        // ═══════════════════════════════════════════════════════════════════
+        // NEW AI LAYERS: Record trade outcome for learning
+        // ═══════════════════════════════════════════════════════════════════
+        
+        // WhaleTrackerAI: Learn from whale signal accuracy
+        try {
+            val wasSignalCorrect = when {
+                pnlP > 5.0 -> true   // Win
+                pnlP < -5.0 -> false // Loss
+                else -> null         // Scratch - don't learn
+            }
+            if (wasSignalCorrect != null) {
+                WhaleTrackerAI.recordSignalOutcome(tradeId.mint, wasSignalCorrect, pnlP)
+            }
+        } catch (_: Exception) {}
+        
+        // MarketRegimeAI: Record trade outcome for regime performance tracking
+        try {
+            if (kotlin.math.abs(pnlP) >= 5.0) {  // Only meaningful trades
+                MarketRegimeAI.recordTradeOutcome(pnlP)
+            }
+        } catch (_: Exception) {}
+        
+        // MomentumPredictorAI: Learn from momentum prediction accuracy
+        try {
+            val peakPnlPct = if (ts.position.entryPrice > 0) {
+                com.lifecyclebot.util.pct(ts.position.entryPrice, ts.peakPrice)
+            } else 0.0
+            MomentumPredictorAI.recordOutcome(tradeId.mint, pnlP, peakPnlPct)
+        } catch (_: Exception) {}
+        
         ts.position         = Position()
         ts.lastExitTs       = System.currentTimeMillis()
         ts.lastExitPrice    = price
@@ -2576,6 +2634,37 @@ class Executor(
         EntryIntelligence.learnFromOutcome(tradeId.mint, pnlP, holdMinutesLive)
         ExitIntelligence.learnFromExit(tradeId.mint, reason, pnlP, holdMinutesLive)
         ExitIntelligence.resetPosition(tradeId.mint)
+        
+        // ═══════════════════════════════════════════════════════════════════
+        // NEW AI LAYERS: Record trade outcome for learning (LIVE trades - 3x weight!)
+        // ═══════════════════════════════════════════════════════════════════
+        
+        // WhaleTrackerAI: Learn from whale signal accuracy
+        try {
+            val wasSignalCorrect = when {
+                pnlP > 5.0 -> true   // Win
+                pnlP < -5.0 -> false // Loss
+                else -> null         // Scratch - don't learn
+            }
+            if (wasSignalCorrect != null) {
+                WhaleTrackerAI.recordSignalOutcome(tradeId.mint, wasSignalCorrect, pnlP)
+            }
+        } catch (_: Exception) {}
+        
+        // MarketRegimeAI: Record trade outcome for regime performance tracking
+        try {
+            if (kotlin.math.abs(pnlP) >= 5.0) {  // Only meaningful trades
+                MarketRegimeAI.recordTradeOutcome(pnlP)
+            }
+        } catch (_: Exception) {}
+        
+        // MomentumPredictorAI: Learn from momentum prediction accuracy
+        try {
+            val peakPnlPctLive = if (ts.position.entryPrice > 0) {
+                com.lifecyclebot.util.pct(ts.position.entryPrice, ts.peakPrice)
+            } else 0.0
+            MomentumPredictorAI.recordOutcome(tradeId.mint, pnlP, peakPnlPctLive)
+        } catch (_: Exception) {}
         
         ts.position         = Position()
         ts.lastExitTs       = System.currentTimeMillis()

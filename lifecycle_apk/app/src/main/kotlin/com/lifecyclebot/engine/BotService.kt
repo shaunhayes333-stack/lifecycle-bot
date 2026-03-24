@@ -247,6 +247,37 @@ class BotService : Service() {
             ErrorLogger.error("BotService", "Failed to save ExitIntelligence: ${e.message}", e)
         }
         
+        // ═══════════════════════════════════════════════════════════════════
+        // SAVE NEW AI LAYERS BEFORE SHUTDOWN
+        // ═══════════════════════════════════════════════════════════════════
+        
+        // Save WhaleTrackerAI
+        try {
+            val whaleAiPrefs = getSharedPreferences("whale_tracker_ai", android.content.Context.MODE_PRIVATE)
+            whaleAiPrefs.edit().putString("data", WhaleTrackerAI.saveToJson().toString()).apply()
+            ErrorLogger.info("BotService", "💾 WhaleTrackerAI saved before destroy")
+        } catch (e: Exception) {
+            ErrorLogger.error("BotService", "Failed to save WhaleTrackerAI: ${e.message}", e)
+        }
+        
+        // Save MarketRegimeAI
+        try {
+            val regimeAiPrefs = getSharedPreferences("market_regime_ai", android.content.Context.MODE_PRIVATE)
+            regimeAiPrefs.edit().putString("data", MarketRegimeAI.saveToJson().toString()).apply()
+            ErrorLogger.info("BotService", "💾 MarketRegimeAI saved before destroy")
+        } catch (e: Exception) {
+            ErrorLogger.error("BotService", "Failed to save MarketRegimeAI: ${e.message}", e)
+        }
+        
+        // Save MomentumPredictorAI
+        try {
+            val momentumAiPrefs = getSharedPreferences("momentum_predictor_ai", android.content.Context.MODE_PRIVATE)
+            momentumAiPrefs.edit().putString("data", MomentumPredictorAI.saveToJson().toString()).apply()
+            ErrorLogger.info("BotService", "💾 MomentumPredictorAI saved before destroy")
+        } catch (e: Exception) {
+            ErrorLogger.error("BotService", "Failed to save MomentumPredictorAI: ${e.message}", e)
+        }
+        
         scope.cancel()
     }
 
@@ -696,6 +727,46 @@ class BotService : Service() {
         ExitIntelligence.loadFromPrefs(exitAiPrefs)
         addLog("🚪 ${ExitIntelligence.getStats()}")
         
+        // ═══════════════════════════════════════════════════════════════════
+        // NEW AI LAYERS INITIALIZATION
+        // ═══════════════════════════════════════════════════════════════════
+        
+        // Initialize WhaleTrackerAI - follow smart money
+        try {
+            val whaleAiPrefs = getSharedPreferences("whale_tracker_ai", android.content.Context.MODE_PRIVATE)
+            val whaleJson = whaleAiPrefs.getString("data", null)
+            if (whaleJson != null) {
+                WhaleTrackerAI.loadFromJson(org.json.JSONObject(whaleJson))
+            }
+            addLog("🐋 ${WhaleTrackerAI.getStats()}")
+        } catch (e: Exception) {
+            ErrorLogger.error("BotService", "Failed to load WhaleTrackerAI: ${e.message}", e)
+        }
+        
+        // Initialize MarketRegimeAI - detect market conditions
+        try {
+            val regimeAiPrefs = getSharedPreferences("market_regime_ai", android.content.Context.MODE_PRIVATE)
+            val regimeJson = regimeAiPrefs.getString("data", null)
+            if (regimeJson != null) {
+                MarketRegimeAI.loadFromJson(org.json.JSONObject(regimeJson))
+            }
+            addLog("📊 ${MarketRegimeAI.getStats()}")
+        } catch (e: Exception) {
+            ErrorLogger.error("BotService", "Failed to load MarketRegimeAI: ${e.message}", e)
+        }
+        
+        // Initialize MomentumPredictorAI - predict token pumps
+        try {
+            val momentumAiPrefs = getSharedPreferences("momentum_predictor_ai", android.content.Context.MODE_PRIVATE)
+            val momentumJson = momentumAiPrefs.getString("data", null)
+            if (momentumJson != null) {
+                MomentumPredictorAI.loadFromJson(org.json.JSONObject(momentumJson))
+            }
+            addLog("🚀 ${MomentumPredictorAI.getStats()}")
+        } catch (e: Exception) {
+            ErrorLogger.error("BotService", "Failed to load MomentumPredictorAI: ${e.message}", e)
+        }
+        
         // Set up paper wallet balance tracking
         executor.onPaperBalanceChange = { delta ->
             status.paperWalletSol = (status.paperWalletSol + delta).coerceAtLeast(0.0)
@@ -989,6 +1060,39 @@ class BotService : Service() {
                         edgeLearningAccuracy = EdgeLearning.getVetoAccuracy() * 100.0,
                     )
                     
+                    // ═══════════════════════════════════════════════════════════════════
+                    // UPDATE MARKET REGIME AI
+                    // Detects bull/bear/crab market conditions to adjust strategy
+                    // ═══════════════════════════════════════════════════════════════════
+                    try {
+                        val solPrice = WalletManager.lastKnownSolPrice
+                        val solChange24h = WalletManager.solPriceChange24h
+                        
+                        // Calculate meme performance from recent trades
+                        val recentTrades = allTrades.filter { 
+                            System.currentTimeMillis() - it.ts < 24 * 60 * 60 * 1000L 
+                        }
+                        val avgMemePerf = if (recentTrades.isNotEmpty()) {
+                            recentTrades.mapNotNull { it.pnlPct }.average()
+                        } else 0.0
+                        
+                        // Count successful vs rugged tokens
+                        val successCount = recentTrades.count { (it.pnlPct ?: 0.0) >= 100.0 }
+                        val rugCount = recentTrades.count { (it.pnlPct ?: 0.0) <= -80.0 }
+                        
+                        MarketRegimeAI.updateMarketData(
+                            solPrice = solPrice,
+                            solChange24h = solChange24h,
+                            solChange7d = 0.0, // Not tracked currently
+                            avgMemePerformance = avgMemePerf,
+                            successfulLaunches = successCount,
+                            ruggedLaunches = rugCount,
+                            volatilityIndex = avgVolatility,
+                        )
+                    } catch (e: Exception) {
+                        ErrorLogger.debug("BotService", "MarketRegimeAI update error: ${e.message}")
+                    }
+                    
                     // Log adaptive confidence status every 5 loops
                     if (loopCount % 5 == 1) {
                         val adaptiveInfo = FinalDecisionGate.getAdaptiveConfidenceExplanation(cfg.paperMode)
@@ -1013,6 +1117,17 @@ class BotService : Service() {
                 
                 // Log adaptive learning status
                 addLog("🧬 ${AdaptiveLearningEngine.getStatus()}")
+                
+                // ═══════════════════════════════════════════════════════════════════
+                // LOG NEW AI LAYERS STATUS
+                // ═══════════════════════════════════════════════════════════════════
+                addLog("🐋 ${WhaleTrackerAI.getStats()}")
+                addLog("📊 ${MarketRegimeAI.getStats()}")
+                addLog("🚀 ${MomentumPredictorAI.getStats()}")
+                
+                // Clean up old momentum data
+                MomentumPredictorAI.cleanup()
+                WhaleTrackerAI.cleanup()
                 
                 // Log cloud sync status (every ~35 mins = 5x7 loops)
                 if (loopCount % 35 == 0) {
@@ -1385,6 +1500,28 @@ class BotService : Service() {
                 // Pass isPaperMode to relax Edge veto in paper mode for better learning
                 // Pass brain for adaptive threshold learning
                 // ═══════════════════════════════════════════════════════════════════
+                
+                // ═══════════════════════════════════════════════════════════════════
+                // MOMENTUM PREDICTOR AI: Record price/volume data for pattern detection
+                // ═══════════════════════════════════════════════════════════════════
+                try {
+                    if (ts.history.size >= 2) {
+                        val lastCandle = ts.history.lastOrNull()
+                        if (lastCandle != null) {
+                            MomentumPredictorAI.recordPricePoint(
+                                mint = mint,
+                                symbol = ts.symbol,
+                                price = lastCandle.priceUsd,
+                                volume = lastCandle.vol,
+                                buyPressure = (lastCandle.buyRatio * 100),
+                                txCount = lastCandle.txCount,
+                            )
+                        }
+                    }
+                } catch (e: Exception) {
+                    ErrorLogger.debug("BotService", "MomentumPredictorAI record error: ${e.message}")
+                }
+                
                 val modeConfForEval = if (cfg.autoMode) modeConf else null
                 val (result, decision) = strategy.evaluateWithDecision(ts, modeConfForEval, cfg.paperMode, executor.brain)
 

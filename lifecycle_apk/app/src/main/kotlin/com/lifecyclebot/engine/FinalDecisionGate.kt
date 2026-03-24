@@ -356,6 +356,78 @@ object FinalDecisionGate {
         adjustment += learningAdj
         
         // ─────────────────────────────────────────────────────────────────
+        // FACTOR 9: MARKET REGIME AI INFLUENCE
+        // 
+        // MarketRegimeAI detects bull/bear/crab market conditions.
+        // Adjust confidence based on overall market state:
+        //   - Bull market: can be more aggressive (lower confidence needed)
+        //   - Bear market: need more confidence (riskier environment)
+        //   - High volatility: need more confidence
+        // ─────────────────────────────────────────────────────────────────
+        val regimeAdj = try {
+            val regime = MarketRegimeAI.getCurrentRegime()
+            val regimeConfidence = MarketRegimeAI.getRegimeConfidence()
+            
+            // Only apply if regime detection has reasonable confidence
+            if (regimeConfidence >= 40.0) {
+                when (regime) {
+                    MarketRegimeAI.Regime.STRONG_BULL -> -8.0   // Very bullish: more aggressive
+                    MarketRegimeAI.Regime.BULL -> -4.0          // Bullish: slightly aggressive
+                    MarketRegimeAI.Regime.NEUTRAL -> 0.0        // Neutral
+                    MarketRegimeAI.Regime.CRAB -> +3.0          // Choppy: slightly cautious
+                    MarketRegimeAI.Regime.BEAR -> +6.0          // Bearish: cautious
+                    MarketRegimeAI.Regime.STRONG_BEAR -> +10.0  // Very bearish: very cautious
+                    MarketRegimeAI.Regime.HIGH_VOLATILITY -> +5.0 // Volatile: cautious
+                }
+            } else 0.0
+        } catch (_: Exception) { 0.0 }
+        adjustment += regimeAdj
+        
+        // ─────────────────────────────────────────────────────────────────
+        // FACTOR 10: WHALE TRACKER AI INFLUENCE (Token-specific)
+        // 
+        // If whales are accumulating a token = bullish signal
+        // If whales are distributing = bearish signal
+        // This is checked per-token in the evaluate function
+        // ─────────────────────────────────────────────────────────────────
+        val whaleAdj = if (ts != null) {
+            try {
+                val whaleSignal = WhaleTrackerAI.getWhaleSignal(ts.mint, ts.symbol)
+                when (whaleSignal.recommendation) {
+                    "STRONG_BUY" -> -6.0    // Whales accumulating: aggressive
+                    "BUY" -> -3.0           // Whales buying: slightly aggressive
+                    "LEAN_BUY" -> -1.0      // Single whale buying
+                    "NEUTRAL" -> 0.0
+                    "LEAN_SELL" -> +2.0     // Single whale selling: cautious
+                    "SELL" -> +5.0          // Whales selling: more cautious
+                    "STRONG_SELL" -> +10.0  // Whales dumping: very cautious
+                    else -> 0.0
+                }
+            } catch (_: Exception) { 0.0 }
+        } else 0.0
+        adjustment += whaleAdj
+        
+        // ─────────────────────────────────────────────────────────────────
+        // FACTOR 11: MOMENTUM PREDICTOR AI INFLUENCE (Token-specific)
+        // 
+        // If momentum AI predicts a pump = bullish signal
+        // If momentum AI predicts distribution = bearish signal
+        // ─────────────────────────────────────────────────────────────────
+        val momentumAdj = if (ts != null) {
+            try {
+                val prediction = MomentumPredictorAI.getPrediction(ts.mint)
+                when (prediction) {
+                    MomentumPredictorAI.MomentumPrediction.STRONG_PUMP -> -5.0    // Pump predicted: aggressive
+                    MomentumPredictorAI.MomentumPrediction.PUMP_BUILDING -> -2.0  // Building momentum
+                    MomentumPredictorAI.MomentumPrediction.NEUTRAL -> 0.0
+                    MomentumPredictorAI.MomentumPrediction.WEAK -> +3.0           // Weak momentum: cautious
+                    MomentumPredictorAI.MomentumPrediction.DISTRIBUTION -> +8.0   // Distribution: very cautious
+                }
+            } catch (_: Exception) { 0.0 }
+        } else 0.0
+        adjustment += momentumAdj
+        
+        // ─────────────────────────────────────────────────────────────────
         // CALCULATE FINAL ADAPTIVE CONFIDENCE
         // Clamp to reasonable bounds
         // ─────────────────────────────────────────────────────────────────
@@ -385,12 +457,18 @@ object FinalDecisionGate {
             tier.label
         } catch (_: Exception) { "?" }
         
+        // Get market regime for logging
+        val regimeLabel = try {
+            MarketRegimeAI.getCurrentRegime().label
+        } catch (_: Exception) { "?" }
+        
         return buildString {
             append("AdaptiveConf: base=${base.toInt()}% ${sign}${diff.toInt()}% = ${adaptive.toInt()}% ")
             append("[vol=${currentConditions.avgVolatility.toInt()}% ")
             append("wr=${currentConditions.recentWinRate.toInt()}% ")
             append("buy=${currentConditions.buyPressureTrend.toInt()}% ")
-            append("tier=$tierLabel]")
+            append("tier=$tierLabel ")
+            append("regime=$regimeLabel]")
         }
     }
     

@@ -227,6 +227,63 @@ class LifecycleStrategy(
         if (ts.position.isOpen && mtf15m == MtfTrend.BEAR) {
             exitScore = (exitScore + 12.0).coerceIn(0.0, 100.0)
         }
+        
+        // ═══════════════════════════════════════════════════════════════════
+        // NEW AI LAYERS: Exit score adjustments for open positions
+        // ═══════════════════════════════════════════════════════════════════
+        if (ts.position.isOpen) {
+            // ── WHALE TRACKER AI - Exit warning ────────────────────────────
+            // If whales start selling, add exit urgency
+            try {
+                val whaleSignal = WhaleTrackerAI.getWhaleSignal(ts.mint, ts.symbol)
+                if (whaleSignal.signal == WhaleTrackerAI.SignalType.WHALE_DISTRIBUTION ||
+                    whaleSignal.signal == WhaleTrackerAI.SignalType.SINGLE_WHALE_SELL) {
+                    val exitUrgency = when (whaleSignal.recommendation) {
+                        "STRONG_SELL" -> 25.0  // Multiple trusted whales selling
+                        "SELL" -> 15.0         // Whales distributing
+                        "LEAN_SELL" -> 8.0     // Single whale selling
+                        else -> 0.0
+                    }
+                    if (exitUrgency > 0) {
+                        exitScore = (exitScore + exitUrgency).coerceIn(0.0, 100.0)
+                        ErrorLogger.warn("WhaleAI", "🐋 ${ts.symbol}: EXIT WARNING - ${whaleSignal.reason} (+${exitUrgency.toInt()} exit)")
+                    }
+                }
+            } catch (_: Exception) {}
+            
+            // ── MOMENTUM PREDICTOR AI - Exit urgency ───────────────────────
+            // Distribution detection = add exit urgency
+            try {
+                val prediction = MomentumPredictorAI.getPrediction(ts.mint)
+                if (prediction == MomentumPredictorAI.MomentumPrediction.DISTRIBUTION) {
+                    exitScore = (exitScore + 15.0).coerceIn(0.0, 100.0)
+                    ErrorLogger.warn("MomentumAI", "📉 ${ts.symbol}: DISTRIBUTION - adding exit urgency")
+                } else if (prediction == MomentumPredictorAI.MomentumPrediction.WEAK) {
+                    exitScore = (exitScore + 5.0).coerceIn(0.0, 100.0)
+                }
+            } catch (_: Exception) {}
+            
+            // ── MARKET REGIME AI - Hold time adjustment ────────────────────
+            // Bear market = tighter stops, quicker exits
+            try {
+                val regime = MarketRegimeAI.getCurrentRegime()
+                val regimeConfidence = MarketRegimeAI.getRegimeConfidence()
+                
+                if (regimeConfidence >= 40.0) {
+                    val regimeExitAdj = when (regime) {
+                        MarketRegimeAI.Regime.STRONG_BEAR -> 12.0  // Very bearish: exit faster
+                        MarketRegimeAI.Regime.BEAR -> 6.0          // Bearish: slightly faster exits
+                        MarketRegimeAI.Regime.HIGH_VOLATILITY -> 5.0 // Volatile: protect gains
+                        MarketRegimeAI.Regime.STRONG_BULL -> -8.0  // Very bullish: hold longer
+                        MarketRegimeAI.Regime.BULL -> -4.0         // Bullish: hold a bit longer
+                        else -> 0.0
+                    }
+                    if (regimeExitAdj != 0.0) {
+                        exitScore = (exitScore + regimeExitAdj).coerceIn(0.0, 100.0)
+                    }
+                }
+            } catch (_: Exception) {}
+        }
 
         // ── Bonding curve overlay ─────────────────────────────────────
         exitScore = (exitScore + curve.exitUrgencyBonus).coerceIn(0.0, 100.0)
@@ -271,6 +328,77 @@ class LifecycleStrategy(
                 entryScore = (entryScore + trendBoost).coerceIn(0.0, 100.0)
                 exitScore  = (exitScore - trendBoost * 0.3).coerceAtLeast(0.0)
             }
+        }
+        
+        // ═══════════════════════════════════════════════════════════════════
+        // NEW AI LAYERS INTEGRATION: Momentum, Whale, and Market Regime
+        // ═══════════════════════════════════════════════════════════════════
+        
+        if (!ts.position.isOpen) {
+            // ── MOMENTUM PREDICTOR AI ──────────────────────────────────────
+            // Detects volume acceleration, coiling patterns, and accumulation
+            // Strong momentum signals = higher chance of pump
+            try {
+                val momentumAdj = MomentumPredictorAI.getEntryScoreAdjustment(ts.mint)
+                if (momentumAdj != 0.0) {
+                    entryScore = (entryScore + momentumAdj).coerceIn(0.0, 100.0)
+                    val prediction = MomentumPredictorAI.getPrediction(ts.mint)
+                    if (prediction == MomentumPredictorAI.MomentumPrediction.STRONG_PUMP ||
+                        prediction == MomentumPredictorAI.MomentumPrediction.PUMP_BUILDING) {
+                        ErrorLogger.info("MomentumAI", "🚀 ${ts.symbol}: ${prediction.label} detected (+${momentumAdj.toInt()} pts)")
+                    } else if (prediction == MomentumPredictorAI.MomentumPrediction.DISTRIBUTION) {
+                        ErrorLogger.info("MomentumAI", "📉 ${ts.symbol}: DISTRIBUTION detected (${momentumAdj.toInt()} pts)")
+                    }
+                }
+            } catch (_: Exception) {}
+            
+            // ── WHALE TRACKER AI ───────────────────────────────────────────
+            // Detects when multiple whales are accumulating or distributing
+            // Strong whale consensus = follow the smart money
+            try {
+                val whaleSignal = WhaleTrackerAI.getWhaleSignal(ts.mint, ts.symbol)
+                if (whaleSignal.signal != WhaleTrackerAI.SignalType.NO_SIGNAL) {
+                    val whaleAdj = when (whaleSignal.recommendation) {
+                        "STRONG_BUY" -> 15.0   // Multiple whales accumulating
+                        "BUY" -> 10.0          // Whales buying
+                        "LEAN_BUY" -> 5.0      // Single trusted whale
+                        "LEAN_SELL" -> -5.0    // Single whale selling
+                        "SELL" -> -10.0        // Whales distributing
+                        "STRONG_SELL" -> -20.0 // Whales dumping
+                        else -> 0.0
+                    }
+                    if (whaleAdj != 0.0) {
+                        entryScore = (entryScore + whaleAdj).coerceIn(0.0, 100.0)
+                        if (whaleAdj > 0) {
+                            ErrorLogger.info("WhaleAI", "🐋 ${ts.symbol}: ${whaleSignal.recommendation} - ${whaleSignal.reason}")
+                        } else {
+                            ErrorLogger.warn("WhaleAI", "🐋 ${ts.symbol}: ${whaleSignal.recommendation} - ${whaleSignal.reason}")
+                        }
+                    }
+                }
+            } catch (_: Exception) {}
+            
+            // ── MARKET REGIME AI ───────────────────────────────────────────
+            // Adjusts entry threshold based on overall market conditions
+            // Bull market = more aggressive, Bear market = more selective
+            try {
+                val regime = MarketRegimeAI.getCurrentRegime()
+                val regimeConfidence = MarketRegimeAI.getRegimeConfidence()
+                
+                // Only apply if regime detection has reasonable confidence (40%+)
+                if (regimeConfidence >= 40.0) {
+                    // Check if entry meets minimum score for this regime
+                    val minScore = regime.minEntryScore
+                    if (entryScore < minScore && entryScore > 0) {
+                        // In bearish regimes, require higher conviction
+                        if (regime in listOf(MarketRegimeAI.Regime.BEAR, 
+                                            MarketRegimeAI.Regime.STRONG_BEAR,
+                                            MarketRegimeAI.Regime.HIGH_VOLATILITY)) {
+                            ErrorLogger.debug("MarketRegimeAI", "${ts.symbol}: Score ${entryScore.toInt()} below regime min ${minScore.toInt()} (${regime.label})")
+                        }
+                    }
+                }
+            } catch (_: Exception) {}
         }
 
         // ── Sentiment overlay ─────────────────────────────────────────
