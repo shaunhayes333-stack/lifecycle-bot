@@ -1806,8 +1806,9 @@ class SolanaMarketScanner(
     
     /**
      * Quick rugcheck - returns immediately if API is slow
-     * V8+ SKEPTICAL: Don't blindly trust high scores - check for red flags
-     * PAPER MODE: More lenient - we want to trade and learn
+     * VERY LENIENT: Only block tokens that are literally marked as RUGGED
+     * Most meme coins have low rugcheck scores but are still tradeable
+     * The real protection comes from our distribution detection and exit strategies
      */
     private fun quickRugcheck(mint: String): Boolean {
         val isPaperMode = cfg().paperMode
@@ -1820,46 +1821,47 @@ class SolanaMarketScanner(
                 .build()
             
             val resp = rugcheckHttp.newCall(request).execute()
-            if (!resp.isSuccessful) return true  // Pass if API error
+            if (!resp.isSuccessful) {
+                ErrorLogger.debug("Scanner", "Rugcheck API failed for ${mint.take(8)}, passing through")
+                return true  // Pass if API error
+            }
             
             val body = resp.body?.string() ?: return true
             val json = JSONObject(body)
             
-            // V8+ SKEPTICAL rugcheck evaluation
-            val scoreNormalized = json.optInt("score_normalised", 50)
+            val scoreNormalized = json.optInt("score_normalised", json.optInt("score", 50))
             val rugged = json.optString("rugged", "").lowercase()
             
-            // HARD BLOCK: Already rugged (even in paper mode - no point trading a dead token)
+            // HARD BLOCK: Token is LITERALLY marked as already rugged
             if (rugged == "true" || rugged == "yes") {
-                onLog("🚫 RUG: ${mint.take(8)}... ALREADY RUGGED")
+                onLog("🚫 RUG: ${mint.take(8)}... ALREADY RUGGED (confirmed)")
                 return false
             }
             
-            // PAPER MODE: Very lenient - only block if score < 5 (nearly guaranteed rug)
-            // REAL MODE: Block if score < 20
-            val blockThreshold = if (isPaperMode) 5 else 20
-            if (scoreNormalized < blockThreshold) {
-                onLog("🚫 BLOCKED: ${mint.take(8)}... score=$scoreNormalized (<$blockThreshold)")
+            // ONLY block extremely dangerous tokens (score < 5)
+            // Most meme coins have scores 10-30 which is fine
+            if (scoreNormalized < 5) {
+                onLog("🚫 BLOCKED: ${mint.take(8)}... score=$scoreNormalized (extremely risky)")
                 return false
             }
             
-            // SOFT CONCERN: Score 5-30 in paper, 20-40 in real - log warning but pass
-            val warningThreshold = if (isPaperMode) 30 else 40
-            if (scoreNormalized < warningThreshold) {
-                onLog("⚠️ RC WARNING: ${mint.take(8)}... score=$scoreNormalized (risky)")
+            // Log for debugging but PASS
+            if (scoreNormalized < 20) {
+                ErrorLogger.debug("Scanner", "RC ${mint.take(8)}: score=$scoreNormalized (low but OK)")
             }
             
-            return true  // Pass
+            return true  // Pass - let other safety checks handle it
             
         } catch (e: kotlinx.coroutines.CancellationException) { throw e } catch (e: Exception) {
             // Timeout or error - pass through (don't block on API issues)
+            ErrorLogger.debug("Scanner", "RC exception for ${mint.take(8)}: ${e.message}, passing")
             return true
         }
     }
     
     /**
      * Emit with optional quick rugcheck
-     * Non-blocking - if rugcheck is slow or fails, emit anyway
+     * VERY LENIENT - Only block truly dangerous rugs
      */
     private suspend fun emitWithRugcheck(token: ScannedToken) {
         // Quick check with 2-second timeout - always pass on any error
@@ -1868,14 +1870,17 @@ class SolanaMarketScanner(
                 try {
                     withTimeout(2000L) { quickRugcheck(token.mint) }
                 } catch (e: kotlinx.coroutines.TimeoutCancellationException) {
+                    ErrorLogger.debug("Scanner", "RC timeout for ${token.symbol}, passing through")
                     true  // Timeout = pass through
                 } catch (e: Exception) {
+                    ErrorLogger.debug("Scanner", "RC error for ${token.symbol}: ${e.message}, passing through")
                     true  // Any error = pass through
                 }
             }
         } catch (e: kotlinx.coroutines.CancellationException) {
             throw e  // Re-throw job cancellation
         } catch (e: Exception) {
+            ErrorLogger.debug("Scanner", "RC outer error for ${token.symbol}: ${e.message}, passing through")
             true  // Any other error = pass through
         }
         
