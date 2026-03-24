@@ -1027,12 +1027,24 @@ class SolanaMarketScanner(
                 if (pair.baseSymbol.uppercase() in listOf("SOL", "WSOL", "USDC", "USDT")) continue
                 
                 // If DexScreener returned $0 liquidity, try Birdeye as fallback
+                // Then try using FDV/mcap as a proxy (typical ratio is 10-20% of mcap)
                 var fallbackLiq = 0.0
                 if (pair.liquidity <= 0) {
+                    // Try Birdeye first
                     val overview = withContext(Dispatchers.IO) { birdeye.getTokenOverview(mint) }
                     fallbackLiq = overview?.liquidity ?: 0.0
+                    
                     if (fallbackLiq > 0) {
                         ErrorLogger.info("Scanner", "scanDexTrending: ${pair.baseSymbol} used Birdeye liq=\$${fallbackLiq.toInt()}")
+                    } else if (pair.fdv > 0 || pair.candle.marketCap > 0) {
+                        // Estimate liquidity as ~10% of FDV/mcap (conservative estimate)
+                        val mcap = if (pair.fdv > 0) pair.fdv else pair.candle.marketCap
+                        fallbackLiq = mcap * 0.10
+                        if (fallbackLiq > 1000) {  // Only use if meaningful
+                            ErrorLogger.info("Scanner", "scanDexTrending: ${pair.baseSymbol} estimated liq=\$${fallbackLiq.toInt()} from mcap=\$${mcap.toInt()}")
+                        } else {
+                            fallbackLiq = 0.0  // Too small, skip
+                        }
                     }
                 }
                 
@@ -1174,11 +1186,16 @@ class SolanaMarketScanner(
                 // Skip only stablecoins
                 if (pair.baseSymbol.uppercase() in listOf("SOL", "WSOL", "USDC", "USDT")) continue
                 
-                // If DexScreener returned $0 liquidity, try Birdeye as fallback
+                // If DexScreener returned $0 liquidity, try Birdeye then estimate from mcap
                 var fallbackLiq = 0.0
                 if (pair.liquidity <= 0) {
                     val overview = withContext(Dispatchers.IO) { birdeye.getTokenOverview(mint) }
                     fallbackLiq = overview?.liquidity ?: 0.0
+                    
+                    if (fallbackLiq <= 0 && (pair.fdv > 0 || pair.candle.marketCap > 0)) {
+                        val mcap = if (pair.fdv > 0) pair.fdv else pair.candle.marketCap
+                        fallbackLiq = (mcap * 0.10).takeIf { it > 1000 } ?: 0.0
+                    }
                 }
                 
                 val ageHours = (System.currentTimeMillis() - pair.pairCreatedAtMs) / 3_600_000.0
@@ -1296,12 +1313,16 @@ class SolanaMarketScanner(
                 // Skip only stablecoins
                 if (pair.baseSymbol.uppercase() in listOf("SOL", "WSOL", "USDC", "USDT")) continue
                 
-                // If DexScreener returned $0 liquidity, try Birdeye as fallback
-                // Note: For Birdeye source, the overview was already fetched, but pair may have stale data
+                // If DexScreener returned $0 liquidity, try Birdeye then estimate from mcap
                 var fallbackLiq = 0.0
                 if (pair.liquidity <= 0) {
                     val overview = withContext(Dispatchers.IO) { birdeye.getTokenOverview(mint) }
                     fallbackLiq = overview?.liquidity ?: 0.0
+                    
+                    if (fallbackLiq <= 0 && (pair.fdv > 0 || pair.candle.marketCap > 0)) {
+                        val mcap = if (pair.fdv > 0) pair.fdv else pair.candle.marketCap
+                        fallbackLiq = (mcap * 0.10).takeIf { it > 1000 } ?: 0.0
+                    }
                 }
                 
                 val ageHours = (System.currentTimeMillis() - pair.pairCreatedAtMs) / 3_600_000.0
