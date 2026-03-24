@@ -132,7 +132,7 @@ object FinalDecisionGate {
     var liveConfidenceMin = 40.0           // Live needs higher confidence
     
     // PAPER MODE LEARNING: Allow edge overrides so bot can learn from trades
-    var allowEdgeOverrideInPaper = true    // Paper mode bypasses edge veto for learning
+    var allowEdgeOverrideInPaper = false   // NO MORE EDGE OVERRIDE - causes garbage data
     
     // ═══════════════════════════════════════════════════════════════════════════
     // MAIN GATE FUNCTION
@@ -251,6 +251,63 @@ object FinalDecisionGate {
             checks.add(GateCheck("candidate_block", false, candidate.blockReason))
         } else if (blockReason == null) {
             checks.add(GateCheck("candidate_block", true, null))
+        }
+        
+        // ═══════════════════════════════════════════════════════════════════════
+        // GATE 1h: MOMENTUM CONFIRMATION (NEW)
+        // Before BUY, require:
+        // - Volume increasing (not flat/declining)
+        // - Liquidity stable or rising (not draining)
+        // - Price structure breakout (not flat chop)
+        // ═══════════════════════════════════════════════════════════════════════
+        
+        if (blockReason == null) {
+            val volumeOk = ts.history.size >= 3 && run {
+                val recent = ts.history.takeLast(3)
+                recent.last().vol >= recent.first().vol * 0.8  // Volume not collapsing
+            }
+            val liquidityOk = ts.lastLiquidityUsd >= 1000.0  // Min liquidity
+            val priceNotFlat = ts.history.size >= 5 && run {
+                val recent = ts.history.takeLast(5)
+                val high = recent.maxOf { it.high }
+                val low = recent.minOf { it.low }
+                val range = if (low > 0) (high - low) / low * 100 else 0.0
+                range >= 2.0  // At least 2% price range (not flat chop)
+            }
+            
+            val momentumScore = listOf(volumeOk, liquidityOk, priceNotFlat).count { it }
+            
+            if (momentumScore < 2) {  // Need at least 2/3 momentum signals
+                blockReason = "NO_MOMENTUM_${momentumScore}/3"
+                blockLevel = BlockLevel.CONFIDENCE
+                checks.add(GateCheck("momentum", false, "vol=$volumeOk liq=$liquidityOk notFlat=$priceNotFlat"))
+                tags.add("no_momentum")
+            } else {
+                checks.add(GateCheck("momentum", true, "score=$momentumScore/3"))
+            }
+        }
+        
+        // ═══════════════════════════════════════════════════════════════════════
+        // GATE 1i: PHASE FILTER (CRITICAL)
+        // phase=early_unknown is basically gambling
+        // Skip unless: score > 80 AND buy_pressure > 65
+        // ═══════════════════════════════════════════════════════════════════════
+        
+        if (blockReason == null && candidate.phase.lowercase().contains("unknown")) {
+            val isHighScore = candidate.entryScore >= 80
+            val isHighBuyPressure = ts.meta.pressScore >= 65
+            
+            if (!isHighScore || !isHighBuyPressure) {
+                blockReason = "UNKNOWN_PHASE_LOW_CONVICTION"
+                blockLevel = BlockLevel.CONFIDENCE
+                checks.add(GateCheck("phase_filter", false, 
+                    "phase=${candidate.phase} score=${candidate.entryScore.toInt()}<80 OR buy%=${ts.meta.pressScore.toInt()}<65"))
+                tags.add("phase_unknown_weak")
+            } else {
+                checks.add(GateCheck("phase_filter", true, "high conviction unknown phase"))
+            }
+        } else if (blockReason == null) {
+            checks.add(GateCheck("phase_filter", true, "phase=${candidate.phase}"))
         }
         
         // ─────────────────────────────────────────────────────────────────────

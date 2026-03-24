@@ -1658,33 +1658,33 @@ class Executor(
         SmartSizer.recordTrade(pnl > 0)
 
         // ═══════════════════════════════════════════════════════════════════
-        // TRADE OUTCOME CLASSIFICATION
-        // Properly categorize trades to avoid learning from non-events:
-        // 1. SCRATCH (-2% to +2%): Not meaningful - ignore for learning
-        // 2. SMALL_LOSS (-2% to -10%): Weak loss - mild negative signal
-        // 3. MEANINGFUL_LOSS (<-10%): Real loss - strong negative signal
-        // 4. SMALL_WIN (+2% to +10%): Weak win - mild positive signal
-        // 5. MEANINGFUL_WIN (>+10%): Real win - strong positive signal
+        // TRADE OUTCOME CLASSIFICATION (TIGHTENED)
+        // 
+        // CRITICAL: Only learn from MEANINGFUL outcomes:
+        //   - +5%+ winners = real signal
+        //   - -5%+ losers = real signal  
+        //   - Everything else = noise, skip learning
+        // 
+        // BEFORE: -2% to +2% scratch, -2% to -10% small loss (learned from)
+        // AFTER: Only learn from ±5%+ trades - no more garbage data
         // ═══════════════════════════════════════════════════════════════════
         
         val holdTimeMins = (System.currentTimeMillis() - pos.entryTime) / 60_000.0
         val tradeClassification = when {
-            pnlP in -2.0..2.0 -> "SCRATCH"           // Near breakeven - not meaningful
-            pnlP in -10.0..-2.0 -> "SMALL_LOSS"      // Weak loss
-            pnlP < -10.0 -> "MEANINGFUL_LOSS"        // Real loss
-            pnlP in 2.0..10.0 -> "SMALL_WIN"         // Weak win
-            pnlP > 10.0 -> "MEANINGFUL_WIN"          // Real win
-            else -> "SCRATCH"
+            pnlP >= 5.0 -> "WIN"              // Real winner - LEARN
+            pnlP <= -5.0 -> "LOSS"            // Real loser - LEARN
+            else -> "SCRATCH"                  // Noise - DO NOT LEARN
         }
         
-        // Only learn from MEANINGFUL outcomes, not scratches
-        val shouldLearnAsLoss = tradeClassification in listOf("MEANINGFUL_LOSS", "SMALL_LOSS")
-        val shouldLearnAsWin = tradeClassification in listOf("MEANINGFUL_WIN", "SMALL_WIN")
+        // STRICT: Only learn from ±5%+ trades
+        val isScratchTrade = tradeClassification == "SCRATCH"
+        val shouldLearnAsLoss = tradeClassification == "LOSS"
+        val shouldLearnAsWin = tradeClassification == "WIN"
         
         // Use identity for consistent logging
         ErrorLogger.info("Executor", "📊 ${tradeId.symbol} CLASSIFIED: $tradeClassification | " +
             "pnl=${pnlP.toInt()}% | hold=${holdTimeMins.toInt()}min | " +
-            "learnLoss=$shouldLearnAsLoss learnWin=$shouldLearnAsWin")
+            "learn=${if(isScratchTrade) "NO (scratch)" else "YES"}")
         
         // Record bad behaviour observations ONLY for meaningful losses
         if (shouldLearnAsLoss) {
@@ -2033,24 +2033,24 @@ class Executor(
         val exitPrice = ts.ref  // capture before position reset clears it
         
         // ═══════════════════════════════════════════════════════════════════
-        // TRADE OUTCOME CLASSIFICATION (same as paperSell)
+        // TRADE OUTCOME CLASSIFICATION (TIGHTENED - same as paperSell)
+        // Only learn from ±5%+ trades - no more garbage data
         // ═══════════════════════════════════════════════════════════════════
         val holdTimeMins = (System.currentTimeMillis() - pos.entryTime) / 60_000.0
         val tradeClassification = when {
-            pnlP in -2.0..2.0 -> "SCRATCH"
-            pnlP in -10.0..-2.0 -> "SMALL_LOSS"
-            pnlP < -10.0 -> "MEANINGFUL_LOSS"
-            pnlP in 2.0..10.0 -> "SMALL_WIN"
-            pnlP > 10.0 -> "MEANINGFUL_WIN"
-            else -> "SCRATCH"
+            pnlP >= 5.0 -> "WIN"              // Real winner - LEARN
+            pnlP <= -5.0 -> "LOSS"            // Real loser - LEARN
+            else -> "SCRATCH"                  // Noise - DO NOT LEARN
         }
         
-        val shouldLearnAsLoss = tradeClassification in listOf("MEANINGFUL_LOSS", "SMALL_LOSS")
-        val shouldLearnAsWin = tradeClassification in listOf("MEANINGFUL_WIN", "SMALL_WIN")
+        val isScratchTradeLive = tradeClassification == "SCRATCH"
+        val shouldLearnAsLoss = tradeClassification == "LOSS"
+        val shouldLearnAsWin = tradeClassification == "WIN"
         
         // Use tradeId for consistent logging
         ErrorLogger.info("Executor", "📊 LIVE ${tradeId.symbol} CLASSIFIED: $tradeClassification | " +
-            "pnl=${pnlP.toInt()}% | hold=${holdTimeMins.toInt()}min")
+            "pnl=${pnlP.toInt()}% | hold=${holdTimeMins.toInt()}min | " +
+            "learn=${if(isScratchTradeLive) "NO (scratch)" else "YES"}")
         
         // Record bad behaviour observations for MEANINGFUL losing trades only
         if (shouldLearnAsLoss) {
