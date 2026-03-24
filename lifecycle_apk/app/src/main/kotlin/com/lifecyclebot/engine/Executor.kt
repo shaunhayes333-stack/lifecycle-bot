@@ -2288,7 +2288,7 @@ class Executor(
         // MomentumPredictorAI: Learn from momentum prediction accuracy
         try {
             val peakPnlPct = if (ts.position.entryPrice > 0) {
-                com.lifecyclebot.util.pct(ts.position.entryPrice, ts.peakPrice)
+                com.lifecyclebot.util.pct(ts.position.entryPrice, ts.position.highestPrice)
             } else 0.0
             MomentumPredictorAI.recordOutcome(tradeId.mint, pnlP, peakPnlPct)
         } catch (_: Exception) {}
@@ -2671,7 +2671,7 @@ class Executor(
         // MomentumPredictorAI: Learn from momentum prediction accuracy
         try {
             val peakPnlPctLive = if (ts.position.entryPrice > 0) {
-                com.lifecyclebot.util.pct(ts.position.entryPrice, ts.peakPrice)
+                com.lifecyclebot.util.pct(ts.position.entryPrice, ts.position.highestPrice)
             } else 0.0
             MomentumPredictorAI.recordOutcome(tradeId.mint, pnlP, peakPnlPctLive)
         } catch (_: Exception) {}

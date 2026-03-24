@@ -1108,7 +1108,6 @@ class BotService : Service() {
                     // ═══════════════════════════════════════════════════════════════════
                     try {
                         val solPrice = WalletManager.lastKnownSolPrice
-                        val solChange24h = WalletManager.solPriceChange24h
                         
                         // Calculate meme performance from recent trades
                         val recentTrades = allTrades.filter { 
@@ -1124,7 +1123,7 @@ class BotService : Service() {
                         
                         MarketRegimeAI.updateMarketData(
                             solPrice = solPrice,
-                            solChange24h = solChange24h,
+                            solChange24h = 0.0, // Not tracked currently
                             solChange7d = 0.0, // Not tracked currently
                             avgMemePerformance = avgMemePerf,
                             successfulLaunches = successCount,
@@ -1564,7 +1563,7 @@ class BotService : Service() {
                                 price = lastCandle.priceUsd,
                                 volume = lastCandle.vol,
                                 buyPressure = (lastCandle.buyRatio * 100),
-                                txCount = lastCandle.txCount,
+                                txCount = lastCandle.buysH1 + lastCandle.sellsH1,
                             )
                         }
                     }
