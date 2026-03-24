@@ -254,8 +254,8 @@ class SolanaMarketScanner(
     )
 
     private val http = OkHttpClient.Builder()
-        .connectTimeout(8, TimeUnit.SECONDS)
-        .readTimeout(10, TimeUnit.SECONDS)
+        .connectTimeout(10, TimeUnit.SECONDS)  // Increased from 8s
+        .readTimeout(15, TimeUnit.SECONDS)     // Increased from 10s for slow APIs
         // AGGRESSIVE Memory optimization
         .connectionPool(okhttp3.ConnectionPool(0, 1, TimeUnit.SECONDS))
         .cache(null)
@@ -1914,8 +1914,12 @@ class SolanaMarketScanner(
             }
             null
         }
+    } catch (e: java.net.SocketTimeoutException) {
+        // Timeouts are expected occasionally - don't log as error
+        ErrorLogger.warn("Scanner", "HTTP timeout for ${url.take(50)}")
+        null
     } catch (e: Exception) { 
-        ErrorLogger.error("Scanner", "HTTP ERROR: ${e.message} for ${url.take(50)}")
+        ErrorLogger.warn("Scanner", "HTTP error: ${e.message?.take(30)} for ${url.take(50)}")
         null 
     }
 }
