@@ -699,8 +699,14 @@ object FinalDecisionGate {
         
         val mode = if (config.paperMode) TradeMode.PAPER else TradeMode.LIVE
         
-        // Use learned thresholds if available
-        val rugcheckThreshold = brain?.learnedRugcheckThreshold ?: hardBlockRugcheckMin
+        // Use learned thresholds if available, but cap for paper mode
+        // PAPER MODE: Very lenient (5) to allow learning
+        // LIVE MODE: Use learned or default (10), capped at 25
+        val rugcheckThreshold = if (config.paperMode) {
+            5  // Paper: very lenient for learning
+        } else {
+            (brain?.learnedRugcheckThreshold ?: hardBlockRugcheckMin).coerceIn(5, 25)
+        }
         val buyPressureThreshold = brain?.learnedMinBuyPressure ?: hardBlockBuyPressureMin
         val topHolderThreshold = brain?.learnedMaxTopHolder ?: hardBlockTopHolderMax
         
