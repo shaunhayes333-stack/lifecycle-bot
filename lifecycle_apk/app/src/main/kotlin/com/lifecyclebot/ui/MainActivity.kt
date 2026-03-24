@@ -802,6 +802,8 @@ class MainActivity : AppCompatActivity() {
     private fun renderOpenPositions(positions: List<TokenState>) {
         llOpenPositions.removeAllViews()
         val sdf = java.text.SimpleDateFormat("HH:mm", java.util.Locale.US)
+        val solPrice = com.lifecyclebot.engine.WalletManager.lastKnownSolPrice
+        
         positions.forEach { ts ->
             val pos     = ts.position
             val ref     = ts.ref
@@ -810,10 +812,11 @@ class MainActivity : AppCompatActivity() {
             val gainCol = if (gainPct >= 0) green else red
             val pnlSol  = pos.costSol * gainPct / 100.0
             
-            // Calculate token amount and current value
-            val tokenAmount = if (pos.entryPrice > 0) pos.costSol / pos.entryPrice else 0.0
-            val currentValue = tokenAmount * ref
-            val solPrice = com.lifecyclebot.engine.WalletManager.lastKnownSolPrice
+            // Calculate token amount using USD value and current token price
+            // costSol is in SOL, so convert to USD first, then divide by token price (USD)
+            val costUsd = pos.costSol * solPrice
+            val tokenAmount = if (ts.lastPrice > 0) costUsd / ts.lastPrice else 0.0
+            val currentValue = pos.costSol + pnlSol  // Current value in SOL
             val valueUsd = currentValue * solPrice
 
             val row = LinearLayout(this).apply {
@@ -842,9 +845,11 @@ class MainActivity : AppCompatActivity() {
                 setTextColor(white)
                 typeface = android.graphics.Typeface.DEFAULT_BOLD
             })
-            // Entry price and time
+            // Entry price per token and time
+            // Calculate actual entry price per token = cost USD / token amount
+            val entryPricePerToken = if (tokenAmount > 0) costUsd / tokenAmount else 0.0
             info.addView(TextView(this).apply {
-                text = "Entry: ${pos.entryPrice.fmtPrice()}  ·  ${sdf.format(java.util.Date(pos.entryTime))}"
+                text = "Entry: ${entryPricePerToken.fmtPrice()}  ·  ${sdf.format(java.util.Date(pos.entryTime))}"
                 textSize = resources.getDimension(R.dimen.trade_sub_text) / resources.displayMetrics.scaledDensity
                 setTextColor(muted)
                 typeface = android.graphics.Typeface.MONOSPACE
