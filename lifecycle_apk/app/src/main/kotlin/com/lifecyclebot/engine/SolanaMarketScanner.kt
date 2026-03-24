@@ -1026,7 +1026,17 @@ class SolanaMarketScanner(
                 // Skip major stablecoins only
                 if (pair.baseSymbol.uppercase() in listOf("SOL", "WSOL", "USDC", "USDT")) continue
                 
-                val token = buildScannedToken(mint, pair, TokenSource.DEX_TRENDING) ?: continue
+                // If DexScreener returned $0 liquidity, try Birdeye as fallback
+                var fallbackLiq = 0.0
+                if (pair.liquidity <= 0) {
+                    val overview = withContext(Dispatchers.IO) { birdeye.getTokenOverview(mint) }
+                    fallbackLiq = overview?.liquidity ?: 0.0
+                    if (fallbackLiq > 0) {
+                        ErrorLogger.info("Scanner", "scanDexTrending: ${pair.baseSymbol} used Birdeye liq=\$${fallbackLiq.toInt()}")
+                    }
+                }
+                
+                val token = buildScannedToken(mint, pair, TokenSource.DEX_TRENDING, fallbackLiq) ?: continue
                 if (passesFilter(token)) {
                     val ageHours = (System.currentTimeMillis() - pair.pairCreatedAtMs) / 3_600_000.0
                     emitWithRugcheck(token)
@@ -1164,8 +1174,15 @@ class SolanaMarketScanner(
                 // Skip only stablecoins
                 if (pair.baseSymbol.uppercase() in listOf("SOL", "WSOL", "USDC", "USDT")) continue
                 
+                // If DexScreener returned $0 liquidity, try Birdeye as fallback
+                var fallbackLiq = 0.0
+                if (pair.liquidity <= 0) {
+                    val overview = withContext(Dispatchers.IO) { birdeye.getTokenOverview(mint) }
+                    fallbackLiq = overview?.liquidity ?: 0.0
+                }
+                
                 val ageHours = (System.currentTimeMillis() - pair.pairCreatedAtMs) / 3_600_000.0
-                val token = buildScannedToken(mint, pair, TokenSource.DEX_BOOSTED) ?: continue
+                val token = buildScannedToken(mint, pair, TokenSource.DEX_BOOSTED, fallbackLiq) ?: continue
                 // Boosted tokens get score bump
                 val boostedToken = token.copy(score = (token.score + 15.0).coerceAtMost(100.0))
                 if (passesFilter(boostedToken)) {
@@ -1279,8 +1296,16 @@ class SolanaMarketScanner(
                 // Skip only stablecoins
                 if (pair.baseSymbol.uppercase() in listOf("SOL", "WSOL", "USDC", "USDT")) continue
                 
+                // If DexScreener returned $0 liquidity, try Birdeye as fallback
+                // Note: For Birdeye source, the overview was already fetched, but pair may have stale data
+                var fallbackLiq = 0.0
+                if (pair.liquidity <= 0) {
+                    val overview = withContext(Dispatchers.IO) { birdeye.getTokenOverview(mint) }
+                    fallbackLiq = overview?.liquidity ?: 0.0
+                }
+                
                 val ageHours = (System.currentTimeMillis() - pair.pairCreatedAtMs) / 3_600_000.0
-                val token = buildScannedToken(mint, pair, TokenSource.BIRDEYE_TRENDING) ?: continue
+                val token = buildScannedToken(mint, pair, TokenSource.BIRDEYE_TRENDING, fallbackLiq) ?: continue
                 if (passesFilter(token)) {
                     emitWithRugcheck(token)
                     onLog("🦅 Birdeye: ${token.symbol} | age=${ageHours.toInt()}h | liq=$${token.liquidityUsd.toInt()}")
@@ -1670,16 +1695,25 @@ class SolanaMarketScanner(
 
     // ── Helpers ───────────────────────────────────────────────────────
 
+    /**
+     * Build a ScannedToken from pair data.
+     * @param fallbackLiquidity Optional liquidity from another source (e.g., Birdeye) 
+     *                          to use if DexScreener returns $0
+     */
     private fun buildScannedToken(
         mint: String,
         pair: com.lifecyclebot.network.PairInfo,
         source: TokenSource,
+        fallbackLiquidity: Double = 0.0,
     ): ScannedToken? {
         if (pair.candle.priceUsd <= 0) return null
         
-        // Skip tokens with zero or very low liquidity - API data issue
-        if (pair.liquidity <= 0) {
-            ErrorLogger.debug("Scanner", "Skipping ${pair.baseSymbol}: $0 liquidity (API data issue)")
+        // Use DexScreener liquidity, or fallback if DexScreener returned $0
+        val liquidity = if (pair.liquidity > 0) pair.liquidity else fallbackLiquidity
+        
+        // Skip only if BOTH sources returned $0 liquidity
+        if (liquidity <= 0) {
+            ErrorLogger.debug("Scanner", "Skipping ${pair.baseSymbol}: $0 liquidity from all sources")
             return null
         }
         
@@ -1689,14 +1723,14 @@ class SolanaMarketScanner(
             symbol             = pair.baseSymbol,
             name               = pair.baseName,
             source             = source,
-            liquidityUsd       = pair.liquidity,
+            liquidityUsd       = liquidity,
             volumeH1           = pair.candle.volumeH1,
             mcapUsd            = pair.candle.marketCap,
             pairCreatedHoursAgo = ageHours.coerceAtLeast(0.0),
             dexId              = "solana",
             priceChangeH1      = 0.0,
             txCountH1          = pair.candle.buysH1 + pair.candle.sellsH1,
-            score              = scoreToken(pair.liquidity, pair.candle.volumeH1,
+            score              = scoreToken(liquidity, pair.candle.volumeH1,
                                             pair.candle.buysH1 + pair.candle.sellsH1,
                                             pair.candle.marketCap, 0.0, ageHours),
         )
