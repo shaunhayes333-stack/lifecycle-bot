@@ -281,8 +281,29 @@ class Executor(
         // Volume must be healthy (but not required to be super strong)
         if (volScore < 25.0) return false  // was 30.0 - lowered
 
-        // Must have room left
-        val remainingRoom = c.topUpMaxTotalSol - pos.costSol
+        // ═══════════════════════════════════════════════════════════════════
+        // TREASURY-AWARE MAX POSITION SIZE
+        // 
+        // Higher treasury = can afford larger positions on confirmed runners
+        // ScalingMode already handles this, but we add extra room for moonshots
+        // ═══════════════════════════════════════════════════════════════════
+        val effectiveMaxSol = try {
+            val solPrice = WalletManager.lastKnownSolPrice
+            val treasuryUsd = TreasuryManager.treasurySol * solPrice
+            val tier = ScalingMode.activeTier(treasuryUsd)
+            
+            // Scale max position with treasury tier
+            when (tier) {
+                ScalingMode.Tier.INSTITUTIONAL -> c.topUpMaxTotalSol * 3.0  // 3x max position
+                ScalingMode.Tier.SCALED        -> c.topUpMaxTotalSol * 2.0  // 2x max position
+                ScalingMode.Tier.GROWTH        -> c.topUpMaxTotalSol * 1.5  // 1.5x max position
+                ScalingMode.Tier.STARTER       -> c.topUpMaxTotalSol * 1.2  // 1.2x max position
+                ScalingMode.Tier.MICRO         -> c.topUpMaxTotalSol        // Standard max
+            }
+        } catch (_: Exception) { c.topUpMaxTotalSol }
+        
+        // Must have room left (using treasury-adjusted max)
+        val remainingRoom = effectiveMaxSol - pos.costSol
         if (remainingRoom < 0.005) return false
 
         return true
@@ -554,9 +575,32 @@ class Executor(
         if (!shouldPartial) return false
         if (partialLevel == 2 && !c.partialSellThirdEnabled) return false
 
+        // ═══════════════════════════════════════════════════════════════════
+        // TREASURY-AWARE PARTIAL SELL FRACTION
+        // 
+        // Higher treasury = take LESS at each partial (let more ride)
+        // Lower treasury = take MORE at each partial (secure profits)
+        // 
+        // This compounds with moonshot scaling for optimal wealth building
+        // ═══════════════════════════════════════════════════════════════════
+        val baseFraction = c.partialSellFraction
+        val treasuryAdjustedFraction = try {
+            val solPrice = WalletManager.lastKnownSolPrice
+            val treasuryUsd = TreasuryManager.treasurySol * solPrice
+            val tier = ScalingMode.activeTier(treasuryUsd)
+            
+            when (tier) {
+                // High treasury = profits secured = let more ride
+                ScalingMode.Tier.INSTITUTIONAL -> baseFraction * 0.6  // Take 60% of normal (15% instead of 25%)
+                ScalingMode.Tier.SCALED        -> baseFraction * 0.7  // Take 70% of normal (17.5% instead of 25%)
+                ScalingMode.Tier.GROWTH        -> baseFraction * 0.8  // Take 80% of normal (20% instead of 25%)
+                ScalingMode.Tier.STARTER       -> baseFraction * 0.9  // Take 90% of normal
+                ScalingMode.Tier.MICRO         -> baseFraction        // Full amount - need to secure gains
+            }
+        } catch (_: Exception) { baseFraction }
+        
         // Compute position update values BEFORE branching on paper/live
-        // so soldPct is in scope for both paths
-        val sellFraction = c.partialSellFraction
+        val sellFraction = treasuryAdjustedFraction
         val sellQty      = pos.qtyToken * sellFraction
         val sellSol      = sellQty * ts.ref
         val newSoldPct   = soldPct + sellFraction * 100.0

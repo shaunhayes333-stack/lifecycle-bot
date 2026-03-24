@@ -284,12 +284,34 @@ object FinalDecisionGate {
         adjustment += tokenAdj
         
         // ─────────────────────────────────────────────────────────────────
+        // FACTOR 7: TREASURY & SCALING TIER ADJUSTMENT
+        // 
+        // Higher treasury = profits are protected = can be more aggressive
+        // Higher scaling tier = larger positions = need more confidence
+        // ─────────────────────────────────────────────────────────────────
+        val treasuryAdj = try {
+            val solPrice = WalletManager.lastKnownSolPrice
+            val treasuryUsd = TreasuryManager.treasurySol * solPrice
+            val scalingTier = ScalingMode.activeTier(treasuryUsd)
+            
+            when (scalingTier) {
+                // Higher tiers have profits locked = can afford to be more aggressive
+                ScalingMode.Tier.INSTITUTIONAL -> -8.0  // $100K+ treasury: much more aggressive
+                ScalingMode.Tier.SCALED        -> -5.0  // $25K+ treasury: more aggressive
+                ScalingMode.Tier.GROWTH        -> -3.0  // $5K+ treasury: slightly aggressive
+                ScalingMode.Tier.STARTER       -> 0.0   // $500+ treasury: neutral
+                ScalingMode.Tier.MICRO         -> +3.0  // <$500: be careful, small stack
+            }
+        } catch (_: Exception) { 0.0 }
+        adjustment += treasuryAdj
+        
+        // ─────────────────────────────────────────────────────────────────
         // CALCULATE FINAL ADAPTIVE CONFIDENCE
         // Clamp to reasonable bounds
         // ─────────────────────────────────────────────────────────────────
         val adaptive = (baseConfidence + adjustment).coerceIn(
-            if (isPaperMode) 0.0 else 20.0,   // Min: 0% paper, 20% live
-            if (isPaperMode) 60.0 else 80.0   // Max: 60% paper, 80% live
+            if (isPaperMode) 0.0 else 15.0,   // Min: 0% paper, 15% live (was 20%)
+            if (isPaperMode) 60.0 else 75.0   // Max: 60% paper, 75% live (was 80%)
         )
         
         return adaptive
@@ -305,11 +327,20 @@ object FinalDecisionGate {
         val diff = adaptive - base
         val sign = if (diff >= 0) "+" else ""
         
+        // Get treasury tier for logging
+        val tierLabel = try {
+            val solPrice = WalletManager.lastKnownSolPrice
+            val treasuryUsd = TreasuryManager.treasurySol * solPrice
+            val tier = ScalingMode.activeTier(treasuryUsd)
+            tier.label
+        } catch (_: Exception) { "?" }
+        
         return buildString {
             append("AdaptiveConf: base=${base.toInt()}% ${sign}${diff.toInt()}% = ${adaptive.toInt()}% ")
             append("[vol=${currentConditions.avgVolatility.toInt()}% ")
             append("wr=${currentConditions.recentWinRate.toInt()}% ")
-            append("buy=${currentConditions.buyPressureTrend.toInt()}%]")
+            append("buy=${currentConditions.buyPressureTrend.toInt()}% ")
+            append("tier=$tierLabel]")
         }
     }
     
