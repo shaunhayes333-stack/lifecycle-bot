@@ -9,6 +9,14 @@ import com.lifecyclebot.engine.WhaleDetector
  * LifecycleStrategy v4 — Chart-Tuned
  * ════════════════════════════════════════════════════════════════════
  *
+ * SIGNAL SEMANTICS (Standardized):
+ * ────────────────────────────────
+ *   "BUY"   → Open a new position (only when no position exists)
+ *   "EXIT"  → Close an existing position (only when position is open)
+ *   "WAIT"  → Do nothing / hold current state
+ *
+ * Note: "SELL" is deprecated, use "EXIT" for closing positions.
+ *
  * Changes vs v3 (driven by live chart analysis):
  *
  * 1. EMA FAN SCORING in calcHoldExtension
@@ -2677,8 +2685,8 @@ class LifecycleStrategy(
                             else 8.0 * tfScale2
             if (gainPct < 0 && heldMins2 > maxLosing) return "EXIT"
 
-            if (phase == "distribution" && exitScore >= 35) return "SELL"
-            if (phase == "choppy_range" && exitScore >= 40) return "SELL"
+            if (phase == "distribution" && exitScore >= 35) return "EXIT"
+            if (phase == "choppy_range" && exitScore >= 40) return "EXIT"
             return "WAIT"
         }
 
