@@ -193,7 +193,7 @@ object FinalDecisionGate {
     )
     
     private val edgeVetoes = java.util.concurrent.ConcurrentHashMap<String, EdgeVeto>()
-    private const val EDGE_VETO_COOLDOWN_MS = 5 * 60 * 1000L  // 5 minutes - veto is sticky for 5 min
+    private const val EDGE_VETO_COOLDOWN_MS = 3 * 60 * 1000L  // 3 minutes - reduced for faster paper learning
     
     /**
      * Record an Edge veto for a token.
@@ -456,8 +456,8 @@ object FinalDecisionGate {
         // ═══════════════════════════════════════════════════════════════════════
         
         if (blockReason == null && config.paperMode) {
-            val minBuyPressurePaper = 50.0  // LOWERED: allow more learning trades
-            val minLiquidityPaper = 3000.0
+            val minBuyPressurePaper = 45.0  // LOWERED: 45% to allow more learning trades
+            val minLiquidityPaper = 2000.0  // LOWERED: $2000 minimum
             
             val hasBuyerInterest = ts.meta.pressScore >= minBuyPressurePaper
             val hasLiquidity = ts.lastLiquidityUsd >= minLiquidityPaper
@@ -487,7 +487,7 @@ object FinalDecisionGate {
         if (blockReason == null && candidate.phase.lowercase().contains("unknown")) {
             if (config.paperMode) {
                 // PAPER MODE: Allow unknown phases with decent buy pressure
-                val minBuyPressureUnknown = 52.0  // LOWERED from 55%
+                val minBuyPressureUnknown = 48.0  // LOWERED from 52%
                 if (ts.meta.pressScore >= minBuyPressureUnknown) {
                     checks.add(GateCheck("phase_filter", true, "PAPER: unknown phase OK (buy%=${ts.meta.pressScore.toInt()} >= $minBuyPressureUnknown)"))
                     tags.add("phase_unknown_allowed")
@@ -541,8 +541,8 @@ object FinalDecisionGate {
         if (blockReason == null && edgeVerdict == EdgeVerdict.SKIP) {
             if (config.paperMode) {
                 // PAPER MODE: Override edge veto with decent market confirmation
-                val minBuyPressureOverride = 54.0  // LOWERED from 58%
-                val minLiquidityOverride = 5000.0
+                val minBuyPressureOverride = 50.0  // LOWERED from 54%
+                val minLiquidityOverride = 3000.0  // LOWERED from 5000
                 
                 val hasStrongBuyers = ts.meta.pressScore >= minBuyPressureOverride
                 val hasGoodLiquidity = ts.lastLiquidityUsd >= minLiquidityOverride

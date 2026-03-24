@@ -20,19 +20,19 @@ object EdgeLearning {
     // ═══════════════════════════════════════════════════════════════════════
     
     data class AdaptiveThresholds(
-        var paperBuyPctMin: Double = 40.0,      // Paper: min buy% to trade
-        var paperVolumeMin: Double = 10.0,      // Paper: min volume score
+        var paperBuyPctMin: Double = 35.0,      // Paper: min buy% to trade (lowered for more learning)
+        var paperVolumeMin: Double = 8.0,       // Paper: min volume score (lowered)
         var liveBuyPctMin: Double = 50.0,       // Live: min buy% to trade
         var liveVolumeMin: Double = 15.0,       // Live: min volume score
-        var vetoStickyMinutes: Int = 5,         // How long vetoes stick
+        var vetoStickyMinutes: Int = 3,         // How long vetoes stick (reduced for paper)
     ) {
         // Bounds to prevent extreme values
         fun clamp() {
-            paperBuyPctMin = paperBuyPctMin.coerceIn(30.0, 55.0)
-            paperVolumeMin = paperVolumeMin.coerceIn(5.0, 20.0)
+            paperBuyPctMin = paperBuyPctMin.coerceIn(25.0, 55.0)  // Lower bound reduced
+            paperVolumeMin = paperVolumeMin.coerceIn(3.0, 20.0)   // Lower bound reduced
             liveBuyPctMin = liveBuyPctMin.coerceIn(45.0, 65.0)
             liveVolumeMin = liveVolumeMin.coerceIn(10.0, 25.0)
-            vetoStickyMinutes = vetoStickyMinutes.coerceIn(2, 15)
+            vetoStickyMinutes = vetoStickyMinutes.coerceIn(1, 15)  // Lower bound reduced
         }
     }
     
