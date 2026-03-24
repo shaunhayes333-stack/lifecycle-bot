@@ -254,11 +254,14 @@ object FinalDecisionGate {
         }
         
         // ═══════════════════════════════════════════════════════════════════════
-        // GATE 1h: MOMENTUM CONFIRMATION (NEW)
+        // GATE 1h: MOMENTUM CONFIRMATION
         // Before BUY, require:
         // - Volume increasing (not flat/declining)
         // - Liquidity stable or rising (not draining)
         // - Price structure breakout (not flat chop)
+        // 
+        // LIVE MODE: Strict - need 2/3 momentum signals
+        // PAPER MODE: Lenient - need 1/3 (just liquidity check) for learning
         // ═══════════════════════════════════════════════════════════════════════
         
         if (blockReason == null) {
@@ -277,14 +280,15 @@ object FinalDecisionGate {
             }
             
             val momentumScore = listOf(volumeOk, liquidityOk, priceNotFlat).count { it }
+            val minMomentum = if (config.paperMode) 1 else 2  // Paper: more lenient
             
-            if (momentumScore < 2) {  // Need at least 2/3 momentum signals
-                blockReason = "NO_MOMENTUM_${momentumScore}/3"
+            if (momentumScore < minMomentum) {
+                blockReason = "NO_MOMENTUM_${momentumScore}/$minMomentum"
                 blockLevel = BlockLevel.CONFIDENCE
-                checks.add(GateCheck("momentum", false, "vol=$volumeOk liq=$liquidityOk notFlat=$priceNotFlat"))
+                checks.add(GateCheck("momentum", false, "vol=$volumeOk liq=$liquidityOk notFlat=$priceNotFlat (need $minMomentum)"))
                 tags.add("no_momentum")
             } else {
-                checks.add(GateCheck("momentum", true, "score=$momentumScore/3"))
+                checks.add(GateCheck("momentum", true, "score=$momentumScore/3 (paper=$config.paperMode)"))
             }
         }
         
@@ -293,29 +297,33 @@ object FinalDecisionGate {
         // phase=early_unknown needs higher conviction to trade
         // 
         // LIVE MODE: Strict - score >= 80 AND buy_pressure >= 65
-        // PAPER MODE: Moderate - score >= 50 AND buy_pressure >= 50 (allow learning)
+        // PAPER MODE: DISABLED - let the bot learn from all phases
         // 
-        // This still filters true garbage while allowing paper mode to learn
+        // Paper mode exists to LEARN. Blocking unknown phases defeats learning.
+        // We track outcomes via Shadow Learning and PnL results.
         // ═══════════════════════════════════════════════════════════════════════
         
         if (blockReason == null && candidate.phase.lowercase().contains("unknown")) {
-            val (minScore, minBuyPressure) = if (config.paperMode) {
-                50.0 to 50.0  // Paper: moderate threshold for learning
+            if (config.paperMode) {
+                // PAPER MODE: NO phase blocking - learn from ALL phases
+                checks.add(GateCheck("phase_filter", true, "PAPER: all phases allowed for learning"))
+                tags.add("phase_unknown_paper")
             } else {
-                80.0 to 65.0  // Live: strict threshold for real money
-            }
-            
-            val isHighScore = candidate.entryScore >= minScore
-            val isHighBuyPressure = ts.meta.pressScore >= minBuyPressure
-            
-            if (!isHighScore || !isHighBuyPressure) {
-                blockReason = "UNKNOWN_PHASE_LOW_CONVICTION"
-                blockLevel = BlockLevel.CONFIDENCE
-                checks.add(GateCheck("phase_filter", false, 
-                    "phase=${candidate.phase} score=${candidate.entryScore.toInt()}<${minScore.toInt()} OR buy%=${ts.meta.pressScore.toInt()}<${minBuyPressure.toInt()}"))
-                tags.add("phase_unknown_weak")
-            } else {
-                checks.add(GateCheck("phase_filter", true, "unknown phase OK (score=${candidate.entryScore.toInt()} buy%=${ts.meta.pressScore.toInt()})"))
+                // LIVE MODE: Strict filtering for real money
+                val minScore = 80.0
+                val minBuyPressure = 65.0
+                val isHighScore = candidate.entryScore >= minScore
+                val isHighBuyPressure = ts.meta.pressScore >= minBuyPressure
+                
+                if (!isHighScore || !isHighBuyPressure) {
+                    blockReason = "UNKNOWN_PHASE_LOW_CONVICTION"
+                    blockLevel = BlockLevel.CONFIDENCE
+                    checks.add(GateCheck("phase_filter", false, 
+                        "phase=${candidate.phase} score=${candidate.entryScore.toInt()}<${minScore.toInt()} OR buy%=${ts.meta.pressScore.toInt()}<${minBuyPressure.toInt()}"))
+                    tags.add("phase_unknown_weak")
+                } else {
+                    checks.add(GateCheck("phase_filter", true, "unknown phase OK (score=${candidate.entryScore.toInt()} buy%=${ts.meta.pressScore.toInt()})"))
+                }
             }
         } else if (blockReason == null) {
             checks.add(GateCheck("phase_filter", true, "phase=${candidate.phase}"))
@@ -325,8 +333,13 @@ object FinalDecisionGate {
         // GATE 2: EDGE VETO
         // 
         // LIVE MODE: Edge veto is ENFORCED strictly
-        // PAPER MODE: Edge veto RELAXED for quality B+ setups with decent confidence
-        //             This allows learning from moderate setups without taking garbage
+        // PAPER MODE: Edge veto DISABLED - learn from ALL trades
+        //             
+        // The whole POINT of paper mode is to learn. Edge vetos based on
+        // "SKIP" quality are predictions - we need to execute trades to
+        // validate if those predictions are correct. Shadow Learning
+        // handles non-executed trades, but paper mode should execute MORE
+        // trades to get direct PnL feedback.
         // ─────────────────────────────────────────────────────────────────────
         
         val edgeVerdict = when (candidate.edgeQuality.uppercase()) {
@@ -336,17 +349,12 @@ object FinalDecisionGate {
         }
         
         if (blockReason == null && edgeVerdict == EdgeVerdict.SKIP) {
-            // Edge says skip - check if we should override
-            val isQualitySetup = candidate.setupQuality in listOf("A+", "A", "B")
-            val hasDecentConfidence = candidate.aiConfidence >= 15.0
-            val canOverride = config.paperMode && isQualitySetup && hasDecentConfidence
-            
-            if (canOverride) {
-                // PAPER MODE: Allow B+ quality setups with decent confidence for learning
-                checks.add(GateCheck("edge", true, "PAPER: edge override (quality=${candidate.setupQuality} conf=${candidate.aiConfidence.toInt()}%)"))
-                tags.add("edge_override_quality")
+            if (config.paperMode) {
+                // PAPER MODE: NO edge blocking - execute to learn
+                checks.add(GateCheck("edge", true, "PAPER: edge veto bypassed for learning (edge=${candidate.edgeQuality})"))
+                tags.add("edge_override_paper")
             } else {
-                // Block: Either live mode, or paper mode with garbage quality
+                // LIVE MODE: Enforce edge veto strictly
                 blockReason = "EDGE_VETO_${candidate.edgeQuality}"
                 blockLevel = BlockLevel.EDGE
                 checks.add(GateCheck("edge", false, "edge=${candidate.edgeQuality} quality=${candidate.setupQuality}"))
