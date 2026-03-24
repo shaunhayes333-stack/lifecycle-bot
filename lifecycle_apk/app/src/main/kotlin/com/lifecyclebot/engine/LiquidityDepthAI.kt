@@ -287,33 +287,40 @@ object LiquidityDepthAI {
         }
         
         // Calculate adjustments based on trend
-        val (signal, entryAdj, exitUrg, sizeMult) = when (trend.trend) {
+        data class TrendResult(val signal: SignalType, val entryAdj: Double, val exitUrg: Double, val sizeMult: Double)
+        
+        val result = when (trend.trend) {
             Trend.SPIKE -> {
                 spikeDetections++
-                SignalType.LIQUIDITY_SPIKE to spikeEntryBoost to 0.0 to 1.3
+                TrendResult(SignalType.LIQUIDITY_SPIKE, spikeEntryBoost, 0.0, 1.3)
             }
             Trend.STRONG_GROWTH -> {
-                SignalType.LIQUIDITY_GROWING to growthEntryBoost to 0.0 to 1.2
+                TrendResult(SignalType.LIQUIDITY_GROWING, growthEntryBoost, 0.0, 1.2)
             }
             Trend.GROWTH -> {
-                SignalType.LIQUIDITY_GROWING to (growthEntryBoost * 0.5) to 0.0 to 1.1
+                TrendResult(SignalType.LIQUIDITY_GROWING, growthEntryBoost * 0.5, 0.0, 1.1)
             }
             Trend.STABLE -> {
-                SignalType.LIQUIDITY_STABLE to 0.0 to 0.0 to 1.0
+                TrendResult(SignalType.LIQUIDITY_STABLE, 0.0, 0.0, 1.0)
             }
             Trend.DRAIN -> {
-                SignalType.LIQUIDITY_DRAINING to (-5.0) to drainExitUrgency to 0.8
+                TrendResult(SignalType.LIQUIDITY_DRAINING, -5.0, drainExitUrgency, 0.8)
             }
             Trend.COLLAPSE -> {
                 collapseDetections++
                 shouldBlock = true
                 blockReason = blockReason ?: "LIQUIDITY_COLLAPSE: Rapid drain detected"
-                SignalType.LIQUIDITY_COLLAPSE to (-15.0) to collapseExitUrgency to 0.5
+                TrendResult(SignalType.LIQUIDITY_COLLAPSE, -15.0, collapseExitUrgency, 0.5)
             }
             Trend.UNKNOWN -> {
-                SignalType.NO_DATA to 0.0 to 0.0 to 1.0
+                TrendResult(SignalType.NO_DATA, 0.0, 0.0, 1.0)
             }
         }
+        
+        val signal = result.signal
+        val entryAdj = result.entryAdj
+        val exitUrg = result.exitUrg
+        val sizeMult = result.sizeMult
         
         // Adjust for depth quality
         val depthSizeMult = when (trend.depthQuality) {
@@ -545,14 +552,4 @@ object LiquidityDepthAI {
     }
     
     private fun Double.format(decimals: Int) = "%.${decimals}f".format(this)
-    
-    // Triple to Quadruple helper
-    private infix fun <A, B, C> Triple<A, B, C>.to(d: Double): Quadruple<A, B, C, Double> = Quadruple(first, second, third, d)
-    private data class Quadruple<A, B, C, D>(val first: A, val second: B, val third: C, val fourth: D)
-    
-    // Operator overload for result unpacking
-    private operator fun <A, B, C, D> Quadruple<A, B, C, D>.component1() = first
-    private operator fun <A, B, C, D> Quadruple<A, B, C, D>.component2() = second
-    private operator fun <A, B, C, D> Quadruple<A, B, C, D>.component3() = third
-    private operator fun <A, B, C, D> Quadruple<A, B, C, D>.component4() = fourth
 }
