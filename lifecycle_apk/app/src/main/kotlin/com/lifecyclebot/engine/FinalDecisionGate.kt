@@ -288,24 +288,26 @@ object FinalDecisionGate {
         // We want trades with real market signals, not pure garbage.
         // 
         // MINIMUM QUALITY THRESHOLDS (Paper Mode):
-        //   - Buy pressure >= 45% (shows buyer interest, not pure dump)
+        //   - Buy pressure >= 52% (RAISED from 45% - need safety margin above distribution)
         //   - Liquidity >= $3000 (actually tradeable)
         // 
-        // These are LOW bars - just filtering out obvious garbage.
+        // Why 52%? Distribution is typically detected when buy% < 48%.
+        // A 52% threshold gives us a 4% buffer before distribution triggers.
+        // This prevents: buy at 50% → immediate distribution exit → scratch trade
         // ═══════════════════════════════════════════════════════════════════════
         
         if (blockReason == null && config.paperMode) {
-            val minBuyPressurePaper = 45.0
+            val minBuyPressurePaper = 52.0  // RAISED: safety margin above distribution zone
             val minLiquidityPaper = 3000.0
             
             val hasBuyerInterest = ts.meta.pressScore >= minBuyPressurePaper
             val hasLiquidity = ts.lastLiquidityUsd >= minLiquidityPaper
             
             if (!hasBuyerInterest) {
-                blockReason = "PAPER_LOW_BUY_PRESSURE_${ts.meta.pressScore.toInt()}%"
+                blockReason = "PAPER_NEAR_DISTRIBUTION_${ts.meta.pressScore.toInt()}%"
                 blockLevel = BlockLevel.CONFIDENCE
-                checks.add(GateCheck("paper_quality", false, "buy%=${ts.meta.pressScore.toInt()} < $minBuyPressurePaper (no buyer interest)"))
-                tags.add("paper_garbage")
+                checks.add(GateCheck("paper_quality", false, "buy%=${ts.meta.pressScore.toInt()} < $minBuyPressurePaper (too close to distribution zone)"))
+                tags.add("near_distribution")
             } else if (!hasLiquidity) {
                 blockReason = "PAPER_LOW_LIQUIDITY_$${ts.lastLiquidityUsd.toInt()}"
                 blockLevel = BlockLevel.CONFIDENCE
@@ -320,14 +322,14 @@ object FinalDecisionGate {
         // GATE 1j: PHASE FILTER
         // 
         // LIVE MODE: Strict - unknown phases need high conviction
-        // PAPER MODE: Relaxed - unknown phases allowed if buy% >= 50
-        //             (some signal that buyers are interested)
+        // PAPER MODE: Relaxed - unknown phases allowed if buy% >= 55
+        //             (need strong buyer conviction, not borderline)
         // ═══════════════════════════════════════════════════════════════════════
         
         if (blockReason == null && candidate.phase.lowercase().contains("unknown")) {
             if (config.paperMode) {
-                // PAPER MODE: Allow unknown phases with decent buy pressure
-                val minBuyPressureUnknown = 50.0
+                // PAPER MODE: Allow unknown phases with STRONG buy pressure
+                val minBuyPressureUnknown = 55.0  // RAISED from 50%
                 if (ts.meta.pressScore >= minBuyPressureUnknown) {
                     checks.add(GateCheck("phase_filter", true, "PAPER: unknown phase OK (buy%=${ts.meta.pressScore.toInt()} >= $minBuyPressureUnknown)"))
                     tags.add("phase_unknown_allowed")
@@ -365,11 +367,12 @@ object FinalDecisionGate {
         // PAPER MODE: Edge veto OVERRIDABLE with market confirmation
         //             
         // Edge says "SKIP" based on pattern analysis, but it could be wrong.
-        // In paper mode, we override IF the market shows real interest:
-        //   - Buy pressure >= 55% (strong buyer activity)
+        // In paper mode, we override IF the market shows STRONG interest:
+        //   - Buy pressure >= 58% (RAISED: well above distribution zone)
         //   - Liquidity >= $5000 (real money in the pool)
         // 
-        // This creates QUALITY data: trades with market confirmation signals.
+        // Why 58%? Distribution triggers around 48%. We need a wide buffer
+        // because buy pressure can drop quickly. 58% gives us 10% margin.
         // ─────────────────────────────────────────────────────────────────────
         
         val edgeVerdict = when (candidate.edgeQuality.uppercase()) {
@@ -380,20 +383,20 @@ object FinalDecisionGate {
         
         if (blockReason == null && edgeVerdict == EdgeVerdict.SKIP) {
             if (config.paperMode) {
-                // PAPER MODE: Override edge veto if market shows real interest
-                val minBuyPressureOverride = 55.0
+                // PAPER MODE: Override edge veto ONLY with strong market confirmation
+                val minBuyPressureOverride = 58.0  // RAISED from 55%
                 val minLiquidityOverride = 5000.0
                 
                 val hasStrongBuyers = ts.meta.pressScore >= minBuyPressureOverride
                 val hasGoodLiquidity = ts.lastLiquidityUsd >= minLiquidityOverride
                 
                 if (hasStrongBuyers && hasGoodLiquidity) {
-                    // Market confirmation - override edge veto for learning
+                    // Strong market confirmation - override edge veto for learning
                     checks.add(GateCheck("edge", true, 
                         "PAPER: edge override (buy%=${ts.meta.pressScore.toInt()}>=$minBuyPressureOverride liq=$${ts.lastLiquidityUsd.toInt()}>=$minLiquidityOverride)"))
                     tags.add("edge_override_confirmed")
                 } else {
-                    // No market confirmation - respect edge veto
+                    // No strong confirmation - respect edge veto
                     val reasons = mutableListOf<String>()
                     if (!hasStrongBuyers) reasons.add("buy%=${ts.meta.pressScore.toInt()}<$minBuyPressureOverride")
                     if (!hasGoodLiquidity) reasons.add("liq=$${ts.lastLiquidityUsd.toInt()}<$minLiquidityOverride")
