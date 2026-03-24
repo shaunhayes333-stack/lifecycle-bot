@@ -254,7 +254,35 @@ object FinalDecisionGate {
         }
         
         // ═══════════════════════════════════════════════════════════════════════
-        // GATE 1h: PAPER MODE QUALITY FILTER
+        // GATE 1h: DISTRIBUTION HARD BLOCK (CRITICAL - applies to ALL modes)
+        // 
+        // NEVER buy during distribution phase. This is when whales/bots are
+        // actively DUMPING. The outcome is predictable: you will lose.
+        // 
+        // This is NOT a "learning" opportunity because:
+        //   1. Outcome is predictable (price dumps)
+        //   2. Pollutes training data with "obvious loser" trades
+        //   3. No edge exists during distribution
+        // 
+        // Even paper mode should NOT take these trades.
+        // ═══════════════════════════════════════════════════════════════════════
+        
+        if (blockReason == null) {
+            val isDistributionPhase = candidate.edgePhase.uppercase() == "DISTRIBUTION"
+            val hasDistributionTag = ts.phase.lowercase().contains("distribution")
+            
+            if (isDistributionPhase || hasDistributionTag) {
+                blockReason = "HARD_BLOCK_DISTRIBUTION"
+                blockLevel = BlockLevel.HARD
+                checks.add(GateCheck("distribution", false, "edgePhase=${candidate.edgePhase} tsPhase=${ts.phase} - whales dumping"))
+                tags.add("distribution_block")
+            } else {
+                checks.add(GateCheck("distribution", true, "edgePhase=${candidate.edgePhase}"))
+            }
+        }
+        
+        // ═══════════════════════════════════════════════════════════════════════
+        // GATE 1i: PAPER MODE QUALITY FILTER
         // 
         // For QUALITY training data, paper mode still needs SOME filters.
         // We want trades with real market signals, not pure garbage.
@@ -289,7 +317,7 @@ object FinalDecisionGate {
         }
         
         // ═══════════════════════════════════════════════════════════════════════
-        // GATE 1i: PHASE FILTER
+        // GATE 1j: PHASE FILTER
         // 
         // LIVE MODE: Strict - unknown phases need high conviction
         // PAPER MODE: Relaxed - unknown phases allowed if buy% >= 50
