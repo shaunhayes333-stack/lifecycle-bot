@@ -335,10 +335,21 @@ class LifecycleStrategy(
             // PRIORITY 1: Log Edge veto clearly and RECORD IT for sticky blocking
             if (edgeVeto) {
                 ErrorLogger.info("Edge", "🚫 ${ts.symbol}: VETOED - ${edgeFilter.reason}")
-                // Record sticky veto in FDG - this prevents re-buying for 5 minutes
-                FinalDecisionGate.recordEdgeVeto(ts.mint, edgeFilter.reason, edgeFilter.quality)
-            } else if (!edgeFilter.shouldTrade) {
-                ErrorLogger.debug("Edge", "📊 ${ts.symbol}: Filter notes - ${edgeFilter.reason}")
+                // Record sticky veto in FDG - but ONLY if not already vetoed
+                // This prevents refreshing the cooldown on every cycle
+                if (FinalDecisionGate.hasActiveEdgeVeto(ts.mint) == null) {
+                    FinalDecisionGate.recordEdgeVeto(ts.mint, edgeFilter.reason, edgeFilter.quality)
+                    ErrorLogger.debug("Edge", "📝 ${ts.symbol}: Veto recorded (5min cooldown starts)")
+                }
+            } else {
+                // Edge is NOT vetoing - clear any existing veto (conditions improved)
+                if (FinalDecisionGate.hasActiveEdgeVeto(ts.mint) != null) {
+                    FinalDecisionGate.clearEdgeVeto(ts.mint)
+                    ErrorLogger.info("Edge", "✅ ${ts.symbol}: Veto CLEARED (conditions improved)")
+                }
+                if (!edgeFilter.shouldTrade) {
+                    ErrorLogger.debug("Edge", "📊 ${ts.symbol}: Filter notes - ${edgeFilter.reason}")
+                }
             }
             
             // Log edge analysis for significant tokens
