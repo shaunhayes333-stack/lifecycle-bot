@@ -32,10 +32,22 @@ data class SafetyReport(
     val nameFlag: String = "",            // empty = clean
     val summary: String = "",
     val checkedAt: Long = 0L,
+    // Bundle detection fields
+    val bundleRisk: String = "UNKNOWN",           // LOW, MEDIUM, HIGH, UNKNOWN
+    val bundleType: String = "NONE",              // NONE, DEV_BUNDLE, SNIPER_BUNDLE, PUMP_BUNDLE, etc.
+    val firstBlockSupplyPct: Double = -1.0,       // % of supply bought in first block
+    val firstBlockBuyers: Int = -1,               // Number of unique wallets in first block
+    val bundleRecommendation: String = "UNKNOWN", // SAFE, CAUTION, AVOID
+    val bundleReason: String = "",                // Explanation of bundle analysis
 ) {
     val isBlocked  get() = tier == SafetyTier.HARD_BLOCK
     val ageMinutes get() = (System.currentTimeMillis() - checkedAt) / 60_000.0
     val isStale    get() = ageMinutes > 10.0   // re-check every 10 min
+    
+    // Bundle risk helpers
+    val hasDangerousBundles get() = bundleRisk == "HIGH"
+    val hasModerateBundle get() = bundleRisk == "MEDIUM"
+    val hasPumpBundle get() = bundleType == "PUMP_BUNDLE"
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -330,6 +342,65 @@ class TokenSafetyChecker(private val cfg: () -> BotConfig) {
                 penalty += 10
             }
         }
+        
+        // ── 9. Bundle Detection (Quick Risk Check) ─────────────────────
+        // Full bundle analysis is expensive, so we do a quick risk estimate
+        // based on holder concentration (full analysis runs async later)
+        var bundleRisk = "UNKNOWN"
+        var bundleType = "NONE"
+        var bundleRecommendation = "UNKNOWN"
+        var bundleReason = ""
+        var firstBlockSupplyPct = -1.0
+        var firstBlockBuyers = -1
+        
+        // Quick bundle risk check based on holder data we already have
+        if (topHolderPct > 0) {
+            val quickRisk = BundleDetector.quickRiskCheck(
+                firstBlockBuyers = 5,  // Estimate - real analysis runs async
+                firstBlockSupplyPct = topHolderPct,  // Use holder% as proxy
+                topHolderPct = topHolderPct,
+            )
+            
+            bundleRisk = quickRisk.name
+            bundleType = when {
+                topHolderPct > 60 -> "DEV_BUNDLE"
+                topHolderPct > 40 -> "MIXED"
+                else -> "NONE"
+            }
+            
+            when (quickRisk) {
+                BundleDetector.BundleRisk.HIGH -> {
+                    // DANGEROUS bundle - add penalty but don't hard block
+                    // (full analysis may reveal it's a PUMP bundle which is good)
+                    if (isPaperMode) {
+                        soft.add("Bundle risk HIGH: ${topHolderPct.toInt()}% concentrated" to 35)
+                        penalty += 35
+                    } else {
+                        // In live mode, we're more cautious but still allow with penalty
+                        soft.add("Bundle risk HIGH: ${topHolderPct.toInt()}% concentrated - monitor closely" to 40)
+                        penalty += 40
+                    }
+                    bundleRecommendation = "CAUTION"
+                    bundleReason = "High concentration (${topHolderPct.toInt()}%) - could be rug or pump"
+                }
+                BundleDetector.BundleRisk.MEDIUM -> {
+                    soft.add("Bundle risk MEDIUM: ${topHolderPct.toInt()}% concentrated" to 15)
+                    penalty += 15
+                    bundleRecommendation = "CAUTION"
+                    bundleReason = "Moderate concentration - watch for sells"
+                }
+                BundleDetector.BundleRisk.LOW -> {
+                    bundleRecommendation = "SAFE"
+                    bundleReason = "No dangerous bundle patterns"
+                }
+                else -> {
+                    bundleRecommendation = "UNKNOWN"
+                    bundleReason = "Could not analyze bundles"
+                }
+            }
+            
+            firstBlockSupplyPct = topHolderPct  // Proxy value
+        }
 
         // ── Build report ──────────────────────────────────────────────
         val tier = if (hard.isNotEmpty()) SafetyTier.HARD_BLOCK
@@ -352,6 +423,13 @@ class TokenSafetyChecker(private val cfg: () -> BotConfig) {
             nameFlag                = nameFlag,
             summary                 = summary,
             checkedAt               = System.currentTimeMillis(),
+            // Bundle detection fields
+            bundleRisk              = bundleRisk,
+            bundleType              = bundleType,
+            firstBlockSupplyPct     = firstBlockSupplyPct,
+            firstBlockBuyers        = firstBlockBuyers,
+            bundleRecommendation    = bundleRecommendation,
+            bundleReason            = bundleReason,
         )
         cache[mint] = report
         return report
