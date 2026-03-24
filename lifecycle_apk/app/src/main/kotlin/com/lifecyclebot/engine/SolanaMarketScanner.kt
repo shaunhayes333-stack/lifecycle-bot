@@ -867,7 +867,19 @@ class SolanaMarketScanner(
                 // Skip stablecoins
                 if (pair.baseSymbol.uppercase() in listOf("SOL", "WSOL", "USDC", "USDT", "RAY")) continue
                 
-                val liq = pair.liquidity
+                // If DexScreener returned $0 liquidity, try Birdeye then estimate from mcap
+                var liq = pair.liquidity
+                if (liq <= 0) {
+                    val overview = withContext(Dispatchers.IO) { birdeye.getTokenOverview(mint) }
+                    liq = overview?.liquidity ?: 0.0
+                    
+                    if (liq <= 0 && (pair.fdv > 0 || pair.candle.marketCap > 0)) {
+                        val mcap = if (pair.fdv > 0) pair.fdv else pair.candle.marketCap
+                        liq = (mcap * 0.10).takeIf { it > 1000 } ?: 0.0
+                        if (liq > 0) ErrorLogger.info("Scanner", "scanPumpFunVolume: ${pair.baseSymbol} estimated liq=\$${liq.toInt()} from mcap")
+                    }
+                }
+                
                 if (liq < 1000) continue  // Boosted tokens should have some liquidity
                 
                 val vol = pair.candle.volumeH1
@@ -945,7 +957,19 @@ class SolanaMarketScanner(
                 // Focus on fresh tokens (< 2 hours for more results)
                 if (ageHours > 2) continue
                 
-                val liq = pair.liquidity
+                // If DexScreener returned $0 liquidity, try Birdeye then estimate from mcap
+                var liq = pair.liquidity
+                if (liq <= 0) {
+                    val overview = withContext(Dispatchers.IO) { birdeye.getTokenOverview(mint) }
+                    liq = overview?.liquidity ?: 0.0
+                    
+                    if (liq <= 0 && (pair.fdv > 0 || pair.candle.marketCap > 0)) {
+                        val mcap = if (pair.fdv > 0) pair.fdv else pair.candle.marketCap
+                        liq = (mcap * 0.10).takeIf { it > 500 } ?: 0.0
+                        if (liq > 0) ErrorLogger.info("Scanner", "scanFreshLaunches: ${pair.baseSymbol} estimated liq=\$${liq.toInt()} from mcap")
+                    }
+                }
+                
                 // Fresh tokens - lower liquidity threshold
                 if (liq < 500) continue
                 
@@ -1107,8 +1131,20 @@ class SolanaMarketScanner(
                 // Skip stablecoins
                 if (pair.baseSymbol.uppercase() in listOf("SOL", "WSOL", "USDC", "USDT", "RAY")) continue
                 
-                val liq = pair.liquidity
-                if (liq < 1000) continue  // Min $2K liquidity
+                // If DexScreener returned $0 liquidity, try Birdeye then estimate from mcap
+                var liq = pair.liquidity
+                if (liq <= 0) {
+                    val overview = withContext(Dispatchers.IO) { birdeye.getTokenOverview(mint) }
+                    liq = overview?.liquidity ?: 0.0
+                    
+                    if (liq <= 0 && (pair.fdv > 0 || pair.candle.marketCap > 0)) {
+                        val mcap = if (pair.fdv > 0) pair.fdv else pair.candle.marketCap
+                        liq = (mcap * 0.10).takeIf { it > 1000 } ?: 0.0
+                        if (liq > 0) ErrorLogger.info("Scanner", "scanDexGainers: ${pair.baseSymbol} estimated liq=\$${liq.toInt()} from mcap")
+                    }
+                }
+                
+                if (liq < 1000) continue  // Min $1K liquidity
                 
                 val vol = pair.candle.volumeH1
                 val mcap = pair.candle.marketCap
@@ -1244,7 +1280,19 @@ class SolanaMarketScanner(
                 // Skip stablecoins
                 if (pair.baseSymbol.uppercase() in listOf("SOL", "WSOL", "USDC", "USDT", "RAY")) continue
                 
-                val liq = pair.liquidity
+                // If DexScreener returned $0 liquidity, try Birdeye then estimate from mcap
+                var liq = pair.liquidity
+                if (liq <= 0) {
+                    val overview = withContext(Dispatchers.IO) { birdeye.getTokenOverview(mint) }
+                    liq = overview?.liquidity ?: 0.0
+                    
+                    if (liq <= 0 && (pair.fdv > 0 || pair.candle.marketCap > 0)) {
+                        val mcap = if (pair.fdv > 0) pair.fdv else pair.candle.marketCap
+                        liq = (mcap * 0.10).takeIf { it > 1500 } ?: 0.0
+                        if (liq > 0) ErrorLogger.info("Scanner", "scanPumpGraduates: ${pair.baseSymbol} estimated liq=\$${liq.toInt()} from mcap")
+                    }
+                }
+                
                 if (liq < 1500) continue  // Graduates should have decent liquidity
                 
                 val vol = pair.candle.volumeH1
