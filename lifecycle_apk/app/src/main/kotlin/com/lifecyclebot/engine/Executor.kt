@@ -316,12 +316,15 @@ class Executor(
     // ══════════════════════════════════════════════════════════════
 
     fun graduatedInitialSize(fullSize: Double, quality: String): Double {
-        val pct = when (quality) {
+        return fullSize * graduatedInitialPct(quality)
+    }
+    
+    fun graduatedInitialPct(quality: String): Double {
+        return when (quality) {
             "A+" -> 0.50
             "B"  -> 0.40
             else -> 0.35
         }
-        return fullSize * pct
     }
 
     fun shouldGraduatedAdd(pos: Position, currentPrice: Double, volScore: Double): Pair<Double, Int>? {
@@ -1455,6 +1458,7 @@ class Executor(
         TradeStateMachine.setState(ts.mint, TradeState.ENTER, "executing buy via unified decision")
         
         // Calculate size - use FDG-approved size if available, otherwise calculate
+        // NOTE: If fdgApprovedSize is provided, it ALREADY includes mode multiplier and graduated building
         var size = fdgApprovedSize ?: buySizeSol(
             entryScore = decision.entryScore,
             walletSol = walletSol,
@@ -1470,16 +1474,19 @@ class Executor(
             setupQuality = decision.setupQuality,
         )
         
-        // Apply quality penalty from unified decision (only if not FDG-approved)
-        if (fdgApprovedSize == null && decision.qualityPenalty < 1.0 && decision.qualityPenalty > 0.0) {
-            val oldSize = size
-            size *= decision.qualityPenalty
-            ErrorLogger.info("Executor", "📉 ${ts.symbol} size reduced: ${oldSize.fmt(3)} → ${size.fmt(3)} " +
-                "(penalty=${decision.qualityPenalty}x, redFlags=${decision.redFlagCount})")
+        // Only apply these adjustments if we calculated size ourselves (no FDG-approved size)
+        if (fdgApprovedSize == null) {
+            // Apply quality penalty from unified decision
+            if (decision.qualityPenalty < 1.0 && decision.qualityPenalty > 0.0) {
+                val oldSize = size
+                size *= decision.qualityPenalty
+                ErrorLogger.info("Executor", "📉 ${ts.symbol} size reduced: ${oldSize.fmt(3)} → ${size.fmt(3)} " +
+                    "(penalty=${decision.qualityPenalty}x, redFlags=${decision.redFlagCount})")
+            }
+            
+            // Apply auto-mode size multiplier
+            modeConfig?.let { size *= it.positionSizeMultiplier }
         }
-        
-        // Apply auto-mode size multiplier
-        modeConfig?.let { size *= it.positionSizeMultiplier }
         
         // BotBrain skip check (skip in paper mode)
         if (!isPaper) {
@@ -1518,7 +1525,9 @@ class Executor(
             phase = decision.phase,
         )
         
-        doBuy(ts, size, decision.entryScore, wallet, walletSol, identity, decision.setupQuality)
+        // If FDG-approved size was provided, graduated building was already applied
+        val skipGraduated = fdgApprovedSize != null
+        doBuy(ts, size, decision.entryScore, wallet, walletSol, identity, decision.setupQuality, skipGraduated)
     }
 
     // ── top-up (pyramid add) ─────────────────────────────────────────
@@ -1658,12 +1667,13 @@ class Executor(
     private fun doBuy(ts: TokenState, sol: Double, score: Double,
                       wallet: SolanaWallet?, walletSol: Double,
                       identity: TradeIdentity? = null,
-                      quality: String = "C") {  // Pass quality through call chain
+                      quality: String = "C",
+                      skipGraduated: Boolean = false) {  // Pass through to paperBuy/liveBuy
         // Get or create canonical identity
         val tradeId = identity ?: TradeIdentityManager.getOrCreate(ts.mint, ts.symbol, ts.source)
         
         if (cfg().paperMode || wallet == null) {
-            paperBuy(ts, sol, score, tradeId, quality)
+            paperBuy(ts, sol, score, tradeId, quality, skipGraduated)
         } else {
             // Pre-flight security check
             val guard = security.checkBuy(
@@ -1683,12 +1693,13 @@ class Executor(
                     if (guard.fatal) onNotify("🛑 Bot Halted", guard.reason, com.lifecyclebot.engine.NotificationHistory.NotifEntry.NotifType.INFO)
                     return
                 }
-                is GuardResult.Allow -> liveBuy(ts, sol, score, wallet, walletSol, tradeId, quality)
+                is GuardResult.Allow -> liveBuy(ts, sol, score, wallet, walletSol, tradeId, quality, skipGraduated)
             }
         }
     }
 
-    fun paperBuy(ts: TokenState, sol: Double, score: Double, identity: TradeIdentity? = null, quality: String = "C") {
+    fun paperBuy(ts: TokenState, sol: Double, score: Double, identity: TradeIdentity? = null, 
+                 quality: String = "C", skipGraduated: Boolean = false) {
         // ═══════════════════════════════════════════════════════════════════════════
         // TRADE IDENTITY: Use canonical identity for consistent tracking
         // ═══════════════════════════════════════════════════════════════════════════
@@ -1702,10 +1713,22 @@ class Executor(
         }
         
         // GRADUATED BUILDING: start with partial size for B+ setups
-        // Use passed-in quality parameter (canonical from decision) instead of ts.meta
-        val actualSol = if (quality != "C") graduatedInitialSize(sol, quality) else sol
-        val buildPhase = if (quality != "C") 1 else 3
-        val targetBuild = if (quality != "C") sol else 0.0
+        // Skip if already applied by BotService (skipGraduated = true)
+        val actualSol: Double
+        val buildPhase: Int
+        val targetBuild: Double
+        
+        if (skipGraduated || quality == "C") {
+            // Size is already final (graduated applied by BotService) or C quality (no graduated)
+            actualSol = sol
+            buildPhase = if (quality != "C") 1 else 3  // Still track build phase for future adds
+            targetBuild = if (quality != "C") sol / graduatedInitialPct(quality) else 0.0
+        } else {
+            // Apply graduated building here (legacy path without FDG)
+            actualSol = graduatedInitialSize(sol, quality)
+            buildPhase = 1
+            targetBuild = sol
+        }
         
         ts.position = Position(
             qtyToken     = actualSol / maxOf(price, 1e-12),
@@ -1792,7 +1815,8 @@ class Executor(
     private fun liveBuy(ts: TokenState, sol: Double, score: Double,
                         wallet: SolanaWallet, walletSol: Double,
                         identity: TradeIdentity? = null,
-                        quality: String = "C") {  // Pass quality through call chain
+                        quality: String = "C",
+                        skipGraduated: Boolean = false) {  // skipGraduated for live trades (size already computed)
         // ═══════════════════════════════════════════════════════════════════════════
         // TRADE IDENTITY: Use canonical identity for consistent tracking
         // ═══════════════════════════════════════════════════════════════════════════

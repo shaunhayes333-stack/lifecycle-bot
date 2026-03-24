@@ -1760,12 +1760,29 @@ class BotService : Service() {
                     
                     if (fdgDecision.canExecute()) {
                         // ═══════════════════════════════════════════════════════════════════
-                        // TRADE IDENTITY: Mark as approved
+                        // COMPUTE FINAL SIZE: Apply all multipliers here for consistency
+                        // This ensures identity, lifecycle, logs, and executor all use same value
                         // ═══════════════════════════════════════════════════════════════════
-                        identity.approved(fdgDecision.sizeSol, fdgDecision.quality, fdgDecision.confidence)
+                        var finalSize = fdgDecision.sizeSol
+                        
+                        // Apply mode multiplier if present
+                        modeConf?.let { finalSize *= it.positionSizeMultiplier }
+                        
+                        // Apply graduated building reduction for B+ setups
+                        val isGraduated = decision.setupQuality in listOf("A+", "B")
+                        val actualInitialSize = if (isGraduated) {
+                            executor.graduatedInitialSize(finalSize, decision.setupQuality)
+                        } else {
+                            finalSize
+                        }
                         
                         // ═══════════════════════════════════════════════════════════════════
-                        // LIFECYCLE: FDG_APPROVED → SIZED (with explicit approval class)
+                        // TRADE IDENTITY: Mark as approved with ACTUAL initial size
+                        // ═══════════════════════════════════════════════════════════════════
+                        identity.approved(actualInitialSize, fdgDecision.quality, fdgDecision.confidence)
+                        
+                        // ═══════════════════════════════════════════════════════════════════
+                        // LIFECYCLE: FDG_APPROVED → SIZED (with actual size, not FDG size)
                         // ═══════════════════════════════════════════════════════════════════
                         TradeLifecycle.fdgApproved(
                             identity.mint, 
@@ -1773,14 +1790,15 @@ class BotService : Service() {
                             fdgDecision.confidence,
                             fdgDecision.approvalClass.name  // LIVE, PAPER_BENCHMARK, or PAPER_EXPLORATION
                         )
-                        TradeLifecycle.sized(identity.mint, fdgDecision.sizeSol, "medium")
+                        TradeLifecycle.sized(identity.mint, actualInitialSize, "medium")
                         
                         FinalDecisionGate.logApprovedTrade(fdgDecision) { addLog(it, mint) }
                         
                         ErrorLogger.info("BotService", "${if(fdgDecision.isBenchmarkQuality()) "🟢" else "🟡"} " +
                             "FDG ${fdgDecision.approvalClass}: ${identity.symbol} | " +
                             "quality=${fdgDecision.quality} | conf=${fdgDecision.confidence.toInt()}% | " +
-                            "size=${fdgDecision.sizeSol}")
+                            "size=${actualInitialSize.format(4)} SOL" +
+                            if (isGraduated) " (grad: target=${finalSize.format(4)})" else "")
                         
                         if (!cbState.isHalted && !cbState.isPaused) {
                             executor.maybeActWithDecision(
@@ -1791,8 +1809,8 @@ class BotService : Service() {
                                 lastPollMs         = lastSuccessfulPollMs,
                                 openPositionCount  = status.openPositionCount,
                                 totalExposureSol   = status.totalExposureSol,
-                                modeConfig         = modeConf,
-                                fdgApprovedSize    = fdgDecision.sizeSol,  // Use FDG-approved size
+                                modeConfig         = null,  // Don't pass mode config - already applied above
+                                fdgApprovedSize    = actualInitialSize,  // Use final computed size
                                 walletTotalTrades  = try {
                                     com.lifecyclebot.engine.BotService.walletManager
                                         ?.state?.value?.totalTrades ?: 0
