@@ -856,7 +856,7 @@ class MainActivity : AppCompatActivity() {
                     tokenAmount >= 1_000     -> "%.2fK".format(tokenAmount / 1_000)
                     else                     -> "%.2f".format(tokenAmount)
                 }
-                text = "Size: ${pos.costSol.fmt(4)}◎  ·  $tokenAmtStr tokens"
+                text = "Size: %.4f◎  ·  %s tokens".format(pos.costSol, tokenAmtStr)
                 textSize = resources.getDimension(R.dimen.trade_sub_text) / resources.displayMetrics.scaledDensity
                 setTextColor(muted)
                 typeface = android.graphics.Typeface.MONOSPACE
