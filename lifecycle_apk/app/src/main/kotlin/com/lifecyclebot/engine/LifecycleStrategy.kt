@@ -1075,11 +1075,11 @@ class LifecycleStrategy(
         
         // 1. RUGCHECK BLOCKED - Score too low (dangerous token)
         // PAPER MODE: Use learned or minimum floor of 5
-        // LIVE MODE: Use learned or minimum floor of 15
+        // LIVE MODE: Use learned or minimum floor of 10 (LOWERED from 15 to allow more trades)
         val rugcheckThreshold = if (isPaperMode) {
             (learned?.rugcheckMin ?: 10).coerceIn(5, 20)  // Paper: 5-20 range
         } else {
-            (learned?.rugcheckMin ?: 20).coerceIn(15, 40)  // Live: 15-40 range
+            (learned?.rugcheckMin ?: 15).coerceIn(10, 30)  // Live: 10-30 range (was 15-40)
         }
         if (safety.rugcheckScore in 0..rugcheckThreshold) {
             return "Rugcheck score ${safety.rugcheckScore}/100 (learned threshold=$rugcheckThreshold)"

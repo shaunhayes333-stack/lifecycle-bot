@@ -1676,6 +1676,13 @@ class SolanaMarketScanner(
         source: TokenSource,
     ): ScannedToken? {
         if (pair.candle.priceUsd <= 0) return null
+        
+        // Skip tokens with zero or very low liquidity - API data issue
+        if (pair.liquidity <= 0) {
+            ErrorLogger.debug("Scanner", "Skipping ${pair.baseSymbol}: $0 liquidity (API data issue)")
+            return null
+        }
+        
         val ageHours = (System.currentTimeMillis() - pair.pairCreatedAtMs) / 3_600_000.0
         return ScannedToken(
             mint               = mint,
