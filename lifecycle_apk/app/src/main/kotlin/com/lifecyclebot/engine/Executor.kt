@@ -1288,7 +1288,7 @@ class Executor(
                 phase = ts.phase,
             )
 
-            doBuy(ts, size, entryScore, wallet, walletSol)
+            doBuy(ts, size, entryScore, wallet, walletSol, null, setupQuality)
         }
     }
 
@@ -1518,7 +1518,7 @@ class Executor(
             phase = decision.phase,
         )
         
-        doBuy(ts, size, decision.entryScore, wallet, walletSol)
+        doBuy(ts, size, decision.entryScore, wallet, walletSol, identity, decision.setupQuality)
     }
 
     // ── top-up (pyramid add) ─────────────────────────────────────────
@@ -1657,12 +1657,13 @@ class Executor(
 
     private fun doBuy(ts: TokenState, sol: Double, score: Double,
                       wallet: SolanaWallet?, walletSol: Double,
-                      identity: TradeIdentity? = null) {
+                      identity: TradeIdentity? = null,
+                      quality: String = "C") {  // Pass quality through call chain
         // Get or create canonical identity
         val tradeId = identity ?: TradeIdentityManager.getOrCreate(ts.mint, ts.symbol, ts.source)
         
         if (cfg().paperMode || wallet == null) {
-            paperBuy(ts, sol, score, tradeId)
+            paperBuy(ts, sol, score, tradeId, quality)
         } else {
             // Pre-flight security check
             val guard = security.checkBuy(
@@ -1682,12 +1683,12 @@ class Executor(
                     if (guard.fatal) onNotify("🛑 Bot Halted", guard.reason, com.lifecyclebot.engine.NotificationHistory.NotifEntry.NotifType.INFO)
                     return
                 }
-                is GuardResult.Allow -> liveBuy(ts, sol, score, wallet, walletSol, tradeId)
+                is GuardResult.Allow -> liveBuy(ts, sol, score, wallet, walletSol, tradeId, quality)
             }
         }
     }
 
-    fun paperBuy(ts: TokenState, sol: Double, score: Double, identity: TradeIdentity? = null) {
+    fun paperBuy(ts: TokenState, sol: Double, score: Double, identity: TradeIdentity? = null, quality: String = "C") {
         // ═══════════════════════════════════════════════════════════════════════════
         // TRADE IDENTITY: Use canonical identity for consistent tracking
         // ═══════════════════════════════════════════════════════════════════════════
@@ -1701,7 +1702,7 @@ class Executor(
         }
         
         // GRADUATED BUILDING: start with partial size for B+ setups
-        val quality = ts.meta.setupQuality
+        // Use passed-in quality parameter (canonical from decision) instead of ts.meta
         val actualSol = if (quality != "C") graduatedInitialSize(sol, quality) else sol
         val buildPhase = if (quality != "C") 1 else 3
         val targetBuild = if (quality != "C") sol else 0.0
@@ -1749,7 +1750,7 @@ class Executor(
             buyPct = ts.meta.pressScore,
             volumeScore = ts.meta.volScore,
             phase = ts.phase,
-            edgeQuality = ts.meta.setupQuality,
+            edgeQuality = quality,  // Use canonical quality from decision
             wasVetoed = false,  // If we got here, we weren't vetoed
             vetoReason = null,
             entryPrice = price,
@@ -1790,7 +1791,8 @@ class Executor(
 
     private fun liveBuy(ts: TokenState, sol: Double, score: Double,
                         wallet: SolanaWallet, walletSol: Double,
-                        identity: TradeIdentity? = null) {
+                        identity: TradeIdentity? = null,
+                        quality: String = "C") {  // Pass quality through call chain
         // ═══════════════════════════════════════════════════════════════════════════
         // TRADE IDENTITY: Use canonical identity for consistent tracking
         // ═══════════════════════════════════════════════════════════════════════════
@@ -1892,7 +1894,7 @@ class Executor(
                 buyPct = ts.meta.pressScore,
                 volumeScore = ts.meta.volScore,
                 phase = ts.phase,
-                edgeQuality = ts.meta.setupQuality,
+                edgeQuality = quality,  // Use canonical quality from decision
                 wasVetoed = false,  // If we got here, we weren't vetoed
                 vetoReason = null,
                 entryPrice = price,
