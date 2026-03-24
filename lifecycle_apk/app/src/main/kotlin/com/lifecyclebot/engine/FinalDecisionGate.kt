@@ -483,20 +483,29 @@ object FinalDecisionGate {
         // 
         // BOOTSTRAP MODE: When totalSessionTrades < 30, the AI systems 
         // are still learning and their signals are unreliable. We use
-        // a lower minimum threshold to allow trades for learning.
+        // a MUCH lower minimum threshold to allow trades for learning.
+        // 
+        // The goal is to get 30+ trades so the AI can calibrate properly.
         // ─────────────────────────────────────────────────────────────────
         val isBootstrap = currentConditions.totalSessionTrades < 30
+        
+        // During bootstrap, ALSO lower the base confidence to encourage trading
+        val effectiveBase = if (isBootstrap && !isPaperMode) {
+            baseConfidence * 0.5  // Use 50% of normal base during bootstrap (15% -> 7.5%)
+        } else {
+            baseConfidence
+        }
         
         // During bootstrap, cap total positive adjustment (raising threshold)
         // to prevent blocking trades due to unreliable early data
         val cappedAdjustment = if (isBootstrap && adjustment > 0) {
-            adjustment.coerceAtMost(10.0)  // Max +10% during bootstrap
+            adjustment.coerceAtMost(5.0)  // Max +5% during bootstrap (was +10%)
         } else {
             adjustment
         }
         
-        val adaptive = (baseConfidence + cappedAdjustment).coerceIn(
-            if (isPaperMode) 0.0 else if (isBootstrap) 10.0 else 15.0,  // Min: 0% paper, 10% bootstrap, 15% live
+        val adaptive = (effectiveBase + cappedAdjustment).coerceIn(
+            if (isPaperMode) 0.0 else if (isBootstrap) 5.0 else 15.0,  // Min: 0% paper, 5% bootstrap (was 10%), 15% live
             if (isPaperMode) 60.0 else 75.0   // Max: 60% paper, 75% live
         )
         
@@ -509,8 +518,10 @@ object FinalDecisionGate {
      */
     fun getAdaptiveConfidenceExplanation(isPaperMode: Boolean): String {
         val base = if (isPaperMode) paperConfidenceBase else liveConfidenceBase
+        val isBootstrap = currentConditions.totalSessionTrades < 30
+        val effectiveBase = if (isBootstrap && !isPaperMode) base * 0.5 else base
         val adaptive = getAdaptiveConfidence(isPaperMode)
-        val diff = adaptive - base
+        val diff = adaptive - effectiveBase
         val sign = if (diff >= 0) "+" else ""
         
         // Get treasury tier for logging
@@ -527,10 +538,10 @@ object FinalDecisionGate {
         } catch (_: Exception) { "?" }
         
         // Bootstrap mode indicator
-        val bootstrapLabel = if (currentConditions.totalSessionTrades < 30) " [BOOTSTRAP]" else ""
+        val bootstrapLabel = if (isBootstrap) " [BOOTSTRAP min=5%]" else ""
         
         return buildString {
-            append("AdaptiveConf: base=${base.toInt()}% ${sign}${diff.toInt()}% = ${adaptive.toInt()}%$bootstrapLabel ")
+            append("AdaptiveConf: base=${effectiveBase.toInt()}% ${sign}${diff.toInt()}% = ${adaptive.toInt()}%$bootstrapLabel ")
             append("[vol=${currentConditions.avgVolatility.toInt()}% ")
             append("wr=${currentConditions.recentWinRate.toInt()}% ")
             append("buy=${currentConditions.buyPressureTrend.toInt()}% ")
