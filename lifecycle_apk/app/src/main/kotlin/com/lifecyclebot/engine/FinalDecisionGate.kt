@@ -1091,17 +1091,21 @@ object FinalDecisionGate {
         // ─────────────────────────────────────────────────────────────────────
         
         val confidenceThreshold = getAdaptiveConfidence(config.paperMode, ts)
+        val isBootstrap = AdaptiveConfidence.currentConditions.totalSessionTrades < 30
+        val bootstrapTag = if (isBootstrap) " [BOOTSTRAP]" else ""
         
         if (blockReason == null && candidate.aiConfidence < confidenceThreshold) {
-            blockReason = "LOW_CONFIDENCE_${candidate.aiConfidence.toInt()}%"
+            blockReason = "LOW_CONFIDENCE_${candidate.aiConfidence.toInt()}%$bootstrapTag"
             blockLevel = BlockLevel.CONFIDENCE
             checks.add(GateCheck("confidence", false, 
-                "conf=${candidate.aiConfidence.toInt()}% < ${confidenceThreshold.toInt()}% (adaptive)"))
+                "conf=${candidate.aiConfidence.toInt()}% < ${confidenceThreshold.toInt()}%$bootstrapTag (adaptive)"))
             tags.add("low_confidence")
             tags.add("adaptive_conf:${confidenceThreshold.toInt()}")
+            if (isBootstrap) tags.add("bootstrap_phase")
         } else if (blockReason == null) {
             checks.add(GateCheck("confidence", true, 
-                "conf=${candidate.aiConfidence.toInt()}% >= ${confidenceThreshold.toInt()}% (adaptive)"))
+                "conf=${candidate.aiConfidence.toInt()}% >= ${confidenceThreshold.toInt()}%$bootstrapTag (adaptive)"))
+            if (isBootstrap) tags.add("bootstrap_phase")
         }
         
         // ─────────────────────────────────────────────────────────────────────

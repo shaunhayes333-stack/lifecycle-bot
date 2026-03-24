@@ -98,6 +98,11 @@ object LiquidityDepthAI {
     // Entry liquidity at time of trade (for exit comparison)
     private val entryLiquidity = ConcurrentHashMap<String, Double>()
     
+    // Signal cache to prevent duplicate calculations and logs (5 second TTL)
+    private data class CachedSignal(val signal: LiquiditySignal, val timestamp: Long)
+    private val signalCache = ConcurrentHashMap<String, CachedSignal>()
+    private const val CACHE_TTL_MS = 5000L  // 5 seconds
+    
     // Learning: Track signal outcomes
     private data class SignalOutcome(
         var totalTrades: Int = 0,
@@ -260,8 +265,17 @@ object LiquidityDepthAI {
     /**
      * Get full liquidity signal for trading decisions.
      * This is the main method called by FinalDecisionGate and LifecycleStrategy.
+     * Results are cached for 5 seconds to prevent duplicate logs and calculations.
      */
     fun getSignal(mint: String, symbol: String, isOpenPosition: Boolean = false): LiquiditySignal {
+        // Check cache first
+        val cacheKey = "${mint}_${isOpenPosition}"
+        val cached = signalCache[cacheKey]
+        val now = System.currentTimeMillis()
+        if (cached != null && (now - cached.timestamp) < CACHE_TTL_MS) {
+            return cached.signal  // Return cached result, no logging
+        }
+        
         totalAnalyses++
         
         val trend = analyzeTrend(mint)
@@ -333,12 +347,12 @@ object LiquidityDepthAI {
         
         val finalSizeMult = (sizeMult * depthSizeMult).coerceIn(0.3, 1.5)
         
-        // Log significant signals
+        // Log significant signals (only once per cache period)
         if (trend.trend in listOf(Trend.SPIKE, Trend.COLLAPSE, Trend.STRONG_GROWTH)) {
             ErrorLogger.info("LiquidityAI", "💧 $symbol: ${trend.trend.name} | ${trend.reason} | depth=${trend.depthQuality}")
         }
         
-        return LiquiditySignal(
+        val resultSignal = LiquiditySignal(
             signal = signal,
             trend = trend.trend,
             depthQuality = trend.depthQuality,
@@ -350,6 +364,11 @@ object LiquidityDepthAI {
             shouldBlock = shouldBlock,
             blockReason = blockReason,
         )
+        
+        // Cache the result
+        signalCache[cacheKey] = CachedSignal(resultSignal, now)
+        
+        return resultSignal
     }
     
     /**
@@ -548,6 +567,12 @@ object LiquidityDepthAI {
         // Clean up entry liquidity for closed positions
         entryLiquidity.entries.removeIf { (mint, _) ->
             !liquidityHistory.containsKey(mint)
+        }
+        
+        // Clean up expired signal cache
+        val now = System.currentTimeMillis()
+        signalCache.entries.removeIf { (_, cached) ->
+            (now - cached.timestamp) > CACHE_TTL_MS * 2
         }
     }
     

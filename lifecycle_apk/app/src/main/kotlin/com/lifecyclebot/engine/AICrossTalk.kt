@@ -1,6 +1,7 @@
 package com.lifecyclebot.engine
 
 import org.json.JSONObject
+import java.util.concurrent.ConcurrentHashMap
 
 /**
  * AICrossTalk - Inter-Layer Communication Hub
@@ -70,6 +71,11 @@ object AICrossTalk {
     private var narrativeMomentumWeight = 10.0
     private var regimeAmplificationFactor = 0.3  // 30% amplification in strong regimes
     
+    // Signal cache to prevent duplicate analyses (5 second TTL)
+    private data class CachedCrossTalk(val signal: CrossTalkSignal, val timestamp: Long)
+    private val crossTalkCache = ConcurrentHashMap<String, CachedCrossTalk>()
+    private const val CACHE_TTL_MS = 5000L  // 5 seconds
+    
     // ═══════════════════════════════════════════════════════════════════════════
     // MAIN CROSS-TALK ANALYSIS
     // ═══════════════════════════════════════════════════════════════════════════
@@ -77,8 +83,17 @@ object AICrossTalk {
     /**
      * Analyze all AI signals for correlations and cross-talk opportunities.
      * Call this after individual AIs have computed their signals.
+     * Results are cached for 5 seconds to prevent duplicate calculations.
      */
     fun analyzeCrossTalk(mint: String, symbol: String, isOpenPosition: Boolean): CrossTalkSignal {
+        // Check cache first
+        val cacheKey = "${mint}_${isOpenPosition}"
+        val cached = crossTalkCache[cacheKey]
+        val now = System.currentTimeMillis()
+        if (cached != null && (now - cached.timestamp) < CACHE_TTL_MS) {
+            return cached.signal  // Return cached result
+        }
+        
         totalCrossTalkAnalyses++
         
         // Gather signals from all AIs
@@ -136,7 +151,7 @@ object AICrossTalk {
             
             ErrorLogger.info("CrossTalk", "🔗 SMART MONEY PUMP: $symbol | whale=${whaleSignal?.recommendation} momentum=$momentum liquidity=${liquidity?.signal} | +${finalBoost.toInt()} pts")
             
-            return CrossTalkSignal(
+            return cacheAndReturn(cacheKey, now, CrossTalkSignal(
                 signalType = SignalType.SMART_MONEY_PUMP,
                 entryBoost = finalBoost,
                 exitUrgency = 0.0,
@@ -145,7 +160,7 @@ object AICrossTalk {
                 reason = "Whale+Momentum+Liquidity aligned bullish",
                 participatingAIs = participatingAIs,
                 correlationStrength = avgStrength,
-            )
+            ))
         }
         
         // ─────────────────────────────────────────────────────────────────────
@@ -178,7 +193,7 @@ object AICrossTalk {
             
             ErrorLogger.warn("CrossTalk", "🔗 COORDINATED DUMP: $symbol | whale=${whaleSignal?.recommendation} momentum=$momentum liquidity=${liquidity?.signal} | +${finalUrgency.toInt()} exit urgency")
             
-            return CrossTalkSignal(
+            return cacheAndReturn(cacheKey, now, CrossTalkSignal(
                 signalType = SignalType.COORDINATED_DUMP,
                 entryBoost = -20.0,  // Strong entry penalty
                 exitUrgency = finalUrgency,
@@ -187,7 +202,7 @@ object AICrossTalk {
                 reason = "${participatingAIs.joinToString("+")} aligned bearish",
                 participatingAIs = participatingAIs,
                 correlationStrength = correlationStrength,
-            )
+            ))
         }
         
         // ─────────────────────────────────────────────────────────────────────
@@ -204,7 +219,7 @@ object AICrossTalk {
             
             ErrorLogger.info("CrossTalk", "🔗 NARRATIVE+MOMENTUM: $symbol | narrative=${narrative?.label} momentum=$momentum | +${correlationBonus.toInt()} pts")
             
-            return CrossTalkSignal(
+            return cacheAndReturn(cacheKey, now, CrossTalkSignal(
                 signalType = SignalType.NARRATIVE_MOMENTUM,
                 entryBoost = correlationBonus,
                 exitUrgency = 0.0,
@@ -213,7 +228,7 @@ object AICrossTalk {
                 reason = "Hot narrative + Strong momentum",
                 participatingAIs = listOf("Narrative", "Momentum"),
                 correlationStrength = 60.0,
-            )
+            ))
         }
         
         // ─────────────────────────────────────────────────────────────────────
@@ -225,7 +240,7 @@ object AICrossTalk {
             
             ErrorLogger.debug("CrossTalk", "🔗 GOLDEN HOUR SETUP: $symbol | +${timeBoost.toInt()} pts")
             
-            return CrossTalkSignal(
+            return cacheAndReturn(cacheKey, now, CrossTalkSignal(
                 signalType = SignalType.GOLDEN_HOUR_SETUP,
                 entryBoost = timeBoost,
                 exitUrgency = 0.0,
@@ -234,7 +249,7 @@ object AICrossTalk {
                 reason = "Golden hour + ${if (isMomentumBullish) "Momentum" else "Narrative"}",
                 participatingAIs = listOf("Time", if (isMomentumBullish) "Momentum" else "Narrative"),
                 correlationStrength = 50.0,
-            )
+            ))
         }
         
         // ─────────────────────────────────────────────────────────────────────
@@ -246,7 +261,7 @@ object AICrossTalk {
             if (isWhaleSelling) {
                 ErrorLogger.warn("CrossTalk", "🔗 LIQUIDITY-WHALE ALERT: $symbol | Collapse + Whale selling = EMERGENCY")
                 
-                return CrossTalkSignal(
+                return cacheAndReturn(cacheKey, now, CrossTalkSignal(
                     signalType = SignalType.LIQUIDITY_WHALE_ALERT,
                     entryBoost = -30.0,
                     exitUrgency = 40.0,  // Very high urgency
@@ -255,7 +270,7 @@ object AICrossTalk {
                     reason = "Liquidity collapse confirmed by whale selling",
                     participatingAIs = listOf("Liquidity", "WhaleTracker"),
                     correlationStrength = 90.0,
-                )
+                ))
             }
         }
         
@@ -274,7 +289,7 @@ object AICrossTalk {
             
             if (isBullRegime && !isOpenPosition) {
                 val amplification = regimeAmplificationFactor * (regimeConfidence / 100.0)
-                return CrossTalkSignal(
+                return cacheAndReturn(cacheKey, now, CrossTalkSignal(
                     signalType = SignalType.REGIME_AMPLIFIED_BULL,
                     entryBoost = 5.0 * amplification,
                     exitUrgency = 0.0,
@@ -283,12 +298,12 @@ object AICrossTalk {
                     reason = "Bull regime (${regimeConfidence.toInt()}% confidence)",
                     participatingAIs = listOf("MarketRegime"),
                     correlationStrength = regimeConfidence,
-                )
+                ))
             }
             
             if (isBearRegime && !isOpenPosition) {
                 val dampening = regimeAmplificationFactor * (regimeConfidence / 100.0)
-                return CrossTalkSignal(
+                return cacheAndReturn(cacheKey, now, CrossTalkSignal(
                     signalType = SignalType.REGIME_DAMPENED_BEAR,
                     entryBoost = -5.0 * dampening,
                     exitUrgency = 5.0 * dampening,
@@ -297,12 +312,12 @@ object AICrossTalk {
                     reason = "Bear regime (${regimeConfidence.toInt()}% confidence)",
                     participatingAIs = listOf("MarketRegime"),
                     correlationStrength = regimeConfidence,
-                )
+                ))
             }
         }
         
         // No significant correlation detected
-        return CrossTalkSignal(
+        return cacheAndReturn(cacheKey, now, CrossTalkSignal(
             signalType = SignalType.NO_CORRELATION,
             entryBoost = 0.0,
             exitUrgency = 0.0,
@@ -311,7 +326,15 @@ object AICrossTalk {
             reason = "No cross-talk pattern detected",
             participatingAIs = emptyList(),
             correlationStrength = 0.0,
-        )
+        ))
+    }
+    
+    /**
+     * Cache helper function to store and return signal.
+     */
+    private fun cacheAndReturn(cacheKey: String, timestamp: Long, signal: CrossTalkSignal): CrossTalkSignal {
+        crossTalkCache[cacheKey] = CachedCrossTalk(signal, timestamp)
+        return signal
     }
     
     /**
@@ -457,6 +480,10 @@ object AICrossTalk {
     }
     
     fun cleanup() {
-        // No cleanup needed for CrossTalk - it doesn't store token-specific data
+        // Clean up expired cache entries
+        val now = System.currentTimeMillis()
+        crossTalkCache.entries.removeIf { (_, cached) ->
+            (now - cached.timestamp) > CACHE_TTL_MS * 2
+        }
     }
 }
