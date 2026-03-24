@@ -1571,6 +1571,25 @@ class Executor(
             isPaperMode = true,
         )
         
+        // ═══════════════════════════════════════════════════════════════════
+        // ENTRY INTELLIGENCE: Record entry conditions for learning
+        // ═══════════════════════════════════════════════════════════════════
+        val entryConditions = EntryIntelligence.EntryConditions(
+            buyPressure = ts.meta.pressScore,
+            volumeScore = ts.meta.volScore,
+            priceVsEma = ts.meta.posInRange - 50.0,  // Rough approximation
+            rsi = ts.meta.rsi,
+            momentum = ts.entryScore,
+            hourOfDay = java.util.Calendar.getInstance(java.util.TimeZone.getTimeZone("UTC")).get(java.util.Calendar.HOUR_OF_DAY),
+            volatility = ts.meta.avgAtr,
+            liquidityUsd = ts.lastLiquidityUsd,
+            topHolderPct = ts.safety.topHolderPct,
+            isNearSupport = ts.meta.posInRange < 25.0,
+            isNearResistance = ts.meta.posInRange > 75.0,
+            candlePattern = "none",  // Would need to pass from strategy
+        )
+        EntryIntelligence.recordEntry(tradeId.mint, entryConditions)
+        
         // 🎵 Homer Simpson "Woohoo!" 
         sounds?.playBuySound()
         
@@ -1678,6 +1697,25 @@ class Executor(
                 entryPrice = price,
                 isPaperMode = false,
             )
+            
+            // ═══════════════════════════════════════════════════════════════════
+            // ENTRY INTELLIGENCE: Record entry conditions for learning
+            // ═══════════════════════════════════════════════════════════════════
+            val entryConditionsLive = EntryIntelligence.EntryConditions(
+                buyPressure = ts.meta.pressScore,
+                volumeScore = ts.meta.volScore,
+                priceVsEma = ts.meta.posInRange - 50.0,
+                rsi = ts.meta.rsi,
+                momentum = ts.entryScore,
+                hourOfDay = java.util.Calendar.getInstance(java.util.TimeZone.getTimeZone("UTC")).get(java.util.Calendar.HOUR_OF_DAY),
+                volatility = ts.meta.avgAtr,
+                liquidityUsd = ts.lastLiquidityUsd,
+                topHolderPct = ts.safety.topHolderPct,
+                isNearSupport = ts.meta.posInRange < 25.0,
+                isNearResistance = ts.meta.posInRange > 75.0,
+                candlePattern = "none",
+            )
+            EntryIntelligence.recordEntry(tradeId.mint, entryConditionsLive)
             
             onLog("LIVE BUY  @ ${price.fmt()} | ${sol.fmt(4)} SOL | " +
                   "impact=${quote.priceImpactPct.fmt(2)}% | sig=${sig.take(16)}…", tradeId.mint)
