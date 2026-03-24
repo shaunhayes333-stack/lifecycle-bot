@@ -456,8 +456,8 @@ object FinalDecisionGate {
         // ═══════════════════════════════════════════════════════════════════════
         
         if (blockReason == null && config.paperMode) {
-            val minBuyPressurePaper = 45.0  // LOWERED: 45% to allow more learning trades
-            val minLiquidityPaper = 2000.0  // LOWERED: $2000 minimum
+            val minBuyPressurePaper = 42.0  // LOWERED: 42% to allow more learning trades
+            val minLiquidityPaper = 2000.0  // $2000 minimum
             
             val hasBuyerInterest = ts.meta.pressScore >= minBuyPressurePaper
             val hasLiquidity = ts.lastLiquidityUsd >= minLiquidityPaper
@@ -541,26 +541,23 @@ object FinalDecisionGate {
         if (blockReason == null && edgeVerdict == EdgeVerdict.SKIP) {
             if (config.paperMode) {
                 // PAPER MODE: Override edge veto with decent market confirmation
-                val minBuyPressureOverride = 50.0  // LOWERED from 54%
-                val minLiquidityOverride = 3000.0  // LOWERED from 5000
+                // Changed to OR logic - either strong buyers OR good liquidity is enough
+                val minBuyPressureOverride = 48.0  // LOWERED from 50%
+                val minLiquidityOverride = 2500.0  // LOWERED from 3000
                 
                 val hasStrongBuyers = ts.meta.pressScore >= minBuyPressureOverride
                 val hasGoodLiquidity = ts.lastLiquidityUsd >= minLiquidityOverride
                 
-                if (hasStrongBuyers && hasGoodLiquidity) {
+                if (hasStrongBuyers || hasGoodLiquidity) {
                     // Market confirmation - override edge veto for learning
                     checks.add(GateCheck("edge", true, 
-                        "PAPER: edge override (buy%=${ts.meta.pressScore.toInt()}>=$minBuyPressureOverride liq=$${ts.lastLiquidityUsd.toInt()}>=$minLiquidityOverride)"))
+                        "PAPER: edge override (buy%=${ts.meta.pressScore.toInt()}>=$minBuyPressureOverride OR liq=$${ts.lastLiquidityUsd.toInt()}>=$minLiquidityOverride)"))
                     tags.add("edge_override_confirmed")
                 } else {
                     // No confirmation - respect edge veto
-                    val reasons = mutableListOf<String>()
-                    if (!hasStrongBuyers) reasons.add("buy%=${ts.meta.pressScore.toInt()}<$minBuyPressureOverride")
-                    if (!hasGoodLiquidity) reasons.add("liq=$${ts.lastLiquidityUsd.toInt()}<$minLiquidityOverride")
-                    
                     blockReason = "EDGE_VETO_NO_CONFIRMATION"
                     blockLevel = BlockLevel.EDGE
-                    checks.add(GateCheck("edge", false, "edge=${candidate.edgeQuality} no market confirm: ${reasons.joinToString(", ")}"))
+                    checks.add(GateCheck("edge", false, "edge=${candidate.edgeQuality} no confirm: buy%=${ts.meta.pressScore.toInt()}<$minBuyPressureOverride AND liq<$minLiquidityOverride"))
                     tags.add("edge_skip_unconfirmed")
                 }
             } else {
