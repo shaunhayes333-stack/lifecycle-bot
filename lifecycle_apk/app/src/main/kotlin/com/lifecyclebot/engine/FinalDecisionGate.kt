@@ -1100,6 +1100,48 @@ object FinalDecisionGate {
         }
         
         // ─────────────────────────────────────────────────────────────────────
+        // GATE 2b: NARRATIVE/SCAM DETECTION (Groq LLM)
+        // 
+        // Uses AI to detect scam patterns in token name, metadata, and social.
+        // Adjusts confidence by -30 to +10 based on analysis.
+        // Can hard-block obvious scams.
+        // ─────────────────────────────────────────────────────────────────────
+        
+        var narrativeAdjustment = 0
+        if (blockReason == null && config.groqApiKey.isNotBlank()) {
+            try {
+                val narrativeResult = NarrativeDetector.analyze(
+                    symbol = ts.symbol,
+                    name = ts.name,
+                    mintAddress = ts.mint,
+                    description = ts.metadata?.description ?: "",
+                    socialMentions = emptyList(),  // TODO: Wire in social mentions
+                    groqApiKey = config.groqApiKey,
+                )
+                
+                narrativeAdjustment = narrativeResult.confidenceAdjustment
+                
+                if (narrativeResult.shouldBlock) {
+                    blockReason = "NARRATIVE_SCAM: ${narrativeResult.blockReason.take(50)}"
+                    blockLevel = BlockLevel.HARD
+                    checks.add(GateCheck("narrative", false, 
+                        "SCAM DETECTED: ${narrativeResult.scamIndicators.take(3).joinToString(", ")}"))
+                    tags.add("narrative_scam")
+                } else if (narrativeResult.riskLevel == "CRITICAL" || narrativeResult.riskLevel == "HIGH") {
+                    checks.add(GateCheck("narrative", true, 
+                        "risk=${narrativeResult.riskLevel} adj=$narrativeAdjustment | ${narrativeResult.reasoning.take(60)}"))
+                    tags.add("narrative_${narrativeResult.riskLevel.lowercase()}")
+                } else {
+                    checks.add(GateCheck("narrative", true, "risk=${narrativeResult.riskLevel} adj=$narrativeAdjustment"))
+                }
+            } catch (e: Exception) {
+                checks.add(GateCheck("narrative", true, "skipped (error)"))
+            }
+        } else if (blockReason == null) {
+            checks.add(GateCheck("narrative", true, "skipped (no key)"))
+        }
+        
+        // ─────────────────────────────────────────────────────────────────────
         // GATE 3: ADAPTIVE CONFIDENCE THRESHOLD
         // 
         // Uses the fluid confidence layer that adapts to market conditions.
@@ -1111,17 +1153,21 @@ object FinalDecisionGate {
         val isBootstrap = currentConditions.totalSessionTrades < 30
         val bootstrapTag = if (isBootstrap) " [BOOTSTRAP]" else ""
         
-        if (blockReason == null && candidate.aiConfidence < confidenceThreshold) {
-            blockReason = "LOW_CONFIDENCE_${candidate.aiConfidence.toInt()}%$bootstrapTag"
+        // Apply narrative adjustment to confidence
+        val adjustedConfidence = (candidate.aiConfidence + narrativeAdjustment).coerceIn(0.0, 100.0)
+        val narrativeTag = if (narrativeAdjustment != 0) " [NAR:$narrativeAdjustment]" else ""
+        
+        if (blockReason == null && adjustedConfidence < confidenceThreshold) {
+            blockReason = "LOW_CONFIDENCE_${adjustedConfidence.toInt()}%$bootstrapTag$narrativeTag"
             blockLevel = BlockLevel.CONFIDENCE
             checks.add(GateCheck("confidence", false, 
-                "conf=${candidate.aiConfidence.toInt()}% < ${confidenceThreshold.toInt()}%$bootstrapTag (adaptive)"))
+                "conf=${candidate.aiConfidence.toInt()}%+nar=$narrativeAdjustment=${adjustedConfidence.toInt()}% < ${confidenceThreshold.toInt()}%$bootstrapTag (adaptive)"))
             tags.add("low_confidence")
             tags.add("adaptive_conf:${confidenceThreshold.toInt()}")
             if (isBootstrap) tags.add("bootstrap_phase")
         } else if (blockReason == null) {
             checks.add(GateCheck("confidence", true, 
-                "conf=${candidate.aiConfidence.toInt()}% >= ${confidenceThreshold.toInt()}%$bootstrapTag (adaptive)"))
+                "conf=${candidate.aiConfidence.toInt()}%+nar=$narrativeAdjustment=${adjustedConfidence.toInt()}% >= ${confidenceThreshold.toInt()}%$bootstrapTag (adaptive)"))
             if (isBootstrap) tags.add("bootstrap_phase")
         }
         
