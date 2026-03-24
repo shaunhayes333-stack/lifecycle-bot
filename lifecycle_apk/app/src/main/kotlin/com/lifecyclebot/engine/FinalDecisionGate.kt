@@ -759,18 +759,24 @@ object FinalDecisionGate {
             val inCooldown = isInDistributionCooldown(ts.mint)
             val cooldownMinutes = if (inCooldown) getRemainingCooldownMinutes(ts.mint) else 0
             
-            // PAPER MODE: Bypass cooldown if buy pressure is strong
-            // The token recovered from distribution - let's learn from it!
-            val bypassCooldownForLearning = config.paperMode && ts.meta.pressScore >= 60.0
+            // PAPER MODE: Bypass cooldown if buy pressure is strong (60%+)
+            val bypassCooldownForPaper = config.paperMode && ts.meta.pressScore >= 60.0
             
-            if (inCooldown && !bypassCooldownForLearning) {
+            // LIVE MODE: Bypass cooldown only with very strong buy pressure (65%+)
+            // If buyers have decisively returned, the distribution might be over
+            val bypassCooldownForLive = !config.paperMode && ts.meta.pressScore >= 65.0
+            
+            val bypassCooldown = bypassCooldownForPaper || bypassCooldownForLive
+            
+            if (inCooldown && !bypassCooldown) {
                 blockReason = "DISTRIBUTION_COOLDOWN_${cooldownMinutes}min"
                 blockLevel = BlockLevel.HARD
                 checks.add(GateCheck("distribution", false, "Recently exited distribution, cooldown=${cooldownMinutes}min remaining"))
                 tags.add("distribution_cooldown")
-            } else if (inCooldown && bypassCooldownForLearning) {
-                // Log bypass for learning
-                checks.add(GateCheck("distribution", true, "PAPER: cooldown bypass (buy%=${ts.meta.pressScore.toInt()}% >= 60%)"))
+            } else if (inCooldown && bypassCooldown) {
+                // Log bypass
+                val modeLabel = if (config.paperMode) "PAPER" else "LIVE"
+                checks.add(GateCheck("distribution", true, "$modeLabel: cooldown bypass (buy%=${ts.meta.pressScore.toInt()}%)"))
                 tags.add("distribution_cooldown_bypassed")
             } else {
                 // Check other distribution signals
@@ -842,10 +848,15 @@ object FinalDecisionGate {
                     candidate.aiConfidence >= 40.0  // Decent confidence
                 )
                 
-                if (canBypassInPaper) {
-                    // Bypass the veto for paper learning
+                // LIVE MODE: Allow bypass only with strong buy pressure (>= 60%)
+                // If buyers have returned strongly, the veto might be stale
+                val canBypassInLive = !config.paperMode && ts.meta.pressScore >= 60.0
+                
+                if (canBypassInPaper || canBypassInLive) {
+                    // Bypass the veto
+                    val modeLabel = if (config.paperMode) "PAPER" else "LIVE"
                     checks.add(GateCheck("edge_veto_sticky", true, 
-                        "PAPER: veto bypass (buy%=${ts.meta.pressScore.toInt()} quality=${candidate.setupQuality} conf=${candidate.aiConfidence.toInt()}%)"))
+                        "$modeLabel: veto bypass (buy%=${ts.meta.pressScore.toInt()} quality=${candidate.setupQuality} conf=${candidate.aiConfidence.toInt()}%)"))
                     tags.add("edge_veto_bypassed")
                 } else {
                     blockReason = "EDGE_VETO_ACTIVE"
@@ -915,20 +926,22 @@ object FinalDecisionGate {
                     tags.add("phase_unknown_garbage")
                 }
             } else {
-                // LIVE MODE: Strict filtering for real money
-                val minScore = 80.0
-                val minBuyPressure = 65.0
+                // LIVE MODE: Still need some filtering but not as strict
+                // UNKNOWN phases can still be profitable - just need good signals
+                val minScore = 50.0        // LOWERED from 80 - reasonable bar
+                val minBuyPressure = 55.0  // LOWERED from 65 - strong buyers
                 val isHighScore = candidate.entryScore >= minScore
                 val isHighBuyPressure = ts.meta.pressScore >= minBuyPressure
                 
-                if (!isHighScore || !isHighBuyPressure) {
+                // Allow if EITHER condition is met (not both)
+                if (!isHighScore && !isHighBuyPressure) {
                     blockReason = "UNKNOWN_PHASE_LOW_CONVICTION"
                     blockLevel = BlockLevel.CONFIDENCE
                     checks.add(GateCheck("phase_filter", false, 
-                        "phase=${candidate.phase} score=${candidate.entryScore.toInt()}<${minScore.toInt()} OR buy%=${ts.meta.pressScore.toInt()}<${minBuyPressure.toInt()}"))
+                        "phase=${candidate.phase} score=${candidate.entryScore.toInt()}<${minScore.toInt()} AND buy%=${ts.meta.pressScore.toInt()}<${minBuyPressure.toInt()}"))
                     tags.add("phase_unknown_weak")
                 } else {
-                    checks.add(GateCheck("phase_filter", true, "unknown phase OK (score=${candidate.entryScore.toInt()} buy%=${ts.meta.pressScore.toInt()})"))
+                    checks.add(GateCheck("phase_filter", true, "unknown phase OK (score=${candidate.entryScore.toInt()} OR buy%=${ts.meta.pressScore.toInt()})"))
                 }
             }
         } else if (blockReason == null) {
