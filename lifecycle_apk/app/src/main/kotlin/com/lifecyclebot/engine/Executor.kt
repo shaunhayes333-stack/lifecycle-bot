@@ -580,6 +580,10 @@ class Executor(
         if (!pos.isOpen || price == 0.0) return null
 
         pos.highestPrice = maxOf(pos.highestPrice, price)
+        // Track lowest price for Exit AI
+        if (pos.lowestPrice == 0.0 || price < pos.lowestPrice) {
+            pos.lowestPrice = price
+        }
         val gainPct  = pct(pos.entryPrice, price)
         val heldSecs = (System.currentTimeMillis() - pos.entryTime) / 1000.0
 

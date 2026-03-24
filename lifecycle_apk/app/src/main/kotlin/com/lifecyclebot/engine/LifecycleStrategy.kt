@@ -120,6 +120,26 @@ class LifecycleStrategy(
         val volScore   = volumeScore(hist)
         val pressScore = pressureScore(hist)
         val momScore   = momentumScore(prices)
+        
+        // Calculate RSI for Entry/Exit AI
+        val rsiVal = if (prices.size >= 14) {
+            val gains = mutableListOf<Double>()
+            val losses = mutableListOf<Double>()
+            for (i in 1 until minOf(14, prices.size)) {
+                val change = prices[prices.size - i] - prices[prices.size - i - 1]
+                if (change > 0) gains.add(change) else losses.add(-change)
+            }
+            val avgGain = if (gains.isNotEmpty()) gains.average() else 0.0
+            val avgLoss = if (losses.isNotEmpty()) losses.average() else 0.001
+            val rs = avgGain / avgLoss
+            100 - (100 / (1 + rs))
+        } else 50.0
+        
+        // Calculate ATR (average true range) for volatility
+        val avgAtrVal = if (hist.size >= 5) {
+            hist.takeLast(5).map { kotlin.math.abs(it.high - it.low) / it.close * 100 }.average()
+        } else 5.0
+        
         // On a bull-fan grinder with good gains, require stronger exhaustion confirmation
         val emafanQuick = calcEmaFan(prices)
         val inGrinder   = ts.position.isOpen
@@ -600,6 +620,8 @@ class LifecycleStrategy(
             protectMode      = spikeNow.protectMode,
             topUpReady       = topUpReadyNow,
             setupQuality     = setupQuality,
+            avgAtr           = avgAtrVal,
+            rsi              = rsiVal,
         )
         
         return StrategyResult(
@@ -2522,7 +2544,7 @@ class LifecycleStrategy(
         val isChasing = distanceFromHigh < 2.0 && phase == "pumping"  // Near highs while pumping = chasing
         
         // Check RSI for oversold bounce (if we have enough data)
-        val rsiOversold = if (prices.size >= 14) {
+        val rsiVal = if (prices.size >= 14) {
             val gains = mutableListOf<Double>()
             val losses = mutableListOf<Double>()
             for (i in 1 until minOf(14, prices.size)) {
@@ -2532,9 +2554,9 @@ class LifecycleStrategy(
             val avgGain = if (gains.isNotEmpty()) gains.average() else 0.0
             val avgLoss = if (losses.isNotEmpty()) losses.average() else 0.001
             val rs = avgGain / avgLoss
-            val rsi = 100 - (100 / (1 + rs))
-            rsi < 35  // RSI below 35 = oversold
-        } else false
+            100 - (100 / (1 + rs))
+        } else 50.0
+        val rsiOversold = rsiVal < 35  // RSI below 35 = oversold
         
         // ══════════════════════════════════════════════════════════════
         // IMPROVEMENT #3: SETUP QUALITY GRADING (A+ / B / C)
@@ -2569,19 +2591,27 @@ class LifecycleStrategy(
         // ══════════════════════════════════════════════════════════════
         // ENTRY INTELLIGENCE AI — Score entry conditions for learning
         // ══════════════════════════════════════════════════════════════
+        // Calculate EMA for price vs EMA comparison
+        val emaShortVal = if (prices.size >= 8) ema(prices.takeLast(10), 8) else ts.ref
+        val latestPrice = hist.lastOrNull()?.close ?: ts.ref
+        // Calculate ATR (average true range) for volatility
+        val atrVal = if (hist.size >= 5) {
+            hist.takeLast(5).map { kotlin.math.abs(it.high - it.low) / it.close * 100 }.average()
+        } else 5.0
+        
         val entryConditions = EntryIntelligence.EntryConditions(
-            buyPressure = pressScore,
-            volumeScore = volScore,
-            priceVsEma = ((latest.close - emaShort) / emaShort * 100).coerceIn(-50.0, 50.0),
+            buyPressure = press,
+            volumeScore = vol,
+            priceVsEma = if (emaShortVal > 0) ((latestPrice - emaShortVal) / emaShortVal * 100).coerceIn(-50.0, 50.0) else 0.0,
             rsi = rsiVal,
             momentum = adjustedEntryScore,
             hourOfDay = java.util.Calendar.getInstance(java.util.TimeZone.getTimeZone("UTC")).get(java.util.Calendar.HOUR_OF_DAY),
-            volatility = meta.avgAtr,
+            volatility = atrVal,
             liquidityUsd = ts.lastLiquidityUsd,
             topHolderPct = ts.safety.topHolderPct,
             isNearSupport = meta.posInRange < 25.0,
             isNearResistance = meta.posInRange > 75.0,
-            candlePattern = if (chartPattern.pattern != ChartPattern.NONE) chartPattern.pattern.name.lowercase() else "none",
+            candlePattern = if (meta.chartPattern.isNotEmpty()) meta.chartPattern.lowercase() else "none",
         )
         val entryAiScore = EntryIntelligence.scoreEntry(entryConditions)
         

@@ -48,6 +48,7 @@ data class Position(
     val entryTime: Long = 0L,
     val costSol: Double = 0.0,         // total SOL invested including top-ups
     var highestPrice: Double = 0.0,
+    var lowestPrice: Double = 0.0,     // Track lowest price since entry for Exit AI
     var peakGainPct: Double = 0.0,     // Track highest % gain for trailing stop
     val entryPhase: String = "",
     val entryScore: Double = 0.0,
@@ -111,6 +112,8 @@ data class StrategyMeta(
     val chartPatternConf: Double = 0.0,    // Pattern confidence 0-100
     val holderConcentration: Double = 0.0, // Top holder % 
     val setupQuality: String = "C",        // A+ / B / C - for position sizing
+    val avgAtr: Double = 5.0,              // Average True Range for volatility
+    val rsi: Double = 50.0,                // RSI value for Entry/Exit AI
 )
 
 data class StrategyResult(
