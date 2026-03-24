@@ -485,12 +485,29 @@ class LifecycleStrategy(
             }
         }
         
+        // ══════════════════════════════════════════════════════════════════════════
+        // CRITICAL FIX: Edge vetoes are ABSOLUTE - no more "relaxed for learning"
+        // 
+        // BEFORE: Paper mode ignored Edge vetoes → took garbage trades → learned nothing
+        // NOW: Edge vetoes are respected. Shadow learning tracks vetoed trades instead.
+        // 
+        // This prevents training on:
+        //   - Scratch trades (0% pnl)
+        //   - Micro losses (-1%)
+        //   - Flat structure entries
+        // 
+        // The ShadowLearningEngine will track vetoed trades to learn if Edge is
+        // too strict, WITHOUT polluting the training data with bad trades.
+        // ══════════════════════════════════════════════════════════════════════════
         if (signal == "BUY" && shouldApplyEdgeVeto && !ts.position.isOpen) {
             ErrorLogger.info("Strategy", "🚫 ${ts.symbol}: BUY VETOED by Edge (quality=SKIP)")
             signal = "WAIT"
-        } else if (signal == "BUY" && edgeVeto && isPaperMode && !ts.position.isOpen) {
-            // Paper mode: Log that we're allowing despite edge veto
-            ErrorLogger.info("Strategy", "📄 ${ts.symbol}: PAPER BUY (Edge veto relaxed for learning)")
+            
+            // Shadow track this veto for learning (even in paper mode)
+            // This lets us learn if Edge is too strict without taking garbage trades
+            if (isPaperMode) {
+                ErrorLogger.debug("Strategy", "📊 ${ts.symbol}: Veto will be shadow-tracked for learning")
+            }
         }
         
         // Log signal for debugging

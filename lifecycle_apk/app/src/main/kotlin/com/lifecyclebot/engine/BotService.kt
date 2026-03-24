@@ -1275,6 +1275,27 @@ class BotService : Service() {
                             "entry=${result.entryScore.toInt()} exit=${result.exitScore.toInt()} " +
                             "quality=${decision.finalQuality} edge=${decision.edgePhase}")
                     }
+                    
+                    // ═══════════════════════════════════════════════════════════════════
+                    // SHADOW TRACK EDGE-VETOED TRADES (Paper Mode Learning)
+                    // Edge veto means: "This is a garbage setup, don't trade"
+                    // Instead of overriding and taking bad trades, we SHADOW TRACK them
+                    // to learn if Edge is too strict, without polluting training data.
+                    // ═══════════════════════════════════════════════════════════════════
+                    if (cfg.paperMode && decision.finalSignal == "WAIT" && result.entryScore >= 30 && !ts.position.isOpen) {
+                        // This was an Edge veto - shadow track it
+                        ShadowLearningEngine.onFdgBlockedTrade(
+                            mint = ts.mint,
+                            symbol = ts.symbol,
+                            blockReason = "EDGE_VETO_${decision.edgePhase}",
+                            blockLevel = "EDGE",
+                            currentPrice = ts.ref,
+                            proposedSizeSol = 0.1,  // Nominal size for tracking
+                            quality = decision.finalQuality,
+                            confidence = decision.aiConfidence,
+                            phase = result.phase,
+                        )
+                    }
 
                     // Sentiment refresh (every sentimentPollMins)
                 val sentAge = System.currentTimeMillis() - ts.lastSentimentRefresh
