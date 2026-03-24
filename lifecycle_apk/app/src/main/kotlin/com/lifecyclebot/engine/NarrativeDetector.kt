@@ -121,7 +121,7 @@ object NarrativeDetector {
         }
 
         return try {
-            if (!RateLimiter.canProceed("groq")) {
+            if (!RateLimiter.allowRequest("groq")) {
                 ErrorLogger.debug("NarrativeAI", "Rate limited, using fallback")
                 return null
             }
