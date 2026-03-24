@@ -1110,12 +1110,16 @@ object FinalDecisionGate {
         var narrativeAdjustment = 0
         if (blockReason == null && config.groqApiKey.isNotBlank()) {
             try {
+                val tokenSymbol = ts.symbol
+                val tokenName = ts.name
+                val tokenMint = ts.mint
+                
                 val narrativeResult = NarrativeDetector.analyze(
-                    symbol = ts.symbol,
-                    name = ts.name,
-                    mintAddress = ts.mint,
-                    description = "",  // No metadata available yet
-                    socialMentions = emptyList(),  // TODO: Wire in social mentions
+                    symbol = tokenSymbol,
+                    name = tokenName,
+                    mintAddress = tokenMint,
+                    description = "",
+                    socialMentions = emptyList(),
                     groqApiKey = config.groqApiKey,
                 )
                 
