@@ -259,10 +259,10 @@ object FinalDecisionGate {
         // NEVER buy during distribution phase. This is when whales/bots are
         // actively DUMPING. The outcome is predictable: you will lose.
         // 
-        // This is NOT a "learning" opportunity because:
-        //   1. Outcome is predictable (price dumps)
-        //   2. Pollutes training data with "obvious loser" trades
-        //   3. No edge exists during distribution
+        // We check MULTIPLE signals:
+        //   1. EdgeOptimizer phase detection (edgePhase == "DISTRIBUTION")
+        //   2. TokenState phase tag (ts.phase contains "distribution")
+        //   3. DistributionDetector direct check (confidence >= 50%)
         // 
         // Even paper mode should NOT take these trades.
         // ═══════════════════════════════════════════════════════════════════════
@@ -271,13 +271,32 @@ object FinalDecisionGate {
             val isDistributionPhase = candidate.edgePhase.uppercase() == "DISTRIBUTION"
             val hasDistributionTag = ts.phase.lowercase().contains("distribution")
             
-            if (isDistributionPhase || hasDistributionTag) {
+            // Also run DistributionDetector directly for more accurate detection
+            val distSignal = if (ts.history.size >= 5) {
+                DistributionDetector.detect(
+                    mint = ts.mint,
+                    ts = ts,
+                    currentExitScore = candidate.exitScore,
+                    history = ts.history
+                )
+            } else null
+            
+            val isDistributorConfident = distSignal?.isDistributing == true && distSignal.confidence >= 50
+            
+            if (isDistributionPhase || hasDistributionTag || isDistributorConfident) {
+                val reason = when {
+                    isDistributionPhase -> "edgePhase=DISTRIBUTION"
+                    hasDistributionTag -> "tsPhase=${ts.phase}"
+                    isDistributorConfident -> "detector=${distSignal?.confidence}% (${distSignal?.details})"
+                    else -> "unknown"
+                }
                 blockReason = "HARD_BLOCK_DISTRIBUTION"
                 blockLevel = BlockLevel.HARD
-                checks.add(GateCheck("distribution", false, "edgePhase=${candidate.edgePhase} tsPhase=${ts.phase} - whales dumping"))
+                checks.add(GateCheck("distribution", false, reason))
                 tags.add("distribution_block")
             } else {
-                checks.add(GateCheck("distribution", true, "edgePhase=${candidate.edgePhase}"))
+                val detectorInfo = if (distSignal != null) " detector=${distSignal.confidence}%" else ""
+                checks.add(GateCheck("distribution", true, "edgePhase=${candidate.edgePhase}$detectorInfo"))
             }
         }
         
