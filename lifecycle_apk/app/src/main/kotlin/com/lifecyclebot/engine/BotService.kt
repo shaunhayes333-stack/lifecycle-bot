@@ -1797,8 +1797,8 @@ class BotService : Service() {
                         ErrorLogger.info("BotService", "${if(fdgDecision.isBenchmarkQuality()) "🟢" else "🟡"} " +
                             "FDG ${fdgDecision.approvalClass}: ${identity.symbol} | " +
                             "quality=${fdgDecision.quality} | conf=${fdgDecision.confidence.toInt()}% | " +
-                            "size=${actualInitialSize.format(4)} SOL" +
-                            if (isGraduated) " (grad: target=${finalSize.format(4)})" else "")
+                            "size=${actualInitialSize.fmt(4)} SOL" +
+                            if (isGraduated) " (grad: target=${finalSize.fmt(4)})" else "")
                         
                         if (!cbState.isHalted && !cbState.isPaused) {
                             executor.maybeActWithDecision(
