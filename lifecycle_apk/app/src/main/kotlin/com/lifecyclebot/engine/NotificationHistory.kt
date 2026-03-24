@@ -4,6 +4,7 @@ import android.content.Context
 import android.content.SharedPreferences
 import org.json.JSONArray
 import org.json.JSONObject
+import java.util.Collections
 
 /**
  * NotificationHistory
@@ -11,6 +12,7 @@ import org.json.JSONObject
  * Persists all bot alerts and trade notifications so they're never lost.
  * Stored in SharedPreferences as JSON — survives app restarts.
  * Keeps last 200 entries, oldest pruned automatically.
+ * Thread-safe: uses synchronized list and synchronized blocks for iteration.
  */
 class NotificationHistory(ctx: Context) {
 
@@ -29,24 +31,32 @@ class NotificationHistory(ctx: Context) {
         }
     }
 
-    private val entries = mutableListOf<NotifEntry>()
+    // Thread-safe list to prevent ConcurrentModificationException
+    private val entries = Collections.synchronizedList(mutableListOf<NotifEntry>())
     private var loaded  = false
+    private val lock = Any()  // Lock for compound operations
 
     fun add(title: String, body: String, type: NotifEntry.NotifType = NotifEntry.NotifType.INFO) {
-        ensureLoaded()
-        entries.add(0, NotifEntry(System.currentTimeMillis(), title, body, type))
-        if (entries.size > 200) entries.removeAt(entries.size - 1)
-        persist()
+        synchronized(lock) {
+            ensureLoaded()
+            entries.add(0, NotifEntry(System.currentTimeMillis(), title, body, type))
+            if (entries.size > 200) entries.removeAt(entries.size - 1)
+            persist()
+        }
     }
 
     fun getAll(): List<NotifEntry> {
-        ensureLoaded()
-        return entries.toList()
+        synchronized(lock) {
+            ensureLoaded()
+            return entries.toList()
+        }
     }
 
     fun clear() {
-        entries.clear()
-        prefs.edit().remove("entries").apply()
+        synchronized(lock) {
+            entries.clear()
+            prefs.edit().remove("entries").apply()
+        }
     }
 
     private fun ensureLoaded() {
@@ -71,8 +81,10 @@ class NotificationHistory(ctx: Context) {
     }
 
     private fun persist() {
+        // Create a snapshot to iterate safely
+        val snapshot = entries.toList()
         val arr = JSONArray()
-        entries.take(200).forEach { e ->
+        snapshot.take(200).forEach { e ->
             arr.put(JSONObject().apply {
                 put("ts",    e.ts)
                 put("title", e.title)
