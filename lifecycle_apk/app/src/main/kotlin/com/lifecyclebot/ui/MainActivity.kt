@@ -809,10 +809,16 @@ class MainActivity : AppCompatActivity() {
                 (ref - pos.entryPrice) / pos.entryPrice * 100.0 else 0.0
             val gainCol = if (gainPct >= 0) green else red
             val pnlSol  = pos.costSol * gainPct / 100.0
+            
+            // Calculate token amount and current value
+            val tokenAmount = if (pos.entryPrice > 0) pos.costSol / pos.entryPrice else 0.0
+            val currentValue = tokenAmount * ref
+            val solPrice = com.lifecyclebot.engine.WalletManager.lastKnownSolPrice
+            val valueUsd = currentValue * solPrice
 
             val row = LinearLayout(this).apply {
                 orientation = LinearLayout.HORIZONTAL
-                setPadding(0, 10, 0, 10)
+                setPadding(0, 12, 0, 12)
             }
 
             // Colour bar on left
@@ -824,30 +830,45 @@ class MainActivity : AppCompatActivity() {
             }
             row.addView(bar)
 
-            // Token info
+            // Token info (left column)
             val info = LinearLayout(this).apply {
                 orientation = LinearLayout.VERTICAL
                 layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
             }
+            // Symbol
             info.addView(TextView(this).apply {
                 text = ts.symbol.ifBlank { ts.mint.take(8) }
                 textSize = resources.getDimension(R.dimen.trade_row_text) / resources.displayMetrics.scaledDensity
                 setTextColor(white)
                 typeface = android.graphics.Typeface.DEFAULT_BOLD
             })
+            // Entry price and time
             info.addView(TextView(this).apply {
                 text = "Entry: ${pos.entryPrice.fmtPrice()}  ·  ${sdf.format(java.util.Date(pos.entryTime))}"
                 textSize = resources.getDimension(R.dimen.trade_sub_text) / resources.displayMetrics.scaledDensity
                 setTextColor(muted)
                 typeface = android.graphics.Typeface.MONOSPACE
             })
+            // Entry size and token amount
+            info.addView(TextView(this).apply {
+                val tokenAmtStr = when {
+                    tokenAmount >= 1_000_000 -> "%.2fM".format(tokenAmount / 1_000_000)
+                    tokenAmount >= 1_000     -> "%.2fK".format(tokenAmount / 1_000)
+                    else                     -> "%.2f".format(tokenAmount)
+                }
+                text = "Size: ${pos.costSol.fmt(4)}◎  ·  $tokenAmtStr tokens"
+                textSize = resources.getDimension(R.dimen.trade_sub_text) / resources.displayMetrics.scaledDensity
+                setTextColor(muted)
+                typeface = android.graphics.Typeface.MONOSPACE
+            })
             row.addView(info)
 
-            // P&L
+            // P&L (right column)
             val right = LinearLayout(this).apply {
                 orientation = LinearLayout.VERTICAL
                 gravity = android.view.Gravity.END
             }
+            // PnL percentage
             right.addView(TextView(this).apply {
                 text = "%+.1f%%".format(gainPct)
                 textSize = resources.getDimension(R.dimen.token_name_size) / resources.displayMetrics.scaledDensity
@@ -855,10 +876,19 @@ class MainActivity : AppCompatActivity() {
                 typeface = android.graphics.Typeface.DEFAULT_BOLD
                 gravity = android.view.Gravity.END
             })
+            // PnL in SOL
             right.addView(TextView(this).apply {
                 text = "%+.4f◎".format(pnlSol)
                 textSize = resources.getDimension(R.dimen.trade_sub_text) / resources.displayMetrics.scaledDensity
                 setTextColor(gainCol)
+                typeface = android.graphics.Typeface.MONOSPACE
+                gravity = android.view.Gravity.END
+            })
+            // Current value in USD
+            right.addView(TextView(this).apply {
+                text = "≈\$%.2f".format(valueUsd)
+                textSize = resources.getDimension(R.dimen.trade_sub_text) / resources.displayMetrics.scaledDensity
+                setTextColor(muted)
                 typeface = android.graphics.Typeface.MONOSPACE
                 gravity = android.view.Gravity.END
             })
