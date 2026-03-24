@@ -137,7 +137,12 @@ class LifecycleStrategy(
         
         // Calculate ATR (average true range) for volatility
         val avgAtrVal = if (hist.size >= 5) {
-            hist.takeLast(5).map { kotlin.math.abs(it.high - it.low) / it.close * 100 }.average()
+            hist.takeLast(5).map { candle -> 
+                val high = if (candle.highUsd > 0) candle.highUsd else candle.priceUsd
+                val low = if (candle.lowUsd > 0) candle.lowUsd else candle.priceUsd
+                val close = candle.priceUsd
+                if (close > 0) kotlin.math.abs(high - low) / close * 100 else 0.0
+            }.average()
         } else 5.0
         
         // On a bull-fan grinder with good gains, require stronger exhaustion confirmation
@@ -2593,10 +2598,15 @@ class LifecycleStrategy(
         // ══════════════════════════════════════════════════════════════
         // Calculate EMA for price vs EMA comparison
         val emaShortVal = if (prices.size >= 8) ema(prices.takeLast(10), 8) else ts.ref
-        val latestPrice = hist.lastOrNull()?.close ?: ts.ref
+        val latestPrice = hist.lastOrNull()?.priceUsd ?: ts.ref
         // Calculate ATR (average true range) for volatility
         val atrVal = if (hist.size >= 5) {
-            hist.takeLast(5).map { kotlin.math.abs(it.high - it.low) / it.close * 100 }.average()
+            hist.takeLast(5).map { candle -> 
+                val high = if (candle.highUsd > 0) candle.highUsd else candle.priceUsd
+                val low = if (candle.lowUsd > 0) candle.lowUsd else candle.priceUsd
+                val close = candle.priceUsd
+                if (close > 0) kotlin.math.abs(high - low) / close * 100 else 0.0
+            }.average()
         } else 5.0
         
         val entryConditions = EntryIntelligence.EntryConditions(
