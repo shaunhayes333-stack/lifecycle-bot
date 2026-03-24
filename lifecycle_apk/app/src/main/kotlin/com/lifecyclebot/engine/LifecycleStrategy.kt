@@ -399,6 +399,36 @@ class LifecycleStrategy(
                     }
                 }
             } catch (_: Exception) {}
+            
+            // ── NARRATIVE DETECTOR AI ──────────────────────────────────────
+            // Detects trending narratives (AI, political, animal memes, etc.)
+            // Hot narratives = higher chance of pump
+            try {
+                val narrativeAdj = NarrativeDetectorAI.getEntryScoreAdjustment(ts.symbol, ts.name)
+                if (narrativeAdj != 0.0) {
+                    entryScore = (entryScore + narrativeAdj).coerceIn(0.0, 100.0)
+                    val narrative = NarrativeDetectorAI.detectNarrative(ts.symbol, ts.name)
+                    if (narrativeAdj > 5.0) {
+                        ErrorLogger.info("NarrativeAI", "📖 ${ts.symbol}: ${narrative.label} HOT NARRATIVE (+${narrativeAdj.toInt()} pts)")
+                    } else if (narrativeAdj < -3.0) {
+                        ErrorLogger.debug("NarrativeAI", "📖 ${ts.symbol}: ${narrative.label} cold narrative (${narrativeAdj.toInt()} pts)")
+                    }
+                }
+            } catch (_: Exception) {}
+            
+            // ── TIME OPTIMIZATION AI ───────────────────────────────────────
+            // Learns optimal trading hours - golden hours get boost, danger zones get penalty
+            try {
+                val timeAdj = TimeOptimizationAI.getEntryScoreAdjustment()
+                if (timeAdj != 0.0) {
+                    entryScore = (entryScore + timeAdj).coerceIn(0.0, 100.0)
+                    if (TimeOptimizationAI.isGoldenHour()) {
+                        ErrorLogger.debug("TimeAI", "⏰ ${ts.symbol}: GOLDEN HOUR (+${timeAdj.toInt()} pts)")
+                    } else if (TimeOptimizationAI.isDangerZone()) {
+                        ErrorLogger.debug("TimeAI", "⏰ ${ts.symbol}: DANGER ZONE (${timeAdj.toInt()} pts)")
+                    }
+                }
+            } catch (_: Exception) {}
         }
 
         // ── Sentiment overlay ─────────────────────────────────────────

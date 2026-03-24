@@ -428,6 +428,35 @@ object FinalDecisionGate {
         adjustment += momentumAdj
         
         // ─────────────────────────────────────────────────────────────────
+        // FACTOR 12: NARRATIVE DETECTOR AI INFLUENCE (Token-specific)
+        // 
+        // Hot narratives (AI, political, etc.) = more aggressive
+        // Cold narratives = more cautious
+        // ─────────────────────────────────────────────────────────────────
+        val narrativeAdj = if (ts != null) {
+            try {
+                val adj = NarrativeDetectorAI.getEntryScoreAdjustment(ts.symbol, ts.name)
+                // Convert entry score adj to confidence adj (opposite direction)
+                // Hot narrative = lower confidence needed (negative adj)
+                (-adj * 0.5).coerceIn(-6.0, 6.0)
+            } catch (_: Exception) { 0.0 }
+        } else 0.0
+        adjustment += narrativeAdj
+        
+        // ─────────────────────────────────────────────────────────────────
+        // FACTOR 13: TIME OPTIMIZATION AI INFLUENCE
+        // 
+        // Golden hours = more aggressive (historically profitable)
+        // Danger zones = more cautious (historically unprofitable)
+        // ─────────────────────────────────────────────────────────────────
+        val timeAdj = try {
+            val adj = TimeOptimizationAI.getEntryScoreAdjustment()
+            // Convert entry score adj to confidence adj (opposite direction)
+            (-adj * 0.4).coerceIn(-5.0, 5.0)
+        } catch (_: Exception) { 0.0 }
+        adjustment += timeAdj
+        
+        // ─────────────────────────────────────────────────────────────────
         // CALCULATE FINAL ADAPTIVE CONFIDENCE
         // Clamp to reasonable bounds
         // ─────────────────────────────────────────────────────────────────

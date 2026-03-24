@@ -2293,6 +2293,16 @@ class Executor(
             MomentumPredictorAI.recordOutcome(tradeId.mint, pnlP, peakPnlPct)
         } catch (_: Exception) {}
         
+        // NarrativeDetectorAI: Learn which narratives are performing
+        try {
+            NarrativeDetectorAI.recordOutcome(ts.symbol, ts.name, pnlP)
+        } catch (_: Exception) {}
+        
+        // TimeOptimizationAI: Learn which hours are most profitable
+        try {
+            TimeOptimizationAI.recordOutcome(pnlP)
+        } catch (_: Exception) {}
+        
         ts.position         = Position()
         ts.lastExitTs       = System.currentTimeMillis()
         ts.lastExitPrice    = price
@@ -2664,6 +2674,22 @@ class Executor(
                 com.lifecyclebot.util.pct(ts.position.entryPrice, ts.peakPrice)
             } else 0.0
             MomentumPredictorAI.recordOutcome(tradeId.mint, pnlP, peakPnlPctLive)
+        } catch (_: Exception) {}
+        
+        // NarrativeDetectorAI: Learn which narratives are performing (LIVE trades - 3x weight!)
+        try {
+            // Record 3x for live trades since they're more important
+            NarrativeDetectorAI.recordOutcome(ts.symbol, ts.name, pnlP)
+            NarrativeDetectorAI.recordOutcome(ts.symbol, ts.name, pnlP)
+            NarrativeDetectorAI.recordOutcome(ts.symbol, ts.name, pnlP)
+        } catch (_: Exception) {}
+        
+        // TimeOptimizationAI: Learn which hours are most profitable (LIVE trades - 3x weight!)
+        try {
+            // Record 3x for live trades
+            TimeOptimizationAI.recordOutcome(pnlP)
+            TimeOptimizationAI.recordOutcome(pnlP)
+            TimeOptimizationAI.recordOutcome(pnlP)
         } catch (_: Exception) {}
         
         ts.position         = Position()

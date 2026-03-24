@@ -278,6 +278,24 @@ class BotService : Service() {
             ErrorLogger.error("BotService", "Failed to save MomentumPredictorAI: ${e.message}", e)
         }
         
+        // Save NarrativeDetectorAI
+        try {
+            val narrativeAiPrefs = getSharedPreferences("narrative_detector_ai", android.content.Context.MODE_PRIVATE)
+            narrativeAiPrefs.edit().putString("data", NarrativeDetectorAI.saveToJson().toString()).apply()
+            ErrorLogger.info("BotService", "💾 NarrativeDetectorAI saved before destroy")
+        } catch (e: Exception) {
+            ErrorLogger.error("BotService", "Failed to save NarrativeDetectorAI: ${e.message}", e)
+        }
+        
+        // Save TimeOptimizationAI
+        try {
+            val timeAiPrefs = getSharedPreferences("time_optimization_ai", android.content.Context.MODE_PRIVATE)
+            timeAiPrefs.edit().putString("data", TimeOptimizationAI.saveToJson().toString()).apply()
+            ErrorLogger.info("BotService", "💾 TimeOptimizationAI saved before destroy")
+        } catch (e: Exception) {
+            ErrorLogger.error("BotService", "Failed to save TimeOptimizationAI: ${e.message}", e)
+        }
+        
         scope.cancel()
     }
 
@@ -767,6 +785,30 @@ class BotService : Service() {
             ErrorLogger.error("BotService", "Failed to load MomentumPredictorAI: ${e.message}", e)
         }
         
+        // Initialize NarrativeDetectorAI - detect trending narratives
+        try {
+            val narrativeAiPrefs = getSharedPreferences("narrative_detector_ai", android.content.Context.MODE_PRIVATE)
+            val narrativeJson = narrativeAiPrefs.getString("data", null)
+            if (narrativeJson != null) {
+                NarrativeDetectorAI.loadFromJson(org.json.JSONObject(narrativeJson))
+            }
+            addLog("📖 ${NarrativeDetectorAI.getStats()}")
+        } catch (e: Exception) {
+            ErrorLogger.error("BotService", "Failed to load NarrativeDetectorAI: ${e.message}", e)
+        }
+        
+        // Initialize TimeOptimizationAI - learn optimal trading hours
+        try {
+            val timeAiPrefs = getSharedPreferences("time_optimization_ai", android.content.Context.MODE_PRIVATE)
+            val timeJson = timeAiPrefs.getString("data", null)
+            if (timeJson != null) {
+                TimeOptimizationAI.loadFromJson(org.json.JSONObject(timeJson))
+            }
+            addLog("⏰ ${TimeOptimizationAI.getStats()}")
+        } catch (e: Exception) {
+            ErrorLogger.error("BotService", "Failed to load TimeOptimizationAI: ${e.message}", e)
+        }
+        
         // Set up paper wallet balance tracking
         executor.onPaperBalanceChange = { delta ->
             status.paperWalletSol = (status.paperWalletSol + delta).coerceAtLeast(0.0)
@@ -1124,10 +1166,18 @@ class BotService : Service() {
                 addLog("🐋 ${WhaleTrackerAI.getStats()}")
                 addLog("📊 ${MarketRegimeAI.getStats()}")
                 addLog("🚀 ${MomentumPredictorAI.getStats()}")
+                addLog("📖 ${NarrativeDetectorAI.getStats()}")
+                addLog("⏰ ${TimeOptimizationAI.getStats()}")
                 
                 // Clean up old momentum data
                 MomentumPredictorAI.cleanup()
                 WhaleTrackerAI.cleanup()
+                NarrativeDetectorAI.cleanup()
+                TimeOptimizationAI.cleanup()
+                
+                // Refresh time-based stats
+                TimeOptimizationAI.refreshStats()
+                NarrativeDetectorAI.refreshHeat()
                 
                 // Log cloud sync status (every ~35 mins = 5x7 loops)
                 if (loopCount % 35 == 0) {
