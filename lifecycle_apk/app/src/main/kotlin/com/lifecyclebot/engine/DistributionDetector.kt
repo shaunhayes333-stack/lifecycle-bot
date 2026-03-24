@@ -105,7 +105,16 @@ object DistributionDetector {
         val sellPressure = if (recentBuys + recentSells > 0) {
             recentSells.toDouble() / (recentBuys + recentSells)
         } else 0.0
+        val buyPressure = 1.0 - sellPressure
         val highSellPressure = sellPressure > 0.55  // More sells than buys
+        
+        // ════════════════════════════════════════════════════════════════
+        // CRITICAL: HIGH BUY PRESSURE = NOT DISTRIBUTION
+        // If buyers are still dominant (>55%), this is NOT distribution!
+        // Distribution requires sellers to be in control.
+        // ════════════════════════════════════════════════════════════════
+        val buyersInControl = buyPressure >= 0.55  // Buyers still dominating
+        val strongBuyers = buyPressure >= 0.65     // Very strong buyers
         
         // Price at or near recent high (distribution happens at tops)
         val recentHigh = history.takeLast(10).maxOfOrNull { it.priceUsd } ?: 0.0
@@ -116,6 +125,28 @@ object DistributionDetector {
         // ════════════════════════════════════════════════════════════════
         var confidence = 0
         val signals = mutableListOf<String>()
+        
+        // ════════════════════════════════════════════════════════════════
+        // CRITICAL CHECK: If buyers are still in control, ABORT DETECTION
+        // Distribution REQUIRES sellers to dominate. If buy% > 55%, 
+        // this is NOT distribution - it's consolidation or continuation.
+        // ════════════════════════════════════════════════════════════════
+        if (strongBuyers) {
+            // Very strong buyers (65%+) = DEFINITELY not distribution
+            return DistributionSignal(
+                isDistributing = false,
+                confidence = 0,
+                reason = "BUYERS_DOMINATING",
+                details = "buy%=${(buyPressure*100).toInt()}% - NOT distribution"
+            )
+        }
+        
+        if (buyersInControl) {
+            // Buyers still in control (55-65%) = unlikely distribution
+            // Reduce confidence cap significantly
+            signals.add("buy%=${(buyPressure*100).toInt()}%_CAUTION")
+            confidence -= 20  // Start negative to raise threshold
+        }
         
         if (exitScoreRisingFast) {
             confidence += 30
@@ -154,8 +185,9 @@ object DistributionDetector {
         
         // ════════════════════════════════════════════════════════════════
         // DISTRIBUTION DETECTED?
+        // Need 60% confidence AND sellers must have some presence
         // ════════════════════════════════════════════════════════════════
-        val isDistributing = confidence >= 60  // Need 60% confidence
+        val isDistributing = confidence >= 60 && !buyersInControl
         
         val reason = if (isDistributing) "DISTRIBUTION_DETECTED" else "NO_DISTRIBUTION"
         val details = signals.joinToString(" | ")

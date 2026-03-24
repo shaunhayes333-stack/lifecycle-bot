@@ -512,7 +512,8 @@ object FinalDecisionGate {
     // ═══════════════════════════════════════════════════════════════════════════
     
     private val distributionCooldowns = java.util.concurrent.ConcurrentHashMap<String, Long>()
-    private const val DISTRIBUTION_COOLDOWN_MS = 2 * 60 * 1000L  // 2 minutes - aggressive paper learning
+    private const val DISTRIBUTION_COOLDOWN_MS_PAPER = 1 * 60 * 1000L  // 1 minute for paper - aggressive learning
+    private const val DISTRIBUTION_COOLDOWN_MS_LIVE = 3 * 60 * 1000L   // 3 minutes for live - more cautious
     
     /**
      * Record that a token was closed due to distribution.
@@ -527,11 +528,12 @@ object FinalDecisionGate {
     
     /**
      * Check if a token is in distribution cooldown.
+     * Uses the shorter (paper) cooldown by default since we can't easily access config here.
      */
     fun isInDistributionCooldown(mint: String): Boolean {
         val exitTime = distributionCooldowns[mint] ?: return false
         val elapsed = System.currentTimeMillis() - exitTime
-        return elapsed < DISTRIBUTION_COOLDOWN_MS
+        return elapsed < DISTRIBUTION_COOLDOWN_MS_PAPER  // Use shorter cooldown
     }
     
     /**
@@ -540,7 +542,7 @@ object FinalDecisionGate {
     fun getRemainingCooldownMinutes(mint: String): Int {
         val exitTime = distributionCooldowns[mint] ?: return 0
         val elapsed = System.currentTimeMillis() - exitTime
-        val remaining = DISTRIBUTION_COOLDOWN_MS - elapsed
+        val remaining = DISTRIBUTION_COOLDOWN_MS_PAPER - elapsed
         return if (remaining > 0) (remaining / 60000).toInt() else 0
     }
     
@@ -777,9 +779,19 @@ object FinalDecisionGate {
                     )
                 } else null
                 
-                val isDistributorConfident = distSignal?.isDistributing == true && distSignal.confidence >= 50
+                // Mode-aware distribution threshold
+                // Paper mode: Higher threshold (70%) - allow more learning from edge cases
+                // Live mode: Lower threshold (50%) - be more cautious with real money
+                val distThreshold = if (config.paperMode) 70 else 50
+                val isDistributorConfident = distSignal?.isDistributing == true && distSignal.confidence >= distThreshold
                 
-                if (isDistributionPhase || hasDistributionTag || isDistributorConfident) {
+                // In paper mode, skip distribution block if buy pressure is high
+                // This allows learning from "almost distribution" scenarios
+                val bypassForPaperLearning = config.paperMode && 
+                    ts.meta.pressScore >= 55.0 && 
+                    !isDistributionPhase
+                
+                if ((isDistributionPhase || hasDistributionTag || isDistributorConfident) && !bypassForPaperLearning) {
                     val reason = when {
                         isDistributionPhase -> "edgePhase=DISTRIBUTION"
                         hasDistributionTag -> "tsPhase=${ts.phase}"
