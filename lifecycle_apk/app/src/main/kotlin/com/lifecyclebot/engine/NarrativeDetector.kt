@@ -1,6 +1,5 @@
 package com.lifecyclebot.engine
 
-import com.lifecyclebot.data.MentionEvent
 import com.lifecyclebot.util.ErrorLogger
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
@@ -64,7 +63,7 @@ object NarrativeDetector {
         name: String,
         mintAddress: String,
         description: String = "",
-        socialMentions: List<MentionEvent> = emptyList(),
+        socialMentions: List<String> = emptyList(),
         groqApiKey: String,
     ): NarrativeResult {
         if (groqApiKey.isBlank()) {
@@ -79,9 +78,8 @@ object NarrativeDetector {
 
         // Build context for LLM
         val socialText = socialMentions
-            .sortedByDescending { it.ts }
             .take(15)
-            .joinToString("\n") { "[${it.source}] ${it.text.take(100)}" }
+            .joinToString("\n") { it.take(100) }
             .take(600)
 
         val result = callGroq(symbol, name, mintAddress, description, socialText, groqApiKey)
