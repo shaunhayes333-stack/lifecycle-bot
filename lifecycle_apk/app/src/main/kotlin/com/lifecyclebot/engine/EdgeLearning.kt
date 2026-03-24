@@ -113,6 +113,7 @@ object EdgeLearning {
             entryPrice = entryPrice,
             isPaperMode = isPaperMode,
         )
+        ErrorLogger.info("EdgeLearning", "📝 ENTRY: $symbol | buy%=${buyPct.toInt()} vol=${volumeScore.toInt()} | phase=$phase quality=$edgeQuality")
     }
     
     // ═══════════════════════════════════════════════════════════════════════

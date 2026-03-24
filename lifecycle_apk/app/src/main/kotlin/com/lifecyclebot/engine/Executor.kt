@@ -1974,7 +1974,7 @@ class Executor(
         // ═══════════════════════════════════════════════════════════════════
         if (reason.lowercase().contains("distribution")) {
             FinalDecisionGate.recordDistributionExit(tradeId.mint)
-            onLog("🚫 Distribution cooldown: ${ts.symbol} blocked for 30min", tradeId.mint)
+            onLog("🚫 Distribution cooldown: ${ts.symbol} blocked for 7min", tradeId.mint)
         }
         
         // ═══════════════════════════════════════════════════════════════════
@@ -2308,7 +2308,7 @@ class Executor(
         // ═══════════════════════════════════════════════════════════════════
         if (reason.lowercase().contains("distribution")) {
             FinalDecisionGate.recordDistributionExit(tradeId.mint)
-            onLog("🚫 Distribution cooldown: ${ts.symbol} blocked for 30min", tradeId.mint)
+            onLog("🚫 Distribution cooldown: ${ts.symbol} blocked for 7min", tradeId.mint)
         }
         
         ts.position         = Position()
