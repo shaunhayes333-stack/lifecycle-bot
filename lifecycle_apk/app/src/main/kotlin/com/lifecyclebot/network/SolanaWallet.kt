@@ -90,12 +90,45 @@ class SolanaWallet(privateKeyB58: String, val rpcUrl: String) {
     /**
      * Takes a base64 versioned transaction from Jupiter, signs it, broadcasts it.
      * Returns the transaction signature string.
+     * 
+     * If useJito=true, sends via Jito bundle for MEV protection.
      */
-    fun signAndSend(txBase64: String): String {
+    fun signAndSend(txBase64: String, useJito: Boolean = false, jitoTipLamports: Long = 10000): String {
         val txBytes    = android.util.Base64.decode(txBase64, android.util.Base64.DEFAULT)
         val signedBytes = signVersionedTx(txBytes)
         val signedB64   = android.util.Base64.encodeToString(signedBytes, android.util.Base64.NO_WRAP)
+        
+        // Try Jito MEV protection first if enabled
+        if (useJito) {
+            try {
+                val jitoResult = kotlinx.coroutines.runBlocking {
+                    com.lifecyclebot.engine.JitoMEVProtection.sendProtectedTransaction(
+                        signedTxBase64 = signedB64,
+                        tipLamports = jitoTipLamports,
+                        maxRetries = 2,
+                    )
+                }
+                
+                if (jitoResult.success && jitoResult.bundleId != null) {
+                    com.lifecyclebot.engine.ErrorLogger.info("SolanaWallet", 
+                        "⚡ Jito bundle sent: ${jitoResult.bundleId?.take(16)}... landed=${jitoResult.landed}")
+                    
+                    // If Jito succeeded and landed, we need to get the actual tx signature
+                    // For now, fall through to normal send as backup confirmation
+                    if (jitoResult.landed && jitoResult.signature != null) {
+                        return jitoResult.signature
+                    }
+                } else {
+                    com.lifecyclebot.engine.ErrorLogger.warn("SolanaWallet", 
+                        "⚠️ Jito failed: ${jitoResult.error}, falling back to normal RPC")
+                }
+            } catch (e: Exception) {
+                com.lifecyclebot.engine.ErrorLogger.warn("SolanaWallet", 
+                    "⚠️ Jito exception: ${e.message}, falling back to normal RPC")
+            }
+        }
 
+        // Normal RPC send (fallback or if Jito disabled)
         val params = JSONArray()
             .put(signedB64)
             .put(JSONObject().put("encoding", "base64")
@@ -191,9 +224,16 @@ class SolanaWallet(privateKeyB58: String, val rpcUrl: String) {
     /**
      * Sign, send, and await confirmation.
      * Returns signature only after confirmed — throws on failure.
+     * 
+     * @param useJito If true, attempts to send via Jito bundle for MEV protection
+     * @param jitoTipLamports Tip amount for Jito validators
      */
-    fun signSendAndConfirm(txBase64: String): String {
-        val sig = signAndSend(txBase64)
+    fun signSendAndConfirm(
+        txBase64: String, 
+        useJito: Boolean = false, 
+        jitoTipLamports: Long = 10000
+    ): String {
+        val sig = signAndSend(txBase64, useJito, jitoTipLamports)
         awaitConfirmation(sig)
         return sig
     }

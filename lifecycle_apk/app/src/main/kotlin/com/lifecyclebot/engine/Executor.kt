@@ -541,7 +541,11 @@ class Executor(
                     ts.mint, JupiterApi.SOL_MINT, sellUnits, c.slippageBps, isBuy = false)
                 val txB64     = buildTxWithRetry(quote, wallet.publicKeyB58)
                 security.enforceSignDelay()
-                val sig       = wallet.signSendAndConfirm(txB64)
+                
+                // ⚡ MEV PROTECTION for partial sells
+                val useJito = c.jitoEnabled
+                val jitoTip = c.jitoTipLamports
+                val sig       = wallet.signSendAndConfirm(txB64, useJito, jitoTip)
                 val solBack   = quote.outAmount / 1_000_000_000.0
                 val livePnl   = solBack - pos.costSol * sellFraction
                 val liveScore = pct(pos.costSol * sellFraction, solBack)
@@ -1441,8 +1445,13 @@ class Executor(
             }
             val txB64 = buildTxWithRetry(quote, wallet.publicKeyB58)
             security.enforceSignDelay()
+            
+            // ⚡ MEV PROTECTION for top-ups
+            val useJito = c.jitoEnabled
+            val jitoTip = c.jitoTipLamports
+            
             onLog("Broadcasting top-up tx…", ts.mint)
-            val sig    = wallet.signSendAndConfirm(txB64)
+            val sig    = wallet.signSendAndConfirm(txB64, useJito, jitoTip)
             val pos    = ts.position
             val price  = ts.ref
             val newQty = quote.outAmount.toDouble() / tokenScale(quote.outAmount)
@@ -1648,8 +1657,19 @@ class Executor(
 
             // Use signSendAndConfirm — wait for on-chain confirmation before
             // recording the position. This prevents ghost positions if tx fails.
-            onLog("Broadcasting buy tx…", ts.mint)
-            val sig = wallet.signSendAndConfirm(txB64)
+            // 
+            // ⚡ MEV PROTECTION: If Jito is enabled, send via Jito bundle
+            // This protects against sandwich attacks and front-running
+            val useJito = c.jitoEnabled
+            val jitoTip = c.jitoTipLamports
+            
+            if (useJito) {
+                onLog("⚡ Broadcasting buy tx via Jito MEV protection…", ts.mint)
+            } else {
+                onLog("Broadcasting buy tx…", ts.mint)
+            }
+            
+            val sig = wallet.signSendAndConfirm(txB64, useJito, jitoTip)
             val qty   = quote.outAmount.toDouble() / tokenScale(quote.outAmount)
             val price = ts.ref
 
@@ -2140,8 +2160,18 @@ class Executor(
 
             val txB64 = buildTxWithRetry(quote, wallet.publicKeyB58)
             security.enforceSignDelay()
-            onLog("Broadcasting sell tx…", ts.mint)
-            val sig     = wallet.signSendAndConfirm(txB64)
+            
+            // ⚡ MEV PROTECTION: If Jito is enabled, send via Jito bundle
+            val useJito = c.jitoEnabled
+            val jitoTip = c.jitoTipLamports
+            
+            if (useJito) {
+                onLog("⚡ Broadcasting sell tx via Jito MEV protection…", ts.mint)
+            } else {
+                onLog("Broadcasting sell tx…", ts.mint)
+            }
+            
+            val sig     = wallet.signSendAndConfirm(txB64, useJito, jitoTip)
             val price   = ts.ref
             val solBack = quote.outAmount / 1_000_000_000.0
             pnl  = solBack - pos.costSol
