@@ -762,6 +762,19 @@ class Executor(
         if (!pos.isOpen) milestonesHit.remove(ts.mint)
 
         // ════════════════════════════════════════════════════════════════
+        // AI CROSS-TALK: Check for coordinated dump signal
+        // Multiple AIs detecting dump = EMERGENCY EXIT
+        // ════════════════════════════════════════════════════════════════
+        try {
+            if (AICrossTalk.isCoordinatedDump(ts.mint, ts.symbol)) {
+                val crossTalkSignal = AICrossTalk.analyzeCrossTalk(ts.mint, ts.symbol, isOpenPosition = true)
+                onLog("🔗🚨 CROSSTALK: ${ts.symbol} COORDINATED DUMP | ${crossTalkSignal.participatingAIs.joinToString("+")} | ${crossTalkSignal.reason}", ts.mint)
+                TradeStateMachine.startCooldown(ts.mint)
+                return "crosstalk_coordinated_dump"
+            }
+        } catch (_: Exception) {}
+        
+        // ════════════════════════════════════════════════════════════════
         // EXIT INTELLIGENCE AI - Dynamic exit evaluation
         // ════════════════════════════════════════════════════════════════
         val exitAiState = ExitIntelligence.PositionState(
@@ -2319,6 +2332,14 @@ class Executor(
             LiquidityDepthAI.clearEntryLiquidity(ts.mint)  // Clean up entry reference
         } catch (_: Exception) {}
         
+        // AICrossTalk: Learn which correlation patterns are profitable
+        try {
+            val crossTalkSignal = AICrossTalk.analyzeCrossTalk(ts.mint, ts.symbol, isOpenPosition = false)
+            if (crossTalkSignal.signalType != AICrossTalk.SignalType.NO_CORRELATION) {
+                AICrossTalk.recordOutcome(crossTalkSignal.signalType, pnlP, pnlP > 0)
+            }
+        } catch (_: Exception) {}
+        
         ts.position         = Position()
         ts.lastExitTs       = System.currentTimeMillis()
         ts.lastExitPrice    = price
@@ -2715,6 +2736,17 @@ class Executor(
             LiquidityDepthAI.recordOutcome(ts.mint, pnlP, pnl > 0)
             LiquidityDepthAI.recordOutcome(ts.mint, pnlP, pnl > 0)
             LiquidityDepthAI.clearEntryLiquidity(ts.mint)  // Clean up entry reference
+        } catch (_: Exception) {}
+        
+        // AICrossTalk: Learn which correlation patterns are profitable (LIVE trades - 3x weight!)
+        try {
+            val crossTalkSignal = AICrossTalk.analyzeCrossTalk(ts.mint, ts.symbol, isOpenPosition = false)
+            if (crossTalkSignal.signalType != AICrossTalk.SignalType.NO_CORRELATION) {
+                // Record 3x for live trades
+                AICrossTalk.recordOutcome(crossTalkSignal.signalType, pnlP, pnl > 0)
+                AICrossTalk.recordOutcome(crossTalkSignal.signalType, pnlP, pnl > 0)
+                AICrossTalk.recordOutcome(crossTalkSignal.signalType, pnlP, pnl > 0)
+            }
         } catch (_: Exception) {}
         
         ts.position         = Position()

@@ -305,6 +305,15 @@ class BotService : Service() {
             ErrorLogger.error("BotService", "Failed to save LiquidityDepthAI: ${e.message}", e)
         }
         
+        // Save AICrossTalk
+        try {
+            val crossTalkPrefs = getSharedPreferences("ai_crosstalk", android.content.Context.MODE_PRIVATE)
+            crossTalkPrefs.edit().putString("data", AICrossTalk.saveToJson().toString()).apply()
+            ErrorLogger.info("BotService", "💾 AICrossTalk saved before destroy")
+        } catch (e: Exception) {
+            ErrorLogger.error("BotService", "Failed to save AICrossTalk: ${e.message}", e)
+        }
+        
         scope.cancel()
     }
 
@@ -830,6 +839,18 @@ class BotService : Service() {
             ErrorLogger.error("BotService", "Failed to load LiquidityDepthAI: ${e.message}", e)
         }
         
+        // Initialize AICrossTalk - inter-layer communication hub
+        try {
+            val crossTalkPrefs = getSharedPreferences("ai_crosstalk", android.content.Context.MODE_PRIVATE)
+            val crossTalkJson = crossTalkPrefs.getString("data", null)
+            if (crossTalkJson != null) {
+                AICrossTalk.loadFromJson(org.json.JSONObject(crossTalkJson))
+            }
+            addLog("🔗 ${AICrossTalk.getStats()}")
+        } catch (e: Exception) {
+            ErrorLogger.error("BotService", "Failed to load AICrossTalk: ${e.message}", e)
+        }
+        
         // Set up paper wallet balance tracking
         executor.onPaperBalanceChange = { delta ->
             status.paperWalletSol = (status.paperWalletSol + delta).coerceAtLeast(0.0)
@@ -1189,6 +1210,7 @@ class BotService : Service() {
                 addLog("📖 ${NarrativeDetectorAI.getStats()}")
                 addLog("⏰ ${TimeOptimizationAI.getStats()}")
                 addLog("💧 ${LiquidityDepthAI.getStats()}")
+                addLog("🔗 ${AICrossTalk.getStats()}")
                 
                 // Clean up old momentum data
                 MomentumPredictorAI.cleanup()
@@ -1196,6 +1218,7 @@ class BotService : Service() {
                 NarrativeDetectorAI.cleanup()
                 TimeOptimizationAI.cleanup()
                 LiquidityDepthAI.cleanup()
+                AICrossTalk.cleanup()
                 
                 // Refresh time-based stats
                 TimeOptimizationAI.refreshStats()

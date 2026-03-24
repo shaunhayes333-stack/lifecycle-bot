@@ -1190,6 +1190,22 @@ object FinalDecisionGate {
             }
         }
         
+        // Apply AI CrossTalk size multiplier (correlated signals can boost/reduce size)
+        val crossTalkSignal = try {
+            AICrossTalk.analyzeCrossTalk(ts.mint, ts.symbol, isOpenPosition = false)
+        } catch (_: Exception) { null }
+        
+        if (crossTalkSignal != null && crossTalkSignal.sizeMultiplier != 1.0) {
+            val originalSize = finalSize
+            finalSize = (finalSize * crossTalkSignal.sizeMultiplier).coerceIn(0.01, 1.0)
+            if (finalSize != originalSize) {
+                val direction = if (crossTalkSignal.sizeMultiplier > 1.0) "boosted" else "reduced"
+                tags.add("size_${direction}_crosstalk")
+                checks.add(GateCheck("crosstalk_size", true,
+                    "Size $direction ${originalSize.format(3)} → ${finalSize.format(3)} (${crossTalkSignal.signalType.name})"))
+            }
+        }
+        
         if (blockReason == null) {
             // Minimum size check
             val minSize = if (config.paperMode) 0.001 else 0.01
