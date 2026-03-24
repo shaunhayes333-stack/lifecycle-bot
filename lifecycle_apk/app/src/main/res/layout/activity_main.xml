@@ -1403,6 +1403,15 @@
                     android:textColor="#EF4444" android:textStyle="bold"
                     android:textSize="@dimen/input_text_size"
                     android:backgroundTint="#1F2937"/>
+                    
+                <Button android:id="@+id/btnTestToast"
+                    android:layout_width="match_parent"
+                    android:layout_height="@dimen/input_height"
+                    android:layout_marginTop="8dp"
+                    android:text="🔔  Test Toast Notifications"
+                    android:textColor="#10B981" android:textStyle="bold"
+                    android:textSize="@dimen/input_text_size"
+                    android:backgroundTint="#1F2937"/>
             </LinearLayout>
 
             <!-- ═══════════════════════════════

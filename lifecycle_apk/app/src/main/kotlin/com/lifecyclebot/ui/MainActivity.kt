@@ -367,6 +367,9 @@ class MainActivity : AppCompatActivity() {
 
         // Clear settings button
         setupClearSettingsButton()
+        
+        // Test toast button (for debugging notifications)
+        setupTestToastButton()
 
         // Quick action buttons
         setupQuickActionButtons()
@@ -1377,6 +1380,25 @@ class MainActivity : AppCompatActivity() {
             vm.saveConfig(cfg)
 
             Toast.makeText(this, "API keys cleared", Toast.LENGTH_SHORT).show()
+        } catch (_: Exception) {}
+    }
+    
+    /** Test toast notifications - simulates live trade toasts */
+    private fun setupTestToastButton() {
+        try {
+            findViewById<android.widget.Button>(R.id.btnTestToast)?.setOnClickListener {
+                // Show a series of test toasts to verify they work
+                Toast.makeText(this, "✅ LIVE BUY: TESTTOKEN\n0.0150 SOL @ 0.00001234", Toast.LENGTH_LONG).show()
+                
+                // Schedule follow-up toasts
+                android.os.Handler(android.os.Looper.getMainLooper()).postDelayed({
+                    Toast.makeText(this, "📉 LIVE SELL: TESTTOKEN\nPnL: -5.2% (-0.0008 SOL)", Toast.LENGTH_LONG).show()
+                }, 3500)
+                
+                android.os.Handler(android.os.Looper.getMainLooper()).postDelayed({
+                    Toast.makeText(this, "✅ Toast notifications working!", Toast.LENGTH_SHORT).show()
+                }, 7000)
+            }
         } catch (_: Exception) {}
     }
 }
