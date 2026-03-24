@@ -442,30 +442,78 @@ object ExitIntelligence {
             putInt("profitableExits", params.profitableExits)
             apply()
         }
+        
+        // Also save to persistent external storage
+        PersistentLearning.saveExitIntelligence(
+            baseStopLoss = params.baseStopLoss,
+            baseTakeProfit = params.baseTakeProfit,
+            greedFactor = params.greedFactor,
+            trailingStopDistance = params.trailingStopDistance,
+            trailingActivationProfit = params.trailingActivationProfit,
+            maxHoldMinutes = params.maxHoldMinutes,
+            optimalHoldMinutes = params.optimalHoldMinutes,
+            partialExit25Threshold = params.partialExit25Threshold,
+            partialExit50Threshold = params.partialExit50Threshold,
+            avgWinningHoldTime = params.avgWinningHoldTime,
+            avgLosingHoldTime = params.avgLosingHoldTime,
+            avgWinningPnl = params.avgWinningPnl,
+            avgLosingPnl = params.avgLosingPnl,
+            totalExits = params.totalExits,
+            profitableExits = params.profitableExits,
+        )
+        
         ErrorLogger.info(TAG, "💾 Exit AI params saved")
     }
     
     fun loadFromPrefs(prefs: SharedPreferences) {
-        params = LearnedExitParams(
-            baseStopLoss = prefs.getFloat("baseStopLoss", -8.0f).toDouble(),
-            baseTakeProfit = prefs.getFloat("baseTakeProfit", 15.0f).toDouble(),
-            greedFactor = prefs.getFloat("greedFactor", 1.0f).toDouble(),
-            trailingStopDistance = prefs.getFloat("trailingStopDistance", 5.0f).toDouble(),
-            trailingActivationProfit = prefs.getFloat("trailingActivationProfit", 8.0f).toDouble(),
-            maxHoldMinutes = prefs.getInt("maxHoldMinutes", 30),
-            optimalHoldMinutes = prefs.getInt("optimalHoldMinutes", 10),
-            partialExit25Threshold = prefs.getFloat("partialExit25Threshold", 10.0f).toDouble(),
-            partialExit50Threshold = prefs.getFloat("partialExit50Threshold", 20.0f).toDouble(),
-            avgWinningHoldTime = prefs.getFloat("avgWinningHoldTime", 8.0f).toDouble(),
-            avgLosingHoldTime = prefs.getFloat("avgLosingHoldTime", 15.0f).toDouble(),
-            avgWinningPnl = prefs.getFloat("avgWinningPnl", 12.0f).toDouble(),
-            avgLosingPnl = prefs.getFloat("avgLosingPnl", -10.0f).toDouble(),
-            totalExits = prefs.getInt("totalExits", 0),
-            profitableExits = prefs.getInt("profitableExits", 0),
-        )
+        // First try to load from persistent external storage (survives reinstall)
+        val persistent = PersistentLearning.loadExitIntelligence()
         
-        val winRate = if (params.totalExits > 0) (params.profitableExits.toDouble() / params.totalExits * 100).toInt() else 0
-        ErrorLogger.info(TAG, "📂 Exit AI loaded: ${params.totalExits} exits, ${winRate}% profitable, stop=${params.baseStopLoss.toInt()}%")
+        if (persistent != null && (persistent["totalExits"] as Int) > prefs.getInt("totalExits", 0)) {
+            // Persistent storage has more data - use it
+            params = LearnedExitParams(
+                baseStopLoss = persistent["baseStopLoss"] as Double,
+                baseTakeProfit = persistent["baseTakeProfit"] as Double,
+                greedFactor = persistent["greedFactor"] as Double,
+                trailingStopDistance = persistent["trailingStopDistance"] as Double,
+                trailingActivationProfit = persistent["trailingActivationProfit"] as Double,
+                maxHoldMinutes = persistent["maxHoldMinutes"] as Int,
+                optimalHoldMinutes = persistent["optimalHoldMinutes"] as Int,
+                partialExit25Threshold = persistent["partialExit25Threshold"] as Double,
+                partialExit50Threshold = persistent["partialExit50Threshold"] as Double,
+                avgWinningHoldTime = persistent["avgWinningHoldTime"] as Double,
+                avgLosingHoldTime = persistent["avgLosingHoldTime"] as Double,
+                avgWinningPnl = persistent["avgWinningPnl"] as Double,
+                avgLosingPnl = persistent["avgLosingPnl"] as Double,
+                totalExits = persistent["totalExits"] as Int,
+                profitableExits = persistent["profitableExits"] as Int,
+            )
+            
+            val winRate = if (params.totalExits > 0) (params.profitableExits.toDouble() / params.totalExits * 100).toInt() else 0
+            ErrorLogger.info(TAG, "📂 Exit AI loaded from PERSISTENT storage: ${params.totalExits} exits, ${winRate}% profitable")
+        } else {
+            // Use SharedPreferences (normal app storage)
+            params = LearnedExitParams(
+                baseStopLoss = prefs.getFloat("baseStopLoss", -8.0f).toDouble(),
+                baseTakeProfit = prefs.getFloat("baseTakeProfit", 15.0f).toDouble(),
+                greedFactor = prefs.getFloat("greedFactor", 1.0f).toDouble(),
+                trailingStopDistance = prefs.getFloat("trailingStopDistance", 5.0f).toDouble(),
+                trailingActivationProfit = prefs.getFloat("trailingActivationProfit", 8.0f).toDouble(),
+                maxHoldMinutes = prefs.getInt("maxHoldMinutes", 30),
+                optimalHoldMinutes = prefs.getInt("optimalHoldMinutes", 10),
+                partialExit25Threshold = prefs.getFloat("partialExit25Threshold", 10.0f).toDouble(),
+                partialExit50Threshold = prefs.getFloat("partialExit50Threshold", 20.0f).toDouble(),
+                avgWinningHoldTime = prefs.getFloat("avgWinningHoldTime", 8.0f).toDouble(),
+                avgLosingHoldTime = prefs.getFloat("avgLosingHoldTime", 15.0f).toDouble(),
+                avgWinningPnl = prefs.getFloat("avgWinningPnl", 12.0f).toDouble(),
+                avgLosingPnl = prefs.getFloat("avgLosingPnl", -10.0f).toDouble(),
+                totalExits = prefs.getInt("totalExits", 0),
+                profitableExits = prefs.getInt("profitableExits", 0),
+            )
+            
+            val winRate = if (params.totalExits > 0) (params.profitableExits.toDouble() / params.totalExits * 100).toInt() else 0
+            ErrorLogger.info(TAG, "📂 Exit AI loaded: ${params.totalExits} exits, ${winRate}% profitable, stop=${params.baseStopLoss.toInt()}%")
+        }
     }
     
     fun getStats(): String {

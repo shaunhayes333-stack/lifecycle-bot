@@ -294,27 +294,58 @@ object EdgeLearning {
             .putInt("edge_approved_lost", stats.approvedLost)
             .apply()
         
+        // Also save to persistent external storage
+        PersistentLearning.saveEdgeLearning(
+            paperBuyPctMin = thresholds.paperBuyPctMin,
+            paperVolumeMin = thresholds.paperVolumeMin,
+            liveBuyPctMin = thresholds.liveBuyPctMin,
+            liveVolumeMin = thresholds.liveVolumeMin,
+            totalTrades = stats.totalTrades,
+            winningTrades = stats.approvedWon,
+        )
+        
         ErrorLogger.info("EdgeLearning", "💾 Saved learned thresholds")
     }
     
     fun loadFromPrefs(prefs: android.content.SharedPreferences) {
-        thresholds = AdaptiveThresholds(
-            paperBuyPctMin = prefs.getFloat("edge_paper_buy_pct", 40f).toDouble(),
-            paperVolumeMin = prefs.getFloat("edge_paper_volume", 10f).toDouble(),
-            liveBuyPctMin = prefs.getFloat("edge_live_buy_pct", 50f).toDouble(),
-            liveVolumeMin = prefs.getFloat("edge_live_volume", 15f).toDouble(),
-            vetoStickyMinutes = prefs.getInt("edge_veto_minutes", 5),
-        )
+        // First try to load from persistent external storage (survives reinstall)
+        val persistent = PersistentLearning.loadEdgeLearning()
         
-        stats.totalTrades = prefs.getInt("edge_total_trades", 0)
-        stats.vetoedWouldWin = prefs.getInt("edge_vetoed_would_win", 0)
-        stats.vetoedWouldLose = prefs.getInt("edge_vetoed_would_lose", 0)
-        stats.approvedWon = prefs.getInt("edge_approved_won", 0)
-        stats.approvedLost = prefs.getInt("edge_approved_lost", 0)
-        
-        ErrorLogger.info("EdgeLearning", 
-            "📂 Loaded thresholds: paper(buy=${thresholds.paperBuyPctMin.toInt()}%) " +
-            "live(buy=${thresholds.liveBuyPctMin.toInt()}%) | trades=${stats.totalTrades}")
+        if (persistent != null && (persistent["totalTrades"] as Int) > prefs.getInt("edge_total_trades", 0)) {
+            // Persistent storage has more data - use it
+            thresholds = AdaptiveThresholds(
+                paperBuyPctMin = persistent["paperBuyPctMin"] as Double,
+                paperVolumeMin = persistent["paperVolumeMin"] as Double,
+                liveBuyPctMin = persistent["liveBuyPctMin"] as Double,
+                liveVolumeMin = persistent["liveVolumeMin"] as Double,
+                vetoStickyMinutes = 3,
+            )
+            stats.totalTrades = persistent["totalTrades"] as Int
+            stats.approvedWon = persistent["winningTrades"] as Int
+            
+            ErrorLogger.info("EdgeLearning", 
+                "📂 Loaded from PERSISTENT storage: paper(buy=${thresholds.paperBuyPctMin.toInt()}%) " +
+                "live(buy=${thresholds.liveBuyPctMin.toInt()}%) | trades=${stats.totalTrades}")
+        } else {
+            // Use SharedPreferences (normal app storage)
+            thresholds = AdaptiveThresholds(
+                paperBuyPctMin = prefs.getFloat("edge_paper_buy_pct", 40f).toDouble(),
+                paperVolumeMin = prefs.getFloat("edge_paper_volume", 10f).toDouble(),
+                liveBuyPctMin = prefs.getFloat("edge_live_buy_pct", 50f).toDouble(),
+                liveVolumeMin = prefs.getFloat("edge_live_volume", 15f).toDouble(),
+                vetoStickyMinutes = prefs.getInt("edge_veto_minutes", 5),
+            )
+            
+            stats.totalTrades = prefs.getInt("edge_total_trades", 0)
+            stats.vetoedWouldWin = prefs.getInt("edge_vetoed_would_win", 0)
+            stats.vetoedWouldLose = prefs.getInt("edge_vetoed_would_lose", 0)
+            stats.approvedWon = prefs.getInt("edge_approved_won", 0)
+            stats.approvedLost = prefs.getInt("edge_approved_lost", 0)
+            
+            ErrorLogger.info("EdgeLearning", 
+                "📂 Loaded thresholds: paper(buy=${thresholds.paperBuyPctMin.toInt()}%) " +
+                "live(buy=${thresholds.liveBuyPctMin.toInt()}%) | trades=${stats.totalTrades}")
+        }
     }
     
     // ═══════════════════════════════════════════════════════════════════════

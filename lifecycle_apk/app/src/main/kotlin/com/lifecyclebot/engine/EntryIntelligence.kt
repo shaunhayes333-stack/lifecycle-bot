@@ -345,44 +345,89 @@ object EntryIntelligence {
             
             apply()
         }
+        
+        // Also save to persistent external storage
+        PersistentLearning.saveEntryIntelligence(
+            buyPressureWeight = weights.buyPressureWeight,
+            volumeWeight = weights.volumeWeight,
+            momentumWeight = weights.momentumWeight,
+            rsiWeight = weights.rsiWeight,
+            optimalBuyPressureMin = weights.optimalBuyPressureMin,
+            optimalBuyPressureMax = weights.optimalBuyPressureMax,
+            optimalMomentumMin = weights.optimalMomentumMin,
+            totalTrades = weights.totalTrades,
+            winningTrades = weights.winningTrades,
+            hourlyWinRates = weights.hourlyWinRates,
+            hourlyTradeCount = weights.hourlyTradeCount,
+            patternWinRates = weights.patternWinRates,
+            patternTradeCount = weights.patternTradeCount,
+        )
+        
         ErrorLogger.info(TAG, "💾 Entry AI weights saved")
     }
     
+    @Suppress("UNCHECKED_CAST")
     fun loadFromPrefs(prefs: SharedPreferences) {
-        weights = LearnedWeights(
-            buyPressureWeight = prefs.getFloat("buyPressureWeight", 1.0f).toDouble(),
-            volumeWeight = prefs.getFloat("volumeWeight", 1.0f).toDouble(),
-            momentumWeight = prefs.getFloat("momentumWeight", 1.0f).toDouble(),
-            rsiWeight = prefs.getFloat("rsiWeight", 1.0f).toDouble(),
-            optimalBuyPressureMin = prefs.getFloat("optimalBuyPressureMin", 50.0f).toDouble(),
-            optimalBuyPressureMax = prefs.getFloat("optimalBuyPressureMax", 75.0f).toDouble(),
-            optimalMomentumMin = prefs.getFloat("optimalMomentumMin", 5.0f).toDouble(),
-            totalTrades = prefs.getInt("totalTrades", 0),
-            winningTrades = prefs.getInt("winningTrades", 0),
-        )
+        // First try to load from persistent external storage (survives reinstall)
+        val persistent = PersistentLearning.loadEntryIntelligence()
         
-        // Load hourly data
-        for (hour in 0..23) {
-            val rate = prefs.getFloat("hourWinRate_$hour", -1f)
-            val count = prefs.getInt("hourCount_$hour", 0)
-            if (rate >= 0 && count > 0) {
-                weights.hourlyWinRates[hour] = rate.toDouble()
-                weights.hourlyTradeCount[hour] = count
+        if (persistent != null && (persistent["totalTrades"] as Int) > prefs.getInt("totalTrades", 0)) {
+            // Persistent storage has more data - use it
+            weights = LearnedWeights(
+                buyPressureWeight = persistent["buyPressureWeight"] as Double,
+                volumeWeight = persistent["volumeWeight"] as Double,
+                momentumWeight = persistent["momentumWeight"] as Double,
+                rsiWeight = persistent["rsiWeight"] as Double,
+                optimalBuyPressureMin = persistent["optimalBuyPressureMin"] as Double,
+                optimalBuyPressureMax = persistent["optimalBuyPressureMax"] as Double,
+                optimalMomentumMin = persistent["optimalMomentumMin"] as Double,
+                totalTrades = persistent["totalTrades"] as Int,
+                winningTrades = persistent["winningTrades"] as Int,
+                hourlyWinRates = (persistent["hourlyWinRates"] as Map<Int, Double>).toMutableMap(),
+                hourlyTradeCount = (persistent["hourlyTradeCount"] as Map<Int, Int>).toMutableMap(),
+                patternWinRates = (persistent["patternWinRates"] as Map<String, Double>).toMutableMap(),
+                patternTradeCount = (persistent["patternTradeCount"] as Map<String, Int>).toMutableMap(),
+            )
+            
+            val winRate = if (weights.totalTrades > 0) (weights.winningTrades.toDouble() / weights.totalTrades * 100).toInt() else 0
+            ErrorLogger.info(TAG, "📂 Entry AI loaded from PERSISTENT storage: ${weights.totalTrades} trades, ${winRate}% win rate")
+        } else {
+            // Use SharedPreferences (normal app storage)
+            weights = LearnedWeights(
+                buyPressureWeight = prefs.getFloat("buyPressureWeight", 1.0f).toDouble(),
+                volumeWeight = prefs.getFloat("volumeWeight", 1.0f).toDouble(),
+                momentumWeight = prefs.getFloat("momentumWeight", 1.0f).toDouble(),
+                rsiWeight = prefs.getFloat("rsiWeight", 1.0f).toDouble(),
+                optimalBuyPressureMin = prefs.getFloat("optimalBuyPressureMin", 50.0f).toDouble(),
+                optimalBuyPressureMax = prefs.getFloat("optimalBuyPressureMax", 75.0f).toDouble(),
+                optimalMomentumMin = prefs.getFloat("optimalMomentumMin", 5.0f).toDouble(),
+                totalTrades = prefs.getInt("totalTrades", 0),
+                winningTrades = prefs.getInt("winningTrades", 0),
+            )
+            
+            // Load hourly data
+            for (hour in 0..23) {
+                val rate = prefs.getFloat("hourWinRate_$hour", -1f)
+                val count = prefs.getInt("hourCount_$hour", 0)
+                if (rate >= 0 && count > 0) {
+                    weights.hourlyWinRates[hour] = rate.toDouble()
+                    weights.hourlyTradeCount[hour] = count
+                }
             }
-        }
-        
-        // Load pattern data
-        listOf("bullish_engulf", "hammer", "doji", "morning_star", "shooting_star", "none").forEach { pattern ->
-            val rate = prefs.getFloat("patternWinRate_$pattern", -1f)
-            val count = prefs.getInt("patternCount_$pattern", 0)
-            if (rate >= 0 && count > 0) {
-                weights.patternWinRates[pattern] = rate.toDouble()
-                weights.patternTradeCount[pattern] = count
+            
+            // Load pattern data
+            listOf("bullish_engulf", "hammer", "doji", "morning_star", "shooting_star", "none").forEach { pattern ->
+                val rate = prefs.getFloat("patternWinRate_$pattern", -1f)
+                val count = prefs.getInt("patternCount_$pattern", 0)
+                if (rate >= 0 && count > 0) {
+                    weights.patternWinRates[pattern] = rate.toDouble()
+                    weights.patternTradeCount[pattern] = count
+                }
             }
+            
+            val winRate = if (weights.totalTrades > 0) (weights.winningTrades.toDouble() / weights.totalTrades * 100).toInt() else 0
+            ErrorLogger.info(TAG, "📂 Entry AI loaded: ${weights.totalTrades} trades, ${winRate}% win rate")
         }
-        
-        val winRate = if (weights.totalTrades > 0) (weights.winningTrades.toDouble() / weights.totalTrades * 100).toInt() else 0
-        ErrorLogger.info(TAG, "📂 Entry AI loaded: ${weights.totalTrades} trades, ${winRate}% win rate")
     }
     
     fun getStats(): String {

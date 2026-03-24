@@ -664,6 +664,14 @@ class BotService : Service() {
         RuggedContracts.init(applicationContext)
         addLog("💀 RuggedContracts: ${RuggedContracts.getCount()} blacklisted")
         
+        // Initialize Persistent Learning storage (survives app reinstall)
+        val persistentAvailable = PersistentLearning.init(applicationContext)
+        if (persistentAvailable) {
+            addLog("📁 Persistent storage: ${PersistentLearning.getStoragePath()}")
+        } else {
+            addLog("⚠️ Persistent storage not available - learning will reset on reinstall")
+        }
+        
         // Initialize EdgeLearning for adaptive threshold learning
         val edgeLearningPrefs = getSharedPreferences("edge_learning", android.content.Context.MODE_PRIVATE)
         EdgeLearning.loadFromPrefs(edgeLearningPrefs)
