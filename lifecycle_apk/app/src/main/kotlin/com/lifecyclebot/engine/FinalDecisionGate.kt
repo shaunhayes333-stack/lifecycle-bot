@@ -142,7 +142,7 @@ object FinalDecisionGate {
     // ═══════════════════════════════════════════════════════════════════════════
     
     private val distributionCooldowns = java.util.concurrent.ConcurrentHashMap<String, Long>()
-    private const val DISTRIBUTION_COOLDOWN_MS = 7 * 60 * 1000L  // 7 minutes
+    private const val DISTRIBUTION_COOLDOWN_MS = 4 * 60 * 1000L  // 4 minutes - fast paper learning
     
     /**
      * Record that a token was closed due to distribution.
