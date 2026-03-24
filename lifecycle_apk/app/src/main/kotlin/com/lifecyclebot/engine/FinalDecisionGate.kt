@@ -1114,7 +1114,7 @@ object FinalDecisionGate {
                     symbol = ts.symbol,
                     name = ts.name,
                     mintAddress = ts.mint,
-                    description = ts.metadata?.description ?: "",
+                    description = "",  // No metadata available yet
                     socialMentions = emptyList(),  // TODO: Wire in social mentions
                     groqApiKey = config.groqApiKey,
                 )
