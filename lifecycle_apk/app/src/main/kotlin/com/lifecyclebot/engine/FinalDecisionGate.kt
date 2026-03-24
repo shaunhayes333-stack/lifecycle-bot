@@ -129,7 +129,7 @@ object FinalDecisionGate {
     
     // Base confidence thresholds (these are ADAPTED by AdaptiveConfidence)
     var paperConfidenceBase = 0.0          // Paper mode base: NO confidence minimum (learn from all)
-    var liveConfidenceBase = 40.0          // Live base: higher confidence required
+    var liveConfidenceBase = 30.0          // Live base: LOWERED from 40% to allow more trades
     
     // ═══════════════════════════════════════════════════════════════════════════
     // ADAPTIVE CONFIDENCE LAYER
@@ -953,23 +953,30 @@ object FinalDecisionGate {
                 // the trade even if Edge says SKIP. This prevents missing good setups
                 // just because the phase is "unknown".
                 // 
-                // Override conditions (must meet ALL):
-                //   - Buy pressure >= 55% (strong buyer interest)
-                //   - Liquidity >= $5000 (real money in the pool)
-                //   - Entry score >= 30 (not total garbage)
+                // Override conditions (must meet ANY ONE):
+                //   - Buy pressure >= 52% (decent buyer interest)
+                //   - Liquidity >= $3000 AND entry score >= 25
+                //   - Entry score >= 40 (good quality setup)
                 // ═══════════════════════════════════════════════════════════════════
-                val liveMinBuyPressure = 55.0   // Stricter than paper (55% vs 45%)
-                val liveMinLiquidity = 5000.0   // Higher than paper ($5k vs $2k)
-                val liveMinEntryScore = 30.0    // Minimum quality bar
+                val liveMinBuyPressure = 52.0   // LOWERED from 55%
+                val liveMinLiquidity = 3000.0   // LOWERED from $5k
+                val liveMinEntryScore = 25.0    // LOWERED from 30
+                val liveGoodEntryScore = 40.0   // Good quality override
                 
                 val hasStrongBuyers = ts.meta.pressScore >= liveMinBuyPressure
                 val hasGoodLiquidity = ts.lastLiquidityUsd >= liveMinLiquidity
                 val hasDecentScore = candidate.entryScore >= liveMinEntryScore
+                val hasGoodScore = candidate.entryScore >= liveGoodEntryScore
                 
-                if (hasStrongBuyers && hasGoodLiquidity && hasDecentScore) {
+                // Override if ANY of these conditions met (was requiring ALL)
+                if (hasStrongBuyers || (hasGoodLiquidity && hasDecentScore) || hasGoodScore) {
                     // Market confirmation in LIVE mode - override Edge veto
-                    checks.add(GateCheck("edge", true, 
-                        "LIVE: edge override (buy%=${ts.meta.pressScore.toInt()}>=$liveMinBuyPressure AND liq=$${ts.lastLiquidityUsd.toInt()}>=$liveMinLiquidity AND score=${candidate.entryScore.toInt()}>=$liveMinEntryScore)"))
+                    val reason = when {
+                        hasStrongBuyers -> "buy%=${ts.meta.pressScore.toInt()}>=$liveMinBuyPressure"
+                        hasGoodScore -> "score=${candidate.entryScore.toInt()}>=$liveGoodEntryScore"
+                        else -> "liq=$${ts.lastLiquidityUsd.toInt()}>=$liveMinLiquidity+score>=$liveMinEntryScore"
+                    }
+                    checks.add(GateCheck("edge", true, "LIVE: edge override ($reason)"))
                     tags.add("live_edge_override")
                 } else {
                     // No market confirmation - respect Edge veto
@@ -1024,11 +1031,13 @@ object FinalDecisionGate {
                 checks.add(GateCheck("auto_trade", false, "autoTrade=false"))
             }
             
-            // Stricter quality requirement in live
-            if (blockReason == null && candidate.setupQuality == "C") {
+            // Quality check in live - only block truly garbage setups
+            // C quality is okay if other signals are good
+            // Only block "D" or worse quality
+            if (blockReason == null && candidate.setupQuality !in listOf("A+", "A", "B", "C")) {
                 blockReason = "LIVE_QUALITY_TOO_LOW"
                 blockLevel = BlockLevel.MODE
-                checks.add(GateCheck("live_quality", false, "quality=C (live requires B+)"))
+                checks.add(GateCheck("live_quality", false, "quality=${candidate.setupQuality} (live requires C+)"))
             }
         }
         
