@@ -1091,7 +1091,7 @@ object FinalDecisionGate {
         // ─────────────────────────────────────────────────────────────────────
         
         val confidenceThreshold = getAdaptiveConfidence(config.paperMode, ts)
-        val isBootstrap = AdaptiveConfidence.currentConditions.totalSessionTrades < 30
+        val isBootstrap = currentConditions.totalSessionTrades < 30
         val bootstrapTag = if (isBootstrap) " [BOOTSTRAP]" else ""
         
         if (blockReason == null && candidate.aiConfidence < confidenceThreshold) {
