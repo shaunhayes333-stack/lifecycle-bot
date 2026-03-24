@@ -107,10 +107,12 @@ class Executor(
         brain: BotBrain? = null,
         setupQuality: String = "C",    // A+ / B / C from strategy
     ): Double {
-        // Update session peak
-        SmartSizer.updateSessionPeak(walletSol)
+        val isPaperMode = cfg().paperMode
+        
+        // Update session peak (mode-aware to prevent paper stats affecting live)
+        SmartSizer.updateSessionPeak(walletSol, isPaperMode)
 
-        val perf = SmartSizer.getPerformanceContext(walletSol, walletTotalTrades)
+        val perf = SmartSizer.getPerformanceContext(walletSol, walletTotalTrades, isPaperMode)
         val solPx = try { WalletManager.lastKnownSolPrice } catch (_: Exception) { 130.0 }
 
         val result = SmartSizer.calculate(
@@ -550,7 +552,7 @@ class Executor(
                     System.currentTimeMillis(), "partial_${soldPct.toInt()}pct",
                     livePnl, liveScore, sig = sig, feeSol = feeSol, netPnlSol = netPnl)
                 ts.trades.add(liveTrade); security.recordTrade(liveTrade)
-                SmartSizer.recordTrade(livePnl > 0)
+                SmartSizer.recordTrade(livePnl > 0, isPaperMode = false)  // Live trade
                 partialSellInFlight.remove(ts.mint)
                 onLog("LIVE PARTIAL SELL ${(sellFraction*100).toInt()}% @ +${gainPct.toInt()}% | " +
                       "${solBack.fmt(4)}◎ | sig=${sig.take(16)}…", ts.mint)
@@ -1772,7 +1774,7 @@ class Executor(
         if (pnl > 0) sounds?.playCashRegister() else sounds?.playWarningSiren()
         // Milestone sounds while still holding (for live mode this fires on sell)
         if (pnl > 0) sounds?.playMilestone(pnlP)
-        SmartSizer.recordTrade(pnl > 0)
+        SmartSizer.recordTrade(pnl > 0, isPaperMode = true)  // Paper trade
 
         // ═══════════════════════════════════════════════════════════════════
         // TRADE OUTCOME CLASSIFICATION (TIGHTENED)
@@ -2152,7 +2154,7 @@ class Executor(
             ts.trades.add(trade)
             security.recordTrade(trade)
 
-            SmartSizer.recordTrade(pnl > 0)  // inside try — pnl is valid here
+            SmartSizer.recordTrade(pnl > 0, isPaperMode = false)  // Live trade
             
             // FIX #5: Lock realized profit to treasury (LIVE mode only)
             if (pnl > 0) {

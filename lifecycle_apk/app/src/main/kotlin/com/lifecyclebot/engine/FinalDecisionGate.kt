@@ -127,9 +127,191 @@ object FinalDecisionGate {
     var hardBlockBuyPressureMin = 15.0     // Block if buy pressure < this %
     var hardBlockTopHolderMax = 70.0       // Block if top holder > this %
     
-    // Confidence thresholds by mode
-    var paperConfidenceMin = 0.0           // Paper mode: NO confidence minimum (learn from all)
-    var liveConfidenceMin = 40.0           // Live needs higher confidence
+    // Base confidence thresholds (these are ADAPTED by AdaptiveConfidence)
+    var paperConfidenceBase = 0.0          // Paper mode base: NO confidence minimum (learn from all)
+    var liveConfidenceBase = 40.0          // Live base: higher confidence required
+    
+    // ═══════════════════════════════════════════════════════════════════════════
+    // ADAPTIVE CONFIDENCE LAYER
+    // 
+    // Fluid confidence threshold that adapts to market conditions.
+    // Instead of static thresholds, confidence requirements adjust based on:
+    //   1. Market Volatility (higher volatility = require more confidence)
+    //   2. Recent Win Rate (hot streak = can accept lower confidence)
+    //   3. Buy Pressure Trend (strong buyers = can accept lower confidence)
+    //   4. Time Since Last Loss (recent loss = require more confidence)
+    //   5. Session Performance (profitable session = can be more aggressive)
+    // 
+    // This applies to BOTH paper and live modes, making the bot smarter overall.
+    // ═══════════════════════════════════════════════════════════════════════════
+    
+    data class MarketConditions(
+        val avgVolatility: Double = 5.0,      // Average price swing % (ATR-like)
+        val buyPressureTrend: Double = 50.0,  // Rolling average buy pressure
+        val recentWinRate: Double = 50.0,     // Win rate over last N trades
+        val timeSinceLastLossMs: Long = Long.MAX_VALUE,
+        val sessionPnlPct: Double = 0.0,      // Session P&L percentage
+        val totalSessionTrades: Int = 0,
+    )
+    
+    // Current market conditions (updated by BotService)
+    private var currentConditions = MarketConditions()
+    
+    /**
+     * Update market conditions - called periodically by BotService
+     */
+    fun updateMarketConditions(
+        avgVolatility: Double? = null,
+        buyPressureTrend: Double? = null,
+        recentWinRate: Double? = null,
+        timeSinceLastLossMs: Long? = null,
+        sessionPnlPct: Double? = null,
+        totalSessionTrades: Int? = null,
+    ) {
+        currentConditions = currentConditions.copy(
+            avgVolatility = avgVolatility ?: currentConditions.avgVolatility,
+            buyPressureTrend = buyPressureTrend ?: currentConditions.buyPressureTrend,
+            recentWinRate = recentWinRate ?: currentConditions.recentWinRate,
+            timeSinceLastLossMs = timeSinceLastLossMs ?: currentConditions.timeSinceLastLossMs,
+            sessionPnlPct = sessionPnlPct ?: currentConditions.sessionPnlPct,
+            totalSessionTrades = totalSessionTrades ?: currentConditions.totalSessionTrades,
+        )
+    }
+    
+    /**
+     * Calculate adaptive confidence threshold based on market conditions.
+     * Returns the EFFECTIVE minimum confidence required for a trade.
+     * 
+     * This is a FLUID layer that makes the bot smarter:
+     *   - When conditions are favorable: lower threshold = more trades
+     *   - When conditions are risky: higher threshold = fewer, safer trades
+     */
+    fun getAdaptiveConfidence(isPaperMode: Boolean, ts: TokenState? = null): Double {
+        val baseConfidence = if (isPaperMode) paperConfidenceBase else liveConfidenceBase
+        var adjustment = 0.0
+        
+        // ─────────────────────────────────────────────────────────────────
+        // FACTOR 1: VOLATILITY ADJUSTMENT
+        // High volatility = need more confidence (riskier environment)
+        // Low volatility = can accept lower confidence (stable market)
+        // ─────────────────────────────────────────────────────────────────
+        val volatilityAdj = when {
+            currentConditions.avgVolatility >= 15.0 -> +10.0  // Very volatile: require +10% confidence
+            currentConditions.avgVolatility >= 10.0 -> +5.0   // Volatile: +5%
+            currentConditions.avgVolatility >= 5.0  -> 0.0    // Normal
+            currentConditions.avgVolatility >= 2.0  -> -5.0   // Calm: accept -5% confidence
+            else -> -8.0                                       // Very calm: -8%
+        }
+        adjustment += volatilityAdj
+        
+        // ─────────────────────────────────────────────────────────────────
+        // FACTOR 2: WIN RATE MOMENTUM
+        // Hot streak = can be more aggressive
+        // Cold streak = need more confidence
+        // ─────────────────────────────────────────────────────────────────
+        val winRateAdj = if (currentConditions.totalSessionTrades >= 5) {
+            when {
+                currentConditions.recentWinRate >= 70.0 -> -10.0  // Hot streak: -10%
+                currentConditions.recentWinRate >= 60.0 -> -5.0   // Winning: -5%
+                currentConditions.recentWinRate >= 50.0 -> 0.0    // Average
+                currentConditions.recentWinRate >= 40.0 -> +5.0   // Losing: +5%
+                else -> +10.0                                      // Cold streak: +10%
+            }
+        } else 0.0  // Not enough data yet
+        adjustment += winRateAdj
+        
+        // ─────────────────────────────────────────────────────────────────
+        // FACTOR 3: BUY PRESSURE TREND
+        // Strong buyers overall = favorable market
+        // Weak buyers = need more conviction per trade
+        // ─────────────────────────────────────────────────────────────────
+        val buyPressureAdj = when {
+            currentConditions.buyPressureTrend >= 65.0 -> -5.0   // Strong buyers: -5%
+            currentConditions.buyPressureTrend >= 55.0 -> -2.0   // Good buyers: -2%
+            currentConditions.buyPressureTrend >= 45.0 -> 0.0    // Neutral
+            currentConditions.buyPressureTrend >= 35.0 -> +5.0   // Weak buyers: +5%
+            else -> +10.0                                         // Sellers dominate: +10%
+        }
+        adjustment += buyPressureAdj
+        
+        // ─────────────────────────────────────────────────────────────────
+        // FACTOR 4: RECENCY OF LAST LOSS
+        // Just lost = be more careful
+        // Long time since loss = can be more aggressive
+        // ─────────────────────────────────────────────────────────────────
+        val timeSinceLossMinutes = currentConditions.timeSinceLastLossMs / 60_000
+        val lossRecencyAdj = when {
+            timeSinceLossMinutes < 5   -> +8.0    // Just lost (< 5 min): +8%
+            timeSinceLossMinutes < 15  -> +4.0    // Recent loss (< 15 min): +4%
+            timeSinceLossMinutes < 60  -> +2.0    // Loss this hour: +2%
+            timeSinceLossMinutes < 240 -> 0.0     // Normal
+            else -> -3.0                           // Long win period: -3%
+        }
+        adjustment += lossRecencyAdj
+        
+        // ─────────────────────────────────────────────────────────────────
+        // FACTOR 5: SESSION PERFORMANCE
+        // Profitable session = can push a bit more
+        // Losing session = protect capital
+        // ─────────────────────────────────────────────────────────────────
+        val sessionPnlAdj = if (currentConditions.totalSessionTrades >= 3) {
+            when {
+                currentConditions.sessionPnlPct >= 20.0 -> -5.0   // Very profitable: -5%
+                currentConditions.sessionPnlPct >= 10.0 -> -3.0   // Profitable: -3%
+                currentConditions.sessionPnlPct >= 0.0  -> 0.0    // Breakeven+
+                currentConditions.sessionPnlPct >= -10.0 -> +5.0  // Small loss: +5%
+                else -> +10.0                                      // Big loss: +10%
+            }
+        } else 0.0
+        adjustment += sessionPnlAdj
+        
+        // ─────────────────────────────────────────────────────────────────
+        // FACTOR 6: TOKEN-SPECIFIC (if provided)
+        // Adjust based on the specific token's characteristics
+        // ─────────────────────────────────────────────────────────────────
+        val tokenAdj = if (ts != null) {
+            var adj = 0.0
+            // High liquidity = safer, can accept lower confidence
+            if (ts.lastLiquidityUsd >= 100_000) adj -= 3.0
+            else if (ts.lastLiquidityUsd < 10_000) adj += 5.0
+            
+            // Strong current buy pressure on this token
+            if (ts.meta.pressScore >= 65) adj -= 3.0
+            else if (ts.meta.pressScore < 45) adj += 5.0
+            
+            adj
+        } else 0.0
+        adjustment += tokenAdj
+        
+        // ─────────────────────────────────────────────────────────────────
+        // CALCULATE FINAL ADAPTIVE CONFIDENCE
+        // Clamp to reasonable bounds
+        // ─────────────────────────────────────────────────────────────────
+        val adaptive = (baseConfidence + adjustment).coerceIn(
+            if (isPaperMode) 0.0 else 20.0,   // Min: 0% paper, 20% live
+            if (isPaperMode) 60.0 else 80.0   // Max: 60% paper, 80% live
+        )
+        
+        return adaptive
+    }
+    
+    /**
+     * Get explanation of current adaptive confidence calculation.
+     * Useful for logging/debugging.
+     */
+    fun getAdaptiveConfidenceExplanation(isPaperMode: Boolean): String {
+        val base = if (isPaperMode) paperConfidenceBase else liveConfidenceBase
+        val adaptive = getAdaptiveConfidence(isPaperMode)
+        val diff = adaptive - base
+        val sign = if (diff >= 0) "+" else ""
+        
+        return buildString {
+            append("AdaptiveConf: base=${base.toInt()}% ${sign}${diff.toInt()}% = ${adaptive.toInt()}% ")
+            append("[vol=${currentConditions.avgVolatility.toInt()}% ")
+            append("wr=${currentConditions.recentWinRate.toInt()}% ")
+            append("buy=${currentConditions.buyPressureTrend.toInt()}%]")
+        }
+    }
     
     // PAPER MODE LEARNING: Allow edge overrides so bot can learn from trades
     var allowEdgeOverrideInPaper = false   // NO MORE EDGE OVERRIDE - causes garbage data
@@ -575,18 +757,25 @@ object FinalDecisionGate {
         }
         
         // ─────────────────────────────────────────────────────────────────────
-        // GATE 3: CONFIDENCE THRESHOLD
+        // GATE 3: ADAPTIVE CONFIDENCE THRESHOLD
+        // 
+        // Uses the fluid confidence layer that adapts to market conditions.
+        // The threshold adjusts based on volatility, win rate, buy pressure,
+        // and session performance - making the bot smarter in both modes.
         // ─────────────────────────────────────────────────────────────────────
         
-        val confidenceThreshold = if (config.paperMode) paperConfidenceMin else liveConfidenceMin
+        val confidenceThreshold = getAdaptiveConfidence(config.paperMode, ts)
         
         if (blockReason == null && candidate.aiConfidence < confidenceThreshold) {
             blockReason = "LOW_CONFIDENCE_${candidate.aiConfidence.toInt()}%"
             blockLevel = BlockLevel.CONFIDENCE
-            checks.add(GateCheck("confidence", false, "conf=${candidate.aiConfidence.toInt()}% < $confidenceThreshold"))
+            checks.add(GateCheck("confidence", false, 
+                "conf=${candidate.aiConfidence.toInt()}% < ${confidenceThreshold.toInt()}% (adaptive)"))
             tags.add("low_confidence")
+            tags.add("adaptive_conf:${confidenceThreshold.toInt()}")
         } else if (blockReason == null) {
-            checks.add(GateCheck("confidence", true, null))
+            checks.add(GateCheck("confidence", true, 
+                "conf=${candidate.aiConfidence.toInt()}% >= ${confidenceThreshold.toInt()}% (adaptive)"))
         }
         
         // ─────────────────────────────────────────────────────────────────────
@@ -658,29 +847,32 @@ object FinalDecisionGate {
         //   - Exploration: Learning from weaker setups
         // ─────────────────────────────────────────────────────────────────────
         
+        // Get the live adaptive confidence for benchmark comparison
+        val liveAdaptiveConf = getAdaptiveConfidence(isPaperMode = false, ts)
+        
         val (approvalClass, approvalReason) = when {
             // Blocked trades
             !shouldTrade -> ApprovalClass.BLOCKED to "blocked: ${blockReason ?: "unknown"}"
             
             // Live mode - all approvals are strict
-            !config.paperMode -> ApprovalClass.LIVE to "live mode approval"
+            !config.paperMode -> ApprovalClass.LIVE to "live mode approval (adaptive conf: ${liveAdaptiveConf.toInt()}%)"
             
             // Paper mode - determine if benchmark or exploration
             else -> {
                 // Would this trade pass LIVE mode rules?
                 val wouldPassLiveEdge = edgeVerdict != EdgeVerdict.SKIP
                 val wouldPassLiveQuality = candidate.setupQuality in listOf("A+", "A", "B")
-                val wouldPassLiveConfidence = candidate.aiConfidence >= liveConfidenceMin
+                val wouldPassLiveConfidence = candidate.aiConfidence >= liveAdaptiveConf
                 
                 if (wouldPassLiveEdge && wouldPassLiveQuality && wouldPassLiveConfidence) {
                     // This is benchmark quality - would pass in live mode
-                    ApprovalClass.PAPER_BENCHMARK to "benchmark: passes live rules (edge=$wouldPassLiveEdge quality=${candidate.setupQuality} conf=${candidate.aiConfidence.toInt()}%)"
+                    ApprovalClass.PAPER_BENCHMARK to "benchmark: passes live rules (edge=$wouldPassLiveEdge quality=${candidate.setupQuality} conf=${candidate.aiConfidence.toInt()}%>=${liveAdaptiveConf.toInt()}%)"
                 } else {
                     // This is exploration - relaxed for learning
                     val relaxedReasons = mutableListOf<String>()
                     if (!wouldPassLiveEdge) relaxedReasons.add("edge=${edgeVerdict.name}")
                     if (!wouldPassLiveQuality) relaxedReasons.add("quality=${candidate.setupQuality}")
-                    if (!wouldPassLiveConfidence) relaxedReasons.add("conf=${candidate.aiConfidence.toInt()}%<${liveConfidenceMin.toInt()}%")
+                    if (!wouldPassLiveConfidence) relaxedReasons.add("conf=${candidate.aiConfidence.toInt()}%<${liveAdaptiveConf.toInt()}%")
                     ApprovalClass.PAPER_EXPLORATION to "exploration: relaxed ${relaxedReasons.joinToString(", ")}"
                 }
             }

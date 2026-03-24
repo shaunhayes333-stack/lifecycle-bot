@@ -13,8 +13,8 @@ import org.json.JSONObject
  *   - Recent trade outcomes (performance multiplier lost)
  *
  * What we persist (lightweight, JSON in SharedPreferences):
- *   - Session peak wallet balance
- *   - Win streak / loss streak
+ *   - Session peak wallet balance (SEPARATE for paper and live)
+ *   - Win streak / loss streak (SEPARATE for paper and live)
  *   - Last 10 trade outcomes (win/loss)
  *   - Timestamp of last save (for stale detection)
  *
@@ -28,28 +28,32 @@ object SessionStore {
     private const val PREFS   = "bot_session"
     private const val MAX_AGE = 24 * 60 * 60 * 1000L  // 24 hours
 
-    fun save(ctx: Context) {
+    fun save(ctx: Context, isPaperMode: Boolean = true) {
         val prefs = ctx.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
         val now   = System.currentTimeMillis()
 
-        // Recent trades as JSON array of booleans
-        val perf  = SmartSizer.getPerformanceContext(0.0, 0)
+        // Recent trades as JSON array of booleans (mode-specific)
+        val perf  = SmartSizer.getPerformanceContext(0.0, 0, isPaperMode)
+        val modePrefix = if (isPaperMode) "paper" else "live"
+        
         val tradesJson = JSONObject().apply {
             put("saved_at",     now)
-            put("session_peak", SmartSizer.getSessionPeak())
-            put("win_streak",   perf.winStreak)
-            put("loss_streak",  perf.lossStreak)
-            put("win_rate",     perf.recentWinRate)
+            put("${modePrefix}_session_peak", SmartSizer.getSessionPeak(isPaperMode))
+            put("${modePrefix}_win_streak",   perf.winStreak)
+            put("${modePrefix}_loss_streak",  perf.lossStreak)
+            put("${modePrefix}_win_rate",     perf.recentWinRate)
+            put("mode", modePrefix)
         }
 
         prefs.edit()
-            .putString("session", tradesJson.toString())
+            .putString("session_$modePrefix", tradesJson.toString())
             .apply()
     }
 
-    fun restore(ctx: Context): Boolean {
+    fun restore(ctx: Context, isPaperMode: Boolean = true): Boolean {
         val prefs = ctx.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
-        val json  = prefs.getString("session", null) ?: return false
+        val modePrefix = if (isPaperMode) "paper" else "live"
+        val json  = prefs.getString("session_$modePrefix", null) ?: return false
 
         return try {
             val obj      = JSONObject(json)
@@ -58,25 +62,31 @@ object SessionStore {
 
             // Don't restore stale state
             if (age > MAX_AGE) {
-                clear(ctx)
+                clear(ctx, isPaperMode)
                 return false
             }
 
-            val peak      = obj.optDouble("session_peak", 0.0)
-            val winStreak = obj.optInt("win_streak", 0)
-            val lossStreak= obj.optInt("loss_streak", 0)
+            val peak      = obj.optDouble("${modePrefix}_session_peak", 0.0)
+            val winStreak = obj.optInt("${modePrefix}_win_streak", 0)
+            val lossStreak= obj.optInt("${modePrefix}_loss_streak", 0)
 
-            if (peak > 0) SmartSizer.updateSessionPeak(peak)
+            if (peak > 0) SmartSizer.updateSessionPeak(peak, isPaperMode)
 
             // Restore streaks directly — don't use recordTrade() as it
             // would cross-zero the streak counts during replay
-            SmartSizer.restoreStreaks(winStreak, lossStreak)
+            SmartSizer.restoreStreaks(winStreak, lossStreak, isPaperMode)
 
             true
         } catch (_: Exception) { false }
     }
 
-    fun clear(ctx: Context) {
-        ctx.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit().clear().apply()
+    fun clear(ctx: Context, isPaperMode: Boolean? = null) {
+        val editor = ctx.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit()
+        when (isPaperMode) {
+            true -> editor.remove("session_paper")
+            false -> editor.remove("session_live")
+            null -> editor.clear()  // Clear all
+        }
+        editor.apply()
     }
 }

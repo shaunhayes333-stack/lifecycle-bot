@@ -584,8 +584,8 @@ class BotService : Service() {
         }
 
         soundManager.setEnabled(cfg.soundEnabled)
-        // Restore session state from last run (streak, peak wallet)
-        val restored = SessionStore.restore(applicationContext)
+        // Restore session state from last run (streak, peak wallet) - MODE SPECIFIC
+        val restored = SessionStore.restore(applicationContext, cfg.paperMode)
         if (!restored) SmartSizer.resetSession()
         TreasuryManager.restore(applicationContext)   // load persisted treasury
         
@@ -922,6 +922,74 @@ class BotService : Service() {
                     val sol = currencyManager.getSolUsd()
                     if (sol > 0) BondingCurveTracker.updateSolPrice(sol)
                 } catch (_: Exception) {}
+            }
+            
+            // ═══════════════════════════════════════════════════════════════════
+            // UPDATE ADAPTIVE CONFIDENCE MARKET CONDITIONS
+            // 
+            // This feeds the fluid confidence layer with current market data:
+            // - Average volatility across watched tokens
+            // - Average buy pressure trend
+            // - Recent win rate from SmartSizer
+            // - Time since last loss
+            // - Session P&L percentage
+            // ═══════════════════════════════════════════════════════════════════
+            scope.launch {
+                try {
+                    // Calculate average volatility and buy pressure from watched tokens
+                    val tokenList = synchronized(status.tokens) { status.tokens.values.toList() }
+                    
+                    val avgVolatility = if (tokenList.isNotEmpty()) {
+                        tokenList.mapNotNull { ts ->
+                            if (ts.meta.avgAtr > 0) ts.meta.avgAtr else null
+                        }.takeIf { it.isNotEmpty() }?.average() ?: 5.0
+                    } else 5.0
+                    
+                    val avgBuyPressure = if (tokenList.isNotEmpty()) {
+                        tokenList.map { it.meta.pressScore }.average()
+                    } else 50.0
+                    
+                    // Get performance stats from SmartSizer
+                    val effectiveBalance = status.getEffectiveBalance(cfg.paperMode)
+                    val perfContext = SmartSizer.getPerformanceContext(
+                        walletSol = effectiveBalance,
+                        totalTrades = tokenList.flatMap { it.trades }.size,
+                        isPaperMode = cfg.paperMode
+                    )
+                    
+                    // Calculate session P&L
+                    val allTrades = tokenList.flatMap { it.trades }
+                    val sessionPnlSol = allTrades.sumOf { it.pnlSol }
+                    val sessionPnlPct = if (effectiveBalance > 0) {
+                        (sessionPnlSol / effectiveBalance) * 100
+                    } else 0.0
+                    
+                    // Estimate time since last loss
+                    val lastLossTrade = allTrades
+                        .filter { it.side == "SELL" && it.pnlSol < 0 }
+                        .maxByOrNull { it.ts }
+                    val timeSinceLastLossMs = if (lastLossTrade != null) {
+                        System.currentTimeMillis() - lastLossTrade.ts
+                    } else Long.MAX_VALUE
+                    
+                    // Update the adaptive confidence layer
+                    FinalDecisionGate.updateMarketConditions(
+                        avgVolatility = avgVolatility,
+                        buyPressureTrend = avgBuyPressure,
+                        recentWinRate = perfContext.recentWinRate,
+                        timeSinceLastLossMs = timeSinceLastLossMs,
+                        sessionPnlPct = sessionPnlPct,
+                        totalSessionTrades = perfContext.totalTrades,
+                    )
+                    
+                    // Log adaptive confidence status every 5 loops
+                    if (loopCount % 5 == 1) {
+                        val adaptiveInfo = FinalDecisionGate.getAdaptiveConfidenceExplanation(cfg.paperMode)
+                        addLog("🎚️ $adaptiveInfo")
+                    }
+                } catch (e: Exception) {
+                    ErrorLogger.error("BotService", "Adaptive confidence update error: ${e.message}")
+                }
             }
             
             // Periodic AI stats logging (every ~5 minutes = 6-7 loops at 45s intervals)
@@ -1611,7 +1679,7 @@ class BotService : Service() {
                 status.tokens.values.toList().sumOf { it.trades.size }
             }
             if (tradeCount % 5 == 0 && status.running) {
-                try { SessionStore.save(applicationContext) } catch (_: Exception) {}
+                try { SessionStore.save(applicationContext, cfg.paperMode) } catch (_: Exception) {}
             }
             delay(cfg.pollSeconds * 1000L)
           } catch (e: Exception) {

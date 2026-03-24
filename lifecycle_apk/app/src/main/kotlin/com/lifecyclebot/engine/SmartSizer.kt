@@ -280,10 +280,12 @@ object SmartSizer {
 
         // ── Drawdown protection ───────────────────────────────────────
         // PAPER MODE: No drawdown protection - we want to learn from everything
+        // LIVE MODE: Uses mode-specific session peak to prevent paper stats affecting live
         val drawdownMult = if (isPaperMode) {
             1.0  // No drawdown penalty in paper mode
         } else if (perf.sessionPeakSol > 0) {
             val recovery = walletSol / perf.sessionPeakSol
+            ErrorLogger.debug("SmartSizer", "📊 LIVE Drawdown check: wallet=$walletSol peak=${perf.sessionPeakSol} recovery=${(recovery*100).toInt()}%")
             when {
                 recovery < 0.40 -> 0.0   // circuit breaker
                 recovery < 0.60 -> 0.50
@@ -293,10 +295,10 @@ object SmartSizer {
         } else 1.0
 
         if (drawdownMult == 0.0) {
-            ErrorLogger.error("SmartSizer", "❌ BLOCKED: drawdown circuit breaker | paper=$isPaperMode")
+            ErrorLogger.error("SmartSizer", "❌ BLOCKED: drawdown circuit breaker | paper=$isPaperMode | wallet=$walletSol | peak=${perf.sessionPeakSol}")
             return SizeResult(0.0, tier, basePct, aiScoreMult, perfMult, 0.0, 1.0,
                 "drawdown_circuit_breaker",
-                "Wallet down 60%+ from peak — entries paused")
+                "LIVE wallet ($walletSol SOL) down 60%+ from session peak (${perf.sessionPeakSol.fmt(2)} SOL) — entries paused. Switch to paper or wait for recovery.")
         }
         size *= drawdownMult
 
@@ -378,28 +380,84 @@ object SmartSizer {
 
     // ── Session peak tracker ──────────────────────────────────────────
     // Maintained by BotService, passed into calculate() each tick
-    @Volatile private var _sessionPeak = 0.0
-    fun updateSessionPeak(walletSol: Double) {
-        // Synchronized: called from bot loop thread, read from UI thread
-        if (walletSol > _sessionPeak) _sessionPeak = walletSol
+    // IMPORTANT: These are MODE-SPECIFIC to prevent paper stats affecting live trading
+    @Volatile private var _sessionPeakPaper = 0.0
+    @Volatile private var _sessionPeakLive = 0.0
+    @Volatile private var _currentMode: Boolean = true  // true = paper, false = live
+    
+    fun updateSessionPeak(walletSol: Double, isPaperMode: Boolean = true) {
+        // Track mode changes to reset stats when switching
+        if (isPaperMode != _currentMode) {
+            ErrorLogger.info("SmartSizer", "🔄 MODE SWITCH: ${if (_currentMode) "PAPER" else "LIVE"} → ${if (isPaperMode) "PAPER" else "LIVE"} - resetting session stats")
+            resetSessionForMode(isPaperMode)
+            _currentMode = isPaperMode
+        }
+        
+        // Update the appropriate mode's peak
+        if (isPaperMode) {
+            if (walletSol > _sessionPeakPaper) _sessionPeakPaper = walletSol
+        } else {
+            if (walletSol > _sessionPeakLive) _sessionPeakLive = walletSol
+        }
     }
-    fun getSessionPeak() = _sessionPeak
-    fun resetSessionPeak() { _sessionPeak = 0.0 }
+    
+    fun getSessionPeak(isPaperMode: Boolean = true): Double {
+        return if (isPaperMode) _sessionPeakPaper else _sessionPeakLive
+    }
+    
+    /**
+     * Reset session stats when switching modes.
+     * This prevents paper trading drawdowns from blocking live trades.
+     */
+    private fun resetSessionForMode(isPaperMode: Boolean) {
+        if (isPaperMode) {
+            // Switching TO paper - reset paper stats only
+            _sessionPeakPaper = 0.0
+        } else {
+            // Switching TO live - reset live stats (CRITICAL: fresh start for real money)
+            _sessionPeakLive = 0.0
+            // Also reset the performance trackers for live mode
+            winStreakLive = 0
+            lossStreakLive = 0
+            recentTradesLive.clear()
+        }
+    }
+    
+    fun resetSessionPeak() { 
+        _sessionPeakPaper = 0.0
+        _sessionPeakLive = 0.0 
+    }
 
     // ── Recent performance tracker ────────────────────────────────────
     // Lightweight ring buffer of last 10 trade outcomes
-    private val recentTrades = ArrayDeque<Boolean>(10)  // true=win, false=loss
-    @Volatile private var winStreak = 0
-    @Volatile private var lossStreak = 0
+    // SEPARATE TRACKERS for paper and live modes
+    private val recentTradesPaper = ArrayDeque<Boolean>(10)  // true=win, false=loss
+    private val recentTradesLive = ArrayDeque<Boolean>(10)
+    @Volatile private var winStreakPaper = 0
+    @Volatile private var lossStreakPaper = 0
+    @Volatile private var winStreakLive = 0
+    @Volatile private var lossStreakLive = 0
 
-    fun recordTrade(isWin: Boolean) {
-        if (recentTrades.size >= 10) recentTrades.removeFirst()
-        recentTrades.addLast(isWin)
-        if (isWin) { winStreak++; lossStreak = 0 }
-        else       { lossStreak++; winStreak = 0 }
+    fun recordTrade(isWin: Boolean, isPaperMode: Boolean = true) {
+        if (isPaperMode) {
+            if (recentTradesPaper.size >= 10) recentTradesPaper.removeFirst()
+            recentTradesPaper.addLast(isWin)
+            if (isWin) { winStreakPaper++; lossStreakPaper = 0 }
+            else       { lossStreakPaper++; winStreakPaper = 0 }
+        } else {
+            if (recentTradesLive.size >= 10) recentTradesLive.removeFirst()
+            recentTradesLive.addLast(isWin)
+            if (isWin) { winStreakLive++; lossStreakLive = 0 }
+            else       { lossStreakLive++; winStreakLive = 0 }
+        }
     }
 
-    fun getPerformanceContext(walletSol: Double, totalTrades: Int): PerformanceContext {
+    fun getPerformanceContext(walletSol: Double, totalTrades: Int, isPaperMode: Boolean = true): PerformanceContext {
+        val recentTrades = if (isPaperMode) recentTradesPaper else recentTradesLive
+        val winStreak = if (isPaperMode) winStreakPaper else winStreakLive
+        val lossStreak = if (isPaperMode) lossStreakPaper else lossStreakLive
+        val sessionPeak = getSessionPeak(isPaperMode)
+        
         val winRate = if (recentTrades.isNotEmpty())
             recentTrades.count { it }.toDouble() / recentTrades.size * 100.0
         else 50.0
@@ -407,20 +465,27 @@ object SmartSizer {
             recentWinRate  = winRate,
             winStreak      = winStreak,
             lossStreak     = lossStreak,
-            sessionPeakSol = getSessionPeak().coerceAtLeast(walletSol),
+            sessionPeakSol = sessionPeak.coerceAtLeast(walletSol),
             totalTrades    = totalTrades,
         )
     }
 
     /** Restore streak counts from a persisted session (avoids replay side-effects) */
-    fun restoreStreaks(wins: Int, losses: Int) {
-        winStreak  = wins.coerceAtLeast(0)
-        lossStreak = losses.coerceAtLeast(0)
+    fun restoreStreaks(wins: Int, losses: Int, isPaperMode: Boolean = true) {
+        if (isPaperMode) {
+            winStreakPaper  = wins.coerceAtLeast(0)
+            lossStreakPaper = losses.coerceAtLeast(0)
+        } else {
+            winStreakLive  = wins.coerceAtLeast(0)
+            lossStreakLive = losses.coerceAtLeast(0)
+        }
     }
 
     fun resetSession() {
-        recentTrades.clear()
-        winStreak = 0; lossStreak = 0
+        recentTradesPaper.clear()
+        recentTradesLive.clear()
+        winStreakPaper = 0; lossStreakPaper = 0
+        winStreakLive = 0; lossStreakLive = 0
         resetSessionPeak()
     }
 }
