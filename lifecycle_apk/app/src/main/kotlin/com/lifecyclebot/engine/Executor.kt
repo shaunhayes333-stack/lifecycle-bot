@@ -297,7 +297,7 @@ class Executor(
                 ScalingMode.Tier.INSTITUTIONAL -> c.topUpMaxTotalSol * 3.0  // 3x max position
                 ScalingMode.Tier.SCALED        -> c.topUpMaxTotalSol * 2.0  // 2x max position
                 ScalingMode.Tier.GROWTH        -> c.topUpMaxTotalSol * 1.5  // 1.5x max position
-                ScalingMode.Tier.STARTER       -> c.topUpMaxTotalSol * 1.2  // 1.2x max position
+                ScalingMode.Tier.STANDARD      -> c.topUpMaxTotalSol * 1.2  // 1.2x max position
                 ScalingMode.Tier.MICRO         -> c.topUpMaxTotalSol        // Standard max
             }
         } catch (_: Exception) { c.topUpMaxTotalSol }
@@ -609,7 +609,7 @@ class Executor(
                 ScalingMode.Tier.INSTITUTIONAL -> baseFraction * 0.6  // Take 60% of normal (15% instead of 25%)
                 ScalingMode.Tier.SCALED        -> baseFraction * 0.7  // Take 70% of normal (17.5% instead of 25%)
                 ScalingMode.Tier.GROWTH        -> baseFraction * 0.8  // Take 80% of normal (20% instead of 25%)
-                ScalingMode.Tier.STARTER       -> baseFraction * 0.9  // Take 90% of normal
+                ScalingMode.Tier.STANDARD      -> baseFraction * 0.9  // Take 90% of normal
                 ScalingMode.Tier.MICRO         -> baseFraction        // Full amount - need to secure gains
             }
         } catch (_: Exception) { baseFraction }

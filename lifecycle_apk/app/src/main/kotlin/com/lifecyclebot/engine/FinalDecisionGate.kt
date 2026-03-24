@@ -309,7 +309,7 @@ object FinalDecisionGate {
                 ScalingMode.Tier.INSTITUTIONAL -> -8.0  // $100K+ treasury: much more aggressive
                 ScalingMode.Tier.SCALED        -> -5.0  // $25K+ treasury: more aggressive
                 ScalingMode.Tier.GROWTH        -> -3.0  // $5K+ treasury: slightly aggressive
-                ScalingMode.Tier.STARTER       -> 0.0   // $500+ treasury: neutral
+                ScalingMode.Tier.STANDARD      -> 0.0   // $500+ treasury: neutral
                 ScalingMode.Tier.MICRO         -> +3.0  // <$500: be careful, small stack
             }
         } catch (_: Exception) { 0.0 }
