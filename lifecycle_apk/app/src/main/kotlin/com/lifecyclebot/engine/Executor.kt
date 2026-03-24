@@ -1839,12 +1839,10 @@ class Executor(
         }
 
         // Determine win/loss/scratch for database record
-        // IMPORTANT: Scratch trades (-2% to +2%) should NOT count as wins or losses
-        // We store them with a special marker so they can be filtered in reports
-        val isScratchTrade = pnlP in -2.0..2.0
+        // Uses the already-defined isScratchTrade from classification above
         val dbIsWin = when {
             isScratchTrade -> null  // Scratch trades are neither win nor loss
-            pnlP > 2.0 -> true      // Clear win
+            pnlP > 5.0 -> true      // Clear win (using 5% threshold)
             else -> false           // Clear loss
         }
         
@@ -2147,11 +2145,10 @@ class Executor(
             ErrorLogger.debug("Executor", "LIVE ${ts.symbol}: Scratch trade (${pnlP.toInt()}%) - skipped for learning")
         }
 
-        // Determine win/loss/scratch for database record (same as paperSell)
-        val isScratchTradeLive = pnlP in -2.0..2.0
+        // Determine win/loss/scratch for database record (uses already-defined isScratchTradeLive)
         val dbIsWinLive = when {
             isScratchTradeLive -> null  // Scratch trades are neither win nor loss
-            pnlP > 2.0 -> true      // Clear win
+            pnlP > 5.0 -> true      // Clear win (using 5% threshold)
             else -> false           // Clear loss
         }
         

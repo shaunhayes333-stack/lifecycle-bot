@@ -269,8 +269,9 @@ object FinalDecisionGate {
             val liquidityOk = ts.lastLiquidityUsd >= 1000.0  // Min liquidity
             val priceNotFlat = ts.history.size >= 5 && run {
                 val recent = ts.history.takeLast(5)
-                val high = recent.maxOf { it.high }
-                val low = recent.minOf { it.low }
+                // Use priceUsd if highUsd/lowUsd not populated
+                val high = recent.maxOf { if (it.highUsd > 0) it.highUsd else it.priceUsd }
+                val low = recent.minOf { if (it.lowUsd > 0) it.lowUsd else it.priceUsd }
                 val range = if (low > 0) (high - low) / low * 100 else 0.0
                 range >= 2.0  // At least 2% price range (not flat chop)
             }
