@@ -2374,25 +2374,31 @@ class LifecycleStrategy(
                 }
                 
                 // ═══════════════════════════════════════════════════════════════
-                // RUNNER HOLDING LOGIC - LET BIG WINNERS RUN!
+                // RUNNER HOLDING LOGIC - LET MOONSHOTS MOON!
                 // ═══════════════════════════════════════════════════════════════
                 // 
-                // If we're up 50%+, we have a potential runner. DON'T force exit.
-                // Instead, rely on the trailing stop to capture the move.
+                // Real moonshots: SHIB did 100,000,000%+, PEPE did 10,000,000%+
+                // We need to HOLD through the volatility and let these run.
                 // 
-                // Time limits by gain level:
-                //   <50%   → max 45 mins (normal trade)
-                //   50-100% → max 2 hours (decent runner)
-                //   100-500% → max 4 hours (strong runner)
-                //   500%+   → max 8 hours (potential moonshot)
-                //   1000%+  → max 24 hours (let it absolutely RIP)
+                // Time limits by gain level (AGGRESSIVE for moonshots):
+                //   <50%      → max 45 mins (normal trade)
+                //   50-100%   → max 2 hours (decent runner)
+                //   100-500%  → max 6 hours (strong runner)
+                //   500-2000% → max 12 hours (potential moonshot)
+                //   2000-10000% → max 24 hours (confirmed moonshot!)
+                //   10000%+   → max 48 hours (100x+ LET IT ABSOLUTELY RIP)
+                //   100000%+  → max 72 hours (1000x+ GENERATIONAL WEALTH)
+                //   1000000%+ → NO TIME LIMIT (10,000x+ LIFE CHANGING - ride til death)
                 // 
                 val maxHoldForGain = when {
-                    paperGainPct >= 1000.0 -> 24.0 * 60.0   // 24 hours for 10x+
-                    paperGainPct >= 500.0  -> 8.0 * 60.0    // 8 hours for 5x+
-                    paperGainPct >= 100.0  -> 4.0 * 60.0    // 4 hours for 2x+
-                    paperGainPct >= 50.0   -> 2.0 * 60.0    // 2 hours for 50%+
-                    else                   -> 45.0           // 45 mins for small gains
+                    paperGainPct >= 1000000.0 -> Double.MAX_VALUE  // 10,000x+ → NO LIMIT
+                    paperGainPct >= 100000.0  -> 72.0 * 60.0       // 1,000x+ → 72 hours
+                    paperGainPct >= 10000.0   -> 48.0 * 60.0       // 100x+ → 48 hours
+                    paperGainPct >= 2000.0    -> 24.0 * 60.0       // 20x+ → 24 hours
+                    paperGainPct >= 500.0     -> 12.0 * 60.0       // 5x+ → 12 hours
+                    paperGainPct >= 100.0     -> 6.0 * 60.0        // 2x+ → 6 hours
+                    paperGainPct >= 50.0      -> 2.0 * 60.0        // 50%+ → 2 hours
+                    else                      -> 45.0              // Small gains → 45 mins
                 }
                 
                 if (paperHeldMins >= maxHoldForGain) {

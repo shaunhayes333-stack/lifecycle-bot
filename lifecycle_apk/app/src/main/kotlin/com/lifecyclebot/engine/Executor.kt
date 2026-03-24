@@ -240,10 +240,16 @@ class Executor(
         // Must be profitable — never average down
         if (gainPct <= 0) return false
 
-        // CHANGE 6: High-conviction and long-hold positions pyramid deeper (up to 5×)
+        // CHANGE 6: High-conviction and long-hold positions pyramid deeper
+        // For MOONSHOTS (100x+), allow unlimited top-ups as long as position is healthy
         val nextTopUp = pos.topUpCount + 1
-        val effectiveMax = if (pos.isLongHold || pos.entryScore >= 75.0) 5
-                           else c.topUpMaxCount
+        val gainPctNow = pct(pos.entryPrice, ts.ref)
+        val effectiveMax = when {
+            gainPctNow >= 10000.0 -> 10    // 100x+ moonshot: up to 10 top-ups
+            gainPctNow >= 1000.0  -> 7     // 10x+ strong runner: up to 7 top-ups
+            pos.isLongHold || pos.entryScore >= 75.0 -> 5
+            else -> c.topUpMaxCount
+        }
         if (nextTopUp > effectiveMax) return false
 
         // CHANGE 3: High-conviction entries pyramid earlier
@@ -433,26 +439,48 @@ class Executor(
         // ═══════════════════════════════════════════════════════════════════
         // Base trail calculation with health adjustment
         // 
-        // CRITICAL: For RUNNERS, we want LOOSE trails to capture the full move!
-        // The old logic was tightening too fast, causing early exits.
+        // MOONSHOT SCALING: Real runners do 10,000,000%+ (SHIB, PEPE, etc.)
+        // We need VERY loose trails to capture these generational moves.
         // 
-        // NEW LOGIC:
-        // - Small gains (0-30%): Standard trailing
-        // - Medium gains (30-100%): Start loosening to let it run
-        // - Big gains (100-500%): VERY loose - this is a runner!
-        // - Massive gains (500%+): Ultra loose - potential moonshot
+        // The key insight: Once you're up 100x+, a 30% pullback is NOISE.
+        // You don't want to exit a 10,000x winner because of a 20% dip.
+        // 
+        // TRAIL MULTIPLIERS (higher = looser trail = more room to run):
         // ═══════════════════════════════════════════════════════════════════
         
         val baseTrail = when {
-            // MOONSHOT TERRITORY - Ultra loose trails (let it absolutely RIP)
-            gainPct >= 1000 -> base * 2.5   // 10x+ → 2.5x base (e.g., 37.5% trail if base=15%)
-            gainPct >= 500  -> base * 2.0   // 5x+ → 2x base (e.g., 30% trail)
-            gainPct >= 300  -> base * 1.7   // 3x+ → 1.7x base (e.g., 25.5% trail)
-            gainPct >= 200  -> base * 1.5   // 2x+ → 1.5x base (e.g., 22.5% trail)
-            gainPct >= 100  -> base * 1.3   // 100%+ → 1.3x base (e.g., 19.5% trail)
-            gainPct >= 50   -> base * 1.15  // 50%+ → 1.15x base (e.g., 17.25% trail)
-            gainPct >= 30   -> base * 1.0   // 30%+ → standard base
-            else            -> base * 0.85  // under 30% → slightly tighter to protect small gains
+            // ════════════════════════════════════════════════════════════════
+            // GENERATIONAL WEALTH TERRITORY (1000x+)
+            // A 50% pullback on a 10,000x is still 5,000x profit!
+            // ════════════════════════════════════════════════════════════════
+            gainPct >= 1000000  -> base * 8.0   // 10,000x+ → 8x base (120% trail if base=15%)
+            gainPct >= 100000   -> base * 6.0   // 1,000x+ → 6x base (90% trail)
+            gainPct >= 10000    -> base * 5.0   // 100x+ → 5x base (75% trail)
+            
+            // ════════════════════════════════════════════════════════════════
+            // MOONSHOT TERRITORY (10x-100x)
+            // These are life-changing. Don't exit on minor pullbacks.
+            // ════════════════════════════════════════════════════════════════
+            gainPct >= 5000     -> base * 4.0   // 50x+ → 4x base (60% trail)
+            gainPct >= 2000     -> base * 3.5   // 20x+ → 3.5x base (52.5% trail)
+            gainPct >= 1000     -> base * 3.0   // 10x+ → 3x base (45% trail)
+            
+            // ════════════════════════════════════════════════════════════════
+            // STRONG RUNNER (2x-10x)
+            // Great trades but not yet moonshot. Still give room.
+            // ════════════════════════════════════════════════════════════════
+            gainPct >= 500      -> base * 2.5   // 5x+ → 2.5x base (37.5% trail)
+            gainPct >= 300      -> base * 2.0   // 3x+ → 2x base (30% trail)
+            gainPct >= 200      -> base * 1.7   // 2x+ → 1.7x base (25.5% trail)
+            gainPct >= 100      -> base * 1.5   // 100%+ → 1.5x base (22.5% trail)
+            
+            // ════════════════════════════════════════════════════════════════
+            // NORMAL PROFITS (0-2x)
+            // Standard trailing - protect these gains normally.
+            // ════════════════════════════════════════════════════════════════
+            gainPct >= 50       -> base * 1.2   // 50%+ → 1.2x base (18% trail)
+            gainPct >= 30       -> base * 1.0   // 30%+ → standard base
+            else                -> base * 0.85  // <30% → slightly tighter
         }
         
         // Apply health multiplier - healthy trend = looser trail
@@ -483,10 +511,19 @@ class Executor(
     // ── partial sell ─────────────────────────────────────────────────
 
     /**
-     * v4.4: Partial sell at milestone gains.
-     * Takes 25% off at +200% (default), another 25% at +500%.
-     * Remaining position rides with tighter trail.
-     * This locks in profit on life-changing moves without fully exiting.
+     * v5: MOONSHOT-AWARE Partial sell at milestone gains.
+     * 
+     * STRATEGY: Take small amounts at each milestone so MOST rides the moonshot.
+     * 
+     * Default milestones:
+     *   +200%   → sell 25% (first partial)
+     *   +500%   → sell 25% (second partial)
+     *   +2000%  → sell 25% (third partial) - 20x!
+     *   +10000% → sell 25% (fourth partial) - 100x! (NEW)
+     *   +50000% → sell 25% (fifth partial) - 500x! (NEW)
+     * 
+     * After all 5 partials: Still holding 25% of original position for infinity!
+     * That 25% could become 10,000x+ (SHIB, PEPE territory)
      */
     fun checkPartialSell(ts: TokenState, wallet: SolanaWallet?, walletSol: Double): Boolean {
         val c   = cfg()
@@ -494,42 +531,62 @@ class Executor(
         if (!c.partialSellEnabled || !pos.isOpen) return false
 
         val gainPct = pct(pos.entryPrice, ts.ref)
+        val soldPct = pos.partialSoldPct
 
-        val firstTrigger  = gainPct >= c.partialSellTriggerPct && pos.partialSoldPct < 1.0
-        val secondTrigger = gainPct >= c.partialSellSecondTriggerPct
-            && pos.partialSoldPct >= c.partialSellFraction * 100.0
-            && pos.partialSoldPct < (c.partialSellFraction * 2 * 100.0)
-        // FIX 3: third partial at +2000% — lock in gains on life-changing moves
-        val thirdTrigger  = c.partialSellThirdEnabled
-            && gainPct >= c.partialSellThirdTriggerPct
-            && pos.partialSoldPct >= (c.partialSellFraction * 2 * 100.0)
-            && pos.partialSoldPct < (c.partialSellFraction * 3 * 100.0)
-
-        if (!firstTrigger && !secondTrigger && !thirdTrigger) return false
+        // Calculate which partial level we're at (0-5)
+        val partialLevel = (soldPct / (c.partialSellFraction * 100.0)).toInt()
+        
+        // Milestones: 200% → 500% → 2000% → 10000% → 50000%
+        val milestones = listOf(
+            c.partialSellTriggerPct,          // 200% (configurable)
+            c.partialSellSecondTriggerPct,    // 500% (configurable)
+            c.partialSellThirdTriggerPct,     // 2000% (configurable)
+            10000.0,                           // 100x (hardcoded moonshot)
+            50000.0,                           // 500x (hardcoded mega moonshot)
+        )
+        
+        // Check if we've hit the next milestone and haven't taken that partial yet
+        val nextMilestone = milestones.getOrNull(partialLevel)
+        val shouldPartial = nextMilestone != null && gainPct >= nextMilestone
+        
+        // For 4th and 5th partials, always enabled (moonshot territory)
+        val isThirdOrLater = partialLevel >= 2
+        if (!shouldPartial) return false
+        if (partialLevel == 2 && !c.partialSellThirdEnabled) return false
 
         // Compute position update values BEFORE branching on paper/live
         // so soldPct is in scope for both paths
         val sellFraction = c.partialSellFraction
         val sellQty      = pos.qtyToken * sellFraction
         val sellSol      = sellQty * ts.ref
-        val soldPct      = pos.partialSoldPct + sellFraction * 100.0
+        val newSoldPct   = soldPct + sellFraction * 100.0
         val newQty       = pos.qtyToken - sellQty
         val newCost      = pos.costSol * (1.0 - sellFraction)
         val paperPnlSol  = sellQty * ts.ref - pos.costSol * sellFraction
-        val triggerPct   = if (firstTrigger) c.partialSellTriggerPct else c.partialSellSecondTriggerPct
+        val triggerPct   = nextMilestone ?: 0.0
+        
+        // Log with moonshot-aware messaging
+        val milestoneLabel = when (partialLevel) {
+            0 -> "1st partial"
+            1 -> "2nd partial"
+            2 -> "3rd partial (20x!)"
+            3 -> "4th partial (100x MOONSHOT!)"
+            4 -> "5th partial (500x MEGA MOON!)"
+            else -> "${partialLevel + 1}th partial"
+        }
 
-        onLog("💰 PARTIAL SELL ${(sellFraction*100).toInt()}% @ +${gainPct.toInt()}% " +
+        onLog("💰 $milestoneLabel: SELL ${(sellFraction*100).toInt()}% @ +${gainPct.toInt()}% " +
               "(trigger: +${triggerPct.toInt()}%) | ~${sellSol.fmt(4)} SOL", ts.mint)
-        onNotify("💰 Partial Sell",
+        onNotify("💰 $milestoneLabel",
                  "${ts.symbol}  +${gainPct.toInt()}%  selling ${(sellFraction*100).toInt()}%",
                  com.lifecyclebot.engine.NotificationHistory.NotifEntry.NotifType.INFO)
         sounds?.playMilestone(gainPct)
 
         if (c.paperMode || wallet == null) {
             // ── Paper partial sell ─────────────────────────────────────
-            ts.position = pos.copy(qtyToken = newQty, costSol = newCost, partialSoldPct = soldPct)
+            ts.position = pos.copy(qtyToken = newQty, costSol = newCost, partialSoldPct = newSoldPct)
             val trade   = Trade("SELL", "paper", sellSol, ts.ref,
-                              System.currentTimeMillis(), "partial_${soldPct.toInt()}pct",
+                              System.currentTimeMillis(), "partial_${newSoldPct.toInt()}pct",
                               paperPnlSol, pct(pos.costSol * sellFraction, sellQty * ts.ref))
             ts.trades.add(trade); security.recordTrade(trade)
             onLog("PAPER PARTIAL SELL ${(sellFraction*100).toInt()}% | " +
@@ -564,9 +621,9 @@ class Executor(
                 val liveScore = pct(pos.costSol * sellFraction, solBack)
                 val (netPnl, feeSol) = slippageGuard.calcNetPnl(livePnl, pos.costSol * sellFraction)
                 // Update position state after confirmed on-chain execution
-                ts.position = pos.copy(qtyToken = newQty, costSol = newCost, partialSoldPct = soldPct)
+                ts.position = pos.copy(qtyToken = newQty, costSol = newCost, partialSoldPct = newSoldPct)
                 val liveTrade = Trade("SELL", "live", solBack, ts.ref,
-                    System.currentTimeMillis(), "partial_${soldPct.toInt()}pct",
+                    System.currentTimeMillis(), "partial_${newSoldPct.toInt()}pct",
                     livePnl, liveScore, sig = sig, feeSol = feeSol, netPnlSol = netPnl)
                 ts.trades.add(liveTrade); security.recordTrade(liveTrade)
                 SmartSizer.recordTrade(livePnl > 0, isPaperMode = false)  // Live trade
