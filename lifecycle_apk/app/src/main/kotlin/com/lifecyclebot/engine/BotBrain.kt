@@ -861,6 +861,11 @@ Analyse this data and respond with ONLY valid JSON in this exact format:
     }
     
     /**
+     * Get total trade count for determining bootstrap phase.
+     */
+    fun getTotalTradeCount(): Int = totalTradesAnalysed
+    
+    /**
      * Get blocked trade statistics for debugging/UI.
      */
     fun getBlockedTradeStats(): Map<String, Any> = mapOf(

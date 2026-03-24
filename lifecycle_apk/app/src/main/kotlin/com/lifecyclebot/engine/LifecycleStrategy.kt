@@ -1073,16 +1073,21 @@ class LifecycleStrategy(
         // Get learned thresholds from BotBrain (or use defaults)
         val learned = brain?.getLearnedThresholds()
         
+        // Check if we're in bootstrap phase (< 30 trades) - be more lenient
+        val isBootstrap = (brain?.getTotalTradeCount() ?: 0) < 30
+        
         // 1. RUGCHECK BLOCKED - Score too low (dangerous token)
-        // PAPER MODE: Use learned or minimum floor of 5
-        // LIVE MODE: Use learned or minimum floor of 10 (LOWERED from 15 to allow more trades)
-        val rugcheckThreshold = if (isPaperMode) {
-            (learned?.rugcheckMin ?: 10).coerceIn(5, 20)  // Paper: 5-20 range
-        } else {
-            (learned?.rugcheckMin ?: 15).coerceIn(10, 30)  // Live: 10-30 range (was 15-40)
+        // PAPER MODE: Very lenient to allow learning
+        // LIVE MODE (Bootstrap): Lenient to build up learning data
+        // LIVE MODE (Normal): Use learned or floor of 10
+        val rugcheckThreshold = when {
+            isPaperMode -> 5  // Paper: Always allow down to 5 (very lenient for learning)
+            isBootstrap -> 8  // Live bootstrap: Allow down to 8 to get trades
+            else -> (learned?.rugcheckMin ?: 12).coerceIn(10, 25)  // Live normal: 10-25 range
         }
         if (safety.rugcheckScore in 0..rugcheckThreshold) {
-            return "Rugcheck score ${safety.rugcheckScore}/100 (learned threshold=$rugcheckThreshold)"
+            val mode = if (isPaperMode) "paper" else if (isBootstrap) "bootstrap" else "live"
+            return "Rugcheck score ${safety.rugcheckScore}/100 (threshold=$rugcheckThreshold [$mode])"
         }
         
         // 2. LIQUIDITY - Must have minimum pool
