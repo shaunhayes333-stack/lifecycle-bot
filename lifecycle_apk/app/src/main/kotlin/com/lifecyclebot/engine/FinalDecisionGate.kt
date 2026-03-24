@@ -129,7 +129,7 @@ object FinalDecisionGate {
     
     // Base confidence thresholds (these are ADAPTED by AdaptiveConfidence)
     var paperConfidenceBase = 0.0          // Paper mode base: NO confidence minimum (learn from all)
-    var liveConfidenceBase = 30.0          // Live base: LOWERED from 40% to allow more trades
+    var liveConfidenceBase = 15.0          // Live base: LOWERED from 20% to 15% to allow more trades during bootstrap
     
     // ═══════════════════════════════════════════════════════════════════════════
     // ADAPTIVE CONFIDENCE LAYER
@@ -322,7 +322,13 @@ object FinalDecisionGate {
         // - High EntryAI win rate = entries are good = can be more aggressive
         // - High ExitAI avg P&L = exits are optimized = more confident in holds
         // - High Edge accuracy = vetoes are correct = trust the system more
+        // 
+        // CRITICAL: During "bootstrap" phase (< 30 trades), AI layers are 
+        // UNRELIABLE. Their low win rate is from learning, not from bad 
+        // strategy. We CAP negative adjustments during bootstrap.
         // ─────────────────────────────────────────────────────────────────
+        val isBootstrapPhase = currentConditions.totalSessionTrades < 30  // Need 30+ trades before trusting AI
+        
         val learningAdj = if (currentConditions.totalSessionTrades >= 10) {
             var adj = 0.0
             
@@ -349,6 +355,13 @@ object FinalDecisionGate {
                 currentConditions.edgeLearningAccuracy >= 55.0 -> adj -= 1.0  // Good accuracy
                 currentConditions.edgeLearningAccuracy >= 45.0 -> adj += 0.0  // Neutral
                 else -> adj += 3.0                                             // Edge needs more learning
+            }
+            
+            // BOOTSTRAP PROTECTION: Cap positive adjustments (raising threshold)
+            // when AI is still learning. This prevents blocking trades due to 
+            // unreliable early learning data.
+            if (isBootstrapPhase && adj > 0) {
+                adj = (adj * 0.3).coerceAtMost(3.0)  // Max +3% during bootstrap
             }
             
             adj
@@ -458,11 +471,24 @@ object FinalDecisionGate {
         
         // ─────────────────────────────────────────────────────────────────
         // CALCULATE FINAL ADAPTIVE CONFIDENCE
-        // Clamp to reasonable bounds
+        // 
+        // BOOTSTRAP MODE: When totalSessionTrades < 30, the AI systems 
+        // are still learning and their signals are unreliable. We use
+        // a lower minimum threshold to allow trades for learning.
         // ─────────────────────────────────────────────────────────────────
-        val adaptive = (baseConfidence + adjustment).coerceIn(
-            if (isPaperMode) 0.0 else 15.0,   // Min: 0% paper, 15% live (was 20%)
-            if (isPaperMode) 60.0 else 75.0   // Max: 60% paper, 75% live (was 80%)
+        val isBootstrap = currentConditions.totalSessionTrades < 30
+        
+        // During bootstrap, cap total positive adjustment (raising threshold)
+        // to prevent blocking trades due to unreliable early data
+        val cappedAdjustment = if (isBootstrap && adjustment > 0) {
+            adjustment.coerceAtMost(10.0)  // Max +10% during bootstrap
+        } else {
+            adjustment
+        }
+        
+        val adaptive = (baseConfidence + cappedAdjustment).coerceIn(
+            if (isPaperMode) 0.0 else if (isBootstrap) 10.0 else 15.0,  // Min: 0% paper, 10% bootstrap, 15% live
+            if (isPaperMode) 60.0 else 75.0   // Max: 60% paper, 75% live
         )
         
         return adaptive
@@ -491,13 +517,17 @@ object FinalDecisionGate {
             MarketRegimeAI.getCurrentRegime().label
         } catch (_: Exception) { "?" }
         
+        // Bootstrap mode indicator
+        val bootstrapLabel = if (currentConditions.totalSessionTrades < 30) " [BOOTSTRAP]" else ""
+        
         return buildString {
-            append("AdaptiveConf: base=${base.toInt()}% ${sign}${diff.toInt()}% = ${adaptive.toInt()}% ")
+            append("AdaptiveConf: base=${base.toInt()}% ${sign}${diff.toInt()}% = ${adaptive.toInt()}%$bootstrapLabel ")
             append("[vol=${currentConditions.avgVolatility.toInt()}% ")
             append("wr=${currentConditions.recentWinRate.toInt()}% ")
             append("buy=${currentConditions.buyPressureTrend.toInt()}% ")
             append("tier=$tierLabel ")
-            append("regime=$regimeLabel]")
+            append("regime=$regimeLabel ")
+            append("trades=${currentConditions.totalSessionTrades}]")
         }
     }
     
