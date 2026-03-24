@@ -265,14 +265,15 @@ class Executor(
         // Don't add into exhaustion
         if (exhaust) return false
 
-        // Don't add if exit score is high (momentum dying)
-        if (exitScore >= 35.0) return false
+        // Don't add if exit score is very high (momentum dying)
+        // Raised threshold from 35 to 50 to allow more top-ups on runners
+        if (exitScore >= 50.0) return false
 
         // Don't add if entry score is very low (market structure weak)
-        if (entryScore < 20.0) return false  // was 30.0 - lowered for more aggressive buying
+        if (entryScore < 15.0) return false  // was 20.0 - lowered for more aggressive pyramiding
 
-        // Volume must be healthy
-        if (volScore < 30.0) return false  // was 35.0 - lowered
+        // Volume must be healthy (but not required to be super strong)
+        if (volScore < 25.0) return false  // was 30.0 - lowered
 
         // Must have room left
         val remainingRoom = c.topUpMaxTotalSol - pos.costSol
@@ -365,10 +366,11 @@ class Executor(
         val base    = modeConf?.trailingStopPct ?: cfg().trailingStopBasePct
         val gainPct = pct(pos.entryPrice, current)
         
-        // FIX 3c: Trail tightens after partial sells — gains locked, ride tighter
+        // Trail adjustment after partial sells
+        // After taking profits, we can be slightly looser (not tighter!) since we've secured gains
         val partialFactor = when {
-            pos.partialSoldPct >= 50.0 -> 0.40
-            pos.partialSoldPct >= 25.0 -> 0.55
+            pos.partialSoldPct >= 50.0 -> 0.90   // Sold 50%+ → slightly tighter (was 0.40!)
+            pos.partialSoldPct >= 25.0 -> 0.95   // Sold 25%+ → barely tighter (was 0.55!)
             else                       -> 1.0
         }
         
@@ -430,16 +432,27 @@ class Executor(
         
         // ═══════════════════════════════════════════════════════════════════
         // Base trail calculation with health adjustment
+        // 
+        // CRITICAL: For RUNNERS, we want LOOSE trails to capture the full move!
+        // The old logic was tightening too fast, causing early exits.
+        // 
+        // NEW LOGIC:
+        // - Small gains (0-30%): Standard trailing
+        // - Medium gains (30-100%): Start loosening to let it run
+        // - Big gains (100-500%): VERY loose - this is a runner!
+        // - Massive gains (500%+): Ultra loose - potential moonshot
         // ═══════════════════════════════════════════════════════════════════
         
         val baseTrail = when {
-            gainPct >= 500 -> base * 0.25  // 5x+ → base tight
-            gainPct >= 300 -> base * 0.35  // 3x+ → moderate
-            gainPct >= 200 -> base * 0.45  // 2x+ → still loose
-            gainPct >= 100 -> base * 0.55  // 100%+ → starting to tighten
-            gainPct >= 50  -> base * 0.70  // 50%+ → loose
-            gainPct >= 30  -> base * 0.85  // 30%+ → very loose
-            else           -> base         // under 30% → full width
+            // MOONSHOT TERRITORY - Ultra loose trails (let it absolutely RIP)
+            gainPct >= 1000 -> base * 2.5   // 10x+ → 2.5x base (e.g., 37.5% trail if base=15%)
+            gainPct >= 500  -> base * 2.0   // 5x+ → 2x base (e.g., 30% trail)
+            gainPct >= 300  -> base * 1.7   // 3x+ → 1.7x base (e.g., 25.5% trail)
+            gainPct >= 200  -> base * 1.5   // 2x+ → 1.5x base (e.g., 22.5% trail)
+            gainPct >= 100  -> base * 1.3   // 100%+ → 1.3x base (e.g., 19.5% trail)
+            gainPct >= 50   -> base * 1.15  // 50%+ → 1.15x base (e.g., 17.25% trail)
+            gainPct >= 30   -> base * 1.0   // 30%+ → standard base
+            else            -> base * 0.85  // under 30% → slightly tighter to protect small gains
         }
         
         // Apply health multiplier - healthy trend = looser trail

@@ -2360,21 +2360,43 @@ class LifecycleStrategy(
                 }
                 
                 // ── TIME-BASED EXITS ──
-                // Stale trade: no movement after 8 mins
-                if (paperHeldMins >= 8.0 && paperGainPct < 5.0 && paperGainPct > -5.0) {
+                // Stale trade: no movement after 12 mins (was 8 - give more time)
+                if (paperHeldMins >= 12.0 && paperGainPct < 5.0 && paperGainPct > -5.0) {
                     ErrorLogger.info("Strategy", "😴 PAPER STALE: ${ts.symbol} ${paperGainPct.toInt()}% after ${paperHeldMins.toInt()}m - moving on")
                     return "EXIT"
                 }
                 
-                // Max hold: 30 mins (but only if not running)
-                if (paperHeldMins >= 30.0 && paperGainPct < 20.0) {
+                // Max hold WITHOUT gains: 45 mins (was 30 mins)
+                // But if we're up 20%+, let it ride!
+                if (paperHeldMins >= 45.0 && paperGainPct < 20.0) {
                     ErrorLogger.info("Strategy", "⏰ PAPER TIMEOUT: ${ts.symbol} ${paperGainPct.toInt()}% after ${paperHeldMins.toInt()}m")
                     return "EXIT"
                 }
                 
-                // Let big runners run longer (up to 60 mins)
-                if (paperHeldMins >= 60.0) {
-                    ErrorLogger.info("Strategy", "🏃 PAPER RUNNER EXIT: ${ts.symbol} +${paperGainPct.toInt()}% after ${paperHeldMins.toInt()}m - locking profits")
+                // ═══════════════════════════════════════════════════════════════
+                // RUNNER HOLDING LOGIC - LET BIG WINNERS RUN!
+                // ═══════════════════════════════════════════════════════════════
+                // 
+                // If we're up 50%+, we have a potential runner. DON'T force exit.
+                // Instead, rely on the trailing stop to capture the move.
+                // 
+                // Time limits by gain level:
+                //   <50%   → max 45 mins (normal trade)
+                //   50-100% → max 2 hours (decent runner)
+                //   100-500% → max 4 hours (strong runner)
+                //   500%+   → max 8 hours (potential moonshot)
+                //   1000%+  → max 24 hours (let it absolutely RIP)
+                // 
+                val maxHoldForGain = when {
+                    paperGainPct >= 1000.0 -> 24.0 * 60.0   // 24 hours for 10x+
+                    paperGainPct >= 500.0  -> 8.0 * 60.0    // 8 hours for 5x+
+                    paperGainPct >= 100.0  -> 4.0 * 60.0    // 4 hours for 2x+
+                    paperGainPct >= 50.0   -> 2.0 * 60.0    // 2 hours for 50%+
+                    else                   -> 45.0           // 45 mins for small gains
+                }
+                
+                if (paperHeldMins >= maxHoldForGain) {
+                    ErrorLogger.info("Strategy", "🏃 PAPER RUNNER EXIT: ${ts.symbol} +${paperGainPct.toInt()}% after ${paperHeldMins.toInt()}m - hit max hold for this gain level")
                     return "EXIT"
                 }
                 
