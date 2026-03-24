@@ -1712,7 +1712,10 @@ class BotService : Service() {
                 // Order: HARD BLOCKS → EDGE → CONFIDENCE → MODE → SIZING
                 // ═══════════════════════════════════════════════════════════════════
                 
-                if (!ts.position.isOpen && decision.finalSignal == "BUY") {
+                // ARCHITECTURAL FIX: Check shouldTrade FIRST before entering FDG flow
+                // If upstream (Strategy) already determined this shouldn't trade,
+                // don't waste cycles on candidate/sizing/FDG evaluation.
+                if (!ts.position.isOpen && decision.finalSignal == "BUY" && decision.shouldTrade) {
                     // ═══════════════════════════════════════════════════════════════════
                     // TRADE IDENTITY: Mark as candidate
                     // ═══════════════════════════════════════════════════════════════════

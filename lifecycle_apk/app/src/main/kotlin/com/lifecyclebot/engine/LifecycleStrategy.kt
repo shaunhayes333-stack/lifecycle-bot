@@ -950,9 +950,14 @@ class LifecycleStrategy(
             rawSignal == "BUY" && edgeVeto && !isPaperMode -> "WAIT"  // Edge veto only in live
             else -> rawSignal
         }
-        val shouldTrade = finalSignal == "BUY" && !ts.position.isOpen
+        
+        // ARCHITECTURAL FIX: shouldTrade must be FALSE if edge vetoes, EVEN in paper mode.
+        // This prevents the cascade: candidate → sizing → FDG → block
+        // Paper mode still gets the signal="BUY" for shadow learning, but won't execute.
+        val shouldTradeBase = rawSignal == "BUY" && !ts.position.isOpen && !edgeVeto
+        
         val blockReason = when {
-            rawSignal == "BUY" && edgeVeto && !isPaperMode -> "Edge veto: ${edgeFilter.reason}"
+            rawSignal == "BUY" && edgeVeto -> "Edge veto: ${edgeFilter.reason}"
             rawSignal != "BUY" -> "Signal is $rawSignal, not BUY"
             ts.position.isOpen -> "Position already open"
             else -> ""
@@ -989,7 +994,7 @@ class LifecycleStrategy(
             edgeConfidence = edgeConfidence,
             isOptimalEntry = edgeTiming.isOptimalEntry,
             edgeVeto = edgeVeto,
-            shouldTrade = shouldTrade && qualityPenalty > 0.0,
+            shouldTrade = shouldTradeBase && qualityPenalty > 0.0,
             finalSignal = finalSignal,
             blockReason = if (redFlagCount >= 3) "All quality gates failed" else blockReason,
             qualityPenalty = qualityPenalty,
