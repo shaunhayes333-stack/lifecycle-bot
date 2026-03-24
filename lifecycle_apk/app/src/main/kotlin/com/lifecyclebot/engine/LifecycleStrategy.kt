@@ -286,7 +286,7 @@ class LifecycleStrategy(
         val edgePhase = EdgeOptimizer.detectMarketPhase(hist, prices)
         val currentBuyPct = pressScore  // pressScore is essentially buy pressure
         val edgeTiming = EdgeOptimizer.checkEntryTiming(edgePhase, hist, prices, currentBuyPct)
-        val edgeFilter = EdgeOptimizer.filterTrade(edgePhase, volScore, currentBuyPct, edgeTiming)
+        val edgeFilter = EdgeOptimizer.filterTrade(edgePhase, volScore, currentBuyPct, edgeTiming, isPaperMode)
         
         // PRIORITY 1: Track if Edge says SKIP (will veto BUY later)
         val edgeVeto = edgeFilter.quality == "SKIP"
@@ -665,20 +665,14 @@ class LifecycleStrategy(
         val pressScore = result.meta.pressScore
         val volScore = result.meta.volScore
         val edgeTiming = EdgeOptimizer.checkEntryTiming(edgePhase, hist, prices, pressScore)
-        val edgeFilter = EdgeOptimizer.filterTrade(edgePhase, volScore, pressScore, edgeTiming)
+        val edgeFilter = EdgeOptimizer.filterTrade(edgePhase, volScore, pressScore, edgeTiming, isPaperMode)
         
         // ═══════════════════════════════════════════════════════════════════
-        // PAPER MODE: Relax Edge veto to allow learning
-        // In paper mode, we only veto on severe red flags (DISTRIBUTION + low buy%)
-        // This allows the bot to take more trades and learn from outcomes
+        // EDGE VETO: Now handled inside filterTrade with isPaperMode flag
+        // Paper mode has more lenient thresholds (buy% >= 40, timing advisory)
+        // Live mode has strict thresholds (buy% >= 50, timing required)
         // ═══════════════════════════════════════════════════════════════════
-        val edgeVeto = if (isPaperMode) {
-            // Paper mode: Only veto on DISTRIBUTION phase with very low buy pressure
-            edgePhase.phase.name == "DISTRIBUTION" && pressScore < 35.0
-        } else {
-            // Live mode: Full Edge veto logic
-            edgeFilter.quality == "SKIP"
-        }
+        val edgeVeto = edgeFilter.quality == "SKIP"
         
         val edgeConfidence = EdgeOptimizer.calculateConfidence(
             edgePhase, edgeTiming,

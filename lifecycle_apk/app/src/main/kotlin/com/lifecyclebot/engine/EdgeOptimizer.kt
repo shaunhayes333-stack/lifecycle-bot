@@ -453,14 +453,18 @@ object EdgeOptimizer {
     
     /**
      * Filter trades for quality. Less trades = higher quality.
+     * 
+     * PAPER MODE: More lenient thresholds to allow learning.
+     * LIVE MODE: Strict thresholds to protect capital.
      */
     fun filterTrade(
         phase: PhaseAnalysis,
         volumeScore: Double,
         buyPct: Double,
         entryTiming: EntryTiming,
+        isPaperMode: Boolean = false,  // NEW: Paper mode flag
     ): FilterResult {
-        // DEAD phase — always skip
+        // DEAD phase — always skip (even paper mode)
         if (phase.phase == MarketPhase.DEAD) {
             return FilterResult(
                 shouldTrade = false,
@@ -469,25 +473,7 @@ object EdgeOptimizer {
             )
         }
         
-        // Volume too low — skip
-        if (volumeScore < 15) {
-            return FilterResult(
-                shouldTrade = false,
-                reason = "Volume too low (${volumeScore.toInt()})",
-                quality = "SKIP"
-            )
-        }
-        
-        // Buy pressure too low — skip
-        if (buyPct < 50) {
-            return FilterResult(
-                shouldTrade = false,
-                reason = "Buy% too low (${buyPct.toInt()}%)",
-                quality = "SKIP"
-            )
-        }
-        
-        // Distribution phase — skip entries
+        // Distribution phase — always skip (even paper mode)
         if (phase.phase == MarketPhase.DISTRIBUTION) {
             return FilterResult(
                 shouldTrade = false,
@@ -496,8 +482,34 @@ object EdgeOptimizer {
             )
         }
         
-        // Entry timing says no — skip
-        if (!entryTiming.shouldEnter) {
+        // ═══════════════════════════════════════════════════════════════════
+        // PAPER MODE: More lenient thresholds for learning
+        // ═══════════════════════════════════════════════════════════════════
+        
+        val minVolume = if (isPaperMode) 10 else 15      // Paper: 10, Live: 15
+        val minBuyPct = if (isPaperMode) 40 else 50      // Paper: 40%, Live: 50%
+        val requireOptimalTiming = !isPaperMode          // Paper: NO, Live: YES
+        
+        // Volume too low — skip
+        if (volumeScore < minVolume) {
+            return FilterResult(
+                shouldTrade = false,
+                reason = "Volume too low (${volumeScore.toInt()} < $minVolume)",
+                quality = "SKIP"
+            )
+        }
+        
+        // Buy pressure too low — skip
+        if (buyPct < minBuyPct) {
+            return FilterResult(
+                shouldTrade = false,
+                reason = "Buy% too low (${buyPct.toInt()}% < $minBuyPct%)",
+                quality = "SKIP"
+            )
+        }
+        
+        // Entry timing — PAPER: advisory only, LIVE: required
+        if (requireOptimalTiming && !entryTiming.shouldEnter) {
             return FilterResult(
                 shouldTrade = false,
                 reason = entryTiming.reason,
@@ -511,12 +523,15 @@ object EdgeOptimizer {
             phase.phase == MarketPhase.EXPANSION && buyPct > 56 -> "A"
             entryTiming.isOptimalEntry -> "B"
             phase.phase == MarketPhase.EXPANSION -> "B"
+            phase.phase == MarketPhase.EARLY_ACCUMULATION && buyPct > 50 -> "B"
+            isPaperMode && buyPct >= 45 -> "C"  // Paper: allow C quality for learning
             else -> "C"
         }
         
         return FilterResult(
             shouldTrade = true,
-            reason = "Trade quality: $quality - ${phase.phase.name}",
+            reason = "Trade quality: $quality - ${phase.phase.name}" + 
+                     if (isPaperMode && !entryTiming.shouldEnter) " (paper: timing override)" else "",
             quality = quality
         )
     }
