@@ -759,11 +759,19 @@ object FinalDecisionGate {
             val inCooldown = isInDistributionCooldown(ts.mint)
             val cooldownMinutes = if (inCooldown) getRemainingCooldownMinutes(ts.mint) else 0
             
-            if (inCooldown) {
+            // PAPER MODE: Bypass cooldown if buy pressure is strong
+            // The token recovered from distribution - let's learn from it!
+            val bypassCooldownForLearning = config.paperMode && ts.meta.pressScore >= 60.0
+            
+            if (inCooldown && !bypassCooldownForLearning) {
                 blockReason = "DISTRIBUTION_COOLDOWN_${cooldownMinutes}min"
                 blockLevel = BlockLevel.HARD
                 checks.add(GateCheck("distribution", false, "Recently exited distribution, cooldown=${cooldownMinutes}min remaining"))
                 tags.add("distribution_cooldown")
+            } else if (inCooldown && bypassCooldownForLearning) {
+                // Log bypass for learning
+                checks.add(GateCheck("distribution", true, "PAPER: cooldown bypass (buy%=${ts.meta.pressScore.toInt()}% >= 60%)"))
+                tags.add("distribution_cooldown_bypassed")
             } else {
                 // Check other distribution signals
                 val isDistributionPhase = candidate.edgePhase.uppercase() == "DISTRIBUTION"
@@ -810,27 +818,42 @@ object FinalDecisionGate {
         }
         
         // ═══════════════════════════════════════════════════════════════════════
-        // GATE 1i: STICKY EDGE VETO (AUTHORITATIVE - applies to ALL modes)
+        // GATE 1i: STICKY EDGE VETO
         // 
-        // When Edge says "VETOED", that decision is AUTHORITATIVE.
-        // The veto is STICKY for 5 minutes to prevent:
-        //   1. Edge vetoes at T+0
-        //   2. Strategy says BUY at T+10 seconds 
-        //   3. FDG approves because it only sees the latest signal
+        // When Edge says "VETOED", that decision is respected for a cooldown period.
         // 
-        // Rule: Once vetoed by Edge, stay blocked for EDGE_VETO_COOLDOWN_MS
-        // This ensures Edge's "do not enter" is respected, not overridden.
+        // PAPER MODE: More lenient - bypass veto if:
+        //   - Buy pressure recovered (>= 55%)
+        //   - OR Quality is good (A/A+/B)
+        //   - OR Confidence is decent (>= 40%)
+        // 
+        // LIVE MODE: Strict - respect all vetoes
         // ═══════════════════════════════════════════════════════════════════════
         
         if (blockReason == null) {
             val activeVeto = hasActiveEdgeVeto(ts.mint)
             if (activeVeto != null) {
                 val remainingSec = getVetoRemainingSeconds(ts.mint)
-                blockReason = "EDGE_VETO_ACTIVE"
-                blockLevel = BlockLevel.EDGE
-                checks.add(GateCheck("edge_veto_sticky", false, 
-                    "Vetoed ${remainingSec}s ago: ${activeVeto.reason} (quality=${activeVeto.quality})"))
-                tags.add("edge_veto_sticky")
+                
+                // PAPER MODE: Allow bypass for learning when conditions improved
+                val canBypassInPaper = config.paperMode && (
+                    ts.meta.pressScore >= 55.0 ||  // Buy pressure recovered
+                    candidate.setupQuality in listOf("A+", "A", "B") ||  // Good quality
+                    candidate.aiConfidence >= 40.0  // Decent confidence
+                )
+                
+                if (canBypassInPaper) {
+                    // Bypass the veto for paper learning
+                    checks.add(GateCheck("edge_veto_sticky", true, 
+                        "PAPER: veto bypass (buy%=${ts.meta.pressScore.toInt()} quality=${candidate.setupQuality} conf=${candidate.aiConfidence.toInt()}%)"))
+                    tags.add("edge_veto_bypassed")
+                } else {
+                    blockReason = "EDGE_VETO_ACTIVE"
+                    blockLevel = BlockLevel.EDGE
+                    checks.add(GateCheck("edge_veto_sticky", false, 
+                        "Vetoed ${remainingSec}s ago: ${activeVeto.reason} (quality=${activeVeto.quality})"))
+                    tags.add("edge_veto_sticky")
+                }
             } else {
                 checks.add(GateCheck("edge_veto_sticky", true, "No active veto"))
             }
