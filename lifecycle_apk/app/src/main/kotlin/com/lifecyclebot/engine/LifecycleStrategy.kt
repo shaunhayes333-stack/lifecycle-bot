@@ -2567,6 +2567,25 @@ class LifecycleStrategy(
         val enhancedMeta = meta.copy(setupQuality = setupQuality)
         
         // ══════════════════════════════════════════════════════════════
+        // ENTRY INTELLIGENCE AI — Score entry conditions for learning
+        // ══════════════════════════════════════════════════════════════
+        val entryConditions = EntryIntelligence.EntryConditions(
+            buyPressure = pressScore,
+            volumeScore = volScore,
+            priceVsEma = ((latest.close - emaShort) / emaShort * 100).coerceIn(-50.0, 50.0),
+            rsi = rsiVal,
+            momentum = adjustedEntryScore,
+            hourOfDay = java.util.Calendar.getInstance(java.util.TimeZone.getTimeZone("UTC")).get(java.util.Calendar.HOUR_OF_DAY),
+            volatility = meta.avgAtr,
+            liquidityUsd = ts.lastLiquidityUsd,
+            topHolderPct = ts.safety.topHolderPct,
+            isNearSupport = meta.posInRange < 25.0,
+            isNearResistance = meta.posInRange > 75.0,
+            candlePattern = if (chartPattern.pattern != ChartPattern.NONE) chartPattern.pattern.name.lowercase() else "none",
+        )
+        val entryAiScore = EntryIntelligence.scoreEntry(entryConditions)
+        
+        // ══════════════════════════════════════════════════════════════
         // FILTER PASS = BUY (both modes, but paper is more aggressive)
         // If we got past all the blocks above, we SHOULD trade
         // ══════════════════════════════════════════════════════════════
@@ -2578,13 +2597,26 @@ class LifecycleStrategy(
                 return "WAIT"
             }
             
+            // Entry AI recommendation check (only AVOID blocks in paper mode for learning)
+            if (entryAiScore.recommendation == EntryIntelligence.EntryRecommendation.AVOID && 
+                entryAiScore.confidence >= 0.5) {
+                ErrorLogger.info("Strategy", "🤖 ${ts.symbol}: Entry AI says AVOID (score=${entryAiScore.score}, conf=${(entryAiScore.confidence*100).toInt()}%)")
+                // Don't block completely in paper - just log for learning
+            }
+            
             val entryType = when {
                 isPullback && rsiOversold -> "PULLBACK+RSI"
                 isPullback -> "PULLBACK"
                 rsiOversold -> "RSI_BOUNCE"
                 else -> "MOMENTUM"
             }
-            ErrorLogger.info("Strategy", "🟢 ${ts.symbol}: PAPER BUY ($entryType) | quality=$setupQuality phase=$phase liq=$${ts.lastLiquidityUsd.toInt()} entry=${adjustedEntryScore.toInt()}")
+            val aiTag = when (entryAiScore.recommendation) {
+                EntryIntelligence.EntryRecommendation.STRONG_BUY -> "⭐"
+                EntryIntelligence.EntryRecommendation.BUY -> ""
+                EntryIntelligence.EntryRecommendation.WAIT -> "⏳"
+                EntryIntelligence.EntryRecommendation.AVOID -> "⚠️"
+            }
+            ErrorLogger.info("Strategy", "🟢 ${ts.symbol}: PAPER BUY ($entryType) $aiTag| quality=$setupQuality phase=$phase liq=$${ts.lastLiquidityUsd.toInt()} entry=${adjustedEntryScore.toInt()}")
             return "BUY"
         }
         

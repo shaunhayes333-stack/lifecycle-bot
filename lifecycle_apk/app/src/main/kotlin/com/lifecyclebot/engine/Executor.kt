@@ -596,6 +596,49 @@ class Executor(
         if (!pos.isOpen) milestonesHit.remove(ts.mint)
 
         // ════════════════════════════════════════════════════════════════
+        // EXIT INTELLIGENCE AI - Dynamic exit evaluation
+        // ════════════════════════════════════════════════════════════════
+        val exitAiState = ExitIntelligence.PositionState(
+            mint = ts.mint,
+            symbol = ts.symbol,
+            entryPrice = pos.entryPrice,
+            currentPrice = price,
+            highestPrice = pos.highestPrice,
+            lowestPrice = pos.lowestPrice,
+            pnlPercent = gainPct,
+            holdTimeMinutes = (heldSecs / 60.0).toInt(),
+            buyPressure = ts.meta.pressScore,
+            entryBuyPressure = ts.meta.pressScore,  // Will be tracked by ExitIntelligence
+            volume = ts.meta.volScore,
+            volatility = ts.meta.avgAtr,
+            isDistribution = ts.phase == "distribution" || ts.meta.pressScore < 35,
+            rsi = ts.meta.rsi,
+            momentum = ts.entryScore,
+            qualityGrade = ts.meta.setupQuality,
+        )
+        val exitAiDecision = ExitIntelligence.evaluateExit(exitAiState)
+        
+        // Act on Exit AI decision with high urgency
+        when (exitAiDecision.action) {
+            ExitIntelligence.ExitAction.EMERGENCY_EXIT -> {
+                onLog("🤖🚨 EXIT AI: ${ts.symbol} EMERGENCY | ${exitAiDecision.reasons.firstOrNull()}", ts.mint)
+                TradeStateMachine.startCooldown(ts.mint)
+                return "ai_emergency_${exitAiDecision.reasons.firstOrNull()?.take(15)?.replace(" ", "_") ?: "exit"}"
+            }
+            ExitIntelligence.ExitAction.FULL_EXIT -> {
+                if (exitAiDecision.urgency == ExitIntelligence.Urgency.HIGH || 
+                    exitAiDecision.urgency == ExitIntelligence.Urgency.CRITICAL) {
+                    onLog("🤖⚠️ EXIT AI: ${ts.symbol} FULL EXIT | ${exitAiDecision.reasons.firstOrNull()}", ts.mint)
+                    TradeStateMachine.startCooldown(ts.mint)
+                    return "ai_exit_${exitAiDecision.reasons.firstOrNull()?.take(15)?.replace(" ", "_") ?: "signal"}"
+                }
+            }
+            else -> {
+                // HOLD, TIGHTEN_STOP, PARTIAL_EXIT - handle below or let other logic run
+            }
+        }
+
+        // ════════════════════════════════════════════════════════════════
         // V8: Precision Exit Logic - Full evaluation
         // ════════════════════════════════════════════════════════════════
         val exitSignal = PrecisionExitLogic.evaluate(
@@ -1987,6 +2030,18 @@ class Executor(
             wasExecuted = true,
         )
         
+        // ═══════════════════════════════════════════════════════════════════
+        // ENTRY INTELLIGENCE: Learn from trade outcome
+        // ═══════════════════════════════════════════════════════════════════
+        val holdMinutes = ((System.currentTimeMillis() - ts.position.entryTime) / 60000).toInt()
+        EntryIntelligence.learnFromOutcome(tradeId.mint, pnlP, holdMinutes)
+        
+        // ═══════════════════════════════════════════════════════════════════
+        // EXIT INTELLIGENCE: Learn from exit decision quality
+        // ═══════════════════════════════════════════════════════════════════
+        ExitIntelligence.learnFromExit(tradeId.mint, reason, pnlP, holdMinutes)
+        ExitIntelligence.resetPosition(tradeId.mint)
+        
         ts.position         = Position()
         ts.lastExitTs       = System.currentTimeMillis()
         ts.lastExitPrice    = price
@@ -2310,6 +2365,14 @@ class Executor(
             FinalDecisionGate.recordDistributionExit(tradeId.mint)
             onLog("🚫 Distribution cooldown: ${ts.symbol} blocked for 4min", tradeId.mint)
         }
+        
+        // ═══════════════════════════════════════════════════════════════════
+        // ENTRY & EXIT INTELLIGENCE: Learn from live trade outcome
+        // ═══════════════════════════════════════════════════════════════════
+        val holdMinutesLive = ((System.currentTimeMillis() - ts.position.entryTime) / 60000).toInt()
+        EntryIntelligence.learnFromOutcome(tradeId.mint, pnlP, holdMinutesLive)
+        ExitIntelligence.learnFromExit(tradeId.mint, reason, pnlP, holdMinutesLive)
+        ExitIntelligence.resetPosition(tradeId.mint)
         
         ts.position         = Position()
         ts.lastExitTs       = System.currentTimeMillis()

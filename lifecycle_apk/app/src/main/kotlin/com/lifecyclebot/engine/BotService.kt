@@ -229,6 +229,24 @@ class BotService : Service() {
             ErrorLogger.error("BotService", "Failed to save EdgeLearning: ${e.message}", e)
         }
         
+        // Save Entry Intelligence AI before shutdown
+        try {
+            val entryAiPrefs = getSharedPreferences("entry_intelligence", android.content.Context.MODE_PRIVATE)
+            EntryIntelligence.saveToPrefs(entryAiPrefs)
+            ErrorLogger.info("BotService", "💾 EntryIntelligence saved before destroy")
+        } catch (e: Exception) {
+            ErrorLogger.error("BotService", "Failed to save EntryIntelligence: ${e.message}", e)
+        }
+        
+        // Save Exit Intelligence AI before shutdown
+        try {
+            val exitAiPrefs = getSharedPreferences("exit_intelligence", android.content.Context.MODE_PRIVATE)
+            ExitIntelligence.saveToPrefs(exitAiPrefs)
+            ErrorLogger.info("BotService", "💾 ExitIntelligence saved before destroy")
+        } catch (e: Exception) {
+            ErrorLogger.error("BotService", "Failed to save ExitIntelligence: ${e.message}", e)
+        }
+        
         scope.cancel()
     }
 
@@ -659,6 +677,16 @@ class BotService : Service() {
                 ErrorLogger.error("EdgeLearning", "Failed to save: ${e.message}", e)
             }
         }
+        
+        // Initialize Entry Intelligence AI
+        val entryAiPrefs = getSharedPreferences("entry_intelligence", android.content.Context.MODE_PRIVATE)
+        EntryIntelligence.loadFromPrefs(entryAiPrefs)
+        addLog("🎯 ${EntryIntelligence.getStats()}")
+        
+        // Initialize Exit Intelligence AI
+        val exitAiPrefs = getSharedPreferences("exit_intelligence", android.content.Context.MODE_PRIVATE)
+        ExitIntelligence.loadFromPrefs(exitAiPrefs)
+        addLog("🚪 ${ExitIntelligence.getStats()}")
         
         // Set up paper wallet balance tracking
         executor.onPaperBalanceChange = { delta ->
