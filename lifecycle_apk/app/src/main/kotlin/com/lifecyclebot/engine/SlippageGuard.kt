@@ -46,29 +46,62 @@ class SlippageGuard(private val jupiter: JupiterApi) {
         slippageBps: Int,
         inputSol: Double,
     ): ValidatedQuote {
-        // First quote
-        val q1 = try {
-            jupiter.getQuote(inputMint, outputMint, amountLamports, slippageBps)
-        } catch (e: Exception) {
-            return ValidatedQuote(
+        // First quote - with retry for network errors
+        val q1 = getQuoteWithRetry(inputMint, outputMint, amountLamports, slippageBps, "Quote 1")
+            ?: return ValidatedQuote(
                 com.lifecyclebot.network.SwapQuote(raw = org.json.JSONObject(), outAmount = 0L, priceImpactPct = 0.0),
                 false, 0.0, 0.0,
-                "Quote 1 failed: ${e.message?.take(60)}"
+                "Quote 1 failed after retries"
             )
-        }
 
         // Wait — let market settle
         Thread.sleep(QUOTE_DELAY_MS)
 
-        // Second quote
-        val q2 = try {
-            jupiter.getQuote(inputMint, outputMint, amountLamports, slippageBps)
-        } catch (e: Exception) {
-            // If second quote fails, use first (single quote is still better than nothing)
-            return buildResult(q1, q1, inputSol)
-        }
+        // Second quote - with retry for network errors
+        val q2 = getQuoteWithRetry(inputMint, outputMint, amountLamports, slippageBps, "Quote 2")
+            ?: return buildResult(q1, q1, inputSol)  // Use first quote if second fails
 
         return buildResult(q1, q2, inputSol)
+    }
+    
+    /**
+     * Get a quote with retry logic for transient network errors.
+     * Retries up to 3 times with exponential backoff.
+     */
+    private fun getQuoteWithRetry(
+        inputMint: String,
+        outputMint: String,
+        amountLamports: Long,
+        slippageBps: Int,
+        label: String,
+    ): SwapQuote? {
+        var lastError: Exception? = null
+        val maxRetries = 3
+        val baseDelayMs = 1000L
+        
+        for (attempt in 1..maxRetries) {
+            try {
+                return jupiter.getQuote(inputMint, outputMint, amountLamports, slippageBps)
+            } catch (e: Exception) {
+                lastError = e
+                val isNetworkError = e.message?.contains("resolve host") == true ||
+                                     e.message?.contains("Unable to resolve") == true ||
+                                     e.message?.contains("timeout") == true ||
+                                     e.message?.contains("connect") == true
+                
+                if (isNetworkError && attempt < maxRetries) {
+                    val delay = baseDelayMs * attempt  // 1s, 2s, 3s
+                    ErrorLogger.info("SlippageGuard", 
+                        "⚠️ $label attempt $attempt failed (${e.message?.take(40)}), retrying in ${delay}ms...")
+                    Thread.sleep(delay)
+                } else {
+                    // Non-network error or final retry - give up
+                    ErrorLogger.error("SlippageGuard", "$label failed: ${e.message?.take(60)}")
+                    break
+                }
+            }
+        }
+        return null
     }
 
     private fun buildResult(q1: SwapQuote, q2: SwapQuote, inputSol: Double): ValidatedQuote {
