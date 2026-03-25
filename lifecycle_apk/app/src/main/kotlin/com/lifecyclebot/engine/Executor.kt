@@ -649,7 +649,7 @@ class Executor(
         // ════════════════════════════════════════════════════════════════
         // FACTOR 1: LIQUIDITY — Lower liquidity = lock earlier
         // ════════════════════════════════════════════════════════════════
-        val liqUsd = ts.liquidityUsd
+        val liqUsd = ts.lastLiquidityUsd
         val liqAdjustment = when {
             liqUsd < 5_000   -> 0.70   // Very low liq: lock at 70% of base (1.4x, 3.5x)
             liqUsd < 10_000  -> 0.80   // Low liq: lock at 80% of base (1.6x, 4x)
@@ -662,7 +662,7 @@ class Executor(
         // ════════════════════════════════════════════════════════════════
         // FACTOR 2: MARKET CAP — Lower mcap = lock earlier (more volatile)
         // ════════════════════════════════════════════════════════════════
-        val mcap = ts.marketCapUsd
+        val mcap = ts.lastMcap
         val mcapAdjustment = when {
             mcap < 50_000    -> 0.75   // Micro cap: very aggressive locking
             mcap < 100_000   -> 0.85   // Small cap: aggressive locking
@@ -712,7 +712,7 @@ class Executor(
         // FACTOR 6: TOKEN TIER — Match scaling mode for the token
         // Higher tier tokens have more established liquidity = safer to hold
         // ════════════════════════════════════════════════════════════════
-        val tokenTier = ScalingMode.tierForToken(ts.liquidityUsd, ts.marketCapUsd)
+        val tokenTier = ScalingMode.tierForToken(ts.lastLiquidityUsd, ts.lastMcap)
         val tokenTierAdjustment = when (tokenTier) {
             ScalingMode.Tier.INSTITUTIONAL -> 1.30  // Blue chips: let them run
             ScalingMode.Tier.SCALED        -> 1.20  // Mid caps: good room
@@ -726,11 +726,10 @@ class Executor(
         // Use geometric mean for balanced adjustment
         // Include treasury tier to reward building treasury
         // ════════════════════════════════════════════════════════════════
-        val combinedAdjustment = kotlin.math.pow(
-            liqAdjustment * mcapAdjustment * volAdjustment * phaseAdjustment * 
-            qualityAdjustment * tokenTierAdjustment * treasuryTierAdjustment,
-            1.0 / 7.0  // 7th root for geometric mean of 7 factors
-        ).coerceIn(0.5, 1.8)  // Cap between 50% and 180% of base
+        val product = liqAdjustment * mcapAdjustment * volAdjustment * phaseAdjustment * 
+            qualityAdjustment * tokenTierAdjustment * treasuryTierAdjustment
+        val combinedAdjustment = kotlin.math.pow(product, 1.0 / 7.0)  // 7th root for geometric mean of 7 factors
+            .coerceIn(0.5, 1.8)  // Cap between 50% and 180% of base
         
         capitalRecoveryMultiple *= combinedAdjustment
         profitLockMultiple *= combinedAdjustment
