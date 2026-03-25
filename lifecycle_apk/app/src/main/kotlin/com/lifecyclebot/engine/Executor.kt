@@ -3205,13 +3205,13 @@ class Executor(
             onLog("📊 SELL DEBUG: On-chain balance = $actualBalanceUi | decimals=$actualDecimals | mint=${ts.mint.take(8)}...", tradeId.mint)
             
             // Convert UI amount to raw units using ACTUAL decimals from chain
-            val multiplier = kotlin.math.pow(10.0, actualDecimals.toDouble())
+            val multiplier = 10.0.pow(actualDecimals.toDouble())
             val actualRawUnits = (actualBalanceUi * multiplier).toLong()
             
             onLog("📊 SELL DEBUG: tracked=$tokenUnits | on-chain=$actualRawUnits (${actualDecimals}dec)", tradeId.mint)
             
             // Log if there's a significant difference
-            val diffPct = if (tokenUnits > 0) kotlin.math.abs(actualRawUnits - tokenUnits).toDouble() / tokenUnits * 100 else 0.0
+            val diffPct = if (tokenUnits > 0) abs((actualRawUnits - tokenUnits).toDouble()) / tokenUnits * 100 else 0.0
             if (diffPct > 1.0) {
                 onLog("⚠️ Balance adjustment: using on-chain balance ($actualRawUnits) instead of tracked ($tokenUnits)", tradeId.mint)
             }
