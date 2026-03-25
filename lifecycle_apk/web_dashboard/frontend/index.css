@@ -52,10 +52,11 @@ body {
 
 /* Card styles */
 .card {
-  background: var(--bg-card);
+  background: linear-gradient(135deg, rgba(17, 17, 24, 0.95) 0%, rgba(10, 10, 15, 0.98) 100%);
   border: 1px solid var(--border);
-  border-radius: 12px;
-  padding: 20px;
+  border-radius: 16px;
+  padding: 24px;
+  backdrop-filter: blur(10px);
 }
 
 .card-hover:hover {
