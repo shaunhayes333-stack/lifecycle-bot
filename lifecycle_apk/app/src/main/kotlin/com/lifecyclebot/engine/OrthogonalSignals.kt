@@ -383,7 +383,7 @@ object OrthogonalSignals {
         val volumeAnomaly = calculateVolumeAnomaly(
             volume24h = ts.history.lastOrNull()?.volume24h ?: 0.0,
             marketCap = ts.history.lastOrNull()?.marketCap ?: 0.0,
-            ageMinutes = ((System.currentTimeMillis() - ts.discoveredAt) / 60000).toInt(),
+            ageMinutes = ((System.currentTimeMillis() - ts.addedToWatchlistAt) / 60000).toInt(),
         )
         signals[SignalCategory.VOLUME_FLOW] = OrthogonalSignal(
             category = SignalCategory.VOLUME_FLOW,
