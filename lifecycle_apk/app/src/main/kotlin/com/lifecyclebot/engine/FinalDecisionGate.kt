@@ -140,9 +140,9 @@ object FinalDecisionGate {
     }
     
     fun getLearningPhase(tradeCount: Int): LearningPhase = when {
-        tradeCount <= 10 -> LearningPhase.BOOTSTRAP
-        tradeCount <= 50 -> LearningPhase.LEARNING
-        else -> LearningPhase.MATURE
+        tradeCount <= 50 -> LearningPhase.BOOTSTRAP   // 0-50: Very loose
+        tradeCount <= 500 -> LearningPhase.LEARNING   // 51-500: Gradually tightening
+        else -> LearningPhase.MATURE                   // 500+: Full strictness
     }
     
     /**
@@ -151,7 +151,7 @@ object FinalDecisionGate {
      * 1.0 = fully learned (use strictest settings)
      */
     fun getLearningProgress(tradeCount: Int, winRate: Double): Double {
-        val tradeProgress = (tradeCount.toDouble() / 50.0).coerceIn(0.0, 1.0)
+        val tradeProgress = (tradeCount.toDouble() / 500.0).coerceIn(0.0, 1.0)
         val winRateBonus = if (winRate > 50.0) 0.1 else 0.0
         return (tradeProgress + winRateBonus).coerceIn(0.0, 1.0)
     }
