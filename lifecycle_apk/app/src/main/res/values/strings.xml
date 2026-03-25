@@ -1,6 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <string name="app_name">Lifecycle Bot</string>
+    <string name="app_name">AATE</string>
+    <string name="app_name_override">AATE</string>
 
     <string-array name="mode_options">
         <item>Paper (simulation)</item>
