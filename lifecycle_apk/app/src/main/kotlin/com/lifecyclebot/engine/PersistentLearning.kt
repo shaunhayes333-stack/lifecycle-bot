@@ -346,6 +346,49 @@ object PersistentLearning {
     }
     
     // ═══════════════════════════════════════════════════════════════════════
+    // TOKEN WIN MEMORY
+    // ═══════════════════════════════════════════════════════════════════════
+    
+    fun saveTokenWinMemory(winnersJson: String, patternsJson: String): Boolean {
+        if (!isAvailable()) return false
+        
+        return try {
+            val json = JSONObject().apply {
+                put("version", VERSION)
+                put("timestamp", System.currentTimeMillis())
+                put("winners", winnersJson)
+                put("patterns", patternsJson)
+            }
+            
+            File(storageDir, "token_win_memory.json").writeText(json.toString(2))
+            ErrorLogger.debug(TAG, "💾 Saved TokenWinMemory to persistent storage")
+            true
+        } catch (e: Exception) {
+            ErrorLogger.error(TAG, "Failed to save TokenWinMemory: ${e.message}", e)
+            false
+        }
+    }
+    
+    fun loadTokenWinMemory(): Pair<String, String>? {
+        if (!isAvailable()) return null
+        
+        return try {
+            val file = File(storageDir, "token_win_memory.json")
+            if (!file.exists()) return null
+            
+            val json = JSONObject(file.readText())
+            val winners = json.optString("winners", "[]")
+            val patterns = json.optString("patterns", "{}")
+            
+            ErrorLogger.info(TAG, "📂 Loaded TokenWinMemory from persistent storage")
+            Pair(winners, patterns)
+        } catch (e: Exception) {
+            ErrorLogger.error(TAG, "Failed to load TokenWinMemory: ${e.message}", e)
+            null
+        }
+    }
+    
+    // ═══════════════════════════════════════════════════════════════════════
     // UTILITY
     // ═══════════════════════════════════════════════════════════════════════
     

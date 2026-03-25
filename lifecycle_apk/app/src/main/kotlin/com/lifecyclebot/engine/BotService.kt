@@ -745,6 +745,10 @@ class BotService : Service() {
         EdgeLearning.loadFromPrefs(edgeLearningPrefs)
         addLog("🧠 EdgeLearning: paper(buy>=${EdgeLearning.getPaperBuyPctMin().toInt()}%) live(buy>=${EdgeLearning.getLiveBuyPctMin().toInt()}%)")
         
+        // Initialize TokenWinMemory for remembering winning tokens and patterns
+        TokenWinMemory.init(applicationContext)
+        addLog("🏆 TokenWinMemory: ${TokenWinMemory.getStats()}")
+        
         // Set up periodic save callback for EdgeLearning
         EdgeLearning.onThresholdsChanged = {
             try {

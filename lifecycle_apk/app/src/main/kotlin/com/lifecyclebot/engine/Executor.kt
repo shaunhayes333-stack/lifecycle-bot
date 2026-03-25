@@ -2385,6 +2385,30 @@ class Executor(
             }
         } catch (_: Exception) {}
         
+        // ═══════════════════════════════════════════════════════════════════
+        // TOKEN WIN MEMORY: Remember winning tokens and learn patterns
+        // ═══════════════════════════════════════════════════════════════════
+        try {
+            val peakPnl = if (ts.position.entryPrice > 0) {
+                com.lifecyclebot.util.pct(ts.position.entryPrice, ts.position.highestPrice)
+            } else pnlP
+            
+            TokenWinMemory.recordTradeOutcome(
+                mint = tradeId.mint,
+                symbol = ts.symbol,
+                name = ts.name,
+                pnlPercent = pnlP,
+                peakPnl = peakPnl,
+                entryMcap = ts.position.entryMcap,
+                exitMcap = ts.mcap,
+                entryLiquidity = ts.position.entryLiquidity,
+                holdTimeMinutes = holdMinutes,
+                buyPercent = ts.buyPercent,
+                source = ts.source,
+                phase = ts.position.entryPhase,
+            )
+        } catch (_: Exception) {}
+        
         ts.position         = Position()
         ts.lastExitTs       = System.currentTimeMillis()
         ts.lastExitPrice    = price
@@ -2803,6 +2827,33 @@ class Executor(
                 AICrossTalk.recordOutcome(crossTalkSignal.signalType, pnlP, pnl > 0)
                 AICrossTalk.recordOutcome(crossTalkSignal.signalType, pnlP, pnl > 0)
                 AICrossTalk.recordOutcome(crossTalkSignal.signalType, pnlP, pnl > 0)
+            }
+        } catch (_: Exception) {}
+        
+        // ═══════════════════════════════════════════════════════════════════
+        // TOKEN WIN MEMORY: Remember winning tokens and learn patterns (LIVE - 3x weight!)
+        // ═══════════════════════════════════════════════════════════════════
+        try {
+            val peakPnlLive = if (ts.position.entryPrice > 0) {
+                com.lifecyclebot.util.pct(ts.position.entryPrice, ts.position.highestPrice)
+            } else pnlP
+            
+            // Record 3x for live trades (more valuable data)
+            repeat(3) {
+                TokenWinMemory.recordTradeOutcome(
+                    mint = tradeId.mint,
+                    symbol = ts.symbol,
+                    name = ts.name,
+                    pnlPercent = pnlP,
+                    peakPnl = peakPnlLive,
+                    entryMcap = ts.position.entryMcap,
+                    exitMcap = ts.mcap,
+                    entryLiquidity = ts.position.entryLiquidity,
+                    holdTimeMinutes = holdMinutesLive,
+                    buyPercent = ts.buyPercent,
+                    source = ts.source,
+                    phase = ts.position.entryPhase,
+                )
             }
         } catch (_: Exception) {}
         

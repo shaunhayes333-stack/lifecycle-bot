@@ -1286,6 +1286,44 @@ object FinalDecisionGate {
         
         var finalSize = proposedSizeSol
         
+        // ═══════════════════════════════════════════════════════════════════
+        // TOKEN WIN MEMORY: Boost size for tokens similar to past winners
+        // ═══════════════════════════════════════════════════════════════════
+        val winMemoryMultiplier = try {
+            TokenWinMemory.getConfidenceMultiplier(
+                mint = ts.mint,
+                symbol = ts.symbol,
+                name = ts.name,
+                mcap = ts.mcap,
+                liquidity = ts.liquidity,
+                buyPercent = ts.buyPercent,
+                phase = ts.phase,
+                source = ts.source,
+            )
+        } catch (_: Exception) { 1.0 }
+        
+        if (winMemoryMultiplier != 1.0) {
+            val originalSize = finalSize
+            finalSize = (finalSize * winMemoryMultiplier).coerceIn(0.01, 1.0)
+            if (winMemoryMultiplier > 1.0) {
+                tags.add("size_boosted_win_memory")
+                checks.add(GateCheck("win_memory", true,
+                    "Size boosted ${originalSize.format(3)} → ${finalSize.format(3)} (memory=${winMemoryMultiplier.format(2)}x)"))
+                
+                // Check if this is a known winner
+                if (TokenWinMemory.isKnownWinner(ts.mint)) {
+                    val past = TokenWinMemory.getWinnerStats(ts.mint)
+                    tags.add("REPEAT_WINNER")
+                    checks.add(GateCheck("repeat_winner", true,
+                        "🔥 REPEAT WINNER: ${past?.timesTraded ?: 0} trades, +${past?.totalPnl?.toInt() ?: 0}% total"))
+                }
+            } else {
+                tags.add("size_reduced_win_memory")
+                checks.add(GateCheck("win_memory", true,
+                    "Size reduced ${originalSize.format(3)} → ${finalSize.format(3)} (dissimilar to winners)"))
+            }
+        }
+        
         // Apply liquidity depth size multiplier
         val liqSizeMultiplier = LiquidityDepthAI.getSizeMultiplier(ts.mint, ts.symbol)
         if (liqSizeMultiplier < 1.0) {
