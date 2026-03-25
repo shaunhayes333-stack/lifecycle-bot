@@ -2454,7 +2454,7 @@ class Executor(
         val hasWallet = wallet != null
         onLog("📤 doSell: ${ts.symbol} | paperMode=$isPaper | hasWallet=$hasWallet | reason=$reason", tradeId.mint)
         
-        if (isPaper || !hasWallet) {
+        if (isPaper || wallet == null) {
             onLog("📄 Routing to paperSell (paperMode=$isPaper, wallet=${if(hasWallet) "present" else "NULL"})", tradeId.mint)
             paperSell(ts, reason, tradeId)
         } else {
