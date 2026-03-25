@@ -2947,7 +2947,7 @@ class Executor(
             val sellSlippage = (c.slippageBps * 2).coerceAtMost(1000)  // Max 10%
             
             // Retry quote up to 3 times for sells (network issues, rate limits)
-            var quote: JupiterApi.SwapQuote? = null
+            var quote: com.lifecyclebot.network.SwapQuote? = null
             var lastError: Exception? = null
             for (attempt in 1..3) {
                 try {
@@ -2957,7 +2957,7 @@ class Executor(
                 } catch (e: Exception) {
                     lastError = e
                     onLog("⚠ Sell quote attempt $attempt/3 failed: ${e.message?.take(60)}", ts.mint)
-                    if (attempt < 3) kotlinx.coroutines.delay(500L * attempt)
+                    if (attempt < 3) Thread.sleep(500L * attempt)
                 }
             }
             if (quote == null) {
