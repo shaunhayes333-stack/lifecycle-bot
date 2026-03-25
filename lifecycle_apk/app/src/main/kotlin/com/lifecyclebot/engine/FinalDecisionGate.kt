@@ -127,6 +127,29 @@ object FinalDecisionGate {
     var hardBlockBuyPressureMin = 15.0     // Block if buy pressure < this %
     var hardBlockTopHolderMax = 70.0       // Block if top holder > this %
     
+    // ═══════════════════════════════════════════════════════════════════════════
+    // EARLY SNIPE MODE (NEW)
+    // 
+    // For newly discovered tokens with high scores, bypass most checks and 
+    // enter FAST. Meme coins pump in minutes - by the time all checks pass,
+    // the opportunity is gone.
+    //
+    // Criteria for EARLY SNIPE:
+    //   - Token age < 10 min (fresh discovery)
+    //   - Initial score >= 70 (high quality filter pass)
+    //   - Liquidity >= $3000 (minimum tradeable)
+    //   - NOT in banned list / rugcheck pass
+    //
+    // When EARLY SNIPE triggers:
+    //   - Skip Edge veto
+    //   - Skip confidence threshold (use hard minimum only)
+    //   - Use small position size (risk management)
+    // ═══════════════════════════════════════════════════════════════════════════
+    var earlySnipeEnabled = true           // Enable aggressive early entries
+    var earlySnipeMaxAgeMinutes = 10       // Max token age for early snipe
+    var earlySnipeMinScore = 70.0          // Min initial score for early snipe
+    var earlySnipeMinLiquidity = 3000.0    // Min liquidity for early snipe
+    
     // Base confidence thresholds (these are ADAPTED by AdaptiveConfidence)
     var paperConfidenceBase = 0.0          // Paper mode base: NO confidence minimum (learn from all)
     var liveConfidenceBase = 12.0          // Live base: LOWERED from 15% to 12% to allow more trades during bootstrap
@@ -930,6 +953,82 @@ object FinalDecisionGate {
                     val detectorInfo = if (distSignal != null) " detector=${distSignal.confidence}%" else ""
                     checks.add(GateCheck("distribution", true, "edgePhase=${candidate.edgePhase}$detectorInfo"))
                 }
+            }
+        }
+        
+        // ═══════════════════════════════════════════════════════════════════════
+        // GATE 1.5: EARLY SNIPE MODE (FAST TRACK)
+        // 
+        // For NEWLY DISCOVERED tokens with HIGH SCORES, skip most checks and
+        // enter FAST. Meme coins pump in 5-10 minutes - by the time all checks
+        // pass, the opportunity is gone (see KOMAKI case: discovered at 40K,
+        // bought at 160K due to delayed entries).
+        // 
+        // EARLY SNIPE CRITERIA:
+        //   - Token recently discovered (first candle < 10 min ago)
+        //   - High initial score (>= 70) from Scanner
+        //   - Decent liquidity (>= $3000)
+        //   - Passed all hard blocks above (rugcheck, freeze, etc.)
+        //   - Buy pressure positive (>= 50%)
+        // 
+        // WHEN TRIGGERED:
+        //   - APPROVE immediately with quality "SNIPE"
+        //   - Use SMALL position (risk management)
+        //   - Skip Edge veto, confidence threshold, etc.
+        // ═══════════════════════════════════════════════════════════════════════
+        
+        if (blockReason == null && earlySnipeEnabled && !config.paperMode) {
+            // Calculate token age from first candle
+            val tokenAgeMinutes = if (ts.history.isNotEmpty()) {
+                val firstCandleTime = ts.history.minOfOrNull { it.ts } ?: System.currentTimeMillis()
+                (System.currentTimeMillis() - firstCandleTime) / 60_000.0
+            } else 0.0
+            
+            // Get initial score (from Scanner filter)
+            val initialScore = candidate.score
+            val liquidity = ts.lastLiquidityUsd
+            val buyPressure = ts.meta.pressScore
+            
+            // Check if qualifies for early snipe
+            val isYoungToken = tokenAgeMinutes <= earlySnipeMaxAgeMinutes
+            val hasHighScore = initialScore >= earlySnipeMinScore
+            val hasMinLiquidity = liquidity >= earlySnipeMinLiquidity
+            val hasPositiveBuyPressure = buyPressure >= 50.0
+            
+            val qualifiesForSnipe = isYoungToken && hasHighScore && hasMinLiquidity && hasPositiveBuyPressure
+            
+            if (qualifiesForSnipe) {
+                // EARLY SNIPE APPROVED - fast track this entry!
+                checks.add(GateCheck("early_snipe", true, 
+                    "SNIPE: age=${tokenAgeMinutes.toInt()}min score=${initialScore.toInt()} liq=\$${liquidity.toInt()} buy%=${buyPressure.toInt()}"))
+                tags.add("early_snipe")
+                
+                ErrorLogger.info("FDG", "🎯 EARLY_SNIPE: ${ts.symbol} | " +
+                    "age=${tokenAgeMinutes.toInt()}min score=${initialScore.toInt()} " +
+                    "liq=\$${liquidity.toInt()} buy%=${buyPressure.toInt()}% → FAST APPROVE")
+                
+                // Return immediately with SNIPE quality - skip all other gates
+                return FinalDecision(
+                    approved = true,
+                    mode = mode,
+                    blockReason = null,
+                    blockLevel = null,
+                    adjustedSizeSol = (proposedSizeSol * 0.5).coerceAtLeast(0.003), // Half size for risk management
+                    quality = "SNIPE",  // Special quality marker
+                    confidence = 50,    // Neutral confidence
+                    checks = checks,
+                    tags = tags + "fast_track",
+                    confidenceTag = "[EARLY_SNIPE]"
+                )
+            } else if (isYoungToken && initialScore >= 60.0) {
+                // Almost qualified - log for debugging
+                val reasons = mutableListOf<String>()
+                if (!hasHighScore) reasons.add("score=${initialScore.toInt()}<$earlySnipeMinScore")
+                if (!hasMinLiquidity) reasons.add("liq=\$${liquidity.toInt()}<\$${earlySnipeMinLiquidity.toInt()}")
+                if (!hasPositiveBuyPressure) reasons.add("buy%=${buyPressure.toInt()}<50")
+                
+                checks.add(GateCheck("early_snipe", false, 
+                    "SNIPE_MISS: age=${tokenAgeMinutes.toInt()}min ${reasons.joinToString(" ")}"))
             }
         }
         
