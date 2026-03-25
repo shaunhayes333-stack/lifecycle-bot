@@ -3,6 +3,7 @@ package com.lifecyclebot.engine
 import com.lifecyclebot.data.BotConfig
 import com.lifecyclebot.data.CandidateDecision
 import com.lifecyclebot.data.TokenState
+import com.lifecyclebot.engine.quant.EVCalculator
 
 /**
  * FinalDecisionGate (FDG)
@@ -149,6 +150,25 @@ object FinalDecisionGate {
     var earlySnipeMaxAgeMinutes = 10       // Max token age for early snipe
     var earlySnipeMinScore = 70.0          // Min initial score for early snipe
     var earlySnipeMinLiquidity = 3000.0    // Min liquidity for early snipe
+    
+    // ═══════════════════════════════════════════════════════════════════════════
+    // EXPECTED VALUE (EV) GATING
+    // 
+    // Only execute trades with positive expected value.
+    // EV = Σ (P_i × Outcome_i) for probability-weighted scenarios.
+    // 
+    // This is the mathematical foundation for profitable trading:
+    //   - Calculate probability of each outcome (moon, win, loss, rug)
+    //   - Weight by expected return for each scenario
+    //   - Only trade if EV > 1.0 (positive expectancy)
+    //   - Use Kelly Criterion for optimal position sizing
+    // ═══════════════════════════════════════════════════════════════════════════
+    var evGatingEnabled = true             // Enable EV-based trade filtering
+    var minExpectedValue = 1.05            // Minimum EV (1.05 = +5% expected)
+    var maxRugProbability = 0.15           // Block if rug probability > 15%
+    var useKellySizing = true              // Use Kelly Criterion for sizing
+    var kellyFraction = 0.5                // Fraction of Kelly to use (half-Kelly)
+    var maxKellySize = 0.10                // Maximum Kelly-suggested size (10%)
     
     // Base confidence thresholds (these are ADAPTED by AdaptiveConfidence)
     var paperConfidenceBase = 0.0          // Paper mode base: NO confidence minimum (learn from all)
@@ -1384,6 +1404,58 @@ object FinalDecisionGate {
         }
         
         // ─────────────────────────────────────────────────────────────────────
+        // GATE 4.75: EXPECTED VALUE (EV) VALIDATION
+        // 
+        // Only execute trades with positive expected value.
+        // EV = Σ (P_i × Outcome_i) for probability-weighted scenarios.
+        // ─────────────────────────────────────────────────────────────────────
+        
+        var evResult: EVCalculator.EVResult? = null
+        
+        if (blockReason == null && evGatingEnabled && !config.paperMode) {
+            evResult = EVCalculator.calculate(
+                ts = ts,
+                brain = brain,
+                entryScore = candidate.entryScore,
+                quality = candidate.finalQuality,
+                marketRegime = marketConditions?.let { 
+                    if (it.recentWinRate > 60) "BULL" else if (it.recentWinRate < 40) "BEAR" else "NEUTRAL"
+                } ?: "NEUTRAL",
+                historicalWinRate = marketConditions?.recentWinRate?.div(100.0) ?: 0.55
+            )
+            
+            checks.add(GateCheck("ev_analysis", evResult.isPositiveEV,
+                "EV=${String.format("%+.1f", evResult.expectedPnlPct)}% " +
+                "Win=${String.format("%.0f", evResult.winProbability * 100)}% " +
+                "Rug=${String.format("%.0f", evResult.rugProbability * 100)}% " +
+                "Kelly=${String.format("%.1f", evResult.kellyFraction * 100)}%"))
+            
+            // Block if EV is below threshold
+            if (evResult.expectedValue < minExpectedValue) {
+                blockReason = "NEGATIVE_EV_${String.format("%.0f", evResult.expectedPnlPct)}%"
+                blockLevel = BlockLevel.CONFIDENCE
+                checks.add(GateCheck("ev_threshold", false,
+                    "EV ${String.format("%.2f", evResult.expectedValue)} < min ${String.format("%.2f", minExpectedValue)}"))
+                tags.add("blocked_negative_ev")
+            }
+            // Block if rug probability is too high
+            else if (evResult.rugProbability > maxRugProbability) {
+                blockReason = "HIGH_RUG_PROB_${String.format("%.0f", evResult.rugProbability * 100)}%"
+                blockLevel = BlockLevel.SAFETY
+                checks.add(GateCheck("rug_probability", false,
+                    "Rug prob ${String.format("%.0f", evResult.rugProbability * 100)}% > max ${String.format("%.0f", maxRugProbability * 100)}%"))
+                tags.add("blocked_high_rug_prob")
+            }
+            else {
+                tags.add("positive_ev")
+                if (evResult.expectedPnlPct > 20) tags.add("high_ev")
+                if (evResult.kellyFraction > 0.05) tags.add("kelly_favorable")
+            }
+            
+            ErrorLogger.info("EV", "📊 ${ts.symbol}: ${evResult.summary()}")
+        }
+        
+        // ─────────────────────────────────────────────────────────────────────
         // GATE 5: SIZING VALIDATION
         // ─────────────────────────────────────────────────────────────────────
         
@@ -1455,6 +1527,32 @@ object FinalDecisionGate {
                 tags.add("size_${direction}_crosstalk")
                 checks.add(GateCheck("crosstalk_size", true,
                     "Size $direction ${originalSize.format(3)} → ${finalSize.format(3)} (${crossTalkSignal.signalType.name})"))
+            }
+        }
+        
+        // ═══════════════════════════════════════════════════════════════════
+        // KELLY CRITERION SIZING (EV-based optimal position sizing)
+        // ═══════════════════════════════════════════════════════════════════
+        if (blockReason == null && useKellySizing && evResult != null && !config.paperMode) {
+            val kellyRecommendedSize = evResult.kellyFraction * kellyFraction  // Use fractional Kelly
+            
+            if (kellyRecommendedSize > 0 && kellyRecommendedSize < finalSize) {
+                val originalSize = finalSize
+                // Kelly suggests smaller size - use it (risk management)
+                finalSize = kellyRecommendedSize.coerceIn(0.003, maxKellySize)
+                
+                checks.add(GateCheck("kelly_sizing", true,
+                    "Kelly: ${originalSize.format(4)} → ${finalSize.format(4)} " +
+                    "(Kelly=${String.format("%.1f", evResult.kellyFraction * 100)}% × $kellyFraction)"))
+                tags.add("kelly_sized")
+            } else if (kellyRecommendedSize > finalSize * 1.5 && evResult.isPositiveEV) {
+                // Kelly suggests larger size and EV is very positive - modest boost
+                val originalSize = finalSize
+                finalSize = (finalSize * 1.25).coerceAtMost(maxKellySize)
+                
+                checks.add(GateCheck("kelly_boost", true,
+                    "Kelly boost: ${originalSize.format(4)} → ${finalSize.format(4)} (high +EV)"))
+                tags.add("kelly_boosted")
             }
         }
         
