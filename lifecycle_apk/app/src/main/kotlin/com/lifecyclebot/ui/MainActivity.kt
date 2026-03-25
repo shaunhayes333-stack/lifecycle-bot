@@ -842,49 +842,8 @@ By clicking "I Agree", you acknowledge that you have read, understood, and accep
         } catch (_: Exception) {}
 
         // ── Position PnL Floating Card ──────────────────────────────
-        try {
-            if (ts?.position?.isOpen == true && ts.lastPrice > 0) {
-                cardPositionPnl.visibility = View.VISIBLE
-                tvPnlSymbol.text = ts.symbol
-                tvPnlEntry.text = "Entry: ${currency.formatPrice(ts.position.entryPrice)}"
-                
-                val currentVal = ts.position.qtyToken * ts.lastPrice
-                val entryVal = ts.position.costSol * WalletManager.lastKnownSolPrice
-                val pnlPctPos = if (entryVal > 0) ((currentVal - entryVal) / entryVal) * 100 else 0.0
-                
-                tvPnlPercent.text = "%+.1f%%".format(pnlPctPos)
-                tvPnlPercent.setTextColor(if (pnlPctPos >= 0) green else red)
-                tvPnlValue.text = currency.formatPrice(currentVal)
-                
-                // Update card background based on PnL
-                cardPositionPnl.background = ContextCompat.getDrawable(this,
-                    if (pnlPctPos >= 0) R.drawable.pnl_card_bg else R.drawable.pnl_card_bg_loss
-                )
-                
-                // Auto-fade out loss card after 5 seconds to reduce annoyance
-                if (pnlPctPos < -50) {
-                    cardPositionPnl.animate()
-                        .alpha(1f)
-                        .setDuration(100)
-                        .withEndAction {
-                            cardPositionPnl.postDelayed({
-                                cardPositionPnl.animate()
-                                    .alpha(0f)
-                                    .setDuration(1500)
-                                    .withEndAction { cardPositionPnl.visibility = View.GONE }
-                                    .start()
-                            }, 5000)
-                        }
-                        .start()
-                } else {
-                    cardPositionPnl.alpha = 1f
-                }
-            } else {
-                cardPositionPnl.visibility = View.GONE
-            }
-        } catch (_: Exception) {
-            cardPositionPnl.visibility = View.GONE
-        }
+        // Disabled - users found it annoying
+        cardPositionPnl.visibility = View.GONE
 
         // ── open positions panel ─────────────────────────────────
         val openPos = state.openPositions
