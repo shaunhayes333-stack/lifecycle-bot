@@ -788,7 +788,7 @@ By clicking "I Agree", you acknowledge that you have read, understood, and accep
             val trades24h = ws.totalTrades  // TODO: filter to last 24h
             tvStats24hTrades.text = "$trades24h"
             
-            val winRate = ws.winRate.toIntOrNull() ?: 0
+            val winRate = ws.winRate
             tvStatsWinRate.text = "$winRate%"
             tvStatsWinRate.setTextColor(when {
                 winRate >= 60 -> green
@@ -813,7 +813,7 @@ By clicking "I Agree", you acknowledge that you have read, understood, and accep
         // ── Brain Learning Indicator ─────────────────────────────────
         try {
             val totalTrades = ws.totalTrades
-            val winRate = ws.winRate.toIntOrNull() ?: 0
+            val winRate = ws.winRate
             val learningProgress = com.lifecyclebot.engine.FinalDecisionGate.getLearningProgress(totalTrades, winRate.toDouble())
             val progressPct = (learningProgress * 100).toInt()
             
@@ -1755,7 +1755,7 @@ By clicking "I Agree", you acknowledge that you have read, understood, and accep
         try {
             val ws = vm.ui.value.walletState
             val totalTrades = ws.totalTrades
-            val winRate = ws.winRate.toIntOrNull() ?: 0
+            val winRate = ws.winRate
             val learningProgress = com.lifecyclebot.engine.FinalDecisionGate.getLearningProgress(totalTrades, winRate.toDouble())
             val phase = com.lifecyclebot.engine.FinalDecisionGate.getLearningPhase(totalTrades)
             
