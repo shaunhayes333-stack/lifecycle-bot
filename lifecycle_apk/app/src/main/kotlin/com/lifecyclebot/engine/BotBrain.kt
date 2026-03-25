@@ -1087,6 +1087,16 @@ Analyse this data and respond with ONLY valid JSON in this exact format:
     fun getBlendedWinRate(): Double = memoryStats.blendedWinRate
     
     /**
+     * Get recent win rate as percentage (0-100).
+     * Used by FDG for auto-adjusting thresholds.
+     */
+    fun getRecentWinRate(): Double {
+        if (recentTrades.isEmpty()) return 50.0
+        val wins = recentTrades.count { it.pnl > 0 }
+        return (wins.toDouble() / recentTrades.size) * 100.0
+    }
+    
+    /**
      * Check if current market regime (from recent trades) is favorable.
      * Returns true if recent win rate >= 50%.
      */

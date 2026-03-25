@@ -120,13 +120,60 @@ object FinalDecisionGate {
     )
     
     // ═══════════════════════════════════════════════════════════════════════════
-    // THRESHOLDS - Can be learned/adjusted by BotBrain
+    // AUTO-ADJUSTING LEARNING PHASE
+    // 
+    // FDG starts LOOSE and automatically tightens as the brain learns.
+    // Thresholds scale based on:
+    //   - Trade count (more trades = stricter)
+    //   - Win rate (higher win rate = can be stricter)
+    //   - Learning phase (bootstrap → learning → mature)
+    // 
+    // BOOTSTRAP (0-10 trades):   Very loose, maximum exploration
+    // LEARNING (11-50 trades):   Gradually tightening
+    // MATURE (50+ trades):       Full strictness based on learned patterns
     // ═══════════════════════════════════════════════════════════════════════════
     
-    // Hard block thresholds (non-negotiable - these are DANGEROUS)
-    var hardBlockRugcheckMin = 5            // LOWERED from 10 - only block truly dangerous
-    var hardBlockBuyPressureMin = 10.0      // LOWERED from 15% - allow more entries
-    var hardBlockTopHolderMax = 85.0        // RAISED from 70% - less restrictive
+    enum class LearningPhase {
+        BOOTSTRAP,  // 0-10 trades - very loose
+        LEARNING,   // 11-50 trades - gradually tightening  
+        MATURE      // 50+ trades - use learned thresholds
+    }
+    
+    fun getLearningPhase(tradeCount: Int): LearningPhase = when {
+        tradeCount <= 10 -> LearningPhase.BOOTSTRAP
+        tradeCount <= 50 -> LearningPhase.LEARNING
+        else -> LearningPhase.MATURE
+    }
+    
+    /**
+     * Calculate learning progress as 0.0 to 1.0
+     * 0.0 = brand new (use loosest settings)
+     * 1.0 = fully learned (use strictest settings)
+     */
+    fun getLearningProgress(tradeCount: Int, winRate: Double): Double {
+        val tradeProgress = (tradeCount.toDouble() / 50.0).coerceIn(0.0, 1.0)
+        val winRateBonus = if (winRate > 50.0) 0.1 else 0.0
+        return (tradeProgress + winRateBonus).coerceIn(0.0, 1.0)
+    }
+    
+    /**
+     * Interpolate between loose (start) and strict (target) values based on learning progress
+     */
+    fun lerp(loose: Double, strict: Double, progress: Double): Double {
+        return loose + (strict - loose) * progress
+    }
+    
+    // ═══════════════════════════════════════════════════════════════════════════
+    // THRESHOLDS - Auto-adjust based on learning phase
+    // 
+    // These are the LOOSEST values (used during bootstrap)
+    // They tighten automatically as the brain learns
+    // ═══════════════════════════════════════════════════════════════════════════
+    
+    // Hard block thresholds - LOOSE defaults (tighten as we learn)
+    var hardBlockRugcheckMin = 5            // Bootstrap: 5, Mature: 10
+    var hardBlockBuyPressureMin = 10.0      // Bootstrap: 10%, Mature: 18%
+    var hardBlockTopHolderMax = 85.0        // Bootstrap: 85%, Mature: 65%
     
     // ═══════════════════════════════════════════════════════════════════════════
     // EARLY SNIPE MODE (NEW)
@@ -172,7 +219,63 @@ object FinalDecisionGate {
     
     // Base confidence thresholds (these are ADAPTED by AdaptiveConfidence)
     var paperConfidenceBase = 0.0          // Paper mode base: NO confidence minimum (learn from all)
-    var liveConfidenceBase = 0.0           // ZEROED - let trades flow while brain learns
+    var liveConfidenceBase = 0.0           // ZEROED - let trades flow while brain learns (auto-adjusts)
+    
+    // ═══════════════════════════════════════════════════════════════════════════
+    // AUTO-ADJUSTED THRESHOLDS
+    // 
+    // These are calculated dynamically based on learning progress.
+    // Call getAdjustedThresholds() to get current values.
+    // ═══════════════════════════════════════════════════════════════════════════
+    
+    data class AdjustedThresholds(
+        val learningPhase: LearningPhase,
+        val progress: Double,              // 0.0 to 1.0
+        val tradeCount: Int,
+        val winRate: Double,
+        // Adjusted values
+        val rugcheckMin: Int,
+        val buyPressureMin: Double,
+        val topHolderMax: Double,
+        val confidenceBase: Double,
+        val edgeMinBuyPressure: Double,
+        val edgeMinLiquidity: Double,
+        val edgeMinScore: Double,
+        val evGatingEnabled: Boolean,
+        val maxRugProbability: Double,
+    )
+    
+    /**
+     * Get auto-adjusted thresholds based on learning progress.
+     * 
+     * Bootstrap (0-10 trades): Very loose - maximum exploration
+     * Learning (11-50 trades): Gradually tightening
+     * Mature (50+ trades): Strict - use learned optimal values
+     */
+    fun getAdjustedThresholds(tradeCount: Int, winRate: Double): AdjustedThresholds {
+        val phase = getLearningPhase(tradeCount)
+        val progress = getLearningProgress(tradeCount, winRate)
+        
+        return AdjustedThresholds(
+            learningPhase = phase,
+            progress = progress,
+            tradeCount = tradeCount,
+            winRate = winRate,
+            // Hard blocks: loose → strict
+            rugcheckMin = lerp(5.0, 12.0, progress).toInt(),
+            buyPressureMin = lerp(10.0, 20.0, progress),
+            topHolderMax = lerp(85.0, 60.0, progress),
+            // Confidence: 0% → 15%
+            confidenceBase = lerp(0.0, 15.0, progress),
+            // Edge veto: very loose → strict
+            edgeMinBuyPressure = lerp(38.0, 52.0, progress),
+            edgeMinLiquidity = lerp(1500.0, 4000.0, progress),
+            edgeMinScore = lerp(20.0, 40.0, progress),
+            // EV gating: disabled until mature
+            evGatingEnabled = phase == LearningPhase.MATURE,
+            maxRugProbability = lerp(0.35, 0.12, progress),
+        )
+    }
     
     // ═══════════════════════════════════════════════════════════════════════════
     // ADAPTIVE CONFIDENCE LAYER
@@ -748,16 +851,35 @@ object FinalDecisionGate {
         
         val mode = if (config.paperMode) TradeMode.PAPER else TradeMode.LIVE
         
-        // Use learned thresholds if available, but cap for paper mode
-        // PAPER MODE: Very lenient (5) to allow learning
-        // LIVE MODE: Use learned or default (10), capped at 25
+        // ═══════════════════════════════════════════════════════════════════════
+        // AUTO-ADJUSTING THRESHOLDS
+        // 
+        // Get current trade count and win rate from brain for adaptive thresholds
+        // FDG automatically tightens as the bot learns from more trades
+        // ═══════════════════════════════════════════════════════════════════════
+        val tradeCount = brain?.recentTrades?.size ?: 0
+        val winRate = brain?.getRecentWinRate() ?: 50.0
+        val adjusted = getAdjustedThresholds(tradeCount, winRate)
+        
+        // Log learning phase on first trade evaluation of session
+        if (tradeCount == 0 || tradeCount == 11 || tradeCount == 51) {
+            ErrorLogger.info("FDG", "📊 Learning phase: ${adjusted.learningPhase} | " +
+                "trades=$tradeCount | progress=${(adjusted.progress * 100).toInt()}% | " +
+                "conf=${adjusted.confidenceBase.toInt()}% | evGating=${adjusted.evGatingEnabled}")
+        }
+        
+        // Use auto-adjusted thresholds for live mode, very lenient for paper
         val rugcheckThreshold = if (config.paperMode) {
             5  // Paper: very lenient for learning
         } else {
-            (brain?.learnedRugcheckThreshold ?: hardBlockRugcheckMin).coerceIn(5, 25)
+            // Use auto-adjusted OR brain-learned, whichever is available
+            (brain?.learnedRugcheckThreshold ?: adjusted.rugcheckMin).coerceIn(5, 25)
         }
-        val buyPressureThreshold = brain?.learnedMinBuyPressure ?: hardBlockBuyPressureMin
-        val topHolderThreshold = brain?.learnedMaxTopHolder ?: hardBlockTopHolderMax
+        val buyPressureThreshold = if (config.paperMode) 10.0 else adjusted.buyPressureMin
+        val topHolderThreshold = if (config.paperMode) 90.0 else adjusted.topHolderMax
+        
+        // Store adjusted thresholds for use in later gates
+        val currentAdjusted = adjusted
         
         // ─────────────────────────────────────────────────────────────────────
         // GATE 1: HARD BLOCKS (non-negotiable, checked first)
@@ -1134,10 +1256,10 @@ object FinalDecisionGate {
                 checks.add(GateCheck("phase_filter", true, "PAPER: unknown phase allowed for learning"))
                 tags.add("phase_unknown_allowed")
             } else {
-                // LIVE MODE: Very relaxed while brain learns
-                // UNKNOWN phases can still be profitable - allow most trades
-                val minScore = 25.0        // LOWERED from 35 - very relaxed
-                val minBuyPressure = 40.0  // LOWERED from 48 - allow more
+                // LIVE MODE: Auto-adjusted thresholds based on learning progress
+                // Starts loose, tightens as brain learns
+                val minScore = lerp(20.0, 45.0, currentAdjusted.progress)
+                val minBuyPressure = lerp(35.0, 52.0, currentAdjusted.progress)
                 val isHighScore = candidate.entryScore >= minScore
                 val isHighBuyPressure = ts.meta.pressScore >= minBuyPressure
                 
@@ -1146,10 +1268,10 @@ object FinalDecisionGate {
                     blockReason = "UNKNOWN_PHASE_LOW_CONVICTION"
                     blockLevel = BlockLevel.CONFIDENCE
                     checks.add(GateCheck("phase_filter", false, 
-                        "phase=${candidate.phase} score=${candidate.entryScore.toInt()}<${minScore.toInt()} AND buy%=${ts.meta.pressScore.toInt()}<${minBuyPressure.toInt()}"))
+                        "phase=${candidate.phase} score=${candidate.entryScore.toInt()}<${minScore.toInt()} AND buy%=${ts.meta.pressScore.toInt()}<${minBuyPressure.toInt()} [phase:${currentAdjusted.learningPhase}]"))
                     tags.add("phase_unknown_weak")
                 } else {
-                    checks.add(GateCheck("phase_filter", true, "unknown phase OK (score=${candidate.entryScore.toInt()} OR buy%=${ts.meta.pressScore.toInt()})"))
+                    checks.add(GateCheck("phase_filter", true, "unknown phase OK (score=${candidate.entryScore.toInt()} OR buy%=${ts.meta.pressScore.toInt()}) [${currentAdjusted.learningPhase}]"))
                 }
             }
         } else if (blockReason == null) {
@@ -1185,19 +1307,14 @@ object FinalDecisionGate {
                 tags.add("edge_veto_bypassed_paper")
             } else {
                 // ═══════════════════════════════════════════════════════════════════
-                // LIVE MODE: Edge veto VERY RELAXED while brain learns
+                // LIVE MODE: Auto-adjusted edge veto based on learning progress
                 // 
-                // Edge can be WRONG. Override with minimal market confirmation.
-                // Brain needs trade data to learn - let most trades through.
-                // 
-                // Override conditions (must meet ANY ONE):
-                //   - Buy pressure >= 40% (very relaxed)
-                //   - Liquidity >= $1500 
-                //   - Entry score >= 25 (basic quality)
+                // Starts VERY LOOSE (bootstrap) and tightens as brain learns.
+                // Override thresholds scale with learning progress.
                 // ═══════════════════════════════════════════════════════════════════
-                val liveMinBuyPressure = 40.0   // LOWERED from 48% - very relaxed
-                val liveMinLiquidity = 1500.0   // LOWERED from $2k
-                val liveMinEntryScore = 25.0    // LOWERED from 35
+                val liveMinBuyPressure = currentAdjusted.edgeMinBuyPressure
+                val liveMinLiquidity = currentAdjusted.edgeMinLiquidity
+                val liveMinEntryScore = currentAdjusted.edgeMinScore
                 
                 val hasStrongBuyers = ts.meta.pressScore >= liveMinBuyPressure
                 val hasGoodLiquidity = ts.lastLiquidityUsd >= liveMinLiquidity
@@ -1207,22 +1324,22 @@ object FinalDecisionGate {
                 if (hasStrongBuyers || hasGoodLiquidity || hasDecentScore) {
                     // Market confirmation in LIVE mode - override Edge veto
                     val reason = when {
-                        hasStrongBuyers -> "buy%=${ts.meta.pressScore.toInt()}>=$liveMinBuyPressure"
-                        hasDecentScore -> "score=${candidate.entryScore.toInt()}>=$liveMinEntryScore"
-                        else -> "liq=$${ts.lastLiquidityUsd.toInt()}>=$liveMinLiquidity"
+                        hasStrongBuyers -> "buy%=${ts.meta.pressScore.toInt()}>=${liveMinBuyPressure.toInt()}"
+                        hasDecentScore -> "score=${candidate.entryScore.toInt()}>=${liveMinEntryScore.toInt()}"
+                        else -> "liq=$${ts.lastLiquidityUsd.toInt()}>=${liveMinLiquidity.toInt()}"
                     }
-                    checks.add(GateCheck("edge", true, "LIVE: edge override ($reason)"))
+                    checks.add(GateCheck("edge", true, "LIVE: edge override ($reason) [${currentAdjusted.learningPhase}]"))
                     tags.add("live_edge_override")
                 } else {
                     // No market confirmation - respect Edge veto
                     val missingReasons = mutableListOf<String>()
-                    if (!hasStrongBuyers) missingReasons.add("buy%=${ts.meta.pressScore.toInt()}<$liveMinBuyPressure")
-                    if (!hasGoodLiquidity) missingReasons.add("liq=$${ts.lastLiquidityUsd.toInt()}<$liveMinLiquidity")
-                    if (!hasDecentScore) missingReasons.add("score=${candidate.entryScore.toInt()}<$liveMinEntryScore")
+                    if (!hasStrongBuyers) missingReasons.add("buy%=${ts.meta.pressScore.toInt()}<${liveMinBuyPressure.toInt()}")
+                    if (!hasGoodLiquidity) missingReasons.add("liq=$${ts.lastLiquidityUsd.toInt()}<${liveMinLiquidity.toInt()}")
+                    if (!hasDecentScore) missingReasons.add("score=${candidate.entryScore.toInt()}<${liveMinEntryScore.toInt()}")
                     
                     blockReason = "EDGE_VETO_${candidate.edgeQuality}"
                     blockLevel = BlockLevel.EDGE
-                    checks.add(GateCheck("edge", false, "edge=${candidate.edgeQuality} | no override: ${missingReasons.joinToString(", ")}"))
+                    checks.add(GateCheck("edge", false, "edge=${candidate.edgeQuality} | no override: ${missingReasons.joinToString(", ")} [${currentAdjusted.learningPhase}]"))
                     tags.add("edge_skip")
                 }
             }
@@ -1403,7 +1520,10 @@ object FinalDecisionGate {
         
         var evResult: EVCalculator.EVResult? = null
         
-        if (blockReason == null && evGatingEnabled && !config.paperMode) {
+        // EV gating: auto-enabled only when brain reaches MATURE phase
+        val useEvGating = currentAdjusted.evGatingEnabled && !config.paperMode
+        
+        if (blockReason == null && useEvGating) {
             // Use currentConditions for market regime estimation
             val marketRegimeStr = when {
                 currentConditions.recentWinRate > 60 -> "BULL"
@@ -1434,12 +1554,12 @@ object FinalDecisionGate {
                     "EV ${String.format("%.2f", evResult.expectedValue)} < min ${String.format("%.2f", minExpectedValue)}"))
                 tags.add("blocked_negative_ev")
             }
-            // Block if rug probability is too high
-            else if (evResult.rugProbability > maxRugProbability) {
+            // Block if rug probability is too high (using auto-adjusted threshold)
+            else if (evResult.rugProbability > currentAdjusted.maxRugProbability) {
                 blockReason = "HIGH_RUG_PROB_${String.format("%.0f", evResult.rugProbability * 100)}%"
                 blockLevel = BlockLevel.HARD  // High rug probability is a hard block
                 checks.add(GateCheck("rug_probability", false,
-                    "Rug prob ${String.format("%.0f", evResult.rugProbability * 100)}% > max ${String.format("%.0f", maxRugProbability * 100)}%"))
+                    "Rug prob ${String.format("%.0f", evResult.rugProbability * 100)}% > max ${String.format("%.0f", currentAdjusted.maxRugProbability * 100)}% [${currentAdjusted.learningPhase}]"))
                 tags.add("blocked_high_rug_prob")
             }
             else {
