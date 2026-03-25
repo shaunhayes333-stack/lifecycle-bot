@@ -11,27 +11,38 @@ data class SwapQuote(
     val raw: JSONObject,
     val outAmount: Long,
     val priceImpactPct: Double,
+    // Ultra API fields
+    val requestId: String = "",        // Required for Ultra execute
+    val swapTransaction: String = "",  // Pre-built tx from Ultra
+    val isUltra: Boolean = false,      // Flag to indicate Ultra quote
 )
 
 class JupiterApi {
 
     companion object {
         const val SOL_MINT = "So11111111111111111111111111111111111111112"
-        private const val BASE = "https://quote-api.jup.ag/v6"
+        private const val BASE_V6 = "https://quote-api.jup.ag/v6"
+        private const val BASE_ULTRA = "https://api.jup.ag/ultra/v1"
         private const val TAG = "JupiterApi"
+        
+        // Use Ultra API by default (faster, better MEV protection, auto-slippage)
+        var useUltraApi = true
     }
 
     private val http = OkHttpClient.Builder()
-        .connectTimeout(15, TimeUnit.SECONDS)   // Increased from 10s
-        .readTimeout(20, TimeUnit.SECONDS)      // Increased from 15s
-        .writeTimeout(15, TimeUnit.SECONDS)     // Added write timeout
-        .retryOnConnectionFailure(true)         // Auto-retry on connection issues
+        .connectTimeout(15, TimeUnit.SECONDS)
+        .readTimeout(20, TimeUnit.SECONDS)
+        .writeTimeout(15, TimeUnit.SECONDS)
+        .retryOnConnectionFailure(true)
         .build()
 
     private val JSON = "application/json".toMediaType()
 
     /**
      * Get a Jupiter quote with enhanced logging.
+     * Uses Ultra API by default (faster, auto-slippage, built-in MEV protection).
+     * Falls back to v6 API if Ultra fails.
+     * 
      * @param amountLamports  for SOL-in swaps; for token-in swaps use raw token units
      */
     fun getQuote(
@@ -40,49 +51,198 @@ class JupiterApi {
         amountLamports: Long,
         slippageBps: Int,
     ): SwapQuote {
-        val url = "$BASE/quote?inputMint=$inputMint&outputMint=$outputMint" +
+        // Try Ultra API first (faster, better)
+        if (useUltraApi) {
+            try {
+                return getUltraOrder(inputMint, outputMint, amountLamports)
+            } catch (e: Exception) {
+                log("⚠️ Ultra API failed, falling back to v6: ${e.message?.take(50)}")
+            }
+        }
+        
+        // Fallback to v6 API
+        return getQuoteV6(inputMint, outputMint, amountLamports, slippageBps)
+    }
+    
+    /**
+     * Ultra API: Get order (quote + transaction in one call)
+     * Endpoint: POST /ultra/v1/order
+     * 
+     * Benefits:
+     * - Auto-optimized slippage
+     * - Built-in MEV protection via Jupiter Beam
+     * - Sub-second execution (~300ms)
+     * - Lower fees (5-10x less than average)
+     */
+    private fun getUltraOrder(
+        inputMint: String,
+        outputMint: String,
+        amountLamports: Long,
+    ): SwapQuote {
+        val startMs = System.currentTimeMillis()
+        log("🚀 ULTRA ORDER: ${inputMint.take(8)}→${outputMint.take(8)} amt=$amountLamports")
+        
+        val payload = JSONObject().apply {
+            put("inputMint", inputMint)
+            put("outputMint", outputMint)
+            put("amount", amountLamports.toString())
+            put("taker", "")  // Will be set during buildSwapTx
+        }
+        
+        val body = postOrThrow("$BASE_ULTRA/order", payload.toString())
+        val elapsed = System.currentTimeMillis() - startMs
+        
+        val json = JSONObject(body)
+        
+        // Check for error
+        if (json.has("error")) {
+            val error = json.optString("error", "unknown")
+            log("❌ Ultra ORDER error: $error (${elapsed}ms)")
+            throw RuntimeException("Jupiter Ultra order error: $error")
+        }
+        
+        val outAmount = json.optString("outAmount", "0").toLongOrNull() ?: 0L
+        val requestId = json.optString("requestId", "")
+        val swapTx = json.optString("transaction", "")
+        
+        // Ultra uses "outputAmount" sometimes
+        val finalOutAmount = if (outAmount > 0) outAmount 
+            else json.optString("outputAmount", "0").toLongOrNull() ?: 0L
+        
+        if (finalOutAmount <= 0) {
+            log("❌ Ultra returned 0 output - no route found")
+            throw RuntimeException("Jupiter Ultra: no route found")
+        }
+        
+        // Price impact from Ultra (may be in different field)
+        val priceImpact = json.optString("priceImpactPct", "0").toDoubleOrNull() 
+            ?: json.optDouble("priceImpact", 0.0)
+        
+        log("✅ ULTRA OK: out=$finalOutAmount reqId=${requestId.take(12)}... (${elapsed}ms)")
+        
+        return SwapQuote(
+            raw = json,
+            outAmount = finalOutAmount,
+            priceImpactPct = priceImpact,
+            requestId = requestId,
+            swapTransaction = swapTx,
+            isUltra = true,
+        )
+    }
+    
+    /**
+     * Legacy v6 API quote (fallback)
+     */
+    private fun getQuoteV6(
+        inputMint: String,
+        outputMint: String,
+        amountLamports: Long,
+        slippageBps: Int,
+    ): SwapQuote {
+        val url = "$BASE_V6/quote?inputMint=$inputMint&outputMint=$outputMint" +
                   "&amount=$amountLamports&slippageBps=$slippageBps"
         
         val startMs = System.currentTimeMillis()
-        log("📊 GET quote: ${outputMint.take(8)}... amt=$amountLamports slip=$slippageBps")
+        log("📊 V6 quote: ${outputMint.take(8)}... amt=$amountLamports slip=$slippageBps")
         
         val body = getOrThrow(url)
         val elapsed = System.currentTimeMillis() - startMs
         
         val j = JSONObject(body)
         
-        // Check for Jupiter error responses
         if (j.has("error")) {
             val error = j.optString("error", "unknown")
-            log("❌ Quote ERROR: $error (${elapsed}ms)")
-            throw RuntimeException("Jupiter quote error: $error")
+            log("❌ V6 Quote ERROR: $error (${elapsed}ms)")
+            throw RuntimeException("Jupiter v6 quote error: $error")
         }
         
         val outAmount = j.optString("outAmount", "0").toLongOrNull() ?: 0L
         val priceImpact = j.optString("priceImpactPct", "0").toDoubleOrNull() ?: 0.0
         
-        // Validate we got a usable quote
         if (outAmount <= 0) {
-            log("❌ Quote returned 0 output - token may be illiquid or dead")
-            throw RuntimeException("Jupiter returned 0 output - no liquidity")
+            log("❌ V6 Quote returned 0 output - token may be illiquid")
+            throw RuntimeException("Jupiter v6 returned 0 output - no liquidity")
         }
         
-        log("✅ Quote OK: out=$outAmount impact=${String.format("%.2f", priceImpact)}% (${elapsed}ms)")
+        log("✅ V6 Quote OK: out=$outAmount impact=${String.format("%.2f", priceImpact)}% (${elapsed}ms)")
         
         return SwapQuote(
-            raw             = j,
-            outAmount       = outAmount,
-            priceImpactPct  = priceImpact,
+            raw = j,
+            outAmount = outAmount,
+            priceImpactPct = priceImpact,
+            isUltra = false,
         )
     }
 
     /**
      * Build a versioned transaction for the swap.
+     * For Ultra API quotes, the transaction is already included.
+     * For v6 quotes, we build it via /swap endpoint.
+     * 
      * Returns base64-encoded transaction bytes ready for signing.
      */
     fun buildSwapTx(quote: SwapQuote, userPublicKey: String): String {
+        // Ultra API: Transaction already built, just need to update taker
+        if (quote.isUltra && quote.swapTransaction.isNotBlank()) {
+            log("🚀 Using pre-built Ultra transaction")
+            return quote.swapTransaction
+        }
+        
+        // Ultra API: Need to re-fetch with taker address
+        if (quote.isUltra) {
+            return buildUltraTx(quote, userPublicKey)
+        }
+        
+        // v6 API: Build via /swap endpoint
+        return buildSwapTxV6(quote, userPublicKey)
+    }
+    
+    /**
+     * Ultra API: Get order with taker address for signing
+     */
+    private fun buildUltraTx(quote: SwapQuote, userPublicKey: String): String {
         val startMs = System.currentTimeMillis()
-        log("🔧 Building swap tx for ${userPublicKey.take(8)}...")
+        log("🚀 Building Ultra tx for ${userPublicKey.take(8)}...")
+        
+        // Re-fetch order with taker address
+        val inputMint = quote.raw.optString("inputMint", "")
+        val outputMint = quote.raw.optString("outputMint", "")
+        val amount = quote.raw.optString("amount", quote.raw.optString("inAmount", "0"))
+        
+        val payload = JSONObject().apply {
+            put("inputMint", inputMint)
+            put("outputMint", outputMint)
+            put("amount", amount)
+            put("taker", userPublicKey)
+        }
+        
+        val body = postOrThrow("$BASE_ULTRA/order", payload.toString())
+        val elapsed = System.currentTimeMillis() - startMs
+        
+        val json = JSONObject(body)
+        
+        if (json.has("error")) {
+            val error = json.optString("error", "unknown")
+            log("❌ Ultra buildTx error: $error (${elapsed}ms)")
+            throw RuntimeException("Jupiter Ultra buildTx error: $error")
+        }
+        
+        val swapTx = json.optString("transaction", "")
+        if (swapTx.isBlank()) {
+            log("❌ Ultra returned empty transaction!")
+            throw RuntimeException("Jupiter Ultra returned empty transaction")
+        }
+        
+        log("✅ Ultra tx built OK (${swapTx.length} chars, ${elapsed}ms)")
+        return swapTx
+    }
+    
+    /**
+     * v6 API: Build transaction via /swap endpoint
+     */
+    private fun buildSwapTxV6(quote: SwapQuote, userPublicKey: String): String {
+        val startMs = System.currentTimeMillis()
+        log("🔧 Building v6 swap tx for ${userPublicKey.take(8)}...")
         
         val payload = JSONObject().apply {
             put("quoteResponse",              quote.raw)
@@ -92,26 +252,65 @@ class JupiterApi {
             put("prioritizationFeeLamports",  "auto")
         }
         
-        val body = postOrThrow("$BASE/swap", payload.toString())
+        val body = postOrThrow("$BASE_V6/swap", payload.toString())
         val elapsed = System.currentTimeMillis() - startMs
         
         val json = JSONObject(body)
         
-        // Check for error response
         if (json.has("error")) {
             val error = json.optString("error", "unknown")
-            log("❌ BuildTx ERROR: $error (${elapsed}ms)")
-            throw RuntimeException("Jupiter buildSwapTx error: $error")
+            log("❌ V6 BuildTx ERROR: $error (${elapsed}ms)")
+            throw RuntimeException("Jupiter v6 buildSwapTx error: $error")
         }
         
         val swapTx = json.optString("swapTransaction", "")
         if (swapTx.isBlank()) {
-            log("❌ BuildTx returned empty transaction!")
-            throw RuntimeException("Jupiter returned empty swapTransaction")
+            log("❌ V6 BuildTx returned empty transaction!")
+            throw RuntimeException("Jupiter v6 returned empty swapTransaction")
         }
         
-        log("✅ Swap tx built OK (${swapTx.length} chars, ${elapsed}ms)")
+        log("✅ V6 Swap tx built OK (${swapTx.length} chars, ${elapsed}ms)")
         return swapTx
+    }
+    
+    /**
+     * Ultra API: Execute signed transaction via Jupiter's infrastructure
+     * This provides better MEV protection and faster landing.
+     * 
+     * @param signedTxB64 Base64 encoded signed transaction
+     * @param requestId The requestId from the order response
+     * @return Transaction signature
+     */
+    fun executeUltra(signedTxB64: String, requestId: String): String {
+        val startMs = System.currentTimeMillis()
+        log("🚀 ULTRA EXECUTE: reqId=${requestId.take(12)}...")
+        
+        val payload = JSONObject().apply {
+            put("signedTransaction", signedTxB64)
+            put("requestId", requestId)
+        }
+        
+        val body = postOrThrow("$BASE_ULTRA/execute", payload.toString())
+        val elapsed = System.currentTimeMillis() - startMs
+        
+        val json = JSONObject(body)
+        
+        if (json.has("error")) {
+            val error = json.optString("error", "unknown")
+            log("❌ Ultra EXECUTE error: $error (${elapsed}ms)")
+            throw RuntimeException("Jupiter Ultra execute error: $error")
+        }
+        
+        val signature = json.optString("signature", json.optString("txid", ""))
+        val status = json.optString("status", "unknown")
+        
+        if (signature.isBlank()) {
+            log("❌ Ultra execute returned no signature! status=$status")
+            throw RuntimeException("Jupiter Ultra: no signature returned, status=$status")
+        }
+        
+        log("✅ ULTRA EXECUTED: sig=${signature.take(20)}... status=$status (${elapsed}ms)")
+        return signature
     }
 
     // ── helpers ────────────────────────────────────────────

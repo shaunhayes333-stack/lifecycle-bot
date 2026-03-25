@@ -702,10 +702,11 @@ class Executor(
                 val txB64     = buildTxWithRetry(quote, wallet.publicKeyB58)
                 security.enforceSignDelay()
                 
-                // ⚡ MEV PROTECTION for partial sells
-                val useJito = c.jitoEnabled
+                // ⚡ MEV PROTECTION for partial sells (Ultra or Jito)
+                val useJito = c.jitoEnabled && !quote.isUltra
                 val jitoTip = c.jitoTipLamports
-                val sig       = wallet.signSendAndConfirm(txB64, useJito, jitoTip)
+                val ultraReqId = if (quote.isUltra) quote.requestId else null
+                val sig       = wallet.signSendAndConfirm(txB64, useJito, jitoTip, ultraReqId)
                 val solBack   = quote.outAmount / 1_000_000_000.0
                 val livePnl   = solBack - pos.costSol * sellFraction
                 val liveScore = pct(pos.costSol * sellFraction, solBack)
@@ -1625,12 +1626,17 @@ class Executor(
             val txB64 = buildTxWithRetry(quote, wallet.publicKeyB58)
             security.enforceSignDelay()
             
-            // ⚡ MEV PROTECTION for top-ups
-            val useJito = c.jitoEnabled
+            // ⚡ MEV PROTECTION for top-ups (Ultra or Jito)
+            val useJito = c.jitoEnabled && !quote.isUltra
             val jitoTip = c.jitoTipLamports
+            val ultraReqId = if (quote.isUltra) quote.requestId else null
             
-            onLog("Broadcasting top-up tx…", ts.mint)
-            val sig    = wallet.signSendAndConfirm(txB64, useJito, jitoTip)
+            if (quote.isUltra) {
+                onLog("🚀 Broadcasting top-up via Jupiter Ultra…", ts.mint)
+            } else {
+                onLog("Broadcasting top-up tx…", ts.mint)
+            }
+            val sig    = wallet.signSendAndConfirm(txB64, useJito, jitoTip, ultraReqId)
             val pos    = ts.position
             val price  = ts.ref
             val newQty = quote.outAmount.toDouble() / tokenScale(quote.outAmount)
@@ -1859,18 +1865,24 @@ class Executor(
             // Use signSendAndConfirm — wait for on-chain confirmation before
             // recording the position. This prevents ghost positions if tx fails.
             // 
-            // ⚡ MEV PROTECTION: If Jito is enabled, send via Jito bundle
-            // This protects against sandwich attacks and front-running
-            val useJito = c.jitoEnabled
+            // ⚡ MEV PROTECTION: 
+            // Priority 1: Jupiter Ultra (built-in Beam protection)
+            // Priority 2: Jito bundles
+            // Priority 3: Normal RPC
+            val useJito = c.jitoEnabled && !quote.isUltra  // Don't use Jito if Ultra
             val jitoTip = c.jitoTipLamports
             
-            if (useJito) {
+            if (quote.isUltra) {
+                onLog("🚀 Broadcasting via Jupiter Ultra (Beam MEV protection)…", ts.mint)
+            } else if (useJito) {
                 onLog("⚡ Broadcasting buy tx via Jito MEV protection…", ts.mint)
             } else {
                 onLog("Broadcasting buy tx…", ts.mint)
             }
             
-            val sig = wallet.signSendAndConfirm(txB64, useJito, jitoTip)
+            // Pass Ultra requestId if available for optimal execution
+            val ultraReqId = if (quote.isUltra) quote.requestId else null
+            val sig = wallet.signSendAndConfirm(txB64, useJito, jitoTip, ultraReqId)
             val qty   = quote.outAmount.toDouble() / tokenScale(quote.outAmount)
             val price = ts.ref
 
@@ -2428,17 +2440,22 @@ class Executor(
             val txB64 = buildTxWithRetry(quote, wallet.publicKeyB58)
             security.enforceSignDelay()
             
-            // ⚡ MEV PROTECTION: If Jito is enabled, send via Jito bundle
-            val useJito = c.jitoEnabled
+            // ⚡ MEV PROTECTION: 
+            // Priority 1: Jupiter Ultra (built-in Beam protection)
+            // Priority 2: Jito bundles
+            val useJito = c.jitoEnabled && !quote.isUltra
             val jitoTip = c.jitoTipLamports
             
-            if (useJito) {
+            if (quote.isUltra) {
+                onLog("🚀 Broadcasting sell via Jupiter Ultra (Beam MEV protection)…", ts.mint)
+            } else if (useJito) {
                 onLog("⚡ Broadcasting sell tx via Jito MEV protection…", ts.mint)
             } else {
                 onLog("Broadcasting sell tx…", ts.mint)
             }
             
-            val sig     = wallet.signSendAndConfirm(txB64, useJito, jitoTip)
+            val ultraReqId = if (quote.isUltra) quote.requestId else null
+            val sig     = wallet.signSendAndConfirm(txB64, useJito, jitoTip, ultraReqId)
             val price   = ts.ref
             val solBack = quote.outAmount / 1_000_000_000.0
             pnl  = solBack - pos.costSol
