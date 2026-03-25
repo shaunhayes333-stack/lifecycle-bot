@@ -1093,7 +1093,7 @@ Analyse this data and respond with ONLY valid JSON in this exact format:
     fun getRecentWinRate(): Double {
         val trades = synchronized(recentMemory) { recentMemory.toList() }
         if (trades.isEmpty()) return 50.0
-        val wins = trades.count { it.pnl > 0 }
+        val wins = trades.count { it.isWin }
         return (wins.toDouble() / trades.size) * 100.0
     }
     
