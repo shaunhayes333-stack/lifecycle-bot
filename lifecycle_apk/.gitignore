@@ -1,0 +1,72 @@
+# Built application files
+*.apk
+*.ap_
+*.aab
+
+# Files for the ART/Dalvik VM
+*.dex
+
+# Java class files
+*.class
+
+# Generated files
+bin/
+gen/
+out/
+
+# Gradle files
+.gradle/
+build/
+local.properties
+
+# Android Studio
+/.idea/
+*.iml
+.DS_Store
+/captures
+.externalNativeBuild
+
+# Signing config
+*.jks
+*.keystore
+keystore.properties
+
+# API Keys - NEVER commit these!
+**/secrets.properties
+**/api_keys.properties
+**/google-services.json
+
+# Local configuration
+local.properties
+
+# Log files
+*.log
+
+# Test outputs
+/app/test_reports/
+
+# Node modules (web dashboard)
+**/node_modules/
+**/package-lock.json
+
+# Environment files
+.env
+.env.local
+.env.*.local
+
+# IDE
+.vscode/
+*.swp
+*.swo
+*~
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Crash reports
+*.hprof
+
+# Temporary files
+*.tmp
+*.temp
