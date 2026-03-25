@@ -1123,9 +1123,16 @@ object FinalDecisionGate {
                     groqApiKey = config.groqApiKey,
                 )
                 
-                narrativeAdjustment = narrativeResult.confidenceAdjustment
+                // In paper mode, reduce narrative penalty impact to allow more learning trades
+                // Live mode keeps full impact for safety
+                narrativeAdjustment = if (config.paperMode) {
+                    (narrativeResult.confidenceAdjustment / 2).coerceIn(-10, 5)  // Max -10 in paper
+                } else {
+                    narrativeResult.confidenceAdjustment  // Full impact in live
+                }
                 
-                if (narrativeResult.shouldBlock) {
+                if (narrativeResult.shouldBlock && !config.paperMode) {
+                    // Only hard-block scams in live mode
                     blockReason = "NARRATIVE_SCAM: ${narrativeResult.blockReason.take(50)}"
                     blockLevel = BlockLevel.HARD
                     checks.add(GateCheck("narrative", false, 
