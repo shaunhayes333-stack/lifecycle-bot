@@ -857,7 +857,7 @@ object FinalDecisionGate {
         // Get current trade count and win rate from brain for adaptive thresholds
         // FDG automatically tightens as the bot learns from more trades
         // ═══════════════════════════════════════════════════════════════════════
-        val tradeCount = brain?.recentTrades?.size ?: 0
+        val tradeCount = brain?.getTradeCount() ?: 0
         val winRate = brain?.getRecentWinRate() ?: 50.0
         val adjusted = getAdjustedThresholds(tradeCount, winRate)
         

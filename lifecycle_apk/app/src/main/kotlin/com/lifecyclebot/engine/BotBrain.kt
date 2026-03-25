@@ -1091,10 +1091,16 @@ Analyse this data and respond with ONLY valid JSON in this exact format:
      * Used by FDG for auto-adjusting thresholds.
      */
     fun getRecentWinRate(): Double {
-        if (recentTrades.isEmpty()) return 50.0
-        val wins = recentTrades.count { it.pnl > 0 }
-        return (wins.toDouble() / recentTrades.size) * 100.0
+        val trades = synchronized(recentMemory) { recentMemory.toList() }
+        if (trades.isEmpty()) return 50.0
+        val wins = trades.count { it.pnl > 0 }
+        return (wins.toDouble() / trades.size) * 100.0
     }
+    
+    /**
+     * Get trade count for FDG learning phase calculation.
+     */
+    fun getTradeCount(): Int = synchronized(recentMemory) { recentMemory.size }
     
     /**
      * Check if current market regime (from recent trades) is favorable.
