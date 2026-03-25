@@ -225,9 +225,9 @@ object TimeOptimizationAI {
             }
             isDanger -> {
                 // Scale penalty by how much worse than threshold
-                val winPenalty = (DANGER_WIN_RATE - winRate) * 0.2
-                val pnlPenalty = (DANGER_AVG_PNL - avgPnl) * 0.1
-                maxOf(-(winPenalty + pnlPenalty + 3.0), -10.0)  // Max -10
+                val winPenalty = (DANGER_WIN_RATE - winRate) * 0.15  // Reduced from 0.2
+                val pnlPenalty = (DANGER_AVG_PNL - avgPnl) * 0.08    // Reduced from 0.1
+                maxOf(-(winPenalty + pnlPenalty + 2.0), -6.0)  // Max -6 (reduced from -10)
             }
             avgPnl > 5.0 -> avgPnl * 0.15  // Slight boost for positive
             avgPnl < -5.0 -> avgPnl * 0.2  // Slight penalty for negative

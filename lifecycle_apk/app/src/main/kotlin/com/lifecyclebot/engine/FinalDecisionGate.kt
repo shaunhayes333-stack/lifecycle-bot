@@ -129,7 +129,7 @@ object FinalDecisionGate {
     
     // Base confidence thresholds (these are ADAPTED by AdaptiveConfidence)
     var paperConfidenceBase = 0.0          // Paper mode base: NO confidence minimum (learn from all)
-    var liveConfidenceBase = 15.0          // Live base: LOWERED from 20% to 15% to allow more trades during bootstrap
+    var liveConfidenceBase = 12.0          // Live base: LOWERED from 15% to 12% to allow more trades during bootstrap
     
     // ═══════════════════════════════════════════════════════════════════════════
     // ADAPTIVE CONFIDENCE LAYER
@@ -1158,7 +1158,7 @@ object FinalDecisionGate {
                 narrativeAdjustment = if (config.paperMode) {
                     0  // DISABLED in paper mode - let trades happen for learning
                 } else {
-                    (narrativeResult.confidenceAdjustment / 3).coerceIn(-10, 5)  // Max -10 in live (was -15)
+                    (narrativeResult.confidenceAdjustment / 4).coerceIn(-6, 4)  // Max -6 in live (reduced from -10)
                 }
                 
                 if (narrativeResult.shouldBlock && !config.paperMode) {
