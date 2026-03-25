@@ -2063,5 +2063,3 @@ class SolanaMarketScanner(
         null 
     }
 }
-}
-}
