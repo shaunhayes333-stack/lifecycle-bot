@@ -124,9 +124,9 @@ object FinalDecisionGate {
     // ═══════════════════════════════════════════════════════════════════════════
     
     // Hard block thresholds (non-negotiable - these are DANGEROUS)
-    var hardBlockRugcheckMin = 10          // Block if rugcheck score <= this
-    var hardBlockBuyPressureMin = 15.0     // Block if buy pressure < this %
-    var hardBlockTopHolderMax = 70.0       // Block if top holder > this %
+    var hardBlockRugcheckMin = 5            // LOWERED from 10 - only block truly dangerous
+    var hardBlockBuyPressureMin = 10.0      // LOWERED from 15% - allow more entries
+    var hardBlockTopHolderMax = 85.0        // RAISED from 70% - less restrictive
     
     // ═══════════════════════════════════════════════════════════════════════════
     // EARLY SNIPE MODE (NEW)
@@ -147,9 +147,9 @@ object FinalDecisionGate {
     //   - Use small position size (risk management)
     // ═══════════════════════════════════════════════════════════════════════════
     var earlySnipeEnabled = true           // Enable aggressive early entries
-    var earlySnipeMaxAgeMinutes = 15       // INCREASED from 10 - more time window
-    var earlySnipeMinScore = 60.0          // LOWERED from 70 - more aggressive
-    var earlySnipeMinLiquidity = 2000.0    // LOWERED from $3000 - more aggressive
+    var earlySnipeMaxAgeMinutes = 20       // INCREASED - wider time window
+    var earlySnipeMinScore = 45.0          // LOWERED from 60 - more aggressive
+    var earlySnipeMinLiquidity = 1500.0    // LOWERED from $2000 - more aggressive
     
     // ═══════════════════════════════════════════════════════════════════════════
     // EXPECTED VALUE (EV) GATING
@@ -163,16 +163,16 @@ object FinalDecisionGate {
     //   - Only trade if EV > 1.0 (positive expectancy)
     //   - Use Kelly Criterion for optimal position sizing
     // ═══════════════════════════════════════════════════════════════════════════
-    var evGatingEnabled = true             // Enable EV-based trade filtering
-    var minExpectedValue = 1.05            // Minimum EV (1.05 = +5% expected)
-    var maxRugProbability = 0.15           // Block if rug probability > 15%
-    var useKellySizing = true              // Use Kelly Criterion for sizing
+    var evGatingEnabled = false            // DISABLED until brain has more data
+    var minExpectedValue = 1.0             // LOWERED - any positive EV
+    var maxRugProbability = 0.30           // RAISED from 15% to 30% - more tolerance
+    var useKellySizing = false             // DISABLED - use simple sizing for now
     var kellyFraction = 0.5                // Fraction of Kelly to use (half-Kelly)
     var maxKellySize = 0.10                // Maximum Kelly-suggested size (10%)
     
     // Base confidence thresholds (these are ADAPTED by AdaptiveConfidence)
     var paperConfidenceBase = 0.0          // Paper mode base: NO confidence minimum (learn from all)
-    var liveConfidenceBase = 8.0           // Live base: LOWERED from 12% to 8% to allow more trades
+    var liveConfidenceBase = 0.0           // ZEROED - let trades flow while brain learns
     
     // ═══════════════════════════════════════════════════════════════════════════
     // ADAPTIVE CONFIDENCE LAYER
@@ -1134,10 +1134,10 @@ object FinalDecisionGate {
                 checks.add(GateCheck("phase_filter", true, "PAPER: unknown phase allowed for learning"))
                 tags.add("phase_unknown_allowed")
             } else {
-                // LIVE MODE: Still need some filtering but not as strict
-                // UNKNOWN phases can still be profitable - just need good signals
-                val minScore = 35.0        // LOWERED from 50 - reasonable bar
-                val minBuyPressure = 48.0  // LOWERED from 55 - above distribution zone
+                // LIVE MODE: Very relaxed while brain learns
+                // UNKNOWN phases can still be profitable - allow most trades
+                val minScore = 25.0        // LOWERED from 35 - very relaxed
+                val minBuyPressure = 40.0  // LOWERED from 48 - allow more
                 val isHighScore = candidate.entryScore >= minScore
                 val isHighBuyPressure = ts.meta.pressScore >= minBuyPressure
                 
@@ -1185,34 +1185,31 @@ object FinalDecisionGate {
                 tags.add("edge_veto_bypassed_paper")
             } else {
                 // ═══════════════════════════════════════════════════════════════════
-                // LIVE MODE: Edge veto with MARKET CONFIRMATION OVERRIDE
+                // LIVE MODE: Edge veto VERY RELAXED while brain learns
                 // 
-                // Edge can be WRONG. If the market shows strong interest, we allow
-                // the trade even if Edge says SKIP. This prevents missing good setups
-                // just because the phase is "unknown".
+                // Edge can be WRONG. Override with minimal market confirmation.
+                // Brain needs trade data to learn - let most trades through.
                 // 
                 // Override conditions (must meet ANY ONE):
-                //   - Buy pressure >= 48% (above distribution zone)
-                //   - Liquidity >= $2000 AND entry score >= 20
-                //   - Entry score >= 35 (decent quality setup)
+                //   - Buy pressure >= 40% (very relaxed)
+                //   - Liquidity >= $1500 
+                //   - Entry score >= 25 (basic quality)
                 // ═══════════════════════════════════════════════════════════════════
-                val liveMinBuyPressure = 48.0   // LOWERED from 52% - just above distribution zone
-                val liveMinLiquidity = 2000.0   // LOWERED from $3k
-                val liveMinEntryScore = 20.0    // LOWERED from 25
-                val liveGoodEntryScore = 35.0   // LOWERED from 40 - decent quality override
+                val liveMinBuyPressure = 40.0   // LOWERED from 48% - very relaxed
+                val liveMinLiquidity = 1500.0   // LOWERED from $2k
+                val liveMinEntryScore = 25.0    // LOWERED from 35
                 
                 val hasStrongBuyers = ts.meta.pressScore >= liveMinBuyPressure
                 val hasGoodLiquidity = ts.lastLiquidityUsd >= liveMinLiquidity
                 val hasDecentScore = candidate.entryScore >= liveMinEntryScore
-                val hasGoodScore = candidate.entryScore >= liveGoodEntryScore
                 
-                // Override if ANY of these conditions met (was requiring ALL)
-                if (hasStrongBuyers || (hasGoodLiquidity && hasDecentScore) || hasGoodScore) {
+                // Override if ANY of these conditions met
+                if (hasStrongBuyers || hasGoodLiquidity || hasDecentScore) {
                     // Market confirmation in LIVE mode - override Edge veto
                     val reason = when {
                         hasStrongBuyers -> "buy%=${ts.meta.pressScore.toInt()}>=$liveMinBuyPressure"
-                        hasGoodScore -> "score=${candidate.entryScore.toInt()}>=$liveGoodEntryScore"
-                        else -> "liq=$${ts.lastLiquidityUsd.toInt()}>=$liveMinLiquidity+score>=$liveMinEntryScore"
+                        hasDecentScore -> "score=${candidate.entryScore.toInt()}>=$liveMinEntryScore"
+                        else -> "liq=$${ts.lastLiquidityUsd.toInt()}>=$liveMinLiquidity"
                     }
                     checks.add(GateCheck("edge", true, "LIVE: edge override ($reason)"))
                     tags.add("live_edge_override")
@@ -1267,12 +1264,24 @@ object FinalDecisionGate {
                 }
                 
                 if (narrativeResult.shouldBlock && !config.paperMode) {
-                    // Only hard-block scams in live mode
-                    blockReason = "NARRATIVE_SCAM: ${narrativeResult.blockReason.take(50)}"
-                    blockLevel = BlockLevel.HARD
-                    checks.add(GateCheck("narrative", false, 
-                        "SCAM DETECTED: ${narrativeResult.scamIndicators.take(3).joinToString(", ")}"))
-                    tags.add("narrative_scam")
+                    // SOFTENED: Only hard-block VERY obvious scams with specific patterns
+                    // Allow trades that might look scammy but could still be profitable
+                    val isObviousScam = narrativeResult.riskLevel == "CRITICAL" &&
+                        (narrativeResult.blockReason.contains("honey", ignoreCase = true) ||
+                         narrativeResult.blockReason.contains("rug confirmed", ignoreCase = true))
+                    
+                    if (isObviousScam) {
+                        blockReason = "NARRATIVE_SCAM: ${narrativeResult.blockReason.take(50)}"
+                        blockLevel = BlockLevel.HARD
+                        checks.add(GateCheck("narrative", false, 
+                            "CRITICAL SCAM: ${narrativeResult.scamIndicators.take(3).joinToString(", ")}"))
+                        tags.add("narrative_scam")
+                    } else {
+                        // Just log warning, don't block
+                        checks.add(GateCheck("narrative", true, 
+                            "⚠️ risk=${narrativeResult.riskLevel} (proceeding anyway for learning)"))
+                        tags.add("narrative_warning")
+                    }
                 } else if (narrativeResult.riskLevel == "CRITICAL" || narrativeResult.riskLevel == "HIGH") {
                     checks.add(GateCheck("narrative", true, 
                         "risk=${narrativeResult.riskLevel} adj=$narrativeAdjustment | ${narrativeResult.reasoning.take(60)}"))
