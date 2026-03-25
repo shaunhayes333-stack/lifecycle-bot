@@ -99,13 +99,17 @@ class CurrencyManager(private val ctx: Context) {
     fun solToDisplay(sol: Double): Double {
         if (sol == 0.0) return 0.0
         refreshIfStale()
+        
+        // Use WalletManager price as fallback if CurrencyManager hasn't fetched yet
+        val effectiveSolUsd = if (solUsd > 0) solUsd else WalletManager.lastKnownSolPrice.takeIf { it > 0 } ?: 140.0
+        
         return when (selectedCurrency) {
             "SOL" -> sol
-            "BTC" -> if (btcUsd > 0 && solUsd > 0) sol * solUsd / btcUsd else 0.0
-            "ETH" -> if (ethUsd > 0 && solUsd > 0) sol * solUsd / ethUsd else 0.0
+            "BTC" -> if (btcUsd > 0 && effectiveSolUsd > 0) sol * effectiveSolUsd / btcUsd else 0.0
+            "ETH" -> if (ethUsd > 0 && effectiveSolUsd > 0) sol * effectiveSolUsd / ethUsd else 0.0
             else  -> {
                 val fiatPerUsd = rates[selectedCurrency] ?: 1.0
-                sol * solUsd * fiatPerUsd
+                sol * effectiveSolUsd * fiatPerUsd
             }
         }
     }
@@ -138,8 +142,9 @@ class CurrencyManager(private val ctx: Context) {
      */
     fun formatPrice(priceUsd: Double): String {
         val info = selectedInfo
+        val effectiveSolUsd = if (solUsd > 0) solUsd else WalletManager.lastKnownSolPrice.takeIf { it > 0 } ?: 140.0
         val converted = when (selectedCurrency) {
-            "SOL" -> if (solUsd > 0) priceUsd / solUsd else 0.0
+            "SOL" -> if (effectiveSolUsd > 0) priceUsd / effectiveSolUsd else 0.0
             "BTC" -> if (btcUsd > 0) priceUsd / btcUsd else 0.0
             "ETH" -> if (ethUsd > 0) priceUsd / ethUsd else 0.0
             else  -> {
