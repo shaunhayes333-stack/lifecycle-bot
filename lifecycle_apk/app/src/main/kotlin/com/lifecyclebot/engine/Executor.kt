@@ -724,13 +724,52 @@ class Executor(
         }
         
         // ════════════════════════════════════════════════════════════════
-        // COMBINE ALL FACTORS
+        // FACTOR 7: TIME IN TRADE — Critical for distinguishing pumps vs organic
+        // +200% in 30 seconds = pump & dump, lock IMMEDIATELY
+        // +200% in 20 minutes = organic growth, can be patient
+        // ════════════════════════════════════════════════════════════════
+        val holdTimeMs = System.currentTimeMillis() - pos.entryTime
+        val holdTimeMinutes = holdTimeMs / 60_000.0
+        
+        // Calculate gain velocity: how fast did we reach current gain?
+        val currentValue = pos.qtyToken * ts.ref
+        val gainMultiple = if (pos.costSol > 0) currentValue / pos.costSol else 1.0
+        val gainPctPerMinute = if (holdTimeMinutes > 0) {
+            ((gainMultiple - 1.0) * 100.0) / holdTimeMinutes
+        } else {
+            100.0  // Instant gain = treat as very fast
+        }
+        
+        val timeAdjustment = when {
+            // ULTRA FAST GAINS — Almost certainly a pump, lock immediately
+            holdTimeMinutes < 0.5 && gainMultiple >= 1.5 -> 0.50   // <30 sec @ 1.5x+ = LOCK NOW
+            holdTimeMinutes < 1.0 && gainMultiple >= 2.0 -> 0.55   // <1 min @ 2x+ = very aggressive
+            holdTimeMinutes < 2.0 && gainMultiple >= 2.0 -> 0.65   // <2 min @ 2x+ = aggressive
+            
+            // FAST GAINS — Suspicious velocity, lock earlier
+            gainPctPerMinute > 50  -> 0.60   // >50% gain per minute = pump territory
+            gainPctPerMinute > 25  -> 0.70   // >25% per minute = fast
+            gainPctPerMinute > 10  -> 0.85   // >10% per minute = somewhat fast
+            
+            // MODERATE PACE — Normal trading
+            holdTimeMinutes < 5    -> 0.90   // <5 min hold, slightly cautious
+            holdTimeMinutes < 10   -> 1.00   // 5-10 min, standard
+            holdTimeMinutes < 30   -> 1.10   // 10-30 min, established position
+            
+            // SLOW & STEADY — Organic growth, patient
+            holdTimeMinutes < 60   -> 1.20   // 30-60 min, very established
+            holdTimeMinutes < 120  -> 1.30   // 1-2 hours, strong conviction
+            else                   -> 1.40   // 2+ hours, maximum patience
+        }
+        
+        // ════════════════════════════════════════════════════════════════
+        // COMBINE ALL FACTORS (now 8 factors)
         // Use geometric mean for balanced adjustment
         // Include treasury tier to reward building treasury
         // ════════════════════════════════════════════════════════════════
         val product = liqAdjustment * mcapAdjustment * volAdjustment * phaseAdjustment * 
-            qualityAdjustment * tokenTierAdjustment * treasuryTierAdjustment
-        val combinedAdjustment = product.pow(1.0 / 7.0).coerceIn(0.5, 1.8)  // 7th root, capped 50%-180%
+            qualityAdjustment * tokenTierAdjustment * treasuryTierAdjustment * timeAdjustment
+        val combinedAdjustment = product.pow(1.0 / 8.0).coerceIn(0.5, 1.8)  // 8th root, capped 50%-180%
         
         capitalRecoveryMultiple *= combinedAdjustment
         profitLockMultiple *= combinedAdjustment
