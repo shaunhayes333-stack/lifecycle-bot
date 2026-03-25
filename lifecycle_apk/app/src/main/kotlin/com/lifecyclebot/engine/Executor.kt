@@ -2450,8 +2450,17 @@ class Executor(
         // Get or create canonical identity
         val tradeId = identity ?: TradeIdentityManager.getOrCreate(ts.mint, ts.symbol, ts.source)
         
-        if (cfg().paperMode || wallet == null) paperSell(ts, reason, tradeId)
-        else liveSell(ts, reason, wallet, walletSol, tradeId)
+        val isPaper = cfg().paperMode
+        val hasWallet = wallet != null
+        onLog("📤 doSell: ${ts.symbol} | paperMode=$isPaper | hasWallet=$hasWallet | reason=$reason", tradeId.mint)
+        
+        if (isPaper || !hasWallet) {
+            onLog("📄 Routing to paperSell (paperMode=$isPaper, wallet=${if(hasWallet) "present" else "NULL"})", tradeId.mint)
+            paperSell(ts, reason, tradeId)
+        } else {
+            onLog("💰 Routing to liveSell", tradeId.mint)
+            liveSell(ts, reason, wallet, walletSol, tradeId)
+        }
     }
 
     fun paperSell(ts: TokenState, reason: String, identity: TradeIdentity? = null) {
