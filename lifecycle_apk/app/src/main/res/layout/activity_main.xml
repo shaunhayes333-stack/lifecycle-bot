@@ -1999,20 +1999,29 @@
             </LinearLayout>
         </LinearLayout>
 
-        <!-- Start / Stop button -->
-        <Button android:id="@+id/btnToggle"
-            android:layout_width="match_parent"
-            android:layout_height="@dimen/bottom_bar_button_height"
-            android:text="Start Bot"
-            android:textColor="#FFFFFF"
-            android:textSize="@dimen/bottom_bar_button_text"
-            android:textStyle="bold"
-            android:backgroundTint="#9945FF"
-            android:stateListAnimator="@null"/>
-
     </LinearLayout>
 
+    </NestedScrollView>
+
     </androidx.swiperefreshlayout.widget.SwipeRefreshLayout>
+
+    <!-- ═══════════════════════════════
+         START/STOP BUTTON (FIXED BOTTOM)
+         ═══════════════════════════════ -->
+    <Button android:id="@+id/btnToggle"
+        android:layout_width="match_parent"
+        android:layout_height="@dimen/bottom_bar_button_height"
+        android:layout_marginStart="16dp"
+        android:layout_marginEnd="16dp"
+        android:layout_marginBottom="16dp"
+        android:layout_gravity="bottom"
+        android:text="Start Bot"
+        android:textColor="#FFFFFF"
+        android:textSize="@dimen/bottom_bar_button_text"
+        android:textStyle="bold"
+        android:backgroundTint="#9945FF"
+        android:elevation="8dp"
+        android:stateListAnimator="@null"/>
 
     <!-- ═══════════════════════════════
          POSITION PNL FLOATING CARD
