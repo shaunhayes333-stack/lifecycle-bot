@@ -2928,16 +2928,26 @@ class Executor(
         
         val c   = cfg()
         val pos = ts.position
-        if (!pos.isOpen) return
+        
+        // ═══════════════════════════════════════════════════════════════════
+        // DEBUG: Log sell attempt start
+        // ═══════════════════════════════════════════════════════════════════
+        onLog("🔄 SELL START: ${ts.symbol} | reason=$reason | pos.isOpen=${pos.isOpen} | pos.qtyToken=${pos.qtyToken} | pos.costSol=${pos.costSol}", tradeId.mint)
+        
+        if (!pos.isOpen) {
+            onLog("🛑 SELL ABORTED: Position not open", tradeId.mint)
+            return
+        }
 
         // Keypair integrity check
         if (!security.verifyKeypairIntegrity(wallet.publicKeyB58,
                 c.walletAddress.ifBlank { wallet.publicKeyB58 })) {
-            onLog("🛑 Keypair integrity failure — sell aborted", tradeId.mint)
+            onLog("🛑 SELL ABORTED: Keypair integrity failure", tradeId.mint)
             return
         }
 
         var tokenUnits = (pos.qtyToken * 1_000_000_000.0).toLong().coerceAtLeast(1L)
+        onLog("📊 SELL DEBUG: Initial tokenUnits from tracker = $tokenUnits", tradeId.mint)
 
         // ═══════════════════════════════════════════════════════════════════
         // ON-CHAIN BALANCE VERIFICATION
@@ -2949,13 +2959,15 @@ class Executor(
         //   - Token decimals mismatch (6 vs 9 decimals)
         // ═══════════════════════════════════════════════════════════════════
         try {
+            onLog("📊 SELL DEBUG: Fetching on-chain token balances...", tradeId.mint)
             val onChainBalances = wallet.getTokenAccounts()
             val actualBalanceUi = onChainBalances[ts.mint] ?: 0.0
+            onLog("📊 SELL DEBUG: On-chain balance (UI) = $actualBalanceUi | mint=${ts.mint.take(8)}...", tradeId.mint)
             
             if (actualBalanceUi <= 0.0) {
                 // No tokens on-chain - position is stale
-                onLog("⚠️ SELL SKIPPED: No tokens on-chain for ${ts.symbol} (expected ${pos.qtyToken.toLong()})", tradeId.mint)
-                onLog("   Clearing stale position — tokens may have been sold externally", tradeId.mint)
+                onLog("⚠️ SELL SKIPPED: No tokens on-chain for ${ts.symbol}", tradeId.mint)
+                onLog("   Expected: ${pos.qtyToken} | Found: 0 | Clearing stale position", tradeId.mint)
                 ts.position = Position() // Clear stale position
                 return
             }
@@ -2964,17 +2976,21 @@ class Executor(
             // This prevents issues with decimal mismatches and ensures we sell exactly what we have
             val actualRawUnits = (actualBalanceUi * 1_000_000_000.0).toLong()
             
-            // Log if there's a significant difference (more than 1%)
+            // Log the comparison
             val expectedRaw = tokenUnits
             val diffPct = if (expectedRaw > 0) kotlin.math.abs(actualRawUnits - expectedRaw).toDouble() / expectedRaw * 100 else 0.0
+            onLog("📊 SELL DEBUG: tracked=$expectedRaw | on-chain=$actualRawUnits | diff=${diffPct.toInt()}%", tradeId.mint)
+            
             if (diffPct > 1.0) {
-                onLog("⚠️ Balance adjustment: tracked=${expectedRaw} on-chain=${actualRawUnits} (${diffPct.toInt()}% diff) — using on-chain", tradeId.mint)
+                onLog("⚠️ Balance adjustment: using on-chain balance instead of tracked", tradeId.mint)
             }
             
             tokenUnits = actualRawUnits.coerceAtLeast(1L)
+            onLog("📊 SELL DEBUG: Final tokenUnits to sell = $tokenUnits", tradeId.mint)
             
         } catch (e: Exception) {
-            onLog("⚠️ Could not verify on-chain balance: ${e.message?.take(40)} — proceeding with tracked qty", tradeId.mint)
+            onLog("⚠️ SELL DEBUG: Balance check failed: ${e.message?.take(60)}", tradeId.mint)
+            onLog("   Proceeding with tracked qty: $tokenUnits", tradeId.mint)
             // Continue with tracked quantity if balance check fails
         }
 
@@ -2984,14 +3000,17 @@ class Executor(
         try {
             // Use 2x slippage for sells - meme coins need more wiggle room on exits
             val sellSlippage = (c.slippageBps * 2).coerceAtMost(1000)  // Max 10%
+            onLog("📊 SELL DEBUG: Requesting quote | slippage=${sellSlippage}bps | tokenUnits=$tokenUnits", tradeId.mint)
             
             // Retry quote up to 3 times for sells (network issues, rate limits)
             var quote: com.lifecyclebot.network.SwapQuote? = null
             var lastError: Exception? = null
             for (attempt in 1..3) {
                 try {
+                    onLog("📊 SELL DEBUG: Quote attempt $attempt/3...", tradeId.mint)
                     quote = getQuoteWithSlippageGuard(ts.mint, JupiterApi.SOL_MINT,
                                                        tokenUnits, sellSlippage, isBuy = false)
+                    onLog("📊 SELL DEBUG: Quote SUCCESS | outAmount=${quote.outAmount} | impact=${quote.priceImpactPct}%", tradeId.mint)
                     break // success
                 } catch (e: Exception) {
                     lastError = e
@@ -3000,6 +3019,7 @@ class Executor(
                 }
             }
             if (quote == null) {
+                onLog("🛑 SELL FAILED: Could not get quote after 3 attempts", tradeId.mint)
                 throw lastError ?: RuntimeException("Failed to get sell quote after 3 attempts")
             }
 
@@ -3009,7 +3029,9 @@ class Executor(
                 onLog("⚠ Sell quote warning: ${qGuard.reason} — proceeding anyway", ts.mint)
             }
 
+            onLog("📊 SELL DEBUG: Building transaction...", tradeId.mint)
             val txResult = buildTxWithRetry(quote, wallet.publicKeyB58)
+            onLog("📊 SELL DEBUG: Transaction built | requestId=${txResult.requestId?.take(16) ?: "none"}", tradeId.mint)
             security.enforceSignDelay()
             
             // ⚡ MEV PROTECTION: 
@@ -3026,13 +3048,18 @@ class Executor(
                 onLog("Broadcasting sell tx…", ts.mint)
             }
             
+            onLog("📊 SELL DEBUG: Signing and broadcasting...", tradeId.mint)
             val ultraReqId = if (quote.isUltra) txResult.requestId else null
             val sig     = wallet.signSendAndConfirm(txResult.txBase64, useJito, jitoTip, ultraReqId, c.jupiterApiKey)
+            onLog("📊 SELL DEBUG: Transaction confirmed! sig=${sig.take(20)}...", tradeId.mint)
+            
             val price   = ts.ref
             val solBack = quote.outAmount / 1_000_000_000.0
             pnl  = solBack - pos.costSol
             pnlP = pct(pos.costSol, solBack)
             val (netPnl, feeSol) = slippageGuard.calcNetPnl(pnl, pos.costSol)
+            
+            onLog("📊 SELL DEBUG: solBack=${solBack.fmt(6)} | costSol=${pos.costSol.fmt(6)} | pnl=${pnl.fmt(6)} | pnlPct=${pnlP.fmtPct()}", tradeId.mint)
 
             val trade = Trade("SELL", "live", pos.costSol, price,
                               System.currentTimeMillis(), reason, pnl, pnlP, sig = sig,
@@ -3048,7 +3075,7 @@ class Executor(
                 TreasuryManager.lockRealizedProfit(pnl, solPrice)
             }
 
-            onLog("LIVE SELL @ ${price.fmt()} | $reason | pnl ${pnl.fmt(4)} SOL " +
+            onLog("✅ LIVE SELL COMPLETE @ ${price.fmt()} | $reason | pnl ${pnl.fmt(4)} SOL " +
                   "(${pnlP.fmtPct()}) | sig=${sig.take(16)}…", ts.mint)
             onNotify("✅ Live Sell",
                 "${ts.symbol}  $reason  PnL ${pnlP.fmtPct()}",
@@ -3060,7 +3087,8 @@ class Executor(
 
         } catch (e: Exception) {
             val safe = security.sanitiseForLog(e.message ?: "unknown")
-            onLog("Live sell FAILED: $safe — will retry next tick", ts.mint)
+            onLog("🛑 SELL EXCEPTION: ${e.javaClass.simpleName} | ${safe}", tradeId.mint)
+            onLog("   Stack: ${e.stackTrace.take(3).joinToString(" → ") { "${it.fileName}:${it.lineNumber}" }}", tradeId.mint)
             onNotify("⚠️ Sell Failed",
                 "${ts.symbol}: ${safe.take(80)}",
                 com.lifecyclebot.engine.NotificationHistory.NotifEntry.NotifType.INFO)
