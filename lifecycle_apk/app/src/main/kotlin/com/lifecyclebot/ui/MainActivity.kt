@@ -228,6 +228,9 @@ class MainActivity : AppCompatActivity() {
             requestNotifPermission()
             requestStoragePermission()
             checkBatteryOptimisation()
+            
+            // Show first-time disclaimer if not yet agreed
+            showFirstTimeDisclaimer()
 
             lifecycleScope.launch {
                 vm.ui.collect { state -> updateUi(state) }
@@ -299,6 +302,88 @@ class MainActivity : AppCompatActivity() {
                 }
                 .setNegativeButton("Later", null)
                 .show()
+        }
+    }
+    
+    // ── First Time Disclaimer ───────────────────────────────────────────
+    
+    private fun showFirstTimeDisclaimer() {
+        val prefs = getSharedPreferences("lifecycle_disclaimer", Context.MODE_PRIVATE)
+        val agreedAt = prefs.getLong("disclaimer_agreed_at", 0L)
+        
+        // If already agreed, don't show again
+        if (agreedAt > 0) return
+        
+        val disclaimerText = """
+⚠️ IMPORTANT: READ BEFORE TRADING ⚠️
+
+This bot uses AI to make autonomous trading decisions. Before you enable LIVE trading, you MUST follow these steps:
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+📝 PAPER MODE FIRST — MANDATORY
+
+1. Start the bot in PAPER MODE only
+2. Let it run for at least 24-48 hours
+3. Watch how it makes decisions
+4. Review the trade journal daily
+5. Understand the Entry/Exit scores
+6. Only switch to LIVE after you trust its judgment
+
+The bot needs time to LEARN. It tracks patterns, remembers wins/losses, and adapts its thresholds. Rushing to LIVE mode before it learns YOUR market conditions is how you lose money.
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+⚖️ LEGAL DISCLAIMER
+
+Cryptocurrency trading involves substantial risk of loss and is not suitable for all investors. The value of cryptocurrencies can be extremely volatile.
+
+• Past performance is NOT indicative of future results
+• You may lose some or ALL of your invested capital
+• Never trade with money you cannot afford to lose
+• This software is provided "AS IS" without warranty
+• The developers are NOT responsible for any financial losses
+• This is NOT financial advice — consult a licensed advisor
+• You are solely responsible for your trading decisions
+
+By clicking "I Agree", you acknowledge that you have read, understood, and accept full responsibility for any outcomes resulting from the use of this application.
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+        """.trimIndent()
+        
+        val dialog = AlertDialog.Builder(this, R.style.Theme_LifecycleBot_Dialog)
+            .setTitle("🚨 Welcome to LifecycleBot")
+            .setMessage(disclaimerText)
+            .setCancelable(false)  // Cannot dismiss by clicking outside
+            .setPositiveButton("I Agree") { dialogInterface, _ ->
+                // Log agreement with timestamp
+                val timestamp = System.currentTimeMillis()
+                prefs.edit()
+                    .putLong("disclaimer_agreed_at", timestamp)
+                    .putString("disclaimer_agreed_date", 
+                        SimpleDateFormat("yyyy-MM-dd HH:mm:ss z", Locale.getDefault()).format(Date(timestamp)))
+                    .apply()
+                
+                // Log to ErrorLogger as well
+                com.lifecyclebot.engine.ErrorLogger.info("Disclaimer", 
+                    "User agreed to disclaimer at ${SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.getDefault()).format(Date(timestamp))}")
+                
+                // Haptic feedback
+                performHaptic(HapticFeedbackConstants.CONFIRM)
+                
+                dialogInterface.dismiss()
+                
+                // Show brief toast confirmation
+                Toast.makeText(this, "Agreement recorded. Start in PAPER mode!", Toast.LENGTH_LONG).show()
+            }
+            .create()
+        
+        dialog.show()
+        
+        // Style the dialog button
+        dialog.getButton(AlertDialog.BUTTON_POSITIVE)?.apply {
+            setTextColor(green)
+            textSize = 16f
         }
     }
 
