@@ -94,7 +94,9 @@ object PrecisionExitLogic {
             history = history,
         )
         
-        if (distribution.isDistributing && distribution.confidence >= 70) {
+        // LOOSENED: Require higher confidence (was 70, now 80)
+        // Also require position to be at least breakeven or losing to exit
+        if (distribution.isDistributing && distribution.confidence >= 80 && pnlPct < 5.0) {
             return ExitSignal(
                 shouldExit = true,
                 reason = "DISTRIBUTION",
@@ -141,34 +143,38 @@ object PrecisionExitLogic {
             kotlin.math.abs((recentPriceAvg - olderPriceAvg) / olderPriceAvg) * 100
         } else 0.0
         
-        if (volDropPct > VOLUME_DROP_PCT && priceChangePct < PRICE_FLAT_THRESHOLD) {
+        // LOOSENED: Also require position to be losing to exit on volume drop
+        if (volDropPct > VOLUME_DROP_PCT && priceChangePct < PRICE_FLAT_THRESHOLD && pnlPct < 0.0) {
             return ExitSignal(
                 shouldExit = true,
                 reason = "DISTRIBUTION",
                 urgency = Urgency.MEDIUM,
-                details = "Volume dropped ${volDropPct.toInt()}%, price flat (${priceChangePct.toInt()}%)"
+                details = "Volume dropped ${volDropPct.toInt()}%, price flat (${priceChangePct.toInt()}%), pnl=${pnlPct.toInt()}%"
             )
         }
         
         // ════════════════════════════════════════════════════════════════
         // 5. WHALE DISTRIBUTION (whale activity + price stalls)
+        // LOOSENED: Require much higher thresholds to avoid premature exits
         // ════════════════════════════════════════════════════════════════
         val whaleActivity = ts.meta.velocityScore  // Using velocityScore as proxy for whale activity
-        val priceStalling = priceChangePct < 2.0 && ts.history.takeLast(5).let { candles ->
-            if (candles.size >= 5) {
+        val priceStalling = priceChangePct < 1.0 && ts.history.takeLast(7).let { candles ->
+            if (candles.size >= 7) {
                 val high = candles.maxOf { c -> c.priceUsd }
                 val low = candles.minOf { c -> c.priceUsd }
                 val range = if (low > 0) ((high - low) / low) * 100 else 0.0
-                range < 3.0  // Price stuck in tight range
+                range < 2.0  // TIGHTER: Price must be stuck in very tight range
             } else false
         }
         
-        if (whaleActivity > 70 && priceStalling) {
+        // LOOSENED: Require much higher whale activity threshold (was 70)
+        // AND must have significant losses to trigger (not just flat)
+        if (whaleActivity > 85 && priceStalling && pnlPct < -2.0) {
             return ExitSignal(
                 shouldExit = true,
                 reason = "WHALE_DISTRIBUTION",
                 urgency = Urgency.HIGH,
-                details = "Whale activity ${whaleActivity.toInt()} + price stalling"
+                details = "Whale activity ${whaleActivity.toInt()} + price stalling + pnl=${pnlPct.toInt()}%"
             )
         }
         

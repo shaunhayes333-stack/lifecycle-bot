@@ -66,7 +66,8 @@ object DistributionDetector {
             if (timeDeltaSec > 0) (newest - oldest) / timeDeltaSec else 0.0
         } else 0.0
         
-        val exitScoreRisingFast = exitScoreVelocity > 0.5  // Rising >0.5 points/sec
+        // LOOSENED: Exit score velocity threshold raised (was 0.5, now 0.8)
+        val exitScoreRisingFast = exitScoreVelocity > 0.8  // Rising >0.8 points/sec
         
         // ════════════════════════════════════════════════════════════════
         // 2. Check Volume - Still HIGH while dumping
@@ -106,7 +107,8 @@ object DistributionDetector {
             recentSells.toDouble() / (recentBuys + recentSells)
         } else 0.0
         val buyPressure = 1.0 - sellPressure
-        val highSellPressure = sellPressure > 0.55  // More sells than buys
+        // LOOSENED: Require higher sell pressure threshold (was 0.55, now 0.60)
+        val highSellPressure = sellPressure > 0.60  // More sells than buys
         
         // ════════════════════════════════════════════════════════════════
         // CRITICAL: HIGH BUY PRESSURE = NOT DISTRIBUTION
@@ -185,9 +187,9 @@ object DistributionDetector {
         
         // ════════════════════════════════════════════════════════════════
         // DISTRIBUTION DETECTED?
-        // Need 60% confidence AND sellers must have some presence
+        // LOOSENED: Need 70% confidence (was 60%) AND sellers must have some presence
         // ════════════════════════════════════════════════════════════════
-        val isDistributing = confidence >= 60 && !buyersInControl
+        val isDistributing = confidence >= 70 && !buyersInControl
         
         val reason = if (isDistributing) "DISTRIBUTION_DETECTED" else "NO_DISTRIBUTION"
         val details = signals.joinToString(" | ")

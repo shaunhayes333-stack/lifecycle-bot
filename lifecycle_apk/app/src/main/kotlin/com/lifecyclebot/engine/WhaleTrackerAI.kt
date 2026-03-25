@@ -186,8 +186,8 @@ object WhaleTrackerAI {
                 reason = "${consensus.buyingWhales.size} whales buying"
             )
             
-            // STRONG DISTRIBUTION: 3+ whales selling
-            consensus.sellingWhales.size >= 3 && sellingTrust >= 60 -> WhaleSignal(
+            // STRONG DISTRIBUTION: LOOSENED - require 4+ whales selling (was 3)
+            consensus.sellingWhales.size >= 4 && sellingTrust >= 70 -> WhaleSignal(
                 mint = mint,
                 symbol = symbol,
                 signal = SignalType.WHALE_DISTRIBUTION,
@@ -199,8 +199,8 @@ object WhaleTrackerAI {
                 reason = "${consensus.sellingWhales.size} trusted whales distributing - EXIT NOW"
             )
             
-            // DISTRIBUTION: 2+ whales selling
-            consensus.sellingWhales.size >= 2 -> WhaleSignal(
+            // DISTRIBUTION: LOOSENED - require 3+ whales selling (was 2)
+            consensus.sellingWhales.size >= 3 -> WhaleSignal(
                 mint = mint,
                 symbol = symbol,
                 signal = SignalType.WHALE_DISTRIBUTION,
