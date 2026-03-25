@@ -70,13 +70,30 @@ class WalletActivity : AppCompatActivity() {
     private var withdrawPct: Int = 50   // 0–100
 
     override fun onCreate(savedInstanceState: Bundle?) {
+        // Apply theme BEFORE setContentView
+        val cfg = ConfigStore.load(this)
+        if (cfg.darkModeEnabled) {
+            androidx.appcompat.app.AppCompatDelegate.setDefaultNightMode(
+                androidx.appcompat.app.AppCompatDelegate.MODE_NIGHT_YES
+            )
+        } else {
+            androidx.appcompat.app.AppCompatDelegate.setDefaultNightMode(
+                androidx.appcompat.app.AppCompatDelegate.MODE_NIGHT_NO
+            )
+        }
+        
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_wallet)
         supportActionBar?.apply {
             setDisplayHomeAsUpEnabled(true)
             title = "Wallet"
-            setBackgroundDrawable(android.graphics.drawable.ColorDrawable(0xFF0C1018.toInt()))
+            setBackgroundDrawable(android.graphics.drawable.ColorDrawable(
+                if (cfg.darkModeEnabled) 0xFF0C1018.toInt() else 0xFFF5F5F5.toInt()
+            ))
         }
+        
+        // Apply theme colors to root container
+        applyThemeColors(cfg.darkModeEnabled)
 
         vm       = ViewModelProvider(this)[BotViewModel::class.java]
         currency = try {
@@ -376,5 +393,20 @@ class WalletActivity : AppCompatActivity() {
     override fun onSupportNavigateUp(): Boolean {
         finish()
         return true
+    }
+    
+    private fun applyThemeColors(isDarkMode: Boolean) {
+        val scrollView = findViewById<ScrollView>(R.id.walletScrollView)
+        val container = findViewById<LinearLayout>(R.id.walletContainer)
+        
+        if (isDarkMode) {
+            scrollView.setBackgroundColor(0xFF06080C.toInt())
+            window.statusBarColor = 0xFF06080C.toInt()
+        } else {
+            scrollView.setBackgroundColor(0xFFF8F9FA.toInt())
+            window.statusBarColor = 0xFFF5F5F5.toInt()
+            // Update text colors for light mode
+            window.decorView.systemUiVisibility = View.SYSTEM_UI_FLAG_LIGHT_STATUS_BAR
+        }
     }
 }

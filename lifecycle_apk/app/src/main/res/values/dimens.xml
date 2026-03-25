@@ -45,7 +45,7 @@
     <dimen name="bottom_bar_padding_bottom">16dp</dimen>
     <dimen name="bottom_bar_padding_h">16dp</dimen>
     <dimen name="bottom_bar_padding_top">10dp</dimen>
-    <dimen name="content_bottom_padding">76dp</dimen>
+    <dimen name="content_bottom_padding">90dp</dimen>
 
     <!-- Trade rows -->
     <dimen name="trade_row_text">12sp</dimen>

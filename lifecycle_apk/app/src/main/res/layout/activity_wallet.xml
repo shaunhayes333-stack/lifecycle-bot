@@ -1,11 +1,13 @@
 <?xml version="1.0" encoding="utf-8"?>
 <ScrollView xmlns:android="http://schemas.android.com/apk/res/android"
+    android:id="@+id/walletScrollView"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
-    android:background="#06080C"
+    android:background="?android:attr/colorBackground"
     android:padding="@dimen/card_padding">
 
     <LinearLayout
+        android:id="@+id/walletContainer"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:orientation="vertical">
@@ -17,7 +19,7 @@
             android:layout_height="48dp"
             android:text="← BACK TO BOT"
             android:textColor="#00E5A0"
-            android:backgroundTint="#111720"
+            android:backgroundTint="?attr/colorSurface"
             android:fontFamily="monospace"
             android:textSize="14sp"
             android:layout_marginBottom="16dp"/>
