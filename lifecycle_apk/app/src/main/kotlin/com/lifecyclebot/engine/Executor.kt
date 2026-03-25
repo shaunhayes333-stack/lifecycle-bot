@@ -2945,8 +2945,24 @@ class Executor(
         try {
             // Use 2x slippage for sells - meme coins need more wiggle room on exits
             val sellSlippage = (c.slippageBps * 2).coerceAtMost(1000)  // Max 10%
-            val quote = getQuoteWithSlippageGuard(ts.mint, JupiterApi.SOL_MINT,
-                                                   tokenUnits, sellSlippage, isBuy = false)
+            
+            // Retry quote up to 3 times for sells (network issues, rate limits)
+            var quote: JupiterApi.SwapQuote? = null
+            var lastError: Exception? = null
+            for (attempt in 1..3) {
+                try {
+                    quote = getQuoteWithSlippageGuard(ts.mint, JupiterApi.SOL_MINT,
+                                                       tokenUnits, sellSlippage, isBuy = false)
+                    break // success
+                } catch (e: Exception) {
+                    lastError = e
+                    onLog("⚠ Sell quote attempt $attempt/3 failed: ${e.message?.take(60)}", ts.mint)
+                    if (attempt < 3) kotlinx.coroutines.delay(500L * attempt)
+                }
+            }
+            if (quote == null) {
+                throw lastError ?: RuntimeException("Failed to get sell quote after 3 attempts")
+            }
 
             // Validate quote — for sells, log warning but proceed
             val qGuard = security.validateQuote(quote, isBuy = false, inputSol = pos.costSol)
