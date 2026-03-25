@@ -25,8 +25,9 @@ class JupiterApi {
         private const val BASE_ULTRA = "https://api.jup.ag/ultra/v1"
         private const val TAG = "JupiterApi"
         
-        // Use Ultra API by default (faster, better MEV protection, auto-slippage)
-        var useUltraApi = true
+        // Start with v6 as default (more reliable DNS), Ultra can be enabled if working
+        // Ultra offers: auto-slippage, Beam MEV protection, ~300ms latency, lower fees
+        var useUltraApi = false  // Changed to false - v6 is more reliable
     }
 
     private val http = OkHttpClient.Builder()
@@ -51,16 +52,25 @@ class JupiterApi {
         amountLamports: Long,
         slippageBps: Int,
     ): SwapQuote {
-        // Try Ultra API first (faster, better)
+        // Try Ultra API first (faster, better) - but only if not previously disabled
         if (useUltraApi) {
             try {
                 return getUltraOrder(inputMint, outputMint, amountLamports)
             } catch (e: Exception) {
-                log("⚠️ Ultra API failed, falling back to v6: ${e.message?.take(50)}")
+                val errorMsg = e.message ?: "unknown"
+                log("⚠️ Ultra API failed: ${errorMsg.take(60)}")
+                
+                // If DNS fails, disable Ultra for this session to avoid repeated failures
+                if (errorMsg.contains("resolve") || errorMsg.contains("UnknownHost")) {
+                    log("🔄 Disabling Ultra API for this session (DNS issue), using v6")
+                    useUltraApi = false
+                }
+                // Fall through to v6
             }
         }
         
         // Fallback to v6 API
+        log("📊 Using Jupiter v6 API")
         return getQuoteV6(inputMint, outputMint, amountLamports, slippageBps)
     }
     
