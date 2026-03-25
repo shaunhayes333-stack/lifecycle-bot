@@ -110,16 +110,23 @@
                         android:ellipsize="end"
                         android:singleLine="true"/>
                 </LinearLayout>
+            </LinearLayout>
+            
+            <!-- Logo - Centered below top bar -->
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:gravity="center"
+                android:paddingTop="8dp"
+                android:paddingBottom="12dp">
                 
-                <!-- Logo - small, next to wallet -->
                 <ImageView
                     android:id="@+id/ivLogo"
-                    android:layout_width="28dp"
-                    android:layout_height="28dp"
+                    android:layout_width="120dp"
+                    android:layout_height="120dp"
                     android:src="@drawable/logo"
-                    android:scaleType="centerCrop"
-                    android:contentDescription="Lifecycle Bot Logo"
-                    android:layout_marginStart="8dp"/>
+                    android:scaleType="fitCenter"
+                    android:contentDescription="AI Trader Logo"/>
             </LinearLayout>
 
             <!-- ═══════════════════════════════
@@ -1457,6 +1464,40 @@
 
                         <Switch
                             android:id="@+id/switchSounds"
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:checked="true"
+                            android:thumbTint="#14F195"
+                            android:trackTint="#374151"/>
+                    </LinearLayout>
+                    
+                    <!-- Dark Mode Toggle -->
+                    <LinearLayout
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:orientation="horizontal"
+                        android:gravity="center_vertical"
+                        android:layout_marginTop="12dp">
+                        <LinearLayout
+                            android:layout_width="0dp"
+                            android:layout_height="wrap_content"
+                            android:layout_weight="1"
+                            android:orientation="vertical">
+                            <TextView
+                                android:layout_width="wrap_content"
+                                android:layout_height="wrap_content"
+                                android:text="Dark Mode"
+                                android:textColor="#FFFFFF"
+                                android:textSize="14sp"/>
+                            <TextView
+                                android:layout_width="wrap_content"
+                                android:layout_height="wrap_content"
+                                android:text="Switch to light theme"
+                                android:textColor="#6B7280"
+                                android:textSize="11sp"/>
+                        </LinearLayout>
+                        <androidx.appcompat.widget.SwitchCompat
+                            android:id="@+id/switchDarkMode"
                             android:layout_width="wrap_content"
                             android:layout_height="wrap_content"
                             android:checked="true"

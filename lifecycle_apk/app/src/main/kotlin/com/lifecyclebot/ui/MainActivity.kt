@@ -136,6 +136,7 @@ class MainActivity : AppCompatActivity() {
     private lateinit var etGroqKey: EditText
     private lateinit var switchNotifications: android.widget.Switch
     private lateinit var switchSounds: android.widget.Switch
+    private lateinit var switchDarkMode: androidx.appcompat.widget.SwitchCompat
     private lateinit var btnSave: Button
 
     // bottom bar
@@ -364,7 +365,13 @@ class MainActivity : AppCompatActivity() {
         etGroqKey       = try { findViewById(R.id.etGroqKey) } catch (_: Exception) { EditText(this) }
         switchNotifications = try { findViewById(R.id.switchNotifications) } catch (_: Exception) { android.widget.Switch(this) }
         switchSounds    = try { findViewById(R.id.switchSounds) } catch (_: Exception) { android.widget.Switch(this) }
+        switchDarkMode  = try { findViewById(R.id.switchDarkMode) } catch (_: Exception) { androidx.appcompat.widget.SwitchCompat(this) }
         btnSave         = findViewById(R.id.btnSave)
+        
+        // Dark mode toggle listener
+        switchDarkMode.setOnCheckedChangeListener { _, isChecked ->
+            applyTheme(isChecked)
+        }
 
         // API key help links - open signup pages
         setupApiKeyHelpLinks()
@@ -794,12 +801,16 @@ class MainActivity : AppCompatActivity() {
             switchTopUp.isChecked      = c.topUpEnabled
             switchNotifications.isChecked = c.notificationsEnabled
             switchSounds.isChecked     = c.soundEnabled
+            switchDarkMode.isChecked   = c.darkModeEnabled
             etTopUpMinGain.setText(c.topUpMinGainPct.toString())
             etTopUpGainStep.setText(c.topUpGainStepPct.toString())
             etTopUpMaxCount.setText(c.topUpMaxCount.toString())
             etTopUpMaxSol.setText(c.topUpMaxTotalSol.toString())
             populateSettings(cfg)
             settingsPopulated = true
+            
+            // Apply theme on startup
+            applyTheme(c.darkModeEnabled)
         }
     }
 
@@ -1273,6 +1284,7 @@ class MainActivity : AppCompatActivity() {
             watchlist             = wl,
             notificationsEnabled  = switchNotifications.isChecked,
             soundEnabled          = switchSounds.isChecked,
+            darkModeEnabled       = switchDarkMode.isChecked,
         )
         vm.saveConfig(cfg)
         settingsPopulated = false
@@ -1443,6 +1455,23 @@ class MainActivity : AppCompatActivity() {
                 }, 7000)
             }
         } catch (_: Exception) {}
+    }
+    
+    /**
+     * Apply dark or light theme to the UI
+     */
+    private fun applyTheme(isDarkMode: Boolean) {
+        if (isDarkMode) {
+            // Dark mode - default colors (already set in XML)
+            androidx.appcompat.app.AppCompatDelegate.setDefaultNightMode(
+                androidx.appcompat.app.AppCompatDelegate.MODE_NIGHT_YES
+            )
+        } else {
+            // Light mode
+            androidx.appcompat.app.AppCompatDelegate.setDefaultNightMode(
+                androidx.appcompat.app.AppCompatDelegate.MODE_NIGHT_NO
+            )
+        }
     }
 }
 

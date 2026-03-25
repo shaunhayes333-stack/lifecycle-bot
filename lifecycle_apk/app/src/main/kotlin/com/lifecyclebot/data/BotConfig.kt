@@ -89,6 +89,8 @@ data class BotConfig(
     val notificationsEnabled: Boolean = true,
     val soundEnabled: Boolean = true,
     val soundOnNewToken: Boolean = true,
+    // UI theme
+    val darkModeEnabled: Boolean = true,      // true = dark mode (default), false = light mode
     // auto mode
     val autoMode: Boolean = true,           // auto-switch between modes
     val tradingPauseUtcStart: Int = 4,      // UTC hour to pause (default 4am - shortest dead window)
@@ -259,6 +261,7 @@ object ConfigStore {
             putBoolean("notifications_enabled",       cfg.notificationsEnabled)
             putBoolean("sound_enabled",               cfg.soundEnabled)
             putBoolean("sound_on_new_token",          cfg.soundOnNewToken)
+            putBoolean("dark_mode_enabled",           cfg.darkModeEnabled)
             putBoolean("auto_mode",                   cfg.autoMode)
             putInt("trading_pause_utc_start",         cfg.tradingPauseUtcStart)
             putInt("trading_pause_utc_end",           cfg.tradingPauseUtcEnd)
@@ -374,6 +377,7 @@ object ConfigStore {
             notificationsEnabled        = p.getBoolean("notifications_enabled", true),
             soundEnabled                = p.getBoolean("sound_enabled", true),
             soundOnNewToken             = p.getBoolean("sound_on_new_token", true),
+            darkModeEnabled             = p.getBoolean("dark_mode_enabled", true),
             autoMode                    = p.getBoolean("auto_mode", true),
             tradingPauseUtcStart        = p.getInt("trading_pause_utc_start", 4),
             tradingPauseUtcEnd          = p.getInt("trading_pause_utc_end", 6),
