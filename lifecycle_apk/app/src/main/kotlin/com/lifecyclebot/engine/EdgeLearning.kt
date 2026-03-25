@@ -20,19 +20,19 @@ object EdgeLearning {
     // ═══════════════════════════════════════════════════════════════════════
     
     data class AdaptiveThresholds(
-        var paperBuyPctMin: Double = 45.0,      // Paper: min buy% to trade (balanced for learning)
-        var paperVolumeMin: Double = 8.0,       // Paper: min volume score (lowered)
+        var paperBuyPctMin: Double = 40.0,      // Paper: AGGRESSIVE for max learning (was 45)
+        var paperVolumeMin: Double = 5.0,       // Paper: LOWERED for more trades (was 8)
         var liveBuyPctMin: Double = 55.0,       // Live: min buy% to trade (conservative)
         var liveVolumeMin: Double = 15.0,       // Live: min volume score
-        var vetoStickyMinutes: Int = 3,         // How long vetoes stick (reduced for paper)
+        var vetoStickyMinutes: Int = 1,         // REDUCED: 1 min sticky (was 3) for paper
     ) {
         // Bounds to prevent extreme values
         fun clamp() {
-            paperBuyPctMin = paperBuyPctMin.coerceIn(40.0, 50.0)  // Paper: 40-50% (allow more trades)
-            paperVolumeMin = paperVolumeMin.coerceIn(3.0, 20.0)   // Lower bound reduced
+            paperBuyPctMin = paperBuyPctMin.coerceIn(35.0, 48.0)  // Paper: 35-48% (MUCH more aggressive)
+            paperVolumeMin = paperVolumeMin.coerceIn(2.0, 15.0)   // Lower bound reduced further
             liveBuyPctMin = liveBuyPctMin.coerceIn(50.0, 65.0)    // Live: 50-65% (conservative)
             liveVolumeMin = liveVolumeMin.coerceIn(10.0, 25.0)
-            vetoStickyMinutes = vetoStickyMinutes.coerceIn(1, 15)  // Lower bound reduced
+            vetoStickyMinutes = vetoStickyMinutes.coerceIn(1, 15)  // Min 1 minute
         }
     }
     
@@ -332,11 +332,11 @@ object EdgeLearning {
         } else {
             // Use SharedPreferences (normal app storage)
             thresholds = AdaptiveThresholds(
-                paperBuyPctMin = prefs.getFloat("edge_paper_buy_pct", 45f).toDouble(),
-                paperVolumeMin = prefs.getFloat("edge_paper_volume", 10f).toDouble(),
+                paperBuyPctMin = prefs.getFloat("edge_paper_buy_pct", 40f).toDouble(),  // LOWERED default
+                paperVolumeMin = prefs.getFloat("edge_paper_volume", 5f).toDouble(),    // LOWERED default
                 liveBuyPctMin = prefs.getFloat("edge_live_buy_pct", 55f).toDouble(),
                 liveVolumeMin = prefs.getFloat("edge_live_volume", 15f).toDouble(),
-                vetoStickyMinutes = prefs.getInt("edge_veto_minutes", 5),
+                vetoStickyMinutes = prefs.getInt("edge_veto_minutes", 1),               // LOWERED default
             )
             // Clamp to new bounds (in case stored values exceed new limits)
             thresholds.clamp()

@@ -552,7 +552,7 @@ class BotService : Service() {
                             
                             // Check 2a: MINIMUM LIQUIDITY (most important filter!)
                             // Zero-liq tokens are untradeable junk - don't waste watchlist space
-                            val minLiquidity = if (c.paperMode) 1000.0 else 3000.0  // $1K paper, $3K live
+                            val minLiquidity = if (c.paperMode) 500.0 else 3000.0  // $500 paper (LOWERED), $3K live
                             if (liquidityUsd < minLiquidity) {
                                 TradeLifecycle.ineligible(identity.mint, "Liquidity too low: $${liquidityUsd.toInt()} < $${minLiquidity.toInt()}")
                                 ErrorLogger.debug("BotService", "INELIGIBLE: ${identity.symbol} - liq $${liquidityUsd.toInt()} < $${minLiquidity.toInt()}")

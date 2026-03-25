@@ -475,13 +475,17 @@ object EdgeOptimizer {
             )
         }
         
-        // Distribution phase — always skip (even paper mode)
+        // Distribution phase — LIVE: always skip, PAPER: allow for learning
         if (phase.phase == MarketPhase.DISTRIBUTION) {
-            return FilterResult(
-                shouldTrade = false,
-                reason = "Distribution phase - smart money selling",
-                quality = "SKIP"
-            )
+            if (!isPaperMode) {
+                return FilterResult(
+                    shouldTrade = false,
+                    reason = "Distribution phase - smart money selling",
+                    quality = "SKIP"
+                )
+            }
+            // PAPER MODE: Allow distribution trades for learning (will likely lose, but that's data)
+            // The AI needs to learn what distribution looks like from actual outcomes
         }
         
         // ═══════════════════════════════════════════════════════════════════
