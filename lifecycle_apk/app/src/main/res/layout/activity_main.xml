@@ -5,6 +5,12 @@
     android:layout_height="match_parent"
     android:background="#0A0A0F">
 
+    <!-- ── PULL TO REFRESH ── -->
+    <androidx.swiperefreshlayout.widget.SwipeRefreshLayout
+        android:id="@+id/swipeRefresh"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent">
+
     <!-- ── SCROLLABLE CONTENT ── -->
     <androidx.core.widget.NestedScrollView
         android:id="@+id/mainScrollView"
@@ -199,6 +205,121 @@
             </LinearLayout>
 
             <!-- ═══════════════════════════════
+                 QUICK STATS BAR
+                 ═══════════════════════════════ -->
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="horizontal"
+                android:paddingStart="@dimen/screen_padding"
+                android:paddingEnd="@dimen/screen_padding"
+                android:layout_marginBottom="12dp">
+
+                <!-- 24h Trades -->
+                <LinearLayout
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:orientation="vertical"
+                    android:gravity="center"
+                    android:background="@drawable/stats_pill_bg"
+                    android:padding="8dp"
+                    android:layout_marginEnd="6dp">
+                    <TextView
+                        android:id="@+id/tvStats24hTrades"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="0"
+                        android:textColor="#FFFFFF"
+                        android:textSize="16sp"
+                        android:textStyle="bold"/>
+                    <TextView
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="24h Trades"
+                        android:textColor="#6B7280"
+                        android:textSize="9sp"/>
+                </LinearLayout>
+
+                <!-- Win Rate -->
+                <LinearLayout
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:orientation="vertical"
+                    android:gravity="center"
+                    android:background="@drawable/stats_pill_bg"
+                    android:padding="8dp"
+                    android:layout_marginEnd="6dp">
+                    <TextView
+                        android:id="@+id/tvStatsWinRate"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="—%"
+                        android:textColor="#10B981"
+                        android:textSize="16sp"
+                        android:textStyle="bold"/>
+                    <TextView
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="Win Rate"
+                        android:textColor="#6B7280"
+                        android:textSize="9sp"/>
+                </LinearLayout>
+
+                <!-- Open Positions -->
+                <LinearLayout
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:orientation="vertical"
+                    android:gravity="center"
+                    android:background="@drawable/stats_pill_bg"
+                    android:padding="8dp"
+                    android:layout_marginEnd="6dp">
+                    <TextView
+                        android:id="@+id/tvStatsOpenPos"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="0"
+                        android:textColor="#9945FF"
+                        android:textSize="16sp"
+                        android:textStyle="bold"/>
+                    <TextView
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="Open"
+                        android:textColor="#6B7280"
+                        android:textSize="9sp"/>
+                </LinearLayout>
+
+                <!-- AI Confidence -->
+                <LinearLayout
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:orientation="vertical"
+                    android:gravity="center"
+                    android:background="@drawable/stats_pill_bg"
+                    android:padding="8dp">
+                    <TextView
+                        android:id="@+id/tvStatsAiConf"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="—"
+                        android:textColor="#F59E0B"
+                        android:textSize="16sp"
+                        android:textStyle="bold"/>
+                    <TextView
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="AI Conf"
+                        android:textColor="#6B7280"
+                        android:textSize="9sp"/>
+                </LinearLayout>
+            </LinearLayout>
+
+            <!-- ═══════════════════════════════
                  QUICK ACTIONS BAR
                  ═══════════════════════════════ -->
             <LinearLayout
@@ -322,13 +443,23 @@
                 android:orientation="vertical"
                 android:padding="@dimen/card_padding">
 
-                <!-- Token name + signal -->
+                <!-- Token name + logo + signal -->
                 <LinearLayout
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
                     android:orientation="horizontal"
                     android:gravity="center_vertical"
                     android:layout_marginBottom="14dp">
+
+                    <!-- Token Logo -->
+                    <ImageView
+                        android:id="@+id/ivTokenLogo"
+                        android:layout_width="40dp"
+                        android:layout_height="40dp"
+                        android:src="@drawable/ic_token_placeholder"
+                        android:scaleType="centerCrop"
+                        android:background="@drawable/token_logo_bg"
+                        android:layout_marginEnd="12dp"/>
 
                     <LinearLayout
                         android:layout_width="0dp"
@@ -1844,6 +1975,71 @@
             android:backgroundTint="#9945FF"
             android:stateListAnimator="@null"/>
 
+    </LinearLayout>
+
+    </androidx.swiperefreshlayout.widget.SwipeRefreshLayout>
+
+    <!-- ═══════════════════════════════
+         POSITION PNL FLOATING CARD
+         ═══════════════════════════════ -->
+    <LinearLayout
+        android:id="@+id/cardPositionPnl"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal"
+        android:background="@drawable/pnl_card_bg"
+        android:padding="12dp"
+        android:layout_marginStart="16dp"
+        android:layout_marginEnd="16dp"
+        android:layout_marginBottom="80dp"
+        android:gravity="center_vertical"
+        android:elevation="8dp"
+        android:visibility="gone"
+        android:layout_gravity="bottom">
+
+        <LinearLayout
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:orientation="vertical">
+            <TextView
+                android:id="@+id/tvPnlSymbol"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="TOKEN"
+                android:textColor="#FFFFFF"
+                android:textSize="14sp"
+                android:textStyle="bold"/>
+            <TextView
+                android:id="@+id/tvPnlEntry"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="Entry: $0.00"
+                android:textColor="#9CA3AF"
+                android:textSize="11sp"/>
+        </LinearLayout>
+
+        <LinearLayout
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:orientation="vertical"
+            android:gravity="end">
+            <TextView
+                android:id="@+id/tvPnlPercent"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="+0.0%"
+                android:textColor="#10B981"
+                android:textSize="18sp"
+                android:textStyle="bold"/>
+            <TextView
+                android:id="@+id/tvPnlValue"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="$0.00"
+                android:textColor="#9CA3AF"
+                android:textSize="11sp"/>
+        </LinearLayout>
     </LinearLayout>
 
 </androidx.coordinatorlayout.widget.CoordinatorLayout>

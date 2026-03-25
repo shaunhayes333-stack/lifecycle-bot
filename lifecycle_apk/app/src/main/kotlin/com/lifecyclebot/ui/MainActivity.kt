@@ -9,6 +9,10 @@ import android.provider.Settings
 import android.graphics.Color
 import android.os.Build
 import android.os.Bundle
+import android.os.VibrationEffect
+import android.os.Vibrator
+import android.os.VibratorManager
+import android.view.HapticFeedbackConstants
 import android.view.View
 import android.widget.*
 import androidx.appcompat.app.AppCompatActivity
@@ -23,6 +27,7 @@ import com.lifecyclebot.R
 import com.lifecyclebot.data.*
 import com.lifecyclebot.engine.SafetyTier
 import com.lifecyclebot.engine.WalletConnectionState
+import com.lifecyclebot.engine.WalletManager
 import kotlinx.coroutines.launch
 import java.text.SimpleDateFormat
 import java.util.*
@@ -145,6 +150,25 @@ class MainActivity : AppCompatActivity() {
     private lateinit var tvMode: TextView
     private lateinit var tvAutoMode: android.widget.TextView
     private lateinit var btnToggle: Button
+
+    // NEW: Pull to refresh
+    private lateinit var swipeRefresh: androidx.swiperefreshlayout.widget.SwipeRefreshLayout
+    
+    // NEW: Quick stats
+    private lateinit var tvStats24hTrades: TextView
+    private lateinit var tvStatsWinRate: TextView
+    private lateinit var tvStatsOpenPos: TextView
+    private lateinit var tvStatsAiConf: TextView
+    
+    // NEW: Token logo
+    private lateinit var ivTokenLogo: ImageView
+    
+    // NEW: Position PnL card
+    private lateinit var cardPositionPnl: LinearLayout
+    private lateinit var tvPnlSymbol: TextView
+    private lateinit var tvPnlEntry: TextView
+    private lateinit var tvPnlPercent: TextView
+    private lateinit var tvPnlValue: TextView
 
     // chart data
     private val chartEntries = mutableListOf<Entry>()
@@ -416,6 +440,36 @@ class MainActivity : AppCompatActivity() {
         tvAutoMode      = try { findViewById(R.id.tvAutoMode) } catch (_:Exception) { android.widget.TextView(this) }
         btnToggle       = findViewById(R.id.btnToggle)
 
+        // NEW: Pull-to-refresh
+        swipeRefresh    = try { findViewById(R.id.swipeRefresh) } catch (_: Exception) { 
+            androidx.swiperefreshlayout.widget.SwipeRefreshLayout(this) 
+        }
+        swipeRefresh.setColorSchemeColors(purple, green, amber)
+        swipeRefresh.setOnRefreshListener {
+            // Trigger a refresh
+            vm.forceRefresh()
+            // Haptic feedback
+            performHaptic(android.view.HapticFeedbackConstants.CONTEXT_CLICK)
+            // Stop the animation after a delay
+            swipeRefresh.postDelayed({ swipeRefresh.isRefreshing = false }, 1500)
+        }
+        
+        // NEW: Quick stats
+        tvStats24hTrades = try { findViewById(R.id.tvStats24hTrades) } catch (_: Exception) { TextView(this) }
+        tvStatsWinRate   = try { findViewById(R.id.tvStatsWinRate) } catch (_: Exception) { TextView(this) }
+        tvStatsOpenPos   = try { findViewById(R.id.tvStatsOpenPos) } catch (_: Exception) { TextView(this) }
+        tvStatsAiConf    = try { findViewById(R.id.tvStatsAiConf) } catch (_: Exception) { TextView(this) }
+        
+        // NEW: Token logo
+        ivTokenLogo      = try { findViewById(R.id.ivTokenLogo) } catch (_: Exception) { ImageView(this) }
+        
+        // NEW: Position PnL card
+        cardPositionPnl  = try { findViewById(R.id.cardPositionPnl) } catch (_: Exception) { LinearLayout(this) }
+        tvPnlSymbol      = try { findViewById(R.id.tvPnlSymbol) } catch (_: Exception) { TextView(this) }
+        tvPnlEntry       = try { findViewById(R.id.tvPnlEntry) } catch (_: Exception) { TextView(this) }
+        tvPnlPercent     = try { findViewById(R.id.tvPnlPercent) } catch (_: Exception) { TextView(this) }
+        tvPnlValue       = try { findViewById(R.id.tvPnlValue) } catch (_: Exception) { TextView(this) }
+
         btnToggle.setOnClickListener { vm.toggleBot() }
         btnWalletTop.setOnClickListener {
             startActivity(Intent(this, WalletActivity::class.java))
@@ -581,10 +635,11 @@ class MainActivity : AppCompatActivity() {
         }
         tvPosition.setTextColor(if (ts?.position?.isOpen == true) green else muted)
 
-        pbEntry.progress  = ts?.entryScore?.toInt() ?: 0
-        pbExit.progress   = ts?.exitScore?.toInt()  ?: 0
-        pbVol.progress    = ts?.meta?.volScore?.toInt()   ?: 0
-        pbPress.progress  = ts?.meta?.pressScore?.toInt() ?: 0
+        // Animated progress bars
+        animateProgress(pbEntry, ts?.entryScore?.toInt() ?: 0)
+        animateProgress(pbExit, ts?.exitScore?.toInt() ?: 0)
+        animateProgress(pbVol, ts?.meta?.volScore?.toInt() ?: 0)
+        animateProgress(pbPress, ts?.meta?.pressScore?.toInt() ?: 0)
         tvEntryVal.text   = "${ts?.entryScore?.toInt() ?: 0}"
         tvExitVal.text    = "${ts?.exitScore?.toInt()  ?: 0}"
         tvVolVal.text     = "${ts?.meta?.volScore?.toInt()   ?: 0}"
@@ -626,6 +681,59 @@ class MainActivity : AppCompatActivity() {
         } else if (ts?.lastPrice != null && ts.lastPrice > 0) {
             // Append new price point
             appendChart(ts.lastPrice)
+        }
+
+        // ── Quick Stats Bar ─────────────────────────────────────────
+        try {
+            val trades24h = ws.totalTrades  // TODO: filter to last 24h
+            tvStats24hTrades.text = "$trades24h"
+            
+            val winRate = ws.winRate.toIntOrNull() ?: 0
+            tvStatsWinRate.text = "$winRate%"
+            tvStatsWinRate.setTextColor(when {
+                winRate >= 60 -> green
+                winRate >= 40 -> amber
+                else -> red
+            })
+            
+            val openCount = state.openPositions.size
+            tvStatsOpenPos.text = "$openCount"
+            tvStatsOpenPos.setTextColor(if (openCount > 0) purple else muted)
+            
+            val aiConf = ts?.aiConfidence?.toInt() ?: 0
+            tvStatsAiConf.text = if (aiConf > 0) "$aiConf" else "—"
+            tvStatsAiConf.setTextColor(when {
+                aiConf >= 70 -> green
+                aiConf >= 50 -> amber
+                aiConf > 0 -> red
+                else -> muted
+            })
+        } catch (_: Exception) {}
+
+        // ── Position PnL Floating Card ──────────────────────────────
+        try {
+            if (ts?.position?.isOpen == true && ts.lastPrice > 0) {
+                cardPositionPnl.visibility = View.VISIBLE
+                tvPnlSymbol.text = ts.symbol
+                tvPnlEntry.text = "Entry: ${currency.formatPrice(ts.position.entryPriceUsd)}"
+                
+                val currentVal = ts.position.tokensBought * ts.lastPrice
+                val entryVal = ts.position.solSpent * WalletManager.lastKnownSolPrice
+                val pnlPctPos = if (entryVal > 0) ((currentVal - entryVal) / entryVal) * 100 else 0.0
+                
+                tvPnlPercent.text = "%+.1f%%".format(pnlPctPos)
+                tvPnlPercent.setTextColor(if (pnlPctPos >= 0) green else red)
+                tvPnlValue.text = currency.formatPrice(currentVal)
+                
+                // Update card background based on PnL
+                cardPositionPnl.background = ContextCompat.getDrawable(this,
+                    if (pnlPctPos >= 0) R.drawable.pnl_card_bg else R.drawable.pnl_card_bg_loss
+                )
+            } else {
+                cardPositionPnl.visibility = View.GONE
+            }
+        } catch (_: Exception) {
+            cardPositionPnl.visibility = View.GONE
         }
 
         // ── open positions panel ─────────────────────────────────
@@ -1473,6 +1581,47 @@ class MainActivity : AppCompatActivity() {
             androidx.appcompat.app.AppCompatDelegate.setDefaultNightMode(
                 androidx.appcompat.app.AppCompatDelegate.MODE_NIGHT_NO
             )
+        }
+    }
+    
+    // ── Haptic Feedback ─────────────────────────────────────────────────
+    private fun performHaptic(feedbackType: Int = HapticFeedbackConstants.CONTEXT_CLICK) {
+        try {
+            window.decorView.performHapticFeedback(feedbackType)
+        } catch (_: Exception) {}
+    }
+    
+    @Suppress("DEPRECATION")
+    private fun vibrate(durationMs: Long = 50) {
+        try {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                val vibratorManager = getSystemService(Context.VIBRATOR_MANAGER_SERVICE) as VibratorManager
+                vibratorManager.defaultVibrator.vibrate(
+                    VibrationEffect.createOneShot(durationMs, VibrationEffect.DEFAULT_AMPLITUDE)
+                )
+            } else {
+                val vibrator = getSystemService(Context.VIBRATOR_SERVICE) as Vibrator
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                    vibrator.vibrate(VibrationEffect.createOneShot(durationMs, VibrationEffect.DEFAULT_AMPLITUDE))
+                } else {
+                    vibrator.vibrate(durationMs)
+                }
+            }
+        } catch (_: Exception) {}
+    }
+    
+    // ── Animated Progress ───────────────────────────────────────────────
+    private fun animateProgress(progressBar: ProgressBar, newValue: Int) {
+        val currentValue = progressBar.progress
+        if (currentValue == newValue) return
+        
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
+            progressBar.setProgress(newValue, true)
+        } else {
+            val animator = android.animation.ObjectAnimator.ofInt(progressBar, "progress", currentValue, newValue)
+            animator.duration = 300
+            animator.interpolator = android.view.animation.DecelerateInterpolator()
+            animator.start()
         }
     }
 }

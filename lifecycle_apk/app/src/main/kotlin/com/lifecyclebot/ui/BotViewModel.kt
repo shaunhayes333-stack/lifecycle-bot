@@ -137,6 +137,17 @@ class BotViewModel(app: Application) : AndroidViewModel(app) {
     fun toggleBot() {
         if (_ui.value.running) stopBot() else startBot()
     }
+    
+    fun forceRefresh() {
+        viewModelScope.launch {
+            try {
+                // Refresh wallet balance
+                com.lifecyclebot.engine.WalletManager.getInstance(ctx).refreshBalance()
+                // Re-emit current state to trigger UI update
+                emit()
+            } catch (_: Exception) {}
+        }
+    }
 
     fun saveConfig(cfg: BotConfig) {
         // Only save and restart if IMPORTANT settings changed (not watchlist)
