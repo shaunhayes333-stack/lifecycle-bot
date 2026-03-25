@@ -699,14 +699,14 @@ class Executor(
                 val sellUnits = (sellQty * 1_000_000_000.0).toLong().coerceAtLeast(1L)
                 val quote     = getQuoteWithSlippageGuard(
                     ts.mint, JupiterApi.SOL_MINT, sellUnits, c.slippageBps, isBuy = false)
-                val txB64     = buildTxWithRetry(quote, wallet.publicKeyB58)
+                val txResult  = buildTxWithRetry(quote, wallet.publicKeyB58)
                 security.enforceSignDelay()
                 
                 // ⚡ MEV PROTECTION for partial sells (Ultra or Jito)
                 val useJito = c.jitoEnabled && !quote.isUltra
                 val jitoTip = c.jitoTipLamports
-                val ultraReqId = if (quote.isUltra) quote.requestId else null
-                val sig       = wallet.signSendAndConfirm(txB64, useJito, jitoTip, ultraReqId)
+                val ultraReqId = if (quote.isUltra) txResult.requestId else null
+                val sig       = wallet.signSendAndConfirm(txResult.txBase64, useJito, jitoTip, ultraReqId)
                 val solBack   = quote.outAmount / 1_000_000_000.0
                 val livePnl   = solBack - pos.costSol * sellFraction
                 val liveScore = pct(pos.costSol * sellFraction, solBack)
@@ -1623,20 +1623,20 @@ class Executor(
             if (qGuard is GuardResult.Block) {
                 onLog("🚫 Top-up quote rejected: ${qGuard.reason}", ts.mint); return
             }
-            val txB64 = buildTxWithRetry(quote, wallet.publicKeyB58)
+            val txResult = buildTxWithRetry(quote, wallet.publicKeyB58)
             security.enforceSignDelay()
             
             // ⚡ MEV PROTECTION for top-ups (Ultra or Jito)
             val useJito = c.jitoEnabled && !quote.isUltra
             val jitoTip = c.jitoTipLamports
-            val ultraReqId = if (quote.isUltra) quote.requestId else null
+            val ultraReqId = if (quote.isUltra) txResult.requestId else null
             
             if (quote.isUltra) {
                 onLog("🚀 Broadcasting top-up via Jupiter Ultra…", ts.mint)
             } else {
                 onLog("Broadcasting top-up tx…", ts.mint)
             }
-            val sig    = wallet.signSendAndConfirm(txB64, useJito, jitoTip, ultraReqId)
+            val sig    = wallet.signSendAndConfirm(txResult.txBase64, useJito, jitoTip, ultraReqId)
             val pos    = ts.position
             val price  = ts.ref
             val newQty = quote.outAmount.toDouble() / tokenScale(quote.outAmount)
@@ -1850,10 +1850,10 @@ class Executor(
                 return
             }
 
-            val txB64 = buildTxWithRetry(quote, wallet.publicKeyB58)
+            val txResult = buildTxWithRetry(quote, wallet.publicKeyB58)
 
             // Simulate before broadcast — catches balance/slippage/program errors
-            val simErr = jupiter.simulateSwap(txB64, wallet.rpcUrl)
+            val simErr = jupiter.simulateSwap(txResult.txBase64, wallet.rpcUrl)
             if (simErr != null) {
                 onLog("Swap simulation failed: $simErr", ts.mint)
                 throw Exception(simErr)
@@ -1881,8 +1881,8 @@ class Executor(
             }
             
             // Pass Ultra requestId if available for optimal execution
-            val ultraReqId = if (quote.isUltra) quote.requestId else null
-            val sig = wallet.signSendAndConfirm(txB64, useJito, jitoTip, ultraReqId)
+            val ultraReqId = if (quote.isUltra) txResult.requestId else null
+            val sig = wallet.signSendAndConfirm(txResult.txBase64, useJito, jitoTip, ultraReqId)
             val qty   = quote.outAmount.toDouble() / tokenScale(quote.outAmount)
             val price = ts.ref
 
@@ -2467,7 +2467,7 @@ class Executor(
                 onLog("⚠ Sell quote warning: ${qGuard.reason} — proceeding anyway", ts.mint)
             }
 
-            val txB64 = buildTxWithRetry(quote, wallet.publicKeyB58)
+            val txResult = buildTxWithRetry(quote, wallet.publicKeyB58)
             security.enforceSignDelay()
             
             // ⚡ MEV PROTECTION: 
@@ -2484,8 +2484,8 @@ class Executor(
                 onLog("Broadcasting sell tx…", ts.mint)
             }
             
-            val ultraReqId = if (quote.isUltra) quote.requestId else null
-            val sig     = wallet.signSendAndConfirm(txB64, useJito, jitoTip, ultraReqId)
+            val ultraReqId = if (quote.isUltra) txResult.requestId else null
+            val sig     = wallet.signSendAndConfirm(txResult.txBase64, useJito, jitoTip, ultraReqId)
             val price   = ts.ref
             val solBack = quote.outAmount / 1_000_000_000.0
             pnl  = solBack - pos.costSol
@@ -2972,7 +2972,7 @@ class Executor(
 
     private fun buildTxWithRetry(
         quote: com.lifecyclebot.network.SwapQuote, pubkey: String,
-    ): String {
+    ): com.lifecyclebot.network.SwapTxResult {
         return try {
             jupiter.buildSwapTx(quote, pubkey)
         } catch (e: Exception) {

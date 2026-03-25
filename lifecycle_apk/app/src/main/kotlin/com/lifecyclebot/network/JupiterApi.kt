@@ -17,6 +17,15 @@ data class SwapQuote(
     val isUltra: Boolean = false,      // Flag to indicate Ultra quote
 )
 
+/**
+ * Result from building a swap transaction.
+ * Contains both the base64 transaction and the requestId (for Ultra execute).
+ */
+data class SwapTxResult(
+    val txBase64: String,
+    val requestId: String = "",  // For Ultra execute endpoint
+)
+
 class JupiterApi {
 
     companion object {
@@ -231,31 +240,32 @@ class JupiterApi {
 
     /**
      * Build a versioned transaction for the swap.
-     * For Ultra API quotes, the transaction is already included.
+     * For Ultra API quotes, we fetch a new order with taker to get the transaction.
      * For v6 quotes, we build it via /swap endpoint.
      * 
-     * Returns base64-encoded transaction bytes ready for signing.
+     * Returns SwapTxResult with base64 transaction and requestId (for Ultra execute).
      */
-    fun buildSwapTx(quote: SwapQuote, userPublicKey: String): String {
+    fun buildSwapTx(quote: SwapQuote, userPublicKey: String): SwapTxResult {
         // Ultra API: Transaction already built, just need to update taker
         if (quote.isUltra && quote.swapTransaction.isNotBlank()) {
             log("🚀 Using pre-built Ultra transaction")
-            return quote.swapTransaction
+            return SwapTxResult(quote.swapTransaction, quote.requestId)
         }
         
-        // Ultra API: Need to re-fetch with taker address
+        // Ultra API: Need to fetch order with taker address to get transaction
         if (quote.isUltra) {
             return buildUltraTx(quote, userPublicKey)
         }
         
         // v6 API: Build via /swap endpoint
-        return buildSwapTxV6(quote, userPublicKey)
+        return SwapTxResult(buildSwapTxV6(quote, userPublicKey), "")
     }
     
     /**
      * Ultra API: Get order with taker address for signing (uses GET request)
+     * Returns SwapTxResult with transaction and requestId for execute.
      */
-    private fun buildUltraTx(quote: SwapQuote, userPublicKey: String): String {
+    private fun buildUltraTx(quote: SwapQuote, userPublicKey: String): SwapTxResult {
         val startMs = System.currentTimeMillis()
         log("🚀 Building Ultra tx for ${userPublicKey.take(8)}...")
         
@@ -284,15 +294,11 @@ class JupiterApi {
             throw RuntimeException("Jupiter Ultra returned empty transaction")
         }
         
-        // Also store the requestId for execute
+        // Get the requestId for execute
         val requestId = json.optString("requestId", "")
-        if (requestId.isNotBlank()) {
-            // Update the quote's requestId for later use in execute
-            quote.raw.put("requestId", requestId)
-        }
         
         log("✅ Ultra tx built OK (${swapTx.length} chars, reqId=${requestId.take(12)}..., ${elapsed}ms)")
-        return swapTx
+        return SwapTxResult(swapTx, requestId)
     }
     
     /**
