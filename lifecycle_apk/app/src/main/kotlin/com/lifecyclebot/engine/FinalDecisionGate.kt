@@ -1124,11 +1124,11 @@ object FinalDecisionGate {
                 )
                 
                 // In paper mode, reduce narrative penalty impact to allow more learning trades
-                // Live mode keeps full impact for safety
+                // Live mode keeps reduced impact for reasonable protection without over-blocking
                 narrativeAdjustment = if (config.paperMode) {
                     (narrativeResult.confidenceAdjustment / 2).coerceIn(-10, 5)  // Max -10 in paper
                 } else {
-                    narrativeResult.confidenceAdjustment  // Full impact in live
+                    (narrativeResult.confidenceAdjustment / 2).coerceIn(-15, 5)  // Max -15 in live (was -30)
                 }
                 
                 if (narrativeResult.shouldBlock && !config.paperMode) {
