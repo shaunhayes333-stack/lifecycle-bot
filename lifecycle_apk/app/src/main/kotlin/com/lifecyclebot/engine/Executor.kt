@@ -2393,6 +2393,9 @@ class Executor(
                 com.lifecyclebot.util.pct(ts.position.entryPrice, ts.position.highestPrice)
             } else pnlP
             
+            // Get buy pressure from history
+            val latestBuyPct = ts.history.lastOrNull()?.buyRatio?.times(100) ?: 50.0
+            
             TokenWinMemory.recordTradeOutcome(
                 mint = tradeId.mint,
                 symbol = ts.symbol,
@@ -2400,10 +2403,10 @@ class Executor(
                 pnlPercent = pnlP,
                 peakPnl = peakPnl,
                 entryMcap = ts.position.entryMcap,
-                exitMcap = ts.mcap,
+                exitMcap = ts.lastMcap,
                 entryLiquidity = ts.position.entryLiquidity,
                 holdTimeMinutes = holdMinutes,
-                buyPercent = ts.buyPercent,
+                buyPercent = latestBuyPct,
                 source = ts.source,
                 phase = ts.position.entryPhase,
             )
@@ -2838,6 +2841,9 @@ class Executor(
                 com.lifecyclebot.util.pct(ts.position.entryPrice, ts.position.highestPrice)
             } else pnlP
             
+            // Get buy pressure from history
+            val latestBuyPctLive = ts.history.lastOrNull()?.buyRatio?.times(100) ?: 50.0
+            
             // Record 3x for live trades (more valuable data)
             repeat(3) {
                 TokenWinMemory.recordTradeOutcome(
@@ -2847,10 +2853,10 @@ class Executor(
                     pnlPercent = pnlP,
                     peakPnl = peakPnlLive,
                     entryMcap = ts.position.entryMcap,
-                    exitMcap = ts.mcap,
+                    exitMcap = ts.lastMcap,
                     entryLiquidity = ts.position.entryLiquidity,
                     holdTimeMinutes = holdMinutesLive,
-                    buyPercent = ts.buyPercent,
+                    buyPercent = latestBuyPctLive,
                     source = ts.source,
                     phase = ts.position.entryPhase,
                 )

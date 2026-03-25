@@ -1290,13 +1290,16 @@ object FinalDecisionGate {
         // TOKEN WIN MEMORY: Boost size for tokens similar to past winners
         // ═══════════════════════════════════════════════════════════════════
         val winMemoryMultiplier = try {
+            // Get buy pressure from history
+            val latestBuyPct = ts.history.lastOrNull()?.buyRatio?.times(100) ?: 50.0
+            
             TokenWinMemory.getConfidenceMultiplier(
                 mint = ts.mint,
                 symbol = ts.symbol,
                 name = ts.name,
-                mcap = ts.mcap,
-                liquidity = ts.liquidity,
-                buyPercent = ts.buyPercent,
+                mcap = ts.lastMcap,
+                liquidity = ts.lastLiquidityUsd,
+                buyPercent = latestBuyPct,
                 phase = ts.phase,
                 source = ts.source,
             )
