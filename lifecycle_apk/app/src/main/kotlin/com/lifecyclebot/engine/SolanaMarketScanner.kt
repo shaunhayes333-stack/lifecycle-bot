@@ -1951,9 +1951,24 @@ class SolanaMarketScanner(
             val scoreNormalized = json.optInt("score_normalised", json.optInt("score", 50))
             val rugged = json.optString("rugged", "").lowercase()
             
-            // HARD BLOCK: Token is LITERALLY marked as already rugged
+            // PAPER MODE: Only block confirmed rugs - allow everything else for learning
+            if (isPaperMode) {
+                if (rugged == "true" || rugged == "yes") {
+                    onLog("🚫 RUG: ${mint.take(8)}... ALREADY RUGGED (confirmed)")
+                    ErrorLogger.info("Scanner", "quickRugcheck BLOCK: ${mint.take(12)} rugged=true (paper mode)")
+                    return false
+                }
+                // Paper mode: pass everything else
+                if (scoreNormalized < 20) {
+                    ErrorLogger.debug("Scanner", "RC ${mint.take(8)}: score=$scoreNormalized (PAPER: passing for learning)")
+                }
+                return true
+            }
+            
+            // LIVE MODE: Block confirmed rugs and extremely dangerous tokens
             if (rugged == "true" || rugged == "yes") {
                 onLog("🚫 RUG: ${mint.take(8)}... ALREADY RUGGED (confirmed)")
+                ErrorLogger.info("Scanner", "quickRugcheck BLOCK: ${mint.take(12)} rugged=true (live mode)")
                 return false
             }
             
@@ -1961,6 +1976,7 @@ class SolanaMarketScanner(
             // Most meme coins have scores 10-30 which is fine
             if (scoreNormalized < 5) {
                 onLog("🚫 BLOCKED: ${mint.take(8)}... score=$scoreNormalized (extremely risky)")
+                ErrorLogger.info("Scanner", "quickRugcheck BLOCK: ${mint.take(12)} score=$scoreNormalized < 5 (live mode)")
                 return false
             }
             
@@ -2004,7 +2020,7 @@ class SolanaMarketScanner(
         }
         
         if (!passed) {
-            ErrorLogger.info("Scanner", "Rugcheck blocked ${token.symbol}")
+            ErrorLogger.info("Scanner", "Rugcheck blocked ${token.symbol} (quickRugcheck returned false)")
             return
         }
         

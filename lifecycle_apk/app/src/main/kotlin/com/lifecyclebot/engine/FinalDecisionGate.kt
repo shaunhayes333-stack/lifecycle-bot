@@ -1166,12 +1166,13 @@ object FinalDecisionGate {
                     groqApiKey = config.groqApiKey,
                 )
                 
-                // In paper mode, reduce narrative penalty impact to allow more learning trades
-                // Live mode keeps reduced impact for reasonable protection without over-blocking
+                // PAPER MODE: Skip narrative penalty entirely - we want maximum learning trades
+                // The goal is to get 30+ trades so the AI can learn from real outcomes
+                // LIVE MODE: Reduced impact for reasonable protection without over-blocking
                 narrativeAdjustment = if (config.paperMode) {
-                    (narrativeResult.confidenceAdjustment / 2).coerceIn(-10, 5)  // Max -10 in paper
+                    0  // DISABLED in paper mode - let trades happen for learning
                 } else {
-                    (narrativeResult.confidenceAdjustment / 2).coerceIn(-15, 5)  // Max -15 in live (was -30)
+                    (narrativeResult.confidenceAdjustment / 3).coerceIn(-10, 5)  // Max -10 in live (was -15)
                 }
                 
                 if (narrativeResult.shouldBlock && !config.paperMode) {
