@@ -728,8 +728,7 @@ class Executor(
         // ════════════════════════════════════════════════════════════════
         val product = liqAdjustment * mcapAdjustment * volAdjustment * phaseAdjustment * 
             qualityAdjustment * tokenTierAdjustment * treasuryTierAdjustment
-        val combinedAdjustment = kotlin.math.pow(product, 1.0 / 7.0)  // 7th root for geometric mean of 7 factors
-            .coerceIn(0.5, 1.8)  // Cap between 50% and 180% of base
+        val combinedAdjustment = kotlin.math.pow(product, 1.0 / 7.0).coerceIn(0.5, 1.8)  // 7th root, capped 50%-180%
         
         capitalRecoveryMultiple *= combinedAdjustment
         profitLockMultiple *= combinedAdjustment
