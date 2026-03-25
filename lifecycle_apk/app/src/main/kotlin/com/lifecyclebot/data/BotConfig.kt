@@ -11,6 +11,7 @@ data class BotConfig(
     val rpcUrl: String = "https://newest-neat-friday.solana-mainnet.quiknode.pro/e87dd6004de87171941006f9d3bf235b860b6149/",  // QuickNode - fast & reliable
     // mode
     val paperMode: Boolean = true,
+    val shadowPaperEnabled: Boolean = true,  // Run paper trades in background during live mode for learning
     val autoTrade: Boolean = true,  // ENABLED BY DEFAULT - bot is autonomous
     // tokens
     val watchlist: List<String> = emptyList(),
@@ -210,6 +211,7 @@ object ConfigStore {
             putString("wallet_address",               cfg.walletAddress)
             putString("rpc_url",                      cfg.rpcUrl)
             putBoolean("paper_mode",                  cfg.paperMode)
+            putBoolean("shadow_paper_enabled",        cfg.shadowPaperEnabled)
             putBoolean("auto_trade",                  cfg.autoTrade)
             putString("watchlist",                    cfg.watchlist.joinToString(","))
             putString("active_token",                 cfg.activeToken)
@@ -317,6 +319,7 @@ object ConfigStore {
             walletAddress               = p.getString("wallet_address", "") ?: "",
             rpcUrl                      = p.getString("rpc_url", "https://newest-neat-friday.solana-mainnet.quiknode.pro/e87dd6004de87171941006f9d3bf235b860b6149/") ?: "https://newest-neat-friday.solana-mainnet.quiknode.pro/e87dd6004de87171941006f9d3bf235b860b6149/",
             paperMode                   = p.getBoolean("paper_mode", true),
+            shadowPaperEnabled          = p.getBoolean("shadow_paper_enabled", true),
             autoTrade                   = p.getBoolean("auto_trade", true),
             watchlist                   = (p.getString("watchlist", "") ?: "").split(",").filter { it.isNotBlank() },
             activeToken                 = p.getString("active_token", "") ?: "",

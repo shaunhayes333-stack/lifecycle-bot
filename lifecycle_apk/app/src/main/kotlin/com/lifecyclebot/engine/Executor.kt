@@ -2141,10 +2141,77 @@ class Executor(
                     // 🎵 Peter Griffin "No no no!"
                     sounds?.playBlockSound()
                     if (guard.fatal) onNotify("🛑 Bot Halted", guard.reason, com.lifecyclebot.engine.NotificationHistory.NotifEntry.NotifType.INFO)
+                    
+                    // SHADOW PAPER: Run paper trade for learning even when live is blocked
+                    if (cfg().shadowPaperEnabled) {
+                        runShadowPaperBuy(ts, sol, score, quality, "blocked:${guard.reason.take(20)}")
+                    }
                     return
                 }
-                is GuardResult.Allow -> liveBuy(ts, sol, score, wallet, walletSol, tradeId, quality, skipGraduated)
+                is GuardResult.Allow -> {
+                    liveBuy(ts, sol, score, wallet, walletSol, tradeId, quality, skipGraduated)
+                    
+                    // SHADOW PAPER: Also run shadow paper for parallel learning
+                    if (cfg().shadowPaperEnabled) {
+                        runShadowPaperBuy(ts, sol, score, quality, "parallel")
+                    }
+                }
             }
+        }
+    }
+    
+    /**
+     * SHADOW PAPER TRADING
+     * 
+     * Runs paper trades in background during live mode for accelerated learning.
+     * Shadow trades:
+     *   - Do NOT affect live balance or positions
+     *   - Do NOT show in main trade journal
+     *   - DO feed learning data to all AI layers
+     *   - Allow brain to learn from more scenarios
+     */
+    private fun runShadowPaperBuy(ts: TokenState, sol: Double, score: Double, 
+                                   quality: String, reason: String) {
+        try {
+            // Create shadow copy of token state to avoid affecting live state
+            val shadowTs = ts.copy(
+                position = Position(),  // Fresh position
+                trades = mutableListOf()
+            )
+            
+            val price = shadowTs.ref
+            if (price <= 0) return
+            
+            // Calculate shadow position
+            val qty = sol / price
+            shadowTs.position = Position(
+                isOpen = true,
+                costSol = sol,
+                qtyToken = qty,
+                entryPrice = price,
+                entryTime = System.currentTimeMillis(),
+                quality = quality,
+                entryScore = score,
+            )
+            
+            // Record for shadow learning (tagged as shadow)
+            val shadowTrade = Trade("BUY", "shadow", sol, price, System.currentTimeMillis(), 
+                                    "shadow_$reason", 0.0, 0.0)
+            
+            // Feed to learning systems with shadow tag
+            brain?.learnFromTrade(
+                shadowTrade,
+                phase = "shadow",
+                source = ts.source,
+                quality = quality,
+                pattern = "shadow_learning"
+            )
+            
+            onLog("👻 SHADOW BUY: ${ts.symbol} | $reason | ${sol.toString().take(6)} SOL @ ${price.toString().take(8)}", ts.mint)
+            
+        } catch (e: Exception) {
+            // Shadow trades should never crash the main bot
+            ErrorLogger.debug("Executor", "Shadow paper buy failed: ${e.message}")
         }
     }
 
