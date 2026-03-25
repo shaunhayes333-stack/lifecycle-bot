@@ -991,7 +991,6 @@ object FinalDecisionGate {
         // Distribution triggers at ~48%. 50% gives 2% buffer - tight but workable.
         // ═══════════════════════════════════════════════════════════════════════
         
-        if (blockReason == null && config.paperMode) {
         // PAPER MODE: Skip quality filter - we want MAXIMUM trades for learning
         // The AI needs diverse data including low-quality trades to learn patterns
         if (config.paperMode && blockReason == null) {
