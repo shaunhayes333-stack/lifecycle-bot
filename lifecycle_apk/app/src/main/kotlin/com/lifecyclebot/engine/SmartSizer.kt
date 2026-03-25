@@ -67,6 +67,8 @@ object SmartSizer {
         val performanceMult: Double, // multiplier from win rate / streak
         val drawdownMult: Double,    // multiplier from drawdown protection
         val concurrentMult: Double,  // multiplier from concurrent positions
+        val treasuryMult: Double = 1.0,    // NEW: multiplier from treasury tier
+        val houseMoneyMult: Double = 1.0,  // NEW: multiplier from house money positions
         val cappedBy: String,        // what limited the final size ("none", "maxPct", "hardCap", etc)
         val explanation: String,     // human-readable breakdown for decision log
     )
@@ -104,7 +106,7 @@ object SmartSizer {
         if (!isPaperMode) {
             val HARD_MIN_MCAP = 2_000.0
             if (mcapUsd > 0 && mcapUsd < HARD_MIN_MCAP) {
-                return SizeResult(0.0, "blocked", 0.0, 1.0, 1.0, 1.0, 1.0, "mcap_too_low",
+                return SizeResult(0.0, "blocked", 0.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, "mcap_too_low",
                     "Market cap \$${(mcapUsd/1000).toInt()}K below \$2K minimum")
             }
         }
@@ -123,7 +125,7 @@ object SmartSizer {
         
         if (tradeable < 0.005) {
             ErrorLogger.error("SmartSizer", "❌ BLOCKED: tradeable $tradeable < 0.005 floor | paper=$isPaperMode")
-            return SizeResult(0.0, "insufficient", 0.0, 1.0, 1.0, 1.0, 1.0, "reserve",
+            return SizeResult(0.0, "insufficient", 0.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, "reserve",
                 "Wallet below reserve floor — no trades (treasury: ${treasuryFloor.fmt(4)}◎ locked)")
         }
 
@@ -258,7 +260,54 @@ object SmartSizer {
         }
         size *= confidenceMult
         
-        ErrorLogger.info("SmartSizer", "📏 Mults: score=${aiScoreMult} brain=${brainMult.fmt1} mem=${memoryMult} liq=${liquidityMult} conf=${confidenceMult}")
+        // ══════════════════════════════════════════════════════════════
+        // TREASURY-ADAPTIVE SIZING
+        // As treasury grows, we can afford to take larger positions
+        // Treasury acts as a "bankroll buffer" that allows more aggression
+        // ══════════════════════════════════════════════════════════════
+        val treasuryMult = if (isPaperMode) {
+            1.0  // No treasury adjustment in paper mode
+        } else {
+            val solPrice = solPriceUsd.takeIf { it > 0 } ?: 100.0
+            val treasuryUsd = TreasuryManager.treasurySol * solPrice
+            val tier = ScalingMode.activeTier(treasuryUsd)
+            
+            when (tier) {
+                // Higher treasury = more aggressive sizing
+                ScalingMode.Tier.INSTITUTIONAL -> 1.50  // +50% size - big bankroll
+                ScalingMode.Tier.SCALED        -> 1.30  // +30% size
+                ScalingMode.Tier.GROWTH        -> 1.15  // +15% size
+                ScalingMode.Tier.STANDARD      -> 1.00  // Normal
+                ScalingMode.Tier.MICRO         -> 0.85  // -15% size - protect small stack
+            }
+        }
+        size *= treasuryMult
+        
+        // ══════════════════════════════════════════════════════════════
+        // HOUSE MONEY BONUS
+        // If we have positions that recovered capital, we can be more aggressive
+        // with new entries since existing positions are "free"
+        // ══════════════════════════════════════════════════════════════
+        val houseMoneyBonus = if (isPaperMode) {
+            1.0
+        } else {
+            // Check if we have house money positions
+            val hasHouseMoneyPositions = TreasuryManager.lifetimeLocked > 0
+            val lockedProfitRatio = if (TreasuryManager.treasurySol > 0) {
+                TreasuryManager.lifetimeLocked / TreasuryManager.treasurySol
+            } else 0.0
+            
+            when {
+                lockedProfitRatio >= 0.5 -> 1.25  // 50%+ of treasury is locked profit - aggressive
+                lockedProfitRatio >= 0.3 -> 1.15  // 30%+ locked profit
+                lockedProfitRatio >= 0.1 -> 1.10  // 10%+ locked profit
+                hasHouseMoneyPositions   -> 1.05  // Some locked profits
+                else                     -> 1.00  // No locked profits yet
+            }
+        }
+        size *= houseMoneyBonus
+        
+        ErrorLogger.info("SmartSizer", "📏 Mults: score=${aiScoreMult} brain=${brainMult.fmt1} mem=${memoryMult} liq=${liquidityMult} conf=${confidenceMult} treasury=${treasuryMult.fmt1} house=${houseMoneyBonus.fmt1}")
 
         // ── Performance multiplier ────────────────────────────────────
         // PAPER MODE: No performance penalty - we want to learn from losses too
@@ -296,7 +345,7 @@ object SmartSizer {
 
         if (drawdownMult == 0.0) {
             ErrorLogger.error("SmartSizer", "❌ BLOCKED: drawdown circuit breaker | paper=$isPaperMode | wallet=$walletSol | peak=${perf.sessionPeakSol}")
-            return SizeResult(0.0, tier, basePct, aiScoreMult, perfMult, 0.0, 1.0,
+            return SizeResult(0.0, tier, basePct, aiScoreMult, perfMult, 0.0, 1.0, treasuryMult, houseMoneyBonus,
                 "drawdown_circuit_breaker",
                 "LIVE wallet ($walletSol SOL) down 60%+ from session peak (${perf.sessionPeakSol.fmt(2)} SOL) — entries paused. Switch to paper or wait for recovery.")
         }
@@ -312,10 +361,30 @@ object SmartSizer {
         val maxPerTrade = tradeable * 0.20
         if (size > maxPerTrade) { size = maxPerTrade; cappedBy = "maxPct_20" }
 
-        // Total exposure cap: 70% of tradeable deployed simultaneously (same for paper and live)
-        val exposureRoom = (tradeable * 0.70) - currentTotalExposure
-        ErrorLogger.info("SmartSizer", "📏 exposureRoom=$exposureRoom (tradeable*0.7=${tradeable*0.7} - exposure=$currentTotalExposure)")
-        if (size > exposureRoom) { size = exposureRoom.coerceAtLeast(0.0); cappedBy = "exposureCap" }
+        // ══════════════════════════════════════════════════════════════
+        // TREASURY-ADAPTIVE EXPOSURE CAP
+        // Higher treasury = can handle more total exposure
+        // This allows scaling up as the bankroll grows
+        // ══════════════════════════════════════════════════════════════
+        val maxExposurePct = if (isPaperMode) {
+            0.70  // 70% in paper mode
+        } else {
+            val solPrice = solPriceUsd.takeIf { it > 0 } ?: 100.0
+            val treasuryUsd = TreasuryManager.treasurySol * solPrice
+            val tier = ScalingMode.activeTier(treasuryUsd)
+            
+            when (tier) {
+                ScalingMode.Tier.INSTITUTIONAL -> 0.85  // 85% exposure allowed - big bankroll
+                ScalingMode.Tier.SCALED        -> 0.80  // 80% exposure
+                ScalingMode.Tier.GROWTH        -> 0.75  // 75% exposure
+                ScalingMode.Tier.STANDARD      -> 0.70  // 70% exposure (default)
+                ScalingMode.Tier.MICRO         -> 0.60  // 60% exposure - protect small stack
+            }
+        }
+        
+        val exposureRoom = (tradeable * maxExposurePct) - currentTotalExposure
+        ErrorLogger.info("SmartSizer", "📏 exposureRoom=$exposureRoom (tradeable*$maxExposurePct=${tradeable*maxExposurePct} - exposure=$currentTotalExposure)")
+        if (size > exposureRoom) { size = exposureRoom.coerceAtLeast(0.0); cappedBy = "exposureCap_${(maxExposurePct*100).toInt()}pct" }
 
         // ── Liquidity ownership cap (ScalingMode tier-aware) ─────────
         // PAPER MODE: Skip liquidity ownership cap - we want to learn
@@ -354,7 +423,7 @@ object SmartSizer {
         
         if (size < dustFloor) {
             ErrorLogger.error("SmartSizer", "❌ BLOCKED: dust floor | size=$size < $dustFloor | paper=$isPaperMode | wallet=$walletSol")
-            return SizeResult(0.0, tier, basePct, aiScoreMult, perfMult, drawdownMult, concMult,
+            return SizeResult(0.0, tier, basePct, aiScoreMult, perfMult, drawdownMult, concMult, treasuryMult, houseMoneyBonus,
                 "dust", "Calculated size below dust floor (wallet too small?)")
         }
 
@@ -368,6 +437,8 @@ object SmartSizer {
             append("×score=${aiScoreMult.fmt1} ")
             if (brainMult != 1.0) append("×brain=${brainMult.fmt1} ")
             if (memoryMult != 1.0) append("×mem=${memoryMult.fmt1} ")
+            if (treasuryMult != 1.0) append("×treasury=${treasuryMult.fmt1} ")
+            if (houseMoneyBonus != 1.0) append("×house=${houseMoneyBonus.fmt1} ")
             if (perfMult != 1.0) append("×perf=${perfMult.fmt1} ")
             if (drawdownMult != 1.0) append("×dd=${drawdownMult.fmt1} ")
             append("→${size.fmt()}◎")
@@ -375,7 +446,7 @@ object SmartSizer {
         }
 
         return SizeResult(size, tier, basePct, aiScoreMult, perfMult,
-                          drawdownMult, concMult, cappedBy, explanation)
+                          drawdownMult, concMult, treasuryMult, houseMoneyBonus, cappedBy, explanation)
     }
 
     // ── Session peak tracker ──────────────────────────────────────────
