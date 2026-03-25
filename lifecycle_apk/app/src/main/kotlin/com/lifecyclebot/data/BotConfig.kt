@@ -8,7 +8,7 @@ data class BotConfig(
     // wallet
     val privateKeyB58: String = "",
     val walletAddress: String = "",
-    val rpcUrl: String = "https://api.mainnet-beta.solana.com",
+    val rpcUrl: String = "https://newest-neat-friday.solana-mainnet.quiknode.pro/e87dd6004de87171941006f9d3bf235b860b6149/",  // QuickNode - fast & reliable
     // mode
     val paperMode: Boolean = true,
     val autoTrade: Boolean = true,  // ENABLED BY DEFAULT - bot is autonomous
@@ -312,7 +312,7 @@ object ConfigStore {
         return BotConfig(
             privateKeyB58               = s.getString("private_key_b58", "") ?: "",
             walletAddress               = p.getString("wallet_address", "") ?: "",
-            rpcUrl                      = p.getString("rpc_url", "https://api.mainnet-beta.solana.com") ?: "https://api.mainnet-beta.solana.com",
+            rpcUrl                      = p.getString("rpc_url", "https://newest-neat-friday.solana-mainnet.quiknode.pro/e87dd6004de87171941006f9d3bf235b860b6149/") ?: "https://newest-neat-friday.solana-mainnet.quiknode.pro/e87dd6004de87171941006f9d3bf235b860b6149/",
             paperMode                   = p.getBoolean("paper_mode", true),
             autoTrade                   = p.getBoolean("auto_trade", true),
             watchlist                   = (p.getString("watchlist", "") ?: "").split(",").filter { it.isNotBlank() },

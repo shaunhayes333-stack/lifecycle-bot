@@ -70,7 +70,9 @@ class WalletManager private constructor(private val ctx: Context) {
     companion object {
         @Volatile var lastKnownSolPrice: Double = 0.0
         
+        // QuickNode as PRIMARY, then other reliable fallbacks
         val FALLBACK_RPCS = listOf(
+            "https://newest-neat-friday.solana-mainnet.quiknode.pro/e87dd6004de87171941006f9d3bf235b860b6149/",  // QuickNode - FASTEST
             "https://api.mainnet-beta.solana.com",              // Official Solana
             "https://solana-mainnet.rpc.extrnode.com",          // Extrnode  
             "https://rpc.ankr.com/solana",                      // Ankr

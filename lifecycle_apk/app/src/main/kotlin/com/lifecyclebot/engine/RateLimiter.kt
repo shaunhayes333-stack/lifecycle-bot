@@ -38,6 +38,7 @@ object RateLimiter {
         "dexscreener"  to RateConfig(300, 10),  // Increased to 300/min with burst of 10
         "birdeye"      to RateConfig(60),
         "helius"       to RateConfig(100),
+        "quicknode"    to RateConfig(300, 20),  // QuickNode - very generous limits
         "jupiter"      to RateConfig(60),
         "solscan"      to RateConfig(30),
         "coingecko"    to RateConfig(30),
