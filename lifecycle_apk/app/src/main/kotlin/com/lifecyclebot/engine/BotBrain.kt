@@ -100,7 +100,34 @@ class BotBrain(
     /** Min liquidity USD - below this can't trade effectively */
     @Volatile var learnedMinLiquidity: Double = 100.0  // Default: block <$100
     
-    // Stats for threshold learning
+    /** Whether thresholds are "locked in" (high confidence from sufficient data) */
+    @Volatile var thresholdsLocked: Boolean = false
+    
+    // ═══════════════════════════════════════════════════════════════════════
+    // DECAYING THRESHOLD BUCKETS
+    // 
+    // Instead of simple counters, we store weighted values that decay over time.
+    // Bad patterns (losses) decay FASTER than good patterns (wins).
+    // This allows the bot to "forget" early mistakes while retaining proven wins.
+    // ═══════════════════════════════════════════════════════════════════════
+    
+    data class DecayingBucket(
+        var weightedWins: Double = 0.0,
+        var weightedLosses: Double = 0.0,
+        var lastUpdateTime: Long = System.currentTimeMillis(),
+        var sampleCount: Int = 0,
+    ) {
+        val totalWeight: Double get() = weightedWins + weightedLosses
+        val lossRate: Double get() = if (totalWeight > 0) weightedLosses / totalWeight else 0.0
+        val winRate: Double get() = if (totalWeight > 0) weightedWins / totalWeight else 0.0
+    }
+    
+    // Decaying buckets for threshold learning
+    private val rugcheckBuckets = mutableMapOf<Int, DecayingBucket>()    // score bucket → decaying stats
+    private val pressureBuckets = mutableMapOf<Int, DecayingBucket>()    // pressure bucket → decaying stats
+    private val topHolderBuckets = mutableMapOf<Int, DecayingBucket>()   // holder% bucket → decaying stats
+    
+    // Legacy counters (kept for backwards compatibility)
     private val rugcheckLosses = mutableMapOf<Int, Int>()  // score bucket → loss count
     private val rugcheckWins = mutableMapOf<Int, Int>()    // score bucket → win count
     private val pressureLosses = mutableMapOf<Int, Int>()  // pressure bucket → loss count
@@ -127,6 +154,26 @@ class BotBrain(
         // 2. They prove the strategy works in production
         // 3. They include real slippage, fees, and execution factors
         const val LIVE_TRADE_WEIGHT = 3.0
+        
+        // ═══════════════════════════════════════════════════════════════════
+        // DECAY & MINIMUM SAMPLE SIZE CONSTANTS
+        // ═══════════════════════════════════════════════════════════════════
+        
+        /** Minimum trades in a bucket before it influences thresholds */
+        const val MIN_SAMPLE_SIZE = 8
+        
+        /** Minimum total trades before ANY threshold adjustment */
+        const val MIN_TRADES_FOR_LEARNING = 30
+        
+        /** Decay rate for threshold buckets (per hour) - bad patterns decay faster */
+        const val LOSS_DECAY_RATE_PER_HOUR = 0.02    // Losses decay 2% per hour
+        const val WIN_DECAY_RATE_PER_HOUR = 0.005    // Wins decay 0.5% per hour (slower)
+        
+        /** Hours after which old data is heavily discounted */
+        const val STALE_DATA_HOURS = 72.0           // 3 days = stale
+        
+        /** Confidence required before locking in a learned threshold */
+        const val THRESHOLD_LOCK_CONFIDENCE = 0.75   // 75% confidence needed
     }
     
     /**
@@ -1229,6 +1276,40 @@ Analyse this data and respond with ONLY valid JSON in this exact format:
         val pressBucket = (buyPressure / 10).toInt() * 10  // 0, 10, 20, 30...
         val holderBucket = (topHolderPct / 10).toInt() * 10  // 0, 10, 20...
         
+        val now = System.currentTimeMillis()
+        
+        // ═══════════════════════════════════════════════════════════════════
+        // DECAYING BUCKET UPDATES
+        // 
+        // Wins add weight slowly (good patterns persist)
+        // Losses add weight quickly BUT decay faster (forgive early mistakes)
+        // ═══════════════════════════════════════════════════════════════════
+        
+        // Apply decay to existing buckets before adding new data
+        applyDecayToAllBuckets(now)
+        
+        // Add new data to decaying buckets
+        val weightToAdd = if (isWin) 1.0 else 1.2  // Losses weighted slightly more initially
+        
+        rugcheckBuckets.getOrPut(rugBucket) { DecayingBucket() }.apply {
+            if (isWin) weightedWins += weightToAdd else weightedLosses += weightToAdd
+            lastUpdateTime = now
+            sampleCount++
+        }
+        
+        pressureBuckets.getOrPut(pressBucket) { DecayingBucket() }.apply {
+            if (isWin) weightedWins += weightToAdd else weightedLosses += weightToAdd
+            lastUpdateTime = now
+            sampleCount++
+        }
+        
+        topHolderBuckets.getOrPut(holderBucket) { DecayingBucket() }.apply {
+            if (isWin) weightedWins += weightToAdd else weightedLosses += weightToAdd
+            lastUpdateTime = now
+            sampleCount++
+        }
+        
+        // Legacy counters (for backwards compat)
         if (isWin) {
             rugcheckWins[rugBucket] = (rugcheckWins[rugBucket] ?: 0) + 1
             pressureWins[pressBucket] = (pressureWins[pressBucket] ?: 0) + 1
@@ -1239,72 +1320,159 @@ Analyse this data and respond with ONLY valid JSON in this exact format:
             topHolderLosses[holderBucket] = (topHolderLosses[holderBucket] ?: 0) + 1
         }
         
-        // Recalculate thresholds periodically (every 10 trades)
-        val totalTrades = rugcheckWins.values.sum() + rugcheckLosses.values.sum()
-        if (totalTrades >= 10 && totalTrades % 10 == 0) {
-            recalculateThresholds()
+        // ═══════════════════════════════════════════════════════════════════
+        // MINIMUM SAMPLE SIZE CHECK
+        // 
+        // Only recalculate thresholds if we have enough total data AND
+        // at least some buckets have minimum sample sizes.
+        // ═══════════════════════════════════════════════════════════════════
+        
+        val totalSamples = rugcheckBuckets.values.sumOf { it.sampleCount }
+        if (totalSamples >= MIN_TRADES_FOR_LEARNING && totalSamples % 10 == 0) {
+            recalculateThresholdsWithDecay()
         }
     }
     
     /**
-     * Recalculate optimal thresholds based on win/loss ratios at each bucket.
-     * The goal is to find the threshold where losses significantly outweigh wins.
+     * Apply time-based decay to all threshold buckets.
+     * Losses decay faster than wins (forgiveness mechanism).
      */
-    private fun recalculateThresholds() {
-        // RUGCHECK: Find the score below which losses dominate
+    private fun applyDecayToAllBuckets(now: Long) {
+        fun decayBucket(bucket: DecayingBucket) {
+            val hoursSinceUpdate = (now - bucket.lastUpdateTime) / 3_600_000.0
+            if (hoursSinceUpdate > 0.5) {  // Only decay if >30 mins since last update
+                // Losses decay faster - forgive bad patterns over time
+                val lossDecayFactor = Math.pow(1.0 - LOSS_DECAY_RATE_PER_HOUR, hoursSinceUpdate)
+                val winDecayFactor = Math.pow(1.0 - WIN_DECAY_RATE_PER_HOUR, hoursSinceUpdate)
+                
+                bucket.weightedLosses *= lossDecayFactor
+                bucket.weightedWins *= winDecayFactor
+                
+                // Clear very stale data (>3 days old with minimal weight)
+                if (hoursSinceUpdate > STALE_DATA_HOURS && bucket.totalWeight < 0.5) {
+                    bucket.weightedLosses = 0.0
+                    bucket.weightedWins = 0.0
+                    bucket.sampleCount = 0
+                }
+            }
+        }
+        
+        rugcheckBuckets.values.forEach { decayBucket(it) }
+        pressureBuckets.values.forEach { decayBucket(it) }
+        topHolderBuckets.values.forEach { decayBucket(it) }
+    }
+    
+    /**
+     * Recalculate optimal thresholds based on DECAYING win/loss ratios.
+     * 
+     * Key differences from old method:
+     * 1. Uses decaying weights (recent data matters more)
+     * 2. Requires MIN_SAMPLE_SIZE before a bucket influences thresholds
+     * 3. Requires THRESHOLD_LOCK_CONFIDENCE before "locking in" thresholds
+     * 4. Old losses decay faster than wins (forgiveness mechanism)
+     */
+    private fun recalculateThresholdsWithDecay() {
+        val totalSamples = rugcheckBuckets.values.sumOf { it.sampleCount }
+        
+        // ═══════════════════════════════════════════════════════════════════
+        // RUGCHECK THRESHOLD (with minimum sample size)
+        // ═══════════════════════════════════════════════════════════════════
         var newRugThreshold = 15  // Default
+        var rugConfidence = 0.0
+        
         for (bucket in listOf(0, 10, 20, 30)) {
-            val wins = rugcheckWins[bucket] ?: 0
-            val losses = rugcheckLosses[bucket] ?: 0
-            val total = wins + losses
-            if (total >= 3) {
-                val lossRate = losses.toDouble() / total
-                // If loss rate > 70% at this bucket, set threshold above it
-                if (lossRate > 0.70) {
-                    newRugThreshold = bucket + 10
-                }
+            val data = rugcheckBuckets[bucket] ?: continue
+            
+            // MINIMUM SAMPLE SIZE CHECK
+            if (data.sampleCount < MIN_SAMPLE_SIZE) continue
+            
+            // Only trust buckets with meaningful total weight
+            if (data.totalWeight < 1.0) continue
+            
+            val lossRate = data.lossRate
+            // If loss rate > 65% at this bucket (with enough samples), set threshold above it
+            if (lossRate > 0.65) {
+                newRugThreshold = bucket + 10
+                rugConfidence = maxOf(rugConfidence, data.totalWeight / (data.sampleCount * 0.5))
             }
         }
-        // Don't go too extreme
-        learnedRugcheckThreshold = newRugThreshold.coerceIn(5, 40)
         
-        // BUY PRESSURE: Find the pressure below which losses dominate
+        // ═══════════════════════════════════════════════════════════════════
+        // BUY PRESSURE THRESHOLD (with minimum sample size)
+        // ═══════════════════════════════════════════════════════════════════
         var newPressThreshold = 15.0
-        for (bucket in listOf(0, 10, 20, 30)) {
-            val wins = pressureWins[bucket] ?: 0
-            val losses = pressureLosses[bucket] ?: 0
-            val total = wins + losses
-            if (total >= 3) {
-                val lossRate = losses.toDouble() / total
-                if (lossRate > 0.70) {
-                    newPressThreshold = (bucket + 10).toDouble()
-                }
-            }
-        }
-        learnedMinBuyPressure = newPressThreshold.coerceIn(10.0, 35.0)
+        var pressConfidence = 0.0
         
-        // TOP HOLDER: Find the holder% above which losses dominate
-        var newHolderThreshold = 70.0
-        for (bucket in listOf(40, 50, 60, 70, 80)) {
-            val wins = topHolderWins[bucket] ?: 0
-            val losses = topHolderLosses[bucket] ?: 0
-            val total = wins + losses
-            if (total >= 3) {
-                val lossRate = losses.toDouble() / total
-                // If loss rate > 60% at this bucket, set threshold to this level
-                if (lossRate > 0.60) {
-                    newHolderThreshold = bucket.toDouble()
-                    break  // Use first bucket that's bad
-                }
+        for (bucket in listOf(0, 10, 20, 30)) {
+            val data = pressureBuckets[bucket] ?: continue
+            
+            if (data.sampleCount < MIN_SAMPLE_SIZE) continue
+            if (data.totalWeight < 1.0) continue
+            
+            val lossRate = data.lossRate
+            if (lossRate > 0.65) {
+                newPressThreshold = (bucket + 10).toDouble()
+                pressConfidence = maxOf(pressConfidence, data.totalWeight / (data.sampleCount * 0.5))
             }
         }
+        
+        // ═══════════════════════════════════════════════════════════════════
+        // TOP HOLDER THRESHOLD (with minimum sample size)
+        // ═══════════════════════════════════════════════════════════════════
+        var newHolderThreshold = 70.0
+        var holderConfidence = 0.0
+        
+        for (bucket in listOf(40, 50, 60, 70, 80)) {
+            val data = topHolderBuckets[bucket] ?: continue
+            
+            if (data.sampleCount < MIN_SAMPLE_SIZE) continue
+            if (data.totalWeight < 1.0) continue
+            
+            val lossRate = data.lossRate
+            // If loss rate > 55% at this holder% level, set threshold to this level
+            if (lossRate > 0.55) {
+                newHolderThreshold = bucket.toDouble()
+                holderConfidence = maxOf(holderConfidence, data.totalWeight / (data.sampleCount * 0.5))
+                break  // Use first bucket that's bad
+            }
+        }
+        
+        // ═══════════════════════════════════════════════════════════════════
+        // CONFIDENCE CHECK BEFORE LOCKING IN
+        // 
+        // Only permanently adjust thresholds if we have high confidence.
+        // This prevents early noise from permanently scarring the bot.
+        // ═══════════════════════════════════════════════════════════════════
+        
+        val avgConfidence = (rugConfidence + pressConfidence + holderConfidence) / 3.0
+        val canLockIn = avgConfidence >= THRESHOLD_LOCK_CONFIDENCE && totalSamples >= MIN_TRADES_FOR_LEARNING * 2
+        
+        // Apply thresholds with constraints
+        learnedRugcheckThreshold = newRugThreshold.coerceIn(5, 40)
+        learnedMinBuyPressure = newPressThreshold.coerceIn(10.0, 35.0)
         learnedMaxTopHolder = newHolderThreshold.coerceIn(40.0, 80.0)
         
-        ErrorLogger.info("BotBrain", "📊 THRESHOLDS UPDATED: " +
-            "rugcheck≤$learnedRugcheckThreshold buy%≥${learnedMinBuyPressure.toInt()} topHolder≤${learnedMaxTopHolder.toInt()}%")
+        // Mark as locked if confidence is high
+        if (canLockIn && !thresholdsLocked) {
+            thresholdsLocked = true
+            ErrorLogger.info("BotBrain", "🔒 THRESHOLDS LOCKED IN (conf=${(avgConfidence*100).toInt()}%, samples=$totalSamples)")
+        }
+        
+        val lockStatus = if (thresholdsLocked) "🔒" else "⏳"
+        ErrorLogger.info("BotBrain", "$lockStatus THRESHOLDS: " +
+            "rugcheck≤$learnedRugcheckThreshold buy%≥${learnedMinBuyPressure.toInt()} topHolder≤${learnedMaxTopHolder.toInt()}% " +
+            "| samples=$totalSamples conf=${(avgConfidence*100).toInt()}%")
         
         // Save to prefs for persistence
         saveThresholdsToPrefs()
+    }
+    
+    /**
+     * Legacy threshold calculation (kept for reference, not actively used)
+     */
+    @Deprecated("Use recalculateThresholdsWithDecay instead")
+    private fun recalculateThresholds() {
+        recalculateThresholdsWithDecay()
     }
     
     private fun saveThresholdsToPrefs() {
@@ -1315,9 +1483,93 @@ Analyse this data and respond with ONLY valid JSON in this exact format:
                 .putFloat("min_buy_pressure", learnedMinBuyPressure.toFloat())
                 .putFloat("max_top_holder", learnedMaxTopHolder.toFloat())
                 .putFloat("min_liquidity", learnedMinLiquidity.toFloat())
+                .putBoolean("thresholds_locked", thresholdsLocked)
                 .apply()
+                
+            // Also save decaying bucket data for persistence
+            saveDecayingBucketsToPrefs()
         } catch (e: Exception) {
             ErrorLogger.error("BotBrain", "Failed to save thresholds: ${e.message}")
+        }
+    }
+    
+    private fun saveDecayingBucketsToPrefs() {
+        try {
+            val prefs = ctx.getSharedPreferences("bot_brain_decay", Context.MODE_PRIVATE)
+            val editor = prefs.edit()
+            
+            // Save rugcheck buckets as JSON-like strings
+            rugcheckBuckets.forEach { (bucket, data) ->
+                editor.putFloat("rug_${bucket}_wins", data.weightedWins.toFloat())
+                editor.putFloat("rug_${bucket}_losses", data.weightedLosses.toFloat())
+                editor.putInt("rug_${bucket}_samples", data.sampleCount)
+                editor.putLong("rug_${bucket}_time", data.lastUpdateTime)
+            }
+            
+            pressureBuckets.forEach { (bucket, data) ->
+                editor.putFloat("press_${bucket}_wins", data.weightedWins.toFloat())
+                editor.putFloat("press_${bucket}_losses", data.weightedLosses.toFloat())
+                editor.putInt("press_${bucket}_samples", data.sampleCount)
+                editor.putLong("press_${bucket}_time", data.lastUpdateTime)
+            }
+            
+            topHolderBuckets.forEach { (bucket, data) ->
+                editor.putFloat("holder_${bucket}_wins", data.weightedWins.toFloat())
+                editor.putFloat("holder_${bucket}_losses", data.weightedLosses.toFloat())
+                editor.putInt("holder_${bucket}_samples", data.sampleCount)
+                editor.putLong("holder_${bucket}_time", data.lastUpdateTime)
+            }
+            
+            editor.apply()
+        } catch (e: Exception) {
+            ErrorLogger.debug("BotBrain", "Failed to save decay buckets: ${e.message}")
+        }
+    }
+    
+    private fun loadDecayingBucketsFromPrefs() {
+        try {
+            val prefs = ctx.getSharedPreferences("bot_brain_decay", Context.MODE_PRIVATE)
+            
+            // Load rugcheck buckets
+            for (bucket in listOf(0, 10, 20, 30, 40, 50)) {
+                val wins = prefs.getFloat("rug_${bucket}_wins", 0f).toDouble()
+                val losses = prefs.getFloat("rug_${bucket}_losses", 0f).toDouble()
+                val samples = prefs.getInt("rug_${bucket}_samples", 0)
+                val time = prefs.getLong("rug_${bucket}_time", System.currentTimeMillis())
+                
+                if (samples > 0) {
+                    rugcheckBuckets[bucket] = DecayingBucket(wins, losses, time, samples)
+                }
+            }
+            
+            // Load pressure buckets
+            for (bucket in listOf(0, 10, 20, 30, 40, 50, 60, 70)) {
+                val wins = prefs.getFloat("press_${bucket}_wins", 0f).toDouble()
+                val losses = prefs.getFloat("press_${bucket}_losses", 0f).toDouble()
+                val samples = prefs.getInt("press_${bucket}_samples", 0)
+                val time = prefs.getLong("press_${bucket}_time", System.currentTimeMillis())
+                
+                if (samples > 0) {
+                    pressureBuckets[bucket] = DecayingBucket(wins, losses, time, samples)
+                }
+            }
+            
+            // Load holder buckets
+            for (bucket in listOf(0, 10, 20, 30, 40, 50, 60, 70, 80, 90)) {
+                val wins = prefs.getFloat("holder_${bucket}_wins", 0f).toDouble()
+                val losses = prefs.getFloat("holder_${bucket}_losses", 0f).toDouble()
+                val samples = prefs.getInt("holder_${bucket}_samples", 0)
+                val time = prefs.getLong("holder_${bucket}_time", System.currentTimeMillis())
+                
+                if (samples > 0) {
+                    topHolderBuckets[bucket] = DecayingBucket(wins, losses, time, samples)
+                }
+            }
+            
+            val totalSamples = rugcheckBuckets.values.sumOf { it.sampleCount }
+            ErrorLogger.info("BotBrain", "📊 DECAY BUCKETS LOADED: $totalSamples total samples across all buckets")
+        } catch (e: Exception) {
+            ErrorLogger.debug("BotBrain", "Failed to load decay buckets: ${e.message}")
         }
     }
     
@@ -1328,8 +1580,13 @@ Analyse this data and respond with ONLY valid JSON in this exact format:
             learnedMinBuyPressure = prefs.getFloat("min_buy_pressure", 15f).toDouble()
             learnedMaxTopHolder = prefs.getFloat("max_top_holder", 70f).toDouble()
             learnedMinLiquidity = prefs.getFloat("min_liquidity", 100f).toDouble()
+            thresholdsLocked = prefs.getBoolean("thresholds_locked", false)
             
-            ErrorLogger.info("BotBrain", "📊 THRESHOLDS LOADED: " +
+            // Also load decaying buckets
+            loadDecayingBucketsFromPrefs()
+            
+            val lockStatus = if (thresholdsLocked) "🔒" else "⏳"
+            ErrorLogger.info("BotBrain", "$lockStatus THRESHOLDS LOADED: " +
                 "rugcheck≤$learnedRugcheckThreshold buy%≥${learnedMinBuyPressure.toInt()} topHolder≤${learnedMaxTopHolder.toInt()}%")
         } catch (e: Exception) {
             ErrorLogger.error("BotBrain", "Failed to load thresholds: ${e.message}")
@@ -1353,6 +1610,62 @@ Analyse this data and respond with ONLY valid JSON in this exact format:
         val topHolderMax: Double,
         val liquidityMin: Double,
     )
+    
+    /**
+     * Get current learning status including sample sizes and confidence.
+     */
+    fun getLearningStatus(): LearningStatus {
+        val totalSamples = rugcheckBuckets.values.sumOf { it.sampleCount }
+        val avgSamplesPerBucket = if (rugcheckBuckets.isNotEmpty()) 
+            totalSamples.toDouble() / rugcheckBuckets.size else 0.0
+        
+        return LearningStatus(
+            totalSamples = totalSamples,
+            thresholdsLocked = thresholdsLocked,
+            minSampleSize = MIN_SAMPLE_SIZE,
+            minTradesForLearning = MIN_TRADES_FOR_LEARNING,
+            avgSamplesPerBucket = avgSamplesPerBucket,
+            bucketsWithEnoughData = rugcheckBuckets.count { it.value.sampleCount >= MIN_SAMPLE_SIZE },
+        )
+    }
+    
+    data class LearningStatus(
+        val totalSamples: Int,
+        val thresholdsLocked: Boolean,
+        val minSampleSize: Int,
+        val minTradesForLearning: Int,
+        val avgSamplesPerBucket: Double,
+        val bucketsWithEnoughData: Int,
+    )
+    
+    /**
+     * Reset all learned thresholds to defaults.
+     * Use this if the bot has been poisoned by bad early data.
+     */
+    fun resetThresholds() {
+        learnedRugcheckThreshold = 15
+        learnedMinBuyPressure = 15.0
+        learnedMaxTopHolder = 70.0
+        learnedMinLiquidity = 100.0
+        thresholdsLocked = false
+        
+        rugcheckBuckets.clear()
+        pressureBuckets.clear()
+        topHolderBuckets.clear()
+        
+        rugcheckLosses.clear()
+        rugcheckWins.clear()
+        pressureLosses.clear()
+        pressureWins.clear()
+        topHolderLosses.clear()
+        topHolderWins.clear()
+        
+        // Clear persisted data
+        ctx.getSharedPreferences("bot_brain_thresholds", Context.MODE_PRIVATE).edit().clear().apply()
+        ctx.getSharedPreferences("bot_brain_decay", Context.MODE_PRIVATE).edit().clear().apply()
+        
+        ErrorLogger.info("BotBrain", "🔄 THRESHOLDS RESET TO DEFAULTS - Learning will restart")
+    }
     
     // ══════════════════════════════════════════════════════════════════
     // ROLLING MEMORY FUNCTIONS
