@@ -469,6 +469,346 @@
                 print-color-adjust: exact;
             }
         }
+        
+        /* ═══════════════════════════════════════════════════════════
+           MOBILE RESPONSIVE STYLES
+           ═══════════════════════════════════════════════════════════ */
+        
+        @media (max-width: 1024px) {
+            .slide {
+                padding: 40px 40px;
+            }
+            
+            .grid-2 {
+                grid-template-columns: 1fr;
+                gap: 30px;
+            }
+            
+            .grid-3 {
+                grid-template-columns: 1fr;
+                gap: 20px;
+            }
+            
+            .grid-4 {
+                grid-template-columns: 1fr 1fr;
+                gap: 15px;
+            }
+            
+            h1 {
+                font-size: 36px;
+            }
+            
+            h2 {
+                font-size: 28px;
+            }
+            
+            .title {
+                font-size: 48px;
+            }
+            
+            .tagline {
+                font-size: 18px;
+            }
+            
+            .phone-mockup {
+                display: none;
+            }
+            
+            .cover-stats {
+                flex-direction: column;
+                gap: 20px;
+            }
+            
+            .cover-stat-value {
+                font-size: 36px;
+            }
+            
+            .use-of-funds {
+                flex-wrap: wrap;
+                gap: 20px;
+            }
+            
+            .fund-item {
+                width: 45%;
+            }
+            
+            .ask-amount {
+                font-size: 48px;
+            }
+            
+            .chart-bars {
+                height: 200px;
+            }
+            
+            .chart-bar {
+                width: 40px;
+            }
+        }
+        
+        @media (max-width: 768px) {
+            .slide {
+                padding: 30px 20px;
+                min-height: auto;
+                padding-bottom: 60px;
+            }
+            
+            .logo-large {
+                font-size: 80px;
+            }
+            
+            .title {
+                font-size: 36px;
+            }
+            
+            .tagline {
+                font-size: 16px;
+                margin-bottom: 30px;
+            }
+            
+            h1 {
+                font-size: 28px;
+                margin-bottom: 20px;
+            }
+            
+            h2 {
+                font-size: 22px;
+            }
+            
+            h3 {
+                font-size: 18px;
+            }
+            
+            p {
+                font-size: 16px;
+            }
+            
+            .card {
+                padding: 20px;
+            }
+            
+            .card-icon {
+                font-size: 36px;
+            }
+            
+            .ai-layer {
+                flex-direction: column;
+                align-items: flex-start;
+                padding: 12px;
+            }
+            
+            .ai-layer-num {
+                width: 30px;
+                height: 30px;
+                font-size: 12px;
+                margin-bottom: 8px;
+                margin-right: 0;
+            }
+            
+            .ai-layer-desc {
+                font-size: 12px;
+            }
+            
+            .stat-row {
+                flex-direction: column;
+                align-items: flex-start;
+                gap: 5px;
+            }
+            
+            .stat-value {
+                font-size: 22px;
+            }
+            
+            .chart-container {
+                padding: 20px;
+            }
+            
+            .chart-bars {
+                height: 150px;
+                flex-wrap: wrap;
+                justify-content: center;
+                gap: 10px;
+            }
+            
+            .chart-bar {
+                width: 35px;
+            }
+            
+            .chart-bar-label {
+                font-size: 10px;
+                bottom: -25px;
+            }
+            
+            .chart-bar-value {
+                font-size: 10px;
+                top: -20px;
+            }
+            
+            /* Matrix responsive */
+            .matrix-row {
+                flex-direction: column;
+                padding: 15px 0;
+            }
+            
+            .matrix-feature {
+                margin-bottom: 10px;
+                font-weight: 600;
+            }
+            
+            .matrix-cell {
+                display: inline-block;
+                width: auto;
+                margin-right: 15px;
+            }
+            
+            /* Table responsive */
+            table {
+                font-size: 12px;
+            }
+            
+            th, td {
+                padding: 8px 5px;
+            }
+            
+            /* Ask box responsive */
+            .ask-box {
+                padding: 30px 20px;
+            }
+            
+            .ask-amount {
+                font-size: 36px;
+            }
+            
+            .use-of-funds {
+                flex-direction: column;
+                align-items: center;
+            }
+            
+            .fund-item {
+                width: 100%;
+                display: flex;
+                justify-content: space-between;
+                align-items: center;
+                padding: 10px 0;
+                border-bottom: 1px solid rgba(255,255,255,0.1);
+            }
+            
+            .fund-pct {
+                font-size: 24px;
+            }
+            
+            .fund-label {
+                text-align: right;
+            }
+            
+            /* Timeline responsive */
+            .timeline {
+                padding-left: 30px;
+            }
+            
+            .timeline::before {
+                left: 10px;
+            }
+            
+            .timeline-dot {
+                width: 24px;
+                height: 24px;
+                left: -30px;
+                font-size: 12px;
+            }
+            
+            .timeline-item p {
+                font-size: 14px;
+            }
+            
+            /* Footer */
+            .slide-footer {
+                position: relative;
+                margin-top: 30px;
+                left: 0;
+                right: 0;
+                flex-direction: column;
+                gap: 5px;
+                text-align: center;
+            }
+            
+            /* Hide phone mockups on mobile - show simplified cards instead */
+            .phone-mockups-container {
+                display: none;
+            }
+            
+            .mobile-ui-showcase {
+                display: block;
+            }
+        }
+        
+        @media (max-width: 480px) {
+            .slide {
+                padding: 20px 15px;
+            }
+            
+            .title {
+                font-size: 28px;
+            }
+            
+            h1 {
+                font-size: 24px;
+            }
+            
+            .cover-stat-value {
+                font-size: 28px;
+            }
+            
+            .cover-stat-label {
+                font-size: 11px;
+            }
+            
+            .grid-4 {
+                grid-template-columns: 1fr;
+            }
+            
+            .ask-amount {
+                font-size: 28px;
+            }
+            
+            .chart-bars {
+                height: 120px;
+            }
+            
+            .chart-bar {
+                width: 25px;
+            }
+        }
+        
+        /* Mobile UI showcase replacement for phone mockups */
+        .mobile-ui-showcase {
+            display: none;
+        }
+        
+        @media (max-width: 768px) {
+            .mobile-ui-showcase {
+                display: block;
+            }
+            
+            .ui-feature-card {
+                background: rgba(26, 26, 46, 0.8);
+                border: 1px solid rgba(153, 69, 255, 0.3);
+                border-radius: 12px;
+                padding: 20px;
+                margin-bottom: 15px;
+            }
+            
+            .ui-feature-card h4 {
+                color: #14F195;
+                font-size: 16px;
+                margin-bottom: 10px;
+            }
+            
+            .ui-feature-card p {
+                color: #9CA3AF;
+                font-size: 14px;
+                margin: 0;
+            }
+        }
     </style>
 </head>
 <body>
@@ -866,6 +1206,22 @@
                         <div style="color: #6B7280; font-size: 9px;">5 hr ago • AI Score: 82</div>
                     </div>
                 </div>
+            </div>
+        </div>
+        
+        <!-- Mobile fallback for phone mockups -->
+        <div class="mobile-ui-showcase">
+            <div class="ui-feature-card">
+                <h4>📊 Real-Time Dashboard</h4>
+                <p>Live stats: 24h trades, win rate, open positions, AI confidence. Token analysis with Entry/Exit scores and buy pressure indicators.</p>
+            </div>
+            <div class="ui-feature-card">
+                <h4>🧠 AI Learning Status</h4>
+                <p>Visual brain progress indicator showing learning phase (Bootstrap → Learning → Mature), trade count, and win rate evolution.</p>
+            </div>
+            <div class="ui-feature-card">
+                <h4>📈 Trade Journal</h4>
+                <p>Complete trade history with P&L, AI scores, and timestamps. Color-coded wins (green) and losses (red) for instant performance review.</p>
             </div>
         </div>
     </div>
