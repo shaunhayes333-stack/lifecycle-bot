@@ -2396,15 +2396,18 @@ class Executor(
             // Get buy pressure from history
             val latestBuyPct = ts.history.lastOrNull()?.buyRatio?.times(100) ?: 50.0
             
+            // Approximate entry mcap from liquidity (typical ratio ~2x)
+            val approxEntryMcap = ts.position.entryLiquidityUsd * 2
+            
             TokenWinMemory.recordTradeOutcome(
                 mint = tradeId.mint,
                 symbol = ts.symbol,
                 name = ts.name,
                 pnlPercent = pnlP,
                 peakPnl = peakPnl,
-                entryMcap = ts.position.entryMcap,
+                entryMcap = approxEntryMcap,
                 exitMcap = ts.lastMcap,
-                entryLiquidity = ts.position.entryLiquidity,
+                entryLiquidity = ts.position.entryLiquidityUsd,
                 holdTimeMinutes = holdMinutes,
                 buyPercent = latestBuyPct,
                 source = ts.source,
@@ -2844,6 +2847,9 @@ class Executor(
             // Get buy pressure from history
             val latestBuyPctLive = ts.history.lastOrNull()?.buyRatio?.times(100) ?: 50.0
             
+            // Approximate entry mcap from liquidity (typical ratio ~2x)
+            val approxEntryMcapLive = ts.position.entryLiquidityUsd * 2
+            
             // Record 3x for live trades (more valuable data)
             repeat(3) {
                 TokenWinMemory.recordTradeOutcome(
@@ -2852,9 +2858,9 @@ class Executor(
                     name = ts.name,
                     pnlPercent = pnlP,
                     peakPnl = peakPnlLive,
-                    entryMcap = ts.position.entryMcap,
+                    entryMcap = approxEntryMcapLive,
                     exitMcap = ts.lastMcap,
-                    entryLiquidity = ts.position.entryLiquidity,
+                    entryLiquidity = ts.position.entryLiquidityUsd,
                     holdTimeMinutes = holdMinutesLive,
                     buyPercent = latestBuyPctLive,
                     source = ts.source,
