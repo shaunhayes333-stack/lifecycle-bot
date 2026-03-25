@@ -6,9 +6,12 @@ import com.lifecyclebot.network.SwapQuote
 /**
  * SlippageGuard
  *
- * Fetches two quotes 2 seconds apart before executing any live trade.
- * If the quotes diverge by more than 1%, the market is moving too fast
+ * Fetches two quotes ~1 second apart before executing any live trade.
+ * If the quotes diverge by more than 2%, the market is moving too fast
  * and the trade is aborted — protecting against getting filled at a bad price.
+ *
+ * NOTE: Reduced delay from 2s to 1s for faster execution on meme coins.
+ * Increased tolerance from 1% to 2% for volatile markets.
  *
  * Also tracks cumulative fee costs so the journal can show net P&L.
  *
@@ -21,8 +24,8 @@ import com.lifecyclebot.network.SwapQuote
 class SlippageGuard(private val jupiter: JupiterApi) {
 
     companion object {
-        const val MAX_QUOTE_DIVERGENCE_PCT = 1.0   // abort if quotes differ by > 1%
-        const val QUOTE_DELAY_MS           = 2_000L // wait between quotes
+        const val MAX_QUOTE_DIVERGENCE_PCT = 2.0   // INCREASED from 1% - meme coins are volatile
+        const val QUOTE_DELAY_MS           = 1_000L // REDUCED from 2s - faster execution
         const val SOLANA_TX_FEE_SOL        = 0.000005
         const val JUPITER_FEE_PCT          = 0.003  // 0.3%
     }
@@ -46,20 +49,28 @@ class SlippageGuard(private val jupiter: JupiterApi) {
         slippageBps: Int,
         inputSol: Double,
     ): ValidatedQuote {
+        ErrorLogger.info("SlippageGuard", "🔍 Validating quote: ${outputMint.take(8)}... amt=${inputSol}SOL")
+        
         // First quote - with retry for network errors
         val q1 = getQuoteWithRetry(inputMint, outputMint, amountLamports, slippageBps, "Quote 1")
             ?: return ValidatedQuote(
                 com.lifecyclebot.network.SwapQuote(raw = org.json.JSONObject(), outAmount = 0L, priceImpactPct = 0.0),
                 false, 0.0, 0.0,
-                "Quote 1 failed after retries"
-            )
+                "Quote 1 failed after retries - Jupiter API may be down"
+            ).also { ErrorLogger.error("SlippageGuard", "❌ Quote 1 FAILED after retries") }
 
-        // Wait — let market settle
+        ErrorLogger.debug("SlippageGuard", "Quote 1 OK: out=${q1.outAmount}")
+
+        // Wait — let market settle (reduced from 2s to 1s)
         Thread.sleep(QUOTE_DELAY_MS)
 
         // Second quote - with retry for network errors
         val q2 = getQuoteWithRetry(inputMint, outputMint, amountLamports, slippageBps, "Quote 2")
-            ?: return buildResult(q1, q1, inputSol)  // Use first quote if second fails
+            ?: return buildResult(q1, q1, inputSol).also {
+                ErrorLogger.warn("SlippageGuard", "⚠️ Quote 2 failed, using Quote 1 only")
+            }
+        
+        ErrorLogger.debug("SlippageGuard", "Quote 2 OK: out=${q2.outAmount}")
 
         return buildResult(q1, q2, inputSol)
     }
@@ -120,6 +131,13 @@ class SlippageGuard(private val jupiter: JupiterApi) {
 
         // Use the worse (lower output) quote for safety
         val useQuote = if (out2 < out1) q2 else q1
+
+        // Log the result
+        if (isValid) {
+            ErrorLogger.info("SlippageGuard", "✅ Quote validated: divergence=${divergence.fmt(2)}% (max ${MAX_QUOTE_DIVERGENCE_PCT}%)")
+        } else {
+            ErrorLogger.warn("SlippageGuard", "❌ Quote REJECTED: $rejectReason")
+        }
 
         return ValidatedQuote(
             quote          = useQuote,
