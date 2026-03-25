@@ -215,29 +215,32 @@ class TokenSafetyChecker(private val cfg: () -> BotConfig) {
 
             // V8+ SKEPTICAL scoring - don't blindly trust rugcheck scores
             // But also don't block aggressively - new tokens often have lower scores
-            // PAPER MODE: Much more lenient - only block truly dangerous tokens
+            // Most meme coins have scores 10-40 which is normal for new tokens
+            // Only HARD BLOCK truly dangerous tokens (score 0-9 = confirmed scams)
             when {
                 rcScore in 0..9 -> {
-                    // Very dangerous - block even in paper mode
+                    // EXTREMELY dangerous - confirmed scam/rug - block in all modes
                     hard.add("Rugcheck score $rcScore/100 (EXTREMELY DANGEROUS)")
                 }
-                rcScore in 10..39 -> {
-                    // Dangerous - hard block in real mode, soft penalty in paper mode
-                    if (isPaperMode) {
-                        soft.add("Rugcheck score risky ($rcScore/100)" to 25)
-                        penalty += 25
-                    } else {
-                        hard.add("Rugcheck score $rcScore/100 (DANGEROUS)")
-                    }
+                rcScore in 10..24 -> {
+                    // Risky but not confirmed scam - soft penalty, let FDG decide
+                    // Many legitimate new tokens have scores in this range
+                    soft.add("Rugcheck score risky ($rcScore/100)" to 30)
+                    penalty += 30
                 }
-                rcScore in 40..54 -> {
-                    // Soft penalty instead of hard block - let other factors decide
+                rcScore in 25..39 -> {
+                    // Borderline risky - moderate penalty
                     soft.add("Rugcheck score low ($rcScore/100)" to 20)
                     penalty += 20
                 }
+                rcScore in 40..54 -> {
+                    // Soft penalty instead of hard block - let other factors decide
+                    soft.add("Rugcheck score cautious ($rcScore/100)" to 15)
+                    penalty += 15
+                }
                 rcScore in 55..69 -> {
-                    soft.add("Rugcheck score borderline ($rcScore/100)" to 10)
-                    penalty += 10
+                    soft.add("Rugcheck score borderline ($rcScore/100)" to 8)
+                    penalty += 8
                 }
                 rcScore in 70..79 -> {
                     // Mild skepticism
