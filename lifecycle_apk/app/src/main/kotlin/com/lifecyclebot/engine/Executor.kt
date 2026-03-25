@@ -2983,7 +2983,12 @@ class Executor(
             
             // ALWAYS use actual on-chain balance for selling
             // This prevents issues with decimal mismatches and ensures we sell exactly what we have
-            val actualRawUnits = (actualBalanceUi * 1_000_000_000.0).toLong()
+            // Use same heuristic as tokenScale() for consistent decimal handling
+            val assumedDecimals = if (tokenUnits > 500_000_000L) 9 else 6
+            val multiplier = if (assumedDecimals == 9) 1_000_000_000.0 else 1_000_000.0
+            val actualRawUnits = (actualBalanceUi * multiplier).toLong()
+            
+            onLog("📊 SELL DEBUG: Using $assumedDecimals decimals (multiplier=$multiplier)", tradeId.mint)
             
             // Log the comparison
             val expectedRaw = tokenUnits
