@@ -143,6 +143,8 @@ class MainActivity : AppCompatActivity() {
     private lateinit var etHeliusKey: EditText
     private lateinit var etBirdeyeKey: EditText
     private lateinit var etGroqKey: EditText
+    private lateinit var etGeminiKey: EditText
+    private lateinit var etJupiterKey: EditText
     private lateinit var switchNotifications: android.widget.Switch
     private lateinit var switchSounds: android.widget.Switch
     private lateinit var switchDarkMode: androidx.appcompat.widget.SwitchCompat
@@ -280,6 +282,8 @@ class MainActivity : AppCompatActivity() {
                 heliusApiKey          = etHeliusKey.text.toString().trim(),
                 birdeyeApiKey         = etBirdeyeKey.text.toString().trim(),
                 groqApiKey            = etGroqKey.text.toString().trim(),
+                geminiApiKey          = etGeminiKey.text.toString().trim(),
+                jupiterApiKey         = etJupiterKey.text.toString().trim(),
                 telegramBotToken      = etTgBotToken.text.toString().trim(),
                 telegramChatId        = etTgChatId.text.toString().trim(),
                 watchlist             = etWatchlist.text.toString()
@@ -487,6 +491,8 @@ By clicking "I Agree", you acknowledge that you have read, understood, and accep
         etHeliusKey     = try { findViewById(R.id.etHeliusKey) } catch (_: Exception) { EditText(this) }
         etBirdeyeKey    = try { findViewById(R.id.etBirdeyeKey) } catch (_: Exception) { EditText(this) }
         etGroqKey       = try { findViewById(R.id.etGroqKey) } catch (_: Exception) { EditText(this) }
+        etGeminiKey     = try { findViewById(R.id.etGeminiKey) } catch (_: Exception) { EditText(this) }
+        etJupiterKey    = try { findViewById(R.id.etJupiterKey) } catch (_: Exception) { EditText(this) }
         switchNotifications = try { findViewById(R.id.switchNotifications) } catch (_: Exception) { android.widget.Switch(this) }
         switchSounds    = try { findViewById(R.id.switchSounds) } catch (_: Exception) { android.widget.Switch(this) }
         switchDarkMode  = try { findViewById(R.id.switchDarkMode) } catch (_: Exception) { androidx.appcompat.widget.SwitchCompat(this) }
@@ -1496,6 +1502,8 @@ By clicking "I Agree", you acknowledge that you have read, understood, and accep
         etHeliusKey.setText(cfg.heliusApiKey)
         etBirdeyeKey.setText(cfg.birdeyeApiKey)
         etGroqKey.setText(cfg.groqApiKey)
+        etGeminiKey.setText(cfg.geminiApiKey)
+        etJupiterKey.setText(cfg.jupiterApiKey)
     }
 
     private fun saveSettings() {
@@ -1516,6 +1524,8 @@ By clicking "I Agree", you acknowledge that you have read, understood, and accep
             heliusApiKey          = etHeliusKey.text.toString().trim(),
             birdeyeApiKey         = etBirdeyeKey.text.toString().trim(),
             groqApiKey            = etGroqKey.text.toString().trim(),
+            geminiApiKey          = etGeminiKey.text.toString().trim(),
+            jupiterApiKey         = etJupiterKey.text.toString().trim(),
             watchlist             = wl,
             notificationsEnabled  = switchNotifications.isChecked,
             soundEnabled          = switchSounds.isChecked,
@@ -1655,6 +1665,8 @@ By clicking "I Agree", you acknowledge that you have read, understood, and accep
             etHeliusKey.setText("")
             etBirdeyeKey.setText("")
             etGroqKey.setText("")
+            etGeminiKey.setText("")
+            etJupiterKey.setText("")
             etTgBotToken.setText("")
             etTgChatId.setText("")
 
@@ -1664,6 +1676,8 @@ By clicking "I Agree", you acknowledge that you have read, understood, and accep
                 heliusApiKey = "",
                 birdeyeApiKey = "",
                 groqApiKey = "",
+                geminiApiKey = "",
+                jupiterApiKey = "",
                 telegramBotToken = "",
                 telegramChatId = "",
             )

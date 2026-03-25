@@ -1539,6 +1539,34 @@
                         android:paddingStart="@dimen/input_padding_h"
                         android:layout_marginBottom="10dp"/>
 
+                    <TextView android:id="@+id/tvGeminiHelp"
+                        android:layout_width="wrap_content" android:layout_height="wrap_content"
+                        android:text="✨ GEMINI KEY — aistudio.google.com"
+                        android:textColor="#6B7280" android:textSize="10sp"
+                        android:fontFamily="monospace" android:layout_marginBottom="4dp"/>
+                    <EditText android:id="@+id/etGeminiKey"
+                        android:layout_width="match_parent" android:layout_height="@dimen/input_height"
+                        android:background="@drawable/input_bg" android:textColor="#FFFFFF"
+                        android:textColorHint="#374151" android:textSize="@dimen/input_text_size"
+                        android:fontFamily="monospace" android:hint="paste gemini api key here…"
+                        android:inputType="textPassword"
+                        android:paddingStart="@dimen/input_padding_h"
+                        android:layout_marginBottom="10dp"/>
+
+                    <TextView android:id="@+id/tvJupiterHelp"
+                        android:layout_width="wrap_content" android:layout_height="wrap_content"
+                        android:text="🪐 JUPITER KEY — portal.jup.ag"
+                        android:textColor="#6B7280" android:textSize="10sp"
+                        android:fontFamily="monospace" android:layout_marginBottom="4dp"/>
+                    <EditText android:id="@+id/etJupiterKey"
+                        android:layout_width="match_parent" android:layout_height="@dimen/input_height"
+                        android:background="@drawable/input_bg" android:textColor="#FFFFFF"
+                        android:textColorHint="#374151" android:textSize="@dimen/input_text_size"
+                        android:fontFamily="monospace" android:hint="paste jupiter api key here…"
+                        android:inputType="textPassword"
+                        android:paddingStart="@dimen/input_padding_h"
+                        android:layout_marginBottom="10dp"/>
+
                     <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
                         android:text="WATCHLIST (comma separated)" android:textColor="#6B7280"
                         android:textSize="10sp" android:fontFamily="monospace"
