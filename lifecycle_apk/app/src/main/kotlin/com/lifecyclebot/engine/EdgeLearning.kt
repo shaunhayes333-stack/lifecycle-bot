@@ -20,16 +20,16 @@ object EdgeLearning {
     // ═══════════════════════════════════════════════════════════════════════
     
     data class AdaptiveThresholds(
-        var paperBuyPctMin: Double = 40.0,      // Paper: AGGRESSIVE for max learning (was 45)
-        var paperVolumeMin: Double = 5.0,       // Paper: LOWERED for more trades (was 8)
+        var paperBuyPctMin: Double = 35.0,      // Paper: VERY AGGRESSIVE for max learning
+        var paperVolumeMin: Double = 3.0,       // Paper: LOWERED for more trades
         var liveBuyPctMin: Double = 55.0,       // Live: min buy% to trade (conservative)
         var liveVolumeMin: Double = 15.0,       // Live: min volume score
-        var vetoStickyMinutes: Int = 1,         // REDUCED: 1 min sticky (was 3) for paper
+        var vetoStickyMinutes: Int = 1,         // REDUCED: 1 min sticky
     ) {
         // Bounds to prevent extreme values
         fun clamp() {
-            paperBuyPctMin = paperBuyPctMin.coerceIn(35.0, 48.0)  // Paper: 35-48% (MUCH more aggressive)
-            paperVolumeMin = paperVolumeMin.coerceIn(2.0, 15.0)   // Lower bound reduced further
+            paperBuyPctMin = paperBuyPctMin.coerceIn(30.0, 45.0)  // Paper: 30-45% (EXTREMELY aggressive)
+            paperVolumeMin = paperVolumeMin.coerceIn(1.0, 10.0)   // Lower bound minimal
             liveBuyPctMin = liveBuyPctMin.coerceIn(50.0, 65.0)    // Live: 50-65% (conservative)
             liveVolumeMin = liveVolumeMin.coerceIn(10.0, 25.0)
             vetoStickyMinutes = vetoStickyMinutes.coerceIn(1, 15)  // Min 1 minute
@@ -318,9 +318,9 @@ object EdgeLearning {
                 paperVolumeMin = persistent["paperVolumeMin"] as Double,
                 liveBuyPctMin = persistent["liveBuyPctMin"] as Double,
                 liveVolumeMin = persistent["liveVolumeMin"] as Double,
-                vetoStickyMinutes = 3,
+                vetoStickyMinutes = 1,  // FORCED to 1 min
             )
-            // Clamp to new bounds (in case stored values exceed new limits)
+            // Clamp to new bounds - FORCES old high values down
             thresholds.clamp()
             
             stats.totalTrades = persistent["totalTrades"] as Int
@@ -332,8 +332,8 @@ object EdgeLearning {
         } else {
             // Use SharedPreferences (normal app storage)
             thresholds = AdaptiveThresholds(
-                paperBuyPctMin = prefs.getFloat("edge_paper_buy_pct", 40f).toDouble(),  // LOWERED default
-                paperVolumeMin = prefs.getFloat("edge_paper_volume", 5f).toDouble(),    // LOWERED default
+                paperBuyPctMin = prefs.getFloat("edge_paper_buy_pct", 35f).toDouble(),  // LOWERED default to 35%
+                paperVolumeMin = prefs.getFloat("edge_paper_volume", 3f).toDouble(),    // LOWERED default
                 liveBuyPctMin = prefs.getFloat("edge_live_buy_pct", 55f).toDouble(),
                 liveVolumeMin = prefs.getFloat("edge_live_volume", 15f).toDouble(),
                 vetoStickyMinutes = prefs.getInt("edge_veto_minutes", 1),               // LOWERED default

@@ -197,7 +197,13 @@ object FinalDecisionGate {
      *   - When conditions are risky: higher threshold = fewer, safer trades
      */
     fun getAdaptiveConfidence(isPaperMode: Boolean, ts: TokenState? = null): Double {
-        val baseConfidence = if (isPaperMode) paperConfidenceBase else liveConfidenceBase
+        // PAPER MODE: Always return 0% threshold - we want ALL trades for learning
+        // The AI learns from losses just as much as wins
+        if (isPaperMode) {
+            return 0.0
+        }
+        
+        val baseConfidence = liveConfidenceBase  // Live mode only from here
         var adjustment = 0.0
         
         // ─────────────────────────────────────────────────────────────────

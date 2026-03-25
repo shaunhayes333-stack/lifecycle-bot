@@ -1089,41 +1089,40 @@ class LifecycleStrategy(
         // Check if we're in bootstrap phase (< 30 trades) - be more lenient
         val isBootstrap = (brain?.getTotalTradeCount() ?: 0) < 30
         
-        // 1. RUGCHECK BLOCKED - Score too low (dangerous token)
-        // PAPER MODE: Very lenient to allow learning
-        // LIVE MODE (Bootstrap): Lenient to build up learning data
-        // LIVE MODE (Normal): Use learned or floor of 10
-        val rugcheckThreshold = when {
-            isPaperMode -> 5  // Paper: Always allow down to 5 (very lenient for learning)
-            isBootstrap -> 8  // Live bootstrap: Allow down to 8 to get trades
-            else -> (learned?.rugcheckMin ?: 12).coerceIn(10, 25)  // Live normal: 10-25 range
+        // PAPER MODE: SKIP ALL HARD BLOCKS - We want MAXIMUM trades for learning
+        // The AI learns from losses too, so let bad trades happen in paper mode
+        if (isPaperMode) {
+            // Only block literal 0 scores (API returned explicit block)
+            if (safety.rugcheckScore == 0) {
+                return "Rugcheck score 0/100 (confirmed dangerous)"
+            }
+            // Allow everything else in paper mode
+            return null
         }
+        
+        // LIVE MODE ONLY BELOW THIS POINT
+        
+        // 1. RUGCHECK BLOCKED - Score too low (dangerous token)
+        val rugcheckThreshold = if (isBootstrap) 8 else (learned?.rugcheckMin ?: 12).coerceIn(10, 25)
         if (safety.rugcheckScore in 0..rugcheckThreshold) {
-            val mode = if (isPaperMode) "paper" else if (isBootstrap) "bootstrap" else "live"
+            val mode = if (isBootstrap) "bootstrap" else "live"
             return "Rugcheck score ${safety.rugcheckScore}/100 (threshold=$rugcheckThreshold [$mode])"
         }
         
         // 2. LIQUIDITY - Must have minimum pool
-        val minLiquidity = if (isPaperMode) 0.0 else (learned?.liquidityMin ?: 100.0)
+        val minLiquidity = learned?.liquidityMin ?: 100.0
         if (ts.lastLiquidityUsd < minLiquidity) {
             return "Low liquidity \$${ts.lastLiquidityUsd.toInt()} (min=\$${minLiquidity.toInt()})"
         }
         
         // 3. EXTREME SELL PRESSURE - Buy% below learned threshold
-        // PAPER MODE: Use learned or minimum floor of 10%
-        // LIVE MODE: Use learned or minimum floor of 15%
-        val minBuyPressure = if (isPaperMode) {
-            (learned?.buyPressureMin ?: 12.0).coerceIn(10.0, 25.0)
-        } else {
-            (learned?.buyPressureMin ?: 18.0).coerceIn(15.0, 35.0)
-        }
+        val minBuyPressure = (learned?.buyPressureMin ?: 18.0).coerceIn(15.0, 35.0)
         if (pressScore < minBuyPressure) {
             return "Extreme sell pressure (buy%=${pressScore.toInt()}, learned threshold=${minBuyPressure.toInt()})"
         }
         
         // 4. FREEZE AUTHORITY ENABLED - Token can be frozen (honeypot risk)
-        // Only block in LIVE mode - paper can learn from these
-        if (!isPaperMode && safety.freezeAuthorityDisabled == false) {
+        if (safety.freezeAuthorityDisabled == false) {
             return "Freeze authority enabled (honeypot risk)"
         }
         
