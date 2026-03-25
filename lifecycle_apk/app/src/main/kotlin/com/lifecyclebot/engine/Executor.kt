@@ -2969,11 +2969,10 @@ class Executor(
         // ═══════════════════════════════════════════════════════════════════
         try {
             onLog("📊 SELL DEBUG: Fetching on-chain token balances...", tradeId.mint)
-            val onChainBalances = wallet.getTokenAccounts()
-            val actualBalanceUi = onChainBalances[ts.mint] ?: 0.0
-            onLog("📊 SELL DEBUG: On-chain balance (UI) = $actualBalanceUi | mint=${ts.mint.take(8)}...", tradeId.mint)
+            val onChainBalances = wallet.getTokenAccountsWithDecimals()
+            val tokenData = onChainBalances[ts.mint]
             
-            if (actualBalanceUi <= 0.0) {
+            if (tokenData == null || tokenData.first <= 0.0) {
                 // No tokens on-chain - position is stale
                 onLog("⚠️ SELL SKIPPED: No tokens on-chain for ${ts.symbol}", tradeId.mint)
                 onLog("   Expected: ${pos.qtyToken} | Found: 0 | Clearing stale position", tradeId.mint)
@@ -2981,22 +2980,20 @@ class Executor(
                 return
             }
             
-            // ALWAYS use actual on-chain balance for selling
-            // This prevents issues with decimal mismatches and ensures we sell exactly what we have
-            // Use same heuristic as tokenScale() for consistent decimal handling
-            val assumedDecimals = if (tokenUnits > 500_000_000L) 9 else 6
-            val multiplier = if (assumedDecimals == 9) 1_000_000_000.0 else 1_000_000.0
+            val actualBalanceUi = tokenData.first
+            val actualDecimals = tokenData.second
+            onLog("📊 SELL DEBUG: On-chain balance = $actualBalanceUi | decimals=$actualDecimals | mint=${ts.mint.take(8)}...", tradeId.mint)
+            
+            // Convert UI amount to raw units using ACTUAL decimals from chain
+            val multiplier = Math.pow(10.0, actualDecimals.toDouble())
             val actualRawUnits = (actualBalanceUi * multiplier).toLong()
             
-            onLog("📊 SELL DEBUG: Using $assumedDecimals decimals (multiplier=$multiplier)", tradeId.mint)
+            onLog("📊 SELL DEBUG: tracked=$tokenUnits | on-chain=$actualRawUnits (${actualDecimals}dec)", tradeId.mint)
             
-            // Log the comparison
-            val expectedRaw = tokenUnits
-            val diffPct = if (expectedRaw > 0) kotlin.math.abs(actualRawUnits - expectedRaw).toDouble() / expectedRaw * 100 else 0.0
-            onLog("📊 SELL DEBUG: tracked=$expectedRaw | on-chain=$actualRawUnits | diff=${diffPct.toInt()}%", tradeId.mint)
-            
+            // Log if there's a significant difference
+            val diffPct = if (tokenUnits > 0) kotlin.math.abs(actualRawUnits - tokenUnits).toDouble() / tokenUnits * 100 else 0.0
             if (diffPct > 1.0) {
-                onLog("⚠️ Balance adjustment: using on-chain balance instead of tracked", tradeId.mint)
+                onLog("⚠️ Balance adjustment: using on-chain balance ($actualRawUnits) instead of tracked ($tokenUnits)", tradeId.mint)
             }
             
             tokenUnits = actualRawUnits.coerceAtLeast(1L)

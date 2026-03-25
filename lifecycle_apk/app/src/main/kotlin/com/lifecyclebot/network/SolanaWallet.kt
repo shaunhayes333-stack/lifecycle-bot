@@ -298,6 +298,34 @@ class SolanaWallet(privateKeyB58: String, val rpcUrl: String) {
      * Note: full raw SOL transfer (SystemProgram.transfer) implementation.
      * Uses getLatestBlockhash + manual transaction construction + NaCl signing.
      */
+    /**
+     * Get token accounts with BOTH balance AND decimals.
+     * Returns Map<mint, Pair<uiAmount, decimals>>
+     */
+    fun getTokenAccountsWithDecimals(): Map<String, Pair<Double, Int>> {
+        return try {
+            val params = JSONArray()
+                .put(publicKeyB58)
+                .put(JSONObject().put("encoding","jsonParsed")
+                    .put("filters", JSONArray().put(JSONObject().put("dataSize",165))))
+            val resp = rpc("getTokenAccountsByOwner", params)
+            val out  = mutableMapOf<String, Pair<Double, Int>>()
+            resp.optJSONObject("result")?.optJSONArray("value")?.let { arr ->
+                for (i in 0 until arr.length()) {
+                    val info = arr.optJSONObject(i)
+                        ?.optJSONObject("account")?.optJSONObject("data")
+                        ?.optJSONObject("parsed")?.optJSONObject("info") ?: continue
+                    val mint = info.optString("mint","")
+                    val tokenAmount = info.optJSONObject("tokenAmount")
+                    val qty = tokenAmount?.optString("uiAmountString","0")?.toDoubleOrNull() ?: 0.0
+                    val decimals = tokenAmount?.optInt("decimals", 9) ?: 9
+                    if (mint.isNotBlank() && qty > 0) out[mint] = Pair(qty, decimals)
+                }
+            }
+            out
+        } catch (_: Exception) { emptyMap() }
+    }
+
     fun getTokenAccounts(): Map<String, Double> {
         return try {
             val params = JSONArray()
