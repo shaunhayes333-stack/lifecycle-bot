@@ -1,4 +1,40 @@
-# LifecycleBot Social Media Posts
+# AATE Social Media Posts
+
+---
+
+## 🔥 FACEBOOK POST (Share This One!)
+
+Hey everyone! 👋
+
+I've been working on something BIG and I'm finally ready to share it with y'all...
+
+**I built an AI-powered trading bot for Solana crypto** — and honestly, it's not like anything else out there.
+
+It's called **AATE** (Autonomous Algorithmic Trading Engine)
+
+Here's what makes it special:
+
+🧠 **10 AI layers working together** — it literally learns and gets smarter with every single trade
+
+🔐 **Bank-level security** — AES-256 encryption with hardware-backed protection. Your keys are safer than most banking apps
+
+🛡️ **Anti-rug & scam protection** — AI scans tokens for scams BEFORE you trade
+
+📱 **Runs on your Android phone** — no cloud servers, no monthly subscriptions, YOU own everything
+
+⚡ **MEV protection** — blocks those sandwich attacks that steal profits from regular traders
+
+This isn't some copy-paste bot from the internet. This is months of real engineering. Real AI. Real results.
+
+**Want to see the full breakdown?**
+
+👉 **VIEW THE PITCH DECK:** https://htmlpreview.github.io/?https://github.com/shaunhayes333-stack/lifecycle-bot/blob/main/docs/PITCH_DECK.html
+
+If you're into crypto, trading, or just curious about what AI can really do — check it out and let me know what you think!
+
+Super proud of this one 🚀
+
+---
 
 ## 🐦 Twitter/X Thread (Copy & Paste Ready)
 
@@ -13,7 +49,7 @@ Not a dumb copy-trader.
 
 A 10-layer AI that learns, adapts, and evolves.
 
-Introducing LifecycleBot — the world's first self-evolving Solana trading engine.
+Introducing AATE — the world's first self-evolving Solana trading engine.
 
 🧵 Thread 👇
 ```
@@ -40,7 +76,7 @@ We fixed it. 👇
 
 ### Tweet 3 (The Solution)
 ```
-LifecycleBot runs 10 AI layers simultaneously:
+AATE runs 10 AI layers simultaneously:
 
 🔮 Momentum Predictor
 🐋 Whale Tracker  
@@ -75,20 +111,18 @@ The longer it runs, the smarter it gets.
 
 ---
 
-### Tweet 5 (Moonshot Override)
+### Tweet 5 (Security)
 ```
-Best feature? Moonshot Override 🌙
+🔐 Security that rivals banks:
 
-Running in paper mode to learn?
+• AES-256 encryption for ALL sensitive data
+• Hardware-backed Android Keystore
+• Zero hardcoded secrets in code
+• Credentials never leave your device
 
-If the AI detects a PERFECT setup:
-• Score ≥85% ✓
-• Quality A/B ✓
-• Liquidity ≥$5K ✓
+Your wallet key is safer than your online banking password.
 
-It says "fuck it" and executes a REAL trade.
-
-Paper mode that catches moonshots. You're welcome.
+Full security audit: github.com/shaunhayes333-stack/lifecycle-bot/SECURITY.md
 ```
 
 ---
@@ -128,6 +162,8 @@ Trading from your phone. Finally done right.
 ```
 Going into BETA now.
 
+Full pitch deck: htmlpreview.github.io/?https://github.com/shaunhayes333-stack/lifecycle-bot/blob/main/docs/PITCH_DECK.html
+
 If you want:
 • AI that learns YOUR market
 • 10-layer decision engine
@@ -135,8 +171,6 @@ If you want:
 • A bot that gets better over time
 
 DM me or drop a 🧠 below.
-
-First 100 get early access.
 
 Let's build the future of trading. 🚀
 ```
@@ -146,56 +180,33 @@ Let's build the future of trading. 🚀
 ## 📸 Instagram/LinkedIn (Single Post)
 
 ```
-🧠 Introducing LifecycleBot
+🧠 Introducing AATE
 
 The world's first self-evolving AI trading engine for Solana.
 
-While other bots run static rules that fail in 2 years, LifecycleBot runs 10 AI layers that learn, adapt, and evolve with every trade.
+While other bots run static rules that fail in 2 years, AATE runs 10 AI layers that learn, adapt, and evolve with every trade.
 
 ✨ What makes it different:
 
 → 10-Layer AI Decision Engine
 → Self-learning (gets smarter over time)
+→ Bank-level AES-256 encryption
 → LLM-powered scam detection
 → Whale tracking & narrative detection
 → Volume profile analysis (institutional-grade)
 → MEV protection via Jito
-→ Moonshot Override (paper mode catches real moonshots)
 → Native Android app (not another Telegram bot)
+
+🔐 Security: Your keys are encrypted with hardware-backed protection. Safer than most banking apps.
 
 The longer it runs, the smarter it gets.
 The smarter it gets, the more it earns.
 
-🎯 Going into beta now.
+🎯 Pitch Deck: link in bio
 
-Drop a 🧠 if you want early access.
+Drop a 🧠 if you want to see more.
 
-#Solana #Trading #AI #Crypto #DeFi #TradingBot #Memecoins #Web3
-```
-
----
-
-## 🎬 TikTok/Reels Script (15-30 sec)
-
-```
-[HOOK - 0-3 sec]
-"I built a trading bot with a BRAIN"
-
-[PROBLEM - 3-8 sec]  
-"Most bots use static rules that fail in 2 years"
-
-[SOLUTION - 8-18 sec]
-"LifecycleBot runs 10 AI layers that LEARN from every trade"
-*show phone UI*
-"It detects scams, tracks whales, and adapts to the market"
-
-[PROOF - 18-25 sec]
-"The brain fills up as it gets smarter"
-*show brain indicator*
-"Moonshot mode catches 100x plays automatically"
-
-[CTA - 25-30 sec]
-"Beta launching now. Link in bio. 🧠"
+#Solana #Trading #AI #Crypto #DeFi #TradingBot #Memecoins #Web3 #AATE
 ```
 
 ---
@@ -203,19 +214,25 @@ Drop a 🧠 if you want early access.
 ## 📢 Discord/Telegram Announcement
 
 ```
-🚀 **LIFECYCLEBOT BETA IS LIVE** 🚀
+🚀 **AATE BETA IS LIVE** 🚀
 
 After months of development, we're ready.
 
-**What is LifecycleBot?**
-The world's first self-evolving AI trading engine for Solana meme coins.
+**What is AATE?**
+Autonomous Algorithmic Trading Engine — the world's first self-evolving AI trading bot for Solana meme coins.
 
 **Why is it different?**
 • 10 AI layers making decisions together
 • Learns from every trade (wins AND losses)
 • LLM-powered scam detection (Gemini + Groq)
-• Moonshot Override catches 100x plays
+• Bank-level AES-256 encryption
 • Native Android app with real-time monitoring
+
+**Security:**
+🔐 AES-256-GCM encryption for all credentials
+🛡️ Hardware-backed Android Keystore
+🚫 Zero hardcoded secrets
+📱 Everything stays on YOUR device
 
 **Key Features:**
 🧠 Brain indicator shows learning progress
@@ -224,9 +241,11 @@ The world's first self-evolving AI trading engine for Solana meme coins.
 🛡️ MEV Protection via Jito
 💰 Dynamic Profit Lock (never round-trip gains)
 
+**Pitch Deck:** https://htmlpreview.github.io/?https://github.com/shaunhayes333-stack/lifecycle-bot/blob/main/docs/PITCH_DECK.html
+
 **How to join beta:**
 1. Download APK from GitHub
-2. Connect your wallet
+2. Enter your API keys (encrypted locally)
 3. START IN PAPER MODE (let it learn!)
 4. Graduate to live when the brain is full
 
@@ -239,25 +258,13 @@ LFG 🚀🧠
 
 ---
 
-## 📧 Email Subject Lines (A/B Test)
-
-```
-A: "I built a trading bot with a brain 🧠"
-B: "Why 95% of trading bots fail (and how I fixed it)"
-C: "10 AI layers. 1 trading decision. Zero scams."
-D: "The bot that gets smarter every day"
-E: "Moonshot Override: When paper mode catches real 100x"
-```
-
----
-
 ## 🔥 One-Liner Hooks
 
 ```
 • "A trading bot that learns from its mistakes? Finally."
-• "10 AI layers. 1 decision. 0 scams detected."
+• "10 AI layers. 1 decision. Bank-level security."
 • "The longer it runs, the smarter it gets."
-• "Paper mode that catches real moonshots."
+• "Your keys encrypted safer than your bank."
 • "I taught an AI to trade Solana meme coins."
 • "95% of bots fail in 2 years. This one evolves."
 • "Whale tracking + scam detection + self-learning = edge"
@@ -265,4 +272,6 @@ E: "Moonshot Override: When paper mode catches real 100x"
 
 ---
 
-*Use these across Twitter, Instagram, TikTok, Discord, Telegram, and email campaigns. Adjust tone for each platform.*
+*Pitch Deck Link: https://htmlpreview.github.io/?https://github.com/shaunhayes333-stack/lifecycle-bot/blob/main/docs/PITCH_DECK.html*
+
+*GitHub: https://github.com/shaunhayes333-stack/lifecycle-bot*
