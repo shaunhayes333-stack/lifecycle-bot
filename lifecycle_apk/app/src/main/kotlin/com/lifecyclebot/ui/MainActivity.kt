@@ -860,6 +860,25 @@ By clicking "I Agree", you acknowledge that you have read, understood, and accep
                 cardPositionPnl.background = ContextCompat.getDrawable(this,
                     if (pnlPctPos >= 0) R.drawable.pnl_card_bg else R.drawable.pnl_card_bg_loss
                 )
+                
+                // Auto-fade out loss card after 5 seconds to reduce annoyance
+                if (pnlPctPos < -50) {
+                    cardPositionPnl.animate()
+                        .alpha(1f)
+                        .setDuration(100)
+                        .withEndAction {
+                            cardPositionPnl.postDelayed({
+                                cardPositionPnl.animate()
+                                    .alpha(0f)
+                                    .setDuration(1500)
+                                    .withEndAction { cardPositionPnl.visibility = View.GONE }
+                                    .start()
+                            }, 5000)
+                        }
+                        .start()
+                } else {
+                    cardPositionPnl.alpha = 1f
+                }
             } else {
                 cardPositionPnl.visibility = View.GONE
             }
