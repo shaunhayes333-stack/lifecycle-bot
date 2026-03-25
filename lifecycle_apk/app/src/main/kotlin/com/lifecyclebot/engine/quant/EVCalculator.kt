@@ -1,11 +1,7 @@
 package com.lifecyclebot.engine.quant
 
 import com.lifecyclebot.data.TokenState
-import com.lifecyclebot.engine.BotBrain
-import com.lifecyclebot.util.ErrorLogger
-import kotlin.math.ln
-import kotlin.math.exp
-import kotlin.math.sqrt
+import com.lifecyclebot.engine.ErrorLogger
 
 /**
  * Expected Value (EV) Calculator
@@ -25,10 +21,10 @@ import kotlin.math.sqrt
  *   7. RUG       (-80-100%) - Rug pull / abandoned
  * 
  * Probabilities are estimated from:
- *   - Historical win rate (bot memory)
  *   - Token characteristics (liquidity, age, score)
+ *   - Quality grade (A/B/C/SNIPE)
  *   - Market regime (bull/bear/neutral)
- *   - Similar token outcomes
+ *   - Historical win rate
  */
 object EVCalculator {
     
@@ -84,7 +80,6 @@ object EVCalculator {
      */
     fun calculate(
         ts: TokenState,
-        brain: BotBrain?,
         entryScore: Double,
         quality: String,
         marketRegime: String = "NEUTRAL",
@@ -199,20 +194,11 @@ object EVCalculator {
         }
         
         // ═══════════════════════════════════════════════════════════════════════
-        // ADJUSTMENT 5: Historical Performance (Bot Memory)
-        // Learn from past trades
+        // ADJUSTMENT 5: Historical Performance
+        // Shift probabilities based on historical win rate
         // ═══════════════════════════════════════════════════════════════════════
         
-        val adjustedWinRate = brain?.let {
-            val recentTrades = it.recentTrades.takeLast(30)
-            if (recentTrades.size >= 10) {
-                val wins = recentTrades.count { t -> t.pnlPct > 0 }
-                wins.toDouble() / recentTrades.size
-            } else historicalWinRate
-        } ?: historicalWinRate
-        
-        // Shift probabilities based on historical win rate
-        val winRateAdjust = adjustedWinRate / 0.55  // Normalize to 55% baseline
+        val winRateAdjust = historicalWinRate / 0.55  // Normalize to 55% baseline
         pSmallWin *= winRateAdjust
         pGoodWin *= winRateAdjust
         pSmallLoss *= (2.0 - winRateAdjust).coerceAtLeast(0.5)
@@ -289,13 +275,12 @@ object EVCalculator {
         val expectedValue = scenarios.sumOf { it.weightedReturn }
         val expectedPnlPct = (expectedValue - 1.0) * 100.0
         
-        val winProbability = pMoon + pGoodWin + pSmallWin + (pBreakeven * 0.5)  // Half of breakeven counts as "win"
+        val winProbability = pMoon + pGoodWin + pSmallWin + (pBreakeven * 0.5)
         val lossProbability = pSmallLoss + pStopLoss + pRug + (pBreakeven * 0.5)
         
         // ═══════════════════════════════════════════════════════════════════════
         // KELLY CRITERION
         // f* = (p × b - q) / b
-        // where p = win probability, q = loss probability, b = odds (win/loss ratio)
         // ═══════════════════════════════════════════════════════════════════════
         
         val avgWinReturn = if (winProbability > 0) {
@@ -306,44 +291,40 @@ object EVCalculator {
             (pSmallLoss * 0.8 + pStopLoss * 0.6 + pRug * 0.1 + pBreakeven * 0.5 * 0.95) / lossProbability
         } else 1.0
         
-        val avgWinPct = avgWinReturn - 1.0  // Convert to percentage gain
-        val avgLossPct = 1.0 - avgLossReturn  // Convert to percentage loss
+        val avgWinPct = avgWinReturn - 1.0
+        val avgLossPct = 1.0 - avgLossReturn
         
         val kellyFraction = if (avgLossPct > 0 && avgWinPct > 0) {
-            val b = avgWinPct / avgLossPct  // Odds ratio
+            val b = avgWinPct / avgLossPct
             val p = winProbability
             val q = lossProbability
-            ((p * b - q) / b).coerceIn(0.0, 0.25)  // Cap at 25% of bankroll
+            ((p * b - q) / b).coerceIn(0.0, 0.25)
         } else 0.0
         
         // ═══════════════════════════════════════════════════════════════════════
         // RISK/REWARD RATIO
         // ═══════════════════════════════════════════════════════════════════════
         
-        val expectedUpside = pMoon * 29.0 + pGoodWin * 5.5 + pSmallWin * 1.25  // Weighted upside %
-        val expectedDownside = pSmallLoss * 0.2 + pStopLoss * 0.4 + pRug * 0.9  // Weighted downside %
+        val expectedUpside = pMoon * 29.0 + pGoodWin * 5.5 + pSmallWin * 1.25
+        val expectedDownside = pSmallLoss * 0.2 + pStopLoss * 0.4 + pRug * 0.9
         val riskRewardRatio = if (expectedDownside > 0) expectedUpside / expectedDownside else 10.0
         
         // ═══════════════════════════════════════════════════════════════════════
         // CONFIDENCE IN ESTIMATE
-        // Based on data quality and sample size
         // ═══════════════════════════════════════════════════════════════════════
         
         var confidence = 50.0
         
-        // More historical trades = more confidence
-        brain?.let {
-            val sampleSize = it.recentTrades.size
-            confidence += (sampleSize * 1.5).coerceAtMost(25.0)
-        }
-        
         // More price history = more confidence
-        if (ts.history.size >= 10) confidence += 10.0
-        if (ts.history.size >= 20) confidence += 5.0
+        if (ts.history.size >= 10) confidence += 15.0
+        if (ts.history.size >= 20) confidence += 10.0
         
         // High liquidity = more confidence
-        if (liquidity > 20_000) confidence += 5.0
-        if (liquidity > 50_000) confidence += 5.0
+        if (liquidity > 20_000) confidence += 10.0
+        if (liquidity > 50_000) confidence += 10.0
+        
+        // High entry score = more confidence
+        if (entryScore > 70) confidence += 5.0
         
         confidence = confidence.coerceIn(0.0, 100.0)
         
@@ -374,33 +355,27 @@ object EVCalculator {
      */
     fun isPositiveEV(
         ts: TokenState,
-        brain: BotBrain?,
         entryScore: Double,
         quality: String,
     ): Boolean {
-        val ev = calculate(ts, brain, entryScore, quality)
-        return ev.isPositiveEV && ev.rugProbability < 0.15  // Also check rug risk
+        val ev = calculate(ts, entryScore, quality)
+        return ev.isPositiveEV && ev.rugProbability < 0.15
     }
     
     /**
      * Get recommended position size based on Kelly Criterion
-     * Returns fraction of bankroll (0.0 to 0.25)
      */
     fun getKellySize(
         ts: TokenState,
-        brain: BotBrain?,
         entryScore: Double,
         quality: String,
-        maxKelly: Double = 0.10,  // Default max 10% of bankroll
+        maxKelly: Double = 0.10,
     ): Double {
-        val ev = calculate(ts, brain, entryScore, quality)
-        
-        // Use fractional Kelly (half Kelly) for safety
+        val ev = calculate(ts, entryScore, quality)
         val halfKelly = ev.kellyFraction * 0.5
         
-        // Additional safety: reduce size for high rug probability
         val rugAdjust = if (ev.rugProbability > 0.10) {
-            1.0 - (ev.rugProbability - 0.10) * 2  // Reduce size as rug prob increases
+            1.0 - (ev.rugProbability - 0.10) * 2
         } else 1.0
         
         return (halfKelly * rugAdjust).coerceIn(0.0, maxKelly)

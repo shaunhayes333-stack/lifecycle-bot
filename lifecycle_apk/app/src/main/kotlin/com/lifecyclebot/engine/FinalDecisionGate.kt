@@ -136,9 +136,9 @@ object FinalDecisionGate {
     // the opportunity is gone.
     //
     // Criteria for EARLY SNIPE:
-    //   - Token age < 10 min (fresh discovery)
-    //   - Initial score >= 70 (high quality filter pass)
-    //   - Liquidity >= $3000 (minimum tradeable)
+    //   - Token age < 15 min (fresh discovery)
+    //   - Initial score >= 60 (quality filter pass)
+    //   - Liquidity >= $2000 (minimum tradeable)
     //   - NOT in banned list / rugcheck pass
     //
     // When EARLY SNIPE triggers:
@@ -147,9 +147,9 @@ object FinalDecisionGate {
     //   - Use small position size (risk management)
     // ═══════════════════════════════════════════════════════════════════════════
     var earlySnipeEnabled = true           // Enable aggressive early entries
-    var earlySnipeMaxAgeMinutes = 10       // Max token age for early snipe
-    var earlySnipeMinScore = 70.0          // Min initial score for early snipe
-    var earlySnipeMinLiquidity = 3000.0    // Min liquidity for early snipe
+    var earlySnipeMaxAgeMinutes = 15       // INCREASED from 10 - more time window
+    var earlySnipeMinScore = 60.0          // LOWERED from 70 - more aggressive
+    var earlySnipeMinLiquidity = 2000.0    // LOWERED from $3000 - more aggressive
     
     // ═══════════════════════════════════════════════════════════════════════════
     // EXPECTED VALUE (EV) GATING
@@ -172,7 +172,7 @@ object FinalDecisionGate {
     
     // Base confidence thresholds (these are ADAPTED by AdaptiveConfidence)
     var paperConfidenceBase = 0.0          // Paper mode base: NO confidence minimum (learn from all)
-    var liveConfidenceBase = 12.0          // Live base: LOWERED from 15% to 12% to allow more trades during bootstrap
+    var liveConfidenceBase = 8.0           // Live base: LOWERED from 12% to 8% to allow more trades
     
     // ═══════════════════════════════════════════════════════════════════════════
     // ADAPTIVE CONFIDENCE LAYER
@@ -1034,7 +1034,7 @@ object FinalDecisionGate {
                     approvalClass = ApprovalClass.LIVE,
                     quality = "SNIPE",  // Special quality marker
                     confidence = 50.0,  // Neutral confidence
-                    edge = EdgeVerdict.APPROVED,
+                    edge = EdgeVerdict.STRONG,  // Use STRONG for snipe entries
                     blockReason = null,
                     blockLevel = null,
                     sizeSol = (proposedSizeSol * 0.5).coerceAtLeast(0.003), // Half size for risk management
@@ -1136,8 +1136,8 @@ object FinalDecisionGate {
             } else {
                 // LIVE MODE: Still need some filtering but not as strict
                 // UNKNOWN phases can still be profitable - just need good signals
-                val minScore = 50.0        // LOWERED from 80 - reasonable bar
-                val minBuyPressure = 55.0  // LOWERED from 65 - strong buyers
+                val minScore = 35.0        // LOWERED from 50 - reasonable bar
+                val minBuyPressure = 48.0  // LOWERED from 55 - above distribution zone
                 val isHighScore = candidate.entryScore >= minScore
                 val isHighBuyPressure = ts.meta.pressScore >= minBuyPressure
                 
@@ -1178,29 +1178,11 @@ object FinalDecisionGate {
         
         if (blockReason == null && edgeVerdict == EdgeVerdict.SKIP) {
             if (config.paperMode) {
-                // PAPER MODE: Very lenient edge override for maximum learning
-                // Allow trades with either decent buyers OR any liquidity above minimum
-                val minBuyPressureOverride = 45.0  // LOWERED from 48% - just above distribution
-                val minLiquidityOverride = 2000.0  // LOWERED from 2500
-                
-                val hasStrongBuyers = ts.meta.pressScore >= minBuyPressureOverride
-                val hasGoodLiquidity = ts.lastLiquidityUsd >= minLiquidityOverride
-                
-                // Also allow if setup quality is B+ regardless of edge
-                val hasGoodQuality = candidate.setupQuality in listOf("A+", "A", "B")
-                
-                if (hasStrongBuyers || hasGoodLiquidity || hasGoodQuality) {
-                    // Market confirmation - override edge veto for learning
-                    checks.add(GateCheck("edge", true, 
-                        "PAPER: edge override (buy%=${ts.meta.pressScore.toInt()}>=$minBuyPressureOverride OR liq=$${ts.lastLiquidityUsd.toInt()}>=$minLiquidityOverride OR quality=${candidate.setupQuality})"))
-                    tags.add("edge_override_confirmed")
-                } else {
-                    // No confirmation - respect edge veto
-                    blockReason = "EDGE_VETO_NO_CONFIRMATION"
-                    blockLevel = BlockLevel.EDGE
-                    checks.add(GateCheck("edge", false, "edge=${candidate.edgeQuality} no confirm: buy%=${ts.meta.pressScore.toInt()}<$minBuyPressureOverride AND liq<$minLiquidityOverride AND quality=${candidate.setupQuality}"))
-                    tags.add("edge_skip_unconfirmed")
-                }
+                // PAPER MODE: ALWAYS bypass edge veto - NO BLOCKS for maximum learning
+                // The AI needs to see outcomes from ALL trades, including edge-vetoed ones
+                checks.add(GateCheck("edge", true, 
+                    "PAPER: edge veto BYPASSED (edge=${candidate.edgeQuality}) - learning from all trades"))
+                tags.add("edge_veto_bypassed_paper")
             } else {
                 // ═══════════════════════════════════════════════════════════════════
                 // LIVE MODE: Edge veto with MARKET CONFIRMATION OVERRIDE
@@ -1210,14 +1192,14 @@ object FinalDecisionGate {
                 // just because the phase is "unknown".
                 // 
                 // Override conditions (must meet ANY ONE):
-                //   - Buy pressure >= 52% (decent buyer interest)
-                //   - Liquidity >= $3000 AND entry score >= 25
-                //   - Entry score >= 40 (good quality setup)
+                //   - Buy pressure >= 48% (above distribution zone)
+                //   - Liquidity >= $2000 AND entry score >= 20
+                //   - Entry score >= 35 (decent quality setup)
                 // ═══════════════════════════════════════════════════════════════════
-                val liveMinBuyPressure = 52.0   // LOWERED from 55%
-                val liveMinLiquidity = 3000.0   // LOWERED from $5k
-                val liveMinEntryScore = 25.0    // LOWERED from 30
-                val liveGoodEntryScore = 40.0   // Good quality override
+                val liveMinBuyPressure = 48.0   // LOWERED from 52% - just above distribution zone
+                val liveMinLiquidity = 2000.0   // LOWERED from $3k
+                val liveMinEntryScore = 20.0    // LOWERED from 25
+                val liveGoodEntryScore = 35.0   // LOWERED from 40 - decent quality override
                 
                 val hasStrongBuyers = ts.meta.pressScore >= liveMinBuyPressure
                 val hasGoodLiquidity = ts.lastLiquidityUsd >= liveMinLiquidity
@@ -1413,15 +1395,20 @@ object FinalDecisionGate {
         var evResult: EVCalculator.EVResult? = null
         
         if (blockReason == null && evGatingEnabled && !config.paperMode) {
+            // Use currentConditions for market regime estimation
+            val marketRegimeStr = when {
+                currentConditions.recentWinRate > 60 -> "BULL"
+                currentConditions.recentWinRate < 40 -> "BEAR"
+                else -> "NEUTRAL"
+            }
+            val historicalWinRateValue = currentConditions.recentWinRate / 100.0
+            
             evResult = EVCalculator.calculate(
                 ts = ts,
-                brain = brain,
                 entryScore = candidate.entryScore,
                 quality = candidate.finalQuality,
-                marketRegime = marketConditions?.let { 
-                    if (it.recentWinRate > 60) "BULL" else if (it.recentWinRate < 40) "BEAR" else "NEUTRAL"
-                } ?: "NEUTRAL",
-                historicalWinRate = marketConditions?.recentWinRate?.div(100.0) ?: 0.55
+                marketRegime = marketRegimeStr,
+                historicalWinRate = historicalWinRateValue
             )
             
             checks.add(GateCheck("ev_analysis", evResult.isPositiveEV,
@@ -1441,7 +1428,7 @@ object FinalDecisionGate {
             // Block if rug probability is too high
             else if (evResult.rugProbability > maxRugProbability) {
                 blockReason = "HIGH_RUG_PROB_${String.format("%.0f", evResult.rugProbability * 100)}%"
-                blockLevel = BlockLevel.SAFETY
+                blockLevel = BlockLevel.HARD  // High rug probability is a hard block
                 checks.add(GateCheck("rug_probability", false,
                     "Rug prob ${String.format("%.0f", evResult.rugProbability * 100)}% > max ${String.format("%.0f", maxRugProbability * 100)}%"))
                 tags.add("blocked_high_rug_prob")
