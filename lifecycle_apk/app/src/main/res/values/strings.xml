@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <string name="app_name">AATE</string>
+    <string name="app_name">Autonomous Algorithmic Trading Engine</string>
     <string name="app_name_override">AATE</string>
 
     <string-array name="mode_options">
