@@ -2985,7 +2985,7 @@ class Executor(
             onLog("📊 SELL DEBUG: On-chain balance = $actualBalanceUi | decimals=$actualDecimals | mint=${ts.mint.take(8)}...", tradeId.mint)
             
             // Convert UI amount to raw units using ACTUAL decimals from chain
-            val multiplier = pow(10.0, actualDecimals.toDouble())
+            val multiplier = kotlin.math.pow(10.0, actualDecimals.toDouble())
             val actualRawUnits = (actualBalanceUi * multiplier).toLong()
             
             onLog("📊 SELL DEBUG: tracked=$tokenUnits | on-chain=$actualRawUnits (${actualDecimals}dec)", tradeId.mint)
