@@ -35,14 +35,14 @@ class JupiterApi {
     init {
         // Log DNS status on first use
         if (!dnsStatusLogged) {
-            log("🌐 JupiterApi initialized with CloudflareDns (DoH + fallback IPs)")
+            log("🌐 JupiterApi initialized with OkHttp native DoH (Cloudflare→Google→Quad9)")
             dnsStatusLogged = true
         }
     }
 
-    // HTTP client with CloudflareDns to bypass ISP DNS blocking
+    // HTTP client with native DoH via Cloudflare, Google, and Quad9 fallback
     private val http = OkHttpClient.Builder()
-        .dns(CloudflareDns.INSTANCE)  // Use DoH with fallback to hardcoded IPs
+        .dns(CloudflareDns.INSTANCE)  // Native OkHttp DoH implementation
         .connectTimeout(15, TimeUnit.SECONDS)
         .readTimeout(20, TimeUnit.SECONDS)
         .writeTimeout(15, TimeUnit.SECONDS)
@@ -56,7 +56,7 @@ class JupiterApi {
      * Uses Ultra API by default (faster, auto-slippage, built-in MEV protection).
      * Falls back to v6 API if Ultra fails.
      * 
-     * DNS is resolved via Cloudflare DoH to bypass ISP blocking.
+     * DNS is resolved via OkHttp native DoH (Cloudflare/Google/Quad9).
      * 
      * @param amountLamports  for SOL-in swaps; for token-in swaps use raw token units
      */
