@@ -2,6 +2,8 @@ package com.lifecyclebot.engine
 
 import android.content.Context
 import com.lifecyclebot.engine.NotificationHistory
+import com.lifecyclebot.engine.quant.QuantMetrics
+import com.lifecyclebot.engine.quant.PortfolioAnalytics
 import kotlin.math.abs
 import kotlin.math.pow
 
@@ -2248,6 +2250,24 @@ class Executor(
         // ═══════════════════════════════════════════════════════════════════
         LiquidityDepthAI.recordEntryLiquidity(tradeId.mint, ts.lastLiquidityUsd)
         
+        // ═══════════════════════════════════════════════════════════════════
+        // PORTFOLIO ANALYTICS: Track position for heat map & correlation
+        // ═══════════════════════════════════════════════════════════════════
+        try {
+            val narrative = NarrativeDetectorAI.detectNarrative(ts.symbol, ts.name)
+            PortfolioAnalytics.updatePosition(
+                mint = tradeId.mint,
+                symbol = tradeId.symbol,
+                valueSol = actualSol,
+                costSol = actualSol,
+                narrative = narrative.primary,
+                entryTime = System.currentTimeMillis(),
+            )
+            PortfolioAnalytics.recordPrice(tradeId.mint, price)
+        } catch (e: Exception) {
+            ErrorLogger.debug("PortfolioAnalytics", "Update error: ${e.message}")
+        }
+        
         // 🎵 Homer Simpson "Woohoo!" 
         sounds?.playBuySound()
         
@@ -2852,6 +2872,28 @@ class Executor(
                 phase = ts.position.entryPhase,
             )
         } catch (_: Exception) {}
+        
+        // ═══════════════════════════════════════════════════════════════════
+        // QUANT METRICS: Record trade for professional analytics
+        // Sharpe, Sortino, Profit Factor, Drawdown tracking
+        // ═══════════════════════════════════════════════════════════════════
+        try {
+            QuantMetrics.recordTrade(
+                symbol = ts.symbol,
+                mint = ts.mint,
+                pnlSol = pnl,
+                pnlPct = pnlP,
+                holdTimeMinutes = holdTimeMins,
+                entryPhase = ts.position.entryPhase,
+                quality = tradeClassification,
+            )
+            
+            // Remove from portfolio analytics
+            PortfolioAnalytics.removePosition(ts.mint)
+            
+        } catch (e: Exception) {
+            ErrorLogger.debug("QuantMetrics", "Recording error: ${e.message}")
+        }
         
         ts.position         = Position()
         ts.lastExitTs       = System.currentTimeMillis()
