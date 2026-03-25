@@ -7,11 +7,11 @@ import com.lifecyclebot.network.SwapQuote
  * SlippageGuard
  *
  * Fetches two quotes ~1 second apart before executing any live trade.
- * If the quotes diverge by more than 2%, the market is moving too fast
+ * If the quotes diverge by more than the threshold, the market is moving too fast
  * and the trade is aborted — protecting against getting filled at a bad price.
  *
- * NOTE: Reduced delay from 2s to 1s for faster execution on meme coins.
- * Increased tolerance from 1% to 2% for volatile markets.
+ * NOTE: Threshold increased to 5% for meme coins which are highly volatile.
+ * SELL operations skip this check entirely (we need to exit regardless of volatility).
  *
  * Also tracks cumulative fee costs so the journal can show net P&L.
  *
@@ -24,8 +24,8 @@ import com.lifecyclebot.network.SwapQuote
 class SlippageGuard(private val jupiter: JupiterApi) {
 
     companion object {
-        const val MAX_QUOTE_DIVERGENCE_PCT = 2.0   // INCREASED from 1% - meme coins are volatile
-        const val QUOTE_DELAY_MS           = 1_000L // REDUCED from 2s - faster execution
+        const val MAX_QUOTE_DIVERGENCE_PCT = 5.0   // INCREASED from 2% - meme coins move 3-5% in seconds
+        const val QUOTE_DELAY_MS           = 800L  // REDUCED from 1s - faster execution
         const val SOLANA_TX_FEE_SOL        = 0.000005
         const val JUPITER_FEE_PCT          = 0.003  // 0.3%
     }
