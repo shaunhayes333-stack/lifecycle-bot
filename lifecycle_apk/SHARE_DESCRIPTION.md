@@ -1,10 +1,26 @@
-# 🚀 LIFECYCLE BOT — The Most Advanced Solana Meme Coin Trading Bot Ever Built
+# 🚀 AATE — The Most Advanced Solana Meme Coin Trading Bot Ever Built
 
 ## You've Never Seen Anything Like This.
 
-While everyone else is running basic snipers and getting rugged, **Lifecycle Bot** is playing 4D chess with a **10-LAYER AI DECISION ENGINE** that learns, adapts, and evolves with every single trade.
+While everyone else is running basic snipers and getting rugged, **AATE (Autonomous Algorithmic Trading Engine)** is playing 4D chess with a **10-LAYER AI DECISION ENGINE** that learns, adapts, and evolves with every single trade.
 
-This isn't a bot. It's a **self-improving trading brain** running natively on your Android device.
+This isn't a bot. It's a **self-improving trading brain** running natively on your Android device with **military-grade security**.
+
+---
+
+## 🔐 BANK-LEVEL SECURITY
+
+Your credentials are protected with the same encryption used by banks:
+
+| What's Protected | How It's Protected |
+|------------------|-------------------|
+| Wallet Private Key | AES-256 Encryption |
+| All API Keys | Hardware-backed Android Keystore |
+| Telegram Token | EncryptedSharedPreferences |
+
+- **Zero hardcoded secrets** — Nothing sensitive in the code
+- **Hardware encryption** — Keys can't be extracted even with root
+- **Local only** — Your credentials never leave your device
 
 ---
 

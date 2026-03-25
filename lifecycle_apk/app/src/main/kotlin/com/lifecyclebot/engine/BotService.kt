@@ -140,6 +140,12 @@ class BotService : Service() {
         val cfg = ConfigStore.load(applicationContext)
         FluidLearning.init(applicationContext, cfg.paperSimulatedBalance)
         
+        // Initialize GeminiCopilot with API key from config
+        if (cfg.geminiApiKey.isNotBlank()) {
+            GeminiCopilot.init(cfg.geminiApiKey)
+            ErrorLogger.info("BotService", "GeminiCopilot initialized with API key")
+        }
+        
         } catch (e: Exception) {
             ErrorLogger.crash("BotService", "onCreate CRASH: ${e.javaClass.simpleName}: ${e.message}", e)
             android.util.Log.e("BotService", "onCreate CRASH: ${e.javaClass.simpleName}: ${e.message}", e)

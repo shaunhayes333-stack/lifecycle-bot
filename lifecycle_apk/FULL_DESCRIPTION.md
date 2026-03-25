@@ -1,10 +1,30 @@
-# Lifecycle Bot - AI-Powered Solana Meme Coin Trading Bot
+# AATE - AI-Powered Solana Meme Coin Trading Bot
 
 ## Overview
 
-Lifecycle Bot is a sophisticated Android-native trading bot that autonomously discovers, analyzes, and trades Solana meme coins using a **10-layer AI decision engine**. Built in Kotlin with real-time blockchain integration, it combines machine learning, quantitative analysis, LLM reasoning, and adaptive risk management to identify profitable trading opportunities.
+AATE (Autonomous Algorithmic Trading Engine) is a sophisticated Android-native trading bot that autonomously discovers, analyzes, and trades Solana meme coins using a **10-layer AI decision engine**. Built in Kotlin with real-time blockchain integration, it combines machine learning, quantitative analysis, LLM reasoning, and adaptive risk management to identify profitable trading opportunities.
 
-**NEW: Gemini AI Co-pilot** - Full AI assistance layer providing narrative analysis, trade reasoning, exit advice, and risk assessment powered by Google's Gemini 2.0 Flash.
+**Features:**
+- **Gemini AI Co-pilot** - Full AI assistance layer providing narrative analysis, trade reasoning, exit advice, and risk assessment powered by Google's Gemini 2.0 Flash.
+- **Military-Grade Security** - All sensitive data (wallet keys, API keys) encrypted with AES-256 via Android's EncryptedSharedPreferences with hardware-backed keystore.
+
+---
+
+## Security Architecture
+
+| Protected Data | Encryption | Storage |
+|----------------|------------|---------|
+| Wallet Private Key | AES-256-GCM | EncryptedSharedPreferences |
+| Groq API Key | AES-256-GCM | EncryptedSharedPreferences |
+| Gemini API Key | AES-256-GCM | EncryptedSharedPreferences |
+| Jupiter API Key | AES-256-GCM | EncryptedSharedPreferences |
+| Helius/Birdeye Keys | AES-256-GCM | EncryptedSharedPreferences |
+| Telegram Bot Token | AES-256-GCM | EncryptedSharedPreferences |
+
+**Security Guarantees:**
+- **Hardware-backed encryption** — Master keys stored in Android Keystore (cannot be extracted even with root)
+- **Zero hardcoded secrets** — No API keys or credentials in source code
+- **Local-only storage** — Credentials never transmitted to external servers
 
 ---
 

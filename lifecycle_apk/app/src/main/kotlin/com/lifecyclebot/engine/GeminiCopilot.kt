@@ -27,8 +27,21 @@ import java.util.concurrent.ConcurrentHashMap
  */
 object GeminiCopilot {
     
-    private const val GEMINI_API_KEY = "AIzaSyCsLC9tfdH-3-WTbH_HrdRtjmt1Ke_NVMc"
+    // API key loaded from user config - no hardcoded keys!
+    private var apiKey: String = ""
     private const val GEMINI_URL = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent"
+    
+    /**
+     * Initialize with API key from config
+     */
+    fun init(geminiApiKey: String) {
+        apiKey = geminiApiKey
+    }
+    
+    /**
+     * Check if API key is configured
+     */
+    fun isConfigured(): Boolean = apiKey.isNotBlank()
     
     private val http = OkHttpClient.Builder()
         .connectTimeout(15, TimeUnit.SECONDS)
@@ -268,7 +281,12 @@ object GeminiCopilot {
         }
         
         return try {
-            val url = "$GEMINI_URL?key=$GEMINI_API_KEY"
+            if (!isConfigured()) {
+                ErrorLogger.debug("GeminiCopilot", "API key not configured, skipping")
+                return null
+            }
+            
+            val url = "$GEMINI_URL?key=$apiKey"
             val req = Request.Builder()
                 .url(url)
                 .post(payload.toString().toRequestBody(JSON_MT))

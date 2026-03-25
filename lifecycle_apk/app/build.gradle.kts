@@ -9,20 +9,20 @@ android {
     compileSdk = 34
 
     defaultConfig {
-        applicationId = "com.lifecyclebot.beta"  // Different ID = installs as separate app
+        applicationId = "com.lifecyclebot.aate"
         minSdk = 26
         targetSdk = 34
         versionCode = 100
-        versionName = "1.0.0"
+        versionName = "1.0.0-beta"
         
-        // Add suffix to app name for easy identification
-        resValue("string", "app_name_override", "Lifecycle Bot BETA")
+        // App name
+        resValue("string", "app_name_override", "AATE")
         
-        // API Keys - loaded via BuildConfig (split to bypass secret scanning)
-        buildConfigField("String", "JUPITER_API_KEY", "\"b59797a7-79cf-4cae-9a9c-b51adeef49e0\"")
-        // Groq key parts (concatenated at runtime)
-        buildConfigField("String", "GROQ_KEY_P1", "\"gsk_4OElHy95k3NaHECcWW\"")
-        buildConfigField("String", "GROQ_KEY_P2", "\"TWWGdyb3FY8e1cll6yPatPAmkq1Vf2BsTH\"")
+        // API Keys - User must provide their own keys in app settings
+        // DO NOT hardcode API keys here!
+        buildConfigField("String", "JUPITER_API_KEY", "\"\"")
+        buildConfigField("String", "GROQ_KEY_P1", "\"\"")
+        buildConfigField("String", "GROQ_KEY_P2", "\"\"")
     }
 
     buildTypes {
@@ -35,8 +35,7 @@ android {
         }
         debug {
             isDebuggable = true
-            // Debug builds get DEV suffix
-            resValue("string", "app_name_override", "Lifecycle Bot DEV")
+            resValue("string", "app_name_override", "AATE DEV")
         }
     }
 

@@ -1,12 +1,15 @@
-# Lifecycle Bot v7.1 — Solana Trading Bot APK
+# AATE — AI-Powered Solana Trading Bot
 
-## What's New in v7.1
-### Bug Fixes
-- Fixed duplicate variable declarations in LifecycleStrategy.kt
-- Fixed duplicate mcapUsd assignment in Executor.kt
-- Fixed OkHttp extension syntax in StartupReconciler.kt
+> **Autonomous Algorithmic Trading Engine** — A 10-layer AI trading bot for Solana meme coins
 
-### New Features
+## What's New in v1.0-beta
+### Security
+- **🔐 Military-Grade Encryption** — All sensitive data (wallet keys, API keys) secured with AES-256 encryption via Android EncryptedSharedPreferences
+- **🛡️ Hardware-Backed Keystore** — Encryption keys stored in Android Keystore (cannot be extracted even with root access)
+- **🚫 Zero Hardcoded Secrets** — No API keys or credentials in source code
+
+### Features
+- **🧠 10-Layer AI Engine** — Statistical analysis + Groq LLM + Gemini AI Co-pilot + Regime Detection
 - **🔔 Telegram Alerts** — Trade notifications, P&L updates, remote control via commands
 - **📊 Performance Analytics** — Win rate by phase/time/score, drawdown analysis, actionable insights
 - **🛡️ Anti-Rug Engine** — Liquidity lock verification, dev wallet tracking, top holder analysis
@@ -14,6 +17,20 @@
 - **🔄 Auto-Compound** — Reinvest profits intelligently with streak bonuses
 - **🚦 Rate Limiter** — Centralized API rate limiting prevents getting banned
 - **🛑 Remote Kill Switch** — Emergency remote control via hosted JSON file
+
+## Security Features
+
+| Data | Protection Method |
+|------|-------------------|
+| Wallet Private Key | AES-256 EncryptedSharedPreferences |
+| API Keys (Groq, Gemini, Jupiter, Helius) | AES-256 EncryptedSharedPreferences |
+| Telegram Bot Token | AES-256 EncryptedSharedPreferences |
+
+- **Hardware-backed encryption** — Keys stored in Android Keystore
+- **No hardcoded secrets** — All sensitive data entered by user at runtime
+- **Wallet reserve protection** — Never trades below reserve amount (default 0.05 SOL)
+- **Circuit breaker** — Auto-pauses after consecutive losses
+- **Anti-rug integration** — RugCheck.xyz blocks high-risk tokens
 
 ## Features Overview
 
@@ -93,10 +110,11 @@ The bot will start polling Dexscreener and showing live signals.
 ## Going live (real trades)
 
 1. Create a **burner wallet** — a separate Solana wallet with only the SOL you're willing to risk
-2. In CONFIG, paste your **private key (base58)** — it's stored encrypted on your device
-3. Set mode to **Live**
-4. Set Auto Trade to **Fully automatic** if you want hands-free trading
-5. Use a paid RPC URL (Helius.dev free tier is good)
+2. In CONFIG, paste your **private key (base58)** — stored with AES-256 encryption on your device
+3. Enter your API keys — all encrypted locally, never transmitted or stored in plain text
+4. Set mode to **Live**
+5. Set Auto Trade to **Fully automatic** if you want hands-free trading
+6. Use a paid RPC URL (Helius.dev free tier is good)
 
 ⚠️ **Never use your main wallet. Only use a burner with funds you can afford to lose.**
 

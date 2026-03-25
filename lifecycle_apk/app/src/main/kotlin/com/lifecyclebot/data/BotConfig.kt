@@ -56,10 +56,11 @@ data class BotConfig(
     val maxPriceImpactPct: Double = 3.0,
     val closePositionsOnStop: Boolean = true, // SAFETY: close all positions when bot stops
     // external API keys (all free)
-    val heliusApiKey: String = "7ec2e508-5c52-48a6-8761-78932324922e",  // helius.dev — faster RPC + real-time WS
+    val heliusApiKey: String = "",  // helius.dev — faster RPC + real-time WS
     val birdeyeApiKey: String = "",     // birdeye.so — free, OHLCV candles
-    val groqApiKey: String = com.lifecyclebot.BuildConfig.GROQ_KEY_P1 + com.lifecyclebot.BuildConfig.GROQ_KEY_P2,        // console.groq.com — free LLM sentiment
-    val jupiterApiKey: String = com.lifecyclebot.BuildConfig.JUPITER_API_KEY,     // portal.jup.ag — required for Ultra API
+    val groqApiKey: String = "",        // console.groq.com — free LLM sentiment
+    val geminiApiKey: String = "",      // Google AI Studio — free Gemini API
+    val jupiterApiKey: String = "",     // portal.jup.ag — required for Ultra API
     val geminiEnabled: Boolean = true,     // Enable Gemini AI Co-pilot (narrative analysis, exit advice, trade reasoning)
     val autoAddNewTokens: Boolean = true, // ENABLED - auto-add new Pump.fun launches to watchlist
     // multi-position trading
@@ -211,6 +212,8 @@ object ConfigStore {
             putString("helius_api_key",      cfg.heliusApiKey)
             putString("birdeye_api_key",     cfg.birdeyeApiKey)
             putString("groq_api_key",        cfg.groqApiKey)
+            putString("gemini_api_key",      cfg.geminiApiKey)
+            putString("jupiter_api_key",     cfg.jupiterApiKey)
             apply()
         }
         prefs(ctx).edit().apply {
@@ -364,9 +367,11 @@ object ConfigStore {
             circuitBreakerPauseMin      = p.getInt("circuit_breaker_pause_min", 15),
             maxPriceImpactPct           = p.getFloat("max_price_impact_pct", 3.0f).toDouble(),
             closePositionsOnStop        = p.getBoolean("close_positions_on_stop", true),
-            heliusApiKey                = s.getString("helius_api_key", "7ec2e508-5c52-48a6-8761-78932324922e") ?: "7ec2e508-5c52-48a6-8761-78932324922e",
+            heliusApiKey                = s.getString("helius_api_key", "") ?: "",
             birdeyeApiKey               = s.getString("birdeye_api_key", "") ?: "",
             groqApiKey                  = s.getString("groq_api_key", "") ?: "",
+            geminiApiKey                = s.getString("gemini_api_key", "") ?: "",
+            jupiterApiKey               = s.getString("jupiter_api_key", "") ?: "",
             autoAddNewTokens            = p.getBoolean("auto_add_new_tokens", true),
             geminiEnabled               = p.getBoolean("gemini_enabled", true),
             maxConcurrentPositions      = p.getInt("max_concurrent_positions", 3),
