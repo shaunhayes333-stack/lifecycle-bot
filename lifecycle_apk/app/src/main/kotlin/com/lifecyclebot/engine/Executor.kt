@@ -407,6 +407,18 @@ class Executor(
         }
         
         // ═══════════════════════════════════════════════════════════════════
+        // HOUSE MONEY MULTIPLIER — After capital recovered, we can be MUCH looser
+        // This is the key insight: if we've already secured our initial investment,
+        // the remaining position is "free" — we can let it ride with very loose stops
+        // ═══════════════════════════════════════════════════════════════════
+        val houseMoneyMultiplier = when {
+            pos.profitLocked -> 1.8    // Both capital AND profits locked → very loose
+            pos.isHouseMoney -> 1.5    // Capital recovered → looser (playing with house money)
+            pos.capitalRecovered -> 1.4  // Capital partially recovered
+            else -> 1.0                 // Normal — our money is at risk
+        }
+        
+        // ═══════════════════════════════════════════════════════════════════
         // V5: SMART TRAIL MULTIPLIER based on trend health
         // ═══════════════════════════════════════════════════════════════════
         // 
@@ -524,7 +536,8 @@ class Executor(
         
         // Apply health multiplier - healthy trend = looser trail
         // Also apply learning influence from ExitIntelligence
-        var smartTrail = baseTrail * healthMultiplier * partialFactor * learnedTrailInfluence
+        // House money multiplier allows looser stops when capital is secured
+        var smartTrail = baseTrail * healthMultiplier * partialFactor * learnedTrailInfluence * houseMoneyMultiplier
         
         // ═══════════════════════════════════════════════════════════════════
         // MARKET REGIME AI INFLUENCE ON TRAILING STOP
@@ -574,6 +587,306 @@ class Executor(
     fun trailingFloorBasic(pos: Position, current: Double,
                             modeConf: AutoModeEngine.ModeConfig? = null): Double {
         return trailingFloor(pos, current, modeConf)
+    }
+
+    // ── profit lock system ─────────────────────────────────────────────
+    
+    /**
+     * DYNAMIC PROFIT LOCK SYSTEM — Secure capital first, then let house money ride
+     * ═══════════════════════════════════════════════════════════════════════════
+     * 
+     * The problem with wide trailing stops on moonshots:
+     * - 75% drawdown at 100x means watching $10K drop to $2.5K
+     * - Psychologically devastating, mathematically stupid
+     * 
+     * SOLUTION: Lock profits in stages, then let remainder ride freely
+     * 
+     * DYNAMIC THRESHOLDS based on:
+     * - Liquidity: Low liq = lock earlier (more rug risk)
+     * - Market cap: Low mcap = lock earlier (more volatile)
+     * - Volatility: High vol = lock earlier (faster moves)
+     * - Entry phase: Early entries = lock earlier (riskier)
+     * 
+     * BASE LEVELS:
+     *   Stage 1: CAPITAL RECOVERY at 2x (+100%)
+     *   Stage 2: PROFIT LOCK at 5x (+400%)
+     * 
+     * ADJUSTED LEVELS (example for low-liq early entry):
+     *   Stage 1: CAPITAL RECOVERY at 1.5x (+50%)
+     *   Stage 2: PROFIT LOCK at 3x (+200%)
+     */
+    
+    /**
+     * Calculate dynamic profit lock thresholds based on token characteristics
+     */
+    private fun calculateProfitLockThresholds(ts: TokenState): Pair<Double, Double> {
+        val pos = ts.position
+        
+        // Base thresholds
+        var capitalRecoveryMultiple = 2.0  // 2x = +100%
+        var profitLockMultiple = 5.0       // 5x = +400%
+        
+        // ════════════════════════════════════════════════════════════════
+        // FACTOR 1: LIQUIDITY — Lower liquidity = lock earlier
+        // ════════════════════════════════════════════════════════════════
+        val liqUsd = ts.liquidityUsd
+        val liqAdjustment = when {
+            liqUsd < 5_000   -> 0.70   // Very low liq: lock at 70% of base (1.4x, 3.5x)
+            liqUsd < 10_000  -> 0.80   // Low liq: lock at 80% of base (1.6x, 4x)
+            liqUsd < 25_000  -> 0.90   // Medium liq: lock at 90% of base
+            liqUsd < 50_000  -> 1.00   // Standard liq: base thresholds
+            liqUsd < 100_000 -> 1.10   // Good liq: can wait a bit longer
+            else             -> 1.20   // High liq: more room to ride (2.4x, 6x)
+        }
+        
+        // ════════════════════════════════════════════════════════════════
+        // FACTOR 2: MARKET CAP — Lower mcap = lock earlier (more volatile)
+        // ════════════════════════════════════════════════════════════════
+        val mcap = ts.marketCapUsd
+        val mcapAdjustment = when {
+            mcap < 50_000    -> 0.75   // Micro cap: very aggressive locking
+            mcap < 100_000   -> 0.85   // Small cap: aggressive locking
+            mcap < 250_000   -> 0.95   // Medium cap: slightly earlier
+            mcap < 500_000   -> 1.00   // Standard: base thresholds
+            mcap < 1_000_000 -> 1.10   // Larger: more room
+            else             -> 1.20   // Big cap: let it ride longer
+        }
+        
+        // ════════════════════════════════════════════════════════════════
+        // FACTOR 3: VOLATILITY — Higher volatility = lock earlier
+        // ════════════════════════════════════════════════════════════════
+        val volatility = ts.meta.rangePct  // Recent price range %
+        val volAdjustment = when {
+            volatility > 50  -> 0.70   // Extreme volatility: lock fast
+            volatility > 30  -> 0.80   // High volatility
+            volatility > 20  -> 0.90   // Medium volatility
+            volatility > 10  -> 1.00   // Normal volatility
+            else             -> 1.10   // Low volatility: can wait
+        }
+        
+        // ════════════════════════════════════════════════════════════════
+        // FACTOR 4: ENTRY PHASE — Earlier entries = lock earlier (riskier)
+        // ════════════════════════════════════════════════════════════════
+        val entryPhase = pos.entryPhase.lowercase()
+        val phaseAdjustment = when {
+            entryPhase.contains("early") || entryPhase.contains("accumulation") -> 0.80  // Early = risky
+            entryPhase.contains("pre_pump") -> 0.85   // Pre-pump = somewhat risky
+            entryPhase.contains("markup") || entryPhase.contains("breakout") -> 1.00  // Breakout = confirmed
+            entryPhase.contains("momentum") -> 1.05   // Momentum = riding trend
+            entryPhase.contains("distribution") -> 0.70  // Distribution = get out fast!
+            else -> 0.90  // Unknown = conservative
+        }
+        
+        // ════════════════════════════════════════════════════════════════
+        // FACTOR 5: ENTRY QUALITY — Lower quality = lock earlier
+        // ════════════════════════════════════════════════════════════════
+        val qualityAdjustment = when {
+            pos.entryScore >= 80 -> 1.15   // A+ quality: trust the setup
+            pos.entryScore >= 70 -> 1.05   // A quality: good setup
+            pos.entryScore >= 60 -> 1.00   // B quality: standard
+            pos.entryScore >= 50 -> 0.90   // C quality: be careful
+            else -> 0.80                    // D quality: lock fast
+        }
+        
+        // ════════════════════════════════════════════════════════════════
+        // COMBINE ALL FACTORS
+        // Use geometric mean for balanced adjustment
+        // ════════════════════════════════════════════════════════════════
+        val combinedAdjustment = kotlin.math.sqrt(
+            liqAdjustment * mcapAdjustment * volAdjustment * phaseAdjustment * qualityAdjustment
+        ).coerceIn(0.6, 1.5)  // Cap between 60% and 150% of base
+        
+        capitalRecoveryMultiple *= combinedAdjustment
+        profitLockMultiple *= combinedAdjustment
+        
+        // Ensure minimum thresholds (don't lock below 1.3x for capital, 2.5x for profit)
+        capitalRecoveryMultiple = capitalRecoveryMultiple.coerceIn(1.3, 3.0)
+        profitLockMultiple = profitLockMultiple.coerceIn(2.5, 8.0)
+        
+        return Pair(capitalRecoveryMultiple, profitLockMultiple)
+    }
+    
+    fun checkProfitLock(ts: TokenState, wallet: SolanaWallet?, walletSol: Double): Boolean {
+        val c = cfg()
+        val pos = ts.position
+        if (!pos.isOpen) return false
+        
+        val currentValue = pos.qtyToken * ts.ref
+        val gainMultiple = currentValue / pos.costSol  // 2.0 = 2x, 5.0 = 5x
+        val gainPct = (gainMultiple - 1.0) * 100.0
+        
+        // Get dynamic thresholds based on token characteristics
+        val (capitalRecoveryThreshold, profitLockThreshold) = calculateProfitLockThresholds(ts)
+        
+        // ════════════════════════════════════════════════════════════════
+        // STAGE 1: CAPITAL RECOVERY (dynamic threshold)
+        // Sell enough to get back initial investment
+        // ════════════════════════════════════════════════════════════════
+        if (!pos.capitalRecovered && gainMultiple >= capitalRecoveryThreshold) {
+            // Calculate how much to sell to recover initial capital
+            // At 2x: sell 50%. At 1.5x: sell 66%. At 3x: sell 33%
+            val sellFraction = (1.0 / gainMultiple).coerceIn(0.25, 0.70)
+            val sellQty = pos.qtyToken * sellFraction
+            val sellSol = sellQty * ts.ref
+            
+            onLog("🔒 CAPITAL RECOVERY: ${ts.symbol} @ ${gainMultiple.fmt(2)}x (threshold: ${capitalRecoveryThreshold.fmt(2)}x) — selling ${(sellFraction*100).toInt()}% to recover initial", ts.mint)
+            onNotify("🔒 Capital Recovered!",
+                "${ts.symbol} @ ${gainMultiple.fmt(1)}x — initial investment secured",
+                com.lifecyclebot.engine.NotificationHistory.NotifEntry.NotifType.INFO)
+            sounds?.playMilestone(gainPct)
+            
+            if (c.paperMode || wallet == null) {
+                // Paper mode
+                val newQty = pos.qtyToken - sellQty
+                val newCost = pos.costSol * (1.0 - sellFraction)
+                val pnlSol = sellSol - pos.costSol * sellFraction
+                
+                ts.position = pos.copy(
+                    qtyToken = newQty,
+                    costSol = newCost,
+                    capitalRecovered = true,
+                    capitalRecoveredSol = sellSol,
+                    isHouseMoney = true,
+                    lockedProfitFloor = sellSol,  // We've secured this much
+                )
+                
+                val trade = Trade("SELL", "paper", sellSol, ts.ref,
+                    System.currentTimeMillis(), "capital_recovery_${gainMultiple.fmt(1)}x",
+                    pnlSol, gainPct)
+                ts.trades.add(trade)
+                security.recordTrade(trade)
+                onPaperBalanceChange?.invoke(sellSol)
+                
+                onLog("📄 PAPER CAPITAL LOCK: Sold ${sellSol.fmt(4)} SOL @ +${gainPct.toInt()}% — now playing with house money!", ts.mint)
+            } else {
+                // Live mode
+                executeProfitLockSell(ts, wallet, sellFraction, "capital_recovery_${gainMultiple.fmt(1)}x", walletSol)
+            }
+            return true
+        }
+        
+        // ════════════════════════════════════════════════════════════════
+        // STAGE 2: PROFIT LOCK (dynamic threshold)
+        // After capital recovered, lock 50% of remaining at profit threshold
+        // ════════════════════════════════════════════════════════════════
+        if (pos.capitalRecovered && !pos.profitLocked && gainMultiple >= profitLockThreshold) {
+            // Sell 50% of remaining position to lock profits
+            val sellFraction = 0.50
+            val sellQty = pos.qtyToken * sellFraction
+            val sellSol = sellQty * ts.ref
+            
+            onLog("🔐 PROFIT LOCK: ${ts.symbol} @ ${gainMultiple.fmt(2)}x (threshold: ${profitLockThreshold.fmt(2)}x) — locking 50% of remaining profits", ts.mint)
+            onNotify("🔐 Profits Locked!",
+                "${ts.symbol} @ ${gainMultiple.fmt(1)}x — 50% profits secured",
+                com.lifecyclebot.engine.NotificationHistory.NotifEntry.NotifType.INFO)
+            sounds?.playMilestone(gainPct)
+            
+            if (c.paperMode || wallet == null) {
+                // Paper mode
+                val newQty = pos.qtyToken - sellQty
+                val newCost = pos.costSol * (1.0 - sellFraction)
+                val pnlSol = sellSol - pos.costSol * sellFraction
+                
+                ts.position = pos.copy(
+                    qtyToken = newQty,
+                    costSol = newCost,
+                    profitLocked = true,
+                    profitLockedSol = sellSol,
+                    lockedProfitFloor = pos.lockedProfitFloor + sellSol,
+                )
+                
+                val trade = Trade("SELL", "paper", sellSol, ts.ref,
+                    System.currentTimeMillis(), "profit_lock_${gainMultiple.fmt(1)}x",
+                    pnlSol, gainPct)
+                ts.trades.add(trade)
+                security.recordTrade(trade)
+                onPaperBalanceChange?.invoke(sellSol)
+                
+                onLog("📄 PAPER PROFIT LOCK: Sold ${sellSol.fmt(4)} SOL @ ${gainMultiple.fmt(1)}x — letting rest ride free!", ts.mint)
+            } else {
+                // Live mode
+                executeProfitLockSell(ts, wallet, sellFraction, "profit_lock_${gainMultiple.fmt(1)}x", walletSol)
+            }
+            return true
+        }
+        
+        return false
+    }
+    
+    /**
+     * Execute a profit lock sell (live mode)
+     */
+    private fun executeProfitLockSell(
+        ts: TokenState,
+        wallet: SolanaWallet,
+        sellFraction: Double,
+        reason: String,
+        walletSol: Double,
+    ) {
+        val c = cfg()
+        val pos = ts.position
+        
+        if (!security.verifyKeypairIntegrity(wallet.publicKeyB58,
+                c.walletAddress.ifBlank { wallet.publicKeyB58 })) {
+            onLog("🛑 Keypair check failed — aborting profit lock sell", ts.mint)
+            return
+        }
+        
+        val sellQty = pos.qtyToken * sellFraction
+        val sellUnits = (sellQty * 1_000_000_000.0).toLong().coerceAtLeast(1L)
+        
+        try {
+            val quote = getQuoteWithSlippageGuard(ts.mint, JupiterApi.SOL_MINT, sellUnits, c.slippageBps, isBuy = false)
+            val txResult = buildTxWithRetry(quote, wallet.publicKeyB58)
+            security.enforceSignDelay()
+            
+            val useJito = c.jitoEnabled && !quote.isUltra
+            val jitoTip = c.jitoTipLamports
+            val ultraReqId = if (quote.isUltra) txResult.requestId else null
+            
+            val sig = wallet.signSendAndConfirm(txResult.txBase64, useJito, jitoTip, ultraReqId, c.jupiterApiKey)
+            val solBack = quote.outAmount / 1_000_000_000.0
+            val pnlSol = solBack - pos.costSol * sellFraction
+            val pnlPct = pct(pos.costSol * sellFraction, solBack)
+            val (netPnl, feeSol) = slippageGuard.calcNetPnl(pnlSol, pos.costSol * sellFraction)
+            
+            // Update position
+            val newQty = pos.qtyToken - sellQty
+            val newCost = pos.costSol * (1.0 - sellFraction)
+            
+            val isCapitalRecovery = reason.contains("capital_recovery")
+            ts.position = pos.copy(
+                qtyToken = newQty,
+                costSol = newCost,
+                capitalRecovered = if (isCapitalRecovery) true else pos.capitalRecovered,
+                capitalRecoveredSol = if (isCapitalRecovery) solBack else pos.capitalRecoveredSol,
+                profitLocked = if (!isCapitalRecovery) true else pos.profitLocked,
+                profitLockedSol = if (!isCapitalRecovery) solBack else pos.profitLockedSol,
+                isHouseMoney = true,
+                lockedProfitFloor = pos.lockedProfitFloor + solBack,
+            )
+            
+            val trade = Trade("SELL", "live", solBack, ts.ref,
+                System.currentTimeMillis(), reason,
+                pnlSol, pnlPct, sig = sig, feeSol = feeSol, netPnlSol = netPnl)
+            ts.trades.add(trade)
+            security.recordTrade(trade)
+            SmartSizer.recordTrade(pnlSol > 0, isPaperMode = false)
+            
+            // Lock realized profit to treasury
+            if (pnlSol > 0) {
+                val solPrice = WalletManager.lastKnownSolPrice
+                TreasuryManager.lockRealizedProfit(pnlSol, solPrice)
+            }
+            
+            onLog("✅ LIVE $reason: ${solBack.fmt(4)} SOL | pnl ${pnlSol.fmt(4)} SOL | sig=${sig.take(16)}…", ts.mint)
+            onNotify("✅ Profit Locked",
+                "${ts.symbol} secured ${solBack.fmt(3)} SOL",
+                com.lifecyclebot.engine.NotificationHistory.NotifEntry.NotifType.INFO)
+                
+        } catch (e: Exception) {
+            onLog("❌ Profit lock sell FAILED: ${security.sanitiseForLog(e.message ?: "unknown")} — will retry next tick", ts.mint)
+        }
     }
 
     // ── partial sell ─────────────────────────────────────────────────
@@ -957,6 +1270,17 @@ class Executor(
         if (freshness is GuardResult.Block) {
             onLog("⚠ ${freshness.reason}", ts.mint)
             return
+        }
+
+        // ════════════════════════════════════════════════════════════════
+        // PROFIT LOCK SYSTEM — Check BEFORE partial sells and risk checks
+        // This ensures we secure capital and lock profits at key milestones
+        // ════════════════════════════════════════════════════════════════
+        if (ts.position.isOpen) {
+            if (checkProfitLock(ts, wallet, walletSol)) {
+                // Profit lock was executed, skip other sell logic this tick
+                return
+            }
         }
 
         // v4.4: Partial sell check — runs before full risk check

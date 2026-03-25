@@ -63,11 +63,22 @@ data class Position(
     // Graduated building
     val buildPhase: Int = 0,           // 0=none, 1=initial, 2=confirm, 3=full
     val targetBuildSol: Double = 0.0,
+    // ═══════════════════════════════════════════════════════════════════
+    // PROFIT LOCK SYSTEM - Secure capital, then let house money ride
+    // ═══════════════════════════════════════════════════════════════════
+    val capitalRecovered: Boolean = false,      // At 2x: sold enough to recover initial investment
+    val capitalRecoveredSol: Double = 0.0,      // How much SOL we recovered
+    val profitLocked: Boolean = false,          // At 5x: locked 50% of remaining profits
+    val profitLockedSol: Double = 0.0,          // How much profit we locked
+    val isHouseMoney: Boolean = false,          // True after capital recovered - remainder is "free"
+    val lockedProfitFloor: Double = 0.0,        // Minimum value we've secured (won't trail below this)
 ) {
     val isOpen get() = qtyToken > 0.0
     val initialCostSol get() = costSol - topUpCostSol  // original entry size
     val avgEntryCost get() = if (qtyToken > 0) costSol else 0.0
     val isFullyBuilt get() = buildPhase >= 3 || targetBuildSol <= 0 || costSol >= targetBuildSol * 0.95
+    // After capital is recovered, we're playing with house money
+    val effectiveRisk get() = if (isHouseMoney) 0.0 else costSol
 }
 
 data class Trade(
