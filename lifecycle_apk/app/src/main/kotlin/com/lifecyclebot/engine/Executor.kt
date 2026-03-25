@@ -2946,25 +2946,33 @@ class Executor(
         //   - Buy confirmation was incomplete
         //   - Tokens were transferred/sold externally
         //   - Position tracker is out of sync
+        //   - Token decimals mismatch (6 vs 9 decimals)
         // ═══════════════════════════════════════════════════════════════════
         try {
             val onChainBalances = wallet.getTokenAccounts()
-            val actualBalance = onChainBalances[ts.mint] ?: 0.0
-            val expectedBalance = pos.qtyToken
+            val actualBalanceUi = onChainBalances[ts.mint] ?: 0.0
             
-            if (actualBalance <= 0.0) {
+            if (actualBalanceUi <= 0.0) {
                 // No tokens on-chain - position is stale
-                onLog("⚠️ SELL SKIPPED: No tokens on-chain for ${ts.symbol} (expected ${expectedBalance.toLong()})", tradeId.mint)
+                onLog("⚠️ SELL SKIPPED: No tokens on-chain for ${ts.symbol} (expected ${pos.qtyToken.toLong()})", tradeId.mint)
                 onLog("   Clearing stale position — tokens may have been sold externally", tradeId.mint)
                 ts.position = Position() // Clear stale position
                 return
             }
             
-            // If actual balance is less than expected, use actual balance
-            if (actualBalance < expectedBalance * 0.95) { // 5% tolerance for rounding
-                onLog("⚠️ Balance mismatch: on-chain=${actualBalance.toLong()} expected=${expectedBalance.toLong()} — using actual", tradeId.mint)
-                tokenUnits = (actualBalance * 1_000_000_000.0).toLong().coerceAtLeast(1L)
+            // ALWAYS use actual on-chain balance for selling
+            // This prevents issues with decimal mismatches and ensures we sell exactly what we have
+            val actualRawUnits = (actualBalanceUi * 1_000_000_000.0).toLong()
+            
+            // Log if there's a significant difference (more than 1%)
+            val expectedRaw = tokenUnits
+            val diffPct = if (expectedRaw > 0) kotlin.math.abs(actualRawUnits - expectedRaw).toDouble() / expectedRaw * 100 else 0.0
+            if (diffPct > 1.0) {
+                onLog("⚠️ Balance adjustment: tracked=${expectedRaw} on-chain=${actualRawUnits} (${diffPct.toInt()}% diff) — using on-chain", tradeId.mint)
             }
+            
+            tokenUnits = actualRawUnits.coerceAtLeast(1L)
+            
         } catch (e: Exception) {
             onLog("⚠️ Could not verify on-chain balance: ${e.message?.take(40)} — proceeding with tracked qty", tradeId.mint)
             // Continue with tracked quantity if balance check fails
