@@ -12,72 +12,102 @@ import java.util.concurrent.TimeUnit
 /**
  * DNS-over-HTTPS (DoH) resolver that bypasses local DNS issues.
  * 
- * Uses Cloudflare's DoH endpoint (1.1.1.1) to resolve domains.
- * This fixes issues where ISPs block or have broken DNS for certain domains
- * like Jupiter's api.jup.ag and quote-api.jup.ag.
- * 
- * Falls back to system DNS if DoH fails.
+ * Uses multiple DoH providers (Cloudflare, Google, Quad9) for reliability.
+ * Falls back through each provider if one fails.
  */
 class CloudflareDns : Dns {
     
     companion object {
         private const val TAG = "CloudflareDns"
-        private const val DOH_URL = "https://1.1.1.1/dns-query"
         
-        // Cache DNS results for 5 minutes to reduce latency
-        private const val CACHE_TTL_MS = 5 * 60 * 1000L
+        // Multiple DoH providers for redundancy
+        private val DOH_PROVIDERS = listOf(
+            "https://1.1.1.1/dns-query",           // Cloudflare
+            "https://dns.google/resolve",          // Google
+            "https://dns.quad9.net:5053/dns-query" // Quad9
+        )
         
-        // Singleton instance for reuse
+        // Known Jupiter IPs as last resort fallback (may change, but better than nothing)
+        private val JUPITER_FALLBACK_IPS = mapOf(
+            "api.jup.ag" to listOf("104.18.29.81", "104.18.28.81"),
+            "quote-api.jup.ag" to listOf("104.18.29.81", "104.18.28.81")
+        )
+        
+        // Cache DNS results for 10 minutes
+        private const val CACHE_TTL_MS = 10 * 60 * 1000L
+        
+        // Singleton instance
         val INSTANCE = CloudflareDns()
     }
     
-    // Simple HTTP client for DoH requests (no custom DNS to avoid recursion)
+    // Simple HTTP client for DoH (uses IP directly to avoid DNS recursion)
     private val dohClient = OkHttpClient.Builder()
-        .connectTimeout(5, TimeUnit.SECONDS)
-        .readTimeout(5, TimeUnit.SECONDS)
+        .connectTimeout(3, TimeUnit.SECONDS)
+        .readTimeout(3, TimeUnit.SECONDS)
         .build()
     
-    // Cache: hostname -> (addresses, expiry time)
+    // Cache: hostname -> (addresses, expiry)
     private val cache = ConcurrentHashMap<String, Pair<List<InetAddress>, Long>>()
     
     override fun lookup(hostname: String): List<InetAddress> {
+        log("🔍 DNS lookup: $hostname")
+        
         // Check cache first
         val cached = cache[hostname]
         if (cached != null && System.currentTimeMillis() < cached.second) {
-            log("📍 DNS cache hit: $hostname → ${cached.first.size} IPs")
+            log("📍 Cache hit: $hostname → ${cached.first.size} IPs")
             return cached.first
         }
         
-        // Try DoH resolution
-        try {
-            val addresses = resolveViaDoH(hostname)
-            if (addresses.isNotEmpty()) {
-                // Cache the result
-                cache[hostname] = Pair(addresses, System.currentTimeMillis() + CACHE_TTL_MS)
-                log("✅ DoH resolved: $hostname → ${addresses.joinToString { it.hostAddress ?: "?" }}")
-                return addresses
+        // Try DoH with each provider
+        for (provider in DOH_PROVIDERS) {
+            try {
+                val addresses = resolveViaDoH(hostname, provider)
+                if (addresses.isNotEmpty()) {
+                    cache[hostname] = Pair(addresses, System.currentTimeMillis() + CACHE_TTL_MS)
+                    log("✅ DoH OK ($provider): $hostname → ${addresses.joinToString { it.hostAddress ?: "?" }}")
+                    return addresses
+                }
+            } catch (e: Exception) {
+                log("⚠️ DoH failed ($provider): ${e.message?.take(40)}")
             }
-        } catch (e: Exception) {
-            log("⚠️ DoH failed for $hostname: ${e.message?.take(50)}, trying system DNS")
         }
         
-        // Fallback to system DNS
+        // Try system DNS
         try {
             val systemAddresses = Dns.SYSTEM.lookup(hostname)
-            log("📍 System DNS resolved: $hostname → ${systemAddresses.size} IPs")
-            return systemAddresses
+            if (systemAddresses.isNotEmpty()) {
+                log("📍 System DNS: $hostname → ${systemAddresses.size} IPs")
+                return systemAddresses
+            }
         } catch (e: Exception) {
-            log("❌ System DNS also failed for $hostname: ${e.message?.take(50)}")
-            throw UnknownHostException("Failed to resolve $hostname via DoH and system DNS")
+            log("⚠️ System DNS failed: ${e.message?.take(40)}")
         }
+        
+        // Last resort: use hardcoded fallback IPs for Jupiter
+        val fallbackIps = JUPITER_FALLBACK_IPS[hostname]
+        if (fallbackIps != null) {
+            try {
+                val addresses = fallbackIps.mapNotNull { ip ->
+                    try { InetAddress.getByName(ip) } catch (_: Exception) { null }
+                }
+                if (addresses.isNotEmpty()) {
+                    log("🆘 Using fallback IPs for $hostname: ${addresses.joinToString { it.hostAddress ?: "?" }}")
+                    return addresses
+                }
+            } catch (_: Exception) {}
+        }
+        
+        log("❌ All DNS methods failed for $hostname")
+        throw UnknownHostException("Failed to resolve $hostname (DoH + system + fallback all failed)")
     }
     
-    /**
-     * Resolve hostname using Cloudflare's DNS-over-HTTPS endpoint.
-     * Uses the JSON API format for simplicity.
-     */
-    private fun resolveViaDoH(hostname: String): List<InetAddress> {
-        val url = "$DOH_URL?name=$hostname&type=A"
+    private fun resolveViaDoH(hostname: String, providerUrl: String): List<InetAddress> {
+        val url = if (providerUrl.contains("dns.google")) {
+            "$providerUrl?name=$hostname&type=A"  // Google uses different format
+        } else {
+            "$providerUrl?name=$hostname&type=A"
+        }
         
         val request = Request.Builder()
             .url(url)
@@ -87,16 +117,16 @@ class CloudflareDns : Dns {
         val response = dohClient.newCall(request).execute()
         
         if (!response.isSuccessful) {
-            throw Exception("DoH request failed: ${response.code}")
+            throw Exception("HTTP ${response.code}")
         }
         
-        val body = response.body?.string() ?: throw Exception("Empty DoH response")
+        val body = response.body?.string() ?: throw Exception("Empty response")
         val json = JSONObject(body)
         
         // Check for DNS errors
         val status = json.optInt("Status", 0)
-        if (status != 0) {
-            throw Exception("DNS error status: $status")
+        if (status != 0 && status != 3) {  // 3 = NXDOMAIN (valid "not found")
+            throw Exception("DNS status: $status")
         }
         
         // Parse Answer section
@@ -107,8 +137,7 @@ class CloudflareDns : Dns {
             val answer = answers.getJSONObject(i)
             val type = answer.optInt("type", 0)
             
-            // Type 1 = A record (IPv4)
-            if (type == 1) {
+            if (type == 1) {  // A record (IPv4)
                 val ip = answer.optString("data", "")
                 if (ip.isNotBlank()) {
                     try {
@@ -121,30 +150,29 @@ class CloudflareDns : Dns {
         return addresses
     }
     
-    /**
-     * Clear the DNS cache (useful if IPs change)
-     */
     fun clearCache() {
         cache.clear()
-        log("🔄 DNS cache cleared")
+        log("🔄 Cache cleared")
     }
     
-    /**
-     * Pre-warm the cache with Jupiter domains
-     */
     fun warmupJupiterDns() {
         Thread {
             try {
+                log("🔥 Warming up Jupiter DNS...")
                 lookup("api.jup.ag")
                 lookup("quote-api.jup.ag")
-                log("🔥 Jupiter DNS warmed up")
-            } catch (_: Exception) {}
+                log("🔥 Jupiter DNS warmed up!")
+            } catch (e: Exception) {
+                log("⚠️ Warmup failed: ${e.message}")
+            }
         }.start()
     }
     
     private fun log(msg: String) {
         try {
             android.util.Log.d(TAG, msg)
+            // Also log to ErrorLogger for visibility
+            com.lifecyclebot.engine.ErrorLogger.debug(TAG, msg)
         } catch (_: Exception) {
             println("[$TAG] $msg")
         }

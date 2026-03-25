@@ -26,13 +26,23 @@ class JupiterApi {
         private const val TAG = "JupiterApi"
         
         // Use Ultra API by default (faster, better MEV protection, auto-slippage)
-        // Now works reliably with CloudflareDns bypassing ISP DNS issues
         var useUltraApi = true
+        
+        // Track if we've logged DNS status
+        private var dnsStatusLogged = false
+    }
+
+    init {
+        // Log DNS status on first use
+        if (!dnsStatusLogged) {
+            log("🌐 JupiterApi initialized with CloudflareDns (DoH + fallback IPs)")
+            dnsStatusLogged = true
+        }
     }
 
     // HTTP client with CloudflareDns to bypass ISP DNS blocking
     private val http = OkHttpClient.Builder()
-        .dns(CloudflareDns.INSTANCE)  // Use Cloudflare DoH for reliable DNS
+        .dns(CloudflareDns.INSTANCE)  // Use DoH with fallback to hardcoded IPs
         .connectTimeout(15, TimeUnit.SECONDS)
         .readTimeout(20, TimeUnit.SECONDS)
         .writeTimeout(15, TimeUnit.SECONDS)
