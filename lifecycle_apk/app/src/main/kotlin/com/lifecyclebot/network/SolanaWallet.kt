@@ -228,17 +228,19 @@ class SolanaWallet(privateKeyB58: String, val rpcUrl: String) {
      * @param useJito If true, attempts to send via Jito bundle for MEV protection
      * @param jitoTipLamports Tip amount for Jito validators
      * @param ultraRequestId If provided, uses Jupiter Ultra execute endpoint for better MEV protection
+     * @param jupiterApiKey Jupiter API key for Ultra execute (required since March 2025)
      */
     fun signSendAndConfirm(
         txBase64: String, 
         useJito: Boolean = false, 
         jitoTipLamports: Long = 10000,
         ultraRequestId: String? = null,
+        jupiterApiKey: String = "",
     ): String {
         // If we have an Ultra requestId, use Jupiter's execute endpoint
         // This provides built-in MEV protection via Jupiter Beam
         if (!ultraRequestId.isNullOrBlank()) {
-            return signAndExecuteUltra(txBase64, ultraRequestId)
+            return signAndExecuteUltra(txBase64, ultraRequestId, jupiterApiKey)
         }
         
         val sig = signAndSend(txBase64, useJito, jitoTipLamports)
@@ -249,14 +251,16 @@ class SolanaWallet(privateKeyB58: String, val rpcUrl: String) {
     /**
      * Sign transaction and execute via Jupiter Ultra API.
      * Jupiter handles MEV protection and optimal execution.
+     * 
+     * @param jupiterApiKey The Jupiter API key from config
      */
-    private fun signAndExecuteUltra(txBase64: String, requestId: String): String {
+    private fun signAndExecuteUltra(txBase64: String, requestId: String, jupiterApiKey: String = ""): String {
         val txBytes = android.util.Base64.decode(txBase64, android.util.Base64.DEFAULT)
         val signedBytes = signVersionedTx(txBytes)
         val signedB64 = android.util.Base64.encodeToString(signedBytes, android.util.Base64.NO_WRAP)
         
         // Use Jupiter Ultra's execute endpoint
-        val jupiter = JupiterApi()
+        val jupiter = JupiterApi(jupiterApiKey)
         val signature = jupiter.executeUltra(signedB64, requestId)
         
         // Still await confirmation to be safe

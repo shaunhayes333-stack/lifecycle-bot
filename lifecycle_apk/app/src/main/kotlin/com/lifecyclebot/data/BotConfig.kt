@@ -55,6 +55,7 @@ data class BotConfig(
     val heliusApiKey: String = "7ec2e508-5c52-48a6-8761-78932324922e",  // helius.dev — faster RPC + real-time WS
     val birdeyeApiKey: String = "",     // birdeye.so — free, OHLCV candles
     val groqApiKey: String = "",        // console.groq.com — free LLM sentiment (llama-3.1-8b)
+    val jupiterApiKey: String = "",     // portal.jup.ag — required for Ultra API (free tier available)
     val autoAddNewTokens: Boolean = true, // ENABLED - auto-add new Pump.fun launches to watchlist
     // multi-position trading
     // Concurrent positions: no hard limit — SmartSizer exposure cap (70% of wallet)

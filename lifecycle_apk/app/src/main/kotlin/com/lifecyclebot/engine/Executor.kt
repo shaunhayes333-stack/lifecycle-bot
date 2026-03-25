@@ -79,11 +79,12 @@ class Executor(
     val security: SecurityGuard,
     private val sounds: SoundManager? = null,
 ) {
-    private val jupiter       = JupiterApi()
+    // Lazy init to get Jupiter API key from config
+    private val jupiter: JupiterApi by lazy { JupiterApi(cfg().jupiterApiKey) }
     var brain: BotBrain? = null
     var tradeDb: TradeDatabase? = null
     var onPaperBalanceChange: ((Double) -> Unit)? = null  // Callback to update paper wallet balance
-    private val slippageGuard = SlippageGuard(jupiter)
+    private val slippageGuard: SlippageGuard by lazy { SlippageGuard(jupiter) }
     private var lastNewTokenSoundMs = 0L
 
     // ── position sizing ───────────────────────────────────────────────
@@ -706,7 +707,7 @@ class Executor(
                 val useJito = c.jitoEnabled && !quote.isUltra
                 val jitoTip = c.jitoTipLamports
                 val ultraReqId = if (quote.isUltra) txResult.requestId else null
-                val sig       = wallet.signSendAndConfirm(txResult.txBase64, useJito, jitoTip, ultraReqId)
+                val sig       = wallet.signSendAndConfirm(txResult.txBase64, useJito, jitoTip, ultraReqId, c.jupiterApiKey)
                 val solBack   = quote.outAmount / 1_000_000_000.0
                 val livePnl   = solBack - pos.costSol * sellFraction
                 val liveScore = pct(pos.costSol * sellFraction, solBack)
@@ -1636,7 +1637,7 @@ class Executor(
             } else {
                 onLog("Broadcasting top-up tx…", ts.mint)
             }
-            val sig    = wallet.signSendAndConfirm(txResult.txBase64, useJito, jitoTip, ultraReqId)
+            val sig    = wallet.signSendAndConfirm(txResult.txBase64, useJito, jitoTip, ultraReqId, c.jupiterApiKey)
             val pos    = ts.position
             val price  = ts.ref
             val newQty = quote.outAmount.toDouble() / tokenScale(quote.outAmount)
@@ -1882,7 +1883,7 @@ class Executor(
             
             // Pass Ultra requestId if available for optimal execution
             val ultraReqId = if (quote.isUltra) txResult.requestId else null
-            val sig = wallet.signSendAndConfirm(txResult.txBase64, useJito, jitoTip, ultraReqId)
+            val sig = wallet.signSendAndConfirm(txResult.txBase64, useJito, jitoTip, ultraReqId, c.jupiterApiKey)
             val qty   = quote.outAmount.toDouble() / tokenScale(quote.outAmount)
             val price = ts.ref
 
@@ -2485,7 +2486,7 @@ class Executor(
             }
             
             val ultraReqId = if (quote.isUltra) txResult.requestId else null
-            val sig     = wallet.signSendAndConfirm(txResult.txBase64, useJito, jitoTip, ultraReqId)
+            val sig     = wallet.signSendAndConfirm(txResult.txBase64, useJito, jitoTip, ultraReqId, c.jupiterApiKey)
             val price   = ts.ref
             val solBack = quote.outAmount / 1_000_000_000.0
             pnl  = solBack - pos.costSol

@@ -26,7 +26,7 @@ data class SwapTxResult(
     val requestId: String = "",  // For Ultra execute endpoint
 )
 
-class JupiterApi {
+class JupiterApi(private val apiKey: String = "") {
 
     companion object {
         const val SOL_MINT = "So11111111111111111111111111111111111111112"
@@ -44,7 +44,8 @@ class JupiterApi {
     init {
         // Log DNS status on first use
         if (!dnsStatusLogged) {
-            log("🌐 JupiterApi initialized with OkHttp native DoH (Cloudflare→Google→Quad9)")
+            val keyStatus = if (apiKey.isNotBlank()) "API key configured" else "NO API KEY - will fail!"
+            log("🌐 JupiterApi initialized with OkHttp native DoH (Cloudflare→Google→Quad9) | $keyStatus")
             dnsStatusLogged = true
         }
     }
@@ -389,10 +390,16 @@ class JupiterApi {
     }
 
     private fun getOrThrow(url: String): String {
-        val req  = Request.Builder().url(url)
+        val reqBuilder = Request.Builder().url(url)
             .header("User-Agent", "lifecycle-bot-android/6.0")
             .header("Accept", "application/json")
-            .build()
+        
+        // Add API key for Ultra API endpoints
+        if (apiKey.isNotBlank() && url.contains("api.jup.ag")) {
+            reqBuilder.header("x-api-key", apiKey)
+        }
+        
+        val req = reqBuilder.build()
         
         try {
             val resp = http.newCall(req).execute()
@@ -400,6 +407,12 @@ class JupiterApi {
             val body = resp.body?.string()
             
             if (!resp.isSuccessful) {
+                // Provide helpful error for 401
+                if (code == 401) {
+                    log("❌ GET failed: HTTP 401 Unauthorized - Jupiter API key required!")
+                    log("   → Get a FREE API key at https://portal.jup.ag")
+                    throw RuntimeException("Jupiter API 401: API key required. Get one free at portal.jup.ag")
+                }
                 log("❌ GET failed: HTTP $code | ${body?.take(100) ?: "no body"}")
                 throw RuntimeException("Jupiter GET $code: ${body?.take(200) ?: url}")
             }
@@ -411,7 +424,7 @@ class JupiterApi {
             
             return body
         } catch (e: java.net.UnknownHostException) {
-            log("❌ DNS ERROR: Cannot resolve quote-api.jup.ag - check network/DNS")
+            log("❌ DNS ERROR: Cannot resolve api.jup.ag - check network/DNS")
             throw RuntimeException("Cannot resolve Jupiter API host - check internet connection")
         } catch (e: java.net.SocketTimeoutException) {
             log("❌ TIMEOUT: Jupiter API did not respond in time")
@@ -497,10 +510,17 @@ class JupiterApi {
     }
 
     private fun postOrThrow(url: String, json: String): String {
-        val req = Request.Builder().url(url)
+        val reqBuilder = Request.Builder().url(url)
             .header("User-Agent", "lifecycle-bot-android/6.0")
             .header("Accept", "application/json")
-            .post(json.toRequestBody(JSON)).build()
+            .post(json.toRequestBody(JSON))
+        
+        // Add API key for Ultra API endpoints
+        if (apiKey.isNotBlank() && url.contains("api.jup.ag")) {
+            reqBuilder.header("x-api-key", apiKey)
+        }
+        
+        val req = reqBuilder.build()
         
         try {
             val resp = http.newCall(req).execute()
@@ -508,6 +528,10 @@ class JupiterApi {
             val body = resp.body?.string()
             
             if (!resp.isSuccessful) {
+                if (code == 401) {
+                    log("❌ POST failed: HTTP 401 Unauthorized - Jupiter API key required!")
+                    throw RuntimeException("Jupiter API 401: API key required. Get one free at portal.jup.ag")
+                }
                 log("❌ POST failed: HTTP $code | ${body?.take(200) ?: "no body"}")
                 throw RuntimeException("Jupiter POST $code: ${body?.take(200) ?: ""}")
             }
@@ -519,7 +543,7 @@ class JupiterApi {
             
             return body
         } catch (e: java.net.UnknownHostException) {
-            log("❌ DNS ERROR: Cannot resolve quote-api.jup.ag")
+            log("❌ DNS ERROR: Cannot resolve api.jup.ag")
             throw RuntimeException("Cannot resolve Jupiter API host - check internet connection")
         } catch (e: java.net.SocketTimeoutException) {
             log("❌ TIMEOUT: Jupiter swap API did not respond in time")
