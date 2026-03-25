@@ -1009,16 +1009,20 @@ object FinalDecisionGate {
                 
                 // Return immediately with SNIPE quality - skip all other gates
                 return FinalDecision(
-                    approved = true,
+                    shouldTrade = true,
                     mode = mode,
+                    approvalClass = ApprovalClass.LIVE,
+                    quality = "SNIPE",  // Special quality marker
+                    confidence = 50.0,  // Neutral confidence
+                    edge = EdgeVerdict.APPROVED,
                     blockReason = null,
                     blockLevel = null,
-                    adjustedSizeSol = (proposedSizeSol * 0.5).coerceAtLeast(0.003), // Half size for risk management
-                    quality = "SNIPE",  // Special quality marker
-                    confidence = 50,    // Neutral confidence
-                    checks = checks,
+                    sizeSol = (proposedSizeSol * 0.5).coerceAtLeast(0.003), // Half size for risk management
                     tags = tags + "fast_track",
-                    confidenceTag = "[EARLY_SNIPE]"
+                    mint = ts.mint,
+                    symbol = ts.symbol,
+                    approvalReason = "EARLY_SNIPE: age=${tokenAgeMinutes.toInt()}min score=${initialScore.toInt()} liq=\$${liquidity.toInt()}",
+                    gateChecks = checks
                 )
             } else if (isYoungToken && initialScore >= 60.0) {
                 // Almost qualified - log for debugging
