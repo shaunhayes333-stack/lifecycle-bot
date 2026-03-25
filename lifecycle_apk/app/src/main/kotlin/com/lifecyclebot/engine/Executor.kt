@@ -2,6 +2,8 @@ package com.lifecyclebot.engine
 
 import android.content.Context
 import com.lifecyclebot.engine.NotificationHistory
+import kotlin.math.abs
+import kotlin.math.pow
 
 import com.lifecyclebot.data.*
 import com.lifecyclebot.network.JupiterApi
@@ -728,7 +730,7 @@ class Executor(
         // ════════════════════════════════════════════════════════════════
         val product = liqAdjustment * mcapAdjustment * volAdjustment * phaseAdjustment * 
             qualityAdjustment * tokenTierAdjustment * treasuryTierAdjustment
-        val combinedAdjustment = kotlin.math.pow(product, 1.0 / 7.0).coerceIn(0.5, 1.8)  // 7th root, capped 50%-180%
+        val combinedAdjustment = pow(product, 1.0 / 7.0).coerceIn(0.5, 1.8)  // 7th root, capped 50%-180%
         
         capitalRecoveryMultiple *= combinedAdjustment
         profitLockMultiple *= combinedAdjustment
@@ -2745,7 +2747,7 @@ class Executor(
         
         // MarketRegimeAI: Record trade outcome for regime performance tracking
         try {
-            if (kotlin.math.abs(pnlP) >= 5.0) {  // Only meaningful trades
+            if (abs(pnlP) >= 5.0) {  // Only meaningful trades
                 MarketRegimeAI.recordTradeOutcome(pnlP)
             }
         } catch (_: Exception) {}
@@ -3184,7 +3186,7 @@ class Executor(
         
         // MarketRegimeAI: Record trade outcome for regime performance tracking
         try {
-            if (kotlin.math.abs(pnlP) >= 5.0) {  // Only meaningful trades
+            if (abs(pnlP) >= 5.0) {  // Only meaningful trades
                 MarketRegimeAI.recordTradeOutcome(pnlP)
             }
         } catch (_: Exception) {}
