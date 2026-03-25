@@ -572,7 +572,9 @@ class MainActivity : AppCompatActivity() {
         tvSignalChip.setTextColor(sigColor)
 
         tvPrice.text    = if (ts?.lastPrice != null && ts.lastPrice > 0) currency.formatPrice(ts.lastPrice) else "—"
-        tvMcap.text     = ts?.lastMcap?.fmtMcap()  ?: "—"
+        // Show market cap with FDV fallback
+        val mcapValue = ts?.lastMcap?.takeIf { it > 0 } ?: ts?.lastFdv?.takeIf { it > 0 } ?: 0.0
+        tvMcap.text     = mcapValue.fmtMcap()
         tvPosition.text = when {
             ts?.position?.isOpen == true -> "● OPEN"
             else                         -> "FLAT"
