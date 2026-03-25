@@ -1,104 +1,125 @@
-# 🚀 Lifecycle Bot - The Most Advanced AI-Powered Solana Trading Bot
+# 🚀 Lifecycle Bot — The Most Advanced Solana Meme Coin Trading Bot
 
-## What Is This?
+## What Is It?
 
-**Lifecycle Bot** is a fully autonomous, self-learning Android trading bot that hunts, analyzes, and trades Solana meme coins in real-time. It's not just a bot — it's an **AI trading engine** with **8 orthogonal signal categories** working together to find alpha before the crowd.
+**Lifecycle Bot** is a native Android trading bot that uses a **10-layer AI decision engine** to trade Solana meme coins. It learns from every trade — wins AND losses — and continuously adapts to changing market conditions.
 
-Built from the ground up in Kotlin with direct blockchain integration, MEV protection, and now powered by **Google Gemini AI** for human-level reasoning.
-
----
-
-## 🧠 The Orthogonal Signal Architecture
-
-**The Problem With Most Bots**: They stack 10 indicators that all look at price/volume. That's not 10 signals — that's the same signal counted 10 times.
-
-**Our Solution**: **8 truly independent signal categories**, each providing unique information:
-
-| Category | Signal Source | Independence |
-|----------|---------------|--------------|
-| 📈 **PRICE_ACTION** | Momentum analysis | Core signal |
-| 📊 **VOLUME_FLOW** | Volume anomaly (relative to age/mcap) | Different interpretation |
-| 💧 **LIQUIDITY** | Pool depth, slippage risk | Unique data |
-| ⛓️ **ON_CHAIN** | Whale movements + holder entropy | **Fully independent** (blockchain data) |
-| ⏰ **TEMPORAL** | Time-of-day patterns | **Fully independent** (temporal) |
-| 🎭 **NARRATIVE** | Unified LLM (Gemini) | **Fully independent** (text analysis) |
-| 🏆 **PATTERN_MEMORY** | Historical winner similarity | **Fully independent** (pattern matching) |
-| 🌍 **MARKET_CONTEXT** | Regime + cross-token correlation | **Fully independent** (relative analysis) |
-
-**Correlation-Aware Weighting**: Signals that overlap get down-weighted. No double-counting.
+This isn't another basic sniper. It's a complete trading system with institutional-grade features running on your phone.
 
 ---
 
-## 🔥 What Makes It Different
+## 🧠 The 10-Layer AI Engine
 
-### True Signal Independence
-Each category gets **ONE vote**. If momentum and volume both look bullish, that's 2 independent signals — not 10 correlated indicators pretending to be 10 signals.
+Each layer provides an orthogonal (independent) signal to prevent bias stacking:
 
-### New Orthogonal Metrics
-- **Holder Entropy**: Shannon entropy of token distribution (high = well distributed = safer)
-- **Cross-Token Correlation**: Is this pumping WITH or AGAINST the market? (Against = genuine demand)
-- **Volume Anomaly**: Volume relative to expected for this token's age and mcap
-- **Agreement Ratio**: What % of independent signals agree on direction?
-
-### Self-Learning & Adaptive
-The bot **learns from every trade** and automatically adjusts its strategy:
-- **Bootstrap** (0-50 trades): Loose, exploring
-- **Learning** (50-500 trades): Gradually tightening
-- **Mature** (500+ trades): Precision instrument
-
-**Decay Logic**: Bad patterns are automatically forgotten over time. Early mistakes don't permanently scar the bot.
-
-### Shadow Paper Trading 👻
-Even in Live Mode, the bot runs **background paper trades** on opportunities it passed on. These feed the AI without risking capital — **10x learning acceleration**.
-
-### Gemini AI Co-Pilot 🤖
-Powered by Google's Gemini 2.0 Flash:
-- **Scam Detection**: Deep narrative analysis with reasoning
-- **Exit Advisor**: AI-suggested exit timing (IMMEDIATE/SOON/HOLD/RIDE)
-- **Trade Explanations**: Human-readable reasoning for every trade
-
-### Battle-Tested Execution
-- **Jupiter Ultra API** with built-in MEV protection
-- **On-chain balance verification** before every sell
-- **Actual token decimals** fetched from blockchain
+| Layer | Purpose |
+|-------|---------|
+| **1. Momentum Predictor AI** | Detects volume acceleration, coiling patterns, pump building |
+| **2. Whale Tracker AI** | Follows smart money — accumulation vs distribution |
+| **3. Market Regime AI** | Bull/bear/choppy detection with dynamic thresholds |
+| **4. Narrative Detector AI** | Identifies hot narratives (AI, political, memes) |
+| **5. Time Optimization AI** | Learns golden hours vs danger zones |
+| **6. Liquidity Depth AI** | Real-time LP monitoring, collapse detection |
+| **7. Volume Profile Analyzer** | POC, VAH, VAL, HVN/LVN price levels |
+| **8. Gemini Copilot** | Google Gemini 2.0 for scam detection & trade reasoning |
+| **9. Unified Narrative AI** | Groq-powered narrative synthesis |
+| **10. Orthogonal Signal Merger** | Prevents duplicate signals, enforces diversity |
 
 ---
 
-## 📱 Runs On Your Phone
+## 💡 Key Features
 
-**Native Android app** — no cloud servers, no monthly fees. Your bot, your phone, your alpha.
+### 🎯 **Final Decision Gate (FDG)**
+- Multi-layered approval system with adaptive confidence
+- Auto-adjusts strictness based on learning phase
+- Pattern decay: bad trades fade faster than wins
+- Minimum sample requirements before blocking patterns
+
+### 📊 **Volume Profile Analysis** *(NEW)*
+- **POC** (Point of Control) — highest volume price level
+- **VAH/VAL** — Value Area boundaries (70% volume)
+- **HVN/LVN** — High/Low Volume Nodes for S/R levels
+- Detects: Accumulation, Distribution, Breakouts
+
+### 🌙 **Moonshot Override**
+- Paper mode detects moonshots and auto-converts to LIVE
+- Shadow mode learns in background during live trading
+- When score ≥85%, quality A/B, liquidity ≥$5K → executes real trade
+
+### 💰 **Fluid Learning**
+- Paper mode tracks realistic simulated balance
+- Respects exposure limits, reserve requirements
+- Teaches proper position sizing during learning phase
+
+### 🔒 **Dynamic Profit Lock**
+- At 2x: Recovers initial capital (playing with house money)
+- At 5x: Locks 50% of remaining profits
+- Prevents round-tripping gains on winners
+
+### 🛡️ **MEV Protection**
+- Jito integration for bundle protection
+- Slippage guard with dynamic limits
+- Anti-rug detection and safety scoring
 
 ---
 
-## 📊 By The Numbers
+## 🔄 Trading Modes
 
-- **8** orthogonal signal categories (truly independent)
-- **500+** winning token patterns in memory
-- **9** safety gates before any trade executes
-- **3** learning phases (Bootstrap → Learning → Mature)
-- **72 hours** decay window for old patterns
-- **8 trades minimum** sample size before threshold changes
-
----
-
-## 🛡️ Risk Management
-
-- Maximum 70% portfolio exposure
-- 5% reserve always maintained
-- Dynamic trailing stops
-- Automatic stop-loss
-- Profit locking at 2x, 5x, 10x milestones
+| Mode | Description |
+|------|-------------|
+| **Paper** | Full simulation with realistic balance tracking |
+| **Shadow** | Background paper trades during live mode (accelerated learning) |
+| **Live** | Real execution with full safety checks |
 
 ---
 
-## The Bottom Line
+## 📈 Learning System
 
-This isn't a toy. This is a **production-grade, institutional-quality trading system** with mathematically enforced signal independence, running on your Android phone.
-
-While others stack correlated indicators and hope for the best, Lifecycle Bot ensures every signal provides **unique, orthogonal information** — then weights them properly and makes decisions in milliseconds.
-
-**Welcome to the future of meme coin trading.**
+- **Edge Learning**: Adapts entry/exit thresholds based on outcomes
+- **Pattern Memory**: Remembers winning patterns per token category
+- **Decay Logic**: Recent data weighted more heavily, old losses fade
+- **Cross-Talk**: AI layers communicate to amplify consensus signals
 
 ---
 
-🟢 **Status: Live & Learning**
+## 🌐 Web Dashboard
+
+React-based dashboard for monitoring:
+- Real-time trade feed
+- Performance analytics
+- AI layer status
+- Configuration controls
+
+---
+
+## ⚙️ Integrations
+
+- **Jupiter Ultra API** — Best-price execution
+- **Helius / Quicknode RPC** — Reliable Solana data
+- **Groq** — Fast narrative AI inference
+- **Google Gemini 2.0 Flash** — Scam detection & reasoning
+- **Jito** — MEV-protected transactions
+
+---
+
+## 📱 Requirements
+
+- Android device (native Kotlin app)
+- Solana wallet with SOL
+- API keys for Groq/Gemini (optional, enhances AI)
+
+---
+
+## 🎮 Getting Started
+
+1. Install the APK
+2. Connect your wallet
+3. Configure risk settings
+4. Start in Paper mode to let the bot learn
+5. Graduate to Live mode once confident
+
+---
+
+**Built for traders who want edge, not just speed.**
+
+*"The goal isn't to catch every pump. It's to survive long enough to catch the right ones."*

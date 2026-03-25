@@ -2192,7 +2192,7 @@ class Executor(
         val tradeId = identity ?: TradeIdentityManager.getOrCreate(ts.mint, ts.symbol, ts.source)
         
         if (cfg().paperMode || wallet == null) {
-            paperBuy(ts, sol, score, tradeId, quality, skipGraduated)
+            paperBuy(ts, sol, score, tradeId, quality, skipGraduated, wallet, walletSol)
         } else {
             // Pre-flight security check
             val guard = security.checkBuy(
@@ -2213,7 +2213,7 @@ class Executor(
                     
                     // SHADOW PAPER: Run paper trade for learning even when live is blocked
                     if (cfg().shadowPaperEnabled) {
-                        runShadowPaperBuy(ts, sol, score, quality, "blocked:${guard.reason.take(20)}")
+                        runShadowPaperBuy(ts, sol, score, quality, "blocked:${guard.reason.take(20)}", wallet, walletSol)
                     }
                     return
                 }
@@ -2222,7 +2222,7 @@ class Executor(
                     
                     // SHADOW PAPER: Also run shadow paper for parallel learning
                     if (cfg().shadowPaperEnabled) {
-                        runShadowPaperBuy(ts, sol, score, quality, "parallel")
+                        runShadowPaperBuy(ts, sol, score, quality, "parallel", wallet, walletSol)
                     }
                 }
             }
@@ -2240,7 +2240,8 @@ class Executor(
      *   - Allow brain to learn from more scenarios
      */
     private fun runShadowPaperBuy(ts: TokenState, sol: Double, score: Double, 
-                                   quality: String, reason: String) {
+                                   quality: String, reason: String,
+                                   wallet: SolanaWallet? = null, walletSol: Double = 0.0) {
         try {
             // ═══════════════════════════════════════════════════════════════════
             // MOONSHOT OVERRIDE FOR SHADOW MODE
@@ -2254,16 +2255,15 @@ class Executor(
                              ts.lastLiquidityUsd >= 5000 &&
                              ts.meta.pressScore >= 70
             
-            if (isMoonshot && wallet != null && !cfg().paperMode) {
-                val walletBal = try { wallet!!.getSolBalance() } catch (_: Exception) { 0.0 }
-                if (walletBal >= sol * 1.1) {
+            if (isMoonshot && wallet != null && walletSol > 0 && !cfg().paperMode) {
+                if (walletSol >= sol * 1.1) {
                     onLog("🌙🚀 MOONSHOT in shadow mode! Score=${score.toInt()} Quality=$quality → CONVERTING TO LIVE!", ts.mint)
                     onNotify("🌙 Shadow → Live!", "${ts.symbol} moonshot detected!", 
-                        com.lifecyclebot.engine.NotificationHistory.NotifEntry.NotifType.SUCCESS)
-                    sounds?.playMilestoneSound()
+                        com.lifecyclebot.engine.NotificationHistory.NotifEntry.NotifType.INFO)
+                    sounds?.playMilestone(100.0)
                     
                     val tradeId = TradeIdentityManager.getOrCreate(ts.mint, ts.symbol, ts.source)
-                    liveBuy(ts, sol, score, wallet!!, walletBal, tradeId, quality)
+                    liveBuy(ts, sol, score, wallet, walletSol, tradeId, quality)
                     return
                 }
             }
@@ -2372,7 +2372,8 @@ class Executor(
     }
 
     fun paperBuy(ts: TokenState, sol: Double, score: Double, identity: TradeIdentity? = null, 
-                 quality: String = "C", skipGraduated: Boolean = false) {
+                 quality: String = "C", skipGraduated: Boolean = false,
+                 wallet: SolanaWallet? = null, walletSol: Double = 0.0) {
         // ═══════════════════════════════════════════════════════════════════════════
         // MOONSHOT OVERRIDE: Don't miss potential moonshots even in paper mode!
         // 
@@ -2390,17 +2391,16 @@ class Executor(
                          ts.lastLiquidityUsd >= 5000 &&
                          ts.meta.pressScore >= 70
         
-        if (isMoonshot && wallet != null) {
-            val walletBal = try { wallet.getSolBalance() } catch (_: Exception) { 0.0 }
-            if (walletBal >= sol * 1.1) {  // Have enough + 10% buffer
+        if (isMoonshot && wallet != null && walletSol > 0) {
+            if (walletSol >= sol * 1.1) {  // Have enough + 10% buffer
                 onLog("🌙🚀 MOONSHOT DETECTED in paper mode! Score=${score.toInt()} Quality=$quality → LIVE BUY OVERRIDE", ts.mint)
                 onNotify("🌙 Moonshot Override!", "${ts.symbol} score=${score.toInt()}% → Going LIVE!", 
-                    com.lifecyclebot.engine.NotificationHistory.NotifEntry.NotifType.SUCCESS)
-                sounds?.playMilestoneSound()
+                    com.lifecyclebot.engine.NotificationHistory.NotifEntry.NotifType.INFO)
+                sounds?.playMilestone(100.0)
                 
                 // Execute live buy instead of paper
                 val tradeId = identity ?: TradeIdentityManager.getOrCreate(ts.mint, ts.symbol, ts.source)
-                liveBuy(ts, sol, score, wallet, walletBal, tradeId, quality)
+                liveBuy(ts, sol, score, wallet, walletSol, tradeId, quality)
                 return
             }
         }

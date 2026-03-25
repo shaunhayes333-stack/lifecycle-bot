@@ -498,6 +498,40 @@ class LifecycleStrategy(
                 }
             } catch (_: Exception) {}
         }
+        
+        // ── VOLUME PROFILE ANALYSIS ───────────────────────────────────────
+        // Identifies key price levels: POC, VAH, VAL, HVN, LVN
+        // Signals: accumulation at VAL, distribution at VAH, breakouts through LVN
+        try {
+            val volumeProfile = VolumeProfileAnalyzer.analyze(ts)
+            val (vpEntryAdj, vpExitAdj) = VolumeProfileAnalyzer.getScoreAdjustment(volumeProfile)
+            
+            if (vpEntryAdj != 0 && !ts.position.isOpen) {
+                entryScore = (entryScore + vpEntryAdj).coerceIn(0.0, 100.0)
+            }
+            if (vpExitAdj != 0 && ts.position.isOpen) {
+                exitScore = (exitScore + vpExitAdj).coerceIn(0.0, 100.0)
+            }
+            
+            // Log significant signals
+            if (volumeProfile != null) {
+                when (volumeProfile.signal) {
+                    VolumeProfileAnalyzer.VolumeSignal.ACCUMULATION -> {
+                        ErrorLogger.info("VolumeProfile", "📊 ${ts.symbol}: ACCUMULATION at VAL (+$vpEntryAdj entry)")
+                    }
+                    VolumeProfileAnalyzer.VolumeSignal.DISTRIBUTION -> {
+                        ErrorLogger.info("VolumeProfile", "📊 ${ts.symbol}: DISTRIBUTION at VAH (+$vpExitAdj exit)")
+                    }
+                    VolumeProfileAnalyzer.VolumeSignal.BREAKOUT_UP -> {
+                        ErrorLogger.info("VolumeProfile", "📊 ${ts.symbol}: BREAKOUT UP through LVN (+$vpEntryAdj entry)")
+                    }
+                    VolumeProfileAnalyzer.VolumeSignal.BREAKOUT_DOWN -> {
+                        ErrorLogger.warn("VolumeProfile", "📊 ${ts.symbol}: BREAKOUT DOWN through LVN (+$vpExitAdj exit)")
+                    }
+                    else -> { /* no log for consolidation/neutral */ }
+                }
+            }
+        } catch (_: Exception) {}
 
         // ── Sentiment overlay ─────────────────────────────────────────
         applySentimentOverlay(ts, entryScore, exitScore, cfg()).let {

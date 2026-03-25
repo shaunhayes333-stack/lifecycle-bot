@@ -1502,13 +1502,18 @@ object FinalDecisionGate {
         if (blockReason == null) {
             try {
                 // Collect orthogonal signals from existing AI layer results
+                // Use UnifiedNarrativeAI for merged Groq+Gemini signal
+                val unifiedNarrative = try {
+                    UnifiedNarrativeAI.analyze(ts.symbol, ts.name, "")
+                } catch (_: Exception) { null }
+                
                 val orthogonalAssessment = OrthogonalSignals.collectSignals(
                     ts = ts,
                     momentumScore = candidate.aiConfidence,  // Use AI confidence as momentum proxy
                     liquidityScore = if (ts.lastLiquidityUsd > 5000) 70.0 else if (ts.lastLiquidityUsd > 1000) 50.0 else 30.0,
                     whaleSignal = null,  // WhaleTrackerAI result would go here if available
                     timeScore = null,    // TimeOptimizationAI result would go here if available
-                    narrativeScore = (50.0 + narrativeAdjustment * 5).coerceIn(0.0, 100.0),  // Convert adjustment to score
+                    narrativeScore = unifiedNarrative?.score ?: (50.0 + narrativeAdjustment * 5).coerceIn(0.0, 100.0),
                     patternMatchScore = null,  // TokenWinMemory result would go here if available
                     marketRegimeScore = null,  // MarketRegimeAI result would go here if available
                     topHolderPcts = emptyList(),  // Would come from rugcheck data
