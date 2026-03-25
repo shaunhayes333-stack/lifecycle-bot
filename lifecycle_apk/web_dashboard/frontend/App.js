@@ -510,10 +510,19 @@ function SettingsPanel({ stats, onRefresh }) {
     auto_trade: stats?.auto_trade || true,
     notifications_enabled: true,
     sound_enabled: true,
+    stop_loss_pct: 10.0,
+    exit_score_threshold: 58.0,
+    small_buy_sol: 0.05,
+    large_buy_sol: 0.10,
+    slippage_bps: 200,
   });
 
   const handleToggle = (key) => {
     setConfig(prev => ({ ...prev, [key]: !prev[key] }));
+  };
+
+  const handleChange = (key, value) => {
+    setConfig(prev => ({ ...prev, [key]: value }));
   };
 
   const saveConfig = async () => {
@@ -530,46 +539,104 @@ function SettingsPanel({ stats, onRefresh }) {
   };
 
   return (
-    <div className="card fade-in max-w-2xl">
-      <h2 className="font-semibold mb-6">Bot Settings</h2>
-      
-      <div className="space-y-6">
-        <SettingToggle
-          label="Paper Mode"
-          description="Trade with simulated funds"
-          enabled={config.paper_mode}
-          onToggle={() => handleToggle('paper_mode')}
-        />
+    <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 fade-in">
+      {/* General Settings */}
+      <div className="card">
+        <h2 className="font-semibold mb-6 flex items-center gap-2">
+          <Settings className="w-5 h-5 text-purple-400" /> General Settings
+        </h2>
         
-        <SettingToggle
-          label="Auto Trade"
-          description="Execute trades automatically based on signals"
-          enabled={config.auto_trade}
-          onToggle={() => handleToggle('auto_trade')}
-        />
-
-        <div className="border-t border-gray-800 pt-6">
-          <h3 className="text-sm font-semibold text-purple-400 mb-4 flex items-center gap-2">
-            <Bell className="w-4 h-4" /> Alerts & Sounds
-          </h3>
-          
+        <div className="space-y-4">
           <SettingToggle
-            label="Push Notifications"
-            description="Trade alerts, signals, position updates"
-            enabled={config.notifications_enabled}
-            onToggle={() => handleToggle('notifications_enabled')}
+            label="Paper Mode"
+            description="Trade with simulated funds"
+            enabled={config.paper_mode}
+            onToggle={() => handleToggle('paper_mode')}
           />
           
           <SettingToggle
-            label="Sound Effects"
-            description="Audio feedback for buy/sell executions"
-            enabled={config.sound_enabled}
-            onToggle={() => handleToggle('sound_enabled')}
+            label="Auto Trade"
+            description="Execute trades automatically based on signals"
+            enabled={config.auto_trade}
+            onToggle={() => handleToggle('auto_trade')}
+          />
+
+          <div className="border-t border-gray-800 pt-4">
+            <h3 className="text-sm font-semibold text-purple-400 mb-4 flex items-center gap-2">
+              <Bell className="w-4 h-4" /> Alerts & Sounds
+            </h3>
+            
+            <SettingToggle
+              label="Push Notifications"
+              description="Trade alerts, signals, position updates"
+              enabled={config.notifications_enabled}
+              onToggle={() => handleToggle('notifications_enabled')}
+            />
+            
+            <SettingToggle
+              label="Sound Effects"
+              description="Audio feedback for buy/sell executions"
+              enabled={config.sound_enabled}
+              onToggle={() => handleToggle('sound_enabled')}
+            />
+          </div>
+        </div>
+      </div>
+
+      {/* Strategy Configurator */}
+      <div className="card">
+        <h2 className="font-semibold mb-6 flex items-center gap-2">
+          <Target className="w-5 h-5 text-green-400" /> Strategy Configurator
+        </h2>
+        
+        <div className="space-y-5">
+          <SettingInput
+            label="Stop Loss %"
+            description="Exit position if loss exceeds this percentage"
+            value={config.stop_loss_pct}
+            onChange={(v) => handleChange('stop_loss_pct', parseFloat(v) || 0)}
+            suffix="%"
+          />
+          
+          <SettingInput
+            label="Exit Score Threshold"
+            description="Trigger exit when exit score exceeds this value"
+            value={config.exit_score_threshold}
+            onChange={(v) => handleChange('exit_score_threshold', parseFloat(v) || 0)}
+          />
+          
+          <div className="grid grid-cols-2 gap-4">
+            <SettingInput
+              label="Small Buy (SOL)"
+              description="Standard position size"
+              value={config.small_buy_sol}
+              onChange={(v) => handleChange('small_buy_sol', parseFloat(v) || 0)}
+              suffix="SOL"
+            />
+            
+            <SettingInput
+              label="Large Buy (SOL)"
+              description="High conviction size"
+              value={config.large_buy_sol}
+              onChange={(v) => handleChange('large_buy_sol', parseFloat(v) || 0)}
+              suffix="SOL"
+            />
+          </div>
+          
+          <SettingInput
+            label="Slippage (BPS)"
+            description="Max slippage tolerance in basis points"
+            value={config.slippage_bps}
+            onChange={(v) => handleChange('slippage_bps', parseInt(v) || 0)}
+            suffix="bps"
           />
         </div>
+      </div>
 
-        <button onClick={saveConfig} className="btn btn-primary w-full mt-6">
-          Save Settings
+      {/* Save Button - Full Width */}
+      <div className="lg:col-span-2">
+        <button onClick={saveConfig} className="btn btn-primary w-full">
+          Save All Settings
         </button>
       </div>
     </div>
@@ -587,6 +654,28 @@ function SettingToggle({ label, description, enabled, onToggle }) {
         onClick={onToggle}
         className={`toggle ${enabled ? 'active' : ''}`}
       />
+    </div>
+  );
+}
+
+function SettingInput({ label, description, value, onChange, suffix }) {
+  return (
+    <div>
+      <label className="block text-sm font-medium mb-1">{label}</label>
+      <p className="text-xs text-gray-500 mb-2">{description}</p>
+      <div className="relative">
+        <input
+          type="number"
+          value={value}
+          onChange={(e) => onChange(e.target.value)}
+          className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-white font-mono focus:border-purple-500 focus:outline-none"
+        />
+        {suffix && (
+          <span className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-500 text-sm">
+            {suffix}
+          </span>
+        )}
+      </div>
     </div>
   );
 }
