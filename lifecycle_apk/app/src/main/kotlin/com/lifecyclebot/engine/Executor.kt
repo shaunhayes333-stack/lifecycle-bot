@@ -2937,7 +2937,38 @@ class Executor(
             return
         }
 
-        val tokenUnits = (pos.qtyToken * 1_000_000_000.0).toLong().coerceAtLeast(1L)
+        var tokenUnits = (pos.qtyToken * 1_000_000_000.0).toLong().coerceAtLeast(1L)
+
+        // ═══════════════════════════════════════════════════════════════════
+        // ON-CHAIN BALANCE VERIFICATION
+        // Check actual token balance before sell to prevent "insufficient funds"
+        // This handles cases where:
+        //   - Buy confirmation was incomplete
+        //   - Tokens were transferred/sold externally
+        //   - Position tracker is out of sync
+        // ═══════════════════════════════════════════════════════════════════
+        try {
+            val onChainBalances = wallet.getTokenAccounts()
+            val actualBalance = onChainBalances[ts.mint] ?: 0.0
+            val expectedBalance = pos.qtyToken
+            
+            if (actualBalance <= 0.0) {
+                // No tokens on-chain - position is stale
+                onLog("⚠️ SELL SKIPPED: No tokens on-chain for ${ts.symbol} (expected ${expectedBalance.toLong()})", tradeId.mint)
+                onLog("   Clearing stale position — tokens may have been sold externally", tradeId.mint)
+                ts.position = Position() // Clear stale position
+                return
+            }
+            
+            // If actual balance is less than expected, use actual balance
+            if (actualBalance < expectedBalance * 0.95) { // 5% tolerance for rounding
+                onLog("⚠️ Balance mismatch: on-chain=${actualBalance.toLong()} expected=${expectedBalance.toLong()} — using actual", tradeId.mint)
+                tokenUnits = (actualBalance * 1_000_000_000.0).toLong().coerceAtLeast(1L)
+            }
+        } catch (e: Exception) {
+            onLog("⚠️ Could not verify on-chain balance: ${e.message?.take(40)} — proceeding with tracked qty", tradeId.mint)
+            // Continue with tracked quantity if balance check fails
+        }
 
         var pnl  = 0.0   // hoisted — needed after try block
         var pnlP = 0.0
