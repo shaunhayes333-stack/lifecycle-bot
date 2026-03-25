@@ -90,6 +90,24 @@ class Executor(
     var onPaperBalanceChange: ((Double) -> Unit)? = null  // Callback to update paper wallet balance
     private val slippageGuard: SlippageGuard by lazy { SlippageGuard(jupiter) }
     private var lastNewTokenSoundMs = 0L
+    
+    // ═══════════════════════════════════════════════════════════════════════════
+    // SHADOW PAPER POSITIONS
+    // Track shadow positions separately from live/paper positions.
+    // These are monitored for learning but don't affect real balance.
+    // ═══════════════════════════════════════════════════════════════════════════
+    data class ShadowPosition(
+        val mint: String,
+        val symbol: String,
+        val entryPrice: Double,
+        val entrySol: Double,
+        val entryTime: Long,
+        val quality: String,
+        val entryScore: Double,
+        val source: String,
+    )
+    private val shadowPositions = mutableMapOf<String, ShadowPosition>()
+    private val MAX_SHADOW_POSITIONS = 20  // Limit to prevent memory bloat
 
     // ── position sizing ───────────────────────────────────────────────
 
@@ -2173,46 +2191,107 @@ class Executor(
     private fun runShadowPaperBuy(ts: TokenState, sol: Double, score: Double, 
                                    quality: String, reason: String) {
         try {
-            // Create shadow copy of token state to avoid affecting live state
-            val shadowTs = ts.copy(
-                position = Position(),  // Fresh position
-                trades = mutableListOf()
-            )
+            // Limit shadow positions to prevent memory bloat
+            if (shadowPositions.size >= MAX_SHADOW_POSITIONS) {
+                // Remove oldest shadow position
+                val oldest = shadowPositions.values.minByOrNull { it.entryTime }
+                oldest?.let { shadowPositions.remove(it.mint) }
+            }
             
-            val price = shadowTs.ref
+            // Skip if we already have a shadow position for this token
+            if (shadowPositions.containsKey(ts.mint)) return
+            
+            val price = ts.ref
             if (price <= 0) return
             
-            // Calculate shadow position
-            val qty = sol / price
-            shadowTs.position = Position(
-                isOpen = true,
-                costSol = sol,
-                qtyToken = qty,
+            // Create shadow position
+            val shadowPos = ShadowPosition(
+                mint = ts.mint,
+                symbol = ts.symbol,
                 entryPrice = price,
+                entrySol = sol,
                 entryTime = System.currentTimeMillis(),
                 quality = quality,
                 entryScore = score,
-            )
-            
-            // Record for shadow learning (tagged as shadow)
-            val shadowTrade = Trade("BUY", "shadow", sol, price, System.currentTimeMillis(), 
-                                    "shadow_$reason", 0.0, 0.0)
-            
-            // Feed to learning systems with shadow tag
-            brain?.learnFromTrade(
-                shadowTrade,
-                phase = "shadow",
                 source = ts.source,
-                quality = quality,
-                pattern = "shadow_learning"
             )
+            shadowPositions[ts.mint] = shadowPos
             
-            onLog("👻 SHADOW BUY: ${ts.symbol} | $reason | ${sol.toString().take(6)} SOL @ ${price.toString().take(8)}", ts.mint)
+            onLog("👻 SHADOW BUY: ${ts.symbol} | $reason | ${sol.toString().take(6)} SOL @ ${price.toString().take(8)} | tracking=${shadowPositions.size}", ts.mint)
             
         } catch (e: Exception) {
             // Shadow trades should never crash the main bot
             ErrorLogger.debug("Executor", "Shadow paper buy failed: ${e.message}")
         }
+    }
+    
+    /**
+     * Check shadow positions and record exits for learning.
+     * Called periodically during main bot loop.
+     */
+    fun checkShadowPositions(tokenStates: Map<String, TokenState>) {
+        if (!cfg().shadowPaperEnabled || cfg().paperMode) return
+        
+        val toRemove = mutableListOf<String>()
+        val stopLossPct = cfg().stopLossPct
+        val takeProfitPct = 50.0  // Shadow takes profit at 50% for learning
+        
+        for ((mint, shadow) in shadowPositions) {
+            val ts = tokenStates[mint] ?: continue
+            val currentPrice = ts.ref
+            if (currentPrice <= 0) continue
+            
+            val pnlPct = ((currentPrice - shadow.entryPrice) / shadow.entryPrice) * 100
+            val holdTimeMin = (System.currentTimeMillis() - shadow.entryTime) / 60000
+            
+            // Check exit conditions
+            val shouldExit = when {
+                pnlPct <= -stopLossPct -> "stop_loss"
+                pnlPct >= takeProfitPct -> "take_profit"
+                holdTimeMin >= 30 -> "timeout_30min"  // Force exit after 30 min for learning
+                else -> null
+            }
+            
+            if (shouldExit != null) {
+                val isWin = pnlPct > 0
+                val pnlSol = pnlPct * shadow.entrySol / 100
+                
+                // Record outcome for learning - THIS IS THE KEY PART
+                // Use existing learnFromTrade signature: isWin, phase, emaFan, source, pnlPct, mint, ...
+                brain?.learnFromTrade(
+                    isWin = isWin,
+                    phase = "shadow_${shadow.quality}",  // Track quality in phase
+                    emaFan = "FLAT",  // Shadow trades don't track EMA fan
+                    source = shadow.source,
+                    pnlPct = pnlPct,
+                    mint = shadow.mint,
+                    // Default safety metrics for shadow trades
+                    rugcheckScore = 50,
+                    buyPressure = 50.0,
+                    topHolderPct = 10.0,
+                    liquidityUsd = 10000.0,
+                    isLiveTrade = false,  // Shadow trades are NOT live
+                )
+                
+                // Update adaptive thresholds based on shadow outcome
+                brain?.learnThreshold(
+                    isWin = isWin,
+                    rugcheckScore = 50,  // Default for shadow
+                    buyPressure = 50.0,
+                    topHolderPct = 10.0,
+                    liquidityUsd = 10000.0,
+                    pnlPct = pnlPct,
+                )
+                
+                val emoji = if (isWin) "✅" else "❌"
+                onLog("👻 SHADOW EXIT: ${shadow.symbol} | $shouldExit | ${pnlPct.toInt()}% | ${pnlSol.toString().take(6)} SOL | $emoji ${if(isWin) "WIN" else "LOSS"} → LEARNING", mint)
+                
+                toRemove.add(mint)
+            }
+        }
+        
+        // Remove exited shadow positions
+        toRemove.forEach { shadowPositions.remove(it) }
     }
 
     fun paperBuy(ts: TokenState, sol: Double, score: Double, identity: TradeIdentity? = null, 

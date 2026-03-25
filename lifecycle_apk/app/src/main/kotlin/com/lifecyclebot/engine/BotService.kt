@@ -1943,6 +1943,22 @@ class BotService : Service() {
                 tokenJobs.forEach { if (it.isActive) it.cancel() }
             }
 
+            // ═══════════════════════════════════════════════════════════════════
+            // SHADOW PAPER TRADING - Check shadow positions for exits
+            // This runs during LIVE mode to learn from background paper trades
+            // ═══════════════════════════════════════════════════════════════════
+            if (cfg.shadowPaperEnabled && !cfg.paperMode) {
+                try {
+                    // Pass current token states so shadow positions can get price updates
+                    val tokenStatesCopy = synchronized(status.tokens) {
+                        status.tokens.toMap()
+                    }
+                    executor.checkShadowPositions(tokenStatesCopy)
+                } catch (e: Exception) {
+                    ErrorLogger.debug("BotService", "Shadow position check error: ${e.message}")
+                }
+            }
+            
             // Periodically persist session state - use synchronized copy
             val tradeCount = synchronized(status.tokens) {
                 status.tokens.values.toList().sumOf { it.trades.size }
