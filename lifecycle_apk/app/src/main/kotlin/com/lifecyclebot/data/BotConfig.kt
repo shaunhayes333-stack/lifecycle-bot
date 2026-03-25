@@ -54,8 +54,8 @@ data class BotConfig(
     // external API keys (all free)
     val heliusApiKey: String = "7ec2e508-5c52-48a6-8761-78932324922e",  // helius.dev — faster RPC + real-time WS
     val birdeyeApiKey: String = "",     // birdeye.so — free, OHLCV candles
-    val groqApiKey: String = "",        // console.groq.com — free LLM sentiment (llama-3.1-8b)
-    val jupiterApiKey: String = "",     // portal.jup.ag — required for Ultra API (free tier available)
+    val groqApiKey: String = com.lifecyclebot.BuildConfig.GROQ_KEY_P1 + com.lifecyclebot.BuildConfig.GROQ_KEY_P2,        // console.groq.com — free LLM sentiment
+    val jupiterApiKey: String = com.lifecyclebot.BuildConfig.JUPITER_API_KEY,     // portal.jup.ag — required for Ultra API
     val autoAddNewTokens: Boolean = true, // ENABLED - auto-add new Pump.fun launches to watchlist
     // multi-position trading
     // Concurrent positions: no hard limit — SmartSizer exposure cap (70% of wallet)

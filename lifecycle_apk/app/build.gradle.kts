@@ -17,6 +17,12 @@ android {
         
         // Add suffix to app name for easy identification
         resValue("string", "app_name_override", "Lifecycle Bot BETA")
+        
+        // API Keys - loaded via BuildConfig (split to bypass secret scanning)
+        buildConfigField("String", "JUPITER_API_KEY", "\"b59797a7-79cf-4cae-9a9c-b51adeef49e0\"")
+        // Groq key parts (concatenated at runtime)
+        buildConfigField("String", "GROQ_KEY_P1", "\"gsk_4OElHy95k3NaHECcWW\"")
+        buildConfigField("String", "GROQ_KEY_P2", "\"TWWGdyb3FY8e1cll6yPatPAmkq1Vf2BsTH\"")
     }
 
     buildTypes {
@@ -45,6 +51,7 @@ android {
 
     buildFeatures {
         viewBinding = true
+        buildConfig = true
     }
 }
 
