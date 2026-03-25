@@ -2260,7 +2260,7 @@ class Executor(
                 symbol = tradeId.symbol,
                 valueSol = actualSol,
                 costSol = actualSol,
-                narrative = narrative.primary,
+                narrative = narrative.label,  // Use .label from enum
                 entryTime = System.currentTimeMillis(),
             )
             PortfolioAnalytics.recordPrice(tradeId.mint, price)
