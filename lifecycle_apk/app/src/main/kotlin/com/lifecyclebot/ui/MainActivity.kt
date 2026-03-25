@@ -785,7 +785,7 @@ By clicking "I Agree", you acknowledge that you have read, understood, and accep
             tvStatsOpenPos.text = "$openCount"
             tvStatsOpenPos.setTextColor(if (openCount > 0) purple else muted)
             
-            val aiConf = ts?.aiConfidence?.toInt() ?: 0
+            val aiConf = ts?.entryScore?.toInt() ?: 0  // Use entry score as AI confidence proxy
             tvStatsAiConf.text = if (aiConf > 0) "$aiConf" else "—"
             tvStatsAiConf.setTextColor(when {
                 aiConf >= 70 -> green
@@ -800,10 +800,10 @@ By clicking "I Agree", you acknowledge that you have read, understood, and accep
             if (ts?.position?.isOpen == true && ts.lastPrice > 0) {
                 cardPositionPnl.visibility = View.VISIBLE
                 tvPnlSymbol.text = ts.symbol
-                tvPnlEntry.text = "Entry: ${currency.formatPrice(ts.position.entryPriceUsd)}"
+                tvPnlEntry.text = "Entry: ${currency.formatPrice(ts.position.entryPrice)}"
                 
-                val currentVal = ts.position.tokensBought * ts.lastPrice
-                val entryVal = ts.position.solSpent * WalletManager.lastKnownSolPrice
+                val currentVal = ts.position.qtyToken * ts.lastPrice
+                val entryVal = ts.position.costSol * WalletManager.lastKnownSolPrice
                 val pnlPctPos = if (entryVal > 0) ((currentVal - entryVal) / entryVal) * 100 else 0.0
                 
                 tvPnlPercent.text = "%+.1f%%".format(pnlPctPos)

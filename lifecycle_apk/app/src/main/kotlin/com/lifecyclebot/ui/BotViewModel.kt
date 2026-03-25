@@ -143,8 +143,8 @@ class BotViewModel(app: Application) : AndroidViewModel(app) {
             try {
                 // Refresh wallet balance
                 com.lifecyclebot.engine.WalletManager.getInstance(ctx).refreshBalance()
-                // Re-emit current state to trigger UI update
-                emit()
+                // Trigger UI update by re-assigning current value (forces collection)
+                _ui.value = _ui.value.copy()
             } catch (_: Exception) {}
         }
     }
