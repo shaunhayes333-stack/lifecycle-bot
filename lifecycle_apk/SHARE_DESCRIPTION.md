@@ -2,83 +2,77 @@
 
 ## What Is This?
 
-**Lifecycle Bot** is a fully autonomous, self-learning Android trading bot that hunts, analyzes, and trades Solana meme coins in real-time. It's not just a bot — it's an **AI trading engine** with 10 specialized neural layers working together to find alpha before the crowd.
+**Lifecycle Bot** is a fully autonomous, self-learning Android trading bot that hunts, analyzes, and trades Solana meme coins in real-time. It's not just a bot — it's an **AI trading engine** with **8 orthogonal signal categories** working together to find alpha before the crowd.
 
 Built from the ground up in Kotlin with direct blockchain integration, MEV protection, and now powered by **Google Gemini AI** for human-level reasoning.
 
 ---
 
-## 🧠 The 10-Layer AI Brain
+## 🧠 The Orthogonal Signal Architecture
 
-This isn't your average trading bot with simple rules. Lifecycle Bot runs **10 specialized AI systems** that cross-talk and vote on every trade:
+**The Problem With Most Bots**: They stack 10 indicators that all look at price/volume. That's not 10 signals — that's the same signal counted 10 times.
 
-| Layer | What It Does |
-|-------|--------------|
-| 🌊 **MarketRegimeAI** | Detects bull/bear/neutral market conditions in real-time |
-| 🐋 **WhaleTrackerAI** | Monitors large wallet movements for smart money signals |
-| 📈 **MomentumPredictorAI** | Predicts short-term price direction using technical analysis |
-| 🎭 **NarrativeDetectorAI** | Uses LLM to identify hot narratives (AI coins, political memes, etc.) |
-| ⏰ **TimeOptimizationAI** | Learns the best hours to trade and avoids historically bad periods |
-| 💧 **LiquidityDepthAI** | Monitors liquidity health and detects rug pull patterns |
-| 🔗 **AICrossTalk** | Cross-correlates all AI signals to detect "Smart Money Pumps" |
-| 🏆 **TokenWinMemory** | Pattern-matches against 500+ past winning tokens |
-| 📊 **EVCalculator** | Expected Value modeling with Kelly Criterion sizing |
-| 🤖 **GeminiCopilot** | Google Gemini 2.0 Flash for scam detection, exit advice & trade reasoning |
+**Our Solution**: **8 truly independent signal categories**, each providing unique information:
+
+| Category | Signal Source | Independence |
+|----------|---------------|--------------|
+| 📈 **PRICE_ACTION** | Momentum analysis | Core signal |
+| 📊 **VOLUME_FLOW** | Volume anomaly (relative to age/mcap) | Different interpretation |
+| 💧 **LIQUIDITY** | Pool depth, slippage risk | Unique data |
+| ⛓️ **ON_CHAIN** | Whale movements + holder entropy | **Fully independent** (blockchain data) |
+| ⏰ **TEMPORAL** | Time-of-day patterns | **Fully independent** (temporal) |
+| 🎭 **NARRATIVE** | Unified LLM (Gemini) | **Fully independent** (text analysis) |
+| 🏆 **PATTERN_MEMORY** | Historical winner similarity | **Fully independent** (pattern matching) |
+| 🌍 **MARKET_CONTEXT** | Regime + cross-token correlation | **Fully independent** (relative analysis) |
+
+**Correlation-Aware Weighting**: Signals that overlap get down-weighted. No double-counting.
 
 ---
 
 ## 🔥 What Makes It Different
 
+### True Signal Independence
+Each category gets **ONE vote**. If momentum and volume both look bullish, that's 2 independent signals — not 10 correlated indicators pretending to be 10 signals.
+
+### New Orthogonal Metrics
+- **Holder Entropy**: Shannon entropy of token distribution (high = well distributed = safer)
+- **Cross-Token Correlation**: Is this pumping WITH or AGAINST the market? (Against = genuine demand)
+- **Volume Anomaly**: Volume relative to expected for this token's age and mcap
+- **Agreement Ratio**: What % of independent signals agree on direction?
+
 ### Self-Learning & Adaptive
-The bot **learns from every trade** and automatically adjusts its strategy. It starts loose during the "Bootstrap" phase (first 50 trades), progressively tightens through "Learning" (50-500 trades), and becomes a precision instrument at "Mature" (500+ trades).
+The bot **learns from every trade** and automatically adjusts its strategy:
+- **Bootstrap** (0-50 trades): Loose, exploring
+- **Learning** (50-500 trades): Gradually tightening
+- **Mature** (500+ trades): Precision instrument
 
-**Decay Logic**: Bad patterns are automatically forgotten over time. Early mistakes don't permanently scar the bot — losses decay at 2%/hour while wins persist longer.
-
-**Minimum Sample Sizes**: The bot won't lock in thresholds until it has statistical confidence. No premature optimization from noisy data.
+**Decay Logic**: Bad patterns are automatically forgotten over time. Early mistakes don't permanently scar the bot.
 
 ### Shadow Paper Trading 👻
-Even in Live Mode, the bot runs **background paper trades** on opportunities it passed on. These "shadow trades" feed the AI learning engine without risking real capital — accelerating learning by 10x.
+Even in Live Mode, the bot runs **background paper trades** on opportunities it passed on. These feed the AI without risking capital — **10x learning acceleration**.
 
 ### Gemini AI Co-Pilot 🤖
 Powered by Google's Gemini 2.0 Flash:
 - **Scam Detection**: Deep narrative analysis with reasoning
-- **Trade Explanations**: Human-readable reasoning for every trade
 - **Exit Advisor**: AI-suggested exit timing (IMMEDIATE/SOON/HOLD/RIDE)
-- **Risk Assessment**: Multi-factor scoring before every entry
+- **Trade Explanations**: Human-readable reasoning for every trade
 
 ### Battle-Tested Execution
 - **Jupiter Ultra API** with built-in MEV protection
-- **On-chain balance verification** before every sell (no more "insufficient funds" errors)
-- **Actual token decimals** fetched from blockchain (not guessed)
-- **Jito bundles** as fallback MEV protection
+- **On-chain balance verification** before every sell
+- **Actual token decimals** fetched from blockchain
 
 ---
 
 ## 📱 Runs On Your Phone
 
-This is a **native Android app** — no cloud servers, no monthly fees, no API rate limits from third parties. Your bot, your phone, your alpha.
-
-- Real-time P&L dashboard
-- Trade journal with full history
-- Notification controls
-- Sound effects for milestones
-- Advanced settings panel
-
----
-
-## 🖥️ Web Dashboard
-
-Monitor your bot from desktop with the included **React + FastAPI dashboard**:
-- Real-time position tracking
-- Configuration management
-- Trade history visualization
-- AI reasoning logs
+**Native Android app** — no cloud servers, no monthly fees. Your bot, your phone, your alpha.
 
 ---
 
 ## 📊 By The Numbers
 
-- **10** AI layers analyzing every opportunity
+- **8** orthogonal signal categories (truly independent)
 - **500+** winning token patterns in memory
 - **9** safety gates before any trade executes
 - **3** learning phases (Bootstrap → Learning → Mature)
@@ -92,34 +86,19 @@ Monitor your bot from desktop with the included **React + FastAPI dashboard**:
 - Maximum 70% portfolio exposure
 - 5% reserve always maintained
 - Dynamic trailing stops
-- Treasury-adaptive position sizing
 - Automatic stop-loss
 - Profit locking at 2x, 5x, 10x milestones
 
 ---
 
-## 🔌 Integrations
-
-- Jupiter Ultra API (execution)
-- Helius RPC (blockchain data)
-- DexScreener (market data)
-- Pump.fun (new launches)
-- RugCheck.xyz (safety scoring)
-- Groq LLM (narrative detection)
-- **Google Gemini 2.0 Flash** (AI co-pilot)
-
----
-
 ## The Bottom Line
 
-This isn't a toy. This is a **production-grade, institutional-quality trading system** that happens to run on your Android phone. It learns, adapts, and gets smarter with every trade.
+This isn't a toy. This is a **production-grade, institutional-quality trading system** with mathematically enforced signal independence, running on your Android phone.
 
-While others are manually aping into coins and hoping for the best, Lifecycle Bot is running 10 AI models, checking liquidity depth, monitoring whale wallets, analyzing narratives, calculating expected value, and making decisions in milliseconds.
+While others stack correlated indicators and hope for the best, Lifecycle Bot ensures every signal provides **unique, orthogonal information** — then weights them properly and makes decisions in milliseconds.
 
 **Welcome to the future of meme coin trading.**
 
 ---
-
-*Built with mass amounts of caffeine, mass amounts of code, and an unhealthy obsession with finding alpha.*
 
 🟢 **Status: Live & Learning**
