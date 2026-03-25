@@ -11,6 +11,9 @@ import com.lifecyclebot.data.*
 import com.lifecyclebot.network.JupiterApi
 import com.lifecyclebot.network.SolanaWallet
 import com.lifecyclebot.util.pct
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.GlobalScope
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withTimeoutOrNull
 import java.util.concurrent.ConcurrentHashMap
@@ -1281,7 +1284,7 @@ class Executor(
         // - Hold time and momentum
         // - Recent price action patterns
         // ════════════════════════════════════════════════════════════════
-        if (!isPaperMode && gainPct >= 15) {  // Only consult Gemini for meaningful gains
+        if (!cfg().paperMode && gainPct >= 15) {  // Only consult Gemini for meaningful gains
             try {
                 val recentPrices = ts.history.takeLast(10).map { it.priceUsd }
                 val geminiAdvice = GeminiCopilot.getExitAdvice(
@@ -2629,7 +2632,7 @@ class Executor(
             // GEMINI TRADE REASONING: Generate human-readable explanation
             // Runs async to not block trade execution
             // ═══════════════════════════════════════════════════════════════════
-            kotlinx.coroutines.GlobalScope.launch(kotlinx.coroutines.Dispatchers.IO) {
+            GlobalScope.launch(Dispatchers.IO) {
                 try {
                     val aiLayers = mapOf(
                         "Entry Score" to "${score.toInt()}/100",
