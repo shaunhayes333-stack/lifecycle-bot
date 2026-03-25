@@ -1483,13 +1483,24 @@ object FinalDecisionGate {
         if (blockReason == null) {
             val liqSignal = LiquidityDepthAI.getSignal(ts.mint, ts.symbol, isOpenPosition = false)
             
-            // Hard block on liquidity collapse
-            if (liqSignal.shouldBlock && !config.paperMode) {
+            // Hard block on liquidity collapse - BUT only for severe collapses during learning
+            // During BOOTSTRAP/LEARNING phases, allow moderate collapses for learning
+            val isLearningPhase = currentAdjusted.learningPhase != LearningPhase.MATURE
+            val isSevereCollapse = liqSignal.reason?.contains("-30%") == true || 
+                                   liqSignal.reason?.contains("-40%") == true ||
+                                   liqSignal.reason?.contains("-50%") == true
+            
+            if (liqSignal.shouldBlock && !config.paperMode && (!isLearningPhase || isSevereCollapse)) {
                 blockReason = liqSignal.blockReason ?: "LIQUIDITY_COLLAPSE"
                 blockLevel = BlockLevel.HARD
                 checks.add(GateCheck("liquidity_ai", false, 
                     "COLLAPSE: ${liqSignal.reason}"))
                 tags.add("liquidity_collapse")
+            } else if (liqSignal.shouldBlock && !config.paperMode && isLearningPhase) {
+                // Learning phase: Log warning but allow trade for learning
+                checks.add(GateCheck("liquidity_ai", true, 
+                    "LEARNING: collapse warning (${liqSignal.reason}) - allowed for learning [${currentAdjusted.learningPhase}]"))
+                tags.add("liquidity_collapse_learning")
             } else if (liqSignal.shouldBlock && config.paperMode) {
                 // Paper mode: Log warning but allow trade for learning
                 checks.add(GateCheck("liquidity_ai", true, 
