@@ -984,8 +984,8 @@ object FinalDecisionGate {
                 (System.currentTimeMillis() - firstCandleTime) / 60_000.0
             } else 0.0
             
-            // Get initial score (from Scanner filter)
-            val initialScore = candidate.score
+            // Get initial score (from Scanner filter) - use entryScore
+            val initialScore = candidate.entryScore
             val liquidity = ts.lastLiquidityUsd
             val buyPressure = ts.meta.pressScore
             
