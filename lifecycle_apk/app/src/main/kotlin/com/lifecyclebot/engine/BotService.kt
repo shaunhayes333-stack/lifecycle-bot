@@ -135,6 +135,11 @@ class BotService : Service() {
             security  = securityGuard,
             sounds    = soundManager,
         )
+        
+        // Initialize FluidLearning for paper mode simulation
+        val cfg = ConfigStore.load(applicationContext)
+        FluidLearning.init(applicationContext, cfg.paperSimulatedBalance)
+        
         } catch (e: Exception) {
             ErrorLogger.crash("BotService", "onCreate CRASH: ${e.javaClass.simpleName}: ${e.message}", e)
             android.util.Log.e("BotService", "onCreate CRASH: ${e.javaClass.simpleName}: ${e.message}", e)

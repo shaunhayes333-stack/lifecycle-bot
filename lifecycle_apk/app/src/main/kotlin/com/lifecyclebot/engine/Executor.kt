@@ -2470,6 +2470,13 @@ class Executor(
         onPaperBalanceChange?.invoke(-actualSol)
         
         // ═══════════════════════════════════════════════════════════════════
+        // FLUID LEARNING: Track this paper buy for realistic balance simulation
+        // ═══════════════════════════════════════════════════════════════════
+        if (cfg().fluidLearningEnabled) {
+            FluidLearning.recordPaperBuy(tradeId.mint, actualSol)
+        }
+        
+        // ═══════════════════════════════════════════════════════════════════
         // EDGE LEARNING: Record entry state for later learning
         // ═══════════════════════════════════════════════════════════════════
         EdgeLearning.recordEntry(
@@ -2763,6 +2770,13 @@ class Executor(
         
         // Update paper wallet balance (add sale proceeds)
         onPaperBalanceChange?.invoke(value)
+        
+        // ═══════════════════════════════════════════════════════════════════
+        // FLUID LEARNING: Track paper sell for realistic balance simulation
+        // ═══════════════════════════════════════════════════════════════════
+        if (cfg().fluidLearningEnabled) {
+            FluidLearning.recordPaperSell(tradeId.mint, pos.costSol, pnl)
+        }
         
         // Use identity for consistent logging
         onLog("PAPER SELL @ ${price.fmt()} | $reason | pnl ${pnl.fmt(4)} SOL (${pnlP.fmtPct()})", tradeId.mint)

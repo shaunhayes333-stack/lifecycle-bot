@@ -102,6 +102,18 @@ object SmartSizer {
         val isPaperMode = cfg.paperMode
         ErrorLogger.info("SmartSizer", "📏 SIZING: paper=$isPaperMode wallet=$walletSol reserve=${cfg.walletReserveSol} mcap=$mcapUsd liq=$liquidityUsd quality=$setupQuality")
         
+        // ══════════════════════════════════════════════════════════════════════
+        // FLUID LEARNING: In paper mode, use simulated balance for realistic sizing
+        // This teaches the AI real constraints instead of "unlimited funds"
+        // ══════════════════════════════════════════════════════════════════════
+        val effectiveWallet = if (isPaperMode && cfg.fluidLearningEnabled) {
+            val simBal = FluidLearning.getSimulatedBalance()
+            ErrorLogger.info("SmartSizer", "📊 FLUID LEARNING: Using simulated balance $simBal SOL (real: $walletSol)")
+            simBal
+        } else {
+            walletSol
+        }
+        
         // ── HARD MCAP FLOOR — DISABLED IN PAPER MODE ──────────────────
         if (!isPaperMode) {
             val HARD_MIN_MCAP = 2_000.0
@@ -114,14 +126,20 @@ object SmartSizer {
         // ── Tradeable balance (reserve + treasury excluded) ──────────
         val treasuryFloor = TreasuryManager.treasurySol
         
-        // PAPER MODE: Use full wallet, ignore reserve/treasury - we want to learn
-        val tradeable = if (isPaperMode) {
-            walletSol.coerceAtLeast(0.0)
+        // FLUID LEARNING: Use simulated balance with realistic constraints
+        val tradeable = if (isPaperMode && cfg.fluidLearningEnabled) {
+            // Apply same reserve logic as live mode for realistic learning
+            val simBalance = FluidLearning.getSimulatedBalance()
+            val simExposure = FluidLearning.getSimulatedExposure()
+            (simBalance - cfg.walletReserveSol - simExposure).coerceAtLeast(0.0)
+        } else if (isPaperMode) {
+            // Legacy paper mode - unlimited funds
+            effectiveWallet.coerceAtLeast(0.0)
         } else {
-            (walletSol - cfg.walletReserveSol - treasuryFloor).coerceAtLeast(0.0)
+            (effectiveWallet - cfg.walletReserveSol - treasuryFloor).coerceAtLeast(0.0)
         }
         
-        ErrorLogger.info("SmartSizer", "📏 tradeable=$tradeable (wallet=$walletSol - reserve=${cfg.walletReserveSol} - treasury=$treasuryFloor | paper=$isPaperMode)")
+        ErrorLogger.info("SmartSizer", "📏 tradeable=$tradeable (wallet=$effectiveWallet - reserve=${cfg.walletReserveSol} - treasury=$treasuryFloor | paper=$isPaperMode | fluid=${cfg.fluidLearningEnabled})")
         
         if (tradeable < 0.005) {
             ErrorLogger.error("SmartSizer", "❌ BLOCKED: tradeable $tradeable < 0.005 floor | paper=$isPaperMode")
