@@ -730,7 +730,7 @@ class Executor(
         // ════════════════════════════════════════════════════════════════
         val product = liqAdjustment * mcapAdjustment * volAdjustment * phaseAdjustment * 
             qualityAdjustment * tokenTierAdjustment * treasuryTierAdjustment
-        val combinedAdjustment = pow(product, 1.0 / 7.0).coerceIn(0.5, 1.8)  // 7th root, capped 50%-180%
+        val combinedAdjustment = product.pow(1.0 / 7.0).coerceIn(0.5, 1.8)  // 7th root, capped 50%-180%
         
         capitalRecoveryMultiple *= combinedAdjustment
         profitLockMultiple *= combinedAdjustment
