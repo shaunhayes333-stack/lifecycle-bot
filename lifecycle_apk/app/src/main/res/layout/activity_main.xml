@@ -110,23 +110,16 @@
                         android:ellipsize="end"
                         android:singleLine="true"/>
                 </LinearLayout>
-            </LinearLayout>
-            
-            <!-- Logo - Centered below top bar -->
-            <LinearLayout
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:gravity="center"
-                android:paddingTop="8dp"
-                android:paddingBottom="12dp">
                 
+                <!-- Logo - Right side under wallet pill -->
                 <ImageView
                     android:id="@+id/ivLogo"
-                    android:layout_width="120dp"
-                    android:layout_height="120dp"
+                    android:layout_width="48dp"
+                    android:layout_height="48dp"
                     android:src="@drawable/logo"
                     android:scaleType="fitCenter"
-                    android:contentDescription="AI Trader Logo"/>
+                    android:contentDescription="AI Trader Logo"
+                    android:layout_marginStart="8dp"/>
             </LinearLayout>
 
             <!-- ═══════════════════════════════
