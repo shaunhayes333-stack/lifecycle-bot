@@ -25,12 +25,14 @@ class JupiterApi {
         private const val BASE_ULTRA = "https://api.jup.ag/ultra/v1"
         private const val TAG = "JupiterApi"
         
-        // Start with v6 as default (more reliable DNS), Ultra can be enabled if working
-        // Ultra offers: auto-slippage, Beam MEV protection, ~300ms latency, lower fees
-        var useUltraApi = false  // Changed to false - v6 is more reliable
+        // Use Ultra API by default (faster, better MEV protection, auto-slippage)
+        // Now works reliably with CloudflareDns bypassing ISP DNS issues
+        var useUltraApi = true
     }
 
+    // HTTP client with CloudflareDns to bypass ISP DNS blocking
     private val http = OkHttpClient.Builder()
+        .dns(CloudflareDns.INSTANCE)  // Use Cloudflare DoH for reliable DNS
         .connectTimeout(15, TimeUnit.SECONDS)
         .readTimeout(20, TimeUnit.SECONDS)
         .writeTimeout(15, TimeUnit.SECONDS)
@@ -44,6 +46,8 @@ class JupiterApi {
      * Uses Ultra API by default (faster, auto-slippage, built-in MEV protection).
      * Falls back to v6 API if Ultra fails.
      * 
+     * DNS is resolved via Cloudflare DoH to bypass ISP blocking.
+     * 
      * @param amountLamports  for SOL-in swaps; for token-in swaps use raw token units
      */
     fun getQuote(
@@ -52,25 +56,16 @@ class JupiterApi {
         amountLamports: Long,
         slippageBps: Int,
     ): SwapQuote {
-        // Try Ultra API first (faster, better) - but only if not previously disabled
+        // Try Ultra API first (faster, better)
         if (useUltraApi) {
             try {
                 return getUltraOrder(inputMint, outputMint, amountLamports)
             } catch (e: Exception) {
-                val errorMsg = e.message ?: "unknown"
-                log("⚠️ Ultra API failed: ${errorMsg.take(60)}")
-                
-                // If DNS fails, disable Ultra for this session to avoid repeated failures
-                if (errorMsg.contains("resolve") || errorMsg.contains("UnknownHost")) {
-                    log("🔄 Disabling Ultra API for this session (DNS issue), using v6")
-                    useUltraApi = false
-                }
-                // Fall through to v6
+                log("⚠️ Ultra API failed, falling back to v6: ${e.message?.take(60)}")
             }
         }
         
         // Fallback to v6 API
-        log("📊 Using Jupiter v6 API")
         return getQuoteV6(inputMint, outputMint, amountLamports, slippageBps)
     }
     

@@ -749,6 +749,10 @@ class BotService : Service() {
         TokenWinMemory.init(applicationContext)
         addLog("🏆 TokenWinMemory: ${TokenWinMemory.getStats()}")
         
+        // Warm up DNS cache for Jupiter APIs (bypasses ISP DNS issues)
+        com.lifecyclebot.network.CloudflareDns.INSTANCE.warmupJupiterDns()
+        addLog("🌐 DNS-over-HTTPS enabled for Jupiter APIs")
+        
         // Set up periodic save callback for EdgeLearning
         EdgeLearning.onThresholdsChanged = {
             try {
