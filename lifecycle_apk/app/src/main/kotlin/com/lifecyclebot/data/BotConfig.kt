@@ -12,6 +12,7 @@ data class BotConfig(
     // mode
     val paperMode: Boolean = true,
     val shadowPaperEnabled: Boolean = true,  // Run paper trades in background during live mode for learning
+    val moonshotOverrideEnabled: Boolean = true,  // In paper/shadow mode, execute LIVE buys for moonshots (score>=85, quality A/B)
     val autoTrade: Boolean = true,  // ENABLED BY DEFAULT - bot is autonomous
     // tokens
     val watchlist: List<String> = emptyList(),
@@ -215,6 +216,7 @@ object ConfigStore {
             putString("rpc_url",                      cfg.rpcUrl)
             putBoolean("paper_mode",                  cfg.paperMode)
             putBoolean("shadow_paper_enabled",        cfg.shadowPaperEnabled)
+            putBoolean("moonshot_override_enabled",   cfg.moonshotOverrideEnabled)
             putBoolean("auto_trade",                  cfg.autoTrade)
             putString("watchlist",                    cfg.watchlist.joinToString(","))
             putString("active_token",                 cfg.activeToken)
@@ -325,6 +327,7 @@ object ConfigStore {
             rpcUrl                      = p.getString("rpc_url", "https://newest-neat-friday.solana-mainnet.quiknode.pro/e87dd6004de87171941006f9d3bf235b860b6149/") ?: "https://newest-neat-friday.solana-mainnet.quiknode.pro/e87dd6004de87171941006f9d3bf235b860b6149/",
             paperMode                   = p.getBoolean("paper_mode", true),
             shadowPaperEnabled          = p.getBoolean("shadow_paper_enabled", true),
+            moonshotOverrideEnabled     = p.getBoolean("moonshot_override_enabled", true),
             autoTrade                   = p.getBoolean("auto_trade", true),
             watchlist                   = (p.getString("watchlist", "") ?: "").split(",").filter { it.isNotBlank() },
             activeToken                 = p.getString("active_token", "") ?: "",

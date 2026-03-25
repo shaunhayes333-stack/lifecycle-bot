@@ -2242,6 +2242,32 @@ class Executor(
     private fun runShadowPaperBuy(ts: TokenState, sol: Double, score: Double, 
                                    quality: String, reason: String) {
         try {
+            // ═══════════════════════════════════════════════════════════════════
+            // MOONSHOT OVERRIDE FOR SHADOW MODE
+            // 
+            // Even in shadow mode, don't miss a moonshot! If this looks like
+            // a massive opportunity, convert to LIVE BUY immediately.
+            // ═══════════════════════════════════════════════════════════════════
+            val isMoonshot = cfg().moonshotOverrideEnabled &&
+                             score >= 85 && 
+                             quality in listOf("A", "B") && 
+                             ts.lastLiquidityUsd >= 5000 &&
+                             ts.meta.pressScore >= 70
+            
+            if (isMoonshot && wallet != null && !cfg().paperMode) {
+                val walletBal = try { wallet!!.getSolBalance() } catch (_: Exception) { 0.0 }
+                if (walletBal >= sol * 1.1) {
+                    onLog("🌙🚀 MOONSHOT in shadow mode! Score=${score.toInt()} Quality=$quality → CONVERTING TO LIVE!", ts.mint)
+                    onNotify("🌙 Shadow → Live!", "${ts.symbol} moonshot detected!", 
+                        com.lifecyclebot.engine.NotificationHistory.NotifEntry.NotifType.SUCCESS)
+                    sounds?.playMilestoneSound()
+                    
+                    val tradeId = TradeIdentityManager.getOrCreate(ts.mint, ts.symbol, ts.source)
+                    liveBuy(ts, sol, score, wallet!!, walletBal, tradeId, quality)
+                    return
+                }
+            }
+            
             // Limit shadow positions to prevent memory bloat
             if (shadowPositions.size >= MAX_SHADOW_POSITIONS) {
                 // Remove oldest shadow position
@@ -2347,6 +2373,38 @@ class Executor(
 
     fun paperBuy(ts: TokenState, sol: Double, score: Double, identity: TradeIdentity? = null, 
                  quality: String = "C", skipGraduated: Boolean = false) {
+        // ═══════════════════════════════════════════════════════════════════════════
+        // MOONSHOT OVERRIDE: Don't miss potential moonshots even in paper mode!
+        // 
+        // If ALL of these conditions are met, execute a LIVE BUY instead:
+        // 1. Score >= 85 (very high confidence)
+        // 2. Quality is A or B (top tier setup)
+        // 3. Liquidity >= $5,000 (enough to exit safely)
+        // 4. Buy pressure >= 70% (strong demand)
+        // 5. We have a connected wallet with balance
+        // 6. Moonshot override is enabled in config
+        // ═══════════════════════════════════════════════════════════════════════════
+        val isMoonshot = cfg().moonshotOverrideEnabled &&
+                         score >= 85 && 
+                         quality in listOf("A", "B") && 
+                         ts.lastLiquidityUsd >= 5000 &&
+                         ts.meta.pressScore >= 70
+        
+        if (isMoonshot && wallet != null) {
+            val walletBal = try { wallet.getSolBalance() } catch (_: Exception) { 0.0 }
+            if (walletBal >= sol * 1.1) {  // Have enough + 10% buffer
+                onLog("🌙🚀 MOONSHOT DETECTED in paper mode! Score=${score.toInt()} Quality=$quality → LIVE BUY OVERRIDE", ts.mint)
+                onNotify("🌙 Moonshot Override!", "${ts.symbol} score=${score.toInt()}% → Going LIVE!", 
+                    com.lifecyclebot.engine.NotificationHistory.NotifEntry.NotifType.SUCCESS)
+                sounds?.playMilestoneSound()
+                
+                // Execute live buy instead of paper
+                val tradeId = identity ?: TradeIdentityManager.getOrCreate(ts.mint, ts.symbol, ts.source)
+                liveBuy(ts, sol, score, wallet, walletBal, tradeId, quality)
+                return
+            }
+        }
+        
         // ═══════════════════════════════════════════════════════════════════════════
         // TRADE IDENTITY: Use canonical identity for consistent tracking
         // ═══════════════════════════════════════════════════════════════════════════
