@@ -2252,6 +2252,7 @@ class Executor(
         
         // ═══════════════════════════════════════════════════════════════════
         // PORTFOLIO ANALYTICS: Track position for heat map & correlation
+        // Updated: Use narrative.label from enum
         // ═══════════════════════════════════════════════════════════════════
         try {
             val narrative = NarrativeDetectorAI.detectNarrative(ts.symbol, ts.name)
