@@ -864,27 +864,32 @@ object FinalDecisionGate {
             val inCooldown = isInDistributionCooldown(ts.mint)
             val cooldownMinutes = if (inCooldown) getRemainingCooldownMinutes(ts.mint) else 0
             
-            // PAPER MODE: Bypass cooldown if buy pressure is strong (60%+)
-            val bypassCooldownForPaper = config.paperMode && ts.meta.pressScore >= 60.0
-            
-            // LIVE MODE: Bypass cooldown only with very strong buy pressure (65%+)
-            // If buyers have decisively returned, the distribution might be over
-            val bypassCooldownForLive = !config.paperMode && ts.meta.pressScore >= 65.0
-            
-            val bypassCooldown = bypassCooldownForPaper || bypassCooldownForLive
-            
-            if (inCooldown && !bypassCooldown) {
-                blockReason = "DISTRIBUTION_COOLDOWN_${cooldownMinutes}min"
-                blockLevel = BlockLevel.HARD
-                checks.add(GateCheck("distribution", false, "Recently exited distribution, cooldown=${cooldownMinutes}min remaining"))
-                tags.add("distribution_cooldown")
-            } else if (inCooldown && bypassCooldown) {
-                // Log bypass
-                val modeLabel = if (config.paperMode) "PAPER" else "LIVE"
-                checks.add(GateCheck("distribution", true, "$modeLabel: cooldown bypass (buy%=${ts.meta.pressScore.toInt()}%)"))
-                tags.add("distribution_cooldown_bypassed")
+            // PAPER MODE: Skip ALL distribution cooldowns - we want maximum learning
+            // AI needs to see what happens when we trade during distribution
+            if (config.paperMode) {
+                if (inCooldown) {
+                    checks.add(GateCheck("distribution", true, "PAPER: cooldown bypassed for learning"))
+                    tags.add("distribution_cooldown_bypassed")
+                }
+                // Continue to other checks but don't block
             } else {
-                // Check other distribution signals
+                // LIVE MODE: Bypass cooldown only with very strong buy pressure (65%+)
+                // If buyers have decisively returned, the distribution might be over
+                val bypassCooldownForLive = ts.meta.pressScore >= 65.0
+                
+                if (inCooldown && !bypassCooldownForLive) {
+                    blockReason = "DISTRIBUTION_COOLDOWN_${cooldownMinutes}min"
+                    blockLevel = BlockLevel.HARD
+                    checks.add(GateCheck("distribution", false, "Recently exited distribution, cooldown=${cooldownMinutes}min remaining"))
+                    tags.add("distribution_cooldown")
+                } else if (inCooldown && bypassCooldownForLive) {
+                    checks.add(GateCheck("distribution", true, "LIVE: cooldown bypass (buy%=${ts.meta.pressScore.toInt()}%)"))
+                    tags.add("distribution_cooldown_bypassed")
+                }
+            }
+            
+            // Check other distribution signals (LIVE mode only for blocking)
+            if (blockReason == null && !config.paperMode) {
                 val isDistributionPhase = candidate.edgePhase.uppercase() == "DISTRIBUTION"
                 val hasDistributionTag = ts.phase.lowercase().contains("distribution")
                 
@@ -946,29 +951,27 @@ object FinalDecisionGate {
             if (activeVeto != null) {
                 val remainingSec = getVetoRemainingSeconds(ts.mint)
                 
-                // PAPER MODE: Allow bypass for learning when conditions improved
-                val canBypassInPaper = config.paperMode && (
-                    ts.meta.pressScore >= 55.0 ||  // Buy pressure recovered
-                    candidate.setupQuality in listOf("A+", "A", "B") ||  // Good quality
-                    candidate.aiConfidence >= 40.0  // Decent confidence
-                )
-                
-                // LIVE MODE: Allow bypass only with strong buy pressure (>= 60%)
-                // If buyers have returned strongly, the veto might be stale
-                val canBypassInLive = !config.paperMode && ts.meta.pressScore >= 60.0
-                
-                if (canBypassInPaper || canBypassInLive) {
-                    // Bypass the veto
-                    val modeLabel = if (config.paperMode) "PAPER" else "LIVE"
+                // PAPER MODE: Always bypass vetoes - we want maximum learning
+                if (config.paperMode) {
                     checks.add(GateCheck("edge_veto_sticky", true, 
-                        "$modeLabel: veto bypass (buy%=${ts.meta.pressScore.toInt()} quality=${candidate.setupQuality} conf=${candidate.aiConfidence.toInt()}%)"))
+                        "PAPER: veto bypassed for learning (original: ${activeVeto.reason})"))
                     tags.add("edge_veto_bypassed")
                 } else {
-                    blockReason = "EDGE_VETO_ACTIVE"
-                    blockLevel = BlockLevel.EDGE
-                    checks.add(GateCheck("edge_veto_sticky", false, 
-                        "Vetoed ${remainingSec}s ago: ${activeVeto.reason} (quality=${activeVeto.quality})"))
-                    tags.add("edge_veto_sticky")
+                    // LIVE MODE: Allow bypass only with strong buy pressure (>= 60%)
+                    // If buyers have returned strongly, the veto might be stale
+                    val canBypassInLive = ts.meta.pressScore >= 60.0
+                    
+                    if (canBypassInLive) {
+                        checks.add(GateCheck("edge_veto_sticky", true, 
+                            "LIVE: veto bypass (buy%=${ts.meta.pressScore.toInt()})"))
+                        tags.add("edge_veto_bypassed")
+                    } else {
+                        blockReason = "EDGE_VETO_ACTIVE"
+                        blockLevel = BlockLevel.EDGE
+                        checks.add(GateCheck("edge_veto_sticky", false, 
+                            "Vetoed ${remainingSec}s ago: ${activeVeto.reason} (quality=${activeVeto.quality})"))
+                        tags.add("edge_veto_sticky")
+                    }
                 }
             } else {
                 checks.add(GateCheck("edge_veto_sticky", true, "No active veto"))
@@ -989,25 +992,10 @@ object FinalDecisionGate {
         // ═══════════════════════════════════════════════════════════════════════
         
         if (blockReason == null && config.paperMode) {
-            val minBuyPressurePaper = 40.0  // LOWERED: 40% - aggressive learning
-            val minLiquidityPaper = 1500.0  // $1500 minimum - more trades
-            
-            val hasBuyerInterest = ts.meta.pressScore >= minBuyPressurePaper
-            val hasLiquidity = ts.lastLiquidityUsd >= minLiquidityPaper
-            
-            if (!hasBuyerInterest) {
-                blockReason = "PAPER_NEAR_DISTRIBUTION_${ts.meta.pressScore.toInt()}%"
-                blockLevel = BlockLevel.CONFIDENCE
-                checks.add(GateCheck("paper_quality", false, "buy%=${ts.meta.pressScore.toInt()} < $minBuyPressurePaper (too close to distribution zone)"))
-                tags.add("near_distribution")
-            } else if (!hasLiquidity) {
-                blockReason = "PAPER_LOW_LIQUIDITY_$${ts.lastLiquidityUsd.toInt()}"
-                blockLevel = BlockLevel.CONFIDENCE
-                checks.add(GateCheck("paper_quality", false, "liq=$${ts.lastLiquidityUsd.toInt()} < $minLiquidityPaper"))
-                tags.add("paper_illiquid")
-            } else {
-                checks.add(GateCheck("paper_quality", true, "buy%=${ts.meta.pressScore.toInt()} liq=$${ts.lastLiquidityUsd.toInt()}"))
-            }
+        // PAPER MODE: Skip quality filter - we want MAXIMUM trades for learning
+        // The AI needs diverse data including low-quality trades to learn patterns
+        if (config.paperMode && blockReason == null) {
+            checks.add(GateCheck("paper_quality", true, "PAPER: quality filter skipped for max learning"))
         }
         
         // ═══════════════════════════════════════════════════════════════════════
@@ -1019,17 +1007,10 @@ object FinalDecisionGate {
         
         if (blockReason == null && candidate.phase.lowercase().contains("unknown")) {
             if (config.paperMode) {
-                // PAPER MODE: Allow unknown phases with decent buy pressure
-                val minBuyPressureUnknown = 48.0  // LOWERED from 52%
-                if (ts.meta.pressScore >= minBuyPressureUnknown) {
-                    checks.add(GateCheck("phase_filter", true, "PAPER: unknown phase OK (buy%=${ts.meta.pressScore.toInt()} >= $minBuyPressureUnknown)"))
-                    tags.add("phase_unknown_allowed")
-                } else {
-                    blockReason = "UNKNOWN_PHASE_WEAK_BUYERS"
-                    blockLevel = BlockLevel.CONFIDENCE
-                    checks.add(GateCheck("phase_filter", false, "unknown phase + weak buyers (buy%=${ts.meta.pressScore.toInt()} < $minBuyPressureUnknown)"))
-                    tags.add("phase_unknown_garbage")
-                }
+                // PAPER MODE: Allow ALL unknown phases for learning
+                // We want maximum trades - AI learns from outcomes
+                checks.add(GateCheck("phase_filter", true, "PAPER: unknown phase allowed for learning"))
+                tags.add("phase_unknown_allowed")
             } else {
                 // LIVE MODE: Still need some filtering but not as strict
                 // UNKNOWN phases can still be profitable - just need good signals
