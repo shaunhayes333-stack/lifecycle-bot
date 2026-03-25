@@ -15,6 +15,10 @@ data class SwapQuote(
     val requestId: String = "",        // Required for Ultra execute
     val swapTransaction: String = "",  // Pre-built tx from Ultra
     val isUltra: Boolean = false,      // Flag to indicate Ultra quote
+    // Store original request params for buildUltraTx (API response doesn't echo them back)
+    val inputMint: String = "",
+    val outputMint: String = "",
+    val inAmount: Long = 0L,
 )
 
 /**
@@ -133,6 +137,10 @@ class JupiterApi(private val apiKey: String = "") {
             requestId = "",  // No requestId without taker
             swapTransaction = "",  // No tx without taker
             isUltra = true,
+            // Store original request params - API response doesn't echo them back!
+            inputMint = inputMint,
+            outputMint = outputMint,
+            inAmount = amountLamports,
         )
     }
 
@@ -192,6 +200,10 @@ class JupiterApi(private val apiKey: String = "") {
             requestId = requestId,
             swapTransaction = swapTx,
             isUltra = true,
+            // Store original request params
+            inputMint = inputMint,
+            outputMint = outputMint,
+            inAmount = amountLamports,
         )
     }
     
@@ -270,10 +282,17 @@ class JupiterApi(private val apiKey: String = "") {
         val startMs = System.currentTimeMillis()
         log("🚀 Building Ultra tx for ${userPublicKey.take(8)}...")
         
-        // Extract params from the quote
-        val inputMint = quote.raw.optString("inputMint", "")
-        val outputMint = quote.raw.optString("outputMint", "")
-        val amount = quote.raw.optString("amount", quote.raw.optString("inAmount", "0"))
+        // Use stored params from quote (API response doesn't echo them back!)
+        val inputMint = quote.inputMint.ifBlank { quote.raw.optString("inputMint", "") }
+        val outputMint = quote.outputMint.ifBlank { quote.raw.optString("outputMint", "") }
+        val amount = if (quote.inAmount > 0) quote.inAmount.toString() 
+                     else quote.raw.optString("amount", quote.raw.optString("inAmount", "0"))
+        
+        // Validate we have the required params
+        if (inputMint.isBlank() || outputMint.isBlank() || amount == "0") {
+            log("❌ Missing params for Ultra tx: in=$inputMint out=$outputMint amt=$amount")
+            throw RuntimeException("Jupiter Ultra buildTx: missing input/output mint or amount")
+        }
         
         // GET request with taker to get transaction
         val url = "$BASE_ULTRA/order?inputMint=$inputMint&outputMint=$outputMint&amount=$amount&taker=$userPublicKey"
