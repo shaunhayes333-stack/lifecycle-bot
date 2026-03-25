@@ -1482,6 +1482,74 @@ object FinalDecisionGate {
         }
         
         // ─────────────────────────────────────────────────────────────────────
+        // GATE 2d: ORTHOGONAL SIGNAL AGGREGATION
+        // 
+        // Collects ALL AI signals and ensures they are INDEPENDENT.
+        // Correlated signals are down-weighted to avoid double-counting.
+        // 
+        // 8 ORTHOGONAL CATEGORIES:
+        // 1. PRICE_ACTION    - Momentum (ONE signal)
+        // 2. VOLUME_FLOW     - Volume anomaly (ONE signal)
+        // 3. LIQUIDITY       - Pool depth (ONE signal)
+        // 4. ON_CHAIN        - Whale + holder entropy (ONE signal)
+        // 5. TEMPORAL        - Time patterns (ONE signal)
+        // 6. NARRATIVE       - Unified LLM (ONE signal - Groq+Gemini merged)
+        // 7. PATTERN_MEMORY  - Historical similarity (ONE signal)
+        // 8. MARKET_CONTEXT  - Regime + correlation (ONE signal)
+        // ─────────────────────────────────────────────────────────────────────
+        
+        var orthogonalBonus = 0
+        if (blockReason == null) {
+            try {
+                // Collect orthogonal signals from existing AI layer results
+                val orthogonalAssessment = OrthogonalSignals.collectSignals(
+                    ts = ts,
+                    momentumScore = candidate.aiConfidence,  // Use AI confidence as momentum proxy
+                    liquidityScore = if (ts.lastLiquidityUsd > 5000) 70.0 else if (ts.lastLiquidityUsd > 1000) 50.0 else 30.0,
+                    whaleSignal = null,  // WhaleTrackerAI result would go here if available
+                    timeScore = null,    // TimeOptimizationAI result would go here if available
+                    narrativeScore = (50.0 + narrativeAdjustment * 5).coerceIn(0.0, 100.0),  // Convert adjustment to score
+                    patternMatchScore = null,  // TokenWinMemory result would go here if available
+                    marketRegimeScore = null,  // MarketRegimeAI result would go here if available
+                    topHolderPcts = emptyList(),  // Would come from rugcheck data
+                    tokenReturns = ts.history.takeLast(10).zipWithNext { a, b -> 
+                        if (a.priceUsd > 0) ((b.priceUsd - a.priceUsd) / a.priceUsd) * 100 else 0.0 
+                    },
+                    marketReturns = emptyList(),  // Would need SOL price history
+                )
+                
+                // Apply orthogonal assessment
+                val compositeScore = orthogonalAssessment.compositeScore
+                val agreementRatio = orthogonalAssessment.agreementRatio
+                
+                // Bonus/penalty based on signal agreement
+                orthogonalBonus = when {
+                    agreementRatio >= 0.8 && compositeScore > 20 -> 5   // Strong bullish consensus
+                    agreementRatio >= 0.8 && compositeScore < -20 -> -5 // Strong bearish consensus
+                    agreementRatio < 0.5 -> -2  // Signals disagree = uncertainty
+                    else -> 0
+                }
+                
+                // Log orthogonal diagnosis for debugging
+                val presentSignals = orthogonalAssessment.signals.size
+                val missingCount = orthogonalAssessment.missingCategories.size
+                
+                checks.add(GateCheck("orthogonal", true, 
+                    "score=${compositeScore.toInt()} agree=${(agreementRatio*100).toInt()}% signals=$presentSignals/8 bonus=$orthogonalBonus"))
+                
+                if (orthogonalBonus != 0) {
+                    tags.add("orthogonal:$orthogonalBonus")
+                }
+                if (agreementRatio >= 0.8) {
+                    tags.add("signal_consensus")
+                }
+                
+            } catch (e: Exception) {
+                checks.add(GateCheck("orthogonal", true, "skipped (error: ${e.message?.take(30)})"))
+            }
+        }
+        
+        // ─────────────────────────────────────────────────────────────────────
         // GATE 3: ADAPTIVE CONFIDENCE THRESHOLD
         // 
         // Uses the fluid confidence layer that adapts to market conditions.
@@ -1493,21 +1561,22 @@ object FinalDecisionGate {
         val isBootstrap = currentConditions.totalSessionTrades < 30
         val bootstrapTag = if (isBootstrap) " [BOOTSTRAP]" else ""
         
-        // Apply narrative adjustment to confidence
-        val adjustedConfidence = (candidate.aiConfidence + narrativeAdjustment).coerceIn(0.0, 100.0)
+        // Apply narrative adjustment AND orthogonal bonus to confidence
+        val adjustedConfidence = (candidate.aiConfidence + narrativeAdjustment + orthogonalBonus).coerceIn(0.0, 100.0)
         val narrativeTag = if (narrativeAdjustment != 0) " [NAR:$narrativeAdjustment]" else ""
+        val orthoTag = if (orthogonalBonus != 0) " [ORTHO:$orthogonalBonus]" else ""
         
         if (blockReason == null && adjustedConfidence < confidenceThreshold) {
-            blockReason = "LOW_CONFIDENCE_${adjustedConfidence.toInt()}%$bootstrapTag$narrativeTag"
+            blockReason = "LOW_CONFIDENCE_${adjustedConfidence.toInt()}%$bootstrapTag$narrativeTag$orthoTag"
             blockLevel = BlockLevel.CONFIDENCE
             checks.add(GateCheck("confidence", false, 
-                "conf=${candidate.aiConfidence.toInt()}%+nar=$narrativeAdjustment=${adjustedConfidence.toInt()}% < ${confidenceThreshold.toInt()}%$bootstrapTag (adaptive)"))
+                "conf=${candidate.aiConfidence.toInt()}%+nar=$narrativeAdjustment+ortho=$orthogonalBonus=${adjustedConfidence.toInt()}% < ${confidenceThreshold.toInt()}%$bootstrapTag (adaptive)"))
             tags.add("low_confidence")
             tags.add("adaptive_conf:${confidenceThreshold.toInt()}")
             if (isBootstrap) tags.add("bootstrap_phase")
         } else if (blockReason == null) {
             checks.add(GateCheck("confidence", true, 
-                "conf=${candidate.aiConfidence.toInt()}%+nar=$narrativeAdjustment=${adjustedConfidence.toInt()}% >= ${confidenceThreshold.toInt()}%$bootstrapTag (adaptive)"))
+                "conf=${candidate.aiConfidence.toInt()}%+nar=$narrativeAdjustment+ortho=$orthogonalBonus=${adjustedConfidence.toInt()}% >= ${confidenceThreshold.toInt()}%$bootstrapTag (adaptive)"))
             if (isBootstrap) tags.add("bootstrap_phase")
         }
         
