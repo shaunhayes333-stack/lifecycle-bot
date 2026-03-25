@@ -15,6 +15,7 @@ import android.os.VibratorManager
 import android.view.HapticFeedbackConstants
 import android.view.View
 import android.widget.*
+import android.widget.FrameLayout
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
@@ -42,6 +43,9 @@ class MainActivity : AppCompatActivity() {
     private lateinit var btnWalletTop: View
     private lateinit var tvWalletDot: View
     private lateinit var tvWalletShort: TextView
+    private lateinit var brainContainer: FrameLayout
+    private lateinit var pbBrainProgress: ProgressBar
+    private lateinit var tvBrainEmoji: TextView
 
     // hero balance
     private lateinit var tvBalanceLarge: TextView
@@ -394,6 +398,17 @@ By clicking "I Agree", you acknowledge that you have read, understood, and accep
         btnWalletTop    = findViewById(R.id.btnWalletTop)
         tvWalletDot     = findViewById(R.id.tvWalletDot)
         tvWalletShort   = findViewById(R.id.tvWalletShort)
+        
+        // Brain learning indicator
+        brainContainer   = try { findViewById(R.id.brainContainer) } catch (_: Exception) { FrameLayout(this) }
+        pbBrainProgress  = try { findViewById(R.id.pbBrainProgress) } catch (_: Exception) { ProgressBar(this) }
+        tvBrainEmoji     = try { findViewById(R.id.tvBrainEmoji) } catch (_: Exception) { TextView(this) }
+        
+        // Click to show learning stats
+        brainContainer.setOnClickListener {
+            showLearningStats()
+        }
+        
         tvBalanceLarge  = findViewById(R.id.tvBalanceLarge)
         tvBalanceUsd    = findViewById(R.id.tvBalanceUsd)
         tvPnlChange     = findViewById(R.id.tvPnlChange)
@@ -793,6 +808,31 @@ By clicking "I Agree", you acknowledge that you have read, understood, and accep
                 aiConf > 0 -> red
                 else -> muted
             })
+        } catch (_: Exception) {}
+        
+        // ── Brain Learning Indicator ─────────────────────────────────
+        try {
+            val totalTrades = ws.totalTrades
+            val winRate = ws.winRate.toIntOrNull() ?: 0
+            val learningProgress = com.lifecyclebot.engine.FinalDecisionGate.getLearningProgress(totalTrades, winRate.toDouble())
+            val progressPct = (learningProgress * 100).toInt()
+            
+            // Animate progress
+            animateProgress(pbBrainProgress, progressPct)
+            
+            // Pulse animation when learning
+            if (progressPct < 100) {
+                tvBrainEmoji.animate()
+                    .scaleX(1.1f).scaleY(1.1f)
+                    .setDuration(500)
+                    .withEndAction {
+                        tvBrainEmoji.animate()
+                            .scaleX(1.0f).scaleY(1.0f)
+                            .setDuration(500)
+                            .start()
+                    }
+                    .start()
+            }
         } catch (_: Exception) {}
 
         // ── Position PnL Floating Card ──────────────────────────────
@@ -1708,6 +1748,63 @@ By clicking "I Agree", you acknowledge that you have read, understood, and accep
             animator.interpolator = android.view.animation.DecelerateInterpolator()
             animator.start()
         }
+    }
+    
+    // ── Learning Stats Popup ────────────────────────────────────────────
+    private fun showLearningStats() {
+        try {
+            val ws = vm.ui.value.walletState
+            val totalTrades = ws.totalTrades
+            val winRate = ws.winRate.toIntOrNull() ?: 0
+            val learningProgress = com.lifecyclebot.engine.FinalDecisionGate.getLearningProgress(totalTrades, winRate.toDouble())
+            val phase = com.lifecyclebot.engine.FinalDecisionGate.getLearningPhase(totalTrades)
+            
+            val phaseEmoji = when (phase) {
+                com.lifecyclebot.engine.FinalDecisionGate.LearningPhase.BOOTSTRAP -> "🌒"
+                com.lifecyclebot.engine.FinalDecisionGate.LearningPhase.LEARNING -> "🌗"
+                com.lifecyclebot.engine.FinalDecisionGate.LearningPhase.MATURE -> "🌕"
+            }
+            
+            val phaseName = when (phase) {
+                com.lifecyclebot.engine.FinalDecisionGate.LearningPhase.BOOTSTRAP -> "Bootstrap"
+                com.lifecyclebot.engine.FinalDecisionGate.LearningPhase.LEARNING -> "Learning"
+                com.lifecyclebot.engine.FinalDecisionGate.LearningPhase.MATURE -> "Mature"
+            }
+            
+            val tradesNeeded = when (phase) {
+                com.lifecyclebot.engine.FinalDecisionGate.LearningPhase.BOOTSTRAP -> 50 - totalTrades
+                com.lifecyclebot.engine.FinalDecisionGate.LearningPhase.LEARNING -> 500 - totalTrades
+                com.lifecyclebot.engine.FinalDecisionGate.LearningPhase.MATURE -> 0
+            }
+            
+            val message = """
+🧠 AI Learning Status
+
+$phaseEmoji Phase: $phaseName
+📊 Progress: ${"%.0f".format(learningProgress * 100)}%
+📈 Total Trades: $totalTrades
+🎯 Win Rate: $winRate%
+${if (tradesNeeded > 0) "⏳ Trades to next phase: $tradesNeeded" else "✅ Fully Mature!"}
+
+━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Learning Phases:
+• Bootstrap (0-50): Very loose thresholds
+• Learning (51-500): Gradually tightening
+• Mature (500+): Full AI strictness
+
+The brain fills as learning progresses.
+Keep trading to make it smarter!
+            """.trimIndent()
+            
+            AlertDialog.Builder(this, R.style.Theme_LifecycleBot_Dialog)
+                .setTitle("🧠 Brain Learning Status")
+                .setMessage(message)
+                .setPositiveButton("Got it!") { d, _ -> d.dismiss() }
+                .show()
+                
+            performHaptic()
+        } catch (_: Exception) {}
     }
 }
 

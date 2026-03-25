@@ -83,6 +83,41 @@
                     android:clickable="true"
                     android:focusable="true"/>
 
+                <!-- Brain Learning Indicator -->
+                <FrameLayout
+                    android:id="@+id/brainContainer"
+                    android:layout_width="36dp"
+                    android:layout_height="36dp"
+                    android:layout_marginEnd="8dp">
+                    
+                    <!-- Background circle -->
+                    <View
+                        android:layout_width="match_parent"
+                        android:layout_height="match_parent"
+                        android:background="@drawable/brain_bg"/>
+                    
+                    <!-- Progress ring -->
+                    <ProgressBar
+                        android:id="@+id/pbBrainProgress"
+                        style="?android:attr/progressBarStyleHorizontal"
+                        android:layout_width="match_parent"
+                        android:layout_height="match_parent"
+                        android:indeterminate="false"
+                        android:max="100"
+                        android:progress="0"
+                        android:progressDrawable="@drawable/brain_progress_ring"
+                        android:rotation="-90"/>
+                    
+                    <!-- Brain emoji -->
+                    <TextView
+                        android:id="@+id/tvBrainEmoji"
+                        android:layout_width="match_parent"
+                        android:layout_height="match_parent"
+                        android:text="🧠"
+                        android:textSize="16sp"
+                        android:gravity="center"/>
+                </FrameLayout>
+
                 <!-- Wallet pill -->
                 <LinearLayout
                     android:id="@+id/btnWalletTop"
