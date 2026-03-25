@@ -237,8 +237,8 @@ object LiquidityDepthAI {
                 velocity >= 0.15 -> Trend.STRONG_GROWTH     // >10%/hr
                 velocity >= 0.03 -> Trend.GROWTH            // 2-10%/hr
                 velocity >= -0.03 -> Trend.STABLE           // +/- 2%/hr
-                velocity >= -0.15 -> Trend.DRAIN            // -2 to -10%/hr
-                else -> Trend.COLLAPSE                       // <-10%/hr
+                velocity >= -0.25 -> Trend.DRAIN            // -2 to -15%/hr (loosened from -10%)
+                else -> Trend.COLLAPSE                       // <-15%/hr (loosened from -10%/hr)
             }
             
             // Confidence based on data quality

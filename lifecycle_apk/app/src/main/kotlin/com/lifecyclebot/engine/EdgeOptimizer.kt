@@ -283,6 +283,17 @@ object EdgeOptimizer {
             )
         }
         
+        // UNKNOWN phase with decent buy pressure - allow entry for learning
+        // During bootstrap, we want to trade these to learn
+        if (phase.phase == MarketPhase.UNKNOWN && currentBuyPct > 52) {
+            return EntryTiming(
+                shouldEnter = true,
+                reason = "Unknown phase - exploratory entry",
+                confidence = phase.confidence * 0.7,
+                isOptimalEntry = false
+            )
+        }
+        
         // Default: wait for better setup
         return EntryTiming(
             shouldEnter = false,
