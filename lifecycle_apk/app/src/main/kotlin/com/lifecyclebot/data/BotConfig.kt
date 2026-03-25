@@ -57,6 +57,7 @@ data class BotConfig(
     val birdeyeApiKey: String = "",     // birdeye.so — free, OHLCV candles
     val groqApiKey: String = com.lifecyclebot.BuildConfig.GROQ_KEY_P1 + com.lifecyclebot.BuildConfig.GROQ_KEY_P2,        // console.groq.com — free LLM sentiment
     val jupiterApiKey: String = com.lifecyclebot.BuildConfig.JUPITER_API_KEY,     // portal.jup.ag — required for Ultra API
+    val geminiEnabled: Boolean = true,     // Enable Gemini AI Co-pilot (narrative analysis, exit advice, trade reasoning)
     val autoAddNewTokens: Boolean = true, // ENABLED - auto-add new Pump.fun launches to watchlist
     // multi-position trading
     // Concurrent positions: no hard limit — SmartSizer exposure cap (70% of wallet)
@@ -240,6 +241,7 @@ object ConfigStore {
             putFloat("max_price_impact_pct",          cfg.maxPriceImpactPct.toFloat())
             putBoolean("close_positions_on_stop",     cfg.closePositionsOnStop)
             putBoolean("auto_add_new_tokens",         cfg.autoAddNewTokens)
+            putBoolean("gemini_enabled",              cfg.geminiEnabled)
             putInt("max_concurrent_positions",        cfg.maxConcurrentPositions)
             putFloat("max_total_exposure_sol",        cfg.maxTotalExposureSol.toFloat())
             putFloat("min_hold_mins",                 cfg.minHoldMins.toFloat())
@@ -354,6 +356,7 @@ object ConfigStore {
             birdeyeApiKey               = s.getString("birdeye_api_key", "") ?: "",
             groqApiKey                  = s.getString("groq_api_key", "") ?: "",
             autoAddNewTokens            = p.getBoolean("auto_add_new_tokens", true),
+            geminiEnabled               = p.getBoolean("gemini_enabled", true),
             maxConcurrentPositions      = p.getInt("max_concurrent_positions", 3),
             maxTotalExposureSol         = p.getFloat("max_total_exposure_sol", 0.30f).toDouble(),
             minHoldMins                 = p.getFloat("min_hold_mins", 3.0f).toDouble(),

@@ -1274,6 +1274,54 @@ class Executor(
         }
 
         // ════════════════════════════════════════════════════════════════
+        // GEMINI AI EXIT ADVISOR (Live Mode Only)
+        // 
+        // Uses Gemini to provide intelligent exit recommendations based on:
+        // - Current P&L vs peak P&L (round-trip risk)
+        // - Hold time and momentum
+        // - Recent price action patterns
+        // ════════════════════════════════════════════════════════════════
+        if (!isPaperMode && gainPct >= 15) {  // Only consult Gemini for meaningful gains
+            try {
+                val recentPrices = ts.history.takeLast(10).map { it.priceUsd }
+                val geminiAdvice = GeminiCopilot.getExitAdvice(
+                    ts = ts,
+                    currentPnlPct = gainPct,
+                    holdTimeMinutes = heldSecs / 60.0,
+                    peakPnlPct = pos.highestPrice.let { if (it > 0) ((it - pos.entryPrice) / pos.entryPrice) * 100 else gainPct },
+                    recentPriceAction = recentPrices,
+                )
+                
+                if (geminiAdvice != null) {
+                    when (geminiAdvice.exitUrgency) {
+                        "IMMEDIATE" -> {
+                            if (geminiAdvice.confidenceScore >= 70) {
+                                onLog("🤖🚨 GEMINI EXIT: ${ts.symbol} IMMEDIATE | ${geminiAdvice.reasoning.take(60)}", ts.mint)
+                                TradeStateMachine.startCooldown(ts.mint)
+                                return "gemini_immediate_exit"
+                            }
+                        }
+                        "SOON" -> {
+                            if (geminiAdvice.confidenceScore >= 80 && gainPct >= 30) {
+                                onLog("🤖⚠️ GEMINI EXIT: ${ts.symbol} SOON | ${geminiAdvice.reasoning.take(60)}", ts.mint)
+                                TradeStateMachine.startCooldown(ts.mint)
+                                return "gemini_exit_soon"
+                            } else {
+                                onLog("🤖 GEMINI: ${ts.symbol} suggests exit soon (conf=${geminiAdvice.confidenceScore.toInt()}%)", ts.mint)
+                            }
+                        }
+                        "RIDE" -> {
+                            onLog("🤖✨ GEMINI: ${ts.symbol} ride it! target=${geminiAdvice.targetPrice}", ts.mint)
+                        }
+                        else -> {} // HOLD - do nothing
+                    }
+                }
+            } catch (e: Exception) {
+                ErrorLogger.debug("Executor", "Gemini exit advice error: ${e.message}")
+            }
+        }
+
+        // ════════════════════════════════════════════════════════════════
         // V8: Precision Exit Logic - Full evaluation
         // ════════════════════════════════════════════════════════════════
         val exitSignal = PrecisionExitLogic.evaluate(
@@ -2576,6 +2624,32 @@ class Executor(
             
             // 🔔 TOAST: Immediate visual feedback for live buy
             onToast("✅ LIVE BUY: ${tradeId.symbol}\n${sol.fmt(4)} SOL @ ${price.fmt()}")
+            
+            // ═══════════════════════════════════════════════════════════════════
+            // GEMINI TRADE REASONING: Generate human-readable explanation
+            // Runs async to not block trade execution
+            // ═══════════════════════════════════════════════════════════════════
+            kotlinx.coroutines.GlobalScope.launch(kotlinx.coroutines.Dispatchers.IO) {
+                try {
+                    val aiLayers = mapOf(
+                        "Entry Score" to "${score.toInt()}/100",
+                        "Phase" to ts.phase,
+                        "Quality" to quality,
+                        "Buy Pressure" to "${ts.meta.pressScore.toInt()}%",
+                        "Volume" to "${ts.meta.volScore.toInt()}%",
+                    )
+                    val reasoning = GeminiCopilot.explainTrade(
+                        ts = ts,
+                        action = "BUY",
+                        entryScore = score,
+                        exitScore = ts.exitScore,
+                        aiLayers = aiLayers,
+                    )
+                    if (reasoning != null) {
+                        onLog("🤖 GEMINI: ${reasoning.humanSummary.take(100)}", tradeId.mint)
+                    }
+                } catch (_: Exception) {}
+            }
 
         } catch (e: Exception) {
             val safe = security.sanitiseForLog(e.message ?: "unknown")

@@ -1414,6 +1414,74 @@ object FinalDecisionGate {
         }
         
         // ─────────────────────────────────────────────────────────────────────
+        // GATE 2c: GEMINI AI CO-PILOT (Advanced Analysis)
+        // 
+        // Multi-function AI layer using Gemini 2.0 Flash:
+        // - Deep narrative/scam detection with reasoning
+        // - Viral potential assessment
+        // - Risk scoring
+        // Only runs in live mode to conserve API quota.
+        // ─────────────────────────────────────────────────────────────────────
+        
+        var geminiRiskScore = 50.0
+        var geminiRecommendation = "WATCH"
+        if (blockReason == null && !config.paperMode && config.geminiEnabled) {
+            try {
+                // Quick scam check first (no API call)
+                val quickCheck = GeminiCopilot.quickScamCheck(ts.symbol, ts.name)
+                if (quickCheck == true) {
+                    blockReason = "GEMINI_QUICK_SCAM: Pattern detected in ${ts.symbol}"
+                    blockLevel = BlockLevel.HARD
+                    checks.add(GateCheck("gemini_quick", false, "Quick scam pattern detected"))
+                    tags.add("gemini_scam")
+                } else {
+                    // Full narrative analysis
+                    val analysis = GeminiCopilot.analyzeNarrative(
+                        symbol = ts.symbol,
+                        name = ts.name,
+                        description = "",
+                        socialMentions = emptyList(),
+                    )
+                    
+                    if (analysis != null) {
+                        geminiRiskScore = 100.0 - analysis.scamConfidence
+                        geminiRecommendation = analysis.recommendation
+                        
+                        // Block high-confidence scams
+                        if (analysis.isScam && analysis.scamConfidence >= 80) {
+                            blockReason = "GEMINI_SCAM: ${analysis.scamType} (${analysis.scamConfidence.toInt()}% conf)"
+                            blockLevel = BlockLevel.HARD
+                            checks.add(GateCheck("gemini_narrative", false, 
+                                "SCAM: ${analysis.reasoning.take(60)}"))
+                            tags.add("gemini_blocked")
+                        } else if (analysis.recommendation == "AVOID" && analysis.scamConfidence >= 60) {
+                            // Soft warning - reduce confidence but don't block
+                            narrativeAdjustment -= 5
+                            checks.add(GateCheck("gemini_narrative", true, 
+                                "⚠️ AVOID rec | scam=${analysis.scamConfidence.toInt()}% | ${analysis.narrativeType}"))
+                            tags.add("gemini_warning")
+                        } else if (analysis.recommendation == "BUY" && analysis.viralPotential >= 70) {
+                            // Boost confidence for high viral potential
+                            narrativeAdjustment += 3
+                            checks.add(GateCheck("gemini_narrative", true, 
+                                "✨ viral=${analysis.viralPotential.toInt()}% | ${analysis.narrativeType} | ${analysis.greenFlags.take(2).joinToString(", ")}"))
+                            tags.add("gemini_bullish")
+                        } else {
+                            checks.add(GateCheck("gemini_narrative", true, 
+                                "${analysis.recommendation} | viral=${analysis.viralPotential.toInt()}% | ${analysis.narrativeType}"))
+                        }
+                    } else {
+                        checks.add(GateCheck("gemini_narrative", true, "skipped (API timeout)"))
+                    }
+                }
+            } catch (e: Exception) {
+                checks.add(GateCheck("gemini_narrative", true, "skipped (error: ${e.message?.take(30)})"))
+            }
+        } else if (config.paperMode) {
+            checks.add(GateCheck("gemini_narrative", true, "skipped (paper mode)"))
+        }
+        
+        // ─────────────────────────────────────────────────────────────────────
         // GATE 3: ADAPTIVE CONFIDENCE THRESHOLD
         // 
         // Uses the fluid confidence layer that adapts to market conditions.
