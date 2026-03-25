@@ -441,11 +441,51 @@ class TokenSafetyChecker(private val cfg: () -> BotConfig) {
      * Rugcheck.xyz free API — no key required.
      * Returns full token report including risks, LP info, holder data.
      * Endpoint: https://api.rugcheck.xyz/v1/tokens/{mint}/report
+     * 
+     * RETRY MECHANISM: Attempts up to 3 times with 500ms delay between retries
+     * to handle transient API timeouts that were blocking live trades.
      */
     private fun fetchRugcheck(mint: String): JSONObject? {
-        val url  = "https://api.rugcheck.xyz/v1/tokens/$mint/report"
-        val body = get(url) ?: return null
-        return try { JSONObject(body) } catch (_: Exception) { null }
+        val url = "https://api.rugcheck.xyz/v1/tokens/$mint/report"
+        val maxRetries = 3
+        val retryDelayMs = 500L
+        
+        repeat(maxRetries) { attempt ->
+            try {
+                val body = get(url)
+                if (body != null) {
+                    val json = JSONObject(body)
+                    // Verify we got a valid response with a score
+                    if (json.has("score") || json.has("score_normalised")) {
+                        if (attempt > 0) {
+                            ErrorLogger.info("SafetyChecker", 
+                                "Rugcheck success on retry ${attempt + 1} for ${mint.take(12)}")
+                        }
+                        return json
+                    }
+                }
+                
+                // If we got here, response was null or invalid - retry if not last attempt
+                if (attempt < maxRetries - 1) {
+                    ErrorLogger.debug("SafetyChecker", 
+                        "Rugcheck attempt ${attempt + 1}/$maxRetries failed for ${mint.take(12)}, retrying...")
+                    Thread.sleep(retryDelayMs)
+                }
+            } catch (e: Exception) {
+                if (attempt < maxRetries - 1) {
+                    ErrorLogger.debug("SafetyChecker", 
+                        "Rugcheck attempt ${attempt + 1}/$maxRetries error: ${e.message?.take(40)}, retrying...")
+                    Thread.sleep(retryDelayMs)
+                } else {
+                    ErrorLogger.warn("SafetyChecker", 
+                        "Rugcheck failed after $maxRetries attempts for ${mint.take(12)}: ${e.message?.take(40)}")
+                }
+            }
+        }
+        
+        // All retries failed
+        ErrorLogger.warn("SafetyChecker", "Rugcheck exhausted $maxRetries retries for ${mint.take(12)}")
+        return null
     }
 
     // ── Solana RPC mint/freeze check ─────────────────────────────────

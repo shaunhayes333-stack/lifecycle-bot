@@ -725,24 +725,67 @@ object FinalDecisionGate {
         
         // 1b. Rugcheck score critically low
         // PAPER MODE: Allow -1 (API error/no data) to enable learning
-        // LIVE MODE: Block both -1 and low scores for safety
+        // LIVE MODE: Handle -1 (API timeout) with fallback safety checks
+        //            - If other safety signals are strong, allow the trade
+        //            - This prevents API timeouts from blocking ALL live trades
+        val rugcheckScore = ts.safety.rugcheckScore
         val rugcheckBlock = when {
-            ts.safety.rugcheckScore == -1 && config.paperMode -> false  // Paper: allow API errors
-            ts.safety.rugcheckScore <= rugcheckThreshold -> true         // Block low scores
+            // Paper mode: always allow API errors for learning
+            rugcheckScore == -1 && config.paperMode -> false
+            
+            // Live mode: API timeout (-1) - use fallback safety checks
+            rugcheckScore == -1 && !config.paperMode -> {
+                // Don't hard-block if we have other strong safety signals
+                // Allow trade if: good buy pressure (55%+) AND decent liquidity ($5K+)
+                val hasStrongBuyers = ts.meta.pressScore >= 55.0
+                val hasGoodLiquidity = ts.lastLiquidityUsd >= 5000.0
+                val hasGoodVolume = ts.history.lastOrNull()?.volumeH1 ?: 0.0 >= 1000.0
+                
+                // Only block if safety signals are weak
+                val shouldBlock = !(hasStrongBuyers && hasGoodLiquidity)
+                
+                if (!shouldBlock) {
+                    // Log that we're allowing despite API timeout
+                    ErrorLogger.info("FDG", "Rugcheck API timeout for ${ts.symbol}, allowing with safety fallback: " +
+                        "buy%=${ts.meta.pressScore.toInt()} liq=\$${ts.lastLiquidityUsd.toInt()}")
+                }
+                shouldBlock
+            }
+            
+            // Low scores: block
+            rugcheckScore <= rugcheckThreshold -> true
+            
+            // Normal scores: allow
             else -> false
         }
+        
         if (blockReason == null && rugcheckBlock) {
-            blockReason = "HARD_BLOCK_RUGCHECK_${ts.safety.rugcheckScore}"
+            // Provide more informative block reason for API timeouts
+            val blockReasonDetail = if (rugcheckScore == -1) {
+                "HARD_BLOCK_RUGCHECK_API_TIMEOUT"
+            } else {
+                "HARD_BLOCK_RUGCHECK_$rugcheckScore"
+            }
+            blockReason = blockReasonDetail
             blockLevel = BlockLevel.HARD
-            checks.add(GateCheck("rugcheck", false, "score=${ts.safety.rugcheckScore} <= $rugcheckThreshold"))
+            
+            val checkReason = if (rugcheckScore == -1) {
+                "score=-1 (API timeout) + weak safety: buy%=${ts.meta.pressScore.toInt()} liq=\$${ts.lastLiquidityUsd.toInt()}"
+            } else {
+                "score=$rugcheckScore <= $rugcheckThreshold"
+            }
+            checks.add(GateCheck("rugcheck", false, checkReason))
             tags.add("low_rugcheck")
         } else if (blockReason == null) {
-            // Log if paper mode allowed -1
-            if (ts.safety.rugcheckScore == -1 && config.paperMode) {
-                checks.add(GateCheck("rugcheck", true, "score=-1 (paper: allowed for learning)"))
-            } else {
-                checks.add(GateCheck("rugcheck", true, null))
+            // Log detailed pass reason
+            val passReason = when {
+                rugcheckScore == -1 && config.paperMode -> 
+                    "score=-1 (paper: allowed for learning)"
+                rugcheckScore == -1 && !config.paperMode -> 
+                    "score=-1 (API timeout) BYPASSED: strong safety (buy%=${ts.meta.pressScore.toInt()} liq=\$${ts.lastLiquidityUsd.toInt()})"
+                else -> null
             }
+            checks.add(GateCheck("rugcheck", true, passReason))
         }
         
         // 1c. Extreme sell pressure (mass dumping)
