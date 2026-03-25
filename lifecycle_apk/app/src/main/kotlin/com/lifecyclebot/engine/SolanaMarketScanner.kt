@@ -2062,6 +2062,6 @@ class SolanaMarketScanner(
         ErrorLogger.warn("Scanner", "HTTP error: ${e.message?.take(30)} for ${url.take(50)}")
         null 
     }
-  }
+}
 }
 }
