@@ -203,6 +203,45 @@ object TreasuryManager {
             ))
         }
     }
+    
+    /**
+     * Record a Profit Lock System event (capital recovery or profit lock sell).
+     * This is informational - the profit from these sells will flow through
+     * lockRealizedProfit() when the trade is recorded.
+     * 
+     * @param eventType  CAPITAL_RECOVERED or PROFIT_LOCK_SELL
+     * @param soldSol    Amount of SOL received from the sell
+     * @param symbol     Token symbol for display
+     * @param gainMultiple  The gain multiple at time of lock (e.g., 2.0 for 2x)
+     * @param solPrice   Current SOL/USD price
+     */
+    fun recordProfitLockEvent(
+        eventType: TreasuryEventType,
+        soldSol: Double,
+        symbol: String,
+        gainMultiple: Double,
+        solPrice: Double,
+    ) {
+        val description = when (eventType) {
+            TreasuryEventType.CAPITAL_RECOVERED -> 
+                "🔒 Capital recovered: $symbol @ ${gainMultiple.fmtX()}x → ${soldSol.fmtSol()}◎"
+            TreasuryEventType.PROFIT_LOCK_SELL ->
+                "🔐 Profit locked: $symbol @ ${gainMultiple.fmtX()}x → ${soldSol.fmtSol()}◎"
+            else -> "Profit lock: $symbol → ${soldSol.fmtSol()}◎"
+        }
+        
+        ErrorLogger.info("Treasury", description)
+        
+        addEvent(TreasuryEvent(
+            type = eventType,
+            amountSol = soldSol,
+            description = description,
+            walletUsd = peakWalletUsd,
+            solPrice = solPrice,
+        ))
+    }
+    
+    private fun Double.fmtX() = "%.1f".format(this)
 
     // ── Withdrawal ────────────────────────────────────────────────────
 
@@ -419,7 +458,7 @@ object TreasuryManager {
 // ── Supporting types ──────────────────────────────────────────────────────────
 
 enum class TreasuryEventType {
-    MILESTONE_HIT, PROFIT_LOCKED, WITHDRAWAL, MANUAL_ADJUST
+    MILESTONE_HIT, PROFIT_LOCKED, WITHDRAWAL, MANUAL_ADJUST, CAPITAL_RECOVERED, PROFIT_LOCK_SELL
 }
 
 data class TreasuryEvent(

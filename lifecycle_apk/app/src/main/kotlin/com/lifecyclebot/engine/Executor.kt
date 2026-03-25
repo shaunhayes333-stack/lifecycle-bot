@@ -618,6 +618,7 @@ class Executor(
     
     /**
      * Calculate dynamic profit lock thresholds based on token characteristics
+     * AND treasury/scaling tier integration
      */
     private fun calculateProfitLockThresholds(ts: TokenState): Pair<Double, Double> {
         val pos = ts.position
@@ -625,6 +626,25 @@ class Executor(
         // Base thresholds
         var capitalRecoveryMultiple = 2.0  // 2x = +100%
         var profitLockMultiple = 5.0       // 5x = +400%
+        
+        // ════════════════════════════════════════════════════════════════
+        // SCALING TIER ADJUSTMENT — Higher tiers = can let positions run longer
+        // Treasury-backed positions have more room to breathe
+        // ════════════════════════════════════════════════════════════════
+        val treasuryTierAdjustment = try {
+            val solPrice = WalletManager.lastKnownSolPrice
+            val treasuryUsd = TreasuryManager.treasurySol * solPrice
+            val tier = ScalingMode.activeTier(treasuryUsd)
+            
+            when (tier) {
+                // Higher treasury = more cushion = can wait longer for moonshots
+                ScalingMode.Tier.INSTITUTIONAL -> 1.40  // Lock at 2.8x, 7x (patient capital)
+                ScalingMode.Tier.SCALED        -> 1.25  // Lock at 2.5x, 6.25x
+                ScalingMode.Tier.GROWTH        -> 1.15  // Lock at 2.3x, 5.75x
+                ScalingMode.Tier.STANDARD      -> 1.05  // Lock at 2.1x, 5.25x
+                ScalingMode.Tier.MICRO         -> 1.00  // Base thresholds (capital preservation critical)
+            }
+        } catch (_: Exception) { 1.0 }
         
         // ════════════════════════════════════════════════════════════════
         // FACTOR 1: LIQUIDITY — Lower liquidity = lock earlier
@@ -689,19 +709,35 @@ class Executor(
         }
         
         // ════════════════════════════════════════════════════════════════
+        // FACTOR 6: TOKEN TIER — Match scaling mode for the token
+        // Higher tier tokens have more established liquidity = safer to hold
+        // ════════════════════════════════════════════════════════════════
+        val tokenTier = ScalingMode.tierForToken(ts.liquidityUsd, ts.marketCapUsd)
+        val tokenTierAdjustment = when (tokenTier) {
+            ScalingMode.Tier.INSTITUTIONAL -> 1.30  // Blue chips: let them run
+            ScalingMode.Tier.SCALED        -> 1.20  // Mid caps: good room
+            ScalingMode.Tier.GROWTH        -> 1.10  // Growth: some room
+            ScalingMode.Tier.STANDARD      -> 1.00  // Standard: base
+            ScalingMode.Tier.MICRO         -> 0.85  // Micro: lock earlier (rug risk)
+        }
+        
+        // ════════════════════════════════════════════════════════════════
         // COMBINE ALL FACTORS
         // Use geometric mean for balanced adjustment
+        // Include treasury tier to reward building treasury
         // ════════════════════════════════════════════════════════════════
-        val combinedAdjustment = kotlin.math.sqrt(
-            liqAdjustment * mcapAdjustment * volAdjustment * phaseAdjustment * qualityAdjustment
-        ).coerceIn(0.6, 1.5)  // Cap between 60% and 150% of base
+        val combinedAdjustment = kotlin.math.pow(
+            liqAdjustment * mcapAdjustment * volAdjustment * phaseAdjustment * 
+            qualityAdjustment * tokenTierAdjustment * treasuryTierAdjustment,
+            1.0 / 7.0  // 7th root for geometric mean of 7 factors
+        ).coerceIn(0.5, 1.8)  // Cap between 50% and 180% of base
         
         capitalRecoveryMultiple *= combinedAdjustment
         profitLockMultiple *= combinedAdjustment
         
         // Ensure minimum thresholds (don't lock below 1.3x for capital, 2.5x for profit)
-        capitalRecoveryMultiple = capitalRecoveryMultiple.coerceIn(1.3, 3.0)
-        profitLockMultiple = profitLockMultiple.coerceIn(2.5, 8.0)
+        capitalRecoveryMultiple = capitalRecoveryMultiple.coerceIn(1.3, 4.0)
+        profitLockMultiple = profitLockMultiple.coerceIn(2.5, 10.0)
         
         return Pair(capitalRecoveryMultiple, profitLockMultiple)
     }
@@ -757,6 +793,21 @@ class Executor(
                 security.recordTrade(trade)
                 onPaperBalanceChange?.invoke(sellSol)
                 
+                // Record treasury event for capital recovery
+                val solPrice = WalletManager.lastKnownSolPrice
+                TreasuryManager.recordProfitLockEvent(
+                    TreasuryEventType.CAPITAL_RECOVERED,
+                    sellSol,
+                    ts.symbol,
+                    gainMultiple,
+                    solPrice
+                )
+                
+                // Lock realized profit to treasury
+                if (pnlSol > 0) {
+                    TreasuryManager.lockRealizedProfit(pnlSol, solPrice)
+                }
+                
                 onLog("📄 PAPER CAPITAL LOCK: Sold ${sellSol.fmt(4)} SOL @ +${gainPct.toInt()}% — now playing with house money!", ts.mint)
             } else {
                 // Live mode
@@ -801,6 +852,21 @@ class Executor(
                 ts.trades.add(trade)
                 security.recordTrade(trade)
                 onPaperBalanceChange?.invoke(sellSol)
+                
+                // Record treasury event for profit lock
+                val solPrice = WalletManager.lastKnownSolPrice
+                TreasuryManager.recordProfitLockEvent(
+                    TreasuryEventType.PROFIT_LOCK_SELL,
+                    sellSol,
+                    ts.symbol,
+                    gainMultiple,
+                    solPrice
+                )
+                
+                // Lock realized profit to treasury
+                if (pnlSol > 0) {
+                    TreasuryManager.lockRealizedProfit(pnlSol, solPrice)
+                }
                 
                 onLog("📄 PAPER PROFIT LOCK: Sold ${sellSol.fmt(4)} SOL @ ${gainMultiple.fmt(1)}x — letting rest ride free!", ts.mint)
             } else {
@@ -873,9 +939,17 @@ class Executor(
             security.recordTrade(trade)
             SmartSizer.recordTrade(pnlSol > 0, isPaperMode = false)
             
+            // Record treasury event and lock realized profit
+            val solPrice = WalletManager.lastKnownSolPrice
+            val gainMultiple = (solBack + pos.lockedProfitFloor) / pos.costSol
+            
+            // Record the profit lock event to treasury
+            val eventType = if (isCapitalRecovery) TreasuryEventType.CAPITAL_RECOVERED 
+                           else TreasuryEventType.PROFIT_LOCK_SELL
+            TreasuryManager.recordProfitLockEvent(eventType, solBack, ts.symbol, gainMultiple, solPrice)
+            
             // Lock realized profit to treasury
             if (pnlSol > 0) {
-                val solPrice = WalletManager.lastKnownSolPrice
                 TreasuryManager.lockRealizedProfit(pnlSol, solPrice)
             }
             
