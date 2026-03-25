@@ -943,7 +943,9 @@ class Executor(
         val sellUnits = (sellQty * 1_000_000_000.0).toLong().coerceAtLeast(1L)
         
         try {
-            val quote = getQuoteWithSlippageGuard(ts.mint, JupiterApi.SOL_MINT, sellUnits, c.slippageBps, isBuy = false)
+            // Use 2x slippage for sells - meme coins need more room
+            val sellSlippage = (c.slippageBps * 2).coerceAtMost(1000)
+            val quote = getQuoteWithSlippageGuard(ts.mint, JupiterApi.SOL_MINT, sellUnits, sellSlippage, isBuy = false)
             val txResult = buildTxWithRetry(quote, wallet.publicKeyB58)
             security.enforceSignDelay()
             
@@ -1126,8 +1128,10 @@ class Executor(
                     return true
                 }
                 val sellUnits = (sellQty * 1_000_000_000.0).toLong().coerceAtLeast(1L)
+                // Use 2x slippage for sells
+                val sellSlippage = (c.slippageBps * 2).coerceAtMost(1000)
                 val quote     = getQuoteWithSlippageGuard(
-                    ts.mint, JupiterApi.SOL_MINT, sellUnits, c.slippageBps, isBuy = false)
+                    ts.mint, JupiterApi.SOL_MINT, sellUnits, sellSlippage, isBuy = false)
                 val txResult  = buildTxWithRetry(quote, wallet.publicKeyB58)
                 security.enforceSignDelay()
                 
@@ -2939,8 +2943,10 @@ class Executor(
         var pnlP = 0.0
 
         try {
+            // Use 2x slippage for sells - meme coins need more wiggle room on exits
+            val sellSlippage = (c.slippageBps * 2).coerceAtMost(1000)  // Max 10%
             val quote = getQuoteWithSlippageGuard(ts.mint, JupiterApi.SOL_MINT,
-                                                   tokenUnits, c.slippageBps, isBuy = false)
+                                                   tokenUnits, sellSlippage, isBuy = false)
 
             // Validate quote — for sells, log warning but proceed
             val qGuard = security.validateQuote(quote, isBuy = false, inputSol = pos.costSol)
