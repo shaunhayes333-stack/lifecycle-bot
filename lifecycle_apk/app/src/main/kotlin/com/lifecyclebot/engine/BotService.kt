@@ -2144,22 +2144,29 @@ class BotService : Service() {
     private fun sendTradeNotif(title: String, body: String,
             type: NotificationHistory.NotifEntry.NotifType = NotificationHistory.NotifEntry.NotifType.INFO) {
         notifHistory.add(title, body, type)
-        val intent = Intent(this, MainActivity::class.java)
-        val pi     = PendingIntent.getActivity(this, 0, intent,
-                         PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
-        val notif  = NotificationCompat.Builder(this, CHANNEL_TRADE)
-            .setSmallIcon(R.drawable.ic_notif)
-            .setContentTitle(title)
-            .setContentText(body)
-            .setAutoCancel(true)
-            .setPriority(NotificationCompat.PRIORITY_HIGH)
-            .setContentIntent(pi)
-            .build()
-        (getSystemService(NOTIFICATION_SERVICE) as NotificationManager)
-            .notify(notifIdCounter++, notif)
-        // Mirror to Telegram if configured (fire-and-forget, background thread)
+        
+        // Check if notifications are enabled
         val cfg = try { com.lifecyclebot.data.ConfigStore.load(applicationContext) }
             catch (_: Exception) { return }
+        
+        // Only show system notification if enabled
+        if (cfg.notificationsEnabled) {
+            val intent = Intent(this, MainActivity::class.java)
+            val pi     = PendingIntent.getActivity(this, 0, intent,
+                             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
+            val notif  = NotificationCompat.Builder(this, CHANNEL_TRADE)
+                .setSmallIcon(R.drawable.ic_notif)
+                .setContentTitle(title)
+                .setContentText(body)
+                .setAutoCancel(true)
+                .setPriority(NotificationCompat.PRIORITY_HIGH)
+                .setContentIntent(pi)
+                .build()
+            (getSystemService(NOTIFICATION_SERVICE) as NotificationManager)
+                .notify(notifIdCounter++, notif)
+        }
+        
+        // Mirror to Telegram if configured (fire-and-forget, background thread)
         if (cfg.telegramTradeAlerts && cfg.telegramBotToken.isNotBlank()) {
             scope.launch(kotlinx.coroutines.Dispatchers.IO) {
                 TelegramNotifier.send(cfg, "<b>$title</b>\n$body")
