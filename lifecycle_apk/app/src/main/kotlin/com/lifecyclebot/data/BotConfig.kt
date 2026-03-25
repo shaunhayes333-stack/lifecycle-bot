@@ -83,7 +83,8 @@ data class BotConfig(
     val longHoldTreasuryGate: Boolean = true,    // only long-hold if treasury milestone hit
     val holdExtendVolThreshold: Double = 60.0, // vol score above this = extend hold time
     val holdExtendPressThreshold: Double = 58.0, // pressure above this = extend hold
-    // sounds
+    // notifications & sounds
+    val notificationsEnabled: Boolean = true,
     val soundEnabled: Boolean = true,
     val soundOnNewToken: Boolean = true,
     // auto mode
@@ -251,6 +252,7 @@ object ConfigStore {
             putBoolean("long_hold_treasury_gate",     cfg.longHoldTreasuryGate)
             putFloat("hold_extend_vol_threshold",     cfg.holdExtendVolThreshold.toFloat())
             putFloat("hold_extend_press_threshold",   cfg.holdExtendPressThreshold.toFloat())
+            putBoolean("notifications_enabled",       cfg.notificationsEnabled)
             putBoolean("sound_enabled",               cfg.soundEnabled)
             putBoolean("sound_on_new_token",          cfg.soundOnNewToken)
             putBoolean("auto_mode",                   cfg.autoMode)
@@ -363,6 +365,7 @@ object ConfigStore {
             longHoldTreasuryGate        = p.getBoolean("long_hold_treasury_gate", true),
             holdExtendVolThreshold      = p.getFloat("hold_extend_vol_threshold", 60.0f).toDouble(),
             holdExtendPressThreshold    = p.getFloat("hold_extend_press_threshold", 58.0f).toDouble(),
+            notificationsEnabled        = p.getBoolean("notifications_enabled", true),
             soundEnabled                = p.getBoolean("sound_enabled", true),
             soundOnNewToken             = p.getBoolean("sound_on_new_token", true),
             autoMode                    = p.getBoolean("auto_mode", true),

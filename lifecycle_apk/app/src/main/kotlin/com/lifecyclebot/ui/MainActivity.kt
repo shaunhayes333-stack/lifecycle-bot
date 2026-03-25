@@ -134,6 +134,8 @@ class MainActivity : AppCompatActivity() {
     private lateinit var etHeliusKey: EditText
     private lateinit var etBirdeyeKey: EditText
     private lateinit var etGroqKey: EditText
+    private lateinit var switchNotifications: android.widget.Switch
+    private lateinit var switchSounds: android.widget.Switch
     private lateinit var btnSave: Button
 
     // bottom bar
@@ -360,6 +362,8 @@ class MainActivity : AppCompatActivity() {
         etHeliusKey     = try { findViewById(R.id.etHeliusKey) } catch (_: Exception) { EditText(this) }
         etBirdeyeKey    = try { findViewById(R.id.etBirdeyeKey) } catch (_: Exception) { EditText(this) }
         etGroqKey       = try { findViewById(R.id.etGroqKey) } catch (_: Exception) { EditText(this) }
+        switchNotifications = try { findViewById(R.id.switchNotifications) } catch (_: Exception) { android.widget.Switch(this) }
+        switchSounds    = try { findViewById(R.id.switchSounds) } catch (_: Exception) { android.widget.Switch(this) }
         btnSave         = findViewById(R.id.btnSave)
 
         // API key help links - open signup pages
@@ -788,6 +792,8 @@ class MainActivity : AppCompatActivity() {
         if (!settingsPopulated) {
             val c = vm.ui.value.config
             switchTopUp.isChecked      = c.topUpEnabled
+            switchNotifications.isChecked = c.notificationsEnabled
+            switchSounds.isChecked     = c.soundEnabled
             etTopUpMinGain.setText(c.topUpMinGainPct.toString())
             etTopUpGainStep.setText(c.topUpGainStepPct.toString())
             etTopUpMaxCount.setText(c.topUpMaxCount.toString())
@@ -1265,6 +1271,8 @@ class MainActivity : AppCompatActivity() {
             birdeyeApiKey         = etBirdeyeKey.text.toString().trim(),
             groqApiKey            = etGroqKey.text.toString().trim(),
             watchlist             = wl,
+            notificationsEnabled  = switchNotifications.isChecked,
+            soundEnabled          = switchSounds.isChecked,
         )
         vm.saveConfig(cfg)
         settingsPopulated = false

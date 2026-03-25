@@ -37,13 +37,13 @@
                     android:orientation="horizontal"
                     android:gravity="center_vertical">
 
-                    <TextView
-                        android:layout_width="@dimen/topbar_icon_size"
-                        android:layout_height="@dimen/topbar_icon_size"
-                        android:text="⬡"
-                        android:textColor="#9945FF"
-                        android:textSize="20sp"
-                        android:gravity="center"
+                    <ImageView
+                        android:id="@+id/ivLogo"
+                        android:layout_width="40dp"
+                        android:layout_height="40dp"
+                        android:src="@drawable/logo"
+                        android:scaleType="centerCrop"
+                        android:contentDescription="Lifecycle Bot Logo"
                         android:layout_marginEnd="10dp"/>
 
                     <LinearLayout
@@ -1383,7 +1383,85 @@
                         android:fontFamily="monospace" android:hint="mint1, mint2…"
                         android:paddingStart="@dimen/input_padding_h"
                         android:paddingTop="10dp" android:paddingBottom="10dp"
-                        android:minLines="2" android:layout_marginBottom="4dp"/>
+                        android:minLines="2" android:layout_marginBottom="14dp"/>
+
+                    <!-- Notifications & Sounds Toggle Section -->
+                    <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+                        android:text="🔔 ALERTS &amp; SOUNDS" android:textColor="#9945FF"
+                        android:textSize="11sp" android:fontFamily="monospace"
+                        android:letterSpacing="0.12" android:layout_marginBottom="10dp"/>
+
+                    <!-- Notifications Toggle -->
+                    <LinearLayout
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:orientation="horizontal"
+                        android:gravity="center_vertical"
+                        android:layout_marginBottom="12dp">
+
+                        <LinearLayout
+                            android:layout_width="0dp"
+                            android:layout_height="wrap_content"
+                            android:layout_weight="1"
+                            android:orientation="vertical">
+                            <TextView
+                                android:layout_width="wrap_content"
+                                android:layout_height="wrap_content"
+                                android:text="Push Notifications"
+                                android:textColor="#FFFFFF"
+                                android:textSize="13sp"/>
+                            <TextView
+                                android:layout_width="wrap_content"
+                                android:layout_height="wrap_content"
+                                android:text="Trade alerts, signals, position updates"
+                                android:textColor="#6B7280"
+                                android:textSize="10sp"/>
+                        </LinearLayout>
+
+                        <Switch
+                            android:id="@+id/switchNotifications"
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:checked="true"
+                            android:thumbTint="#9945FF"
+                            android:trackTint="#374151"/>
+                    </LinearLayout>
+
+                    <!-- Sounds Toggle -->
+                    <LinearLayout
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:orientation="horizontal"
+                        android:gravity="center_vertical"
+                        android:layout_marginBottom="4dp">
+
+                        <LinearLayout
+                            android:layout_width="0dp"
+                            android:layout_height="wrap_content"
+                            android:layout_weight="1"
+                            android:orientation="vertical">
+                            <TextView
+                                android:layout_width="wrap_content"
+                                android:layout_height="wrap_content"
+                                android:text="Sound Effects"
+                                android:textColor="#FFFFFF"
+                                android:textSize="13sp"/>
+                            <TextView
+                                android:layout_width="wrap_content"
+                                android:layout_height="wrap_content"
+                                android:text="Audio feedback for buy/sell executions"
+                                android:textColor="#6B7280"
+                                android:textSize="10sp"/>
+                        </LinearLayout>
+
+                        <Switch
+                            android:id="@+id/switchSounds"
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:checked="true"
+                            android:thumbTint="#14F195"
+                            android:trackTint="#374151"/>
+                    </LinearLayout>
                 </LinearLayout>
 
                 <Button android:id="@+id/btnSave"
