@@ -1784,27 +1784,6 @@ class BotService : Service() {
                         brain = executor.brain,
                     )
                     
-                    // ═══════════════════════════════════════════════════════════════════
-                    // CLOSED-LOOP FEEDBACK: Learning mode only (logs for analysis)
-                    // Records decision context for future pattern learning
-                    // ═══════════════════════════════════════════════════════════════════
-                    try {
-                        val wsState = BotService.walletManager.state.value
-                        val trueState = ClosedLoopFeedback.captureTrueState(
-                            aiConfidence = decision.aiConfidence,
-                            winRate = wsState.winRate.toDouble(),
-                            consecutiveLosses = cbState.consecutiveLosses,
-                            totalExposureSol = status.totalExposureSol,
-                            unrealizedPnlPct = 0.0,
-                        )
-                        val visualState = ClosedLoopFeedback.deriveVisualState(trueState, wsState.totalTrades)
-                        val feedback = ClosedLoopFeedback.extractFeedback(visualState)
-                        val feedbackDecisionType = if (fdgDecision.canExecute()) "BUY" else "BLOCKED"
-                        ClosedLoopFeedback.recordDecision(trueState, feedback.cappedBoost, feedbackDecisionType)
-                    } catch (_: Exception) {
-                        // Feedback system error - continue without it
-                    }
-                    
                     if (fdgDecision.canExecute()) {
                         // ═══════════════════════════════════════════════════════════════════
                         // COMPUTE FINAL SIZE: Apply all multipliers here for consistency

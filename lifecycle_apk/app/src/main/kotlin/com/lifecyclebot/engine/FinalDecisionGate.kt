@@ -882,6 +882,20 @@ object FinalDecisionGate {
         val currentAdjusted = adjusted
         
         // ─────────────────────────────────────────────────────────────────────
+        // GATE 0: REENTRY GUARD (hard block, checked FIRST)
+        // Tokens with collapse, distribution, stop-loss, or bad memory
+        // are completely blocked from re-entry - no score override possible
+        // ─────────────────────────────────────────────────────────────────────
+        if (ReentryGuard.isBlocked(ts.mint)) {
+            val lockoutInfo = ReentryGuard.formatLockout(ts.mint)
+            blockReason = "HARD_BLOCK_REENTRY_GUARD: $lockoutInfo"
+            blockLevel = BlockLevel.HARD
+            checks.add(GateCheck("reentry_guard", false, lockoutInfo))
+        } else {
+            checks.add(GateCheck("reentry_guard", true, null))
+        }
+        
+        // ─────────────────────────────────────────────────────────────────────
         // GATE 1: HARD BLOCKS (non-negotiable, checked first)
         // ─────────────────────────────────────────────────────────────────────
         

@@ -1003,11 +1003,6 @@ class Executor(
             security.recordTrade(trade)
             SmartSizer.recordTrade(pnlSol > 0, isPaperMode = false)
             
-            // ═══════════════════════════════════════════════════════════════════
-            // CLOSED-LOOP FEEDBACK: Record trade outcome for visual state learning
-            // ═══════════════════════════════════════════════════════════════════
-            ClosedLoopFeedback.recordOutcome(ts.mint, pnlPct)
-            
             // Record treasury event and lock realized profit
             val solPrice = WalletManager.lastKnownSolPrice
             val gainMultiple = (solBack + pos.lockedProfitFloor) / pos.costSol
@@ -2809,11 +2804,6 @@ class Executor(
         ts.trades.add(trade)
         security.recordTrade(trade)
         
-        // ═══════════════════════════════════════════════════════════════════
-        // CLOSED-LOOP FEEDBACK: Record trade outcome for visual state learning
-        // ═══════════════════════════════════════════════════════════════════
-        ClosedLoopFeedback.recordOutcome(ts.mint, pnlP)
-        
         // Update paper wallet balance (add sale proceeds)
         onPaperBalanceChange?.invoke(value)
         
@@ -3123,6 +3113,30 @@ class Executor(
         if (reason.lowercase().contains("distribution")) {
             FinalDecisionGate.recordDistributionExit(tradeId.mint)
             onLog("🚫 Distribution cooldown: ${ts.symbol} blocked for 4min", tradeId.mint)
+        }
+        
+        // ═══════════════════════════════════════════════════════════════════
+        // REENTRY GUARD: Hard block bad tokens from re-entry
+        // ═══════════════════════════════════════════════════════════════════
+        val reasonLower = reason.lowercase()
+        when {
+            reasonLower.contains("collapse") || reasonLower.contains("liq_drain") -> {
+                ReentryGuard.onLiquidityCollapse(tradeId.mint)
+                onLog("🔒 REENTRY BLOCKED: ${ts.symbol} - liquidity collapse (60min)", tradeId.mint)
+            }
+            reasonLower.contains("distribution") || reasonLower.contains("whale_dump") || reasonLower.contains("dev_dump") -> {
+                ReentryGuard.onDistributionDetected(tradeId.mint)
+                onLog("🔒 REENTRY BLOCKED: ${ts.symbol} - distribution pattern (45min)", tradeId.mint)
+            }
+            reasonLower.contains("stop_loss") -> {
+                ReentryGuard.onStopLossHit(tradeId.mint, pnlP)
+                onLog("🔒 REENTRY BLOCKED: ${ts.symbol} - stop loss hit (30min)", tradeId.mint)
+            }
+        }
+        
+        // Track losses for multi-loss detection
+        if (pnlP < 0) {
+            ReentryGuard.onTradeLoss(tradeId.mint, pnlP)
         }
         
         // ═══════════════════════════════════════════════════════════════════
@@ -3685,6 +3699,30 @@ class Executor(
         if (reason.lowercase().contains("distribution")) {
             FinalDecisionGate.recordDistributionExit(tradeId.mint)
             onLog("🚫 Distribution cooldown: ${ts.symbol} blocked for 4min", tradeId.mint)
+        }
+        
+        // ═══════════════════════════════════════════════════════════════════
+        // REENTRY GUARD: Hard block bad tokens from re-entry (LIVE)
+        // ═══════════════════════════════════════════════════════════════════
+        val reasonLowerLive = reason.lowercase()
+        when {
+            reasonLowerLive.contains("collapse") || reasonLowerLive.contains("liq_drain") -> {
+                ReentryGuard.onLiquidityCollapse(tradeId.mint)
+                onLog("🔒 REENTRY BLOCKED: ${ts.symbol} - liquidity collapse (60min)", tradeId.mint)
+            }
+            reasonLowerLive.contains("distribution") || reasonLowerLive.contains("whale_dump") || reasonLowerLive.contains("dev_dump") -> {
+                ReentryGuard.onDistributionDetected(tradeId.mint)
+                onLog("🔒 REENTRY BLOCKED: ${ts.symbol} - distribution pattern (45min)", tradeId.mint)
+            }
+            reasonLowerLive.contains("stop_loss") -> {
+                ReentryGuard.onStopLossHit(tradeId.mint, pnlP)
+                onLog("🔒 REENTRY BLOCKED: ${ts.symbol} - stop loss hit (30min)", tradeId.mint)
+            }
+        }
+        
+        // Track losses for multi-loss detection
+        if (pnlP < 0) {
+            ReentryGuard.onTradeLoss(tradeId.mint, pnlP)
         }
         
         // ═══════════════════════════════════════════════════════════════════
