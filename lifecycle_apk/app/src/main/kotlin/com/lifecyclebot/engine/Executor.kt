@@ -2491,6 +2491,8 @@ class Executor(
         // ═══════════════════════════════════════════════════════════════════
         if (cfg().fluidLearningEnabled) {
             FluidLearning.recordPaperBuy(tradeId.mint, actualSol)
+            // Record price impact - your buy pushes price UP
+            FluidLearning.recordPriceImpact(tradeId.mint, actualSol, ts.lastLiquidityUsd, isBuy = true)
         }
         
         // ═══════════════════════════════════════════════════════════════════
@@ -2810,6 +2812,10 @@ class Executor(
         // ═══════════════════════════════════════════════════════════════════
         if (cfg().fluidLearningEnabled) {
             FluidLearning.recordPaperSell(tradeId.mint, pos.costSol, pnl)
+            // Record price impact - your sell pushes price DOWN
+            FluidLearning.recordPriceImpact(tradeId.mint, pos.costSol, ts.lastLiquidityUsd, isBuy = false)
+            // Clear cumulative impact when position fully closed
+            FluidLearning.clearPriceImpact(tradeId.mint)
         }
         
         // Use identity for consistent logging

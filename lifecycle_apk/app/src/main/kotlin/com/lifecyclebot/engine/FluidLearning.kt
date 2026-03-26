@@ -38,6 +38,83 @@ object FluidLearning {
     // Simulated open positions for exposure tracking
     private val simulatedExposure = mutableMapOf<String, Double>()  // mint → SOL exposed
     
+    // ═══════════════════════════════════════════════════════════════════════════
+    // PRICE IMPACT SIMULATION
+    // In live trading, YOUR trades move the market. Paper trades don't.
+    // This simulates the price impact your trades WOULD have had.
+    // ═══════════════════════════════════════════════════════════════════════════
+    private val priceImpactOffsets = mutableMapOf<String, Double>()  // mint → cumulative impact %
+    
+    /**
+     * Get the simulated price impact for a token.
+     * Returns a multiplier (e.g., 1.02 means price is 2% higher due to your buys)
+     */
+    fun getPriceImpact(mint: String): Double {
+        return 1.0 + (priceImpactOffsets[mint] ?: 0.0) / 100.0
+    }
+    
+    /**
+     * Record price impact from a paper trade.
+     * BUY: Pushes price UP (positive impact)
+     * SELL: Pushes price DOWN (negative impact)
+     */
+    fun recordPriceImpact(mint: String, solAmount: Double, liquidityUsd: Double, isBuy: Boolean) {
+        // Calculate impact based on trade size relative to liquidity
+        // Larger trades relative to liquidity = more impact
+        val solPrice = 140.0  // Approximate, could be passed in
+        val tradeUsd = solAmount * solPrice
+        
+        // Impact formula: tradeSize / liquidity * impactMultiplier
+        // Small trades in deep liquidity = minimal impact
+        // Large trades in thin liquidity = significant impact
+        val impactPct = when {
+            liquidityUsd < 5000 -> (tradeUsd / liquidityUsd) * 15.0   // Very thin = 15x impact
+            liquidityUsd < 20000 -> (tradeUsd / liquidityUsd) * 8.0   // Thin = 8x impact
+            liquidityUsd < 50000 -> (tradeUsd / liquidityUsd) * 4.0   // Medium = 4x impact
+            liquidityUsd < 100000 -> (tradeUsd / liquidityUsd) * 2.0  // Good = 2x impact
+            else -> (tradeUsd / liquidityUsd) * 1.0                    // Deep = 1x impact
+        }.coerceAtMost(10.0)  // Cap at 10% impact per trade
+        
+        val currentImpact = priceImpactOffsets[mint] ?: 0.0
+        val newImpact = if (isBuy) {
+            // Buying pushes price UP
+            currentImpact + impactPct
+        } else {
+            // Selling pushes price DOWN
+            currentImpact - impactPct
+        }
+        
+        // Impact decays over time (mean reversion) - cap total impact
+        priceImpactOffsets[mint] = newImpact.coerceIn(-20.0, 20.0)
+        
+        ErrorLogger.debug("FluidLearning", 
+            "📊 Price impact: ${if(isBuy) "BUY" else "SELL"} ${String.format("%.4f", solAmount)} SOL " +
+            "| liq=$${liquidityUsd.toLong()} | impact=${String.format("%+.2f", impactPct)}% " +
+            "| cumulative=${String.format("%+.2f", newImpact)}%")
+    }
+    
+    /**
+     * Clear price impact for a token (e.g., when position fully closed)
+     */
+    fun clearPriceImpact(mint: String) {
+        priceImpactOffsets.remove(mint)
+    }
+    
+    /**
+     * Decay all price impacts (call periodically to simulate market absorption)
+     */
+    fun decayPriceImpacts(decayPct: Double = 10.0) {
+        priceImpactOffsets.keys.toList().forEach { mint ->
+            val current = priceImpactOffsets[mint] ?: return@forEach
+            val decayed = current * (1.0 - decayPct / 100.0)
+            if (kotlin.math.abs(decayed) < 0.1) {
+                priceImpactOffsets.remove(mint)
+            } else {
+                priceImpactOffsets[mint] = decayed
+            }
+        }
+    }
+    
     private var prefs: SharedPreferences? = null
     
     /**

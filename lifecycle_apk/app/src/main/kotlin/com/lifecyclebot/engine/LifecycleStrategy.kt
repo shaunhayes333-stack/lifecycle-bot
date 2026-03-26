@@ -2586,7 +2586,16 @@ class LifecycleStrategy(
             // ════════════════════════════════════════════════════════════════
             if (c.paperMode) {
                 val paperHeldMins = (System.currentTimeMillis() - pos.entryTime) / 60_000.0
-                val paperGainPct = pct(pos.entryPrice, ts.ref)
+                
+                // Apply price impact for realistic paper P&L
+                // Your previous buys pushed the price up, so current price is inflated
+                // Your sells will push it down, so actual exit will be worse
+                val priceImpact = if (c.fluidLearningEnabled) {
+                    FluidLearning.getPriceImpact(ts.mint)
+                } else 1.0
+                val adjustedPrice = ts.ref / priceImpact  // Remove the inflation from your own buys
+                
+                val paperGainPct = pct(pos.entryPrice, adjustedPrice)
                 val peakGain = pos.peakGainPct.coerceAtLeast(paperGainPct)  // Track highest gain
                 
                 // Update peak gain tracking
