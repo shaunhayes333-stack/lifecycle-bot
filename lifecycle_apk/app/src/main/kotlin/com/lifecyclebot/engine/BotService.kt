@@ -1756,7 +1756,12 @@ class BotService : Service() {
                 // ARCHITECTURAL FIX: Check shouldTrade FIRST before entering FDG flow
                 // If upstream (Strategy) already determined this shouldn't trade,
                 // don't waste cycles on candidate/sizing/FDG evaluation.
-                if (!ts.position.isOpen && decision.finalSignal == "BUY" && decision.shouldTrade) {
+                
+                // EARLY DEDUPE CHECK: Skip entire flow if we recently proposed this token
+                // This prevents the CANDIDATE→PROPOSED→BLOCKED spam cycle
+                val (canProposeEarly, _) = TradeLifecycle.canPropose(identity.mint)
+                
+                if (!ts.position.isOpen && decision.finalSignal == "BUY" && decision.shouldTrade && canProposeEarly) {
                     // ═══════════════════════════════════════════════════════════════════
                     // TRADE IDENTITY: Mark as candidate
                     // ═══════════════════════════════════════════════════════════════════
