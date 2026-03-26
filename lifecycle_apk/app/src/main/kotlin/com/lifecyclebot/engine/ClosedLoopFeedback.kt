@@ -71,24 +71,32 @@ object ClosedLoopFeedback {
     // ═══════════════════════════════════════════════════════════════════
     
     fun captureVisualState(status: BotStatus): VisualState {
-        val brain = try { BotBrain.getSnapshot() } catch (_: Exception) { null }
         val cb = status.circuitBreaker
+        
+        // Get brain phase from trade count (approximate)
+        val tradeCount = status.trades24h  // Use 24h trades as proxy
+        val brainPhase = when {
+            tradeCount < 30 -> "bootstrap"
+            tradeCount < 200 -> "learning"
+            else -> "mature"
+        }
+        val brainProgress = (tradeCount.toDouble() / 200 * 100).coerceIn(0.0, 100.0)
         
         return VisualState(
             trades24h = status.trades24h,
             winRate = status.winRate,
             openPositions = status.openPositionCount,
             aiConfidence = status.avgConfidence,
-            brainPhase = brain?.phase ?: "unknown",
-            brainProgress = brain?.progressPct ?: 0.0,
+            brainPhase = brainPhase,
+            brainProgress = brainProgress,
             isPaused = cb.isPaused,
             isHalted = cb.isHalted,
             consecutiveLosses = cb.consecutiveLosses,
             dailyLossSol = cb.dailyLossSol,
             totalExposureSol = status.totalExposureSol,
             unrealizedPnlPct = status.unrealizedPnlPct,
-            marketRegime = MarketRegimeAI.currentRegime().name.lowercase(),
-            narrativeHeat = NarrativeDetectorAI.globalHeat(),
+            marketRegime = try { MarketRegimeAI.currentRegime().name.lowercase() } catch (_: Exception) { "unknown" },
+            narrativeHeat = try { NarrativeDetectorAI.globalHeat() } catch (_: Exception) { 50.0 },
         )
     }
     
