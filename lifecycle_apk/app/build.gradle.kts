@@ -90,4 +90,7 @@ dependencies {
 
     // Prevent R8 stripping coroutine debug info
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-core:1.8.1")
+    
+    // Coil for image loading (token logos)
+    implementation("io.coil-kt:coil:2.6.0")
 }

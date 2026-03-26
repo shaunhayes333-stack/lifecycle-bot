@@ -626,6 +626,7 @@ class BotService : Service() {
                                                 mint=identity.mint, symbol=identity.symbol, name=name,
                                                 candleTimeframeMinutes = 1,
                                                 source = source.name,  // Track discovery source for learning
+                                                logoUrl = "https://dd.dexscreener.com/ds-data/tokens/solana/${identity.mint}.png",
                                             )
                                         }
                                     }
@@ -1483,6 +1484,7 @@ class BotService : Service() {
                                 pairAddress = pair.pairAddress,
                                 pairUrl    = pair.url,
                                 source     = "WATCHLIST",  // Tokens loaded from config
+                                logoUrl    = "https://dd.dexscreener.com/ds-data/tokens/solana/$mint.png",
                             )
                         }
                         val ts = status.tokens[mint] ?: return@launch

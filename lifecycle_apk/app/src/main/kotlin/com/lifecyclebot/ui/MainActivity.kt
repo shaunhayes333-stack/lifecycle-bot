@@ -21,6 +21,8 @@ import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.lifecycleScope
+import coil.load
+import coil.transform.CircleCropTransformation
 import com.github.mikephil.charting.charts.LineChart
 import com.github.mikephil.charting.components.XAxis
 import com.github.mikephil.charting.data.*
@@ -706,6 +708,19 @@ By clicking "I Agree", you acknowledge that you have read, understood, and accep
 
         // ── bot status card ───────────────────────────────────────────
         tvTokenName.text  = ts?.symbol?.ifBlank { "No token selected" } ?: "No token selected"
+        
+        // Load token logo from DexScreener
+        if (ts != null && ts.logoUrl.isNotEmpty()) {
+            ivTokenLogo.load(ts.logoUrl) {
+                crossfade(true)
+                placeholder(R.drawable.ic_token_placeholder)
+                error(R.drawable.ic_token_placeholder)
+                transformations(CircleCropTransformation())
+            }
+        } else {
+            ivTokenLogo.setImageResource(R.drawable.ic_token_placeholder)
+        }
+        
         val ageMins = if (ts != null && ts.history.isNotEmpty()) {
             (System.currentTimeMillis() - ts.history.first().ts) / 60_000.0
         } else -1.0

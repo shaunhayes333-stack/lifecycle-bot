@@ -141,6 +141,7 @@ data class TokenState(
     val name: String = "",
     val pairAddress: String = "",
     val pairUrl: String = "",
+    var logoUrl: String = "",  // Token logo URL (from DexScreener)
     // strategy
     var phase: String = "idle",
     var signal: String = "WAIT",
