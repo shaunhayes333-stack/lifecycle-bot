@@ -164,7 +164,7 @@ object TradeLifecycle {
     )
     
     private val proposalTrackers = mutableMapOf<String, ProposalTracker>()
-    private const val MIN_PROPOSAL_INTERVAL_MS = 30_000L  // 30 seconds between proposals
+    private const val MIN_PROPOSAL_INTERVAL_MS = 60_000L  // 60 seconds between proposals (prevents spam)
     private const val MIN_APPROVAL_INTERVAL_MS = 60_000L  // 60 seconds between approvals
     private const val MAX_PROPOSALS_PER_WINDOW = 3        // Max 3 proposals in 5 min window
     private const val PROPOSAL_WINDOW_MS = 5 * 60_000L    // 5 min window
