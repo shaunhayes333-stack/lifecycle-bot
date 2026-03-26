@@ -1792,13 +1792,13 @@ class BotService : Service() {
                     //   - EMA smoothing (lag prevents jitter)
                     //   - Hard confidence cap (85% max)
                     // ═══════════════════════════════════════════════════════════════════
-                    val trueState = ClosedLoopFeedback.captureTrueState(status)
+                    val trueState = ClosedLoopFeedback.captureTrueState(status, cbState.consecutiveLosses)
                     val visualState = ClosedLoopFeedback.deriveVisualState(trueState, status)
                     val feedback = ClosedLoopFeedback.extractFeedback(visualState)
                     
                     // Record decision with feedback context for learning
-                    val decisionType = if (fdgDecision.canExecute()) "BUY" else "BLOCKED"
-                    ClosedLoopFeedback.recordDecision(trueState, feedback.cappedBoost, decisionType)
+                    val feedbackDecisionType = if (fdgDecision.canExecute()) "BUY" else "BLOCKED"
+                    ClosedLoopFeedback.recordDecision(trueState, feedback.cappedBoost, feedbackDecisionType)
                     
                     // Log feedback if significant (but feedback does NOT modify FDG decision)
                     val absBoost = if (feedback.cappedBoost < 0) -feedback.cappedBoost else feedback.cappedBoost
