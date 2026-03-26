@@ -387,13 +387,54 @@ class JupiterApi(private val apiKey: String = "") {
         
         val signature = json.optString("signature", json.optString("txid", ""))
         val status = json.optString("status", "unknown")
+        val code = json.optInt("code", 0)
         
-        if (signature.isBlank()) {
-            log("❌ Ultra execute returned no signature! status=$status")
-            throw RuntimeException("Jupiter Ultra: no signature returned, status=$status")
+        // ═══════════════════════════════════════════════════════════════════
+        // CRITICAL FIX: Check status and code, not just signature presence!
+        // Jupiter Ultra returns signature even on failed transactions so you
+        // can look them up on explorers. The actual success is indicated by:
+        // - status = "Success" AND code = 0
+        // - Negative codes indicate various failure types
+        // ═══════════════════════════════════════════════════════════════════
+        
+        // Check for explicit failure status
+        if (status.equals("Failed", ignoreCase = true)) {
+            val errorMsg = when (code) {
+                -1 -> "Missing cached order - requestId expired"
+                -2 -> "Invalid signed transaction - signing issue"
+                -3 -> "Invalid message bytes - transaction modified"
+                -4 -> "Missing requestId in request"
+                -5 -> "Missing signed transaction in request"
+                -1000 -> "Failed to land on network"
+                -1001 -> "Unknown error"
+                -1002 -> "Invalid transaction"
+                -1005 -> "Transaction expired after attempts"
+                -1006 -> "Transaction timed out"
+                else -> "Unknown failure (code=$code)"
+            }
+            log("❌ Ultra EXECUTE FAILED: status=$status code=$code | $errorMsg (${elapsed}ms)")
+            throw RuntimeException("Jupiter Ultra execute failed: $errorMsg (code=$code, sig=${signature.take(20)})")
         }
         
-        log("✅ ULTRA EXECUTED: sig=${signature.take(20)}... status=$status (${elapsed}ms)")
+        // Check for negative code even if status doesn't say "Failed"
+        if (code < 0) {
+            log("❌ Ultra EXECUTE negative code: $code | status=$status (${elapsed}ms)")
+            throw RuntimeException("Jupiter Ultra execute error code: $code (status=$status)")
+        }
+        
+        if (signature.isBlank()) {
+            log("❌ Ultra execute returned no signature! status=$status code=$code")
+            throw RuntimeException("Jupiter Ultra: no signature returned, status=$status, code=$code")
+        }
+        
+        // Only log success if we truly succeeded
+        if (status.equals("Success", ignoreCase = true) && code == 0) {
+            log("✅ ULTRA EXECUTED: sig=${signature.take(20)}... status=$status code=$code (${elapsed}ms)")
+        } else {
+            // Status is unknown or unexpected - warn but continue (awaitConfirmation will verify)
+            log("⚠️ ULTRA EXECUTE uncertain: sig=${signature.take(20)}... status=$status code=$code (${elapsed}ms)")
+        }
+        
         return signature
     }
 

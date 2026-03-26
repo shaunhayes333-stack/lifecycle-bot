@@ -3487,6 +3487,40 @@ class Executor(
             val sig     = wallet.signSendAndConfirm(txResult.txBase64, useJito, jitoTip, ultraReqId, c.jupiterApiKey)
             onLog("📊 SELL DEBUG: Transaction confirmed! sig=${sig.take(20)}...", tradeId.mint)
             
+            // ═══════════════════════════════════════════════════════════════════
+            // CRITICAL FIX: Verify tokens were actually sold by checking on-chain balance
+            // This catches cases where tx was "confirmed" but didn't execute properly
+            // ═══════════════════════════════════════════════════════════════════
+            try {
+                Thread.sleep(1500)  // Wait for chain state to propagate
+                val postSellBalances = wallet.getTokenAccountsWithDecimals()
+                val remainingTokens = postSellBalances[ts.mint]?.first ?: 0.0
+                
+                // If we still have significant tokens (>1% of original), the sell failed silently
+                val originalTokens = pos.qtyToken
+                if (originalTokens > 0 && remainingTokens > originalTokens * 0.01) {
+                    val remainingPct = (remainingTokens / originalTokens * 100).toInt()
+                    onLog("🚨 SELL VERIFICATION FAILED: Still holding ${remainingPct}% of tokens!", tradeId.mint)
+                    onLog("   Original: $originalTokens | Remaining: $remainingTokens", tradeId.mint)
+                    onLog("   Transaction sig=${sig.take(20)}... may have failed on-chain", tradeId.mint)
+                    onNotify("🚨 Sell Incomplete!",
+                        "${ts.symbol}: ${remainingPct}% tokens still in wallet! Check tx: ${sig.take(16)}",
+                        com.lifecyclebot.engine.NotificationHistory.NotifEntry.NotifType.INFO)
+                    onToast("🚨 SELL INCOMPLETE: ${ts.symbol}\nStill holding ${remainingPct}% tokens!")
+                    
+                    // Don't clear the position - tokens are still there!
+                    throw RuntimeException("Sell verification failed: still holding ${remainingPct}% tokens (${remainingTokens})")
+                } else {
+                    onLog("✅ SELL VERIFIED: Token balance is now ${remainingTokens} (was $originalTokens)", tradeId.mint)
+                }
+            } catch (verifyEx: RuntimeException) {
+                throw verifyEx  // Re-throw sell verification failures
+            } catch (e: Exception) {
+                // Balance check failed but tx was confirmed - log warning but continue
+                onLog("⚠️ SELL VERIFICATION: Could not verify balance (${e.message?.take(40)})", tradeId.mint)
+                onLog("   Proceeding based on tx confirmation sig=${sig.take(20)}...", tradeId.mint)
+            }
+            
             val price   = ts.ref
             val solBack = quote.outAmount / 1_000_000_000.0
             pnl  = solBack - pos.costSol
