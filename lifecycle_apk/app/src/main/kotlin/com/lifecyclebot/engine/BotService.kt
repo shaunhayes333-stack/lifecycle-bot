@@ -1251,56 +1251,6 @@ class BotService : Service() {
                 TimeOptimizationAI.refreshStats()
                 NarrativeDetectorAI.refreshHeat()
                 
-                // ═══════════════════════════════════════════════════════════════════
-                // POSITION HEALTH MONITOR: Live reconciliation (every ~5 min)
-                // Detects ghost positions and orphaned tokens WITHOUT restart
-                // ═══════════════════════════════════════════════════════════════════
-                if (!cfg.paperMode) {
-                    val w = wallet
-                    if (w != null) {
-                        scope.launch {
-                            try {
-                                val tokenAccounts = w.getTokenAccounts()
-                                val openPositions = synchronized(status.tokens) {
-                                    status.tokens.values.filter { it.position.isOpen }.toList()
-                                }
-                                val trackedMints = openPositions.map { it.mint }.toSet()
-                                
-                                // Check for ghost positions
-                                for (ts in openPositions) {
-                                    val onChainQty = tokenAccounts[ts.mint] ?: 0.0
-                                    if (onChainQty <= 0.0) {
-                                        addLog("🧹 GHOST: ${ts.symbol} - clearing stale position")
-                                        synchronized(ts) {
-                                            ts.position = com.lifecyclebot.data.Position()
-                                            ts.lastExitTs = System.currentTimeMillis()
-                                        }
-                                        sendNotification("Ghost Cleared", "${ts.symbol}: no tokens on-chain")
-                                    }
-                                }
-                                
-                                // Check for orphaned tokens
-                                for ((mint, qty) in tokenAccounts) {
-                                    if (qty < 1.0) continue
-                                    if (mint in trackedMints) continue
-                                    if (mint == "So11111111111111111111111111111111111111112") continue
-                                    
-                                    val symbol = synchronized(status.tokens) {
-                                        status.tokens[mint]?.symbol
-                                    } ?: mint.take(8)
-                                    addLog("🧹 ORPHAN: $symbol ($qty tokens)")
-                                    try {
-                                        val sold = executor.sellOrphanedToken(mint, qty, w)
-                                        if (sold) addLog("✅ Orphan sold: $symbol")
-                                    } catch (_: Exception) {}
-                                }
-                            } catch (e: Exception) {
-                                ErrorLogger.debug("HealthMonitor", "Error: ${e.message}")
-                            }
-                        }
-                    }
-                }
-                
                 // Log cloud sync status (every ~35 mins = 5x7 loops)
                 if (loopCount % 35 == 0) {
                     addLog("☁️ ${CloudLearningSync.getStatus()}")
