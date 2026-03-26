@@ -1785,33 +1785,24 @@ class BotService : Service() {
                     )
                     
                     // ═══════════════════════════════════════════════════════════════════
-                    // CLOSED-LOOP FEEDBACK: Constrained visual state influence
-                    // Pipeline: TrueState -> VisualState -> FeedbackState (damped, lagged)
-                    // Prevents positive feedback runaway with:
-                    //   - Risk-based damping (high risk = weak feedback)
-                    //   - EMA smoothing (lag prevents jitter)
-                    //   - Hard confidence cap (85% max)
+                    // CLOSED-LOOP FEEDBACK: Learning mode only (logs for analysis)
+                    // Records decision context for future pattern learning
                     // ═══════════════════════════════════════════════════════════════════
-                    val ws = try { BotService.walletManager.state.value } catch (_: Exception) { null }
-                    val trueState = ClosedLoopFeedback.captureTrueState(
-                        aiConfidence = decision.aiConfidence,
-                        winRate = (ws?.winRate ?: 50).toDouble(),
-                        consecutiveLosses = cbState.consecutiveLosses,
-                        totalExposureSol = status.totalExposureSol,
-                        unrealizedPnlPct = 0.0,  // Simplified - PnL is complex to calculate here
-                    )
-                    val visualState = ClosedLoopFeedback.deriveVisualState(trueState, ws?.totalTrades ?: 0)
-                    val feedback = ClosedLoopFeedback.extractFeedback(visualState)
-                    
-                    // Record decision with feedback context for learning
-                    val feedbackDecisionType = if (fdgDecision.canExecute()) "BUY" else "BLOCKED"
-                    ClosedLoopFeedback.recordDecision(trueState, feedback.cappedBoost, feedbackDecisionType)
-                    
-                    // Log feedback if significant (but feedback does NOT modify FDG decision)
-                    val absBoost = if (feedback.cappedBoost < 0) -feedback.cappedBoost else feedback.cappedBoost
-                    if (absBoost > 5) {
-                        val boostStr = if (feedback.cappedBoost > 0) "+${feedback.cappedBoost.toInt()}" else "${feedback.cappedBoost.toInt()}"
-                        addLog("🔄 Feedback: $boostStr% [${feedback.recommendation}] risk=${visualState.riskScore.toInt()}", mint)
+                    try {
+                        val wsState = BotService.walletManager.state.value
+                        val trueState = ClosedLoopFeedback.captureTrueState(
+                            aiConfidence = decision.aiConfidence,
+                            winRate = wsState.winRate.toDouble(),
+                            consecutiveLosses = cbState.consecutiveLosses,
+                            totalExposureSol = status.totalExposureSol,
+                            unrealizedPnlPct = 0.0,
+                        )
+                        val visualState = ClosedLoopFeedback.deriveVisualState(trueState, wsState.totalTrades)
+                        val feedback = ClosedLoopFeedback.extractFeedback(visualState)
+                        val feedbackDecisionType = if (fdgDecision.canExecute()) "BUY" else "BLOCKED"
+                        ClosedLoopFeedback.recordDecision(trueState, feedback.cappedBoost, feedbackDecisionType)
+                    } catch (_: Exception) {
+                        // Feedback system error - continue without it
                     }
                     
                     if (fdgDecision.canExecute()) {
