@@ -94,17 +94,14 @@ object PositionHealthMonitor {
                         } else 0.0
                         
                         if (diffPct > 10.0) {
-                            // More than 10% difference - log warning but don't auto-fix
+                            // More than 10% difference - log warning
+                            // Note: liveSell already fetches on-chain balance before selling,
+                            // so this mismatch won't cause "insufficient funds" errors
                             val msg = "${ts.symbol}: tracked=${String.format("%.2f", trackedQty)}, on-chain=${String.format("%.2f", onChainQty)} (${String.format("%.1f", diffPct)}% diff)"
                             onLog("⚠️ BALANCE MISMATCH: $msg", ts.mint)
                             mismatches.add(msg)
-                            
-                            // Auto-correct the position quantity to match on-chain
-                            // This prevents "insufficient funds" errors during sells
-                            synchronized(ts) {
-                                ts.position.qtyToken = onChainQty
-                            }
-                            onLog("📊 Auto-corrected ${ts.symbol} qty to on-chain value", ts.mint)
+                            // Position data class has immutable qtyToken, but liveSell
+                            // already handles this by checking on-chain balance before selling
                         }
                     }
                 } catch (e: Exception) {
