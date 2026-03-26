@@ -1784,6 +1784,23 @@ class BotService : Service() {
                         brain = executor.brain,
                     )
                     
+                    // ═══════════════════════════════════════════════════════════════════
+                    // CLOSED-LOOP FEEDBACK: Visual state influences decisions
+                    // Capture current UI state and apply learned influence
+                    // ═══════════════════════════════════════════════════════════════════
+                    val visualState = ClosedLoopFeedback.captureVisualState(status)
+                    val visualInfluence = ClosedLoopFeedback.getVisualInfluence(visualState)
+                    
+                    // Record this decision with visual context for learning
+                    val decisionType = if (fdgDecision.canExecute()) "BUY" else "BLOCKED"
+                    ClosedLoopFeedback.recordDecision(visualState, decisionType)
+                    
+                    // Log visual influence if significant
+                    if (kotlin.math.abs(visualInfluence) > 10) {
+                        val influenceStr = if (visualInfluence > 0) "+${visualInfluence.toInt()}" else "${visualInfluence.toInt()}"
+                        addLog("🔄 Visual influence: $influenceStr% (${ClosedLoopFeedback.introspect(visualState).recommendation})", mint)
+                    }
+                    
                     if (fdgDecision.canExecute()) {
                         // ═══════════════════════════════════════════════════════════════════
                         // COMPUTE FINAL SIZE: Apply all multipliers here for consistency

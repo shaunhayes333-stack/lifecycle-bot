@@ -1003,6 +1003,11 @@ class Executor(
             security.recordTrade(trade)
             SmartSizer.recordTrade(pnlSol > 0, isPaperMode = false)
             
+            // ═══════════════════════════════════════════════════════════════════
+            // CLOSED-LOOP FEEDBACK: Record trade outcome for visual state learning
+            // ═══════════════════════════════════════════════════════════════════
+            ClosedLoopFeedback.recordOutcome(ts.mint, pnlPct)
+            
             // Record treasury event and lock realized profit
             val solPrice = WalletManager.lastKnownSolPrice
             val gainMultiple = (solBack + pos.lockedProfitFloor) / pos.costSol
@@ -2803,6 +2808,11 @@ class Executor(
                           System.currentTimeMillis(), reason, pnl, pnlP)
         ts.trades.add(trade)
         security.recordTrade(trade)
+        
+        // ═══════════════════════════════════════════════════════════════════
+        // CLOSED-LOOP FEEDBACK: Record trade outcome for visual state learning
+        // ═══════════════════════════════════════════════════════════════════
+        ClosedLoopFeedback.recordOutcome(ts.mint, pnlP)
         
         // Update paper wallet balance (add sale proceeds)
         onPaperBalanceChange?.invoke(value)
