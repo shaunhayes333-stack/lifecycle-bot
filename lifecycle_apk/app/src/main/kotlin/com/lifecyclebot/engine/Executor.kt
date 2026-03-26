@@ -3838,7 +3838,24 @@ class Executor(
                 if (paperMode || wallet == null) {
                     paperSell(ts, "bot_shutdown")
                 } else {
-                    liveSell(ts, "bot_shutdown", wallet, walletSol)
+                    // RETRY LOGIC: Try up to 3 times for live sells on shutdown
+                    var sold = false
+                    for (attempt in 1..3) {
+                        try {
+                            liveSell(ts, "bot_shutdown", wallet, walletSol)
+                            sold = true
+                            break
+                        } catch (e: Exception) {
+                            onLog("⚠️ Shutdown sell attempt $attempt/3 failed for ${ts.symbol}: ${e.message?.take(50)}", ts.mint)
+                            if (attempt < 3) Thread.sleep(1000L * attempt)
+                        }
+                    }
+                    if (!sold) {
+                        onLog("🛑 FAILED to close ${ts.symbol} after 3 attempts - MANUAL SELL REQUIRED", ts.mint)
+                        onNotify("🚨 Position Not Closed",
+                            "${ts.symbol}: Manual sell required via Jupiter!",
+                            com.lifecyclebot.engine.NotificationHistory.NotifEntry.NotifType.INFO)
+                    }
                 }
                 
                 closedCount++
