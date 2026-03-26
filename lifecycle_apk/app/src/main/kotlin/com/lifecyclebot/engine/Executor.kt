@@ -1420,11 +1420,28 @@ class Executor(
         modeConfig: AutoModeEngine.ModeConfig? = null,
         walletTotalTrades: Int = 0,
     ) {
-        // Halt check first — no action if halted
+        // ════════════════════════════════════════════════════════════════
+        // CRITICAL: SELLS MUST ALWAYS BE ALLOWED - even when halted!
+        // Check if this is a sell action BEFORE halt check
+        // ════════════════════════════════════════════════════════════════
+        val isSellAction = (signal in listOf("SELL", "EXIT")) || 
+            (ts.position.isOpen && PrecisionExitLogic.quickCheck(
+                mint = ts.mint,
+                currentPrice = ts.ref,
+                entryPrice = ts.position.entryPrice,
+                stopLossPct = cfg().stopLossPct,
+            )?.shouldExit == true)
+        
+        // Halt check - blocks new buys but NOT sells
         val cbState = security.getCircuitBreakerState()
-        if (cbState.isHalted) {
-            onLog("🛑 Halted: ${cbState.haltReason}", ts.mint)
+        if (cbState.isHalted && !ts.position.isOpen) {
+            // Only block if no position (i.e., this would be a buy)
+            onLog("🛑 Halted (no new buys): ${cbState.haltReason}", ts.mint)
             return
+        }
+        if (cbState.isHalted && ts.position.isOpen) {
+            onLog("⚠️ Halted but allowing sell actions for open position", ts.mint)
+            // Continue to sell logic below
         }
 
         // Update shadow learning engine with current price
