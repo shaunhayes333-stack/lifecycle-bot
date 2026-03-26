@@ -1792,8 +1792,17 @@ class BotService : Service() {
                     //   - EMA smoothing (lag prevents jitter)
                     //   - Hard confidence cap (85% max)
                     // ═══════════════════════════════════════════════════════════════════
-                    val trueState = ClosedLoopFeedback.captureTrueState(status, cbState.consecutiveLosses)
-                    val visualState = ClosedLoopFeedback.deriveVisualState(trueState, status)
+                    val ws = try { walletManager.state.value } catch (_: Exception) { null }
+                    val trueState = ClosedLoopFeedback.captureTrueState(
+                        aiConfidence = decision.aiConfidence,
+                        winRate = (ws?.winRate ?: 50).toDouble(),
+                        consecutiveLosses = cbState.consecutiveLosses,
+                        totalExposureSol = status.totalExposureSol,
+                        unrealizedPnlPct = status.openPositions.sumOf { 
+                            it.position.currentPnlPct 
+                        } / status.openPositionCount.coerceAtLeast(1),
+                    )
+                    val visualState = ClosedLoopFeedback.deriveVisualState(trueState, ws?.totalTrades ?: 0)
                     val feedback = ClosedLoopFeedback.extractFeedback(visualState)
                     
                     // Record decision with feedback context for learning
