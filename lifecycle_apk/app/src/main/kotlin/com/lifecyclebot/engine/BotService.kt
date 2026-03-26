@@ -1797,9 +1797,10 @@ class BotService : Service() {
                     
                     // ═══════════════════════════════════════════════════════════════════
                     // LIFECYCLE: PROPOSED → FDG evaluation
+                    // NOTE: recordProposal() moved AFTER FDG evaluation to prevent
+                    // FDG's canPropose() check from blocking the same proposal
                     // ═══════════════════════════════════════════════════════════════════
                     TradeLifecycle.proposed(identity.mint)
-                    TradeLifecycle.recordProposal(identity.mint)  // Track for dedupe
                     
                     // Run through Final Decision Gate
                     val fdgDecision = FinalDecisionGate.evaluate(
@@ -1811,6 +1812,12 @@ class BotService : Service() {
                     )
                     
                     if (fdgDecision.canExecute()) {
+                        // ═══════════════════════════════════════════════════════════════════
+                        // RECORD PROPOSAL: Track that we proposed (for dedupe)
+                        // Moved here from before FDG to prevent self-blocking
+                        // ═══════════════════════════════════════════════════════════════════
+                        TradeLifecycle.recordProposal(identity.mint)
+                        
                         // ═══════════════════════════════════════════════════════════════════
                         // COMPUTE FINAL SIZE: Apply all multipliers here for consistency
                         // This ensures identity, lifecycle, logs, and executor all use same value
@@ -1873,6 +1880,12 @@ class BotService : Service() {
                             )
                         }
                     } else {
+                        // ═══════════════════════════════════════════════════════════════════
+                        // RECORD PROPOSAL: Track that we proposed (for dedupe), even if blocked
+                        // This prevents spam re-proposals of the same token
+                        // ═══════════════════════════════════════════════════════════════════
+                        TradeLifecycle.recordProposal(identity.mint)
+                        
                         // ═══════════════════════════════════════════════════════════════════
                         // TRADE IDENTITY: Mark as blocked
                         // ═══════════════════════════════════════════════════════════════════
