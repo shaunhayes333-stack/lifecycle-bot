@@ -1251,38 +1251,6 @@ class BotService : Service() {
                 TimeOptimizationAI.refreshStats()
                 NarrativeDetectorAI.refreshHeat()
                 
-                // ═══════════════════════════════════════════════════════════════════
-                // POSITION HEALTH MONITOR: Live reconciliation of on-chain state
-                // Catches ghost positions and orphaned tokens WITHOUT bot restart
-                // ═══════════════════════════════════════════════════════════════════
-                val walletSnapshot = wallet  // Capture wallet reference for coroutine
-                if (!cfg.paperMode && walletSnapshot != null) {
-                    scope.launch {
-                        try {
-                            val tokensCopy = synchronized(status.tokens) { status.tokens.toMap() }
-                            val report = PositionHealthMonitor.checkHealth(
-                                tokens = tokensCopy,
-                                wallet = walletSnapshot,
-                                paperMode = cfg.paperMode,
-                                executor = executor,
-                                onLog = { msg, _ -> addLog(msg) }
-                            )
-                            
-                            // Alert user if issues were found
-                            if (report.ghostPositionsCleared.isNotEmpty()) {
-                                sendNotification("🧹 Ghost Positions Cleared",
-                                    "${report.ghostPositionsCleared.size} stale position(s) cleared: ${report.ghostPositionsCleared.joinToString(", ")}")
-                            }
-                            if (report.orphanedTokensFound.isNotEmpty()) {
-                                sendNotification("🧹 Orphaned Tokens",
-                                    "Found ${report.orphanedTokensFound.size}: ${report.orphanedTokensFound.joinToString(", ")}")
-                            }
-                        } catch (e: Exception) {
-                            ErrorLogger.error("HealthMonitor", "Position health check error: ${e.message}")
-                        }
-                    }
-                }
-                
                 // Log cloud sync status (every ~35 mins = 5x7 loops)
                 if (loopCount % 35 == 0) {
                     addLog("☁️ ${CloudLearningSync.getStatus()}")
