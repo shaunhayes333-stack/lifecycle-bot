@@ -1251,6 +1251,29 @@ class BotService : Service() {
                 TimeOptimizationAI.refreshStats()
                 NarrativeDetectorAI.refreshHeat()
                 
+                // ═══════════════════════════════════════════════════════════════════
+                // POSITION HEALTH MONITOR: Live reconciliation (every ~5 min)
+                // ═══════════════════════════════════════════════════════════════════
+                if (!cfg.paperMode) {
+                    val w = wallet
+                    if (w != null) {
+                        scope.launch {
+                            try {
+                                val monitor = PositionHealthMonitor(
+                                    wallet = w,
+                                    status = status,
+                                    onLog = { msg -> addLog(msg) },
+                                    onAlert = { title, msg -> sendNotification(title, msg) },
+                                    executor = executor,
+                                )
+                                monitor.checkHealth()
+                            } catch (e: Exception) {
+                                ErrorLogger.error("HealthMonitor", "Error: ${e.message}")
+                            }
+                        }
+                    }
+                }
+                
                 // Log cloud sync status (every ~35 mins = 5x7 loops)
                 if (loopCount % 35 == 0) {
                     addLog("☁️ ${CloudLearningSync.getStatus()}")
