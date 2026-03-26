@@ -512,7 +512,6 @@ class SolanaMarketScanner(
                 System.gc()
                 
                 var tokensFoundThisCycle = 0
-                val isPaperMode = cfg().paperMode
                 
                 // ALWAYS scan pump.fun first (priority) - BOTH direct API and profiles
                 onLog("🚀 Scanning: Pump.fun tokens (PRIORITY)...")
@@ -521,63 +520,25 @@ class SolanaMarketScanner(
                 runScan("scanPumpFunActive") { scanPumpFunActive() }  // DexScreener profiles
                 delay(200)
                 
-                // PAPER MODE: Scan ALL sources every cycle for maximum learning
-                if (isPaperMode) {
-                    onLog("📚 PAPER MODE: Scanning ALL sources (DEEP SCAN)...")
-                    runScan("scanPumpGraduates") { scanPumpGraduates() }
-                    delay(100)
-                    runScan("scanDexBoosted") { scanDexBoosted() }
-                    delay(100)
-                    runScan("scanFreshLaunches") { scanFreshLaunches() }
-                    delay(100)
-                    runScan("scanDexTrending") { scanDexTrending() }
-                    delay(100)
-                    runScan("scanDexGainers") { scanDexGainers() }
-                    delay(100)
-                    runScan("scanBirdeyeTrending") { scanBirdeyeTrending() }
-                    delay(100)
-                    runScan("scanTopVolumeTokens") { scanTopVolumeTokens() }
-                    delay(100)
-                    runScan("scanPumpFunVolume") { scanPumpFunVolume() }
-                    delay(100)
-                    runScan("scanRaydiumNewPools") { scanRaydiumNewPools() }
-                } else {
-                    // REAL MODE: Rotate through secondary sources
-                    when (scanRotation) {
-                        0 -> {
-                            // Pump.fun graduates + boosted
-                            onLog("🔍 Scanning: Pump.fun graduates...")
-                            runScan("scanPumpGraduates") { scanPumpGraduates() }
-                            delay(200)
-                            onLog("🔍 Scanning: DexScreener boosted...")
-                            runScan("scanDexBoosted") { scanDexBoosted() }
-                        }
-                        1 -> {
-                            // Fresh launches + trending
-                            onLog("🔍 Scanning: Fresh launches...")
-                            runScan("scanFreshLaunches") { scanFreshLaunches() }
-                            delay(200)
-                            onLog("🔍 Scanning: DexScreener trending...")
-                            runScan("scanDexTrending") { scanDexTrending() }
-                        }
-                        2 -> {
-                            // Volume + gainers
-                            onLog("🔍 Scanning: Pump.fun high volume...")
-                            runScan("scanPumpFunVolume") { scanPumpFunVolume() }
-                            delay(200)
-                            onLog("🔍 Scanning: New Solana pairs...")
-                            runScan("scanDexGainers") { scanDexGainers() }
-                        }
-                        3 -> {
-                            // Different combo - boosted + fresh
-                            onLog("🔍 Scanning: DexScreener boosted...")
-                            runScan("scanDexBoosted") { scanDexBoosted() }
-                            delay(200)
-                            onLog("🔍 Scanning: Fresh profiles...")
-                            runScan("scanFreshLaunches") { scanFreshLaunches() }
-                        }
-                    }
-                }
+                // SCAN ALL SOURCES - Same coverage for both paper and live modes
+                onLog("🔍 Scanning ALL sources (DEEP SCAN)...")
+                runScan("scanPumpGraduates") { scanPumpGraduates() }
+                delay(100)
+                runScan("scanDexBoosted") { scanDexBoosted() }
+                delay(100)
+                runScan("scanFreshLaunches") { scanFreshLaunches() }
+                delay(100)
+                runScan("scanDexTrending") { scanDexTrending() }
+                delay(100)
+                runScan("scanDexGainers") { scanDexGainers() }
+                delay(100)
+                runScan("scanBirdeyeTrending") { scanBirdeyeTrending() }
+                delay(100)
+                runScan("scanTopVolumeTokens") { scanTopVolumeTokens() }
+                delay(100)
+                runScan("scanPumpFunVolume") { scanPumpFunVolume() }
+                delay(100)
+                runScan("scanRaydiumNewPools") { scanRaydiumNewPools() }
                 
                 // GC after scan
                 System.gc()
