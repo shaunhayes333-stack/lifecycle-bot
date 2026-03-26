@@ -1255,16 +1255,17 @@ class BotService : Service() {
                 // POSITION HEALTH MONITOR: Live reconciliation of on-chain state
                 // Catches ghost positions and orphaned tokens WITHOUT bot restart
                 // ═══════════════════════════════════════════════════════════════════
-                if (!cfg.paperMode && wallet != null) {
+                val walletSnapshot = wallet  // Capture wallet reference for coroutine
+                if (!cfg.paperMode && walletSnapshot != null) {
                     scope.launch {
                         try {
                             val tokensCopy = synchronized(status.tokens) { status.tokens.toMap() }
                             val report = PositionHealthMonitor.checkHealth(
                                 tokens = tokensCopy,
-                                wallet = wallet,
+                                wallet = walletSnapshot,
                                 paperMode = cfg.paperMode,
                                 executor = executor,
-                                onLog = { msg, mint -> addLog(msg) }
+                                onLog = { msg, _ -> addLog(msg) }
                             )
                             
                             // Alert user if issues were found
