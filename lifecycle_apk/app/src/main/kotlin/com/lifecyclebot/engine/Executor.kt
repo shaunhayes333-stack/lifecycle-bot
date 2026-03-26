@@ -2334,7 +2334,8 @@ class Executor(
                 val pnlSol = pnlPct * shadow.entrySol / 100
                 
                 // Record outcome for learning - THIS IS THE KEY PART
-                // Use existing learnFromTrade signature: isWin, phase, emaFan, source, pnlPct, mint, ...
+                // Shadow trades are EXPLORATION quality (bypassed live rules)
+                // They get 0.3x weight to avoid polluting learning data
                 brain?.learnFromTrade(
                     isWin = isWin,
                     phase = "shadow_${shadow.quality}",  // Track quality in phase
@@ -2348,6 +2349,7 @@ class Executor(
                     topHolderPct = 10.0,
                     liquidityUsd = 10000.0,
                     isLiveTrade = false,  // Shadow trades are NOT live
+                    approvalClass = "PAPER_EXPLORATION",  // Shadow = exploration quality (0.3x weight)
                 )
                 
                 // Update adaptive thresholds based on shadow outcome
@@ -2899,7 +2901,7 @@ class Executor(
             
             // Update BotBrain in real-time — check if we should blacklist this token
             // Pass additional metrics for rolling memory system
-            // PAPER MODE: isLiveTrade = false (1x weight)
+            // PAPER MODE: Use approval class for quality-based weighting
             brain?.let { b ->
                 val shouldBlacklist = b.learnFromTrade(
                     isWin = false, 
@@ -2913,7 +2915,8 @@ class Executor(
                     buyPressure = ts.meta.pressScore,
                     topHolderPct = ts.safety.topHolderPct,
                     liquidityUsd = ts.lastLiquidityUsd,
-                    isLiveTrade = false,  // Paper trade = 1x weight
+                    isLiveTrade = false,  // Paper trade
+                    approvalClass = tradeId.fdgApprovalClass.ifEmpty { "PAPER_BENCHMARK" },  // Quality-based weight
                 )
                 // Paper mode: Still BAN tokens to build the list for live mode
                 // but we don't CHECK the list in paper mode (handled in scanner/watchlist)
@@ -2959,7 +2962,7 @@ class Executor(
             
             // Update BotBrain in real-time
             // Pass additional metrics for rolling memory system
-            // PAPER MODE: isLiveTrade = false (1x weight)
+            // PAPER MODE: Use approval class for quality-based weighting
             brain?.let { b ->
                 b.learnFromTrade(
                     isWin = true, 
@@ -2973,7 +2976,8 @@ class Executor(
                     buyPressure = ts.meta.pressScore,
                     topHolderPct = ts.safety.topHolderPct,
                     liquidityUsd = ts.lastLiquidityUsd,
-                    isLiveTrade = false,  // Paper trade = 1x weight
+                    isLiveTrade = false,  // Paper trade
+                    approvalClass = tradeId.fdgApprovalClass.ifEmpty { "PAPER_BENCHMARK" },  // Quality-based weight
                 )
             }
             
@@ -3537,6 +3541,7 @@ class Executor(
                     topHolderPct = ts.safety.topHolderPct,
                     liquidityUsd = ts.lastLiquidityUsd,
                     isLiveTrade = true,  // LIVE trade = 3x weight!
+                    approvalClass = tradeId.fdgApprovalClass.ifEmpty { "LIVE" },  // Live mode approval
                 )
                 // Paper mode: Still BAN tokens to build the list for live mode
                 // but we don't CHECK the list in paper mode (handled in scanner/watchlist)
@@ -3580,6 +3585,7 @@ class Executor(
                     topHolderPct = ts.safety.topHolderPct,
                     liquidityUsd = ts.lastLiquidityUsd,
                     isLiveTrade = true,  // LIVE trade = 3x weight!
+                    approvalClass = tradeId.fdgApprovalClass.ifEmpty { "LIVE" },  // Live mode approval
                 )
             }
         } else {

@@ -148,12 +148,19 @@ class BotBrain(
         const val GLOBAL_WEIGHT = 0.3           // 30% weight to global memory
         const val DECAY_HALF_LIFE = 50          // Trades until weight halves
         
-        // LIVE TRADE WEIGHTING
-        // Live trades count 3x more than paper trades because:
-        // 1. They're validated with real money
-        // 2. They prove the strategy works in production
-        // 3. They include real slippage, fees, and execution factors
+        // ═══════════════════════════════════════════════════════════════════
+        // TRADE QUALITY WEIGHTING - Prevents garbage data from polluting learning
+        // 
+        // LIVE trades:           3.0x weight (real money validation)
+        // PAPER_BENCHMARK:       1.0x weight (would pass live rules = quality data)
+        // PAPER_EXPLORATION:     0.3x weight (bypassed rules = weak signal)
+        //
+        // This ensures at maturity, the brain is trained primarily on
+        // trades that would have passed strict live rules.
+        // ═══════════════════════════════════════════════════════════════════
         const val LIVE_TRADE_WEIGHT = 3.0
+        const val BENCHMARK_TRADE_WEIGHT = 1.0
+        const val EXPLORATION_TRADE_WEIGHT = 0.3  // Exploration = 30% weight (mostly noise)
         
         // ═══════════════════════════════════════════════════════════════════
         // DECAY & MINIMUM SAMPLE SIZE CONSTANTS
@@ -1007,17 +1014,29 @@ Analyse this data and respond with ONLY valid JSON in this exact format:
         liquidityUsd: Double = 10000.0,
         // LIVE TRADE WEIGHTING: Live trades count more than paper trades
         isLiveTrade: Boolean = false,
+        // APPROVAL CLASS WEIGHTING: Exploration trades get reduced weight
+        // "LIVE" = 3x, "PAPER_BENCHMARK" = 1x, "PAPER_EXPLORATION" = 0.3x
+        approvalClass: String = "PAPER_BENCHMARK",
     ): Boolean {
-        // Live trades have 3x weight - they're validated with real money
-        val tradeWeight = if (isLiveTrade) LIVE_TRADE_WEIGHT else 1.0
+        // Calculate weight based on trade quality
+        // LIVE: 3x, BENCHMARK: 1x, EXPLORATION: 0.3x
+        val tradeWeight = when {
+            isLiveTrade -> LIVE_TRADE_WEIGHT
+            approvalClass == "PAPER_EXPLORATION" -> EXPLORATION_TRADE_WEIGHT
+            else -> BENCHMARK_TRADE_WEIGHT  // PAPER_BENCHMARK or default
+        }
         
         try {
             // ═══════════════════════════════════════════════════════════════════
             // ROLLING MEMORY: Record trade for adaptive learning
             // This is the NEW primary learning mechanism
-            // Live trades recorded multiple times for extra weight
+            // Trade quality determines record count (exploration = 0 or 1 times)
             // ═══════════════════════════════════════════════════════════════════
-            val recordCount = if (isLiveTrade) LIVE_TRADE_WEIGHT.toInt() else 1
+            val recordCount = when {
+                isLiveTrade -> LIVE_TRADE_WEIGHT.toInt()  // 3 records
+                approvalClass == "PAPER_EXPLORATION" -> if (kotlin.random.Random.nextFloat() < EXPLORATION_TRADE_WEIGHT) 1 else 0  // ~30% chance
+                else -> 1  // PAPER_BENCHMARK = 1 record
+            }
             repeat(recordCount) {
                 recordToMemory(
                     isWin = isWin,
@@ -1032,8 +1051,14 @@ Analyse this data and respond with ONLY valid JSON in this exact format:
                 )
             }
             
-            if (isLiveTrade) {
-                onLog("🔴 LIVE TRADE learning (${tradeWeight.toInt()}x weight): ${if(isWin) "WIN" else "LOSS"} ${pnlPct.toInt()}%")
+            // Log trade quality for debugging
+            val qualityIcon = when {
+                isLiveTrade -> "🔴 LIVE"
+                approvalClass == "PAPER_EXPLORATION" -> "🟡 EXPLORE"
+                else -> "🟢 BENCH"
+            }
+            if (isLiveTrade || approvalClass == "PAPER_EXPLORATION") {
+                onLog("$qualityIcon learning (${String.format("%.1f", tradeWeight)}x): ${if(isWin) "WIN" else "LOSS"} ${pnlPct.toInt()}%")
             }
             
             // ═══════════════════════════════════════════════════════════════════
