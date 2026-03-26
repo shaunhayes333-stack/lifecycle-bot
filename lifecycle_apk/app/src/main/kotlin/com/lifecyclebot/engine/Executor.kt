@@ -2435,12 +2435,29 @@ class Executor(
             targetBuild = sol
         }
         
+        // ═══════════════════════════════════════════════════════════════════
+        // REALISTIC PAPER SIMULATION: Apply slippage & fees like live trading
+        // This teaches realistic expectations before going live
+        // ═══════════════════════════════════════════════════════════════════
+        val simulatedSlippagePct = when {
+            ts.lastLiquidityUsd < 5000 -> 3.0   // Low liquidity = high slippage
+            ts.lastLiquidityUsd < 20000 -> 1.5  // Medium liquidity
+            ts.lastLiquidityUsd < 50000 -> 0.8  // Good liquidity
+            else -> 0.4                          // High liquidity
+        }
+        val slippageMultiplier = 1.0 + (simulatedSlippagePct / 100.0)
+        val effectivePrice = price * slippageMultiplier  // You pay MORE due to slippage
+        
+        // Simulate transaction fee (~0.5% average for Solana DEX trades)
+        val simulatedFeePct = 0.5
+        val effectiveSol = actualSol * (1.0 - simulatedFeePct / 100.0)  // Less SOL after fee
+        
         ts.position = Position(
-            qtyToken     = actualSol / maxOf(price, 1e-12),
-            entryPrice   = price,
+            qtyToken     = effectiveSol / maxOf(effectivePrice, 1e-12),  // Get fewer tokens due to slippage
+            entryPrice   = effectivePrice,  // Record slipped price
             entryTime    = System.currentTimeMillis(),
-            costSol      = actualSol,
-            highestPrice = price,
+            costSol      = actualSol,  // Track original cost
+            highestPrice = effectivePrice,
             entryPhase   = ts.phase,
             entryScore   = score,
             entryLiquidityUsd = ts.lastLiquidityUsd,
@@ -2760,7 +2777,24 @@ class Executor(
         val pos   = ts.position
         val price = ts.ref
         if (!pos.isOpen || price == 0.0) return
-        val value = pos.qtyToken * price
+        
+        // ═══════════════════════════════════════════════════════════════════
+        // REALISTIC PAPER SIMULATION: Apply slippage & fees like live trading
+        // Sells typically have WORSE slippage than buys (you receive LESS)
+        // ═══════════════════════════════════════════════════════════════════
+        val simulatedSlippagePct = when {
+            ts.lastLiquidityUsd < 5000 -> 4.0   // Low liquidity = high slippage (worse on sells)
+            ts.lastLiquidityUsd < 20000 -> 2.0  // Medium liquidity
+            ts.lastLiquidityUsd < 50000 -> 1.0  // Good liquidity
+            else -> 0.5                          // High liquidity
+        }
+        val slippageMultiplier = 1.0 - (simulatedSlippagePct / 100.0)
+        val effectivePrice = price * slippageMultiplier  // You receive LESS due to slippage
+        
+        // Simulate transaction fee (~0.5% average)
+        val simulatedFeePct = 0.5
+        
+        val value = pos.qtyToken * effectivePrice * (1.0 - simulatedFeePct / 100.0)  // Less after fee
         val pnl   = value - pos.costSol
         val pnlP  = pct(pos.costSol, value)
         val trade = Trade("SELL", "paper", pos.costSol, price,
