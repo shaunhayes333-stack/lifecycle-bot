@@ -3916,8 +3916,7 @@ class Executor(
      * Used by StartupReconciler to clean up tokens from crashed trades.
      * Returns true if sell succeeded, false otherwise.
      */
-    fun sellOrphanedToken(mint: String, qty: Double): Boolean {
-        val w = wallet ?: return false
+    fun sellOrphanedToken(mint: String, qty: Double, wallet: SolanaWallet): Boolean {
         val c = cfg()
         
         // Don't sell in paper mode
@@ -3934,13 +3933,13 @@ class Executor(
             
             val quote = getQuoteWithSlippageGuard(
                 mint, JupiterApi.SOL_MINT, sellUnits, sellSlippage, isBuy = false)
-            val txResult = buildTxWithRetry(quote, w.publicKeyB58)
+            val txResult = buildTxWithRetry(quote, wallet.publicKeyB58)
             
             val useJito = c.jitoEnabled && !quote.isUltra
             val jitoTip = c.jitoTipLamports
             val ultraReqId = if (quote.isUltra) txResult.requestId else null
             
-            val sig = w.signSendAndConfirm(txResult.txBase64, useJito, jitoTip, ultraReqId, c.jupiterApiKey)
+            val sig = wallet.signSendAndConfirm(txResult.txBase64, useJito, jitoTip, ultraReqId, c.jupiterApiKey)
             val solBack = quote.outAmount / 1_000_000_000.0
             
             onLog("✅ Orphan sold: $mint → ${solBack.fmt(4)} SOL | sig=${sig.take(16)}…", mint)

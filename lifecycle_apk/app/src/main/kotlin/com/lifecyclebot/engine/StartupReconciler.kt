@@ -205,7 +205,7 @@ class StartupReconciler(
                 
                 try {
                     // Attempt to sell via Jupiter
-                    val sellResult = executor?.sellOrphanedToken(mint, qty)
+                    val sellResult = executor?.sellOrphanedToken(mint, qty, wallet)
                     if (sellResult == true) {
                         orphansSold++
                         onLog("✅ Auto-sold orphaned token: $symbol")
