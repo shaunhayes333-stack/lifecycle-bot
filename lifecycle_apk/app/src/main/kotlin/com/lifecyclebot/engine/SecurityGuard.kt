@@ -76,7 +76,7 @@ class SecurityGuard(
     // Constants matching user's choices
     companion object {
         const val MAX_CONSECUTIVE_LOSSES  = 5
-        const val PAUSE_DURATION_MS       = 15 * 60_000L      // 15 minutes
+        const val PAUSE_DURATION_MS       = 2 * 60_000L       // 2 minutes pause (was 15 min)
         const val DAILY_LOSS_LIMIT_PCT    = 20.0  // 20% — tighter losses caught by drawdown CB
 
         const val MIN_WALLET_RESERVE_SOL  = 0.05
