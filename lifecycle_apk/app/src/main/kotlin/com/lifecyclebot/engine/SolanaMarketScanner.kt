@@ -523,16 +523,24 @@ class SolanaMarketScanner(
                 
                 // PAPER MODE: Scan ALL sources every cycle for maximum learning
                 if (isPaperMode) {
-                    onLog("📚 PAPER MODE: Scanning ALL sources...")
+                    onLog("📚 PAPER MODE: Scanning ALL sources (DEEP SCAN)...")
                     runScan("scanPumpGraduates") { scanPumpGraduates() }
-                    delay(150)
+                    delay(100)
                     runScan("scanDexBoosted") { scanDexBoosted() }
-                    delay(150)
+                    delay(100)
                     runScan("scanFreshLaunches") { scanFreshLaunches() }
-                    delay(150)
+                    delay(100)
                     runScan("scanDexTrending") { scanDexTrending() }
-                    delay(150)
+                    delay(100)
                     runScan("scanDexGainers") { scanDexGainers() }
+                    delay(100)
+                    runScan("scanBirdeyeTrending") { scanBirdeyeTrending() }
+                    delay(100)
+                    runScan("scanTopVolumeTokens") { scanTopVolumeTokens() }
+                    delay(100)
+                    runScan("scanPumpFunVolume") { scanPumpFunVolume() }
+                    delay(100)
+                    runScan("scanNewSolanaPairs") { scanNewSolanaPairs() }
                 } else {
                     // REAL MODE: Rotate through secondary sources
                     when (scanRotation) {
@@ -644,8 +652,8 @@ class SolanaMarketScanner(
             var found = 0
             var checked = 0
             
-            for (i in 0 until minOf(profiles.length(), 50)) {
-                if (found >= 15) break
+            for (i in 0 until minOf(profiles.length(), 100)) {
+                if (found >= 40) break  // INCREASED from 15 to 40
                 
                 val profile = profiles.optJSONObject(i) ?: continue
                 if (profile.optString("chainId", "") != "solana") continue
@@ -713,17 +721,24 @@ class SolanaMarketScanner(
     /**
      * DIRECT PUMP.FUN SCAN - Fetch newest tokens directly from pump.fun API
      * This is the PRIMARY source for early pump.fun entries
+     * EXPANDED: More endpoints, higher limits, deeper scanning
      */
     private suspend fun scanPumpFunDirect() {
-        // Pump.fun API endpoints - try multiple in case some are blocked/changed
+        // Pump.fun API endpoints - EXPANDED for wider coverage
         val urls = listOf(
-            // Primary: newest coins sorted by creation
-            "https://frontend-api.pump.fun/coins?offset=0&limit=50&sort=created_timestamp&order=DESC&includeNsfw=false",
-            // Alternative: recently updated/active
-            "https://frontend-api.pump.fun/coins?offset=0&limit=30&sort=last_trade_timestamp&order=DESC&includeNsfw=false",
+            // Primary: newest coins sorted by creation - INCREASED LIMIT
+            "https://frontend-api.pump.fun/coins?offset=0&limit=100&sort=created_timestamp&order=DESC&includeNsfw=false",
+            // Page 2 of newest
+            "https://frontend-api.pump.fun/coins?offset=100&limit=100&sort=created_timestamp&order=DESC&includeNsfw=false",
+            // Recently active/traded
+            "https://frontend-api.pump.fun/coins?offset=0&limit=100&sort=last_trade_timestamp&order=DESC&includeNsfw=false",
+            // Top by market cap (graduates)
+            "https://frontend-api.pump.fun/coins?offset=0&limit=50&sort=market_cap&order=DESC&includeNsfw=false",
+            // Top by reply count (engagement)
+            "https://frontend-api.pump.fun/coins?offset=0&limit=50&sort=reply_count&order=DESC&includeNsfw=false",
         )
         
-        ErrorLogger.info("Scanner", "scanPumpFunDirect: fetching from pump.fun APIs...")
+        ErrorLogger.info("Scanner", "scanPumpFunDirect: fetching from ${urls.size} pump.fun endpoints...")
         
         var totalFound = 0
         
@@ -744,8 +759,8 @@ class SolanaMarketScanner(
                 val now = System.currentTimeMillis()
                 var found = 0
                 
-                for (i in 0 until minOf(coins.length(), 30)) {
-                    if (found >= 10) break
+                for (i in 0 until minOf(coins.length(), 100)) {
+                    if (found >= 30) break  // INCREASED from 10 to 30 per endpoint
                     
                     val coin = coins.optJSONObject(i) ?: continue
                     
@@ -1035,7 +1050,7 @@ class SolanaMarketScanner(
             ErrorLogger.info("Scanner", "scanDexTrending: got ${arr.length()} token profiles")
             var processed = 0
             var passed = 0
-            for (i in 0 until minOf(arr.length(), 15)) {
+            for (i in 0 until minOf(arr.length(), 50)) {  // INCREASED from 15 to 50
                 val item = arr.optJSONObject(i) ?: continue
                 val mint = item.optString("tokenAddress", "").trim()
                 if (mint.isBlank() || mint.length < 32 || mint.startsWith("0x") || isSeen(mint)) continue
@@ -1347,11 +1362,11 @@ class SolanaMarketScanner(
     private suspend fun scanBirdeyeTrending() {
         val c = cfg()
         if (c.birdeyeApiKey.isBlank()) return  // needs key
-        val url = "https://public-api.birdeye.so/defi/token_trending?sort_by=rank&sort_type=asc&offset=0&limit=15"
+        val url = "https://public-api.birdeye.so/defi/token_trending?sort_by=rank&sort_type=asc&offset=0&limit=50"  // INCREASED
         val body = get(url, apiKey = c.birdeyeApiKey) ?: return
         try {
             val items = JSONObject(body).optJSONObject("data")?.optJSONArray("items") ?: return
-            for (i in 0 until minOf(items.length(), 12)) {
+            for (i in 0 until minOf(items.length(), 40)) {  // INCREASED from 12 to 40
                 val item = items.optJSONObject(i) ?: continue
                 val mint = item.optString("address","")
                 if (mint.isBlank() || isSeen(mint)) continue
