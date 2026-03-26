@@ -1253,22 +1253,45 @@ class BotService : Service() {
                 
                 // ═══════════════════════════════════════════════════════════════════
                 // POSITION HEALTH MONITOR: Live reconciliation (every ~5 min)
+                // Detects ghost positions and orphaned tokens WITHOUT restart
                 // ═══════════════════════════════════════════════════════════════════
                 if (!cfg.paperMode) {
                     val w = wallet
                     if (w != null) {
                         scope.launch {
                             try {
-                                val monitor = PositionHealthMonitor(
-                                    wallet = w,
-                                    status = status,
-                                    onLog = { msg -> addLog(msg) },
-                                    onAlert = { title, msg -> sendNotification(title, msg) },
-                                    executor = executor,
-                                )
-                                monitor.checkHealth()
+                                val tokenAccounts = w.getTokenAccounts()
+                                val openPositions = status.openPositions
+                                val trackedMints = openPositions.map { it.mint }.toSet()
+                                
+                                // Check for ghost positions
+                                openPositions.forEach { ts ->
+                                    val onChainQty = tokenAccounts[ts.mint] ?: 0.0
+                                    if (onChainQty <= 0.0) {
+                                        addLog("🧹 GHOST: ${ts.symbol} - clearing stale position")
+                                        synchronized(ts) {
+                                            ts.position = com.lifecyclebot.data.Position()
+                                            ts.lastExitTs = System.currentTimeMillis()
+                                        }
+                                        sendNotification("Ghost Cleared", "${ts.symbol}: no tokens on-chain")
+                                    }
+                                }
+                                
+                                // Check for orphaned tokens
+                                tokenAccounts.forEach { (mint, qty) ->
+                                    if (qty < 1.0) return@forEach
+                                    if (mint in trackedMints) return@forEach
+                                    if (mint == "So11111111111111111111111111111111111111112") return@forEach
+                                    
+                                    val symbol = status.tokens[mint]?.symbol ?: mint.take(8)
+                                    addLog("🧹 ORPHAN: $symbol ($qty tokens)")
+                                    try {
+                                        val sold = executor.sellOrphanedToken(mint, qty, w)
+                                        if (sold) addLog("✅ Orphan sold: $symbol")
+                                    } catch (_: Exception) {}
+                                }
                             } catch (e: Exception) {
-                                ErrorLogger.error("HealthMonitor", "Error: ${e.message}")
+                                ErrorLogger.debug("HealthMonitor", "Error: ${e.message}")
                             }
                         }
                     }
