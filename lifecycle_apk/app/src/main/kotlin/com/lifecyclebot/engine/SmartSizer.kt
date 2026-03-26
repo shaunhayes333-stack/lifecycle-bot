@@ -283,8 +283,8 @@ object SmartSizer {
         // As treasury grows, we can afford to take larger positions
         // Treasury acts as a "bankroll buffer" that allows more aggression
         // ══════════════════════════════════════════════════════════════
-        val treasuryMult = if (isPaperMode) {
-            1.0  // No treasury adjustment in paper mode
+        val treasuryMult = if (isPaperMode && !cfg.fluidLearningEnabled) {
+            1.0  // No treasury adjustment in legacy paper mode
         } else {
             val solPrice = solPriceUsd.takeIf { it > 0 } ?: 100.0
             val treasuryUsd = TreasuryManager.treasurySol * solPrice
@@ -306,8 +306,18 @@ object SmartSizer {
         // If we have positions that recovered capital, we can be more aggressive
         // with new entries since existing positions are "free"
         // ══════════════════════════════════════════════════════════════
-        val houseMoneyBonus = if (isPaperMode) {
-            1.0
+        val houseMoneyBonus = if (isPaperMode && !cfg.fluidLearningEnabled) {
+            1.0  // No house money bonus in legacy paper mode
+        } else if (isPaperMode && cfg.fluidLearningEnabled) {
+            // FLUID PAPER: Learn house money mechanics using simulated balance
+            val fluidPnl = FluidLearning.getTotalPnl()
+            when {
+                fluidPnl >= 2.0 -> 1.25  // 2+ SOL profit - aggressive
+                fluidPnl >= 1.0 -> 1.15  // 1+ SOL profit
+                fluidPnl >= 0.5 -> 1.10  // 0.5+ SOL profit
+                fluidPnl > 0    -> 1.05  // Some profit
+                else            -> 1.00  // No profit yet
+            }
         } else {
             // Check if we have house money positions
             val hasHouseMoneyPositions = TreasuryManager.lifetimeLocked > 0
@@ -328,9 +338,20 @@ object SmartSizer {
         ErrorLogger.info("SmartSizer", "📏 Mults: score=${aiScoreMult} brain=${brainMult.fmt1} mem=${memoryMult} liq=${liquidityMult} conf=${confidenceMult} treasury=${treasuryMult.fmt1} house=${houseMoneyBonus.fmt1}")
 
         // ── Performance multiplier ────────────────────────────────────
-        // PAPER MODE: No performance penalty - we want to learn from losses too
-        val perfMult = if (isPaperMode) {
-            1.0  // No streak penalty in paper mode
+        // FLUID PAPER: Learn streak mechanics using simulated trades
+        val perfMult = if (isPaperMode && !cfg.fluidLearningEnabled) {
+            1.0  // No streak penalty in legacy paper mode
+        } else if (isPaperMode && cfg.fluidLearningEnabled) {
+            // Learn from paper trade streaks
+            val fluidWinRate = FluidLearning.getWinRate()
+            val fluidTrades = FluidLearning.getTradeCount()
+            when {
+                fluidWinRate >= 70 && fluidTrades >= 10 -> 1.30  // hot streak
+                fluidWinRate >= 60 && fluidTrades >= 10 -> 1.15
+                fluidWinRate < 40 && fluidTrades >= 10  -> 0.70  // Learn to scale down on losses
+                fluidWinRate < 50 && fluidTrades >= 10  -> 0.85
+                else -> 1.0
+            }
         } else {
             when {
                 perf.lossStreak >= 4                       -> 0.50  // bad streak — cut back hard
@@ -346,10 +367,19 @@ object SmartSizer {
         size *= perfMult
 
         // ── Drawdown protection ───────────────────────────────────────
-        // PAPER MODE: No drawdown protection - we want to learn from everything
+        // FLUID PAPER: Learn drawdown protection using simulated balance
         // LIVE MODE: Uses mode-specific session peak to prevent paper stats affecting live
-        val drawdownMult = if (isPaperMode) {
-            1.0  // No drawdown penalty in paper mode
+        val drawdownMult = if (isPaperMode && !cfg.fluidLearningEnabled) {
+            1.0  // No drawdown penalty in legacy paper mode
+        } else if (isPaperMode && cfg.fluidLearningEnabled) {
+            // Learn drawdown protection from simulated balance
+            val fluidRecovery = FluidLearning.getRecoveryRatio()
+            when {
+                fluidRecovery < 0.50 -> 0.50  // Learn to cut back on big drawdown
+                fluidRecovery < 0.70 -> 0.75
+                fluidRecovery < 0.85 -> 0.90
+                else -> 1.0
+            }
         } else if (perf.sessionPeakSol > 0) {
             val recovery = walletSol / perf.sessionPeakSol
             ErrorLogger.debug("SmartSizer", "📊 LIVE Drawdown check: wallet=$walletSol peak=${perf.sessionPeakSol} recovery=${(recovery*100).toInt()}%")

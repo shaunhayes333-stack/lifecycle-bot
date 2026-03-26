@@ -82,6 +82,25 @@ object FluidLearning {
     }
     
     /**
+     * Get total trade count
+     */
+    fun getTradeCount(): Int = paperTradeCount
+    
+    /**
+     * Get total P&L in SOL
+     */
+    fun getTotalPnl(): Double = totalPaperPnlSol
+    
+    /**
+     * Get recovery ratio (current balance vs peak)
+     */
+    fun getRecoveryRatio(): Double {
+        return if (simulatedPeakSol > 0) {
+            simulatedBalanceSol / simulatedPeakSol
+        } else 1.0
+    }
+    
+    /**
      * Get performance context for SmartSizer
      */
     fun getPerformanceContext(): SmartSizer.PerformanceContext {
