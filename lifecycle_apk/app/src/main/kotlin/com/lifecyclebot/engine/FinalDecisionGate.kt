@@ -843,8 +843,8 @@ object FinalDecisionGate {
     // ═══════════════════════════════════════════════════════════════════════════
     
     private val distributionCooldowns = java.util.concurrent.ConcurrentHashMap<String, Long>()
-    private const val DISTRIBUTION_COOLDOWN_MS_PAPER = 1 * 60 * 1000L  // 1 minute for paper - aggressive learning
-    private const val DISTRIBUTION_COOLDOWN_MS_LIVE = 3 * 60 * 1000L   // 3 minutes for live - more cautious
+    private const val DISTRIBUTION_COOLDOWN_MS_PAPER = 20 * 1000L  // 20 seconds for paper - fast learning
+    private const val DISTRIBUTION_COOLDOWN_MS_LIVE = 60 * 1000L   // 60 seconds for live - cautious but not excessive
     
     /**
      * Record that a token was closed due to distribution.
@@ -898,10 +898,10 @@ object FinalDecisionGate {
     private val edgeVetoes = java.util.concurrent.ConcurrentHashMap<String, EdgeVeto>()
     
     // Edge veto cooldown - MODE AWARE
-    // Paper mode: 90 seconds (fast learning)
-    // Live mode: 60 seconds (reduced from 90s to allow more opportunities)
-    private const val EDGE_VETO_COOLDOWN_PAPER_MS = 90 * 1000L  // 90 seconds for paper
-    private const val EDGE_VETO_COOLDOWN_LIVE_MS = 60 * 1000L   // 60 seconds for live (REDUCED)
+    // Paper mode: 20 seconds (fast learning)
+    // Live mode: 30 seconds (reduced for more opportunities)
+    private const val EDGE_VETO_COOLDOWN_PAPER_MS = 20 * 1000L  // 20 seconds for paper
+    private const val EDGE_VETO_COOLDOWN_LIVE_MS = 30 * 1000L   // 30 seconds for live
     
     // Track current mode for veto cooldown
     @Volatile private var _isPaperModeForVeto = true

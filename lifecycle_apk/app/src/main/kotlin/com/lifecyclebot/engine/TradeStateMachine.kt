@@ -61,10 +61,10 @@ object TradeStateMachine {
     
     private val tokenStates = java.util.concurrent.ConcurrentHashMap<String, TokenTradeState>()
     
-    // FIX #6: Real cooldown timers - minimum 5 minutes
-    private const val COOLDOWN_MS = 5 * 60_000L        // 5 minute cooldown after exit
-    private const val MIN_COOLDOWN_MS = 60_000L        // Minimum 1 minute even for dynamic clear
-    private const val WATCH_TIMEOUT_MS = 3 * 60_000L   // 3 minutes max in WATCH state
+    // FIX #6: Real cooldown timers - shortened for faster iteration
+    private const val COOLDOWN_MS = 30_000L             // 30 second cooldown after exit
+    private const val MIN_COOLDOWN_MS = 10_000L         // Minimum 10 seconds even for dynamic clear
+    private const val WATCH_TIMEOUT_MS = 60_000L        // 1 minute max in WATCH state
     
     // Entry pattern thresholds
     private const val SPIKE_THRESHOLD_PCT = 5.0      // 5% rise = spike detected

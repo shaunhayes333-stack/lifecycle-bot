@@ -164,11 +164,11 @@ object TradeLifecycle {
     )
     
     private val proposalTrackers = mutableMapOf<String, ProposalTracker>()
-    private const val MIN_PROPOSAL_INTERVAL_MS = 60_000L  // 60 seconds between proposals (prevents spam)
-    private const val MIN_APPROVAL_INTERVAL_MS = 60_000L  // 60 seconds between approvals
-    private const val MAX_PROPOSALS_PER_WINDOW = 3        // Max 3 proposals in 5 min window
-    private const val PROPOSAL_WINDOW_MS = 5 * 60_000L    // 5 min window
-    private const val BLOCKED_STATE_EXPIRE_MS = 90_000L   // Blocked state expires after 90 seconds (faster retry)
+    private const val MIN_PROPOSAL_INTERVAL_MS = 15_000L  // 15 seconds between proposals (fast iteration)
+    private const val MIN_APPROVAL_INTERVAL_MS = 15_000L  // 15 seconds between approvals
+    private const val MAX_PROPOSALS_PER_WINDOW = 10       // Max 10 proposals in 2 min window
+    private const val PROPOSAL_WINDOW_MS = 2 * 60_000L    // 2 min window
+    private const val BLOCKED_STATE_EXPIRE_MS = 30_000L   // Blocked state expires after 30 seconds
     
     /**
      * Check if a proposal should be allowed (dedupe check)
