@@ -1261,11 +1261,13 @@ class BotService : Service() {
                         scope.launch {
                             try {
                                 val tokenAccounts = w.getTokenAccounts()
-                                val openPositions = status.openPositions
+                                val openPositions = synchronized(status.tokens) {
+                                    status.tokens.values.filter { it.position.isOpen }.toList()
+                                }
                                 val trackedMints = openPositions.map { it.mint }.toSet()
                                 
                                 // Check for ghost positions
-                                openPositions.forEach { ts ->
+                                for (ts in openPositions) {
                                     val onChainQty = tokenAccounts[ts.mint] ?: 0.0
                                     if (onChainQty <= 0.0) {
                                         addLog("🧹 GHOST: ${ts.symbol} - clearing stale position")
@@ -1278,12 +1280,14 @@ class BotService : Service() {
                                 }
                                 
                                 // Check for orphaned tokens
-                                tokenAccounts.forEach { (mint, qty) ->
-                                    if (qty < 1.0) return@forEach
-                                    if (mint in trackedMints) return@forEach
-                                    if (mint == "So11111111111111111111111111111111111111112") return@forEach
+                                for ((mint, qty) in tokenAccounts) {
+                                    if (qty < 1.0) continue
+                                    if (mint in trackedMints) continue
+                                    if (mint == "So11111111111111111111111111111111111111112") continue
                                     
-                                    val symbol = status.tokens[mint]?.symbol ?: mint.take(8)
+                                    val symbol = synchronized(status.tokens) {
+                                        status.tokens[mint]?.symbol
+                                    } ?: mint.take(8)
                                     addLog("🧹 ORPHAN: $symbol ($qty tokens)")
                                     try {
                                         val sold = executor.sellOrphanedToken(mint, qty, w)
