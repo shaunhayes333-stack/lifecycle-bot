@@ -624,7 +624,7 @@ class LifecycleStrategy(
                 // This prevents refreshing the cooldown on every cycle
                 if (FinalDecisionGate.hasActiveEdgeVeto(ts.mint) == null) {
                     FinalDecisionGate.recordEdgeVeto(ts.mint, edgeFilter.reason, edgeFilter.quality)
-                    ErrorLogger.debug("Edge", "📝 ${ts.symbol}: Veto recorded (3min cooldown starts)")
+                    ErrorLogger.debug("Edge", "📝 ${ts.symbol}: Veto recorded (20-30s cooldown starts)")
                 }
             } else {
                 // Edge is NOT vetoing - clear any existing veto (conditions improved)
