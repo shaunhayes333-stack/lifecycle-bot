@@ -1070,6 +1070,36 @@ class BotService : Service() {
             if (cfg.activeToken.isNotBlank() && cfg.activeToken !in watchlist)
                 watchlist.add(cfg.activeToken)
             
+            // ═══════════════════════════════════════════════════════════════════
+            // WALLET HEALTH CHECK - Critical for live mode sells
+            // If wallet is null in live mode, sells will fail silently!
+            // ═══════════════════════════════════════════════════════════════════
+            if (!cfg.paperMode && wallet == null) {
+                ErrorLogger.error("BotService", "🚨 LIVE MODE but wallet is NULL! Attempting reconnect...")
+                addLog("🚨 WALLET NULL IN LIVE MODE - Reconnecting...")
+                
+                // Try to reconnect
+                if (cfg.privateKeyB58.isNotBlank()) {
+                    try {
+                        val rpcUrl = cfg.rpcUrl.ifBlank { "https://api.mainnet-beta.solana.com" }
+                        val connected = walletManager.connect(cfg.privateKeyB58, rpcUrl)
+                        if (connected) {
+                            wallet = walletManager.getWallet()
+                            addLog("✅ Wallet reconnected: ${walletManager.state.value.shortKey}")
+                            ErrorLogger.info("BotService", "✅ Wallet reconnected successfully")
+                        } else {
+                            addLog("❌ Wallet reconnect failed: ${walletManager.state.value.errorMessage}")
+                            ErrorLogger.error("BotService", "❌ Wallet reconnect failed")
+                        }
+                    } catch (e: Exception) {
+                        addLog("❌ Wallet reconnect error: ${e.message}")
+                        ErrorLogger.error("BotService", "❌ Wallet reconnect error: ${e.message}")
+                    }
+                } else {
+                    addLog("❌ Cannot reconnect - no private key configured")
+                }
+            }
+            
             // Update FinalDecisionGate mode for veto cooldown timing
             FinalDecisionGate.setModeForVeto(cfg.paperMode)
 

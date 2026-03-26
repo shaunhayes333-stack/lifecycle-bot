@@ -2769,6 +2769,21 @@ class Executor(
         val hasWallet = wallet != null
         onLog("📤 doSell: ${ts.symbol} | paperMode=$isPaper | hasWallet=$hasWallet | reason=$reason", tradeId.mint)
         
+        // ═══════════════════════════════════════════════════════════════════
+        // BUG FIX: Warn loudly if live mode but no wallet - tokens will be stuck!
+        // ═══════════════════════════════════════════════════════════════════
+        if (!isPaper && wallet == null) {
+            ErrorLogger.error("Executor", "🚨 CRITICAL: Live mode sell attempted but WALLET IS NULL!")
+            ErrorLogger.error("Executor", "🚨 Token ${ts.symbol} WILL NOT BE SOLD - reconnect wallet!")
+            onLog("🚨 LIVE SELL BLOCKED: Wallet is NULL! ${ts.symbol} stuck in position!", tradeId.mint)
+            onNotify("🚨 Wallet Disconnected!", 
+                "Cannot sell ${ts.symbol} - wallet is NULL! Reconnect wallet immediately!",
+                com.lifecyclebot.engine.NotificationHistory.NotifEntry.NotifType.INFO)
+            onToast("🚨 WALLET NULL - Cannot sell ${ts.symbol}!")
+            // Don't route to paperSell - that would clear the position without selling!
+            return
+        }
+        
         if (isPaper || wallet == null) {
             onLog("📄 Routing to paperSell (paperMode=$isPaper, wallet=${if(hasWallet) "present" else "NULL"})", tradeId.mint)
             paperSell(ts, reason, tradeId)
