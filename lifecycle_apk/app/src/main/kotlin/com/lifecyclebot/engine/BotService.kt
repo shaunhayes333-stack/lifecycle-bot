@@ -1900,8 +1900,9 @@ class BotService : Service() {
                         }
                     }
                 } else if (ts.position.isOpen) {
-                    // Position management (exits) - still use existing flow
-                    if (!cbState.isHalted && !cbState.isPaused) {
+                    // Position management (exits) - ALWAYS monitor open positions
+                    // Even when paused, we need to manage risk on existing positions
+                    if (!cbState.isHalted) {
                         executor.maybeActWithDecision(
                             ts                 = ts,
                             decision           = decision,
@@ -1916,6 +1917,11 @@ class BotService : Service() {
                                     ?.state?.value?.totalTrades ?: 0
                             } catch (_: Exception) { 0 },
                         )
+                        
+                        // Log that we're monitoring during pause
+                        if (cbState.isPaused) {
+                            addLog("⏸ Paused but monitoring ${ts.symbol} position", mint)
+                        }
                     }
                 }
                 
