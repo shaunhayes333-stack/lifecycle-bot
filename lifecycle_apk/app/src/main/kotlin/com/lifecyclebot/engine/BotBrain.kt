@@ -289,12 +289,18 @@ class BotBrain(
                 else       ->  8.0
             }.coerceAtMost(maxStrictness)
 
-            // Restore regime multiplier
-            regimeBullMult = when {
+            // Restore regime multiplier - but don't punish too hard with limited data
+            val baseRegimeMult = when {
                 wr >= 0.80 -> 1.40
                 wr >= 0.72 -> 1.20
                 wr >= 0.65 -> 1.00
                 else       -> 0.80
+            }
+            // Don't reduce sizing below 0.9x until we have enough data
+            regimeBullMult = when {
+                trades.size < 50 -> baseRegimeMult.coerceAtLeast(1.0)  // No reduction with <50 trades
+                trades.size < 100 -> baseRegimeMult.coerceAtLeast(0.9) // Min 0.9x with <100 trades
+                else -> baseRegimeMult  // Full range after 100 trades
             }
 
             // Restore phase boosts from phase win rates
