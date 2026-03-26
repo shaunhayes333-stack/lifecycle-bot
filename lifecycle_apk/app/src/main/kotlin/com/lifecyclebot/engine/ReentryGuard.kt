@@ -23,15 +23,15 @@ package com.lifecyclebot.engine
 object ReentryGuard {
     
     // ═══════════════════════════════════════════════════════════════════
-    // CONFIGURATION
+    // CONFIGURATION - Aggressive timings for fast iteration
     // ═══════════════════════════════════════════════════════════════════
     
-    private const val COLLAPSE_LOCKOUT_MS = 60 * 60 * 1000L      // 60 min
-    private const val DISTRIBUTION_LOCKOUT_MS = 45 * 60 * 1000L  // 45 min
-    private const val STOP_LOSS_LOCKOUT_MS = 30 * 60 * 1000L     // 30 min
-    private const val MULTI_LOSS_LOCKOUT_MS = 30 * 60 * 1000L    // 30 min
-    private const val BAD_MEMORY_LOCKOUT_MS = 20 * 60 * 1000L    // 20 min
-    private const val GLOBAL_RESET_HOURS = 24                     // Full reset after 24h
+    private const val COLLAPSE_LOCKOUT_MS = 5 * 60 * 1000L        // 5 min (was 60 min)
+    private const val DISTRIBUTION_LOCKOUT_MS = 3 * 60 * 1000L    // 3 min (was 45 min)
+    private const val STOP_LOSS_LOCKOUT_MS = 2 * 60 * 1000L       // 2 min (was 30 min)
+    private const val MULTI_LOSS_LOCKOUT_MS = 2 * 60 * 1000L      // 2 min (was 30 min)
+    private const val BAD_MEMORY_LOCKOUT_MS = 1 * 60 * 1000L      // 1 min (was 20 min)
+    private const val GLOBAL_RESET_HOURS = 24                      // Full reset after 24h
     
     // Memory score floor - below this = hard block
     private const val MEMORY_SCORE_FLOOR = -0.3

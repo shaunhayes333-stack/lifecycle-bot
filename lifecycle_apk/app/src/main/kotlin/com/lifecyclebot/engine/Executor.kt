@@ -3154,15 +3154,15 @@ class Executor(
         when {
             reasonLower.contains("collapse") || reasonLower.contains("liq_drain") -> {
                 ReentryGuard.onLiquidityCollapse(tradeId.mint)
-                onLog("🔒 REENTRY BLOCKED: ${ts.symbol} - liquidity collapse (60min)", tradeId.mint)
+                onLog("🔒 REENTRY BLOCKED: ${ts.symbol} - liquidity collapse (5min)", tradeId.mint)
             }
             reasonLower.contains("distribution") || reasonLower.contains("whale_dump") || reasonLower.contains("dev_dump") -> {
                 ReentryGuard.onDistributionDetected(tradeId.mint)
-                onLog("🔒 REENTRY BLOCKED: ${ts.symbol} - distribution pattern (45min)", tradeId.mint)
+                onLog("🔒 REENTRY BLOCKED: ${ts.symbol} - distribution pattern (3min)", tradeId.mint)
             }
             reasonLower.contains("stop_loss") -> {
                 ReentryGuard.onStopLossHit(tradeId.mint, pnlP)
-                onLog("🔒 REENTRY BLOCKED: ${ts.symbol} - stop loss hit (30min)", tradeId.mint)
+                onLog("🔒 REENTRY BLOCKED: ${ts.symbol} - stop loss hit (2min)", tradeId.mint)
             }
         }
         
@@ -3764,15 +3764,15 @@ class Executor(
         when {
             reasonLowerLive.contains("collapse") || reasonLowerLive.contains("liq_drain") -> {
                 ReentryGuard.onLiquidityCollapse(tradeId.mint)
-                onLog("🔒 REENTRY BLOCKED: ${ts.symbol} - liquidity collapse (60min)", tradeId.mint)
+                onLog("🔒 REENTRY BLOCKED: ${ts.symbol} - liquidity collapse (5min)", tradeId.mint)
             }
             reasonLowerLive.contains("distribution") || reasonLowerLive.contains("whale_dump") || reasonLowerLive.contains("dev_dump") -> {
                 ReentryGuard.onDistributionDetected(tradeId.mint)
-                onLog("🔒 REENTRY BLOCKED: ${ts.symbol} - distribution pattern (45min)", tradeId.mint)
+                onLog("🔒 REENTRY BLOCKED: ${ts.symbol} - distribution pattern (3min)", tradeId.mint)
             }
             reasonLowerLive.contains("stop_loss") -> {
                 ReentryGuard.onStopLossHit(tradeId.mint, pnlP)
-                onLog("🔒 REENTRY BLOCKED: ${ts.symbol} - stop loss hit (30min)", tradeId.mint)
+                onLog("🔒 REENTRY BLOCKED: ${ts.symbol} - stop loss hit (2min)", tradeId.mint)
             }
         }
         
