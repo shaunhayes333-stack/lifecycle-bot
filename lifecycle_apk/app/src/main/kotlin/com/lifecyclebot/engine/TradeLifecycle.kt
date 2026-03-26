@@ -151,6 +151,102 @@ object TradeLifecycle {
     private val lifecycles = mutableMapOf<String, Lifecycle>()
     private const val MAX_TRACKED = 500  // Limit memory usage
     
+    // ═══════════════════════════════════════════════════════════════════════════
+    // PROPOSAL DEDUPE — Prevent duplicate proposal/approval spam
+    // ═══════════════════════════════════════════════════════════════════════════
+    
+    // mint -> (lastProposalTime, lastApprovalTime, proposalCount)
+    private data class ProposalTracker(
+        var lastProposalMs: Long = 0,
+        var lastApprovalMs: Long = 0,
+        var proposalCount: Int = 0,
+        var approvalCount: Int = 0,
+    )
+    
+    private val proposalTrackers = mutableMapOf<String, ProposalTracker>()
+    private const val MIN_PROPOSAL_INTERVAL_MS = 30_000L  // 30 seconds between proposals
+    private const val MIN_APPROVAL_INTERVAL_MS = 60_000L  // 60 seconds between approvals
+    private const val MAX_PROPOSALS_PER_WINDOW = 3        // Max 3 proposals in 5 min window
+    private const val PROPOSAL_WINDOW_MS = 5 * 60_000L    // 5 min window
+    
+    /**
+     * Check if a proposal should be allowed (dedupe check)
+     * Returns: Pair(allowed: Boolean, reason: String?)
+     */
+    fun canPropose(mint: String): Pair<Boolean, String?> {
+        val now = System.currentTimeMillis()
+        val tracker = proposalTrackers.getOrPut(mint) { ProposalTracker() }
+        
+        // Reset counts if window expired
+        if (now - tracker.lastProposalMs > PROPOSAL_WINDOW_MS) {
+            tracker.proposalCount = 0
+        }
+        
+        // Check 1: Too soon since last proposal?
+        if (now - tracker.lastProposalMs < MIN_PROPOSAL_INTERVAL_MS) {
+            val waitSec = (MIN_PROPOSAL_INTERVAL_MS - (now - tracker.lastProposalMs)) / 1000
+            return false to "DEDUPE: Proposal too soon, wait ${waitSec}s"
+        }
+        
+        // Check 2: Too many proposals in window?
+        if (tracker.proposalCount >= MAX_PROPOSALS_PER_WINDOW) {
+            return false to "DEDUPE: Max $MAX_PROPOSALS_PER_WINDOW proposals in ${PROPOSAL_WINDOW_MS/60000}min"
+        }
+        
+        // Check 3: Already in active state (PROPOSED, FDG_APPROVED, EXECUTED, MONITORING)?
+        val lc = lifecycles[mint]
+        if (lc != null && lc.currentState in listOf(
+            State.PROPOSED, State.FDG_APPROVED, State.SIZED, State.EXECUTED, State.MONITORING
+        )) {
+            return false to "DEDUPE: Already in state ${lc.currentState}"
+        }
+        
+        return true to null
+    }
+    
+    /**
+     * Check if an approval should be allowed (dedupe check)
+     */
+    fun canApprove(mint: String): Pair<Boolean, String?> {
+        val now = System.currentTimeMillis()
+        val tracker = proposalTrackers.getOrPut(mint) { ProposalTracker() }
+        
+        // Check: Too soon since last approval?
+        if (now - tracker.lastApprovalMs < MIN_APPROVAL_INTERVAL_MS) {
+            val waitSec = (MIN_APPROVAL_INTERVAL_MS - (now - tracker.lastApprovalMs)) / 1000
+            return false to "DEDUPE: Approval too soon, wait ${waitSec}s"
+        }
+        
+        return true to null
+    }
+    
+    /**
+     * Record that a proposal was made
+     */
+    fun recordProposal(mint: String) {
+        val now = System.currentTimeMillis()
+        val tracker = proposalTrackers.getOrPut(mint) { ProposalTracker() }
+        tracker.lastProposalMs = now
+        tracker.proposalCount++
+    }
+    
+    /**
+     * Record that an approval was made
+     */
+    fun recordApproval(mint: String) {
+        val now = System.currentTimeMillis()
+        val tracker = proposalTrackers.getOrPut(mint) { ProposalTracker() }
+        tracker.lastApprovalMs = now
+        tracker.approvalCount++
+    }
+    
+    /**
+     * Clear proposal tracking for a token (after trade closes or times out)
+     */
+    fun clearProposalTracking(mint: String) {
+        proposalTrackers.remove(mint)
+    }
+    
     /**
      * Start tracking a new token lifecycle
      */

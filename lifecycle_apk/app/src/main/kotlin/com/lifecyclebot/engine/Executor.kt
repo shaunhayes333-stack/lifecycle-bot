@@ -3105,6 +3105,7 @@ class Executor(
         // ═══════════════════════════════════════════════════════════════════
         TradeLifecycle.closed(tradeId.mint, price, pnlP, reason)
         TradeLifecycle.classified(tradeId.mint, classification, if (isScratchTrade) null else shouldLearnAsWin)
+        TradeLifecycle.clearProposalTracking(tradeId.mint)  // Allow future re-proposals
         
         // ═══════════════════════════════════════════════════════════════════
         // DISTRIBUTION COOLDOWN: Record if exited due to distribution
@@ -3691,6 +3692,7 @@ class Executor(
         // ═══════════════════════════════════════════════════════════════════
         TradeLifecycle.closed(tradeId.mint, exitPrice, pnlP, reason)
         TradeLifecycle.classified(tradeId.mint, classificationLive, if (isScratchTradeLive) null else shouldLearnAsWin)
+        TradeLifecycle.clearProposalTracking(tradeId.mint)  // Allow future re-proposals
         
         // ═══════════════════════════════════════════════════════════════════
         // DISTRIBUTION COOLDOWN: Record if exited due to distribution

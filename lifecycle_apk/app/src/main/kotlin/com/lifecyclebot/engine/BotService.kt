@@ -1774,6 +1774,7 @@ class BotService : Service() {
                     // LIFECYCLE: PROPOSED → FDG evaluation
                     // ═══════════════════════════════════════════════════════════════════
                     TradeLifecycle.proposed(identity.mint)
+                    TradeLifecycle.recordProposal(identity.mint)  // Track for dedupe
                     
                     // Run through Final Decision Gate
                     val fdgDecision = FinalDecisionGate.evaluate(
@@ -1816,6 +1817,7 @@ class BotService : Service() {
                             fdgDecision.confidence,
                             fdgDecision.approvalClass.name  // LIVE, PAPER_BENCHMARK, or PAPER_EXPLORATION
                         )
+                        TradeLifecycle.recordApproval(identity.mint)  // Track for dedupe
                         TradeLifecycle.sized(identity.mint, actualInitialSize, "medium")
                         
                         FinalDecisionGate.logApprovedTrade(fdgDecision) { addLog(it, mint) }

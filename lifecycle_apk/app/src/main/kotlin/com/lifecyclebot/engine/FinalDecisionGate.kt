@@ -896,6 +896,21 @@ object FinalDecisionGate {
         }
         
         // ─────────────────────────────────────────────────────────────────────
+        // GATE 0.5: PROPOSAL DEDUPE (prevent spam)
+        // Same token cannot be proposed/approved multiple times in quick succession
+        // ─────────────────────────────────────────────────────────────────────
+        if (blockReason == null) {
+            val (canPropose, dedupeReason) = TradeLifecycle.canPropose(ts.mint)
+            if (!canPropose) {
+                blockReason = "HARD_BLOCK_$dedupeReason"
+                blockLevel = BlockLevel.HARD
+                checks.add(GateCheck("proposal_dedupe", false, dedupeReason))
+            } else {
+                checks.add(GateCheck("proposal_dedupe", true, null))
+            }
+        }
+        
+        // ─────────────────────────────────────────────────────────────────────
         // GATE 1: HARD BLOCKS (non-negotiable, checked first)
         // ─────────────────────────────────────────────────────────────────────
         
