@@ -2332,6 +2332,7 @@ class Executor(
             if (shouldExit != null) {
                 val isWin = pnlPct > 0
                 val pnlSol = pnlPct * shadow.entrySol / 100
+                val shadowHoldMins = (System.currentTimeMillis() - shadow.entryTime) / 60_000.0
                 
                 // Record outcome for learning - THIS IS THE KEY PART
                 // Shadow trades are EXPLORATION quality (bypassed live rules)
@@ -2350,6 +2351,11 @@ class Executor(
                     liquidityUsd = 10000.0,
                     isLiveTrade = false,  // Shadow trades are NOT live
                     approvalClass = "PAPER_EXPLORATION",  // Shadow = exploration quality (0.3x weight)
+                    // NEW: Execution quality metrics
+                    holdTimeMinutes = shadowHoldMins,
+                    maxGainPct = pnlPct.coerceAtLeast(0.0),  // Shadow doesn't track peak, use current
+                    exitReason = shouldExit,
+                    tokenAgeMinutes = 0.0,  // Shadow doesn't track token age
                 )
                 
                 // Update adaptive thresholds based on shadow outcome
@@ -2842,6 +2848,17 @@ class Executor(
         // ═══════════════════════════════════════════════════════════════════
         
         val holdTimeMins = (System.currentTimeMillis() - pos.entryTime) / 60_000.0
+        
+        // Calculate max gain (peak P&L during hold)
+        val maxGainPct = if (pos.entryPrice > 0 && pos.highestPrice > 0) {
+            ((pos.highestPrice - pos.entryPrice) / pos.entryPrice) * 100.0
+        } else 0.0
+        
+        // Calculate token age at entry (how old was the token when we bought)
+        val tokenAgeMins = if (ts.addedToWatchlistAt > 0) {
+            (pos.entryTime - ts.addedToWatchlistAt) / 60_000.0
+        } else 0.0
+        
         val tradeClassification = when {
             pnlP >= 5.0 -> "WIN"              // Real winner - LEARN
             pnlP <= -5.0 -> "LOSS"            // Real loser - LEARN
@@ -2917,6 +2934,11 @@ class Executor(
                     liquidityUsd = ts.lastLiquidityUsd,
                     isLiveTrade = false,  // Paper trade
                     approvalClass = tradeId.fdgApprovalClass.ifEmpty { "PAPER_BENCHMARK" },  // Quality-based weight
+                    // NEW: Execution quality metrics
+                    holdTimeMinutes = holdTimeMins,
+                    maxGainPct = maxGainPct,
+                    exitReason = reason,
+                    tokenAgeMinutes = tokenAgeMins,
                 )
                 // Paper mode: Still BAN tokens to build the list for live mode
                 // but we don't CHECK the list in paper mode (handled in scanner/watchlist)
@@ -2978,6 +3000,11 @@ class Executor(
                     liquidityUsd = ts.lastLiquidityUsd,
                     isLiveTrade = false,  // Paper trade
                     approvalClass = tradeId.fdgApprovalClass.ifEmpty { "PAPER_BENCHMARK" },  // Quality-based weight
+                    // NEW: Execution quality metrics
+                    holdTimeMinutes = holdTimeMins,
+                    maxGainPct = maxGainPct,
+                    exitReason = reason,
+                    tokenAgeMinutes = tokenAgeMins,
                 )
             }
             
@@ -3481,6 +3508,17 @@ class Executor(
         // Only learn from ±5%+ trades - no more garbage data
         // ═══════════════════════════════════════════════════════════════════
         val holdTimeMins = (System.currentTimeMillis() - pos.entryTime) / 60_000.0
+        
+        // Calculate max gain (peak P&L during hold) - LIVE mode
+        val maxGainPctLive = if (pos.entryPrice > 0 && pos.highestPrice > 0) {
+            ((pos.highestPrice - pos.entryPrice) / pos.entryPrice) * 100.0
+        } else 0.0
+        
+        // Calculate token age at entry (how old was the token when we bought) - LIVE mode
+        val tokenAgeMinsLive = if (ts.addedToWatchlistAt > 0) {
+            (pos.entryTime - ts.addedToWatchlistAt) / 60_000.0
+        } else 0.0
+        
         val tradeClassification = when {
             pnlP >= 5.0 -> "WIN"              // Real winner - LEARN
             pnlP <= -5.0 -> "LOSS"            // Real loser - LEARN
@@ -3542,6 +3580,11 @@ class Executor(
                     liquidityUsd = ts.lastLiquidityUsd,
                     isLiveTrade = true,  // LIVE trade = 3x weight!
                     approvalClass = tradeId.fdgApprovalClass.ifEmpty { "LIVE" },  // Live mode approval
+                    // NEW: Execution quality metrics
+                    holdTimeMinutes = holdTimeMins,
+                    maxGainPct = maxGainPctLive,
+                    exitReason = reason,
+                    tokenAgeMinutes = tokenAgeMinsLive,
                 )
                 // Paper mode: Still BAN tokens to build the list for live mode
                 // but we don't CHECK the list in paper mode (handled in scanner/watchlist)
@@ -3586,6 +3629,11 @@ class Executor(
                     liquidityUsd = ts.lastLiquidityUsd,
                     isLiveTrade = true,  // LIVE trade = 3x weight!
                     approvalClass = tradeId.fdgApprovalClass.ifEmpty { "LIVE" },  // Live mode approval
+                    // NEW: Execution quality metrics
+                    holdTimeMinutes = holdTimeMins,
+                    maxGainPct = maxGainPctLive,
+                    exitReason = reason,
+                    tokenAgeMinutes = tokenAgeMinsLive,
                 )
             }
         } else {

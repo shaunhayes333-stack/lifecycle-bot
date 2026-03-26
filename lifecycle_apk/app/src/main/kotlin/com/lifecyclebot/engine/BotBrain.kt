@@ -185,6 +185,12 @@ class BotBrain(
     
     /**
      * Trade record for memory storage with timestamp for decay calculation
+     * 
+     * ENHANCED (Mar 2026): Added execution quality metrics:
+     * - holdTimeMinutes: How long we held (fast pumps vs slow builds)
+     * - maxGainPct: Peak P&L during hold (to detect "left on table")
+     * - exitReason: Why we exited (profit target, stop loss, distribution, etc.)
+     * - tokenAgeMinutes: How old the token was at entry
      */
     data class MemoryTrade(
         val timestamp: Long,
@@ -197,6 +203,12 @@ class BotBrain(
         val buyPressure: Double,
         val topHolderPct: Double,
         val liquidityUsd: Double,
+        // NEW: Execution quality metrics
+        val holdTimeMinutes: Double = 0.0,    // How long we held
+        val maxGainPct: Double = 0.0,         // Peak P&L (highest point)
+        val leftOnTablePct: Double = 0.0,     // maxGain - pnlPct (exit quality)
+        val exitReason: String = "",          // Why we exited
+        val tokenAgeMinutes: Double = 0.0,    // Token age at entry
     )
     
     // Recent memory - last N trades, high weight, adapts quickly
@@ -1017,6 +1029,11 @@ Analyse this data and respond with ONLY valid JSON in this exact format:
         // APPROVAL CLASS WEIGHTING: Exploration trades get reduced weight
         // "LIVE" = 3x, "PAPER_BENCHMARK" = 1x, "PAPER_EXPLORATION" = 0.3x
         approvalClass: String = "PAPER_BENCHMARK",
+        // NEW: Execution quality metrics (with defaults for backwards compatibility)
+        holdTimeMinutes: Double = 0.0,
+        maxGainPct: Double = 0.0,
+        exitReason: String = "",
+        tokenAgeMinutes: Double = 0.0,
     ): Boolean {
         // Calculate weight based on trade quality
         // LIVE: 3x, BENCHMARK: 1x, EXPLORATION: 0.3x
@@ -1048,6 +1065,11 @@ Analyse this data and respond with ONLY valid JSON in this exact format:
                     buyPressure = buyPressure,
                     topHolderPct = topHolderPct,
                     liquidityUsd = liquidityUsd,
+                    // NEW: Execution quality metrics
+                    holdTimeMinutes = holdTimeMinutes,
+                    maxGainPct = maxGainPct,
+                    exitReason = exitReason,
+                    tokenAgeMinutes = tokenAgeMinutes,
                 )
             }
             
@@ -1762,7 +1784,15 @@ Analyse this data and respond with ONLY valid JSON in this exact format:
         buyPressure: Double,
         topHolderPct: Double,
         liquidityUsd: Double,
+        // NEW: Execution quality metrics (with defaults for backwards compatibility)
+        holdTimeMinutes: Double = 0.0,
+        maxGainPct: Double = 0.0,
+        exitReason: String = "",
+        tokenAgeMinutes: Double = 0.0,
     ) {
+        // Calculate "left on table" - how much we missed by exiting early
+        val leftOnTable = if (maxGainPct > pnlPct) maxGainPct - pnlPct else 0.0
+        
         val trade = MemoryTrade(
             timestamp = System.currentTimeMillis(),
             isWin = isWin,
@@ -1774,6 +1804,12 @@ Analyse this data and respond with ONLY valid JSON in this exact format:
             buyPressure = buyPressure,
             topHolderPct = topHolderPct,
             liquidityUsd = liquidityUsd,
+            // NEW fields
+            holdTimeMinutes = holdTimeMinutes,
+            maxGainPct = maxGainPct,
+            leftOnTablePct = leftOnTable,
+            exitReason = exitReason,
+            tokenAgeMinutes = tokenAgeMinutes,
         )
         
         // Add to recent memory (FIFO, keeps last N)
