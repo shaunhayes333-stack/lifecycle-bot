@@ -1,6 +1,6 @@
 package com.lifecyclebot.engine
 
-import com.lifecyclebot.data.TokenState
+import com.lifecyclebot.data.*
 import com.lifecyclebot.network.SolanaWallet
 
 /**
@@ -81,7 +81,7 @@ object PositionHealthMonitor {
                         // Ghost position detected - clear it
                         onLog("🧹 GHOST DETECTED: ${ts.symbol} - clearing (on-chain=0, tracked=${ts.position.qtyToken})", ts.mint)
                         synchronized(ts) {
-                            ts.position = com.lifecyclebot.data.Position()
+                            ts.position = Position()
                             ts.lastExitTs = System.currentTimeMillis()
                         }
                         ghostCleared.add(ts.symbol)
