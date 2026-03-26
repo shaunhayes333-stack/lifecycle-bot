@@ -1025,19 +1025,12 @@ object FinalDecisionGate {
         }
         
         // ─────────────────────────────────────────────────────────────────────
-        // GATE 0.5: PROPOSAL DEDUPE (prevent spam)
-        // Same token cannot be proposed/approved multiple times in quick succession
+        // GATE 0.5: PROPOSAL DEDUPE — REMOVED
+        // This check was moved to BotService (early dedupe check before CANDIDATE)
+        // The FDG check was redundant and caused self-blocking because it would
+        // see the PROPOSED state that was just set moments before FDG.evaluate()
         // ─────────────────────────────────────────────────────────────────────
-        if (blockReason == null) {
-            val (canPropose, dedupeReason) = TradeLifecycle.canPropose(ts.mint)
-            if (!canPropose) {
-                blockReason = "HARD_BLOCK_$dedupeReason"
-                blockLevel = BlockLevel.HARD
-                checks.add(GateCheck("proposal_dedupe", false, dedupeReason))
-            } else {
-                checks.add(GateCheck("proposal_dedupe", true, null))
-            }
-        }
+        checks.add(GateCheck("proposal_dedupe", true, "checked early in BotService"))
         
         // ─────────────────────────────────────────────────────────────────────
         // GATE 1: HARD BLOCKS (non-negotiable, checked first)
