@@ -1801,7 +1801,8 @@ class BotService : Service() {
                     ClosedLoopFeedback.recordDecision(trueState, feedback.cappedBoost, decisionType)
                     
                     // Log feedback if significant (but feedback does NOT modify FDG decision)
-                    if (kotlin.math.abs(feedback.cappedBoost) > 5) {
+                    val absBoost = if (feedback.cappedBoost < 0) -feedback.cappedBoost else feedback.cappedBoost
+                    if (absBoost > 5) {
                         val boostStr = if (feedback.cappedBoost > 0) "+${feedback.cappedBoost.toInt()}" else "${feedback.cappedBoost.toInt()}"
                         addLog("🔄 Feedback: $boostStr% [${feedback.recommendation}] risk=${visualState.riskScore.toInt()}", mint)
                     }
