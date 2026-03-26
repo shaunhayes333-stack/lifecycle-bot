@@ -6,6 +6,12 @@ While everyone else is running basic snipers and getting rugged, **AATE (Autonom
 
 This isn't a bot. It's a **self-improving trading brain** running natively on your Android device with **military-grade security**.
 
+### 🆕 March 2026 Update: Self-Representing Agent
+- **Closed-Loop Feedback** — The bot now adjusts its own confidence based on lifetime performance
+- **14 Learning Metrics** — Tracks holdTime, maxGain, leftOnTable, exitReason, tokenAge per trade
+- **Quality-Weighted Learning** — Live trades = 3x weight, exploration = 0.3x (no garbage data)
+- **Token Logos** — Real token icons from DexScreener
+
 ---
 
 ## 🔐 BANK-LEVEL SECURITY
@@ -136,10 +142,11 @@ Paper mode isn't fake anymore. It tracks a **realistic simulated balance** with:
 
 ## ✨ UI/UX FEATURES
 
+- **🖼️ Token Logos** — Real icons from DexScreener, circle-cropped
 - **🔄 Pull-to-Refresh** — Swipe down anywhere to refresh data
 - **📳 Haptic Feedback** — Vibration on key actions
 - **🎨 Animated Progress Bars** — Smooth Entry/Exit/Vol/Buy% animations
-- **🌓 Dark/Light Mode** — Toggle in settings
+- **🌓 Dark/Light Mode** — Toggle in settings (consistent dark cards)
 - **🧠 Brain Indicator** — Visual learning progress
 - **💰 Floating PnL Card** — Real-time position tracking
 - **⚠️ First-Time Disclaimer** — Legal protection built-in
@@ -147,6 +154,57 @@ Paper mode isn't fake anymore. It tracks a **realistic simulated balance** with:
 ---
 
 ## 📈 THE LEARNING NEVER STOPS
+
+### 🆕 Closed-Loop Feedback System (Self-Representing Agent)
+
+The bot now **knows when it's winning or losing** and adjusts automatically:
+
+| Win Rate | Mode | Confidence Adjustment |
+|----------|------|----------------------|
+| 65%+ | 🟢 AGGRESSIVE | -15% (takes more trades) |
+| 55-65% | 🟢 AGGRESSIVE | -5% to -10% |
+| 45-55% | ⚪ NEUTRAL | No change |
+| 35-45% | 🔴 DEFENSIVE | +5% to +10% |
+| <35% | 🔴 DEFENSIVE | +15% (filters harder) |
+
+**Architecture:**
+- **Damping**: EMA smoothing (α=0.15) prevents whipsawing
+- **Lagging**: Uses historical data, not real-time session
+- **Governor**: Capped at ±15% max influence
+- **Minimum**: Requires 10+ trades before activating
+
+### 🆕 Quality-Weighted Learning
+
+Not all trades are equal. The bot learns primarily from **quality data**:
+
+| Trade Type | Weight | Why |
+|------------|--------|-----|
+| 🔴 **LIVE** | 3.0x | Real money validates the strategy |
+| 🟢 **PAPER_BENCHMARK** | 1.0x | Would pass live rules = quality signal |
+| 🟡 **PAPER_EXPLORATION** | 0.3x | Bypassed rules = weak signal (30% recorded) |
+
+### 🆕 14 Learning Metrics Per Trade
+
+Every trade teaches the bot:
+
+| Metric | What It Learns |
+|--------|----------------|
+| `holdTimeMinutes` | Fast pumps vs slow builds |
+| `maxGainPct` | Peak P&L during hold |
+| `leftOnTablePct` | How much we missed by exiting early |
+| `exitReason` | Why we exited (stop_loss, profit_target, distribution) |
+| `tokenAgeMinutes` | Young tokens behave differently |
+| `phase` | Market phase at entry |
+| `emaFan` | EMA alignment state |
+| `source` | Discovery source performance |
+| `rugcheckScore` | Safety correlation |
+| `buyPressure` | Momentum correlation |
+| `topHolderPct` | Whale concentration impact |
+| `liquidityUsd` | Optimal liquidity ranges |
+| `pnlPct` | Actual outcome |
+| `isWin` | Win/loss classification |
+
+### Core Learning Systems
 
 - **Edge Learning**: Entry/exit thresholds adapt based on outcomes
 - **Pattern Memory**: Remembers winning setups per token category

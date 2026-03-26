@@ -4,6 +4,13 @@
 
 AATE (Autonomous Algorithmic Trading Engine) is a sophisticated Android-native trading bot that autonomously discovers, analyzes, and trades Solana meme coins using a **10-layer AI decision engine**. Built in Kotlin with real-time blockchain integration, it combines machine learning, quantitative analysis, LLM reasoning, and adaptive risk management to identify profitable trading opportunities.
 
+**Latest Update (March 2026):**
+- **Closed-Loop Feedback** — Self-adjusting confidence based on lifetime win rate
+- **Quality-Weighted Learning** — LIVE=3x, BENCHMARK=1x, EXPLORATION=0.3x
+- **14 Learning Metrics** — holdTime, maxGain, leftOnTable, exitReason, tokenAge
+- **Token Logos** — Real icons from DexScreener
+- **Proposal Dedupe** — 60s cooldown prevents spam cycles
+
 **Features:**
 - **Gemini AI Co-pilot** - Full AI assistance layer providing narrative analysis, trade reasoning, exit advice, and risk assessment powered by Google's Gemini 2.0 Flash.
 - **Military-Grade Security** - All sensitive data (wallet keys, API keys) encrypted with AES-256 via Android's EncryptedSharedPreferences with hardware-backed keystore.
@@ -125,6 +132,64 @@ Memory systems:
 - **TradeDatabase**: SQLite analytics
 - **Shadow Learning**: Background paper trade outcomes
 
+### Closed-Loop Feedback System (NEW - March 2026)
+
+The bot is now a **self-representing agent** that adjusts confidence based on lifetime performance:
+
+| Win Rate | Mode | Confidence Adjustment |
+|----------|------|----------------------|
+| 65%+ | AGGRESSIVE | -15% threshold |
+| 55-65% | AGGRESSIVE | -5% to -10% |
+| 45-55% | NEUTRAL | No change |
+| 35-45% | DEFENSIVE | +5% to +10% |
+| <35% | DEFENSIVE | +15% threshold |
+
+**Architecture Constraints:**
+- **Damping**: EMA smoothing (α=0.15) prevents whipsawing on single outcomes
+- **Lagging**: Uses historical wallet data, not per-session stats
+- **Governor**: Capped at ±15% max influence
+- **Minimum**: Requires 10+ lifetime trades before activating
+
+### Quality-Weighted Learning (NEW - March 2026)
+
+Not all trades provide equal learning signal:
+
+| Trade Type | Weight | Rationale |
+|------------|--------|-----------|
+| LIVE | 3.0x | Real money validates strategy |
+| PAPER_BENCHMARK | 1.0x | Would pass live rules = quality data |
+| PAPER_EXPLORATION | 0.3x | Bypassed rules = weak signal (~30% recorded) |
+
+### 14-Metric Learning System (NEW - March 2026)
+
+Each trade captures comprehensive execution data:
+
+| Metric | Purpose |
+|--------|---------|
+| `holdTimeMinutes` | Learn optimal hold durations |
+| `maxGainPct` | Peak P&L to detect "left on table" |
+| `leftOnTablePct` | Exit timing optimization |
+| `exitReason` | Categorize outcomes (profit_target, stop_loss, distribution) |
+| `tokenAgeMinutes` | Young tokens behave differently |
+| `phase` | Market phase correlation |
+| `emaFan` | Technical alignment |
+| `source` | Discovery source performance |
+| `rugcheckScore` | Safety correlation |
+| `buyPressure` | Momentum correlation |
+| `topHolderPct` | Whale concentration impact |
+| `liquidityUsd` | Optimal liquidity ranges |
+| `pnlPct` | Actual outcome |
+| `isWin` | Classification |
+
+### Proposal Deduplication (NEW - March 2026)
+
+Prevents spam cycles where the same token is repeatedly proposed:
+
+- **60-second cooldown** between proposals for same token
+- **60-second cooldown** between approvals
+- **Max 3 proposals** per 5-minute window
+- **State tracking**: Blocks tokens already in PROPOSED/APPROVED/EXECUTED states
+
 ---
 
 ## Trading Features
@@ -217,6 +282,7 @@ Continuous multi-source token discovery:
 
 ## Mobile UI Features
 
+- **Token Logos** - Real icons from DexScreener (Coil image loading)
 - Real-time P&L dashboard
 - Trade journal with export
 - Position monitoring
@@ -224,6 +290,7 @@ Continuous multi-source token discovery:
 - Gemini reasoning logs
 - Notification/sound toggles
 - Advanced settings panel
+- **Dark Mode** - Consistent dark cards throughout
 
 ---
 
@@ -337,6 +404,10 @@ React + FastAPI dashboard for desktop monitoring:
 - Auto-adjusting thresholds active
 - Sell path verified with on-chain balance checks
 - Web dashboard available
+- **Closed-Loop Feedback active** (self-adjusting confidence)
+- **Quality-weighted learning** (3x/1x/0.3x)
+- **14-metric learning system** deployed
+- **Token logos** in UI
 
 ---
 
