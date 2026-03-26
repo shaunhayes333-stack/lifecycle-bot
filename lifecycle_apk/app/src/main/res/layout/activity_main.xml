@@ -152,11 +152,11 @@
                         android:singleLine="true"/>
                 </LinearLayout>
                 
-                <!-- Logo - Right side under wallet pill -->
+                <!-- Logo - Right side under wallet pill (larger size) -->
                 <ImageView
                     android:id="@+id/ivLogo"
-                    android:layout_width="48dp"
-                    android:layout_height="48dp"
+                    android:layout_width="72dp"
+                    android:layout_height="72dp"
                     android:src="@drawable/logo"
                     android:scaleType="fitCenter"
                     android:contentDescription="AI Trader Logo"
