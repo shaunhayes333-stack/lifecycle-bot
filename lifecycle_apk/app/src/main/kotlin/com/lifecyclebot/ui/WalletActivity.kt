@@ -404,6 +404,9 @@ class WalletActivity : AppCompatActivity() {
             container?.setBackgroundColor(0xFF06080C.toInt())
             window.statusBarColor = 0xFF06080C.toInt()
             window.navigationBarColor = 0xFF06080C.toInt()
+            
+            // Apply dark card backgrounds to all cards
+            applyDarkCardBackgrounds(container)
         } else {
             scrollView.setBackgroundColor(0xFFF8F9FA.toInt())
             container?.setBackgroundColor(0xFFF8F9FA.toInt())
@@ -411,6 +414,18 @@ class WalletActivity : AppCompatActivity() {
             window.navigationBarColor = 0xFFF5F5F5.toInt()
             // Update text colors for light mode
             window.decorView.systemUiVisibility = View.SYSTEM_UI_FLAG_LIGHT_STATUS_BAR
+        }
+    }
+    
+    private fun applyDarkCardBackgrounds(container: LinearLayout?) {
+        container ?: return
+        // Find all LinearLayouts that are direct children (the cards)
+        for (i in 0 until container.childCount) {
+            val child = container.getChildAt(i)
+            if (child is LinearLayout) {
+                // Apply dark card background drawable
+                child.setBackgroundResource(R.drawable.card_bg_dark)
+            }
         }
     }
 }
