@@ -401,10 +401,14 @@ class WalletActivity : AppCompatActivity() {
         
         if (isDarkMode) {
             scrollView.setBackgroundColor(0xFF06080C.toInt())
+            container?.setBackgroundColor(0xFF06080C.toInt())
             window.statusBarColor = 0xFF06080C.toInt()
+            window.navigationBarColor = 0xFF06080C.toInt()
         } else {
             scrollView.setBackgroundColor(0xFFF8F9FA.toInt())
+            container?.setBackgroundColor(0xFFF8F9FA.toInt())
             window.statusBarColor = 0xFFF5F5F5.toInt()
+            window.navigationBarColor = 0xFFF5F5F5.toInt()
             // Update text colors for light mode
             window.decorView.systemUiVisibility = View.SYSTEM_UI_FLAG_LIGHT_STATUS_BAR
         }

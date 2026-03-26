@@ -1972,24 +1972,29 @@
         </LinearLayout>
     </androidx.core.widget.NestedScrollView>
 
+    </androidx.swiperefreshlayout.widget.SwipeRefreshLayout>
+
     <!-- ═══════════════════════════════
-         BOTTOM BAR — pinned, auto-padded
+         FIXED BOTTOM CONTAINER (Status + Button)
          ═══════════════════════════════ -->
     <LinearLayout
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:layout_gravity="bottom"
-        android:background="@drawable/bottom_bar_bg"
         android:orientation="vertical"
-        android:paddingStart="@dimen/bottom_bar_padding_h"
-        android:paddingEnd="@dimen/bottom_bar_padding_h"
-        android:paddingTop="@dimen/bottom_bar_padding_top"
-        android:paddingBottom="@dimen/bottom_bar_padding_bottom">
+        android:background="@drawable/bottom_bar_bg"
+        android:elevation="8dp">
 
         <!-- Status row -->
-        <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content"
-            android:orientation="horizontal" android:gravity="center_vertical"
-            android:layout_marginBottom="8dp">
+        <LinearLayout 
+            android:layout_width="match_parent" 
+            android:layout_height="wrap_content"
+            android:orientation="horizontal" 
+            android:gravity="center_vertical"
+            android:paddingStart="@dimen/bottom_bar_padding_h"
+            android:paddingEnd="@dimen/bottom_bar_padding_h"
+            android:paddingTop="10dp"
+            android:paddingBottom="8dp">
 
             <View android:id="@+id/statusDot"
                 android:layout_width="@dimen/dot_size" android:layout_height="@dimen/dot_size"
@@ -2027,27 +2032,21 @@
             </LinearLayout>
         </LinearLayout>
 
+        <!-- Start/Stop Button -->
+        <Button android:id="@+id/btnToggle"
+            android:layout_width="match_parent"
+            android:layout_height="@dimen/bottom_bar_button_height"
+            android:layout_marginStart="16dp"
+            android:layout_marginEnd="16dp"
+            android:layout_marginTop="4dp"
+            android:layout_marginBottom="16dp"
+            android:text="Start Bot"
+            android:textColor="#FFFFFF"
+            android:textSize="@dimen/bottom_bar_button_text"
+            android:textStyle="bold"
+            android:backgroundTint="#9945FF"
+            android:stateListAnimator="@null"/>
     </LinearLayout>
-
-    </androidx.swiperefreshlayout.widget.SwipeRefreshLayout>
-
-    <!-- ═══════════════════════════════
-         START/STOP BUTTON (FIXED BOTTOM)
-         ═══════════════════════════════ -->
-    <Button android:id="@+id/btnToggle"
-        android:layout_width="match_parent"
-        android:layout_height="@dimen/bottom_bar_button_height"
-        android:layout_marginStart="16dp"
-        android:layout_marginEnd="16dp"
-        android:layout_marginBottom="16dp"
-        android:layout_gravity="bottom"
-        android:text="Start Bot"
-        android:textColor="#FFFFFF"
-        android:textSize="@dimen/bottom_bar_button_text"
-        android:textStyle="bold"
-        android:backgroundTint="#9945FF"
-        android:elevation="8dp"
-        android:stateListAnimator="@null"/>
 
     <!-- ═══════════════════════════════
          POSITION PNL FLOATING CARD
