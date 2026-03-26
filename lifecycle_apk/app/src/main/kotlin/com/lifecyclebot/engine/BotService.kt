@@ -1785,20 +1785,25 @@ class BotService : Service() {
                     )
                     
                     // ═══════════════════════════════════════════════════════════════════
-                    // CLOSED-LOOP FEEDBACK: Visual state influences decisions
-                    // Capture current UI state and apply learned influence
+                    // CLOSED-LOOP FEEDBACK: Constrained visual state influence
+                    // Pipeline: TrueState -> VisualState -> FeedbackState (damped, lagged)
+                    // Prevents positive feedback runaway with:
+                    //   - Risk-based damping (high risk = weak feedback)
+                    //   - EMA smoothing (lag prevents jitter)
+                    //   - Hard confidence cap (85% max)
                     // ═══════════════════════════════════════════════════════════════════
-                    val visualState = ClosedLoopFeedback.captureVisualState(status)
-                    val visualInfluence = ClosedLoopFeedback.getVisualInfluence(visualState)
+                    val trueState = ClosedLoopFeedback.captureTrueState(status)
+                    val visualState = ClosedLoopFeedback.deriveVisualState(trueState, status)
+                    val feedback = ClosedLoopFeedback.extractFeedback(visualState)
                     
-                    // Record this decision with visual context for learning
+                    // Record decision with feedback context for learning
                     val decisionType = if (fdgDecision.canExecute()) "BUY" else "BLOCKED"
-                    ClosedLoopFeedback.recordDecision(visualState, decisionType)
+                    ClosedLoopFeedback.recordDecision(trueState, feedback.cappedBoost, decisionType)
                     
-                    // Log visual influence if significant
-                    if (kotlin.math.abs(visualInfluence) > 10) {
-                        val influenceStr = if (visualInfluence > 0) "+${visualInfluence.toInt()}" else "${visualInfluence.toInt()}"
-                        addLog("🔄 Visual influence: $influenceStr% (${ClosedLoopFeedback.introspect(visualState).recommendation})", mint)
+                    // Log feedback if significant (but feedback does NOT modify FDG decision)
+                    if (kotlin.math.abs(feedback.cappedBoost) > 5) {
+                        val boostStr = if (feedback.cappedBoost > 0) "+${feedback.cappedBoost.toInt()}" else "${feedback.cappedBoost.toInt()}"
+                        addLog("🔄 Feedback: $boostStr% [${feedback.recommendation}] risk=${visualState.riskScore.toInt()}", mint)
                     }
                     
                     if (fdgDecision.canExecute()) {

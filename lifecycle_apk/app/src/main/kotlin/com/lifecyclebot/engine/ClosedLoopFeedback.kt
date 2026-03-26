@@ -1,183 +1,279 @@
 package com.lifecyclebot.engine
 
 import com.lifecyclebot.data.BotStatus
-import kotlin.math.abs
 
 /**
- * ClosedLoopFeedback — Self-Representing Trading Agent
+ * ClosedLoopFeedback — Self-Representing Trading Agent (CONSTRAINED)
  * 
- * Creates a feedback loop where:
- *   1. Visual state influences decisions
+ * Creates a CONTROLLED feedback loop:
+ *   1. Visual state influences decisions (DAMPED)
  *   2. Decisions update visual state  
  *   3. System learns from both
  * 
- * The bot becomes aware of its own representation and uses that
- * awareness to make better decisions. This is metacognition for trading.
+ * CRITICAL CONSTRAINTS to prevent runaway:
+ *   - Separate Truth vs Perception
+ *   - Risk-based damping
+ *   - Hard confidence cap (85%)
+ *   - EMA smoothing (lag)
  */
 object ClosedLoopFeedback {
     
     // ═══════════════════════════════════════════════════════════════════
-    // VISUAL STATE SNAPSHOT — What the UI is showing right now
+    // CONFIGURATION — Tuneable safety limits
     // ═══════════════════════════════════════════════════════════════════
     
+    private const val CONFIDENCE_CAP = 85.0           // HARD LIMIT - never exceed
+    private const val MAX_FEEDBACK_INFLUENCE = 15.0   // Max +/-15% (reduced from +/-30%)
+    private const val EMA_SMOOTHING_FACTOR = 0.2      // Slow adaptation (5-tick effective period)
+    private const val HIGH_RISK_THRESHOLD = 60.0      // Above this, dampen feedback heavily
+    
+    // ═══════════════════════════════════════════════════════════════════
+    // STATE LAYERS — Truth vs Perception vs Feedback
+    // ═══════════════════════════════════════════════════════════════════
+    
+    /**
+     * TrueState — Raw AI outputs (scores, signals)
+     * This is the SOURCE OF TRUTH, never modified by feedback
+     */
+    data class TrueState(
+        val aiConfidence: Double,      // Raw AI confidence (0-100)
+        val winRate: Double,           // Actual win rate
+        val consecutiveLosses: Int,    // Actual loss streak
+        val totalExposureSol: Double,  // Actual exposure
+        val unrealizedPnlPct: Double,  // Actual PnL
+    )
+    
+    /**
+     * VisualState — Rendered interpretation (what UI shows)
+     * Derived from TrueState, may include smoothing/formatting
+     */
     data class VisualState(
-        // Quick stats bar
-        val trades24h: Int,
-        val winRate: Double,           // 0-100
-        val openPositions: Int,
-        val aiConfidence: Double,      // 0-100
-        
-        // Brain learning state
-        val brainPhase: String,        // "bootstrap", "learning", "mature"
-        val brainProgress: Double,     // 0-100
-        
-        // Circuit breaker state
-        val isPaused: Boolean,
-        val isHalted: Boolean,
-        val consecutiveLosses: Int,
-        val dailyLossSol: Double,
-        
-        // Position state
-        val totalExposureSol: Double,
-        val unrealizedPnlPct: Double,
-        
-        // Market regime
-        val marketRegime: String,      // "bull", "bear", "chop"
-        val narrativeHeat: Double,     // 0-100
-        
-        // Timestamp
+        val displayConfidence: Double,
+        val displayWinRate: Double,
+        val riskLevel: String,         // "LOW", "MEDIUM", "HIGH", "CRITICAL"
+        val riskScore: Double,         // 0-100, used for damping
+        val brainPhase: String,
+        val marketRegime: String,
         val capturedAt: Long = System.currentTimeMillis(),
     )
     
+    /**
+     * FeedbackState — Dampened, lagged signal that feeds back
+     * This is the ONLY thing that can influence decisions
+     */
+    data class FeedbackState(
+        val smoothedInfluence: Double, // EMA-smoothed influence
+        val dampingFactor: Double,     // How much feedback is suppressed (0-1)
+        val cappedBoost: Double,       // Final boost after all constraints
+        val recommendation: String,
+    )
+    
     // ═══════════════════════════════════════════════════════════════════
-    // FEEDBACK MEMORY — Learn from visual state → outcome correlations
+    // EMA STATE — For smoothing/lagging feedback
+    // ═══════════════════════════════════════════════════════════════════
+    
+    private var emaInfluence = 0.0  // Exponential moving average of influence
+    private var lastRiskScore = 50.0
+    
+    // ═══════════════════════════════════════════════════════════════════
+    // FEEDBACK MEMORY — Learn from visual state -> outcome correlations
     // ═══════════════════════════════════════════════════════════════════
     
     data class FeedbackMemory(
-        val visualState: VisualState,
-        val decisionMade: String,      // "BUY", "SELL", "HOLD", "BLOCKED"
-        val outcome: Double?,          // PnL % (null if not yet closed)
-        val wasCorrect: Boolean?,      // Did decision align with outcome?
+        val trueState: TrueState,
+        val feedbackApplied: Double,
+        val decisionMade: String,
+        val outcome: Double?,
+        val wasCorrect: Boolean?,
     )
     
     private val feedbackHistory = mutableListOf<FeedbackMemory>()
     private const val MAX_HISTORY = 500
-    
-    // Learned correlations: visual pattern → success rate
-    private val patternSuccess = mutableMapOf<String, Pair<Int, Int>>()  // pattern → (wins, total)
+    private val patternSuccess = mutableMapOf<String, Pair<Int, Int>>()
     
     // ═══════════════════════════════════════════════════════════════════
-    // CAPTURE — Snapshot current visual state
+    // STEP 1: CAPTURE TRUE STATE (Raw AI outputs)
     // ═══════════════════════════════════════════════════════════════════
     
-    fun captureVisualState(status: BotStatus): VisualState {
+    fun captureTrueState(status: BotStatus): TrueState {
         val cb = status.circuitBreaker
+        return TrueState(
+            aiConfidence = status.avgConfidence,
+            winRate = status.winRate,
+            consecutiveLosses = cb.consecutiveLosses,
+            totalExposureSol = status.totalExposureSol,
+            unrealizedPnlPct = status.unrealizedPnlPct,
+        )
+    }
+    
+    // ═══════════════════════════════════════════════════════════════════
+    // STEP 2: DERIVE VISUAL STATE (Rendered interpretation)
+    // ═══════════════════════════════════════════════════════════════════
+    
+    fun deriveVisualState(trueState: TrueState, status: BotStatus): VisualState {
+        // Calculate risk score (0-100) — used for damping
+        val riskScore = calculateRiskScore(trueState)
         
-        // Get brain phase from trade count (approximate)
-        val tradeCount = status.trades24h  // Use 24h trades as proxy
+        val riskLevel = when {
+            riskScore >= 80 -> "CRITICAL"
+            riskScore >= 60 -> "HIGH"
+            riskScore >= 40 -> "MEDIUM"
+            else -> "LOW"
+        }
+        
+        // Brain phase from trade count
+        val tradeCount = status.trades24h
         val brainPhase = when {
             tradeCount < 30 -> "bootstrap"
             tradeCount < 200 -> "learning"
             else -> "mature"
         }
-        val brainProgress = (tradeCount.toDouble() / 200 * 100).coerceIn(0.0, 100.0)
+        
+        val marketRegime = try { 
+            MarketRegimeAI.currentRegime().name.lowercase() 
+        } catch (_: Exception) { "unknown" }
         
         return VisualState(
-            trades24h = status.trades24h,
-            winRate = status.winRate,
-            openPositions = status.openPositionCount,
-            aiConfidence = status.avgConfidence,
+            displayConfidence = trueState.aiConfidence,
+            displayWinRate = trueState.winRate,
+            riskLevel = riskLevel,
+            riskScore = riskScore,
             brainPhase = brainPhase,
-            brainProgress = brainProgress,
-            isPaused = cb.isPaused,
-            isHalted = cb.isHalted,
-            consecutiveLosses = cb.consecutiveLosses,
-            dailyLossSol = cb.dailyLossSol,
-            totalExposureSol = status.totalExposureSol,
-            unrealizedPnlPct = status.unrealizedPnlPct,
-            marketRegime = try { MarketRegimeAI.currentRegime().name.lowercase() } catch (_: Exception) { "unknown" },
-            narrativeHeat = try { NarrativeDetectorAI.globalHeat() } catch (_: Exception) { 50.0 },
+            marketRegime = marketRegime,
         )
     }
     
-    // ═══════════════════════════════════════════════════════════════════
-    // INFLUENCE — Visual state affects decision confidence
-    // ═══════════════════════════════════════════════════════════════════
-    
     /**
-     * Returns a confidence modifier (-30 to +30) based on visual state patterns.
-     * Positive = visual state suggests favorable conditions
-     * Negative = visual state suggests caution
+     * Risk score calculation — higher = more dangerous
      */
-    fun getVisualInfluence(state: VisualState): Double {
-        var influence = 0.0
+    private fun calculateRiskScore(trueState: TrueState): Double {
+        var risk = 0.0
         
-        // ── Pattern 1: Win streak momentum ──
-        // High win rate + mature brain = trust the system
-        if (state.winRate > 60 && state.brainPhase == "mature") {
-            influence += 10.0
-        } else if (state.winRate < 40 && state.brainProgress > 50) {
-            influence -= 15.0  // System is learning but losing — be cautious
-        }
+        // Loss streak risk
+        risk += trueState.consecutiveLosses * 15.0  // Each loss = +15 risk
         
-        // ── Pattern 2: Loss recovery mode ──
-        // After consecutive losses, be more selective
-        if (state.consecutiveLosses >= 2) {
-            influence -= (state.consecutiveLosses * 5.0).coerceAtMost(20.0)
-        }
+        // Exposure risk
+        if (trueState.totalExposureSol > 0.5) risk += 20.0
+        if (trueState.totalExposureSol > 1.0) risk += 20.0
         
-        // ── Pattern 3: Exposure awareness ──
-        // High exposure = reduce new position confidence
-        if (state.openPositions >= 3) {
-            influence -= (state.openPositions - 2) * 5.0
-        }
-        if (state.totalExposureSol > 0.5) {
-            influence -= 10.0
-        }
+        // Unrealized loss risk
+        if (trueState.unrealizedPnlPct < -10) risk += 15.0
+        if (trueState.unrealizedPnlPct < -20) risk += 15.0
         
-        // ── Pattern 4: Unrealized PnL momentum ──
-        // If currently winning, slight confidence boost
-        // If currently losing, reduce confidence
-        if (state.unrealizedPnlPct > 10) {
-            influence += 5.0
-        } else if (state.unrealizedPnlPct < -10) {
-            influence -= 10.0
-        }
+        // Low win rate risk
+        if (trueState.winRate < 40) risk += 15.0
         
-        // ── Pattern 5: Market regime alignment ──
-        if (state.marketRegime == "bull" && state.narrativeHeat > 60) {
-            influence += 8.0  // Hot market, narratives pumping
-        } else if (state.marketRegime == "bear") {
-            influence -= 12.0  // Bear market, extra caution
-        }
-        
-        // ── Pattern 6: Brain confidence ──
-        // Mature brain with high AI confidence = trust signals
-        if (state.brainPhase == "mature" && state.aiConfidence > 70) {
-            influence += 7.0
-        } else if (state.brainPhase == "bootstrap") {
-            influence -= 5.0  // Still learning, be conservative
-        }
-        
-        // ── Pattern 7: Learned pattern matching ──
-        val pattern = stateToPattern(state)
-        patternSuccess[pattern]?.let { (wins, total) ->
-            if (total >= 5) {
-                val successRate = wins.toDouble() / total
-                influence += (successRate - 0.5) * 20  // -10 to +10 based on history
-            }
-        }
-        
-        return influence.coerceIn(-30.0, 30.0)
+        return risk.coerceIn(0.0, 100.0)
     }
     
     // ═══════════════════════════════════════════════════════════════════
-    // RECORD — Store decision with visual context for learning
+    // STEP 3: EXTRACT FEEDBACK (Dampened, lagged signal)
     // ═══════════════════════════════════════════════════════════════════
     
-    fun recordDecision(state: VisualState, decision: String) {
+    fun extractFeedback(visual: VisualState): FeedbackState {
+        // Calculate raw influence (before constraints)
+        val rawInfluence = calculateRawInfluence(visual)
+        
+        // CONSTRAINT 1: EMA Smoothing (lag the feedback)
+        // Prevents jitter decisions and emotional-style overtrading
+        emaInfluence = EMA_SMOOTHING_FACTOR * rawInfluence + (1 - EMA_SMOOTHING_FACTOR) * emaInfluence
+        
+        // CONSTRAINT 2: Risk-based damping
+        // High risk -> feedback weak | Low risk -> feedback allowed
+        val dampingFactor = 1.0 - (visual.riskScore / 100.0)
+        val dampedInfluence = emaInfluence * dampingFactor
+        
+        // CONSTRAINT 3: Hard limit on influence magnitude
+        val cappedInfluence = dampedInfluence.coerceIn(-MAX_FEEDBACK_INFLUENCE, MAX_FEEDBACK_INFLUENCE)
+        
+        // Store risk score for trend analysis
+        lastRiskScore = visual.riskScore
+        
+        val recommendation = when {
+            visual.riskScore >= 80 -> "HALT - Risk critical, feedback disabled"
+            visual.riskScore >= 60 -> "MINIMAL - High risk, feedback heavily damped"
+            cappedInfluence > 5 -> "NORMAL - Conditions favorable"
+            cappedInfluence < -5 -> "CAUTIOUS - Negative signals detected"
+            else -> "NEUTRAL - No strong feedback signal"
+        }
+        
+        return FeedbackState(
+            smoothedInfluence = emaInfluence,
+            dampingFactor = dampingFactor,
+            cappedBoost = cappedInfluence,
+            recommendation = recommendation,
+        )
+    }
+    
+    /**
+     * Calculate raw influence before constraints
+     * Returns -30 to +30 (will be constrained later)
+     */
+    private fun calculateRawInfluence(visual: VisualState): Double {
+        var influence = 0.0
+        
+        // Win rate signal (subtle)
+        if (visual.displayWinRate > 60 && visual.brainPhase == "mature") {
+            influence += 5.0
+        } else if (visual.displayWinRate < 40) {
+            influence -= 8.0
+        }
+        
+        // Market regime signal
+        when (visual.marketRegime) {
+            "bull" -> influence += 3.0
+            "bear" -> influence -= 8.0
+            "chop" -> influence -= 3.0
+        }
+        
+        // Brain phase signal (conservative in early phases)
+        when (visual.brainPhase) {
+            "bootstrap" -> influence -= 5.0  // Extra conservative
+            "learning" -> influence -= 2.0
+            "mature" -> influence += 2.0
+        }
+        
+        // Pattern history signal (if enough data)
+        val pattern = visualToPattern(visual)
+        patternSuccess[pattern]?.let { (wins, total) ->
+            if (total >= 10) {  // Need more samples before trusting
+                val successRate = wins.toDouble() / total
+                influence += (successRate - 0.5) * 10  // -5 to +5
+            }
+        }
+        
+        return influence
+    }
+    
+    // ═══════════════════════════════════════════════════════════════════
+    // STEP 4: APPLY TO DECISION (With confidence governor)
+    // ═══════════════════════════════════════════════════════════════════
+    
+    /**
+     * Apply feedback to a base confidence score.
+     * Returns adjusted confidence with HARD CAP enforced.
+     */
+    fun applyToConfidence(baseConfidence: Double, feedback: FeedbackState): Double {
+        // Skip feedback entirely if risk is critical
+        if (lastRiskScore >= 80) {
+            return baseConfidence  // No modification allowed
+        }
+        
+        // Apply capped boost
+        val boosted = baseConfidence + feedback.cappedBoost
+        
+        // CONSTRAINT 4: Hard confidence cap (NEVER exceed)
+        return boosted.coerceIn(0.0, CONFIDENCE_CAP)
+    }
+    
+    // ═══════════════════════════════════════════════════════════════════
+    // STEP 5 & 6: RECORD & LEARN
+    // ═══════════════════════════════════════════════════════════════════
+    
+    fun recordDecision(trueState: TrueState, feedbackApplied: Double, decision: String) {
         val memory = FeedbackMemory(
-            visualState = state,
+            trueState = trueState,
+            feedbackApplied = feedbackApplied,
             decisionMade = decision,
             outcome = null,
             wasCorrect = null,
@@ -191,19 +287,15 @@ object ClosedLoopFeedback {
         }
     }
     
-    /**
-     * Update the most recent decision for a mint with its outcome
-     */
     fun recordOutcome(mint: String, pnlPct: Double) {
         synchronized(feedbackHistory) {
-            // Find the most recent unresolved decision
             val recent = feedbackHistory.lastOrNull { it.outcome == null }
             if (recent != null) {
                 val idx = feedbackHistory.indexOf(recent)
                 val wasCorrect = when (recent.decisionMade) {
                     "BUY" -> pnlPct > 0
-                    "SELL" -> true  // Exiting is usually correct if we chose to
-                    "BLOCKED" -> pnlPct < 0  // Blocking was correct if it would have lost
+                    "SELL" -> true
+                    "BLOCKED" -> pnlPct < 0
                     else -> null
                 }
                 
@@ -213,7 +305,7 @@ object ClosedLoopFeedback {
                 )
                 
                 // Update pattern learning
-                val pattern = stateToPattern(recent.visualState)
+                val pattern = trueStateToPattern(recent.trueState)
                 val (wins, total) = patternSuccess.getOrDefault(pattern, 0 to 0)
                 patternSuccess[pattern] = if (wasCorrect == true) {
                     (wins + 1) to (total + 1)
@@ -225,84 +317,60 @@ object ClosedLoopFeedback {
     }
     
     // ═══════════════════════════════════════════════════════════════════
-    // PATTERN ENCODING — Convert visual state to learnable pattern
+    // PATTERN ENCODING
     // ═══════════════════════════════════════════════════════════════════
     
-    private fun stateToPattern(state: VisualState): String {
-        // Discretize continuous values into buckets for pattern matching
+    private fun visualToPattern(visual: VisualState): String {
         val wrBucket = when {
-            state.winRate < 40 -> "WR_LOW"
-            state.winRate < 60 -> "WR_MED"
+            visual.displayWinRate < 40 -> "WR_LOW"
+            visual.displayWinRate < 60 -> "WR_MED"
             else -> "WR_HIGH"
         }
-        
-        val expBucket = when {
-            state.openPositions == 0 -> "EXP_NONE"
-            state.openPositions <= 2 -> "EXP_LOW"
-            else -> "EXP_HIGH"
+        return "${wrBucket}_${visual.riskLevel}_${visual.marketRegime}_${visual.brainPhase}"
+    }
+    
+    private fun trueStateToPattern(trueState: TrueState): String {
+        val wrBucket = when {
+            trueState.winRate < 40 -> "WR_LOW"
+            trueState.winRate < 60 -> "WR_MED"
+            else -> "WR_HIGH"
         }
-        
-        val pnlBucket = when {
-            state.unrealizedPnlPct < -5 -> "PNL_NEG"
-            state.unrealizedPnlPct > 5 -> "PNL_POS"
-            else -> "PNL_FLAT"
-        }
-        
         val lossBucket = when {
-            state.consecutiveLosses == 0 -> "LOSS_NONE"
-            state.consecutiveLosses <= 2 -> "LOSS_SOME"
+            trueState.consecutiveLosses == 0 -> "LOSS_NONE"
+            trueState.consecutiveLosses <= 2 -> "LOSS_SOME"
             else -> "LOSS_STREAK"
         }
-        
-        return "${wrBucket}_${expBucket}_${pnlBucket}_${lossBucket}_${state.marketRegime}_${state.brainPhase}"
-    }
-    
-    // ═══════════════════════════════════════════════════════════════════
-    // INTROSPECTION — Bot can query its own state
-    // ═══════════════════════════════════════════════════════════════════
-    
-    data class SelfAwareness(
-        val currentPattern: String,
-        val patternSuccessRate: Double?,
-        val recentDecisions: Int,
-        val recentWinRate: Double,
-        val visualInfluence: Double,
-        val recommendation: String,
-    )
-    
-    fun introspect(state: VisualState): SelfAwareness {
-        val pattern = stateToPattern(state)
-        val (wins, total) = patternSuccess.getOrDefault(pattern, 0 to 0)
-        val successRate = if (total >= 3) wins.toDouble() / total else null
-        
-        val recentResolved = feedbackHistory.filter { it.wasCorrect != null }.takeLast(20)
-        val recentWins = recentResolved.count { it.wasCorrect == true }
-        val recentWinRate = if (recentResolved.isNotEmpty()) {
-            recentWins.toDouble() / recentResolved.size * 100
-        } else 0.0
-        
-        val influence = getVisualInfluence(state)
-        
-        val recommendation = when {
-            influence > 15 -> "AGGRESSIVE — Visual state strongly favorable"
-            influence > 5 -> "NORMAL — Conditions look good"
-            influence > -5 -> "CAUTIOUS — Mixed signals"
-            influence > -15 -> "DEFENSIVE — Visual state suggests caution"
-            else -> "MINIMAL — Strong negative visual signals"
+        val expBucket = when {
+            trueState.totalExposureSol < 0.1 -> "EXP_NONE"
+            trueState.totalExposureSol < 0.5 -> "EXP_LOW"
+            else -> "EXP_HIGH"
         }
-        
-        return SelfAwareness(
-            currentPattern = pattern,
-            patternSuccessRate = successRate,
-            recentDecisions = feedbackHistory.size,
-            recentWinRate = recentWinRate,
-            visualInfluence = influence,
-            recommendation = recommendation,
-        )
+        return "${wrBucket}_${lossBucket}_${expBucket}"
     }
     
     // ═══════════════════════════════════════════════════════════════════
-    // STATS — For UI display
+    // CONVENIENCE: Full pipeline in one call
+    // ═══════════════════════════════════════════════════════════════════
+    
+    /**
+     * Complete feedback pipeline:
+     * TrueState -> VisualState -> FeedbackState -> Applied confidence
+     */
+    fun process(status: BotStatus, baseConfidence: Double): Pair<Double, FeedbackState> {
+        val trueState = captureTrueState(status)
+        val visual = deriveVisualState(trueState, status)
+        val feedback = extractFeedback(visual)
+        val adjustedConfidence = applyToConfidence(baseConfidence, feedback)
+        
+        // Record for learning
+        val decisionType = if (adjustedConfidence >= 50) "POTENTIAL_BUY" else "LIKELY_SKIP"
+        recordDecision(trueState, feedback.cappedBoost, decisionType)
+        
+        return adjustedConfidence to feedback
+    }
+    
+    // ═══════════════════════════════════════════════════════════════════
+    // STATS
     // ═══════════════════════════════════════════════════════════════════
     
     fun getStats(): Map<String, Any> {
@@ -310,23 +378,22 @@ object ClosedLoopFeedback {
         val correct = resolved.count { it.wasCorrect == true }
         
         return mapOf(
+            "emaInfluence" to "%.2f".format(emaInfluence),
+            "lastRiskScore" to "%.1f".format(lastRiskScore),
             "totalDecisions" to feedbackHistory.size,
-            "resolvedDecisions" to resolved.size,
-            "correctDecisions" to correct,
             "feedbackAccuracy" to if (resolved.isNotEmpty()) {
                 "%.1f%%".format(correct.toDouble() / resolved.size * 100)
             } else "N/A",
             "patternsLearned" to patternSuccess.size,
-            "topPatterns" to patternSuccess.entries
-                .filter { it.value.second >= 5 }
-                .sortedByDescending { it.value.first.toDouble() / it.value.second }
-                .take(3)
-                .map { "${it.key}: ${it.value.first}/${it.value.second}" },
+            "confidenceCap" to CONFIDENCE_CAP,
+            "maxInfluence" to MAX_FEEDBACK_INFLUENCE,
         )
     }
     
     fun reset() {
         feedbackHistory.clear()
         patternSuccess.clear()
+        emaInfluence = 0.0
+        lastRiskScore = 50.0
     }
 }
