@@ -273,12 +273,14 @@ class BotBrain(
             val wr = trades.count { it.isWin == true }.toDouble() / trades.size
 
             // Restore entry threshold delta from overall win rate
-            // But cap how strict we can get based on trade count
+            // WIDE learning scope - don't allow strictness until LOTS of data
             val maxStrictness = when {
-                trades.size < 50 -> 3.0   // Can't go above +3 with <50 trades
-                trades.size < 100 -> 5.0  // Can't go above +5 with <100 trades
-                trades.size < 200 -> 8.0  // Can't go above +8 with <200 trades
-                else -> 15.0              // Full range after 200 trades
+                trades.size < 100 -> 0.0    // NO tightening with <100 trades
+                trades.size < 300 -> 3.0    // Can't go above +3 with <300 trades
+                trades.size < 500 -> 5.0    // Can't go above +5 with <500 trades
+                trades.size < 750 -> 8.0    // Can't go above +8 with <750 trades
+                trades.size < 1000 -> 10.0  // Can't go above +10 with <1000 trades
+                else -> 15.0                // Full range after 1000 trades
             }
             
             entryThresholdDelta = when {
@@ -289,18 +291,19 @@ class BotBrain(
                 else       ->  8.0
             }.coerceAtMost(maxStrictness)
 
-            // Restore regime multiplier - but don't punish too hard with limited data
+            // Restore regime multiplier - but don't punish sizing until we have lots of data
             val baseRegimeMult = when {
                 wr >= 0.80 -> 1.40
                 wr >= 0.72 -> 1.20
                 wr >= 0.65 -> 1.00
                 else       -> 0.80
             }
-            // Don't reduce sizing below 0.9x until we have enough data
+            // WIDE scope - don't reduce sizing until we have enough data
             regimeBullMult = when {
-                trades.size < 50 -> baseRegimeMult.coerceAtLeast(1.0)  // No reduction with <50 trades
-                trades.size < 100 -> baseRegimeMult.coerceAtLeast(0.9) // Min 0.9x with <100 trades
-                else -> baseRegimeMult  // Full range after 100 trades
+                trades.size < 200 -> baseRegimeMult.coerceAtLeast(1.0)   // No reduction with <200 trades
+                trades.size < 500 -> baseRegimeMult.coerceAtLeast(0.95) // Min 0.95x with <500 trades
+                trades.size < 750 -> baseRegimeMult.coerceAtLeast(0.90) // Min 0.9x with <750 trades
+                else -> baseRegimeMult  // Full range after 750 trades
             }
 
             // Restore phase boosts from phase win rates
@@ -868,22 +871,36 @@ Analyse this data and respond with ONLY valid JSON in this exact format:
     /** Effective entry threshold incorporating all learning */
     fun effectiveEntryThreshold(baseThreshold: Double = 42.0): Double {
         // Bootstrap override: Fresh installs should trade more loosely
+        // WIDE learning phase - don't tighten until we have LOTS of data
         val tradeCount = totalTradesAnalysed
         val bootstrapLoosening = when {
-            tradeCount < 20 -> -15.0   // Very loose for first 20 trades
-            tradeCount < 50 -> -10.0   // Loose for first 50 trades
-            tradeCount < 100 -> -5.0   // Slightly loose up to 100 trades
-            else -> 0.0                // Normal after 100 trades
+            tradeCount < 50 -> -18.0    // Ultra loose for first 50 trades (threshold ~24)
+            tradeCount < 150 -> -15.0   // Very loose for first 150 trades (threshold ~27)
+            tradeCount < 300 -> -12.0   // Loose for first 300 trades (threshold ~30)
+            tradeCount < 500 -> -8.0    // Moderately loose up to 500 trades (threshold ~34)
+            tradeCount < 750 -> -5.0    // Slightly loose up to 750 trades (threshold ~37)
+            tradeCount < 1000 -> -3.0   // Near-normal up to 1000 trades (threshold ~39)
+            else -> 0.0                 // Full learned thresholds after 1000 trades
         }
         
         // Apply bootstrap loosening on top of learned delta
         val effectiveDelta = entryThresholdDelta + bootstrapLoosening
-        return (baseThreshold + effectiveDelta).coerceIn(25.0, 68.0)  // Allow down to 25 for bootstrap
+        return (baseThreshold + effectiveDelta).coerceIn(20.0, 68.0)  // Allow down to 20 for bootstrap
     }
 
     /** Effective exit threshold incorporating all learning */
-    fun effectiveExitThreshold(baseThreshold: Double = 58.0): Double =
-        (baseThreshold + exitThresholdDelta).coerceIn(45.0, 72.0)
+    fun effectiveExitThreshold(baseThreshold: Double = 58.0): Double {
+        // Also loosen exit threshold during bootstrap
+        val tradeCount = totalTradesAnalysed
+        val bootstrapLoosening = when {
+            tradeCount < 150 -> -8.0    // Easier exits early on
+            tradeCount < 500 -> -5.0
+            tradeCount < 1000 -> -3.0
+            else -> 0.0
+        }
+        val effectiveDelta = exitThresholdDelta + bootstrapLoosening
+        return (baseThreshold + effectiveDelta).coerceIn(40.0, 72.0)
+    }
 
     /** Size multiplier for current market regime */
     fun regimeSizeMultiplier(): Double = regimeBullMult
