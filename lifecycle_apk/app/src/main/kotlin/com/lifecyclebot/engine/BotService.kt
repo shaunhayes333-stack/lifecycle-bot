@@ -1792,7 +1792,7 @@ class BotService : Service() {
                     //   - EMA smoothing (lag prevents jitter)
                     //   - Hard confidence cap (85% max)
                     // ═══════════════════════════════════════════════════════════════════
-                    val ws = try { walletManager.state.value } catch (_: Exception) { null }
+                    val ws = try { BotService.walletManager.state.value } catch (_: Exception) { null }
                     val trueState = ClosedLoopFeedback.captureTrueState(
                         aiConfidence = decision.aiConfidence,
                         winRate = (ws?.winRate ?: 50).toDouble(),
