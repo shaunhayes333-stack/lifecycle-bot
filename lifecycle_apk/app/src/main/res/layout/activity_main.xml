@@ -123,52 +123,44 @@
                     android:id="@+id/btnWalletTop"
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
-                    android:orientation="vertical"
-                    android:gravity="center">
-                    
-                    <!-- Wallet address row -->
-                    <LinearLayout
+                    android:orientation="horizontal"
+                    android:gravity="center_vertical"
+                    android:background="@drawable/pill_bg"
+                    android:paddingStart="@dimen/inner_gap"
+                    android:paddingEnd="@dimen/inner_gap"
+                    android:paddingTop="6dp"
+                    android:paddingBottom="6dp"
+                    android:clickable="true"
+                    android:focusable="true">
+
+                    <View
+                        android:id="@+id/tvWalletDot"
+                        android:layout_width="@dimen/dot_size"
+                        android:layout_height="@dimen/dot_size"
+                        android:background="@drawable/dot_bg"
+                        android:layout_marginEnd="@dimen/dot_margin"/>
+
+                    <TextView
+                        android:id="@+id/tvWalletShort"
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
-                        android:orientation="horizontal"
-                        android:gravity="center_vertical"
-                        android:background="@drawable/pill_bg"
-                        android:paddingStart="@dimen/inner_gap"
-                        android:paddingEnd="@dimen/inner_gap"
-                        android:paddingTop="6dp"
-                        android:paddingBottom="6dp"
-                        android:clickable="true"
-                        android:focusable="true">
-
-                        <View
-                            android:id="@+id/tvWalletDot"
-                            android:layout_width="@dimen/dot_size"
-                            android:layout_height="@dimen/dot_size"
-                            android:background="@drawable/dot_bg"
-                            android:layout_marginEnd="@dimen/dot_margin"/>
-
-                        <TextView
-                            android:id="@+id/tvWalletShort"
-                            android:layout_width="wrap_content"
-                            android:layout_height="wrap_content"
-                            android:text="Connect wallet"
-                            android:textColor="#9CA3AF"
-                            android:textSize="12sp"
-                            android:maxWidth="120dp"
-                            android:ellipsize="end"
-                            android:singleLine="true"/>
-                    </LinearLayout>
-                    
-                    <!-- Logo UNDER the wallet pill -->
-                    <ImageView
-                        android:id="@+id/ivLogo"
-                        android:layout_width="72dp"
-                        android:layout_height="72dp"
-                        android:src="@drawable/logo"
-                        android:scaleType="fitCenter"
-                        android:contentDescription="AI Trader Logo"
-                        android:layout_marginTop="4dp"/>
+                        android:text="Connect wallet"
+                        android:textColor="#9CA3AF"
+                        android:textSize="12sp"
+                        android:maxWidth="120dp"
+                        android:ellipsize="end"
+                        android:singleLine="true"/>
                 </LinearLayout>
+                
+                <!-- Logo - Right side of header -->
+                <ImageView
+                    android:id="@+id/ivLogo"
+                    android:layout_width="56dp"
+                    android:layout_height="56dp"
+                    android:src="@drawable/logo"
+                    android:scaleType="fitCenter"
+                    android:contentDescription="AI Trader Logo"
+                    android:layout_marginStart="8dp"/>
             </LinearLayout>
 
             <!-- ═══════════════════════════════
