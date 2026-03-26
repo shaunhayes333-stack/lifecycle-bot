@@ -168,7 +168,7 @@ object TradeLifecycle {
     private const val MIN_APPROVAL_INTERVAL_MS = 60_000L  // 60 seconds between approvals
     private const val MAX_PROPOSALS_PER_WINDOW = 3        // Max 3 proposals in 5 min window
     private const val PROPOSAL_WINDOW_MS = 5 * 60_000L    // 5 min window
-    private const val BLOCKED_STATE_EXPIRE_MS = 5 * 60_000L  // Blocked state expires after 5 minutes
+    private const val BLOCKED_STATE_EXPIRE_MS = 90_000L   // Blocked state expires after 90 seconds (faster retry)
     
     /**
      * Check if a proposal should be allowed (dedupe check)
@@ -270,6 +270,34 @@ object TradeLifecycle {
     }
     
     /**
+     * Reset lifecycle state to allow re-proposal (for tokens that were blocked/candidate)
+     * Called when token should be eligible for retry (e.g., market conditions changed)
+     */
+    fun resetForRetry(mint: String, reason: String = "conditions changed") {
+        lifecycles[mint]?.let { lc ->
+            // Only reset if in a blocked/candidate state
+            if (lc.currentState in listOf(State.CANDIDATE, State.FDG_BLOCKED, State.NO_SIGNAL)) {
+                lc.transition(State.WATCHLISTED, "Reset: $reason")
+                ErrorLogger.debug("Lifecycle", "🔄 RESET: ${lc.symbol} | was ${lc.currentState} | $reason")
+            }
+        }
+    }
+    
+    /**
+     * Check if a token's blocked state can be force-expired (for testing/debugging)
+     */
+    fun forceExpireBlocked(mint: String): Boolean {
+        lifecycles[mint]?.let { lc ->
+            if (lc.currentState in listOf(State.CANDIDATE, State.FDG_BLOCKED)) {
+                lc.transition(State.EXPIRED, "Force expired for retry")
+                ErrorLogger.debug("Lifecycle", "⏰ FORCE EXPIRED: ${lc.symbol}")
+                return true
+            }
+        }
+        return false
+    }
+    
+    /**
      * Start tracking a new token lifecycle
      */
     fun discovered(mint: String, symbol: String, score: Double, source: String): Lifecycle {
@@ -360,13 +388,16 @@ object TradeLifecycle {
     }
     
     /**
-     * No BUY signal from strategy
+     * No BUY signal from strategy - allow quick re-evaluation on next scan
      */
     fun noSignal(mint: String, reason: String) {
         lifecycles[mint]?.let { lc ->
             lc.transition(State.NO_SIGNAL, reason)
             ErrorLogger.debug("Lifecycle", "⏸ NO_SIGNAL: ${lc.symbol} | $reason")
         }
+        // Clear proposal tracking to allow immediate re-proposal when signal changes
+        // NO_SIGNAL means conditions weren't met, not that there's a hard block
+        proposalTrackers.remove(mint)
     }
     
     /**
