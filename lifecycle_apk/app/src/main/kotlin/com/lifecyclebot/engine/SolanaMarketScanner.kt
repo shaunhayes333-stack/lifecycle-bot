@@ -540,7 +540,7 @@ class SolanaMarketScanner(
                     delay(100)
                     runScan("scanPumpFunVolume") { scanPumpFunVolume() }
                     delay(100)
-                    runScan("scanNewSolanaPairs") { scanNewSolanaPairs() }
+                    runScan("scanRaydiumNewPools") { scanRaydiumNewPools() }
                 } else {
                     // REAL MODE: Rotate through secondary sources
                     when (scanRotation) {
