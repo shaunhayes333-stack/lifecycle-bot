@@ -956,6 +956,11 @@ class BotService : Service() {
                 if (closedCount > 0) {
                     addLog("✅ Closed $closedCount position(s) before shutdown")
                 }
+                
+                // Also purge any orphaned tokens (live mode only)
+                if (!cfg.paperMode && wallet != null) {
+                    purgeOrphanedTokensOnStop(cfg)
+                }
             } else {
                 val openCount = synchronized(status.tokens) {
                     status.tokens.values.count { it.position.isOpen }
@@ -2236,6 +2241,57 @@ class BotService : Service() {
             .setPriority(NotificationCompat.PRIORITY_DEFAULT)  // Default priority
             .setCategory(NotificationCompat.CATEGORY_SERVICE)
             .build()
+    }
+    
+    /**
+     * Purge orphaned tokens on bot stop (live mode only).
+     * Scans wallet for tokens not tracked by bot and sells them.
+     */
+    private fun purgeOrphanedTokensOnStop(cfg: BotConfig) {
+        try {
+            val w = wallet ?: return
+            addLog("🧹 Scanning for orphaned tokens on shutdown...")
+            
+            val tokenAccounts = w.getTokenAccounts()
+            val trackedMints = synchronized(status.tokens) {
+                status.tokens.values
+                    .filter { it.position.isOpen }
+                    .map { it.mint }
+                    .toSet()
+            }
+            
+            var orphansSold = 0
+            
+            tokenAccounts.forEach { (mint, qty) ->
+                // Skip dust
+                if (qty < 1.0) return@forEach
+                // Skip tracked positions
+                if (mint in trackedMints) return@forEach
+                // Skip SOL
+                if (mint == "So11111111111111111111111111111111111111112") return@forEach
+                
+                val symbol = status.tokens[mint]?.symbol ?: mint.take(8)
+                addLog("🧹 Found orphaned token: $symbol ($qty)")
+                
+                try {
+                    val sold = executor.sellOrphanedToken(mint, qty, w)
+                    if (sold) {
+                        orphansSold++
+                        addLog("✅ Sold orphan: $symbol")
+                    } else {
+                        addLog("⚠️ Could not sell $symbol - manual cleanup needed")
+                    }
+                } catch (e: Exception) {
+                    addLog("⚠️ Error selling $symbol: ${e.message}")
+                }
+            }
+            
+            if (orphansSold > 0) {
+                addLog("🧹 Purged $orphansSold orphaned token(s) on shutdown")
+            }
+        } catch (e: Exception) {
+            addLog("⚠️ Orphan purge failed: ${e.message}")
+        }
     }
 }
 
