@@ -1130,6 +1130,21 @@ class BotService : Service() {
                     }
                 }
             }
+            
+            // ═══════════════════════════════════════════════════════════════════
+            // PERIODIC ORPHAN SCAN - every 30 loops (~2.5 minutes) in live mode
+            // Catches tokens that failed to sell and are stuck in wallet
+            // ═══════════════════════════════════════════════════════════════════
+            if (!cfg.paperMode && loopCount % 30 == 0 && wallet != null) {
+                scope.launch {
+                    try {
+                        addLog("🔍 Periodic orphan scan starting...")
+                        scanAndSellOrphans(wallet!!)
+                    } catch (e: Exception) {
+                        ErrorLogger.error("BotService", "Periodic orphan scan error: ${e.message}")
+                    }
+                }
+            }
 
             // Currency rate refresh + feed SOL price to bonding curve tracker
             scope.launch {
@@ -2367,6 +2382,59 @@ class BotService : Service() {
             }
         } catch (e: Exception) {
             addLog("⚠️ Orphan purge failed: ${e.message}")
+        }
+    }
+    
+    /**
+     * Periodic orphan scan during runtime.
+     * Catches tokens that failed to sell and are stuck in wallet.
+     */
+    private fun scanAndSellOrphans(w: SolanaWallet) {
+        try {
+            val tokenAccounts = w.getTokenAccounts()
+            val trackedMints = synchronized(status.tokens) {
+                status.tokens.values
+                    .filter { it.position.isOpen }
+                    .map { it.mint }
+                    .toSet()
+            }
+            
+            var orphansFound = 0
+            var orphansSold = 0
+            
+            tokenAccounts.forEach { (mint, qty) ->
+                // Skip dust
+                if (qty < 0.5) return@forEach
+                // Skip tracked positions
+                if (mint in trackedMints) return@forEach
+                // Skip SOL
+                if (mint == "So11111111111111111111111111111111111111112") return@forEach
+                
+                orphansFound++
+                val symbol = status.tokens[mint]?.symbol ?: mint.take(8)
+                addLog("🧹 ORPHAN FOUND: $symbol | qty=$qty | mint=${mint.take(12)}...")
+                
+                try {
+                    val sold = executor.sellOrphanedToken(mint, qty, w)
+                    if (sold) {
+                        orphansSold++
+                        addLog("✅ ORPHAN SOLD: $symbol")
+                    } else {
+                        addLog("⚠️ ORPHAN SELL FAILED: $symbol - sell manually via Jupiter")
+                    }
+                } catch (e: Exception) {
+                    addLog("❌ ORPHAN ERROR: $symbol - ${e.message}")
+                }
+            }
+            
+            if (orphansFound > 0) {
+                addLog("🧹 Orphan scan: found $orphansFound, sold $orphansSold")
+            } else {
+                addLog("✅ No orphaned tokens found")
+            }
+        } catch (e: Exception) {
+            addLog("⚠️ Orphan scan failed: ${e.message}")
+            ErrorLogger.error("BotService", "Orphan scan error: ${e.message}", e)
         }
     }
 }
