@@ -168,6 +168,7 @@ object TradeLifecycle {
     private const val MIN_APPROVAL_INTERVAL_MS = 60_000L  // 60 seconds between approvals
     private const val MAX_PROPOSALS_PER_WINDOW = 3        // Max 3 proposals in 5 min window
     private const val PROPOSAL_WINDOW_MS = 5 * 60_000L    // 5 min window
+    private const val BLOCKED_STATE_EXPIRE_MS = 5 * 60_000L  // Blocked state expires after 5 minutes
     
     /**
      * Check if a proposal should be allowed (dedupe check)
@@ -193,12 +194,33 @@ object TradeLifecycle {
             return false to "DEDUPE: Max $MAX_PROPOSALS_PER_WINDOW proposals in ${PROPOSAL_WINDOW_MS/60000}min"
         }
         
-        // Check 3: Already in active state (PROPOSED, FDG_APPROVED, EXECUTED, MONITORING)?
+        // Check 3: Already in active/blocked state? 
+        // Include FDG_BLOCKED and CANDIDATE to prevent spam re-evaluation
         val lc = lifecycles[mint]
-        if (lc != null && lc.currentState in listOf(
-            State.PROPOSED, State.FDG_APPROVED, State.SIZED, State.EXECUTED, State.MONITORING
-        )) {
-            return false to "DEDUPE: Already in state ${lc.currentState}"
+        if (lc != null) {
+            val blockingStates = listOf(
+                State.CANDIDATE, State.PROPOSED, State.FDG_BLOCKED, State.FDG_APPROVED, 
+                State.SIZED, State.EXECUTED, State.MONITORING
+            )
+            
+            if (lc.currentState in blockingStates) {
+                // Check if blocked state has expired (allow retry after BLOCKED_STATE_EXPIRE_MS)
+                val lastTransition = lc.transitions.lastOrNull()
+                val stateAge = now - (lastTransition?.timestamp ?: lc.startTime)
+                
+                // Only expire CANDIDATE and FDG_BLOCKED states, not active trades
+                val canExpire = lc.currentState in listOf(State.CANDIDATE, State.FDG_BLOCKED)
+                
+                if (canExpire && stateAge >= BLOCKED_STATE_EXPIRE_MS) {
+                    // State has expired, allow re-proposal
+                    lc.transition(State.EXPIRED, "Blocked state expired after ${stateAge/60000}min")
+                    ErrorLogger.debug("Lifecycle", "⏰ State expired: ${lc.symbol} | was ${lc.currentState} for ${stateAge/1000}s")
+                } else {
+                    val remainingSec = if (canExpire) (BLOCKED_STATE_EXPIRE_MS - stateAge) / 1000 else -1
+                    val reasonSuffix = if (remainingSec > 0) " (expires in ${remainingSec}s)" else ""
+                    return false to "DEDUPE: Already in state ${lc.currentState}$reasonSuffix"
+                }
+            }
         }
         
         return true to null

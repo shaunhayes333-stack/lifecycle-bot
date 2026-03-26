@@ -1759,7 +1759,12 @@ class BotService : Service() {
                 
                 // EARLY DEDUPE CHECK: Skip entire flow if we recently proposed this token
                 // This prevents the CANDIDATE→PROPOSED→BLOCKED spam cycle
-                val (canProposeEarly, _) = TradeLifecycle.canPropose(identity.mint)
+                val (canProposeEarly, dedupeReason) = TradeLifecycle.canPropose(identity.mint)
+                
+                // Log when dedupe blocks a proposal (helps verify the fix is working)
+                if (!canProposeEarly && decision.finalSignal == "BUY" && decision.shouldTrade && !ts.position.isOpen) {
+                    ErrorLogger.debug("BotService", "⏳ DEDUPE SKIP: ${identity.symbol} | $dedupeReason")
+                }
                 
                 if (!ts.position.isOpen && decision.finalSignal == "BUY" && decision.shouldTrade && canProposeEarly) {
                     // ═══════════════════════════════════════════════════════════════════
