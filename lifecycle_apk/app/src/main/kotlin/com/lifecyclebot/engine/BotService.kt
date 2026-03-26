@@ -1357,6 +1357,19 @@ class BotService : Service() {
                         status.tokens.values.toList().flatMap { it.trades.toList() }
                     }
                     walletManager.updatePnl(allTrades)
+                    
+                    // ═══════════════════════════════════════════════════════════════════
+                    // CLOSED-LOOP FEEDBACK: Update FDG with wallet performance
+                    // 
+                    // The bot's LIFETIME win rate influences confidence thresholds.
+                    // Winning = more aggressive, Losing = more defensive.
+                    // Uses EMA smoothing (damping) to prevent whipsawing.
+                    // ═══════════════════════════════════════════════════════════════════
+                    val walletStats = walletManager.state.value
+                    FinalDecisionGate.updateClosedLoopFeedback(
+                        lifetimeWinRate = walletStats.winRate.toDouble(),
+                        lifetimeTrades = walletStats.totalTrades,
+                    )
                 } catch (_: Exception) {}
             }
 

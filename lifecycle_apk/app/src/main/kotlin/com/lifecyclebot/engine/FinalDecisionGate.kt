@@ -120,7 +120,122 @@ object FinalDecisionGate {
     )
     
     // ═══════════════════════════════════════════════════════════════════════════
-    // AUTO-ADJUSTING LEARNING PHASE
+    // CLOSED-LOOP FEEDBACK SYSTEM (P2)
+    // 
+    // Self-representing agent: Real-time wallet performance influences AI confidence.
+    // This creates a feedback loop where the bot "knows" when it's doing well or poorly.
+    // 
+    // Key constraints (user-specified architecture):
+    //   1. DAMPING: Win rate changes influence confidence SLOWLY (EMA smoothing)
+    //   2. LAGGING: Uses historical data, not real-time (prevents whipsawing)
+    //   3. CONFIDENCE GOVERNOR: Caps max influence to ±15% (prevents runaway)
+    //   4. MINIMUM TRADES: Requires 10+ trades before applying (prevents noise)
+    // 
+    // When winning (winRate > 55%): Confidence threshold DECREASES (more aggressive)
+    // When losing (winRate < 45%): Confidence threshold INCREASES (more defensive)
+    // ═══════════════════════════════════════════════════════════════════════════
+    
+    data class ClosedLoopFeedback(
+        val lifetimeWinRate: Double = 50.0,    // From WalletState (not session)
+        val lifetimeTrades: Int = 0,           // Total trades ever
+        val smoothedWinRate: Double = 50.0,    // EMA-smoothed for damping
+        val lastUpdateTime: Long = 0L,
+    )
+    
+    // Current feedback state (updated by BotService when wallet refreshes)
+    @Volatile private var closedLoopFeedback = ClosedLoopFeedback()
+    
+    // EMA smoothing factor: 0.1 = very slow adaptation (lag), 0.3 = faster
+    private const val FEEDBACK_EMA_ALPHA = 0.15
+    
+    // Minimum trades before feedback applies
+    private const val FEEDBACK_MIN_TRADES = 10
+    
+    // Maximum confidence adjustment from feedback (±15%)
+    private const val FEEDBACK_MAX_ADJUSTMENT = 15.0
+    
+    /**
+     * Update closed-loop feedback from wallet state.
+     * Called by BotService when wallet stats refresh.
+     * 
+     * @param lifetimeWinRate Win rate from WalletState (0-100)
+     * @param lifetimeTrades Total trades from WalletState
+     */
+    fun updateClosedLoopFeedback(lifetimeWinRate: Double, lifetimeTrades: Int) {
+        val oldSmoothed = closedLoopFeedback.smoothedWinRate
+        
+        // Apply EMA smoothing for damping effect
+        // New smoothed = alpha * new + (1-alpha) * old
+        val newSmoothed = if (closedLoopFeedback.lastUpdateTime == 0L) {
+            // First update: initialize to current value
+            lifetimeWinRate
+        } else {
+            FEEDBACK_EMA_ALPHA * lifetimeWinRate + (1 - FEEDBACK_EMA_ALPHA) * oldSmoothed
+        }
+        
+        closedLoopFeedback = ClosedLoopFeedback(
+            lifetimeWinRate = lifetimeWinRate,
+            lifetimeTrades = lifetimeTrades,
+            smoothedWinRate = newSmoothed,
+            lastUpdateTime = System.currentTimeMillis(),
+        )
+        
+        // Log significant changes (more than 2% shift in smoothed rate)
+        if (kotlin.math.abs(newSmoothed - oldSmoothed) > 2.0) {
+            ErrorLogger.debug("FDG", "Closed-loop feedback: ${oldSmoothed.toInt()}% → ${newSmoothed.toInt()}% (raw: ${lifetimeWinRate.toInt()}%, ${lifetimeTrades} trades)")
+        }
+    }
+    
+    /**
+     * Get confidence adjustment from closed-loop feedback.
+     * Returns a value in range [-FEEDBACK_MAX_ADJUSTMENT, +FEEDBACK_MAX_ADJUSTMENT]
+     * 
+     * Positive = require MORE confidence (defensive)
+     * Negative = require LESS confidence (aggressive)
+     */
+    fun getClosedLoopConfidenceAdjustment(): Double {
+        val feedback = closedLoopFeedback
+        
+        // Don't apply until we have enough trades (prevents noise)
+        if (feedback.lifetimeTrades < FEEDBACK_MIN_TRADES) {
+            return 0.0
+        }
+        
+        // Use smoothed win rate (damped, lagging)
+        val smoothedRate = feedback.smoothedWinRate
+        
+        // Neutral zone: 45-55% = no adjustment
+        // Below 45%: require more confidence (losing)
+        // Above 55%: allow less confidence (winning)
+        val adjustment = when {
+            smoothedRate >= 65.0 -> -FEEDBACK_MAX_ADJUSTMENT      // Hot streak: -15%
+            smoothedRate >= 60.0 -> -10.0                          // Very good: -10%
+            smoothedRate >= 55.0 -> -5.0                           // Good: -5%
+            smoothedRate <= 35.0 -> +FEEDBACK_MAX_ADJUSTMENT       // Cold streak: +15%
+            smoothedRate <= 40.0 -> +10.0                          // Struggling: +10%
+            smoothedRate <= 45.0 -> +5.0                           // Below average: +5%
+            else -> 0.0                                             // Neutral zone: no adj
+        }
+        
+        return adjustment.coerceIn(-FEEDBACK_MAX_ADJUSTMENT, FEEDBACK_MAX_ADJUSTMENT)
+    }
+    
+    /**
+     * Get feedback state for UI display
+     */
+    fun getClosedLoopState(): String {
+        val feedback = closedLoopFeedback
+        if (feedback.lifetimeTrades < FEEDBACK_MIN_TRADES) {
+            return "INACTIVE (need ${FEEDBACK_MIN_TRADES - feedback.lifetimeTrades} more trades)"
+        }
+        val adj = getClosedLoopConfidenceAdjustment()
+        val mode = when {
+            adj < -5 -> "AGGRESSIVE"
+            adj > 5 -> "DEFENSIVE"
+            else -> "NEUTRAL"
+        }
+        return "$mode (${feedback.smoothedWinRate.toInt()}% smoothed, ${adj.toInt()}% adj)"
+    }
     // 
     // FDG starts LOOSE and automatically tightens as the brain learns.
     // Thresholds scale based on:
@@ -631,6 +746,19 @@ object FinalDecisionGate {
         // (Liquidity AI is integrated at token-level in shouldApprove method)
         
         // ─────────────────────────────────────────────────────────────────
+        // FACTOR 15: CLOSED-LOOP FEEDBACK (P2 - Self-Representing Agent)
+        // 
+        // The wallet's LIFETIME performance influences confidence:
+        // - Winning consistently = can be more aggressive
+        // - Losing consistently = need to be more defensive
+        // 
+        // Uses EMA smoothing (damping) and historical data (lagging)
+        // to prevent whipsawing. Capped at ±15% (governor).
+        // ─────────────────────────────────────────────────────────────────
+        val closedLoopAdj = getClosedLoopConfidenceAdjustment()
+        adjustment += closedLoopAdj
+        
+        // ─────────────────────────────────────────────────────────────────
         // CALCULATE FINAL ADAPTIVE CONFIDENCE
         // 
         // BOOTSTRAP MODE: When totalSessionTrades < 30, the AI systems 
@@ -699,6 +827,7 @@ object FinalDecisionGate {
             append("buy=${currentConditions.buyPressureTrend.toInt()}% ")
             append("tier=$tierLabel ")
             append("regime=$regimeLabel ")
+            append("loop=${getClosedLoopState()} ")
             append("trades=${currentConditions.totalSessionTrades}]")
         }
     }
