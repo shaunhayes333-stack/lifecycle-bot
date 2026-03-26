@@ -455,7 +455,9 @@ class BotService : Service() {
                             onAlert = { title, body ->
                                 sendTradeNotif(title, body,
                                     NotificationHistory.NotifEntry.NotifType.INFO)
-                            }
+                            },
+                            executor = executor,  // Pass executor for orphan auto-sell
+                            autoSellOrphans = !cfg.paperMode  // Only auto-sell in live mode
                         )
                         reconciler.reconcile()
                     } catch (e: Exception) {

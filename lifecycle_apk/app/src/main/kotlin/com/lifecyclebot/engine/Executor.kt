@@ -3911,6 +3911,49 @@ class Executor(
         }
     }
 
+    /**
+     * Sell an orphaned token that the bot doesn't track.
+     * Used by StartupReconciler to clean up tokens from crashed trades.
+     * Returns true if sell succeeded, false otherwise.
+     */
+    fun sellOrphanedToken(mint: String, qty: Double): Boolean {
+        val w = wallet ?: return false
+        val c = cfg()
+        
+        // Don't sell in paper mode
+        if (c.paperMode) {
+            onLog("🧹 Orphan sell skipped (paper mode): $mint", mint)
+            return false
+        }
+        
+        return try {
+            onLog("🧹 Attempting orphan sell: $mint ($qty tokens)", mint)
+            
+            val sellUnits = (qty * 1_000_000_000.0).toLong().coerceAtLeast(1L)
+            val sellSlippage = (c.slippageBps * 3).coerceAtMost(2000)  // Higher slippage for orphans
+            
+            val quote = getQuoteWithSlippageGuard(
+                mint, JupiterApi.SOL_MINT, sellUnits, sellSlippage, isBuy = false)
+            val txResult = buildTxWithRetry(quote, w.publicKeyB58)
+            
+            val useJito = c.jitoEnabled && !quote.isUltra
+            val jitoTip = c.jitoTipLamports
+            val ultraReqId = if (quote.isUltra) txResult.requestId else null
+            
+            val sig = w.signSendAndConfirm(txResult.txBase64, useJito, jitoTip, ultraReqId, c.jupiterApiKey)
+            val solBack = quote.outAmount / 1_000_000_000.0
+            
+            onLog("✅ Orphan sold: $mint → ${solBack.fmt(4)} SOL | sig=${sig.take(16)}…", mint)
+            onNotify("🧹 Orphan Cleanup",
+                "Sold leftover tokens → ${solBack.fmt(4)} SOL",
+                com.lifecyclebot.engine.NotificationHistory.NotifEntry.NotifType.INFO)
+            true
+        } catch (e: Exception) {
+            onLog("❌ Orphan sell failed for $mint: ${e.message}", mint)
+            false
+        }
+    }
+
 private fun Double.fmt(d: Int = 6) = "%.${d}f".format(this)
 }
 private fun Double.fmtPct() = "%+.1f%%".format(this)
