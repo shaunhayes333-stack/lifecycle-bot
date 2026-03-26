@@ -1793,15 +1793,12 @@ class BotService : Service() {
                     //   - Hard confidence cap (85% max)
                     // ═══════════════════════════════════════════════════════════════════
                     val ws = try { walletManager.state.value } catch (_: Exception) { null }
-                    val openPnlPct = if (status.openPositionCount > 0) {
-                        status.openPositions.sumOf { it.position.pnlPct } / status.openPositionCount
-                    } else 0.0
                     val trueState = ClosedLoopFeedback.captureTrueState(
                         aiConfidence = decision.aiConfidence,
                         winRate = (ws?.winRate ?: 50).toDouble(),
                         consecutiveLosses = cbState.consecutiveLosses,
                         totalExposureSol = status.totalExposureSol,
-                        unrealizedPnlPct = openPnlPct,
+                        unrealizedPnlPct = 0.0,  // Simplified - PnL is complex to calculate here
                     )
                     val visualState = ClosedLoopFeedback.deriveVisualState(trueState, ws?.totalTrades ?: 0)
                     val feedback = ClosedLoopFeedback.extractFeedback(visualState)
