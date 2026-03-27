@@ -9,7 +9,10 @@
 **Tweet 1:**
 🚀 Just dropped the most advanced Solana trading bot update yet.
 
-AATE v2.0 now has a **DUAL-LAYER BEHAVIOR LEARNING SYSTEM** that literally separates good trades from bad trades into different AI brains.
+AATE v2.0 now has:
+• DUAL-LAYER BEHAVIOR LEARNING
+• 18 INDEPENDENT MODE LEARNING INSTANCES
+• SELF-HEALING AI THAT FIXES ITSELF
 
 The bot doesn't just trade. It evolves. 🧬
 
@@ -28,14 +31,15 @@ Not 1. Not 3. TWELVE AI modules working together:
 • MarketRegimeAI 🌍
 • NarrativeDetectorAI 📰
 • TimeOptimizationAI ⏰
-• BehaviorLearning (NEW) 🎯
+• BehaviorLearning 🎯
+• ModeLearning (NEW) 📊
 
 All cross-talking in real-time.
 
 ---
 
 **Tweet 3:**
-🎯 **BEHAVIOR LEARNING - THE GAME CHANGER**
+🎯 **DUAL-LAYER BEHAVIOR LEARNING**
 
 Two separate neural layers:
 ✅ **GOOD BEHAVIOR** - Patterns from winners
@@ -48,19 +52,48 @@ Self-healing clears poisoned data automatically.
 ---
 
 **Tweet 4:**
+📊 **18 INDEPENDENT LEARNING INSTANCES**
+
+Each trading mode is its OWN AI brain:
+
+🌙 MOONSHOT learns what works for moonshots
+🎰 PUMP_SNIPER learns viral detection patterns
+💎 LONG_HOLD learns diamond hand setups
+🐋 WHALE_FOLLOW learns smart money signals
+
+If one mode fails? Only THAT mode resets. Others keep learning.
+
+---
+
+**Tweet 5:**
+🔬 **MODE-SPECIFIC SCANNER FILTERS**
+
+Each mode learns its optimal conditions:
+• Best liquidity ranges
+• Best discovery sources
+• Best entry phases
+• Best hours of day
+
+MOONSHOT prefers fresh tokens.
+WHALE_FOLLOW prefers high liquidity.
+The bot tailors EVERYTHING per mode.
+
+---
+
+**Tweet 6:**
 🛡️ **SELF-HEALING DIAGNOSTICS**
 
 The bot monitors its own health every 30 minutes.
 
-If bad patterns dominate good patterns 3:1 for 2 consecutive periods?
-
-**AUTO-WIPE. Start fresh. No human needed.**
+Per-MODE self-healing:
+• 70%+ loss rate in PUMP_SNIPER? Reset PUMP_SNIPER only.
+• 5 consecutive losses? Decay weights 50%.
 
 Your bot heals itself while you sleep. 🌙
 
 ---
 
-**Tweet 5:**
+**Tweet 7:**
 ⚡ **18 TRADING MODES**
 
 🌙 MOONSHOT - Early high-potential
@@ -69,12 +102,14 @@ Your bot heals itself while you sleep. 🌙
 🔬 MICRO_CAP - Ultra-small plays
 🐋 WHALE_FOLLOW - Smart money
 🔥 REVIVAL - Crashed recovery
+📈 MOMENTUM - Trend riding
+🎪 NARRATIVE - Hot themes
 
-Each with its own risk profile + emoji tracking on UI.
+Each with its own learning instance + emoji tracking.
 
 ---
 
-**Tweet 6:**
+**Tweet 8:**
 🔒 **FINAL DECISION GATE (FDG)**
 
 Every single trade passes through 15+ safety gates:
@@ -83,25 +118,28 @@ Every single trade passes through 15+ safety gates:
 • Whale concentration limits
 • Liquidity collapse detection
 • Distribution pattern blocking
-• Behavior learning veto (NEW)
+• Behavior learning veto
+• Mode-specific score adjustments
 
 Live mode is STRICT. Paper mode learns.
 
 ---
 
-**Tweet 7:**
+**Tweet 9:**
 📊 **CROSS-TALK AI PATTERNS**
 
 When multiple AIs agree, signals AMPLIFY:
 
-🐋 Whale buying + 📈 Momentum building + 💧 Liquidity growing = **SMART MONEY PUMP** detected
+🐋 Whale buying + 📈 Momentum + 💧 Liquidity = **SMART MONEY PUMP**
+🎯 Good behavior pattern = **BEHAVIOR BOOST** (+30 pts)
+❌ Bad behavior pattern = **BEHAVIOR BLOCK** (-50 pts)
 
-🐋 Whale selling + 📉 Distribution + 💧 Liquidity draining = **COORDINATED DUMP** → EXIT NOW
+AI consensus. Not single indicator.
 
 ---
 
-**Tweet 8:**
-🔥 **JUPITER ULTRA INTEGRATION**
+**Tweet 10:**
+🔥 **JUPITER ULTRA + MEV PROTECTION**
 
 MEV-protected swaps via Jupiter's best-in-class routing.
 
@@ -114,7 +152,7 @@ Your sells actually hit the blockchain. Verified. ✅
 
 ---
 
-**Tweet 9:**
+**Tweet 11:**
 💰 **TREASURY PROTECTION**
 
 At 2x: Recover initial capital ✅
@@ -127,7 +165,7 @@ The rest rides for free.
 
 ---
 
-**Tweet 10:**
+**Tweet 12:**
 🏗️ **NATIVE KOTLIN ANDROID**
 
 • No web servers
@@ -140,6 +178,8 @@ Your trading brain in your pocket.
 
 Open source. Self-hosted. You own it.
 
+8 commits. All passing. Production ready. 🚀
+
 ---
 
 ### 📸 INSTAGRAM/THREADS:
@@ -147,29 +187,35 @@ Open source. Self-hosted. You own it.
 ```
 🚀 AATE v2.0 - SELF-EVOLVING SOLANA BOT
 
-The trading bot that literally learns from its mistakes.
+The trading bot with 18 INDEPENDENT AI BRAINS.
+
+NEW: Per-Mode Learning System
+Each of 18 trading modes learns INDEPENDENTLY:
+🌙 MOONSHOT learns moonshot patterns
+🎰 PUMP_SNIPER learns viral signals
+💎 LONG_HOLD learns diamond hand setups
+🐋 WHALE_FOLLOW learns smart money
 
 NEW: Dual-Layer Behavior Learning
 ✅ Good Behavior Brain - Winners
 ❌ Bad Behavior Brain - Losers
 
-12 AI modules cross-talking in real-time:
-• Whale tracking
-• Momentum prediction
-• Liquidity analysis
-• Market regime detection
-• Pattern recognition
-• Self-healing diagnostics
+NEW: Mode-Specific Scanner Filters
+• Each mode learns its optimal liquidity range
+• Each mode learns its best discovery sources
+• Each mode learns its best entry phases
+• Each mode learns its best hours
 
-18 trading modes with emoji indicators
+12 AI modules cross-talking in real-time
+18 trading modes with independent learning
 15+ safety gates per trade
-Auto-wipes poisoned data
+Self-healing per mode (not global wipe)
 Jupiter Ultra MEV protection
 
 Native Android. No servers. No fees.
-Your brain. Your rules. Your profits.
+Your brains. Your rules. Your profits.
 
-#Solana #TradingBot #AI #DeFi #Crypto
+#Solana #TradingBot #AI #DeFi #Crypto #Web3
 ```
 
 ---
@@ -177,25 +223,44 @@ Your brain. Your rules. Your profits.
 ### 💬 DISCORD/TELEGRAM ANNOUNCEMENT:
 
 ```
-🚀 **AATE v2.0 RELEASE - THE SELF-EVOLVING TRADING BRAIN**
+🚀 **AATE v2.0 RELEASE - 18 INDEPENDENT AI BRAINS**
 
 Major upgrade just deployed! Here's what's new:
 
+**🎯 PER-MODE LEARNING SYSTEM (ModeLearning)**
+Each of 18 trading modes now has its OWN learning instance:
+- MOONSHOT learns what works for early moonshots
+- PUMP_SNIPER learns viral detection patterns
+- WHALE_FOLLOW learns smart money signals
+- LONG_HOLD learns diamond hand setups
+
+Each mode tracks:
+• Wins/losses per entry phase
+• Wins/losses per liquidity bucket
+• Wins/losses per discovery source
+• Wins/losses per hour of day
+
+**🔬 MODE-SPECIFIC SCANNER FILTERS**
+Each mode generates its own scanner preferences:
+- Preferred liquidity ranges (learned)
+- Preferred/avoided sources
+- Preferred/avoided phases
+- Preferred/avoided hours
+- Confidence scales with trade count
+
 **🧠 DUAL-LAYER BEHAVIOR LEARNING**
-The bot now maintains TWO separate learning systems:
+Two separate learning systems:
 - Good Behavior Layer → Patterns from winning trades
 - Bad Behavior Layer → Patterns from losing trades
 
-It doesn't just track win rates. It learns WHAT BEHAVIORS lead to wins vs losses.
-
-**🔄 SELF-HEALING SYSTEM**
-- Monitors health every 30 minutes
-- Auto-clears poisoned data if bad patterns dominate 3:1
-- No manual intervention needed
-- Weight decay favors recent learnings
+**🔄 PER-MODE SELF-HEALING**
+- Mode has 70%+ loss rate? ONLY that mode resets
+- Mode has 5 consecutive losses? Decay weights 50%
+- Other modes keep learning undisturbed
+- No more global memory wipes needed
 
 **🔗 FULL AI CROSS-TALK INTEGRATION**
-BehaviorLearning now contributes to the 12-layer AI consensus:
+All learning systems now contribute to 12-layer AI consensus:
 - WhaleTrackerAI
 - MomentumPredictorAI
 - LiquidityDepthAI
@@ -205,24 +270,21 @@ BehaviorLearning now contributes to the 12-layer AI consensus:
 - EntryIntelligence
 - ExitIntelligence
 - EdgeLearning
-- BehaviorLearning (NEW)
-- SuperBrainEnhancements
+- BehaviorLearning
+- ModeLearning (NEW)
 - AdaptiveLearningEngine
 
-**🛡️ FDG GATE 1g.5: BEHAVIOR VETO**
-New safety gate in FinalDecisionGate:
-- Hard blocks patterns with 80%+ loss rate
-- Score adjustment -50 to +30 based on confidence
-- Paper mode: logs warnings for learning
-- Live mode: respects learned behavior blocks
+**📊 INTEGRATION POINTS**
+- LifecycleStrategy.kt → Mode-specific score adjustments
+- Executor.kt → Records trades to both BehaviorLearning and ModeLearning
+- FinalDecisionGate.kt → Behavior veto + mode learning influence
+- BotService.kt → Initializes all learning systems, logs best/worst modes
+- SelfHealingDiagnostics.kt → Per-mode health monitoring
 
-**📊 HEALTH STATUSES**
-BOOTSTRAP → LEARNING → HEALTHY → WARNING → CRITICAL
+**⚡ 8 COMMITS, ALL PASSING CI**
+Fully tested. Production ready.
 
-**⚡ ALL 6 COMMITS PASSED CI**
-Fully tested. Ready for production.
-
-Download latest APK and let the evolution begin! 🧬
+Download latest APK and let each mode evolve! 🧬
 ```
 
 ---
@@ -231,31 +293,38 @@ Download latest APK and let the evolution begin! 🧬
 
 ```
 [HOOK - 0:00-0:03]
-"This trading bot literally teaches itself to stop making bad trades."
+"This trading bot has 18 separate AI brains that each learn independently."
 
 [INTRO - 0:03-0:15]
-"AATE version 2 just dropped, and it has something no other bot has - 
-dual layer behavior learning. Let me show you what that means."
+"AATE version 2 just dropped with the most advanced learning system I've ever built.
+Each trading mode is its OWN AI that learns what works specifically for that strategy."
 
 [DEMO - 0:15-1:00]
-"The bot maintains two separate AI brains.
-One brain ONLY remembers winning trades.
-The other brain ONLY remembers losing trades.
-When a new trade looks like a past winner? Boost it.
-When it looks like a past loser? Block it.
-And here's the crazy part - if the losing brain gets too dominant,
-the bot automatically wipes its memory and starts fresh.
-Self-healing. While you sleep."
+"Let me show you what I mean.
+MOONSHOT mode learns what works for early moonshots.
+WHALE_FOLLOW mode learns what works for following smart money.
+They're completely independent brains.
+
+If PUMP_SNIPER has a bad streak and hits 70% loss rate?
+Only PUMP_SNIPER resets. The other 17 modes keep all their learning.
+
+And here's the crazy part - each mode learns its own optimal conditions:
+- Best liquidity ranges
+- Best discovery sources
+- Best entry phases
+- Best hours of day
+
+The scanner literally tailors its filters for each mode automatically."
 
 [FEATURES - 1:00-1:30]
 "12 AI modules cross-talking.
-18 trading modes.
+18 independent learning brains.
 15 safety gates.
-Jupiter Ultra MEV protection.
-Native Android - no servers, no fees."
+Per-mode self-healing.
+Jupiter Ultra MEV protection."
 
 [CTA - 1:30-1:45]
-"Link in bio. Open source. Self-hosted. Your brain, your rules."
+"Link in bio. Open source. Self-hosted. 18 brains, your rules."
 ```
 
 ---
@@ -269,29 +338,38 @@ Architecture: Native Kotlin Android
 Trading: Jupiter Ultra API (MEV-protected)
 Data: DexScreener, Rugcheck, CoinGecko
 AI Modules: 12 cross-talking layers
-Trading Modes: 18 with adaptive thresholds
+Trading Modes: 18 with independent learning
 Safety Gates: 15+ in FinalDecisionGate
 
 NEW IN v2.0:
-- BehaviorLearning.kt (800+ lines)
-  - Good/Bad pattern separation
-  - Self-healing (auto-clear poisoned data)
-  - Pattern pruning (24h stale removal)
-  - Weight decay (5%/hour)
-  - FDG integration (Gate 1g.5)
-  - AICrossTalk integration
-  - Health monitoring (5 statuses)
+
+1. BehaviorLearning.kt (~800 lines)
+   - Good/Bad pattern separation
+   - Self-healing (auto-clear poisoned data)
+   - Pattern pruning (24h stale removal)
+   - Weight decay (5%/hour)
+   - FDG integration (Gate 1g.5)
+   - AICrossTalk integration
+   - Health monitoring (5 statuses)
+
+2. ModeLearning (~500 lines in SolanaMarketScanner.kt)
+   - Per-mode learning instances (18 separate brains)
+   - Tracks wins/losses by: phase, liquidity, source, hour
+   - Mode-specific scanner preferences
+   - Per-mode self-healing (70%+ loss = mode reset only)
+   - Score bonus/penalty per mode (-20 to +20)
+   - Confidence scales with trade count
 
 Integration Points:
-- LifecycleStrategy.kt → Entry evaluation
-- Executor.kt → Trade recording
-- FinalDecisionGate.kt → Hard veto
-- BotService.kt → Periodic maintenance
-- AICrossTalk.kt → AI consensus
-- SelfHealingDiagnostics.kt → Health monitoring
+- LifecycleStrategy.kt → Entry evaluation (BehaviorLearning + ModeLearning)
+- Executor.kt → Trade recording (both learning systems)
+- FinalDecisionGate.kt → Hard veto (BehaviorLearning)
+- BotService.kt → Initialization, periodic maintenance
+- AICrossTalk.kt → AI consensus (BehaviorLearning patterns)
+- SelfHealingDiagnostics.kt → Health monitoring, memory clearing
 
-Commits: 6 (all passing CI)
-LOC Added: ~1,500+
+Commits: 8 (all passing CI)
+LOC Added: ~2,500+
 Test Status: GitHub Actions CI verified
 ```
 
