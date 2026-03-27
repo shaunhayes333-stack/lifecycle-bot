@@ -1,6 +1,6 @@
 MIT License
 
-Copyright (c) 2025 LifecycleBot
+Copyright (c) 2025 AATE Project (Autonomous Algorithmic Trading Engine)
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
 of this software and associated documentation files (the "Software"), to deal
@@ -22,12 +22,24 @@ SOFTWARE.
 
 ---
 
-ADDITIONAL DISCLAIMER FOR CRYPTOCURRENCY TRADING SOFTWARE:
+TRADEMARK NOTICE:
 
-This software is provided for educational and informational purposes only. 
-It is not financial advice. Trading cryptocurrencies involves substantial 
-risk of loss and is not suitable for all investors. Past performance is 
-not indicative of future results. The developers and contributors are not 
-responsible for any financial losses incurred through the use of this software.
+AATE™ (Autonomous Algorithmic Trading Engine) and the AATE logo (neural 
+infinity design) are trademarks. The MIT license grants rights to the source 
+code only, NOT to the AATE trademarks, logos, or branding. See LEGAL.md for 
+trademark usage guidelines.
 
-USE AT YOUR OWN RISK.
+---
+
+CRYPTOCURRENCY TRADING DISCLAIMER:
+
+⚠️ HIGH RISK WARNING: This software is provided for educational and 
+informational purposes only. It is NOT financial advice.
+
+- Trading cryptocurrencies involves SUBSTANTIAL RISK OF LOSS
+- You may lose some or ALL of your invested capital
+- Past performance is NOT indicative of future results
+- The developers are NOT responsible for any financial losses
+- ALWAYS use paper/demo mode before live trading
+
+USE AT YOUR OWN RISK. TRADE RESPONSIBLY.

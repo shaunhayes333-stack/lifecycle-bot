@@ -1,9 +1,15 @@
-# AATE — Autonomous Algorithmic Trading Engine
+# AATE™ — Autonomous Algorithmic Trading Engine
 
 > **The World's Most Advanced Open-Source Solana Trading Bot** — Built in under a week with 63,000+ lines of production Kotlin code
 
 [![Build Status](https://github.com/shaunhayes333-stack/lifecycle-bot/actions/workflows/build.yml/badge.svg)](https://github.com/shaunhayes333-stack/lifecycle-bot/actions)
 [![License](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
+
+---
+
+⚠️ **RISK WARNING:** Cryptocurrency trading involves substantial risk of loss. This software is NOT financial advice. See [LEGAL.md](LEGAL.md) for full disclaimers.
+
+---
 
 ## Executive Summary
 
@@ -265,5 +271,27 @@ All contributions welcome!
 - **Email**: Contact via GitHub
 
 ---
+
+## Legal
+
+**AATE™** is a trademark. The source code is MIT licensed, but the AATE name, logo, and branding are protected. See [LEGAL.md](LEGAL.md) for details.
+
+### Risk Disclaimer
+
+```
+⚠️ CRYPTOCURRENCY TRADING INVOLVES SUBSTANTIAL RISK OF LOSS ⚠️
+
+- This software is NOT financial advice
+- Past performance is NOT indicative of future results  
+- You may lose some or ALL of your invested capital
+- The developers are NOT responsible for any financial losses
+- ALWAYS use paper/demo mode before live trading
+
+TRADE AT YOUR OWN RISK.
+```
+
+---
+
+© 2025 AATE Project. All rights reserved.
 
 *Built with obsessive attention to detail. Every line of code reviewed. Every edge case considered. This is what trading automation should look like.*

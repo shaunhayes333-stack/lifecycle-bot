@@ -220,3 +220,9 @@ A: Good. More users = more collective learning data = better for everyone. Netwo
 
 **Q: Why did you build this?**
 A: I saw the gap between institutional trading tools and what retail traders have access to. I wanted to fix that.
+
+---
+
+© 2025 AATE Project. AATE™ is a trademark. All rights reserved. This document is confidential.
+
+⚠️ **RISK WARNING:** Cryptocurrency trading involves substantial risk of loss. This is NOT financial advice. Trade at your own risk.

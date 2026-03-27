@@ -253,3 +253,9 @@ The fact that this was built by a single developer in under one week demonstrate
 ---
 
 *For technical questions or integration inquiries, please open a GitHub issue.*
+
+---
+
+© 2025 AATE Project. AATE™ is a trademark. All rights reserved. This document is confidential.
+
+⚠️ **RISK WARNING:** Cryptocurrency trading involves substantial risk of loss. This is NOT financial advice. Trade at your own risk.

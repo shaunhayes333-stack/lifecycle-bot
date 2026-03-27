@@ -201,3 +201,9 @@ This reflects the technical achievement, market opportunity, and strategic diffe
 ---
 
 *"63,000 lines of AI-powered trading intelligence. 12 layers. 18 modes. 6 learning systems. Built in one week. The question isn't whether this is valuable—it's whether anyone else can catch up."*
+
+---
+
+© 2025 AATE Project. AATE™ is a trademark. All rights reserved. This document is confidential.
+
+⚠️ **RISK WARNING:** Cryptocurrency trading involves substantial risk of loss. This is NOT financial advice. Trade at your own risk.
