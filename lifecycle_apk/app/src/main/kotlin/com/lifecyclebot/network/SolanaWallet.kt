@@ -263,6 +263,10 @@ class SolanaWallet(privateKeyB58: String, val rpcUrl: String) {
      * Sign transaction and execute via Jupiter Ultra API.
      * Jupiter handles MEV protection and optimal execution.
      * 
+     * CRITICAL FIX #3: FALLBACK TO STANDARD SEND IF ULTRA FAILS
+     * If Jupiter Ultra execute fails (network, rate limit, server error),
+     * fall back to standard Jito/RPC broadcast rather than dropping the sell.
+     * 
      * @param jupiterApiKey The Jupiter API key from config
      */
     private fun signAndExecuteUltra(txBase64: String, requestId: String, jupiterApiKey: String = ""): String {
@@ -270,12 +274,65 @@ class SolanaWallet(privateKeyB58: String, val rpcUrl: String) {
         val signedBytes = signVersionedTx(txBytes)
         val signedB64 = android.util.Base64.encodeToString(signedBytes, android.util.Base64.NO_WRAP)
         
-        // Use Jupiter Ultra's execute endpoint
-        val jupiter = JupiterApi(jupiterApiKey)
-        val signature = jupiter.executeUltra(signedB64, requestId)
+        // Try Jupiter Ultra's execute endpoint first
+        try {
+            val jupiter = JupiterApi(jupiterApiKey)
+            val signature = jupiter.executeUltra(signedB64, requestId)
+            
+            // Still await confirmation to be safe
+            awaitConfirmation(signature)
+            return signature
+        } catch (ultraEx: Exception) {
+            // ═══════════════════════════════════════════════════════════════════
+            // FALLBACK: Ultra failed, try standard broadcast
+            // This catches: rate limits, server errors, network issues, expired requestId
+            // ═══════════════════════════════════════════════════════════════════
+            android.util.Log.w("SolanaWallet", "⚠️ Ultra execute failed: ${ultraEx.message?.take(60)}")
+            android.util.Log.w("SolanaWallet", "⚠️ Falling back to standard broadcast...")
+            
+            try {
+                // Try standard send (already signed, so just broadcast)
+                val signature = sendRawTransaction(signedB64)
+                android.util.Log.i("SolanaWallet", "✅ Fallback broadcast succeeded! sig=${signature.take(20)}...")
+                awaitConfirmation(signature)
+                return signature
+            } catch (fallbackEx: Exception) {
+                android.util.Log.e("SolanaWallet", "❌ Fallback also failed: ${fallbackEx.message}")
+                // Throw original Ultra error as it's more descriptive
+                throw ultraEx
+            }
+        }
+    }
+    
+    /**
+     * Send already-signed raw transaction bytes to RPC.
+     * Used as fallback when Ultra execute fails.
+     */
+    private fun sendRawTransaction(signedTxB64: String): String {
+        val params = JSONArray()
+            .put(signedTxB64)
+            .put(JSONObject()
+                .put("encoding", "base64")
+                .put("skipPreflight", false)
+                .put("preflightCommitment", "confirmed")
+                .put("maxRetries", 3)
+            )
         
-        // Still await confirmation to be safe
-        awaitConfirmation(signature)
+        val result = rpc("sendTransaction", params)
+        
+        // Check for error
+        val error = result.optJSONObject("error")
+        if (error != null) {
+            val msg = error.optString("message", "unknown")
+            val code = error.optInt("code", -1)
+            throw RuntimeException("sendTransaction RPC error ($code): $msg")
+        }
+        
+        val signature = result.optString("result", "")
+        if (signature.isBlank()) {
+            throw RuntimeException("sendTransaction returned empty signature")
+        }
+        
         return signature
     }
 

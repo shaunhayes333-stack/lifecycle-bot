@@ -88,6 +88,44 @@ class WalletManager private constructor(private val ctx: Context) {
                 INSTANCE ?: WalletManager(ctx.applicationContext).also { INSTANCE = it }
             }
         }
+        
+        /**
+         * CRITICAL FIX: Attempt to reconnect wallet using saved credentials.
+         * Called when wallet is null during a sell attempt.
+         * Returns the reconnected SolanaWallet or null if reconnect fails.
+         */
+        fun attemptReconnect(ctx: Context): SolanaWallet? {
+            ErrorLogger.info("Wallet", "🔄 attemptReconnect: Checking for saved credentials...")
+            
+            return try {
+                // Get saved config with credentials
+                val config = ConfigStore.load(ctx)
+                val savedKey = config.privateKey
+                val savedRpc = config.rpcUrl.ifBlank { FALLBACK_RPCS.first() }
+                
+                if (savedKey.isBlank()) {
+                    ErrorLogger.warn("Wallet", "❌ attemptReconnect: No saved private key")
+                    return null
+                }
+                
+                ErrorLogger.info("Wallet", "🔄 attemptReconnect: Found saved key, attempting reconnect...")
+                
+                // Get or create instance and try to connect
+                val manager = getInstance(ctx)
+                val success = manager.connect(savedKey, savedRpc)
+                
+                if (success) {
+                    ErrorLogger.info("Wallet", "✅ attemptReconnect: SUCCESS!")
+                    manager.getWallet()
+                } else {
+                    ErrorLogger.warn("Wallet", "❌ attemptReconnect: Connect failed")
+                    null
+                }
+            } catch (e: Exception) {
+                ErrorLogger.error("Wallet", "❌ attemptReconnect exception: ${e.message}")
+                null
+            }
+        }
     }
 
     // ── connect / disconnect ──────────────────────────────────────────

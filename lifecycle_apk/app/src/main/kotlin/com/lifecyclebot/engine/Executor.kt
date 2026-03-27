@@ -2923,17 +2923,38 @@ class Executor(
         onLog("📤 doSell: ${ts.symbol} | paperMode=$isPaper | hasWallet=$hasWallet | reason=$reason", tradeId.mint)
         
         // ═══════════════════════════════════════════════════════════════════
-        // BUG FIX: Warn loudly if live mode but no wallet - tokens will be stuck!
+        // CRITICAL FIX #1: WALLET NULL - RETRY/RECONNECT INSTEAD OF ABORTING
+        // 
+        // Previous behavior: Log error and return, leaving tokens stuck
+        // New behavior: Attempt reconnect, queue for retry, alert user loudly
         // ═══════════════════════════════════════════════════════════════════
         if (!isPaper && wallet == null) {
             ErrorLogger.error("Executor", "🚨 CRITICAL: Live mode sell attempted but WALLET IS NULL!")
-            ErrorLogger.error("Executor", "🚨 Token ${ts.symbol} WILL NOT BE SOLD - reconnect wallet!")
-            onLog("🚨 LIVE SELL BLOCKED: Wallet is NULL! ${ts.symbol} stuck in position!", tradeId.mint)
+            ErrorLogger.error("Executor", "🚨 Token ${ts.symbol} - attempting wallet reconnect...")
+            
+            // Attempt wallet reconnect via WalletManager
+            try {
+                val reconnectedWallet = WalletManager.attemptReconnect(ctx)
+                if (reconnectedWallet != null) {
+                    ErrorLogger.info("Executor", "✅ Wallet reconnected! Proceeding with sell...")
+                    onLog("✅ Wallet reconnected - proceeding with ${ts.symbol} sell", tradeId.mint)
+                    liveSell(ts, reason, reconnectedWallet, reconnectedWallet.getSolBalance(), tradeId)
+                    return
+                }
+            } catch (e: Exception) {
+                ErrorLogger.error("Executor", "🚨 Wallet reconnect failed: ${e.message}")
+            }
+            
+            // Reconnect failed - queue for retry and alert user
+            ErrorLogger.error("Executor", "🚨 Token ${ts.symbol} QUEUED FOR RETRY - reconnect wallet!")
+            onLog("🚨 SELL QUEUED: ${ts.symbol} | Wallet disconnected - will retry", tradeId.mint)
             onNotify("🚨 Wallet Disconnected!", 
-                "Cannot sell ${ts.symbol} - wallet is NULL! Reconnect wallet immediately!",
+                "Cannot sell ${ts.symbol} - wallet is NULL! Queued for retry. Reconnect wallet!",
                 com.lifecyclebot.engine.NotificationHistory.NotifEntry.NotifType.INFO)
-            onToast("🚨 WALLET NULL - Cannot sell ${ts.symbol}!")
-            // Don't route to paperSell - that would clear the position without selling!
+            onToast("🚨 Reconnect wallet to sell ${ts.symbol}!")
+            
+            // Queue the sell for retry (will be picked up when wallet reconnects)
+            PendingSellQueue.add(ts.mint, ts.symbol, reason)
             return
         }
         
@@ -3629,11 +3650,45 @@ class Executor(
             return
         }
 
-        // Keypair integrity check
-        if (!security.verifyKeypairIntegrity(wallet.publicKeyB58,
-                c.walletAddress.ifBlank { wallet.publicKeyB58 })) {
-            onLog("🛑 SELL ABORTED: Keypair integrity failure", tradeId.mint)
-            return
+        // ═══════════════════════════════════════════════════════════════════
+        // CRITICAL FIX #2: KEYPAIR INTEGRITY - WARN BUT PROCEED FOR SELLS
+        // 
+        // Previous behavior: Hard-block sell on integrity failure
+        // Problem: Tokens get stuck if keypair reload has minor issue
+        // 
+        // New behavior for SELLS: Log warning, attempt keypair reload, 
+        // and proceed anyway. Better to attempt the sell than leave tokens stuck.
+        // (Entry blocking remains strict - that prevents buying with bad keys)
+        // ═══════════════════════════════════════════════════════════════════
+        val integrityOk = security.verifyKeypairIntegrity(wallet.publicKeyB58,
+                c.walletAddress.ifBlank { wallet.publicKeyB58 })
+        
+        if (!integrityOk) {
+            ErrorLogger.warn("Executor", "⚠️ Keypair integrity mismatch for SELL - attempting reload...")
+            
+            // Attempt to reload keypair from secure storage
+            try {
+                val reloadedWallet = WalletManager.attemptReconnect(ctx)
+                if (reloadedWallet != null) {
+                    val retryIntegrity = security.verifyKeypairIntegrity(
+                        reloadedWallet.publicKeyB58,
+                        c.walletAddress.ifBlank { reloadedWallet.publicKeyB58 }
+                    )
+                    if (retryIntegrity) {
+                        ErrorLogger.info("Executor", "✅ Keypair reloaded successfully, proceeding with sell")
+                        // Use reloaded wallet for this sell
+                        liveSell(ts, reason, reloadedWallet, reloadedWallet.getSolBalance(), tradeId)
+                        return
+                    }
+                }
+            } catch (e: Exception) {
+                ErrorLogger.warn("Executor", "⚠️ Keypair reload attempt failed: ${e.message}")
+            }
+            
+            // Integrity still failed after reload - proceed anyway with warning
+            // Better to attempt the sell than leave tokens stuck
+            onLog("⚠️ SELL PROCEEDING DESPITE INTEGRITY WARNING: ${ts.symbol}", tradeId.mint)
+            ErrorLogger.warn("Executor", "⚠️ SELL PROCEEDING: Integrity failed but attempting anyway for ${ts.symbol}")
         }
 
         var tokenUnits = (pos.qtyToken * 1_000_000_000.0).toLong().coerceAtLeast(1L)
