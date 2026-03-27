@@ -562,14 +562,11 @@ object ModeRouter {
             reasons.add("SENTIMENT: boosted source")
         }
         
-        // Check trending status
-        try {
-            val trendBoost = TrendingTokenAI.entryScoreBoost(ts.symbol)
-            if (trendBoost > 5.0) {
-                score += 25.0
-                reasons.add("SENTIMENT: trending +${trendBoost.toInt()}")
-            }
-        } catch (_: Exception) { }
+        // Trending indicators (check from source or meta)
+        if (source.contains("coingecko") || source.contains("birdeye_trend")) {
+            score += 20.0
+            reasons.add("SENTIMENT: trending source")
+        }
         
         // Buy pressure rising (sentiment translating to action)
         if (hist.size >= 3) {
