@@ -1248,6 +1248,24 @@ Analyse this data and respond with ONLY valid JSON in this exact format:
     fun getTradeCount(): Int = synchronized(recentMemory) { recentMemory.size }
     
     /**
+     * Clear recent memory - used by SelfHealingDiagnostics when data is poisoned.
+     */
+    fun clearRecentMemory() {
+        synchronized(recentMemory) {
+            recentMemory.clear()
+        }
+        phaseWinCounts.clear()
+        phaseLossCounts.clear()
+        sourceWinCounts.clear()
+        sourceLossCounts.clear()
+        patternLossCounts.clear()
+        tokenLossCounts.clear()
+        totalTradesLearned = 0
+        memoryStats = MemoryStats()
+        ErrorLogger.warn("BotBrain", "🧹 Recent memory cleared - will relearn from scratch")
+    }
+    
+    /**
      * Check if current market regime (from recent trades) is favorable.
      * Returns true if recent win rate >= 50%.
      */

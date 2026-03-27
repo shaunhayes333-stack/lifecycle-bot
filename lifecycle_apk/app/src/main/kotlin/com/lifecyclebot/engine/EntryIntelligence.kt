@@ -448,4 +448,17 @@ object EntryIntelligence {
      * Get total trades for learning maturity check.
      */
     fun getTotalTrades(): Int = weights.totalTrades
+    
+    /**
+     * Get trade count alias.
+     */
+    fun getTradeCount(): Int = weights.totalTrades
+    
+    /**
+     * Clear all learned data - used for self-healing when data is poisoned.
+     */
+    fun clear() {
+        weights = EntryWeights()
+        ErrorLogger.warn(TAG, "🧹 Entry AI cleared - will relearn from scratch")
+    }
 }

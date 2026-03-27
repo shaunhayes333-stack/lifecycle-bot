@@ -449,7 +449,7 @@ object PersistentLearning {
     /**
      * Clear all persistent data (use with caution!)
      */
-    fun clearAll(): Boolean {
+    fun clearAll(context: Context? = null): Boolean {
         if (!isAvailable()) return false
         
         return try {

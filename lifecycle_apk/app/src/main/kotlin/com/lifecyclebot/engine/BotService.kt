@@ -992,6 +992,12 @@ class BotService : Service() {
         cancelKeepAliveAlarm()
         // Cancel watchdog (user explicitly stopped)
         ServiceWatchdog.cancel(applicationContext)
+        // Stop self-healing diagnostics
+        try {
+            SelfHealingDiagnostics.stop()
+        } catch (e: Exception) {
+            ErrorLogger.debug("BotService", "SelfHealingDiagnostics stop error: ${e.message}")
+        }
         // REMOVED: walletManager.disconnect() 
         // Wallet should ONLY disconnect when user explicitly requests it
         // This allows wallet to stay connected when:
@@ -1042,6 +1048,13 @@ class BotService : Service() {
             pi
         )
         ErrorLogger.info("BotService", "Keep-alive alarm scheduled for 2 minutes")
+        
+        // Start self-healing diagnostics (runs every 3 hours)
+        try {
+            SelfHealingDiagnostics.start(scope)
+        } catch (e: Exception) {
+            ErrorLogger.warn("BotService", "Failed to start SelfHealingDiagnostics: ${e.message}")
+        }
     }
     
     private fun cancelKeepAliveAlarm() {

@@ -184,6 +184,20 @@ object ScannerLearning {
             obj.keys().asSequence().associateWith { obj.optInt(it, 0) }
         } catch (_: Exception) { emptyMap() }
     }
+    
+    /**
+     * Clear all learned data - used by SelfHealingDiagnostics.
+     */
+    fun clear() {
+        sourceWins.clear()
+        sourceLosses.clear()
+        liqBucketWins.clear()
+        liqBucketLosses.clear()
+        ageBucketWins.clear()
+        ageBucketLosses.clear()
+        save()
+        ErrorLogger.warn("ScannerLearning", "🧹 Scanner learning cleared")
+    }
 }
 
 /**

@@ -887,6 +887,11 @@ object AdaptiveLearningEngine {
         saveState()
         ErrorLogger.info("AdaptiveLearning", "Reset to defaults")
     }
+    
+    /**
+     * Alias for reset() - used by SelfHealingDiagnostics.
+     */
+    fun clear() = reset()
 
     private fun Double.fmt() = String.format("%.2f", this)
     private fun Pair<Double, Double>?.fmt() = this?.let { "(${first.fmt()}-${second.fmt()})" } ?: "null"

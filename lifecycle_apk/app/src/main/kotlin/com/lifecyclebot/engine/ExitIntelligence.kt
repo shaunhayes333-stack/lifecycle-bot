@@ -565,4 +565,12 @@ object ExitIntelligence {
      * Get learned trailing stop distance for moonshot trails.
      */
     fun getLearnedTrailingStopDistance(): Double = params.trailingStopDistance
+    
+    /**
+     * Clear all learned data - used for self-healing when data is poisoned.
+     */
+    fun clear() {
+        params = ExitParams()
+        ErrorLogger.warn(TAG, "🧹 Exit AI cleared - will relearn from scratch")
+    }
 }

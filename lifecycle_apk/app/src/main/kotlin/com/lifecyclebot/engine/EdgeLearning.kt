@@ -400,4 +400,9 @@ object EdgeLearning {
         entrySnapshots.clear()
         ErrorLogger.info("EdgeLearning", "🔄 Reset to default thresholds")
     }
+    
+    /**
+     * Alias for reset() - used by SelfHealingDiagnostics.
+     */
+    fun clear() = reset()
 }
