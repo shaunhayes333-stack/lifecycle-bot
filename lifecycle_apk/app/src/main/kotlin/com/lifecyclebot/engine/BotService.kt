@@ -1795,7 +1795,7 @@ class BotService : Service() {
                     
                     if (!preFilterResult.pass) {
                         HardRugPreFilter.logFailure(ts, preFilterResult)
-                        continue  // Skip to next token
+                        return@launch  // Skip to next token (exit this coroutine)
                     }
                 }
                 
@@ -1814,7 +1814,7 @@ class BotService : Service() {
                 
                 if (distributionCheck.shouldBlock && !ts.position.isOpen) {
                     ErrorLogger.info("BotService", "🔻 ${ts.symbol} DISTRIBUTION_FADE: ${distributionCheck.reason}")
-                    continue  // Skip to next token
+                    return@launch  // Skip to next token (exit this coroutine)
                 }
                 
                 // ═══════════════════════════════════════════════════════════════════
