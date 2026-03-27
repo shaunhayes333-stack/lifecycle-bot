@@ -830,6 +830,20 @@ By clicking "I Agree", you acknowledge that you have read, understood, and accep
                 else -> red
             })
             
+            // ═══════════════════════════════════════════════════════════════════
+            // SUPERBRAIN INTELLIGENCE DISPLAY
+            // Shows current mode, market sentiment, and active insights
+            // ═══════════════════════════════════════════════════════════════════
+            state.dashboardData?.let { dashboard ->
+                // Update AI confidence display with mode info
+                tvStatsAiConf.text = "${dashboard.modeEmoji} ${dashboard.activeMode}"
+                tvStatsAiConf.setTextColor(when (dashboard.sentiment) {
+                    "STRONG_BULL", "BULL" -> green
+                    "NEUTRAL" -> amber
+                    else -> red
+                })
+            }
+            
             val openCount = state.openPositions.size
             tvStatsOpenPos.text = "$openCount"
             tvStatsOpenPos.setTextColor(if (openCount > 0) purple else muted)
@@ -1102,9 +1116,10 @@ By clicking "I Agree", you acknowledge that you have read, understood, and accep
                 orientation = LinearLayout.VERTICAL
                 layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
             }
-            // Symbol
+            // Symbol + Trading Mode emoji
+            val modeEmoji = pos.tradingModeEmoji.ifEmpty { "📈" }
             info.addView(TextView(this).apply {
-                text = ts.symbol.ifBlank { ts.mint.take(8) }
+                text = "$modeEmoji ${ts.symbol.ifBlank { ts.mint.take(8) }}"
                 textSize = resources.getDimension(R.dimen.trade_row_text) / resources.displayMetrics.scaledDensity
                 setTextColor(white)
                 typeface = android.graphics.Typeface.DEFAULT_BOLD
