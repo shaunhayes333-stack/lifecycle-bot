@@ -570,7 +570,7 @@ object ExitIntelligence {
      * Clear all learned data - used for self-healing when data is poisoned.
      */
     fun clear() {
-        params = ExitParams()
+        params = LearnedExitParams()
         ErrorLogger.warn(TAG, "🧹 Exit AI cleared - will relearn from scratch")
     }
 }

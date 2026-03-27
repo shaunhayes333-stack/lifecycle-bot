@@ -147,7 +147,7 @@ object SelfHealingDiagnostics {
             } catch (e: Exception) { 0.0 }
             
             val fluidTrades = try {
-                FluidLearning.paperTradeCount
+                FluidLearning.getTradeCount()
             } catch (e: Exception) { 0 }
             
             // Get win rate from EntryIntelligence
@@ -309,12 +309,12 @@ object SelfHealingDiagnostics {
                 ErrorLogger.warn(TAG, "Failed to clear ScannerLearning: ${e.message}")
             }
             
-            // 6. Clear AdaptiveLearning
+            // 6. Clear AdaptiveLearningEngine
             try {
-                AdaptiveLearning.clear()
-                ErrorLogger.info(TAG, "✓ Cleared AdaptiveLearning")
+                AdaptiveLearningEngine.clear()
+                ErrorLogger.info(TAG, "✓ Cleared AdaptiveLearningEngine")
             } catch (e: Exception) {
-                ErrorLogger.warn(TAG, "Failed to clear AdaptiveLearning: ${e.message}")
+                ErrorLogger.warn(TAG, "Failed to clear AdaptiveLearningEngine: ${e.message}")
             }
             
             // 7. Clear SuperBrainEnhancements

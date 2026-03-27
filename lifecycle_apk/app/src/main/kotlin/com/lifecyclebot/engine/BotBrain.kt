@@ -219,16 +219,16 @@ class BotBrain(
     
     // Aggregated stats from both memories (computed periodically)
     data class MemoryStats(
-        val recentWinRate: Double,
-        val globalWinRate: Double,
-        val blendedWinRate: Double,
-        val recentAvgPnl: Double,
-        val globalAvgPnl: Double,
-        val recentTradeCount: Int,
-        val globalTradeCount: Int,
-        val topPhases: List<Pair<String, Double>>,      // phase → win rate
-        val topSources: List<Pair<String, Double>>,     // source → win rate
-        val dangerZones: List<String>,                   // patterns to avoid
+        val recentWinRate: Double = 0.0,
+        val globalWinRate: Double = 0.0,
+        val blendedWinRate: Double = 0.0,
+        val recentAvgPnl: Double = 0.0,
+        val globalAvgPnl: Double = 0.0,
+        val recentTradeCount: Int = 0,
+        val globalTradeCount: Int = 0,
+        val topPhases: List<Pair<String, Double>> = emptyList(),      // phase → win rate
+        val topSources: List<Pair<String, Double>> = emptyList(),     // source → win rate
+        val dangerZones: List<String> = emptyList(),                   // patterns to avoid
     )
     
     @Volatile var memoryStats: MemoryStats = MemoryStats(

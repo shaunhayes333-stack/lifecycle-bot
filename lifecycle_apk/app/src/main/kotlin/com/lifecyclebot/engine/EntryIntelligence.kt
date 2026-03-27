@@ -458,7 +458,7 @@ object EntryIntelligence {
      * Clear all learned data - used for self-healing when data is poisoned.
      */
     fun clear() {
-        weights = EntryWeights()
+        weights = LearnedWeights()
         ErrorLogger.warn(TAG, "🧹 Entry AI cleared - will relearn from scratch")
     }
 }
