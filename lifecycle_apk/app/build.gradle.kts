@@ -31,12 +31,12 @@ android {
             // Uses default debug keystore at ~/.android/debug.keystore
         }
         create("release") {
-            // For CI: use debug keystore to avoid security warnings
-            // For production: replace with your own signing key
-            storeFile = file(System.getProperty("user.home") + "/.android/debug.keystore")
-            storePassword = "android"
-            keyAlias = "androiddebugkey"
-            keyPassword = "android"
+            // CI creates this keystore during build
+            // For Play Store: replace with your production signing key
+            storeFile = file(System.getProperty("user.home") + "/.android/release.keystore")
+            storePassword = "android123"
+            keyAlias = "release"
+            keyPassword = "android123"
         }
     }
 
