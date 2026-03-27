@@ -1,0 +1,921 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AATE - Investor Pitch Deck 2025</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'SF Pro Display', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: #000;
+            color: #fff;
+            overflow-x: hidden;
+        }
+
+        .slide {
+            min-height: 100vh;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            padding: 60px 80px;
+            position: relative;
+            border-bottom: 1px solid #1a1a2e;
+        }
+
+        /* Slide 1: Title */
+        .slide-title {
+            background: linear-gradient(135deg, #0a0a0f 0%, #1a1a2e 100%);
+            text-align: center;
+        }
+
+        .logo-container {
+            margin-bottom: 40px;
+        }
+
+        .logo-img {
+            width: 200px;
+            height: 200px;
+            border-radius: 40px;
+            box-shadow: 0 20px 60px rgba(153, 69, 255, 0.4);
+        }
+
+        .title {
+            font-size: 120px;
+            font-weight: 800;
+            background: linear-gradient(135deg, #9945FF, #14F195);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            margin-bottom: 20px;
+            letter-spacing: -3px;
+        }
+
+        .subtitle {
+            font-size: 32px;
+            color: #9CA3AF;
+            margin-bottom: 60px;
+            font-weight: 300;
+        }
+
+        .hero-stats {
+            display: flex;
+            gap: 60px;
+            margin-top: 40px;
+        }
+
+        .hero-stat {
+            text-align: center;
+        }
+
+        .hero-stat-value {
+            font-size: 64px;
+            font-weight: 700;
+            color: #14F195;
+        }
+
+        .hero-stat-label {
+            font-size: 16px;
+            color: #6B7280;
+            text-transform: uppercase;
+            letter-spacing: 2px;
+        }
+
+        /* Slide 2: The Story */
+        .slide-story {
+            background: #0a0a0f;
+        }
+
+        .story-headline {
+            font-size: 72px;
+            font-weight: 700;
+            text-align: center;
+            margin-bottom: 40px;
+            line-height: 1.1;
+        }
+
+        .story-highlight {
+            color: #14F195;
+        }
+
+        .story-text {
+            font-size: 28px;
+            color: #9CA3AF;
+            text-align: center;
+            max-width: 900px;
+            line-height: 1.6;
+        }
+
+        /* Slide 3: The Problem */
+        .slide-problem {
+            background: linear-gradient(180deg, #0a0a0f 0%, #1a0a0f 100%);
+        }
+
+        .section-title {
+            font-size: 18px;
+            color: #EF4444;
+            text-transform: uppercase;
+            letter-spacing: 4px;
+            margin-bottom: 30px;
+        }
+
+        .problem-list {
+            max-width: 1000px;
+        }
+
+        .problem-item {
+            display: flex;
+            align-items: center;
+            padding: 30px;
+            background: rgba(239, 68, 68, 0.05);
+            border-left: 4px solid #EF4444;
+            margin-bottom: 20px;
+            border-radius: 0 12px 12px 0;
+        }
+
+        .problem-icon {
+            font-size: 40px;
+            margin-right: 30px;
+        }
+
+        .problem-text {
+            font-size: 24px;
+            color: #E5E7EB;
+        }
+
+        /* Slide 4: The Solution */
+        .slide-solution {
+            background: linear-gradient(180deg, #0a0a0f 0%, #0a1a0f 100%);
+        }
+
+        .solution-title {
+            font-size: 18px;
+            color: #14F195;
+            text-transform: uppercase;
+            letter-spacing: 4px;
+            margin-bottom: 30px;
+        }
+
+        .solution-headline {
+            font-size: 56px;
+            font-weight: 700;
+            text-align: center;
+            margin-bottom: 60px;
+        }
+
+        .solution-grid {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 30px;
+            max-width: 1200px;
+        }
+
+        .solution-card {
+            background: rgba(20, 241, 149, 0.05);
+            border: 1px solid rgba(20, 241, 149, 0.2);
+            border-radius: 16px;
+            padding: 40px;
+            text-align: center;
+        }
+
+        .solution-card-icon {
+            font-size: 48px;
+            margin-bottom: 20px;
+        }
+
+        .solution-card-title {
+            font-size: 24px;
+            font-weight: 600;
+            margin-bottom: 12px;
+            color: #14F195;
+        }
+
+        .solution-card-text {
+            font-size: 16px;
+            color: #9CA3AF;
+            line-height: 1.5;
+        }
+
+        /* Slide 5: Architecture */
+        .slide-arch {
+            background: #0a0a0f;
+        }
+
+        .arch-diagram {
+            background: linear-gradient(135deg, rgba(153, 69, 255, 0.1), rgba(20, 241, 149, 0.1));
+            border: 1px solid #333;
+            border-radius: 24px;
+            padding: 60px;
+            max-width: 1100px;
+            width: 100%;
+        }
+
+        .arch-title {
+            font-size: 32px;
+            font-weight: 700;
+            text-align: center;
+            margin-bottom: 40px;
+            color: #9945FF;
+        }
+
+        .layer-grid {
+            display: grid;
+            grid-template-columns: repeat(4, 1fr);
+            gap: 15px;
+        }
+
+        .layer-box {
+            background: rgba(0, 0, 0, 0.5);
+            border: 1px solid #444;
+            border-radius: 12px;
+            padding: 20px;
+            text-align: center;
+        }
+
+        .layer-num {
+            font-size: 12px;
+            color: #9945FF;
+            margin-bottom: 8px;
+        }
+
+        .layer-name {
+            font-size: 14px;
+            font-weight: 600;
+            color: #fff;
+        }
+
+        .fdg-box {
+            grid-column: span 4;
+            background: linear-gradient(135deg, #9945FF, #14F195);
+            border: none;
+            padding: 30px;
+            margin-top: 20px;
+        }
+
+        .fdg-box .layer-name {
+            font-size: 20px;
+        }
+
+        /* Slide 6: Trading Modes */
+        .slide-modes {
+            background: #0a0a0f;
+        }
+
+        .modes-grid {
+            display: grid;
+            grid-template-columns: repeat(6, 1fr);
+            gap: 15px;
+            max-width: 1200px;
+        }
+
+        .mode-chip {
+            background: rgba(153, 69, 255, 0.1);
+            border: 1px solid rgba(153, 69, 255, 0.3);
+            border-radius: 8px;
+            padding: 15px 10px;
+            text-align: center;
+            font-size: 12px;
+            font-weight: 600;
+            color: #E5E7EB;
+        }
+
+        /* Slide 7: Learning Systems */
+        .slide-learning {
+            background: linear-gradient(180deg, #0a0a0f 0%, #0f0a1a 100%);
+        }
+
+        .learning-flow {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 20px;
+            max-width: 1200px;
+            flex-wrap: wrap;
+        }
+
+        .learning-node {
+            background: rgba(153, 69, 255, 0.1);
+            border: 2px solid #9945FF;
+            border-radius: 16px;
+            padding: 30px 25px;
+            text-align: center;
+            min-width: 160px;
+        }
+
+        .learning-node-title {
+            font-size: 16px;
+            font-weight: 700;
+            color: #9945FF;
+            margin-bottom: 8px;
+        }
+
+        .learning-node-desc {
+            font-size: 12px;
+            color: #9CA3AF;
+        }
+
+        .learning-arrow {
+            font-size: 30px;
+            color: #14F195;
+        }
+
+        /* Slide 8: Competitive */
+        .slide-competitive {
+            background: #0a0a0f;
+        }
+
+        .comp-table {
+            border-collapse: collapse;
+            max-width: 1000px;
+            width: 100%;
+        }
+
+        .comp-table th {
+            background: #1a1a2e;
+            padding: 20px;
+            text-align: left;
+            font-size: 14px;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            color: #9CA3AF;
+        }
+
+        .comp-table td {
+            padding: 20px;
+            border-bottom: 1px solid #222;
+            font-size: 16px;
+        }
+
+        .comp-table tr:hover {
+            background: rgba(153, 69, 255, 0.05);
+        }
+
+        .check {
+            color: #14F195;
+            font-size: 20px;
+        }
+
+        .cross {
+            color: #EF4444;
+            font-size: 20px;
+        }
+
+        /* Slide 9: Traction */
+        .slide-traction {
+            background: linear-gradient(135deg, #0a0a0f 0%, #1a1a2e 100%);
+        }
+
+        .traction-grid {
+            display: grid;
+            grid-template-columns: repeat(4, 1fr);
+            gap: 40px;
+            max-width: 1000px;
+        }
+
+        .traction-item {
+            text-align: center;
+            padding: 30px;
+            background: rgba(20, 241, 149, 0.05);
+            border-radius: 16px;
+            border: 1px solid rgba(20, 241, 149, 0.2);
+        }
+
+        .traction-value {
+            font-size: 48px;
+            font-weight: 700;
+            color: #14F195;
+        }
+
+        .traction-label {
+            font-size: 14px;
+            color: #9CA3AF;
+            margin-top: 10px;
+        }
+
+        /* Slide 10: Revenue */
+        .slide-revenue {
+            background: #0a0a0f;
+        }
+
+        .revenue-timeline {
+            display: flex;
+            gap: 30px;
+            max-width: 1100px;
+        }
+
+        .revenue-phase {
+            flex: 1;
+            background: rgba(153, 69, 255, 0.05);
+            border: 1px solid #333;
+            border-radius: 16px;
+            padding: 30px;
+        }
+
+        .phase-header {
+            font-size: 14px;
+            color: #9945FF;
+            margin-bottom: 15px;
+            text-transform: uppercase;
+            letter-spacing: 2px;
+        }
+
+        .phase-title {
+            font-size: 24px;
+            font-weight: 700;
+            margin-bottom: 20px;
+        }
+
+        .phase-item {
+            font-size: 14px;
+            color: #9CA3AF;
+            margin-bottom: 10px;
+            padding-left: 20px;
+            position: relative;
+        }
+
+        .phase-item::before {
+            content: "→";
+            position: absolute;
+            left: 0;
+            color: #14F195;
+        }
+
+        /* Slide 11: The Ask */
+        .slide-ask {
+            background: linear-gradient(135deg, #1a0a2e 0%, #0a1a2e 100%);
+        }
+
+        .ask-amount {
+            font-size: 120px;
+            font-weight: 800;
+            background: linear-gradient(135deg, #14F195, #9945FF);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            margin-bottom: 30px;
+        }
+
+        .ask-breakdown {
+            display: flex;
+            gap: 40px;
+            margin-top: 40px;
+        }
+
+        .ask-item {
+            text-align: center;
+            padding: 30px 40px;
+            background: rgba(255, 255, 255, 0.05);
+            border-radius: 16px;
+        }
+
+        .ask-item-amount {
+            font-size: 32px;
+            font-weight: 700;
+            color: #14F195;
+        }
+
+        .ask-item-label {
+            font-size: 14px;
+            color: #9CA3AF;
+            margin-top: 10px;
+        }
+
+        /* Slide 12: Contact */
+        .slide-contact {
+            background: linear-gradient(135deg, #0a0a0f 0%, #1a1a2e 100%);
+            text-align: center;
+        }
+
+        .contact-cta {
+            font-size: 56px;
+            font-weight: 700;
+            margin-bottom: 40px;
+        }
+
+        .contact-links {
+            display: flex;
+            gap: 40px;
+            justify-content: center;
+        }
+
+        .contact-link {
+            background: linear-gradient(135deg, #9945FF, #14F195);
+            color: #000;
+            text-decoration: none;
+            padding: 20px 50px;
+            border-radius: 12px;
+            font-size: 18px;
+            font-weight: 600;
+            transition: transform 0.2s;
+        }
+
+        .contact-link:hover {
+            transform: translateY(-3px);
+        }
+
+        .tagline {
+            margin-top: 60px;
+            font-size: 24px;
+            color: #6B7280;
+            font-style: italic;
+        }
+
+        /* Responsive */
+        @media (max-width: 1024px) {
+            .slide {
+                padding: 40px;
+            }
+            .title {
+                font-size: 72px;
+            }
+            .hero-stats {
+                flex-wrap: wrap;
+            }
+            .solution-grid {
+                grid-template-columns: 1fr;
+            }
+            .layer-grid {
+                grid-template-columns: repeat(2, 1fr);
+            }
+            .fdg-box {
+                grid-column: span 2;
+            }
+            .modes-grid {
+                grid-template-columns: repeat(3, 1fr);
+            }
+            .traction-grid {
+                grid-template-columns: repeat(2, 1fr);
+            }
+            .revenue-timeline {
+                flex-direction: column;
+            }
+        }
+    </style>
+</head>
+<body>
+    <!-- Slide 1: Title -->
+    <section class="slide slide-title">
+        <div class="logo-container">
+            <img src="https://customer-assets.emergentagent.com/job_1e74f951-6eeb-46c3-b8b1-140327376bae/artifacts/zpefu7fr_1000064089.jpg" alt="AATE Logo" class="logo-img">
+        </div>
+        <h1 class="title">AATE</h1>
+        <p class="subtitle">Autonomous Algorithmic Trading Engine</p>
+        <div class="hero-stats">
+            <div class="hero-stat">
+                <div class="hero-stat-value">63K+</div>
+                <div class="hero-stat-label">Lines of Code</div>
+            </div>
+            <div class="hero-stat">
+                <div class="hero-stat-value">12</div>
+                <div class="hero-stat-label">AI Layers</div>
+            </div>
+            <div class="hero-stat">
+                <div class="hero-stat-value">7</div>
+                <div class="hero-stat-label">Days to Build</div>
+            </div>
+            <div class="hero-stat">
+                <div class="hero-stat-value">1</div>
+                <div class="hero-stat-label">Developer</div>
+            </div>
+        </div>
+    </section>
+
+    <!-- Slide 2: The Story -->
+    <section class="slide slide-story">
+        <h2 class="story-headline">
+            Built <span class="story-highlight">63,000 lines</span> of production code<br>
+            in <span class="story-highlight">under one week</span>
+        </h2>
+        <p class="story-text">
+            While others talk about AI, we shipped it. A fully autonomous trading engine with 12 AI layers, 18 trading modes, and 6 self-learning systems. Native Android. Open source. Live on Solana.
+        </p>
+    </section>
+
+    <!-- Slide 3: The Problem -->
+    <section class="slide slide-problem">
+        <div class="section-title">The Problem</div>
+        <div class="problem-list">
+            <div class="problem-item">
+                <span class="problem-icon">😤</span>
+                <span class="problem-text">Manual crypto trading is emotionally exhausting and time-consuming</span>
+            </div>
+            <div class="problem-item">
+                <span class="problem-icon">🤖</span>
+                <span class="problem-text">Existing bots are either too simple (single indicator) or black-box (no transparency)</span>
+            </div>
+            <div class="problem-item">
+                <span class="problem-icon">🏝️</span>
+                <span class="problem-text">No shared learning — every trader starts from zero</span>
+            </div>
+            <div class="problem-item">
+                <span class="problem-icon">🚧</span>
+                <span class="problem-text">High barrier to entry for algorithmic trading</span>
+            </div>
+        </div>
+    </section>
+
+    <!-- Slide 4: The Solution -->
+    <section class="slide slide-solution">
+        <div class="solution-title">The Solution</div>
+        <h2 class="solution-headline">AI That Learns, Adapts, and Shares</h2>
+        <div class="solution-grid">
+            <div class="solution-card">
+                <div class="solution-card-icon">🧠</div>
+                <div class="solution-card-title">12-Layer AI</div>
+                <div class="solution-card-text">Consensus-based decisions. All layers must agree before any trade.</div>
+            </div>
+            <div class="solution-card">
+                <div class="solution-card-icon">📊</div>
+                <div class="solution-card-title">18 Trading Modes</div>
+                <div class="solution-card-text">From PUMP_SNIPER to DEFENSIVE. Adapts to any market condition.</div>
+            </div>
+            <div class="solution-card">
+                <div class="solution-card-icon">🔄</div>
+                <div class="solution-card-title">Self-Learning</div>
+                <div class="solution-card-text">6 learning systems improve with every trade. Gets smarter over time.</div>
+            </div>
+            <div class="solution-card">
+                <div class="solution-card-icon">🌐</div>
+                <div class="solution-card-title">Collective Intelligence</div>
+                <div class="solution-card-text">Privacy-preserving shared learning across all instances.</div>
+            </div>
+            <div class="solution-card">
+                <div class="solution-card-icon">🔒</div>
+                <div class="solution-card-title">Military-Grade Security</div>
+                <div class="solution-card-text">AES-256 encryption. Hardware keystore. Jito MEV protection.</div>
+            </div>
+            <div class="solution-card">
+                <div class="solution-card-icon">📱</div>
+                <div class="solution-card-title">Native Mobile</div>
+                <div class="solution-card-text">Real Android app. Not a web wrapper. True mobile trading.</div>
+            </div>
+        </div>
+    </section>
+
+    <!-- Slide 5: Architecture -->
+    <section class="slide slide-arch">
+        <div class="section-title" style="color: #9945FF;">Technical Architecture</div>
+        <div class="arch-diagram">
+            <div class="arch-title">12-Layer AI Consensus System</div>
+            <div class="layer-grid">
+                <div class="layer-box">
+                    <div class="layer-num">LAYER 11</div>
+                    <div class="layer-name">AICrossTalk</div>
+                </div>
+                <div class="layer-box">
+                    <div class="layer-num">LAYER 10</div>
+                    <div class="layer-name">LiquidityAI</div>
+                </div>
+                <div class="layer-box">
+                    <div class="layer-num">LAYER 9</div>
+                    <div class="layer-name">TimeOptAI</div>
+                </div>
+                <div class="layer-box">
+                    <div class="layer-num">LAYER 8</div>
+                    <div class="layer-name">NarrativeAI</div>
+                </div>
+                <div class="layer-box">
+                    <div class="layer-num">LAYER 7</div>
+                    <div class="layer-name">MomentumAI</div>
+                </div>
+                <div class="layer-box">
+                    <div class="layer-num">LAYER 6</div>
+                    <div class="layer-name">RegimeAI</div>
+                </div>
+                <div class="layer-box">
+                    <div class="layer-num">LAYER 5</div>
+                    <div class="layer-name">WhaleAI</div>
+                </div>
+                <div class="layer-box">
+                    <div class="layer-num">LAYER 4</div>
+                    <div class="layer-name">ExitAI</div>
+                </div>
+                <div class="layer-box">
+                    <div class="layer-num">LAYER 3</div>
+                    <div class="layer-name">EntryAI</div>
+                </div>
+                <div class="layer-box">
+                    <div class="layer-num">LAYER 2</div>
+                    <div class="layer-name">BehaviorAI</div>
+                </div>
+                <div class="layer-box">
+                    <div class="layer-num">LAYER 1</div>
+                    <div class="layer-name">EdgeAI</div>
+                </div>
+                <div class="layer-box">
+                    <div class="layer-num">LAYER 0</div>
+                    <div class="layer-name">Foundation</div>
+                </div>
+                <div class="layer-box fdg-box">
+                    <div class="layer-num" style="color: #000;">LAYER 12</div>
+                    <div class="layer-name" style="color: #000;">FINAL DECISION GATE — All Layers Must Agree</div>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- Slide 6: Trading Modes -->
+    <section class="slide slide-modes">
+        <div class="section-title" style="color: #9945FF;">18 Trading Modes</div>
+        <h2 style="font-size: 40px; margin-bottom: 40px;">A Mode for Every Market Condition</h2>
+        <div class="modes-grid">
+            <div class="mode-chip">PUMP_SNIPER</div>
+            <div class="mode-chip">MOMENTUM_RIDE</div>
+            <div class="mode-chip">WHALE_FOLLOW</div>
+            <div class="mode-chip">SCALP_QUICK</div>
+            <div class="mode-chip">RANGE_BOUND</div>
+            <div class="mode-chip">RECOVERY_MODE</div>
+            <div class="mode-chip">COPY_TRADE</div>
+            <div class="mode-chip">DIAMOND_HANDS</div>
+            <div class="mode-chip">SNIPE_GRADUATE</div>
+            <div class="mode-chip">NARRATIVE_PLAY</div>
+            <div class="mode-chip">BLUE_CHIP</div>
+            <div class="mode-chip">SCALP_MICRO</div>
+            <div class="mode-chip">DIP_HUNTER</div>
+            <div class="mode-chip">BREAKOUT</div>
+            <div class="mode-chip">MEAN_REVERT</div>
+            <div class="mode-chip">NEWS_TRADE</div>
+            <div class="mode-chip">GRID_TRADE</div>
+            <div class="mode-chip">DEFENSIVE</div>
+        </div>
+    </section>
+
+    <!-- Slide 7: Learning Systems -->
+    <section class="slide slide-learning">
+        <div class="section-title" style="color: #9945FF;">Self-Learning AI</div>
+        <h2 style="font-size: 40px; margin-bottom: 50px;">Gets Smarter With Every Trade</h2>
+        <div class="learning-flow">
+            <div class="learning-node">
+                <div class="learning-node-title">EdgeLearning</div>
+                <div class="learning-node-desc">Dynamic thresholds</div>
+            </div>
+            <div class="learning-arrow">→</div>
+            <div class="learning-node">
+                <div class="learning-node-title">BehaviorAI</div>
+                <div class="learning-node-desc">Pattern memory</div>
+            </div>
+            <div class="learning-arrow">→</div>
+            <div class="learning-node">
+                <div class="learning-node-title">EntryAI</div>
+                <div class="learning-node-desc">Entry scoring</div>
+            </div>
+            <div class="learning-arrow">→</div>
+            <div class="learning-node">
+                <div class="learning-node-title">ExitAI</div>
+                <div class="learning-node-desc">Exit optimization</div>
+            </div>
+            <div class="learning-arrow">→</div>
+            <div class="learning-node">
+                <div class="learning-node-title">ModeAI</div>
+                <div class="learning-node-desc">Mode selection</div>
+            </div>
+            <div class="learning-arrow">→</div>
+            <div class="learning-node" style="border-color: #14F195;">
+                <div class="learning-node-title" style="color: #14F195;">CollectiveAI</div>
+                <div class="learning-node-desc">Shared intelligence</div>
+            </div>
+        </div>
+    </section>
+
+    <!-- Slide 8: Competitive -->
+    <section class="slide slide-competitive">
+        <div class="section-title" style="color: #9945FF;">Competitive Landscape</div>
+        <table class="comp-table">
+            <tr>
+                <th>Feature</th>
+                <th>AATE</th>
+                <th>Competitors</th>
+            </tr>
+            <tr>
+                <td>AI Layers</td>
+                <td><strong>12</strong></td>
+                <td>1-3</td>
+            </tr>
+            <tr>
+                <td>Self-Learning</td>
+                <td><span class="check">✓</span></td>
+                <td><span class="cross">✗</span></td>
+            </tr>
+            <tr>
+                <td>Collective Intelligence</td>
+                <td><span class="check">✓</span></td>
+                <td><span class="cross">✗</span></td>
+            </tr>
+            <tr>
+                <td>Open Source</td>
+                <td><span class="check">✓</span></td>
+                <td><span class="cross">✗</span></td>
+            </tr>
+            <tr>
+                <td>Native Mobile</td>
+                <td><span class="check">✓</span></td>
+                <td>Web only</td>
+            </tr>
+            <tr>
+                <td>Anti-Rug Protection</td>
+                <td><span class="check">✓</span></td>
+                <td>Limited</td>
+            </tr>
+            <tr>
+                <td>Trading Modes</td>
+                <td><strong>18</strong></td>
+                <td>1-5</td>
+            </tr>
+        </table>
+    </section>
+
+    <!-- Slide 9: Traction -->
+    <section class="slide slide-traction">
+        <div class="section-title" style="color: #14F195;">Current Status</div>
+        <h2 style="font-size: 48px; margin-bottom: 50px;">Live and Trading</h2>
+        <div class="traction-grid">
+            <div class="traction-item">
+                <div class="traction-value">63K+</div>
+                <div class="traction-label">Lines of Code</div>
+            </div>
+            <div class="traction-item">
+                <div class="traction-value">80+</div>
+                <div class="traction-label">Source Files</div>
+            </div>
+            <div class="traction-item">
+                <div class="traction-value">100%</div>
+                <div class="traction-label">Open Source</div>
+            </div>
+            <div class="traction-item">
+                <div class="traction-value">LIVE</div>
+                <div class="traction-label">On Solana</div>
+            </div>
+        </div>
+    </section>
+
+    <!-- Slide 10: Revenue Model -->
+    <section class="slide slide-revenue">
+        <div class="section-title" style="color: #9945FF;">Revenue Model</div>
+        <div class="revenue-timeline">
+            <div class="revenue-phase">
+                <div class="phase-header">Phase 1</div>
+                <div class="phase-title">Freemium App</div>
+                <div class="phase-item">Free: Basic trading, 3 modes</div>
+                <div class="phase-item">Pro: All 18 modes, full AI</div>
+                <div class="phase-item">$29/month or $199/year</div>
+            </div>
+            <div class="revenue-phase">
+                <div class="phase-header">Phase 2</div>
+                <div class="phase-title">Collective Premium</div>
+                <div class="phase-item">Enhanced shared intelligence</div>
+                <div class="phase-item">Priority pattern data</div>
+                <div class="phase-item">$49/month</div>
+            </div>
+            <div class="revenue-phase">
+                <div class="phase-header">Phase 3</div>
+                <div class="phase-title">API & White-Label</div>
+                <div class="phase-item">Trading signals API</div>
+                <div class="phase-item">White-label deployments</div>
+                <div class="phase-item">Enterprise licensing</div>
+            </div>
+        </div>
+    </section>
+
+    <!-- Slide 11: The Ask -->
+    <section class="slide slide-ask">
+        <div class="section-title" style="color: #14F195;">The Ask</div>
+        <div class="ask-amount">$500K</div>
+        <h2 style="font-size: 32px; color: #9CA3AF;">Seed Round</h2>
+        <div class="ask-breakdown">
+            <div class="ask-item">
+                <div class="ask-item-amount">40%</div>
+                <div class="ask-item-label">Infrastructure & Scale</div>
+            </div>
+            <div class="ask-item">
+                <div class="ask-item-amount">25%</div>
+                <div class="ask-item-label">iOS Development</div>
+            </div>
+            <div class="ask-item">
+                <div class="ask-item-amount">25%</div>
+                <div class="ask-item-label">Growth & Community</div>
+            </div>
+            <div class="ask-item">
+                <div class="ask-item-amount">10%</div>
+                <div class="ask-item-label">Operations</div>
+            </div>
+        </div>
+    </section>
+
+    <!-- Slide 12: Contact -->
+    <section class="slide slide-contact">
+        <div class="logo-container">
+            <img src="https://customer-assets.emergentagent.com/job_1e74f951-6eeb-46c3-b8b1-140327376bae/artifacts/zpefu7fr_1000064089.jpg" alt="AATE Logo" class="logo-img" style="width: 120px; height: 120px; border-radius: 24px;">
+        </div>
+        <h2 class="contact-cta">Let's Build the Future of Trading</h2>
+        <div class="contact-links">
+            <a href="https://github.com/shaunhayes333-stack/lifecycle-bot" class="contact-link">View on GitHub</a>
+            <a href="mailto:contact@example.com" class="contact-link">Get in Touch</a>
+        </div>
+        <p class="tagline">"63,000 lines of AI-powered trading intelligence. One week. One developer. Zero limits."</p>
+    </section>
+</body>
+</html>
