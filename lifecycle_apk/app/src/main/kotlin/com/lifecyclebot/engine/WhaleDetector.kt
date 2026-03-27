@@ -87,13 +87,17 @@ object WhaleDetector {
         }
 
         // ── Velocity: unique buyers per minute ───────────────────
-        // Approximate from candle buy counts over last 5 candles
+        // IMPORTANT: buysH1 is HOURLY buy count, not per-candle!
+        // We need to normalize this properly to get buys/min.
+        //
+        // BUG FIX: Previously divided total buysH1 by candle timespan, which
+        // caused massive overestimation (100 buys/hr ÷ 5 min = 20 buys/min, WRONG!)
+        // 
+        // CORRECT: buysH1 is already per-hour, so:
+        //   buysPerMin = latest buysH1 / 60
         val recentCandles   = hist.takeLast(5)
-        val totalBuys       = recentCandles.sumOf { it.buysH1 }
-        val timeSpanMins    = if (recentCandles.size >= 2)
-            (recentCandles.last().ts - recentCandles.first().ts) / 60_000.0
-        else 1.0
-        val buysPerMin      = if (timeSpanMins > 0) totalBuys / timeSpanMins else 0.0
+        val latestBuysH1    = recentCandles.lastOrNull()?.buysH1 ?: 0
+        val buysPerMin      = latestBuysH1 / 60.0  // Convert hourly to per-minute
 
         // Velocity score: 5+ unique buys/min = very active
         val velocityScore = (buysPerMin / 5.0 * 100.0).coerceIn(0.0, 100.0)
