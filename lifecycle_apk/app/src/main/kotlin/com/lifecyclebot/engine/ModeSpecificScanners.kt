@@ -64,7 +64,12 @@ object ModeSpecificScanners {
      */
     fun scanFreshLaunch(ts: TokenState): ScanResult? {
         val now = System.currentTimeMillis()
-        val tokenAgeMins = if (ts.createdAt > 0) (now - ts.createdAt) / 60_000.0 else 999.0
+        val hist = ts.history.toList()
+        
+        // Calculate token age from history (first candle timestamp)
+        val tokenAgeMins = if (hist.isNotEmpty()) {
+            (now - hist.first().ts) / 60_000.0
+        } else 999.0
         
         // Must be fresh
         if (tokenAgeMins > 15) return null
@@ -109,11 +114,11 @@ object ModeSpecificScanners {
             }
         }
         
-        // Rugcheck pass (if available from meta)
-        if (ts.meta.rugScore > 60) {
+        // Holder concentration (lower is better for fresh launch)
+        if (ts.meta.holderConcentration > 0 && ts.meta.holderConcentration < 50) {
             score += 5.0
-        } else if (ts.meta.rugScore > 0 && ts.meta.rugScore < 40) {
-            return null  // Failed rugcheck
+        } else if (ts.meta.holderConcentration > 80) {
+            return null  // Too concentrated - risky
         }
         
         if (score < 40) return null

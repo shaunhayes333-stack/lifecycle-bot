@@ -140,7 +140,11 @@ object ModeRouter {
         
         val hist = ts.history.toList()
         val now = System.currentTimeMillis()
-        val tokenAgeMins = if (ts.createdAt > 0) (now - ts.createdAt) / 60_000.0 else 999.0
+        
+        // Calculate token age from history (first candle timestamp)
+        val tokenAgeMins = if (hist.isNotEmpty()) {
+            (now - hist.first().ts) / 60_000.0
+        } else 999.0
         
         // ─────────────────────────────────────────────────────────────────
         // FRESH LAUNCH DETECTION
@@ -545,16 +549,17 @@ object ModeRouter {
         var score = 0.0
         val reasons = mutableListOf<String>()
         
-        // Check DexScreener profile completeness (proxy for narrative strength)
-        if (ts.profileCompleted) {
-            score += 15.0
-            reasons.add("SENTIMENT: profile complete")
+        // Check for profile/social presence (use name and symbol presence as proxy)
+        if (ts.name.isNotEmpty() && ts.symbol.isNotEmpty() && ts.name != ts.symbol) {
+            score += 10.0
+            reasons.add("SENTIMENT: has identity")
         }
         
-        // Check for boost indicators
-        if (ts.boosted) {
+        // Check source for boost indicators
+        val source = ts.source.lowercase()
+        if (source.contains("boost") || source.contains("trend")) {
             score += 20.0
-            reasons.add("SENTIMENT: DEX boosted")
+            reasons.add("SENTIMENT: boosted source")
         }
         
         // Check trending status
