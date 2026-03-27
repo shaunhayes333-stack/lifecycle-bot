@@ -93,14 +93,22 @@ class WalletManager private constructor(private val ctx: Context) {
          * CRITICAL FIX: Attempt to reconnect wallet using saved credentials.
          * Called when wallet is null during a sell attempt.
          * Returns the reconnected SolanaWallet or null if reconnect fails.
+         * 
+         * Uses the singleton's internal context - no need to pass context.
          */
-        fun attemptReconnect(ctx: Context): SolanaWallet? {
+        fun attemptReconnect(): SolanaWallet? {
+            val instance = INSTANCE
+            if (instance == null) {
+                ErrorLogger.warn("Wallet", "❌ attemptReconnect: WalletManager not initialized")
+                return null
+            }
+            
             ErrorLogger.info("Wallet", "🔄 attemptReconnect: Checking for saved credentials...")
             
             return try {
-                // Get saved config with credentials
-                val config = ConfigStore.load(ctx)
-                val savedKey = config.privateKey
+                // Get saved config with credentials using instance's context
+                val config = ConfigStore.load(instance.ctx)
+                val savedKey = config.privateKeyB58
                 val savedRpc = config.rpcUrl.ifBlank { FALLBACK_RPCS.first() }
                 
                 if (savedKey.isBlank()) {
@@ -110,13 +118,12 @@ class WalletManager private constructor(private val ctx: Context) {
                 
                 ErrorLogger.info("Wallet", "🔄 attemptReconnect: Found saved key, attempting reconnect...")
                 
-                // Get or create instance and try to connect
-                val manager = getInstance(ctx)
-                val success = manager.connect(savedKey, savedRpc)
+                // Try to connect using the singleton instance
+                val success = instance.connect(savedKey, savedRpc)
                 
                 if (success) {
                     ErrorLogger.info("Wallet", "✅ attemptReconnect: SUCCESS!")
-                    manager.getWallet()
+                    instance.getWallet()
                 } else {
                     ErrorLogger.warn("Wallet", "❌ attemptReconnect: Connect failed")
                     null

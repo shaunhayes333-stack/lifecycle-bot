@@ -2934,7 +2934,7 @@ class Executor(
             
             // Attempt wallet reconnect via WalletManager
             try {
-                val reconnectedWallet = WalletManager.attemptReconnect(ctx)
+                val reconnectedWallet = WalletManager.attemptReconnect()
                 if (reconnectedWallet != null) {
                     ErrorLogger.info("Executor", "✅ Wallet reconnected! Proceeding with sell...")
                     onLog("✅ Wallet reconnected - proceeding with ${ts.symbol} sell", tradeId.mint)
@@ -3668,7 +3668,7 @@ class Executor(
             
             // Attempt to reload keypair from secure storage
             try {
-                val reloadedWallet = WalletManager.attemptReconnect(ctx)
+                val reloadedWallet = WalletManager.attemptReconnect()
                 if (reloadedWallet != null) {
                     val retryIntegrity = security.verifyKeypairIntegrity(
                         reloadedWallet.publicKeyB58,
