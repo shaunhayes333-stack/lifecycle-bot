@@ -333,7 +333,8 @@ object FinalDecisionGate {
     var maxKellySize = 0.10                // Maximum Kelly-suggested size (10%)
     
     // Base confidence thresholds (these are ADAPTED by AdaptiveConfidence)
-    var paperConfidenceBase = 0.0          // Paper mode base: NO confidence minimum (learn from all)
+    // FIX: Paper mode now has a minimum floor to avoid learning from garbage
+    var paperConfidenceBase = 15.0          // Paper mode: 15% minimum (don't learn from garbage)
     var liveConfidenceBase = 0.0           // ZEROED - let trades flow while brain learns (auto-adjusts)
     
     // ═══════════════════════════════════════════════════════════════════════════
@@ -1191,8 +1192,8 @@ object FinalDecisionGate {
         // If BehaviorLearning has learned that this pattern has 80%+ loss rate
         // with high confidence, BLOCK it. This is learned behavior, not hardcoded.
         // 
-        // LIVE MODE: Strict - respect behavior blocks
-        // PAPER MODE: Log but allow (for continued learning)
+        // BOTH LIVE AND PAPER MODE: Block patterns with 100% loss rate
+        // Learning from guaranteed losers is counterproductive - it poisons the AI.
         // ═══════════════════════════════════════════════════════════════════════
         
         if (blockReason == null) {
@@ -1223,8 +1224,19 @@ object FinalDecisionGate {
                 )
                 
                 if (behaviorBlock != null) {
-                    if (config.paperMode) {
-                        // Paper mode: Log but don't block - we want to learn more
+                    // FIX: Block even in paper mode if loss rate is 100%
+                    // Learning from guaranteed losers poisons the AI brain
+                    val is100PctLoss = behaviorBlock.contains("100%")
+                    
+                    if (is100PctLoss) {
+                        // ALWAYS block 100% loss patterns - even paper mode
+                        blockReason = "BEHAVIOR_BLOCK_100PCT_LOSS"
+                        blockLevel = BlockLevel.HARD
+                        checks.add(GateCheck("behavior_learning", false, 
+                            "$behaviorBlock (blocked even in paper - 100% loss)"))
+                        tags.add("behavior_100pct_loss_blocked")
+                    } else if (config.paperMode) {
+                        // Paper mode with <100% loss: Log but don't block
                         checks.add(GateCheck("behavior_learning", true, 
                             "PAPER: $behaviorBlock (bypassed for learning)"))
                         tags.add("behavior_warning_bypassed")
@@ -1256,6 +1268,75 @@ object FinalDecisionGate {
                 }
             } catch (e: Exception) {
                 checks.add(GateCheck("behavior_learning", true, "error: ${e.message}"))
+            }
+        }
+        
+        // ═══════════════════════════════════════════════════════════════════════
+        // GATE 1g.6: DANGER ZONE HARD BLOCK (TIME-BASED)
+        // 
+        // If TimeAI says DANGER ZONE, this historically performs poorly.
+        // Block even in paper mode - don't learn from trades during bad hours.
+        // ═══════════════════════════════════════════════════════════════════════
+        
+        if (blockReason == null) {
+            try {
+                // getEntryScoreAdjustment returns negative for bad hours (DANGER ZONE)
+                // Per logs: "⏰ Mouse: DANGER ZONE (-6 pts)"
+                val timeAdj = TimeOptimizationAI.getEntryScoreAdjustment()
+                if (timeAdj <= -5) {
+                    blockReason = "DANGER_ZONE_TIME"
+                    blockLevel = BlockLevel.SOFT
+                    checks.add(GateCheck("time_danger", false, 
+                        "TimeAI DANGER ZONE (adj=${timeAdj.toInt()})"))
+                    tags.add("time_danger_blocked")
+                } else {
+                    checks.add(GateCheck("time_danger", true, 
+                        "Time adj: ${timeAdj.toInt()}"))
+                }
+            } catch (e: Exception) {
+                checks.add(GateCheck("time_danger", true, "error: ${e.message}"))
+            }
+        }
+        
+        // ═══════════════════════════════════════════════════════════════════════
+        // GATE 1g.7: SEVERELY NEGATIVE MEMORY HARD BLOCK
+        // 
+        // If TokenWinMemory has severely negative score for this token pattern,
+        // block it. This prevents learning from consistently losing setups.
+        // ═══════════════════════════════════════════════════════════════════════
+        
+        if (blockReason == null) {
+            try {
+                val latestBuyPct = ts.history.lastOrNull()?.buyRatio?.times(100) ?: 50.0
+                val memoryMult = TokenWinMemory.getConfidenceMultiplier(
+                    mint = ts.mint,
+                    symbol = ts.symbol,
+                    name = ts.name,
+                    mcap = ts.lastMcap,
+                    liquidity = ts.lastLiquidityUsd,
+                    buyPercent = latestBuyPct,
+                    phase = ts.phase,
+                    source = ts.source,
+                )
+                
+                // Multiplier of 0.80 or less indicates strongly negative memory (-10+ score)
+                // From logs: "memory score=-14.0 multiplier=0.80"
+                if (memoryMult <= 0.75) {
+                    blockReason = "MEMORY_NEGATIVE_BLOCK"
+                    blockLevel = BlockLevel.SOFT
+                    checks.add(GateCheck("memory_negative", false, 
+                        "Memory strongly negative (mult=${memoryMult})"))
+                    tags.add("memory_blocked")
+                } else if (memoryMult < 0.85) {
+                    // Warning but don't block
+                    checks.add(GateCheck("memory_negative", true, 
+                        "Memory warning (mult=${memoryMult})"))
+                    tags.add("memory_warning")
+                } else {
+                    checks.add(GateCheck("memory_negative", true, null))
+                }
+            } catch (e: Exception) {
+                checks.add(GateCheck("memory_negative", true, "error: ${e.message}"))
             }
         }
         
