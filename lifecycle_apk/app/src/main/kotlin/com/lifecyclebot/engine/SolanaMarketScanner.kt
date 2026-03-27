@@ -200,6 +200,532 @@ object ScannerLearning {
     }
 }
 
+// ═══════════════════════════════════════════════════════════════════════════════
+// MODE-SPECIFIC LEARNING SYSTEM
+// Each trading mode has its own learning instance with tailored scanner filters
+// ═══════════════════════════════════════════════════════════════════════════════
+
+/**
+ * ModeLearning — Separate learning instance per trading mode.
+ * 
+ * Each of the 18 trading modes learns independently what works best for its strategy.
+ * For example:
+ * - MOONSHOT mode learns which early-stage patterns lead to 10x+
+ * - PUMP_SNIPER learns which viral signals actually pump
+ * - WHALE_FOLLOW learns which whale entry patterns are smart money vs dumps
+ * 
+ * Self-healing per mode: If a mode's learning becomes poisoned, only that mode resets.
+ */
+object ModeLearning {
+    
+    private const val TAG = "ModeLearning"
+    private const val PREFS_NAME = "mode_learning_v2"
+    private const val MIN_TRADES_FOR_CONFIDENCE = 5
+    private const val CRITICAL_LOSS_RATE = 70.0  // 70%+ losses = poisoned
+    private const val HEALTH_CHECK_INTERVAL_MS = 30 * 60 * 1000L
+    
+    private var ctx: Context? = null
+    
+    /**
+     * Per-mode learning data structure.
+     */
+    data class ModeLearningData(
+        var totalTrades: Int = 0,
+        var wins: Int = 0,
+        var losses: Int = 0,
+        var totalPnlPct: Double = 0.0,
+        var bestPnlPct: Double = 0.0,
+        var worstPnlPct: Double = -100.0,
+        var avgHoldTimeMs: Long = 0L,
+        var lastTradeMs: Long = 0L,
+        var consecutiveLosses: Int = 0,
+        var isHealthy: Boolean = true,
+        var deactivationReason: String = "",
+        
+        // Pattern-specific wins/losses for this mode
+        val phaseWins: MutableMap<String, Int> = mutableMapOf(),
+        val phaseLosses: MutableMap<String, Int> = mutableMapOf(),
+        val liqBucketWins: MutableMap<String, Int> = mutableMapOf(),
+        val liqBucketLosses: MutableMap<String, Int> = mutableMapOf(),
+        val sourceWins: MutableMap<String, Int> = mutableMapOf(),
+        val sourceLosses: MutableMap<String, Int> = mutableMapOf(),
+        val hourWins: MutableMap<Int, Int> = mutableMapOf(),
+        val hourLosses: MutableMap<Int, Int> = mutableMapOf(),
+    ) {
+        val winRate: Double get() = if (totalTrades > 0) wins.toDouble() / totalTrades * 100 else 50.0
+        val avgPnl: Double get() = if (totalTrades > 0) totalPnlPct / totalTrades else 0.0
+        val lossRate: Double get() = 100.0 - winRate
+        val isReliable: Boolean get() = totalTrades >= MIN_TRADES_FOR_CONFIDENCE
+    }
+    
+    /**
+     * Mode-specific scanner filter preferences.
+     */
+    data class ModeScannerPrefs(
+        val mode: String,
+        val preferredLiqMin: Double,
+        val preferredLiqMax: Double,
+        val preferredAgeMinHours: Double,
+        val preferredAgeMaxHours: Double,
+        val preferredSources: List<String>,
+        val avoidSources: List<String>,
+        val preferredPhases: List<String>,
+        val avoidPhases: List<String>,
+        val preferredHours: List<Int>,
+        val avoidHours: List<Int>,
+        val confidence: Double,  // How confident we are in these preferences
+    )
+    
+    // Per-mode learning data
+    private val modeData = ConcurrentHashMap<String, ModeLearningData>()
+    
+    // Health check tracking
+    private val lastHealthCheck = ConcurrentHashMap<String, Long>()
+    
+    /**
+     * Initialize with context.
+     */
+    fun init(context: Context) {
+        ctx = context.applicationContext
+        load()
+        ErrorLogger.info(TAG, "📊 Initialized: ${modeData.size} modes loaded")
+    }
+    
+    /**
+     * Record a trade outcome for a specific mode.
+     */
+    fun recordTrade(
+        mode: String,
+        isWin: Boolean,
+        pnlPct: Double,
+        holdTimeMs: Long,
+        entryPhase: String,
+        liquidityUsd: Double,
+        source: String,
+        hourOfDay: Int,
+    ) {
+        try {
+            val data = modeData.getOrPut(mode) { ModeLearningData() }
+            
+            // Update basic stats
+            data.totalTrades++
+            if (isWin) {
+                data.wins++
+                data.consecutiveLosses = 0
+            } else {
+                data.losses++
+                data.consecutiveLosses++
+            }
+            data.totalPnlPct += pnlPct
+            data.lastTradeMs = System.currentTimeMillis()
+            
+            // Update best/worst
+            if (pnlPct > data.bestPnlPct) data.bestPnlPct = pnlPct
+            if (pnlPct < data.worstPnlPct) data.worstPnlPct = pnlPct
+            
+            // Update rolling avg hold time
+            data.avgHoldTimeMs = if (data.totalTrades == 1) {
+                holdTimeMs
+            } else {
+                ((data.avgHoldTimeMs * (data.totalTrades - 1)) + holdTimeMs) / data.totalTrades
+            }
+            
+            // Record pattern-specific wins/losses
+            val liqBucket = getLiquidityBucket(liquidityUsd)
+            
+            if (isWin) {
+                data.phaseWins.merge(entryPhase, 1) { a, b -> a + b }
+                data.liqBucketWins.merge(liqBucket, 1) { a, b -> a + b }
+                data.sourceWins.merge(source, 1) { a, b -> a + b }
+                data.hourWins.merge(hourOfDay, 1) { a, b -> a + b }
+            } else {
+                data.phaseLosses.merge(entryPhase, 1) { a, b -> a + b }
+                data.liqBucketLosses.merge(liqBucket, 1) { a, b -> a + b }
+                data.sourceLosses.merge(source, 1) { a, b -> a + b }
+                data.hourLosses.merge(hourOfDay, 1) { a, b -> a + b }
+            }
+            
+            // Log progress
+            val emoji = if (isWin) "✅" else "❌"
+            ErrorLogger.info(TAG, "$emoji [$mode] Trade #${data.totalTrades}: " +
+                "WR=${data.winRate.toInt()}% | PnL=${pnlPct.toInt()}% | Phase=$entryPhase")
+            
+            // Save periodically (every 5 trades)
+            if (data.totalTrades % 5 == 0) save()
+            
+        } catch (e: Exception) {
+            ErrorLogger.debug(TAG, "recordTrade error: ${e.message}")
+        }
+    }
+    
+    /**
+     * Get learned scanner preferences for a mode.
+     * Used to tailor scanner filters per mode.
+     */
+    fun getScannerPrefs(mode: String): ModeScannerPrefs {
+        val data = modeData[mode]
+        
+        if (data == null || !data.isReliable) {
+            // Return default prefs if not enough data
+            return getDefaultPrefs(mode)
+        }
+        
+        // Calculate preferred/avoid based on win rates
+        val preferredPhases = data.phaseWins.keys.filter { phase ->
+            val wins = data.phaseWins[phase] ?: 0
+            val losses = data.phaseLosses[phase] ?: 0
+            val total = wins + losses
+            total >= 3 && wins.toDouble() / total >= 0.6  // 60%+ win rate
+        }
+        
+        val avoidPhases = data.phaseLosses.keys.filter { phase ->
+            val wins = data.phaseWins[phase] ?: 0
+            val losses = data.phaseLosses[phase] ?: 0
+            val total = wins + losses
+            total >= 3 && losses.toDouble() / total >= 0.7  // 70%+ loss rate
+        }
+        
+        val preferredSources = data.sourceWins.keys.filter { src ->
+            val wins = data.sourceWins[src] ?: 0
+            val losses = data.sourceLosses[src] ?: 0
+            val total = wins + losses
+            total >= 3 && wins.toDouble() / total >= 0.6
+        }
+        
+        val avoidSources = data.sourceLosses.keys.filter { src ->
+            val wins = data.sourceWins[src] ?: 0
+            val losses = data.sourceLosses[src] ?: 0
+            val total = wins + losses
+            total >= 3 && losses.toDouble() / total >= 0.7
+        }
+        
+        val preferredHours = data.hourWins.keys.filter { hour ->
+            val wins = data.hourWins[hour] ?: 0
+            val losses = data.hourLosses[hour] ?: 0
+            val total = wins + losses
+            total >= 2 && wins.toDouble() / total >= 0.65
+        }
+        
+        val avoidHours = data.hourLosses.keys.filter { hour ->
+            val wins = data.hourWins[hour] ?: 0
+            val losses = data.hourLosses[hour] ?: 0
+            val total = wins + losses
+            total >= 2 && losses.toDouble() / total >= 0.75
+        }
+        
+        // Find best performing liquidity bucket
+        val bestLiqBucket = data.liqBucketWins.maxByOrNull { (bucket, wins) ->
+            val losses = data.liqBucketLosses[bucket] ?: 0
+            if (wins + losses >= 3) wins.toDouble() / (wins + losses) else 0.0
+        }?.key
+        
+        val (liqMin, liqMax) = when (bestLiqBucket) {
+            "0-5k" -> 0.0 to 5_000.0
+            "5k-20k" -> 5_000.0 to 20_000.0
+            "20k-100k" -> 20_000.0 to 100_000.0
+            "100k+" -> 100_000.0 to Double.MAX_VALUE
+            else -> getDefaultLiqRange(mode)
+        }
+        
+        val confidence = data.totalTrades.toDouble().coerceAtMost(50.0) / 50.0  // Max at 50 trades
+        
+        return ModeScannerPrefs(
+            mode = mode,
+            preferredLiqMin = liqMin,
+            preferredLiqMax = liqMax,
+            preferredAgeMinHours = 0.0,  // Could enhance with age learning
+            preferredAgeMaxHours = 24.0,
+            preferredSources = preferredSources,
+            avoidSources = avoidSources,
+            preferredPhases = preferredPhases,
+            avoidPhases = avoidPhases,
+            preferredHours = preferredHours,
+            avoidHours = avoidHours,
+            confidence = confidence,
+        )
+    }
+    
+    /**
+     * Get score bonus for a setup based on mode-specific learning.
+     * Returns -20 to +20 adjustment.
+     */
+    fun getScoreBonus(
+        mode: String,
+        entryPhase: String,
+        liquidityUsd: Double,
+        source: String,
+        hourOfDay: Int,
+    ): Int {
+        val data = modeData[mode] ?: return 0
+        if (!data.isReliable) return 0
+        
+        var bonus = 0.0
+        
+        // Phase bonus/penalty
+        val phaseWins = data.phaseWins[entryPhase] ?: 0
+        val phaseLosses = data.phaseLosses[entryPhase] ?: 0
+        val phaseTotal = phaseWins + phaseLosses
+        if (phaseTotal >= 3) {
+            val phaseWinRate = phaseWins.toDouble() / phaseTotal
+            bonus += (phaseWinRate - 0.5) * 20  // -10 to +10
+        }
+        
+        // Liquidity bucket bonus/penalty
+        val liqBucket = getLiquidityBucket(liquidityUsd)
+        val liqWins = data.liqBucketWins[liqBucket] ?: 0
+        val liqLosses = data.liqBucketLosses[liqBucket] ?: 0
+        val liqTotal = liqWins + liqLosses
+        if (liqTotal >= 3) {
+            val liqWinRate = liqWins.toDouble() / liqTotal
+            bonus += (liqWinRate - 0.5) * 15  // -7.5 to +7.5
+        }
+        
+        // Source bonus/penalty
+        val srcWins = data.sourceWins[source] ?: 0
+        val srcLosses = data.sourceLosses[source] ?: 0
+        val srcTotal = srcWins + srcLosses
+        if (srcTotal >= 3) {
+            val srcWinRate = srcWins.toDouble() / srcTotal
+            bonus += (srcWinRate - 0.5) * 10  // -5 to +5
+        }
+        
+        // Hour bonus/penalty
+        val hourWins = data.hourWins[hourOfDay] ?: 0
+        val hourLosses = data.hourLosses[hourOfDay] ?: 0
+        val hourTotal = hourWins + hourLosses
+        if (hourTotal >= 2) {
+            val hourWinRate = hourWins.toDouble() / hourTotal
+            bonus += (hourWinRate - 0.5) * 10  // -5 to +5
+        }
+        
+        return bonus.toInt().coerceIn(-20, 20)
+    }
+    
+    /**
+     * Self-healing check for a specific mode.
+     * Returns true if mode was reset.
+     */
+    fun selfHealingCheckForMode(mode: String): Boolean {
+        val now = System.currentTimeMillis()
+        val lastCheck = lastHealthCheck[mode] ?: 0L
+        
+        if (now - lastCheck < HEALTH_CHECK_INTERVAL_MS) return false
+        lastHealthCheck[mode] = now
+        
+        val data = modeData[mode] ?: return false
+        
+        // Not enough data to judge
+        if (data.totalTrades < MIN_TRADES_FOR_CONFIDENCE) return false
+        
+        // Check if mode is poisoned
+        if (data.lossRate >= CRITICAL_LOSS_RATE) {
+            ErrorLogger.warn(TAG, "🚨 [$mode] POISONED: ${data.lossRate.toInt()}% loss rate - RESETTING")
+            resetMode(mode)
+            return true
+        }
+        
+        // Check for consecutive loss streak
+        if (data.consecutiveLosses >= 5) {
+            ErrorLogger.warn(TAG, "⚠️ [$mode] 5+ consecutive losses - partial reset")
+            // Partial reset: decay weights but don't clear completely
+            data.totalTrades = (data.totalTrades * 0.5).toInt()
+            data.wins = (data.wins * 0.5).toInt()
+            data.losses = (data.losses * 0.5).toInt()
+            data.consecutiveLosses = 0
+            return false
+        }
+        
+        return false
+    }
+    
+    /**
+     * Reset learning for a specific mode.
+     */
+    fun resetMode(mode: String) {
+        modeData[mode] = ModeLearningData()
+        save()
+        ErrorLogger.warn(TAG, "🧹 [$mode] Learning reset")
+    }
+    
+    /**
+     * Clear all mode learning data.
+     */
+    fun clear() {
+        modeData.clear()
+        lastHealthCheck.clear()
+        save()
+        ErrorLogger.warn(TAG, "🧹 All mode learning cleared")
+    }
+    
+    /**
+     * Get stats summary for a mode.
+     */
+    fun getStats(mode: String): String {
+        val data = modeData[mode] ?: return "[$mode] No data"
+        return "[$mode] ${data.totalTrades} trades | WR=${data.winRate.toInt()}% | " +
+            "AvgPnL=${data.avgPnl.toInt()}% | Best=${data.bestPnlPct.toInt()}%"
+    }
+    
+    /**
+     * Get all mode stats sorted by performance.
+     */
+    fun getAllStatsSorted(): List<Pair<String, ModeLearningData>> {
+        return modeData.entries
+            .filter { it.value.isReliable }
+            .sortedByDescending { it.value.winRate }
+            .map { it.key to it.value }
+    }
+    
+    /**
+     * Get best performing mode.
+     */
+    fun getBestMode(): String? {
+        return modeData.entries
+            .filter { it.value.isReliable && it.value.winRate >= 55.0 }
+            .maxByOrNull { it.value.winRate * it.value.avgPnl }
+            ?.key
+    }
+    
+    /**
+     * Get worst performing mode.
+     */
+    fun getWorstMode(): String? {
+        return modeData.entries
+            .filter { it.value.isReliable }
+            .minByOrNull { it.value.winRate }
+            ?.key
+    }
+    
+    // ── Helpers ─────────────────────────────────────────────────────────
+    
+    private fun getLiquidityBucket(liqUsd: Double): String {
+        return when {
+            liqUsd < 5_000 -> "0-5k"
+            liqUsd < 20_000 -> "5k-20k"
+            liqUsd < 100_000 -> "20k-100k"
+            else -> "100k+"
+        }
+    }
+    
+    private fun getDefaultPrefs(mode: String): ModeScannerPrefs {
+        val (liqMin, liqMax) = getDefaultLiqRange(mode)
+        return ModeScannerPrefs(
+            mode = mode,
+            preferredLiqMin = liqMin,
+            preferredLiqMax = liqMax,
+            preferredAgeMinHours = 0.0,
+            preferredAgeMaxHours = when (mode) {
+                "MOONSHOT", "PUMP_SNIPER" -> 6.0
+                "MICRO_CAP" -> 12.0
+                "LONG_HOLD", "WHALE_FOLLOW" -> 48.0
+                else -> 24.0
+            },
+            preferredSources = emptyList(),
+            avoidSources = emptyList(),
+            preferredPhases = emptyList(),
+            avoidPhases = emptyList(),
+            preferredHours = emptyList(),
+            avoidHours = emptyList(),
+            confidence = 0.0,
+        )
+    }
+    
+    private fun getDefaultLiqRange(mode: String): Pair<Double, Double> {
+        return when (mode) {
+            "MICRO_CAP" -> 1_000.0 to 10_000.0
+            "MOONSHOT", "PUMP_SNIPER" -> 5_000.0 to 50_000.0
+            "LONG_HOLD", "WHALE_FOLLOW" -> 50_000.0 to Double.MAX_VALUE
+            "REVIVAL" -> 10_000.0 to 100_000.0
+            else -> 5_000.0 to 100_000.0
+        }
+    }
+    
+    // ── Persistence ─────────────────────────────────────────────────────
+    
+    private fun save() {
+        val c = ctx ?: return
+        try {
+            val prefs = c.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+            val json = org.json.JSONObject()
+            
+            modeData.forEach { (mode, data) ->
+                val modeJson = org.json.JSONObject().apply {
+                    put("totalTrades", data.totalTrades)
+                    put("wins", data.wins)
+                    put("losses", data.losses)
+                    put("totalPnlPct", data.totalPnlPct)
+                    put("bestPnlPct", data.bestPnlPct)
+                    put("worstPnlPct", data.worstPnlPct)
+                    put("avgHoldTimeMs", data.avgHoldTimeMs)
+                    put("lastTradeMs", data.lastTradeMs)
+                    put("consecutiveLosses", data.consecutiveLosses)
+                    put("isHealthy", data.isHealthy)
+                    put("phaseWins", org.json.JSONObject(data.phaseWins as Map<*, *>))
+                    put("phaseLosses", org.json.JSONObject(data.phaseLosses as Map<*, *>))
+                    put("liqBucketWins", org.json.JSONObject(data.liqBucketWins as Map<*, *>))
+                    put("liqBucketLosses", org.json.JSONObject(data.liqBucketLosses as Map<*, *>))
+                    put("sourceWins", org.json.JSONObject(data.sourceWins as Map<*, *>))
+                    put("sourceLosses", org.json.JSONObject(data.sourceLosses as Map<*, *>))
+                }
+                json.put(mode, modeJson)
+            }
+            
+            prefs.edit().putString("modeData", json.toString()).apply()
+        } catch (e: Exception) {
+            ErrorLogger.debug(TAG, "save error: ${e.message}")
+        }
+    }
+    
+    private fun load() {
+        val c = ctx ?: return
+        try {
+            val prefs = c.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+            val jsonStr = prefs.getString("modeData", null) ?: return
+            val json = org.json.JSONObject(jsonStr)
+            
+            json.keys().forEach { mode ->
+                val modeJson = json.optJSONObject(mode) ?: return@forEach
+                val data = ModeLearningData(
+                    totalTrades = modeJson.optInt("totalTrades", 0),
+                    wins = modeJson.optInt("wins", 0),
+                    losses = modeJson.optInt("losses", 0),
+                    totalPnlPct = modeJson.optDouble("totalPnlPct", 0.0),
+                    bestPnlPct = modeJson.optDouble("bestPnlPct", 0.0),
+                    worstPnlPct = modeJson.optDouble("worstPnlPct", -100.0),
+                    avgHoldTimeMs = modeJson.optLong("avgHoldTimeMs", 0L),
+                    lastTradeMs = modeJson.optLong("lastTradeMs", 0L),
+                    consecutiveLosses = modeJson.optInt("consecutiveLosses", 0),
+                    isHealthy = modeJson.optBoolean("isHealthy", true),
+                )
+                
+                // Load pattern maps
+                modeJson.optJSONObject("phaseWins")?.let { obj ->
+                    obj.keys().forEach { k -> data.phaseWins[k] = obj.optInt(k, 0) }
+                }
+                modeJson.optJSONObject("phaseLosses")?.let { obj ->
+                    obj.keys().forEach { k -> data.phaseLosses[k] = obj.optInt(k, 0) }
+                }
+                modeJson.optJSONObject("liqBucketWins")?.let { obj ->
+                    obj.keys().forEach { k -> data.liqBucketWins[k] = obj.optInt(k, 0) }
+                }
+                modeJson.optJSONObject("liqBucketLosses")?.let { obj ->
+                    obj.keys().forEach { k -> data.liqBucketLosses[k] = obj.optInt(k, 0) }
+                }
+                modeJson.optJSONObject("sourceWins")?.let { obj ->
+                    obj.keys().forEach { k -> data.sourceWins[k] = obj.optInt(k, 0) }
+                }
+                modeJson.optJSONObject("sourceLosses")?.let { obj ->
+                    obj.keys().forEach { k -> data.sourceLosses[k] = obj.optInt(k, 0) }
+                }
+                
+                modeData[mode] = data
+            }
+        } catch (e: Exception) {
+            ErrorLogger.debug(TAG, "load error: ${e.message}")
+        }
+    }
+}
+
 /**
  * SolanaMarketScanner — full Solana DEX opportunity discovery
  * ═══════════════════════════════════════════════════════════════

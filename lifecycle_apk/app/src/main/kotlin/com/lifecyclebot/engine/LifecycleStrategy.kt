@@ -802,6 +802,35 @@ class LifecycleStrategy(
                     val blendedScore = (entryScore * (1 - blendRatio) + adaptiveScore.score * blendRatio)
                     entryScore = blendedScore.coerceIn(0.0, 100.0)
                 }
+                
+                // ═══════════════════════════════════════════════════════════════════
+                // MODE-SPECIFIC LEARNING BONUS
+                // Each trading mode applies its own learned adjustments
+                // ═══════════════════════════════════════════════════════════════════
+                try {
+                    val currentMode = if (ts.position.isOpen) ts.position.tradingMode else "SMART_SNIPER"
+                    val hourOfDay = java.util.Calendar.getInstance().get(java.util.Calendar.HOUR_OF_DAY)
+                    
+                    val modeBonus = ModeLearning.getScoreBonus(
+                        mode = currentMode,
+                        entryPhase = phase,
+                        liquidityUsd = ts.lastLiquidityUsd,
+                        source = ts.source.ifEmpty { "UNKNOWN" },
+                        hourOfDay = hourOfDay,
+                    )
+                    
+                    if (modeBonus != 0) {
+                        val oldScore = entryScore
+                        entryScore = (entryScore + modeBonus).coerceIn(0.0, 100.0)
+                        
+                        val arrow = if (modeBonus > 0) "↑" else "↓"
+                        ErrorLogger.debug("ModeLearning", "📊 [$currentMode] ${ts.symbol}: " +
+                            "${if (modeBonus > 0) "+" else ""}$modeBonus $arrow | ${oldScore.toInt()}→${entryScore.toInt()}")
+                    }
+                } catch (e: Exception) {
+                    ErrorLogger.debug("ModeLearning", "getScoreBonus error: ${e.message}")
+                }
+                // ═══════════════════════════════════════════════════════════════════
             }
             // ═══════════════════════════════════════════════════════════════════
         }

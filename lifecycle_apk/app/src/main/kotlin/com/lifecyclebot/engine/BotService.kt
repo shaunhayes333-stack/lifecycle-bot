@@ -724,6 +724,12 @@ class BotService : Service() {
         ScannerLearning.init(applicationContext)
         addLog("📊 ${ScannerLearning.getStats()}")
         
+        // Initialize ModeLearning for per-mode learning instances
+        ModeLearning.init(applicationContext)
+        val bestMode = ModeLearning.getBestMode()
+        val worstMode = ModeLearning.getWorstMode()
+        addLog("🎯 ModeLearning: Best=${bestMode ?: "N/A"} | Worst=${worstMode ?: "N/A"}")
+        
         // Initialize CloudLearningSync for community shared learning
         CloudLearningSync.init(applicationContext)
         addLog("☁️ ${CloudLearningSync.getStatus()}")

@@ -3159,6 +3159,25 @@ class Executor(
                     ageHours = tokenAgeHours,
                     isWin = shouldLearnAsWin  // Use classified outcome, not raw pnl
                 )
+                
+                // MODE-SPECIFIC LEARNING - each trading mode learns independently
+                val tradingMode = ts.position.tradingMode.ifEmpty { "STANDARD" }
+                val hourOfDayForMode = java.util.Calendar.getInstance().get(java.util.Calendar.HOUR_OF_DAY)
+                val holdTimeMs = System.currentTimeMillis() - ts.position.entryTime
+                
+                ModeLearning.recordTrade(
+                    mode = tradingMode,
+                    isWin = shouldLearnAsWin,
+                    pnlPct = pnlP,
+                    holdTimeMs = holdTimeMs,
+                    entryPhase = ts.position.entryPhase,
+                    liquidityUsd = ts.lastLiquidityUsd,
+                    source = ts.source.ifEmpty { "UNKNOWN" },
+                    hourOfDay = hourOfDayForMode,
+                )
+                
+                // Self-healing check for this mode
+                ModeLearning.selfHealingCheckForMode(tradingMode)
             } else {
                 ErrorLogger.debug("ScannerLearning", "Skipped scratch trade for ${ts.symbol} (pnl=${pnlP.toInt()}%)")
             }

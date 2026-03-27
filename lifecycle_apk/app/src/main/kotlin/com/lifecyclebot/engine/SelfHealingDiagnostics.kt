@@ -346,6 +346,14 @@ object SelfHealingDiagnostics {
                 ErrorLogger.warn(TAG, "Failed to clear BehaviorLearning: ${e.message}")
             }
             
+            // 7.6. Clear ModeLearning (Per-mode learning instances)
+            try {
+                ModeLearning.clear()
+                ErrorLogger.info(TAG, "✓ Cleared ModeLearning")
+            } catch (e: Exception) {
+                ErrorLogger.warn(TAG, "Failed to clear ModeLearning: ${e.message}")
+            }
+            
             // 8. Reset UnifiedModeOrchestrator stats
             try {
                 UnifiedModeOrchestrator.ExtendedMode.values().forEach { mode ->
