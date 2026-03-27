@@ -314,8 +314,12 @@ class JupiterApi(private val apiKey: String = "") {
             throw RuntimeException("Jupiter Ultra returned empty transaction")
         }
         
-        // Get the requestId for execute
+        // Get the requestId for execute - CRITICAL: must not be empty for Ultra execute!
         val requestId = json.optString("requestId", "")
+        if (requestId.isBlank()) {
+            log("❌ Ultra returned empty requestId - cannot execute without it!")
+            throw RuntimeException("Jupiter Ultra returned empty requestId - order may have expired")
+        }
         
         log("✅ Ultra tx built OK (${swapTx.length} chars, reqId=${requestId.take(12)}..., ${elapsed}ms)")
         return SwapTxResult(swapTx, requestId)
