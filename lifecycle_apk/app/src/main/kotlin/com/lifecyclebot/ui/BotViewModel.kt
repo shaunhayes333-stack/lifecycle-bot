@@ -32,6 +32,13 @@ data class UiState(
     val modeReason: String = "",
     val blacklistedCount: Int = 0,
     val copyWallets: List<com.lifecyclebot.engine.CopyTradeEngine.CopyWallet> = emptyList(),
+    // ═══════════════════════════════════════════════════════════════════
+    // DASHBOARD DATA — Intelligence metrics for UI display
+    // ═══════════════════════════════════════════════════════════════════
+    val dashboardData: com.lifecyclebot.engine.DashboardDataProvider.QuickStats? = null,
+    val marketSentiment: String = "UNKNOWN",
+    val activeTradingModes: Int = 0,
+    val totalInsights: Int = 0,
 )
 
 class BotViewModel(app: Application) : AndroidViewModel(app) {
@@ -119,6 +126,14 @@ class BotViewModel(app: Application) : AndroidViewModel(app) {
                 },
                 circuitBreaker = sg?.getCircuitBreakerState() ?: com.lifecyclebot.engine.CircuitBreakerState(),
                 auditLog       = sg?.getAuditLog()?.takeLast(50) ?: emptyList(),
+                // Dashboard data from intelligence systems
+                dashboardData = try { com.lifecyclebot.engine.DashboardDataProvider.getQuickStats() } catch (_: Exception) { null },
+                marketSentiment = try { com.lifecyclebot.engine.SuperBrainEnhancements.getCurrentSentiment() } catch (_: Exception) { "UNKNOWN" },
+                activeTradingModes = try { 
+                    com.lifecyclebot.engine.UnifiedModeOrchestrator.ensureInitialized()
+                    com.lifecyclebot.engine.UnifiedModeOrchestrator.getAllStatsSorted().count { it.isActive }
+                } catch (_: Exception) { 0 },
+                totalInsights = try { com.lifecyclebot.engine.SuperBrainEnhancements.getDashboardData().totalInsights } catch (_: Exception) { 0 },
             )
             delay(1500)
         }

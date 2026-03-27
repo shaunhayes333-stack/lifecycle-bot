@@ -1767,6 +1767,32 @@ class BotService : Service() {
                         } catch (_: Exception) {}
                     }
                 }
+                
+                // ═══════════════════════════════════════════════════════════════════
+                // SMART CHART SCANNER — Multi-timeframe pattern detection
+                // Runs asynchronously to avoid blocking main evaluation loop
+                // Feeds insights to SuperBrainEnhancements for learning
+                // ═══════════════════════════════════════════════════════════════════
+                if (ts.history.size >= 10) {
+                    scope.launch {
+                        try {
+                            val scanResult = SmartChartScanner.quickScan(ts)
+                            if (scanResult != null && scanResult.confidence >= 60) {
+                                // Log significant patterns
+                                val patternStr = buildString {
+                                    scanResult.candlePatterns.forEach { append(it.emoji) }
+                                    scanResult.chartPatterns.forEach { append(it.emoji) }
+                                }
+                                if (patternStr.isNotEmpty()) {
+                                    ErrorLogger.debug("SmartChart", 
+                                        "${ts.symbol}: $patternStr ${scanResult.overallBias} (${scanResult.confidence.toInt()}%)")
+                                }
+                            }
+                        } catch (e: Exception) {
+                            ErrorLogger.debug("BotService", "SmartChart scan error: ${e.message}")
+                        }
+                    }
+                }
 
                 // Blacklist check — immediate skip if blocked
                 if (TokenBlacklist.isBlocked(mint)) {
