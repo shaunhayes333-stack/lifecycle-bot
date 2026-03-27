@@ -208,8 +208,15 @@ object TradeLifecycle {
                 val lastTransition = lc.transitions.lastOrNull()
                 val stateAge = now - (lastTransition?.timestamp ?: lc.startTime)
                 
-                // Only expire CANDIDATE and FDG_BLOCKED states, not active trades
-                val canExpire = lc.currentState in listOf(State.CANDIDATE, State.FDG_BLOCKED)
+                // These states can expire and allow retry:
+                // - CANDIDATE: Strategy generated signal but didn't proceed
+                // - FDG_BLOCKED: FDG blocked but maybe conditions changed
+                // - FDG_APPROVED: Approved but execution might have failed
+                // - SIZED: Size calculated but trade didn't execute
+                // - PROPOSED: Proposed but didn't get evaluated
+                val canExpire = lc.currentState in listOf(
+                    State.CANDIDATE, State.FDG_BLOCKED, State.FDG_APPROVED, State.SIZED, State.PROPOSED
+                )
                 
                 if (canExpire && stateAge >= BLOCKED_STATE_EXPIRE_MS) {
                     // State has expired, allow re-proposal
