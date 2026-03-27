@@ -91,6 +91,7 @@ object SmartChartScanner {
         NORMAL,       // Around average
         DECREASING,   // Below average
         DRY,          // Very low volume
+        UNKNOWN,      // Cannot determine
     }
     
     enum class HolderSignal {
