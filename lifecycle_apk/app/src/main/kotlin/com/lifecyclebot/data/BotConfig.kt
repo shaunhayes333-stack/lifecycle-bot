@@ -200,6 +200,11 @@ data class BotConfig(
     val autoHistoricalScanEnabled: Boolean = true,  // auto-scan on startup (if >12h since last)
     val historicalScanHoursBack: Int = 24,          // how many hours of history to scan
     val historicalScanMinLiquidity: Double = 2000.0, // min liquidity for tokens to scan
+    // ── Turso Collective Learning ────────────────────────────────────────
+    // Shared knowledge base across all AATE instances (opt-in)
+    val tursoDbUrl: String = "",                    // Turso database URL (libsql://...)
+    val tursoAuthToken: String = "",                // Turso auth token
+    val collectiveLearningEnabled: Boolean = true,  // Enable collective learning sync
 )
 
 /** Persists config — private key stored in EncryptedSharedPreferences */
@@ -219,6 +224,8 @@ object ConfigStore {
             putString("groq_api_key",        cfg.groqApiKey)
             putString("gemini_api_key",      cfg.geminiApiKey)
             putString("jupiter_api_key",     cfg.jupiterApiKey)
+            putString("turso_db_url",        cfg.tursoDbUrl)
+            putString("turso_auth_token",    cfg.tursoAuthToken)
             apply()
         }
         prefs(ctx).edit().apply {
@@ -326,6 +333,7 @@ object ConfigStore {
             putString("narrative_keywords",            cfg.narrativeKeywords.joinToString(","))
             putString("remote_config_url",             cfg.remoteConfigUrl)
             putInt("remote_config_poll_secs",          cfg.remoteConfigPollSecs)
+            putBoolean("collective_learning_enabled",  cfg.collectiveLearningEnabled)
             apply()
         }
     }
@@ -377,6 +385,8 @@ object ConfigStore {
             groqApiKey                  = s.getString("groq_api_key", "") ?: "",
             geminiApiKey                = s.getString("gemini_api_key", "") ?: "",
             jupiterApiKey               = s.getString("jupiter_api_key", "") ?: "",
+            tursoDbUrl                  = s.getString("turso_db_url", "") ?: "",
+            tursoAuthToken              = s.getString("turso_auth_token", "") ?: "",
             autoAddNewTokens            = p.getBoolean("auto_add_new_tokens", true),
             geminiEnabled               = p.getBoolean("gemini_enabled", true),
             maxConcurrentPositions      = p.getInt("max_concurrent_positions", 3),
@@ -448,6 +458,7 @@ object ConfigStore {
                                           .split(",").filter { it.isNotBlank() },
             remoteConfigUrl             = p.getString("remote_config_url", "") ?: "",
             remoteConfigPollSecs        = p.getInt("remote_config_poll_secs", 60),
+            collectiveLearningEnabled   = p.getBoolean("collective_learning_enabled", true),
         )
     }
 

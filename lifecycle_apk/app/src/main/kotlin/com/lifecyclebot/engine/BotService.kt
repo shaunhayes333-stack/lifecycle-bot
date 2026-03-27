@@ -326,6 +326,14 @@ class BotService : Service() {
             ErrorLogger.error("BotService", "Failed to save AICrossTalk: ${e.message}", e)
         }
         
+        // Shutdown CollectiveLearning
+        try {
+            com.lifecyclebot.collective.CollectiveLearning.shutdown()
+            ErrorLogger.info("BotService", "🌐 CollectiveLearning shutdown")
+        } catch (e: Exception) {
+            ErrorLogger.debug("BotService", "CollectiveLearning shutdown error: ${e.message}")
+        }
+        
         scope.cancel()
     }
 
@@ -761,6 +769,26 @@ class BotService : Service() {
         // Initialize CloudLearningSync for community shared learning
         CloudLearningSync.init(applicationContext)
         addLog("☁️ ${CloudLearningSync.getStatus()}")
+        
+        // Initialize CollectiveLearning (Turso shared knowledge base)
+        if (cfg.collectiveLearningEnabled && cfg.tursoDbUrl.isNotBlank() && cfg.tursoAuthToken.isNotBlank()) {
+            scope.launch {
+                try {
+                    val success = com.lifecyclebot.collective.CollectiveLearning.init(applicationContext)
+                    if (success) {
+                        val stats = com.lifecyclebot.collective.CollectiveLearning.getStats()
+                        addLog("🌐 CollectiveLearning: ${stats["blacklistedTokens"]} blacklisted, ${stats["patterns"]} patterns")
+                    } else {
+                        addLog("⚠️ CollectiveLearning: Failed to connect to Turso")
+                    }
+                } catch (e: Exception) {
+                    addLog("⚠️ CollectiveLearning init error: ${e.message}")
+                    ErrorLogger.error("BotService", "CollectiveLearning init error: ${e.message}", e)
+                }
+            }
+        } else if (cfg.collectiveLearningEnabled) {
+            addLog("ℹ️ CollectiveLearning: No Turso credentials configured")
+        }
         
         // Note: Community weights download happens in main loop after first iteration
         
