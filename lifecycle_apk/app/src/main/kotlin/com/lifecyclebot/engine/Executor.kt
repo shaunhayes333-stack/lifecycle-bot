@@ -2524,19 +2524,24 @@ class Executor(
         // Get recommended trading mode for THIS TOKEN based on its characteristics
         // FIX: Use token-specific mode recommendation, not just global primary mode
         val currentMode = try {
+            // Calculate age from when token was added to watchlist
+            val tokenAgeMs = System.currentTimeMillis() - ts.addedToWatchlistAt
+            // Check for whale activity from summary (e.g., "🐋 Large buy detected")
+            val hasWhales = ts.meta.whaleSummary.isNotBlank()
+            
             val recommendedMode = UnifiedModeOrchestrator.recommendModeForToken(
                 liquidity = ts.lastLiquidityUsd,
                 mcap = ts.lastMcap,
-                ageMs = ts.ageMs,
+                ageMs = tokenAgeMs,
                 volScore = ts.meta.volScore,
                 momScore = ts.meta.momScore,
                 source = ts.source,
                 emafanAlignment = ts.meta.emafanAlignment,
                 holderConcentration = ts.safety.topHolderPct,
                 isRevival = ts.source.contains("REVIVAL", ignoreCase = true),
-                hasWhaleActivity = ts.meta.whaleScore > 60,
+                hasWhaleActivity = hasWhales,
             )
-            ErrorLogger.debug("Executor", "Mode selected for ${identity.symbol}: ${recommendedMode.emoji} ${recommendedMode.name}")
+            ErrorLogger.debug("Executor", "Mode selected for ${ts.symbol}: ${recommendedMode.emoji} ${recommendedMode.name}")
             recommendedMode
         } catch (e: Exception) {
             // Fallback to global primary mode
@@ -2742,18 +2747,20 @@ class Executor(
             }
 
             // Get recommended trading mode for THIS TOKEN based on its characteristics
+            val tokenAgeMs = System.currentTimeMillis() - ts.addedToWatchlistAt
+            val hasWhales = ts.meta.whaleSummary.isNotBlank()
             val currentMode = try {
                 UnifiedModeOrchestrator.recommendModeForToken(
                     liquidity = ts.lastLiquidityUsd,
                     mcap = ts.lastMcap,
-                    ageMs = ts.ageMs,
+                    ageMs = tokenAgeMs,
                     volScore = ts.meta.volScore,
                     momScore = ts.meta.momScore,
                     source = ts.source,
                     emafanAlignment = ts.meta.emafanAlignment,
                     holderConcentration = ts.safety.topHolderPct,
                     isRevival = ts.source.contains("REVIVAL", ignoreCase = true),
-                    hasWhaleActivity = ts.meta.whaleScore > 60,
+                    hasWhaleActivity = hasWhales,
                 )
             } catch (e: Exception) {
                 try { UnifiedModeOrchestrator.getCurrentPrimaryMode() } 
