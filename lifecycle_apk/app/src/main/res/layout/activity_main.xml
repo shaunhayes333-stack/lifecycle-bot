@@ -155,12 +155,14 @@
                 <!-- Logo - Right side of header -->
                 <ImageView
                     android:id="@+id/ivLogo"
-                    android:layout_width="56dp"
-                    android:layout_height="56dp"
+                    android:layout_width="52dp"
+                    android:layout_height="52dp"
                     android:src="@drawable/logo"
-                    android:scaleType="fitCenter"
-                    android:contentDescription="AI Trader Logo"
-                    android:layout_marginStart="8dp"/>
+                    android:scaleType="centerCrop"
+                    android:contentDescription="AATE Logo"
+                    android:layout_marginStart="8dp"
+                    android:background="@drawable/logo_bg"
+                    android:padding="2dp"/>
             </LinearLayout>
 
             <!-- ═══════════════════════════════
