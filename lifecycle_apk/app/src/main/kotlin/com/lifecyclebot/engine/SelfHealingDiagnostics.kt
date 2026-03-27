@@ -143,11 +143,11 @@ object SelfHealingDiagnostics {
             
             // Get win rate from FluidLearning (paper trading stats)
             val fluidWinRate = try {
-                FluidLearning.winRate
+                FluidLearning.getWinRate()
             } catch (e: Exception) { 0.0 }
             
             val fluidTrades = try {
-                FluidLearning.tradeCount
+                FluidLearning.paperTradeCount
             } catch (e: Exception) { 0 }
             
             // Get win rate from EntryIntelligence
