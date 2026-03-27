@@ -320,18 +320,31 @@ object AICrossTalk {
         // ─────────────────────────────────────────────────────────────────────
         // PATTERN 6: BEHAVIOR LEARNING CROSS-TALK
         // Check if BehaviorLearning has strong insights for this pattern
+        // 
+        // BOOTSTRAP MODE AWARENESS: During bootstrap (< 50 trades), we require
+        // higher confidence and sample size before penalizing. The bot needs
+        // to EXPLORE, not get stuck on small-sample memories.
         // ─────────────────────────────────────────────────────────────────────
         if (!isOpenPosition) {
             try {
                 val behaviorHealth = BehaviorLearning.getHealthStatus()
+                val totalPatterns = behaviorHealth.goodCount + behaviorHealth.badCount
+                val isBootstrap = totalPatterns < 50
                 
-                // Only use behavior learning if we have enough data
-                if (behaviorHealth.goodCount + behaviorHealth.badCount >= 20) {
+                // Minimum patterns before using behavior learning
+                // Bootstrap: need more data before trusting patterns
+                val minPatterns = if (isBootstrap) 30 else 20
+                
+                if (totalPatterns >= minPatterns) {
                     val insights = BehaviorLearning.getInsights()
                     
                     // Check if we have strong pattern matches
                     val topGood = insights.topGoodPatterns.firstOrNull()
                     val topBad = insights.topBadPatterns.firstOrNull()
+                    
+                    // Minimum sample requirement for bad patterns
+                    // Bootstrap: require 5+ samples, Mature: require 3+ samples
+                    val minBadSamples = if (isBootstrap) 5 else 3
                     
                     // Strong good pattern with 70%+ win rate
                     if (topGood != null && topGood.winRate >= 70.0 && topGood.confidence >= 0.7) {
@@ -349,20 +362,31 @@ object AICrossTalk {
                     }
                     
                     // Strong bad pattern with 70%+ loss rate (warn but don't block in crosstalk)
+                    // FIX: Check sample size to avoid small-sample poisoning
                     if (topBad != null && (100 - topBad.winRate) >= 70.0 && topBad.confidence >= 0.7) {
-                        val lossRate = 100 - topBad.winRate
-                        val penalty = (lossRate - 50) * 0.3  // Up to -15 for 100% loss rate
-                        ErrorLogger.warn("CrossTalk", "⚠️ BEHAVIOR WARNING: ${symbol} matches bad pattern (${lossRate.toInt()}% loss)")
-                        return cacheAndReturn(cacheKey, now, CrossTalkSignal(
-                            signalType = SignalType.BEHAVIOR_PATTERN_MATCH,
-                            entryBoost = -penalty,
-                            exitUrgency = penalty * 0.5,
-                            confidenceBoost = -penalty * 0.5,
-                            sizeMultiplier = 1.0 - (lossRate - 50) / 300.0,
-                            reason = "Bad pattern: ${topBad.signature.take(30)} (${lossRate.toInt()}% loss)",
-                            participatingAIs = listOf("BehaviorLearning"),
-                            correlationStrength = topBad.confidence * 100,
-                        ))
+                        // Check if pattern has enough samples
+                        val hasEnoughSamples = topBad.occurrences >= minBadSamples
+                        
+                        if (hasEnoughSamples) {
+                            val lossRate = 100 - topBad.winRate
+                            // Reduce penalty in bootstrap mode
+                            val penaltyMult = if (isBootstrap) 0.5 else 1.0
+                            val penalty = (lossRate - 50) * 0.3 * penaltyMult
+                            ErrorLogger.warn("CrossTalk", "⚠️ BEHAVIOR WARNING: ${symbol} matches bad pattern (${lossRate.toInt()}% loss, n=${topBad.occurrences})")
+                            return cacheAndReturn(cacheKey, now, CrossTalkSignal(
+                                signalType = SignalType.BEHAVIOR_PATTERN_MATCH,
+                                entryBoost = -penalty,
+                                exitUrgency = penalty * 0.5,
+                                confidenceBoost = -penalty * 0.5,
+                                sizeMultiplier = 1.0 - (lossRate - 50) / 300.0,
+                                reason = "Bad pattern: ${topBad.signature.take(30)} (${lossRate.toInt()}% loss, n=${topBad.occurrences})",
+                                participatingAIs = listOf("BehaviorLearning"),
+                                correlationStrength = topBad.confidence * 100,
+                            ))
+                        } else {
+                            // Small sample - just log warning, don't penalize
+                            ErrorLogger.debug("CrossTalk", "Low-sample bad pattern for ${symbol}: ${topBad.occurrences} < ${minBadSamples} required")
+                        }
                     }
                 }
             } catch (e: Exception) {
