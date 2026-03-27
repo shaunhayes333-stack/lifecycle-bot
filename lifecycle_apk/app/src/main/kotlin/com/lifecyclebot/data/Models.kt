@@ -53,6 +53,11 @@ data class Position(
     val entryPhase: String = "",
     val entryScore: Double = 0.0,
     val entryLiquidityUsd: Double = 0.0,  // liquidity at entry for collapse detection
+    // ═══════════════════════════════════════════════════════════════════
+    // TRADING MODE TRACKING - Which mode was this position opened in?
+    // ═══════════════════════════════════════════════════════════════════
+    val tradingMode: String = "STANDARD",  // ExtendedMode name (e.g., "MOONSHOT", "PUMP_SNIPER")
+    val tradingModeEmoji: String = "📈",   // Emoji for display
     // Top-up tracking
     val topUpCount: Int = 0,
     val topUpCostSol: Double = 0.0,

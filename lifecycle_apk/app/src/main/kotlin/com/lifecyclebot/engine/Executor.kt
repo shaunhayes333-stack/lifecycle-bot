@@ -2477,6 +2477,13 @@ class Executor(
         val simulatedFeePct = 0.5
         val effectiveSol = actualSol * (1.0 - simulatedFeePct / 100.0)  // Less SOL after fee
         
+        // Get current trading mode from orchestrator
+        val currentMode = try {
+            UnifiedModeOrchestrator.getCurrentPrimaryMode()
+        } catch (e: Exception) {
+            UnifiedModeOrchestrator.ExtendedMode.STANDARD
+        }
+        
         ts.position = Position(
             qtyToken     = effectiveSol / maxOf(effectivePrice, 1e-12),  // Get fewer tokens due to slippage
             entryPrice   = effectivePrice,  // Record slipped price
@@ -2486,6 +2493,8 @@ class Executor(
             entryPhase   = ts.phase,
             entryScore   = score,
             entryLiquidityUsd = ts.lastLiquidityUsd,
+            tradingMode  = currentMode.name,
+            tradingModeEmoji = currentMode.emoji,
             buildPhase   = buildPhase,
             targetBuildSol = targetBuild,
         )
@@ -2660,6 +2669,13 @@ class Executor(
                 onLog("⚠ Position opened during confirmation wait — aborting duplicate", ts.mint); return
             }
 
+            // Get current trading mode from orchestrator
+            val currentMode = try {
+                UnifiedModeOrchestrator.getCurrentPrimaryMode()
+            } catch (e: Exception) {
+                UnifiedModeOrchestrator.ExtendedMode.STANDARD
+            }
+
             ts.position = Position(
                 qtyToken     = qty,
                 entryPrice   = price,
@@ -2669,6 +2685,8 @@ class Executor(
                 entryPhase   = ts.phase,
                 entryScore   = score,
                 entryLiquidityUsd = ts.lastLiquidityUsd,  // Track liquidity for collapse detection
+                tradingMode  = currentMode.name,
+                tradingModeEmoji = currentMode.emoji,
             )
             val trade = Trade("BUY", "live", sol, price, System.currentTimeMillis(),
                               score = score, sig = sig)
@@ -3332,6 +3350,35 @@ class Executor(
             ErrorLogger.debug("QuantMetrics", "Recording error: ${e.message}")
         }
         
+        // ═══════════════════════════════════════════════════════════════════
+        // MODE ORCHESTRATOR: Record trade outcome for mode performance tracking
+        // ═══════════════════════════════════════════════════════════════════
+        try {
+            val holdTimeMs = System.currentTimeMillis() - ts.position.entryTime
+            val isWin = pnlP > 2.0  // Win if > 2% profit
+            val modeStr = ts.position.tradingMode
+            
+            // Convert string mode to enum and record
+            val extMode = try {
+                UnifiedModeOrchestrator.ExtendedMode.valueOf(modeStr)
+            } catch (e: Exception) {
+                UnifiedModeOrchestrator.ExtendedMode.STANDARD
+            }
+            
+            UnifiedModeOrchestrator.recordTrade(
+                mode = extMode,
+                isWin = isWin,
+                pnlPct = pnlP,
+                holdTimeMs = holdTimeMs,
+            )
+            
+            // Also update chart insights outcome
+            val outcomeStr = if (isWin) "WIN" else if (pnlP < -2.0) "LOSS" else "SCRATCH"
+            SuperBrainEnhancements.updateInsightOutcome(ts.mint, outcomeStr, pnlP)
+        } catch (e: Exception) {
+            ErrorLogger.debug("ModeOrchestrator", "Recording error: ${e.message}")
+        }
+        
         ts.position         = Position()
         ts.lastExitTs       = System.currentTimeMillis()
         ts.lastExitPrice    = price
@@ -3954,6 +4001,38 @@ class Executor(
                 )
             }
         } catch (_: Exception) {}
+        
+        // ═══════════════════════════════════════════════════════════════════
+        // MODE ORCHESTRATOR: Record LIVE trade outcome for mode performance tracking
+        // ═══════════════════════════════════════════════════════════════════
+        try {
+            val holdTimeMs = System.currentTimeMillis() - ts.position.entryTime
+            val isWin = pnlP > 2.0  // Win if > 2% profit
+            val modeStr = ts.position.tradingMode
+            
+            // Convert string mode to enum and record
+            val extMode = try {
+                UnifiedModeOrchestrator.ExtendedMode.valueOf(modeStr)
+            } catch (e: Exception) {
+                UnifiedModeOrchestrator.ExtendedMode.STANDARD
+            }
+            
+            // LIVE trades get 3x weight for mode tracking too
+            repeat(3) {
+                UnifiedModeOrchestrator.recordTrade(
+                    mode = extMode,
+                    isWin = isWin,
+                    pnlPct = pnlP,
+                    holdTimeMs = holdTimeMs,
+                )
+            }
+            
+            // Also update chart insights outcome
+            val outcomeStr = if (isWin) "WIN" else if (pnlP < -2.0) "LOSS" else "SCRATCH"
+            SuperBrainEnhancements.updateInsightOutcome(ts.mint, outcomeStr, pnlP)
+        } catch (e: Exception) {
+            ErrorLogger.debug("ModeOrchestrator", "LIVE Recording error: ${e.message}")
+        }
         
         ts.position         = Position()
         ts.lastExitTs       = System.currentTimeMillis()
