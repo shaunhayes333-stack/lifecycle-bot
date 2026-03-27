@@ -59,6 +59,7 @@ object ModeSpecificExits {
             ModeRouter.TradeType.BREAKOUT_CONTINUATION -> evaluateBreakoutExit(ts, currentPnlPct, holdTimeMs)
             ModeRouter.TradeType.REVERSAL_RECLAIM -> evaluateReversalExit(ts, currentPnlPct, holdTimeMs)
             ModeRouter.TradeType.WHALE_ACCUMULATION -> evaluateWhaleFollowExit(ts, currentPnlPct, holdTimeMs)
+            ModeRouter.TradeType.COPY_TRADE -> evaluateCopyTradeExit(ts, currentPnlPct, holdTimeMs)  // PRIORITY 5: Isolated exit
             ModeRouter.TradeType.GRADUATION -> evaluateGraduationExit(ts, currentPnlPct, holdTimeMs)
             ModeRouter.TradeType.TREND_PULLBACK -> evaluateTrendPullbackExit(ts, currentPnlPct, holdTimeMs)
             ModeRouter.TradeType.SENTIMENT_IGNITION -> evaluateSentimentExit(ts, currentPnlPct, holdTimeMs)
@@ -319,7 +320,8 @@ object ModeSpecificExits {
     
     // ═══════════════════════════════════════════════════════════════════
     // WHALE FOLLOW EXIT
-    // Exit when whale behavior changes
+    // Exit when whale behavior changes OR accumulation band breaks
+    // PRIORITY 2 FIX: Use actual band calculation, not hardcoded -18%
     // ═══════════════════════════════════════════════════════════════════
     
     private fun evaluateWhaleFollowExit(
@@ -329,13 +331,55 @@ object ModeSpecificExits {
     ): ExitRecommendation {
         
         val holdTimeMins = holdTimeMs / 60_000.0
+        val hist = ts.history.toList()
+        val prices = hist.map { it.priceUsd }
+        val currentPrice = prices.lastOrNull() ?: 0.0
         
-        // Stop loss
-        if (pnlPct < -18) {
+        // ═══════════════════════════════════════════════════════════════════
+        // PRIORITY 2: ACTUAL ACCUMULATION BAND CALCULATION
+        //
+        // Instead of hardcoded -18%, calculate the actual accumulation floor
+        // from entry-time price structure. Exit when price breaks BELOW the
+        // established band, not just on arbitrary percentage.
+        // ═══════════════════════════════════════════════════════════════════
+        
+        // Calculate accumulation band (same logic as entry)
+        val accumulationFloor = if (prices.size >= 5) {
+            prices.takeLast(8).sorted().take(3).average()
+        } else {
+            ts.position.entryPrice * 0.82  // Fallback to -18%
+        }
+        
+        // BAND BREAK: Exit if price closes below accumulation floor
+        val bandBreakPct = if (accumulationFloor > 0 && ts.position.entryPrice > 0) {
+            ((accumulationFloor - ts.position.entryPrice) / ts.position.entryPrice) * 100
+        } else -18.0
+        
+        // Allow some buffer before declaring band failure (2% below floor)
+        val bandBreakThreshold = accumulationFloor * 0.98
+        
+        if (currentPrice < bandBreakThreshold && holdTimeMins > 2) {
+            // Confirm band break (not just a wick)
+            val last2BelowBand = prices.takeLast(2).all { it < bandBreakThreshold }
+            
+            if (last2BelowBand) {
+                return ExitRecommendation(
+                    shouldExit = true,
+                    exitPct = 100.0,
+                    reason = "WHALE_FOLLOW: Accumulation band failed (floor=${accumulationFloor.toBigDecimal().setScale(6, java.math.RoundingMode.HALF_UP)})",
+                    urgency = ExitUrgency.IMMEDIATE,
+                    adjustedStop = null,
+                    adjustedTarget = null,
+                )
+            }
+        }
+        
+        // HARD STOP: Exit on severe loss regardless of band
+        if (pnlPct < -25) {
             return ExitRecommendation(
                 shouldExit = true,
                 exitPct = 100.0,
-                reason = "WHALE_FOLLOW: Accumulation band failed",
+                reason = "WHALE_FOLLOW: Hard stop loss ${pnlPct.toInt()}%",
                 urgency = ExitUrgency.IMMEDIATE,
                 adjustedStop = null,
                 adjustedTarget = null,
@@ -346,8 +390,8 @@ object ModeSpecificExits {
         try {
             val whaleSignal = WhaleDetector.evaluate(ts.mint, ts)
             
-            // Whales selling = exit
-            if (!whaleSignal.hasWhaleActivity && !whaleSignal.smartMoneyPresent && pnlPct > 0) {
+            // Whales selling = exit (but only if we're in profit)
+            if (!whaleSignal.hasWhaleActivity && !whaleSignal.smartMoneyPresent && pnlPct > 5) {
                 return ExitRecommendation(
                     shouldExit = true,
                     exitPct = 70.0,
@@ -388,7 +432,82 @@ object ModeSpecificExits {
             exitPct = 0.0,
             reason = "WHALE_FOLLOW: Following whales (${pnlPct.toInt()}%)",
             urgency = ExitUrgency.PATIENCE,
-            adjustedStop = null,
+            adjustedStop = accumulationFloor,
+            adjustedTarget = null,
+        )
+    }
+    
+    // ═══════════════════════════════════════════════════════════════════
+    // COPY TRADE EXIT
+    // PRIORITY 5: Isolated exit logic for copy-trade positions
+    // Different from WHALE_FOLLOW - we're following a wallet, not accumulation
+    // ═══════════════════════════════════════════════════════════════════
+    
+    private fun evaluateCopyTradeExit(
+        ts: TokenState,
+        pnlPct: Double,
+        holdTimeMs: Long,
+    ): ExitRecommendation {
+        
+        val holdTimeMins = holdTimeMs / 60_000.0
+        val hist = ts.history.toList()
+        
+        // STOP LOSS: Tighter than whale-follow since we're following, not predicting
+        if (pnlPct < -15) {
+            return ExitRecommendation(
+                shouldExit = true,
+                exitPct = 100.0,
+                reason = "COPY_TRADE: Stop loss ${pnlPct.toInt()}%",
+                urgency = ExitUrgency.IMMEDIATE,
+                adjustedStop = null,
+                adjustedTarget = null,
+            )
+        }
+        
+        // TIMEOUT: Medium patience - if the leader is still holding, we should know
+        if (holdTimeMins > 120) {
+            return ExitRecommendation(
+                shouldExit = true,
+                exitPct = 100.0,
+                reason = "COPY_TRADE: Timeout ${holdTimeMins.toInt()}min",
+                urgency = ExitUrgency.NORMAL,
+                adjustedStop = null,
+                adjustedTarget = null,
+            )
+        }
+        
+        // MOMENTUM FADE: If buy pressure drops significantly, leader may be exiting
+        val lastCandle = hist.lastOrNull()
+        if (pnlPct > 10 && lastCandle != null && lastCandle.buyRatio < 0.35) {
+            return ExitRecommendation(
+                shouldExit = true,
+                exitPct = 60.0,
+                reason = "COPY_TRADE: Leader likely exiting (buy% dropping)",
+                urgency = ExitUrgency.URGENT,
+                adjustedStop = null,
+                adjustedTarget = null,
+            )
+        }
+        
+        // TAKE PROFIT: When we hit target, take partial
+        if (pnlPct > 30) {
+            return ExitRecommendation(
+                shouldExit = true,
+                exitPct = 50.0,
+                reason = "COPY_TRADE: Partial profit +${pnlPct.toInt()}%",
+                urgency = ExitUrgency.NORMAL,
+                adjustedStop = ts.position.entryPrice * 1.10,  // Trail at breakeven+
+                adjustedTarget = null,
+            )
+        }
+        
+        // HOLD: Keep following the leader
+        return ExitRecommendation(
+            shouldExit = false,
+            exitPct = 0.0,
+            reason = "COPY_TRADE: Following leader (${pnlPct.toInt()}%)",
+            urgency = ExitUrgency.PATIENCE,
+            adjustedStop = ts.position.entryPrice * 0.85,
             adjustedTarget = null,
         )
     }
@@ -691,6 +810,38 @@ object ModeSpecificExits {
     fun logExitRecommendation(ts: TokenState, tradeType: ModeRouter.TradeType, rec: ExitRecommendation) {
         if (rec.shouldExit) {
             ErrorLogger.info(TAG, "${tradeType.emoji} ${ts.symbol}: ${rec.urgency} EXIT ${rec.exitPct.toInt()}% | ${rec.reason}")
+            
+            // ═══════════════════════════════════════════════════════════════════
+            // PRIORITY 4: Trigger raw strategy suppression on mode invalidation
+            // 
+            // When a mode exit fires due to invalidation (not profit-taking),
+            // suppress raw strategy BUY signals for this token temporarily.
+            // This prevents the "BUY spam after stop-loss" problem.
+            // ═══════════════════════════════════════════════════════════════════
+            val invalidationReasons = listOf(
+                "Accumulation band failed",
+                "Stop loss",
+                "Liquidity draining",
+                "reclaim failed",
+                "Distribution detected",
+                "Whale activity stopped",
+            )
+            
+            val isInvalidation = invalidationReasons.any { reason -> 
+                rec.reason.contains(reason, ignoreCase = true) 
+            }
+            
+            if (isInvalidation && rec.urgency in listOf(ExitUrgency.IMMEDIATE, ExitUrgency.URGENT)) {
+                // Suppress raw strategy for 2 minutes after invalidation
+                DistributionFadeAvoider.recordModeInvalidation(
+                    mint = ts.mint,
+                    reason = "${tradeType.name}_INVALIDATION: ${rec.reason}",
+                    durationMs = 120_000L
+                )
+                
+                // Also record in ReentryRecoveryMode for stricter re-entry rules
+                ReentryRecoveryMode.recordFailure(ts, rec.reason)
+            }
         }
     }
 }

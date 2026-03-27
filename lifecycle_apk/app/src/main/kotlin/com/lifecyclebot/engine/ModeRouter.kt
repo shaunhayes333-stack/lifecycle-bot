@@ -102,6 +102,15 @@ object ModeRouter {
             maxHoldMins = 45,        // Narrative fades fast
             riskTier = 4,
         ),
+        COPY_TRADE(
+            emoji = "👥",
+            label = "Copy Trade",
+            maxSizePct = 5.0,        // Medium size - following smart money
+            defaultStopPct = 15.0,   // Tighter stop - we're following, not predicting
+            defaultTpPct = 30.0,     // Take profits when leader likely to
+            maxHoldMins = 120,       // Medium patience
+            riskTier = 3,
+        ),
         UNKNOWN(
             emoji = "❓",
             label = "Unknown",
@@ -382,6 +391,56 @@ object ModeRouter {
         var score = 0.0
         val reasons = mutableListOf<String>()
         
+        // ═══════════════════════════════════════════════════════════════════
+        // PRIORITY 2: STRICTER WHALE_FOLLOW ENTRY
+        //
+        // Before entry, require:
+        //   1. Accumulation band established (price history shows support)
+        //   2. Price not already slipping below band
+        //   3. Two confirming scans/candles
+        //   4. No post-entry invalidation expected
+        // ═══════════════════════════════════════════════════════════════════
+        
+        val hist = ts.history.toList()
+        
+        // REQUIRE: Minimum history for band establishment
+        if (hist.size < 8) {
+            return SubScore(0.0, listOf("WHALE: insufficient history for band"))
+        }
+        
+        val prices = hist.map { it.priceUsd }
+        val currentPrice = prices.lastOrNull() ?: 0.0
+        
+        // REQUIRE: Calculate accumulation band (support zone)
+        val recentLows = prices.takeLast(8).mapNotNull { p -> 
+            if (p > 0) p else null 
+        }
+        if (recentLows.size < 5) {
+            return SubScore(0.0, listOf("WHALE: not enough price data"))
+        }
+        
+        val accumulationFloor = recentLows.sorted().take(3).average()  // Average of 3 lowest points
+        val accumulationCeiling = prices.takeLast(8).maxOrNull() ?: 0.0
+        val bandWidth = if (accumulationFloor > 0) {
+            ((accumulationCeiling - accumulationFloor) / accumulationFloor) * 100
+        } else 0.0
+        
+        // REQUIRE: Price must be above accumulation floor by margin
+        val priceAboveFloorPct = if (accumulationFloor > 0) {
+            ((currentPrice - accumulationFloor) / accumulationFloor) * 100
+        } else 0.0
+        
+        if (priceAboveFloorPct < 2.0) {
+            // Price too close to or below accumulation floor
+            return SubScore(0.0, listOf("WHALE: price at/below accumulation floor"))
+        }
+        
+        // REQUIRE: Band must be established (not still forming)
+        if (bandWidth < 5.0 || bandWidth > 50.0) {
+            // Band too tight (no structure) or too wide (not accumulation)
+            return SubScore(0.0, listOf("WHALE: band not established (width=${bandWidth.toInt()}%)"))
+        }
+        
         // Use WhaleDetector if available
         try {
             val whaleSignal = WhaleDetector.evaluate(ts.mint, ts)
@@ -406,21 +465,34 @@ object ModeRouter {
             if (whaleSignal.concentration < 40) {
                 score += 10.0
             }
-        } catch (_: Exception) { }
-        
-        // Check if price not yet expanded (still in accumulation zone)
-        val hist = ts.history.toList()
-        if (hist.size >= 5) {
-            val prices = hist.map { it.priceUsd }
-            val recentHigh = prices.takeLast(10).maxOrNull() ?: 0.0
-            val currentPrice = prices.lastOrNull() ?: 0.0
             
-            // Still near accumulation zone (not already pumped)
-            if (recentHigh > 0 && currentPrice < recentHigh * 1.3) {
-                score += 10.0
-                reasons.add("WHALE: price not yet expanded")
+            // REQUIRE: Whale activity must exist for WHALE_ACCUMULATION
+            if (!whaleSignal.hasWhaleActivity && !whaleSignal.smartMoneyPresent) {
+                return SubScore(0.0, listOf("WHALE: no whale/smart money detected"))
             }
+        } catch (_: Exception) {
+            return SubScore(0.0, listOf("WHALE: detector unavailable"))
         }
+        
+        // CONFIRM: Price holding above accumulation band for 2+ candles
+        val last3Prices = prices.takeLast(3)
+        val holdingAboveBand = last3Prices.all { it > accumulationFloor * 1.02 }
+        if (holdingAboveBand) {
+            score += 15.0
+            reasons.add("WHALE: confirmed holding above band")
+        } else {
+            // Not yet confirmed - don't qualify
+            return SubScore(score * 0.3, reasons + "WHALE: awaiting band confirmation")
+        }
+        
+        // Still near accumulation zone (not already pumped)
+        val recentHigh = prices.takeLast(10).maxOrNull() ?: 0.0
+        if (recentHigh > 0 && currentPrice < recentHigh * 1.3) {
+            score += 10.0
+            reasons.add("WHALE: price not yet expanded")
+        }
+        
+        reasons.add("WHALE: band=${accumulationFloor.toBigDecimal().toPlainString()}-${accumulationCeiling.toBigDecimal().toPlainString()}")
         
         return SubScore(score, reasons)
     }
@@ -613,6 +685,7 @@ object ModeRouter {
             TradeType.BREAKOUT_CONTINUATION -> UnifiedModeOrchestrator.ExtendedMode.MOMENTUM_SWING
             TradeType.REVERSAL_RECLAIM -> UnifiedModeOrchestrator.ExtendedMode.REVIVAL
             TradeType.WHALE_ACCUMULATION -> UnifiedModeOrchestrator.ExtendedMode.WHALE_FOLLOW
+            TradeType.COPY_TRADE -> UnifiedModeOrchestrator.ExtendedMode.COPY_TRADE
             TradeType.GRADUATION -> UnifiedModeOrchestrator.ExtendedMode.MOONSHOT
             TradeType.TREND_PULLBACK -> UnifiedModeOrchestrator.ExtendedMode.STANDARD
             TradeType.SENTIMENT_IGNITION -> UnifiedModeOrchestrator.ExtendedMode.PUMP_SNIPER

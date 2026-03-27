@@ -248,4 +248,62 @@ object DistributionFadeAvoider {
         val now = System.currentTimeMillis()
         distributionHistory.entries.removeIf { now - it.value.lastHit > TRACKER_TTL_MS * 2 }
     }
+    
+    // ═══════════════════════════════════════════════════════════════════
+    // POST-INVALIDATION SUPPRESSION (Priority 4)
+    // 
+    // When a token gets stop-loss, distribution-detected, or accumulation-band-failed,
+    // the raw strategy should shut up for a short window instead of continuing
+    // to spam BUY signals.
+    // ═══════════════════════════════════════════════════════════════════
+    
+    private val rawStrategySuppression = ConcurrentHashMap<String, SuppressionEntry>()
+    private const val SUPPRESSION_WINDOW_MS = 120_000L  // 2 minutes after invalidation
+    
+    data class SuppressionEntry(
+        val reason: String,
+        val startTime: Long,
+        val suppressionDurationMs: Long,
+    )
+    
+    /**
+     * Record mode-specific invalidation to suppress raw strategy.
+     * Call this after WHALE_FOLLOW accumulation band failure, distribution, stop-loss, etc.
+     */
+    fun recordModeInvalidation(mint: String, reason: String, durationMs: Long = SUPPRESSION_WINDOW_MS) {
+        rawStrategySuppression[mint] = SuppressionEntry(
+            reason = reason,
+            startTime = System.currentTimeMillis(),
+            suppressionDurationMs = durationMs,
+        )
+        ErrorLogger.info(TAG, "🔇 $mint suppressed for ${durationMs/1000}s: $reason")
+    }
+    
+    /**
+     * Check if raw strategy BUY signals should be suppressed for this token.
+     * Returns null if not suppressed, or reason string if suppressed.
+     */
+    fun checkRawStrategySuppression(mint: String): String? {
+        val entry = rawStrategySuppression[mint] ?: return null
+        val now = System.currentTimeMillis()
+        val elapsed = now - entry.startTime
+        
+        if (elapsed < entry.suppressionDurationMs) {
+            val remainingSecs = (entry.suppressionDurationMs - elapsed) / 1000
+            return "RAW_SUPPRESSED: ${entry.reason} (${remainingSecs}s remaining)"
+        }
+        
+        // Suppression expired
+        rawStrategySuppression.remove(mint)
+        return null
+    }
+    
+    /**
+     * Clear suppression for a token (e.g., when conditions materially improve).
+     */
+    fun clearSuppression(mint: String) {
+        if (rawStrategySuppression.remove(mint) != null) {
+            ErrorLogger.info(TAG, "🔊 $mint suppression cleared")
+        }
+    }
 }

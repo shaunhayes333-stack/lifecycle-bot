@@ -1572,7 +1572,25 @@ class Executor(
             ErrorLogger.debug("Executor", "BUY CHECK: ${ts.symbol} | shouldAct=$shouldActOnBuy | posOpen=${ts.position.isOpen} | autoTrade=${cfg().autoTrade} | paper=${cfg().paperMode}")
         }
         
-        if (shouldActOnBuy && signal == "BUY" && !ts.position.isOpen) {
+        // ════════════════════════════════════════════════════════════════════════
+        // CRITICAL FIX: BLOCK ALL BUY SIGNALS IN LEGACY maybeAct() PATH
+        // 
+        // This function is the LEGACY entry path that bypasses FDG.
+        // ALL new entries MUST go through BotService → FDG → maybeActWithDecision().
+        // 
+        // If you see this log, there's a code path calling maybeAct() for buys
+        // that needs to be migrated to the unified FDG flow.
+        // ════════════════════════════════════════════════════════════════════════
+        if (signal == "BUY" && !ts.position.isOpen) {
+            ErrorLogger.error("Executor", "🚨 LEGACY BUY PATH BLOCKED: ${ts.symbol} | " +
+                "All new entries MUST go through FDG. This is a code architecture bug.")
+            onLog("⛔ ${ts.symbol}: Legacy buy path blocked - use FDG flow", ts.mint)
+            return
+        }
+        
+        // The old buy logic below is now DEAD CODE but kept for reference.
+        // Remove in future cleanup once we verify no callers use this path.
+        if (false && shouldActOnBuy && signal == "BUY" && !ts.position.isOpen) {
             val isPaper = cfg().paperMode
             ErrorLogger.info("Executor", "🔔 BUY signal for ${ts.symbol} | paper=$isPaper | wallet=${walletSol.fmt(4)} | autoTrade=${cfg().autoTrade}")
             

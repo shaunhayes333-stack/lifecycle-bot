@@ -1114,41 +1114,52 @@ object FinalDecisionGate {
         // ═══════════════════════════════════════════════════════════════════════
         
         // ═══════════════════════════════════════════════════════════════════
-        // CANONICAL TRADE COUNTER FIX
+        // PRIORITY 3: FDG COUNTER FIX - USE CLASSIFIED TRADES FOR PROGRESSION
         // 
-        // BUG: Previously called getAdjustedThresholds() with brainTrades only,
-        // but effectiveTradeCount was calculated AFTER. This caused progress=0%
-        // even when session/fluid had real trades.
+        // BUG: FDG was using maxOf(executed, classified, fluid) which advanced
+        // bootstrap based on raw execution count, not meaningful outcomes.
+        // 
+        // User insight: "FDG is probably advancing on activity, not on 
+        // meaningful completed outcomes. That can distort bootstrap badly."
         //
-        // FIX: Calculate effectiveTradeCount FIRST, use it for EVERYTHING.
+        // FIX: Use CLASSIFIED count (trades Brain has learned from) as the
+        // primary progression counter. Executed count is only for logging.
         //
         // Counter definitions:
-        //   brainTrades:   BotBrain.recentMemory.size (in-memory, can reset on app restart)
-        //   sessionTrades: totalSessionTrades from BotService (fed by executed trades)
-        //   fluidTrades:   FluidLearning.getTradeCount() (PERSISTED, most accurate for paper)
+        //   brainTrades:   BotBrain.recentMemory.size (classified/learned trades)
+        //   sessionTrades: totalSessionTrades (raw execution count - for logging only)
+        //   fluidTrades:   FluidLearning.getTradeCount() (persisted learned trades)
         //
-        // FDG uses: maxOf(all counters) to ensure bootstrap progresses correctly
+        // Progression uses: maxOf(brainTrades, fluidTrades) - both represent LEARNED outcomes
         // ═══════════════════════════════════════════════════════════════════
         val brainTrades = brain?.getTradeCount() ?: 0
         val sessionTrades = currentConditions.totalSessionTrades
         val fluidTrades = try { FluidLearning.getTradeCount() } catch (_: Exception) { 0 }
         
-        // CANONICAL COUNTER: Use the HIGHEST count - ensures bootstrap always progresses
-        val effectiveTradeCount = maxOf(brainTrades, sessionTrades, fluidTrades)
+        // CANONICAL COUNTER: Use CLASSIFIED/LEARNED count, NOT raw executed count
+        // This ensures bootstrap progresses based on meaningful outcomes
+        val effectiveTradeCount = maxOf(brainTrades, fluidTrades)
+        val rawExecutedCount = sessionTrades  // For logging/debugging only
         
         val winRate = brain?.getRecentWinRate() ?: 50.0
-        val adjusted = getAdjustedThresholds(effectiveTradeCount, winRate)  // FIX: Use effectiveTradeCount!
+        val adjusted = getAdjustedThresholds(effectiveTradeCount, winRate)
         
         // Log learning phase periodically or when counters are mismatched
-        val countersMatch = brainTrades == sessionTrades && sessionTrades == fluidTrades
+        val countersMatch = brainTrades == fluidTrades  // Compare learning counters only
+        val executionMismatch = rawExecutedCount > effectiveTradeCount + 2  // Execution ahead of learning by >2
         val isPhaseTransition = effectiveTradeCount == 0 || effectiveTradeCount == 10 || effectiveTradeCount == 30 || effectiveTradeCount == 51
         
-        if (isPhaseTransition || !countersMatch) {
-            val counterDetail = "executed=$sessionTrades | classified=$brainTrades | fluid=$fluidTrades | fdg_uses=$effectiveTradeCount"
+        if (isPhaseTransition || !countersMatch || executionMismatch) {
+            val counterDetail = "executed=$rawExecutedCount | classified=$brainTrades | fluid=$fluidTrades | learning_uses=$effectiveTradeCount"
+            val mismatchNote = when {
+                executionMismatch -> " ⚠️ EXECUTION_AHEAD (trades executing faster than learning)"
+                !countersMatch -> " ⚠️ LEARNING_MISMATCH ($counterDetail)"
+                else -> ""
+            }
             ErrorLogger.info("FDG", "📊 Learning phase: ${adjusted.learningPhase} | " +
-                "trades=$effectiveTradeCount | progress=${(adjusted.progress * 100).toInt()}% | conf=${adjusted.confidenceBase.toInt()}%" +
+                "learning_trades=$effectiveTradeCount | progress=${(adjusted.progress * 100).toInt()}% | conf=${adjusted.confidenceBase.toInt()}%" +
                 (if (tradingModeTag != null) " | mode=${tradingModeTag.name}" else "") +
-                (if (!countersMatch) " ⚠️ COUNTER_MISMATCH ($counterDetail)" else ""))
+                mismatchNote)
         }
         
         // Use auto-adjusted thresholds for live mode

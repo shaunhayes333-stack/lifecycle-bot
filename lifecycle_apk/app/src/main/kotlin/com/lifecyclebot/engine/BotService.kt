@@ -2054,6 +2054,20 @@ class BotService : Service() {
                     ErrorLogger.debug("BotService", "⏳ DEDUPE SKIP: ${identity.symbol} | $dedupeReason")
                 }
                 
+                // ═══════════════════════════════════════════════════════════════════
+                // PRIORITY 4: Check raw strategy suppression BEFORE FDG flow
+                // 
+                // After mode-specific invalidation (stop-loss, accumulation band failed, etc.),
+                // raw strategy BUY signals are suppressed for a cooldown period.
+                // This prevents the "BUY spam after stop-loss" problem.
+                // ═══════════════════════════════════════════════════════════════════
+                val suppressionReason = DistributionFadeAvoider.checkRawStrategySuppression(identity.mint)
+                if (suppressionReason != null && decision.finalSignal == "BUY" && !ts.position.isOpen) {
+                    ErrorLogger.debug("BotService", "🔇 ${identity.symbol}: $suppressionReason")
+                    // Skip the entire FDG flow for suppressed tokens
+                    return@launch
+                }
+                
                 if (!ts.position.isOpen && decision.finalSignal == "BUY" && decision.shouldTrade && canProposeEarly) {
                     // ═══════════════════════════════════════════════════════════════════
                     // TRADE IDENTITY: Mark as candidate
@@ -2250,11 +2264,13 @@ class BotService : Service() {
                     // ═══════════════════════════════════════════════════════════════════
                     val positionTradeType = try {
                         // Try to get the trade type from position's trading mode
+                        // PRIORITY 5: Each mode should have ISOLATED exit logic
                         when (ts.position.tradingMode.uppercase()) {
                             "PRESALE_SNIPE", "MICRO_CAP" -> ModeRouter.TradeType.FRESH_LAUNCH
                             "MOMENTUM_SWING" -> ModeRouter.TradeType.BREAKOUT_CONTINUATION
                             "REVIVAL" -> ModeRouter.TradeType.REVERSAL_RECLAIM
-                            "WHALE_FOLLOW", "COPY_TRADE" -> ModeRouter.TradeType.WHALE_ACCUMULATION
+                            "WHALE_FOLLOW" -> ModeRouter.TradeType.WHALE_ACCUMULATION
+                            "COPY_TRADE" -> ModeRouter.TradeType.COPY_TRADE  // FIX: Separate exit logic
                             "MOONSHOT" -> ModeRouter.TradeType.GRADUATION
                             "PUMP_SNIPER" -> ModeRouter.TradeType.SENTIMENT_IGNITION
                             "STANDARD", "CYCLIC", "BLUE_CHIP" -> ModeRouter.TradeType.TREND_PULLBACK
