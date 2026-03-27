@@ -1302,8 +1302,13 @@ object FinalDecisionGate {
         // MATURE MODE: Hard block reliable 100% loss patterns
         // ═══════════════════════════════════════════════════════════════════════
         
-        // Early bootstrap check for behavior gating
-        val behaviorBootstrap = currentConditions.totalSessionTrades < 50
+        // Unified bootstrap check - used by all soft gates below
+        val isBootstrapPhase = currentConditions.totalSessionTrades < 50
+        var softPenaltyScore = 0  // Accumulated soft penalties instead of blocks
+        var sizeMultiplier = 1.0  // Size reduction for risky but allowed trades
+        var isProbeCandidate = false  // Flag for PROBE approval class
+        
+        // Behavior-specific tracking
         var behaviorPenalty = 0
         var behaviorSizeMultiplier = 1.0
         var behaviorProbe = false
@@ -1348,14 +1353,14 @@ object FinalDecisionGate {
                     // Minimum 5 samples for 100% loss to be considered reliable
                     val isReliable100PctLoss = is100PctLoss && sampleCount >= 5
                     
-                    if (isReliable100PctLoss && !behaviorBootstrap) {
+                    if (isReliable100PctLoss && !isBootstrapPhase) {
                         // MATURE + reliable 100% loss: Hard block
                         blockReason = "BEHAVIOR_BLOCK_100PCT_LOSS"
                         blockLevel = BlockLevel.HARD
                         checks.add(GateCheck("behavior_learning", false, 
                             "$behaviorBlock (reliable: $sampleCount samples)"))
                         tags.add("behavior_100pct_loss_blocked")
-                    } else if (is100PctLoss && behaviorBootstrap) {
+                    } else if (is100PctLoss && isBootstrapPhase) {
                         // BOOTSTRAP + 100% loss (even low sample): Penalty, not block
                         behaviorPenalty = if (sampleCount >= 3) 15 else 8
                         behaviorSizeMultiplier = 0.3  // Heavy size cut for these
@@ -1398,26 +1403,6 @@ object FinalDecisionGate {
                 checks.add(GateCheck("behavior_learning", true, "error: ${e.message}"))
             }
         }
-        
-        // ═══════════════════════════════════════════════════════════════════════
-        // BOOTSTRAP MODE CHECK
-        // 
-        // In BOOTSTRAP (< 50 trades), soft gates should PENALIZE not BLOCK.
-        // The bot needs to EXPLORE to learn. Hard blocks on weak evidence
-        // create bootstrap paralysis where the bot never gets enough data.
-        // 
-        // Only these should hard-block in bootstrap:
-        //   - Rugcheck failure
-        //   - Critical liquidity floor
-        //   - Honeypot / sell restriction
-        //   - Extreme holder concentration
-        //   - Contract/mint risk
-        // ═══════════════════════════════════════════════════════════════════════
-        
-        val isBootstrapPhase = currentConditions.totalSessionTrades < 50
-        var softPenaltyScore = 0  // Accumulated soft penalties instead of blocks
-        var sizeMultiplier = 1.0  // Size reduction for risky but allowed trades
-        var isProbeCandidate = false  // Flag for PROBE approval class
         
         // ═══════════════════════════════════════════════════════════════════════
         // GATE 1g.6: DANGER ZONE (TIME-BASED) - SOFT IN BOOTSTRAP
