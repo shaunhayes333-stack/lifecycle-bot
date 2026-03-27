@@ -434,6 +434,191 @@ object UnifiedModeOrchestrator {
         return "${mode.emoji} ${mode.label}"
     }
     
+    // ═══════════════════════════════════════════════════════════════════
+    // TOKEN-BASED MODE RECOMMENDATION
+    // ═══════════════════════════════════════════════════════════════════
+    
+    /**
+     * Recommend the best trading mode based on token characteristics.
+     * This ensures all 18 modes have opportunities to trigger.
+     * 
+     * @param liquidity Token liquidity in USD
+     * @param mcap Market cap
+     * @param ageMs Token age in milliseconds
+     * @param volScore Volume score (0-100)
+     * @param momScore Momentum score (0-100)
+     * @param source Discovery source (e.g., "PUMP_FUN", "DEX_BOOSTED")
+     * @param emafanAlignment EMA fan alignment (BULL_FAN, FLAT, etc)
+     * @param holderConcentration Top holder percentage
+     * @param isRevival Whether token is showing revival signals
+     * @param hasWhaleActivity Whether whales are active
+     * @return Recommended ExtendedMode
+     */
+    fun recommendModeForToken(
+        liquidity: Double,
+        mcap: Double,
+        ageMs: Long,
+        volScore: Double,
+        momScore: Double,
+        source: String,
+        emafanAlignment: String = "FLAT",
+        holderConcentration: Double = 0.0,
+        isRevival: Boolean = false,
+        hasWhaleActivity: Boolean = false,
+    ): ExtendedMode {
+        ensureInitialized()
+        
+        val ageMinutes = ageMs / (60 * 1000)
+        
+        return try {
+            when {
+                // ═══════════════════════════════════════════════════════════════
+                // PRESALE_SNIPE: Ultra-new tokens (< 2 minutes)
+                // ═══════════════════════════════════════════════════════════════
+                ageMinutes < 2 && source.contains("PUMP", ignoreCase = true) -> {
+                    if (isActive(ExtendedMode.PRESALE_SNIPE)) ExtendedMode.PRESALE_SNIPE
+                    else ExtendedMode.PUMP_SNIPER
+                }
+                
+                // ═══════════════════════════════════════════════════════════════
+                // PUMP_SNIPER: New tokens with high volume (< 10 min, vol > 70)
+                // ═══════════════════════════════════════════════════════════════
+                ageMinutes < 10 && volScore > 70 -> {
+                    if (isActive(ExtendedMode.PUMP_SNIPER)) ExtendedMode.PUMP_SNIPER
+                    else ExtendedMode.MOMENTUM_SWING
+                }
+                
+                // ═══════════════════════════════════════════════════════════════
+                // MICRO_CAP: Tiny market cap tokens
+                // ═══════════════════════════════════════════════════════════════
+                mcap < 15000 && liquidity < 8000 -> {
+                    if (isActive(ExtendedMode.MICRO_CAP)) ExtendedMode.MICRO_CAP
+                    else ExtendedMode.MOONSHOT
+                }
+                
+                // ═══════════════════════════════════════════════════════════════
+                // MOONSHOT: Low mcap with strong momentum
+                // ═══════════════════════════════════════════════════════════════
+                mcap < 100000 && momScore > 60 && emafanAlignment.contains("BULL") -> {
+                    if (isActive(ExtendedMode.MOONSHOT)) ExtendedMode.MOONSHOT
+                    else ExtendedMode.MOMENTUM_SWING
+                }
+                
+                // ═══════════════════════════════════════════════════════════════
+                // WHALE_FOLLOW: When whales are active
+                // ═══════════════════════════════════════════════════════════════
+                hasWhaleActivity && liquidity > 20000 -> {
+                    if (isActive(ExtendedMode.WHALE_FOLLOW)) ExtendedMode.WHALE_FOLLOW
+                    else ExtendedMode.COPY_TRADE
+                }
+                
+                // ═══════════════════════════════════════════════════════════════
+                // REVIVAL: Crashed tokens showing recovery
+                // ═══════════════════════════════════════════════════════════════
+                isRevival && momScore > 50 -> {
+                    if (isActive(ExtendedMode.REVIVAL)) ExtendedMode.REVIVAL
+                    else ExtendedMode.MOMENTUM_SWING
+                }
+                
+                // ═══════════════════════════════════════════════════════════════
+                // LIQUIDATION_HUNTER: Distressed tokens with volume spike
+                // ═══════════════════════════════════════════════════════════════
+                mcap < 50000 && volScore > 80 && liquidity < 10000 -> {
+                    if (isActive(ExtendedMode.LIQUIDATION_HUNTER)) ExtendedMode.LIQUIDATION_HUNTER
+                    else ExtendedMode.PUMP_SNIPER
+                }
+                
+                // ═══════════════════════════════════════════════════════════════
+                // NICHE: Low supply opportunities (high holder concentration)
+                // ═══════════════════════════════════════════════════════════════
+                holderConcentration > 30 && mcap < 200000 && momScore > 40 -> {
+                    if (isActive(ExtendedMode.NICHE)) ExtendedMode.NICHE
+                    else ExtendedMode.STANDARD
+                }
+                
+                // ═══════════════════════════════════════════════════════════════
+                // SLEEPER: Dormant token with sudden activity
+                // ═══════════════════════════════════════════════════════════════
+                ageMinutes > 60 * 24 && volScore > 60 && source.contains("SLEEPER", ignoreCase = true) -> {
+                    if (isActive(ExtendedMode.SLEEPER)) ExtendedMode.SLEEPER
+                    else ExtendedMode.REVIVAL
+                }
+                
+                // ═══════════════════════════════════════════════════════════════
+                // CYCLIC: Range-bound tokens
+                // ═══════════════════════════════════════════════════════════════
+                emafanAlignment == "FLAT" && volScore in 30.0..60.0 && ageMinutes > 30 -> {
+                    if (isActive(ExtendedMode.CYCLIC)) ExtendedMode.CYCLIC
+                    else ExtendedMode.STANDARD
+                }
+                
+                // ═══════════════════════════════════════════════════════════════
+                // MOMENTUM_SWING: Strong trend following
+                // ═══════════════════════════════════════════════════════════════
+                emafanAlignment.contains("BULL") && momScore > 55 && volScore > 50 -> {
+                    if (isActive(ExtendedMode.MOMENTUM_SWING)) ExtendedMode.MOMENTUM_SWING
+                    else ExtendedMode.STANDARD
+                }
+                
+                // ═══════════════════════════════════════════════════════════════
+                // BLUE_CHIP: Established high-liquidity tokens
+                // ═══════════════════════════════════════════════════════════════
+                liquidity > 200000 && mcap > 1000000 -> {
+                    if (isActive(ExtendedMode.BLUE_CHIP)) ExtendedMode.BLUE_CHIP
+                    else ExtendedMode.LONG_HOLD
+                }
+                
+                // ═══════════════════════════════════════════════════════════════
+                // LONG_HOLD: High liquidity with stable fundamentals
+                // ═══════════════════════════════════════════════════════════════
+                liquidity > 50000 && mcap > 200000 && volScore in 30.0..70.0 -> {
+                    if (isActive(ExtendedMode.LONG_HOLD)) ExtendedMode.LONG_HOLD
+                    else ExtendedMode.BLUE_CHIP
+                }
+                
+                // ═══════════════════════════════════════════════════════════════
+                // PUMP_DUMP: Aggressive accumulation (high vol, new-ish)
+                // ═══════════════════════════════════════════════════════════════
+                ageMinutes < 30 && volScore > 75 && liquidity > 10000 -> {
+                    if (isActive(ExtendedMode.PUMP_DUMP)) ExtendedMode.PUMP_DUMP
+                    else ExtendedMode.PUMP_SNIPER
+                }
+                
+                // ═══════════════════════════════════════════════════════════════
+                // MARKET_MAKER: Spread capture on stable tokens
+                // ═══════════════════════════════════════════════════════════════
+                liquidity > 100000 && emafanAlignment == "FLAT" && volScore < 40 -> {
+                    if (isActive(ExtendedMode.MARKET_MAKER)) ExtendedMode.MARKET_MAKER
+                    else ExtendedMode.CYCLIC
+                }
+                
+                // ═══════════════════════════════════════════════════════════════
+                // ARBITRAGE: Cross-DEX opportunities (high liquidity, stable)
+                // ═══════════════════════════════════════════════════════════════
+                liquidity > 150000 && mcap > 500000 && volScore > 40 -> {
+                    if (isActive(ExtendedMode.ARBITRAGE)) ExtendedMode.ARBITRAGE
+                    else ExtendedMode.STANDARD
+                }
+                
+                // ═══════════════════════════════════════════════════════════════
+                // COPY_TRADE: Follow smart money
+                // ═══════════════════════════════════════════════════════════════
+                hasWhaleActivity -> {
+                    if (isActive(ExtendedMode.COPY_TRADE)) ExtendedMode.COPY_TRADE
+                    else ExtendedMode.WHALE_FOLLOW
+                }
+                
+                // ═══════════════════════════════════════════════════════════════
+                // DEFAULT: Standard mode
+                // ═══════════════════════════════════════════════════════════════
+                else -> ExtendedMode.STANDARD
+            }
+        } catch (e: Exception) {
+            ErrorLogger.warn(TAG, "recommendModeForToken error: ${e.message}")
+            ExtendedMode.STANDARD
+        }
+    }
+    
     /**
      * Get summary of all modes for dashboard display.
      */
