@@ -547,10 +547,21 @@ object FinalDecisionGate {
      *   - When conditions are risky: higher threshold = fewer, safer trades
      */
     fun getAdaptiveConfidence(isPaperMode: Boolean, ts: TokenState? = null): Double {
-        // PAPER MODE: Always return 0% threshold - we want ALL trades for learning
-        // The AI learns from losses just as much as wins
+        // PAPER MODE: Use paperConfidenceBase as minimum floor
+        // FIX: We need SOME minimum to avoid learning from complete garbage
+        // 15% minimum prevents taking trades with 8% confidence
         if (isPaperMode) {
-            return 0.0
+            // Still adaptive, but with a floor
+            val floor = paperConfidenceBase  // 15% default
+            
+            // Adaptive relaxation: If many blocks, lower the floor slightly
+            val adaptiveFloor = if (adaptiveRelaxationActive) {
+                (floor * 0.5).coerceAtLeast(5.0)  // 7.5% minimum during relaxation
+            } else {
+                floor
+            }
+            
+            return adaptiveFloor
         }
         
         val baseConfidence = liveConfidenceBase  // Live mode only from here
@@ -1419,9 +1430,10 @@ object FinalDecisionGate {
                     source = ts.source,
                 )
                 
-                // Multiplier of 0.80 or less indicates strongly negative memory (-10+ score)
-                // From logs: "memory score=-14.0 multiplier=0.80"
-                if (memoryMult <= 0.75) {
+                // Multiplier of 0.82 or less indicates strongly negative memory
+                // From logs: "memory score=-12.1 multiplier=0.80" shows consistent losses
+                // FIX: Tightened from 0.75 to 0.82 to catch more bad patterns
+                if (memoryMult <= 0.82) {
                     // Check adaptive bypass
                     val shouldBypass = shouldBypassSoftBlock("MEMORY_NEGATIVE_BLOCK")
                     if (shouldBypass) {
@@ -1436,7 +1448,7 @@ object FinalDecisionGate {
                             "Memory strongly negative (mult=${memoryMult})"))
                         tags.add("memory_blocked")
                     }
-                } else if (memoryMult < 0.85) {
+                } else if (memoryMult < 0.90) {
                     // Warning but don't block
                     checks.add(GateCheck("memory_negative", true, 
                         "Memory warning (mult=${memoryMult})"))
@@ -1811,14 +1823,29 @@ object FinalDecisionGate {
                     groqApiKey = config.groqApiKey,
                 )
                 
-                // PAPER MODE: Skip narrative penalty entirely - we want maximum learning trades
-                // The goal is to get 30+ trades so the AI can learn from real outcomes
+                // PAPER MODE: Reduced impact but still protect against obvious scams
+                // FIX: "Adolph Ratler" type tokens should be blocked even in paper mode
                 // LIVE MODE: Reduced impact for reasonable protection without over-blocking
                 narrativeAdjustment = if (config.paperMode) {
-                    0  // DISABLED in paper mode - let trades happen for learning
+                    // Paper mode: Still apply SOME narrative penalty for HIGH risk
+                    if (narrativeResult.riskLevel == "HIGH" || narrativeResult.riskLevel == "CRITICAL") {
+                        -10  // Apply penalty to push below confidence threshold
+                    } else {
+                        0  // Low/medium risk: let trades happen for learning
+                    }
                 } else {
                     (narrativeResult.confidenceAdjustment / 4).coerceIn(-6, 4)  // Max -6 in live (reduced from -10)
                 }
+                
+                // FIX: Block HIGH RISK tokens even in paper mode
+                // Examples: impersonation, hate symbols, scam patterns
+                val isHighRiskContent = narrativeResult.riskLevel == "HIGH" && (
+                    narrativeResult.reasoning.contains("impersonate", ignoreCase = true) ||
+                    narrativeResult.reasoning.contains("offensive", ignoreCase = true) ||
+                    narrativeResult.reasoning.contains("hate", ignoreCase = true) ||
+                    narrativeResult.reasoning.contains("racist", ignoreCase = true) ||
+                    narrativeResult.reasoning.contains("historical", ignoreCase = true)
+                )
                 
                 if (narrativeResult.shouldBlock && !config.paperMode) {
                     // SOFTENED: Only hard-block VERY obvious scams with specific patterns
@@ -1839,6 +1866,14 @@ object FinalDecisionGate {
                             "⚠️ risk=${narrativeResult.riskLevel} (proceeding anyway for learning)"))
                         tags.add("narrative_warning")
                     }
+                } else if (isHighRiskContent && config.paperMode) {
+                    // FIX: Block HIGH RISK content even in paper mode
+                    // "Adolph Ratler" type tokens are not worth learning from
+                    blockReason = "NARRATIVE_HIGH_RISK: ${narrativeResult.reasoning.take(50)}"
+                    blockLevel = BlockLevel.MODE
+                    checks.add(GateCheck("narrative", false, 
+                        "HIGH RISK content blocked: ${narrativeResult.reasoning.take(80)}"))
+                    tags.add("narrative_high_risk_blocked")
                 } else if (narrativeResult.riskLevel == "CRITICAL" || narrativeResult.riskLevel == "HIGH") {
                     checks.add(GateCheck("narrative", true, 
                         "risk=${narrativeResult.riskLevel} adj=$narrativeAdjustment | ${narrativeResult.reasoning.take(60)}"))
