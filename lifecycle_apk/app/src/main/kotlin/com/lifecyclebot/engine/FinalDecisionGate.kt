@@ -1150,7 +1150,6 @@ object FinalDecisionGate {
                 (if (tradingModeTag != null) " | mode=${tradingModeTag.name}" else "") +
                 (if (!countersMatch) " ⚠️ COUNTER_MISMATCH ($counterDetail)" else ""))
         }
-        }
         
         // Use auto-adjusted thresholds for live mode
         // FIX: Paper mode was too lenient (rugcheck=5, buyPressure=10)
