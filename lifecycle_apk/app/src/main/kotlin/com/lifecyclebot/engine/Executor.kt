@@ -2521,11 +2521,30 @@ class Executor(
         val simulatedFeePct = 0.5
         val effectiveSol = actualSol * (1.0 - simulatedFeePct / 100.0)  // Less SOL after fee
         
-        // Get current trading mode from orchestrator
+        // Get recommended trading mode for THIS TOKEN based on its characteristics
+        // FIX: Use token-specific mode recommendation, not just global primary mode
         val currentMode = try {
-            UnifiedModeOrchestrator.getCurrentPrimaryMode()
+            val recommendedMode = UnifiedModeOrchestrator.recommendModeForToken(
+                liquidity = ts.lastLiquidityUsd,
+                mcap = ts.lastMcap,
+                ageMs = ts.ageMs,
+                volScore = ts.meta.volScore,
+                momScore = ts.meta.momScore,
+                source = ts.source,
+                emafanAlignment = ts.meta.emafanAlignment,
+                holderConcentration = ts.safety.topHolderPct,
+                isRevival = ts.source.contains("REVIVAL", ignoreCase = true),
+                hasWhaleActivity = ts.meta.whaleScore > 60,
+            )
+            ErrorLogger.debug("Executor", "Mode selected for ${identity.symbol}: ${recommendedMode.emoji} ${recommendedMode.name}")
+            recommendedMode
         } catch (e: Exception) {
-            UnifiedModeOrchestrator.ExtendedMode.STANDARD
+            // Fallback to global primary mode
+            try {
+                UnifiedModeOrchestrator.getCurrentPrimaryMode()
+            } catch (_: Exception) {
+                UnifiedModeOrchestrator.ExtendedMode.STANDARD
+            }
         }
         
         ts.position = Position(
@@ -2722,11 +2741,23 @@ class Executor(
                 onLog("⚠ Position opened during confirmation wait — aborting duplicate", ts.mint); return
             }
 
-            // Get current trading mode from orchestrator
+            // Get recommended trading mode for THIS TOKEN based on its characteristics
             val currentMode = try {
-                UnifiedModeOrchestrator.getCurrentPrimaryMode()
+                UnifiedModeOrchestrator.recommendModeForToken(
+                    liquidity = ts.lastLiquidityUsd,
+                    mcap = ts.lastMcap,
+                    ageMs = ts.ageMs,
+                    volScore = ts.meta.volScore,
+                    momScore = ts.meta.momScore,
+                    source = ts.source,
+                    emafanAlignment = ts.meta.emafanAlignment,
+                    holderConcentration = ts.safety.topHolderPct,
+                    isRevival = ts.source.contains("REVIVAL", ignoreCase = true),
+                    hasWhaleActivity = ts.meta.whaleScore > 60,
+                )
             } catch (e: Exception) {
-                UnifiedModeOrchestrator.ExtendedMode.STANDARD
+                try { UnifiedModeOrchestrator.getCurrentPrimaryMode() } 
+                catch (_: Exception) { UnifiedModeOrchestrator.ExtendedMode.STANDARD }
             }
 
             ts.position = Position(
