@@ -102,6 +102,8 @@ data class Trade(
     val quoteDivergencePct: Double = 0.0, // how much price moved between quote checks
     val isCopyTrade: Boolean = false,
     val copyWallet: String = "",
+    val tradingMode: String = "STANDARD",    // ExtendedMode name
+    val tradingModeEmoji: String = "📈",     // Emoji for display
 )
 
 data class StrategyMeta(

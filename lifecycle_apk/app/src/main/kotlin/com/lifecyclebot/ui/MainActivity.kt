@@ -1227,7 +1227,8 @@ By clicking "I Agree", you acknowledge that you have read, understood, and accep
                 layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
             }
             val sideLabel = TextView(this).apply {
-                text      = "${t.side}  ${t.reason.ifBlank { t.mode }}"
+                val modeEmoji = t.tradingModeEmoji.ifEmpty { "📈" }
+                text      = "$modeEmoji ${t.side}  ${t.reason.ifBlank { t.mode }}"
                 textSize  = tradeTextSp
                 setTextColor(if (t.side == "BUY") green else if (t.pnlSol > 0) green else red)
                 typeface  = android.graphics.Typeface.DEFAULT_BOLD

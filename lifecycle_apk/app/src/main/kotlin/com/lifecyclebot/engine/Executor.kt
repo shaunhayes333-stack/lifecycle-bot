@@ -2498,7 +2498,16 @@ class Executor(
             buildPhase   = buildPhase,
             targetBuildSol = targetBuild,
         )
-        val trade = Trade("BUY", "paper", actualSol, price, System.currentTimeMillis(), score = score)
+        val trade = Trade(
+            side = "BUY", 
+            mode = "paper", 
+            sol = actualSol, 
+            price = price, 
+            ts = System.currentTimeMillis(), 
+            score = score,
+            tradingMode = currentMode.name,
+            tradingModeEmoji = currentMode.emoji,
+        )
         ts.trades.add(trade)
         security.recordTrade(trade)
         
@@ -2688,8 +2697,17 @@ class Executor(
                 tradingMode  = currentMode.name,
                 tradingModeEmoji = currentMode.emoji,
             )
-            val trade = Trade("BUY", "live", sol, price, System.currentTimeMillis(),
-                              score = score, sig = sig)
+            val trade = Trade(
+                side = "BUY", 
+                mode = "live", 
+                sol = sol, 
+                price = price, 
+                ts = System.currentTimeMillis(),
+                score = score, 
+                sig = sig,
+                tradingMode = currentMode.name,
+                tradingModeEmoji = currentMode.emoji,
+            )
             ts.trades.add(trade)
             security.recordTrade(trade)
             
@@ -2857,8 +2875,18 @@ class Executor(
         val value = pos.qtyToken * effectivePrice * (1.0 - simulatedFeePct / 100.0)  // Less after fee
         val pnl   = value - pos.costSol
         val pnlP  = pct(pos.costSol, value)
-        val trade = Trade("SELL", "paper", pos.costSol, price,
-                          System.currentTimeMillis(), reason, pnl, pnlP)
+        val trade = Trade(
+            side = "SELL", 
+            mode = "paper", 
+            sol = pos.costSol, 
+            price = price,
+            ts = System.currentTimeMillis(), 
+            reason = reason, 
+            pnlSol = pnl, 
+            pnlPct = pnlP,
+            tradingMode = pos.tradingMode,
+            tradingModeEmoji = pos.tradingModeEmoji,
+        )
         ts.trades.add(trade)
         security.recordTrade(trade)
         
@@ -3659,9 +3687,21 @@ class Executor(
             
             onLog("📊 SELL DEBUG: solBack=${solBack.fmt(6)} | costSol=${pos.costSol.fmt(6)} | pnl=${pnl.fmt(6)} | pnlPct=${pnlP.fmtPct()}", tradeId.mint)
 
-            val trade = Trade("SELL", "live", pos.costSol, price,
-                              System.currentTimeMillis(), reason, pnl, pnlP, sig = sig,
-                              feeSol = feeSol, netPnlSol = netPnl)
+            val trade = Trade(
+                side = "SELL", 
+                mode = "live", 
+                sol = pos.costSol, 
+                price = price,
+                ts = System.currentTimeMillis(), 
+                reason = reason, 
+                pnlSol = pnl, 
+                pnlPct = pnlP, 
+                sig = sig,
+                feeSol = feeSol, 
+                netPnlSol = netPnl,
+                tradingMode = pos.tradingMode,
+                tradingModeEmoji = pos.tradingModeEmoji,
+            )
             ts.trades.add(trade)
             security.recordTrade(trade)
 
