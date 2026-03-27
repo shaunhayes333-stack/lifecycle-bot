@@ -183,6 +183,21 @@ class LifecycleStrategy(
                 phase, pm, volScore, pressScore, momScore, accel, hist, emafan, volDiv)
         }
 
+        // ═══════════════════════════════════════════════════════════════════
+        // UPSTREAM REENTRY SUPPRESSION (Priority 3 fix)
+        // 
+        // BUG: Raw strategy keeps emitting BUY signals for recently-stopped tokens.
+        // FDG catches it, but this creates noise and wastes evaluation cycles.
+        // 
+        // FIX: Zero the entry score EARLY if ReentryGuard has this token blocked.
+        // This stops bullish signals at the source, not just at the gate.
+        // ═══════════════════════════════════════════════════════════════════
+        if (!ts.position.isOpen && ReentryGuard.isBlocked(ts.mint)) {
+            // Token is in reentry lockout - suppress all bullish enthusiasm
+            entryScore = 0.0
+            // Don't log every time - FDG will log the block reason
+        }
+
         // MTF entry filter
         if (!ts.position.isOpen) {
             when (mtf5m) {
