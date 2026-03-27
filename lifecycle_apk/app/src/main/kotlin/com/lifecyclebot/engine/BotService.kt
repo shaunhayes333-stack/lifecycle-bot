@@ -1802,10 +1802,11 @@ class BotService : Service() {
                 // ═══════════════════════════════════════════════════════════════════
                 // STEP 2: DISTRIBUTION FADE AVOIDER
                 // Check if token is in distribution/dead-bounce state
+                // Note: edgePhase comes from ScoreResult later, so we pass null here
+                // and rely on price/volume pattern detection instead
                 // ═══════════════════════════════════════════════════════════════════
-                val currentEdge = ts.meta.edgePhase  // Get edge from token meta, not curveState
                 val distributionCheck = try {
-                    DistributionFadeAvoider.evaluate(ts, currentEdge)
+                    DistributionFadeAvoider.evaluate(ts, null)
                 } catch (e: Exception) {
                     ErrorLogger.debug("BotService", "DistFade error: ${e.message}")
                     DistributionFadeAvoider.FadeResult(false, null, 1.0, 0L)
