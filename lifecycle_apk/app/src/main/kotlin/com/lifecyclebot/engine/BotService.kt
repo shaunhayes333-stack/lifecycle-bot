@@ -1775,19 +1775,84 @@ class BotService : Service() {
 
                 lastSuccessfulPollMs = System.currentTimeMillis()
                 
-                // Auto-mode evaluation - must come before strategy.evaluate
+                // ═══════════════════════════════════════════════════════════════════
+                // STEP 0: CORE EVALUATIONS (needed by subsequent steps)
+                // ═══════════════════════════════════════════════════════════════════
                 val curveState = BondingCurveTracker.evaluate(ts)
                 val whaleState = WhaleDetector.evaluate(mint, ts)
+                
+                // ═══════════════════════════════════════════════════════════════════
+                // STEP 1: HARD RUG PRE-FILTER
+                // Kill obvious garbage BEFORE consuming strategy/FDG cycles
+                // ═══════════════════════════════════════════════════════════════════
+                if (!ts.position.isOpen) {
+                    val preFilterResult = try {
+                        HardRugPreFilter.filter(ts)
+                    } catch (e: Exception) {
+                        ErrorLogger.debug("BotService", "PreFilter error: ${e.message}")
+                        HardRugPreFilter.PreFilterResult(true, null, HardRugPreFilter.FilterSeverity.PASS)
+                    }
+                    
+                    if (!preFilterResult.pass) {
+                        HardRugPreFilter.logFailure(ts, preFilterResult)
+                        ts.filterPassCount = 0  // Reset filter pass count
+                        continue  // Skip to next token
+                    }
+                }
+                
+                // ═══════════════════════════════════════════════════════════════════
+                // STEP 2: DISTRIBUTION FADE AVOIDER
+                // Check if token is in distribution/dead-bounce state
+                // ═══════════════════════════════════════════════════════════════════
+                val distributionCheck = try {
+                    DistributionFadeAvoider.evaluate(ts, curveState.edge)
+                } catch (e: Exception) {
+                    ErrorLogger.debug("BotService", "DistFade error: ${e.message}")
+                    DistributionFadeAvoider.FadeResult(false, null, 1.0, 0L)
+                }
+                
+                if (distributionCheck.shouldBlock && !ts.position.isOpen) {
+                    ErrorLogger.info("BotService", "🔻 ${ts.symbol} DISTRIBUTION_FADE: ${distributionCheck.reason}")
+                    continue  // Skip to next token
+                }
+                
+                // ═══════════════════════════════════════════════════════════════════
+                // STEP 3: LIQUIDITY BUCKET CLASSIFICATION
+                // Determines which mode family is appropriate
+                // ═══════════════════════════════════════════════════════════════════
+                val liquidityBucket = try {
+                    LiquidityBucketRouter.classify(ts)
+                } catch (e: Exception) {
+                    ErrorLogger.debug("BotService", "LiqBucket error: ${e.message}")
+                    null
+                }
+                
+                // ═══════════════════════════════════════════════════════════════════
+                // STEP 4: REENTRY RECOVERY CHECK
+                // If token previously failed, use stricter recovery rules
+                // ═══════════════════════════════════════════════════════════════════
+                val isRecoveryCandidate = ReentryRecoveryMode.isRecoveryCandidate(ts.mint)
+                val recoveryEval = if (isRecoveryCandidate && !ts.position.isOpen) {
+                    try {
+                        val eval = ReentryRecoveryMode.evaluateRecovery(ts)
+                        ReentryRecoveryMode.logEvaluation(ts, eval)
+                        eval
+                    } catch (e: Exception) {
+                        ErrorLogger.debug("BotService", "ReentryRecovery error: ${e.message}")
+                        null
+                    }
+                } else null
+                
+                // Auto-mode evaluation - must come before strategy.evaluate
                 val trendRank  = try { null } catch (_: Exception) { null } // from CoinGecko cache
                 val modeConf   = if (cfg.autoMode) {
                     autoMode.evaluate(ts, whaleState.whaleScore, trendRank, curveState.stage)
                 } else null
                 
                 // ═══════════════════════════════════════════════════════════════════
-                // MODE ROUTER: Classify what KIND of trade this is
+                // STEP 5: MODE ROUTER - Classify what KIND of trade this is
                 // 
-                // Pipeline: scanner → mode classifier → mode-specific scorer → FDG → mode-specific execution
-                // This replaces "one giant score → trade/no trade" with specialized handling
+                // Pipeline: prefilter → distribution check → liq bucket → mode classifier → FDG
                 // ═══════════════════════════════════════════════════════════════════
                 val modeClassification = try {
                     ModeRouter.classify(ts)
@@ -1799,6 +1864,19 @@ class BotService : Service() {
                         signals = emptyList(),
                         subSignals = emptyMap(),
                     )
+                }
+                
+                // Apply distribution penalty to mode classification confidence
+                val adjustedModeConfidence = modeClassification.confidence * distributionCheck.scoreMultiplier
+                
+                // Apply liquidity bucket size multiplier
+                val liqSizeMultiplier = liquidityBucket?.maxSizeMultiplier ?: 1.0
+                
+                // Apply recovery mode restrictions if applicable
+                val finalSizeMultiplier = if (recoveryEval?.canReenter == true) {
+                    liqSizeMultiplier * recoveryEval.sizeMultiplier
+                } else {
+                    liqSizeMultiplier
                 }
                 
                 // Run specialized scanners for additional signals
