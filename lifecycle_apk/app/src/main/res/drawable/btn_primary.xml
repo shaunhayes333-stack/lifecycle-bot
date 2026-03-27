@@ -1,28 +1,27 @@
 <?xml version="1.0" encoding="utf-8"?>
+<!-- Premium action button with cyan accent -->
 <layer-list xmlns:android="http://schemas.android.com/apk/res/android">
-    <!-- Glow effect -->
+    <!-- Glow layer -->
     <item>
         <shape android:shape="rectangle">
             <gradient
                 android:type="radial"
-                android:gradientRadius="150dp"
-                android:centerX="0.5"
-                android:centerY="0.3"
-                android:startColor="#1540E0A0"
+                android:gradientRadius="80dp"
+                android:centerY="1"
+                android:startColor="#3064D2D2"
                 android:endColor="#00000000"/>
-            <corners android:radius="14dp"/>
+            <corners android:radius="12dp"/>
         </shape>
     </item>
-    <!-- Main card -->
+    <!-- Main button -->
     <item>
         <shape android:shape="rectangle">
             <gradient
                 android:type="linear"
                 android:angle="135"
-                android:startColor="#0F2A20"
-                android:endColor="#081510"/>
-            <stroke android:width="1dp" android:color="#2DD4AA"/>
-            <corners android:radius="14dp"/>
+                android:startColor="#64D2D2"
+                android:endColor="#4ECDC4"/>
+            <corners android:radius="12dp"/>
         </shape>
     </item>
 </layer-list>

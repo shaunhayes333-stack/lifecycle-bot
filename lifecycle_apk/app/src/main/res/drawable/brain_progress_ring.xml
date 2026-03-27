@@ -6,10 +6,10 @@
             android:innerRadiusRatio="2.5"
             android:thicknessRatio="15"
             android:useLevel="false">
-            <solid android:color="#2A2A4E"/>
+            <solid android:color="#1A2535"/>
         </shape>
     </item>
-    <!-- Progress arc -->
+    <!-- Progress arc - cyan gradient to match logo -->
     <item>
         <rotate
             android:fromDegrees="0"
@@ -19,9 +19,9 @@
                 android:thicknessRatio="15"
                 android:useLevel="true">
                 <gradient
-                    android:startColor="#9945FF"
-                    android:centerColor="#14F195"
-                    android:endColor="#10B981"
+                    android:startColor="#64D2D2"
+                    android:centerColor="#4ECDC4"
+                    android:endColor="#2FB8AC"
                     android:type="sweep"/>
             </shape>
         </rotate>
