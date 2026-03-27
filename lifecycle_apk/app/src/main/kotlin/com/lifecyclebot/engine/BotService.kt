@@ -1169,6 +1169,42 @@ class BotService : Service() {
             }
             
             // ═══════════════════════════════════════════════════════════════════
+            // BEHAVIOR LEARNING MAINTENANCE - every 60 loops (~5 minutes)
+            // Self-healing check and pattern pruning
+            // ═══════════════════════════════════════════════════════════════════
+            if (loopCount % 60 == 0) {
+                scope.launch {
+                    try {
+                        // Self-healing check (clears data if poisoned)
+                        val wasCleared = BehaviorLearning.selfHealingCheck()
+                        if (wasCleared) {
+                            addLog("🧹 BehaviorLearning: Self-healed (cleared poisoned data)")
+                        }
+                        
+                        // Prune stale patterns
+                        BehaviorLearning.pruneStalePatterns()
+                        
+                        // Log health status periodically
+                        val health = BehaviorLearning.getHealthStatus()
+                        if (health.goodCount + health.badCount >= 10) {
+                            ErrorLogger.info("BehaviorLearn", "📊 Health: ${health.summary()}")
+                        }
+                    } catch (e: Exception) {
+                        ErrorLogger.debug("BotService", "BehaviorLearning maintenance error: ${e.message}")
+                    }
+                }
+            }
+            
+            // Decay pattern weights every 720 loops (~1 hour)
+            if (loopCount % 720 == 0) {
+                scope.launch {
+                    try {
+                        BehaviorLearning.decayPatternWeights()
+                    } catch (_: Exception) {}
+                }
+            }
+            
+            // ═══════════════════════════════════════════════════════════════════
             // UPDATE ADAPTIVE CONFIDENCE MARKET CONDITIONS
             // 
             // This feeds the fluid confidence layer with current market data:

@@ -1186,6 +1186,80 @@ object FinalDecisionGate {
         }
         
         // ═══════════════════════════════════════════════════════════════════════
+        // GATE 1g.5: BEHAVIOR LEARNING HARD BLOCK
+        // 
+        // If BehaviorLearning has learned that this pattern has 80%+ loss rate
+        // with high confidence, BLOCK it. This is learned behavior, not hardcoded.
+        // 
+        // LIVE MODE: Strict - respect behavior blocks
+        // PAPER MODE: Log but allow (for continued learning)
+        // ═══════════════════════════════════════════════════════════════════════
+        
+        if (blockReason == null) {
+            try {
+                // Determine volume signal
+                val volScore = ts.meta.volScore
+                val volumeSignal = when {
+                    volScore > 80 -> "SURGE"
+                    volScore > 60 -> "INCREASING"
+                    volScore > 40 -> "NORMAL"
+                    volScore > 20 -> "DECREASING"
+                    else -> "LOW"
+                }
+                
+                val setupQuality = when {
+                    candidate.entryScore >= 90 -> "A+"
+                    candidate.entryScore >= 80 -> "A"
+                    candidate.entryScore >= 70 -> "B"
+                    else -> "C"
+                }
+                
+                val behaviorBlock = BehaviorLearning.shouldHardBlock(
+                    entryPhase = candidate.phase,
+                    setupQuality = setupQuality,
+                    tradingMode = tradingModeTag?.name ?: "STANDARD",
+                    liquidityUsd = ts.lastLiquidityUsd,
+                    volumeSignal = volumeSignal,
+                )
+                
+                if (behaviorBlock != null) {
+                    if (config.paperMode) {
+                        // Paper mode: Log but don't block - we want to learn more
+                        checks.add(GateCheck("behavior_learning", true, 
+                            "PAPER: $behaviorBlock (bypassed for learning)"))
+                        tags.add("behavior_warning_bypassed")
+                    } else {
+                        // Live mode: Respect the learned behavior block
+                        blockReason = behaviorBlock
+                        blockLevel = BlockLevel.HARD
+                        checks.add(GateCheck("behavior_learning", false, behaviorBlock))
+                        tags.add("behavior_blocked")
+                    }
+                } else {
+                    // Get score adjustment from behavior learning
+                    val behaviorAdj = BehaviorLearning.getScoreAdjustment(
+                        entryPhase = candidate.phase,
+                        setupQuality = setupQuality,
+                        tradingMode = tradingModeTag?.name ?: "STANDARD",
+                        liquidityUsd = ts.lastLiquidityUsd,
+                        volumeSignal = volumeSignal,
+                    )
+                    
+                    if (behaviorAdj != 0) {
+                        checks.add(GateCheck("behavior_learning", true, 
+                            "Score adj: ${if (behaviorAdj > 0) "+" else ""}$behaviorAdj"))
+                        if (behaviorAdj < -20) tags.add("behavior_warning")
+                        if (behaviorAdj > 15) tags.add("behavior_boost")
+                    } else {
+                        checks.add(GateCheck("behavior_learning", true, null))
+                    }
+                }
+            } catch (e: Exception) {
+                checks.add(GateCheck("behavior_learning", true, "error: ${e.message}"))
+            }
+        }
+        
+        // ═══════════════════════════════════════════════════════════════════════
         // GATE 1h: DISTRIBUTION HARD BLOCK (CRITICAL - applies to ALL modes)
         // 
         // NEVER buy during distribution phase. This is when whales/bots are

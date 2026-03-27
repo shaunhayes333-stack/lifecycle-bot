@@ -542,6 +542,8 @@ object BehaviorLearning {
         badStats.clear()
         totalGoodRecorded.set(0)
         totalBadRecorded.set(0)
+        lastHealthCheck = 0L
+        consecutiveBadPeriods = 0
         ErrorLogger.warn(TAG, "🧹 Behavior learning cleared")
     }
     
@@ -554,5 +556,275 @@ object BehaviorLearning {
         val ratio = if (badCount > 0) goodCount.toDouble() / badCount else goodCount.toDouble()
         
         return "Good: $goodCount | Bad: $badCount | Ratio: ${"%.1f".format(ratio)}"
+    }
+    
+    // ═══════════════════════════════════════════════════════════════════
+    // SELF-HEALING SYSTEM
+    // ═══════════════════════════════════════════════════════════════════
+    
+    private const val HEALTH_CHECK_INTERVAL_MS = 30 * 60 * 1000L  // 30 minutes
+    private const val MIN_TRADES_FOR_HEALTH = 10
+    private const val CRITICAL_BAD_RATIO = 3.0  // 3x more bad than good = poisoned
+    private const val WARNING_BAD_RATIO = 2.0   // 2x more bad = concerning
+    
+    @Volatile private var lastHealthCheck = 0L
+    @Volatile private var consecutiveBadPeriods = 0
+    
+    /**
+     * Self-healing health check. Call periodically (e.g., every loop cycle).
+     * Returns true if data was poisoned and cleared.
+     */
+    fun selfHealingCheck(): Boolean {
+        val now = System.currentTimeMillis()
+        if (now - lastHealthCheck < HEALTH_CHECK_INTERVAL_MS) return false
+        lastHealthCheck = now
+        
+        return try {
+            val goodCount = totalGoodRecorded.get()
+            val badCount = totalBadRecorded.get()
+            val total = goodCount + badCount
+            
+            // Not enough data to judge
+            if (total < MIN_TRADES_FOR_HEALTH) return false
+            
+            // Calculate bad-to-good ratio (higher = more poisoned)
+            val badRatio = if (goodCount > 0) badCount.toDouble() / goodCount else badCount.toDouble()
+            
+            // Calculate effective win rate from recent patterns
+            val recentGoodWinRate = goodStats.values
+                .filter { it.isReliable }
+                .map { it.winRate }
+                .average()
+                .takeIf { !it.isNaN() } ?: 50.0
+            
+            val recentBadLossRate = badStats.values
+                .filter { it.isReliable }
+                .map { 100.0 - it.winRate }
+                .average()
+                .takeIf { !it.isNaN() } ?: 50.0
+            
+            // CRITICAL: More bad patterns than good AND bad patterns are accurate
+            val isCritical = badRatio >= CRITICAL_BAD_RATIO && recentBadLossRate >= 60.0
+            val isWarning = badRatio >= WARNING_BAD_RATIO && recentBadLossRate >= 50.0
+            
+            if (isCritical) {
+                consecutiveBadPeriods++
+                
+                if (consecutiveBadPeriods >= 2) {
+                    // Two consecutive bad periods = clear the data
+                    ErrorLogger.warn(TAG, "🚨 SELF-HEALING: Critical bad ratio (${"%.1f".format(badRatio)}x), " +
+                        "clearing behavior data after $consecutiveBadPeriods bad periods")
+                    clear()
+                    return true
+                } else {
+                    ErrorLogger.warn(TAG, "⚠️ HEALTH WARNING: Bad ratio ${"%.1f".format(badRatio)}x " +
+                        "(bad=$badCount good=$goodCount) - period $consecutiveBadPeriods/2")
+                }
+            } else if (isWarning) {
+                ErrorLogger.info(TAG, "📊 Health check: Elevated bad ratio ${"%.1f".format(badRatio)}x - monitoring")
+                // Don't increment consecutiveBadPeriods for warnings
+            } else {
+                // Healthy - reset counter
+                if (consecutiveBadPeriods > 0) {
+                    ErrorLogger.info(TAG, "✅ Health recovered: Bad ratio ${"%.1f".format(badRatio)}x (was critical)")
+                }
+                consecutiveBadPeriods = 0
+            }
+            
+            false
+        } catch (e: Exception) {
+            ErrorLogger.debug(TAG, "selfHealingCheck error: ${e.message}")
+            false
+        }
+    }
+    
+    /**
+     * Get health status for diagnostics display.
+     */
+    fun getHealthStatus(): HealthStatus {
+        val goodCount = totalGoodRecorded.get()
+        val badCount = totalBadRecorded.get()
+        val total = goodCount + badCount
+        
+        val badRatio = if (goodCount > 0) badCount.toDouble() / goodCount else badCount.toDouble()
+        val winRate = if (total > 0) goodCount.toDouble() / total * 100 else 0.0
+        
+        val status = when {
+            total < MIN_TRADES_FOR_HEALTH -> "BOOTSTRAP"
+            badRatio >= CRITICAL_BAD_RATIO -> "CRITICAL"
+            badRatio >= WARNING_BAD_RATIO -> "WARNING"
+            winRate >= 60.0 -> "EXCELLENT"
+            winRate >= 45.0 -> "HEALTHY"
+            else -> "LEARNING"
+        }
+        
+        return HealthStatus(
+            status = status,
+            goodCount = goodCount,
+            badCount = badCount,
+            badRatio = badRatio,
+            effectiveWinRate = winRate,
+            consecutiveBadPeriods = consecutiveBadPeriods,
+            goodPatternsCount = goodStats.size,
+            badPatternsCount = badStats.size,
+        )
+    }
+    
+    data class HealthStatus(
+        val status: String,
+        val goodCount: Int,
+        val badCount: Int,
+        val badRatio: Double,
+        val effectiveWinRate: Double,
+        val consecutiveBadPeriods: Int,
+        val goodPatternsCount: Int,
+        val badPatternsCount: Int,
+    ) {
+        fun summary(): String = "$status | Win:$goodCount Loss:$badCount | Patterns: ✅$goodPatternsCount ❌$badPatternsCount"
+    }
+    
+    // ═══════════════════════════════════════════════════════════════════
+    // FDG INTEGRATION - Hard veto for dangerous patterns
+    // ═══════════════════════════════════════════════════════════════════
+    
+    /**
+     * Check if this setup should be HARD BLOCKED based on learned bad behavior.
+     * Used by FinalDecisionGate for veto decisions.
+     * 
+     * Returns block reason if should block, null if OK.
+     */
+    fun shouldHardBlock(
+        entryPhase: String,
+        setupQuality: String,
+        tradingMode: String,
+        liquidityUsd: Double,
+        volumeSignal: String,
+    ): String? {
+        return try {
+            val signature = "${entryPhase}_${setupQuality}_${tradingMode}_${getLiquidityBucket(liquidityUsd)}_$volumeSignal"
+            val broadSignature = "${setupQuality}_${tradingMode}_${getLiquidityBucket(liquidityUsd)}"
+            
+            // Check for known bad patterns with HIGH confidence
+            val badMatch = badStats[signature] ?: badStats[broadSignature]
+            
+            if (badMatch != null && badMatch.isReliable && badMatch.confidence >= 0.8) {
+                val lossRate = 100.0 - badMatch.winRate
+                
+                // HARD BLOCK: 80%+ loss rate with 80%+ confidence
+                if (lossRate >= 80.0) {
+                    return "BEHAVIOR_HARD_BLOCK: Pattern has ${lossRate.toInt()}% loss rate (${badMatch.occurrences} trades)"
+                }
+                
+                // STRONG WARNING: 70%+ loss rate
+                if (lossRate >= 70.0) {
+                    ErrorLogger.warn(TAG, "⚠️ High-loss pattern detected: $signature (${lossRate.toInt()}% loss)")
+                }
+            }
+            
+            null
+        } catch (e: Exception) {
+            ErrorLogger.debug(TAG, "shouldHardBlock error: ${e.message}")
+            null
+        }
+    }
+    
+    /**
+     * Get confidence-weighted score adjustment for FDG.
+     * Returns adjustment in range -50 to +30.
+     */
+    fun getScoreAdjustment(
+        entryPhase: String,
+        setupQuality: String,
+        tradingMode: String,
+        liquidityUsd: Double,
+        volumeSignal: String,
+    ): Int {
+        return try {
+            val eval = evaluate(entryPhase, setupQuality, tradingMode, liquidityUsd, volumeSignal)
+            
+            // Weight by confidence
+            (eval.scoreAdjustment * eval.confidence).toInt().coerceIn(-50, 30)
+        } catch (e: Exception) {
+            0
+        }
+    }
+    
+    // ═══════════════════════════════════════════════════════════════════
+    // INTELLIGENT PATTERN PRUNING
+    // ═══════════════════════════════════════════════════════════════════
+    
+    /**
+     * Prune old or unreliable patterns. Call periodically.
+     */
+    fun pruneStalePatterns() {
+        try {
+            val now = System.currentTimeMillis()
+            val staleThreshold = 24 * 60 * 60 * 1000L  // 24 hours
+            
+            // Prune good stats
+            val staleGood = goodStats.filter { now - it.value.lastSeen > staleThreshold && !it.value.isReliable }
+            staleGood.keys.forEach { goodStats.remove(it) }
+            
+            // Prune bad stats
+            val staleBad = badStats.filter { now - it.value.lastSeen > staleThreshold && !it.value.isReliable }
+            staleBad.keys.forEach { badStats.remove(it) }
+            
+            if (staleGood.isNotEmpty() || staleBad.isNotEmpty()) {
+                ErrorLogger.info(TAG, "🧹 Pruned ${staleGood.size} stale good + ${staleBad.size} stale bad patterns")
+            }
+            
+            // Enforce max patterns limit
+            while (goodStats.size > MAX_PATTERNS_PER_LAYER) {
+                val oldest = goodStats.minByOrNull { it.value.lastSeen }?.key
+                if (oldest != null) goodStats.remove(oldest)
+            }
+            while (badStats.size > MAX_PATTERNS_PER_LAYER) {
+                val oldest = badStats.minByOrNull { it.value.lastSeen }?.key
+                if (oldest != null) badStats.remove(oldest)
+            }
+        } catch (e: Exception) {
+            ErrorLogger.debug(TAG, "pruneStalePatterns error: ${e.message}")
+        }
+    }
+    
+    /**
+     * Decay old pattern weights to favor recent data.
+     * Call once per hour.
+     */
+    fun decayPatternWeights() {
+        try {
+            val decayFactor = 0.95  // Lose 5% weight per decay cycle
+            
+            goodStats.values.forEach { stat ->
+                if (stat.occurrences > 2) {
+                    stat.occurrences = (stat.occurrences * decayFactor).toInt().coerceAtLeast(2)
+                    stat.wins = (stat.wins * decayFactor).toInt()
+                }
+            }
+            
+            badStats.values.forEach { stat ->
+                if (stat.occurrences > 2) {
+                    stat.occurrences = (stat.occurrences * decayFactor).toInt().coerceAtLeast(2)
+                    stat.losses = (stat.losses * decayFactor).toInt()
+                }
+            }
+            
+            ErrorLogger.debug(TAG, "📉 Decayed pattern weights (factor=${decayFactor})")
+        } catch (e: Exception) {
+            ErrorLogger.debug(TAG, "decayPatternWeights error: ${e.message}")
+        }
+    }
+    
+    /**
+     * Get trade count for learning phase determination.
+     */
+    fun getTradeCount(): Int = totalGoodRecorded.get() + totalBadRecorded.get()
+    
+    /**
+     * Get win rate for health monitoring.
+     */
+    fun getWinRate(): Double {
+        val total = getTradeCount()
+        return if (total > 0) totalGoodRecorded.get().toDouble() / total * 100 else 0.0
     }
 }

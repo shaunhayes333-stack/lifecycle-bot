@@ -209,6 +209,19 @@ object SelfHealingDiagnostics {
                 issues.add("Average PnL is ${avgPnl.toInt()}% (heavily negative)")
             }
             
+            // Issue 5: BehaviorLearning health check
+            val behaviorHealth = try {
+                BehaviorLearning.getHealthStatus()
+            } catch (e: Exception) { null }
+            
+            if (behaviorHealth != null) {
+                if (behaviorHealth.status == "CRITICAL") {
+                    issues.add("BehaviorLearning CRITICAL: Bad ratio ${String.format("%.1f", behaviorHealth.badRatio)}x (${behaviorHealth.badCount} bad vs ${behaviorHealth.goodCount} good)")
+                } else if (behaviorHealth.status == "WARNING") {
+                    issues.add("BehaviorLearning WARNING: Elevated bad patterns (ratio ${String.format("%.1f", behaviorHealth.badRatio)}x)")
+                }
+            }
+            
             // ═══════════════════════════════════════════════════════════════
             // APPLY CORRECTIONS
             // ═══════════════════════════════════════════════════════════════
