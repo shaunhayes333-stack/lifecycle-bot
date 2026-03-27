@@ -94,7 +94,6 @@ object ModeSpecificScanners {
         }
         
         // Early buy pressure
-        val hist = ts.history.toList()
         val lastCandle = hist.lastOrNull()
         if (lastCandle != null) {
             if (lastCandle.buyRatio > 0.55) {
