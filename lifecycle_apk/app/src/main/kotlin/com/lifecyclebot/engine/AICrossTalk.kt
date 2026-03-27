@@ -56,6 +56,7 @@ object AICrossTalk {
         REGIME_AMPLIFIED_BULL,  // Bull regime amplifying bullish signals
         REGIME_DAMPENED_BEAR,   // Bear regime dampening bullish signals
         LIQUIDITY_WHALE_ALERT,  // Liquidity collapse + Whale activity
+        BEHAVIOR_PATTERN_MATCH, // Learned good/bad behavior pattern
         NO_CORRELATION,         // Signals not correlated
     }
     
@@ -313,6 +314,59 @@ object AICrossTalk {
                     participatingAIs = listOf("MarketRegime"),
                     correlationStrength = regimeConfidence,
                 ))
+            }
+        }
+        
+        // ─────────────────────────────────────────────────────────────────────
+        // PATTERN 6: BEHAVIOR LEARNING CROSS-TALK
+        // Check if BehaviorLearning has strong insights for this pattern
+        // ─────────────────────────────────────────────────────────────────────
+        if (!isOpenPosition) {
+            try {
+                val behaviorHealth = BehaviorLearning.getHealthStatus()
+                
+                // Only use behavior learning if we have enough data
+                if (behaviorHealth.goodCount + behaviorHealth.badCount >= 20) {
+                    val insights = BehaviorLearning.getInsights()
+                    
+                    // Check if we have strong pattern matches
+                    val topGood = insights.topGoodPatterns.firstOrNull()
+                    val topBad = insights.topBadPatterns.firstOrNull()
+                    
+                    // Strong good pattern with 70%+ win rate
+                    if (topGood != null && topGood.winRate >= 70.0 && topGood.confidence >= 0.7) {
+                        val boost = (topGood.winRate - 50) * 0.4  // Up to +20 for 100% win rate
+                        return cacheAndReturn(cacheKey, now, CrossTalkSignal(
+                            signalType = SignalType.BEHAVIOR_PATTERN_MATCH,
+                            entryBoost = boost,
+                            exitUrgency = 0.0,
+                            confidenceBoost = boost * 0.5,
+                            sizeMultiplier = 1.0 + (topGood.winRate - 50) / 200.0,
+                            reason = "Learned pattern: ${topGood.signature.take(30)} (${topGood.winRate.toInt()}% win)",
+                            participatingAIs = listOf("BehaviorLearning"),
+                            correlationStrength = topGood.confidence * 100,
+                        ))
+                    }
+                    
+                    // Strong bad pattern with 70%+ loss rate (warn but don't block in crosstalk)
+                    if (topBad != null && (100 - topBad.winRate) >= 70.0 && topBad.confidence >= 0.7) {
+                        val lossRate = 100 - topBad.winRate
+                        val penalty = (lossRate - 50) * 0.3  // Up to -15 for 100% loss rate
+                        ErrorLogger.warn("CrossTalk", "⚠️ BEHAVIOR WARNING: ${symbol} matches bad pattern (${lossRate.toInt()}% loss)")
+                        return cacheAndReturn(cacheKey, now, CrossTalkSignal(
+                            signalType = SignalType.BEHAVIOR_PATTERN_MATCH,
+                            entryBoost = -penalty,
+                            exitUrgency = penalty * 0.5,
+                            confidenceBoost = -penalty * 0.5,
+                            sizeMultiplier = 1.0 - (lossRate - 50) / 300.0,
+                            reason = "Bad pattern: ${topBad.signature.take(30)} (${lossRate.toInt()}% loss)",
+                            participatingAIs = listOf("BehaviorLearning"),
+                            correlationStrength = topBad.confidence * 100,
+                        ))
+                    }
+                }
+            } catch (e: Exception) {
+                ErrorLogger.debug("CrossTalk", "BehaviorLearning check error: ${e.message}")
             }
         }
         
