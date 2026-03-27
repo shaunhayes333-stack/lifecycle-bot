@@ -10,6 +10,16 @@
         <item name="android:navigationBarColor">#0A0A0F</item>
         <item name="android:windowLightStatusBar">false</item>
     </style>
+
+    <!-- Splash Screen Theme - Pure black, no status bar -->
+    <style name="Theme.AATE.Splash" parent="Theme.MaterialComponents.NoActionBar">
+        <item name="android:windowBackground">#000000</item>
+        <item name="android:statusBarColor">#000000</item>
+        <item name="android:navigationBarColor">#000000</item>
+        <item name="android:windowLightStatusBar">false</item>
+        <item name="android:windowFullscreen">true</item>
+        <item name="android:windowContentOverlay">@null</item>
+    </style>
     
     <!-- DARK Card Style Override -->
     <style name="Card">
