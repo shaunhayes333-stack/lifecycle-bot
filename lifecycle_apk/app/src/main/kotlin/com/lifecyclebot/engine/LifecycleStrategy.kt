@@ -738,7 +738,9 @@ class LifecycleStrategy(
                             ErrorLogger.warn("BehaviorAI", "❌ ${ts.symbol}: BAD pattern match! " +
                                 "${behaviorEval.scoreAdjustment} pts | ${behaviorEval.reasons.firstOrNull() ?: ""}")
                         }
-                        else -> {
+                        BehaviorLearning.BehaviorRecommendation.BUY,
+                        BehaviorLearning.BehaviorRecommendation.AVOID,
+                        BehaviorLearning.BehaviorRecommendation.NEUTRAL -> {
                             if (behaviorEval.scoreAdjustment != 0) {
                                 ErrorLogger.debug("BehaviorAI", "📊 ${ts.symbol}: Behavior adj " +
                                     "${if (behaviorEval.scoreAdjustment > 0) "+" else ""}${behaviorEval.scoreAdjustment}")
