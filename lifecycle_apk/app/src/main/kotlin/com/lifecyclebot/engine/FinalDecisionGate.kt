@@ -2521,6 +2521,7 @@ object FinalDecisionGate {
             ApprovalClass.LIVE -> "🔴"
             ApprovalClass.PAPER_BENCHMARK -> "🟢"
             ApprovalClass.PAPER_EXPLORATION -> "🟡"
+            ApprovalClass.PAPER_PROBE -> "🔵"  // Blue for probe trades
             ApprovalClass.BLOCKED -> "⬛"
         }
         onLog("$classIcon FDG ${decision.approvalClass}: ${decision.symbol} | ${decision.quality} | " +
