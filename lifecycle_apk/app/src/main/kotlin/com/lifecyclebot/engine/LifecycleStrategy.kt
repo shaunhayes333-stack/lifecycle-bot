@@ -698,6 +698,60 @@ class LifecycleStrategy(
             // ═══════════════════════════════════════════════════════════════════
             
             // ═══════════════════════════════════════════════════════════════════
+            // V5: BEHAVIOR LEARNING - Good vs Bad pattern layers
+            // ═══════════════════════════════════════════════════════════════════
+            // Evaluates current setup against learned winning/losing behavior patterns.
+            // Boosts score for setups matching winning patterns, penalizes losing patterns.
+            try {
+                val volumeSignal = when {
+                    volScore > 80 -> "SURGE"
+                    volScore > 60 -> "INCREASING"
+                    volScore > 40 -> "NORMAL"
+                    volScore > 20 -> "DECREASING"
+                    else -> "LOW"
+                }
+                
+                val behaviorEval = BehaviorLearning.evaluate(
+                    entryPhase = phase,
+                    setupQuality = when {
+                        entryScore >= 90 -> "A+"
+                        entryScore >= 80 -> "A"
+                        entryScore >= 70 -> "B"
+                        else -> "C"
+                    },
+                    tradingMode = if (ts.position.isOpen) ts.position.tradingMode else "SMART_SNIPER",
+                    liquidityUsd = ts.lastLiquidityUsd,
+                    volumeSignal = volumeSignal,
+                )
+                
+                // Apply score adjustment from behavior learning
+                if (behaviorEval.confidence >= 0.6 && behaviorEval.scoreAdjustment != 0) {
+                    val oldScore = entryScore
+                    entryScore = (entryScore + behaviorEval.scoreAdjustment).coerceIn(0.0, 100.0)
+                    
+                    when (behaviorEval.recommendation) {
+                        BehaviorLearning.BehaviorRecommendation.STRONG_BUY -> {
+                            ErrorLogger.info("BehaviorAI", "✅ ${ts.symbol}: STRONG pattern match! " +
+                                "+${behaviorEval.scoreAdjustment} pts | ${behaviorEval.reasons.firstOrNull() ?: ""}")
+                        }
+                        BehaviorLearning.BehaviorRecommendation.STRONG_AVOID -> {
+                            ErrorLogger.warn("BehaviorAI", "❌ ${ts.symbol}: BAD pattern match! " +
+                                "${behaviorEval.scoreAdjustment} pts | ${behaviorEval.reasons.firstOrNull() ?: ""}")
+                        }
+                        else -> {
+                            if (behaviorEval.scoreAdjustment != 0) {
+                                ErrorLogger.debug("BehaviorAI", "📊 ${ts.symbol}: Behavior adj " +
+                                    "${if (behaviorEval.scoreAdjustment > 0) "+" else ""}${behaviorEval.scoreAdjustment}")
+                            }
+                        }
+                    }
+                }
+            } catch (e: Exception) {
+                ErrorLogger.debug("BehaviorAI", "evaluate error: ${e.message}")
+            }
+            // ═══════════════════════════════════════════════════════════════════
+            
+            // ═══════════════════════════════════════════════════════════════════
             // V5: AUTO-TUNE & ADAPTIVE LEARNING (DISABLED UNTIL ENOUGH DATA)
             // ═══════════════════════════════════════════════════════════════════
             // These features require historical trade data to work properly.

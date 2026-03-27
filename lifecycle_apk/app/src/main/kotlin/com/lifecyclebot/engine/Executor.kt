@@ -3168,6 +3168,70 @@ class Executor(
         // ═══════════════════════════════════════════════════════════════════
         
         // ═══════════════════════════════════════════════════════════════════
+        // BEHAVIOR LEARNING: Separate good vs bad behavior layers
+        // ═══════════════════════════════════════════════════════════════════
+        try {
+            val holdMins = ((System.currentTimeMillis() - ts.position.entryTime) / 60_000.0).toInt()
+            val hourOfDay = java.util.Calendar.getInstance().get(java.util.Calendar.HOUR_OF_DAY)
+            val dayOfWeek = java.util.Calendar.getInstance().get(java.util.Calendar.DAY_OF_WEEK)
+            
+            // Determine volatility level from price swings
+            val volatilityLevel = when {
+                ts.position.highestPrice > 0 && ts.position.entryPrice > 0 -> {
+                    val swing = ((ts.position.highestPrice - ts.position.lowestPrice) / ts.position.entryPrice * 100)
+                    when {
+                        swing > 50 -> "HIGH"
+                        swing > 20 -> "MEDIUM"
+                        else -> "LOW"
+                    }
+                }
+                else -> "MEDIUM"
+            }
+            
+            // Determine volume signal from volScore
+            val volumeSignal = when {
+                ts.meta.volScore > 80 -> "SURGE"
+                ts.meta.volScore > 60 -> "INCREASING"
+                ts.meta.volScore > 40 -> "NORMAL"
+                ts.meta.volScore > 20 -> "DECREASING"
+                else -> "LOW"
+            }
+            
+            // Determine market sentiment from EMA fan
+            val marketSentiment = when {
+                ts.meta.emafanAlignment.contains("BULL") -> "BULL"
+                ts.meta.emafanAlignment.contains("BEAR") -> "BEAR"
+                else -> "NEUTRAL"
+            }
+            
+            BehaviorLearning.recordTrade(
+                entryScore = ts.position.entryScore,
+                entryPhase = ts.position.entryPhase,
+                setupQuality = when {
+                    ts.position.entryScore >= 90 -> "A+"
+                    ts.position.entryScore >= 80 -> "A"
+                    ts.position.entryScore >= 70 -> "B"
+                    else -> "C"
+                },
+                tradingMode = ts.position.tradingMode.ifEmpty { "SMART_SNIPER" },
+                marketSentiment = marketSentiment,
+                volatilityLevel = volatilityLevel,
+                volumeSignal = volumeSignal,
+                liquidityUsd = ts.lastLiquidityUsd,
+                mcapUsd = ts.lastMcap,
+                holderTopPct = ts.safety.topHolderPct,
+                rugcheckScore = ts.safety.rugcheckScore,
+                hourOfDay = hourOfDay,
+                dayOfWeek = dayOfWeek,
+                holdTimeMinutes = holdMins,
+                pnlPct = pnlP,
+            )
+        } catch (e: Exception) {
+            ErrorLogger.debug("BehaviorLearning", "recordTrade error: ${e.message}")
+        }
+        // ═══════════════════════════════════════════════════════════════════
+        
+        // ═══════════════════════════════════════════════════════════════════
         // TRADE IDENTITY: Update canonical identity state
         // ═══════════════════════════════════════════════════════════════════
         val classification = when {

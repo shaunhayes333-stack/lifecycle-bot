@@ -325,6 +325,14 @@ object SelfHealingDiagnostics {
                 ErrorLogger.warn(TAG, "Failed to clear SuperBrainEnhancements: ${e.message}")
             }
             
+            // 7.5. Clear BehaviorLearning (Good/Bad layers)
+            try {
+                BehaviorLearning.clear()
+                ErrorLogger.info(TAG, "✓ Cleared BehaviorLearning")
+            } catch (e: Exception) {
+                ErrorLogger.warn(TAG, "Failed to clear BehaviorLearning: ${e.message}")
+            }
+            
             // 8. Reset UnifiedModeOrchestrator stats
             try {
                 UnifiedModeOrchestrator.ExtendedMode.values().forEach { mode ->
