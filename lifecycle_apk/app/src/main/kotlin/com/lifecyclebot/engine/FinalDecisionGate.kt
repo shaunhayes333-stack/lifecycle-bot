@@ -105,13 +105,20 @@ object FinalDecisionGate {
      * This enables clean reporting:
      *   - Benchmark stats: "How good is strategy under strict rules?"
      *   - Exploration stats: "What did we learn from weaker setups?"
+     *   - Probe stats: "Controlled exploration despite soft warnings"
      */
     enum class ApprovalClass {
         LIVE,              // Live mode approval - strictest rules, real money
         PAPER_BENCHMARK,   // Paper mode, would PASS live rules - benchmark quality
         PAPER_EXPLORATION, // Paper mode, relaxed rules - learning from weaker setups
+        PAPER_PROBE,       // Paper mode, soft warnings overridden for bootstrap learning
         BLOCKED,           // Not approved
     }
+    
+    /**
+     * Check if this is a probe trade (controlled exploration despite warnings)
+     */
+    fun FinalDecision.isProbe(): Boolean = approvalClass == ApprovalClass.PAPER_PROBE
     
     data class GateCheck(
         val name: String,
@@ -1291,9 +1298,15 @@ object FinalDecisionGate {
         // If BehaviorLearning has learned that this pattern has 80%+ loss rate
         // with high confidence, BLOCK it. This is learned behavior, not hardcoded.
         // 
-        // BOTH LIVE AND PAPER MODE: Block patterns with 100% loss rate
-        // Learning from guaranteed losers is counterproductive - it poisons the AI.
+        // BOOTSTRAP MODE: Apply penalty instead of hard block for low-sample patterns
+        // MATURE MODE: Hard block reliable 100% loss patterns
         // ═══════════════════════════════════════════════════════════════════════
+        
+        // Early bootstrap check for behavior gating
+        val behaviorBootstrap = currentConditions.totalSessionTrades < 50
+        var behaviorPenalty = 0
+        var behaviorSizeMultiplier = 1.0
+        var behaviorProbe = false
         
         if (blockReason == null) {
             try {
@@ -1323,17 +1336,33 @@ object FinalDecisionGate {
                 )
                 
                 if (behaviorBlock != null) {
-                    // FIX: Block even in paper mode if loss rate is 100%
-                    // Learning from guaranteed losers poisons the AI brain
+                    // Check if this is a true 100% loss pattern with SUFFICIENT SAMPLES
+                    // A "100% loss" from 1-2 trades is NOT strong evidence
                     val is100PctLoss = behaviorBlock.contains("100%")
                     
-                    if (is100PctLoss) {
-                        // ALWAYS block 100% loss patterns - even paper mode
+                    // Extract sample count from pattern like "Pattern has 100% loss rate (3 trades)"
+                    val sampleCountMatch = Regex("\\((\\d+) trades?\\)").find(behaviorBlock)
+                    val sampleCount = sampleCountMatch?.groupValues?.get(1)?.toIntOrNull() ?: 0
+                    
+                    // Only hard-block 100% loss if we have ENOUGH evidence
+                    // Minimum 5 samples for 100% loss to be considered reliable
+                    val isReliable100PctLoss = is100PctLoss && sampleCount >= 5
+                    
+                    if (isReliable100PctLoss && !behaviorBootstrap) {
+                        // MATURE + reliable 100% loss: Hard block
                         blockReason = "BEHAVIOR_BLOCK_100PCT_LOSS"
                         blockLevel = BlockLevel.HARD
                         checks.add(GateCheck("behavior_learning", false, 
-                            "$behaviorBlock (blocked even in paper - 100% loss)"))
+                            "$behaviorBlock (reliable: $sampleCount samples)"))
                         tags.add("behavior_100pct_loss_blocked")
+                    } else if (is100PctLoss && behaviorBootstrap) {
+                        // BOOTSTRAP + 100% loss (even low sample): Penalty, not block
+                        behaviorPenalty = if (sampleCount >= 3) 15 else 8
+                        behaviorSizeMultiplier = 0.3  // Heavy size cut for these
+                        behaviorProbe = true
+                        checks.add(GateCheck("behavior_learning", true, 
+                            "BEHAVIOR 100% LOSS → PENALTY (bootstrap: -${behaviorPenalty}pts, n=$sampleCount)"))
+                        tags.add("behavior_penalized")
                     } else if (config.paperMode) {
                         // Paper mode with <100% loss: Log but don't block
                         checks.add(GateCheck("behavior_learning", true, 
@@ -1371,36 +1400,66 @@ object FinalDecisionGate {
         }
         
         // ═══════════════════════════════════════════════════════════════════════
-        // GATE 1g.6: DANGER ZONE BLOCK (TIME-BASED) - ADAPTIVE
+        // BOOTSTRAP MODE CHECK
         // 
-        // If TimeAI says DANGER ZONE, this historically performs poorly.
-        // Block even in paper mode - don't learn from trades during bad hours.
+        // In BOOTSTRAP (< 50 trades), soft gates should PENALIZE not BLOCK.
+        // The bot needs to EXPLORE to learn. Hard blocks on weak evidence
+        // create bootstrap paralysis where the bot never gets enough data.
         // 
-        // ADAPTIVE: Can be bypassed after many consecutive blocks to prevent freeze.
+        // Only these should hard-block in bootstrap:
+        //   - Rugcheck failure
+        //   - Critical liquidity floor
+        //   - Honeypot / sell restriction
+        //   - Extreme holder concentration
+        //   - Contract/mint risk
         // ═══════════════════════════════════════════════════════════════════════
         
+        val isBootstrapPhase = currentConditions.totalSessionTrades < 50
+        var softPenaltyScore = 0  // Accumulated soft penalties instead of blocks
+        var sizeMultiplier = 1.0  // Size reduction for risky but allowed trades
+        var isProbeCandidate = false  // Flag for PROBE approval class
+        
+        // ═══════════════════════════════════════════════════════════════════════
+        // GATE 1g.6: DANGER ZONE (TIME-BASED) - SOFT IN BOOTSTRAP
+        // 
+        // If TimeAI says DANGER ZONE, this historically performs poorly.
+        // 
+        // BOOTSTRAP MODE: Apply penalty + size cut, don't hard block
+        // MATURE MODE: Can hard block if not bypassed
+        // ═══════════════════════════════════════════════════════════════════════
+        
+        var dangerZonePenalty = 0
         if (blockReason == null) {
             try {
                 val isDanger = TimeOptimizationAI.isDangerZone()
                 if (isDanger) {
-                    // Check adaptive bypass
-                    val shouldBypass = shouldBypassSoftBlock("DANGER_ZONE_TIME")
-                    if (shouldBypass) {
-                        // Log bypass but don't block
+                    if (isBootstrapPhase) {
+                        // BOOTSTRAP: Penalty + size cut, NOT hard block
+                        dangerZonePenalty = 12  // Reduce confidence by 12%
+                        sizeMultiplier *= 0.4   // Cut size by 60%
+                        softPenaltyScore += dangerZonePenalty
+                        isProbeCandidate = true
                         checks.add(GateCheck("time_danger", true, 
-                            "DANGER ZONE BYPASSED (adaptive: ${getAdaptiveFilterStatus()})"))
-                        tags.add("time_danger_bypassed_adaptive")
+                            "DANGER_ZONE → PENALTY (bootstrap: -${dangerZonePenalty}pts, size×0.4)"))
+                        tags.add("time_danger_penalized")
+                        tags.add("bootstrap_probe")
                     } else {
-                        blockReason = "DANGER_ZONE_TIME"
-                        blockLevel = BlockLevel.MODE
-                        checks.add(GateCheck("time_danger", false, 
-                            "TimeAI DANGER ZONE"))
-                        tags.add("time_danger_blocked")
+                        // MATURE MODE: Check adaptive bypass, else block
+                        val shouldBypass = shouldBypassSoftBlock("DANGER_ZONE_TIME")
+                        if (shouldBypass) {
+                            checks.add(GateCheck("time_danger", true, 
+                                "DANGER ZONE BYPASSED (adaptive: ${getAdaptiveFilterStatus()})"))
+                            tags.add("time_danger_bypassed_adaptive")
+                        } else {
+                            blockReason = "DANGER_ZONE_TIME"
+                            blockLevel = BlockLevel.MODE
+                            checks.add(GateCheck("time_danger", false, "TimeAI DANGER ZONE"))
+                            tags.add("time_danger_blocked")
+                        }
                     }
                 } else {
                     val timeAdj = TimeOptimizationAI.getEntryScoreAdjustment()
-                    checks.add(GateCheck("time_danger", true, 
-                        "Time adj: ${timeAdj.toInt()}"))
+                    checks.add(GateCheck("time_danger", true, "Time adj: ${timeAdj.toInt()}"))
                 }
             } catch (e: Exception) {
                 checks.add(GateCheck("time_danger", true, "error: ${e.message}"))
@@ -1408,14 +1467,13 @@ object FinalDecisionGate {
         }
         
         // ═══════════════════════════════════════════════════════════════════════
-        // GATE 1g.7: SEVERELY NEGATIVE MEMORY BLOCK - ADAPTIVE
+        // GATE 1g.7: NEGATIVE MEMORY - SOFT IN BOOTSTRAP
         // 
         // If TokenWinMemory has severely negative score for this token pattern,
-        // block it. This prevents learning from consistently losing setups.
-        // 
-        // ADAPTIVE: Can be bypassed after many consecutive blocks to prevent freeze.
+        // apply penalty. Only hard-block if NOT in bootstrap.
         // ═══════════════════════════════════════════════════════════════════════
         
+        var memoryPenalty = 0
         if (blockReason == null) {
             try {
                 val latestBuyPct = ts.history.lastOrNull()?.buyRatio?.times(100) ?: 50.0
@@ -1430,28 +1488,37 @@ object FinalDecisionGate {
                     source = ts.source,
                 )
                 
-                // Multiplier of 0.82 or less indicates strongly negative memory
-                // From logs: "memory score=-12.1 multiplier=0.80" shows consistent losses
-                // FIX: Tightened from 0.75 to 0.82 to catch more bad patterns
                 if (memoryMult <= 0.82) {
-                    // Check adaptive bypass
-                    val shouldBypass = shouldBypassSoftBlock("MEMORY_NEGATIVE_BLOCK")
-                    if (shouldBypass) {
-                        // Log bypass but don't block
+                    if (isBootstrapPhase) {
+                        // BOOTSTRAP: Penalty + size cut, NOT hard block
+                        memoryPenalty = 10
+                        sizeMultiplier *= 0.5
+                        softPenaltyScore += memoryPenalty
+                        isProbeCandidate = true
                         checks.add(GateCheck("memory_negative", true, 
-                            "MEMORY BLOCK BYPASSED (adaptive: ${getAdaptiveFilterStatus()})"))
-                        tags.add("memory_bypassed_adaptive")
+                            "MEMORY_NEG → PENALTY (bootstrap: -${memoryPenalty}pts, size×0.5, mult=$memoryMult)"))
+                        tags.add("memory_penalized")
                     } else {
-                        blockReason = "MEMORY_NEGATIVE_BLOCK"
-                        blockLevel = BlockLevel.MODE
-                        checks.add(GateCheck("memory_negative", false, 
-                            "Memory strongly negative (mult=${memoryMult})"))
-                        tags.add("memory_blocked")
+                        // MATURE MODE: Check adaptive bypass, else block
+                        val shouldBypass = shouldBypassSoftBlock("MEMORY_NEGATIVE_BLOCK")
+                        if (shouldBypass) {
+                            checks.add(GateCheck("memory_negative", true, 
+                                "MEMORY BLOCK BYPASSED (adaptive: ${getAdaptiveFilterStatus()})"))
+                            tags.add("memory_bypassed_adaptive")
+                        } else {
+                            blockReason = "MEMORY_NEGATIVE_BLOCK"
+                            blockLevel = BlockLevel.MODE
+                            checks.add(GateCheck("memory_negative", false, 
+                                "Memory strongly negative (mult=${memoryMult})"))
+                            tags.add("memory_blocked")
+                        }
                     }
                 } else if (memoryMult < 0.90) {
-                    // Warning but don't block
+                    // Warning but don't block or heavily penalize
+                    memoryPenalty = 5
+                    softPenaltyScore += memoryPenalty
                     checks.add(GateCheck("memory_negative", true, 
-                        "Memory warning (mult=${memoryMult})"))
+                        "Memory warning (mult=${memoryMult}, -${memoryPenalty}pts)"))
                     tags.add("memory_warning")
                 } else {
                     checks.add(GateCheck("memory_negative", true, null))
@@ -2328,6 +2395,33 @@ object FinalDecisionGate {
         if (ts.source.isNotBlank()) tags.add("src:${ts.source}")
         if (ts.phase.isNotBlank()) tags.add("phase:${ts.phase}")
         
+        // ─────────────────────────────────────────────────────────────────────
+        // APPLY BOOTSTRAP SOFT PENALTIES
+        // In bootstrap mode, soft gates add penalties instead of blocking.
+        // Apply accumulated penalties to size and track probe status.
+        // ─────────────────────────────────────────────────────────────────────
+        
+        // Combine all penalty sources
+        val totalSoftPenalty = softPenaltyScore + behaviorPenalty
+        val combinedSizeMultiplier = sizeMultiplier * behaviorSizeMultiplier
+        val isAnyProbe = isProbeCandidate || behaviorProbe
+        
+        // Apply size reduction from soft penalties
+        if (combinedSizeMultiplier < 1.0 && blockReason == null) {
+            val originalSize = finalSize
+            finalSize = (finalSize * combinedSizeMultiplier).coerceAtLeast(0.02)
+            checks.add(GateCheck("bootstrap_size_cut", true, 
+                "Size cut for probe: ${originalSize.format(4)} × ${combinedSizeMultiplier.format(2)} = ${finalSize.format(4)}"))
+            tags.add("bootstrap_size_reduced")
+        }
+        
+        // Log total penalty if any
+        if (totalSoftPenalty > 0 && blockReason == null) {
+            checks.add(GateCheck("bootstrap_penalty", true, 
+                "Total soft penalty: -${totalSoftPenalty}pts (applied to confidence eval)"))
+            tags.add("bootstrap_penalized")
+        }
+        
         val shouldTrade = blockReason == null && candidate.shouldTrade
         
         // ─────────────────────────────────────────────────────────────────────
@@ -2363,23 +2457,36 @@ object FinalDecisionGate {
             // Live mode - all approvals are strict
             !config.paperMode -> ApprovalClass.LIVE to "live mode approval (adaptive conf: ${liveAdaptiveConf.toInt()}%)"
             
-            // Paper mode - determine if benchmark or exploration
+            // Paper mode - determine if benchmark, probe, or exploration
             else -> {
                 // Would this trade pass LIVE mode rules?
                 val wouldPassLiveEdge = edgeVerdict != EdgeVerdict.SKIP
                 val wouldPassLiveQuality = candidate.setupQuality in listOf("A+", "A", "B")
                 val wouldPassLiveConfidence = candidate.aiConfidence >= liveAdaptiveConf
                 
-                if (wouldPassLiveEdge && wouldPassLiveQuality && wouldPassLiveConfidence) {
-                    // This is benchmark quality - would pass in live mode
-                    ApprovalClass.PAPER_BENCHMARK to "benchmark: passes live rules (edge=$wouldPassLiveEdge quality=${candidate.setupQuality} conf=${candidate.aiConfidence.toInt()}%>=${liveAdaptiveConf.toInt()}%)"
-                } else {
-                    // This is exploration - relaxed for learning
-                    val relaxedReasons = mutableListOf<String>()
-                    if (!wouldPassLiveEdge) relaxedReasons.add("edge=${edgeVerdict.name}")
-                    if (!wouldPassLiveQuality) relaxedReasons.add("quality=${candidate.setupQuality}")
-                    if (!wouldPassLiveConfidence) relaxedReasons.add("conf=${candidate.aiConfidence.toInt()}%<${liveAdaptiveConf.toInt()}%")
-                    ApprovalClass.PAPER_EXPLORATION to "exploration: relaxed ${relaxedReasons.joinToString(", ")}"
+                when {
+                    // PROBE: Soft warnings were overridden for bootstrap learning
+                    isAnyProbe -> {
+                        val probeReasons = mutableListOf<String>()
+                        if (dangerZonePenalty > 0) probeReasons.add("time_danger")
+                        if (memoryPenalty > 0) probeReasons.add("memory_neg")
+                        if (behaviorPenalty > 0) probeReasons.add("behavior_100pct")
+                        ApprovalClass.PAPER_PROBE to "probe: soft blocks→penalties (${probeReasons.joinToString(",")}), size×${combinedSizeMultiplier.format(2)}"
+                    }
+                    
+                    // BENCHMARK: Would pass live rules
+                    wouldPassLiveEdge && wouldPassLiveQuality && wouldPassLiveConfidence -> {
+                        ApprovalClass.PAPER_BENCHMARK to "benchmark: passes live rules (edge=$wouldPassLiveEdge quality=${candidate.setupQuality} conf=${candidate.aiConfidence.toInt()}%>=${liveAdaptiveConf.toInt()}%)"
+                    }
+                    
+                    // EXPLORATION: Relaxed for learning
+                    else -> {
+                        val relaxedReasons = mutableListOf<String>()
+                        if (!wouldPassLiveEdge) relaxedReasons.add("edge=${edgeVerdict.name}")
+                        if (!wouldPassLiveQuality) relaxedReasons.add("quality=${candidate.setupQuality}")
+                        if (!wouldPassLiveConfidence) relaxedReasons.add("conf=${candidate.aiConfidence.toInt()}%<${liveAdaptiveConf.toInt()}%")
+                        ApprovalClass.PAPER_EXPLORATION to "exploration: relaxed ${relaxedReasons.joinToString(", ")}"
+                    }
                 }
             }
         }
