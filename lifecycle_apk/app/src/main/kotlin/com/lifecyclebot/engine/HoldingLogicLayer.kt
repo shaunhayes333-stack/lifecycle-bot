@@ -4,7 +4,6 @@ import android.content.Context
 import android.content.SharedPreferences
 import com.lifecyclebot.data.Position
 import com.lifecyclebot.data.TokenState
-import com.lifecyclebot.util.ErrorLogger
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlin.math.abs
