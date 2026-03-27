@@ -338,6 +338,94 @@ object FinalDecisionGate {
     var liveConfidenceBase = 0.0           // ZEROED - let trades flow while brain learns (auto-adjusts)
     
     // ═══════════════════════════════════════════════════════════════════════════
+    // ADAPTIVE FILTERING (Anti-Freeze Protection)
+    // 
+    // If too many trades get blocked consecutively, we risk:
+    //   1. Missing good opportunities (over-filtering)
+    //   2. Not learning from any trades (stalled brain)
+    //   3. Complete trading freeze (useless bot)
+    //
+    // Solution: After N consecutive blocks, temporarily loosen soft restrictions:
+    //   - DANGER_ZONE_TIME: Bypass after 8 consecutive blocks
+    //   - MEMORY_NEGATIVE: Bypass after 10 consecutive blocks
+    //   - 100% Loss patterns: NEVER bypass (truly toxic)
+    //   - HARD blocks (rugcheck, etc): NEVER bypass
+    //
+    // The relaxation is TEMPORARY - resets after a trade executes.
+    // ═══════════════════════════════════════════════════════════════════════════
+    
+    private var consecutiveBlockCount = 0
+    private var lastBlockReason: String? = null
+    private var adaptiveRelaxationActive = false
+    
+    // Thresholds for adaptive relaxation
+    private const val DANGER_ZONE_BYPASS_THRESHOLD = 8    // Blocks before bypassing time filter
+    private const val MEMORY_BYPASS_THRESHOLD = 10        // Blocks before bypassing memory filter
+    private const val MAX_RELAXATION_TRADES = 3           // Max trades with relaxed filters before reset
+    private var relaxationTradesUsed = 0
+    
+    /**
+     * Record a blocked trade for adaptive filtering.
+     * Call this when FDG blocks a trade.
+     */
+    fun recordBlock(reason: String) {
+        consecutiveBlockCount++
+        lastBlockReason = reason
+        
+        // Check if we should activate adaptive relaxation
+        if (consecutiveBlockCount >= DANGER_ZONE_BYPASS_THRESHOLD && !adaptiveRelaxationActive) {
+            adaptiveRelaxationActive = true
+            relaxationTradesUsed = 0
+            ErrorLogger.warn("FDG", "🔓 ADAPTIVE RELAXATION ACTIVATED after $consecutiveBlockCount consecutive blocks")
+        }
+    }
+    
+    /**
+     * Record a successful trade (not blocked).
+     * Resets the consecutive block counter.
+     */
+    fun recordTradeExecuted() {
+        if (adaptiveRelaxationActive) {
+            relaxationTradesUsed++
+            if (relaxationTradesUsed >= MAX_RELAXATION_TRADES) {
+                // Deactivate relaxation after max trades
+                adaptiveRelaxationActive = false
+                relaxationTradesUsed = 0
+                ErrorLogger.info("FDG", "🔒 Adaptive relaxation deactivated (used $MAX_RELAXATION_TRADES relaxed trades)")
+            }
+        }
+        consecutiveBlockCount = 0
+        lastBlockReason = null
+    }
+    
+    /**
+     * Check if a specific soft block should be bypassed due to adaptive filtering.
+     */
+    fun shouldBypassSoftBlock(blockType: String): Boolean {
+        if (!adaptiveRelaxationActive) return false
+        
+        return when (blockType) {
+            "DANGER_ZONE_TIME" -> consecutiveBlockCount >= DANGER_ZONE_BYPASS_THRESHOLD
+            "MEMORY_NEGATIVE_BLOCK" -> consecutiveBlockCount >= MEMORY_BYPASS_THRESHOLD
+            // NEVER bypass these:
+            // - 100% loss patterns (BEHAVIOR_BLOCK_100PCT_LOSS)
+            // - Hard blocks (rugcheck, zero liq, sell pressure, etc)
+            else -> false
+        }
+    }
+    
+    /**
+     * Get adaptive filtering status for logging.
+     */
+    fun getAdaptiveFilterStatus(): String {
+        return if (adaptiveRelaxationActive) {
+            "🔓 RELAXED (blocks=$consecutiveBlockCount, used=$relaxationTradesUsed/$MAX_RELAXATION_TRADES)"
+        } else {
+            "🔒 STRICT (blocks=$consecutiveBlockCount)"
+        }
+    }
+    
+    // ═══════════════════════════════════════════════════════════════════════════
     // AUTO-ADJUSTED THRESHOLDS
     // 
     // These are calculated dynamically based on learning progress.
@@ -1272,21 +1360,32 @@ object FinalDecisionGate {
         }
         
         // ═══════════════════════════════════════════════════════════════════════
-        // GATE 1g.6: DANGER ZONE HARD BLOCK (TIME-BASED)
+        // GATE 1g.6: DANGER ZONE BLOCK (TIME-BASED) - ADAPTIVE
         // 
         // If TimeAI says DANGER ZONE, this historically performs poorly.
         // Block even in paper mode - don't learn from trades during bad hours.
+        // 
+        // ADAPTIVE: Can be bypassed after many consecutive blocks to prevent freeze.
         // ═══════════════════════════════════════════════════════════════════════
         
         if (blockReason == null) {
             try {
                 val isDanger = TimeOptimizationAI.isDangerZone()
                 if (isDanger) {
-                    blockReason = "DANGER_ZONE_TIME"
-                    blockLevel = BlockLevel.MODE
-                    checks.add(GateCheck("time_danger", false, 
-                        "TimeAI DANGER ZONE"))
-                    tags.add("time_danger_blocked")
+                    // Check adaptive bypass
+                    val shouldBypass = shouldBypassSoftBlock("DANGER_ZONE_TIME")
+                    if (shouldBypass) {
+                        // Log bypass but don't block
+                        checks.add(GateCheck("time_danger", true, 
+                            "DANGER ZONE BYPASSED (adaptive: ${getAdaptiveFilterStatus()})"))
+                        tags.add("time_danger_bypassed_adaptive")
+                    } else {
+                        blockReason = "DANGER_ZONE_TIME"
+                        blockLevel = BlockLevel.MODE
+                        checks.add(GateCheck("time_danger", false, 
+                            "TimeAI DANGER ZONE"))
+                        tags.add("time_danger_blocked")
+                    }
                 } else {
                     val timeAdj = TimeOptimizationAI.getEntryScoreAdjustment()
                     checks.add(GateCheck("time_danger", true, 
@@ -1298,10 +1397,12 @@ object FinalDecisionGate {
         }
         
         // ═══════════════════════════════════════════════════════════════════════
-        // GATE 1g.7: SEVERELY NEGATIVE MEMORY HARD BLOCK
+        // GATE 1g.7: SEVERELY NEGATIVE MEMORY BLOCK - ADAPTIVE
         // 
         // If TokenWinMemory has severely negative score for this token pattern,
         // block it. This prevents learning from consistently losing setups.
+        // 
+        // ADAPTIVE: Can be bypassed after many consecutive blocks to prevent freeze.
         // ═══════════════════════════════════════════════════════════════════════
         
         if (blockReason == null) {
@@ -1321,11 +1422,20 @@ object FinalDecisionGate {
                 // Multiplier of 0.80 or less indicates strongly negative memory (-10+ score)
                 // From logs: "memory score=-14.0 multiplier=0.80"
                 if (memoryMult <= 0.75) {
-                    blockReason = "MEMORY_NEGATIVE_BLOCK"
-                    blockLevel = BlockLevel.MODE
-                    checks.add(GateCheck("memory_negative", false, 
-                        "Memory strongly negative (mult=${memoryMult})"))
-                    tags.add("memory_blocked")
+                    // Check adaptive bypass
+                    val shouldBypass = shouldBypassSoftBlock("MEMORY_NEGATIVE_BLOCK")
+                    if (shouldBypass) {
+                        // Log bypass but don't block
+                        checks.add(GateCheck("memory_negative", true, 
+                            "MEMORY BLOCK BYPASSED (adaptive: ${getAdaptiveFilterStatus()})"))
+                        tags.add("memory_bypassed_adaptive")
+                    } else {
+                        blockReason = "MEMORY_NEGATIVE_BLOCK"
+                        blockLevel = BlockLevel.MODE
+                        checks.add(GateCheck("memory_negative", false, 
+                            "Memory strongly negative (mult=${memoryMult})"))
+                        tags.add("memory_blocked")
+                    }
                 } else if (memoryMult < 0.85) {
                     // Warning but don't block
                     checks.add(GateCheck("memory_negative", true, 
@@ -2184,6 +2294,22 @@ object FinalDecisionGate {
         if (ts.phase.isNotBlank()) tags.add("phase:${ts.phase}")
         
         val shouldTrade = blockReason == null && candidate.shouldTrade
+        
+        // ─────────────────────────────────────────────────────────────────────
+        // ADAPTIVE FILTERING TRACKING
+        // Record blocks and executions for anti-freeze protection
+        // ─────────────────────────────────────────────────────────────────────
+        
+        if (!shouldTrade && blockReason != null) {
+            recordBlock(blockReason)
+        } else if (shouldTrade) {
+            recordTradeExecuted()
+        }
+        
+        // Add adaptive status to tags if relaxation is active
+        if (adaptiveRelaxationActive) {
+            tags.add("adaptive_relaxed")
+        }
         
         // ─────────────────────────────────────────────────────────────────────
         // DETERMINE APPROVAL CLASS
