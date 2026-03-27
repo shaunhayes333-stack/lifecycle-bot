@@ -55,9 +55,11 @@ data class Position(
     val entryLiquidityUsd: Double = 0.0,  // liquidity at entry for collapse detection
     // ═══════════════════════════════════════════════════════════════════
     // TRADING MODE TRACKING - Which mode was this position opened in?
+    // Now MUTABLE for dynamic mode switching by HoldingLogicLayer
     // ═══════════════════════════════════════════════════════════════════
-    val tradingMode: String = "STANDARD",  // ExtendedMode name (e.g., "MOONSHOT", "PUMP_SNIPER")
-    val tradingModeEmoji: String = "📈",   // Emoji for display
+    var tradingMode: String = "STANDARD",  // ExtendedMode name (e.g., "MOONSHOT", "PUMP_SNIPER")
+    var tradingModeEmoji: String = "📈",   // Emoji for display
+    var modeHistory: String = "",           // Track mode switches: "PUMP_SNIPER>MOMENTUM_SWING"
     // Top-up tracking
     val topUpCount: Int = 0,
     val topUpCostSol: Double = 0.0,

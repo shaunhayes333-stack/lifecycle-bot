@@ -797,6 +797,10 @@ class BotService : Service() {
         TokenWinMemory.init(applicationContext)
         addLog("🏆 TokenWinMemory: ${TokenWinMemory.getStats()}")
         
+        // Initialize HoldingLogicLayer for dynamic position management
+        HoldingLogicLayer.init(applicationContext)
+        addLog("📊 HoldingLogicLayer: ${HoldingLogicLayer.getAllModeParams().size} mode configurations")
+        
         // Warm up DNS cache for Jupiter APIs (bypasses ISP DNS issues)
         com.lifecyclebot.network.CloudflareDns.INSTANCE.warmupJupiterDns()
         addLog("🌐 DNS-over-HTTPS enabled for Jupiter APIs")

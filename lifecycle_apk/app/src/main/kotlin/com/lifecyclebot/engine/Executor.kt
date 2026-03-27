@@ -1879,6 +1879,50 @@ class Executor(
         
         // Handle open positions (exits, stop-losses, etc.)
         if (ts.position.isOpen) {
+            // ═══════════════════════════════════════════════════════════════
+            // HOLDING LOGIC LAYER - Dynamic position management
+            // Evaluates position and can recommend mode switches
+            // ═══════════════════════════════════════════════════════════════
+            try {
+                val currentPnlPct = ((ts.ref - ts.position.entryPrice) / ts.position.entryPrice) * 100
+                val holdEval = kotlinx.coroutines.runBlocking {
+                    HoldingLogicLayer.evaluatePosition(
+                        position = ts.position,
+                        ts = ts,
+                        currentPnlPct = currentPnlPct,
+                        isPaperMode = cfg().paperMode,
+                    )
+                }
+                
+                // Handle mode switch recommendation
+                if (holdEval.action == HoldingLogicLayer.HoldAction.SWITCH_MODE && 
+                    holdEval.modeSwitchRecommendation?.shouldSwitch == true) {
+                    val rec = holdEval.modeSwitchRecommendation
+                    val oldMode = ts.position.tradingMode
+                    val oldEmoji = ts.position.tradingModeEmoji
+                    
+                    // Apply mode switch
+                    ts.position.tradingMode = rec.newMode
+                    ts.position.tradingModeEmoji = rec.newModeEmoji
+                    ts.position.modeHistory = if (ts.position.modeHistory.isEmpty()) {
+                        "$oldMode>${rec.newMode}"
+                    } else {
+                        "${ts.position.modeHistory}>${rec.newMode}"
+                    }
+                    
+                    onLog("🔄 MODE SWITCH: ${identity.symbol} | $oldEmoji $oldMode → ${rec.newModeEmoji} ${rec.newMode} | ${rec.reason}", identity.mint)
+                    ErrorLogger.info("HoldingLogic", "Mode switch: ${identity.symbol} $oldMode→${rec.newMode} (conf=${rec.confidence.toInt()}%)")
+                }
+                
+                // Log significant holding evaluations
+                if (holdEval.urgency == HoldingLogicLayer.Urgency.HIGH || 
+                    holdEval.urgency == HoldingLogicLayer.Urgency.CRITICAL) {
+                    ErrorLogger.debug("HoldingLogic", "${identity.symbol}: ${holdEval.action} - ${holdEval.reason}")
+                }
+            } catch (e: Exception) {
+                ErrorLogger.debug("HoldingLogic", "Evaluation error for ${identity.symbol}: ${e.message}")
+            }
+            
             // V8 quick exit check
             val quickExit = PrecisionExitLogic.quickCheck(
                 mint = identity.mint,
