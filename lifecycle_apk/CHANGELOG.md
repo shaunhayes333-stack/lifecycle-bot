@@ -1,61 +1,127 @@
-# Changelog
+# AATE Changelog
 
-All notable changes to LifecycleBot will be documented in this file.
+All notable changes to the Autonomous Algorithmic Trading Engine.
 
-## [1.0.0-beta] - 2025-03-25
+## [v1.2.0] - 2025-03-27
 
-### 🚀 Initial Beta Release
+### Added
+- **Turso Collective Learning Integration**
+  - Shared knowledge base across all AATE instances
+  - Privacy-preserving pattern outcome sharing
+  - Token blacklist synchronization (rugs, honeypots)
+  - Mode performance stats by market condition
+  - Whale wallet effectiveness ratings
+  - New `TursoClient.kt` for HTTP REST API communication
+  - New `CollectiveLearning.kt` orchestrator
+  - New `CollectiveSchema.kt` with SQLite tables
 
-#### AI Engine
-- 10-Layer AI Decision Engine with orthogonal signals
-- Momentum Predictor AI - volume acceleration detection
-- Whale Tracker AI - smart money following
-- Market Regime AI - bull/bear/chop detection
-- Narrative Detector AI - hot narrative identification
-- Time Optimization AI - golden hours learning
-- Liquidity Depth AI - LP monitoring & rug detection
-- Volume Profile Analyzer - POC, VAH, VAL, HVN/LVN analysis
-- Gemini Copilot - scam detection & trade reasoning
-- Unified Narrative AI - Groq + Gemini synthesis
-- Orthogonal Signal Merger - diversity enforcement
-- AI Cross-Talk - consensus amplification
+### Changed
+- `BotConfig.kt`: Added `tursoDbUrl`, `tursoAuthToken`, `collectiveLearningEnabled`
+- `BotService.kt`: Added CollectiveLearning lifecycle management (init/shutdown)
+- `TursoClient.kt`: Auto-converts `libsql://` URLs to `https://` for HTTP API
 
-#### Trading Features
-- Final Decision Gate (FDG) with adaptive thresholds
-- Moonshot Override - auto-convert paper to live
-- Shadow Paper Trading - background learning
-- Dynamic Profit Lock - 2x recovery, 5x lock
-- Fluid Learning - realistic paper balance tracking
-- MEV Protection via Jito bundles
-
-#### UI/UX
-- 🧠 Animated Brain Learning Indicator
-- 📊 Quick Stats Bar (24h trades, win rate, positions, AI confidence)
-- 💰 Floating Position PnL Card
-- 🔄 Pull-to-Refresh with haptic feedback
-- 🎨 Animated progress bars
-- 🌓 Dark/Light mode toggle
-- ⚠️ First-time legal disclaimer popup
-
-#### Integrations
-- Jupiter Ultra API for best-price execution
-- Helius / Quicknode RPC support
-- Groq LLM for narrative AI
-- Google Gemini 2.0 Flash for copilot
-- Jito for MEV protection
-
-#### Documentation
-- SHARE_DESCRIPTION.md - Marketing copy
-- FULL_DESCRIPTION.md - Technical details
-- PRIVACY_POLICY.md - Data handling
-- SECURITY.md - Vulnerability reporting
+### Technical Details
+- Uses Turso/LibSQL HTTP pipeline API (`/v2/pipeline`)
+- Background sync every 15 minutes
+- Local caching of collective data
+- Privacy: No wallet addresses, trade sizes, or personal data shared
 
 ---
 
-## [Unreleased]
+## [v1.1.0] - 2025-03-27
 
-### Planned
-- Backtesting UI in web dashboard
-- Social sentiment analysis (Twitter)
-- Supabase collective learning
-- Token logo fetching
+### Fixed
+- **5 Critical Architecture Flaws**
+  - Race condition bypassing Final Decision Gate in `Executor.kt`
+  - WHALE_FOLLOW mode entering prematurely without confirmation
+  - COPY_TRADE exit mapping logic
+  - Entry score calculation with proper conviction weighting
+  - Mode router priority ordering
+
+- **4 Critical On-Chain Sell Execution Bugs**
+  - Null wallet reconnects via `WalletManager`
+  - Softened keypair integrity checks for sells (was blocking exits)
+  - Jupiter Ultra v6 fallback when Ultra API fails
+  - Fresh blockhash before signing transactions
+
+### Added
+- `PendingSellQueue.kt` for exit retry management
+- VC pitch materials (Pitch Deck, One-Pager, Technical Deep Dive)
+- Social media valuation posts
+- "Built in under a week" narrative documentation
+
+### Changed
+- Release APK packaging for Play Protect compatibility
+- GitHub Actions CI workflow improvements
+
+---
+
+## [v1.0.0] - 2025-03-25
+
+### Initial Release
+
+#### Core Features
+- **12-Layer AI Consensus System**
+  - EdgeLearning: Dynamic threshold adjustment
+  - BehaviorLearning: Pattern outcome memory
+  - EntryIntelligence: Entry pattern recognition
+  - ExitIntelligence: Optimal exit timing
+  - WhaleTrackerAI: Smart money flow analysis
+  - MarketRegimeAI: Bull/Bear/Crab detection
+  - MomentumPredictorAI: Pump probability scoring
+  - NarrativeDetectorAI: Trending theme detection
+  - TimeOptimizationAI: Optimal trading hours
+  - LiquidityDepthAI: Real-time LP monitoring
+  - AICrossTalk: Inter-layer signal arbitration
+  - FinalDecisionGate: Trade approval checkpoint
+
+- **18 Trading Modes**
+  - PUMP_SNIPER, MOMENTUM_RIDE, WHALE_FOLLOW
+  - SCALP_QUICK, RANGE_BOUND, RECOVERY_MODE
+  - COPY_TRADE, DIAMOND_HANDS, SNIPE_GRADUATE
+  - NARRATIVE_PLAY, BLUE_CHIP, SCALP_MICRO
+  - DIP_HUNTER, BREAKOUT, MEAN_REVERT
+  - NEWS_TRADE, GRID_TRADE, DEFENSIVE
+
+- **Self-Learning Systems**
+  - EdgeLearning: Adaptive thresholds
+  - BehaviorLearning: Pattern memory
+  - ModeLearning: Mode performance tracking
+  - ScannerLearning: Source effectiveness
+
+- **Security**
+  - AES-256 encryption via Android EncryptedSharedPreferences
+  - Hardware-backed Keystore
+  - Jito MEV bundle protection
+  - Circuit breakers and kill switches
+  - Anti-rug protection (RugCheck.xyz integration)
+
+- **UI**
+  - Real-time price chart
+  - Position PnL tracking
+  - Trade history
+  - Brain learning indicator
+  - Open positions panel
+  - Quick stats bar
+
+#### Technical Stats
+- 63,000+ lines of production Kotlin code
+- 80+ source files
+- Native Android (no web wrapper)
+- Built from scratch in 7 days
+
+---
+
+## Development Notes
+
+### Testing Protocol
+- All changes verified via GitHub Actions CI
+- No local Kotlin compiler available in development environment
+- Push to GitHub → Check CI → Fix errors → Repeat
+
+### Privacy Commitment
+- No telemetry or analytics
+- All learning data stored locally by default
+- Collective Learning is opt-in only
+- No wallet addresses shared (only hashed)
+- No trade sizes or personal data transmitted
