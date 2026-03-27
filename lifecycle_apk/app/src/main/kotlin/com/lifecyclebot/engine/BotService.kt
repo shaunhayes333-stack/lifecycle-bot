@@ -1847,6 +1847,13 @@ class BotService : Service() {
                     // ═══════════════════════════════════════════════════════════════════
                     TradeLifecycle.proposed(identity.mint)
                     
+                    // Get trading mode tag for FDG mode-specific thresholds
+                    val tradingModeTag = try {
+                        modeConf?.mode?.let { ModeSpecificGates.fromBotMode(it) }
+                    } catch (e: Exception) {
+                        null
+                    }
+                    
                     // Run through Final Decision Gate
                     val fdgDecision = FinalDecisionGate.evaluate(
                         ts = ts,
@@ -1854,6 +1861,7 @@ class BotService : Service() {
                         config = cfg,
                         proposedSizeSol = proposedSize,
                         brain = executor.brain,
+                        tradingModeTag = tradingModeTag,
                     )
                     
                     if (fdgDecision.canExecute()) {

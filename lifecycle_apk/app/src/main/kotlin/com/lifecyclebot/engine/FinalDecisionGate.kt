@@ -972,6 +972,7 @@ object FinalDecisionGate {
         config: BotConfig,
         proposedSizeSol: Double,
         brain: BotBrain? = null,
+        tradingModeTag: ModeSpecificGates.TradingModeTag? = null,
     ): FinalDecision {
         val checks = mutableListOf<GateCheck>()
         var blockReason: String? = null
@@ -979,6 +980,24 @@ object FinalDecisionGate {
         val tags = mutableListOf<String>()
         
         val mode = if (config.paperMode) TradeMode.PAPER else TradeMode.LIVE
+        
+        // ═══════════════════════════════════════════════════════════════════════
+        // MODE-SPECIFIC THRESHOLD MULTIPLIERS
+        // 
+        // Get multipliers based on current trading mode (e.g., MOONSHOT, DEFENSIVE)
+        // These adjust thresholds to match the mode's risk tolerance
+        // ═══════════════════════════════════════════════════════════════════════
+        val modeMultipliers = try {
+            ModeSpecificGates.getMultipliers(tradingModeTag)
+        } catch (e: Exception) {
+            ErrorLogger.warn("FDG", "ModeSpecificGates error: ${e.message}")
+            ModeSpecificGates.ModeMultipliers.DEFAULT
+        }
+        
+        // Log mode if not standard
+        if (tradingModeTag != null && tradingModeTag != ModeSpecificGates.TradingModeTag.STANDARD) {
+            tags.add("mode:${tradingModeTag.name}")
+        }
         
         // ═══════════════════════════════════════════════════════════════════════
         // AUTO-ADJUSTING THRESHOLDS
@@ -994,18 +1013,21 @@ object FinalDecisionGate {
         if (tradeCount == 0 || tradeCount == 11 || tradeCount == 51) {
             ErrorLogger.info("FDG", "📊 Learning phase: ${adjusted.learningPhase} | " +
                 "trades=$tradeCount | progress=${(adjusted.progress * 100).toInt()}% | " +
-                "conf=${adjusted.confidenceBase.toInt()}% | evGating=${adjusted.evGatingEnabled}")
+                "conf=${adjusted.confidenceBase.toInt()}% | evGating=${adjusted.evGatingEnabled}" +
+                (if (tradingModeTag != null) " | mode=${tradingModeTag.name}" else ""))
         }
         
         // Use auto-adjusted thresholds for live mode, very lenient for paper
+        // Apply mode multipliers to thresholds
         val rugcheckThreshold = if (config.paperMode) {
             5  // Paper: very lenient for learning
         } else {
-            // Use auto-adjusted OR brain-learned, whichever is available
-            (brain?.learnedRugcheckThreshold ?: adjusted.rugcheckMin).coerceIn(5, 25)
+            // Use auto-adjusted OR brain-learned, apply mode multiplier
+            val baseThreshold = (brain?.learnedRugcheckThreshold ?: adjusted.rugcheckMin).coerceIn(5, 25)
+            (baseThreshold * modeMultipliers.rugcheckMultiplier).toInt().coerceIn(3, 30)
         }
-        val buyPressureThreshold = if (config.paperMode) 10.0 else adjusted.buyPressureMin
-        val topHolderThreshold = if (config.paperMode) 90.0 else adjusted.topHolderMax
+        val buyPressureThreshold = if (config.paperMode) 10.0 else adjusted.buyPressureMin * modeMultipliers.entryScoreMultiplier
+        val topHolderThreshold = if (config.paperMode) 90.0 else adjusted.topHolderMax / modeMultipliers.rugcheckMultiplier
         
         // Store adjusted thresholds for use in later gates
         val currentAdjusted = adjusted
