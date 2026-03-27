@@ -222,7 +222,7 @@ class TelegramScraper(private val botToken: String = "") {
 
     private fun get(url: String): String? = try {
         val req  = Request.Builder().url(url)
-            .header("User-Agent", "Mozilla/5.0 (compatible; LifecycleBot/1.0)")
+            .header("User-Agent", "Mozilla/5.0 (compatible; AATE/1.0)")
             .build()
         val resp = http.newCall(req).execute()
         if (resp.isSuccessful) resp.body?.string() else null

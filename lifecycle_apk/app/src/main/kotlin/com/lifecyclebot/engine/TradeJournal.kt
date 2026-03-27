@@ -197,7 +197,7 @@ class TradeJournal(private val ctx: Context) {
         return Intent(Intent.ACTION_SEND).apply {
             type    = "text/csv"
             putExtra(Intent.EXTRA_STREAM, uri)
-            putExtra(Intent.EXTRA_SUBJECT, "Lifecycle Bot Trade Journal - Tax Report")
+            putExtra(Intent.EXTRA_SUBJECT, "AATE Trade Journal - Tax Report")
             putExtra(Intent.EXTRA_TEXT, "${entries.size} trades exported for tax reporting")
             addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
         }

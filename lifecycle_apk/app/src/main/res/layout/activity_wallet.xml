@@ -123,7 +123,7 @@
             android:src="@drawable/logo"
             android:scaleType="fitCenter"
             android:alpha="0.85"
-            android:contentDescription="Lifecycle Bot Logo"/>
+            android:contentDescription="AATE Logo"/>
 
         <!-- ── BALANCE ── -->
         <LinearLayout style="@style/Card" android:orientation="vertical">

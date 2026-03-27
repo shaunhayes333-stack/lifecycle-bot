@@ -302,7 +302,7 @@ class MainActivity : AppCompatActivity() {
         if (!pm.isIgnoringBatteryOptimizations(packageName)) {
             AlertDialog.Builder(this)
                 .setTitle("Battery Optimisation")
-                .setMessage("LifecycleBot needs to be excluded from battery optimisation " +
+                .setMessage("AATE needs to be excluded from battery optimisation " +
                     "so trading continues in the background. Tap OK to open settings.")
                 .setPositiveButton("OK") { dialog: android.content.DialogInterface, _: Int ->
                     startActivity(Intent(
@@ -361,8 +361,8 @@ By clicking "I Agree", you acknowledge that you have read, understood, and accep
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
         """.trimIndent()
         
-        val dialog = AlertDialog.Builder(this, R.style.Theme_LifecycleBot_Dialog)
-            .setTitle("🚨 Welcome to LifecycleBot")
+        val dialog = AlertDialog.Builder(this, R.style.Theme_AATE_Dialog)
+            .setTitle("🚨 Welcome to AATE")
             .setMessage(disclaimerText)
             .setCancelable(false)  // Cannot dismiss by clicking outside
             .setPositiveButton("I Agree") { dialogInterface, _ ->
@@ -1831,7 +1831,7 @@ This scanner backtests historical charts to:
 ${if (!isScanning) "Tap 'Start Scan' to begin." else "Scan running in background..."}
             """.trimIndent()
             
-            val builder = AlertDialog.Builder(this, R.style.Theme_LifecycleBot_Dialog)
+            val builder = AlertDialog.Builder(this, R.style.Theme_AATE_Dialog)
                 .setTitle("📊 Historical Scanner")
                 .setMessage(message)
                 .setNegativeButton("Close") { d, _ -> d.dismiss() }
@@ -1881,7 +1881,7 @@ ${if (!isScanning) "Tap 'Start Scan' to begin." else "Scan running in background
                 onComplete = { analyzed, learned ->
                     runOnUiThread {
                         try {
-                            AlertDialog.Builder(this@MainActivity, R.style.Theme_LifecycleBot_Dialog)
+                            AlertDialog.Builder(this@MainActivity, R.style.Theme_AATE_Dialog)
                                 .setTitle("✅ Scan Complete!")
                                 .setMessage("""
 Analyzed: $analyzed tokens
@@ -1948,7 +1948,7 @@ The brain fills as learning progresses.
 Keep trading to make it smarter!
             """.trimIndent()
             
-            AlertDialog.Builder(this, R.style.Theme_LifecycleBot_Dialog)
+            AlertDialog.Builder(this, R.style.Theme_AATE_Dialog)
                 .setTitle("🧠 Brain Learning Status")
                 .setMessage(message)
                 .setPositiveButton("Got it!") { d, _ -> d.dismiss() }

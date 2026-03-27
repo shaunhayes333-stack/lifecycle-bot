@@ -95,7 +95,7 @@ object ErrorLogger {
             database.insert("error_logs", null, values)
             
             // Also log to Android logcat for debugging
-            val tag = "LifecycleBot.$component"
+            val tag = "AATE.$component"
             when (level) {
                 Level.DEBUG -> android.util.Log.d(tag, message, throwable)
                 Level.INFO -> android.util.Log.i(tag, message, throwable)

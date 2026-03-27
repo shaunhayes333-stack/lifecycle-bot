@@ -41,7 +41,7 @@ AATE (Autonomous Adaptive Trading Engine) is a sophisticated, native Android tra
 
 ```
 com.lifecyclebot/
-├── LifecycleBotApp.kt          # Application entry point
+├── AATEApp.kt          # Application entry point
 ├── data/                        # Data models & configuration
 │   ├── Models.kt               # Core data structures
 │   ├── BotConfig.kt            # Configuration management

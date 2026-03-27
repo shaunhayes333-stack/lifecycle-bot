@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!--
-    Network Security Config for LifecycleBot
+    Network Security Config for AATE
 
     By default Android 9+ blocks cleartext HTTP traffic.
     Solana RPC nodes are almost always HTTPS, but some self-hosted nodes

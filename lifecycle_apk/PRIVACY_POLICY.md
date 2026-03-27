@@ -1,83 +1,76 @@
-# Privacy Policy for LifecycleBot
+# Privacy Policy for AATE
 
-**Last Updated: March 25, 2025**
+**Last Updated: March 27, 2025**
 
 ## Overview
 
-LifecycleBot ("the App") is a cryptocurrency trading application for Android devices. This Privacy Policy explains how we collect, use, and protect your information.
+AATE ("the App") is a cryptocurrency trading application for Android devices. This Privacy Policy explains how we collect, use, and protect your information.
 
 ## Information We Collect
 
-### Data Stored Locally on Your Device
+### Information You Provide
+- **Wallet Private Keys**: Stored locally on your device using AES-256 encryption via Android's EncryptedSharedPreferences. Never transmitted to any server.
+- **API Keys**: Jupiter, Helius, Birdeye, Groq, Gemini, Telegram - stored locally in encrypted storage.
+- **Trading Configuration**: Your preferences, risk settings, and trading parameters.
 
-The App stores the following data **locally on your device only**:
+### Collective Learning Data (Optional, Opt-In Only)
+If you enable Collective Learning, the following **anonymized** data may be synced:
+- Pattern outcomes (aggregated win/loss statistics, no individual trades)
+- Token blacklist contributions (rug/honeypot reports)
+- Mode performance by market condition
 
-- **Wallet Connection Data**: Your public wallet address (never your private keys)
-- **Trading History**: Records of trades executed through the App
-- **Bot Configuration**: Your settings, thresholds, and preferences
-- **Learning Data**: AI model training data from your trading patterns
-- **Disclaimer Agreement**: Timestamp of when you accepted the terms
+**NOT shared in Collective Learning:**
+- Wallet addresses (only hashed identifiers)
+- Trade sizes or amounts
+- Personal information
+- Individual trade history
+- API keys
 
-### Data NOT Collected
-
-We do **NOT** collect, transmit, or store:
-
-- Private keys or seed phrases
+### Information We Do NOT Collect
 - Personal identification information
 - Location data
-- Contact information
-- Usage analytics sent to external servers
+- Contacts
+- Device identifiers for tracking
+- Usage analytics or telemetry
 
-## Third-Party Services
+## Data Storage
 
-The App connects to the following external services:
-
-| Service | Purpose | Data Sent |
-|---------|---------|-----------|
-| Jupiter API | Trade execution | Transaction requests |
-| Helius/Quicknode RPC | Blockchain data | Read-only queries |
-| Groq API | AI narrative analysis | Token symbols/names |
-| Google Gemini API | Scam detection | Token metadata |
-| Jito | MEV protection | Transaction bundles |
-
-**Note**: API keys for Groq and Gemini are provided by you and stored locally.
+All data is stored locally on your device:
+- **Primary**: Android EncryptedSharedPreferences (AES-256)
+- **Backup**: Optional external storage at `/sdcard/AATE/` (user-controlled)
+- **Remote**: Turso database (opt-in Collective Learning only)
 
 ## Data Security
 
-- All sensitive data remains on your device
-- No cloud backup of trading data without explicit setup
-- API keys are stored in encrypted SharedPreferences
-- No user accounts or authentication servers
+- AES-256 encryption for all sensitive data
+- Hardware-backed Android Keystore where available
+- No cloud backup of wallet keys
+- No server-side storage of personal data
+
+## Third-Party Services
+
+The App connects to the following services for functionality:
+- **Jupiter API**: DEX aggregation for swaps
+- **DexScreener**: Price data
+- **Birdeye**: Chart data (optional)
+- **Helius**: RPC services (optional)
+- **RugCheck.xyz**: Token safety analysis
+- **Turso**: Collective learning sync (optional)
+
+These services may have their own privacy policies.
 
 ## Your Rights
 
-You have the right to:
-
-- **Delete all data**: Uninstall the app to remove all local data
-- **Export data**: Access your trading history through the Journal tab
-- **Modify settings**: Change or reset bot configuration at any time
-
-## Cryptocurrency Risks
-
-This App facilitates cryptocurrency trading. By using it, you acknowledge:
-
-- Cryptocurrency markets are highly volatile
-- Past performance does not guarantee future results
-- You may lose some or all of your invested capital
-- The developers are not responsible for trading losses
-
-## Children's Privacy
-
-This App is not intended for users under 18 years of age. We do not knowingly collect data from minors.
+You can:
+- Delete all app data at any time
+- Export your trade journal
+- Disable Collective Learning
+- View all stored data through the app
 
 ## Changes to This Policy
 
-We may update this Privacy Policy. Changes will be reflected in the "Last Updated" date above.
+We may update this Privacy Policy. Changes will be noted with an updated "Last Updated" date.
 
 ## Contact
 
-For privacy-related questions, please open an issue on the GitHub repository.
-
----
-
-**Summary**: Your data stays on your device. We don't collect personal information. Trade at your own risk.
+For privacy concerns, contact us through GitHub Issues.

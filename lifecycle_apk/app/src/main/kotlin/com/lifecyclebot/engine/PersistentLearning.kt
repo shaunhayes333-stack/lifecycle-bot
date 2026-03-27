@@ -8,7 +8,7 @@ import java.io.File
 /**
  * Persists learned AI data to external storage so it survives app uninstall/reinstall.
  * 
- * Storage location: /sdcard/LifecycleBot/
+ * Storage location: /sdcard/AATE/
  * Files:
  *   - edge_learning.json
  *   - entry_intelligence.json  
@@ -19,7 +19,7 @@ import java.io.File
 object PersistentLearning {
     
     private const val TAG = "PersistentLearning"
-    private const val FOLDER_NAME = "LifecycleBot"
+    private const val FOLDER_NAME = "AATE"
     private const val VERSION = 1
     
     private var storageDir: File? = null
@@ -49,7 +49,7 @@ object PersistentLearning {
             val readme = File(storageDir, "README.txt")
             if (!readme.exists()) {
                 readme.writeText("""
-                    LifecycleBot Persistent Learning Data
+                    AATE Persistent Learning Data
                     =====================================
                     
                     This folder contains learned AI parameters that persist

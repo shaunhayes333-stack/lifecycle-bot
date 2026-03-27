@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <!-- DARK MODE (Night) - Original dark theme -->
-    <style name="Theme.LifecycleBot" parent="Theme.MaterialComponents.DayNight.NoActionBar">
+    <style name="Theme.AATE" parent="Theme.MaterialComponents.DayNight.NoActionBar">
         <item name="colorPrimary">#9945FF</item>
         <item name="colorPrimaryVariant">#7C3AED</item>
         <item name="colorOnPrimary">#FFFFFF</item>
@@ -21,7 +21,7 @@
     </style>
     
     <!-- Disclaimer Dialog Style (Dark) -->
-    <style name="Theme.LifecycleBot.Dialog" parent="Theme.MaterialComponents.Dialog.Alert">
+    <style name="Theme.AATE.Dialog" parent="Theme.MaterialComponents.Dialog.Alert">
         <item name="android:background">#1A1A2E</item>
         <item name="android:textColor">#FFFFFF</item>
         <item name="android:textColorPrimary">#FFFFFF</item>

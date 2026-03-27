@@ -1,4 +1,4 @@
-name: Build APK
+name: Build AATE APK
 
 on:
   push:

@@ -1,6 +1,6 @@
-# Lifecycle Bot Web Dashboard
+# AATE Web Dashboard
 
-Real-time monitoring dashboard for the Lifecycle Bot Solana trading application.
+Real-time monitoring dashboard for the AATE Solana trading application.
 
 ## Features
 
@@ -18,7 +18,7 @@ Real-time monitoring dashboard for the Lifecycle Bot Solana trading application.
 ```
 ┌─────────────────┐      ┌─────────────────┐      ┌─────────────────┐
 │  Android App    │─────▶│  FastAPI Server │◀─────│  React Dashboard│
-│  (Lifecycle Bot)│      │  (Backend)      │      │  (Frontend)     │
+│  (AATE)│      │  (Backend)      │      │  (Frontend)     │
 └─────────────────┘      └─────────────────┘      └─────────────────┘
          │                       │                        │
          │   POST /api/sync      │                        │

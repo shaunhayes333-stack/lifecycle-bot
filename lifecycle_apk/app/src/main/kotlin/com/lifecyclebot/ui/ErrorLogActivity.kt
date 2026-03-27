@@ -162,7 +162,7 @@ class ErrorLogActivity : AppCompatActivity() {
             action = Intent.ACTION_SEND
             type = "text/plain"
             putExtra(Intent.EXTRA_TEXT, exportText)
-            putExtra(Intent.EXTRA_SUBJECT, "Lifecycle Bot Error Logs")
+            putExtra(Intent.EXTRA_SUBJECT, "AATE Error Logs")
         }
         
         AlertDialog.Builder(this)

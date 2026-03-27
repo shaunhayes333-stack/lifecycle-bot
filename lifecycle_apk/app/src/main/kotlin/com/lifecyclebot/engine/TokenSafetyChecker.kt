@@ -619,7 +619,7 @@ class TokenSafetyChecker(private val cfg: () -> BotConfig) {
 
     private fun get(url: String): String? = try {
         val req  = Request.Builder().url(url)
-            .header("User-Agent", "LifecycleBot/1.0")
+            .header("User-Agent", "AATE/1.0")
             .header("Accept",     "application/json")
             .build()
         val resp = http.newCall(req).execute()

@@ -2664,7 +2664,7 @@ class BotService : Service() {
                          PendingIntent.FLAG_IMMUTABLE)
         return NotificationCompat.Builder(this, CHANNEL_ID)
             .setSmallIcon(R.drawable.ic_notif)
-            .setContentTitle("Lifecycle Bot")
+            .setContentTitle("AATE")
             .setContentText("Running — tap to open")
             .setOngoing(true)
             .setContentIntent(pi)

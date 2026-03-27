@@ -146,7 +146,7 @@ class SolscanDevTracker {
     private fun get(url: String): String? = try {
         val req  = Request.Builder().url(url)
             .header("accept", "application/json")
-            .header("User-Agent", "LifecycleBot/1.0")
+            .header("User-Agent", "AATE/1.0")
             .build()
         val resp = http.newCall(req).execute()
         if (resp.isSuccessful) resp.body?.string() else null

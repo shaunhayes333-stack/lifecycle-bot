@@ -7,7 +7,7 @@ import com.lifecyclebot.engine.ErrorLogger
 import com.lifecyclebot.engine.ServiceWatchdog
 
 /**
- * LifecycleBotApp — Application class
+ * AATEApp — Application class
  * ═══════════════════════════════════════════════════════════════════════
  *
  * Initializes error logging BEFORE any Activity or Service starts.
@@ -20,7 +20,7 @@ import com.lifecyclebot.engine.ServiceWatchdog
  * - Schedule service restart if bot was running
  * - WorkManager watchdog for reliable service monitoring
  */
-class LifecycleBotApp : Application() {
+class AATEApp : Application() {
 
     override fun onCreate() {
         super.onCreate()
@@ -30,7 +30,7 @@ class LifecycleBotApp : Application() {
             ErrorLogger.init(this)
             ErrorLogger.info("App", "Application onCreate - ErrorLogger initialized")
         } catch (e: Exception) {
-            android.util.Log.e("LifecycleBotApp", "Failed to init ErrorLogger: ${e.message}", e)
+            android.util.Log.e("AATEApp", "Failed to init ErrorLogger: ${e.message}", e)
         }
         
         // Set up global uncaught exception handler
@@ -49,7 +49,7 @@ class LifecycleBotApp : Application() {
             ErrorLogger.error("App", "Failed to schedule watchdog: ${e.message}", e)
         }
         
-        ErrorLogger.info("App", "Application started successfully")
+        ErrorLogger.info("App", "AATE Application started successfully")
     }
     
     private fun setupCrashHandler() {
@@ -65,11 +65,11 @@ class LifecycleBotApp : Application() {
                 )
                 
                 // Also log to Android's logcat
-                android.util.Log.e("LifecycleBotApp", "=== UNCAUGHT CRASH ===", throwable)
-                android.util.Log.e("LifecycleBotApp", "Thread: ${thread.name}")
-                android.util.Log.e("LifecycleBotApp", "Exception: ${throwable.javaClass.name}")
-                android.util.Log.e("LifecycleBotApp", "Message: ${throwable.message}")
-                android.util.Log.e("LifecycleBotApp", "Stack trace:")
+                android.util.Log.e("AATEApp", "=== UNCAUGHT CRASH ===", throwable)
+                android.util.Log.e("AATEApp", "Thread: ${thread.name}")
+                android.util.Log.e("AATEApp", "Exception: ${throwable.javaClass.name}")
+                android.util.Log.e("AATEApp", "Message: ${throwable.message}")
+                android.util.Log.e("AATEApp", "Stack trace:")
                 throwable.printStackTrace()
                 
                 // Log the cause chain
@@ -81,7 +81,7 @@ class LifecycleBotApp : Application() {
                         "Caused by [${depth}]: ${cause.javaClass.simpleName}: ${cause.message}",
                         cause
                     )
-                    android.util.Log.e("LifecycleBotApp", "Caused by: ${cause.javaClass.name}: ${cause.message}")
+                    android.util.Log.e("AATEApp", "Caused by: ${cause.javaClass.name}: ${cause.message}")
                     cause = cause.cause
                     depth++
                 }
@@ -94,7 +94,7 @@ class LifecycleBotApp : Application() {
                 
                 if (isBackgroundThread && isRecoverable) {
                     ErrorLogger.warn("CRASH", "Recoverable exception in background thread - attempting to continue")
-                    android.util.Log.w("LifecycleBotApp", "Recoverable exception - NOT crashing app")
+                    android.util.Log.w("AATEApp", "Recoverable exception - NOT crashing app")
                     
                     // Schedule service restart if bot was supposed to be running
                     scheduleServiceRestart()
@@ -105,8 +105,8 @@ class LifecycleBotApp : Application() {
                 
             } catch (e: Exception) {
                 // If even logging fails, at least print to logcat
-                android.util.Log.e("LifecycleBotApp", "Failed to log crash: ${e.message}")
-                android.util.Log.e("LifecycleBotApp", "Original crash: ${throwable.message}", throwable)
+                android.util.Log.e("AATEApp", "Failed to log crash: ${e.message}")
+                android.util.Log.e("AATEApp", "Original crash: ${throwable.message}", throwable)
             }
             
             // Call the default handler to show the crash dialog / terminate
@@ -178,7 +178,7 @@ class LifecycleBotApp : Application() {
                 )
             }
         } catch (e: Exception) {
-            android.util.Log.e("LifecycleBotApp", "Failed to schedule restart: ${e.message}")
+            android.util.Log.e("AATEApp", "Failed to schedule restart: ${e.message}")
         }
     }
 }
