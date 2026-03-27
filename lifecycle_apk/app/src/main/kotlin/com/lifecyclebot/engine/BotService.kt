@@ -1784,6 +1784,38 @@ class BotService : Service() {
                 } else null
                 
                 // ═══════════════════════════════════════════════════════════════════
+                // MODE ROUTER: Classify what KIND of trade this is
+                // 
+                // Pipeline: scanner → mode classifier → mode-specific scorer → FDG → mode-specific execution
+                // This replaces "one giant score → trade/no trade" with specialized handling
+                // ═══════════════════════════════════════════════════════════════════
+                val modeClassification = try {
+                    ModeRouter.classify(ts)
+                } catch (e: Exception) {
+                    ErrorLogger.debug("BotService", "ModeRouter error: ${e.message}")
+                    ModeRouter.Classification(
+                        tradeType = ModeRouter.TradeType.UNKNOWN,
+                        confidence = 0.0,
+                        signals = emptyList(),
+                        subSignals = emptyMap(),
+                    )
+                }
+                
+                // Run specialized scanners for additional signals
+                val scanResult = try {
+                    ModeSpecificScanners.scanAll(ts)
+                } catch (e: Exception) {
+                    ErrorLogger.debug("BotService", "ModeScanner error: ${e.message}")
+                    null
+                }
+                
+                // Log significant classifications
+                if (modeClassification.tradeType != ModeRouter.TradeType.UNKNOWN && 
+                    modeClassification.confidence > 50 && !ts.position.isOpen) {
+                    ModeRouter.logClassification(ts, modeClassification)
+                }
+                
+                // ═══════════════════════════════════════════════════════════════════
                 // PRIORITY 2: Use unified evaluateWithDecision for complete analysis
                 // Pass isPaperMode to relax Edge veto in paper mode for better learning
                 // Pass brain for adaptive threshold learning
@@ -2127,6 +2159,51 @@ class BotService : Service() {
                 } else if (ts.position.isOpen) {
                     // Position management (exits) - ALWAYS monitor open positions
                     // Even when paused, we need to manage risk on existing positions
+                    
+                    // ═══════════════════════════════════════════════════════════════════
+                    // MODE-SPECIFIC EXIT LOGIC
+                    // 
+                    // Each trade type has different exit characteristics:
+                    //   - Fresh Launch: Fastest stops, fastest partials
+                    //   - Breakout: Trail below structure, allow longer hold
+                    //   - Reversal: Take first target quicker, breakeven early
+                    //   - Trend Pullback: Widest patience, tightest stop
+                    // ═══════════════════════════════════════════════════════════════════
+                    val positionTradeType = try {
+                        // Try to get the trade type from position's trading mode
+                        when (ts.position.tradingMode.uppercase()) {
+                            "PRESALE_SNIPE", "MICRO_CAP" -> ModeRouter.TradeType.FRESH_LAUNCH
+                            "MOMENTUM_SWING" -> ModeRouter.TradeType.BREAKOUT_CONTINUATION
+                            "REVIVAL" -> ModeRouter.TradeType.REVERSAL_RECLAIM
+                            "WHALE_FOLLOW", "COPY_TRADE" -> ModeRouter.TradeType.WHALE_ACCUMULATION
+                            "MOONSHOT" -> ModeRouter.TradeType.GRADUATION
+                            "PUMP_SNIPER" -> ModeRouter.TradeType.SENTIMENT_IGNITION
+                            "STANDARD", "CYCLIC", "BLUE_CHIP" -> ModeRouter.TradeType.TREND_PULLBACK
+                            else -> ModeRouter.TradeType.UNKNOWN
+                        }
+                    } catch (_: Exception) { ModeRouter.TradeType.UNKNOWN }
+                    
+                    // Calculate current PnL
+                    val currentPrice = ts.history.lastOrNull()?.priceUsd ?: ts.position.entryPrice
+                    val pnlPct = if (ts.position.entryPrice > 0) {
+                        ((currentPrice - ts.position.entryPrice) / ts.position.entryPrice) * 100
+                    } else 0.0
+                    val holdTimeMs = System.currentTimeMillis() - ts.position.entryTime
+                    
+                    // Get mode-specific exit recommendation
+                    val exitRec = try {
+                        ModeSpecificExits.getExitRecommendation(ts, positionTradeType, pnlPct, holdTimeMs)
+                    } catch (e: Exception) {
+                        ErrorLogger.debug("BotService", "ModeExit error: ${e.message}")
+                        null
+                    }
+                    
+                    // Log urgent exit recommendations
+                    if (exitRec != null && exitRec.shouldExit && 
+                        exitRec.urgency in listOf(ModeSpecificExits.ExitUrgency.IMMEDIATE, ModeSpecificExits.ExitUrgency.URGENT)) {
+                        ModeSpecificExits.logExitRecommendation(ts, positionTradeType, exitRec)
+                    }
+                    
                     if (!cbState.isHalted) {
                         executor.maybeActWithDecision(
                             ts                 = ts,
