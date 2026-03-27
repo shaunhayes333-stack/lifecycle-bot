@@ -1804,11 +1804,38 @@ object FinalDecisionGate {
         
         if (blockReason == null && edgeVerdict == EdgeVerdict.SKIP) {
             if (config.paperMode) {
-                // PAPER MODE: ALWAYS bypass edge veto - NO BLOCKS for maximum learning
-                // The AI needs to see outcomes from ALL trades, including edge-vetoed ones
-                checks.add(GateCheck("edge", true, 
-                    "PAPER: edge veto BYPASSED (edge=${candidate.edgeQuality}) - learning from all trades"))
-                tags.add("edge_veto_bypassed_paper")
+                // ═══════════════════════════════════════════════════════════════════
+                // PAPER MODE: Intelligent edge veto handling
+                // 
+                // Don't completely bypass edge veto - DISTRIBUTION is still dangerous.
+                // But allow PROBE trades for learning if token has positive signals.
+                // ═══════════════════════════════════════════════════════════════════
+                
+                val edgePhaseStr = candidate.edgeQuality.uppercase()
+                val isDistribution = edgePhaseStr.contains("DIST") || edgePhaseStr.contains("SKIP")
+                
+                if (isDistribution && !isBootstrapPhase) {
+                    // DISTRIBUTION in mature paper mode: Block to protect learning
+                    blockReason = "EDGE_DISTRIBUTION_PAPER"
+                    blockLevel = BlockLevel.EDGE
+                    checks.add(GateCheck("edge", false, 
+                        "PAPER: DISTRIBUTION detected (edge=${candidate.edgeQuality}) - not learning from dumps"))
+                    tags.add("edge_distribution_blocked")
+                } else if (isDistribution && isBootstrapPhase) {
+                    // DISTRIBUTION in bootstrap: Convert to PROBE with heavy penalty
+                    softPenaltyScore += 15
+                    sizeMultiplier *= 0.25  // 75% size reduction
+                    isProbeCandidate = true
+                    checks.add(GateCheck("edge", true, 
+                        "BOOTSTRAP PROBE: DISTRIBUTION (edge=${candidate.edgeQuality}) → -15pts, size×0.25"))
+                    tags.add("edge_distribution_probe")
+                } else {
+                    // Non-distribution edge skip: Allow with mild penalty
+                    softPenaltyScore += 5
+                    checks.add(GateCheck("edge", true, 
+                        "PAPER: edge veto soft-bypassed (edge=${candidate.edgeQuality}) → -5pts"))
+                    tags.add("edge_veto_softened_paper")
+                }
             } else {
                 // ═══════════════════════════════════════════════════════════════════
                 // LIVE MODE: Auto-adjusted edge veto based on learning progress
