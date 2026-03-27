@@ -1269,9 +1269,28 @@ class BotService : Service() {
                     
                     // Get performance stats from SmartSizer
                     val effectiveBalance = status.getEffectiveBalance(cfg.paperMode)
+                    
+                    // ═══════════════════════════════════════════════════════════════════
+                    // FIX: Use FluidLearning.getTradeCount() for paper mode
+                    // 
+                    // BUG: Previously used tokenList.flatMap { it.trades }.size which
+                    // resets to 0 when tokens are removed or bot restarts.
+                    // FluidLearning.getTradeCount() is PERSISTED and accurate.
+                    // ═══════════════════════════════════════════════════════════════════
+                    val sessionTradeCount = tokenList.flatMap { it.trades }.size  // In-memory trades (for session stats)
+                    val persistedTradeCount = if (cfg.paperMode) {
+                        FluidLearning.getTradeCount()  // Persisted paper trade count
+                    } else {
+                        // For live mode, use wallet state total trades
+                        sessionTradeCount
+                    }
+                    
+                    // Use the HIGHER of the two counts - this ensures FDG progresses correctly
+                    val effectiveTradeCount = maxOf(sessionTradeCount, persistedTradeCount)
+                    
                     val perfContext = SmartSizer.getPerformanceContext(
                         walletSol = effectiveBalance,
-                        totalTrades = tokenList.flatMap { it.trades }.size,
+                        totalTrades = effectiveTradeCount,
                         isPaperMode = cfg.paperMode
                     )
                     

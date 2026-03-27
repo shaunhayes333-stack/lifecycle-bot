@@ -55,9 +55,67 @@ object GeminiCopilot {
     private val exitAdviceCache = ConcurrentHashMap<String, Pair<ExitAdvice, Long>>()
     private val CACHE_TTL_MS = 3 * 60_000L  // 3 minutes
     
-    // Rate limiting
+    // Rate limiting - enhanced with 429 tracking
     private var lastCallTime = 0L
     private const val MIN_CALL_INTERVAL_MS = 1000L  // 1 second between calls
+    
+    // ════════════════════════════════════════════════════════════════════════════
+    // 429 RATE LIMIT HANDLING
+    // 
+    // When we get a 429, implement exponential backoff to avoid hammering the API.
+    // This ensures we degrade gracefully instead of blocking decisions.
+    // ════════════════════════════════════════════════════════════════════════════
+    @Volatile private var rateLimitedUntil = 0L
+    @Volatile private var consecutive429Count = 0
+    private const val INITIAL_BACKOFF_MS = 60_000L  // 1 minute initial backoff
+    private const val MAX_BACKOFF_MS = 600_000L     // 10 minute max backoff
+    
+    /**
+     * Check if we're currently rate limited
+     */
+    private fun isRateLimited(): Boolean {
+        return System.currentTimeMillis() < rateLimitedUntil
+    }
+    
+    /**
+     * Get remaining rate limit cooldown in minutes for logging
+     */
+    fun getRateLimitRemainingMinutes(): Int {
+        val remaining = rateLimitedUntil - System.currentTimeMillis()
+        return if (remaining > 0) (remaining / 60_000).toInt() else 0
+    }
+    
+    /**
+     * Record a 429 error and calculate backoff
+     */
+    private fun recordRateLimit() {
+        consecutive429Count++
+        val backoffMs = (INITIAL_BACKOFF_MS * consecutive429Count).coerceAtMost(MAX_BACKOFF_MS)
+        rateLimitedUntil = System.currentTimeMillis() + backoffMs
+        ErrorLogger.warn("GeminiCopilot", "⚠️ Rate limited (429 #$consecutive429Count) - backing off for ${backoffMs / 1000}s")
+    }
+    
+    /**
+     * Reset rate limit tracking on successful call
+     */
+    private fun resetRateLimit() {
+        if (consecutive429Count > 0) {
+            ErrorLogger.info("GeminiCopilot", "✅ Rate limit cleared after $consecutive429Count 429s")
+        }
+        consecutive429Count = 0
+        rateLimitedUntil = 0L
+    }
+    
+    /**
+     * Get rate limit status for UI/logging
+     */
+    fun getRateLimitStatus(): String {
+        return when {
+            consecutive429Count == 0 -> "OK"
+            isRateLimited() -> "RATE_LIMITED (${getRateLimitRemainingMinutes()}min remaining)"
+            else -> "RECOVERING (${consecutive429Count} recent 429s)"
+        }
+    }
     
     // ════════════════════════════════════════════════════════════════════════════
     // DATA CLASSES
@@ -286,6 +344,16 @@ object GeminiCopilot {
                 return null
             }
             
+            // ════════════════════════════════════════════════════════════════════
+            // 429 RATE LIMIT CHECK
+            // Skip API call if we're in backoff period - return null gracefully
+            // This prevents hammering the API and lets the bot continue without AI
+            // ════════════════════════════════════════════════════════════════════
+            if (isRateLimited()) {
+                ErrorLogger.debug("GeminiCopilot", "⏳ Rate limited, ${getRateLimitRemainingMinutes()}min remaining")
+                return null
+            }
+            
             val url = "$GEMINI_URL?key=$apiKey"
             val req = Request.Builder()
                 .url(url)
@@ -295,9 +363,20 @@ object GeminiCopilot {
             
             val resp = http.newCall(req).execute()
             if (!resp.isSuccessful) {
-                ErrorLogger.warn("GeminiCopilot", "API error: ${resp.code}")
+                // ════════════════════════════════════════════════════════════════
+                // HANDLE 429 SPECIFICALLY
+                // ════════════════════════════════════════════════════════════════
+                if (resp.code == 429) {
+                    recordRateLimit()
+                    // Don't log every 429 as error - just track and backoff
+                } else {
+                    ErrorLogger.warn("GeminiCopilot", "API error: ${resp.code}")
+                }
                 return null
             }
+            
+            // Successful call - reset rate limit tracking
+            resetRateLimit()
             
             val body = resp.body?.string() ?: return null
             val json = JSONObject(body)

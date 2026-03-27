@@ -1116,12 +1116,31 @@ object FinalDecisionGate {
         val winRate = brain?.getRecentWinRate() ?: 50.0
         val adjusted = getAdjustedThresholds(tradeCount, winRate)
         
-        // Log learning phase on first trade evaluation of session
-        if (tradeCount == 0 || tradeCount == 11 || tradeCount == 51) {
+        // ═══════════════════════════════════════════════════════════════════
+        // TRADE COUNTER DEBUG: Show all sources to debug counter mismatches
+        // 
+        // Sources:
+        //   brainTrades: from BotBrain.recentMemory (in-memory, can reset)
+        //   sessionTrades: from MarketConditions.totalSessionTrades (fed by BotService)
+        //   fluidTrades: from FluidLearning.getTradeCount() (persisted, accurate for paper)
+        // ═══════════════════════════════════════════════════════════════════
+        val brainTrades = tradeCount
+        val sessionTrades = currentConditions.totalSessionTrades
+        val fluidTrades = try { FluidLearning.getTradeCount() } catch (_: Exception) { 0 }
+        
+        // Use the HIGHEST count across all sources - ensures bootstrap progresses
+        val effectiveTradeCount = maxOf(brainTrades, sessionTrades, fluidTrades)
+        
+        // Log learning phase periodically or when counters are mismatched
+        val countersMatch = brainTrades == sessionTrades && sessionTrades >= fluidTrades - 5  // Allow small mismatch
+        val isPhaseTransition = effectiveTradeCount == 0 || effectiveTradeCount == 11 || effectiveTradeCount == 30 || effectiveTradeCount == 51
+        
+        if (isPhaseTransition || !countersMatch) {
             ErrorLogger.info("FDG", "📊 Learning phase: ${adjusted.learningPhase} | " +
-                "trades=$tradeCount | progress=${(adjusted.progress * 100).toInt()}% | " +
-                "conf=${adjusted.confidenceBase.toInt()}% | evGating=${adjusted.evGatingEnabled}" +
-                (if (tradingModeTag != null) " | mode=${tradingModeTag.name}" else ""))
+                "trades=$effectiveTradeCount (brain=$brainTrades, session=$sessionTrades, fluid=$fluidTrades) | " +
+                "progress=${(adjusted.progress * 100).toInt()}% | conf=${adjusted.confidenceBase.toInt()}%" +
+                (if (tradingModeTag != null) " | mode=${tradingModeTag.name}" else "") +
+                (if (!countersMatch) " ⚠️ COUNTER_MISMATCH" else ""))
         }
         
         // Use auto-adjusted thresholds for live mode
@@ -2060,6 +2079,16 @@ object FinalDecisionGate {
                 val unifiedNarrative = try {
                     UnifiedNarrativeAI.analyze(ts.symbol, ts.name, "")
                 } catch (_: Exception) { null }
+                
+                // ════════════════════════════════════════════════════════════════
+                // LOG 429 FALLBACK STATUS
+                // When Gemini is rate-limited, log clearly so the user knows AI is
+                // operating in degraded mode but decisions are still being made.
+                // ════════════════════════════════════════════════════════════════
+                val geminiStatus = GeminiCopilot.getRateLimitStatus()
+                if (geminiStatus != "OK" && unifiedNarrative?.source == "default") {
+                    ErrorLogger.info("FDG", "⚠️ AI DEGRADED: Gemini $geminiStatus - using neutral narrative for ${ts.symbol}")
+                }
                 
                 val orthogonalAssessment = OrthogonalSignals.collectSignals(
                     ts = ts,
