@@ -2098,14 +2098,67 @@ object FinalDecisionGate {
         val narrativeTag = if (narrativeAdjustment != 0) " [NAR:$narrativeAdjustment]" else ""
         val orthoTag = if (orthogonalBonus != 0) " [ORTHO:$orthogonalBonus]" else ""
         
+        // ─────────────────────────────────────────────────────────────────────
+        // BOOTSTRAP CONFIDENCE OVERRIDE
+        // 
+        // In bootstrap mode, low confidence should NOT hard block if:
+        //   - Token has positive memory (repeat winner, good past performance)
+        //   - No hard safety flags active
+        //   - Liquidity above minimum threshold
+        // 
+        // Instead: Allow as PROBE with reduced size (25-40%)
+        // ─────────────────────────────────────────────────────────────────────
+        
+        var confidenceProbe = false
+        var confidenceProbeSizeMultiplier = 1.0
+        
         if (blockReason == null && adjustedConfidence < confidenceThreshold) {
-            blockReason = "LOW_CONFIDENCE_${adjustedConfidence.toInt()}%$bootstrapTag$narrativeTag$orthoTag"
-            blockLevel = BlockLevel.CONFIDENCE
-            checks.add(GateCheck("confidence", false, 
-                "conf=${candidate.aiConfidence.toInt()}%+nar=$narrativeAdjustment+ortho=$orthogonalBonus=${adjustedConfidence.toInt()}% < ${confidenceThreshold.toInt()}%$bootstrapTag (adaptive)"))
-            tags.add("low_confidence")
-            tags.add("adaptive_conf:${confidenceThreshold.toInt()}")
-            if (isBootstrap) tags.add("bootstrap_phase")
+            // Check if we should allow as PROBE in bootstrap
+            val hasPositiveMemory = try {
+                val memMult = TokenWinMemory.getConfidenceMultiplier(
+                    ts.mint, ts.symbol, ts.name, ts.lastMcap, 
+                    ts.lastLiquidityUsd, 50.0, ts.phase, ts.source
+                )
+                memMult >= 1.0  // Memory is neutral or positive
+            } catch (_: Exception) { false }
+            
+            val isRepeatWinner = try { TokenWinMemory.isKnownWinner(ts.mint) } catch (_: Exception) { false }
+            val hasNoHardBlocks = blockReason == null
+            val hasMinLiquidity = ts.lastLiquidityUsd >= 3000
+            
+            // BOOTSTRAP PROBE: Allow low confidence with positive signals
+            if (isBootstrap && config.paperMode && hasNoHardBlocks && hasMinLiquidity && 
+                (isRepeatWinner || hasPositiveMemory)) {
+                // Convert to PROBE instead of blocking
+                confidenceProbe = true
+                isProbeCandidate = true
+                
+                // Size reduction based on how far below threshold
+                val confidenceGap = confidenceThreshold - adjustedConfidence
+                confidenceProbeSizeMultiplier = when {
+                    isRepeatWinner -> 0.4  // 40% size for repeat winners
+                    confidenceGap < 10 -> 0.35  // 35% if close to threshold
+                    else -> 0.25  // 25% if far below
+                }
+                sizeMultiplier *= confidenceProbeSizeMultiplier
+                
+                val probeReason = if (isRepeatWinner) "REPEAT_WINNER" else "POSITIVE_MEMORY"
+                checks.add(GateCheck("confidence", true, 
+                    "BOOTSTRAP PROBE: conf=${adjustedConfidence.toInt()}% < ${confidenceThreshold.toInt()}% BUT $probeReason → size×${confidenceProbeSizeMultiplier}"))
+                tags.add("bootstrap_confidence_probe")
+                tags.add("probe_reason:$probeReason")
+                
+                ErrorLogger.info("FDG", "🔬 BOOTSTRAP PROBE: ${ts.symbol} | conf=${adjustedConfidence.toInt()}% | $probeReason | size×${confidenceProbeSizeMultiplier}")
+            } else {
+                // Normal confidence block
+                blockReason = "LOW_CONFIDENCE_${adjustedConfidence.toInt()}%$bootstrapTag$narrativeTag$orthoTag"
+                blockLevel = BlockLevel.CONFIDENCE
+                checks.add(GateCheck("confidence", false, 
+                    "conf=${candidate.aiConfidence.toInt()}%+nar=$narrativeAdjustment+ortho=$orthogonalBonus=${adjustedConfidence.toInt()}% < ${confidenceThreshold.toInt()}%$bootstrapTag (adaptive)"))
+                tags.add("low_confidence")
+                tags.add("adaptive_conf:${confidenceThreshold.toInt()}")
+                if (isBootstrap) tags.add("bootstrap_phase")
+            }
         } else if (blockReason == null) {
             checks.add(GateCheck("confidence", true, 
                 "conf=${candidate.aiConfidence.toInt()}%+nar=$narrativeAdjustment+ortho=$orthogonalBonus=${adjustedConfidence.toInt()}% >= ${confidenceThreshold.toInt()}%$bootstrapTag (adaptive)"))
@@ -2456,6 +2509,7 @@ object FinalDecisionGate {
                         if (dangerZonePenalty > 0) probeReasons.add("time_danger")
                         if (memoryPenalty > 0) probeReasons.add("memory_neg")
                         if (behaviorPenalty > 0) probeReasons.add("behavior_100pct")
+                        if (confidenceProbe) probeReasons.add("confidence_override")
                         ApprovalClass.PAPER_PROBE to "probe: soft blocks→penalties (${probeReasons.joinToString(",")}), size×${combinedSizeMultiplier.format(2)}"
                     }
                     
