@@ -30,10 +30,12 @@ jobs:
 
       - name: Build APK
         run: |
-          chmod +x gradlew
-          ./gradlew assembleDebug --no-daemon --no-build-cache
+          chmod +x gradlew || true
+          mkdir -p gradle/wrapper
+          curl -sL -o gradle/wrapper/gradle-wrapper.jar "https://raw.githubusercontent.com/gradle/gradle/v8.7.0/gradle/wrapper/gradle-wrapper.jar"
+          ./gradlew assembleRelease --no-daemon
 
       - uses: actions/upload-artifact@v4
         with:
           name: lifecycle-bot-apk
-          path: lifecycle_apk/app/build/outputs/apk/debug/*.apk
+          path: lifecycle_apk/app/build/outputs/apk/release/*.apk

@@ -24,10 +24,28 @@ android {
         buildConfigField("String", "GROQ_KEY_P1", "\"\"")
         buildConfigField("String", "GROQ_KEY_P2", "\"\"")
     }
+    
+    // Use debug signing for CI builds (user can sign with their own key for Play Store)
+    signingConfigs {
+        getByName("debug") {
+            // Uses default debug keystore at ~/.android/debug.keystore
+        }
+        create("release") {
+            // For CI: use debug keystore to avoid security warnings
+            // For production: replace with your own signing key
+            storeFile = file(System.getProperty("user.home") + "/.android/debug.keystore")
+            storePassword = "android"
+            keyAlias = "androiddebugkey"
+            keyPassword = "android"
+        }
+    }
 
     buildTypes {
         release {
+            isDebuggable = false  // IMPORTANT: Prevents Play Protect security warnings
             isMinifyEnabled = true
+            isShrinkResources = true  // Remove unused resources
+            signingConfig = signingConfigs.getByName("release")
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"
@@ -35,6 +53,7 @@ android {
         }
         debug {
             isDebuggable = true
+            signingConfig = signingConfigs.getByName("debug")
             resValue("string", "app_name_override", "AATE DEV")
         }
     }
