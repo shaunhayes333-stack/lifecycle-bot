@@ -3205,7 +3205,7 @@ class Executor(
             }
             
             BehaviorLearning.recordTrade(
-                entryScore = ts.position.entryScore,
+                entryScore = ts.position.entryScore.toInt(),
                 entryPhase = ts.position.entryPhase,
                 setupQuality = when {
                     ts.position.entryScore >= 90 -> "A+"
