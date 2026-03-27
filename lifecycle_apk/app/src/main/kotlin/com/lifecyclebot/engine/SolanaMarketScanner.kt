@@ -1927,16 +1927,23 @@ class SolanaMarketScanner(
             val scoreNormalized = json.optInt("score_normalised", json.optInt("score", 50))
             val rugged = json.optString("rugged", "").lowercase()
             
-            // PAPER MODE: Only block confirmed rugs - allow everything else for learning
+            // PAPER MODE: Was passing everything "for learning" but this just learns garbage
+            // FIX: Paper mode should still block obvious rugs and extremely risky tokens
             if (isPaperMode) {
                 if (rugged == "true" || rugged == "yes") {
                     onLog("🚫 RUG: ${mint.take(8)}... ALREADY RUGGED (confirmed)")
                     ErrorLogger.info("Scanner", "quickRugcheck BLOCK: ${mint.take(12)} rugged=true (paper mode)")
                     return false
                 }
-                // Paper mode: pass everything else
+                // FIX: Block extremely low scores even in paper mode
+                // Score < 10 means something is seriously wrong - not worth learning from
+                if (scoreNormalized < 10) {
+                    ErrorLogger.debug("Scanner", "RC ${mint.take(8)}: score=$scoreNormalized BLOCKED (paper mode - too risky)")
+                    return false
+                }
+                // Pass moderate scores for learning
                 if (scoreNormalized < 20) {
-                    ErrorLogger.debug("Scanner", "RC ${mint.take(8)}: score=$scoreNormalized (PAPER: passing for learning)")
+                    ErrorLogger.debug("Scanner", "RC ${mint.take(8)}: score=$scoreNormalized (PAPER: allowing for learning)")
                 }
                 return true
             }

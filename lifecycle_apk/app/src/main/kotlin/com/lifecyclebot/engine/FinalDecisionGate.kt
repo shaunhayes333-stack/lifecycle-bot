@@ -1017,17 +1017,20 @@ object FinalDecisionGate {
                 (if (tradingModeTag != null) " | mode=${tradingModeTag.name}" else ""))
         }
         
-        // Use auto-adjusted thresholds for live mode, very lenient for paper
+        // Use auto-adjusted thresholds for live mode
+        // FIX: Paper mode was too lenient (rugcheck=5, buyPressure=10)
+        // This caused 82 trades with only 8% win rate - learning garbage
+        // Paper mode should still have reasonable thresholds to learn from quality trades
         // Apply mode multipliers to thresholds
         val rugcheckThreshold = if (config.paperMode) {
-            5  // Paper: very lenient for learning
+            15  // Paper: Still require decent rugcheck (was 5 - way too lenient!)
         } else {
             // Use auto-adjusted OR brain-learned, apply mode multiplier
             val baseThreshold = (brain?.learnedRugcheckThreshold ?: adjusted.rugcheckMin).coerceIn(5, 25)
             (baseThreshold * modeMultipliers.rugcheckMultiplier).toInt().coerceIn(3, 30)
         }
-        val buyPressureThreshold = if (config.paperMode) 10.0 else adjusted.buyPressureMin * modeMultipliers.entryScoreMultiplier
-        val topHolderThreshold = if (config.paperMode) 90.0 else adjusted.topHolderMax / modeMultipliers.rugcheckMultiplier
+        val buyPressureThreshold = if (config.paperMode) 25.0 else adjusted.buyPressureMin * modeMultipliers.entryScoreMultiplier  // was 10.0
+        val topHolderThreshold = if (config.paperMode) 70.0 else adjusted.topHolderMax / modeMultipliers.rugcheckMultiplier  // was 90.0
         
         // Store adjusted thresholds for use in later gates
         val currentAdjusted = adjusted

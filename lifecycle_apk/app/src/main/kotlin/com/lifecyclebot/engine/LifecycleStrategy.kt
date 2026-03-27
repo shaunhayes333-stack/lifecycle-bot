@@ -998,13 +998,19 @@ class LifecycleStrategy(
         }
         
         // Calculate quality penalty for sizing
-        // In paper mode, reduce penalties to allow more aggressive learning
+        // FIX: Paper mode was too lenient - only counted severe flags
+        // This caused tons of C-quality trades that lost money
+        // Paper mode should still penalize low quality setups
         val isLowQuality = setupQuality == "C"
         val isUnknownPhase = result.phase.contains("unknown", ignoreCase = true)
         val isLowConfidence = edgeConfidence < 30.0
         val redFlagCount = if (isPaperMode) {
-            // Paper mode: Only count severe flags
-            listOf(isLowQuality && isLowConfidence).count { it }
+            // Paper mode: Still count quality flags, but slightly more lenient
+            // C-quality alone is a flag, unknown phase is a flag
+            listOf(
+                isLowQuality,
+                isUnknownPhase && isLowConfidence,  // Unknown + low conf is bad
+            ).count { it }
         } else {
             listOf(isLowQuality, isUnknownPhase, isLowConfidence).count { it }
         }
@@ -2952,11 +2958,32 @@ class LifecycleStrategy(
                 return "WAIT"
             }
             
-            // Entry AI recommendation check (only AVOID blocks in paper mode for learning)
-            if (entryAiScore.recommendation == EntryIntelligence.EntryRecommendation.AVOID && 
-                entryAiScore.confidence >= 0.5) {
-                ErrorLogger.info("Strategy", "🤖 ${ts.symbol}: Entry AI says AVOID (score=${entryAiScore.score}, conf=${(entryAiScore.confidence*100).toInt()}%)")
-                // Don't block completely in paper - just log for learning
+            // ═══════════════════════════════════════════════════════════════════
+            // FIX: Entry AI AVOID should block even in paper mode
+            // The old logic was letting bad trades through "for learning" but
+            // this just pollutes the learning data with guaranteed losses
+            // Paper mode should learn from GOOD trades, not garbage
+            // ═══════════════════════════════════════════════════════════════════
+            if (entryAiScore.recommendation == EntryIntelligence.EntryRecommendation.AVOID) {
+                if (entryAiScore.confidence >= 0.7) {
+                    // High confidence AVOID = hard block even in paper
+                    ErrorLogger.info("Strategy", "🤖 ${ts.symbol}: Entry AI BLOCKS (score=${entryAiScore.score}, conf=${(entryAiScore.confidence*100).toInt()}%) - AVOID")
+                    return "WAIT"
+                } else if (entryAiScore.confidence >= 0.5 && entryAiScore.score < 40) {
+                    // Medium confidence + low score = also block
+                    ErrorLogger.info("Strategy", "🤖 ${ts.symbol}: Entry AI says AVOID (score=${entryAiScore.score}, conf=${(entryAiScore.confidence*100).toInt()}%) - blocking low score")
+                    return "WAIT"
+                } else {
+                    // Low confidence AVOID - allow but tag it
+                    ErrorLogger.info("Strategy", "🤖 ${ts.symbol}: Entry AI warns AVOID (score=${entryAiScore.score}, conf=${(entryAiScore.confidence*100).toInt()}%) - allowing for learning")
+                }
+            }
+            
+            // Also block WAIT recommendation if score is really low
+            if (entryAiScore.recommendation == EntryIntelligence.EntryRecommendation.WAIT && 
+                entryAiScore.score < 35) {
+                ErrorLogger.info("Strategy", "🤖 ${ts.symbol}: Entry AI WAIT + low score=${entryAiScore.score} - blocking")
+                return "WAIT"
             }
             
             val entryType = when {
