@@ -135,8 +135,19 @@ class SolanaWallet(privateKeyB58: String, val rpcUrl: String) {
                              .put("preflightCommitment", "confirmed"))
 
         val resp = rpc("sendTransaction", params)
-        return resp.optString("result")
-            ?: throw RuntimeException("sendTransaction error: ${resp.optJSONObject("error")}")
+        
+        // ═══════════════════════════════════════════════════════════════════
+        // CRITICAL FIX: optString returns "" (empty string) on RPC errors,
+        // NOT null. We must check for both null AND empty string, otherwise
+        // sells silently "succeed" with no actual transaction broadcast!
+        // ═══════════════════════════════════════════════════════════════════
+        val result = resp.optString("result", "")
+        if (result.isBlank()) {
+            val errorObj = resp.optJSONObject("error")
+            val errorMsg = errorObj?.optString("message", "unknown RPC error") ?: "unknown error"
+            throw RuntimeException("sendTransaction failed: $errorMsg")
+        }
+        return result
     }
 
     /**
