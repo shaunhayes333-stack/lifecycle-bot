@@ -1280,16 +1280,15 @@ object FinalDecisionGate {
         
         if (blockReason == null) {
             try {
-                // getEntryScoreAdjustment returns negative for bad hours (DANGER ZONE)
-                // Per logs: "⏰ Mouse: DANGER ZONE (-6 pts)"
-                val timeAdj = TimeOptimizationAI.getEntryScoreAdjustment()
-                if (timeAdj <= -5) {
+                val isDanger = TimeOptimizationAI.isDangerZone()
+                if (isDanger) {
                     blockReason = "DANGER_ZONE_TIME"
-                    blockLevel = BlockLevel.SOFT
+                    blockLevel = BlockLevel.MODE
                     checks.add(GateCheck("time_danger", false, 
-                        "TimeAI DANGER ZONE (adj=${timeAdj.toInt()})"))
+                        "TimeAI DANGER ZONE"))
                     tags.add("time_danger_blocked")
                 } else {
+                    val timeAdj = TimeOptimizationAI.getEntryScoreAdjustment()
                     checks.add(GateCheck("time_danger", true, 
                         "Time adj: ${timeAdj.toInt()}"))
                 }
@@ -1323,7 +1322,7 @@ object FinalDecisionGate {
                 // From logs: "memory score=-14.0 multiplier=0.80"
                 if (memoryMult <= 0.75) {
                     blockReason = "MEMORY_NEGATIVE_BLOCK"
-                    blockLevel = BlockLevel.SOFT
+                    blockLevel = BlockLevel.MODE
                     checks.add(GateCheck("memory_negative", false, 
                         "Memory strongly negative (mult=${memoryMult})"))
                     tags.add("memory_blocked")
