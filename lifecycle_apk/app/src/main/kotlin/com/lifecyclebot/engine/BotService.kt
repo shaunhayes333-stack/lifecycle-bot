@@ -1795,7 +1795,6 @@ class BotService : Service() {
                     
                     if (!preFilterResult.pass) {
                         HardRugPreFilter.logFailure(ts, preFilterResult)
-                        ts.filterPassCount = 0  // Reset filter pass count
                         continue  // Skip to next token
                     }
                 }
@@ -1804,8 +1803,9 @@ class BotService : Service() {
                 // STEP 2: DISTRIBUTION FADE AVOIDER
                 // Check if token is in distribution/dead-bounce state
                 // ═══════════════════════════════════════════════════════════════════
+                val currentEdge = ts.meta.edgePhase  // Get edge from token meta, not curveState
                 val distributionCheck = try {
-                    DistributionFadeAvoider.evaluate(ts, curveState.edge)
+                    DistributionFadeAvoider.evaluate(ts, currentEdge)
                 } catch (e: Exception) {
                     ErrorLogger.debug("BotService", "DistFade error: ${e.message}")
                     DistributionFadeAvoider.FadeResult(false, null, 1.0, 0L)

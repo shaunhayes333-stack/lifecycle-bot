@@ -86,7 +86,7 @@ object HardRugPreFilter {
         // ─────────────────────────────────────────────────────────────────
         // CHECK 2: Holder concentration (top holder too dominant)
         // ─────────────────────────────────────────────────────────────────
-        val topHolderPct = ts.meta.topHolderPct
+        val topHolderPct = ts.meta.holderConcentration
         if (topHolderPct > 85) {
             return PreFilterResult(
                 pass = false,
