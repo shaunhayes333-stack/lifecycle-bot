@@ -730,6 +730,34 @@ class BotService : Service() {
         val worstMode = ModeLearning.getWorstMode()
         addLog("🎯 ModeLearning: Best=${bestMode ?: "N/A"} | Worst=${worstMode ?: "N/A"}")
         
+        // Initialize HistoricalChartScanner for backtesting and learning from historical data
+        val birdeyeKey = cfg.birdeyeApiKey.ifEmpty { "" }
+        HistoricalChartScanner.init(applicationContext, birdeyeKey)
+        val scanStats = HistoricalChartScanner.getStats()
+        addLog("📊 HistoricalScanner: ${scanStats.tokensAnalyzed} tokens, ${scanStats.winningPatterns}/${scanStats.losingPatterns} patterns")
+        
+        // Auto-start historical scan in background if enabled and not recently scanned
+        if (cfg.autoHistoricalScanEnabled) {
+            val lastScanMs = scanStats.lastScanTime
+            val hoursSinceScan = if (lastScanMs > 0) {
+                (System.currentTimeMillis() - lastScanMs) / (1000 * 60 * 60)
+            } else Long.MAX_VALUE
+            
+            // Only auto-scan if >12 hours since last scan
+            if (hoursSinceScan >= 12) {
+                addLog("🔬 Starting automatic historical scan (last: ${hoursSinceScan}h ago)...")
+                HistoricalChartScanner.startScan(
+                    hoursBack = 24,
+                    onProgress = { pct, total, msg ->
+                        if (pct % 20 == 0) addLog("📊 Scan: $pct% - $msg")
+                    },
+                    onComplete = { analyzed, learned ->
+                        addLog("✅ Historical scan complete: $analyzed tokens, $learned patterns learned")
+                    }
+                )
+            }
+        }
+        
         // Initialize CloudLearningSync for community shared learning
         CloudLearningSync.init(applicationContext)
         addLog("☁️ ${CloudLearningSync.getStatus()}")

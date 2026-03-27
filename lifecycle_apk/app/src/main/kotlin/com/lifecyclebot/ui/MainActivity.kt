@@ -468,6 +468,13 @@ By clicking "I Agree", you acknowledge that you have read, understood, and accep
             } catch (_: Exception) {}
         }
         btnOpenAlerts.setOnClickListener  { startActivity(android.content.Intent(this, AlertsActivity::class.java)) }
+        
+        // Historical Chart Scanner button — manual trigger
+        try {
+            findViewById<android.widget.TextView>(R.id.btnHistoricalScan)
+                ?.setOnClickListener { showHistoricalScanDialog() }
+        } catch (_: Exception) {}
+        
         cardOpenPositions  = findViewById(R.id.cardOpenPositions)
         llOpenPositions    = findViewById(R.id.llOpenPositions)
         tvTotalExposure    = try { findViewById(R.id.tvTotalExposure) } catch (_: Exception) { TextView(this) }
@@ -1786,6 +1793,114 @@ By clicking "I Agree", you acknowledge that you have read, understood, and accep
         }
     }
     
+    // ── Historical Chart Scanner Popup ────────────────────────────────────
+    private fun showHistoricalScanDialog() {
+        try {
+            val stats = com.lifecyclebot.engine.HistoricalChartScanner.getStats()
+            val isScanning = com.lifecyclebot.engine.HistoricalChartScanner.isScanning()
+            
+            val lastScanStr = if (stats.lastScanTime > 0) {
+                val hoursAgo = (System.currentTimeMillis() - stats.lastScanTime) / (1000 * 60 * 60)
+                if (hoursAgo < 1) "Just now" else "${hoursAgo}h ago"
+            } else "Never"
+            
+            val statusEmoji = when {
+                isScanning -> "🔄"
+                stats.tokensAnalyzed > 100 -> "✅"
+                stats.tokensAnalyzed > 0 -> "📊"
+                else -> "⏳"
+            }
+            
+            val message = """
+$statusEmoji Historical Chart Scanner
+
+📊 Tokens Analyzed: ${stats.tokensAnalyzed}
+🟢 Winning Patterns: ${stats.winningPatterns}
+🔴 Losing Patterns: ${stats.losingPatterns}
+🕐 Last Scan: $lastScanStr
+${if (isScanning) "🔄 SCAN IN PROGRESS..." else ""}
+
+━━━━━━━━━━━━━━━━━━━━━━━━━
+
+This scanner backtests historical charts to:
+• Pre-train trading modes without live trades
+• Learn optimal entry/exit conditions
+• Improve position sizing models
+• Feed learnings to BehaviorLearning
+
+${if (!isScanning) "Tap 'Start Scan' to begin." else "Scan running in background..."}
+            """.trimIndent()
+            
+            val builder = AlertDialog.Builder(this, R.style.Theme_LifecycleBot_Dialog)
+                .setTitle("📊 Historical Scanner")
+                .setMessage(message)
+                .setNegativeButton("Close") { d, _ -> d.dismiss() }
+            
+            if (!isScanning) {
+                builder.setPositiveButton("Start Scan") { d, _ ->
+                    d.dismiss()
+                    startHistoricalScan()
+                }
+            } else {
+                builder.setPositiveButton("Stop Scan") { d, _ ->
+                    d.dismiss()
+                    com.lifecyclebot.engine.HistoricalChartScanner.stopScan()
+                    Toast.makeText(this, "Scan stopped", Toast.LENGTH_SHORT).show()
+                }
+            }
+            
+            builder.show()
+            performHaptic()
+        } catch (e: Exception) {
+            Toast.makeText(this, "Error: ${e.message}", Toast.LENGTH_SHORT).show()
+        }
+    }
+    
+    private fun startHistoricalScan() {
+        try {
+            val cfg = vm.ui.value.config
+            
+            // Show progress toast
+            Toast.makeText(this, "📊 Starting historical scan...", Toast.LENGTH_SHORT).show()
+            
+            // Start scan in background
+            com.lifecyclebot.engine.HistoricalChartScanner.startScan(
+                hoursBack = cfg.historicalScanHoursBack,
+                onProgress = { pct, total, msg ->
+                    // Update UI periodically (every 10%)
+                    if (pct % 10 == 0) {
+                        runOnUiThread {
+                            try {
+                                Toast.makeText(this@MainActivity, 
+                                    "📊 Scan: $pct% ($total tokens)", 
+                                    Toast.LENGTH_SHORT).show()
+                            } catch (_: Exception) {}
+                        }
+                    }
+                },
+                onComplete = { analyzed, learned ->
+                    runOnUiThread {
+                        try {
+                            AlertDialog.Builder(this@MainActivity, R.style.Theme_LifecycleBot_Dialog)
+                                .setTitle("✅ Scan Complete!")
+                                .setMessage("""
+Analyzed: $analyzed tokens
+Patterns Learned: $learned
+
+The AI brain has been updated with new insights from historical data.
+                                """.trimIndent())
+                                .setPositiveButton("Great!") { d, _ -> d.dismiss() }
+                                .show()
+                            performHaptic()
+                        } catch (_: Exception) {}
+                    }
+                }
+            )
+        } catch (e: Exception) {
+            Toast.makeText(this, "Scan error: ${e.message}", Toast.LENGTH_LONG).show()
+        }
+    }
+
     // ── Learning Stats Popup ────────────────────────────────────────────
     private fun showLearningStats() {
         try {

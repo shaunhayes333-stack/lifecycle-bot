@@ -195,6 +195,11 @@ data class BotConfig(
     // Share learnings with community for collective intelligence
     val cloudSyncEnabled: Boolean = true,       // opt-in to share learnings (privacy-safe)
     val cloudUseCommWeights: Boolean = true,    // use community-learned weights
+    // ── Historical Chart Scanner ────────────────────────────────────────
+    // Backtest and learn from historical charts across the SOL network
+    val autoHistoricalScanEnabled: Boolean = true,  // auto-scan on startup (if >12h since last)
+    val historicalScanHoursBack: Int = 24,          // how many hours of history to scan
+    val historicalScanMinLiquidity: Double = 2000.0, // min liquidity for tokens to scan
 )
 
 /** Persists config — private key stored in EncryptedSharedPreferences */
