@@ -41,7 +41,7 @@ object PositionSizing {
         return try {
             // Safety checks
             if (walletSol <= 0 || avgLossPct <= 0) {
-                return config.posSizeSol.coerceAtMost(walletSol * 0.1)
+                return config.smallBuySol.coerceAtMost(walletSol * 0.1)
             }
             
             // Kelly Criterion: f* = (bp - q) / b
@@ -65,7 +65,7 @@ object PositionSizing {
             size *= modeMultiplier
             
             // Apply config limits
-            size = size.coerceIn(config.posSizeMinSol, config.posSizeSol)
+            size = size.coerceIn(config.smallBuySol, config.maxPositionSol)
             
             // Never risk more than 10% of wallet per trade
             size = size.coerceAtMost(walletSol * 0.10)
@@ -73,7 +73,7 @@ object PositionSizing {
             size
         } catch (e: Exception) {
             ErrorLogger.warn(TAG, "calculateKellySize error: ${e.message}")
-            config.posSizeSol.coerceAtMost(walletSol * 0.05)
+            config.smallBuySol.coerceAtMost(walletSol * 0.05)
         }
     }
     
@@ -96,7 +96,7 @@ object PositionSizing {
     ): Double {
         return try {
             if (walletSol <= 0 || stopLossPct <= 0) {
-                return config.posSizeSol.coerceAtMost(walletSol * 0.1)
+                return config.smallBuySol.coerceAtMost(walletSol * 0.1)
             }
             
             // Risk-based sizing: position = (wallet * risk%) / stopLoss%
@@ -107,7 +107,7 @@ object PositionSizing {
             size *= modeMultiplier
             
             // Apply config limits
-            size = size.coerceIn(config.posSizeMinSol, config.posSizeSol)
+            size = size.coerceIn(config.smallBuySol, config.maxPositionSol)
             
             // Never risk more than 10% of wallet per trade
             size = size.coerceAtMost(walletSol * 0.10)
@@ -115,7 +115,7 @@ object PositionSizing {
             size
         } catch (e: Exception) {
             ErrorLogger.warn(TAG, "calculateRiskBasedSize error: ${e.message}")
-            config.posSizeSol.coerceAtMost(walletSol * 0.05)
+            config.smallBuySol.coerceAtMost(walletSol * 0.05)
         }
     }
     
@@ -279,10 +279,10 @@ object PositionSizing {
             }
             
             // Apply config bounds
-            size.coerceIn(config.posSizeMinSol, config.posSizeSol)
+            size.coerceIn(config.smallBuySol, config.maxPositionSol)
         } catch (e: Exception) {
             ErrorLogger.warn(TAG, "getRecommendedSize error: ${e.message}")
-            config.posSizeSol.coerceAtMost(walletSol * 0.05)
+            config.smallBuySol.coerceAtMost(walletSol * 0.05)
         }
     }
 }
