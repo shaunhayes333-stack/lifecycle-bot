@@ -288,9 +288,9 @@ class Executor(
                 com.lifecyclebot.v3.scoring.MetaCognitionAI.recordTradeOutcome(
                     mint = ts.mint,
                     symbol = ts.symbol,
-                    pnlPct = trade.pnlPct ?: 0.0,
+                    pnlPct = trade.pnlPct,
                     holdTimeMs = holdTimeMs,
-                    exitReason = trade.exitReason ?: "unknown"
+                    exitReason = trade.reason.ifBlank { "unknown" }
                 )
             } catch (e: Exception) {
                 // Silently ignore - meta-cognition is secondary
