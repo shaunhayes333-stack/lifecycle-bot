@@ -125,6 +125,27 @@ object V3EngineManager {
             onExecuteCallback = onExecute
             onLogCallback = onLog
             
+            // Wire TradeExecutor callback for Jupiter API integration
+            com.lifecyclebot.v3.execution.TradeExecutor.executeCallback = { candidate, size, decision, _ ->
+                // Delegate to legacy Executor for actual Jupiter swap
+                val request = ExecuteRequest(
+                    mint = candidate.mint,
+                    symbol = candidate.symbol,
+                    sizeSol = size.sizeSol,
+                    isBuy = true  // V3 only handles buys currently
+                )
+                
+                val result = onExecuteCallback?.invoke(request)
+                
+                com.lifecyclebot.v3.execution.TradeExecutionResult(
+                    success = result?.success ?: false,
+                    txSignature = result?.txSignature,
+                    executedSize = result?.executedSol ?: 0.0,
+                    executedPrice = result?.executedPrice,
+                    error = result?.error
+                )
+            }
+            
             initialized = true
             
             val modeTag = when (mode) {

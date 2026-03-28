@@ -7,6 +7,18 @@ import com.lifecyclebot.data.TokenState
  * EdgeOptimizer — Phase 2 Edge Optimization
  * ═══════════════════════════════════════════════════════════════════════
  * 
+ * @deprecated V3 ARCHITECTURE MIGRATION
+ * This legacy edge detection is being replaced by:
+ *   - MomentumAI (v3/scoring/ScoringModules.kt) - Pump detection
+ *   - MarketRegimeAI (v3/scoring/ScoringModules.kt) - Bull/Bear context
+ *   - VolumeProfileAI (v3/scoring/ScoringModules.kt) - Accumulation detection
+ * 
+ * V3 doesn't have an "edge veto" - everything becomes a score component
+ * that feeds into the unified decision engine.
+ * 
+ * MIGRATION STATUS: DEPRECATED - V3 modular scoring is the future
+ * ═══════════════════════════════════════════════════════════════════════
+ * 
  * This is where money is made. The bot becomes:
  * - Predictive (not reactive)
  * - Selective (not trading everything)
@@ -20,6 +32,10 @@ import com.lifecyclebot.data.TokenState
  * 5. Dynamic Position Sizing — size based on confidence
  * 6. Trade Filtering — become selective
  */
+@Deprecated(
+    message = "V3 Architecture Migration: Use v3/scoring/ScoringModules instead",
+    level = DeprecationLevel.WARNING
+)
 object EdgeOptimizer {
 
     // ═══════════════════════════════════════════════════════════════════

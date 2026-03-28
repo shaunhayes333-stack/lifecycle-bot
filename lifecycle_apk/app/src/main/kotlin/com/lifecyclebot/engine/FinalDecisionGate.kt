@@ -9,6 +9,18 @@ import com.lifecyclebot.engine.quant.EVCalculator
  * FinalDecisionGate (FDG)
  * ═══════════════════════════════════════════════════════════════════════════════
  * 
+ * @deprecated V3 ARCHITECTURE MIGRATION
+ * This legacy gate is being replaced by the V3 scoring-based system:
+ *   - FinalDecisionEngine (v3/decision/) - Score-based band selection
+ *   - UnifiedScorer (v3/scoring/) - Modular scoring components
+ *   - FatalRiskChecker (v3/risk/) - Only truly fatal blocks
+ * 
+ * The FDG currently runs IN PARALLEL with V3 for validation.
+ * Once V3 is proven in production, this file will be removed.
+ * 
+ * MIGRATION STATUS: DEPRECATED - V3 is the future
+ * ═══════════════════════════════════════════════════════════════════════════════
+ * 
  * The SINGLE AUTHORITATIVE CHECKPOINT that ALL trades must pass before execution.
  * 
  * Flow:
@@ -30,6 +42,11 @@ import com.lifecyclebot.engine.quant.EVCalculator
  *   - Simulate them
  *   - DO NOT execute them
  */
+@Deprecated(
+    message = "V3 Architecture Migration: Use v3/decision/FinalDecisionEngine instead",
+    replaceWith = ReplaceWith("FinalDecisionEngine", "com.lifecyclebot.v3.decision.FinalDecisionEngine"),
+    level = DeprecationLevel.WARNING
+)
 object FinalDecisionGate {
     
     // ═══════════════════════════════════════════════════════════════════════════

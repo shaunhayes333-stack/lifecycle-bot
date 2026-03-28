@@ -6,9 +6,21 @@ import java.util.concurrent.ConcurrentHashMap
 /**
  * AI-driven Entry Timing Intelligence
  * 
+ * @deprecated V3 ARCHITECTURE MIGRATION
+ * This legacy entry scoring is being replaced by:
+ *   - EntryAI (v3/scoring/ScoringModules.kt) - Entry timing scoring
+ *   - MomentumAI (v3/scoring/ScoringModules.kt) - Pump detection
+ *   - VolumeProfileAI (v3/scoring/ScoringModules.kt) - Volume analysis
+ * 
+ * MIGRATION STATUS: DEPRECATED - V3 uses modular scoring
+ * 
  * Learns optimal entry conditions from trade outcomes and provides
  * intelligent entry timing recommendations.
  */
+@Deprecated(
+    message = "V3 Architecture Migration: Use v3/scoring/ScoringModules EntryAI instead",
+    level = DeprecationLevel.WARNING
+)
 object EntryIntelligence {
     
     private const val TAG = "EntryAI"

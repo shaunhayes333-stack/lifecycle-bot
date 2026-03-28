@@ -7,6 +7,17 @@ import com.lifecyclebot.engine.ErrorLogger
  * SmartSizer — wallet-aware dynamic position sizing
  * ═══════════════════════════════════════════════════════════════
  *
+ * @deprecated V3 ARCHITECTURE MIGRATION
+ * This legacy sizer is being replaced by:
+ *   - SmartSizerV3 (v3/sizing/) - Confidence-based position sizing
+ *   - Band-based sizing tied to decision confidence
+ * 
+ * Currently runs IN PARALLEL with V3 for validation.
+ * Will be removed once V3 is proven in production.
+ * 
+ * MIGRATION STATUS: DEPRECATED - V3 is the future
+ * ═══════════════════════════════════════════════════════════════
+ *
  * The core principle: position size should be a function of
  * wallet balance, not a hardcoded SOL amount. As the wallet
  * compounds, sizes scale up automatically. As it drawdowns,

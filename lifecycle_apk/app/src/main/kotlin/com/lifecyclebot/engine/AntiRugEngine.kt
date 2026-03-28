@@ -12,6 +12,18 @@ import java.util.concurrent.TimeUnit
  * AntiRugEngine — Advanced rug pull & scam detection
  * ═══════════════════════════════════════════════════════════════════════
  *
+ * @deprecated V3 ARCHITECTURE MIGRATION
+ * This legacy anti-rug system is being replaced by:
+ *   - FatalRiskChecker (v3/risk/) - Only truly fatal rug conditions
+ *   - RugModel (v3/risk/) - Probability-based rug detection
+ *   - SellabilityCheck (v3/risk/) - Exit liquidity verification
+ * 
+ * V3 philosophy: Don't hard-block everything, score risk and let
+ * the decision engine weigh it against potential reward.
+ * 
+ * MIGRATION STATUS: DEPRECATED - V3 risk scoring is the future
+ * ═══════════════════════════════════════════════════════════════════════
+ *
  * Multi-layer protection against:
  *   🔓 Unlocked liquidity
  *   👛 Dev wallet dumps
@@ -26,6 +38,10 @@ import java.util.concurrent.TimeUnit
  *   - Top holder concentration analysis
  *   - Historical rug pattern matching
  */
+@Deprecated(
+    message = "V3 Architecture Migration: Use v3/risk/FatalRiskChecker instead",
+    level = DeprecationLevel.WARNING
+)
 object AntiRugEngine {
 
     private val http = OkHttpClient.Builder()
