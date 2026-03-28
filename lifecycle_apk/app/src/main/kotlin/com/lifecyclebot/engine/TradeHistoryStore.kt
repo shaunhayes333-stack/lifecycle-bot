@@ -132,6 +132,18 @@ object TradeHistoryStore {
         val totalStoredTrades: Int
     )
     
+    /**
+     * Get the most frequently used trading mode (for UI display)
+     */
+    fun getTopMode(): String? {
+        if (trades.isEmpty()) return null
+        return trades
+            .filter { it.tradingMode.isNotBlank() }
+            .groupBy { it.tradingMode }
+            .maxByOrNull { it.value.size }
+            ?.key
+    }
+    
     // ═══════════════════════════════════════════════════════════════════
     // PERSISTENCE
     // ═══════════════════════════════════════════════════════════════════

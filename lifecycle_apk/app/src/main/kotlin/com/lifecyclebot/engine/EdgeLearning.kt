@@ -405,4 +405,9 @@ object EdgeLearning {
      * Alias for reset() - used by SelfHealingDiagnostics.
      */
     fun clear() = reset()
+    
+    /**
+     * Get count of learned patterns for UI display
+     */
+    fun getPatternCount(): Int = stats.totalTrades
 }

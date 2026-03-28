@@ -101,12 +101,35 @@ class CollectiveBrainActivity : AppCompatActivity() {
             com.lifecyclebot.engine.CollectiveAnalytics.getSummary()
         } catch (_: Exception) { null }
         
-        val totalTrades = analyticsSummary?.collectivePatterns ?: 0
-        val estimatedInstances = analyticsSummary?.estimatedInstances ?: 0
-        
-        // Get local stats for profit/loss (we can't get cross-instance P&L from collective)
+        // Get local stats - THIS IS THE PRIMARY DATA SOURCE
         val localStats = com.lifecyclebot.engine.TradeHistoryStore.getStats()
         val localPnl = localStats.pnl24hSol
+        val localTrades = localStats.trades24h
+        val totalStoredTrades = localStats.totalStoredTrades
+        
+        // Use local trades if collective is empty (most common case)
+        val totalTrades = if ((analyticsSummary?.collectivePatterns ?: 0) > 0) {
+            analyticsSummary?.collectivePatterns ?: 0
+        } else {
+            totalStoredTrades  // Use local stored trades count
+        }
+        
+        val estimatedInstances = analyticsSummary?.estimatedInstances ?: 1 // At least this instance
+        
+        // Get TokenBlacklist count for local blacklist display
+        val localBlacklisted = try {
+            com.lifecyclebot.engine.TokenBlacklist.getBlacklistSize()
+        } catch (_: Exception) { blacklisted }
+        
+        // Get Edge Learning patterns count
+        val localPatterns = try {
+            com.lifecyclebot.engine.EdgeLearning.getPatternCount()
+        } catch (_: Exception) { patterns }
+        
+        // Get top trading mode from local history
+        val topMode = try {
+            com.lifecyclebot.engine.TradeHistoryStore.getTopMode()
+        } catch (_: Exception) { null }
         
         withContext(Dispatchers.Main) {
             // Update brain animation
@@ -114,15 +137,32 @@ class CollectiveBrainActivity : AppCompatActivity() {
             brainView.setProgress(progress)
             brainView.setTradeCount(totalTrades)
             
-            // Update text stats
+            // Update text stats - now showing LOCAL data when available
             tvTotalTrades.text = formatNumber(totalTrades)
-            tvTotalProfit.text = if (localPnl >= 0) "+${String.format("%.4f", localPnl)} SOL" else "--"
-            tvTotalProfit.setTextColor(green)
-            tvTotalLoss.text = if (localPnl < 0) "${String.format("%.4f", localPnl)} SOL" else "--"
-            tvTotalLoss.setTextColor(red)
-            tvActiveInstances.text = if (estimatedInstances > 0) "$estimatedInstances" else "—"
-            tvPatternsLearned.text = "$patterns"
-            tvBlacklistedTokens.text = "$blacklisted"
+            
+            // Show profit or loss (not both dashed)
+            if (localPnl >= 0) {
+                tvTotalProfit.text = "+${String.format("%.4f", localPnl)} SOL"
+                tvTotalProfit.setTextColor(green)
+                tvTotalLoss.text = "—"
+                tvTotalLoss.setTextColor(muted)
+            } else {
+                tvTotalProfit.text = "—"
+                tvTotalProfit.setTextColor(muted)
+                tvTotalLoss.text = "${String.format("%.4f", localPnl)} SOL"
+                tvTotalLoss.setTextColor(red)
+            }
+            
+            tvActiveInstances.text = "$estimatedInstances"
+            tvPatternsLearned.text = "$localPatterns"
+            tvBlacklistedTokens.text = "$localBlacklisted"
+            
+            // Show top mode
+            if (topMode != null) {
+                tvTopMode.text = topMode.take(15)
+            } else {
+                tvTopMode.text = "—"
+            }
             
             // Update mode stats
             updateModeStats(analyticsSummary)

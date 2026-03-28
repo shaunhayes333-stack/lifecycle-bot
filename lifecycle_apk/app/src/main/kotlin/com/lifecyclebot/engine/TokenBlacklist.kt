@@ -57,4 +57,6 @@ object TokenBlacklist {
     }
 
     val count: Int get() = blocked.size
+    
+    fun getBlacklistSize(): Int = blocked.size
 }
