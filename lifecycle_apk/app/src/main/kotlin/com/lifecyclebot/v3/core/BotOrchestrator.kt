@@ -146,9 +146,9 @@ class BotOrchestrator(
         if (decision.band in listOf(DecisionBand.EXECUTE_SMALL, DecisionBand.EXECUTE_STANDARD, DecisionBand.EXECUTE_AGGRESSIVE)) {
             if (candidate.liquidityUsd < liquidityFloor) {
                 logger.stage("LIQUIDITY_CHECK", candidate.symbol, "BLOCKED",
-                    "liq=\$${candidate.liquidityUsd.toInt()} < \$${liquidityFloor.toInt()} floor for $setupQuality-grade → WATCH ONLY")
+                    "liq=$${candidate.liquidityUsd.toInt()} < $${liquidityFloor.toInt()} floor for $setupQuality-grade → WATCH ONLY")
                 lifecycle.mark(candidate.mint, LifecycleState.WATCH)
-                shadowTracker.track(candidate, scoreCard, confidence.effective, "LOW_LIQUIDITY_\${candidate.liquidityUsd.toInt()}")
+                shadowTracker.track(candidate, scoreCard, confidence.effective, "LOW_LIQUIDITY_${candidate.liquidityUsd.toInt()}")
                 return ProcessResult.Watch(decision.finalScore, confidence.effective)
             }
         }

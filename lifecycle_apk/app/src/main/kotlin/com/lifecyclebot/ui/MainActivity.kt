@@ -255,20 +255,20 @@ class MainActivity : AppCompatActivity() {
             // V3.2: Initialize all 21 AI layers via AIStartupCoordinator
             // This ensures all AI modules are loaded and ready before trading starts
             // ════════════════════════════════════════════════════════════════════════════
-            lifecycleScope.launch(kotlinx.coroutines.Dispatchers.Default) {
+            lifecycleScope.launch {
                 try {
-                    val result = com.lifecyclebot.v3.core.AIStartupCoordinator.initialize(this)
-                    kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Main) {
-                        if (result.success) {
-                            com.lifecyclebot.engine.ErrorLogger.info("MainActivity", 
-                                "AI System initialized: ${result.readyLayers} ready, " +
-                                "${result.degradedLayers} degraded, ${result.failedLayers} failed")
-                        } else {
-                            com.lifecyclebot.engine.ErrorLogger.error("MainActivity", 
-                                "AI System FAILED: ${result.message}")
-                            Toast.makeText(this@MainActivity, 
-                                "⚠️ Some AI layers failed to initialize", Toast.LENGTH_LONG).show()
-                        }
+                    val result = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Default) {
+                        com.lifecyclebot.v3.core.AIStartupCoordinator.initialize(this)
+                    }
+                    if (result.success) {
+                        com.lifecyclebot.engine.ErrorLogger.info("MainActivity", 
+                            "AI System initialized: ${result.readyLayers} ready, " +
+                            "${result.degradedLayers} degraded, ${result.failedLayers} failed")
+                    } else {
+                        com.lifecyclebot.engine.ErrorLogger.error("MainActivity", 
+                            "AI System FAILED: ${result.message}")
+                        Toast.makeText(this@MainActivity, 
+                            "⚠️ Some AI layers failed to initialize", Toast.LENGTH_LONG).show()
                     }
                 } catch (e: Exception) {
                     com.lifecyclebot.engine.ErrorLogger.error("MainActivity", 
@@ -2062,10 +2062,9 @@ risking real capital.
      */
     private fun showRegimesDialog() {
         try {
-            val router = com.lifecyclebot.v3.modes.MarketStructureRouter
-            val regimes = router.MarketRegime.values()
-            val modes = router.StructureMode.values()
-            val statusText = router.getStatus()
+            val regimes = com.lifecyclebot.v3.modes.MarketStructureRouter.MarketRegime.values()
+            val modes = com.lifecyclebot.v3.modes.MarketStructureRouter.StructureMode.values()
+            val statusText = com.lifecyclebot.v3.modes.MarketStructureRouter.getStatus()
             val regimeTransitionStatus = com.lifecyclebot.v3.scoring.RegimeTransitionAI.getStatus()
             
             // Build regime summary
