@@ -205,8 +205,8 @@ object PanicReversionModel {
             
             // Momentum turning bonus
             if (momentum in listOf(
-                MomentumPredictorAI.MomentumPrediction.ACCUMULATION,
-                MomentumPredictorAI.MomentumPrediction.PUMP_BUILDING
+                MomentumPredictorAI.MomentumPrediction.PUMP_BUILDING,
+                MomentumPredictorAI.MomentumPrediction.STRONG_PUMP
             )) {
                 score += 8
             }

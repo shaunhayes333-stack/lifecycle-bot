@@ -84,8 +84,7 @@ object FlowImbalanceModel {
             
             val isMomentumUp = momentum in listOf(
                 MomentumPredictorAI.MomentumPrediction.STRONG_PUMP,
-                MomentumPredictorAI.MomentumPrediction.PUMP_BUILDING,
-                MomentumPredictorAI.MomentumPrediction.ACCUMULATION
+                MomentumPredictorAI.MomentumPrediction.PUMP_BUILDING
             )
             
             // Must have positive momentum

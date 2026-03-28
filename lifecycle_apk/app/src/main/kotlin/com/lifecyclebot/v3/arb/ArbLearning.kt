@@ -227,7 +227,7 @@ object ArbLearning {
             
             // Recent outcomes
             val recentOutcomes = JSONArray()
-            outcomes.takeLast(20).forEach { outcome ->
+            outcomes.toList().takeLast(20).forEach { outcome ->
                 recentOutcomes.put(JSONObject().apply {
                     put("symbol", outcome.symbol)
                     put("type", outcome.arbType.name)
