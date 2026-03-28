@@ -439,7 +439,7 @@ class Executor(
     }
 
     fun doGraduatedAdd(ts: TokenState, addSol: Double, newPhase: Int) {
-        val price = ts.ref
+        val price = getActualPrice(ts)  // CRITICAL FIX: Use actual price, not market cap
         if (price <= 0 || !ts.position.isOpen) return
         
         val addTokens = addSol / maxOf(price, 1e-12)
@@ -1062,7 +1062,7 @@ class Executor(
                 lockedProfitFloor = pos.lockedProfitFloor + solBack,
             )
             
-            val trade = Trade("SELL", "live", solBack, ts.ref,
+            val trade = Trade("SELL", "live", solBack, getActualPrice(ts),  // CRITICAL FIX: Use actual price
                 System.currentTimeMillis(), reason,
                 pnlSol, pnlPct, sig = sig, feeSol = feeSol, netPnlSol = netPnl)
             recordTrade(ts, trade)
@@ -1496,7 +1496,7 @@ class Executor(
         val isSellAction = (signal in listOf("SELL", "EXIT")) || 
             (ts.position.isOpen && PrecisionExitLogic.quickCheck(
                 mint = ts.mint,
-                currentPrice = ts.ref,
+                currentPrice = getActualPrice(ts),  // CRITICAL FIX: Use actual price
                 entryPrice = ts.position.entryPrice,
                 stopLossPct = cfg().stopLossPct,
             )?.shouldExit == true)
@@ -1517,7 +1517,7 @@ class Executor(
         if (ts.position.isOpen) {
             ShadowLearningEngine.onPriceUpdate(
                 mint = ts.mint,
-                currentPrice = ts.ref,
+                currentPrice = getActualPrice(ts),  // CRITICAL FIX: Use actual price
                 liveStopLossPct = cfg().stopLossPct,
                 liveTakeProfitPct = 200.0,  // Default take profit threshold
             )
@@ -1527,7 +1527,7 @@ class Executor(
             // ════════════════════════════════════════════════════════════════
             val quickExit = PrecisionExitLogic.quickCheck(
                 mint = ts.mint,
-                currentPrice = ts.ref,
+                currentPrice = getActualPrice(ts),  // CRITICAL FIX: Use actual price
                 entryPrice = ts.position.entryPrice,
                 stopLossPct = cfg().stopLossPct,
             )
@@ -1583,7 +1583,7 @@ class Executor(
         // Every tick: check if this open position now qualifies for long-hold.
         // One-way ratchet — promoted positions stay long-hold until closed.
         if (ts.position.isOpen && !ts.position.isLongHold && cfg().longHoldEnabled) {
-            val gainPct   = pct(ts.position.entryPrice, ts.ref)
+            val gainPct   = pct(ts.position.entryPrice, getActualPrice(ts))  // CRITICAL FIX: Use actual price
             val c         = cfg()
             val holders   = ts.history.lastOrNull()?.holderCount ?: 0
             // Compute existing long-hold exposure locally — no BotService.instance needed
@@ -1625,7 +1625,7 @@ class Executor(
 
         // GRADUATED BUILDING - check for phase 2/3 adds
         if (cfg().paperMode && ts.position.isOpen && !ts.position.isFullyBuilt) {
-            val result = shouldGraduatedAdd(ts.position, ts.ref, ts.meta.volScore)
+            val result = shouldGraduatedAdd(ts.position, getActualPrice(ts), ts.meta.volScore)  // CRITICAL FIX: Use actual price
             if (result != null) {
                 val (addSol, newPhase) = result
                 doGraduatedAdd(ts, addSol, newPhase)
@@ -1695,7 +1695,7 @@ class Executor(
             if (!isPaperMode && TradeStateMachine.isInCooldown(ts.mint)) {
                 val lastTrade = ts.trades.lastOrNull()
                 val wasProfit = lastTrade?.let { it.side == "SELL" && (it.pnlPct ?: 0.0) > 0 } ?: false
-                val priceDroppedFromExit = lastTrade?.let { ts.ref < it.price * 0.85 } ?: false  // 15%+ below exit
+                val priceDroppedFromExit = lastTrade?.let { getActualPrice(ts) < it.price * 0.85 } ?: false  // 15%+ below exit
                 val scoreImproved = entryScore >= 50  // Good entry score
                 
                 // Allow re-entry if: profitable last trade + price dipped + good score
@@ -1716,7 +1716,7 @@ class Executor(
             // Check entry pattern (spike → pullback → re-acceleration)
             // SKIP PATTERN REQUIREMENT IN PAPER MODE - trade immediately to learn
             val priceHistory = ts.history.map { it.priceUsd }
-            val optimalEntry = if (isPaperMode) true else TradeStateMachine.detectEntryPattern(ts.mint, ts.ref, priceHistory)
+            val optimalEntry = if (isPaperMode) true else TradeStateMachine.detectEntryPattern(ts.mint, getActualPrice(ts), priceHistory)  // CRITICAL FIX: Use actual price
             
             // If we have entry pattern requirement enabled, wait for optimal entry
             // DISABLED IN PAPER MODE
@@ -1902,7 +1902,7 @@ class Executor(
             ShadowLearningEngine.onTradeOpportunity(
                 mint = ts.mint,
                 symbol = ts.symbol,
-                currentPrice = ts.ref,
+                currentPrice = getActualPrice(ts),  // CRITICAL FIX: Use actual price
                 liveEntryScore = entryScore.toInt(),
                 liveEntryThreshold = 42,  // base entry threshold
                 liveSizeSol = size,
@@ -1971,7 +1971,7 @@ class Executor(
             // Evaluates position and can recommend mode switches
             // ═══════════════════════════════════════════════════════════════
             try {
-                val currentPnlPct = ((ts.ref - ts.position.entryPrice) / ts.position.entryPrice) * 100
+                val currentPnlPct = ((getActualPrice(ts) - ts.position.entryPrice) / ts.position.entryPrice) * 100  // CRITICAL FIX: Use actual price
                 val holdEval = kotlinx.coroutines.runBlocking {
                     HoldingLogicLayer.evaluatePosition(
                         position = ts.position,
@@ -2013,7 +2013,7 @@ class Executor(
             // V8 quick exit check
             val quickExit = PrecisionExitLogic.quickCheck(
                 mint = identity.mint,
-                currentPrice = ts.ref,
+                currentPrice = getActualPrice(ts),  // CRITICAL FIX: Use actual price
                 entryPrice = ts.position.entryPrice,
                 stopLossPct = cfg().stopLossPct,
             )
@@ -2066,7 +2066,7 @@ class Executor(
             }
             
             if (cfg().paperMode && !ts.position.isFullyBuilt) {
-                val result = shouldGraduatedAdd(ts.position, ts.ref, decision.meta.volScore)
+                val result = shouldGraduatedAdd(ts.position, getActualPrice(ts), decision.meta.volScore)  // CRITICAL FIX: Use actual price
                 if (result != null) {
                     val (addSol, newPhase) = result
                     doGraduatedAdd(ts, addSol, newPhase)
@@ -2188,7 +2188,7 @@ class Executor(
         ShadowLearningEngine.onTradeOpportunity(
             mint = ts.mint,
             symbol = ts.symbol,
-            currentPrice = ts.ref,
+            currentPrice = getActualPrice(ts),  // CRITICAL FIX: Use actual price
             liveEntryScore = decision.entryScore.toInt(),
             liveEntryThreshold = 42,
             liveSizeSol = size,
@@ -2217,7 +2217,7 @@ class Executor(
             return
         }
 
-        val gainPct = pct(pos.entryPrice, ts.ref)
+        val gainPct = pct(pos.entryPrice, getActualPrice(ts))  // CRITICAL FIX: Use actual price
         onLog("🔺 TOP-UP #${pos.topUpCount + 1}: ${ts.symbol} " +
               "+${gainPct.toInt()}% gain | adding ${size.fmt(4)} SOL " +
               "(total will be ${(pos.costSol + size).fmt(4)} SOL)", ts.mint)
@@ -2244,7 +2244,7 @@ class Executor(
 
     private fun paperTopUp(ts: TokenState, sol: Double) {
         val pos   = ts.position
-        val price = ts.ref
+        val price = getActualPrice(ts)  // CRITICAL FIX: Use actual price
         if (price <= 0) return
 
         val newQty    = sol / maxOf(price, 1e-12)
@@ -2307,7 +2307,7 @@ class Executor(
             }
             val sig    = wallet.signSendAndConfirm(txResult.txBase64, useJito, jitoTip, ultraReqId, c.jupiterApiKey)
             val pos    = ts.position
-            val price  = ts.ref
+            val price  = getActualPrice(ts)  // CRITICAL FIX: Use actual price
             val newQty = quote.outAmount.toDouble() / tokenScale(quote.outAmount)
 
             ts.position = pos.copy(
@@ -2472,7 +2472,7 @@ class Executor(
         
         for ((mint, shadow) in shadowPositions) {
             val ts = tokenStates[mint] ?: continue
-            val currentPrice = ts.ref
+            val currentPrice = getActualPrice(ts)  // CRITICAL FIX: Use actual price
             if (currentPrice <= 0) continue
             
             val pnlPct = ((currentPrice - shadow.entryPrice) / shadow.entryPrice) * 100
@@ -2798,7 +2798,7 @@ class Executor(
         val identity = TradeIdentityManager.getOrCreate(ts.mint, ts.symbol, ts.source)
         
         // Mark as executed in identity
-        identity.executed(ts.ref, sizeSol, isPaper)
+        identity.executed(getActualPrice(ts), sizeSol, isPaper)  // CRITICAL FIX: Use actual price
         
         if (isPaper) {
             // Paper buy with V3 metadata
@@ -2835,7 +2835,7 @@ class Executor(
             com.lifecyclebot.v3.V3EngineManager.recordEntry(
                 mint = ts.mint,
                 symbol = ts.symbol,
-                entryPrice = ts.ref,
+                entryPrice = getActualPrice(ts),  // CRITICAL FIX: Use actual price
                 sizeSol = sizeSol,
                 v3Score = v3Score,
                 v3Band = v3Band,
@@ -2915,7 +2915,7 @@ class Executor(
             val ultraReqId = if (quote.isUltra) txResult.requestId else null
             val sig = wallet.signSendAndConfirm(txResult.txBase64, useJito, jitoTip, ultraReqId, c.jupiterApiKey)
             val qty   = quote.outAmount.toDouble() / tokenScale(quote.outAmount)
-            val price = ts.ref
+            val price = getActualPrice(ts)  // CRITICAL FIX: Use actual price
 
             // Single position enforcement (re-check after await)
             if (ts.position.isOpen) {
@@ -3140,7 +3140,7 @@ class Executor(
         val tradeId = identity ?: TradeIdentityManager.getOrCreate(ts.mint, ts.symbol, ts.source)
         
         val pos   = ts.position
-        val price = ts.ref
+        val price = getActualPrice(ts)  // CRITICAL FIX: Use actual price
         if (!pos.isOpen || price == 0.0) return
         
         // ═══════════════════════════════════════════════════════════════════
@@ -4106,7 +4106,7 @@ class Executor(
                 }
             }
             
-            val price   = ts.ref
+            val price   = getActualPrice(ts)  // CRITICAL FIX: Use actual price
             val solBack = quote.outAmount / 1_000_000_000.0
             pnl  = solBack - pos.costSol
             pnlP = pct(pos.costSol, solBack)
@@ -4164,7 +4164,7 @@ class Executor(
         }
 
         // pnl/pnlP are now valid (try succeeded, otherwise we returned above)
-        val exitPrice = ts.ref  // capture before position reset clears it
+        val exitPrice = getActualPrice(ts)  // CRITICAL FIX: Use actual price - capture before position reset
         
         // ═══════════════════════════════════════════════════════════════════
         // TRADE OUTCOME CLASSIFICATION (TIGHTENED - same as paperSell)
@@ -4629,7 +4629,7 @@ class Executor(
                 if (!pos.isOpen) continue
                 
                 val gainPct = if (pos.entryPrice > 0) {
-                    ((ts.ref - pos.entryPrice) / pos.entryPrice * 100)
+                    ((getActualPrice(ts) - pos.entryPrice) / pos.entryPrice * 100)  // CRITICAL FIX: Use actual price
                 } else 0.0
                 
                 onLog("🔴 EMERGENCY CLOSE: ${ts.symbol} @ ${gainPct.toInt()}% gain | reason=bot_shutdown", ts.mint)
@@ -4648,7 +4648,7 @@ class Executor(
                 if (paperMode) {
                     try {
                         val pos = ts.position
-                        val value = pos.qtyToken * ts.ref
+                        val value = pos.qtyToken * getActualPrice(ts)  // CRITICAL FIX: Use actual price
                         onPaperBalanceChange?.invoke(value)
                         ts.position = com.lifecyclebot.data.Position()
                         onLog("📝 Force-closed paper position: ${ts.symbol}", ts.mint)

@@ -26,7 +26,9 @@ data class Candle(
         return buysH1.toDouble() / t
     }
     val vol: Double get() = if (volumeH1 > 0) volumeH1 else volume24h
-    val ref: Double get() = if (marketCap > 0) marketCap else priceUsd
+    // CRITICAL FIX: ref should return PRICE, not market cap! 
+    // Market cap was causing astronomical P&L calculations (+98 billion %)
+    val ref: Double get() = priceUsd  // Always return actual price
 
     // Upper wick ratio: (high - close) / (high - low)
     // > 0.4 = long upper wick = buyers rejected at this level = spike top signal
@@ -186,7 +188,9 @@ data class TokenState(
     var safety: com.lifecyclebot.engine.SafetyReport = com.lifecyclebot.engine.SafetyReport(),
     var lastSafetyCheck: Long = 0L,
 ) {
-    val ref get() = if (lastMcap > 0) lastMcap else lastPrice
+    // CRITICAL FIX: ref should return PRICE, not market cap!
+    // Market cap was causing astronomical P&L calculations (+98 billion %)
+    val ref get() = lastPrice  // Always return actual price
 }
 
 data class BotStatus(

@@ -159,7 +159,8 @@ object BondingCurveTracker {
         val recent = hist.takeLast(5)
         if (recent.size < 2) return -1.0
         val timeMins   = (recent.last().ts - recent.first().ts) / 60_000.0
-        val mcapChange = recent.last().ref - recent.first().ref
+        // CRITICAL FIX: Use marketCap directly, not ref (which now returns price)
+        val mcapChange = recent.last().marketCap - recent.first().marketCap
         if (timeMins <= 0 || mcapChange <= 0) return -1.0
         val ratePerMin = mcapChange / timeMins
         return ((gradMcap - currentMcap) / ratePerMin).coerceAtMost(999.0)
