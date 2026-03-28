@@ -1424,6 +1424,24 @@ class BotService : Service() {
                         // ═══════════════════════════════════════════════════════════════════
                         if (com.lifecyclebot.collective.CollectiveLearning.isEnabled()) {
                             try {
+                                // V3.2: Upload instance heartbeat for active instance counting
+                                val instanceId = prefs?.getString("instance_id", null) 
+                                    ?: java.util.UUID.randomUUID().toString().also { 
+                                        prefs?.edit()?.putString("instance_id", it)?.apply() 
+                                    }
+                                val localStats = TradeHistoryStore.getStats()
+                                val pnl24hPct = if (localStats.trades24h > 0) {
+                                    (localStats.pnl24hSol / (localStats.trades24h * 0.1).coerceAtLeast(0.01)) * 100
+                                } else 0.0
+                                
+                                com.lifecyclebot.collective.CollectiveLearning.uploadHeartbeat(
+                                    instanceId = instanceId,
+                                    appVersion = com.lifecyclebot.BuildConfig.VERSION_NAME,
+                                    paperMode = status.paperMode,
+                                    trades24h = localStats.trades24h,
+                                    pnl24hPct = pnl24hPct
+                                )
+                                
                                 // Sync mode learning stats to collective
                                 val modeStats = ModeLearning.getAllModeStats()
                                 val snapshots = modeStats.mapValues { (_, stats) ->

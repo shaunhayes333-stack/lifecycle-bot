@@ -306,6 +306,79 @@ object CollectiveLearning {
     }
     
     // ═══════════════════════════════════════════════════════════════════════════
+    // INSTANCE HEARTBEAT (V3.2: Track active instances)
+    // ═══════════════════════════════════════════════════════════════════════════
+    
+    /**
+     * Upload a heartbeat to track this instance as active.
+     * Call this periodically (every 5 minutes) from BotService.
+     */
+    suspend fun uploadHeartbeat(
+        instanceId: String,
+        appVersion: String,
+        paperMode: Boolean,
+        trades24h: Int,
+        pnl24hPct: Double
+    ) {
+        if (!isEnabled()) return
+        
+        try {
+            val now = System.currentTimeMillis()
+            
+            val sql = """
+                INSERT INTO instance_heartbeats 
+                    (instance_id, last_heartbeat, app_version, paper_mode, trades_24h, pnl_24h_pct)
+                VALUES (?, ?, ?, ?, ?, ?)
+                ON CONFLICT(instance_id) DO UPDATE SET
+                    last_heartbeat = excluded.last_heartbeat,
+                    app_version = excluded.app_version,
+                    paper_mode = excluded.paper_mode,
+                    trades_24h = excluded.trades_24h,
+                    pnl_24h_pct = excluded.pnl_24h_pct
+            """
+            
+            client!!.execute(sql, listOf(
+                instanceId,
+                now,
+                appVersion,
+                if (paperMode) 1 else 0,
+                trades24h,
+                pnl24hPct
+            ))
+            
+            Log.d(TAG, "💓 Heartbeat sent: $instanceId")
+        } catch (e: Exception) {
+            Log.e(TAG, "Heartbeat error: ${e.message}")
+        }
+    }
+    
+    /**
+     * Count active instances (heartbeat within last 15 minutes).
+     */
+    suspend fun countActiveInstances(): Int {
+        if (!isEnabled()) return 1  // At least this instance
+        
+        try {
+            val fifteenMinsAgo = System.currentTimeMillis() - (15 * 60 * 1000L)
+            
+            val result = client!!.query(
+                "SELECT COUNT(*) as count FROM instance_heartbeats WHERE last_heartbeat > ?",
+                listOf(fifteenMinsAgo)
+            )
+            
+            if (result.success && result.rows.isNotEmpty()) {
+                val count = (result.rows[0]["count"] as? Number)?.toInt() ?: 1
+                Log.d(TAG, "📊 Active instances: $count")
+                return count.coerceAtLeast(1)
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "Count instances error: ${e.message}")
+        }
+        
+        return 1  // Fallback to at least this instance
+    }
+    
+    // ═══════════════════════════════════════════════════════════════════════════
     // DOWNLOAD METHODS (Get collective intelligence)
     // ═══════════════════════════════════════════════════════════════════════════
     
@@ -321,14 +394,18 @@ object CollectiveLearning {
             downloadModeStats()
             downloadWhaleStats()
             lastSyncTime = System.currentTimeMillis()
-            Log.i(TAG, "📥 Full sync completed")
+            
+            // V3.2: Count active instances
+            val activeInstances = countActiveInstances()
+            
+            Log.i(TAG, "📥 Full sync completed (${activeInstances} active instances)")
             
             // Update CollectiveAnalytics with downloaded stats
             try {
                 com.lifecyclebot.engine.CollectiveAnalytics.updateCollectiveStats(
                     totalPatterns = cachedPatterns.size,
                     blacklistSize = cachedBlacklist.size,
-                    estimatedInstances = 0  // We don't track this yet
+                    estimatedInstances = activeInstances
                 )
                 
                 // Update best/worst patterns

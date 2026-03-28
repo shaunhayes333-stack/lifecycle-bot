@@ -193,6 +193,18 @@ object CollectiveSchema {
         )
     """
     
+    // V3.2: Instance heartbeat for counting active bots
+    const val CREATE_INSTANCE_HEARTBEATS_TABLE = """
+        CREATE TABLE IF NOT EXISTS instance_heartbeats (
+            instance_id TEXT PRIMARY KEY NOT NULL,
+            last_heartbeat INTEGER NOT NULL,
+            app_version TEXT NOT NULL,
+            paper_mode INTEGER DEFAULT 1,
+            trades_24h INTEGER DEFAULT 0,
+            pnl_24h_pct REAL DEFAULT 0.0
+        )
+    """
+    
     // Indexes for performance
     const val CREATE_INDEXES = """
         CREATE INDEX IF NOT EXISTS idx_patterns_type ON collective_patterns(pattern_type);
@@ -202,6 +214,7 @@ object CollectiveSchema {
         CREATE INDEX IF NOT EXISTS idx_whale_hash ON whale_effectiveness(wallet_hash);
         CREATE INDEX IF NOT EXISTS idx_legal_instance ON legal_agreements(instance_id);
         CREATE INDEX IF NOT EXISTS idx_legal_type ON legal_agreements(agreement_type);
+        CREATE INDEX IF NOT EXISTS idx_heartbeat_time ON instance_heartbeats(last_heartbeat);
     """
     
     val ALL_TABLES = listOf(
@@ -210,5 +223,6 @@ object CollectiveSchema {
         CREATE_MODE_PERFORMANCE_TABLE,
         CREATE_WHALE_EFFECTIVENESS_TABLE,
         CREATE_LEGAL_AGREEMENTS_TABLE,
+        CREATE_INSTANCE_HEARTBEATS_TABLE,
     )
 }

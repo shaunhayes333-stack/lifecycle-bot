@@ -66,6 +66,25 @@ class BotOrchestrator(
         lifecycle.mark(candidate.mint, LifecycleState.ELIGIBLE)
         logger.stage("ELIGIBILITY", candidate.symbol, "PASS", "candidate eligible")
         
+        // ═══════════════════════════════════════════════════════════════════
+        // V3.2 PRE-SCORE MEMORY CHECK: Skip scoring for known losers
+        // 
+        // If TokenWinMemory score is very negative (≤ -10), this token has
+        // consistently lost money. Skip scoring entirely → straight to SHADOW.
+        // ═══════════════════════════════════════════════════════════════════
+        try {
+            val memoryScore = com.lifecyclebot.engine.TokenWinMemory.getMemoryScoreForMint(candidate.mint)
+            if (memoryScore <= -10) {
+                logger.stage("PRE_SCORE_KILL", candidate.symbol, "BLOCKED",
+                    "memory=$memoryScore ≤ -10 → SHADOW (skip scoring)")
+                lifecycle.mark(candidate.mint, LifecycleState.WATCH)
+                shadowTracker.trackEarly(candidate, memoryScore, "MEMORY_VERY_NEGATIVE_$memoryScore")
+                return ProcessResult.Watch(0.0, 0.0)
+            }
+        } catch (e: Exception) {
+            // Memory not available - continue to scoring
+        }
+        
         // ─── SCORING (The unlock - everything is a score) ───
         val scoreCard = unifiedScorer.score(candidate, ctx)
         lifecycle.mark(candidate.mint, LifecycleState.SCORED)
@@ -114,8 +133,8 @@ class BotOrchestrator(
                 logger.stage("PRE_PROPOSAL_KILL", candidate.symbol, "BLOCKED",
                     "quality=$earlyQuality conf=${effConf.toInt()}% memory=$memoryScore → SHADOW_TRACK (no CANDIDATE/PROPOSED/SIZING)")
                 lifecycle.mark(candidate.mint, LifecycleState.WATCH)
-                shadowTracker.track(candidate, scoreCard, effConf, reason)
-                return ProcessResult.Watch(scoreCard.total, effConf)
+                shadowTracker.track(candidate, scoreCard, effConf.toInt(), reason)
+                return ProcessResult.Watch(scoreCard.total.toDouble(), effConf)
             }
         }
         

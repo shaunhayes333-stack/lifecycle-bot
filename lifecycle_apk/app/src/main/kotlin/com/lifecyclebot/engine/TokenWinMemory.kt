@@ -407,6 +407,27 @@ object TokenWinMemory {
     fun getWinnerStats(mint: String): WinningToken? = winningTokens[mint]
     
     /**
+     * V3.2: Get memory score for a mint (for pre-score filtering)
+     * Returns a score from -20 to +50 based on past performance
+     * Negative = losing history, Positive = winning history
+     */
+    fun getMemoryScoreForMint(mint: String): Int {
+        val stats = winningTokens[mint] ?: return 0
+        
+        return when {
+            stats.totalPnl >= 100 -> 50   // Big winner
+            stats.totalPnl >= 50 -> 35
+            stats.totalPnl >= 20 -> 25
+            stats.totalPnl >= 10 -> 15
+            stats.totalPnl >= 0 -> 5
+            stats.totalPnl >= -10 -> -5
+            stats.totalPnl >= -20 -> -10
+            stats.totalPnl >= -50 -> -15
+            else -> -20  // Big loser
+        }
+    }
+    
+    /**
      * Get best performing pattern for display
      */
     fun getBestPatterns(limit: Int = 5): List<Pair<String, PatternStats>> {

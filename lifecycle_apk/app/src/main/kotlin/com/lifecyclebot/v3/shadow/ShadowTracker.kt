@@ -60,6 +60,26 @@ class ShadowTracker {
     }
     
     /**
+     * V3.2: Track EARLY (before scoring) for known losers
+     */
+    fun trackEarly(
+        candidate: CandidateSnapshot,
+        memoryScore: Int,
+        reason: String
+    ) {
+        tracked[candidate.mint] = ShadowSnapshot(
+            mint = candidate.mint,
+            symbol = candidate.symbol,
+            startPrice = candidate.extraDouble("price").takeIf { it > 0 },
+            startLiquidity = candidate.liquidityUsd,
+            startScore = memoryScore,  // Use memory score as proxy
+            startConfidence = 0,       // No confidence calculated yet
+            reasonTracked = reason,
+            capturedAtMs = System.currentTimeMillis()
+        )
+    }
+    
+    /**
      * Check if a token is being tracked
      */
     fun isTracked(mint: String): Boolean = tracked.containsKey(mint)
