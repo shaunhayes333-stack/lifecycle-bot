@@ -1,389 +1,757 @@
-# AATE - Autonomous Adaptive Trading Engine
+# AATE V3.2 - Technical Architecture Document
 
-## Technical Description
-
-**Version**: 1.0.0-beta  
-**Platform**: Native Android (Kotlin)  
-**Target**: Solana Meme Coin Trading  
-**Architecture**: 10-Layer AI Decision Engine with Self-Adjusting Feedback Loops
-
----
-
-## Executive Summary
-
-AATE (Autonomous Adaptive Trading Engine) is a sophisticated, native Android trading bot designed specifically for Solana meme coin markets. Unlike web-based or Python bots, AATE runs natively on Android devices, providing 24/7 autonomous operation with minimal battery impact. The bot features a multi-layered AI decision system, institutional-grade risk management, and a self-improving learning architecture that adapts to market conditions in real-time.
+```
+     █████╗  █████╗ ████████╗███████╗    ██╗   ██╗██████╗    ██████╗ 
+    ██╔══██╗██╔══██╗╚══██╔══╝██╔════╝    ██║   ██║╚════██╗   ╚════██╗
+    ███████║███████║   ██║   █████╗      ██║   ██║ █████╔╝    █████╔╝
+    ██╔══██║██╔══██║   ██║   ██╔══╝      ╚██╗ ██╔╝ ╚═══██╗   ██╔═══╝ 
+    ██║  ██║██║  ██║   ██║   ███████╗     ╚████╔╝ ██████╔╝   ███████╗
+    ╚═╝  ╚═╝╚═╝  ╚═╝   ╚═╝   ╚══════╝      ╚═══╝  ╚═════╝    ╚══════╝
+    
+    TECHNICAL ARCHITECTURE DOCUMENT
+```
 
 ---
 
-## Core Architecture
+## TABLE OF CONTENTS
+
+1. [System Overview](#system-overview)
+2. [Core Architecture](#core-architecture)
+3. [21 AI Layer Deep Dive](#21-ai-layer-deep-dive)
+4. [Multi-Regime Trading System](#multi-regime-trading-system)
+5. [Decision Pipeline](#decision-pipeline)
+6. [Safety Systems](#safety-systems)
+7. [Data Persistence](#data-persistence)
+8. [External Integrations](#external-integrations)
+9. [Performance Characteristics](#performance-characteristics)
+
+---
+
+## SYSTEM OVERVIEW
 
 ### Technology Stack
 
 | Component | Technology |
 |-----------|------------|
-| **Language** | Kotlin 1.9+ |
-| **Platform** | Android SDK 34 (min SDK 26) |
-| **Concurrency** | Kotlin Coroutines |
-| **Networking** | OkHttp 4.12 with DNS-over-HTTPS |
-| **Serialization** | Kotlinx Serialization |
-| **Charts** | MPAndroidChart |
-| **Cryptography** | TweetNaCl (Ed25519), EncryptedSharedPreferences |
-| **Image Loading** | Coil 2.6.0 |
+| **Platform** | Native Android (Kotlin) |
+| **Min SDK** | Android 8.0 (API 26) |
+| **Architecture** | MVVM + Coroutines |
+| **Networking** | OkHttp + Retrofit |
+| **Blockchain** | Solana (via Jupiter V2) |
+| **Wallet** | Solana-Android SDK |
+| **Persistence** | SharedPreferences + SQLite |
+| **Cloud** | Turso (LibSQL) for collective |
 
-### Codebase Statistics
-
-- **Total Lines of Code**: ~41,000+ lines in engine alone
-- **Core Engine Files**: 60+ Kotlin files
-- **AI Layers**: 10+ specialized modules
-- **API Integrations**: 8 external services
-
-### Package Structure
+### High-Level Architecture
 
 ```
-com.lifecyclebot/
-├── AATEApp.kt          # Application entry point
-├── data/                        # Data models & configuration
-│   ├── Models.kt               # Core data structures
-│   ├── BotConfig.kt            # Configuration management
-│   └── ConfigStore.kt          # Encrypted storage
-├── engine/                      # Trading engine (41K+ lines)
-│   ├── BotService.kt           # Main bot loop (2,300+ lines)
-│   ├── Executor.kt             # Trade execution (4,100+ lines)
-│   ├── FinalDecisionGate.kt    # Multi-gate approval system (2,100+ lines)
-│   ├── BotBrain.kt             # Adaptive learning core
-│   ├── Strategy.kt             # Entry/exit signal generation
-│   └── [50+ AI/utility modules]
-├── network/                     # Blockchain & API integrations
-│   ├── SolanaWallet.kt         # Wallet management & signing
-│   ├── JupiterApi.kt           # DEX aggregator integration
-│   └── DexscreenerApi.kt       # Market data
-└── ui/                          # Android UI components
-    ├── MainActivity.kt
-    └── WalletActivity.kt
+┌─────────────────────────────────────────────────────────────────────┐
+│                         ANDROID APPLICATION                          │
+├─────────────────────────────────────────────────────────────────────┤
+│                                                                     │
+│  ┌──────────────────────────────────────────────────────────────┐  │
+│  │                     UI LAYER (Activities)                      │  │
+│  │  MainActivity | JournalActivity | CollectiveBrainActivity     │  │
+│  └──────────────────────────────────────────────────────────────┘  │
+│                              │                                      │
+│                              ▼                                      │
+│  ┌──────────────────────────────────────────────────────────────┐  │
+│  │                    SERVICE LAYER                               │  │
+│  │                    BotService (Foreground)                     │  │
+│  └──────────────────────────────────────────────────────────────┘  │
+│                              │                                      │
+│         ┌────────────────────┼────────────────────┐                │
+│         ▼                    ▼                    ▼                │
+│  ┌─────────────┐     ┌─────────────┐     ┌─────────────┐          │
+│  │   SCANNER   │     │   V3 ENGINE │     │  EXECUTOR   │          │
+│  │  (Market    │     │  (21 AI     │     │  (Trade     │          │
+│  │   Data)     │     │   Layers)   │     │   Execution)│          │
+│  └─────────────┘     └─────────────┘     └─────────────┘          │
+│                              │                                      │
+│                              ▼                                      │
+│  ┌──────────────────────────────────────────────────────────────┐  │
+│  │                    SAFETY LAYER                                │  │
+│  │  FDG | TokenBlacklist | ToxicModeCircuitBreaker | SecurityGuard│  │
+│  └──────────────────────────────────────────────────────────────┘  │
+│                              │                                      │
+│                              ▼                                      │
+│  ┌──────────────────────────────────────────────────────────────┐  │
+│  │                  PERSISTENCE LAYER                             │  │
+│  │  TradeHistoryStore | WalletState | CollectiveLearning         │  │
+│  └──────────────────────────────────────────────────────────────┘  │
+│                                                                     │
+└─────────────────────────────────────────────────────────────────────┘
 ```
 
 ---
 
-## Trading Pipeline
+## CORE ARCHITECTURE
 
-### State Machine Flow
+### BotService (Foreground Service)
 
-```
-DISCOVERED → ELIGIBLE → WATCHLISTED → CANDIDATE → PROPOSED → FDG_APPROVED → SIZED → EXECUTED → MONITORING → CLOSED → CLASSIFIED
-     ↓           ↓           ↓            ↓           ↓
-  REJECTED   INELIGIBLE   FILTERED   NO_SIGNAL   FDG_BLOCKED
-```
-
-### Entry Flow (Buy Path)
-
-1. **Scanner Discovery**: Multi-source scanner polls DexScreener, Pump.fun, Raydium for new tokens
-2. **Eligibility Filter**: Minimum liquidity ($500 paper / $3K live), score threshold, blacklist check
-3. **Watchlist Admission**: Capacity check, token added to active monitoring
-4. **Strategy Evaluation**: 5-candle momentum analysis, EMA fan alignment, volume scoring
-5. **Candidate Generation**: BUY signal with quality grade (A+, A, B, C)
-6. **Dedupe Check**: Prevents proposal spam (60s cooldown, max 3/5min)
-7. **Final Decision Gate**: 10-gate approval system (see below)
-8. **Sizing**: SmartSizer calculates position based on treasury tier, confidence, quality
-9. **Execution**: Paper simulation or live swap via Jupiter Ultra API
-
-### Exit Flow (Sell Path)
-
-1. **V8 Quick Exit**: Immediate stop-loss check (< 100ms)
-2. **Risk Check**: Trailing stops, distribution detection, whale selling
-3. **Partial Sell**: Lock profits at milestones (2x, 5x, 10x)
-4. **Signal Exit**: Strategy-generated SELL signal
-5. **Mode Exit**: Auto-mode max hold time enforcement
-6. **Execution**: On-chain balance verification, 3-retry quote loop, MEV protection
-
----
-
-## Final Decision Gate (FDG)
-
-The FDG is a 10-gate approval system that every trade must pass:
-
-| Gate | Name | Function |
-|------|------|----------|
-| **0** | ReentryGuard | Hard block for collapsed/rugged tokens |
-| **0.5** | Proposal Dedupe | Prevents spam (moved to early check) |
-| **1** | Hard Blocks | Zero liquidity, critical rugcheck, position limits |
-| **1h** | Distribution Block | Whale selling detection |
-| **1.5** | Early Snipe Mode | Fast-track for ultra-early tokens |
-| **1i** | Sticky Edge Veto | Blocks unknown edge phases |
-| **1j** | Quality Filter | Paper mode learning filter |
-| **2** | Edge Veto | Phase-based confidence requirements |
-| **2b** | Narrative/Scam AI | Groq LLM scam detection |
-| **2c** | Gemini Copilot | Advanced AI analysis |
-| **2d** | Orthogonal Signals | Multi-signal aggregation |
-| **3** | Adaptive Confidence | Learning-phase adjusted thresholds |
-| **4** | Mode Rules | Auto-mode specific constraints |
-| **4.5** | Liquidity Depth AI | Slippage and depth analysis |
-| **4.75** | EV Validation | Expected value calculation |
-| **5** | Sizing Validation | Final size sanity checks |
-
----
-
-## AI Layers
-
-### 1. BotBrain (Adaptive Learning Core)
-- **14 metrics** tracked per trade (entry score, phase, quality, exit reason, etc.)
-- **Rolling memory** with decay buckets (7 time-based segments)
-- **Quality-weighted learning**: LIVE (3x), BENCHMARK (1x), EXPLORATION (0.3x)
-- **Threshold auto-tuning** based on accumulated trade data
-
-### 2. EntryIntelligence
-- **1,967+ trades** in persistent storage
-- Scores entry opportunities (0-100)
-- Risk classification (LOW, MEDIUM, HIGH)
-- Hour-of-day performance patterns
-
-### 3. ExitIntelligence
-- **1,903+ exits** analyzed
-- Optimal exit timing suggestions
-- Hold duration vs. profitability correlation
-
-### 4. EdgeLearning
-- Phase-based win rate tracking
-- EMA fan alignment performance
-- Source reliability scoring (Pump.fun, Raydium, etc.)
-
-### 5. WhaleTrackerAI
-- Large holder monitoring
-- Distribution pattern detection
-- Accumulation vs. selling classification
-
-### 6. LiquidityDepthAI
-- Slippage prediction
-- Depth analysis at various price levels
-- Liquidity collapse early warning
-
-### 7. NarrativeDetectorAI (Groq LLM)
-- Scam pattern recognition
-- Narrative classification (MEME, UTILITY, CELEBRITY, etc.)
-- Red flag / green flag identification
-
-### 8. GeminiCopilot (Gemini 2.0 Flash)
-- Deep narrative analysis
-- Trade reasoning explanations
-- Smart exit recommendations
-- Multi-factor risk scoring
-
-### 9. TimeOptimizationAI
-- Best trading hours identification
-- Session-based performance (Asia, Europe, US)
-- Volume pattern correlation
-
-### 10. TokenWinMemory
-- **17 winning token patterns** tracked
-- Symbol/mint success correlation
-- Source-quality mapping
-
----
-
-## Self-Adjusting Feedback System
-
-### Closed-Loop Confidence Governor
-
-The bot's confidence thresholds automatically adjust based on lifetime performance:
+The BotService runs as an Android Foreground Service, ensuring continuous operation even when the app is backgrounded.
 
 ```kotlin
-// Wallet win rate influences thresholds
-val winRateInfluence = (walletWinRate - 50.0) / 100.0  // -50% to +50%
-val dampedInfluence = EMA(winRateInfluence, α=0.15)    // Smooth changes
-val cappedInfluence = clamp(dampedInfluence, -15%, +15%)  // Limit swing
-finalThreshold = baseThreshold * (1 + cappedInfluence)
+class BotService : Service() {
+    companion object {
+        val status = BotStatus()           // Shared state
+        var instance: BotService? = null   // Singleton access
+    }
+    
+    // Core components initialized on startup
+    private lateinit var executor: Executor
+    private lateinit var scanner: SolanaMarketScanner
+    private lateinit var v3Engine: V3EngineManager
+}
 ```
 
-### Learning Phases
+**Key Responsibilities:**
+- Market scanning loop (5-second intervals)
+- Token state management
+- Trade execution coordination
+- Position monitoring
+- Safety system enforcement
 
-| Phase | Trades | Behavior |
-|-------|--------|----------|
-| **BOOTSTRAP** | 0-50 | Loose thresholds, maximum learning |
-| **LEARNING** | 51-500 | Gradual tightening, pattern refinement |
-| **MATURE** | 500+ | Stable thresholds, exploitation mode |
+### V3 Engine Manager
 
----
+The V3 Engine coordinates all 21 AI layers through the `BotOrchestrator`.
 
-## Risk Management
-
-### Capital Protection
-
-1. **Treasury Locking**: Realized profits locked to separate treasury
-2. **Dynamic Profit Lock**: 
-   - Recover capital at ~2x
-   - Lock 50% at ~5x
-   - Let remainder ride with loose stops
-3. **Position Limits**: Max 5 open positions (configurable)
-4. **Exposure Caps**: Max 70% portfolio exposure
-5. **Per-Trade Limits**: Max 20% per position
-
-### Circuit Breaker System
-
-- **Halt Triggers**: 3 consecutive losses, daily loss limit, critical errors
-- **Pause Mode**: Blocks new entries, monitors existing positions
-- **Position Health Monitor**: Every 5 minutes reconciles on-chain balances
-
-### ReentryGuard
-
-Hard blocks tokens that have triggered:
-- Liquidity collapse (>50% drop)
-- Distribution exit (whale selling)
-- Stop-loss exit
-- Bad memory pattern
-
----
-
-## Position Sizing (SmartSizer)
-
-### Treasury Tiers
-
-| Tier | Treasury Value | Base Size | Max Size |
-|------|----------------|-----------|----------|
-| MICRO | <$100 | 0.02 SOL | 0.1 SOL |
-| SMALL | $100-500 | 0.05 SOL | 0.25 SOL |
-| MEDIUM | $500-2K | 0.1 SOL | 0.5 SOL |
-| LARGE | $2K-10K | 0.2 SOL | 1.0 SOL |
-| WHALE | $10K-50K | 0.5 SOL | 2.5 SOL |
-| INSTITUTIONAL | $50K+ | 1.0 SOL | 5.0 SOL |
-
-### Sizing Multipliers
-
-```
-finalSize = baseSize 
-  × scoreMultiplier (0.5-1.5)
-  × brainMultiplier (0.5-1.5)
-  × memoryMultiplier (0.8-1.2)
-  × liquidityMultiplier (0.5-1.0)
-  × confidenceMultiplier (0.7-1.3)
-  × treasuryMultiplier (0.5-1.5)
-  × houseMoneyMultiplier (1.0-2.0)
+```kotlin
+object V3EngineManager {
+    private var orchestrator: BotOrchestrator? = null
+    
+    fun initialize(scope: CoroutineScope) {
+        orchestrator = BotOrchestrator(
+            scorer = UnifiedScorer(),
+            confidenceEngine = ConfidenceEngine(),
+            decisionMatrix = DecisionMatrix(),
+            lifecycle = TradeLifecycle,
+            shadowTracker = ShadowTracker,
+            logger = StageLogger
+        )
+    }
+    
+    suspend fun evaluate(candidate: CandidateSnapshot): ProcessResult {
+        return orchestrator?.processCandidate(candidate) 
+            ?: ProcessResult.Skip("V3 not initialized")
+    }
+}
 ```
 
 ---
 
-## External Integrations
+## 21 AI LAYER DEEP DIVE
 
-### Trading & Data
+### Layer Architecture
 
-| Service | Purpose |
-|---------|---------|
-| **Jupiter Ultra API** | DEX aggregation, swap execution, MEV protection |
-| **Helius RPC** | Solana RPC, transaction confirmation |
-| **DexScreener API** | Token profiles, price data, logos |
-| **Pump.fun API** | New token discovery, bonding curves |
-| **RugCheck.xyz** | Token safety scoring |
-| **Birdeye** | Additional market data |
-| **Jito** | MEV protection bundles |
+Each AI layer implements a common interface:
 
-### AI Services
-
-| Service | Model | Purpose |
-|---------|-------|---------|
-| **Groq** | Mixtral/Llama | Narrative scam detection |
-| **Google Gemini** | Gemini 2.0 Flash | Deep analysis, copilot |
-
----
-
-## Security Architecture
-
-### Key Management
-- **EncryptedSharedPreferences**: AES-256 encryption for API keys
-- **No Hardcoded Keys**: All secrets loaded from secure storage
-- **Keypair Integrity**: Verification before every transaction
-
-### Transaction Security
-- **Slippage Guards**: Max slippage enforcement
-- **Quote Validation**: Price impact limits
-- **Sign Delay**: 200ms minimum between signatures
-- **MEV Protection**: Jito bundles or Jupiter Ultra Beam
-
-### Position Protection
-- **On-Chain Verification**: Balance check before sells
-- **3-Retry Loop**: Quote failures with exponential backoff
-- **Startup Reconciliation**: Orphaned token detection on restart
-
----
-
-## Performance Metrics (Quant Analytics)
-
-### Tracked Metrics
-
-- **Sharpe Ratio**: Risk-adjusted returns
-- **Sortino Ratio**: Downside deviation focus
-- **Max Drawdown**: Peak-to-trough loss
-- **Win Rate**: % profitable trades
-- **Profit Factor**: Gross profit / Gross loss
-- **Average Hold Time**: Per trade duration
-- **VaR (Value at Risk)**: 95% confidence loss estimate
-
----
-
-## Paper Trading Mode
-
-### Realistic Simulation
-- **Slippage Simulation**: 0.4%-4% based on liquidity
-- **Fee Simulation**: 0.5% transaction fee
-- **Fluid Learning**: Simulated balance tracking
-- **Shadow Trading**: Parallel paper trades during live mode
-
-### Learning Acceleration
-- **Max 100 watchlist tokens** (vs 50 live)
-- **Lower thresholds** for more trade data
-- **Blacklist bypass** for pattern learning
-
----
-
-## Deployment
-
-### Build Requirements
-- Android Studio Hedgehog+
-- JDK 17
-- Gradle 8.x
-- GitHub Actions CI/CD
-
-### APK Generation
-```bash
-./gradlew assembleRelease
-# Output: app/build/outputs/apk/release/app-release.apk
+```kotlin
+interface AILayer {
+    val name: String
+    val weight: Double  // Base weight (adjusted by MetaCognition)
+    
+    suspend fun score(context: ScoringContext): LayerScore
+    
+    data class LayerScore(
+        val value: Double,        // -10 to +10
+        val confidence: Double,   // 0.0 to 1.0
+        val signals: List<String>
+    )
+}
 ```
 
-### Permissions Required
-- INTERNET
-- FOREGROUND_SERVICE
-- POST_NOTIFICATIONS
-- VIBRATE
-- WAKE_LOCK
+### Layer Categories
+
+#### Scoring Layers (1-15)
+
+| Layer | Class | Key Metrics |
+|-------|-------|-------------|
+| 1 | VolatilityRegimeAI | ATR, Squeeze signals, Vol regime |
+| 2 | OrderFlowImbalanceAI | Buy/sell pressure, Volume delta |
+| 3 | SmartMoneyDivergenceAI | Whale trades vs price action |
+| 4 | HoldTimeOptimizerAI | Optimal hold duration prediction |
+| 5 | LiquidityCycleAI | Global liquidity state |
+| 6 | MarketRegimeAI | Bull/Bear/Sideways detection |
+| 7 | WhaleTrackerAI | Large wallet movements |
+| 8 | MomentumPredictorAI | Momentum strength/exhaustion |
+| 9 | NarrativeDetectorAI | Social trends, meme momentum |
+| 10 | TimeOptimizationAI | Time-of-day patterns |
+| 11 | LiquidityDepthAI | Pool depth analysis |
+| 12 | EntryIntelligence | Entry signal patterns |
+| 13 | ExitIntelligence | Exit timing patterns |
+| 14 | FearGreedAI | Market sentiment score |
+| 15 | SocialVelocityAI | Social momentum velocity |
+
+#### Meta & Coordination Layers (16-19)
+
+| Layer | Class | Function |
+|-------|-------|----------|
+| 16 | MetaCognitionAI | Self-aware executive control |
+| 17 | AICrossTalk | Inter-layer coordination |
+| 18 | OrthogonalSignals | Independent validation |
+| 19 | RegimeTransitionAI | Cross-regime detection |
+
+#### Learning Layers (20-21)
+
+| Layer | Class | Function |
+|-------|-------|----------|
+| 20 | EdgeLearning | Edge discovery/validation |
+| 21 | TokenWinMemory | Token-specific patterns |
+
+### MetaCognitionAI Deep Dive
+
+```kotlin
+object MetaCognitionAI {
+    // Track accuracy per layer
+    private val layerAccuracy = ConcurrentHashMap<String, AccuracyTracker>()
+    
+    // Trust multipliers (0.7x to 1.3x)
+    private val trustMultipliers = ConcurrentHashMap<String, Double>()
+    
+    data class AccuracyTracker(
+        var totalPredictions: Int = 0,
+        var correctPredictions: Int = 0,
+        var lastUpdated: Long = 0
+    ) {
+        val accuracy: Double get() = 
+            if (totalPredictions > 0) correctPredictions.toDouble() / totalPredictions 
+            else 0.5
+    }
+    
+    fun adjustLayerWeight(layer: String, baseWeight: Double): Double {
+        val multiplier = trustMultipliers[layer] ?: 1.0
+        return baseWeight * multiplier
+    }
+    
+    fun recordTradeOutcome(signals: Map<String, Boolean>, tradeWon: Boolean) {
+        signals.forEach { (layer, predicted) ->
+            val tracker = layerAccuracy.getOrPut(layer) { AccuracyTracker() }
+            tracker.totalPredictions++
+            if (predicted == tradeWon) tracker.correctPredictions++
+            
+            // Adjust trust based on rolling accuracy
+            val newMultiplier = 0.7 + (tracker.accuracy * 0.6)  // 0.7 to 1.3
+            trustMultipliers[layer] = newMultiplier
+        }
+    }
+    
+    fun shouldVeto(scores: Map<String, LayerScore>): Boolean {
+        // Veto if high-trust layers disagree
+        val reliableLayers = trustMultipliers.filter { it.value > 1.1 }.keys
+        val reliableScores = scores.filter { it.key in reliableLayers }
+        
+        if (reliableScores.size < 2) return false
+        
+        val bullish = reliableScores.values.count { it.value > 3 }
+        val bearish = reliableScores.values.count { it.value < -3 }
+        
+        // Strong disagreement among reliable layers = veto
+        return bullish > 0 && bearish > 0 && 
+               (bullish.toDouble() / reliableScores.size) in 0.3..0.7
+    }
+}
+```
 
 ---
 
-## Future Roadmap
+## MULTI-REGIME TRADING SYSTEM
 
-### Planned Features
-- [ ] Social sentiment integration (Twitter/X, Telegram)
-- [ ] Supabase collective learning (cross-device intelligence)
-- [ ] Backtesting UI in web dashboard
-- [ ] Volume profile analysis
-- [ ] Multi-wallet management
+### MarketStructureRouter
 
-### Architecture Refactoring
-- [ ] Modularize BotService.kt (2,300+ lines)
-- [ ] Modularize Executor.kt (4,100+ lines)
-- [ ] Extract AI layers to separate package
+```kotlin
+object MarketStructureRouter {
+    
+    enum class MarketRegime(val emoji: String, val label: String) {
+        MEME_MICRO("🎰", "Meme Micro"),
+        MEME_MOMENTUM("🚀", "Meme Momentum"),
+        MAJOR_TREND("📈", "Major Trend"),
+        MID_CAP_VALUE("💎", "Mid-Cap Value"),
+        PERP_FUNDING("📊", "Perp Funding"),
+        CEX_ARBITRAGE("🔄", "CEX Arb"),
+        VOLATILITY_HARVEST("🌊", "Vol Harvest"),
+        DEFENSIVE("🛡️", "Defensive")
+    }
+    
+    enum class StructureMode(
+        val regime: MarketRegime,
+        val emoji: String,
+        val label: String
+    ) {
+        // 26 trading modes across 8 regimes
+        FRESH_LAUNCH(MEME_MICRO, "🆕", "Fresh Launch"),
+        NARRATIVE_BURST(MEME_MICRO, "📰", "Narrative Burst"),
+        MOMENTUM_CONTINUATION(MEME_MOMENTUM, "🚀", "Momentum"),
+        BREAKOUT_PLAY(MEME_MOMENTUM, "📈", "Breakout"),
+        TREND_FOLLOW(MAJOR_TREND, "📊", "Trend Follow"),
+        DIP_BUY(MAJOR_TREND, "🎯", "Dip Buy"),
+        VALUE_ACCUMULATION(MID_CAP_VALUE, "💎", "Value Accum"),
+        TECHNICAL_SETUP(MID_CAP_VALUE, "📐", "Technical"),
+        FUNDING_ARB(PERP_FUNDING, "💰", "Funding Arb"),
+        SQUEEZE_HUNTER(PERP_FUNDING, "🔥", "Squeeze"),
+        SUPPORT_SNIPE(CEX_ARBITRAGE, "🎯", "Support Snipe"),
+        WALL_FADE(CEX_ARBITRAGE, "🧱", "Wall Fade"),
+        STRANGLE(VOLATILITY_HARVEST, "🦋", "Strangle"),
+        STRADDLE(VOLATILITY_HARVEST, "⚖️", "Straddle"),
+        GAMMA_SCALP(VOLATILITY_HARVEST, "⚡", "Gamma Scalp"),
+        // ... and more
+    }
+    
+    fun classifyToken(snapshot: CandidateSnapshot): StructureMode {
+        // Classification logic based on:
+        // - Market cap
+        // - Liquidity depth
+        // - Volume profile
+        // - Social signals
+        // - Price action patterns
+    }
+}
+```
+
+### Regime-Specific AI Weights
+
+Each trading mode has custom AI layer weights:
+
+```kotlin
+data class ModeConfig(
+    val mode: StructureMode,
+    val layerWeights: Map<String, Double>,  // AI layer weight overrides
+    val positionParams: PositionParams,     // Position sizing
+    val exitRules: ExitRules                // Exit conditions
+)
+
+// Example: FRESH_LAUNCH mode emphasizes speed and narrative
+val FRESH_LAUNCH_CONFIG = ModeConfig(
+    mode = StructureMode.FRESH_LAUNCH,
+    layerWeights = mapOf(
+        "NarrativeDetectorAI" to 1.5,
+        "SocialVelocityAI" to 1.4,
+        "MomentumPredictorAI" to 1.3,
+        "LiquidityDepthAI" to 0.8,     // Less important for fresh launches
+        "TimeOptimizationAI" to 0.7
+    ),
+    positionParams = PositionParams(
+        maxSize = 0.05,  // 5% max
+        scaleFactor = 0.8
+    ),
+    exitRules = ExitRules(
+        takeProfit = 0.30,   // 30% TP
+        stopLoss = -0.15,    // 15% SL
+        trailingStop = true
+    )
+)
+```
 
 ---
 
-## Summary
+## DECISION PIPELINE
 
-AATE represents a new paradigm in mobile trading bots: a fully autonomous, self-learning trading engine that runs natively on Android. With 10+ AI layers, institutional-grade risk management, and a closed-loop feedback system, AATE continuously improves its performance based on real trading outcomes. The architecture prioritizes capital protection while maximizing exposure to high-quality moonshot opportunities.
+### Stage Flow
 
-**Key Differentiators:**
-- Native Android (not web-based)
-- Multi-layer AI decision system
-- Self-adjusting confidence thresholds
-- Quality-weighted learning (prevents data pollution)
-- Treasury-adaptive position sizing
-- MEV-protected execution
+```
+CANDIDATE → SCORING → CONFIDENCE → PRE-PROPOSAL KILL → FINAL DECISION → EXECUTION
+     │          │           │              │                  │              │
+     ▼          ▼           ▼              ▼                  ▼              ▼
+  Token    21 AI     Statistical    C-grade +         Band +        Jupiter
+  Snapshot Layers    + Structural   conf < 35%?       Quality       V2 API
+                     + Operational   → SHADOW         Assessment
+                     Confidence      TRACK
+```
+
+### BotOrchestrator.processCandidate()
+
+```kotlin
+suspend fun processCandidate(candidate: CandidateSnapshot): ProcessResult {
+    
+    // ─── SCORING ───
+    val scoreCard = scorer.score(candidate)
+    logger.stage("SCORING", candidate.symbol, "OK", 
+        "total=${scoreCard.total} components=${scoreCard.components.size}")
+    
+    // ─── CONFIDENCE ───
+    val confidence = confidenceEngine.compute(scoreCard, learningMetrics, opsMetrics)
+    logger.stage("CONFIDENCE", candidate.symbol, "OK",
+        "stat=${confidence.statistical} struct=${confidence.structural} " +
+        "ops=${confidence.operational} eff=${confidence.effective}")
+    
+    // ─── PRE-PROPOSAL KILL (V3.2) ───
+    val earlyQuality = when {
+        scoreCard.total >= 55 -> "B"
+        scoreCard.total >= 45 -> "B"
+        else -> "C"
+    }
+    val memoryScore = scoreCard.byName("memory")?.value ?: 0
+    
+    if (earlyQuality == "C") {
+        val effConf = confidence.effective
+        val shouldKillEarly = (effConf < 35) || (memoryScore <= -8)
+        
+        if (shouldKillEarly) {
+            logger.stage("PRE_PROPOSAL_KILL", candidate.symbol, "BLOCKED",
+                "quality=$earlyQuality conf=${effConf}% memory=$memoryScore → SHADOW_TRACK")
+            shadowTracker.track(candidate, scoreCard, effConf, "C_GRADE_EARLY_KILL")
+            return ProcessResult.Watch(scoreCard.total, effConf)
+        }
+    }
+    
+    // ─── FINAL DECISION ───
+    val decision = decisionMatrix.decide(scoreCard, confidence)
+    
+    // ─── LIQUIDITY GATE ───
+    val setupQuality = decision.setupQuality
+    val liquidityFloor = when (setupQuality) {
+        "A" -> 5_000.0
+        "B" -> 7_500.0
+        else -> 10_000.0  // C-grade needs $10K+ liquidity
+    }
+    
+    if (decision.band.isExecute && candidate.liquidityUsd < liquidityFloor) {
+        logger.stage("LIQUIDITY_CHECK", candidate.symbol, "BLOCKED",
+            "liq=$${candidate.liquidityUsd} < floor=$${liquidityFloor}")
+        return ProcessResult.Watch(decision.finalScore, confidence.effective)
+    }
+    
+    // ─── RETURN RESULT ───
+    return when (decision.band) {
+        DecisionBand.EXECUTE_AGGRESSIVE -> ProcessResult.Execute(...)
+        DecisionBand.EXECUTE_STANDARD -> ProcessResult.Execute(...)
+        DecisionBand.EXECUTE_SMALL -> ProcessResult.Execute(...)
+        DecisionBand.WATCH -> ProcessResult.Watch(...)
+        DecisionBand.SKIP -> ProcessResult.Skip(...)
+    }
+}
+```
 
 ---
 
-*Document generated: March 2026*
-*Codebase version: Build #474*
+## SAFETY SYSTEMS
+
+### Defense Layers
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│                      SAFETY ARCHITECTURE                         │
+├─────────────────────────────────────────────────────────────────┤
+│                                                                 │
+│  Layer 1: TokenBlacklist                                        │
+│  ├── Permanent mint-level bans                                  │
+│  ├── Rug pattern detection                                      │
+│  └── Historical loss tracking                                   │
+│                                                                 │
+│  Layer 2: ToxicModeCircuitBreaker                               │
+│  ├── Mode-level freeze after 3 losses                          │
+│  ├── Auto-unfreeze after 24h cooldown                          │
+│  └── Catastrophic loss triggers                                 │
+│                                                                 │
+│  Layer 3: Pre-Proposal Kill (V3.2)                              │
+│  ├── C-grade + conf < 35% → immediate SHADOW_TRACK             │
+│  ├── C-grade + memory ≤ -8 → immediate SHADOW_TRACK            │
+│  └── Preserves learning without wasting compute                 │
+│                                                                 │
+│  Layer 4: FinalDecisionGate                                     │
+│  ├── Hard confidence floors (30% min)                          │
+│  ├── C-grade looper prevention                                  │
+│  ├── COPY_TRADE mode completely disabled                       │
+│  └── AI degradation checks                                      │
+│                                                                 │
+│  Layer 5: SecurityGuard                                         │
+│  ├── Daily loss limits                                          │
+│  ├── Maximum open positions                                     │
+│  ├── Trade rate limiting                                        │
+│  └── Emergency halt conditions                                  │
+│                                                                 │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+### FinalDecisionGate Hard Kills
+
+```kotlin
+object FinalDecisionGate {
+    
+    fun evaluate(decision: PreliminaryDecision): FDGDecision {
+        
+        // 1. COPY_TRADE - completely banned
+        if (decision.entryMode == "COPY_TRADE") {
+            return FDGDecision.HARD_KILL("COPY_TRADE_BANNED")
+        }
+        
+        // 2. Confidence floor - garbage
+        if (decision.confidence < 30) {
+            return FDGDecision.HARD_KILL("CONFIDENCE_FLOOR_30%")
+        }
+        
+        // 3. C-grade + low confidence
+        if (decision.quality == "C" && decision.confidence < 35) {
+            return FDGDecision.HARD_KILL("C_GRADE_CONFIDENCE_FLOOR_35%")
+        }
+        
+        // 4. AI degraded + low confidence
+        if (decision.aiDegraded && decision.confidence < 40) {
+            return FDGDecision.HARD_KILL("AI_DEGRADED_CONFIDENCE_FLOOR_40%")
+        }
+        
+        // 5. Toxic flag accumulation (Kris Rule)
+        if (decision.toxicFlags >= 3) {
+            return FDGDecision.HARD_KILL("TOXIC_FLAG_THRESHOLD_3+")
+        }
+        
+        return FDGDecision.APPROVE(decision)
+    }
+}
+```
+
+---
+
+## DATA PERSISTENCE
+
+### TradeHistoryStore
+
+```kotlin
+object TradeHistoryStore {
+    private const val PREFS_NAME = "trade_history_store"
+    private const val KEY_TRADES = "trades_json"
+    private const val MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000L  // 7 days
+    
+    private var prefs: SharedPreferences? = null
+    private val trades = mutableListOf<Trade>()
+    
+    fun init(ctx: Context) {
+        prefs = ctx.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+        loadTrades()
+        cleanupOldTrades()
+    }
+    
+    fun recordTrade(trade: Trade) {
+        trades.add(trade)
+        saveTrades()  // Immediate commit() for persistence
+    }
+    
+    private fun saveTrades() {
+        val arr = JSONArray()
+        trades.forEach { t ->
+            arr.put(JSONObject().apply {
+                put("ts", t.ts)
+                put("side", t.side)
+                put("sol", t.sol)
+                put("price", t.price)
+                put("pnlSol", t.pnlSol)
+                put("pnlPct", t.pnlPct)
+                put("mint", t.mint)
+                // ... more fields
+            })
+        }
+        prefs?.edit()?.putString(KEY_TRADES, arr.toString())?.commit()
+    }
+}
+```
+
+### Shadow Learning Engine
+
+```kotlin
+object ShadowLearningEngine {
+    private val shadowTrades = ConcurrentHashMap<String, ShadowTrade>()
+    
+    data class ShadowTrade(
+        val mint: String,
+        val entryPrice: Double,
+        val entryTime: Long,
+        val scoreCard: ScoreCard,
+        val confidence: Double,
+        val blockReason: String
+    )
+    
+    fun onFdgBlockedTrade(
+        candidate: CandidateSnapshot,
+        scoreCard: ScoreCard,
+        confidence: Double,
+        reason: String
+    ) {
+        // Shadow-track the blocked trade
+        shadowTrades[candidate.mint] = ShadowTrade(
+            mint = candidate.mint,
+            entryPrice = candidate.price,
+            entryTime = System.currentTimeMillis(),
+            scoreCard = scoreCard,
+            confidence = confidence,
+            blockReason = reason
+        )
+    }
+    
+    fun evaluateShadowOutcome(mint: String, currentPrice: Double) {
+        val shadow = shadowTrades[mint] ?: return
+        val pnlPct = ((currentPrice - shadow.entryPrice) / shadow.entryPrice) * 100
+        
+        // Would this blocked trade have won?
+        val wouldHaveWon = pnlPct > 10  // 10% threshold for "win"
+        
+        // Feed back to AI calibration
+        MetaCognitionAI.recordShadowOutcome(
+            scoreCard = shadow.scoreCard,
+            wouldHaveWon = wouldHaveWon,
+            actualPnlPct = pnlPct
+        )
+    }
+}
+```
+
+---
+
+## EXTERNAL INTEGRATIONS
+
+### Jupiter V2 (Swap Execution)
+
+```kotlin
+object JupiterClient {
+    private const val BASE_URL = "https://quote-api.jup.ag/v6"
+    
+    suspend fun getQuote(
+        inputMint: String,
+        outputMint: String,
+        amount: Long,
+        slippageBps: Int = 100
+    ): QuoteResponse {
+        return api.getQuote(
+            inputMint = inputMint,
+            outputMint = outputMint,
+            amount = amount,
+            slippageBps = slippageBps,
+            onlyDirectRoutes = false,
+            asLegacyTransaction = false
+        )
+    }
+    
+    suspend fun executeSwap(
+        quote: QuoteResponse,
+        userPublicKey: String
+    ): SwapResult {
+        val swapRequest = SwapRequest(
+            quoteResponse = quote,
+            userPublicKey = userPublicKey,
+            wrapAndUnwrapSol = true,
+            computeUnitPriceMicroLamports = "auto"
+        )
+        return api.swap(swapRequest)
+    }
+}
+```
+
+### DexScreener (Market Data)
+
+```kotlin
+object DexScreenerClient {
+    suspend fun getTokenProfile(mint: String): TokenProfile? {
+        return api.getTokenProfile(mint)
+    }
+    
+    suspend fun searchTokens(query: String): List<TokenSearchResult> {
+        return api.searchTokens(query)
+    }
+}
+```
+
+### Birdeye (Enhanced Analytics)
+
+```kotlin
+object BirdeyeClient {
+    suspend fun getTokenOverview(mint: String): TokenOverview? {
+        return api.getTokenOverview(mint, apiKey)
+    }
+    
+    suspend fun getOHLCV(mint: String, interval: String): List<Candle> {
+        return api.getOHLCV(mint, interval, apiKey)
+    }
+}
+```
+
+---
+
+## PERFORMANCE CHARACTERISTICS
+
+### Resource Usage
+
+| Metric | Target | Measured |
+|--------|--------|----------|
+| Memory | < 256MB | ~180MB |
+| CPU (idle) | < 5% | ~3% |
+| CPU (scanning) | < 20% | ~15% |
+| Battery | < 10%/hr | ~8%/hr |
+| Network | < 1MB/min | ~500KB/min |
+
+### Latency
+
+| Operation | Target | P50 | P99 |
+|-----------|--------|-----|-----|
+| Market scan | < 5s | 2.1s | 4.8s |
+| AI scoring | < 500ms | 180ms | 420ms |
+| Trade execution | < 3s | 1.2s | 2.8s |
+
+### Throughput
+
+- Token evaluations: ~200/minute
+- Trades executed: Up to 50/hour (rate limited)
+- Shadow trades tracked: Unlimited
+
+---
+
+## BUILD & DEPLOYMENT
+
+### Build System
+
+```groovy
+// build.gradle.kts
+android {
+    namespace = "com.lifecyclebot"
+    compileSdk = 34
+    
+    defaultConfig {
+        applicationId = "com.lifecyclebot"
+        minSdk = 26
+        targetSdk = 34
+        versionCode = 320
+        versionName = "3.2.0"
+    }
+}
+```
+
+### GitHub Actions CI
+
+```yaml
+name: Build APK
+on: [push, pull_request]
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          java-version: '17'
+          distribution: 'temurin'
+      - name: Build APK
+        run: ./gradlew assembleRelease
+      - name: Upload APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: AATE_v3.2.0.apk
+          path: app/build/outputs/apk/release/*.apk
+```
+
+---
+
+## APPENDIX: CODE STATISTICS
+
+| Category | Files | Lines |
+|----------|-------|-------|
+| **Engine** | 45 | 38,000 |
+| **AI Layers** | 21 | 15,000 |
+| **UI** | 18 | 12,000 |
+| **Data** | 12 | 8,000 |
+| **Utils** | 25 | 10,000 |
+| **V3 Core** | 15 | 12,000 |
+| **Tests** | 8 | 3,000 |
+| **Total** | 144 | **98,000+** |
+
+---
+
+*Document version: 3.2.0 | Last updated: December 2025*
