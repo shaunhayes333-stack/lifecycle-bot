@@ -1448,10 +1448,13 @@ class BotService : Service() {
                                     (localStats.pnl24hSol / (localStats.trades24h * 0.1).coerceAtLeast(0.01)) * 100
                                 } else 0.0
                                 
+                                // Get paperMode from config
+                                val currentConfig = com.lifecyclebot.data.ConfigStore.load(applicationContext)
+                                
                                 com.lifecyclebot.collective.CollectiveLearning.uploadHeartbeat(
                                     instanceId = instanceId,
                                     appVersion = com.lifecyclebot.BuildConfig.VERSION_NAME,
-                                    paperMode = BotService.status.paperMode,
+                                    paperMode = currentConfig.paperMode,
                                     trades24h = localStats.trades24h,
                                     pnl24hPct = pnl24hPct
                                 )

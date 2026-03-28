@@ -134,7 +134,7 @@ class BotOrchestrator(
                     "quality=$earlyQuality conf=${effConf.toInt()}% memory=$memoryScore → SHADOW_TRACK (no CANDIDATE/PROPOSED/SIZING)")
                 lifecycle.mark(candidate.mint, LifecycleState.WATCH)
                 shadowTracker.track(candidate, scoreCard, effConf.toInt(), reason)
-                return ProcessResult.Watch(scoreCard.total.toDouble(), effConf)
+                return ProcessResult.Watch(scoreCard.total.toDouble(), effConf.toDouble())
             }
         }
         
@@ -168,7 +168,7 @@ class BotOrchestrator(
                     "liq=$${candidate.liquidityUsd.toInt()} < $${liquidityFloor.toInt()} floor for $setupQuality-grade → WATCH ONLY")
                 lifecycle.mark(candidate.mint, LifecycleState.WATCH)
                 shadowTracker.track(candidate, scoreCard, confidence.effective.toInt(), "LOW_LIQUIDITY_${candidate.liquidityUsd.toInt()}")
-                return ProcessResult.Watch(decision.finalScore.toDouble(), confidence.effective)
+                return ProcessResult.Watch(decision.finalScore.toDouble(), confidence.effective.toDouble())
             }
         }
         
@@ -187,7 +187,7 @@ class BotOrchestrator(
                     "C-grade looper: quality=$setupQuality conf=${decision.effectiveConfidence} (repeated proposal)")
                 lifecycle.mark(candidate.mint, LifecycleState.WATCH)
                 shadowTracker.track(candidate, scoreCard, confidence.effective.toInt(), "C_GRADE_LOOPER_BLOCKED")
-                return ProcessResult.Watch(decision.finalScore.toDouble(), confidence.effective)
+                return ProcessResult.Watch(decision.finalScore.toDouble(), confidence.effective.toDouble())
             }
             // Record this proposal for future looper detection
             CGradeLooperTracker.recordProposal(candidate.mint, setupQuality, decision.effectiveConfidence)
@@ -214,7 +214,7 @@ class BotOrchestrator(
                 // V3.2: Open shadow trade for AI learning
                 openShadowTradeForLearning(candidate, scoreCard, confidence, decision, "WATCH")
                 
-                ProcessResult.Watch(decision.finalScore.toDouble(), confidence.effective)
+                ProcessResult.Watch(decision.finalScore.toDouble(), confidence.effective.toDouble())
             }
             
             DecisionBand.REJECT -> {
