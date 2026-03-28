@@ -1029,6 +1029,19 @@ class BotService : Service() {
         // Schedule WorkManager watchdog (more reliable than AlarmManager on newer Android)
         ServiceWatchdog.schedule(applicationContext)
         
+        // ═══════════════════════════════════════════════════════════════════
+        // V3 SHADOW LEARNING: Start the shadow learning engine
+        // This runs persistently to learn from all trade opportunities
+        // regardless of whether the bot is actively trading or not.
+        // Shadow learning is NEVER stopped - it's a constant learning state.
+        // ═══════════════════════════════════════════════════════════════════
+        try {
+            ShadowLearningEngine.start()
+            addLog("🧠 ShadowLearning: Started (runs even when paper mode off)")
+        } catch (e: Exception) {
+            ErrorLogger.error("BotService", "ShadowLearning start failed: ${e.message}", e)
+        }
+        
         addLog("Bot started — paper=${cfg.paperMode} auto=${cfg.autoTrade} sounds=${cfg.soundEnabled}")
         ErrorLogger.info("BotService", "Bot started successfully")
         
@@ -1132,6 +1145,14 @@ class BotService : Service() {
         } catch (e: Exception) {
             ErrorLogger.debug("BotService", "SelfHealingDiagnostics stop error: ${e.message}")
         }
+        
+        // ═══════════════════════════════════════════════════════════════════
+        // NOTE: ShadowLearningEngine is NOT stopped here!
+        // Shadow learning should continue running persistently as a constant
+        // state of learning, even when the bot is stopped or paper mode is off.
+        // It will keep tracking market data and learning from opportunities.
+        // ═══════════════════════════════════════════════════════════════════
+        
         // REMOVED: walletManager.disconnect() 
         // Wallet should ONLY disconnect when user explicitly requests it
         // This allows wallet to stay connected when:
