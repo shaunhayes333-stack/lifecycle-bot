@@ -204,6 +204,17 @@ class MainActivity : AppCompatActivity() {
             android.util.Log.e("MainActivity", "ErrorLogger init failed: ${e.message}")
         }
         
+        // ════════════════════════════════════════════════════════════════════════════
+        // FIX: Initialize TradeHistoryStore EARLY, BEFORE BotService starts
+        // This ensures Quick Stats persist across app restarts even if bot not running
+        // ════════════════════════════════════════════════════════════════════════════
+        try {
+            com.lifecyclebot.engine.TradeHistoryStore.init(applicationContext)
+            com.lifecyclebot.engine.ErrorLogger.info("MainActivity", "TradeHistoryStore initialized")
+        } catch (e: Exception) {
+            com.lifecyclebot.engine.ErrorLogger.error("MainActivity", "TradeHistoryStore init failed: ${e.message}")
+        }
+        
         try {
             setContentView(R.layout.activity_main)
             supportActionBar?.hide()
@@ -468,6 +479,12 @@ By clicking "I Agree", you acknowledge that you have read, understood, and accep
             } catch (_: Exception) {}
         }
         btnOpenAlerts.setOnClickListener  { startActivity(android.content.Intent(this, AlertsActivity::class.java)) }
+        
+        // Collective Brain button
+        try {
+            findViewById<android.widget.TextView>(R.id.btnOpenCollectiveBrain)
+                ?.setOnClickListener { startActivity(android.content.Intent(this, CollectiveBrainActivity::class.java)) }
+        } catch (_: Exception) {}
         
         // Historical Chart Scanner button — manual trigger
         try {

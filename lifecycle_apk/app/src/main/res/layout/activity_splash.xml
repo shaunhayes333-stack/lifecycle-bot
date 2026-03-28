@@ -20,7 +20,6 @@
             android:layout_height="280dp"
             android:src="@drawable/logo"
             android:scaleType="fitCenter"
-            android:alpha="0"
             android:contentDescription="AATE Logo"/>
 
         <!-- Tagline -->

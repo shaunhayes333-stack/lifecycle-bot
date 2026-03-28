@@ -6,9 +6,7 @@ import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
 import android.view.View
-import android.view.animation.AlphaAnimation
 import android.view.animation.Animation
-import android.view.animation.AnimationSet
 import android.view.animation.ScaleAnimation
 import android.widget.ImageView
 import android.widget.TextView
@@ -48,14 +46,12 @@ class SplashActivity : AppCompatActivity() {
         val tagline = findViewById<TextView>(R.id.tvSplashTagline)
         val version = findViewById<TextView>(R.id.tvSplashVersion)
 
+        // Ensure logo is visible first (in case animation fails)
+        logo.alpha = 1f
+        
         // Animate logo: fade in + subtle scale pulse
-        val fadeIn = AlphaAnimation(0f, 1f).apply {
-            duration = FADE_IN_DURATION
-            fillAfter = true
-        }
-
         val scaleUp = ScaleAnimation(
-            0.8f, 1.05f, 0.8f, 1.05f,
+            0.85f, 1.05f, 0.85f, 1.05f,
             Animation.RELATIVE_TO_SELF, 0.5f,
             Animation.RELATIVE_TO_SELF, 0.5f
         ).apply {
@@ -63,12 +59,7 @@ class SplashActivity : AppCompatActivity() {
             fillAfter = true
         }
 
-        val logoAnimation = AnimationSet(true).apply {
-            addAnimation(fadeIn)
-            addAnimation(scaleUp)
-        }
-
-        logo.startAnimation(logoAnimation)
+        logo.startAnimation(scaleUp)
 
         // Delayed fade-in for tagline
         Handler(Looper.getMainLooper()).postDelayed({

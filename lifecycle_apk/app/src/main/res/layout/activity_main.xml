@@ -865,6 +865,12 @@
                         android:textColor="#9945FF" android:textSize="12sp"
                         android:layout_marginStart="8dp"
                         android:clickable="true" android:focusable="true"/>
+                    <TextView android:id="@+id/btnOpenCollectiveBrain"
+                        android:layout_width="wrap_content" android:layout_height="wrap_content"
+                        android:text="🧠 Brain"
+                        android:textColor="#9945FF" android:textSize="12sp"
+                        android:layout_marginStart="8dp"
+                        android:clickable="true" android:focusable="true"/>
                     <TextView android:id="@+id/btnHistoricalScan"
                         android:layout_width="wrap_content" android:layout_height="wrap_content"
                         android:text="📊 Scan"

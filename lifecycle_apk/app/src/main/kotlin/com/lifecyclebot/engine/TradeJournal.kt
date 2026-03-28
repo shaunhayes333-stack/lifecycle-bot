@@ -2,26 +2,35 @@ package com.lifecyclebot.engine
 
 import android.content.Context
 import android.content.Intent
+import android.graphics.Canvas
+import android.graphics.Color
+import android.graphics.Paint
+import android.graphics.Typeface
+import android.graphics.pdf.PdfDocument
 import android.net.Uri
 import androidx.core.content.FileProvider
 import com.lifecyclebot.data.Trade
 import com.lifecyclebot.data.TokenState
 import java.io.File
+import java.io.FileOutputStream
 import java.text.SimpleDateFormat
 import java.util.*
 
 /**
  * TradeJournal
  *
- * Aggregates all trades across all tokens and exports them as a CSV.
+ * Aggregates all trades across all tokens and exports them in multiple formats:
+ * - CSV (Standard spreadsheet format)
+ * - PDF (Professional tax report)
+ * - IRS Form 8949 compatible format
+ *
  * TAX-FRIENDLY FORMAT for accountants:
  * - Date/Time, Token Symbol, Token Address (Mint), Transaction Type (BUY/SELL)
  * - Quantity (SOL), Price (USD), Cost Basis (USD), Proceeds (USD)
  * - Gain/Loss (USD), Gain/Loss (%), Fee (SOL), Net Gain (USD)
  * - Trading Mode, Hold Duration, Notes
  *
- * CSV is saved to the app's cache dir and shared via Android's share sheet
- * so you can open it in Google Sheets, Excel, etc.
+ * Files are saved to the app's cache dir and shared via Android's share sheet.
  */
 class TradeJournal(private val ctx: Context) {
 
@@ -243,4 +252,280 @@ class TradeJournal(private val ctx: Context) {
         if (contains(",") || contains("\"") || contains("\n"))
             "\"${replace("\"", "\\\"")}\""
         else this
+    
+    // ═══════════════════════════════════════════════════════════════════════════════
+    // PDF EXPORT - Professional Tax Report
+    // ═══════════════════════════════════════════════════════════════════════════════
+    
+    /**
+     * Export as PDF - Professional tax report format.
+     * Ready to submit to accountants/tax professionals.
+     */
+    fun exportPdf(tokens: Map<String, TokenState>): Intent? {
+        val entries = buildJournal(tokens)
+        val sells = entries.filter { it.side == "SELL" }
+        if (sells.isEmpty()) return null
+        
+        val sdf = SimpleDateFormat("yyyy-MM-dd HH:mm", Locale.US)
+        val solPrice = try { BotService.instance?.currencyManager?.getSolUsd() ?: 0.0 } catch (_: Exception) { 0.0 }
+        
+        // Create PDF document
+        val document = PdfDocument()
+        var pageNumber = 1
+        val pageWidth = 612  // Letter size
+        val pageHeight = 792
+        
+        val titlePaint = Paint().apply {
+            color = Color.BLACK
+            textSize = 18f
+            typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
+        }
+        val headerPaint = Paint().apply {
+            color = Color.parseColor("#374151")
+            textSize = 12f
+            typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
+        }
+        val textPaint = Paint().apply {
+            color = Color.BLACK
+            textSize = 10f
+            typeface = Typeface.create(Typeface.MONOSPACE, Typeface.NORMAL)
+        }
+        val greenPaint = Paint(textPaint).apply { color = Color.parseColor("#10B981") }
+        val redPaint = Paint(textPaint).apply { color = Color.parseColor("#EF4444") }
+        
+        // Calculate totals
+        val totalPnlSol = sells.sumOf { it.pnlSol }
+        val totalPnlUsd = totalPnlSol * solPrice
+        val totalFeeSol = sells.sumOf { it.feeSol }
+        val totalFeeUsd = totalFeeSol * solPrice
+        val wins = sells.count { it.pnlPct > 2.0 }
+        val losses = sells.count { it.pnlPct < -2.0 }
+        val winRate = if (wins + losses > 0) (wins * 100.0 / (wins + losses)) else 0.0
+        
+        // Page 1: Summary
+        var pageInfo = PdfDocument.PageInfo.Builder(pageWidth, pageHeight, pageNumber).create()
+        var page = document.startPage(pageInfo)
+        var canvas = page.canvas
+        var y = 50f
+        
+        // Title
+        canvas.drawText("AATE - Cryptocurrency Trading Tax Report", 50f, y, titlePaint)
+        y += 30f
+        canvas.drawText("Generated: ${SimpleDateFormat("MMMM dd, yyyy 'at' HH:mm", Locale.US).format(Date())}", 50f, y, textPaint)
+        y += 40f
+        
+        // Summary Box
+        canvas.drawText("═══════════════════════════════════════════════════════════", 50f, y, textPaint)
+        y += 20f
+        canvas.drawText("SUMMARY", 50f, y, headerPaint)
+        y += 25f
+        
+        canvas.drawText("Total Sell Transactions:  ${sells.size}", 50f, y, textPaint)
+        y += 18f
+        canvas.drawText("Win Rate:                 ${String.format("%.1f", winRate)}% ($wins wins / $losses losses)", 50f, y, textPaint)
+        y += 25f
+        
+        canvas.drawText("SOL Price at Export:      \$${String.format("%.2f", solPrice)}", 50f, y, textPaint)
+        y += 25f
+        
+        val pnlPaint = if (totalPnlUsd >= 0) greenPaint else redPaint
+        canvas.drawText("Total Realized Gain/Loss: ", 50f, y, textPaint)
+        canvas.drawText("\$${String.format("%,.2f", totalPnlUsd)} (${String.format("%.4f", totalPnlSol)} SOL)", 220f, y, pnlPaint)
+        y += 18f
+        
+        canvas.drawText("Total Transaction Fees:   \$${String.format("%.2f", totalFeeUsd)} (${String.format("%.6f", totalFeeSol)} SOL)", 50f, y, textPaint)
+        y += 18f
+        
+        val netPnl = totalPnlUsd - totalFeeUsd
+        val netPaint = if (netPnl >= 0) greenPaint else redPaint
+        canvas.drawText("NET Gain/Loss (after fees): ", 50f, y, textPaint)
+        canvas.drawText("\$${String.format("%,.2f", netPnl)}", 230f, y, netPaint)
+        y += 30f
+        
+        canvas.drawText("═══════════════════════════════════════════════════════════", 50f, y, textPaint)
+        y += 40f
+        
+        // Trade list header
+        canvas.drawText("DETAILED TRADE LOG", 50f, y, headerPaint)
+        y += 25f
+        canvas.drawText("Date/Time            Token          P&L (USD)     P&L (%)    Mode", 50f, y, textPaint)
+        y += 5f
+        canvas.drawText("─────────────────────────────────────────────────────────────", 50f, y, textPaint)
+        y += 18f
+        
+        // List trades
+        val itemsPerPage = 35
+        var itemCount = 0
+        
+        for (entry in sells) {
+            if (itemCount > 0 && itemCount % itemsPerPage == 0) {
+                document.finishPage(page)
+                pageNumber++
+                pageInfo = PdfDocument.PageInfo.Builder(pageWidth, pageHeight, pageNumber).create()
+                page = document.startPage(pageInfo)
+                canvas = page.canvas
+                y = 50f
+                
+                canvas.drawText("AATE Tax Report - Page $pageNumber", 50f, y, headerPaint)
+                y += 30f
+                canvas.drawText("Date/Time            Token          P&L (USD)     P&L (%)    Mode", 50f, y, textPaint)
+                y += 5f
+                canvas.drawText("─────────────────────────────────────────────────────────────", 50f, y, textPaint)
+                y += 18f
+            }
+            
+            val dateStr = sdf.format(Date(entry.ts))
+            val symbolStr = entry.symbol.take(12).padEnd(12)
+            val pnlUsd = entry.pnlSol * solPrice
+            val pnlStr = String.format("%+,.2f", pnlUsd).padStart(10)
+            val pctStr = String.format("%+.1f%%", entry.pnlPct).padStart(8)
+            val modeStr = entry.tradingMode.take(10)
+            
+            val linePaint = if (entry.pnlSol >= 0) greenPaint else redPaint
+            canvas.drawText("$dateStr  $symbolStr  $pnlStr   $pctStr    $modeStr", 50f, y, linePaint)
+            y += 16f
+            itemCount++
+        }
+        
+        // Footer
+        y += 20f
+        canvas.drawText("─────────────────────────────────────────────────────────────", 50f, y, textPaint)
+        y += 20f
+        canvas.drawText("DISCLAIMER: This report is for informational purposes only.", 50f, y, textPaint)
+        y += 14f
+        canvas.drawText("Consult a qualified tax professional for accurate tax advice.", 50f, y, textPaint)
+        
+        document.finishPage(page)
+        
+        // Save to file
+        val filename = "AATE_TaxReport_${SimpleDateFormat("yyyyMMdd_HHmm", Locale.US).format(Date())}.pdf"
+        val file = File(ctx.cacheDir, filename)
+        document.writeTo(FileOutputStream(file))
+        document.close()
+        
+        // Build share intent
+        val uri = FileProvider.getUriForFile(ctx, "${ctx.packageName}.fileprovider", file)
+        return Intent(Intent.ACTION_SEND).apply {
+            type = "application/pdf"
+            putExtra(Intent.EXTRA_STREAM, uri)
+            putExtra(Intent.EXTRA_SUBJECT, "AATE Cryptocurrency Tax Report")
+            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+        }
+    }
+    
+    // ═══════════════════════════════════════════════════════════════════════════════
+    // IRS FORM 8949 COMPATIBLE EXPORT
+    // ═══════════════════════════════════════════════════════════════════════════════
+    
+    /**
+     * Export in IRS Form 8949 compatible format.
+     * This format is used to report capital gains/losses on cryptocurrency.
+     * 
+     * Form 8949 columns:
+     * (a) Description of property
+     * (b) Date acquired
+     * (c) Date sold or disposed
+     * (d) Proceeds (sales price)
+     * (e) Cost or other basis
+     * (f) Adjustment code(s)
+     * (g) Adjustment amount
+     * (h) Gain or (loss)
+     */
+    fun exportIrs8949(tokens: Map<String, TokenState>): Intent? {
+        val entries = buildJournal(tokens)
+        val sells = entries.filter { it.side == "SELL" }
+        if (sells.isEmpty()) return null
+        
+        val sdf = SimpleDateFormat("MM/dd/yyyy", Locale.US)  // IRS date format
+        val solPrice = try { BotService.instance?.currencyManager?.getSolUsd() ?: 0.0 } catch (_: Exception) { 0.0 }
+        
+        val sb = StringBuilder()
+        
+        // IRS 8949 Header
+        sb.appendLine("IRS FORM 8949 - SALES AND DISPOSITIONS OF CAPITAL ASSETS")
+        sb.appendLine("Part I - Short-Term Capital Gains and Losses (Assets Held One Year or Less)")
+        sb.appendLine("Check Box A, B, or C: [X] Box A - Short-term transactions reported on Form 1099-B")
+        sb.appendLine("")
+        sb.appendLine("(a) Description of property,(b) Date acquired,(c) Date sold,(d) Proceeds (USD),(e) Cost basis (USD),(f) Code,(g) Adjustment,(h) Gain or (loss)")
+        
+        // Group sells with their corresponding buys to get cost basis
+        val tradesByMint = entries.groupBy { it.mint }
+        
+        for (sell in sells) {
+            // Find the matching buy for this sell (most recent buy before this sell)
+            val buyForThisSell = tradesByMint[sell.mint]
+                ?.filter { it.side == "BUY" && it.ts < sell.ts }
+                ?.maxByOrNull { it.ts }
+            
+            val dateAcquired = if (buyForThisSell != null) sdf.format(Date(buyForThisSell.ts)) else "VARIOUS"
+            val dateSold = sdf.format(Date(sell.ts))
+            
+            // Calculate USD values
+            val costBasisUsd = sell.solAmount * solPrice  // Approximate
+            val proceedsUsd = (sell.solAmount + sell.pnlSol) * solPrice
+            val gainLossUsd = sell.pnlSol * solPrice
+            
+            // Description: "X.XXX SOL - TOKEN_SYMBOL (Solana)"
+            val description = "${String.format("%.6f", sell.solAmount)} SOL - ${sell.symbol} (Solana)"
+            
+            sb.appendLine(listOf(
+                description.csvEscape(),
+                dateAcquired,
+                dateSold,
+                String.format("%.2f", proceedsUsd),
+                String.format("%.2f", costBasisUsd),
+                "",  // Adjustment code (blank for most trades)
+                "",  // Adjustment amount
+                String.format("%.2f", gainLossUsd)
+            ).joinToString(","))
+        }
+        
+        // Summary totals
+        val totalProceeds = sells.sumOf { (it.solAmount + it.pnlSol) * solPrice }
+        val totalCostBasis = sells.sumOf { it.solAmount * solPrice }
+        val totalGainLoss = sells.sumOf { it.pnlSol * solPrice }
+        
+        sb.appendLine("")
+        sb.appendLine("TOTALS:,,,$${String.format("%.2f", totalProceeds)},\$${String.format("%.2f", totalCostBasis)},,,\$${String.format("%.2f", totalGainLoss)}")
+        sb.appendLine("")
+        sb.appendLine("═══════════════════════════════════════════════════════════════════")
+        sb.appendLine("NOTES FOR TAX PREPARER:")
+        sb.appendLine("- All transactions are SHORT-TERM (held less than 1 year)")
+        sb.appendLine("- Asset type: Cryptocurrency (Solana network tokens)")
+        sb.appendLine("- Trading via: Autonomous Algorithmic Trading Engine (AATE)")
+        sb.appendLine("- SOL/USD rate at export: \$${String.format("%.2f", solPrice)}")
+        sb.appendLine("- Report generated: ${SimpleDateFormat("MM/dd/yyyy HH:mm", Locale.US).format(Date())}")
+        sb.appendLine("")
+        sb.appendLine("DISCLAIMER: This is a summary for informational purposes.")
+        sb.appendLine("Consult IRS Publication 544 and a qualified tax professional.")
+        
+        // Save to file
+        val filename = "AATE_IRS8949_${SimpleDateFormat("yyyyMMdd", Locale.US).format(Date())}.csv"
+        val file = File(ctx.cacheDir, filename)
+        file.writeText(sb.toString())
+        
+        // Build share intent
+        val uri = FileProvider.getUriForFile(ctx, "${ctx.packageName}.fileprovider", file)
+        return Intent(Intent.ACTION_SEND).apply {
+            type = "text/csv"
+            putExtra(Intent.EXTRA_STREAM, uri)
+            putExtra(Intent.EXTRA_SUBJECT, "AATE IRS Form 8949 Export")
+            putExtra(Intent.EXTRA_TEXT, "IRS Form 8949 compatible cryptocurrency trade report - ${sells.size} transactions")
+            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+        }
+    }
+    
+    /**
+     * Export ALL formats - returns list of intents for CSV, PDF, and IRS 8949.
+     * User can choose which to share.
+     */
+    fun exportAll(tokens: Map<String, TokenState>): List<Pair<String, Intent>> {
+        val results = mutableListOf<Pair<String, Intent>>()
+        
+        exportCsv(tokens)?.let { results.add("CSV Spreadsheet" to it) }
+        exportPdf(tokens)?.let { results.add("PDF Tax Report" to it) }
+        exportIrs8949(tokens)?.let { results.add("IRS Form 8949" to it) }
+        
+        return results
+    }
 }

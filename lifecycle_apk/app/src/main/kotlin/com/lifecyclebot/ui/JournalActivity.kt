@@ -6,6 +6,7 @@ import android.widget.*
 import androidx.appcompat.app.AppCompatActivity
 import androidx.lifecycle.lifecycleScope
 import com.lifecyclebot.R
+import com.lifecyclebot.data.TokenState
 import com.lifecyclebot.engine.BotService
 import com.lifecyclebot.engine.CurrencyManager
 import com.lifecyclebot.engine.TradeJournal
@@ -53,7 +54,7 @@ class JournalActivity : AppCompatActivity() {
         tvJournalAvgWin = findViewById(R.id.tvJournalAvgWin)
 
         findViewById<View>(R.id.btnJournalBack).setOnClickListener { finish() }
-        findViewById<View>(R.id.btnExportCsv).setOnClickListener { exportCsv() }
+        findViewById<View>(R.id.btnExportCsv).setOnClickListener { showExportDialog() }
 
         // Simple polling loop - no ViewModel, just read from BotService
         lifecycleScope.launch {
@@ -68,8 +69,82 @@ class JournalActivity : AppCompatActivity() {
             }
         }
     }
+    
+    /**
+     * Show export options dialog - CSV, PDF, or IRS 8949
+     */
+    private fun showExportDialog() {
+        val options = arrayOf(
+            "📊 CSV Spreadsheet (Excel/Sheets)",
+            "📄 PDF Tax Report (Accountants)",
+            "🏛️ IRS Form 8949 (Tax Filing)",
+            "📦 Export All Formats"
+        )
+        
+        android.app.AlertDialog.Builder(this)
+            .setTitle("Export Trade Journal")
+            .setItems(options) { _, which ->
+                lifecycleScope.launch {
+                    val tokens = synchronized(BotService.status.tokens) {
+                        BotService.status.tokens.toMap()
+                    }
+                    
+                    when (which) {
+                        0 -> exportCsv(tokens)
+                        1 -> exportPdf(tokens)
+                        2 -> exportIrs8949(tokens)
+                        3 -> exportAll(tokens)
+                    }
+                }
+            }
+            .setNegativeButton("Cancel", null)
+            .show()
+    }
+    
+    private fun exportCsv(tokens: Map<String, TokenState>) {
+        val intent = journal.exportCsv(tokens)
+        if (intent != null) {
+            startActivity(Intent.createChooser(intent, "Export CSV"))
+        } else {
+            Toast.makeText(this, "No trades to export yet", Toast.LENGTH_SHORT).show()
+        }
+    }
+    
+    private fun exportPdf(tokens: Map<String, TokenState>) {
+        val intent = journal.exportPdf(tokens)
+        if (intent != null) {
+            startActivity(Intent.createChooser(intent, "Export PDF Tax Report"))
+        } else {
+            Toast.makeText(this, "No trades to export yet", Toast.LENGTH_SHORT).show()
+        }
+    }
+    
+    private fun exportIrs8949(tokens: Map<String, TokenState>) {
+        val intent = journal.exportIrs8949(tokens)
+        if (intent != null) {
+            startActivity(Intent.createChooser(intent, "Export IRS Form 8949"))
+        } else {
+            Toast.makeText(this, "No trades to export yet", Toast.LENGTH_SHORT).show()
+        }
+    }
+    
+    private fun exportAll(tokens: Map<String, TokenState>) {
+        val exports = journal.exportAll(tokens)
+        if (exports.isEmpty()) {
+            Toast.makeText(this, "No trades to export yet", Toast.LENGTH_SHORT).show()
+            return
+        }
+        
+        // Show success and share the first one
+        Toast.makeText(this, "Exported ${exports.size} formats!", Toast.LENGTH_SHORT).show()
+        
+        // Share all files via multiple intents
+        exports.forEach { (name, intent) ->
+            startActivity(Intent.createChooser(intent, "Share $name"))
+        }
+    }
 
-    private fun buildJournal(tokens: Map<String, com.lifecyclebot.data.TokenState>) {
+    private fun buildJournal(tokens: Map<String, TokenState>) {
         val stats = journal.getStats(tokens)
         val entries = journal.buildJournal(tokens)
 
@@ -160,20 +235,6 @@ class JournalActivity : AppCompatActivity() {
                     LinearLayout.LayoutParams.MATCH_PARENT, 1)
                 setBackgroundColor(divider)
             })
-        }
-    }
-
-    private fun exportCsv() {
-        lifecycleScope.launch {
-            val tokens = synchronized(BotService.status.tokens) {
-                BotService.status.tokens.toMap()
-            }
-            val intent = journal.exportCsv(tokens)
-            if (intent != null) {
-                startActivity(android.content.Intent.createChooser(intent, "Export Trade Journal"))
-            } else {
-                Toast.makeText(this@JournalActivity, "No trades to export yet", Toast.LENGTH_SHORT).show()
-            }
         }
     }
 
