@@ -210,7 +210,7 @@ data class BotConfig(
     // Legacy flow is deprecated and will be removed in future versions
     val v3EngineEnabled: Boolean = true,            // V3.2: ENABLED by default (production ready)
     val v3ShadowMode: Boolean = false,              // V3.2: DISABLED - V3 controls execution
-    val v3MinScoreToTrade: Int = 55,                // Minimum unified score to consider trade
+    val v3MinScoreToTrade: Int = 20,                // V3.2: Lowered from 55 - minimum unified score to consider trade
     val v3MaxExposurePct: Double = 70.0,            // Max wallet exposure in V3 mode
     val v3ConservativeMode: Boolean = false,        // More conservative scoring thresholds
 )

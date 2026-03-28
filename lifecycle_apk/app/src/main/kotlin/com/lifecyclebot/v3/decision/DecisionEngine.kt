@@ -252,25 +252,24 @@ class FinalDecisionEngine(
         // ═══════════════════════════════════════════════════════════════════
         // V3 SELECTIVITY: HARD C-GRADE EXECUTION BAN
         // 
+        // V3.2: LOOSENED THRESHOLDS - previous settings blocked EVERYTHING
+        // 
         // For quality=C, require ALL of:
-        //   - conf >= 35
-        //   - memory > -8
+        //   - conf >= 25 (was 35)
+        //   - memory > -12 (was -8)
         //   - AI not degraded
-        //   - liq >= 10000
         //   - phase is not early_unknown
         //
         // If ANY fail → WATCH ONLY, SHADOW TRACK, NO BUY
-        // 
-        // This is the JOBLESS-killer rule.
         // ═══════════════════════════════════════════════════════════════════
         if (isCGrade) {
             val cGradeBlockReasons = mutableListOf<String>()
             
-            if (conf < 35) {
-                cGradeBlockReasons.add("conf=$conf<35")
+            if (conf < 25) {  // V3.2: Lowered from 35
+                cGradeBlockReasons.add("conf=$conf<25")
             }
-            if (memoryScore <= -8) {
-                cGradeBlockReasons.add("memory=$memoryScore<=-8")
+            if (memoryScore <= -12) {  // V3.2: Lowered from -8
+                cGradeBlockReasons.add("memory=$memoryScore<=-12")
             }
             if (effectiveAIDegraded) {
                 cGradeBlockReasons.add("AI_DEGRADED")
@@ -314,12 +313,12 @@ class FinalDecisionEngine(
         // Only legitimate setups reach here.
         // ═══════════════════════════════════════════════════════════════════
         val minConfForExecute = try {
-            com.lifecyclebot.engine.V3ConfidenceConfig.getMinConfidenceForExecute(45)
+            com.lifecyclebot.engine.V3ConfidenceConfig.getMinConfidenceForExecute(35)  // V3.2: Lowered from 45
         } catch (e: Exception) {
-            45
+            35  // V3.2: Lowered from 45
         }
         
-        val cGradeMinConf = 35  // C-grade still needs conf >= 35 to execute
+        val cGradeMinConf = 28  // V3.2: Lowered from 35 (C-grade can execute with conf >= 28)
         
         val band = when {
             score >= (minScoreForExecute * 1.3).toInt() && effectiveConf >= minConfForExecute + 10 -> DecisionBand.EXECUTE_AGGRESSIVE

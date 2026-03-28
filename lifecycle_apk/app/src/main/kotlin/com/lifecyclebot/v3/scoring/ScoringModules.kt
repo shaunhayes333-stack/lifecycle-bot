@@ -136,10 +136,15 @@ class HolderSafetyAI : ScoringModule {
         val bundled = candidate.bundledPct ?: 0.0
         val holderCount = candidate.holders ?: 0
         
-        // Holder count
+        // Holder count - V3.2: Less punishing for missing data on fresh tokens
         when {
-            holderCount == 0 -> { score -= 10; reasons += "No holder data" }
+            holderCount == 0 -> { 
+                // Don't punish harshly for missing data - it's often just not loaded yet
+                score -= 2  // Was -10, now -2
+                reasons += "Holder data pending" 
+            }
             holderCount > 80 -> { score += 4; reasons += "Healthy holder spread" }
+            holderCount > 30 -> { score += 2; reasons += "Growing holder base" }
         }
         
         // Top holder concentration
