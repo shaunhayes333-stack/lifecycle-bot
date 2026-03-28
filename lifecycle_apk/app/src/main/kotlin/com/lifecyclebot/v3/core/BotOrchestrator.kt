@@ -331,12 +331,20 @@ private fun openShadowTradeForLearning(
             ?: candidate.extraString("mode")
             ?: decision.band.name
         
+        // Derive setupQuality from score and confidence (DecisionResult has no setupQuality)
+        val setupQuality = when {
+            scoreCard.total >= 75 && confidence.effective >= 60 -> "A+"
+            scoreCard.total >= 65 && confidence.effective >= 50 -> "A"
+            scoreCard.total >= 55 && confidence.effective >= 40 -> "B"
+            else -> "C"
+        }
+        
         com.lifecyclebot.v3.learning.ShadowLearningEngine.openShadowLong(
             mint = candidate.mint,
             symbol = candidate.symbol,
             entryPrice = entryPrice,
             aiConfidence = confidence.effective.toInt(),
-            setupQuality = decision.setupQuality,
+            setupQuality = setupQuality,
             regime = regime,
             mode = mode,
             aiPredictions = aiPredictions
