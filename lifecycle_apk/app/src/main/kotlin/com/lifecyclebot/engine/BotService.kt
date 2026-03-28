@@ -977,6 +977,37 @@ class BotService : Service() {
             addLog("ℹ️ V3 Engine: DISABLED (enable in config)")
         }
         
+        // ═══════════════════════════════════════════════════════════════════
+        // INITIALIZE NEW FEATURES (Session 7)
+        // Collective Analytics, V3 Confidence Config, Whale Tracker, Time Scheduler
+        // ═══════════════════════════════════════════════════════════════════
+        try {
+            // Collective Analytics - Dashboard data for hive mind
+            CollectiveAnalytics.init(applicationContext)
+            addLog("📊 CollectiveAnalytics: ${CollectiveAnalytics.getSummary().yourContributions} contributions")
+            
+            // V3 Confidence Config - User-adjustable thresholds
+            V3ConfidenceConfig.init(applicationContext)
+            addLog("⚙️ V3 Confidence: ${V3ConfidenceConfig.getCurrentMode()} mode")
+            
+            // Whale Wallet Tracker - Track successful whale wallets
+            WhaleWalletTracker.init(applicationContext)
+            val topWhales = WhaleWalletTracker.getTopWhales(3)
+            addLog("🐋 WhaleTracker: ${topWhales.size} reliable whales tracked")
+            
+            // Time Mode Scheduler - Auto-switch modes by time
+            TimeModeScheduler.init(applicationContext)
+            val timeRec = TimeModeScheduler.getRecommendation()
+            if (timeRec.recommendedMode != null) {
+                addLog("⏰ TimeScheduler: Recommends ${timeRec.recommendedMode} (${timeRec.confidence}% conf)")
+            } else {
+                addLog("⏰ TimeScheduler: ${if (TimeModeScheduler.isAutoSwitchEnabled()) "ENABLED" else "DISABLED"}")
+            }
+            
+        } catch (e: Exception) {
+            ErrorLogger.error("BotService", "New features init failed: ${e.message}", e)
+        }
+        
         // Set up paper wallet balance tracking
         executor.onPaperBalanceChange = { delta ->
             status.paperWalletSol = (status.paperWalletSol + delta).coerceAtLeast(0.0)

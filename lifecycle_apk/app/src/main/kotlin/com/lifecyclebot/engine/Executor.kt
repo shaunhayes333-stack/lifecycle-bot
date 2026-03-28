@@ -59,6 +59,10 @@ object RuggedContracts {
                         reason = reason,
                         severity = severity
                     )
+                    
+                    // Track contribution for analytics dashboard
+                    CollectiveAnalytics.recordBlacklistReport()
+                    
                     ErrorLogger.info("RuggedContracts", "🌐 Reported $symbol to collective blacklist")
                 } catch (e: Exception) {
                     ErrorLogger.debug("RuggedContracts", "Collective report error: ${e.message}")
@@ -3467,6 +3471,9 @@ class Executor(
                             holdMins = holdMins.toDouble()
                         )
                         
+                        // Track contribution for analytics dashboard
+                        CollectiveAnalytics.recordPatternUpload()
+                        
                         ErrorLogger.debug("CollectiveLearning", 
                             "📤 Uploaded: ${ts.symbol} | ${if(shouldLearnAsWin) "WIN" else "LOSS"} | ${pnlP.toInt()}%")
                     } catch (e: Exception) {
@@ -3594,6 +3601,19 @@ class Executor(
         // TimeOptimizationAI: Learn which hours are most profitable
         try {
             TimeOptimizationAI.recordOutcome(pnlP)
+        } catch (_: Exception) {}
+        
+        // TimeModeScheduler: Learn which modes work best at which times
+        try {
+            TimeModeScheduler.recordTradeOutcome(
+                mode = ts.position.tradingMode.ifEmpty { "SMART_SNIPER" },
+                pnlPct = pnlP
+            )
+        } catch (_: Exception) {}
+        
+        // WhaleWalletTracker: Record if we followed a whale and the outcome
+        try {
+            // TODO: Track whale follow outcomes when implemented
         } catch (_: Exception) {}
         
         // LiquidityDepthAI: Learn which liquidity patterns are profitable
