@@ -2400,6 +2400,10 @@ class BotService : Service() {
                 // LEGACY FALLBACK: Only runs if V3 is disabled
                 // This path will be deprecated once V3 is fully validated
                 // ═══════════════════════════════════════════════════════════════════
+                
+                // Legacy suppression penalty (for comparison logging)
+                val suppressionPenalty = DistributionFadeAvoider.getSuppressionPenalty(identity.mint)
+                
                 if (!ts.position.isOpen && decision.finalSignal == "BUY" && canProposeEarly) {
                     // ═══════════════════════════════════════════════════════════════════
                     // TRADE IDENTITY: Mark as candidate
