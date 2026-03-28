@@ -1124,6 +1124,40 @@ object FinalDecisionGate {
         }
         
         // ═══════════════════════════════════════════════════════════════════════
+        // GATE 0: ZERO CONFIDENCE HARD BLOCK
+        // 
+        // If confidence is 0%, this is NOT a trade candidate.
+        // Don't waste cycles on sizing, edge checks, or memory checks.
+        // Shadow track only - no proposal, no FDG evaluation.
+        //
+        // This fixes the contradictory state where:
+        //   edge=VETOED + edge=SKIP + conf=0% + shouldTrade=true
+        //
+        // Zero confidence = NO TRADE. Period.
+        // ═══════════════════════════════════════════════════════════════════════
+        if (candidate.aiConfidence <= 0.0) {
+            ErrorLogger.info("FDG", "🚫 ZERO_CONF_BLOCK: ${ts.symbol} | " +
+                "quality=${candidate.setupQuality} edge=${candidate.edgeQuality} conf=0% → SHADOW ONLY")
+            
+            return FinalDecision(
+                shouldTrade = false,
+                mode = mode,
+                approvalClass = ApprovalClass.SHADOW,
+                quality = candidate.setupQuality,
+                confidence = 0.0,
+                edge = EdgeVerdict.SKIP,
+                blockReason = "LOW_CONFIDENCE_0%",
+                blockLevel = BlockLevel.CONFIDENCE,
+                sizeSol = 0.0,
+                tags = listOf("zero_confidence", "shadow_only"),
+                mint = ts.mint,
+                symbol = ts.symbol,
+                approvalReason = null,
+                gateChecks = listOf(GateCheck("confidence", false, "conf=0% → SHADOW ONLY"))
+            )
+        }
+        
+        // ═══════════════════════════════════════════════════════════════════════
         // AUTO-ADJUSTING THRESHOLDS
         // 
         // Get current trade count and win rate from brain for adaptive thresholds

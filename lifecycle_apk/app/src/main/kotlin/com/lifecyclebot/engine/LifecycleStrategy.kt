@@ -1094,12 +1094,37 @@ class LifecycleStrategy(
         // PAPER MODE FIX: Allow Edge vetoed trades for LEARNING purposes.
         // Paper mode needs to take these trades to learn if the veto was correct.
         // Live mode still respects Edge vetos strictly.
+        //
+        // ═══════════════════════════════════════════════════════════════════
+        // V3 CONSISTENCY FIX: Even in paper mode, truly invalid setups should
+        // NOT have shouldTrade=true. This fixes the contradictory state where:
+        //   - edgeVeto=true + edge=SKIP + conf=0% + shouldTrade=true
+        // 
+        // HARD NO-TRADE RULE: These conditions force shouldTrade=false always:
+        //   1. conf == 0% (zero confidence = no trade)
+        //   2. Edge SKIP + low confidence (< 25%) in paper mode
+        //   3. Edge veto in live mode (existing rule)
+        // ═══════════════════════════════════════════════════════════════════
+        val isZeroConfidence = edgeConfidence <= 0.0
+        val isVeryLowConfidence = edgeConfidence < 25.0
+        
         val shouldTradeBase = when {
-            isPaperMode -> rawSignal == "BUY" && !ts.position.isOpen  // Paper: IGNORE edge veto
-            else -> rawSignal == "BUY" && !ts.position.isOpen && !edgeVeto  // Live: Respect veto
+            // HARD BLOCK: Zero confidence = NEVER trade (paper or live)
+            isZeroConfidence -> false
+            
+            // HARD BLOCK: Edge SKIP + very low confidence = don't trade even in paper
+            edgeVeto && isVeryLowConfidence -> false
+            
+            // Paper mode: Allow edge vetoed trades if confidence is reasonable (learning)
+            isPaperMode -> rawSignal == "BUY" && !ts.position.isOpen
+            
+            // Live mode: Respect all edge vetos strictly
+            else -> rawSignal == "BUY" && !ts.position.isOpen && !edgeVeto
         }
         
         val blockReason = when {
+            isZeroConfidence -> "Zero confidence (0%) = no trade"
+            edgeVeto && isVeryLowConfidence -> "Edge veto + very low confidence (${edgeConfidence.toInt()}%)"
             rawSignal == "BUY" && edgeVeto && !isPaperMode -> "Edge veto: ${edgeFilter.reason}"
             rawSignal != "BUY" -> "Signal is $rawSignal, not BUY"
             ts.position.isOpen -> "Position already open"
