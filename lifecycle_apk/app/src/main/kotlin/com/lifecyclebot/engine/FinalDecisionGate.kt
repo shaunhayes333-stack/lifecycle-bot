@@ -1152,7 +1152,7 @@ object FinalDecisionGate {
                 tags = listOf("zero_confidence", "shadow_only"),
                 mint = ts.mint,
                 symbol = ts.symbol,
-                approvalReason = null,
+                approvalReason = "ZERO_CONFIDENCE_BLOCK",
                 gateChecks = listOf(GateCheck("confidence", false, "conf=0% → SHADOW ONLY"))
             )
         }
