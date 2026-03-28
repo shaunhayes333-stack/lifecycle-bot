@@ -54,6 +54,7 @@ object MarketStructureRouter {
         CEX_ORDERBOOK("CEX Orderbook", "📚", "Level 2 depth, liquidity provision"),
         MEAN_REVERSION("Mean Reversion", "⚖️", "Range bound, oversold/overbought extremes"),
         TREND_REGIME("Trend Regime", "📉", "Sector rotation, momentum factors"),
+        VOLATILITY_STRATEGIES("Volatility", "🎯", "Options-like: strangles, straddles, vol plays"),
     }
     
     /**
@@ -300,6 +301,89 @@ object MarketStructureRouter {
             momentumWeight = 1.8, volumeWeight = 1.1, whaleWeight = 1.1, narrativeWeight = 0.5,
             technicalWeight = 1.7, regimeWeight = 1.6,
         ),
+        
+        // ═══════════════════════════════════════════════════════════════════
+        // VOLATILITY STRATEGIES (Options-like: strangles, straddles, vol plays)
+        // 
+        // These modes profit from MOVEMENT, not direction.
+        // Entry: When volatility compression detected (squeeze forming)
+        // Exit: When price breaks out of range (either direction)
+        // ═══════════════════════════════════════════════════════════════════
+        
+        VOL_STRANGLE(
+            regime = MarketRegime.VOLATILITY_STRATEGIES,
+            emoji = "🎯", label = "Strangle",
+            // Strangle: profit from big moves either direction
+            // "Buy" both a conceptual call and put at different strikes
+            maxSizePct = 4.0, defaultStopPct = 15.0, defaultTpPct = 30.0, trailingStopPct = 10.0,
+            maxHoldMins = 180, riskTier = 3, minLiquidityUsd = 50_000.0, maxSlippagePct = 0.5,
+            momentumWeight = 0.5,  // Momentum doesn't matter - vol matters
+            volumeWeight = 1.8,    // Volume precedes breakouts
+            whaleWeight = 1.5,     // Whale activity causes volatility
+            narrativeWeight = 1.2, // Narrative can trigger moves
+            technicalWeight = 2.0, // Bollinger squeeze, ATR compression
+            regimeWeight = 1.5,    // Regime shift triggers vol
+        ),
+        
+        VOL_STRADDLE(
+            regime = MarketRegime.VOLATILITY_STRATEGIES,
+            emoji = "⚖️", label = "Straddle",
+            // Straddle: tighter strikes, more sensitive to movement
+            // Profits from smaller moves than strangle
+            maxSizePct = 3.5, defaultStopPct = 10.0, defaultTpPct = 20.0, trailingStopPct = 8.0,
+            maxHoldMins = 120, riskTier = 3, minLiquidityUsd = 50_000.0, maxSlippagePct = 0.4,
+            momentumWeight = 0.6,
+            volumeWeight = 2.0,    // Volume is key
+            whaleWeight = 1.3,
+            narrativeWeight = 1.0,
+            technicalWeight = 2.2, // Technical compression detection
+            regimeWeight = 1.4,
+        ),
+        
+        VOL_BREAKOUT_ANTICIPATION(
+            regime = MarketRegime.VOLATILITY_STRATEGIES,
+            emoji = "💥", label = "Breakout Anticipation",
+            // Position before a volatility event (earnings-like setup)
+            // Entry when IV is low, exit when vol expands
+            maxSizePct = 5.0, defaultStopPct = 8.0, defaultTpPct = 25.0, trailingStopPct = 12.0,
+            maxHoldMins = 240, riskTier = 3, minLiquidityUsd = 75_000.0, maxSlippagePct = 0.4,
+            momentumWeight = 1.2,  // Some momentum helps confirm direction
+            volumeWeight = 1.8,
+            whaleWeight = 1.6,
+            narrativeWeight = 1.5, // Catalyst awareness
+            technicalWeight = 1.8,
+            regimeWeight = 1.5,
+        ),
+        
+        VOL_COMPRESSION_PLAY(
+            regime = MarketRegime.VOLATILITY_STRATEGIES,
+            emoji = "🔋", label = "Vol Compression",
+            // Extreme vol compression → explosive expansion expected
+            // Bollinger band width at historical lows
+            maxSizePct = 4.5, defaultStopPct = 12.0, defaultTpPct = 35.0, trailingStopPct = 15.0,
+            maxHoldMins = 300, riskTier = 4, minLiquidityUsd = 40_000.0, maxSlippagePct = 0.6,
+            momentumWeight = 0.4,  // Momentum absent during compression
+            volumeWeight = 1.5,
+            whaleWeight = 1.2,
+            narrativeWeight = 0.8,
+            technicalWeight = 2.5, // Technical is everything here
+            regimeWeight = 1.2,
+        ),
+        
+        VOL_GAMMA_SCALP(
+            regime = MarketRegime.VOLATILITY_STRATEGIES,
+            emoji = "⚡", label = "Gamma Scalp",
+            // Quick in-and-out on vol spikes
+            // Small profits, high frequency concept
+            maxSizePct = 2.0, defaultStopPct = 5.0, defaultTpPct = 8.0, trailingStopPct = 0.0,
+            maxHoldMins = 30, riskTier = 3, minLiquidityUsd = 100_000.0, maxSlippagePct = 0.2,
+            momentumWeight = 1.5,
+            volumeWeight = 2.0,
+            whaleWeight = 0.8,
+            narrativeWeight = 0.5,
+            technicalWeight = 1.8,
+            regimeWeight = 0.8,
+        ),
     }
     
     // ═══════════════════════════════════════════════════════════════════════════
@@ -372,6 +456,7 @@ object MarketStructureRouter {
             MarketRegime.CEX_ORDERBOOK -> scoreCexModes(ts, hist, modeScores, signals)
             MarketRegime.MEAN_REVERSION -> scoreMeanRevModes(ts, hist, modeScores, signals)
             MarketRegime.TREND_REGIME -> scoreTrendModes(ts, hist, modeScores, signals)
+            MarketRegime.VOLATILITY_STRATEGIES -> scoreVolatilityModes(ts, hist, modeScores, signals)
         }
         
         // ─────────────────────────────────────────────────────────────────────
@@ -795,6 +880,71 @@ object MarketStructureRouter {
         val returns = prices.zipWithNext { a, b -> if (a > 0) (b - a) / a * 100 else 0.0 }
         val mean = returns.average()
         return kotlin.math.sqrt(returns.map { (it - mean) * (it - mean) }.average())
+    }
+    
+    // ═══════════════════════════════════════════════════════════════════════════
+    // VOLATILITY STRATEGIES SCORING
+    // ═══════════════════════════════════════════════════════════════════════════
+    
+    private fun scoreVolatilityModes(
+        ts: TokenState, 
+        hist: List<Candle>, 
+        scores: MutableMap<StructureMode, Double>,
+        signals: MutableList<String>
+    ) {
+        val prices = hist.map { it.priceUsd }
+        if (prices.size < 15) return
+        
+        // Calculate Bollinger-like metrics
+        val sma20 = prices.takeLast(20).average()
+        val volatility = calculateVolatility(prices.takeLast(20))
+        val recentVol = calculateVolatility(prices.takeLast(5))
+        val priorVol = calculateVolatility(prices.dropLast(5).takeLast(10))
+        
+        // Calculate band width (Bollinger squeeze indicator)
+        val bandWidth = volatility / sma20 * 100
+        val avgBandWidth = if (hist.size >= 30) {
+            // Historical average band width
+            val chunks = prices.chunked(5)
+            chunks.map { chunk -> calculateVolatility(chunk) }.average()
+        } else bandWidth
+        
+        val isCompressed = bandWidth < avgBandWidth * 0.6
+        val isExpanding = recentVol > priorVol * 1.3
+        
+        // VOL_COMPRESSION_PLAY - Extreme squeeze
+        if (isCompressed && bandWidth < 3.0) {
+            scores[StructureMode.VOL_COMPRESSION_PLAY] = scores[StructureMode.VOL_COMPRESSION_PLAY]!! + 50.0
+            signals.add("VOL: Extreme compression (BW=${bandWidth.toInt()}%)")
+        }
+        
+        // VOL_STRANGLE - Moderate compression, expect big move
+        if (isCompressed) {
+            scores[StructureMode.VOL_STRANGLE] = scores[StructureMode.VOL_STRANGLE]!! + 40.0
+            signals.add("VOL: Compression → Strangle setup")
+        }
+        
+        // VOL_STRADDLE - Tighter compression
+        if (isCompressed && bandWidth < avgBandWidth * 0.4) {
+            scores[StructureMode.VOL_STRADDLE] = scores[StructureMode.VOL_STRADDLE]!! + 45.0
+            signals.add("VOL: Tight squeeze → Straddle")
+        }
+        
+        // VOL_BREAKOUT_ANTICIPATION - Compression + volume building
+        val recentVolume = hist.takeLast(5).map { it.vol }.average()
+        val priorVolume = hist.dropLast(5).takeLast(10).map { it.vol }.average()
+        val volumeBuilding = priorVolume > 0 && recentVolume > priorVolume * 1.2
+        
+        if (isCompressed && volumeBuilding) {
+            scores[StructureMode.VOL_BREAKOUT_ANTICIPATION] = scores[StructureMode.VOL_BREAKOUT_ANTICIPATION]!! + 55.0
+            signals.add("VOL: Compression + volume = imminent breakout")
+        }
+        
+        // VOL_GAMMA_SCALP - Vol spike happening now
+        if (isExpanding && recentVol > avgBandWidth * 1.5) {
+            scores[StructureMode.VOL_GAMMA_SCALP] = scores[StructureMode.VOL_GAMMA_SCALP]!! + 40.0
+            signals.add("VOL: Expansion active → Gamma scalp")
+        }
     }
     
     // ═══════════════════════════════════════════════════════════════════════════
