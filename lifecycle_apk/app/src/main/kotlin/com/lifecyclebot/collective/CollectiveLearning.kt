@@ -322,6 +322,45 @@ object CollectiveLearning {
             downloadWhaleStats()
             lastSyncTime = System.currentTimeMillis()
             Log.i(TAG, "📥 Full sync completed")
+            
+            // Update CollectiveAnalytics with downloaded stats
+            try {
+                com.lifecyclebot.engine.CollectiveAnalytics.updateCollectiveStats(
+                    totalPatterns = cachedPatterns.size,
+                    blacklistSize = cachedBlacklist.size,
+                    estimatedInstances = 0  // We don't track this yet
+                )
+                
+                // Update best/worst patterns
+                val sortedPatterns = cachedPatterns.values.filter { it.isReliable }
+                val bestPatterns = sortedPatterns
+                    .sortedByDescending { it.winRate }
+                    .take(5)
+                    .map { p ->
+                        com.lifecyclebot.engine.CollectiveAnalytics.PatternStat(
+                            patternType = "${p.patternType}_${p.discoverySource}",
+                            winRate = p.winRate,
+                            totalTrades = p.totalTrades,
+                            avgPnl = p.avgPnl
+                        )
+                    }
+                val worstPatterns = sortedPatterns
+                    .sortedBy { it.winRate }
+                    .take(5)
+                    .map { p ->
+                        com.lifecyclebot.engine.CollectiveAnalytics.PatternStat(
+                            patternType = "${p.patternType}_${p.discoverySource}",
+                            winRate = p.winRate,
+                            totalTrades = p.totalTrades,
+                            avgPnl = p.avgPnl
+                        )
+                    }
+                
+                com.lifecyclebot.engine.CollectiveAnalytics.updateBestPatterns(bestPatterns)
+                com.lifecyclebot.engine.CollectiveAnalytics.updateWorstPatterns(worstPatterns)
+            } catch (e: Exception) {
+                Log.d(TAG, "CollectiveAnalytics update error: ${e.message}")
+            }
         } catch (e: Exception) {
             Log.e(TAG, "Download all error: ${e.message}")
         }

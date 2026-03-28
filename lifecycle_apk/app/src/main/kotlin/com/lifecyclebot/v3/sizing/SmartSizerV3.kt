@@ -90,8 +90,15 @@ class SmartSizerV3(
             1.00
         }
         
+        // V3 Confidence Config size multiplier (user-adjustable)
+        val v3ConfigMult = try {
+            com.lifecyclebot.engine.V3ConfidenceConfig.getSizeMultiplier()
+        } catch (e: Exception) {
+            1.00
+        }
+        
         // Final size calculation
-        val size = tradeable * basePct * confMult * liqMult * ddMult * learningMult
+        val size = tradeable * basePct * confMult * liqMult * ddMult * learningMult * v3ConfigMult
         
         return SizeResult(
             sizeSol = size.coerceAtLeast(0.0).coerceAtMost(tradeable * config.maxAggressiveSizePct)

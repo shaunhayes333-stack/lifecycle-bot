@@ -46,6 +46,8 @@ class AutoModeEngine(
     private val onModeChange: (from: BotMode, to: BotMode, reason: String) -> Unit,
 ) {
 
+    private val TAG = "AutoModeEngine"
+
     enum class BotMode {
         SNIPE, RANGE, AGGRESSIVE, DEFENSIVE, COPY, PAUSED;
 
@@ -144,6 +146,32 @@ class AutoModeEngine(
         ts: TokenState, whaleScore: Double, trendingRank: Int?,
         curveStage: BondingCurveTracker.CurveStage, utcHour: Int, c: BotConfig,
     ): BotMode {
+
+        // ═══════════════════════════════════════════════════════════════════
+        // CHECK TimeModeScheduler FOR AUTO-SWITCH RECOMMENDATION
+        // ═══════════════════════════════════════════════════════════════════
+        if (TimeModeScheduler.isAutoSwitchEnabled()) {
+            val scheduledMode = TimeModeScheduler.checkAndGetModeSwitch(currentMode.name)
+            if (scheduledMode != null) {
+                // Map scheduler mode name to BotMode
+                val mapped = try {
+                    BotMode.valueOf(scheduledMode)
+                } catch (e: Exception) {
+                    // Try mapping common mode names
+                    when (scheduledMode.uppercase()) {
+                        "SMART_SNIPER", "SNIPE" -> BotMode.SNIPE
+                        "PUMP_SNIPER", "AGGRESSIVE" -> BotMode.AGGRESSIVE
+                        "CONSERVATIVE", "DEFENSIVE" -> BotMode.DEFENSIVE
+                        "RANGE", "RANGE_TRADER" -> BotMode.RANGE
+                        else -> null
+                    }
+                }
+                if (mapped != null) {
+                    ErrorLogger.info(TAG, "⏰ TimeModeScheduler: Switching to $mapped")
+                    return mapped
+                }
+            }
+        }
 
         // PAUSED — dead hours (configurable, but allow trading if there's strong opportunity)
         // Only pause if utcHour is within pause window AND no strong signals present

@@ -306,6 +306,19 @@ object WhaleTrackerAI {
         }
         whale.lastSeenMs = System.currentTimeMillis()
         
+        // Bridge to WhaleWalletTracker for collective sharing
+        try {
+            WhaleWalletTracker.recordWhaleTrade(
+                walletAddress = whaleAddress,
+                tokenMint = mint,
+                tokenSymbol = symbol,
+                solAmount = amountSol,
+                isBuy = action == WhaleAction.BUY || action == WhaleAction.ACCUMULATE
+            )
+        } catch (e: Exception) {
+            ErrorLogger.debug(TAG, "WhaleWalletTracker bridge error: ${e.message}")
+        }
+        
         ErrorLogger.info(TAG, "🐋 Whale ${whaleAddress.take(8)}... ${action.name} $symbol | ${amountSol.toInt()} SOL")
     }
     
@@ -332,6 +345,16 @@ object WhaleTrackerAI {
             }
             
             whale.totalPnlSol += pnlPct / 100.0  // Rough conversion
+            
+            // Bridge outcome to WhaleWalletTracker for collective learning
+            try {
+                WhaleWalletTracker.recordWhaleOutcome(
+                    walletAddress = address,
+                    wasSuccessful = wasSignalCorrect
+                )
+            } catch (e: Exception) {
+                ErrorLogger.debug(TAG, "WhaleWalletTracker outcome bridge error: ${e.message}")
+            }
         }
         
         // Clear old consensus after outcome recorded

@@ -128,6 +128,11 @@ data class DecisionResult(
 /**
  * V3 Final Decision Engine
  * Maps score + confidence to decision band
+ * 
+ * Now integrates with V3ConfidenceConfig for user-adjustable thresholds:
+ * - AGGRESSIVE mode: Lower thresholds, more trades
+ * - STANDARD mode: Default thresholds
+ * - CONSERVATIVE mode: Higher thresholds, fewer trades
  */
 class FinalDecisionEngine(
     private val config: TradingConfigV3
@@ -157,11 +162,24 @@ class FinalDecisionEngine(
         val score = scoreCard.total
         val conf = confidence.effective
         
-        // Band selection based on score and confidence thresholds
+        // Get adjusted thresholds from V3ConfidenceConfig
+        val minScoreForExecute = try {
+            com.lifecyclebot.engine.V3ConfidenceConfig.getMinScoreForExecute(config.executeStandardMin)
+        } catch (e: Exception) {
+            config.executeStandardMin
+        }
+        
+        val minConfForExecute = try {
+            com.lifecyclebot.engine.V3ConfidenceConfig.getMinConfidenceForExecute(45)
+        } catch (e: Exception) {
+            45
+        }
+        
+        // Band selection with adjusted thresholds
         val band = when {
-            score >= config.executeAggressiveMin && conf >= 55 -> DecisionBand.EXECUTE_AGGRESSIVE
-            score >= config.executeStandardMin && conf >= 45 -> DecisionBand.EXECUTE_STANDARD
-            score >= config.executeSmallMin && conf >= 30 -> DecisionBand.EXECUTE_SMALL
+            score >= (minScoreForExecute * 1.3).toInt() && conf >= minConfForExecute + 10 -> DecisionBand.EXECUTE_AGGRESSIVE
+            score >= minScoreForExecute && conf >= minConfForExecute -> DecisionBand.EXECUTE_STANDARD
+            score >= (minScoreForExecute * 0.7).toInt() && conf >= minConfForExecute - 15 -> DecisionBand.EXECUTE_SMALL
             score >= config.watchScoreMin -> DecisionBand.WATCH
             else -> DecisionBand.REJECT
         }
