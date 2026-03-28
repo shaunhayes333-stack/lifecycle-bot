@@ -129,6 +129,11 @@ data class DecisionResult(
  * V3 Final Decision Engine
  * Maps score + confidence to decision band
  * 
+ * V3 SELECTIVITY TUNING:
+ * - Compound weakness veto: C-grade + low conf + negative memory/narrative → WATCH
+ * - AI degradation penalty: degraded AI = confidence cap
+ * - Tighter C-grade thresholds: requires conf >= 40 for execute
+ * 
  * Now integrates with V3ConfidenceConfig for user-adjustable thresholds:
  * - AGGRESSIVE mode: Lower thresholds, more trades
  * - STANDARD mode: Default thresholds
@@ -162,24 +167,124 @@ class FinalDecisionEngine(
         val score = scoreCard.total
         val conf = confidence.effective
         
-        // Get adjusted thresholds from V3ConfidenceConfig
+        // ═══════════════════════════════════════════════════════════════════
+        // V3 SELECTIVITY: Extract component scores for compound weakness check
+        // ═══════════════════════════════════════════════════════════════════
+        val memoryScore = scoreCard.components.find { it.name == "memory" }?.value ?: 0
+        val narrativeScore = scoreCard.components.find { it.name == "narrative" }?.value ?: 0
+        val suppressionScore = scoreCard.components.find { it.name == "suppression" }?.value ?: 0
+        
+        // Check for AI degradation (ops.apiHealthy = false means degraded)
+        val isAIDegraded = confidence.operational < 50
+        
+        // ═══════════════════════════════════════════════════════════════════
+        // V3 SELECTIVITY: Compound weakness veto
+        // 
+        // If ALL of these are true:
+        //   - Score is in C-grade range (below standard threshold)
+        //   - Confidence < 35
+        //   - Memory negative (< 0)
+        //   - Narrative negative (< 0)
+        // Then: WATCH only, do not execute
+        //
+        // This prevents trading weak setups with stacked negatives.
+        // ═══════════════════════════════════════════════════════════════════
         val minScoreForExecute = try {
             com.lifecyclebot.engine.V3ConfidenceConfig.getMinScoreForExecute(config.executeStandardMin)
         } catch (e: Exception) {
             config.executeStandardMin
         }
         
+        val isCGrade = score < minScoreForExecute
+        val isLowConfidence = conf < 35
+        val hasNegativeMemory = memoryScore < 0
+        val hasNegativeNarrative = narrativeScore < 0
+        val hasSuppression = suppressionScore < -10
+        
+        // Count stacked weaknesses
+        val weaknessCount = listOf(
+            isCGrade,
+            isLowConfidence,
+            hasNegativeMemory,
+            hasNegativeNarrative,
+            hasSuppression,
+            isAIDegraded
+        ).count { it }
+        
+        // COMPOUND WEAKNESS VETO: 3+ weaknesses = WATCH only
+        if (weaknessCount >= 3 && score < minScoreForExecute) {
+            return DecisionResult(
+                band = DecisionBand.WATCH,
+                finalScore = score,
+                statisticalConfidence = confidence.statistical,
+                structuralConfidence = confidence.structural,
+                operationalConfidence = confidence.operational,
+                effectiveConfidence = conf,
+                reasons = listOf("COMPOUND_WEAKNESS: weaknesses=$weaknessCount (mem=$memoryScore narr=$narrativeScore conf=$conf)")
+            )
+        }
+        
+        // ═══════════════════════════════════════════════════════════════════
+        // V3 SELECTIVITY: AI degradation cap
+        // 
+        // If AI is degraded, cap effective confidence and be more conservative.
+        // C-grade setups with degraded AI → WATCH only
+        // ═══════════════════════════════════════════════════════════════════
+        val effectiveConf = if (isAIDegraded && isCGrade) {
+            // Degraded AI + C-grade = force WATCH
+            return DecisionResult(
+                band = DecisionBand.WATCH,
+                finalScore = score,
+                statisticalConfidence = confidence.statistical,
+                structuralConfidence = confidence.structural,
+                operationalConfidence = confidence.operational,
+                effectiveConfidence = conf,
+                reasons = listOf("AI_DEGRADED: C-grade with degraded AI → WATCH")
+            )
+        } else if (isAIDegraded) {
+            // Degraded AI = confidence cap at 50
+            minOf(conf, 50)
+        } else {
+            conf
+        }
+        
+        // ═══════════════════════════════════════════════════════════════════
+        // V3 SELECTIVITY: Tighter C-grade thresholds
+        // 
+        // C-grade (score below standard) can only execute if:
+        //   - Confidence >= 40 (was 30)
+        //   - No major negative memory/narrative hit (combined > -10)
+        //   - Liquidity reasonable (handled by scoring)
+        // ═══════════════════════════════════════════════════════════════════
         val minConfForExecute = try {
             com.lifecyclebot.engine.V3ConfidenceConfig.getMinConfidenceForExecute(45)
         } catch (e: Exception) {
             45
         }
         
-        // Band selection with adjusted thresholds
+        // C-grade requires HIGHER confidence threshold (40 instead of 30)
+        val cGradeMinConf = 40
+        val combinedSentiment = memoryScore + narrativeScore
+        
+        if (isCGrade && (effectiveConf < cGradeMinConf || combinedSentiment < -10)) {
+            return DecisionResult(
+                band = DecisionBand.WATCH,
+                finalScore = score,
+                statisticalConfidence = confidence.statistical,
+                structuralConfidence = confidence.structural,
+                operationalConfidence = confidence.operational,
+                effectiveConfidence = effectiveConf,
+                reasons = listOf("C_GRADE_FILTER: conf=$effectiveConf<$cGradeMinConf or sentiment=$combinedSentiment<-10")
+            )
+        }
+        
+        // ═══════════════════════════════════════════════════════════════════
+        // V3 BAND SELECTION: Standard thresholds for B+ grade setups
+        // ═══════════════════════════════════════════════════════════════════
         val band = when {
-            score >= (minScoreForExecute * 1.3).toInt() && conf >= minConfForExecute + 10 -> DecisionBand.EXECUTE_AGGRESSIVE
-            score >= minScoreForExecute && conf >= minConfForExecute -> DecisionBand.EXECUTE_STANDARD
-            score >= (minScoreForExecute * 0.7).toInt() && conf >= minConfForExecute - 15 -> DecisionBand.EXECUTE_SMALL
+            score >= (minScoreForExecute * 1.3).toInt() && effectiveConf >= minConfForExecute + 10 -> DecisionBand.EXECUTE_AGGRESSIVE
+            score >= minScoreForExecute && effectiveConf >= minConfForExecute -> DecisionBand.EXECUTE_STANDARD
+            score >= (minScoreForExecute * 0.7).toInt() && effectiveConf >= cGradeMinConf -> DecisionBand.EXECUTE_SMALL
             score >= config.watchScoreMin -> DecisionBand.WATCH
             else -> DecisionBand.REJECT
         }
@@ -190,7 +295,7 @@ class FinalDecisionEngine(
             statisticalConfidence = confidence.statistical,
             structuralConfidence = confidence.structural,
             operationalConfidence = confidence.operational,
-            effectiveConfidence = conf,
+            effectiveConfidence = effectiveConf,
             reasons = scoreCard.components.map { "${it.name}:${it.value} (${it.reason})" }
         )
     }

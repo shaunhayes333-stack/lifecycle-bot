@@ -181,6 +181,8 @@ object V3EngineManager {
     
     /**
      * Process a token through the V3 pipeline
+     * 
+     * V3 SELECTIVITY: Added isAIDegraded parameter for AI health tracking
      */
     fun processToken(
         ts: TokenState,
@@ -189,7 +191,8 @@ object V3EngineManager {
         openPositions: Int,
         recentWinRate: Double,
         recentTradeCount: Int,
-        marketRegime: String = "NEUTRAL"
+        marketRegime: String = "NEUTRAL",
+        isAIDegraded: Boolean = false  // V3 SELECTIVITY: AI degradation flag
     ): V3Decision {
         if (!isReady()) {
             return V3Decision.notReady("V3 Engine not initialized")
@@ -222,8 +225,9 @@ object V3EngineManager {
             )
             
             // Build ops metrics
+            // V3 SELECTIVITY: Pass AI degradation state
             val opsMetrics = OpsMetrics(
-                apiHealthy = true,
+                apiHealthy = !isAIDegraded,  // AI degraded = not healthy
                 feedsHealthy = true,
                 walletHealthy = true,
                 latencyMs = 100

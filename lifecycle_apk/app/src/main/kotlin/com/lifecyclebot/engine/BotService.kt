@@ -2257,6 +2257,13 @@ class BotService : Service() {
                     // Log discovery (entry point to V3 pipeline)
                     ErrorLogger.debug("BotService", "[DISCOVERY] ${identity.symbol} | src=${ts.source} liq=${ts.lastLiquidityUsd.toInt()} age=${tokenAgeMinutes.toInt()}m")
                     
+                    // Check AI degradation state
+                    val isAIDegraded = try {
+                        GeminiCopilot.isAIDegraded()
+                    } catch (e: Exception) {
+                        false
+                    }
+                    
                     try {
                         val v3Decision = com.lifecyclebot.v3.V3EngineManager.processToken(
                             ts = ts,
@@ -2265,7 +2272,8 @@ class BotService : Service() {
                             openPositions = status.openPositionCount,
                             recentWinRate = botBrain?.getRecentWinRate() ?: 50.0,
                             recentTradeCount = botBrain?.getTradeCount() ?: 0,
-                            marketRegime = modeConf?.mode?.name ?: "NEUTRAL"
+                            marketRegime = modeConf?.mode?.name ?: "NEUTRAL",
+                            isAIDegraded = isAIDegraded  // V3 SELECTIVITY: Pass AI degradation
                         )
                         
                         when (val result = v3Decision) {

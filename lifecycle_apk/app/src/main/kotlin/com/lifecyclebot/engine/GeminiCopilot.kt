@@ -117,6 +117,14 @@ object GeminiCopilot {
         }
     }
     
+    /**
+     * V3 SELECTIVITY: Check if AI is degraded (rate limited or unavailable)
+     * Used by DecisionEngine to apply compound weakness veto
+     */
+    fun isAIDegraded(): Boolean {
+        return isRateLimited() || consecutive429Count >= 2 || apiKey == null
+    }
+    
     // ════════════════════════════════════════════════════════════════════════════
     // DATA CLASSES
     // ════════════════════════════════════════════════════════════════════════════
