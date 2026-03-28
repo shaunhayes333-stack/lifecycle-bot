@@ -253,6 +253,24 @@ class Executor(
         val tradeWithMint = if (trade.mint.isBlank()) trade.copy(mint = ts.mint) else trade
         ts.trades.add(tradeWithMint)
         TradeHistoryStore.recordTrade(tradeWithMint)
+        
+        // ═══════════════════════════════════════════════════════════════════
+        // V3.2: Record losses to ToxicModeCircuitBreaker
+        // This enables automatic mode freezing after catastrophic losses
+        // ═══════════════════════════════════════════════════════════════════
+        if (trade.side == "SELL" && (trade.pnlPct ?: 0.0) < 0) {
+            try {
+                val mode = ts.tradeType?.name ?: ModeRouter.classify(ts).name
+                ToxicModeCircuitBreaker.recordLoss(
+                    mode = mode,
+                    pnlPct = trade.pnlPct ?: 0.0,
+                    mint = ts.mint,
+                    symbol = ts.symbol
+                )
+            } catch (e: Exception) {
+                // Silently ignore - circuit breaker is secondary
+            }
+        }
     }
 
     // ── top-up sizing ─────────────────────────────────────────────────
@@ -1563,6 +1581,45 @@ class Executor(
         // Risk rules (mode-aware)
         val reason = riskCheck(ts, modeConfig)
         if (reason != null) { doSell(ts, reason, wallet, walletSol); return }
+        
+        // ═══════════════════════════════════════════════════════════════════
+        // V3.2: TOXIC MODE CIRCUIT BREAKER - FORCE FULL EXIT
+        // 
+        // When collapse conditions are met, exit IMMEDIATELY and FULLY.
+        // No partial sells, no waiting. Get out now.
+        // 
+        // This catches: liquidity collapse + copy invalidation + whale stopped
+        // ═══════════════════════════════════════════════════════════════════
+        if (ts.position.isOpen) {
+            val liqSignal = try { LiquidityDepthAI.getSignal(ts.mint, ts.symbol, isOpenPosition = true) } catch (_: Exception) { null }
+            val liquidityCollapsing = liqSignal?.signal in listOf(
+                LiquidityDepthAI.SignalType.LIQUIDITY_COLLAPSE,
+                LiquidityDepthAI.SignalType.LIQUIDITY_DRAINING
+            )
+            val depthDangerous = liqSignal?.depthQuality in listOf("POOR", "DANGEROUS", "CRITICAL")
+            
+            // Check if whales/copy stopped (from meta or signals)
+            val whalesStopped = ts.meta.whaleRisk <= -20 || ts.meta.whaleBullishRate < 30
+            val copyInvalidated = ts.meta.whaleRisk <= -25 || (ts.tradeType?.name?.contains("COPY") == true && whalesStopped)
+            val buyPressureCollapsing = ts.meta.pressScore < 30
+            
+            val tradingMode = ts.tradeType?.name ?: ModeRouter.classify(ts).name
+            
+            val shouldForceExit = ToxicModeCircuitBreaker.shouldForceFullExit(
+                liquidityCollapsing = liquidityCollapsing,
+                depthDangerous = depthDangerous,
+                whalesStopped = whalesStopped,
+                copyInvalidated = copyInvalidated,
+                buyPressureCollapsing = buyPressureCollapsing,
+                mode = tradingMode
+            )
+            
+            if (shouldForceExit) {
+                onLog("🚨 CIRCUIT BREAKER FORCE EXIT: ${ts.symbol} | mode=$tradingMode | liq=$liquidityCollapsing whale=$whalesStopped copy=$copyInvalidated", ts.mint)
+                doSell(ts, "circuit_breaker_force_exit", wallet, walletSol)
+                return
+            }
+        }
 
         if (signal in listOf("SELL", "EXIT") && ts.position.isOpen) {
             doSell(ts, signal.lowercase(), wallet, walletSol); return

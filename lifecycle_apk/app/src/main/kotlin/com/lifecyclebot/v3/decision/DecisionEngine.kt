@@ -5,6 +5,7 @@ import com.lifecyclebot.v3.core.TradingConfigV3
 import com.lifecyclebot.v3.learning.LearningMetrics
 import com.lifecyclebot.v3.risk.FatalRiskResult
 import com.lifecyclebot.v3.scoring.ScoreCard
+import com.lifecyclebot.engine.ToxicModeCircuitBreaker
 import kotlin.math.roundToInt
 
 /**
@@ -144,11 +145,18 @@ class FinalDecisionEngine(
 ) {
     /**
      * Make final decision based on score, confidence, and fatal check
+     * 
+     * V3.2 ADDITION: ToxicModeCircuitBreaker integration
+     * Checks for hard-disabled modes and liquidity floors BEFORE scoring
      */
     fun decide(
         scoreCard: ScoreCard,
         confidence: ConfidenceBreakdown,
-        fatal: FatalRiskResult
+        fatal: FatalRiskResult,
+        tradingMode: String = "",
+        source: String = "",
+        phase: String = "",
+        isAIDegraded: Boolean = false
     ): DecisionResult {
         // Fatal block overrides everything
         if (fatal.blocked) {
@@ -179,7 +187,7 @@ class FinalDecisionEngine(
         } ?: 0.0
         
         // Extract phase from scoring - check entry module reason
-        val phase = scoreCard.components.find { it.name == "entry" }?.reason?.let {
+        val extractedPhase = scoreCard.components.find { it.name == "entry" }?.reason?.let {
             when {
                 it.contains("early_unknown") -> "early_unknown"
                 it.contains("pre_pump") -> "pre_pump"
@@ -189,8 +197,48 @@ class FinalDecisionEngine(
             }
         } ?: "unknown"
         
+        // Use extracted phase if not provided
+        val effectivePhase = if (phase.isNotBlank()) phase else extractedPhase
+        
         // Check for AI degradation (ops.apiHealthy = false means degraded)
-        val isAIDegraded = confidence.operational < 50
+        val effectiveAIDegraded = isAIDegraded || confidence.operational < 50
+        
+        // ═══════════════════════════════════════════════════════════════════
+        // V3.2 TOXIC MODE CIRCUIT BREAKER CHECK
+        // 
+        // CRITICAL: This check happens BEFORE any scoring-based decisions.
+        // If the circuit breaker blocks entry, we return WATCH immediately.
+        // 
+        // Blocks:
+        // - COPY_TRADE mode (hard disabled after -92% loss)
+        // - WHALE_FOLLOW below $15k liquidity
+        // - Any mode below liquidity floor
+        // - Frozen modes (circuit breaker tripped)
+        // ═══════════════════════════════════════════════════════════════════
+        if (tradingMode.isNotBlank()) {
+            val circuitBlockReason = ToxicModeCircuitBreaker.checkEntryAllowed(
+                mode = tradingMode,
+                source = source,
+                liquidityUsd = liquidityUsd,
+                phase = effectivePhase,
+                memoryScore = memoryScore,
+                isAIDegraded = effectiveAIDegraded,
+                confidence = conf
+            )
+            
+            if (circuitBlockReason != null) {
+                return DecisionResult(
+                    band = DecisionBand.WATCH,  // Block to WATCH, not REJECT
+                    finalScore = score,
+                    statisticalConfidence = confidence.statistical,
+                    structuralConfidence = confidence.structural,
+                    operationalConfidence = confidence.operational,
+                    effectiveConfidence = conf,
+                    reasons = listOf("CIRCUIT_BREAKER: $circuitBlockReason", "mode=$tradingMode", "liq=$liquidityUsd"),
+                    fatalReason = "ToxicModeCircuitBreaker: $circuitBlockReason"
+                )
+            }
+        }
         
         val minScoreForExecute = try {
             com.lifecyclebot.engine.V3ConfidenceConfig.getMinScoreForExecute(config.executeStandardMin)
@@ -224,12 +272,12 @@ class FinalDecisionEngine(
             if (memoryScore <= -8) {
                 cGradeBlockReasons.add("memory=$memoryScore<=-8")
             }
-            if (isAIDegraded) {
+            if (effectiveAIDegraded) {
                 cGradeBlockReasons.add("AI_DEGRADED")
             }
             // NOTE: liquidityUsd comes from candidate in BotOrchestrator, not scoreCard
             // We check this in BotOrchestrator before calling decide()
-            if (phase == "early_unknown") {
+            if (effectivePhase == "early_unknown") {
                 cGradeBlockReasons.add("phase=early_unknown")
             }
             
@@ -253,7 +301,7 @@ class FinalDecisionEngine(
         //   - C-grade = WATCH only (handled above in C_GRADE_BAN)
         //   - B+ grade = can still execute but confidence capped at 50
         // ═══════════════════════════════════════════════════════════════════
-        val effectiveConf = if (isAIDegraded) {
+        val effectiveConf = if (effectiveAIDegraded) {
             minOf(conf, 50)
         } else {
             conf
