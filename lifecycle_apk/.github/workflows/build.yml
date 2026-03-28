@@ -50,5 +50,5 @@ jobs:
 
       - uses: actions/upload-artifact@v4
         with:
-          name: AATE-release-apk
+          name: AATE_v3.2.0
           path: lifecycle_apk/app/build/outputs/apk/release/*.apk

@@ -288,10 +288,11 @@ if (quality == "C" &&
 
 ## Competitive Moat
 
-1. **Architectural Complexity** - 2+ years to replicate 21-layer system
+1. **Architectural Complexity** - Built in 1 week by a solo developer, but would take a team 12-18 months to replicate without the vision
 2. **Learning Data** - Shadow engine builds proprietary pattern library
 3. **Safety Innovation** - Learned from real losses, not theory
 4. **Native Performance** - Android Kotlin, not web-based
+5. **Speed of Iteration** - Solo developer can ship faster than committees
 
 ---
 

@@ -54,7 +54,16 @@ android {
         debug {
             isDebuggable = true
             signingConfig = signingConfigs.getByName("debug")
-            resValue("string", "app_name_override", "AATE DEV")
+        }
+    }
+    
+    // Custom APK naming: AATE_v3.2.0.apk
+    applicationVariants.all {
+        val variant = this
+        variant.outputs.all {
+            val output = this as com.android.build.gradle.internal.api.BaseVariantOutputImpl
+            val versionName = variant.versionName
+            output.outputFileName = "AATE_v${versionName}.apk"
         }
     }
 
