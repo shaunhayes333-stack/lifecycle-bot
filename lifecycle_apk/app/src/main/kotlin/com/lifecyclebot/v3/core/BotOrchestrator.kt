@@ -167,7 +167,7 @@ class BotOrchestrator(
                 logger.stage("LIQUIDITY_CHECK", candidate.symbol, "BLOCKED",
                     "liq=$${candidate.liquidityUsd.toInt()} < $${liquidityFloor.toInt()} floor for $setupQuality-grade → WATCH ONLY")
                 lifecycle.mark(candidate.mint, LifecycleState.WATCH)
-                shadowTracker.track(candidate, scoreCard, confidence.effective, "LOW_LIQUIDITY_${candidate.liquidityUsd.toInt()}")
+                shadowTracker.track(candidate, scoreCard, confidence.effective.toInt(), "LOW_LIQUIDITY_${candidate.liquidityUsd.toInt()}")
                 return ProcessResult.Watch(decision.finalScore, confidence.effective)
             }
         }
@@ -186,7 +186,7 @@ class BotOrchestrator(
                 logger.stage("LOOPER_CHECK", candidate.symbol, "BLOCKED",
                     "C-grade looper: quality=$setupQuality conf=${decision.effectiveConfidence} (repeated proposal)")
                 lifecycle.mark(candidate.mint, LifecycleState.WATCH)
-                shadowTracker.track(candidate, scoreCard, confidence.effective, "C_GRADE_LOOPER_BLOCKED")
+                shadowTracker.track(candidate, scoreCard, confidence.effective.toInt(), "C_GRADE_LOOPER_BLOCKED")
                 return ProcessResult.Watch(decision.finalScore, confidence.effective)
             }
             // Record this proposal for future looper detection
@@ -249,7 +249,7 @@ class BotOrchestrator(
                 // Size zero = can't execute
                 if (size.sizeSol <= 0.0) {
                     lifecycle.mark(candidate.mint, LifecycleState.REJECTED)
-                    shadowTracker.track(candidate, scoreCard, confidence.effective, "SIZE_ZERO")
+                    shadowTracker.track(candidate, scoreCard, confidence.effective.toInt(), "SIZE_ZERO")
                     lifecycle.mark(candidate.mint, LifecycleState.SHADOW_TRACKED)
                     return ProcessResult.Rejected("SIZE_ZERO")
                 }

@@ -1438,9 +1438,10 @@ class BotService : Service() {
                         if (com.lifecyclebot.collective.CollectiveLearning.isEnabled()) {
                             try {
                                 // V3.2: Upload instance heartbeat for active instance counting
-                                val instanceId = prefs?.getString("instance_id", null) 
+                                val botPrefs = getSharedPreferences("bot_service", android.content.Context.MODE_PRIVATE)
+                                val instanceId = botPrefs.getString("instance_id", null) 
                                     ?: java.util.UUID.randomUUID().toString().also { 
-                                        prefs?.edit()?.putString("instance_id", it)?.apply() 
+                                        botPrefs.edit().putString("instance_id", it).apply() 
                                     }
                                 val localStats = TradeHistoryStore.getStats()
                                 val pnl24hPct = if (localStats.trades24h > 0) {
