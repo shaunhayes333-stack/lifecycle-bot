@@ -433,6 +433,83 @@ object V3EngineManager {
         return "V3: $mode | exp=${exposure}% | pos=$openPos | tracked=$tracked"
     }
     
+    // ═══════════════════════════════════════════════════════════════════════════
+    // V3 vs LEGACY COMPARISON TRACKING
+    // Track decisions to compare V3 accuracy against legacy FDG
+    // ═══════════════════════════════════════════════════════════════════════════
+    
+    private var v3Executes = 0
+    private var v3Rejects = 0
+    private var v3Watches = 0
+    private var v3Blocks = 0
+    private var fdgAgrees = 0
+    private var fdgDisagrees = 0
+    private var v3WinsFdgWouldBlock = 0  // V3 executed, FDG would block, trade was WIN
+    private var v3LossesFdgWouldBlock = 0  // V3 executed, FDG would block, trade was LOSS
+    
+    /**
+     * Record a V3 decision for comparison tracking
+     */
+    fun recordDecisionComparison(
+        v3Decision: String,  // EXECUTE, WATCH, REJECT, BLOCK
+        fdgWouldExecute: Boolean
+    ) {
+        when (v3Decision) {
+            "EXECUTE" -> v3Executes++
+            "WATCH" -> v3Watches++
+            "REJECT" -> v3Rejects++
+            "BLOCK" -> v3Blocks++
+        }
+        
+        val v3WouldExecute = v3Decision == "EXECUTE"
+        if (v3WouldExecute == fdgWouldExecute) {
+            fdgAgrees++
+        } else {
+            fdgDisagrees++
+        }
+    }
+    
+    /**
+     * Record outcome of V3 decision for learning
+     */
+    fun recordV3OutcomeVsFdg(
+        v3Executed: Boolean,
+        fdgWouldExecute: Boolean,
+        pnlPct: Double
+    ) {
+        // Track cases where V3 and FDG disagreed
+        if (v3Executed && !fdgWouldExecute) {
+            if (pnlPct > 5.0) {
+                v3WinsFdgWouldBlock++
+                ErrorLogger.info(TAG, "🎯 V3 WIN | FDG would block | PnL: +${pnlPct.toInt()}%")
+            } else if (pnlPct < -5.0) {
+                v3LossesFdgWouldBlock++
+                ErrorLogger.warn(TAG, "⚠️ V3 LOSS | FDG would block | PnL: ${pnlPct.toInt()}%")
+            }
+        }
+    }
+    
+    /**
+     * Get comparison summary for logging
+     */
+    fun getComparisonSummary(): String {
+        val total = v3Executes + v3Rejects + v3Watches + v3Blocks
+        if (total == 0) return "V3 COMPARISON: No decisions yet"
+        
+        val agreePct = if (fdgAgrees + fdgDisagrees > 0) {
+            (fdgAgrees * 100) / (fdgAgrees + fdgDisagrees)
+        } else 0
+        
+        return buildString {
+            append("V3 vs FDG: ")
+            append("agree=${agreePct}% | ")
+            append("v3_exec=$v3Executes v3_rej=$v3Rejects | ")
+            if (v3WinsFdgWouldBlock + v3LossesFdgWouldBlock > 0) {
+                append("v3_edge: +${v3WinsFdgWouldBlock}W -${v3LossesFdgWouldBlock}L")
+            }
+        }
+    }
+    
     /**
      * Shutdown the V3 engine
      */

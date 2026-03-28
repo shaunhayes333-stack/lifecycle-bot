@@ -1387,6 +1387,13 @@ class BotService : Service() {
                                 // Log collective status
                                 val collectiveInsights = com.lifecyclebot.collective.CollectiveLearning.getInsightsSummary()
                                 addLog("🌐 $collectiveInsights")
+                                
+                                // Log V3 vs FDG comparison
+                                if (cfg.v3EngineEnabled) {
+                                    val v3Comparison = com.lifecyclebot.v3.V3EngineManager.getComparisonSummary()
+                                    addLog("⚡ $v3Comparison")
+                                    ErrorLogger.info("V3Comparison", v3Comparison)
+                                }
                             } catch (e: Exception) {
                                 ErrorLogger.debug("BotService", "Collective sync error: ${e.message}")
                             }
@@ -2312,6 +2319,12 @@ class BotService : Service() {
                                         "band=${result.band} | size=${result.sizeSol.fmt(4)} SOL | " +
                                         "conf=${result.confidence.toInt()}% | $fdgTag")
                                     
+                                    // Track V3 vs FDG comparison
+                                    com.lifecyclebot.v3.V3EngineManager.recordDecisionComparison(
+                                        v3Decision = "EXECUTE",
+                                        fdgWouldExecute = fdgDecision.canExecute()
+                                    )
+                                    
                                     // In ACTIVE mode (not shadow), V3 controls execution
                                     if (!cfg.v3ShadowMode) {
                                         useV3Decision = true
@@ -2329,6 +2342,12 @@ class BotService : Service() {
                                     ErrorLogger.info("BotService", "⚡ V3 WATCH: ${identity.symbol} | " +
                                         "score=${result.score} | conf=${result.confidence}")
                                     
+                                    // Track comparison
+                                    com.lifecyclebot.v3.V3EngineManager.recordDecisionComparison(
+                                        v3Decision = "WATCH",
+                                        fdgWouldExecute = fdgDecision.canExecute()
+                                    )
+                                    
                                     // In ACTIVE mode, V3 WATCH overrides FDG approve
                                     if (!cfg.v3ShadowMode && fdgDecision.canExecute()) {
                                         addLog("⚡ V3 WATCH (FDG would approve): ${identity.symbol}", mint)
@@ -2338,6 +2357,12 @@ class BotService : Service() {
                                 
                                 is com.lifecyclebot.v3.V3Decision.Rejected -> {
                                     ErrorLogger.info("BotService", "⚡ V3 REJECT: ${identity.symbol} | ${result.reason}")
+                                    
+                                    // Track comparison
+                                    com.lifecyclebot.v3.V3EngineManager.recordDecisionComparison(
+                                        v3Decision = "REJECT",
+                                        fdgWouldExecute = fdgDecision.canExecute()
+                                    )
                                     
                                     // In ACTIVE mode, V3 REJECT blocks the trade
                                     if (!cfg.v3ShadowMode) {
@@ -2349,6 +2374,12 @@ class BotService : Service() {
                                 
                                 is com.lifecyclebot.v3.V3Decision.Blocked -> {
                                     ErrorLogger.info("BotService", "⚡ V3 BLOCK: ${identity.symbol} | ${result.reason}")
+                                    
+                                    // Track comparison
+                                    com.lifecyclebot.v3.V3EngineManager.recordDecisionComparison(
+                                        v3Decision = "BLOCK",
+                                        fdgWouldExecute = fdgDecision.canExecute()
+                                    )
                                     
                                     // In ACTIVE mode, V3 BLOCK stops the trade
                                     if (!cfg.v3ShadowMode) {

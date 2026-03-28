@@ -26,11 +26,42 @@
 | LearningStore | `v3/learning/LearningStore.kt` | ✅ Implemented |
 | TradeExecutor | `v3/execution/TradeExecutor.kt` | ✅ Implemented |
 | V3Adapter | `v3/bridge/V3Adapter.kt` | ✅ Implemented |
+| V3EngineManager | `v3/V3EngineManager.kt` | ✅ Implemented |
 
 ### Wiring Status
-- [ ] BotOrchestrator wired into BotService
-- [ ] Jupiter API integration in TradeExecutor
-- [ ] Turso sync with LearningStore
+- [x] BotOrchestrator wired into BotService ✅
+- [x] Jupiter API integration via ExecuteCallback ✅
+- [x] Turso collective sync with LearningStore ✅
+- [x] Shadow learning mode (V3 vs FDG comparison) ✅
+- [x] V3 vs Legacy comparison logging ✅
+
+### Legacy Deprecation
+| Legacy File | V3 Replacement | Status |
+|-------------|----------------|--------|
+| `FinalDecisionGate.kt` | `v3/decision/FinalDecisionEngine` | @Deprecated |
+| `SmartSizer.kt` | `v3/sizing/SmartSizerV3` | @Deprecated |
+| `EntryIntelligence.kt` | `v3/scoring/ScoringModules` | @Deprecated |
+| `AntiRugEngine.kt` | `v3/risk/FatalRiskChecker` | @Deprecated |
+| `EdgeOptimizer.kt` | `v3/scoring/ScoringModules` | @Deprecated |
+
+---
+
+## Collective Learning Integration
+
+V3 now syncs with the Turso Collective Hive Mind:
+
+### Uploads (Every Trade)
+- Pattern outcomes (entryPhase + tradingMode + source + liquidity + trend)
+- Blacklisted tokens (mint, symbol, reason, severity)
+
+### Periodic Syncs (Every 15 min)
+- Mode performance stats (trades, wins, losses, avg PnL, hold time)
+- V3 vs FDG comparison stats
+
+### Score Adjustments
+- Collective patterns provide -30 to +30 score adjustments
+- Known winners get boosted, known losers get penalized
+- Based on aggregate win rate across all AATE instances
 
 ---
 
