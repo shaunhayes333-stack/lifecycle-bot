@@ -3569,7 +3569,7 @@ class Executor(
                 symbol = ts.symbol,
                 pnlPct = pnlP,
                 holdTimeMinutes = holdMinutes,
-                exitReason = tag
+                exitReason = reason
             )
             com.lifecyclebot.v3.V3EngineManager.onPositionClosed(tradeId.mint)
         } catch (_: Exception) {}

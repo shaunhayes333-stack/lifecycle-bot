@@ -20,8 +20,6 @@ import com.lifecyclebot.data.*
 import com.lifecyclebot.network.DexscreenerApi
 import com.lifecyclebot.network.SolanaWallet
 import com.lifecyclebot.ui.MainActivity
-import com.lifecyclebot.v3.bridge.V3Adapter
-import com.lifecyclebot.v3.core.ProcessResult
 import kotlinx.coroutines.*
 
 class BotService : Service() {
@@ -960,47 +958,8 @@ class BotService : Service() {
         if (cfg.v3EngineEnabled) {
             try {
                 com.lifecyclebot.v3.V3EngineManager.initialize(
-                    botConfig = cfg,
-                    onExecute = { request ->
-                        // Delegate execution to main Executor
-                        try {
-                            val ts = status.tokens[request.mint]
-                            if (ts == null) {
-                                com.lifecyclebot.v3.ExecuteResult(false, error = "Token not in status")
-                            } else {
-                                val effectiveBal = status.getEffectiveBalance(cfg.paperMode)
-                                // Create synthetic decision for executor
-                                val synthDecision = LifecycleStrategy.DecisionOutput(
-                                    finalSignal = if (request.isBuy) "BUY" else "SELL",
-                                    shouldTrade = true,
-                                    entryScore = 80.0,
-                                    finalQuality = "A",
-                                    phase = ts.phase,
-                                    setupQuality = "A"
-                                )
-                                executor.maybeActWithDecision(
-                                    ts = ts,
-                                    decision = synthDecision,
-                                    walletSol = effectiveBal,
-                                    wallet = wallet,
-                                    lastPollMs = System.currentTimeMillis(),
-                                    openPositionCount = status.openPositionCount,
-                                    totalExposureSol = status.totalExposureSol,
-                                    modeConfig = null,
-                                    fdgApprovedSize = request.sizeSol,
-                                    walletTotalTrades = walletManager.state.value.totalTrades,
-                                    tradeIdentity = TradeIdentityManager.getOrCreate(request.mint, request.symbol, "V3"),
-                                    fdgApprovalClass = FinalDecisionGate.ApprovalClass.LIVE
-                                )
-                                com.lifecyclebot.v3.ExecuteResult(
-                                    success = true,
-                                    executedSol = request.sizeSol
-                                )
-                            }
-                        } catch (e: Exception) {
-                            com.lifecyclebot.v3.ExecuteResult(false, error = e.message)
-                        }
-                    },
+                    botCfg = cfg,
+                    onExecute = null,  // V3 doesn't execute directly - decisions flow through FDG
                     onLog = { msg, mint -> addLog("⚡ $msg", mint) }
                 )
                 
@@ -2263,7 +2222,7 @@ class BotService : Service() {
                                     if (!cfg.v3ShadowMode) {
                                         useV3Decision = true
                                         v3SizeSol = result.sizeSol
-                                        v3Thesis = result.thesis
+                                        v3Thesis = "V3 score=${result.score} band=${result.band}"
                                         addLog("⚡ V3 DECISION: ${identity.symbol} | ${result.band} | " +
                                             "${v3SizeSol.fmt(4)} SOL", mint)
                                     } else {
@@ -2274,7 +2233,7 @@ class BotService : Service() {
                                 
                                 is com.lifecyclebot.v3.V3Decision.Watch -> {
                                     ErrorLogger.info("BotService", "⚡ V3 WATCH: ${identity.symbol} | " +
-                                        "band=${result.band} | reason=${result.reason}")
+                                        "score=${result.score} | conf=${result.confidence}")
                                     
                                     // In ACTIVE mode, V3 WATCH overrides FDG approve
                                     if (!cfg.v3ShadowMode && fdgDecision.canExecute()) {

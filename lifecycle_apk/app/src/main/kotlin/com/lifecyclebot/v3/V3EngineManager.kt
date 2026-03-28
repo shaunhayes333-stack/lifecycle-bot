@@ -12,8 +12,10 @@ import com.lifecyclebot.v3.eligibility.CooldownManager
 import com.lifecyclebot.v3.eligibility.EligibilityGate
 import com.lifecyclebot.v3.eligibility.ExposureGuard
 import com.lifecyclebot.v3.learning.LearningStore
+import com.lifecyclebot.v3.learning.LearningEvent
 import com.lifecyclebot.v3.risk.FatalRiskChecker
 import com.lifecyclebot.v3.shadow.ShadowTracker
+import com.lifecyclebot.v3.scoring.ScoreCard
 import com.lifecyclebot.v3.sizing.PortfolioRiskState
 import com.lifecyclebot.v3.sizing.SmartSizerV3
 import com.lifecyclebot.v3.sizing.WalletSnapshot
@@ -24,9 +26,6 @@ import com.lifecyclebot.v3.sizing.WalletSnapshot
  * Central manager for the V3 scoring-based trading engine.
  * Handles initialization, configuration, and provides the main entry point
  * for processing trade candidates.
- * 
- * The V3 engine replaces hard-gating decisions with a score-modifier system
- * where all signals contribute to a final decision score.
  */
 object V3EngineManager {
     
@@ -36,29 +35,28 @@ object V3EngineManager {
     @Volatile private var initialized = false
     @Volatile private var config: TradingConfigV3? = null
     @Volatile private var context: TradingContext? = null
+    @Volatile private var botConfig: BotConfig? = null
     
-    // Core components (lazily initialized)
+    // Core components
     private var cooldownManager: CooldownManager? = null
     private var exposureGuard: ExposureGuard? = null
     private var learningStore: LearningStore? = null
     private var shadowTracker: ShadowTracker? = null
     private var orchestrator: BotOrchestrator? = null
     
-    // Callback for trade execution
+    // Callbacks
     private var onExecuteCallback: ((ExecuteRequest) -> ExecuteResult)? = null
-    
-    // Callback for logging
     private var onLogCallback: ((String, String) -> Unit)? = null
-    
+
     /**
      * Initialize the V3 engine with configuration
      */
     fun initialize(
-        botConfig: BotConfig,
+        botCfg: BotConfig,
         onExecute: ((ExecuteRequest) -> ExecuteResult)? = null,
         onLog: ((String, String) -> Unit)? = null
     ) {
-        if (!botConfig.v3EngineEnabled) {
+        if (!botCfg.v3EngineEnabled) {
             ErrorLogger.info(TAG, "V3 Engine disabled in config")
             return
         }
@@ -68,22 +66,30 @@ object V3EngineManager {
         ErrorLogger.info(TAG, "═══════════════════════════════════════════════════════")
         
         try {
-            // Build V3 config from BotConfig
+            botConfig = botCfg
+            
+            // Build V3 config using actual TradingConfigV3 fields
             config = TradingConfigV3(
-                minScore = botConfig.v3MinScoreToTrade,
-                maxExposurePct = botConfig.v3MaxExposurePct,
-                maxPositions = botConfig.maxConcurrentPositions.coerceAtMost(10),
                 minLiquidityUsd = 500.0,
-                maxSlippagePct = botConfig.slippageBps / 100.0,
-                cooldownMs = (botConfig.entryCooldownSec * 1000).toLong(),
-                paperMode = botConfig.paperMode,
-                conservativeMode = botConfig.v3ConservativeMode
+                maxTokenAgeMinutes = 30.0,
+                watchScoreMin = 20,
+                executeSmallMin = 35,
+                executeStandardMin = botCfg.v3MinScoreToTrade.coerceIn(35, 80),
+                executeAggressiveMin = 65,
+                fatalRugThreshold = 90,
+                candidateTtlMinutes = 20,
+                shadowTrackNearMissMin = 15,
+                reserveSol = 0.05,
+                maxSmallSizePct = 0.04,
+                maxStandardSizePct = 0.07,
+                maxAggressiveSizePct = if (botCfg.v3ConservativeMode) 0.08 else 0.12,
+                paperLearningSizeMult = 0.50
             )
             
             // Determine mode
             val mode = when {
-                botConfig.paperMode -> V3BotMode.PAPER
-                botConfig.v3ShadowMode -> V3BotMode.LEARNING
+                botCfg.paperMode -> V3BotMode.PAPER
+                botCfg.v3ShadowMode -> V3BotMode.LEARNING
                 else -> V3BotMode.LIVE
             }
             
@@ -91,12 +97,15 @@ object V3EngineManager {
             context = TradingContext(
                 config = config!!,
                 mode = mode,
-                marketRegime = "NEUTRAL"  // Will be updated dynamically
+                marketRegime = "NEUTRAL"
             )
             
-            // Initialize components
+            // Initialize components with proper parameters
             cooldownManager = CooldownManager()
-            exposureGuard = ExposureGuard()
+            exposureGuard = ExposureGuard(
+                maxOpenPositions = botCfg.maxConcurrentPositions.coerceAtMost(10),
+                maxExposurePct = botCfg.v3MaxExposurePct / 100.0
+            )
             learningStore = LearningStore()
             shadowTracker = ShadowTracker()
             
@@ -108,9 +117,6 @@ object V3EngineManager {
                 finalDecisionEngine = FinalDecisionEngine(config!!),
                 smartSizer = SmartSizerV3(config!!)
             )
-            
-            // Set up Jupiter API for real execution
-            // (execution is delegated to main Executor via callback)
             
             // Set callbacks
             onExecuteCallback = onExecute
@@ -125,10 +131,9 @@ object V3EngineManager {
             }
             
             ErrorLogger.info(TAG, "V3 Engine initialized: $modeTag")
-            ErrorLogger.info(TAG, "  - Min score: ${config!!.minScore}")
-            ErrorLogger.info(TAG, "  - Max exposure: ${config!!.maxExposurePct}%")
-            ErrorLogger.info(TAG, "  - Max positions: ${config!!.maxPositions}")
-            ErrorLogger.info(TAG, "  - Conservative: ${config!!.conservativeMode}")
+            ErrorLogger.info(TAG, "  - Execute threshold: ${config!!.executeStandardMin}")
+            ErrorLogger.info(TAG, "  - Max exposure: ${botCfg.v3MaxExposurePct}%")
+            ErrorLogger.info(TAG, "  - Conservative: ${botCfg.v3ConservativeMode}")
             ErrorLogger.info(TAG, "═══════════════════════════════════════════════════════")
             
         } catch (e: Exception) {
@@ -149,7 +154,6 @@ object V3EngineManager {
     
     /**
      * Process a token through the V3 pipeline
-     * Returns both the decision and whether to execute
      */
     fun processToken(
         ts: TokenState,
@@ -169,7 +173,7 @@ object V3EngineManager {
             context = context!!.copy(marketRegime = marketRegime)
             
             // Update exposure guard
-            exposureGuard?.currentExposurePct = (totalExposureSol / walletSol * 100).coerceIn(0.0, 100.0)
+            exposureGuard?.currentExposurePct = (totalExposureSol / walletSol).coerceIn(0.0, 1.0)
             
             // Convert TokenState to V3 CandidateSnapshot
             val candidate = V3Adapter.toCandidate(ts)
@@ -177,19 +181,17 @@ object V3EngineManager {
             // Build wallet snapshot
             val wallet = WalletSnapshot(
                 totalSol = walletSol,
-                tradeableSol = (walletSol - 0.05).coerceAtLeast(0.0)  // Reserve 0.05 SOL
+                tradeableSol = (walletSol - 0.05).coerceAtLeast(0.0)
             )
             
             // Build portfolio risk state
-            val risk = PortfolioRiskState(
-                recentDrawdownPct = 0.0  // TODO: Calculate from session stats
-            )
+            val risk = PortfolioRiskState(recentDrawdownPct = 0.0)
             
             // Build learning metrics
             val learningMetrics = com.lifecyclebot.v3.learning.LearningMetrics(
                 classifiedTrades = recentTradeCount,
                 last20WinRatePct = recentWinRate,
-                payoffRatio = 1.0  // TODO: Calculate from actual data
+                payoffRatio = 1.0
             )
             
             // Build ops metrics
@@ -209,47 +211,39 @@ object V3EngineManager {
                 opsMetrics = opsMetrics
             )
             
-            // Convert to V3Decision
+            // Convert ProcessResult to V3Decision
             return when (result) {
                 is ProcessResult.Executed -> {
-                    val log = "V3 EXECUTE: ${ts.symbol} | band=${result.band} | size=${result.sizeSol.fmt(4)} SOL | conf=${result.confidence.toInt()}%"
+                    val log = "V3 EXECUTE: ${ts.symbol} | band=${result.band} | " +
+                        "size=${result.sizeSol.fmt(4)} SOL | conf=${result.confidence}%"
                     onLogCallback?.invoke(log, ts.mint)
                     ErrorLogger.info(TAG, log)
-                    
-                    // Track in shadow if in learning mode
-                    if (context?.mode == V3BotMode.LEARNING) {
-                        shadowTracker?.track(candidate, result.sizeSol, result.band.name)
-                    }
                     
                     V3Decision.execute(
                         sizeSol = result.sizeSol,
                         band = result.band.name,
-                        confidence = result.confidence,
-                        thesis = result.thesis
+                        confidence = result.confidence.toDouble(),
+                        score = result.score
                     )
                 }
                 
                 is ProcessResult.Watch -> {
-                    val log = "V3 WATCH: ${ts.symbol} | band=${result.band} | reason=${result.reason}"
+                    val log = "V3 WATCH: ${ts.symbol} | score=${result.score} | conf=${result.confidence}"
                     onLogCallback?.invoke(log, ts.mint)
                     
                     V3Decision.watch(
-                        band = result.band.name,
-                        reason = result.reason
+                        score = result.score,
+                        confidence = result.confidence
                     )
                 }
                 
                 is ProcessResult.Rejected -> {
-                    val log = "V3 REJECT: ${ts.symbol} | ${result.reason}"
-                    onLogCallback?.invoke(log, ts.mint)
-                    
+                    onLogCallback?.invoke("V3 REJECT: ${ts.symbol} | ${result.reason}", ts.mint)
                     V3Decision.rejected(result.reason)
                 }
                 
                 is ProcessResult.Blocked -> {
-                    val log = "V3 BLOCK: ${ts.symbol} | ${result.reason}"
-                    onLogCallback?.invoke(log, ts.mint)
-                    
+                    onLogCallback?.invoke("V3 BLOCK: ${ts.symbol} | ${result.reason}", ts.mint)
                     V3Decision.blocked(result.reason)
                 }
             }
@@ -261,13 +255,12 @@ object V3EngineManager {
     }
     
     /**
-     * Execute a V3 trade using the real executor
+     * Execute a V3 trade
      */
     fun executeV3Trade(
         ts: TokenState,
         sizeSol: Double,
-        wallet: SolanaWallet,
-        jupiterApiKey: String
+        wallet: SolanaWallet
     ): V3ExecutionResult {
         if (!isReady()) {
             return V3ExecutionResult.failed("V3 Engine not initialized")
@@ -284,7 +277,7 @@ object V3EngineManager {
             return V3ExecutionResult.shadow(sizeSol)
         }
         
-        // LIVE execution - delegate to callback (main Executor handles actual trade)
+        // LIVE execution - delegate to callback
         try {
             if (onExecuteCallback != null) {
                 val request = ExecuteRequest(
@@ -307,8 +300,6 @@ object V3EngineManager {
                 }
             }
             
-            // No callback configured - V3 cannot execute directly
-            ErrorLogger.warn(TAG, "V3 LIVE execution requested but no callback configured")
             return V3ExecutionResult.failed("No execution callback configured")
             
         } catch (e: Exception) {
@@ -330,21 +321,22 @@ object V3EngineManager {
         if (!isReady()) return
         
         try {
-            val event = com.lifecyclebot.v3.learning.LearningEvent(
+            // Create learning event with correct fields
+            val event = LearningEvent(
                 mint = mint,
                 symbol = symbol,
+                decisionBand = DecisionBand.EXECUTE_STANDARD, // Default
+                finalScore = 50,
+                confidence = 50,
+                outcomeLabel = if (pnlPct > 0) "WIN" else "LOSS",
                 pnlPct = pnlPct,
-                holdTimeMinutes = holdTimeMinutes,
-                exitReason = exitReason,
-                timestamp = System.currentTimeMillis()
+                holdingTimeSec = (holdTimeMinutes * 60).toInt()
             )
             
-            learningStore?.recordOutcome(event)
+            learningStore?.record(event)
             
-            // Update shadow tracker if tracking this token
-            shadowTracker?.recordOutcome(mint, pnlPct > 0)
-            
-            ErrorLogger.info(TAG, "V3 OUTCOME: $symbol | PnL=${pnlPct.fmt(1)}% | hold=${holdTimeMinutes.toInt()}min | $exitReason")
+            ErrorLogger.info(TAG, "V3 OUTCOME: $symbol | PnL=${pnlPct.fmt(1)}% | " +
+                "hold=${holdTimeMinutes.toInt()}min | $exitReason")
             
         } catch (e: Exception) {
             ErrorLogger.error(TAG, "Failed to record outcome: ${e.message}")
@@ -378,11 +370,11 @@ object V3EngineManager {
             null -> "UNKNOWN"
         }
         
-        val exposure = exposureGuard?.currentExposurePct?.toInt() ?: 0
-        val openPos = exposureGuard?.getOpenPositionCount() ?: 0
-        val shadowCount = shadowTracker?.getTrackedCount() ?: 0
+        val exposure = ((exposureGuard?.currentExposurePct ?: 0.0) * 100).toInt()
+        val openPos = exposureGuard?.openCount() ?: 0
+        val tracked = shadowTracker?.allTracked()?.size ?: 0
         
-        return "V3: $mode | exp=${exposure}% | pos=$openPos | shadow=$shadowCount"
+        return "V3: $mode | exp=${exposure}% | pos=$openPos | tracked=$tracked"
     }
     
     /**
@@ -396,24 +388,23 @@ object V3EngineManager {
         context = null
     }
     
-    // Helper extension
     private fun Double.fmt(d: Int = 4) = "%.${d}f".format(this)
 }
 
 /**
- * V3 Decision result
+ * V3 Decision result - matches ProcessResult structure
  */
 sealed class V3Decision {
     data class Execute(
         val sizeSol: Double,
         val band: String,
         val confidence: Double,
-        val thesis: String
+        val score: Int
     ) : V3Decision()
     
     data class Watch(
-        val band: String,
-        val reason: String
+        val score: Int,
+        val confidence: Int
     ) : V3Decision()
     
     data class Rejected(val reason: String) : V3Decision()
@@ -422,12 +413,11 @@ sealed class V3Decision {
     data class NotReady(val reason: String) : V3Decision()
     
     fun shouldExecute(): Boolean = this is Execute
-    fun isActionable(): Boolean = this is Execute || this is Watch
     
     companion object {
-        fun execute(sizeSol: Double, band: String, confidence: Double, thesis: String) = 
-            Execute(sizeSol, band, confidence, thesis)
-        fun watch(band: String, reason: String) = Watch(band, reason)
+        fun execute(sizeSol: Double, band: String, confidence: Double, score: Int) = 
+            Execute(sizeSol, band, confidence, score)
+        fun watch(score: Int, confidence: Int) = Watch(score, confidence)
         fun rejected(reason: String) = Rejected(reason)
         fun blocked(reason: String) = Blocked(reason)
         fun error(message: String) = Error(message)
