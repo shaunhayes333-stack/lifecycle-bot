@@ -267,12 +267,12 @@ object WhaleWalletTracker {
         
         GlobalScope.launch(Dispatchers.IO) {
             try {
+                // Use the correct API signature
                 com.lifecyclebot.collective.CollectiveLearning.uploadWhaleEffectiveness(
-                    walletHash = profile.walletHash,  // Only share hash, not address
-                    totalTrades = profile.totalTrades,
-                    successRate = profile.winRate,
-                    avgHoldMins = 30.0,  // Default, we don't track hold time per whale
-                    profitFactor = if (profile.winRate > 0) profile.winRate / (100 - profile.winRate) else 1.0
+                    walletAddress = profile.walletAddress,  // Will be hashed internally
+                    isProfitable = profile.winRate >= 50.0,
+                    pnlPct = profile.avgPnlWhenFollowed,
+                    leadTimeSec = 60  // Default lead time estimate
                 )
             } catch (e: Exception) {
                 ErrorLogger.debug(TAG, "Failed to upload whale to collective: ${e.message}")
