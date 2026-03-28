@@ -37,6 +37,81 @@ class CooldownManager {
 }
 
 /**
+ * V3 C-Grade Looper Tracker
+ * 
+ * Prevents repeated C-grade proposals from clogging the pipeline.
+ * Tracks tokens that have been proposed with:
+ *   - quality = C
+ *   - confidence < 35
+ * 
+ * If a token has been proposed 2+ times in the last 5 minutes with these
+ * characteristics, it gets blocked from re-proposal until it either:
+ *   - Improves to B+ quality
+ *   - Confidence rises to 35+
+ *   - 5 minutes pass since last proposal
+ */
+object CGradeLooperTracker {
+    private data class ProposalRecord(
+        val timestamp: Long,
+        val quality: String,
+        val confidence: Int
+    )
+    
+    private val recentProposals = mutableMapOf<String, MutableList<ProposalRecord>>()
+    private const val WINDOW_MS = 5 * 60 * 1000L  // 5 minute window
+    private const val MAX_C_GRADE_PROPOSALS = 2   // Max 2 C-grade proposals per window
+    private const val C_GRADE_CONF_THRESHOLD = 35 // Minimum confidence for C-grade
+    
+    /**
+     * Record a proposal for a token
+     */
+    fun recordProposal(mint: String, quality: String, confidence: Int) {
+        val now = System.currentTimeMillis()
+        cleanOldRecords(now)
+        
+        val records = recentProposals.getOrPut(mint) { mutableListOf() }
+        records.add(ProposalRecord(now, quality, confidence))
+    }
+    
+    /**
+     * Check if a C-grade token should be blocked from re-proposal
+     */
+    fun shouldBlockCGradeLooper(mint: String, quality: String, confidence: Int): Boolean {
+        // Only applies to C-grade with low confidence
+        if (quality != "C" || confidence >= C_GRADE_CONF_THRESHOLD) {
+            return false
+        }
+        
+        val now = System.currentTimeMillis()
+        cleanOldRecords(now)
+        
+        val records = recentProposals[mint] ?: return false
+        
+        // Count recent C-grade low-conf proposals
+        val recentCGradeCount = records.count { 
+            it.quality == "C" && it.confidence < C_GRADE_CONF_THRESHOLD 
+        }
+        
+        return recentCGradeCount >= MAX_C_GRADE_PROPOSALS
+    }
+    
+    private fun cleanOldRecords(now: Long) {
+        val cutoff = now - WINDOW_MS
+        recentProposals.entries.forEach { (_, records) ->
+            records.removeIf { it.timestamp < cutoff }
+        }
+        recentProposals.entries.removeIf { (_, records) -> records.isEmpty() }
+    }
+    
+    /**
+     * Clear all tracking (for testing)
+     */
+    fun clear() {
+        recentProposals.clear()
+    }
+}
+
+/**
  * V3 Exposure Guard
  */
 class ExposureGuard(

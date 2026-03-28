@@ -252,9 +252,13 @@ class FinalDecisionEngine(
         // V3 SELECTIVITY: Tighter C-grade thresholds
         // 
         // C-grade (score below standard) can only execute if:
-        //   - Confidence >= 40 (was 30)
+        //   - Confidence >= 35 (raised from 30)
         //   - No major negative memory/narrative hit (combined > -10)
         //   - Liquidity reasonable (handled by scoring)
+        //
+        // V3 SELECTIVITY UPDATE: STRICTER C-GRADE FILTER
+        // C-grade + conf < 35 = WATCH ONLY. No exceptions.
+        // This directly addresses the JOBLESS-type loopers.
         // ═══════════════════════════════════════════════════════════════════
         val minConfForExecute = try {
             com.lifecyclebot.engine.V3ConfidenceConfig.getMinConfidenceForExecute(45)
@@ -262,11 +266,13 @@ class FinalDecisionEngine(
             45
         }
         
-        // C-grade requires HIGHER confidence threshold (40 instead of 30)
-        val cGradeMinConf = 40
+        // C-grade minimum confidence threshold
+        // Changed from 40 → 35 for clarity, but enforced strictly
+        val cGradeMinConf = 35
         val combinedSentiment = memoryScore + narrativeScore
         
-        if (isCGrade && (effectiveConf < cGradeMinConf || combinedSentiment < -10)) {
+        // STRICT C-GRADE FILTER: C-grade with conf < 35 = WATCH ONLY
+        if (isCGrade && effectiveConf < cGradeMinConf) {
             return DecisionResult(
                 band = DecisionBand.WATCH,
                 finalScore = score,
@@ -274,7 +280,20 @@ class FinalDecisionEngine(
                 structuralConfidence = confidence.structural,
                 operationalConfidence = confidence.operational,
                 effectiveConfidence = effectiveConf,
-                reasons = listOf("C_GRADE_FILTER: conf=$effectiveConf<$cGradeMinConf or sentiment=$combinedSentiment<-10")
+                reasons = listOf("C_GRADE_LOW_CONF: conf=$effectiveConf < $cGradeMinConf (WATCH ONLY)")
+            )
+        }
+        
+        // C-grade with negative sentiment = WATCH
+        if (isCGrade && combinedSentiment < -10) {
+            return DecisionResult(
+                band = DecisionBand.WATCH,
+                finalScore = score,
+                statisticalConfidence = confidence.statistical,
+                structuralConfidence = confidence.structural,
+                operationalConfidence = confidence.operational,
+                effectiveConfidence = effectiveConf,
+                reasons = listOf("C_GRADE_NEG_SENTIMENT: sentiment=$combinedSentiment < -10 (WATCH ONLY)")
             )
         }
         

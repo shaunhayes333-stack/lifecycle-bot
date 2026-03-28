@@ -1178,6 +1178,9 @@ class LifecycleStrategy(
      * - Exploration overrides
      * 
      * Returns block reason if ineligible, null if OK to proceed.
+     * 
+     * V3 SELECTIVITY: Removed RUGCHECK_CRITICAL block.
+     * This is now handled in V3 FatalRiskChecker where it belongs.
      */
     private fun preStrategyHardBlock(ts: TokenState, isPaperMode: Boolean): String? {
         val safety = ts.safety
@@ -1187,28 +1190,26 @@ class LifecycleStrategy(
             return "HARD_BLOCK_ZERO_LIQUIDITY"
         }
         
-        // 2. RUGCHECK CRITICAL - Extremely dangerous token (score ≤ 5)
-        // This is a floor that even paper mode cannot bypass
-        if (safety.rugcheckScore in 0..5) {
-            return "HARD_BLOCK_RUGCHECK_CRITICAL (score=${safety.rugcheckScore})"
-        }
+        // NOTE: RUGCHECK_CRITICAL (score ≤ 5) is now handled in V3 FatalRiskChecker
+        // as EXTREME_RUG_CRITICAL. This is the correct architectural placement.
+        // Removing the PRE-BLOCK here to avoid duplicate blocking paths.
         
-        // 3. BANNED TOKEN - Known bad token from previous losses
+        // 2. BANNED TOKEN - Known bad token from previous losses
         if (BannedTokens.isBanned(ts.mint)) {
             return "HARD_BLOCK_BANNED"
         }
         
-        // 4. RUGGED CONTRACT - Deployer has rugged before
+        // 3. RUGGED CONTRACT - Deployer has rugged before
         if (RuggedContracts.isBlacklisted(ts.mint)) {
             return "HARD_BLOCK_RUGGED_DEPLOYER"
         }
         
-        // 4b. COLLECTIVE BLACKLIST - Token reported by multiple AATE instances
+        // 3b. COLLECTIVE BLACKLIST - Token reported by multiple AATE instances
         if (com.lifecyclebot.collective.CollectiveLearning.isBlacklisted(ts.mint)) {
             return "HARD_BLOCK_COLLECTIVE_BLACKLIST"
         }
         
-        // 5. FREEZE AUTHORITY + LIVE MODE - Honeypot risk
+        // 4. FREEZE AUTHORITY + LIVE MODE - Honeypot risk
         if (!isPaperMode && safety.freezeAuthorityDisabled == false) {
             return "HARD_BLOCK_FREEZE_AUTHORITY"
         }

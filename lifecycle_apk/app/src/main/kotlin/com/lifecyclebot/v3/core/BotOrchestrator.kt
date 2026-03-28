@@ -5,6 +5,7 @@ import com.lifecyclebot.v3.decision.ConfidenceEngine
 import com.lifecyclebot.v3.decision.DecisionResult
 import com.lifecyclebot.v3.decision.FinalDecisionEngine
 import com.lifecyclebot.v3.decision.OpsMetrics
+import com.lifecyclebot.v3.eligibility.CGradeLooperTracker
 import com.lifecyclebot.v3.eligibility.EligibilityGate
 import com.lifecyclebot.v3.execution.BotLogger
 import com.lifecyclebot.v3.execution.TradeExecutor
@@ -22,7 +23,10 @@ import com.lifecyclebot.v3.sizing.WalletSnapshot
  * Main pipeline coordinator
  * 
  * Flow:
- * DISCOVERY → ELIGIBILITY → SCORING → FATAL CHECK → CONFIDENCE → DECISION → SIZING → EXECUTE
+ * DISCOVERY → ELIGIBILITY → SCORING → FATAL CHECK → CONFIDENCE → DECISION → LOOPER CHECK → SIZING → EXECUTE
+ * 
+ * V3 SELECTIVITY: Added C-grade looper detection after DECISION.
+ * Prevents repeated C-grade + low-conf proposals from clogging the pipeline.
  */
 class BotOrchestrator(
     private val ctx: TradingContext,
@@ -83,6 +87,32 @@ class BotOrchestrator(
         val decision = finalDecisionEngine.decide(scoreCard, confidence, fatal)
         logger.stage("DECISION", candidate.symbol, decision.band.name,
             "score=${decision.finalScore} conf=${decision.effectiveConfidence}")
+        
+        // ═══════════════════════════════════════════════════════════════════
+        // V3 SELECTIVITY: C-GRADE LOOPER CHECK
+        // 
+        // Prevents repeated C-grade + low-conf proposals from clogging pipeline.
+        // If a token has been proposed 2+ times recently with C-grade + conf < 35,
+        // force it to WATCH instead of EXECUTE.
+        // ═══════════════════════════════════════════════════════════════════
+        val setupQuality = when {
+            decision.finalScore >= 55 -> "B"  // B+ grade
+            decision.finalScore >= 45 -> "B"  // B grade
+            else -> "C"                       // C grade
+        }
+        
+        // Check for C-grade looper before routing to execute
+        if (decision.band in listOf(DecisionBand.EXECUTE_SMALL, DecisionBand.EXECUTE_STANDARD, DecisionBand.EXECUTE_AGGRESSIVE)) {
+            if (CGradeLooperTracker.shouldBlockCGradeLooper(candidate.mint, setupQuality, decision.effectiveConfidence)) {
+                logger.stage("LOOPER_CHECK", candidate.symbol, "BLOCKED",
+                    "C-grade looper: quality=$setupQuality conf=${decision.effectiveConfidence} (repeated proposal)")
+                lifecycle.mark(candidate.mint, LifecycleState.WATCH)
+                shadowTracker.track(candidate, scoreCard, confidence.effective, "C_GRADE_LOOPER_BLOCKED")
+                return ProcessResult.Watch(decision.finalScore, confidence.effective)
+            }
+            // Record this proposal for future looper detection
+            CGradeLooperTracker.recordProposal(candidate.mint, setupQuality, decision.effectiveConfidence)
+        }
         
         // ─── ROUTE BY BAND ───
         return when (decision.band) {

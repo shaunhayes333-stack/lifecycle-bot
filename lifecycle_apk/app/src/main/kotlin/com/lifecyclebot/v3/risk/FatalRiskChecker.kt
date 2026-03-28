@@ -48,6 +48,10 @@ class SellabilityCheck {
  * V3 MIGRATION: Added fatal suppression check for rugged/honeypot tokens.
  * Non-fatal suppressions (COPY_TRADE_INVALIDATION, WHALE_INVALIDATION)
  * are now handled as score penalties in SuppressionAI.
+ * 
+ * V3 SELECTIVITY: Added EXTREME_RUG_CRITICAL block for rugcheck score ≤ 5.
+ * This is the ONLY place where rug critical blocks should happen.
+ * Strategy PRE-BLOCK path has been removed.
  */
 class FatalRiskChecker(
     private val config: TradingConfigV3,
@@ -61,9 +65,20 @@ class FatalRiskChecker(
      * - Unsellable
      * - Invalid pair
      * - Extreme rug score (90+)
+     * - Rug critical (score ≤ 5) - MOVED FROM STRATEGY PRE-BLOCK
      * - FATAL suppression (rugged/honeypot - V3 MIGRATION)
      */
     fun check(candidate: CandidateSnapshot, ctx: TradingContext): FatalRiskResult {
+        // ═══════════════════════════════════════════════════════════════════
+        // V3 SELECTIVITY: EXTREME_RUG_CRITICAL block for rugcheck score ≤ 5
+        // This replaces the Strategy PRE-BLOCK path for rugcheck critical.
+        // Placement in FatalRiskChecker is the correct architecture.
+        // ═══════════════════════════════════════════════════════════════════
+        val rawRugcheckScore = candidate.rawRiskScore ?: 100
+        if (rawRugcheckScore in 0..5) {
+            return FatalRiskResult(true, "EXTREME_RUG_CRITICAL_score=$rawRugcheckScore")
+        }
+        
         // ═══════════════════════════════════════════════════════════════════
         // V3 MIGRATION: Check for FATAL suppressions (rugged/honeypot/unsellable)
         // Non-fatal suppressions are handled in SuppressionAI as score penalties
@@ -91,7 +106,7 @@ class FatalRiskChecker(
             return FatalRiskResult(true, "PAIR_INVALID")
         }
         
-        // Extreme rug risk only
+        // Extreme rug risk only (RugModel calculation)
         val rugScore = rugModel.score(candidate, ctx)
         if (rugScore >= config.fatalRugThreshold) {
             return FatalRiskResult(true, "EXTREME_RUG_RISK_$rugScore")
