@@ -107,11 +107,22 @@ class CollectiveBrainActivity : AppCompatActivity() {
         val localTrades = localStats.trades24h
         val totalStoredTrades = localStats.totalStoredTrades
         
-        // Use local trades if collective is empty (most common case)
-        val totalTrades = if ((analyticsSummary?.collectivePatterns ?: 0) > 0) {
+        // V3.2: Get shadow learning stats for display
+        // Use LEGACY engine which has the actual tracked blocked trades
+        val shadowStats = try {
+            com.lifecyclebot.engine.ShadowLearningEngine.getBlockedTradeStats()
+        } catch (_: Exception) { null }
+        
+        val shadowTrackedCount = try {
+            com.lifecyclebot.engine.ShadowLearningEngine.blockedTradesTracked
+        } catch (_: Exception) { 0 }
+        
+        // Use local trades + shadow tracked if collective is empty
+        val combinedTrades = if ((analyticsSummary?.collectivePatterns ?: 0) > 0) {
             analyticsSummary?.collectivePatterns ?: 0
         } else {
-            totalStoredTrades  // Use local stored trades count
+            // Show local trades + shadow tracked trades
+            totalStoredTrades + shadowTrackedCount
         }
         
         val estimatedInstances = analyticsSummary?.estimatedInstances ?: 1 // At least this instance
@@ -126,30 +137,35 @@ class CollectiveBrainActivity : AppCompatActivity() {
             com.lifecyclebot.engine.EdgeLearning.getPatternCount()
         } catch (_: Exception) { patterns }
         
-        // Get top trading mode from local history
+        // Get top trading mode from local history or shadow learning
         val topMode = try {
-            com.lifecyclebot.engine.TradeHistoryStore.getTopMode()
+            com.lifecyclebot.engine.TradeHistoryStore.getTopMode() 
+                ?: com.lifecyclebot.engine.ShadowLearningEngine.getTopTrackedMode()
         } catch (_: Exception) { null }
+        
+        // Calculate combined PnL (real + shadow virtual)
+        val shadowPnl = shadowStats?.avgPnlPct ?: 0.0
+        val displayPnl = if (localPnl != 0.0) localPnl else (shadowPnl / 100.0) // Convert shadow % to display
         
         withContext(Dispatchers.Main) {
             // Update brain animation
-            val progress = (totalTrades.toFloat() / 1_000_000f).coerceIn(0f, 1f)
+            val progress = (combinedTrades.toFloat() / 1_000_000f).coerceIn(0f, 1f)
             brainView.setProgress(progress)
-            brainView.setTradeCount(totalTrades)
+            brainView.setTradeCount(combinedTrades)
             
-            // Update text stats - now showing LOCAL data when available
-            tvTotalTrades.text = formatNumber(totalTrades)
+            // Update text stats - now showing LOCAL + SHADOW data
+            tvTotalTrades.text = formatNumber(combinedTrades)
             
             // Show profit or loss (not both dashed)
-            if (localPnl >= 0) {
-                tvTotalProfit.text = "+${String.format("%.4f", localPnl)} SOL"
+            if (displayPnl >= 0) {
+                tvTotalProfit.text = "+${String.format("%.4f", displayPnl)} SOL"
                 tvTotalProfit.setTextColor(green)
                 tvTotalLoss.text = "—"
                 tvTotalLoss.setTextColor(muted)
             } else {
                 tvTotalProfit.text = "—"
                 tvTotalProfit.setTextColor(muted)
-                tvTotalLoss.text = "${String.format("%.4f", localPnl)} SOL"
+                tvTotalLoss.text = "${String.format("%.4f", displayPnl)} SOL"
                 tvTotalLoss.setTextColor(red)
             }
             
@@ -165,19 +181,68 @@ class CollectiveBrainActivity : AppCompatActivity() {
             }
             
             // Update mode stats
-            updateModeStats(analyticsSummary)
+            updateModeStats(analyticsSummary, shadowStats)
             
             // Pulse the brain if trades increased
-            if (totalTrades > brainView.lastTradeCount) {
+            if (combinedTrades > brainView.lastTradeCount) {
                 brainView.pulse()
             }
         }
     }
     
-    private fun updateModeStats(analyticsSummary: com.lifecyclebot.engine.CollectiveAnalytics.AnalyticsSummary?) {
+    private fun updateModeStats(
+        analyticsSummary: com.lifecyclebot.engine.CollectiveAnalytics.AnalyticsSummary?,
+        shadowStats: com.lifecyclebot.engine.ShadowLearningEngine.BlockedTradeStats?
+    ) {
         try {
             val topPatterns = analyticsSummary?.bestPatterns ?: emptyList()
             val worstPatterns = analyticsSummary?.worstPatterns ?: emptyList()
+            
+            // V3.2: Use shadow learning mode performance if no collective data
+            val shadowModePerf = try {
+                com.lifecyclebot.engine.ShadowLearningEngine.getModePerformance()
+            } catch (_: Exception) { emptyMap() }
+            
+            // If we have shadow mode performance data, use it
+            if (topPatterns.isEmpty() && shadowModePerf.isNotEmpty()) {
+                // Get top mode from shadow learning
+                val sortedByWinRate = shadowModePerf.values.sortedByDescending { it.winRate }
+                if (sortedByWinRate.isNotEmpty()) {
+                    tvTopMode.text = sortedByWinRate.first().mode.take(15)
+                }
+                if (sortedByWinRate.size > 1) {
+                    tvWorstMode.text = sortedByWinRate.last().mode.take(15)
+                }
+                
+                // Build mode breakdown from shadow stats
+                llModeStats.removeAllViews()
+                sortedByWinRate.take(3).forEachIndexed { index: Int, perf: com.lifecyclebot.engine.ShadowLearningEngine.ModePerformance ->
+                    val row = LinearLayout(this).apply {
+                        orientation = LinearLayout.HORIZONTAL
+                        setPadding(0, dp(4), 0, dp(4))
+                    }
+                    
+                    val emoji = when (index) { 0 -> "🥇"; 1 -> "🥈"; 2 -> "🥉"; else -> "•" }
+                    
+                    row.addView(TextView(this).apply {
+                        text = "$emoji ${perf.mode.take(18)}"
+                        textSize = 12f
+                        setTextColor(white)
+                        layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
+                    })
+                    
+                    row.addView(TextView(this).apply {
+                        text = "${String.format("%.0f", perf.winRate)}%"
+                        textSize = 12f
+                        setTextColor(if (perf.winRate > 50) green else red)
+                        typeface = Typeface.create(Typeface.MONOSPACE, Typeface.BOLD)
+                    })
+                    
+                    llModeStats.addView(row)
+                }
+                
+                return
+            }
             
             if (topPatterns.isNotEmpty()) {
                 tvTopMode.text = topPatterns.first().patternType.take(15)

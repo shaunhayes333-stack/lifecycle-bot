@@ -86,6 +86,21 @@ object ShadowLearningEngine {
     private val completedTrades = mutableListOf<ShadowTrade>()
     private const val MAX_COMPLETED = 1000
     
+    // Tracked blocked trades (trades we blocked but are monitoring outcome)
+    data class TrackedBlockedTrade(
+        val mint: String,
+        val symbol: String,
+        val blockReason: String,
+        val blockLevel: String,
+        val entryPrice: Double,
+        val entryTime: Long,
+        val quality: String,
+        val confidence: Double,
+        val mode: String,
+    )
+    private val trackedBlockedTrades = ConcurrentHashMap<String, TrackedBlockedTrade>()
+    private const val MAX_TRACKED_BLOCKED = 500
+    
     // Stats
     private val totalShadowTrades = AtomicLong(0)
     private val shadowWins = AtomicLong(0)
@@ -518,6 +533,28 @@ object ShadowLearningEngine {
             winRate = winRate,
             avgPnlPct = avgPnl,
         )
+    }
+    
+    /**
+     * Get total count of tracked shadow/blocked trades (for UI display)
+     */
+    fun getTrackedTradesCount(): Int {
+        return totalShadowTrades.get().toInt() + trackedBlockedTrades.size
+    }
+    
+    /**
+     * Get the most common shadow trading mode (for UI display)
+     */
+    fun getTopShadowMode(): String? {
+        val modes = synchronized(completedTrades) {
+            completedTrades.map { it.mode.substringBefore("|") }
+        } + trackedBlockedTrades.values.map { it.mode.substringBefore("|") }
+        
+        return modes
+            .filter { it.isNotBlank() }
+            .groupBy { it }
+            .maxByOrNull { it.value.size }
+            ?.key
     }
     
     data class ShadowStats(

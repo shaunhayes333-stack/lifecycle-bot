@@ -576,6 +576,70 @@ object ShadowLearningEngine {
     }
     
     /**
+     * Get top trading mode from tracked blocked trades (for UI display)
+     */
+    fun getTopTrackedMode(): String? {
+        val modes = blockedTradeShadows.values
+            .map { it.blockLevel.substringBefore("|") }
+            .filter { it.isNotBlank() && it != "V3" && it != "LEGACY" }
+        
+        return if (modes.isEmpty()) {
+            // Try to get from block reason patterns
+            blockedTradeShadows.values
+                .map { it.blockReason.substringBefore("_").uppercase() }
+                .filter { it.isNotBlank() && it.length > 2 }
+                .groupBy { it }
+                .maxByOrNull { it.value.size }
+                ?.key
+        } else {
+            modes.groupBy { it }
+                .maxByOrNull { it.value.size }
+                ?.key
+        }
+    }
+    
+    /**
+     * Mode performance data class
+     */
+    data class ModePerformance(
+        val mode: String,
+        val trades: Int,
+        val winRate: Double,
+        val avgPnlPct: Double,
+    )
+    
+    /**
+     * Get mode performance from blocked trade shadows
+     */
+    fun getModePerformance(): Map<String, ModePerformance> {
+        val byMode = mutableMapOf<String, MutableList<BlockedTradeShadow>>()
+        
+        blockedTradeShadows.values.filter { it.outcomeClassified }.forEach { shadow ->
+            val mode = shadow.blockLevel.ifBlank { 
+                shadow.blockReason.substringBefore("_").uppercase().take(15)
+            }
+            byMode.getOrPut(mode) { mutableListOf() }.add(shadow)
+        }
+        
+        return byMode.mapValues { (mode, shadows) ->
+            val wins = shadows.count { it.wouldHaveBeenWin == true }
+            val winRate = if (shadows.isNotEmpty()) wins.toDouble() / shadows.size * 100 else 0.0
+            val avgPnl = shadows.mapNotNull { 
+                if (it.currentPrice > 0 && it.entryPrice > 0) {
+                    (it.currentPrice - it.entryPrice) / it.entryPrice * 100
+                } else null
+            }.average().takeIf { !it.isNaN() } ?: 0.0
+            
+            ModePerformance(
+                mode = mode,
+                trades = shadows.size,
+                winRate = winRate,
+                avgPnlPct = avgPnl,
+            )
+        }
+    }
+
+    /**
      * Get detailed report of blocked trade shadows for UI.
      */
     fun getBlockedTradesReport(): String = buildString {
