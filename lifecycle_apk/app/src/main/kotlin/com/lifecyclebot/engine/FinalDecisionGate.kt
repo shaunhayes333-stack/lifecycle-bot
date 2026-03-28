@@ -1142,7 +1142,7 @@ object FinalDecisionGate {
             return FinalDecision(
                 shouldTrade = false,
                 mode = mode,
-                approvalClass = ApprovalClass.SHADOW,
+                approvalClass = ApprovalClass.BLOCKED,
                 quality = candidate.setupQuality,
                 confidence = 0.0,
                 edge = EdgeVerdict.SKIP,
