@@ -20,6 +20,13 @@ import com.lifecyclebot.v3.arb.ArbEvaluation
  * V3.2 EXPANSION: Added ArbScannerAI integration
  * - Parallel arb lane for short-horizon mispricing capture
  * - Three arb types: VENUE_LAG, FLOW_IMBALANCE, PANIC_REVERSION
+ * 
+ * V3.2 EXPANSION: Added 5 new AI layers
+ * - VolatilityRegimeAI: Volatility regime detection and squeeze setups
+ * - OrderFlowImbalanceAI: Buy/sell pressure detection before price moves
+ * - SmartMoneyDivergenceAI: Whale behavior vs price divergence
+ * - HoldTimeOptimizerAI: Optimal hold duration prediction
+ * - LiquidityCycleAI: Market-wide liquidity cycle tracking
  */
 class UnifiedScorer(
     private val entryAI: EntryAI = EntryAI(),
@@ -56,7 +63,13 @@ class UnifiedScorer(
                 copyTradeAI.score(candidate, ctx),
                 suppressionAI.score(candidate, ctx),  // V3 MIGRATION: Converts legacy blocks to penalties
                 fearGreedAI.score(candidate, ctx),    // V3.1: Fear & Greed Index
-                socialVelocityAI.score(candidate, ctx)  // V3.1: Social velocity detection
+                socialVelocityAI.score(candidate, ctx),  // V3.1: Social velocity detection
+                // V3.2 NEW AI LAYERS
+                VolatilityRegimeAI.score(candidate, ctx),      // Volatility regime & squeeze detection
+                OrderFlowImbalanceAI.score(candidate, ctx),    // Order flow analysis
+                SmartMoneyDivergenceAI.score(candidate, ctx),  // Smart money divergence
+                HoldTimeOptimizerAI.score(candidate, ctx),     // Hold time optimization
+                LiquidityCycleAI.score(candidate, ctx)         // Market-wide liquidity cycles
             )
         )
     }
@@ -90,6 +103,7 @@ class UnifiedScorer(
     fun moduleNames(): List<String> = listOf(
         "source", "entry", "momentum", "liquidity", "volume",
         "holders", "narrative", "memory", "regime", "time", 
-        "copytrade", "suppression", "feargreed", "social"
+        "copytrade", "suppression", "feargreed", "social",
+        "volatility", "orderflow", "smartmoney", "holdtime", "liquiditycycle"
     )
 }

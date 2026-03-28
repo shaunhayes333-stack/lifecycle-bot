@@ -34,5 +34,12 @@ data class TradingContext(
     val marketRegime: String = "NEUTRAL",
     val apiHealthy: Boolean = true,
     val priceFeedsHealthy: Boolean = true,
-    val clockMs: Long = System.currentTimeMillis()
-)
+    val clockMs: Long = System.currentTimeMillis(),
+    val extra: Map<String, Any?> = emptyMap()
+) {
+    // Helper accessors for extra fields (consistent with CandidateSnapshot)
+    fun extraBoolean(key: String): Boolean = extra[key] as? Boolean ?: false
+    fun extraInt(key: String): Int = extra[key] as? Int ?: 0
+    fun extraDouble(key: String): Double = extra[key] as? Double ?: 0.0
+    fun extraString(key: String): String = extra[key] as? String ?: ""
+}

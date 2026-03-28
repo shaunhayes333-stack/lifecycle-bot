@@ -57,7 +57,13 @@ object AICrossTalk {
         REGIME_DAMPENED_BEAR,   // Bear regime dampening bullish signals
         LIQUIDITY_WHALE_ALERT,  // Liquidity collapse + Whale activity
         BEHAVIOR_PATTERN_MATCH, // Learned good/bad behavior pattern
-        NO_CORRELATION,         // Signals not correlated
+        // V3.2 NEW CROSS-TALK PATTERNS
+        VOLATILITY_SQUEEZE_BREAKOUT,  // Squeeze + momentum = explosive potential
+        FLOW_DIVERGENCE,              // Order flow vs price divergence
+        SMART_MONEY_DIVERGENCE,       // Whale behavior vs price divergence
+        DRY_LIQUIDITY_WARNING,        // Market-wide liquidity crisis
+        RUNNER_SETUP,                 // High-probability runner setup
+        NO_CORRELATION,               // Signals not correlated
     }
     
     // Stats tracking
@@ -392,6 +398,110 @@ object AICrossTalk {
             } catch (e: Exception) {
                 ErrorLogger.debug("CrossTalk", "BehaviorLearning check error: ${e.message}")
             }
+        }
+        
+        // ─────────────────────────────────────────────────────────────────────
+        // V3.2 PATTERN 7: VOLATILITY SQUEEZE BREAKOUT
+        // Squeeze + momentum building = explosive potential
+        // ─────────────────────────────────────────────────────────────────────
+        if (!isOpenPosition) {
+            try {
+                val volRegime = com.lifecyclebot.v3.scoring.VolatilityRegimeAI.getRegime(mint)
+                val inSqueeze = com.lifecyclebot.v3.scoring.VolatilityRegimeAI.isInSqueeze(mint)
+                
+                if (inSqueeze && isMomentumBullish) {
+                    ErrorLogger.info("CrossTalk", "🔥 SQUEEZE+MOMENTUM: $symbol | explosive potential")
+                    return cacheAndReturn(cacheKey, now, CrossTalkSignal(
+                        signalType = SignalType.VOLATILITY_SQUEEZE_BREAKOUT,
+                        entryBoost = 12.0,
+                        exitUrgency = 0.0,
+                        confidenceBoost = 10.0,
+                        sizeMultiplier = 1.15,
+                        reason = "Volatility squeeze + momentum building",
+                        participatingAIs = listOf("VolatilityRegime", "Momentum"),
+                        correlationStrength = 75.0,
+                    ))
+                }
+            } catch (e: Exception) {
+                ErrorLogger.debug("CrossTalk", "VolatilityRegime check error: ${e.message}")
+            }
+        }
+        
+        // ─────────────────────────────────────────────────────────────────────
+        // V3.2 PATTERN 8: FLOW + SMART MONEY DIVERGENCE
+        // Order flow divergence confirmed by whale behavior
+        // ─────────────────────────────────────────────────────────────────────
+        if (!isOpenPosition) {
+            try {
+                val flowState = com.lifecyclebot.v3.scoring.OrderFlowImbalanceAI.getFlowState(mint)
+                val smartMoneyDiv = com.lifecyclebot.v3.scoring.SmartMoneyDivergenceAI.getDivergence(mint)
+                
+                // Bullish flow + bullish divergence = strong buy
+                val flowBullish = flowState == com.lifecyclebot.v3.scoring.OrderFlowImbalanceAI.FlowState.STRONG_BUY_PRESSURE ||
+                                  flowState == com.lifecyclebot.v3.scoring.OrderFlowImbalanceAI.FlowState.BUY_PRESSURE
+                val divBullish = smartMoneyDiv == com.lifecyclebot.v3.scoring.SmartMoneyDivergenceAI.DivergenceType.BULLISH ||
+                                 smartMoneyDiv == com.lifecyclebot.v3.scoring.SmartMoneyDivergenceAI.DivergenceType.STRONG_BULLISH
+                
+                if (flowBullish && divBullish) {
+                    ErrorLogger.info("CrossTalk", "🐋 FLOW+DIVERGENCE: $symbol | whales accumulating under cover")
+                    return cacheAndReturn(cacheKey, now, CrossTalkSignal(
+                        signalType = SignalType.SMART_MONEY_DIVERGENCE,
+                        entryBoost = 10.0,
+                        exitUrgency = 0.0,
+                        confidenceBoost = 8.0,
+                        sizeMultiplier = 1.1,
+                        reason = "Order flow + smart money both bullish",
+                        participatingAIs = listOf("OrderFlow", "SmartMoney"),
+                        correlationStrength = 70.0,
+                    ))
+                }
+                
+                // Bearish flow + bearish divergence = strong warning
+                val flowBearish = flowState == com.lifecyclebot.v3.scoring.OrderFlowImbalanceAI.FlowState.STRONG_SELL_PRESSURE ||
+                                  flowState == com.lifecyclebot.v3.scoring.OrderFlowImbalanceAI.FlowState.SELL_PRESSURE
+                val divBearish = smartMoneyDiv == com.lifecyclebot.v3.scoring.SmartMoneyDivergenceAI.DivergenceType.BEARISH ||
+                                 smartMoneyDiv == com.lifecyclebot.v3.scoring.SmartMoneyDivergenceAI.DivergenceType.STRONG_BEARISH
+                
+                if (flowBearish && divBearish) {
+                    ErrorLogger.warn("CrossTalk", "⚠️ FLOW+DIVERGENCE WARNING: $symbol | distribution in progress")
+                    return cacheAndReturn(cacheKey, now, CrossTalkSignal(
+                        signalType = SignalType.FLOW_DIVERGENCE,
+                        entryBoost = -15.0,
+                        exitUrgency = 35.0,
+                        confidenceBoost = -10.0,
+                        sizeMultiplier = 0.6,
+                        reason = "Order flow + smart money both bearish",
+                        participatingAIs = listOf("OrderFlow", "SmartMoney"),
+                        correlationStrength = 80.0,
+                    ))
+                }
+            } catch (e: Exception) {
+                ErrorLogger.debug("CrossTalk", "Flow/SmartMoney check error: ${e.message}")
+            }
+        }
+        
+        // ─────────────────────────────────────────────────────────────────────
+        // V3.2 PATTERN 9: DRY LIQUIDITY WARNING
+        // Market-wide liquidity crisis
+        // ─────────────────────────────────────────────────────────────────────
+        try {
+            val liqCycle = com.lifecyclebot.v3.scoring.LiquidityCycleAI.getCurrentState()
+            
+            if (liqCycle.riskLevel >= 4 || liqCycle.phase == com.lifecyclebot.v3.scoring.LiquidityCycleAI.LiquidityPhase.DRY) {
+                ErrorLogger.warn("CrossTalk", "⚠️ DRY LIQUIDITY: Market-wide risk=${liqCycle.riskLevel}")
+                return cacheAndReturn(cacheKey, now, CrossTalkSignal(
+                    signalType = SignalType.DRY_LIQUIDITY_WARNING,
+                    entryBoost = -12.0,
+                    exitUrgency = if (isOpenPosition) 25.0 else 0.0,
+                    confidenceBoost = -8.0,
+                    sizeMultiplier = 0.5,
+                    reason = "Market-wide liquidity crisis (risk=${liqCycle.riskLevel})",
+                    participatingAIs = listOf("LiquidityCycle"),
+                    correlationStrength = liqCycle.healthScore,
+                ))
+            }
+        } catch (e: Exception) {
+            ErrorLogger.debug("CrossTalk", "LiquidityCycle check error: ${e.message}")
         }
         
         // No significant correlation detected
