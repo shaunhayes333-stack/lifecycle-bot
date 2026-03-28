@@ -89,17 +89,41 @@ class BotOrchestrator(
             "score=${decision.finalScore} conf=${decision.effectiveConfidence}")
         
         // ═══════════════════════════════════════════════════════════════════
-        // V3 SELECTIVITY: C-GRADE LOOPER CHECK
+        // V3 SELECTIVITY: LIQUIDITY FLOOR CHECK
         // 
-        // Prevents repeated C-grade + low-conf proposals from clogging pipeline.
-        // If a token has been proposed 2+ times recently with C-grade + conf < 35,
-        // force it to WATCH instead of EXECUTE.
+        // Execution floors (BEFORE any execute band routing):
+        //   - C-grade: $10,000 minimum
+        //   - B-grade: $7,500 minimum
+        //   - Below = WATCH/SHADOW only
         // ═══════════════════════════════════════════════════════════════════
         val setupQuality = when {
             decision.finalScore >= 55 -> "B"  // B+ grade
             decision.finalScore >= 45 -> "B"  // B grade
             else -> "C"                       // C grade
         }
+        
+        val liquidityFloor = when (setupQuality) {
+            "B" -> 7500.0
+            else -> 10000.0  // C-grade needs higher liquidity
+        }
+        
+        if (decision.band in listOf(DecisionBand.EXECUTE_SMALL, DecisionBand.EXECUTE_STANDARD, DecisionBand.EXECUTE_AGGRESSIVE)) {
+            if (candidate.liquidityUsd < liquidityFloor) {
+                logger.stage("LIQUIDITY_CHECK", candidate.symbol, "BLOCKED",
+                    "liq=\$${candidate.liquidityUsd.toInt()} < \$${liquidityFloor.toInt()} floor for $setupQuality-grade → WATCH ONLY")
+                lifecycle.mark(candidate.mint, LifecycleState.WATCH)
+                shadowTracker.track(candidate, scoreCard, confidence.effective, "LOW_LIQUIDITY_\${candidate.liquidityUsd.toInt()}")
+                return ProcessResult.Watch(decision.finalScore, confidence.effective)
+            }
+        }
+        
+        // ═══════════════════════════════════════════════════════════════════
+        // V3 SELECTIVITY: C-GRADE LOOPER CHECK
+        // 
+        // Prevents repeated C-grade + low-conf proposals from clogging pipeline.
+        // If a token has been proposed 2+ times recently with C-grade + conf < 35,
+        // force it to WATCH instead of EXECUTE.
+        // ═══════════════════════════════════════════════════════════════════
         
         // Check for C-grade looper before routing to execute
         if (decision.band in listOf(DecisionBand.EXECUTE_SMALL, DecisionBand.EXECUTE_STANDARD, DecisionBand.EXECUTE_AGGRESSIVE)) {

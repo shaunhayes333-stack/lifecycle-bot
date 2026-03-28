@@ -168,27 +168,30 @@ class FinalDecisionEngine(
         val conf = confidence.effective
         
         // ═══════════════════════════════════════════════════════════════════
-        // V3 SELECTIVITY: Extract component scores for compound weakness check
+        // V3 SELECTIVITY: Extract component scores and context
         // ═══════════════════════════════════════════════════════════════════
         val memoryScore = scoreCard.components.find { it.name == "memory" }?.value ?: 0
         val narrativeScore = scoreCard.components.find { it.name == "narrative" }?.value ?: 0
         val suppressionScore = scoreCard.components.find { it.name == "suppression" }?.value ?: 0
+        val liquidityUsd = scoreCard.components.find { it.name == "liquidity" }?.let { 
+            // Extract raw liquidity from reason string if available
+            it.reason.substringAfter("liq=").substringBefore(" ").toDoubleOrNull()
+        } ?: 0.0
+        
+        // Extract phase from scoring - check entry module reason
+        val phase = scoreCard.components.find { it.name == "entry" }?.reason?.let {
+            when {
+                it.contains("early_unknown") -> "early_unknown"
+                it.contains("pre_pump") -> "pre_pump"
+                it.contains("pump_building") -> "pump_building"
+                it.contains("accumulation") -> "accumulation"
+                else -> "unknown"
+            }
+        } ?: "unknown"
         
         // Check for AI degradation (ops.apiHealthy = false means degraded)
         val isAIDegraded = confidence.operational < 50
         
-        // ═══════════════════════════════════════════════════════════════════
-        // V3 SELECTIVITY: Compound weakness veto
-        // 
-        // If ALL of these are true:
-        //   - Score is in C-grade range (below standard threshold)
-        //   - Confidence < 35
-        //   - Memory negative (< 0)
-        //   - Narrative negative (< 0)
-        // Then: WATCH only, do not execute
-        //
-        // This prevents trading weak setups with stacked negatives.
-        // ═══════════════════════════════════════════════════════════════════
         val minScoreForExecute = try {
             com.lifecyclebot.engine.V3ConfidenceConfig.getMinScoreForExecute(config.executeStandardMin)
         } catch (e: Exception) {
@@ -196,69 +199,71 @@ class FinalDecisionEngine(
         }
         
         val isCGrade = score < minScoreForExecute
-        val isLowConfidence = conf < 35
-        val hasNegativeMemory = memoryScore < 0
-        val hasNegativeNarrative = narrativeScore < 0
-        val hasSuppression = suppressionScore < -10
+        val isBGrade = score >= minScoreForExecute
         
-        // Count stacked weaknesses
-        val weaknessCount = listOf(
-            isCGrade,
-            isLowConfidence,
-            hasNegativeMemory,
-            hasNegativeNarrative,
-            hasSuppression,
-            isAIDegraded
-        ).count { it }
-        
-        // COMPOUND WEAKNESS VETO: 3+ weaknesses = WATCH only
-        if (weaknessCount >= 3 && score < minScoreForExecute) {
-            return DecisionResult(
-                band = DecisionBand.WATCH,
-                finalScore = score,
-                statisticalConfidence = confidence.statistical,
-                structuralConfidence = confidence.structural,
-                operationalConfidence = confidence.operational,
-                effectiveConfidence = conf,
-                reasons = listOf("COMPOUND_WEAKNESS: weaknesses=$weaknessCount (mem=$memoryScore narr=$narrativeScore conf=$conf)")
-            )
+        // ═══════════════════════════════════════════════════════════════════
+        // V3 SELECTIVITY: HARD C-GRADE EXECUTION BAN
+        // 
+        // For quality=C, require ALL of:
+        //   - conf >= 35
+        //   - memory > -8
+        //   - AI not degraded
+        //   - liq >= 10000
+        //   - phase is not early_unknown
+        //
+        // If ANY fail → WATCH ONLY, SHADOW TRACK, NO BUY
+        // 
+        // This is the JOBLESS-killer rule.
+        // ═══════════════════════════════════════════════════════════════════
+        if (isCGrade) {
+            val cGradeBlockReasons = mutableListOf<String>()
+            
+            if (conf < 35) {
+                cGradeBlockReasons.add("conf=$conf<35")
+            }
+            if (memoryScore <= -8) {
+                cGradeBlockReasons.add("memory=$memoryScore<=-8")
+            }
+            if (isAIDegraded) {
+                cGradeBlockReasons.add("AI_DEGRADED")
+            }
+            // NOTE: liquidityUsd comes from candidate in BotOrchestrator, not scoreCard
+            // We check this in BotOrchestrator before calling decide()
+            if (phase == "early_unknown") {
+                cGradeBlockReasons.add("phase=early_unknown")
+            }
+            
+            if (cGradeBlockReasons.isNotEmpty()) {
+                return DecisionResult(
+                    band = DecisionBand.WATCH,
+                    finalScore = score,
+                    statisticalConfidence = confidence.statistical,
+                    structuralConfidence = confidence.structural,
+                    operationalConfidence = confidence.operational,
+                    effectiveConfidence = conf,
+                    reasons = listOf("C_GRADE_BAN: ${cGradeBlockReasons.joinToString(", ")} → WATCH ONLY")
+                )
+            }
         }
         
         // ═══════════════════════════════════════════════════════════════════
-        // V3 SELECTIVITY: AI degradation cap
+        // V3 SELECTIVITY: AI DEGRADATION CAP
         // 
-        // If AI is degraded, cap effective confidence and be more conservative.
-        // C-grade setups with degraded AI → WATCH only
+        // If AI is degraded:
+        //   - C-grade = WATCH only (handled above in C_GRADE_BAN)
+        //   - B+ grade = can still execute but confidence capped at 50
         // ═══════════════════════════════════════════════════════════════════
-        val effectiveConf = if (isAIDegraded && isCGrade) {
-            // Degraded AI + C-grade = force WATCH
-            return DecisionResult(
-                band = DecisionBand.WATCH,
-                finalScore = score,
-                statisticalConfidence = confidence.statistical,
-                structuralConfidence = confidence.structural,
-                operationalConfidence = confidence.operational,
-                effectiveConfidence = conf,
-                reasons = listOf("AI_DEGRADED: C-grade with degraded AI → WATCH")
-            )
-        } else if (isAIDegraded) {
-            // Degraded AI = confidence cap at 50
+        val effectiveConf = if (isAIDegraded) {
             minOf(conf, 50)
         } else {
             conf
         }
         
         // ═══════════════════════════════════════════════════════════════════
-        // V3 SELECTIVITY: Tighter C-grade thresholds
+        // V3 BAND SELECTION
         // 
-        // C-grade (score below standard) can only execute if:
-        //   - Confidence >= 35 (raised from 30)
-        //   - No major negative memory/narrative hit (combined > -10)
-        //   - Liquidity reasonable (handled by scoring)
-        //
-        // V3 SELECTIVITY UPDATE: STRICTER C-GRADE FILTER
-        // C-grade + conf < 35 = WATCH ONLY. No exceptions.
-        // This directly addresses the JOBLESS-type loopers.
+        // At this point, C-grade trash has been filtered by C_GRADE_BAN above.
+        // Only legitimate setups reach here.
         // ═══════════════════════════════════════════════════════════════════
         val minConfForExecute = try {
             com.lifecyclebot.engine.V3ConfidenceConfig.getMinConfidenceForExecute(45)
@@ -266,40 +271,8 @@ class FinalDecisionEngine(
             45
         }
         
-        // C-grade minimum confidence threshold
-        // Changed from 40 → 35 for clarity, but enforced strictly
-        val cGradeMinConf = 35
-        val combinedSentiment = memoryScore + narrativeScore
+        val cGradeMinConf = 35  // C-grade still needs conf >= 35 to execute
         
-        // STRICT C-GRADE FILTER: C-grade with conf < 35 = WATCH ONLY
-        if (isCGrade && effectiveConf < cGradeMinConf) {
-            return DecisionResult(
-                band = DecisionBand.WATCH,
-                finalScore = score,
-                statisticalConfidence = confidence.statistical,
-                structuralConfidence = confidence.structural,
-                operationalConfidence = confidence.operational,
-                effectiveConfidence = effectiveConf,
-                reasons = listOf("C_GRADE_LOW_CONF: conf=$effectiveConf < $cGradeMinConf (WATCH ONLY)")
-            )
-        }
-        
-        // C-grade with negative sentiment = WATCH
-        if (isCGrade && combinedSentiment < -10) {
-            return DecisionResult(
-                band = DecisionBand.WATCH,
-                finalScore = score,
-                statisticalConfidence = confidence.statistical,
-                structuralConfidence = confidence.structural,
-                operationalConfidence = confidence.operational,
-                effectiveConfidence = effectiveConf,
-                reasons = listOf("C_GRADE_NEG_SENTIMENT: sentiment=$combinedSentiment < -10 (WATCH ONLY)")
-            )
-        }
-        
-        // ═══════════════════════════════════════════════════════════════════
-        // V3 BAND SELECTION: Standard thresholds for B+ grade setups
-        // ═══════════════════════════════════════════════════════════════════
         val band = when {
             score >= (minScoreForExecute * 1.3).toInt() && effectiveConf >= minConfForExecute + 10 -> DecisionBand.EXECUTE_AGGRESSIVE
             score >= minScoreForExecute && effectiveConf >= minConfForExecute -> DecisionBand.EXECUTE_STANDARD
