@@ -44,6 +44,10 @@ class SellabilityCheck {
  * V3 Fatal Risk Checker
  * ONLY hard blocks for truly fatal conditions
  * Everything else is scoring
+ * 
+ * V3 MIGRATION: Added fatal suppression check for rugged/honeypot tokens.
+ * Non-fatal suppressions (COPY_TRADE_INVALIDATION, WHALE_INVALIDATION)
+ * are now handled as score penalties in SuppressionAI.
  */
 class FatalRiskChecker(
     private val config: TradingConfigV3,
@@ -57,8 +61,21 @@ class FatalRiskChecker(
      * - Unsellable
      * - Invalid pair
      * - Extreme rug score (90+)
+     * - FATAL suppression (rugged/honeypot - V3 MIGRATION)
      */
     fun check(candidate: CandidateSnapshot, ctx: TradingContext): FatalRiskResult {
+        // ═══════════════════════════════════════════════════════════════════
+        // V3 MIGRATION: Check for FATAL suppressions (rugged/honeypot/unsellable)
+        // Non-fatal suppressions are handled in SuppressionAI as score penalties
+        // ═══════════════════════════════════════════════════════════════════
+        try {
+            if (com.lifecyclebot.engine.DistributionFadeAvoider.isFatalSuppression(candidate.mint)) {
+                return FatalRiskResult(true, "FATAL_SUPPRESSION")
+            }
+        } catch (e: Exception) {
+            // Ignore if DistributionFadeAvoider not available
+        }
+        
         // Liquidity collapsed = can't exit
         if (candidate.liquidityUsd <= 250.0) {
             return FatalRiskResult(true, "LIQUIDITY_COLLAPSED")

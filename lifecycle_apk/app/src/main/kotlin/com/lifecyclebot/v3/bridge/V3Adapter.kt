@@ -270,6 +270,24 @@ object V3Adapter {
         // Memory/pattern signals (from TradingMemory if available)
         extras["memoryScore"] = 0 // TODO: Integrate with TradingMemory
         
+        // ═══════════════════════════════════════════════════════════════════
+        // V3 MIGRATION: Include suppression data for scoring
+        // SuppressionAI uses this via getSuppressionPenalty(mint)
+        // ═══════════════════════════════════════════════════════════════════
+        try {
+            val suppressionPenalty = com.lifecyclebot.engine.DistributionFadeAvoider.getSuppressionPenalty(ts.mint)
+            val isFatalSuppression = com.lifecyclebot.engine.DistributionFadeAvoider.isFatalSuppression(ts.mint)
+            val suppressionReason = com.lifecyclebot.engine.DistributionFadeAvoider.checkRawStrategySuppression(ts.mint)
+            
+            extras["suppressionPenalty"] = suppressionPenalty
+            extras["isFatalSuppression"] = isFatalSuppression
+            extras["suppressionReason"] = suppressionReason
+        } catch (e: Exception) {
+            extras["suppressionPenalty"] = 0
+            extras["isFatalSuppression"] = false
+            extras["suppressionReason"] = null
+        }
+        
         // Copy-trade signals
         extras["copyTradeStale"] = false
         extras["copyTradeCrowded"] = false
