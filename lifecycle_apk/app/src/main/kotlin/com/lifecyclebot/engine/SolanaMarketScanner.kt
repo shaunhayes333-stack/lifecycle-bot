@@ -2476,6 +2476,22 @@ class SolanaMarketScanner(
               "vol=$${(token.volumeH1/1000).toInt()}K " +
               "score=${adjustedScore.toInt()}")
         
+        // ═══════════════════════════════════════════════════════════════════
+        // ARB INTEGRATION: Record source timing for venue lag detection
+        // This powers the ArbScannerAI's ability to detect cross-source arbitrage
+        // ═══════════════════════════════════════════════════════════════════
+        try {
+            com.lifecyclebot.v3.arb.SourceTimingRegistry.record(
+                mint = token.mint,
+                source = token.source.name,
+                price = null,  // Price not available at this stage
+                liquidityUsd = token.liquidityUsd,
+                buyPressurePct = null  // Will be populated later
+            )
+        } catch (e: Exception) {
+            // Silently ignore - arb feature is optional
+        }
+        
         // Record liquidity snapshot for LiquidityDepthAI
         LiquidityDepthAI.recordSnapshot(
             mint = token.mint,

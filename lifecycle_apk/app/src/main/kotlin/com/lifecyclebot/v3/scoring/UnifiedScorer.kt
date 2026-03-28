@@ -2,6 +2,8 @@ package com.lifecyclebot.v3.scoring
 
 import com.lifecyclebot.v3.core.TradingContext
 import com.lifecyclebot.v3.scanner.CandidateSnapshot
+import com.lifecyclebot.v3.arb.ArbScannerAI
+import com.lifecyclebot.v3.arb.ArbEvaluation
 
 /**
  * V3 Unified Scorer
@@ -14,6 +16,10 @@ import com.lifecyclebot.v3.scanner.CandidateSnapshot
  * V3.1 EXPANSION: Added FearGreedAI and SocialVelocityAI
  * - FearGreedAI: Uses Alternative.me free API for market sentiment
  * - SocialVelocityAI: Uses DexScreener boosted tokens for social velocity
+ * 
+ * V3.2 EXPANSION: Added ArbScannerAI integration
+ * - Parallel arb lane for short-horizon mispricing capture
+ * - Three arb types: VENUE_LAG, FLOW_IMBALANCE, PANIC_REVERSION
  */
 class UnifiedScorer(
     private val entryAI: EntryAI = EntryAI(),
@@ -53,6 +59,29 @@ class UnifiedScorer(
                 socialVelocityAI.score(candidate, ctx)  // V3.1: Social velocity detection
             )
         )
+    }
+    
+    /**
+     * Score a candidate AND evaluate for arb opportunities.
+     * Returns pair of (ScoreCard, ArbEvaluation?)
+     * 
+     * Use this for parallel arb lane processing.
+     */
+    fun scoreWithArb(candidate: CandidateSnapshot, ctx: TradingContext): Pair<ScoreCard, ArbEvaluation?> {
+        // Record source timing for arb tracking
+        ArbScannerAI.recordSourceSeen(candidate)
+        
+        // Run normal scoring
+        val scoreCard = score(candidate, ctx)
+        
+        // Run arb evaluation in parallel
+        val arbEval = try {
+            ArbScannerAI.evaluate(candidate, ctx)
+        } catch (e: Exception) {
+            null  // Silently ignore arb errors
+        }
+        
+        return Pair(scoreCard, arbEval)
     }
     
     /**
