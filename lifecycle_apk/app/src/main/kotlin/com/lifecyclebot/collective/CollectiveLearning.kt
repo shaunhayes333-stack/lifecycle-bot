@@ -750,4 +750,74 @@ object CollectiveLearning {
         
         return "Collective: $blacklisted blacklisted | $highWin winning patterns | $highLoss losing patterns"
     }
+    
+    // ═══════════════════════════════════════════════════════════════════════════════
+    // LEGAL AGREEMENT RECORDING
+    // ═══════════════════════════════════════════════════════════════════════════════
+    
+    /**
+     * Record a legal agreement acceptance in the collective database.
+     * Required for legal compliance and audit trail.
+     */
+    suspend fun recordLegalAgreement(record: LegalAgreementRecord): Boolean {
+        if (!isEnabled()) {
+            Log.w(TAG, "Collective disabled - storing legal agreement locally only")
+            return true  // Still return true so local storage works
+        }
+        
+        return withContext(Dispatchers.IO) {
+            try {
+                val sql = """
+                    INSERT INTO legal_agreements (
+                        instance_id, agreement_version, agreement_type,
+                        accepted_at, accepted_at_iso, device_info,
+                        app_version, ip_country, consent_checksum
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    ON CONFLICT(instance_id, agreement_type, agreement_version) 
+                    DO UPDATE SET
+                        accepted_at = excluded.accepted_at,
+                        accepted_at_iso = excluded.accepted_at_iso,
+                        device_info = excluded.device_info,
+                        app_version = excluded.app_version
+                """
+                
+                client?.execute(
+                    sql,
+                    listOf(
+                        record.instanceId,
+                        record.agreementVersion,
+                        record.agreementType,
+                        record.acceptedAt,
+                        record.acceptedAtIso,
+                        record.deviceInfo,
+                        record.appVersion,
+                        record.ipCountry,
+                        record.consentChecksum
+                    )
+                )
+                
+                Log.i(TAG, "✅ Legal agreement recorded: ${record.agreementType} v${record.agreementVersion}")
+                true
+            } catch (e: Exception) {
+                Log.e(TAG, "Failed to record legal agreement: ${e.message}")
+                false
+            }
+        }
+    }
+    
+    /**
+     * Get count of agreement acceptances (for analytics).
+     */
+    suspend fun getLegalAgreementCount(): Int {
+        if (!isEnabled()) return 0
+        
+        return withContext(Dispatchers.IO) {
+            try {
+                val result = client?.execute("SELECT COUNT(*) as cnt FROM legal_agreements")
+                result?.rows?.firstOrNull()?.get("cnt")?.toString()?.toIntOrNull() ?: 0
+            } catch (e: Exception) {
+                0
+            }
+        }
+    }
 }

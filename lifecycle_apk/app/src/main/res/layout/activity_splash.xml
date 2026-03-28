@@ -5,13 +5,22 @@
     android:background="#000000"
     android:fitsSystemWindows="false">
 
-    <!-- Centered content -->
+    <!-- Subtle glow effect behind logo (MUST BE FIRST - bottom layer) -->
+    <View
+        android:layout_width="320dp"
+        android:layout_height="320dp"
+        android:layout_gravity="center"
+        android:background="@drawable/splash_glow"
+        android:alpha="0.3"/>
+
+    <!-- Centered content (ON TOP of glow) -->
     <LinearLayout
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
         android:layout_gravity="center"
         android:orientation="vertical"
-        android:gravity="center">
+        android:gravity="center"
+        android:elevation="4dp">
 
         <!-- AATE Logo -->
         <ImageView
@@ -43,19 +52,41 @@
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
         android:layout_gravity="bottom|center_horizontal"
-        android:layout_marginBottom="48dp"
-        android:text="v1.2.0"
-        android:textColor="#374151"
-        android:textSize="12sp"
+        android:layout_marginBottom="80dp"
+        android:text="v3.2.0"
+        android:textColor="#6B7280"
+        android:textSize="14sp"
         android:fontFamily="monospace"
         android:visibility="invisible"/>
 
-    <!-- Subtle glow effect behind logo -->
-    <View
-        android:layout_width="320dp"
-        android:layout_height="320dp"
-        android:layout_gravity="center"
-        android:background="@drawable/splash_glow"
-        android:alpha="0.3"/>
+    <!-- Copyright and Trademark notice at very bottom -->
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_gravity="bottom"
+        android:orientation="vertical"
+        android:gravity="center"
+        android:padding="16dp">
+
+        <TextView
+            android:id="@+id/tvSplashTrademark"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="AATE® is a registered trademark"
+            android:textColor="#374151"
+            android:textSize="10sp"
+            android:fontFamily="monospace"/>
+
+        <TextView
+            android:id="@+id/tvSplashCopyright"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="4dp"
+            android:text="© 2024-2026 Lifecycle Technologies. All rights reserved."
+            android:textColor="#374151"
+            android:textSize="9sp"
+            android:fontFamily="monospace"/>
+
+    </LinearLayout>
 
 </FrameLayout>

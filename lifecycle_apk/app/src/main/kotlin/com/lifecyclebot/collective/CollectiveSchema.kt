@@ -95,6 +95,24 @@ data class WhaleEffectiveness(
     val isReliable: Boolean get() = totalFollows >= 5
 }
 
+/**
+ * Legal Agreement Acknowledgment Record.
+ * Stores when a user accepted the terms and conditions.
+ * Required for legal compliance.
+ */
+data class LegalAgreementRecord(
+    val id: Long = 0,
+    val instanceId: String,           // Unique instance identifier (hashed)
+    val agreementVersion: String,     // Version of the agreement (e.g., "3.2.0")
+    val agreementType: String,        // "TERMS_OF_SERVICE", "PRIVACY_POLICY", "DISCLAIMER"
+    val acceptedAt: Long,             // Unix timestamp when accepted (UTC)
+    val acceptedAtIso: String,        // ISO 8601 formatted datetime
+    val deviceInfo: String,           // Device model (for legal records)
+    val appVersion: String,           // App version at time of acceptance
+    val ipCountry: String,            // Country code (for jurisdiction, optional)
+    val consentChecksum: String,      // SHA256 of the agreement text shown
+)
+
 // ═══════════════════════════════════════════════════════════════════════════════
 // SCHEMA CREATION SQL
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -159,6 +177,22 @@ object CollectiveSchema {
         )
     """
     
+    const val CREATE_LEGAL_AGREEMENTS_TABLE = """
+        CREATE TABLE IF NOT EXISTS legal_agreements (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            instance_id TEXT NOT NULL,
+            agreement_version TEXT NOT NULL,
+            agreement_type TEXT NOT NULL,
+            accepted_at INTEGER NOT NULL,
+            accepted_at_iso TEXT NOT NULL,
+            device_info TEXT NOT NULL,
+            app_version TEXT NOT NULL,
+            ip_country TEXT DEFAULT '',
+            consent_checksum TEXT NOT NULL,
+            UNIQUE(instance_id, agreement_type, agreement_version)
+        )
+    """
+    
     // Indexes for performance
     const val CREATE_INDEXES = """
         CREATE INDEX IF NOT EXISTS idx_patterns_type ON collective_patterns(pattern_type);
@@ -166,6 +200,8 @@ object CollectiveSchema {
         CREATE INDEX IF NOT EXISTS idx_blacklist_mint ON token_blacklist(mint);
         CREATE INDEX IF NOT EXISTS idx_mode_perf_name ON mode_performance(mode_name);
         CREATE INDEX IF NOT EXISTS idx_whale_hash ON whale_effectiveness(wallet_hash);
+        CREATE INDEX IF NOT EXISTS idx_legal_instance ON legal_agreements(instance_id);
+        CREATE INDEX IF NOT EXISTS idx_legal_type ON legal_agreements(agreement_type);
     """
     
     val ALL_TABLES = listOf(
@@ -173,5 +209,6 @@ object CollectiveSchema {
         CREATE_BLACKLIST_TABLE,
         CREATE_MODE_PERFORMANCE_TABLE,
         CREATE_WHALE_EFFECTIVENESS_TABLE,
+        CREATE_LEGAL_AGREEMENTS_TABLE,
     )
 }

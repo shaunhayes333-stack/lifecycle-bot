@@ -6,11 +6,13 @@ import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
 import android.view.View
+import android.view.animation.AlphaAnimation
 import android.view.animation.Animation
 import android.view.animation.ScaleAnimation
 import android.widget.ImageView
 import android.widget.TextView
 import androidx.appcompat.app.AppCompatActivity
+import com.lifecyclebot.BuildConfig
 import com.lifecyclebot.R
 
 /**
@@ -18,13 +20,15 @@ import com.lifecyclebot.R
  * 
  * Displays the AATE logo with smooth animations for 5 seconds
  * before transitioning to the main trading interface.
+ * 
+ * V3.2: Added trademark and copyright notices
+ *       Dynamic version display from BuildConfig
  */
 @SuppressLint("CustomSplashScreen")
 class SplashActivity : AppCompatActivity() {
 
     companion object {
         private const val SPLASH_DURATION = 5000L // 5 seconds
-        private const val FADE_IN_DURATION = 800L
         private const val SCALE_DURATION = 2000L
     }
 
@@ -49,7 +53,10 @@ class SplashActivity : AppCompatActivity() {
         // Ensure logo is visible first (in case animation fails)
         logo.alpha = 1f
         
-        // Animate logo: fade in + subtle scale pulse
+        // Set version dynamically from BuildConfig
+        version.text = "v${BuildConfig.VERSION_NAME}"
+        
+        // Animate logo: subtle scale pulse
         val scaleUp = ScaleAnimation(
             0.85f, 1.05f, 0.85f, 1.05f,
             Animation.RELATIVE_TO_SELF, 0.5f,
@@ -89,6 +96,7 @@ class SplashActivity : AppCompatActivity() {
         }, SPLASH_DURATION)
     }
 
+    @Deprecated("Deprecated in Java")
     override fun onBackPressed() {
         // Disable back button during splash
     }
