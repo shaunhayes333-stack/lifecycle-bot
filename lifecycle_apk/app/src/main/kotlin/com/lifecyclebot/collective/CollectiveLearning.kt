@@ -341,7 +341,7 @@ object CollectiveLearning {
                             patternType = "${p.patternType}_${p.discoverySource}",
                             winRate = p.winRate,
                             totalTrades = p.totalTrades,
-                            avgPnl = p.avgPnl
+                            avgPnl = p.avgPnlPct
                         )
                     }
                 val worstPatterns = sortedPatterns
@@ -352,7 +352,7 @@ object CollectiveLearning {
                             patternType = "${p.patternType}_${p.discoverySource}",
                             winRate = p.winRate,
                             totalTrades = p.totalTrades,
-                            avgPnl = p.avgPnl
+                            avgPnl = p.avgPnlPct
                         )
                     }
                 
