@@ -47,6 +47,9 @@ object V3EngineManager {
     private var shadowTracker: ShadowTracker? = null
     private var orchestrator: BotOrchestrator? = null
     
+    // V3 entry tracking for outcome learning
+    private val v3Entries = java.util.concurrent.ConcurrentHashMap<String, V3EntryRecord>()
+    
     // Callbacks
     private var onExecuteCallback: ((ExecuteRequest) -> ExecuteResult)? = null
     private var onLogCallback: ((String, String) -> Unit)? = null
@@ -247,7 +250,8 @@ object V3EngineManager {
                         sizeSol = result.sizeSol,
                         band = result.band.name,
                         confidence = result.confidence.toDouble(),
-                        score = result.score
+                        score = result.score,
+                        breakdown = result.breakdown
                     )
                 }
                 
@@ -470,6 +474,42 @@ object V3EngineManager {
     }
     
     /**
+     * V3 CLEAN RUNTIME: Record entry for learning
+     * Called immediately after V3 executes a buy
+     */
+    fun recordEntry(
+        mint: String,
+        symbol: String,
+        entryPrice: Double,
+        sizeSol: Double,
+        v3Score: Int,
+        v3Band: String,
+        v3Confidence: Double,
+        source: String,
+        liquidityUsd: Double,
+        isPaper: Boolean
+    ) {
+        ErrorLogger.info(TAG, "[ENTRY] $symbol | price=${String.format("%.8f", entryPrice)} | " +
+            "size=${String.format("%.4f", sizeSol)} SOL | score=$v3Score | band=$v3Band | " +
+            "conf=${v3Confidence.toInt()}% | ${if (isPaper) "PAPER" else "LIVE"}")
+        
+        // Track entry for outcome learning
+        v3Entries[mint] = V3EntryRecord(
+            mint = mint,
+            symbol = symbol,
+            entryPrice = entryPrice,
+            sizeSol = sizeSol,
+            v3Score = v3Score,
+            v3Band = v3Band,
+            v3Confidence = v3Confidence,
+            source = source,
+            liquidityUsd = liquidityUsd,
+            isPaper = isPaper,
+            entryTime = System.currentTimeMillis()
+        )
+    }
+    
+    /**
      * Record outcome of V3 decision for learning
      */
     fun recordV3OutcomeVsFdg(
@@ -532,7 +572,8 @@ sealed class V3Decision {
         val sizeSol: Double,
         val band: String,
         val confidence: Double,
-        val score: Int
+        val score: Int,
+        val breakdown: String = ""  // Score breakdown for logging
     ) : V3Decision()
     
     data class Watch(
@@ -548,8 +589,8 @@ sealed class V3Decision {
     fun shouldExecute(): Boolean = this is Execute
     
     companion object {
-        fun execute(sizeSol: Double, band: String, confidence: Double, score: Int) = 
-            Execute(sizeSol, band, confidence, score)
+        fun execute(sizeSol: Double, band: String, confidence: Double, score: Int, breakdown: String = "") = 
+            Execute(sizeSol, band, confidence, score, breakdown)
         fun watch(score: Int, confidence: Int) = Watch(score, confidence)
         fun rejected(reason: String) = Rejected(reason)
         fun blocked(reason: String) = Blocked(reason)
@@ -602,4 +643,21 @@ data class ExecuteResult(
     val executedSol: Double = 0.0,
     val executedPrice: Double? = null,
     val error: String? = null
+)
+
+/**
+ * V3 Entry Record for outcome tracking
+ */
+data class V3EntryRecord(
+    val mint: String,
+    val symbol: String,
+    val entryPrice: Double,
+    val sizeSol: Double,
+    val v3Score: Int,
+    val v3Band: String,
+    val v3Confidence: Double,
+    val source: String,
+    val liquidityUsd: Double,
+    val isPaper: Boolean,
+    val entryTime: Long
 )

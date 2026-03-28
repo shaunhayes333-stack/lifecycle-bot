@@ -138,12 +138,16 @@ class BotOrchestrator(
                 val execResult = tradeExecutor.execute(candidate, size, decision, scoreCard)
                 lifecycle.mark(candidate.mint, LifecycleState.EXECUTED)
                 
+                // Build breakdown string from scoreCard
+                val breakdown = scoreCard.components.joinToString(" ") { "${it.name}=${it.value}" }
+                
                 ProcessResult.Executed(
                     band = decision.band,
                     sizeSol = size.sizeSol,
                     score = decision.finalScore,
                     confidence = confidence.effective,
-                    txSignature = execResult.txSignature
+                    txSignature = execResult.txSignature,
+                    breakdown = breakdown
                 )
             }
         }
@@ -160,7 +164,8 @@ sealed class ProcessResult {
         val sizeSol: Double,
         val score: Int,
         val confidence: Int,
-        val txSignature: String?
+        val txSignature: String?,
+        val breakdown: String = ""  // Score breakdown for logging
     ) : ProcessResult()
     
     data class Watch(

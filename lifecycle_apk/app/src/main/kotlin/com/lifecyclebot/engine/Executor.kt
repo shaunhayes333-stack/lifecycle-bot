@@ -2740,6 +2740,80 @@ class Executor(
         onLog("PAPER BUY  @ ${price.fmt()} | ${actualSol.fmt(4)} SOL | score=${score.toInt()}$buildInfo", tradeId.mint)
         onNotify("📈 Paper Buy", "${tradeId.symbol}  ${actualSol.fmt(3)} SOL$buildInfo", com.lifecyclebot.engine.NotificationHistory.NotifEntry.NotifType.INFO)
     }
+    
+    // ═══════════════════════════════════════════════════════════════════════════
+    // V3 CLEAN RUNTIME: Execute buy through V3 decision
+    // 
+    // This is the V3-native buy path. V3 has already decided to EXECUTE,
+    // provided the size, and we just need to execute the trade.
+    // No legacy quality/edge/shouldTrade checks - V3 already scored everything.
+    // ═══════════════════════════════════════════════════════════════════════════
+    fun v3Buy(
+        ts: TokenState,
+        sizeSol: Double,
+        walletSol: Double,
+        v3Score: Int,
+        v3Band: String,
+        v3Confidence: Double,
+        wallet: SolanaWallet?,
+        lastSuccessfulPollMs: Long,
+        openPositionCount: Int,
+        totalExposureSol: Double
+    ) {
+        val isPaper = cfg().paperMode
+        val identity = TradeIdentityManager.getOrCreate(ts.mint, ts.symbol, ts.source)
+        
+        // Mark as executed in identity
+        identity.executed(ts.ref, sizeSol, isPaper)
+        
+        if (isPaper) {
+            // Paper buy with V3 metadata
+            paperBuy(
+                ts = ts,
+                sol = sizeSol,
+                score = v3Score.toDouble(),
+                identity = identity,
+                quality = v3Band,  // Use V3 band as quality
+                skipGraduated = true,  // V3 already sized
+                wallet = wallet,
+                walletSol = walletSol
+            )
+        } else {
+            // Live buy
+            if (wallet == null) {
+                ErrorLogger.error("Executor", "[V3] ${ts.symbol} | LIVE_BUY_FAILED | no wallet")
+                return
+            }
+            liveBuy(
+                ts = ts,
+                sol = sizeSol,
+                score = v3Score.toDouble(),
+                wallet = wallet,
+                walletSol = walletSol,
+                identity = identity,
+                quality = v3Band,
+                skipGraduated = true
+            )
+        }
+        
+        // Record V3 entry for learning
+        try {
+            com.lifecyclebot.v3.V3EngineManager.recordEntry(
+                mint = ts.mint,
+                symbol = ts.symbol,
+                entryPrice = ts.ref,
+                sizeSol = sizeSol,
+                v3Score = v3Score,
+                v3Band = v3Band,
+                v3Confidence = v3Confidence,
+                source = ts.source,
+                liquidityUsd = ts.lastLiquidityUsd,
+                isPaper = isPaper
+            )
+        } catch (e: Exception) {
+            ErrorLogger.debug("Executor", "[V3] Learning record error: ${e.message}")
+        }
+    }
 
     private fun liveBuy(ts: TokenState, sol: Double, score: Double,
                         wallet: SolanaWallet, walletSol: Double,

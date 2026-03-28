@@ -277,6 +277,19 @@ data class TradeIdentity(
     }
     
     /**
+     * V3 CLEAN RUNTIME: Mark as V3 execute decision
+     * Bypasses old CANDIDATE/PROPOSED states
+     */
+    fun v3Execute(score: Int, band: String, sizeSol: Double) {
+        this.entryScore = score.toDouble()
+        this.fdgDecision = "V3_EXECUTE"
+        this.fdgQuality = band
+        this.fdgConfidence = score.toDouble()
+        this.approvedSizeSol = sizeSol
+        transition(IdentityState.APPROVED, "V3 score=$score band=$band size=${"%.4f".format(sizeSol)}")
+    }
+    
+    /**
      * Mark as proposed to FDG
      */
     fun proposed() {

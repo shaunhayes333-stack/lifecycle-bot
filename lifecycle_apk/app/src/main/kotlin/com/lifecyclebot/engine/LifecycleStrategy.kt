@@ -908,11 +908,17 @@ class LifecycleStrategy(
             }
         }
         
-        // Log signal for debugging
-        if (signal == "BUY") {
-            ErrorLogger.info("Strategy", "🟢 BUY SIGNAL: ${ts.symbol} | phase=$phase | entry=${entryScore.toInt()} | exit=${exitScore.toInt()}")
-        } else if (entryScore >= 30) {
-            ErrorLogger.debug("Strategy", "${ts.symbol}: signal=$signal phase=$phase entry=${entryScore.toInt()} exit=${exitScore.toInt()}")
+        // ═══════════════════════════════════════════════════════════════════
+        // V3 CLEAN RUNTIME: Suppress legacy BUY SIGNAL logging
+        // 
+        // Old behavior: "🟢 BUY SIGNAL: X" logged here, drives decision
+        // New behavior: Strategy output feeds V3, V3 logs clean decision
+        // 
+        // Legacy log is now debug-only for comparison tracking
+        // ═══════════════════════════════════════════════════════════════════
+        if (signal == "BUY" && entryScore >= 50) {
+            // Only debug log high-confidence BUY for comparison tracking
+            ErrorLogger.debug("Strategy", "📊 LEGACY_BUY: ${ts.symbol} | phase=$phase | entry=${entryScore.toInt()} (V3 will decide)")
         }
 
         // Compute top-up readiness directly in strategy — full signal access here

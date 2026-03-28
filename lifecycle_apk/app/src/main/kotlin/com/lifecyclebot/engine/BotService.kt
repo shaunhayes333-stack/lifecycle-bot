@@ -2134,40 +2134,19 @@ class BotService : Service() {
                         ts.meta       = result.meta
                     }
                     
-                    // A+ SETUP ALERT - now uses unified decision quality
-                    if (decision.finalSignal == "BUY" && decision.finalQuality == "A+" && !ts.position.isOpen) {
-                        soundManager.playAplusAlert()
-                        addLog("⭐ A+ SETUP: ${ts.symbol} (conf=${decision.aiConfidence.toInt()}%)", mint)
-                    }
-                    
-                    // Log trading signals with unified decision info
-                    if (decision.finalSignal == "BUY" || result.entryScore >= 35) {
-                        ErrorLogger.info("BotService", 
-                            "SIGNAL: ${ts.symbol} | phase=${result.phase} signal=${decision.finalSignal} " +
-                            "entry=${result.entryScore.toInt()} exit=${result.exitScore.toInt()} " +
-                            "quality=${decision.finalQuality} edge=${decision.edgePhase}")
-                    }
-                    
                     // ═══════════════════════════════════════════════════════════════════
-                    // SHADOW TRACK EDGE-VETOED TRADES (Paper Mode Learning)
-                    // Edge veto means: "This is a garbage setup, don't trade"
-                    // Instead of overriding and taking bad trades, we SHADOW TRACK them
-                    // to learn if Edge is too strict, without polluting training data.
+                    // V3 CLEAN RUNTIME: Strategy output is now INPUT to V3, not a decision
+                    // 
+                    // Old flow: Strategy → "BUY SIGNAL" → CANDIDATE → FDG → V3 (nested)
+                    // New flow: Strategy → V3 input → V3 SCORING → V3 DECISION → Execute
+                    // 
+                    // Strategy still calculates entry/exit scores, phases, quality - but
+                    // these become V3 CandidateSnapshot extras, not decision authority.
+                    // V3 is the ONLY thing that outputs EXECUTE/WATCH/REJECT.
                     // ═══════════════════════════════════════════════════════════════════
-                    if (cfg.paperMode && decision.finalSignal == "WAIT" && result.entryScore >= 30 && !ts.position.isOpen) {
-                        // This was an Edge veto - shadow track it
-                        ShadowLearningEngine.onFdgBlockedTrade(
-                            mint = ts.mint,
-                            symbol = ts.symbol,
-                            blockReason = "EDGE_VETO_${decision.edgePhase}",
-                            blockLevel = "EDGE",
-                            currentPrice = ts.ref,
-                            proposedSizeSol = 0.1,  // Nominal size for tracking
-                            quality = decision.finalQuality,
-                            confidence = decision.aiConfidence,
-                            phase = result.phase,
-                        )
-                    }
+                    
+                    // NOTE: Legacy logs like "BUY SIGNAL", "shouldTrade", "CANDIDATE" 
+                    // are now suppressed. V3 will output clean decision logs.
 
                     // Sentiment refresh (every sentimentPollMins)
                 val sentAge = System.currentTimeMillis() - ts.lastSentimentRefresh
@@ -2238,52 +2217,185 @@ class BotService : Service() {
                 val identity = TradeIdentityManager.getOrCreate(ts.mint, ts.symbol, ts.source)
                 
                 // ═══════════════════════════════════════════════════════════════════
-                // FINAL DECISION GATE (FDG)
-                // Single authoritative checkpoint - ALL trades must pass
-                // Order: HARD BLOCKS → EDGE → CONFIDENCE → MODE → SIZING
-                // ═══════════════════════════════════════════════════════════════════
-                
-                // ARCHITECTURAL FIX: Check shouldTrade FIRST before entering FDG flow
-                // If upstream (Strategy) already determined this shouldn't trade,
-                // don't waste cycles on candidate/sizing/FDG evaluation.
-                
-                // EARLY DEDUPE CHECK: Skip entire flow if we recently proposed this token
-                // This prevents the CANDIDATE→PROPOSED→BLOCKED spam cycle
-                val (canProposeEarly, dedupeReason) = TradeLifecycle.canPropose(identity.mint)
-                
-                // Log when dedupe blocks a proposal (helps verify the fix is working)
-                if (!canProposeEarly && decision.finalSignal == "BUY" && decision.shouldTrade && !ts.position.isOpen) {
-                    ErrorLogger.debug("BotService", "⏳ DEDUPE SKIP: ${identity.symbol} | $dedupeReason")
-                }
-                
-                // ═══════════════════════════════════════════════════════════════════
-                // V3 MIGRATION: Suppression is now a PENALTY, not a kill switch
+                // V3 CLEAN RUNTIME: V3 is the PRIMARY and ONLY decision authority
                 // 
-                // Old behavior: `return@launch` → trade never evaluated
-                // New behavior: penalty fed into V3 scorer → V3 decides
-                // Only FATAL suppressions (rugged/honeypot) still block
+                // Flow:
+                //   1. Basic eligibility (dedupe, fatal suppression)
+                //   2. V3 processes token using Strategy output as input
+                //   3. V3 outputs: EXECUTE/WATCH/REJECT/BLOCK with clean logs
+                //   4. Only EXECUTE triggers trade
+                //
+                // Legacy concepts (shouldTrade, BUY SIGNAL, CANDIDATE) are internal
+                // notes only - they do NOT control execution anymore.
                 // ═══════════════════════════════════════════════════════════════════
-                val suppressionReason = DistributionFadeAvoider.checkRawStrategySuppression(identity.mint)
-                val suppressionPenalty = DistributionFadeAvoider.getSuppressionPenalty(identity.mint)
-                val isFatalSuppression = DistributionFadeAvoider.isFatalSuppression(identity.mint)
                 
-                // ONLY block on truly fatal suppressions (rugged, honeypot, unsellable)
-                if (isFatalSuppression && !ts.position.isOpen) {
-                    ErrorLogger.info("BotService", "🚫 ${identity.symbol}: FATAL SUPPRESSION - ${suppressionReason}")
+                // DEDUPE: Skip if we recently evaluated this token
+                val (canProposeEarly, dedupeReason) = TradeLifecycle.canPropose(identity.mint)
+                if (!canProposeEarly && !ts.position.isOpen) {
+                    // Silently skip - no spam logging
                     return@launch
                 }
                 
-                // Log non-fatal suppression but DO NOT BLOCK - V3 will handle as penalty
-                if (suppressionReason != null && decision.finalSignal == "BUY" && !ts.position.isOpen) {
-                    ErrorLogger.debug("BotService", "📊 ${identity.symbol}: $suppressionReason → penalty=$suppressionPenalty (V3 will evaluate)")
+                // FATAL SUPPRESSION: Only rugged/honeypot/unsellable blocks
+                val isFatalSuppression = DistributionFadeAvoider.isFatalSuppression(identity.mint)
+                if (isFatalSuppression && !ts.position.isOpen) {
+                    val reason = DistributionFadeAvoider.checkRawStrategySuppression(identity.mint)
+                    ErrorLogger.info("BotService", "[FATAL] ${identity.symbol} | BLOCK | $reason")
+                    return@launch
                 }
                 
                 // ═══════════════════════════════════════════════════════════════════
-                // V3 MIGRATION: Remove legacy `shouldTrade` gate
-                // 
-                // Old behavior: `decision.shouldTrade` blocked before V3 ever ran
-                // New behavior: ALL BUY signals go to V3 for unified scoring
-                // Legacy `shouldTrade=false` is now just a penalty in V3 scorecard
+                // V3 ENGINE: Process token through unified scoring
+                // Strategy output (phase, entry/exit scores, quality) feeds into V3
+                // V3 is the ONLY thing that decides EXECUTE/WATCH/REJECT
+                // ═══════════════════════════════════════════════════════════════════
+                if (!ts.position.isOpen && cfg.v3EngineEnabled && com.lifecyclebot.v3.V3EngineManager.isReady()) {
+                    
+                    // Log discovery (entry point to V3 pipeline)
+                    ErrorLogger.debug("BotService", "[DISCOVERY] ${identity.symbol} | src=${ts.source} liq=${ts.meta.liquidity.toInt()} age=${ts.ageMinutes.toInt()}m")
+                    
+                    try {
+                        val v3Decision = com.lifecyclebot.v3.V3EngineManager.processToken(
+                            ts = ts,
+                            walletSol = effectiveBalance,
+                            totalExposureSol = status.totalExposureSol,
+                            openPositions = status.openPositionCount,
+                            recentWinRate = botBrain?.getRecentWinRate() ?: 50.0,
+                            recentTradeCount = botBrain?.getTradeCount() ?: 0,
+                            marketRegime = modeConf?.mode?.name ?: "NEUTRAL"
+                        )
+                        
+                        when (val result = v3Decision) {
+                            is com.lifecyclebot.v3.V3Decision.Execute -> {
+                                // ═══════════════════════════════════════════════════════════════════
+                                // V3 EXECUTE: Clean logging + trade execution
+                                // ═══════════════════════════════════════════════════════════════════
+                                ErrorLogger.info("BotService", "[SCORING] ${identity.symbol} | total=${result.score} | ${result.breakdown}")
+                                ErrorLogger.info("BotService", "[FATAL] ${identity.symbol} | PASS")
+                                ErrorLogger.info("BotService", "[CONFIDENCE] ${identity.symbol} | ${result.confidence.toInt()}%")
+                                ErrorLogger.info("BotService", "[DECISION] ${identity.symbol} | ${result.band} | score=${result.score} conf=${result.confidence.toInt()}%")
+                                ErrorLogger.info("BotService", "[SIZING] ${identity.symbol} | ${result.sizeSol.fmt(4)} SOL")
+                                
+                                // A+ alert for high-conviction setups
+                                if (result.score >= 75) {
+                                    soundManager.playAplusAlert()
+                                    addLog("⭐ HIGH CONFIDENCE: ${identity.symbol} | score=${result.score}", ts.mint)
+                                }
+                                
+                                if (!cfg.v3ShadowMode) {
+                                    // V3 CONTROLS EXECUTION
+                                    val v3SizeSol = result.sizeSol
+                                    val v3Thesis = "V3 score=${result.score} band=${result.band}"
+                                    
+                                    // Update lifecycle to V3 states
+                                    identity.v3Execute(result.score, result.band.name, result.sizeSol)
+                                    
+                                    // Execute the trade
+                                    val proposedSize = result.sizeSol
+                                    val modeTag = try {
+                                        modeConf?.mode?.let { ModeSpecificGates.fromBotMode(it) }
+                                    } catch (e: Exception) { null }
+                                    
+                                    ErrorLogger.info("BotService", "[EXECUTION] ${identity.symbol} | ${if (cfg.paperMode) "PAPER" else "LIVE"}_BUY | ${proposedSize.fmt(4)} SOL")
+                                    
+                                    // Record proposal for dedupe
+                                    TradeLifecycle.recordProposal(identity.mint, proposedSize)
+                                    
+                                    // Execute buy through unified executor
+                                    executor.v3Buy(
+                                        ts = ts,
+                                        sizeSol = proposedSize,
+                                        walletSol = effectiveBalance,
+                                        v3Score = result.score,
+                                        v3Band = result.band.name,
+                                        v3Confidence = result.confidence,
+                                        wallet = wallet,
+                                        lastSuccessfulPollMs = lastSuccessfulPollMs,
+                                        openPositionCount = status.openPositionCount,
+                                        totalExposureSol = status.totalExposureSol
+                                    )
+                                    
+                                    addLog("⚡ V3 EXECUTE: ${identity.symbol} | ${result.band} | ${proposedSize.fmt(4)} SOL", ts.mint)
+                                } else {
+                                    // Shadow mode - log only
+                                    ErrorLogger.info("BotService", "[SHADOW] ${identity.symbol} | WOULD_EXECUTE | ${result.band} | ${result.sizeSol.fmt(4)} SOL")
+                                    addLog("🔬 V3 SHADOW: ${identity.symbol} | ${result.band}", ts.mint)
+                                }
+                            }
+                            
+                            is com.lifecyclebot.v3.V3Decision.Watch -> {
+                                // ═══════════════════════════════════════════════════════════════════
+                                // V3 WATCH: Track but don't trade
+                                // ═══════════════════════════════════════════════════════════════════
+                                ErrorLogger.info("BotService", "[SCORING] ${identity.symbol} | total=${result.score} | below threshold")
+                                ErrorLogger.info("BotService", "[DECISION] ${identity.symbol} | WATCH | score=${result.score} conf=${result.confidence.toInt()}%")
+                                
+                                // Shadow track for learning
+                                ShadowLearningEngine.onFdgBlockedTrade(
+                                    mint = ts.mint,
+                                    symbol = ts.symbol,
+                                    blockReason = "V3_WATCH_score=${result.score}",
+                                    blockLevel = "V3",
+                                    currentPrice = ts.ref,
+                                    proposedSizeSol = 0.1,
+                                    quality = decision.finalQuality,
+                                    confidence = result.confidence,
+                                    phase = decision.phase,
+                                )
+                                
+                                // Don't execute, exit cleanly
+                                return@launch
+                            }
+                            
+                            is com.lifecyclebot.v3.V3Decision.Rejected -> {
+                                // ═══════════════════════════════════════════════════════════════════
+                                // V3 REJECT: Poor setup
+                                // ═══════════════════════════════════════════════════════════════════
+                                ErrorLogger.info("BotService", "[DECISION] ${identity.symbol} | REJECT | ${result.reason}")
+                                
+                                // Shadow track
+                                ShadowLearningEngine.onFdgBlockedTrade(
+                                    mint = ts.mint,
+                                    symbol = ts.symbol,
+                                    blockReason = "V3_REJECT_${result.reason}",
+                                    blockLevel = "V3",
+                                    currentPrice = ts.ref,
+                                    proposedSizeSol = 0.1,
+                                    quality = decision.finalQuality,
+                                    confidence = 0.0,
+                                    phase = decision.phase,
+                                )
+                                
+                                return@launch
+                            }
+                            
+                            is com.lifecyclebot.v3.V3Decision.Blocked -> {
+                                // ═══════════════════════════════════════════════════════════════════
+                                // V3 BLOCK: Fatal issue
+                                // ═══════════════════════════════════════════════════════════════════
+                                ErrorLogger.info("BotService", "[FATAL] ${identity.symbol} | BLOCK | ${result.reason}")
+                                return@launch
+                            }
+                            
+                            else -> {
+                                // V3 not ready or error - skip this token
+                                ErrorLogger.debug("BotService", "[V3] ${identity.symbol} | NOT_READY")
+                                return@launch
+                            }
+                        }
+                        
+                    } catch (v3e: Exception) {
+                        ErrorLogger.error("BotService", "[V3] ${identity.symbol} | ERROR | ${v3e.message}")
+                        return@launch
+                    }
+                    
+                    // V3 handled this token - skip legacy flow
+                    return@launch
+                }
+                
+                // ═══════════════════════════════════════════════════════════════════
+                // LEGACY FALLBACK: Only runs if V3 is disabled
+                // This path will be deprecated once V3 is fully validated
                 // ═══════════════════════════════════════════════════════════════════
                 if (!ts.position.isOpen && decision.finalSignal == "BUY" && canProposeEarly) {
                     // ═══════════════════════════════════════════════════════════════════
