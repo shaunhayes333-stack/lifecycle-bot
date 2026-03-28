@@ -251,6 +251,31 @@ class MainActivity : AppCompatActivity() {
             // Show first-time disclaimer if not yet agreed
             showFirstTimeDisclaimer()
 
+            // ════════════════════════════════════════════════════════════════════════════
+            // V3.2: Initialize all 21 AI layers via AIStartupCoordinator
+            // This ensures all AI modules are loaded and ready before trading starts
+            // ════════════════════════════════════════════════════════════════════════════
+            lifecycleScope.launch(kotlinx.coroutines.Dispatchers.Default) {
+                try {
+                    val result = com.lifecyclebot.v3.core.AIStartupCoordinator.initialize(this)
+                    kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Main) {
+                        if (result.success) {
+                            com.lifecyclebot.engine.ErrorLogger.info("MainActivity", 
+                                "AI System initialized: ${result.readyLayers} ready, " +
+                                "${result.degradedLayers} degraded, ${result.failedLayers} failed")
+                        } else {
+                            com.lifecyclebot.engine.ErrorLogger.error("MainActivity", 
+                                "AI System FAILED: ${result.message}")
+                            Toast.makeText(this@MainActivity, 
+                                "⚠️ Some AI layers failed to initialize", Toast.LENGTH_LONG).show()
+                        }
+                    }
+                } catch (e: Exception) {
+                    com.lifecyclebot.engine.ErrorLogger.error("MainActivity", 
+                        "AIStartupCoordinator error: ${e.message}")
+                }
+            }
+
             lifecycleScope.launch {
                 vm.ui.collect { state -> updateUi(state) }
             }
@@ -422,9 +447,15 @@ for legal compliance.
         pbBrainProgress  = try { findViewById(R.id.pbBrainProgress) } catch (_: Exception) { ProgressBar(this) }
         tvBrainEmoji     = try { findViewById(R.id.tvBrainEmoji) } catch (_: Exception) { TextView(this) }
         
-        // Click to show learning stats
+        // Click brain icon to open Collective Brain Activity
         brainContainer.setOnClickListener {
+            startActivity(android.content.Intent(this, CollectiveBrainActivity::class.java))
+        }
+        
+        // Long press to show quick learning stats
+        brainContainer.setOnLongClickListener {
             showLearningStats()
+            true
         }
         
         tvBalanceLarge  = findViewById(R.id.tvBalanceLarge)
@@ -1711,6 +1742,34 @@ for legal compliance.
         findViewById<View>(R.id.btnQuickLogs)?.setOnClickListener {
             startActivity(Intent(this, ErrorLogActivity::class.java))
         }
+
+        // ═══════════════════════════════════════════════════════════════════
+        // V3.2 AI FEATURE BUTTONS
+        // ═══════════════════════════════════════════════════════════════════
+
+        // AI Brain button → Opens Collective Brain Activity
+        findViewById<View>(R.id.btnQuickBrain)?.setOnClickListener {
+            startActivity(Intent(this, CollectiveBrainActivity::class.java))
+            performHaptic()
+        }
+
+        // Shadow Learning button → Shows Shadow Learning status dialog
+        findViewById<View>(R.id.btnQuickShadow)?.setOnClickListener {
+            showShadowLearningDialog()
+            performHaptic()
+        }
+
+        // Market Regimes button → Shows current regime and available modes
+        findViewById<View>(R.id.btnQuickRegimes)?.setOnClickListener {
+            showRegimesDialog()
+            performHaptic()
+        }
+
+        // 21 AI Layers button → Shows all AI layer statuses
+        findViewById<View>(R.id.btnQuickAILayers)?.setOnClickListener {
+            showAILayersDialog()
+            performHaptic()
+        }
     }
 
     /** Setup clear settings button with confirmation */
@@ -1950,6 +2009,161 @@ The AI brain has been updated with new insights from historical data.
     }
 
     // ── Learning Stats Popup ────────────────────────────────────────────
+    // ═══════════════════════════════════════════════════════════════════════════
+    // V3.2 AI FEATURE DIALOGS
+    // ═══════════════════════════════════════════════════════════════════════════
+
+    /**
+     * Shows Shadow Learning Engine status and virtual trade statistics
+     */
+    private fun showShadowLearningDialog() {
+        try {
+            val engine = com.lifecyclebot.v3.learning.ShadowLearningEngine
+            val stats = engine.getStats()
+            val statusText = engine.getStatus()
+            
+            val message = """
+👁️ SHADOW LEARNING ENGINE
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Status: 🟢 ACTIVE
+
+📊 Virtual Trade Statistics:
+• Total Shadow Trades: ${stats.totalTrades}
+• Open Positions: ${stats.openTrades}
+• Wins: ${stats.wins}
+• Losses: ${stats.losses}
+• Virtual Win Rate: ${"%.1f".format(stats.winRate)}%
+• Avg PnL per Trade: ${if (stats.avgPnlPct >= 0) "+" else ""}${"%.2f".format(stats.avgPnlPct)}%
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+📈 Status: $statusText
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+ℹ️ Shadow Learning runs continuous virtual 
+trades to calibrate AI scoring without 
+risking real capital.
+            """.trimIndent()
+            
+            AlertDialog.Builder(this, R.style.Theme_AATE_Dialog)
+                .setTitle("👁️ Shadow Learning Engine")
+                .setMessage(message)
+                .setPositiveButton("Close") { d, _ -> d.dismiss() }
+                .show()
+        } catch (e: Exception) {
+            Toast.makeText(this, "Shadow Learning: ${e.message ?: "Not available"}", Toast.LENGTH_SHORT).show()
+        }
+    }
+
+    /**
+     * Shows current market regime and available trading modes
+     */
+    private fun showRegimesDialog() {
+        try {
+            val router = com.lifecyclebot.v3.modes.MarketStructureRouter
+            val regimes = router.MarketRegime.values()
+            val modes = router.StructureMode.values()
+            val statusText = router.getStatus()
+            val regimeTransitionStatus = com.lifecyclebot.v3.scoring.RegimeTransitionAI.getStatus()
+            
+            // Build regime summary
+            val regimeSummary = regimes.joinToString("\n") { regime ->
+                val modeCount = modes.count { it.regime == regime }
+                "${regime.emoji} ${regime.label}: $modeCount modes"
+            }
+            
+            // Build modes list (first 12)
+            val modesText = modes.take(12).joinToString("\n") { mode ->
+                "${mode.emoji} ${mode.label} (${mode.regime.label})"
+            }
+            
+            val message = """
+📊 MARKET STRUCTURE ROUTER
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+$statusText
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+🏛️ Market Regimes (${regimes.size}):
+
+$regimeSummary
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+🎯 Trading Modes (${modes.size}):
+
+$modesText
+${if (modes.size > 12) "...and ${modes.size - 12} more" else ""}
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+📈 Regime Transition AI:
+$regimeTransitionStatus
+            """.trimIndent()
+            
+            AlertDialog.Builder(this, R.style.Theme_AATE_Dialog)
+                .setTitle("📊 Market Regimes & Modes")
+                .setMessage(message)
+                .setPositiveButton("Close") { d, _ -> d.dismiss() }
+                .show()
+        } catch (e: Exception) {
+            Toast.makeText(this, "Regimes: ${e.message ?: "Not available"}", Toast.LENGTH_SHORT).show()
+        }
+    }
+
+    /**
+     * Shows status of all 21 AI layers
+     */
+    private fun showAILayersDialog() {
+        try {
+            val coordinator = com.lifecyclebot.v3.core.AIStartupCoordinator
+            val healthReport = coordinator.runHealthCheck()
+            val detailedStatus = coordinator.getDetailedStatus()
+            
+            val statusEmoji = if (healthReport.overallHealthy) "✅" else "⚠️"
+            val tradingStatus = if (healthReport.tradingAllowed) "🟢 ENABLED" else "🔴 DISABLED"
+            
+            // Build layer status list
+            val layerLines = detailedStatus.take(21).joinToString("\n") { (name, status) ->
+                "$status $name"
+            }
+            
+            val message = """
+🤖 AI SYSTEM STATUS ($statusEmoji)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Trading: $tradingStatus
+Critical Issues: ${healthReport.criticalIssues}
+Warnings: ${healthReport.warnings}
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+📋 Layer Status (21 AI Modules):
+
+$layerLines
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Legend:
+✅ Ready  ⚠️ Degraded  ❌ Failed
+⏳ Loading  ⏸️ Pending
+
+Last Check: ${java.text.SimpleDateFormat("HH:mm:ss", java.util.Locale.US).format(java.util.Date(healthReport.timestamp))}
+            """.trimIndent()
+            
+            AlertDialog.Builder(this, R.style.Theme_AATE_Dialog)
+                .setTitle("🤖 21 AI Layers")
+                .setMessage(message)
+                .setPositiveButton("Close") { d, _ -> d.dismiss() }
+                .setNeutralButton("Refresh") { _, _ -> 
+                    showAILayersDialog() // Re-run to refresh
+                }
+                .show()
+        } catch (e: Exception) {
+            Toast.makeText(this, "AI Layers: ${e.message ?: "Not available"}", Toast.LENGTH_SHORT).show()
+        }
+    }
+
     private fun showLearningStats() {
         try {
             val ws = vm.ui.value.walletState
