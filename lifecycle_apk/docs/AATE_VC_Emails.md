@@ -1,12 +1,14 @@
-# AATE VC Outreach Emails
+# AATE V3.1 VC Outreach Emails
 
 ## Email Templates for Different Investor Types
 
+*Updated March 2026 for V3.1 Architecture*
+
 ---
 
-## 1. Crypto-Native VC (a]6z Crypto, Paradigm, Polychain)
+## 1. Crypto-Native VC (a16z Crypto, Paradigm, Polychain)
 
-**Subject:** AATE: 68K lines of autonomous trading AI for Solana meme coins
+**Subject:** AATE V3.1: 68K lines of autonomous trading AI for Solana meme coins
 
 **Body:**
 
@@ -14,7 +16,7 @@ Hi [Name],
 
 I built something I think your team would find technically interesting: a fully autonomous trading engine for Solana meme coins with 68,436 lines of production Kotlin code.
 
-**The core innovation:** V3 Architecture - instead of hard-gating trades (if X then block), everything becomes a weighted score. 12 AI modules feed into a unified scorer. The engine learns what works and adapts in real-time.
+**The core innovation:** V3.1 Architecture - instead of hard-gating trades (if X then block), everything becomes a weighted score. 14 AI modules (including new Fear/Greed Index and Social Velocity) feed into a unified scorer. The engine learns what works and adapts in real-time.
 
 **What makes it different:**
 - True autonomy: runs 24/7 on Android, no human intervention needed
@@ -173,14 +175,16 @@ Raising $500K seed. Would you be interested in a quick demo?
 
 | Metric | Value | Context |
 |--------|-------|---------|
-| Lines of Code | 68,436 | Top 1% of solo-founder projects |
+| Lines of Code | 68,436+ | Top 1% of solo-founder projects |
 | Kotlin Files | 151 | Production-grade architecture |
-| AI Modules | 12 | Unified scoring system |
-| Architecture | V3 | Score-based, not hard-gated |
+| AI Modules | 14 | Unified scoring system (2 NEW in V3.1) |
+| Architecture | V3.1 | Score-based, not hard-gated |
+| NEW: Fear & Greed Index | ✅ | Contrarian market sentiment |
+| NEW: Social Velocity | ✅ | Early pump detection |
 | Collective Learning | Live | Turso edge database |
 | Trading Modes | 7 | Auto-switching by market regime |
-| Target ARR (Y3) | $24M | Conservative SaaS projections |
-| Ask | $500K | 15-20% equity |
+| Target ARR (Y3) | $4.5M | Conservative SaaS projections |
+| Ask | $500K | 10% equity at $5M pre-money |
 
 ---
 

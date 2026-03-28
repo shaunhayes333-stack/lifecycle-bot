@@ -812,68 +812,87 @@ By clicking "I Agree", you acknowledge that you have read, understood, and accep
         }
 
         // ── Quick Stats Bar ─────────────────────────────────────────
+        // FIX: ALWAYS use TradeHistoryStore as PRIMARY source for persisted stats
+        // In-memory trades supplement but don't replace persistent storage
         try {
-            // Calculate 24h trades by filtering recent trades
             val now = System.currentTimeMillis()
             val twentyFourHoursAgo = now - (24 * 60 * 60 * 1000L)
             
-            // Get all trades from all tracked tokens + persistent store
-            val inMemoryTrades = state.tokens.values.flatMap { it.trades }
+            // PRIMARY: Get stats from persistent storage (survives bot restarts)
             val persistedStats = com.lifecyclebot.engine.TradeHistoryStore.getStats()
             
-            // Use persisted stats if in-memory is empty (bot just restarted)
-            val trades24h = if (inMemoryTrades.isEmpty()) {
-                persistedStats.trades24h
-            } else {
-                inMemoryTrades.count { it.ts >= twentyFourHoursAgo }
-            }
+            // SECONDARY: Get in-memory trades for current session
+            val inMemoryTrades = state.tokens.values.flatMap { it.trades }
+            val inMemoryTrades24h = inMemoryTrades.filter { it.ts >= twentyFourHoursAgo }
+            
+            // Use MAX of persisted vs in-memory (handles restart scenarios)
+            // Persisted has historical trades, in-memory may have very recent ones not yet saved
+            val trades24h = maxOf(persistedStats.trades24h, inMemoryTrades24h.size)
             tvStats24hTrades.text = "$trades24h"
             
-            // Win rate from last 24h (only SELL trades count for win/loss)
-            val winRate = if (inMemoryTrades.isEmpty()) {
+            // Win rate: Use persisted unless in-memory has meaningful data
+            val inMemorySells24h = inMemoryTrades.filter { it.side == "SELL" && it.ts >= twentyFourHoursAgo }
+            val winRate = if (inMemorySells24h.size >= 3) {
+                // Enough in-memory data to calculate
+                val wins24h = inMemorySells24h.count { it.pnlPct > 2.0 }
+                val losses24h = inMemorySells24h.count { it.pnlPct < -2.0 }
+                val total = wins24h + losses24h
+                if (total > 0) (wins24h * 100 / total) else persistedStats.winRate24h
+            } else if (persistedStats.winRate24h > 0) {
+                // Use persisted win rate
                 persistedStats.winRate24h
             } else {
-                val sells24h = inMemoryTrades.filter { it.side == "SELL" && it.ts >= twentyFourHoursAgo }
-                val wins24h = sells24h.count { it.pnlPct > 2.0 }
-                val losses24h = sells24h.count { it.pnlPct < -2.0 }
-                if (wins24h + losses24h > 0) 
-                    (wins24h * 100 / (wins24h + losses24h)) 
-                else ws.winRate
+                // Fallback to wallet state win rate
+                ws.winRate
             }
             
             tvStatsWinRate.text = "$winRate%"
             tvStatsWinRate.setTextColor(when {
                 winRate >= 60 -> green
                 winRate >= 40 -> amber
-                else -> red
+                winRate > 0 -> red
+                else -> muted  // Show muted for 0% (no data)
             })
             
             // ═══════════════════════════════════════════════════════════════════
-            // SUPERBRAIN INTELLIGENCE DISPLAY
-            // Shows current mode, market sentiment, and active insights
+            // OPEN POSITIONS COUNT
             // ═══════════════════════════════════════════════════════════════════
-            state.dashboardData?.let { dashboard ->
-                // Update AI confidence display with mode info
-                tvStatsAiConf.text = "${dashboard.modeEmoji} ${dashboard.activeMode}"
-                tvStatsAiConf.setTextColor(when (dashboard.sentiment) {
-                    "STRONG_BULL", "BULL" -> green
-                    "NEUTRAL" -> amber
-                    else -> red
-                })
-            }
-            
             val openCount = state.openPositions.size
             tvStatsOpenPos.text = "$openCount"
             tvStatsOpenPos.setTextColor(if (openCount > 0) purple else muted)
             
-            val aiConf = ts?.entryScore?.toInt() ?: 0  // Use entry score as AI confidence proxy
-            tvStatsAiConf.text = if (aiConf > 0) "$aiConf" else "—"
-            tvStatsAiConf.setTextColor(when {
-                aiConf >= 70 -> green
-                aiConf >= 50 -> amber
-                aiConf > 0 -> red
-                else -> muted
-            })
+            // ═══════════════════════════════════════════════════════════════════
+            // AI CONFIDENCE / MODE DISPLAY (unified - no double-write)
+            // Priority: Dashboard mode > Active token entry score > Default
+            // ═══════════════════════════════════════════════════════════════════
+            val dashboardData = state.dashboardData
+            val activeEntryScore = ts?.entryScore?.toInt() ?: 0
+            
+            when {
+                // If we have an active token being evaluated, show its entry score
+                activeEntryScore > 0 -> {
+                    tvStatsAiConf.text = "$activeEntryScore"
+                    tvStatsAiConf.setTextColor(when {
+                        activeEntryScore >= 70 -> green
+                        activeEntryScore >= 50 -> amber
+                        else -> red
+                    })
+                }
+                // Otherwise show dashboard mode info
+                dashboardData != null -> {
+                    tvStatsAiConf.text = "${dashboardData.modeEmoji} ${dashboardData.activeMode}"
+                    tvStatsAiConf.setTextColor(when (dashboardData.sentiment) {
+                        "STRONG_BULL", "BULL" -> green
+                        "NEUTRAL" -> amber
+                        else -> muted
+                    })
+                }
+                // Fallback: show dash
+                else -> {
+                    tvStatsAiConf.text = "—"
+                    tvStatsAiConf.setTextColor(muted)
+                }
+            }
         } catch (_: Exception) {}
         
         // ── Brain Learning Indicator ─────────────────────────────────

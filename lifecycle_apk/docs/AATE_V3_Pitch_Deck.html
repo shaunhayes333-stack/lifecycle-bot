@@ -1,0 +1,734 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AATE V3.1 - Autonomous Algorithmic Trading Engine | Investor Deck</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        
+        :root {
+            --bg-dark: #0a0a0f;
+            --bg-card: #12121a;
+            --accent: #00d4aa;
+            --accent-secondary: #7c3aed;
+            --text-primary: #ffffff;
+            --text-secondary: #a0a0b0;
+            --gradient: linear-gradient(135deg, #00d4aa 0%, #7c3aed 100%);
+            --success: #22c55e;
+            --warning: #f59e0b;
+        }
+        
+        body {
+            font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+            background: var(--bg-dark);
+            color: var(--text-primary);
+            line-height: 1.6;
+        }
+        
+        .slide {
+            min-height: 100vh;
+            padding: 60px 80px;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            border-bottom: 1px solid rgba(255,255,255,0.05);
+            position: relative;
+            overflow: hidden;
+        }
+        
+        .slide::before {
+            content: '';
+            position: absolute;
+            top: 0; left: 0; right: 0; bottom: 0;
+            background: radial-gradient(ellipse at 30% 20%, rgba(0,212,170,0.08) 0%, transparent 50%),
+                        radial-gradient(ellipse at 70% 80%, rgba(124,58,237,0.08) 0%, transparent 50%);
+            pointer-events: none;
+        }
+        
+        .slide-content {
+            position: relative;
+            z-index: 1;
+            max-width: 1400px;
+            margin: 0 auto;
+            width: 100%;
+        }
+        
+        h1 {
+            font-size: 4rem;
+            font-weight: 800;
+            background: var(--gradient);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+            margin-bottom: 24px;
+        }
+        
+        h2 { font-size: 2.5rem; font-weight: 700; margin-bottom: 40px; }
+        h3 { font-size: 1.5rem; font-weight: 600; color: var(--accent); margin-bottom: 16px; }
+        .subtitle { font-size: 1.5rem; color: var(--text-secondary); margin-bottom: 48px; }
+        
+        .hero-stats {
+            display: grid;
+            grid-template-columns: repeat(4, 1fr);
+            gap: 32px;
+            margin-top: 60px;
+        }
+        
+        .stat-card {
+            background: var(--bg-card);
+            border: 1px solid rgba(255,255,255,0.08);
+            border-radius: 16px;
+            padding: 32px;
+            text-align: center;
+        }
+        
+        .stat-value {
+            font-size: 3rem;
+            font-weight: 800;
+            background: var(--gradient);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+        }
+        
+        .stat-label { font-size: 1rem; color: var(--text-secondary); margin-top: 8px; }
+        
+        .grid-2 { display: grid; grid-template-columns: repeat(2, 1fr); gap: 40px; }
+        .grid-3 { display: grid; grid-template-columns: repeat(3, 1fr); gap: 32px; }
+        
+        .card {
+            background: var(--bg-card);
+            border: 1px solid rgba(255,255,255,0.08);
+            border-radius: 16px;
+            padding: 32px;
+        }
+        
+        .card h3 { margin-bottom: 16px; }
+        .card p { color: var(--text-secondary); }
+        
+        .highlight { color: var(--accent); font-weight: 600; }
+        .version-badge {
+            display: inline-block;
+            background: var(--gradient);
+            padding: 8px 20px;
+            border-radius: 50px;
+            font-weight: 700;
+            font-size: 1.1rem;
+            margin-bottom: 24px;
+        }
+        
+        .comparison-table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-top: 32px;
+        }
+        
+        .comparison-table th, .comparison-table td {
+            padding: 16px 24px;
+            text-align: left;
+            border-bottom: 1px solid rgba(255,255,255,0.08);
+        }
+        
+        .comparison-table th {
+            background: var(--bg-card);
+            font-weight: 600;
+        }
+        
+        .check { color: var(--success); font-size: 1.5rem; }
+        .cross { color: #ef4444; font-size: 1.5rem; }
+        .partial { color: var(--warning); font-size: 1.5rem; }
+        
+        .timeline {
+            display: flex;
+            justify-content: space-between;
+            margin-top: 48px;
+            position: relative;
+        }
+        
+        .timeline::before {
+            content: '';
+            position: absolute;
+            top: 24px;
+            left: 10%;
+            right: 10%;
+            height: 4px;
+            background: var(--gradient);
+            border-radius: 2px;
+        }
+        
+        .timeline-item {
+            text-align: center;
+            position: relative;
+            z-index: 1;
+        }
+        
+        .timeline-dot {
+            width: 48px;
+            height: 48px;
+            background: var(--bg-dark);
+            border: 4px solid var(--accent);
+            border-radius: 50%;
+            margin: 0 auto 16px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-weight: 700;
+        }
+        
+        .ai-module {
+            background: linear-gradient(135deg, rgba(0,212,170,0.1), rgba(124,58,237,0.1));
+            border: 1px solid rgba(0,212,170,0.3);
+            border-radius: 12px;
+            padding: 20px;
+            margin-bottom: 16px;
+        }
+        
+        .ai-module h4 {
+            color: var(--accent);
+            font-size: 1.1rem;
+            margin-bottom: 8px;
+        }
+        
+        .tag {
+            display: inline-block;
+            background: rgba(0,212,170,0.2);
+            color: var(--accent);
+            padding: 4px 12px;
+            border-radius: 20px;
+            font-size: 0.85rem;
+            margin-right: 8px;
+            margin-bottom: 8px;
+        }
+        
+        .tag.new {
+            background: rgba(34,197,94,0.2);
+            color: var(--success);
+        }
+        
+        .cta-section {
+            text-align: center;
+            padding: 80px;
+        }
+        
+        .cta-button {
+            display: inline-block;
+            background: var(--gradient);
+            color: white;
+            padding: 20px 48px;
+            border-radius: 50px;
+            font-size: 1.2rem;
+            font-weight: 700;
+            text-decoration: none;
+            margin-top: 32px;
+        }
+        
+        .metric-row {
+            display: flex;
+            justify-content: space-between;
+            padding: 16px 0;
+            border-bottom: 1px solid rgba(255,255,255,0.08);
+        }
+        
+        .metric-label { color: var(--text-secondary); }
+        .metric-value { font-weight: 600; color: var(--accent); }
+    </style>
+</head>
+<body>
+
+<!-- SLIDE 1: HERO -->
+<div class="slide">
+    <div class="slide-content">
+        <div class="version-badge">V3.1 - DECEMBER 2025</div>
+        <h1>AATE</h1>
+        <p class="subtitle">Autonomous Algorithmic Trading Engine<br>
+        <strong>The world's first AI-native mobile trading bot for Solana meme coins</strong></p>
+        
+        <div class="hero-stats">
+            <div class="stat-card">
+                <div class="stat-value">14</div>
+                <div class="stat-label">AI Scoring Modules</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-value">24/7</div>
+                <div class="stat-label">Autonomous Operation</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-value">68K+</div>
+                <div class="stat-label">Lines of Kotlin</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-value">$0</div>
+                <div class="stat-label">Monthly Fees</div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- SLIDE 2: THE PROBLEM -->
+<div class="slide">
+    <div class="slide-content">
+        <h2>The $50B Problem</h2>
+        <p class="subtitle">Meme coin traders lose money. Consistently.</p>
+        
+        <div class="grid-3">
+            <div class="card">
+                <h3>95% Lose Money</h3>
+                <p>Retail traders consistently lose to bots, insiders, and emotional decisions. The game is rigged against humans.</p>
+            </div>
+            <div class="card">
+                <h3>Sleep = Miss Pumps</h3>
+                <p>Best opportunities happen at 3 AM. Meme coins pump and dump in minutes. Humans can't monitor 24/7.</p>
+            </div>
+            <div class="card">
+                <h3>Emotions Kill Profits</h3>
+                <p>FOMO buying at tops. Panic selling at bottoms. Diamond hands turning to dust. Psychology beats strategy.</p>
+            </div>
+        </div>
+        
+        <div style="margin-top: 48px; text-align: center;">
+            <p style="font-size: 1.5rem; color: var(--text-secondary);">
+                <span class="highlight">$50 billion</span> traded monthly on Solana DEXs.<br>
+                Most of it lost by retail to sophisticated players.
+            </p>
+        </div>
+    </div>
+</div>
+
+<!-- SLIDE 3: THE SOLUTION -->
+<div class="slide">
+    <div class="slide-content">
+        <h2>AATE: Your AI Trading Partner</h2>
+        <p class="subtitle">We built a quant desk that fits in your pocket.</p>
+        
+        <div class="grid-2">
+            <div>
+                <div class="ai-module">
+                    <h4>Collective AI Intelligence</h4>
+                    <p>14 specialized AI modules working together. Fear & Greed sentiment. Social velocity detection. Whale tracking. Market regime analysis. All synthesized into one decision.</p>
+                </div>
+                <div class="ai-module">
+                    <h4>Self-Learning Engine</h4>
+                    <p>BotBrain analyzes every trade. Learns what works for YOUR market conditions. Adjusts thresholds automatically. Gets smarter with every trade.</p>
+                </div>
+                <div class="ai-module">
+                    <h4>Military-Grade Risk Control</h4>
+                    <p>Rug detection. Honeypot protection. Liquidity floor enforcement. Stop-loss automation. Your capital is protected by 7 layers of safety.</p>
+                </div>
+            </div>
+            <div>
+                <div class="card" style="height: 100%; display: flex; flex-direction: column; justify-content: center;">
+                    <h3 style="font-size: 2rem; margin-bottom: 32px;">V3.1 Architecture</h3>
+                    <div style="font-family: monospace; background: #0d0d12; padding: 24px; border-radius: 12px; font-size: 0.9rem;">
+                        <span style="color: var(--text-secondary);">// Old Flow (V2 - Hard Gates)</span><br>
+                        <span style="color: #ef4444;">Signal → IF(buy%) → IF(rug) → IF(liq) → BLOCKED</span><br><br>
+                        <span style="color: var(--text-secondary);">// New Flow (V3 - Score Synthesis)</span><br>
+                        <span style="color: var(--success);">Token → 14 AI Modules → Unified Score → Confidence → Decision → Size → Execute</span>
+                    </div>
+                    <p style="margin-top: 24px; color: var(--text-secondary);">
+                        V3 replaced brittle IF/THEN rules with <span class="highlight">continuous scoring</span>. Every factor is a weight, not a wall.
+                    </p>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- SLIDE 4: 14 AI MODULES -->
+<div class="slide">
+    <div class="slide-content">
+        <h2>14 AI Modules Working Together</h2>
+        <p class="subtitle">Each module scores 0-100. Combined into one decision.</p>
+        
+        <div class="grid-3">
+            <div class="card">
+                <h3>Entry Intelligence</h3>
+                <span class="tag">Buy Pressure</span>
+                <span class="tag">RSI</span>
+                <span class="tag">Momentum</span>
+                <p style="margin-top: 12px;">Detects accumulation patterns and optimal entry points</p>
+            </div>
+            <div class="card">
+                <h3>Momentum Predictor</h3>
+                <span class="tag">Pump Detection</span>
+                <span class="tag">Volume Surge</span>
+                <p style="margin-top: 12px;">Predicts price direction using volume and price velocity</p>
+            </div>
+            <div class="card">
+                <h3>Liquidity Depth</h3>
+                <span class="tag">LP Health</span>
+                <span class="tag">Exit Safety</span>
+                <p style="margin-top: 12px;">Ensures you can exit without slippage catastrophe</p>
+            </div>
+            <div class="card">
+                <h3>Whale Tracker</h3>
+                <span class="tag">Smart Money</span>
+                <span class="tag">Accumulation</span>
+                <p style="margin-top: 12px;">Follows institutional wallets and copy trades</p>
+            </div>
+            <div class="card">
+                <h3>Narrative AI</h3>
+                <span class="tag">Gemini</span>
+                <span class="tag">Sentiment</span>
+                <p style="margin-top: 12px;">LLM-powered narrative and meme potential analysis</p>
+            </div>
+            <div class="card">
+                <h3>Memory System</h3>
+                <span class="tag">Historical</span>
+                <span class="tag">Pattern Match</span>
+                <p style="margin-top: 12px;">Remembers every token's past performance</p>
+            </div>
+            <div class="card">
+                <h3>Market Regime</h3>
+                <span class="tag">Bull/Bear</span>
+                <span class="tag">Volatility</span>
+                <p style="margin-top: 12px;">Adjusts strategy based on market conditions</p>
+            </div>
+            <div class="card">
+                <h3>Time Optimization</h3>
+                <span class="tag">Golden Hours</span>
+                <span class="tag">Danger Zones</span>
+                <p style="margin-top: 12px;">Knows when pumps typically happen</p>
+            </div>
+            <div class="card" style="border-color: var(--success);">
+                <h3>Fear & Greed <span class="tag new">NEW</span></h3>
+                <span class="tag">Alternative.me</span>
+                <span class="tag">Contrarian</span>
+                <p style="margin-top: 12px;">Market sentiment - buy fear, sell greed</p>
+            </div>
+            <div class="card" style="border-color: var(--success);">
+                <h3>Social Velocity <span class="tag new">NEW</span></h3>
+                <span class="tag">DexScreener</span>
+                <span class="tag">Trending</span>
+                <p style="margin-top: 12px;">Detects social momentum before pumps</p>
+            </div>
+            <div class="card">
+                <h3>Holder Safety</h3>
+                <span class="tag">Concentration</span>
+                <span class="tag">Rug Risk</span>
+                <p style="margin-top: 12px;">Analyzes holder distribution for rug signals</p>
+            </div>
+            <div class="card">
+                <h3>Cross-Talk Engine</h3>
+                <span class="tag">Correlation</span>
+                <span class="tag">Synthesis</span>
+                <p style="margin-top: 12px;">Amplifies when multiple AIs agree</p>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- SLIDE 5: COMPETITIVE COMPARISON -->
+<div class="slide">
+    <div class="slide-content">
+        <h2>Why AATE Wins</h2>
+        <p class="subtitle">The only mobile-native, AI-powered, fee-free trading bot.</p>
+        
+        <table class="comparison-table">
+            <thead>
+                <tr>
+                    <th>Feature</th>
+                    <th>AATE V3.1</th>
+                    <th>BonkBot</th>
+                    <th>Trojan</th>
+                    <th>Photon</th>
+                    <th>Maestro</th>
+                </tr>
+            </thead>
+            <tbody>
+                <tr>
+                    <td>AI-Powered Decisions</td>
+                    <td><span class="check">✓</span> 14 Modules</td>
+                    <td><span class="cross">✗</span></td>
+                    <td><span class="partial">~</span> Basic</td>
+                    <td><span class="cross">✗</span></td>
+                    <td><span class="cross">✗</span></td>
+                </tr>
+                <tr>
+                    <td>Self-Learning</td>
+                    <td><span class="check">✓</span> BotBrain</td>
+                    <td><span class="cross">✗</span></td>
+                    <td><span class="cross">✗</span></td>
+                    <td><span class="cross">✗</span></td>
+                    <td><span class="cross">✗</span></td>
+                </tr>
+                <tr>
+                    <td>Mobile Native</td>
+                    <td><span class="check">✓</span> Android</td>
+                    <td><span class="cross">✗</span> Telegram</td>
+                    <td><span class="cross">✗</span> Telegram</td>
+                    <td><span class="cross">✗</span> Web</td>
+                    <td><span class="cross">✗</span> Telegram</td>
+                </tr>
+                <tr>
+                    <td>Monthly Fee</td>
+                    <td><span class="highlight">$0</span></td>
+                    <td>$0</td>
+                    <td>$50+</td>
+                    <td>$0</td>
+                    <td>$99+</td>
+                </tr>
+                <tr>
+                    <td>Per-Trade Fee</td>
+                    <td><span class="highlight">0%</span></td>
+                    <td>1%</td>
+                    <td>1%</td>
+                    <td>0.5%</td>
+                    <td>1%</td>
+                </tr>
+                <tr>
+                    <td>Rug Protection</td>
+                    <td><span class="check">✓</span> 7 Layers</td>
+                    <td><span class="partial">~</span></td>
+                    <td><span class="check">✓</span></td>
+                    <td><span class="partial">~</span></td>
+                    <td><span class="check">✓</span></td>
+                </tr>
+                <tr>
+                    <td>Fear & Greed Index</td>
+                    <td><span class="check">✓</span></td>
+                    <td><span class="cross">✗</span></td>
+                    <td><span class="cross">✗</span></td>
+                    <td><span class="cross">✗</span></td>
+                    <td><span class="cross">✗</span></td>
+                </tr>
+                <tr>
+                    <td>Social Velocity</td>
+                    <td><span class="check">✓</span></td>
+                    <td><span class="cross">✗</span></td>
+                    <td><span class="cross">✗</span></td>
+                    <td><span class="cross">✗</span></td>
+                    <td><span class="cross">✗</span></td>
+                </tr>
+                <tr>
+                    <td>Collective Learning</td>
+                    <td><span class="check">✓</span> Cross-Instance</td>
+                    <td><span class="cross">✗</span></td>
+                    <td><span class="cross">✗</span></td>
+                    <td><span class="cross">✗</span></td>
+                    <td><span class="cross">✗</span></td>
+                </tr>
+            </tbody>
+        </table>
+        
+        <div style="margin-top: 48px; text-align: center;">
+            <p style="font-size: 1.3rem; color: var(--text-secondary);">
+                AATE is the only bot that <span class="highlight">learns from itself</span>, 
+                <span class="highlight">costs nothing</span>, and 
+                <span class="highlight">runs in your pocket</span>.
+            </p>
+        </div>
+    </div>
+</div>
+
+<!-- SLIDE 6: BUSINESS MODEL -->
+<div class="slide">
+    <div class="slide-content">
+        <h2>Business Model</h2>
+        <p class="subtitle">Free to use. Premium to accelerate.</p>
+        
+        <div class="grid-2">
+            <div class="card">
+                <h3>Free Tier</h3>
+                <div class="metric-row">
+                    <span class="metric-label">AI Modules</span>
+                    <span class="metric-value">14</span>
+                </div>
+                <div class="metric-row">
+                    <span class="metric-label">Trading Modes</span>
+                    <span class="metric-value">7</span>
+                </div>
+                <div class="metric-row">
+                    <span class="metric-label">Per-Trade Fee</span>
+                    <span class="metric-value">0%</span>
+                </div>
+                <div class="metric-row">
+                    <span class="metric-label">Monthly Fee</span>
+                    <span class="metric-value">$0</span>
+                </div>
+                <p style="margin-top: 24px; color: var(--text-secondary);">Full functionality. No restrictions. Just trade.</p>
+            </div>
+            <div class="card" style="border-color: var(--accent);">
+                <h3>Premium Tier (Coming Q3 2026)</h3>
+                <div class="metric-row">
+                    <span class="metric-label">Priority Execution</span>
+                    <span class="metric-value">Jito Bundles</span>
+                </div>
+                <div class="metric-row">
+                    <span class="metric-label">Collective Intelligence</span>
+                    <span class="metric-value">Cross-User Signals</span>
+                </div>
+                <div class="metric-row">
+                    <span class="metric-label">Alpha Alerts</span>
+                    <span class="metric-value">Early Detection</span>
+                </div>
+                <div class="metric-row">
+                    <span class="metric-label">Price</span>
+                    <span class="metric-value">$29/month</span>
+                </div>
+                <p style="margin-top: 24px; color: var(--text-secondary);">For serious traders who want every edge.</p>
+            </div>
+        </div>
+        
+        <div style="margin-top: 48px;">
+            <h3>Revenue Projections</h3>
+            <div class="grid-3" style="margin-top: 24px;">
+                <div class="stat-card">
+                    <div class="stat-value">10K</div>
+                    <div class="stat-label">Free Users (Year 1)</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-value">5%</div>
+                    <div class="stat-label">Premium Conversion</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-value">$174K</div>
+                    <div class="stat-label">Year 1 ARR</div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- SLIDE 7: ROADMAP -->
+<div class="slide">
+    <div class="slide-content">
+        <h2>Roadmap</h2>
+        <p class="subtitle">From Android to global trading infrastructure.</p>
+        
+        <div class="timeline">
+            <div class="timeline-item">
+                <div class="timeline-dot" style="background: var(--accent); border-color: var(--accent);">✓</div>
+                <strong style="color: var(--accent);">Q1 2026</strong>
+                <p style="color: var(--text-secondary); margin-top: 8px;">V3.1 Android<br>14 AI Modules<br>Self-Learning</p>
+            </div>
+            <div class="timeline-item">
+                <div class="timeline-dot">Q2</div>
+                <strong>Q2 2026</strong>
+                <p style="color: var(--text-secondary); margin-top: 8px;">Play Store Launch<br>100 Beta Users<br>Premium Tier</p>
+            </div>
+            <div class="timeline-item">
+                <div class="timeline-dot">Q3</div>
+                <strong>Q3 2026</strong>
+                <p style="color: var(--text-secondary); margin-top: 8px;">iOS Launch<br>Web Dashboard<br>10K Users</p>
+            </div>
+            <div class="timeline-item">
+                <div class="timeline-dot">Q4</div>
+                <strong>Q4 2026</strong>
+                <p style="color: var(--text-secondary); margin-top: 8px;">Multi-Chain<br>API Access<br>Institutional</p>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- SLIDE 8: VALUATION -->
+<div class="slide">
+    <div class="slide-content">
+        <h2>Investment Opportunity</h2>
+        <p class="subtitle">Raising $500K at $5M pre-money valuation.</p>
+        
+        <div class="grid-2">
+            <div class="card">
+                <h3>Why This Valuation?</h3>
+                <div class="metric-row">
+                    <span class="metric-label">68,000+ lines of production code</span>
+                    <span class="metric-value">$2M+ dev cost</span>
+                </div>
+                <div class="metric-row">
+                    <span class="metric-label">14 working AI modules</span>
+                    <span class="metric-value">18 months R&D</span>
+                </div>
+                <div class="metric-row">
+                    <span class="metric-label">Comparable: Trojan Bot Series A</span>
+                    <span class="metric-value">$15M valuation</span>
+                </div>
+                <div class="metric-row">
+                    <span class="metric-label">Our ask: 10x less at 3x tech</span>
+                    <span class="metric-value">$5M</span>
+                </div>
+            </div>
+            <div class="card">
+                <h3>Use of Funds</h3>
+                <div class="metric-row">
+                    <span class="metric-label">Engineering (iOS + Web)</span>
+                    <span class="metric-value">40%</span>
+                </div>
+                <div class="metric-row">
+                    <span class="metric-label">Marketing & Growth</span>
+                    <span class="metric-value">30%</span>
+                </div>
+                <div class="metric-row">
+                    <span class="metric-label">Infrastructure & Ops</span>
+                    <span class="metric-value">20%</span>
+                </div>
+                <div class="metric-row">
+                    <span class="metric-label">Legal & Compliance</span>
+                    <span class="metric-value">10%</span>
+                </div>
+            </div>
+        </div>
+        
+        <div style="margin-top: 48px; text-align: center;">
+            <p style="font-size: 1.5rem; color: var(--text-secondary);">
+                At 50K users with 5% premium conversion:<br>
+                <span class="highlight" style="font-size: 2rem;">$870K ARR → $8.7M valuation (10x ARR)</span>
+            </p>
+        </div>
+    </div>
+</div>
+
+<!-- SLIDE 9: TEAM -->
+<div class="slide">
+    <div class="slide-content">
+        <h2>The Team</h2>
+        <p class="subtitle">Builders who trade. Traders who build.</p>
+        
+        <div class="grid-2" style="max-width: 900px; margin: 0 auto;">
+            <div class="card" style="text-align: center;">
+                <div style="width: 120px; height: 120px; background: var(--gradient); border-radius: 50%; margin: 0 auto 24px;"></div>
+                <h3 style="color: var(--text-primary);">Founder</h3>
+                <p style="color: var(--accent); margin-bottom: 16px;">CEO & Lead Developer</p>
+                <p style="color: var(--text-secondary);">Full-stack developer with deep Solana expertise. 68K+ lines of production Kotlin. Self-funded to V3.</p>
+            </div>
+            <div class="card" style="text-align: center;">
+                <div style="width: 120px; height: 120px; background: var(--bg-dark); border: 4px solid var(--accent); border-radius: 50%; margin: 0 auto 24px; display: flex; align-items: center; justify-content: center; font-size: 3rem;">🤖</div>
+                <h3 style="color: var(--text-primary);">AI Infrastructure</h3>
+                <p style="color: var(--accent); margin-bottom: 16px;">Built In-House</p>
+                <p style="color: var(--text-secondary);">14 AI modules, BotBrain self-learning, AICrossTalk correlation engine. No third-party AI dependency.</p>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- SLIDE 10: CTA -->
+<div class="slide cta-section">
+    <div class="slide-content">
+        <h1>Join the Future of Trading</h1>
+        <p class="subtitle" style="max-width: 600px; margin: 0 auto;">
+            AATE V3.1 is live. The AI is learning. The opportunity is now.
+        </p>
+        
+        <div style="margin-top: 48px;">
+            <div class="stat-card" style="display: inline-block; margin: 0 16px;">
+                <div class="stat-value">$500K</div>
+                <div class="stat-label">Raising</div>
+            </div>
+            <div class="stat-card" style="display: inline-block; margin: 0 16px;">
+                <div class="stat-value">$5M</div>
+                <div class="stat-label">Pre-Money</div>
+            </div>
+            <div class="stat-card" style="display: inline-block; margin: 0 16px;">
+                <div class="stat-value">10%</div>
+                <div class="stat-label">Equity</div>
+            </div>
+        </div>
+        
+        <a href="mailto:invest@aate.app" class="cta-button">Schedule a Call →</a>
+        
+        <p style="margin-top: 48px; color: var(--text-secondary);">
+            invest@aate.app | aate.app
+        </p>
+    </div>
+</div>
+
+</body>
+</html>
