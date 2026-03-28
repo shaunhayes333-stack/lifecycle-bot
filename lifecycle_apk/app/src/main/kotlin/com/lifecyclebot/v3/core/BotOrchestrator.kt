@@ -83,6 +83,42 @@ class BotOrchestrator(
         logger.stage("CONFIDENCE", candidate.symbol, "OK",
             "stat=${confidence.statistical} struct=${confidence.structural} ops=${confidence.operational} eff=${confidence.effective}")
         
+        // ═══════════════════════════════════════════════════════════════════
+        // V3.2 PRE-PROPOSAL KILL: C-GRADE GARBAGE DETECTION
+        // 
+        // For quality=C setups, if:
+        //   - confidence < 35% OR
+        //   - memory score <= -8 (negative win history)
+        // 
+        // Then: Skip CANDIDATE/PROPOSED/SIZING entirely → straight to SHADOW_TRACK
+        // 
+        // This reduces wasted cycles on obvious garbage that FDG would kill anyway.
+        // ═══════════════════════════════════════════════════════════════════
+        val earlyQuality = when {
+            scoreCard.total >= 55 -> "B"  // B+ grade
+            scoreCard.total >= 45 -> "B"  // B grade
+            else -> "C"                   // C grade
+        }
+        val memoryScore = scoreCard.byName("memory")?.value ?: 0
+        
+        if (earlyQuality == "C") {
+            val effConf = confidence.effective
+            val shouldKillEarly = (effConf < 35) || (memoryScore <= -8)
+            
+            if (shouldKillEarly) {
+                val reason = when {
+                    effConf < 35 && memoryScore <= -8 -> "C_GRADE_LOW_CONF_${effConf.toInt()}_BAD_MEMORY_${memoryScore}"
+                    effConf < 35 -> "C_GRADE_CONF_FLOOR_${effConf.toInt()}"
+                    else -> "C_GRADE_BAD_MEMORY_${memoryScore}"
+                }
+                logger.stage("PRE_PROPOSAL_KILL", candidate.symbol, "BLOCKED",
+                    "quality=$earlyQuality conf=${effConf.toInt()}% memory=$memoryScore → SHADOW_TRACK (no CANDIDATE/PROPOSED/SIZING)")
+                lifecycle.mark(candidate.mint, LifecycleState.WATCH)
+                shadowTracker.track(candidate, scoreCard, effConf, reason)
+                return ProcessResult.Watch(scoreCard.total, effConf)
+            }
+        }
+        
         // ─── FINAL DECISION ───
         val decision = finalDecisionEngine.decide(scoreCard, confidence, fatal)
         logger.stage("DECISION", candidate.symbol, decision.band.name,
