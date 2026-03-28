@@ -120,14 +120,17 @@ class BotOrchestrator(
         }
         val memoryScore = scoreCard.byName("memory")?.value ?: 0
         
+        // V3.2: Pre-proposal kill for absolute garbage only
+        // LOOSENED: Conf floor 35% -> 28% (was blocking too much at 34%)
+        // Only kill C-grade with VERY low confidence OR terrible memory
         if (earlyQuality == "C") {
             val effConf = confidence.effective
-            val shouldKillEarly = (effConf < 35) || (memoryScore <= -8)
+            val shouldKillEarly = (effConf < 28) || (memoryScore <= -10)
             
             if (shouldKillEarly) {
                 val reason = when {
-                    effConf < 35 && memoryScore <= -8 -> "C_GRADE_LOW_CONF_${effConf.toInt()}_BAD_MEMORY_${memoryScore}"
-                    effConf < 35 -> "C_GRADE_CONF_FLOOR_${effConf.toInt()}"
+                    effConf < 28 && memoryScore <= -10 -> "C_GRADE_LOW_CONF_${effConf.toInt()}_BAD_MEMORY_${memoryScore}"
+                    effConf < 28 -> "C_GRADE_CONF_FLOOR_${effConf.toInt()}"
                     else -> "C_GRADE_BAD_MEMORY_${memoryScore}"
                 }
                 logger.stage("PRE_PROPOSAL_KILL", candidate.symbol, "SHADOW_ONLY",
