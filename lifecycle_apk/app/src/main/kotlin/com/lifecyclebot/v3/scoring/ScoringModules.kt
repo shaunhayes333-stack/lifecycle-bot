@@ -295,3 +295,46 @@ class CopyTradeAI : ScoringModule {
         )
     }
 }
+
+/**
+ * V3 Suppression AI
+ * 
+ * Converts legacy suppressions (COPY_TRADE_INVALIDATION, WHALE_ACCUMULATION_INVALIDATION,
+ * STOP_LOSS, DISTRIBUTION) into score penalties instead of hard blocks.
+ * 
+ * This is the key component of the V3 migration - what was once a kill switch
+ * is now a weighted penalty that V3 can evaluate alongside other signals.
+ */
+class SuppressionAI : ScoringModule {
+    override val name = "suppression"
+    
+    override fun score(candidate: CandidateSnapshot, ctx: TradingContext): ScoreComponent {
+        // Get penalty from legacy suppression system
+        val penalty = try {
+            com.lifecyclebot.engine.DistributionFadeAvoider.getSuppressionPenalty(candidate.mint)
+        } catch (e: Exception) {
+            0
+        }
+        
+        if (penalty == 0) {
+            return ScoreComponent(
+                name = name,
+                value = 0,
+                reason = "No suppression"
+            )
+        }
+        
+        val reason = when {
+            penalty >= 25 -> "Recent stop-loss/distribution"
+            penalty >= 20 -> "Whale invalidation penalty"
+            penalty >= 15 -> "Copy-trade invalidation penalty"
+            else -> "Minor suppression cooldown"
+        }
+        
+        return ScoreComponent(
+            name = name,
+            value = -penalty,  // Negative = penalty
+            reason = "$reason (-$penalty)"
+        )
+    }
+}

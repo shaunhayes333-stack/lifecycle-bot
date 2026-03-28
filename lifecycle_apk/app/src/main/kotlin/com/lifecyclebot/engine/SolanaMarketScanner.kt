@@ -2495,14 +2495,16 @@ class SolanaMarketScanner(
         .build()
     
     /**
-     * Quick rugcheck - returns immediately if API is slow
-     * VERY LENIENT: Only block tokens that are literally marked as RUGGED
-     * Most meme coins have low rugcheck scores but are still tradeable
-     * The real protection comes from our distribution detection and exit strategies
+     * V3 MIGRATION: Quick rugcheck is now MUCH more lenient
+     * 
+     * Old behavior: Block tokens with score < 10 (paper) or score < 5 (live)
+     * New behavior: Only block CONFIRMED rugs. Everything else passes through.
+     * 
+     * Why? Most meme coins have low rugcheck scores but are still tradeable.
+     * V3 engine handles rug risk as a score penalty, not a hard block.
+     * The real protection comes from V3's unified scoring + distribution detection + exit strategies.
      */
     private fun quickRugcheck(mint: String): Boolean {
-        val isPaperMode = cfg().paperMode
-        
         try {
             val url = "https://api.rugcheck.xyz/v1/tokens/$mint/report/summary"
             val request = Request.Builder()
@@ -2522,48 +2524,51 @@ class SolanaMarketScanner(
             val scoreNormalized = json.optInt("score_normalised", json.optInt("score", 50))
             val rugged = json.optString("rugged", "").lowercase()
             
-            // PAPER MODE: Was passing everything "for learning" but this just learns garbage
-            // FIX: Paper mode should still block obvious rugs and extremely risky tokens
-            if (isPaperMode) {
-                if (rugged == "true" || rugged == "yes") {
-                    onLog("🚫 RUG: ${mint.take(8)}... ALREADY RUGGED (confirmed)")
-                    ErrorLogger.info("Scanner", "quickRugcheck BLOCK: ${mint.take(12)} rugged=true (paper mode)")
-                    return false
-                }
-                // FIX: Block extremely low scores even in paper mode
-                // Score < 10 means something is seriously wrong - not worth learning from
-                if (scoreNormalized < 10) {
-                    ErrorLogger.debug("Scanner", "RC ${mint.take(8)}: score=$scoreNormalized BLOCKED (paper mode - too risky)")
-                    return false
-                }
-                // Pass moderate scores for learning
-                if (scoreNormalized < 20) {
-                    ErrorLogger.debug("Scanner", "RC ${mint.take(8)}: score=$scoreNormalized (PAPER: allowing for learning)")
-                }
-                return true
-            }
+            // ═══════════════════════════════════════════════════════════════════
+            // V3 MIGRATION: ONLY block CONFIRMED rugs
+            // 
+            // - rugged=true → FATAL BLOCK (confirmed rug pull, tokens worthless)
+            // - score < 5 AND honeypot/freeze flags → FATAL BLOCK (unsellable)
+            // - Everything else → PASS (V3 will handle as penalty in scorer)
+            // ═══════════════════════════════════════════════════════════════════
             
-            // LIVE MODE: Block confirmed rugs and extremely dangerous tokens
+            // CONFIRMED RUG = always block (token is worthless)
             if (rugged == "true" || rugged == "yes") {
-                onLog("🚫 RUG: ${mint.take(8)}... ALREADY RUGGED (confirmed)")
-                ErrorLogger.info("Scanner", "quickRugcheck BLOCK: ${mint.take(12)} rugged=true (live mode)")
+                onLog("🚫 RUG CONFIRMED: ${mint.take(8)}... (tokens worthless)")
+                ErrorLogger.info("Scanner", "quickRugcheck FATAL: ${mint.take(12)} rugged=true")
                 return false
             }
             
-            // ONLY block extremely dangerous tokens (score < 5)
-            // Most meme coins have scores 10-30 which is fine
+            // Check for honeypot/freeze risk at extremely low scores
             if (scoreNormalized < 5) {
-                onLog("🚫 BLOCKED: ${mint.take(8)}... score=$scoreNormalized (extremely risky)")
-                ErrorLogger.info("Scanner", "quickRugcheck BLOCK: ${mint.take(12)} score=$scoreNormalized < 5 (live mode)")
-                return false
+                // Look for specific fatal risks in the response
+                val risks = json.optJSONArray("risks")
+                var hasFatalRisk = false
+                if (risks != null) {
+                    for (i in 0 until risks.length()) {
+                        val risk = risks.optJSONObject(i)?.optString("name", "")?.lowercase() ?: ""
+                        if (risk.contains("honeypot") || risk.contains("freeze") || 
+                            risk.contains("blacklist") || risk.contains("unsellable")) {
+                            hasFatalRisk = true
+                            break
+                        }
+                    }
+                }
+                
+                if (hasFatalRisk) {
+                    onLog("🚫 HONEYPOT: ${mint.take(8)}... (unsellable)")
+                    ErrorLogger.info("Scanner", "quickRugcheck FATAL: ${mint.take(12)} score=$scoreNormalized + honeypot risk")
+                    return false
+                }
             }
             
-            // Log for debugging but PASS
+            // PASS EVERYTHING ELSE - V3 scorer will apply appropriate penalty
+            // Log for visibility but don't block
             if (scoreNormalized < 20) {
-                ErrorLogger.debug("Scanner", "RC ${mint.take(8)}: score=$scoreNormalized (low but OK)")
+                ErrorLogger.debug("Scanner", "RC ${mint.take(8)}: score=$scoreNormalized (V3 will penalize)")
             }
             
-            return true  // Pass - let other safety checks handle it
+            return true  // Pass - V3 handles risk scoring
             
         } catch (e: kotlinx.coroutines.CancellationException) { throw e } catch (e: Exception) {
             // Timeout or error - pass through (don't block on API issues)

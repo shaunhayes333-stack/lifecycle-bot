@@ -2257,20 +2257,35 @@ class BotService : Service() {
                 }
                 
                 // ═══════════════════════════════════════════════════════════════════
-                // PRIORITY 4: Check raw strategy suppression BEFORE FDG flow
+                // V3 MIGRATION: Suppression is now a PENALTY, not a kill switch
                 // 
-                // After mode-specific invalidation (stop-loss, accumulation band failed, etc.),
-                // raw strategy BUY signals are suppressed for a cooldown period.
-                // This prevents the "BUY spam after stop-loss" problem.
+                // Old behavior: `return@launch` → trade never evaluated
+                // New behavior: penalty fed into V3 scorer → V3 decides
+                // Only FATAL suppressions (rugged/honeypot) still block
                 // ═══════════════════════════════════════════════════════════════════
                 val suppressionReason = DistributionFadeAvoider.checkRawStrategySuppression(identity.mint)
-                if (suppressionReason != null && decision.finalSignal == "BUY" && !ts.position.isOpen) {
-                    ErrorLogger.debug("BotService", "🔇 ${identity.symbol}: $suppressionReason")
-                    // Skip the entire FDG flow for suppressed tokens
+                val suppressionPenalty = DistributionFadeAvoider.getSuppressionPenalty(identity.mint)
+                val isFatalSuppression = DistributionFadeAvoider.isFatalSuppression(identity.mint)
+                
+                // ONLY block on truly fatal suppressions (rugged, honeypot, unsellable)
+                if (isFatalSuppression && !ts.position.isOpen) {
+                    ErrorLogger.info("BotService", "🚫 ${identity.symbol}: FATAL SUPPRESSION - ${suppressionReason}")
                     return@launch
                 }
                 
-                if (!ts.position.isOpen && decision.finalSignal == "BUY" && decision.shouldTrade && canProposeEarly) {
+                // Log non-fatal suppression but DO NOT BLOCK - V3 will handle as penalty
+                if (suppressionReason != null && decision.finalSignal == "BUY" && !ts.position.isOpen) {
+                    ErrorLogger.debug("BotService", "📊 ${identity.symbol}: $suppressionReason → penalty=$suppressionPenalty (V3 will evaluate)")
+                }
+                
+                // ═══════════════════════════════════════════════════════════════════
+                // V3 MIGRATION: Remove legacy `shouldTrade` gate
+                // 
+                // Old behavior: `decision.shouldTrade` blocked before V3 ever ran
+                // New behavior: ALL BUY signals go to V3 for unified scoring
+                // Legacy `shouldTrade=false` is now just a penalty in V3 scorecard
+                // ═══════════════════════════════════════════════════════════════════
+                if (!ts.position.isOpen && decision.finalSignal == "BUY" && canProposeEarly) {
                     // ═══════════════════════════════════════════════════════════════════
                     // TRADE IDENTITY: Mark as candidate
                     // ═══════════════════════════════════════════════════════════════════
@@ -2324,15 +2339,30 @@ class BotService : Service() {
                     )
                     
                     // ═══════════════════════════════════════════════════════════════════
-                    // V3 ENGINE: Full scoring-based decision system
-                    // When V3 is active and NOT in shadow mode, V3 controls execution
+                    // V3 ENGINE: PRIMARY DECISION AUTHORITY
+                    // 
+                    // V3 MIGRATION: V3 is now the ONLY decision maker when enabled.
+                    // FDG is kept for comparison logging only.
+                    // 
+                    // Decision flow:
+                    //   1. V3 scores the candidate (includes all penalties)
+                    //   2. V3 outputs: EXECUTE_AGGRESSIVE, EXECUTE_STANDARD, EXECUTE_SMALL, WATCH, REJECT, BLOCK
+                    //   3. Only V3 decision matters for execution
+                    //   4. FDG result is logged for comparison tracking only
                     // ═══════════════════════════════════════════════════════════════════
                     var useV3Decision = false
                     var v3SizeSol = 0.0
                     var v3Thesis = ""
+                    var v3ControlsExecution = false  // V3 is the boss when enabled
                     
                     if (cfg.v3EngineEnabled && com.lifecyclebot.v3.V3EngineManager.isReady()) {
+                        v3ControlsExecution = !cfg.v3ShadowMode  // V3 controls execution unless shadow mode
+                        
                         try {
+                            // Log legacy decision for comparison
+                            val legacyShouldTrade = decision.shouldTrade
+                            val legacyPenalty = suppressionPenalty
+                            
                             val v3Decision = com.lifecyclebot.v3.V3EngineManager.processToken(
                                 ts = ts,
                                 walletSol = effectiveBalance,
@@ -2346,32 +2376,39 @@ class BotService : Service() {
                             when (val result = v3Decision) {
                                 is com.lifecyclebot.v3.V3Decision.Execute -> {
                                     val fdgTag = if (fdgDecision.canExecute()) "FDG:✓" else "FDG:✗"
-                                    ErrorLogger.info("BotService", "⚡ V3 EXECUTE: ${identity.symbol} | " +
-                                        "band=${result.band} | size=${result.sizeSol.fmt(4)} SOL | " +
-                                        "conf=${result.confidence.toInt()}% | $fdgTag")
+                                    val legacyTag = if (legacyShouldTrade) "legacy:✓" else "legacy:✗"
                                     
-                                    // Track V3 vs FDG comparison
+                                    // V3 UNIFIED LOG: Shows score, confidence, band, size
+                                    ErrorLogger.info("BotService", "⚡ V3 EXECUTE: ${identity.symbol} | " +
+                                        "band=${result.band} | score=${result.score} | " +
+                                        "conf=${result.confidence.toInt()}% | size=${result.sizeSol.fmt(4)} SOL | " +
+                                        "$legacyTag $fdgTag")
+                                    
+                                    // Track V3 vs legacy comparison
                                     com.lifecyclebot.v3.V3EngineManager.recordDecisionComparison(
                                         v3Decision = "EXECUTE",
                                         fdgWouldExecute = fdgDecision.canExecute()
                                     )
                                     
-                                    // In ACTIVE mode (not shadow), V3 controls execution
-                                    if (!cfg.v3ShadowMode) {
+                                    // V3 CONTROLS EXECUTION
+                                    if (v3ControlsExecution) {
                                         useV3Decision = true
                                         v3SizeSol = result.sizeSol
                                         v3Thesis = "V3 score=${result.score} band=${result.band}"
-                                        addLog("⚡ V3 DECISION: ${identity.symbol} | ${result.band} | " +
-                                            "${v3SizeSol.fmt(4)} SOL", mint)
+                                        addLog("⚡ V3: ${identity.symbol} | ${result.band} | " +
+                                            "${v3SizeSol.fmt(4)} SOL | conf=${result.confidence.toInt()}%", mint)
                                     } else {
+                                        // Shadow mode - log only
                                         addLog("🔬 V3 SHADOW: ${identity.symbol} | ${result.band} | " +
-                                            "${result.sizeSol.fmt(4)} SOL (FDG: $fdgTag)", mint)
+                                            "${result.sizeSol.fmt(4)} SOL ($fdgTag)", mint)
                                     }
                                 }
                                 
                                 is com.lifecyclebot.v3.V3Decision.Watch -> {
+                                    val fdgTag = if (fdgDecision.canExecute()) "FDG:✓" else "FDG:✗"
+                                    
                                     ErrorLogger.info("BotService", "⚡ V3 WATCH: ${identity.symbol} | " +
-                                        "score=${result.score} | conf=${result.confidence}")
+                                        "score=${result.score} | conf=${result.confidence} | $fdgTag")
                                     
                                     // Track comparison
                                     com.lifecyclebot.v3.V3EngineManager.recordDecisionComparison(
@@ -2379,15 +2416,19 @@ class BotService : Service() {
                                         fdgWouldExecute = fdgDecision.canExecute()
                                     )
                                     
-                                    // In ACTIVE mode, V3 WATCH overrides FDG approve
-                                    if (!cfg.v3ShadowMode && fdgDecision.canExecute()) {
-                                        addLog("⚡ V3 WATCH (FDG would approve): ${identity.symbol}", mint)
-                                        // Don't set useV3Decision - let FDG proceed but log the difference
+                                    // V3 WATCH = DO NOT EXECUTE (even if FDG would approve)
+                                    if (v3ControlsExecution) {
+                                        addLog("⚡ V3 WATCH: ${identity.symbol} | score=${result.score} (no trade)", mint)
+                                        // Don't set useV3Decision - this blocks the trade
+                                        return@launch  // V3 says WATCH = exit without executing
                                     }
                                 }
                                 
                                 is com.lifecyclebot.v3.V3Decision.Rejected -> {
-                                    ErrorLogger.info("BotService", "⚡ V3 REJECT: ${identity.symbol} | ${result.reason}")
+                                    val fdgTag = if (fdgDecision.canExecute()) "FDG:✓" else "FDG:✗"
+                                    
+                                    ErrorLogger.info("BotService", "⚡ V3 REJECT: ${identity.symbol} | " +
+                                        "${result.reason} | $fdgTag")
                                     
                                     // Track comparison
                                     com.lifecyclebot.v3.V3EngineManager.recordDecisionComparison(
@@ -2395,16 +2436,18 @@ class BotService : Service() {
                                         fdgWouldExecute = fdgDecision.canExecute()
                                     )
                                     
-                                    // In ACTIVE mode, V3 REJECT blocks the trade
-                                    if (!cfg.v3ShadowMode) {
-                                        addLog("⚡ V3 REJECTED: ${identity.symbol} | ${result.reason}", mint)
-                                        // Skip FDG execution path
-                                        return@launch
+                                    // V3 REJECT = DO NOT EXECUTE
+                                    if (v3ControlsExecution) {
+                                        addLog("⚡ V3 REJECT: ${identity.symbol} | ${result.reason}", mint)
+                                        return@launch  // V3 says REJECT = exit
                                     }
                                 }
                                 
                                 is com.lifecyclebot.v3.V3Decision.Blocked -> {
-                                    ErrorLogger.info("BotService", "⚡ V3 BLOCK: ${identity.symbol} | ${result.reason}")
+                                    val fdgTag = if (fdgDecision.canExecute()) "FDG:✓" else "FDG:✗"
+                                    
+                                    ErrorLogger.info("BotService", "⚡ V3 BLOCK (FATAL): ${identity.symbol} | " +
+                                        "${result.reason} | $fdgTag")
                                     
                                     // Track comparison
                                     com.lifecyclebot.v3.V3EngineManager.recordDecisionComparison(
@@ -2412,22 +2455,29 @@ class BotService : Service() {
                                         fdgWouldExecute = fdgDecision.canExecute()
                                     )
                                     
-                                    // In ACTIVE mode, V3 BLOCK stops the trade
-                                    if (!cfg.v3ShadowMode) {
+                                    // V3 BLOCK = FATAL, DO NOT EXECUTE
+                                    if (v3ControlsExecution) {
                                         addLog("⚡ V3 BLOCKED: ${identity.symbol} | ${result.reason}", mint)
-                                        return@launch
+                                        return@launch  // V3 says BLOCK = exit
                                     }
                                 }
                                 
                                 else -> {
-                                    // Error or NotReady - fall back to FDG
-                                    ErrorLogger.warn("BotService", "⚡ V3 unavailable for ${identity.symbol} - using FDG")
+                                    // Error or NotReady - fall back to FDG only if V3 is not controlling
+                                    ErrorLogger.warn("BotService", "⚡ V3 unavailable for ${identity.symbol} - ${if (v3ControlsExecution) "SKIPPING" else "using FDG"}")
+                                    if (v3ControlsExecution) {
+                                        // V3 is supposed to control but failed - don't trade on uncertainty
+                                        return@launch
+                                    }
                                 }
                             }
                             
                         } catch (v3e: Exception) {
                             ErrorLogger.error("BotService", "V3 engine error for ${identity.symbol}: ${v3e.message}")
-                            // Fall back to FDG on V3 error
+                            if (v3ControlsExecution) {
+                                // V3 controls but errored - don't fall back to legacy
+                                return@launch
+                            }
                         }
                     }
                     

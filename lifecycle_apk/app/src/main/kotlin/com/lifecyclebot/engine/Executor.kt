@@ -2062,12 +2062,20 @@ class Executor(
             return
         }
         
-        // Early return if decision says no trade
+        // ═══════════════════════════════════════════════════════════════════
+        // V3 MIGRATION: Legacy `shouldTrade` check is now ADVISORY ONLY
+        // 
+        // Old behavior: `if (!decision.shouldTrade) return` → hard block
+        // New behavior: Log for comparison, but don't block
+        // 
+        // WHY: V3 is the single source of truth. If V3 says EXECUTE,
+        // we execute. The legacy `shouldTrade` is for comparison tracking only.
+        // ═══════════════════════════════════════════════════════════════════
         if (!decision.shouldTrade) {
-            if (decision.finalSignal == "BUY" && decision.blockReason.isNotEmpty()) {
-                ErrorLogger.debug("Executor", "📊 ${ts.symbol}: Blocked - ${decision.blockReason}")
-            }
-            return
+            // Log for V3 vs Legacy comparison (don't block!)
+            val reason = if (decision.blockReason.isNotEmpty()) decision.blockReason else "legacy_shouldTrade=false"
+            ErrorLogger.debug("Executor", "📊 ${ts.symbol}: Legacy would block ($reason) - V3 will evaluate")
+            // NOTE: Removed `return` - V3 controls execution now
         }
         
         val isPaper = cfg().paperMode
@@ -2076,7 +2084,7 @@ class Executor(
             "conf=${decision.aiConfidence.toInt()}% | penalty=${decision.qualityPenalty} | " +
             "paper=$isPaper | autoTrade=${cfg().autoTrade}")
         
-        // Rugged contracts check (by mint address)
+        // Rugged contracts check (by mint address) - FATAL, always block
         if (RuggedContracts.isBlacklisted(ts.mint)) {
             ErrorLogger.info("Executor", "🚫 ${ts.symbol} BLACKLISTED: Previously rugged")
             onLog("💀 ${ts.symbol}: Blacklisted contract", ts.mint)

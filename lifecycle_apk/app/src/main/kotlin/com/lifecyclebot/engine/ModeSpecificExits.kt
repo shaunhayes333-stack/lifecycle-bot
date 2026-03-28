@@ -812,11 +812,15 @@ object ModeSpecificExits {
             ErrorLogger.info(TAG, "${tradeType.emoji} ${ts.symbol}: ${rec.urgency} EXIT ${rec.exitPct.toInt()}% | ${rec.reason}")
             
             // ═══════════════════════════════════════════════════════════════════
-            // PRIORITY 4: Trigger raw strategy suppression on mode invalidation
+            // V3 MIGRATION: Mode invalidation is now a PENALTY SIGNAL, not a kill switch
             // 
-            // When a mode exit fires due to invalidation (not profit-taking),
-            // suppress raw strategy BUY signals for this token temporarily.
-            // This prevents the "BUY spam after stop-loss" problem.
+            // Old behavior: recordModeInvalidation() → RAW_SUPPRESSED → return@launch
+            // New behavior: recordModeInvalidation() → penalty points → V3 scorer evaluates
+            // 
+            // The invalidation still gets recorded (for tracking), but V3 will
+            // convert it to a penalty instead of a hard block. See:
+            //   - DistributionFadeAvoider.getSuppressionPenalty()
+            //   - BotService.kt V3 processing section
             // ═══════════════════════════════════════════════════════════════════
             val invalidationReasons = listOf(
                 "Accumulation band failed",
@@ -832,12 +836,16 @@ object ModeSpecificExits {
             }
             
             if (isInvalidation && rec.urgency in listOf(ExitUrgency.IMMEDIATE, ExitUrgency.URGENT)) {
-                // Suppress raw strategy for 2 minutes after invalidation
+                // Record invalidation - V3 will use getSuppressionPenalty() to convert to score penalty
+                // Reduced cooldown from 2 minutes to 1 minute since V3 uses penalties not blocks
                 DistributionFadeAvoider.recordModeInvalidation(
                     mint = ts.mint,
                     reason = "${tradeType.name}_INVALIDATION: ${rec.reason}",
-                    durationMs = 120_000L
+                    durationMs = 60_000L  // Reduced: V3 handles via penalty, not hard block
                 )
+                
+                // Log for V3 comparison tracking
+                ErrorLogger.info(TAG, "📊 V3: ${ts.symbol} invalidation recorded → penalty signal")
                 
                 // Also record in ReentryRecoveryMode for stricter re-entry rules
                 ReentryRecoveryMode.recordFailure(ts, rec.reason)

@@ -282,6 +282,9 @@ object DistributionFadeAvoider {
     /**
      * Check if raw strategy BUY signals should be suppressed for this token.
      * Returns null if not suppressed, or reason string if suppressed.
+     * 
+     * NOTE: V3 MIGRATION - This is now advisory only. V3 engine will convert
+     * this to a score penalty instead of a hard block.
      */
     fun checkRawStrategySuppression(mint: String): String? {
         val entry = rawStrategySuppression[mint] ?: return null
@@ -296,6 +299,58 @@ object DistributionFadeAvoider {
         // Suppression expired
         rawStrategySuppression.remove(mint)
         return null
+    }
+    
+    /**
+     * V3 MIGRATION: Get suppression as a score penalty instead of hard block.
+     * Returns 0-30 penalty points based on suppression severity.
+     * 
+     * Invalidation type → penalty:
+     *   COPY_TRADE_INVALIDATION → -15 pts (may still be tradeable with other signals)
+     *   WHALE_ACCUMULATION_INVALIDATION → -20 pts (risky but not fatal)
+     *   STOP_LOSS → -25 pts (recent loss, high risk)
+     *   DISTRIBUTION → -30 pts (structural problem)
+     */
+    fun getSuppressionPenalty(mint: String): Int {
+        val entry = rawStrategySuppression[mint] ?: return 0
+        val now = System.currentTimeMillis()
+        val elapsed = now - entry.startTime
+        
+        // Expired = no penalty
+        if (elapsed >= entry.suppressionDurationMs) {
+            rawStrategySuppression.remove(mint)
+            return 0
+        }
+        
+        // Calculate penalty based on reason type
+        val basePenalty = when {
+            entry.reason.contains("COPY_TRADE", ignoreCase = true) -> 15
+            entry.reason.contains("WHALE", ignoreCase = true) -> 20
+            entry.reason.contains("STOP_LOSS", ignoreCase = true) -> 25
+            entry.reason.contains("DISTRIBUTION", ignoreCase = true) -> 30
+            else -> 15  // Default moderate penalty
+        }
+        
+        // Decay penalty over time (freshness factor)
+        val freshnessPct = 1.0 - (elapsed.toDouble() / entry.suppressionDurationMs)
+        return (basePenalty * freshnessPct).toInt().coerceIn(0, 30)
+    }
+    
+    /**
+     * V3 MIGRATION: Check if this is a FATAL suppression (should still block).
+     * Only confirmed rugs and structural failures are fatal.
+     */
+    fun isFatalSuppression(mint: String): Boolean {
+        val entry = rawStrategySuppression[mint] ?: return false
+        val now = System.currentTimeMillis()
+        val elapsed = now - entry.startTime
+        
+        if (elapsed >= entry.suppressionDurationMs) return false
+        
+        // Only these are truly fatal
+        return entry.reason.contains("RUGGED", ignoreCase = true) ||
+               entry.reason.contains("HONEYPOT", ignoreCase = true) ||
+               entry.reason.contains("UNSELLABLE", ignoreCase = true)
     }
     
     /**
