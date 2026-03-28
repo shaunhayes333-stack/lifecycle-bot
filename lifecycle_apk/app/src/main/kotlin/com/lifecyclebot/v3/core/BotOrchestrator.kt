@@ -197,15 +197,23 @@ class BotOrchestrator(
         return when (decision.band) {
             DecisionBand.BLOCK_FATAL -> {
                 lifecycle.mark(candidate.mint, LifecycleState.BLOCKED_FATAL)
-                shadowTracker.track(candidate, scoreCard, confidence.effective, decision.fatalReason ?: "FATAL")
+                shadowTracker.track(candidate, scoreCard, confidence.effective.toInt(), decision.fatalReason ?: "FATAL")
                 lifecycle.mark(candidate.mint, LifecycleState.SHADOW_TRACKED)
+                
+                // V3.2: Open shadow trade for AI learning
+                openShadowTradeForLearning(candidate, scoreCard, confidence, decision, "BLOCKED_FATAL")
+                
                 ProcessResult.Blocked(decision.fatalReason ?: "FATAL")
             }
             
             DecisionBand.WATCH -> {
                 lifecycle.mark(candidate.mint, LifecycleState.WATCH)
-                shadowTracker.track(candidate, scoreCard, confidence.effective, "WATCH")
+                shadowTracker.track(candidate, scoreCard, confidence.effective.toInt(), "WATCH")
                 lifecycle.mark(candidate.mint, LifecycleState.SHADOW_TRACKED)
+                
+                // V3.2: Open shadow trade for AI learning
+                openShadowTradeForLearning(candidate, scoreCard, confidence, decision, "WATCH")
+                
                 ProcessResult.Watch(decision.finalScore, confidence.effective)
             }
             
@@ -213,8 +221,11 @@ class BotOrchestrator(
                 lifecycle.mark(candidate.mint, LifecycleState.REJECTED)
                 // Shadow track near-misses for learning
                 if (decision.finalScore >= ctx.config.shadowTrackNearMissMin) {
-                    shadowTracker.track(candidate, scoreCard, confidence.effective, "NEAR_MISS_REJECT")
+                    shadowTracker.track(candidate, scoreCard, confidence.effective.toInt(), "NEAR_MISS_REJECT")
                     lifecycle.mark(candidate.mint, LifecycleState.SHADOW_TRACKED)
+                    
+                    // V3.2: Near-miss is ESPECIALLY valuable for shadow learning
+                    openShadowTradeForLearning(candidate, scoreCard, confidence, decision, "NEAR_MISS")
                 }
                 ProcessResult.Rejected("SCORE_TOO_LOW")
             }
@@ -278,11 +289,61 @@ sealed class ProcessResult {
     ) : ProcessResult()
     
     data class Watch(
-        val score: Int,
-        val confidence: Int
+        val score: Double,
+        val confidence: Double
     ) : ProcessResult()
     
     data class Rejected(val reason: String) : ProcessResult()
     
     data class Blocked(val reason: String) : ProcessResult()
+}
+
+/**
+ * V3.2: Open a shadow trade in the ShadowLearningEngine for AI calibration.
+ * This is called whenever a trade is BLOCKED/WATCH/REJECTED so we can
+ * track what would have happened and feed outcomes to MetaCognitionAI.
+ */
+private fun openShadowTradeForLearning(
+    candidate: com.lifecyclebot.v3.scanner.CandidateSnapshot,
+    scoreCard: com.lifecyclebot.v3.scoring.ScoreCard,
+    confidence: com.lifecyclebot.v3.scoring.ConfidenceResult,
+    decision: com.lifecyclebot.v3.scoring.Decision,
+    reason: String
+) {
+    try {
+        val entryPrice = candidate.extraDouble("price").takeIf { it > 0 }
+            ?: candidate.extraDouble("priceUsd")
+            ?: 0.0
+        
+        if (entryPrice <= 0) return  // Can't track without price
+        
+        // Build AI predictions map from score components
+        val aiPredictions = scoreCard.components.associate { 
+            it.name to it.value 
+        }
+        
+        // Determine regime from candidate extras or default
+        val regime = candidate.extraString("regime")
+            ?: candidate.extraString("marketType")
+            ?: "UNKNOWN"
+        
+        val mode = candidate.extraString("tradingMode")
+            ?: candidate.extraString("mode")
+            ?: decision.band.name
+        
+        com.lifecyclebot.v3.learning.ShadowLearningEngine.openShadowLong(
+            mint = candidate.mint,
+            symbol = candidate.symbol,
+            entryPrice = entryPrice,
+            aiConfidence = confidence.effective.toInt(),
+            setupQuality = decision.setupQuality,
+            regime = regime,
+            mode = mode,
+            aiPredictions = aiPredictions
+        )
+    } catch (e: Exception) {
+        // Don't let shadow tracking failures break the main flow
+        com.lifecyclebot.engine.ErrorLogger.debug("BotOrchestrator", 
+            "Shadow trade open failed: ${e.message}")
+    }
 }

@@ -345,6 +345,14 @@ class BotService : Service() {
             ErrorLogger.debug("BotService", "V3 Engine shutdown error: ${e.message}")
         }
         
+        // Shutdown V3 Shadow Learning Engine
+        try {
+            com.lifecyclebot.v3.learning.ShadowLearningEngine.stop()
+            ErrorLogger.info("BotService", "🌑 V3 ShadowLearning shutdown")
+        } catch (e: Exception) {
+            ErrorLogger.debug("BotService", "V3 ShadowLearning shutdown error: ${e.message}")
+        }
+        
         scope.cancel()
     }
 
@@ -1033,14 +1041,19 @@ class BotService : Service() {
         ServiceWatchdog.schedule(applicationContext)
         
         // ═══════════════════════════════════════════════════════════════════
-        // V3 SHADOW LEARNING: Start the shadow learning engine
-        // This runs persistently to learn from all trade opportunities
-        // regardless of whether the bot is actively trading or not.
+        // V3.2 SHADOW LEARNING: Start BOTH shadow learning engines
+        // - V1: Parameter variant testing
+        // - V3: AI calibration shadow trades
         // Shadow learning is NEVER stopped - it's a constant learning state.
         // ═══════════════════════════════════════════════════════════════════
         try {
+            // Start V1 parameter variant engine
             ShadowLearningEngine.start()
-            addLog("🧠 ShadowLearning: Started (runs even when paper mode off)")
+            
+            // Start V3 AI calibration engine (processes blocked trades)
+            com.lifecyclebot.v3.learning.ShadowLearningEngine.start(serviceScope)
+            
+            addLog("🧠 ShadowLearning: V1 + V3 engines started")
         } catch (e: Exception) {
             ErrorLogger.error("BotService", "ShadowLearning start failed: ${e.message}", e)
         }
@@ -1897,6 +1910,14 @@ class BotService : Service() {
                         ts.lastMcap         = pair.candle.marketCap
                         ts.lastLiquidityUsd = pair.liquidity
                         ts.lastFdv          = pair.fdv
+                        
+                        // V3.2: Update shadow learning engine with price
+                        if (pair.candle.priceUsd > 0) {
+                            com.lifecyclebot.v3.learning.ShadowLearningEngine.updatePrice(
+                                ts.mint, pair.candle.priceUsd
+                            )
+                        }
+                        
                         synchronized(ts.history) {
                             ts.history.addLast(pair.candle)
                             if (ts.history.size > 300) ts.history.removeFirst()
