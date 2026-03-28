@@ -1,275 +1,332 @@
-# AATE V3.2 - Copy/Paste Marketing Materials
-
----
-
-## ONE-LINER
-
-> "The first Solana trading bot that questions its own judgment."
-
----
-
-## ELEVATOR PITCH (30 seconds)
-
-AATE is the most advanced Solana trading bot ever built. While other bots follow simple rules, AATE uses 21 parallel AI layers that communicate with each other. Our MetaCognitionAI layer literally watches the other AIs, tracks which ones are accurate, and adjusts trust dynamically. It's the first trading bot that's self-aware - it can veto its own trades when its reliable systems disagree with the consensus. We've learned from real catastrophic losses to build hard safety kills that other bots don't have.
-
----
-
-## TWITTER/X POST (280 chars)
-
-🧠 Introducing AATE V3.2 - the first self-aware Solana trading bot
-
-• 21 AI layers
-• 26 trading modes
-• 8 market regimes
-• MetaCognitionAI that questions its own judgment
-
-Not just a bot. A thinking machine.
-
-#Solana #Trading #AI #DeFi
-
----
-
-## LONGER TWITTER THREAD
-
-🧵 THREAD: Why AATE V3.2 is different from every other Solana bot
-
-1/ Most trading bots are glorified if-statements. Buy if volume spikes. Sell if price drops. Simple.
-
-AATE runs 21 parallel AI layers that COMMUNICATE with each other in real-time.
-
-2/ Our secret weapon: MetaCognitionAI
-
-It's literally a "thinking about thinking" layer. It:
-- Tracks accuracy of each AI
-- Adjusts trust dynamically
-- Can VETO trades when reliable AIs disagree
-
-The bot questions its own judgment.
-
-3/ We learned from catastrophic losses.
-
-After a -92% disaster trade, we built "hard kills" that CANNOT be bypassed:
-- Confidence < 30%? NO EXECUTION
-- C-grade + low conf + negative memory + degraded AI? REJECTED
-- COPY_TRADE mode? DISABLED
-
-4/ We don't treat all tokens the same.
-
-8 market regimes:
-🎰 Meme Micro
-🏛️ Majors
-📊 Mid Caps
-📈 Perps Style
-📚 CEX Orderbook
-⚖️ Mean Reversion
-📉 Trend Regime
-🎯 Volatility Strategies
-
-26 specialized modes total.
-
-5/ Shadow Learning Engine
-
-While real trading happens, we run 100x more VIRTUAL trades:
-- Zero capital at risk
-- All outcomes feed the AI
-- Rapid accuracy calibration
-- Pattern library building
-
-We learn faster than we trade.
-
-6/ Regime Transition Detection
-
-AATE catches the moment:
-- A meme becomes a mid-cap
-- A range breaks into a trend
-- A squeeze starts building
-
-This is where the alpha is.
-
-7/ Native Android. Not a web wrapper.
-
-Pure Kotlin. Offline capable. Sub-second execution.
-
-No Telegram bot polling. No API rate limits. Real mobile performance.
-
-8/ The result?
-
-A trading system that:
-- Thinks about trading
-- Questions its own judgment
-- Learns from every trade (real and virtual)
-- Adapts to market regime changes
-- Protects capital with battle-tested safety
-
-This is V3.2. This is AATE.
-
----
-
-## LINKEDIN POST
-
-🚀 Excited to share what we've been building: AATE V3.2
-
-After months of development and learning from both wins and catastrophic losses, we've created what we believe is the most advanced autonomous trading system for Solana.
-
-Key innovations:
-
-**21 Parallel AI Layers** - Not sequential processing, but truly parallel AI systems that cross-reference each other's signals in real-time.
-
-**MetaCognitionAI** - A "thinking about thinking" layer that tracks which AI systems are most accurate and adjusts trust dynamically. The bot literally questions its own judgment.
-
-**Multi-Regime Intelligence** - 8 distinct market regimes (meme coins, majors, mean reversion, volatility strategies) with 26 specialized trading modes. Each mode has custom AI weight profiles.
-
-**Shadow Learning** - A parallel system running 100x more virtual trades than real trades, enabling rapid AI calibration without capital risk.
-
-**Battle-Tested Safety** - Hard rejection rules learned from real -92% catastrophic losses. Not theoretical - proven necessary.
-
-The goal: A trading system that's genuinely intelligent, not just fast.
-
-Native Android (Kotlin). Offline capable. Self-improving.
-
-This is the future of autonomous trading.
-
-#TradingBot #Solana #ArtificialIntelligence #FinTech #DeFi #Cryptocurrency
-
----
-
-## HYPE DESCRIPTION (Website Hero)
-
-# AATE V3.2
-## The Self-Aware Trading Engine
-
-**21 AI Layers. 26 Trading Modes. One Unified Consciousness.**
-
-AATE doesn't just trade. It thinks about trading.
-
-Our MetaCognitionAI layer monitors every decision, learns which AI systems are most accurate, and dynamically adjusts trust. When reliable systems disagree, AATE questions itself - and can veto its own trades.
-
-**Multi-Regime Intelligence**
-Meme coins. Blue chips. Mean reversion. Volatility strategies. AATE recognizes the market structure and adapts its entire strategy in real-time.
-
-**Battle-Tested Safety**
-We learned from real catastrophic losses. Our hard rejection rules aren't theoretical - they're proven necessary.
-
-**Shadow Learning**
-While you trade, AATE runs 100x more virtual trades in parallel. Every outcome teaches the AI. Faster learning, zero additional risk.
-
-**Native Performance**
-Pure Kotlin Android. No web wrapper. No API delays. Just raw, sub-second execution.
-
-*Not just a trading bot. A thinking machine.*
-
----
-
-## TECH DESCRIPTION (Developer Audience)
-
-# AATE V3.2 Technical Overview
-
-## Architecture
-
-Native Kotlin Android application with coroutine-based parallel AI scoring.
-
-### Neural Mesh
-- 21 AI scoring layers running in parallel
-- Cross-layer communication via AICrossTalk
-- Signal orthogonality validation
-- Meta-cognitive self-reflection
-
-### AI Layer Categories
-- **Scoring** (15): Momentum, Whale, Liquidity, Volume, Narrative, Regime, etc.
-- **Meta** (4): MetaCognition, CrossTalk, Orthogonal, RegimeTransition
-- **Learning** (2): EdgeLearning, TokenWinMemory
-
-### Decision Pipeline
-```
-Scanner → Candidate → UnifiedScorer (21 layers) 
-    → MetaCognition → FinalDecisionGate → Executor
-```
-
-### Market Regime Classification
-8 regimes with 26 specialized modes, each with:
-- Custom AI weight profiles
-- Position sizing rules
-- Stop/take-profit parameters
-- Hold time limits
-- Liquidity requirements
-
-### Safety Architecture
-- Hard confidence floors (30/35/40% by condition)
-- Toxic pattern detection (Kris Rule)
-- Circuit breaker auto-freeze
-- Liquidity floor enforcement
-
-### Learning Systems
-- Shadow trading engine (100x virtual multiplier)
-- Per-token win/loss memory
-- Per-layer accuracy tracking
-- Consensus pattern recognition
-- Regime transition detection
-
-### Build & Deploy
-- GitHub Actions CI/CD
-- APK artifact generation
-- No local compiler required
-
----
-
-## VC EMAIL TEMPLATE
-
-Subject: AATE V3.2 - The First Self-Aware Solana Trading Bot
-
-Hi [Name],
-
-I'm reaching out about AATE, a native Android trading application for Solana that we believe represents a fundamental innovation in autonomous trading.
-
-**The Problem:** Existing trading bots are sophisticated rule engines, not intelligent systems. They can't learn from mistakes, adapt to market regime changes, or question their own judgment.
-
-**Our Solution:** AATE V3.2 runs 21 parallel AI layers that communicate in real-time. Our MetaCognitionAI layer tracks which AI systems are most accurate and adjusts trust dynamically - the bot literally questions its own judgment. We've implemented 8 distinct market regimes with 26 specialized trading modes, each with custom AI weight profiles.
-
-**Key Differentiators:**
-- **Self-Awareness:** MetaCognitionAI can veto trades when reliable systems disagree
-- **Multi-Regime:** Handles memes, majors, mean reversion, volatility strategies differently
-- **Shadow Learning:** 100x virtual trades for rapid AI calibration without capital risk
-- **Battle-Tested Safety:** Hard rejection rules learned from real catastrophic losses
-
-**Technical Moat:** 15,000+ lines of Kotlin across 21 AI layers. 2+ years to replicate. Continuous learning generates proprietary pattern data.
-
-**Market:** Solana trading volume exceeds $2B daily with 500K+ active traders. The bot market is estimated at $500M annually, but no truly intelligent solutions exist.
-
-**Ask:** We're raising a seed round to accelerate development of our web monitoring portal, expand the Collective Brain network, and prepare for Play Store launch.
-
-Would you be open to a 20-minute call to discuss?
-
-Best,
-[Your name]
-
----
-
-## QUICK STATS BLOCK
+# AATE V3.2 - Marketing Copy & Landing Page Content
 
 ```
-AATE V3.2 BY THE NUMBERS
-═══════════════════════════════════════
-21    AI scoring layers
-8     Market regimes  
-26    Trading modes
-5     Volatility strategies
-100x  Shadow trade multiplier
-15K+  Lines of Kotlin
-7     Startup phases
-30%   Minimum confidence floor
-$10K  Execution liquidity floor
-═══════════════════════════════════════
+     █████╗  █████╗ ████████╗███████╗
+    ██╔══██╗██╔══██╗╚══██╔══╝██╔════╝
+    ███████║███████║   ██║   █████╗  
+    ██╔══██║██╔══██║   ██║   ██╔══╝  
+    ██║  ██║██║  ██║   ██║   ███████╗
+    ╚═╝  ╚═╝╚═╝  ╚═╝   ╚═╝   ╚══════╝
+    
+    AUTONOMOUS ADAPTIVE TRADING ENGINE
 ```
 
 ---
 
-## TAGLINES (Pick Your Favorite)
+## HERO SECTION
 
-1. "The first trading bot that questions its own judgment."
-2. "21 AIs. One unified consciousness."
-3. "Not just a bot. A thinking machine."
-4. "Autonomous. Adaptive. Self-Aware."
-5. "Trade like a machine that thinks like a human."
-6. "The bot that learns while it trades."
-7. "Multi-regime intelligence. Single-minded focus."
-8. "Where 21 AIs converge into one decision."
+### Headline Options
+
+**Option 1 (Technical)**
+```
+21 AI Layers. One Trading Brain.
+The Solana bot that questions its own judgment.
+```
+
+**Option 2 (Bold)**
+```
+Built in 7 Days.
+Thinks Before It Trades.
+```
+
+**Option 3 (Emotional)**
+```
+Your Trading Bot Should Doubt Itself.
+Ours Does.
+```
+
+### Subheadline
+```
+AATE V3.2 is the first autonomous trading engine with meta-cognition. 
+21 parallel AI layers that learn, adapt, and challenge each other 
+before every trade.
+```
+
+### CTA Button
+```
+[Join Beta Waitlist] or [View on GitHub]
+```
+
+---
+
+## FEATURES SECTION
+
+### Feature 1: 21 Parallel AI Layers
+```
+🧠 Not Just Smart. Self-Aware.
+
+Most bots have one brain. AATE has 21.
+
+Each AI layer specializes in a different signal:
+• Momentum prediction
+• Whale tracking  
+• Liquidity cycles
+• Social sentiment
+• And 17 more...
+
+They vote. They disagree. They learn from each other.
+```
+
+### Feature 2: MetaCognitionAI
+```
+🎯 The Prefrontal Cortex
+
+Layer 21 watches all other layers.
+
+It asks:
+• Which AIs have been accurate lately?
+• Which ones are overconfident?
+• Should I trust this consensus?
+
+When reliable AIs disagree, it vetoes the trade.
+Self-doubt is a feature.
+```
+
+### Feature 3: Shadow Learning Engine
+```
+👁️ Learn Without Risk
+
+Every blocked trade is paper-traded in shadow mode.
+
+If FDG kills a trade that would have won → AI adjusts
+If it would have lost → AI validates
+
+Continuous calibration. Zero additional capital at risk.
+```
+
+### Feature 4: Multi-Regime Trading
+```
+📊 8 Markets. 26 Strategies. One Bot.
+
+AATE doesn't treat all tokens the same.
+
+• Meme micro-caps → Narrative burst mode
+• Majors → Trend following mode
+• Mid-caps → Accumulation mode
+• Perps-style → Funding arbitrage mode
+• Volatility → Strangle/straddle mode
+
+Each regime has custom AI weights and position parameters.
+```
+
+### Feature 5: Pre-Proposal Kill
+```
+⚡ Stop Wasting Cycles on Garbage
+
+V3.2 kills bad trades BEFORE they reach sizing.
+
+Old: Garbage → Candidate → Proposed → Sizing → FDG Kill
+New: Garbage → Pre-Proposal Kill → Shadow-Track
+
+C-grade + low confidence? Dead on arrival.
+Learning preserved. Compute saved.
+```
+
+### Feature 6: Defense in Depth
+```
+🛡️ Five Layers of Protection
+
+1. TokenBlacklist - Permanent bans for rugs
+2. ToxicModeCircuitBreaker - Mode-level bans after 3 losses
+3. Pre-Proposal Kill - Early garbage rejection
+4. FinalDecisionGate - Confidence floors + hard kills
+5. SecurityGuard - Daily loss limits + halt conditions
+
+COPY_TRADE mode? Completely disabled. Forever.
+```
+
+---
+
+## SOCIAL PROOF SECTION
+
+### The Build Story
+```
+"I got tired of watching bots make stupid decisions.
+So I built one that questions itself."
+
+Built by 1 developer in 7 days.
+98,000+ lines of Kotlin.
+21 AI layers running in parallel.
+
+— Shaun Hayes, Founder
+```
+
+### By The Numbers
+```
+21        AI layers in parallel
+8         Market regimes
+26        Trading modes  
+98,000+   Lines of code
+7         Days to build
+1         Developer
+```
+
+---
+
+## HOW IT WORKS SECTION
+
+### Step 1: Scan
+```
+AATE continuously scans Solana markets using DexScreener and Birdeye.
+Each potential trade is classified into one of 8 market regimes.
+```
+
+### Step 2: Score
+```
+21 AI layers analyze the opportunity in parallel.
+Each layer votes based on its specialty.
+MetaCognitionAI weighs votes based on recent accuracy.
+```
+
+### Step 3: Decide
+```
+Pre-Proposal Kill filters obvious garbage.
+FinalDecisionGate applies confidence floors.
+Only high-conviction setups reach execution.
+```
+
+### Step 4: Learn
+```
+Every outcome feeds back into the system.
+Shadow Learning tracks blocked trades.
+AI weights adjust based on real performance.
+```
+
+---
+
+## FAQ SECTION
+
+### Q: How is this different from other trading bots?
+```
+Most bots follow fixed rules. AATE has 21 AI layers that:
+- Vote on every trade
+- Track which layers are accurate
+- Adjust trust dynamically
+- Question their own judgment
+
+It's the difference between a calculator and a brain.
+```
+
+### Q: What makes MetaCognitionAI special?
+```
+MetaCognitionAI is the "prefrontal cortex" - it watches all other AIs.
+
+If MomentumPredictorAI has been wrong 5 times in a row, 
+MetaCognitionAI reduces its voting weight.
+
+If WhaleTrackerAI and LiquidityCycleAI disagree, 
+MetaCognitionAI can veto the entire trade.
+
+Self-awareness = fewer dumb trades.
+```
+
+### Q: What is Shadow Learning?
+```
+Every trade FDG blocks is still paper-traded in the background.
+
+This means AATE learns from trades it didn't take.
+If a blocked trade would have won, the AI learns.
+If it would have lost, the AI confirms.
+
+Continuous improvement without additional risk.
+```
+
+### Q: How was this built in 7 days?
+```
+Intense focus + good architecture + no sleep.
+
+Day 1-2: Core Android app + Solana wallet
+Day 3-4: AI layers 1-15
+Day 5-6: Meta layers + Shadow Learning
+Day 7: Safety systems + polish
+
+98,000+ lines of Kotlin. One very tired developer.
+```
+
+### Q: Is my capital safe?
+```
+AATE has 5 layers of protection:
+1. TokenBlacklist - Known rugs blocked
+2. ToxicModeCircuitBreaker - Failing modes disabled
+3. Pre-Proposal Kill - Garbage rejected early
+4. FinalDecisionGate - Confidence floors enforced
+5. SecurityGuard - Daily loss limits + halt
+
+Plus: COPY_TRADE mode is completely disabled after catastrophic losses.
+```
+
+---
+
+## COMPARISON TABLE
+
+| Feature | AATE V3.2 | Typical Bot | DEX Aggregator |
+|---------|-----------|-------------|----------------|
+| AI Layers | 21 | 1-3 | 0 |
+| Self-Awareness | Yes (MetaCognition) | No | No |
+| Market Regimes | 8 | 1 | N/A |
+| Trading Modes | 26 | 1-5 | N/A |
+| Shadow Learning | Yes | No | No |
+| Pre-Proposal Kill | Yes | No | No |
+| Native Mobile | Android | Web/CLI | Web |
+
+---
+
+## CTA SECTION
+
+### Primary CTA
+```
+Ready for a bot that thinks?
+
+[Join the Beta Waitlist]
+
+Be among the first 100 to experience AATE V3.2.
+```
+
+### Secondary CTA
+```
+Want to see the code?
+
+[View on GitHub]
+
+98,000+ lines. Fully documented. MIT License.
+```
+
+---
+
+## FOOTER TAGLINE
+
+```
+Built with passion. Trades with intelligence. Learns from everything.
+
+AATE V3.2 - The First Sentient Solana Trading Bot
+```
+
+---
+
+## EMAIL SIGNUP FORM
+
+### Headline
+```
+Get Early Access to AATE V3.2
+```
+
+### Body
+```
+Join the waitlist for:
+✓ Priority beta access
+✓ Direct founder support
+✓ Early feature previews
+✓ Trading insights newsletter
+```
+
+### Form
+```
+[Email Address]
+[Join Waitlist →]
+
+No spam. Unsubscribe anytime.
+```
+
+---
+
+*All copy emphasizes: 21 AI layers, meta-cognition, 7-day build, self-aware trading*

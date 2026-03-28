@@ -57,31 +57,74 @@ class TradeJournal(private val ctx: Context) {
 
     fun buildJournal(tokens: Map<String, TokenState>): List<JournalEntry> {
         val entries = mutableListOf<JournalEntry>()
+        val seenKeys = mutableSetOf<String>()
 
+        // FIRST: Add trades from in-memory token state (current session)
         tokens.values.forEach { ts ->
             ts.trades.forEach { trade ->
-                entries.add(JournalEntry(
-                    ts           = trade.ts,
-                    symbol       = ts.symbol,
-                    mint         = ts.mint,
-                    side         = trade.side,
-                    entryPrice   = trade.price,
-                    exitPrice    = if (trade.side == "SELL") trade.price else 0.0,
-                    solAmount    = trade.sol,
-                    pnlSol       = trade.pnlSol,
-                    pnlPct       = trade.pnlPct,
-                    reason       = trade.reason,
-                    mode         = trade.mode,
-                    score        = trade.score,
-                    durationMins = 0.0,
-                    phase        = "",
-                    tradingMode      = trade.tradingMode,
-                    tradingModeEmoji = trade.tradingModeEmoji,
-                    feeSol           = trade.feeSol,
-                    netPnlSol        = trade.netPnlSol,
-                ))
+                val key = "${trade.ts}_${trade.mint}_${trade.side}"
+                if (key !in seenKeys) {
+                    seenKeys.add(key)
+                    entries.add(JournalEntry(
+                        ts           = trade.ts,
+                        symbol       = ts.symbol,
+                        mint         = ts.mint,
+                        side         = trade.side,
+                        entryPrice   = trade.price,
+                        exitPrice    = if (trade.side == "SELL") trade.price else 0.0,
+                        solAmount    = trade.sol,
+                        pnlSol       = trade.pnlSol,
+                        pnlPct       = trade.pnlPct,
+                        reason       = trade.reason,
+                        mode         = trade.mode,
+                        score        = trade.score,
+                        durationMins = 0.0,
+                        phase        = "",
+                        tradingMode      = trade.tradingMode,
+                        tradingModeEmoji = trade.tradingModeEmoji,
+                        feeSol           = trade.feeSol,
+                        netPnlSol        = trade.netPnlSol
+                    ))
+                }
             }
         }
+        
+        // SECOND: Add PERSISTED trades from TradeHistoryStore (survives restarts)
+        // This ensures historical trades are always shown
+        try {
+            val persistedTrades = TradeHistoryStore.getAllTrades()
+            persistedTrades.forEach { trade ->
+                val key = "${trade.ts}_${trade.mint}_${trade.side}"
+                if (key !in seenKeys) {
+                    seenKeys.add(key)
+                    // Look up symbol from mint, or use "Unknown"
+                    val symbol = tokens.values.find { it.mint == trade.mint }?.symbol ?: trade.mint.take(8)
+                    entries.add(JournalEntry(
+                        ts           = trade.ts,
+                        symbol       = symbol,
+                        mint         = trade.mint,
+                        side         = trade.side,
+                        entryPrice   = trade.price,
+                        exitPrice    = if (trade.side == "SELL") trade.price else 0.0,
+                        solAmount    = trade.sol,
+                        pnlSol       = trade.pnlSol,
+                        pnlPct       = trade.pnlPct,
+                        reason       = trade.reason,
+                        mode         = trade.mode,
+                        score        = trade.score,
+                        durationMins = 0.0,
+                        phase        = "",
+                        tradingMode      = trade.tradingMode,
+                        tradingModeEmoji = trade.tradingModeEmoji,
+                        feeSol           = trade.feeSol,
+                        netPnlSol        = trade.netPnlSol
+                    ))
+                }
+            }
+        } catch (e: Exception) {
+            ErrorLogger.error("TradeJournal", "Failed to load persisted trades: ${e.message}")
+        }
+
         return entries.sortedByDescending { it.ts }
     }
 

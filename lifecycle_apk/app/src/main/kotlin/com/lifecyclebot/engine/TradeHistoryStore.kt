@@ -169,7 +169,9 @@ object TradeHistoryStore {
                     put("netPnlSol", t.netPnlSol)
                 })
             }
-            prefs?.edit()?.putString(KEY_TRADES, arr.toString())?.apply()
+            // Use commit() for IMMEDIATE persistence (not apply() which is async)
+            prefs?.edit()?.putString(KEY_TRADES, arr.toString())?.commit()
+            ErrorLogger.debug("TradeHistoryStore", "💾 Persisted ${trades.size} trades to storage")
         } catch (e: Exception) {
             ErrorLogger.error("TradeHistoryStore", "Failed to save trades: ${e.message}")
         }
