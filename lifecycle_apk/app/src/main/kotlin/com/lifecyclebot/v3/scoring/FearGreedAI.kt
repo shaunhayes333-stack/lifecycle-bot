@@ -56,7 +56,7 @@ class FearGreedAI : ScoringModule {
         /**
          * Fetch Fear & Greed Index (with caching)
          */
-        fun fetchIndex(): FearGreedData? {
+        private fun fetchIndex(): FearGreedData? {
             val now = System.currentTimeMillis()
             val cached = cachedData.get()
             
