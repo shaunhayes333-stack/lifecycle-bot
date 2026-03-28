@@ -2253,29 +2253,29 @@ class BotService : Service() {
                                 marketRegime = modeConf?.mode?.name ?: "NEUTRAL"
                             )
                             
-                            when (v3Decision) {
+                            when (val result = v3Decision) {
                                 is com.lifecyclebot.v3.V3Decision.Execute -> {
                                     val fdgTag = if (fdgDecision.canExecute()) "FDG:✓" else "FDG:✗"
                                     ErrorLogger.info("BotService", "⚡ V3 EXECUTE: ${identity.symbol} | " +
-                                        "band=${v3Decision.band} | size=${v3Decision.sizeSol.fmt(4)} SOL | " +
-                                        "conf=${v3Decision.confidence.toInt()}% | $fdgTag")
+                                        "band=${result.band} | size=${result.sizeSol.fmt(4)} SOL | " +
+                                        "conf=${result.confidence.toInt()}% | $fdgTag")
                                     
                                     // In ACTIVE mode (not shadow), V3 controls execution
                                     if (!cfg.v3ShadowMode) {
                                         useV3Decision = true
-                                        v3SizeSol = v3Decision.sizeSol
-                                        v3Thesis = v3Decision.thesis
-                                        addLog("⚡ V3 DECISION: ${identity.symbol} | ${v3Decision.band} | " +
+                                        v3SizeSol = result.sizeSol
+                                        v3Thesis = result.thesis
+                                        addLog("⚡ V3 DECISION: ${identity.symbol} | ${result.band} | " +
                                             "${v3SizeSol.fmt(4)} SOL", mint)
                                     } else {
-                                        addLog("🔬 V3 SHADOW: ${identity.symbol} | ${v3Decision.band} | " +
-                                            "${v3Decision.sizeSol.fmt(4)} SOL (FDG: $fdgTag)", mint)
+                                        addLog("🔬 V3 SHADOW: ${identity.symbol} | ${result.band} | " +
+                                            "${result.sizeSol.fmt(4)} SOL (FDG: $fdgTag)", mint)
                                     }
                                 }
                                 
                                 is com.lifecyclebot.v3.V3Decision.Watch -> {
                                     ErrorLogger.info("BotService", "⚡ V3 WATCH: ${identity.symbol} | " +
-                                        "band=${v3Decision.band} | reason=${v3Decision.reason}")
+                                        "band=${result.band} | reason=${result.reason}")
                                     
                                     // In ACTIVE mode, V3 WATCH overrides FDG approve
                                     if (!cfg.v3ShadowMode && fdgDecision.canExecute()) {
@@ -2285,22 +2285,22 @@ class BotService : Service() {
                                 }
                                 
                                 is com.lifecyclebot.v3.V3Decision.Rejected -> {
-                                    ErrorLogger.info("BotService", "⚡ V3 REJECT: ${identity.symbol} | ${v3Decision.reason}")
+                                    ErrorLogger.info("BotService", "⚡ V3 REJECT: ${identity.symbol} | ${result.reason}")
                                     
                                     // In ACTIVE mode, V3 REJECT blocks the trade
                                     if (!cfg.v3ShadowMode) {
-                                        addLog("⚡ V3 REJECTED: ${identity.symbol} | ${v3Decision.reason}", mint)
+                                        addLog("⚡ V3 REJECTED: ${identity.symbol} | ${result.reason}", mint)
                                         // Skip FDG execution path
                                         return@launch
                                     }
                                 }
                                 
                                 is com.lifecyclebot.v3.V3Decision.Blocked -> {
-                                    ErrorLogger.info("BotService", "⚡ V3 BLOCK: ${identity.symbol} | ${v3Decision.reason}")
+                                    ErrorLogger.info("BotService", "⚡ V3 BLOCK: ${identity.symbol} | ${result.reason}")
                                     
                                     // In ACTIVE mode, V3 BLOCK stops the trade
                                     if (!cfg.v3ShadowMode) {
-                                        addLog("⚡ V3 BLOCKED: ${identity.symbol} | ${v3Decision.reason}", mint)
+                                        addLog("⚡ V3 BLOCKED: ${identity.symbol} | ${result.reason}", mint)
                                         return@launch
                                     }
                                 }
