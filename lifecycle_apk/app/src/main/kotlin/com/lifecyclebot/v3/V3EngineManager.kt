@@ -315,7 +315,7 @@ object V3EngineManager {
         mint: String,
         symbol: String,
         pnlPct: Double,
-        holdTimeMinutes: Double,
+        holdTimeMinutes: Int,
         exitReason: String
     ) {
         if (!isReady()) return
@@ -330,7 +330,7 @@ object V3EngineManager {
                 confidence = 50,
                 outcomeLabel = if (pnlPct > 0) "WIN" else "LOSS",
                 pnlPct = pnlPct,
-                holdingTimeSec = (holdTimeMinutes * 60).toInt()
+                holdingTimeSec = holdTimeMinutes * 60  // Convert minutes to seconds
             )
             
             learningStore?.record(event)
