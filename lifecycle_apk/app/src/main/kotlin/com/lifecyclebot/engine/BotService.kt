@@ -1789,9 +1789,46 @@ class BotService : Service() {
 
             var lastSuccessfulPollMs = System.currentTimeMillis()
 
+            // ═══════════════════════════════════════════════════════════════════
+            // V3.2 WATCHLIST PRIORITIZATION
+            // 
+            // Sort watchlist so stronger candidates get processed first.
+            // This ensures compute goes to highest-quality tokens when
+            // processing time is limited.
+            //
+            // Priority factors:
+            //   1. Has open position (highest priority - needs monitoring)
+            //   2. Higher liquidity (tradeable)
+            //   3. Higher entry score (better setup)
+            //   4. Lower fatal risk (safer)
+            // ═══════════════════════════════════════════════════════════════════
+            val prioritizedWatchlist = if (cfg.v3EngineEnabled) {
+                watchlist.sortedByDescending { mint ->
+                    val ts = status.tokens[mint]
+                    if (ts == null) {
+                        0.0  // Unknown tokens get lowest priority
+                    } else {
+                        var priority = 0.0
+                        // Open positions get highest priority (need exit monitoring)
+                        if (ts.position.isOpen) priority += 1000.0
+                        // Liquidity score (capped at 100k for normalization)
+                        priority += (ts.lastLiquidityUsd / 1000.0).coerceAtMost(100.0)
+                        // Entry score contribution
+                        priority += ts.entryScore
+                        // Momentum score boost
+                        priority += ts.meta.momScore * 0.5
+                        // Volume score boost
+                        priority += ts.meta.volScore * 0.3
+                        priority
+                    }
+                }
+            } else {
+                watchlist  // Legacy: process in order
+            }
+
             // Process all tokens in parallel — each gets its own coroutine.
             // This reduces per-cycle latency from (N×50ms + pollSeconds) to just pollSeconds.
-            val tokenJobs = watchlist.map { mint ->
+            val tokenJobs = prioritizedWatchlist.map { mint ->
               scope.launch {
                 if (!status.running) return@launch
                 if (orchestrator?.shouldPoll(mint) == false) return@launch
@@ -2406,7 +2443,7 @@ class BotService : Service() {
                                 // V3 WATCH: Track but don't trade
                                 // ═══════════════════════════════════════════════════════════════════
                                 ErrorLogger.info("BotService", "[SCORING] ${identity.symbol} | total=${result.score} | below threshold")
-                                ErrorLogger.info("BotService", "[DECISION] ${identity.symbol} | WATCH | score=${result.score} conf=${result.confidence.toInt()}%")
+                                ErrorLogger.info("BotService", "[DECISION] ${identity.symbol} | WATCH | score=${result.score} conf=${result.confidence}%")
                                 
                                 // Shadow track for learning
                                 ShadowLearningEngine.onFdgBlockedTrade(
@@ -2422,6 +2459,28 @@ class BotService : Service() {
                                 )
                                 
                                 // Don't execute, exit cleanly
+                                return@launch
+                            }
+                            
+                            is com.lifecyclebot.v3.V3Decision.ShadowOnly -> {
+                                // ═══════════════════════════════════════════════════════════════════
+                                // V3 SHADOW_ONLY: Pre-proposal kill, learning only
+                                // ═══════════════════════════════════════════════════════════════════
+                                ErrorLogger.info("BotService", "[DECISION] ${identity.symbol} | SHADOW_ONLY | ${result.reason}")
+                                
+                                // Shadow track for learning
+                                ShadowLearningEngine.onFdgBlockedTrade(
+                                    mint = ts.mint,
+                                    symbol = ts.symbol,
+                                    blockReason = "V3_SHADOW_ONLY_${result.reason}",
+                                    blockLevel = "V3_PRE_PROPOSAL",
+                                    currentPrice = ts.ref,
+                                    proposedSizeSol = 0.1,
+                                    quality = decision.finalQuality,
+                                    confidence = result.confidence.toDouble(),
+                                    phase = decision.phase,
+                                )
+                                
                                 return@launch
                             }
                             
@@ -2447,11 +2506,19 @@ class BotService : Service() {
                                 return@launch
                             }
                             
+                            is com.lifecyclebot.v3.V3Decision.BlockFatal -> {
+                                // ═══════════════════════════════════════════════════════════════════
+                                // V3 BLOCK_FATAL: Fatal risk detected
+                                // ═══════════════════════════════════════════════════════════════════
+                                ErrorLogger.info("BotService", "[DECISION] ${identity.symbol} | BLOCK_FATAL | ${result.reason}")
+                                return@launch
+                            }
+                            
                             is com.lifecyclebot.v3.V3Decision.Blocked -> {
                                 // ═══════════════════════════════════════════════════════════════════
-                                // V3 BLOCK: Fatal issue
+                                // V3 BLOCK: Legacy fatal block
                                 // ═══════════════════════════════════════════════════════════════════
-                                ErrorLogger.info("BotService", "[FATAL] ${identity.symbol} | BLOCK | ${result.reason}")
+                                ErrorLogger.info("BotService", "[DECISION] ${identity.symbol} | BLOCK_FATAL | ${result.reason}")
                                 return@launch
                             }
                             

@@ -269,12 +269,29 @@ object V3EngineManager {
                     )
                 }
                 
+                is ProcessResult.ShadowOnly -> {
+                    val log = "V3 SHADOW_ONLY: ${ts.symbol} | score=${result.score} | ${result.reason}"
+                    onLogCallback?.invoke(log, ts.mint)
+                    
+                    V3Decision.shadowOnly(
+                        score = result.score.toInt(),
+                        confidence = result.confidence.toInt(),
+                        reason = result.reason
+                    )
+                }
+                
                 is ProcessResult.Rejected -> {
                     onLogCallback?.invoke("V3 REJECT: ${ts.symbol} | ${result.reason}", ts.mint)
                     V3Decision.rejected(result.reason)
                 }
                 
+                is ProcessResult.BlockFatal -> {
+                    onLogCallback?.invoke("V3 BLOCK_FATAL: ${ts.symbol} | ${result.reason}", ts.mint)
+                    V3Decision.blockFatal(result.reason)
+                }
+                
                 is ProcessResult.Blocked -> {
+                    // Legacy path
                     onLogCallback?.invoke("V3 BLOCK: ${ts.symbol} | ${result.reason}", ts.mint)
                     V3Decision.blocked(result.reason)
                 }
@@ -570,6 +587,13 @@ object V3EngineManager {
 
 /**
  * V3 Decision result - matches ProcessResult structure
+ * 
+ * V3.2 UNIFIED DECISION LABELS:
+ * - Execute: Will trade
+ * - Watch: Tracking only
+ * - ShadowOnly: Pre-proposal kill, learning only
+ * - BlockFatal: Fatal risk, hard block
+ * - Rejected: Poor setup
  */
 sealed class V3Decision {
     data class Execute(
@@ -585,8 +609,21 @@ sealed class V3Decision {
         val confidence: Int
     ) : V3Decision()
     
+    /** Pre-proposal kill - shadow tracking only */
+    data class ShadowOnly(
+        val score: Int,
+        val confidence: Int,
+        val reason: String
+    ) : V3Decision()
+    
     data class Rejected(val reason: String) : V3Decision()
+    
+    /** Fatal block - hard risk detected */
+    data class BlockFatal(val reason: String) : V3Decision()
+    
+    /** Legacy alias - to be deprecated */
     data class Blocked(val reason: String) : V3Decision()
+    
     data class Error(val message: String) : V3Decision()
     data class NotReady(val reason: String) : V3Decision()
     
@@ -596,8 +633,10 @@ sealed class V3Decision {
         fun execute(sizeSol: Double, band: String, confidence: Double, score: Int, breakdown: String = "") = 
             Execute(sizeSol, band, confidence, score, breakdown)
         fun watch(score: Int, confidence: Int) = Watch(score, confidence)
+        fun shadowOnly(score: Int, confidence: Int, reason: String) = ShadowOnly(score, confidence, reason)
         fun rejected(reason: String) = Rejected(reason)
-        fun blocked(reason: String) = Blocked(reason)
+        fun blockFatal(reason: String) = BlockFatal(reason)
+        fun blocked(reason: String) = Blocked(reason)  // Legacy
         fun error(message: String) = Error(message)
         fun notReady(reason: String) = NotReady(reason)
     }

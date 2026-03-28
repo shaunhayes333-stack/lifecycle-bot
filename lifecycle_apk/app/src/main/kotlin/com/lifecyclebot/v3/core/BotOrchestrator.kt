@@ -130,11 +130,11 @@ class BotOrchestrator(
                     effConf < 35 -> "C_GRADE_CONF_FLOOR_${effConf.toInt()}"
                     else -> "C_GRADE_BAD_MEMORY_${memoryScore}"
                 }
-                logger.stage("PRE_PROPOSAL_KILL", candidate.symbol, "BLOCKED",
+                logger.stage("PRE_PROPOSAL_KILL", candidate.symbol, "SHADOW_ONLY",
                     "quality=$earlyQuality conf=${effConf.toInt()}% memory=$memoryScore → SHADOW_TRACK (no CANDIDATE/PROPOSED/SIZING)")
-                lifecycle.mark(candidate.mint, LifecycleState.WATCH)
+                lifecycle.mark(candidate.mint, LifecycleState.SHADOW_TRACKED)
                 shadowTracker.track(candidate, scoreCard, effConf.toInt(), reason)
-                return ProcessResult.Watch(scoreCard.total.toDouble(), effConf.toDouble())
+                return ProcessResult.ShadowOnly(scoreCard.total.toDouble(), effConf.toDouble(), reason)
             }
         }
         
@@ -203,7 +203,7 @@ class BotOrchestrator(
                 // V3.2: Open shadow trade for AI learning
                 openShadowTradeForLearning(candidate, scoreCard, confidence, decision, "BLOCKED_FATAL")
                 
-                ProcessResult.Blocked(decision.fatalReason ?: "FATAL")
+                ProcessResult.BlockFatal(decision.fatalReason ?: "FATAL")
             }
             
             DecisionBand.WATCH -> {
@@ -277,6 +277,13 @@ class BotOrchestrator(
 /**
  * V3 Process Result
  * Outcome of processing a candidate
+ * 
+ * V3.2 UNIFIED DECISION LABELS:
+ * - EXECUTE_*: Will trade (MICRO, STANDARD, AGGRESSIVE)
+ * - WATCH: Tracking only, insufficient quality
+ * - SHADOW_ONLY: Pre-proposal kill, tracking in shadow
+ * - BLOCK_FATAL: Fatal risk detected, hard block
+ * - REJECTED: Poor setup, don't track
  */
 sealed class ProcessResult {
     data class Executed(
@@ -293,8 +300,19 @@ sealed class ProcessResult {
         val confidence: Double
     ) : ProcessResult()
     
+    /** Pre-proposal kill - garbage killed early, tracked in shadow for learning */
+    data class ShadowOnly(
+        val score: Double,
+        val confidence: Double,
+        val reason: String
+    ) : ProcessResult()
+    
     data class Rejected(val reason: String) : ProcessResult()
     
+    /** Fatal block - hard risk detected (rug, scam, etc.) */
+    data class BlockFatal(val reason: String) : ProcessResult()
+    
+    /** Legacy alias for BlockFatal - to be deprecated */
     data class Blocked(val reason: String) : ProcessResult()
 }
 

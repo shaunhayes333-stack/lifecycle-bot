@@ -629,23 +629,33 @@ class LifecycleStrategy(
             // Entry timing check — Spike → Pullback → Reclaim pattern
             if (edgeTiming.isOptimalEntry) {
                 entryScore = (entryScore + 15.0).coerceAtMost(100.0)
-                ErrorLogger.info("Edge", "⭐ ${ts.symbol}: OPTIMAL entry timing +15 pts")
+                // V3.2: Suppress legacy log noise when V3 engine is driving decisions
+                if (!cfg().v3EngineEnabled) {
+                    ErrorLogger.info("Edge", "⭐ ${ts.symbol}: OPTIMAL entry timing +15 pts")
+                }
             }
             
             // PRIORITY 1: Log Edge veto clearly and RECORD IT for sticky blocking
             if (edgeVeto) {
-                ErrorLogger.info("Edge", "🚫 ${ts.symbol}: VETOED - ${edgeFilter.reason}")
+                // V3.2: Suppress legacy log noise when V3 engine is driving decisions
+                if (!cfg().v3EngineEnabled) {
+                    ErrorLogger.info("Edge", "🚫 ${ts.symbol}: VETOED - ${edgeFilter.reason}")
+                }
                 // Record sticky veto in FDG - but ONLY if not already vetoed
                 // This prevents refreshing the cooldown on every cycle
                 if (FinalDecisionGate.hasActiveEdgeVeto(ts.mint) == null) {
                     FinalDecisionGate.recordEdgeVeto(ts.mint, edgeFilter.reason, edgeFilter.quality)
-                    ErrorLogger.debug("Edge", "📝 ${ts.symbol}: Veto recorded (20-30s cooldown starts)")
+                    if (!cfg().v3EngineEnabled) {
+                        ErrorLogger.debug("Edge", "📝 ${ts.symbol}: Veto recorded (20-30s cooldown starts)")
+                    }
                 }
             } else {
                 // Edge is NOT vetoing - clear any existing veto (conditions improved)
                 if (FinalDecisionGate.hasActiveEdgeVeto(ts.mint) != null) {
                     FinalDecisionGate.clearEdgeVeto(ts.mint)
-                    ErrorLogger.info("Edge", "✅ ${ts.symbol}: Veto CLEARED (conditions improved)")
+                    if (!cfg().v3EngineEnabled) {
+                        ErrorLogger.info("Edge", "✅ ${ts.symbol}: Veto CLEARED (conditions improved)")
+                    }
                 }
                 if (!edgeFilter.shouldTrade) {
                     ErrorLogger.debug("Edge", "📊 ${ts.symbol}: Filter notes - ${edgeFilter.reason}")
@@ -898,7 +908,10 @@ class LifecycleStrategy(
         // too strict, WITHOUT polluting the training data with bad trades.
         // ══════════════════════════════════════════════════════════════════════════
         if (signal == "BUY" && shouldApplyEdgeVeto && !ts.position.isOpen) {
-            ErrorLogger.info("Strategy", "🚫 ${ts.symbol}: BUY VETOED by Edge (quality=SKIP)")
+            // V3.2: Suppress legacy log noise when V3 engine is driving decisions
+            if (!cfg().v3EngineEnabled) {
+                ErrorLogger.info("Strategy", "🚫 ${ts.symbol}: BUY VETOED by Edge (quality=SKIP)")
+            }
             signal = "WAIT"
             
             // Shadow track this veto for learning (even in paper mode)
@@ -3142,7 +3155,10 @@ class LifecycleStrategy(
                 EntryIntelligence.EntryRecommendation.WAIT -> "⏳"
                 EntryIntelligence.EntryRecommendation.AVOID -> "⚠️"
             }
-            ErrorLogger.info("Strategy", "🟢 ${ts.symbol}: PAPER BUY ($entryType) $aiTag| quality=$setupQuality phase=$phase liq=$${ts.lastLiquidityUsd.toInt()} entry=${adjustedEntryScore.toInt()}")
+            // V3.2: Suppress legacy log noise when V3 engine is driving decisions
+            if (!cfg().v3EngineEnabled) {
+                ErrorLogger.info("Strategy", "🟢 ${ts.symbol}: PAPER BUY ($entryType) $aiTag| quality=$setupQuality phase=$phase liq=$${ts.lastLiquidityUsd.toInt()} entry=${adjustedEntryScore.toInt()}")
+            }
             return "BUY"
         }
         
@@ -3150,7 +3166,10 @@ class LifecycleStrategy(
         // If we got past all safety/phase blocks, we're already filtered
         // LOWERED: Enter earlier with score >= 5 (was 10)
         if (adjustedEntryScore >= 5 && ts.lastLiquidityUsd >= 300) {
-            ErrorLogger.info("Strategy", "${ts.symbol}: REAL BUY (filter pass) | score=${adjustedEntryScore.toInt()} phase=$phase")
+            // V3.2: Suppress legacy log noise when V3 engine is driving decisions
+            if (!cfg().v3EngineEnabled) {
+                ErrorLogger.info("Strategy", "${ts.symbol}: REAL BUY (filter pass) | score=${adjustedEntryScore.toInt()} phase=$phase")
+            }
             return "BUY"
         }
 
