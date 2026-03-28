@@ -140,6 +140,9 @@ class BotService : Service() {
         val cfg = ConfigStore.load(applicationContext)
         FluidLearning.init(applicationContext, cfg.paperSimulatedBalance)
         
+        // Initialize TradeHistoryStore for persistent trade stats
+        TradeHistoryStore.init(applicationContext)
+        
         // Initialize GeminiCopilot with API key from config
         if (cfg.geminiApiKey.isNotBlank()) {
             GeminiCopilot.init(cfg.geminiApiKey)
@@ -1299,6 +1302,29 @@ class BotService : Service() {
                         }
                     } catch (e: Exception) {
                         ErrorLogger.debug("BotService", "BehaviorLearning maintenance error: ${e.message}")
+                    }
+                }
+            }
+            
+            // ═══════════════════════════════════════════════════════════════════
+            // TOKEN WIN MEMORY REFRESH - every 180 loops (~15 minutes)
+            // Recalculate pattern statistics and persist to storage
+            // This ensures bad tokens and patterns are integrated into decisions
+            // ═══════════════════════════════════════════════════════════════════
+            if (loopCount % 180 == 0) {
+                scope.launch {
+                    try {
+                        // Force save current state
+                        TokenWinMemory.forceSave()
+                        
+                        // Log summary of learned patterns
+                        val summary = TokenWinMemory.getPatternSummary()
+                        if (summary.isNotBlank()) {
+                            addLog("📊 Pattern refresh: $summary")
+                            ErrorLogger.info("TokenWinMemory", "📊 15min refresh: $summary")
+                        }
+                    } catch (e: Exception) {
+                        ErrorLogger.debug("BotService", "TokenWinMemory refresh error: ${e.message}")
                     }
                 }
             }

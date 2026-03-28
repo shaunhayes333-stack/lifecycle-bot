@@ -106,6 +106,7 @@ data class Trade(
     val copyWallet: String = "",
     val tradingMode: String = "STANDARD",    // ExtendedMode name
     val tradingModeEmoji: String = "📈",     // Emoji for display
+    val mint: String = "",                    // Token mint address
 )
 
 data class StrategyMeta(

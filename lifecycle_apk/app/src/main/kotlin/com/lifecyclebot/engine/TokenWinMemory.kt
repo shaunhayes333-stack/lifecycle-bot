@@ -458,6 +458,38 @@ object TokenWinMemory {
         return "Winners: $totalWinners (${repeatWinners} repeat) | Total PnL: +${totalPnl.toInt()}% | Avg: +${avgPnl.toInt()}%"
     }
     
+    /**
+     * Get a summary of pattern stats for logging
+     */
+    fun getPatternSummary(): String {
+        val totalPatterns = countPatterns()
+        val reliablePatterns = patterns.values.sumOf { typeMap -> 
+            typeMap.values.count { it.isReliable } 
+        }
+        
+        val bestPatterns = getBestPatterns(3)
+        val worstPatterns = getWorstPatterns(3)
+        
+        val bestStr = bestPatterns.joinToString(", ") { 
+            "${it.first.substringAfter(":")}(${(it.second.winRate * 100).toInt()}%)" 
+        }
+        val worstStr = worstPatterns.joinToString(", ") { 
+            "${it.first.substringAfter(":")}(${(it.second.winRate * 100).toInt()}%)" 
+        }
+        
+        return "patterns=$totalPatterns (reliable=$reliablePatterns) | " +
+            "winners=${winningTokens.size} | " +
+            "best=[$bestStr] | worst=[$worstStr]"
+    }
+    
+    /**
+     * Force save current state to storage
+     */
+    fun forceSave() {
+        save()
+        ErrorLogger.debug("TokenWinMemory", "💾 Force saved ${winningTokens.size} winners, ${countPatterns()} patterns")
+    }
+    
     fun logDetailedStats() {
         ErrorLogger.info("TokenWinMemory", """
             |📊 TOKEN WIN MEMORY STATS

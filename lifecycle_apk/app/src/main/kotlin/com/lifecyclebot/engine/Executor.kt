@@ -194,6 +194,16 @@ class Executor(
             setupQuality = quality,
         )
     }
+    
+    /**
+     * Record a trade to both TokenState and persistent TradeHistoryStore
+     */
+    private fun recordTrade(ts: TokenState, trade: Trade) {
+        // Ensure trade has mint set
+        val tradeWithMint = if (trade.mint.isBlank()) trade.copy(mint = ts.mint) else trade
+        ts.trades.add(tradeWithMint)
+        TradeHistoryStore.recordTrade(tradeWithMint)
+    }
 
     // ── top-up sizing ─────────────────────────────────────────────────
 
@@ -391,7 +401,7 @@ class Executor(
         )
         
         val trade = Trade("BUY", "paper", addSol, price, System.currentTimeMillis(), score = 0.0)
-        ts.trades.add(trade)
+        recordTrade(ts, trade)
         security.recordTrade(trade)
         onPaperBalanceChange?.invoke(-addSol)
         
@@ -851,7 +861,7 @@ class Executor(
                 val trade = Trade("SELL", "paper", sellSol, ts.ref,
                     System.currentTimeMillis(), "capital_recovery_${gainMultiple.fmt(1)}x",
                     pnlSol, gainPct)
-                ts.trades.add(trade)
+                recordTrade(ts, trade)
                 security.recordTrade(trade)
                 onPaperBalanceChange?.invoke(sellSol)
                 
@@ -911,7 +921,7 @@ class Executor(
                 val trade = Trade("SELL", "paper", sellSol, ts.ref,
                     System.currentTimeMillis(), "profit_lock_${gainMultiple.fmt(1)}x",
                     pnlSol, gainPct)
-                ts.trades.add(trade)
+                recordTrade(ts, trade)
                 security.recordTrade(trade)
                 onPaperBalanceChange?.invoke(sellSol)
                 
@@ -999,7 +1009,7 @@ class Executor(
             val trade = Trade("SELL", "live", solBack, ts.ref,
                 System.currentTimeMillis(), reason,
                 pnlSol, pnlPct, sig = sig, feeSol = feeSol, netPnlSol = netPnl)
-            ts.trades.add(trade)
+            recordTrade(ts, trade)
             security.recordTrade(trade)
             SmartSizer.recordTrade(pnlSol > 0, isPaperMode = false)
             
@@ -1130,7 +1140,7 @@ class Executor(
             val trade   = Trade("SELL", "paper", sellSol, ts.ref,
                               System.currentTimeMillis(), "partial_${newSoldPct.toInt()}pct",
                               paperPnlSol, pct(pos.costSol * sellFraction, sellQty * ts.ref))
-            ts.trades.add(trade); security.recordTrade(trade)
+            recordTrade(ts, trade); security.recordTrade(trade)
             onLog("PAPER PARTIAL SELL ${(sellFraction*100).toInt()}% | " +
                   "${sellSol.fmt(4)} SOL | pnl ${paperPnlSol.fmt(4)} SOL", ts.mint)
         } else {
@@ -2186,7 +2196,7 @@ class Executor(
 
         val trade = Trade("BUY", "paper", sol, price,
                           System.currentTimeMillis(), "top_up_${pos.topUpCount + 1}")
-        ts.trades.add(trade)
+        recordTrade(ts, trade)
         security.recordTrade(trade)
 
         val gainPct = pct(pos.entryPrice, price)
@@ -2247,7 +2257,7 @@ class Executor(
             val trade   = Trade("BUY", "live", sol, price,
                                 System.currentTimeMillis(), "top_up_${pos.topUpCount + 1}",
                                 sig = sig)
-            ts.trades.add(trade)
+            recordTrade(ts, trade)
             security.recordTrade(trade)
             onLog("LIVE TOP-UP #${pos.topUpCount + 1} @ ${price.fmt()} | " +
                   "${sol.fmt(4)} SOL | +${gainPct.toInt()}% gain | sig=${sig.take(16)}…",
@@ -2594,7 +2604,7 @@ class Executor(
             tradingMode = currentMode.name,
             tradingModeEmoji = currentMode.emoji,
         )
-        ts.trades.add(trade)
+        recordTrade(ts, trade)
         security.recordTrade(trade)
         
         // V8: Transition to MONITOR state (use identity.mint)
@@ -2808,7 +2818,7 @@ class Executor(
                 tradingMode = currentMode.name,
                 tradingModeEmoji = currentMode.emoji,
             )
-            ts.trades.add(trade)
+            recordTrade(ts, trade)
             security.recordTrade(trade)
             
             // 🎵 Homer Simpson "Woohoo!"
@@ -3008,7 +3018,7 @@ class Executor(
             tradingMode = pos.tradingMode,
             tradingModeEmoji = pos.tradingModeEmoji,
         )
-        ts.trades.add(trade)
+        recordTrade(ts, trade)
         security.recordTrade(trade)
         
         // Update paper wallet balance (add sale proceeds)
@@ -3899,7 +3909,7 @@ class Executor(
                 tradingMode = pos.tradingMode,
                 tradingModeEmoji = pos.tradingModeEmoji,
             )
-            ts.trades.add(trade)
+            recordTrade(ts, trade)
             security.recordTrade(trade)
 
             SmartSizer.recordTrade(pnl > 0, isPaperMode = false)  // Live trade

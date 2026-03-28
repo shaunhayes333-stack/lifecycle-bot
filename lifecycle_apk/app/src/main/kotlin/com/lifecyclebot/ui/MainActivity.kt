@@ -817,18 +817,29 @@ By clicking "I Agree", you acknowledge that you have read, understood, and accep
             val now = System.currentTimeMillis()
             val twentyFourHoursAgo = now - (24 * 60 * 60 * 1000L)
             
-            // Get all trades from all tracked tokens
-            val allTrades = state.tokens.values.flatMap { it.trades }
-            val trades24h = allTrades.count { it.ts >= twentyFourHoursAgo }
+            // Get all trades from all tracked tokens + persistent store
+            val inMemoryTrades = state.tokens.values.flatMap { it.trades }
+            val persistedStats = com.lifecyclebot.engine.TradeHistoryStore.getStats()
+            
+            // Use persisted stats if in-memory is empty (bot just restarted)
+            val trades24h = if (inMemoryTrades.isEmpty()) {
+                persistedStats.trades24h
+            } else {
+                inMemoryTrades.count { it.ts >= twentyFourHoursAgo }
+            }
             tvStats24hTrades.text = "$trades24h"
             
-            // Win rate should also be from last 24h (only SELL trades count for win/loss)
-            val sells24h = allTrades.filter { it.side == "SELL" && it.ts >= twentyFourHoursAgo }
-            val wins24h = sells24h.count { it.pnlPct > 2.0 }  // Win threshold
-            val losses24h = sells24h.count { it.pnlPct < -2.0 }  // Loss threshold
-            val winRate = if (wins24h + losses24h > 0) 
-                (wins24h * 100 / (wins24h + losses24h)) 
-            else ws.winRate  // Fallback to lifetime if no 24h trades
+            // Win rate from last 24h (only SELL trades count for win/loss)
+            val winRate = if (inMemoryTrades.isEmpty()) {
+                persistedStats.winRate24h
+            } else {
+                val sells24h = inMemoryTrades.filter { it.side == "SELL" && it.ts >= twentyFourHoursAgo }
+                val wins24h = sells24h.count { it.pnlPct > 2.0 }
+                val losses24h = sells24h.count { it.pnlPct < -2.0 }
+                if (wins24h + losses24h > 0) 
+                    (wins24h * 100 / (wins24h + losses24h)) 
+                else ws.winRate
+            }
             
             tvStatsWinRate.text = "$winRate%"
             tvStatsWinRate.setTextColor(when {
