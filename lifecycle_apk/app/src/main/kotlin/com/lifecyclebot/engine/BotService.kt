@@ -2796,8 +2796,12 @@ class BotService : Service() {
                         }
                     } catch (_: Exception) { ModeRouter.TradeType.UNKNOWN }
                     
-                    // Calculate current PnL
-                    val currentPrice = ts.history.lastOrNull()?.priceUsd ?: ts.position.entryPrice
+                    // Calculate current PnL using ACTUAL PRICE, not market cap
+                    // CRITICAL FIX: ts.ref can be market cap, not price!
+                    // Use ts.lastPrice for consistent price tracking
+                    val currentPrice = ts.lastPrice.takeIf { it > 0 } 
+                        ?: ts.history.lastOrNull()?.priceUsd 
+                        ?: ts.position.entryPrice
                     val pnlPct = if (ts.position.entryPrice > 0) {
                         ((currentPrice - ts.position.entryPrice) / ts.position.entryPrice) * 100
                     } else 0.0

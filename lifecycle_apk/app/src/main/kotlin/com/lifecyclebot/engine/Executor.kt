@@ -144,6 +144,24 @@ class Executor(
     private val shadowPositions = mutableMapOf<String, ShadowPosition>()
     private val MAX_SHADOW_POSITIONS = 20  // Limit to prevent memory bloat
 
+    /**
+     * CRITICAL FIX: Get actual token PRICE, not market cap
+     * 
+     * ts.ref = if (lastMcap > 0) lastMcap else lastPrice ← CAN BE MARKET CAP!
+     * ts.lastPrice = actual token price in USD
+     * 
+     * Use this helper everywhere we need current price for:
+     * - P&L calculations
+     * - Entry price recording
+     * - Exit value calculations
+     */
+    private fun getActualPrice(ts: TokenState): Double {
+        return ts.lastPrice.takeIf { it > 0 } 
+            ?: ts.history.lastOrNull()?.priceUsd 
+            ?: ts.position.entryPrice.takeIf { it > 0 }
+            ?: 0.0
+    }
+
     // ── position sizing ───────────────────────────────────────────────
 
     /**
@@ -303,7 +321,9 @@ class Executor(
         if (!pos.isOpen)       return false
         if (!c.autoTrade)      return false
 
-        val gainPct   = pct(pos.entryPrice, ts.ref)
+        // CRITICAL FIX: Use actual price, not market cap
+        val currentPrice = getActualPrice(ts)
+        val gainPct   = pct(pos.entryPrice, currentPrice)
         val heldMins  = (System.currentTimeMillis() - pos.entryTime) / 60_000.0
 
         // Must be profitable — never average down
@@ -312,7 +332,7 @@ class Executor(
         // CHANGE 6: High-conviction and long-hold positions pyramid deeper
         // For MOONSHOTS (100x+), allow unlimited top-ups as long as position is healthy
         val nextTopUp = pos.topUpCount + 1
-        val gainPctNow = pct(pos.entryPrice, ts.ref)
+        val gainPctNow = pct(pos.entryPrice, currentPrice)
         val effectiveMax = when {
             gainPctNow >= 10000.0 -> 10    // 100x+ moonshot: up to 10 top-ups
             gainPctNow >= 1000.0  -> 7     // 10x+ strong runner: up to 7 top-ups
@@ -797,7 +817,9 @@ class Executor(
         val holdTimeMinutes = holdTimeMs / 60_000.0
         
         // Calculate gain velocity: how fast did we reach current gain?
-        val currentValue = pos.qtyToken * ts.ref
+        // CRITICAL FIX: Use actual price, not market cap
+        val actualPrice = getActualPrice(ts)
+        val currentValue = pos.qtyToken * actualPrice
         val gainMultiple = if (pos.costSol > 0) currentValue / pos.costSol else 1.0
         val gainPctPerMinute = if (holdTimeMinutes > 0) {
             ((gainMultiple - 1.0) * 100.0) / holdTimeMinutes
@@ -851,7 +873,9 @@ class Executor(
         val pos = ts.position
         if (!pos.isOpen) return false
         
-        val currentValue = pos.qtyToken * ts.ref
+        // CRITICAL FIX: Use actual price, not market cap
+        val actualPrice = getActualPrice(ts)
+        val currentValue = pos.qtyToken * actualPrice
         val gainMultiple = currentValue / pos.costSol  // 2.0 = 2x, 5.0 = 5x
         val gainPct = (gainMultiple - 1.0) * 100.0
         
@@ -867,7 +891,7 @@ class Executor(
             // At 2x: sell 50%. At 1.5x: sell 66%. At 3x: sell 33%
             val sellFraction = (1.0 / gainMultiple).coerceIn(0.25, 0.70)
             val sellQty = pos.qtyToken * sellFraction
-            val sellSol = sellQty * ts.ref
+            val sellSol = sellQty * actualPrice  // CRITICAL FIX: Use actual price
             
             onLog("🔒 CAPITAL RECOVERY: ${ts.symbol} @ ${gainMultiple.fmt(2)}x (threshold: ${capitalRecoveryThreshold.fmt(2)}x) — selling ${(sellFraction*100).toInt()}% to recover initial", ts.mint)
             onNotify("🔒 Capital Recovered!",
@@ -890,7 +914,7 @@ class Executor(
                     lockedProfitFloor = sellSol,  // We've secured this much
                 )
                 
-                val trade = Trade("SELL", "paper", sellSol, ts.ref,
+                val trade = Trade("SELL", "paper", sellSol, actualPrice,  // CRITICAL FIX
                     System.currentTimeMillis(), "capital_recovery_${gainMultiple.fmt(1)}x",
                     pnlSol, gainPct)
                 recordTrade(ts, trade)
@@ -928,7 +952,7 @@ class Executor(
             // Sell 50% of remaining position to lock profits
             val sellFraction = 0.50
             val sellQty = pos.qtyToken * sellFraction
-            val sellSol = sellQty * ts.ref
+            val sellSol = sellQty * actualPrice  // CRITICAL FIX: Use actual price
             
             onLog("🔐 PROFIT LOCK: ${ts.symbol} @ ${gainMultiple.fmt(2)}x (threshold: ${profitLockThreshold.fmt(2)}x) — locking 50% of remaining profits", ts.mint)
             onNotify("🔐 Profits Locked!",
@@ -950,7 +974,7 @@ class Executor(
                     lockedProfitFloor = pos.lockedProfitFloor + sellSol,
                 )
                 
-                val trade = Trade("SELL", "paper", sellSol, ts.ref,
+                val trade = Trade("SELL", "paper", sellSol, actualPrice,  // CRITICAL FIX
                     System.currentTimeMillis(), "profit_lock_${gainMultiple.fmt(1)}x",
                     pnlSol, gainPct)
                 recordTrade(ts, trade)
@@ -1091,7 +1115,9 @@ class Executor(
         val pos = ts.position
         if (!c.partialSellEnabled || !pos.isOpen) return false
 
-        val gainPct = pct(pos.entryPrice, ts.ref)
+        // CRITICAL FIX: Use actual price, not market cap
+        val actualPrice = getActualPrice(ts)
+        val gainPct = pct(pos.entryPrice, actualPrice)
         val soldPct = pos.partialSoldPct
 
         // Calculate which partial level we're at (0-5)
@@ -1142,11 +1168,11 @@ class Executor(
         // Compute position update values BEFORE branching on paper/live
         val sellFraction = treasuryAdjustedFraction
         val sellQty      = pos.qtyToken * sellFraction
-        val sellSol      = sellQty * ts.ref
+        val sellSol      = sellQty * actualPrice  // CRITICAL FIX: Use actual price
         val newSoldPct   = soldPct + sellFraction * 100.0
         val newQty       = pos.qtyToken - sellQty
         val newCost      = pos.costSol * (1.0 - sellFraction)
-        val paperPnlSol  = sellQty * ts.ref - pos.costSol * sellFraction
+        val paperPnlSol  = sellQty * actualPrice - pos.costSol * sellFraction  // CRITICAL FIX
         val triggerPct   = nextMilestone ?: 0.0
         
         // Log with moonshot-aware messaging
@@ -1169,9 +1195,9 @@ class Executor(
         if (c.paperMode || wallet == null) {
             // ── Paper partial sell ─────────────────────────────────────
             ts.position = pos.copy(qtyToken = newQty, costSol = newCost, partialSoldPct = newSoldPct)
-            val trade   = Trade("SELL", "paper", sellSol, ts.ref,
+            val trade   = Trade("SELL", "paper", sellSol, actualPrice,  // CRITICAL FIX
                               System.currentTimeMillis(), "partial_${newSoldPct.toInt()}pct",
-                              paperPnlSol, pct(pos.costSol * sellFraction, sellQty * ts.ref))
+                              paperPnlSol, pct(pos.costSol * sellFraction, sellQty * actualPrice))  // CRITICAL FIX
             recordTrade(ts, trade); security.recordTrade(trade)
             onLog("PAPER PARTIAL SELL ${(sellFraction*100).toInt()}% | " +
                   "${sellSol.fmt(4)} SOL | pnl ${paperPnlSol.fmt(4)} SOL", ts.mint)
@@ -1209,7 +1235,7 @@ class Executor(
                 val (netPnl, feeSol) = slippageGuard.calcNetPnl(livePnl, pos.costSol * sellFraction)
                 // Update position state after confirmed on-chain execution
                 ts.position = pos.copy(qtyToken = newQty, costSol = newCost, partialSoldPct = newSoldPct)
-                val liveTrade = Trade("SELL", "live", solBack, ts.ref,
+                val liveTrade = Trade("SELL", "live", solBack, actualPrice,  // CRITICAL FIX
                     System.currentTimeMillis(), "partial_${newSoldPct.toInt()}pct",
                     livePnl, liveScore, sig = sig, feeSol = feeSol, netPnlSol = netPnl)
                 ts.trades.add(liveTrade); security.recordTrade(liveTrade)
@@ -1239,7 +1265,8 @@ class Executor(
 
     fun riskCheck(ts: TokenState, modeConf: AutoModeEngine.ModeConfig? = null): String? {
         val pos   = ts.position
-        val price = ts.ref
+        // CRITICAL FIX: Use actual price, not market cap
+        val price = getActualPrice(ts)
         if (!pos.isOpen || price == 0.0) return null
 
         pos.highestPrice = maxOf(pos.highestPrice, price)
@@ -2407,7 +2434,8 @@ class Executor(
             // Skip if we already have a shadow position for this token
             if (shadowPositions.containsKey(ts.mint)) return
             
-            val price = ts.ref
+            // CRITICAL FIX: Use lastPrice, NOT ref (which can be market cap!)
+            val price = ts.lastPrice.takeIf { it > 0 } ?: ts.history.lastOrNull()?.priceUsd ?: 0.0
             if (price <= 0) return
             
             // Create shadow position
@@ -2547,8 +2575,14 @@ class Executor(
         // ═══════════════════════════════════════════════════════════════════════════
         val tradeId = identity ?: TradeIdentityManager.getOrCreate(ts.mint, ts.symbol, ts.source)
         
-        val price = ts.ref
-        if (price <= 0) return
+        // CRITICAL FIX: Use lastPrice, NOT ref (which can be market cap!)
+        // ts.ref = if (lastMcap > 0) lastMcap else lastPrice ← WRONG for entry price
+        // ts.lastPrice = actual token price
+        val price = ts.lastPrice.takeIf { it > 0 } ?: ts.history.lastOrNull()?.priceUsd ?: 0.0
+        if (price <= 0) {
+            ErrorLogger.debug("Executor", "Paper buy skipped: no valid price for ${tradeId.symbol}")
+            return
+        }
         // Single position enforcement
         if (ts.position.isOpen) {
             onLog("⚠ Buy skipped: position already open", tradeId.mint); return
