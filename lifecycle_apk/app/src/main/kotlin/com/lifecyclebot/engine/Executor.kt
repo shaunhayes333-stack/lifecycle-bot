@@ -2949,6 +2949,14 @@ class Executor(
     }
 
     // ── sell ──────────────────────────────────────────────────────────
+    
+    /**
+     * Public method to request a sell for a token position.
+     * Used by BotService for retrying pending sells.
+     */
+    fun requestSell(ts: TokenState, reason: String, wallet: SolanaWallet?, walletSol: Double) {
+        doSell(ts, reason, wallet, walletSol)
+    }
 
     private fun doSell(ts: TokenState, reason: String,
                        wallet: SolanaWallet?, walletSol: Double,
@@ -3636,12 +3644,26 @@ class Executor(
         // V3 ENGINE: Record outcome for learning
         // ═══════════════════════════════════════════════════════════════════
         try {
+            val marketSentiment = ts.meta.emafanAlignment.let { ema ->
+                when {
+                    ema.contains("BULL") -> "BULL"
+                    ema.contains("BEAR") -> "BEAR"
+                    else -> "NEUTRAL"
+                }
+            }
+            
             com.lifecyclebot.v3.V3EngineManager.recordOutcome(
                 mint = tradeId.mint,
                 symbol = ts.symbol,
                 pnlPct = pnlP,
                 holdTimeMinutes = holdMinutes,
-                exitReason = reason
+                exitReason = reason,
+                // Extra context for collective learning
+                entryPhase = ts.position.entryPhase.ifEmpty { "UNKNOWN" },
+                tradingMode = ts.position.tradingMode.ifEmpty { "STANDARD" },
+                discoverySource = ts.source.ifEmpty { "UNKNOWN" },
+                liquidityUsd = ts.lastLiquidityUsd,
+                emaTrend = marketSentiment
             )
             com.lifecyclebot.v3.V3EngineManager.onPositionClosed(tradeId.mint)
         } catch (_: Exception) {}

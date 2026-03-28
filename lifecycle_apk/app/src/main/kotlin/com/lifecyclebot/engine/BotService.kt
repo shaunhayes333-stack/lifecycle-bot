@@ -1269,6 +1269,45 @@ class BotService : Service() {
                     }
                 }
             }
+            
+            // ═══════════════════════════════════════════════════════════════════
+            // PENDING SELL QUEUE PROCESSING - every 5 loops (~25 seconds) in live mode
+            // Retries sells that failed due to wallet disconnect or other issues
+            // ═══════════════════════════════════════════════════════════════════
+            if (!cfg.paperMode && loopCount % 5 == 0 && wallet != null && PendingSellQueue.hasPending()) {
+                scope.launch {
+                    try {
+                        val pendingSells = PendingSellQueue.getAndClear()
+                        if (pendingSells.isNotEmpty()) {
+                            addLog("🔄 Processing ${pendingSells.size} pending sells...")
+                            for (sell in pendingSells) {
+                                try {
+                                    // Find the token state if still tracked
+                                    val ts = synchronized(status.tokens) { 
+                                        status.tokens[sell.mint]
+                                    }
+                                    
+                                    if (ts != null && ts.position.isOpen) {
+                                        addLog("🔄 Retrying sell: ${sell.symbol} (attempt ${sell.retryCount})")
+                                        executor.requestSell(ts, "PENDING_RETRY: ${sell.reason}", wallet, wallet!!.getSolBalance())
+                                    } else {
+                                        // Token no longer tracked - might be orphaned
+                                        addLog("⚠️ Pending sell for untracked token: ${sell.symbol} - checking wallet...")
+                                        // The orphan scanner will catch it
+                                    }
+                                } catch (e: Exception) {
+                                    addLog("❌ Pending sell retry failed: ${sell.symbol} - ${e.message}")
+                                    PendingSellQueue.requeue(sell)
+                                }
+                                // Small delay between retries to avoid rate limits
+                                kotlinx.coroutines.delay(500)
+                            }
+                        }
+                    } catch (e: Exception) {
+                        ErrorLogger.error("BotService", "Pending sell processing error: ${e.message}")
+                    }
+                }
+            }
 
             // Currency rate refresh + feed SOL price to bonding curve tracker
             scope.launch {
