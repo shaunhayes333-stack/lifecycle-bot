@@ -3561,6 +3561,20 @@ class Executor(
         } catch (_: Exception) {}
         
         // ═══════════════════════════════════════════════════════════════════
+        // V3 ENGINE: Record outcome for learning
+        // ═══════════════════════════════════════════════════════════════════
+        try {
+            com.lifecyclebot.v3.V3EngineManager.recordOutcome(
+                mint = tradeId.mint,
+                symbol = ts.symbol,
+                pnlPct = pnlP,
+                holdTimeMinutes = holdMinutes,
+                exitReason = tag
+            )
+            com.lifecyclebot.v3.V3EngineManager.onPositionClosed(tradeId.mint)
+        } catch (_: Exception) {}
+        
+        // ═══════════════════════════════════════════════════════════════════
         // QUANT METRICS: Record trade for professional analytics
         // Sharpe, Sortino, Profit Factor, Drawdown tracking
         // ═══════════════════════════════════════════════════════════════════

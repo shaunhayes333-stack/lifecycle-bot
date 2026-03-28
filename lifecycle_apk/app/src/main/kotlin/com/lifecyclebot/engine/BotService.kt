@@ -336,6 +336,14 @@ class BotService : Service() {
             ErrorLogger.debug("BotService", "CollectiveLearning shutdown error: ${e.message}")
         }
         
+        // Shutdown V3 Engine
+        try {
+            com.lifecyclebot.v3.V3EngineManager.shutdown()
+            ErrorLogger.info("BotService", "⚡ V3 Engine shutdown")
+        } catch (e: Exception) {
+            ErrorLogger.debug("BotService", "V3 Engine shutdown error: ${e.message}")
+        }
+        
         scope.cancel()
     }
 
@@ -943,6 +951,69 @@ class BotService : Service() {
             addLog("🔗 ${AICrossTalk.getStats()}")
         } catch (e: Exception) {
             ErrorLogger.error("BotService", "Failed to load AICrossTalk: ${e.message}", e)
+        }
+        
+        // ═══════════════════════════════════════════════════════════════════
+        // INITIALIZE V3 SCORING ENGINE
+        // Score-modifier based decision engine (replaces hard-gating)
+        // ═══════════════════════════════════════════════════════════════════
+        if (cfg.v3EngineEnabled) {
+            try {
+                com.lifecyclebot.v3.V3EngineManager.initialize(
+                    botConfig = cfg,
+                    jupiterApiKey = cfg.jupiterApiKey,
+                    onExecute = { request ->
+                        // Delegate execution to main Executor
+                        try {
+                            val ts = status.tokens[request.mint]
+                            if (ts == null) {
+                                com.lifecyclebot.v3.ExecuteResult(false, error = "Token not in status")
+                            } else {
+                                val effectiveBal = status.getEffectiveBalance(cfg.paperMode)
+                                // Create synthetic decision for executor
+                                val synthDecision = LifecycleStrategy.DecisionOutput(
+                                    finalSignal = if (request.isBuy) "BUY" else "SELL",
+                                    shouldTrade = true,
+                                    entryScore = 80.0,
+                                    finalQuality = "A",
+                                    phase = ts.phase,
+                                    setupQuality = "A"
+                                )
+                                executor.maybeActWithDecision(
+                                    ts = ts,
+                                    decision = synthDecision,
+                                    walletSol = effectiveBal,
+                                    wallet = wallet,
+                                    lastPollMs = System.currentTimeMillis(),
+                                    openPositionCount = status.openPositionCount,
+                                    totalExposureSol = status.totalExposureSol,
+                                    modeConfig = null,
+                                    fdgApprovedSize = request.sizeSol,
+                                    walletTotalTrades = walletManager.state.value.totalTrades,
+                                    tradeIdentity = TradeIdentityManager.getOrCreate(request.mint, request.symbol, "V3"),
+                                    fdgApprovalClass = FinalDecisionGate.ApprovalClass.LIVE
+                                )
+                                com.lifecyclebot.v3.ExecuteResult(
+                                    success = true,
+                                    executedSol = request.sizeSol
+                                )
+                            }
+                        } catch (e: Exception) {
+                            com.lifecyclebot.v3.ExecuteResult(false, error = e.message)
+                        }
+                    },
+                    onLog = { msg, mint -> addLog("⚡ $msg", mint) }
+                )
+                
+                val v3Status = com.lifecyclebot.v3.V3EngineManager.getStatusSummary()
+                addLog("⚡ $v3Status")
+                
+            } catch (e: Exception) {
+                ErrorLogger.error("BotService", "V3 Engine init failed: ${e.message}", e)
+                addLog("⚠️ V3 Engine init failed: ${e.message}")
+            }
+        } else {
+            addLog("ℹ️ V3 Engine: DISABLED (enable in config)")
         }
         
         // Set up paper wallet balance tracking
@@ -2163,43 +2234,95 @@ class BotService : Service() {
                     )
                     
                     // ═══════════════════════════════════════════════════════════════════
-                    // V3 ENGINE: Score-based evaluation (shadow or active mode)
+                    // V3 ENGINE: Full scoring-based decision system
+                    // When V3 is active and NOT in shadow mode, V3 controls execution
                     // ═══════════════════════════════════════════════════════════════════
-                    if (cfg.v3EngineEnabled) {
+                    var useV3Decision = false
+                    var v3SizeSol = 0.0
+                    var v3Thesis = ""
+                    
+                    if (cfg.v3EngineEnabled && com.lifecyclebot.v3.V3EngineManager.isReady()) {
                         try {
-                            val v3Result = V3Adapter.processV3(
+                            val v3Decision = com.lifecyclebot.v3.V3EngineManager.processToken(
                                 ts = ts,
                                 walletSol = effectiveBalance,
-                                isPaperMode = cfg.paperMode,
-                                marketRegime = modeConf?.mode?.name ?: "NEUTRAL",
-                                classifiedTrades = botBrain?.getTradeCount() ?: 0,
-                                winRate = botBrain?.getRecentWinRate() ?: 50.0,
-                                drawdownPct = 0.0,  // TODO: Get from session stats
-                                apiHealthy = true
+                                totalExposureSol = status.totalExposureSol,
+                                openPositions = status.openPositionCount,
+                                recentWinRate = botBrain?.getRecentWinRate() ?: 50.0,
+                                recentTradeCount = botBrain?.getTradeCount() ?: 0,
+                                marketRegime = modeConf?.mode?.name ?: "NEUTRAL"
                             )
                             
-                            val v3Tag = when (v3Result) {
-                                is ProcessResult.Executed -> "V3:EXECUTE(${v3Result.sizeSol.fmt(3)} SOL)"
-                                is ProcessResult.Watch -> "V3:WATCH(${v3Result.band})"
-                                is ProcessResult.Rejected -> "V3:REJECT(${v3Result.reason.take(20)})"
-                                is ProcessResult.Blocked -> "V3:BLOCK(${v3Result.reason.take(20)})"
+                            when (v3Decision) {
+                                is com.lifecyclebot.v3.V3Decision.Execute -> {
+                                    val fdgTag = if (fdgDecision.canExecute()) "FDG:✓" else "FDG:✗"
+                                    ErrorLogger.info("BotService", "⚡ V3 EXECUTE: ${identity.symbol} | " +
+                                        "band=${v3Decision.band} | size=${v3Decision.sizeSol.fmt(4)} SOL | " +
+                                        "conf=${v3Decision.confidence.toInt()}% | $fdgTag")
+                                    
+                                    // In ACTIVE mode (not shadow), V3 controls execution
+                                    if (!cfg.v3ShadowMode) {
+                                        useV3Decision = true
+                                        v3SizeSol = v3Decision.sizeSol
+                                        v3Thesis = v3Decision.thesis
+                                        addLog("⚡ V3 DECISION: ${identity.symbol} | ${v3Decision.band} | " +
+                                            "${v3SizeSol.fmt(4)} SOL", mint)
+                                    } else {
+                                        addLog("🔬 V3 SHADOW: ${identity.symbol} | ${v3Decision.band} | " +
+                                            "${v3Decision.sizeSol.fmt(4)} SOL (FDG: $fdgTag)", mint)
+                                    }
+                                }
+                                
+                                is com.lifecyclebot.v3.V3Decision.Watch -> {
+                                    ErrorLogger.info("BotService", "⚡ V3 WATCH: ${identity.symbol} | " +
+                                        "band=${v3Decision.band} | reason=${v3Decision.reason}")
+                                    
+                                    // In ACTIVE mode, V3 WATCH overrides FDG approve
+                                    if (!cfg.v3ShadowMode && fdgDecision.canExecute()) {
+                                        addLog("⚡ V3 WATCH (FDG would approve): ${identity.symbol}", mint)
+                                        // Don't set useV3Decision - let FDG proceed but log the difference
+                                    }
+                                }
+                                
+                                is com.lifecyclebot.v3.V3Decision.Rejected -> {
+                                    ErrorLogger.info("BotService", "⚡ V3 REJECT: ${identity.symbol} | ${v3Decision.reason}")
+                                    
+                                    // In ACTIVE mode, V3 REJECT blocks the trade
+                                    if (!cfg.v3ShadowMode) {
+                                        addLog("⚡ V3 REJECTED: ${identity.symbol} | ${v3Decision.reason}", mint)
+                                        // Skip FDG execution path
+                                        return@launch
+                                    }
+                                }
+                                
+                                is com.lifecyclebot.v3.V3Decision.Blocked -> {
+                                    ErrorLogger.info("BotService", "⚡ V3 BLOCK: ${identity.symbol} | ${v3Decision.reason}")
+                                    
+                                    // In ACTIVE mode, V3 BLOCK stops the trade
+                                    if (!cfg.v3ShadowMode) {
+                                        addLog("⚡ V3 BLOCKED: ${identity.symbol} | ${v3Decision.reason}", mint)
+                                        return@launch
+                                    }
+                                }
+                                
+                                else -> {
+                                    // Error or NotReady - fall back to FDG
+                                    ErrorLogger.warn("BotService", "⚡ V3 unavailable for ${identity.symbol} - using FDG")
+                                }
                             }
                             
-                            val fdgTag = if (fdgDecision.canExecute()) "FDG:APPROVE" else "FDG:BLOCK"
-                            
-                            // Log V3 vs FDG comparison
-                            ErrorLogger.info("BotService", "⚡ V3 SCORING: ${identity.symbol} | $v3Tag | $fdgTag")
-                            
-                            // If shadow mode disabled and V3 says execute, use V3 sizing
-                            if (!cfg.v3ShadowMode && v3Result is ProcessResult.Executed) {
-                                addLog("⚡ V3 EXECUTE: ${identity.symbol} | score=${v3Result.band} | size=${v3Result.sizeSol.fmt(3)} SOL", mint)
-                            }
                         } catch (v3e: Exception) {
                             ErrorLogger.error("BotService", "V3 engine error for ${identity.symbol}: ${v3e.message}")
+                            // Fall back to FDG on V3 error
                         }
                     }
                     
-                    if (fdgDecision.canExecute()) {
+                    // ═══════════════════════════════════════════════════════════════════
+                    // EXECUTION PATH: Use V3 decision if active, otherwise FDG
+                    // ═══════════════════════════════════════════════════════════════════
+                    val shouldExecute = useV3Decision || fdgDecision.canExecute()
+                    
+                    if (shouldExecute) {
                         // ═══════════════════════════════════════════════════════════════════
                         // RECORD PROPOSAL: Track that we proposed (for dedupe)
                         // Moved here from before FDG to prevent self-blocking
@@ -2207,46 +2330,67 @@ class BotService : Service() {
                         TradeLifecycle.recordProposal(identity.mint)
                         
                         // ═══════════════════════════════════════════════════════════════════
-                        // COMPUTE FINAL SIZE: Apply all multipliers here for consistency
-                        // This ensures identity, lifecycle, logs, and executor all use same value
+                        // COMPUTE FINAL SIZE: Use V3 size if available, otherwise FDG size
                         // ═══════════════════════════════════════════════════════════════════
-                        var finalSize = fdgDecision.sizeSol
+                        var finalSize = if (useV3Decision && v3SizeSol > 0) {
+                            v3SizeSol
+                        } else {
+                            fdgDecision.sizeSol
+                        }
                         
-                        // Apply mode multiplier if present
-                        modeConf?.let { finalSize *= it.positionSizeMultiplier }
+                        // Apply mode multiplier if present (only for FDG path)
+                        if (!useV3Decision) {
+                            modeConf?.let { finalSize *= it.positionSizeMultiplier }
+                        }
                         
-                        // Apply graduated building reduction for B+ setups
-                        val isGraduated = decision.setupQuality in listOf("A+", "B")
+                        // Apply graduated building reduction for B+ setups (only for FDG path)
+                        val isGraduated = !useV3Decision && decision.setupQuality in listOf("A+", "B")
                         val actualInitialSize = if (isGraduated) {
                             executor.graduatedInitialSize(finalSize, decision.setupQuality)
                         } else {
                             finalSize
                         }
                         
+                        // Determine approval class and confidence
+                        val approvalClass = if (useV3Decision) {
+                            FinalDecisionGate.ApprovalClass.LIVE  // V3 decisions are always "live"
+                        } else {
+                            fdgDecision.approvalClass
+                        }
+                        
+                        val quality = if (useV3Decision) "V3" else fdgDecision.quality
+                        val confidence = if (useV3Decision) 85.0 else fdgDecision.confidence
+                        
                         // ═══════════════════════════════════════════════════════════════════
                         // TRADE IDENTITY: Mark as approved with ACTUAL initial size
                         // ═══════════════════════════════════════════════════════════════════
-                        identity.approved(actualInitialSize, fdgDecision.quality, fdgDecision.confidence)
+                        identity.approved(actualInitialSize, quality, confidence)
                         
                         // ═══════════════════════════════════════════════════════════════════
-                        // LIFECYCLE: FDG_APPROVED → SIZED (with actual size, not FDG size)
+                        // LIFECYCLE: APPROVED → SIZED
                         // ═══════════════════════════════════════════════════════════════════
                         TradeLifecycle.fdgApproved(
                             identity.mint, 
-                            fdgDecision.quality, 
-                            fdgDecision.confidence,
-                            fdgDecision.approvalClass.name  // LIVE, PAPER_BENCHMARK, or PAPER_EXPLORATION
+                            quality, 
+                            confidence,
+                            approvalClass.name
                         )
                         TradeLifecycle.recordApproval(identity.mint)  // Track for dedupe
                         TradeLifecycle.sized(identity.mint, actualInitialSize, "medium")
                         
-                        FinalDecisionGate.logApprovedTrade(fdgDecision) { addLog(it, mint) }
-                        
-                        ErrorLogger.info("BotService", "${if(fdgDecision.isBenchmarkQuality()) "🟢" else "🟡"} " +
-                            "FDG ${fdgDecision.approvalClass}: ${identity.symbol} | " +
-                            "quality=${fdgDecision.quality} | conf=${fdgDecision.confidence.toInt()}% | " +
-                            "size=${actualInitialSize.fmt(4)} SOL" +
-                            if (isGraduated) " (grad: target=${finalSize.fmt(4)})" else "")
+                        // Log approval (V3 or FDG)
+                        if (useV3Decision) {
+                            addLog("⚡ V3 APPROVED: ${identity.symbol} | size=${actualInitialSize.fmt(4)} SOL | thesis: $v3Thesis", mint)
+                            ErrorLogger.info("BotService", "⚡ V3 APPROVED: ${identity.symbol} | " +
+                                "size=${actualInitialSize.fmt(4)} SOL")
+                        } else {
+                            FinalDecisionGate.logApprovedTrade(fdgDecision) { addLog(it, mint) }
+                            ErrorLogger.info("BotService", "${if(fdgDecision.isBenchmarkQuality()) "🟢" else "🟡"} " +
+                                "FDG ${fdgDecision.approvalClass}: ${identity.symbol} | " +
+                                "quality=${fdgDecision.quality} | conf=${fdgDecision.confidence.toInt()}% | " +
+                                "size=${actualInitialSize.fmt(4)} SOL" +
+                                if (isGraduated) " (grad: target=${finalSize.fmt(4)})" else "")
+                        }
                         
                         if (!cbState.isHalted && !cbState.isPaused) {
                             executor.maybeActWithDecision(
@@ -2264,8 +2408,13 @@ class BotService : Service() {
                                         ?.state?.value?.totalTrades ?: 0
                                 } catch (_: Exception) { 0 },
                                 tradeIdentity      = identity,  // Pass canonical identity
-                                fdgApprovalClass   = fdgDecision.approvalClass,  // Pass approval class for learning
+                                fdgApprovalClass   = approvalClass,  // Pass approval class for learning
                             )
+                            
+                            // Record V3 position opened
+                            if (useV3Decision) {
+                                com.lifecyclebot.v3.V3EngineManager.setCooldown(identity.mint, 60_000L)
+                            }
                         }
                     } else {
                         // ═══════════════════════════════════════════════════════════════════
