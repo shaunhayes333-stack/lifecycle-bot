@@ -96,13 +96,13 @@ class CollectiveBrainActivity : AppCompatActivity() {
         val modeStats = stats["modeStats"] as? Int ?: 0
         val whaleStats = stats["whaleStats"] as? Int ?: 0
         
-        // Get collective analytics
-        val analyticsStats = try {
-            com.lifecyclebot.engine.CollectiveAnalytics.getStats()
+        // Get collective analytics summary
+        val analyticsSummary = try {
+            com.lifecyclebot.engine.CollectiveAnalytics.getSummary()
         } catch (_: Exception) { null }
         
-        val totalTrades = analyticsStats?.get("totalTrades") as? Int ?: 0
-        val estimatedInstances = analyticsStats?.get("estimatedInstances") as? Int ?: 0
+        val totalTrades = analyticsSummary?.collectivePatterns ?: 0
+        val estimatedInstances = analyticsSummary?.estimatedInstances ?: 0
         
         // Get local stats for profit/loss (we can't get cross-instance P&L from collective)
         val localStats = com.lifecyclebot.engine.TradeHistoryStore.getStats()
@@ -125,7 +125,7 @@ class CollectiveBrainActivity : AppCompatActivity() {
             tvBlacklistedTokens.text = "$blacklisted"
             
             // Update mode stats
-            updateModeStats()
+            updateModeStats(analyticsSummary)
             
             // Pulse the brain if trades increased
             if (totalTrades > brainView.lastTradeCount) {
@@ -134,10 +134,10 @@ class CollectiveBrainActivity : AppCompatActivity() {
         }
     }
     
-    private fun updateModeStats() {
+    private fun updateModeStats(analyticsSummary: com.lifecyclebot.engine.CollectiveAnalytics.AnalyticsSummary?) {
         try {
-            val topPatterns = com.lifecyclebot.engine.CollectiveAnalytics.getTopPatterns(3)
-            val worstPatterns = com.lifecyclebot.engine.CollectiveAnalytics.getWorstPatterns(3)
+            val topPatterns = analyticsSummary?.bestPatterns ?: emptyList()
+            val worstPatterns = analyticsSummary?.worstPatterns ?: emptyList()
             
             if (topPatterns.isNotEmpty()) {
                 tvTopMode.text = topPatterns.first().patternType.take(15)
@@ -154,7 +154,7 @@ class CollectiveBrainActivity : AppCompatActivity() {
             // Build mode breakdown
             llModeStats.removeAllViews()
             
-            topPatterns.forEachIndexed { index, pattern ->
+            topPatterns.take(3).forEachIndexed { index: Int, pattern: com.lifecyclebot.engine.CollectiveAnalytics.PatternStat ->
                 val row = LinearLayout(this).apply {
                     orientation = LinearLayout.HORIZONTAL
                     setPadding(0, dp(4), 0, dp(4))
