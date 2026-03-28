@@ -19,6 +19,9 @@ import com.lifecyclebot.v3.scoring.ScoreCard
 import com.lifecyclebot.v3.sizing.PortfolioRiskState
 import com.lifecyclebot.v3.sizing.SmartSizerV3
 import com.lifecyclebot.v3.sizing.WalletSnapshot
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.GlobalScope
+import kotlinx.coroutines.launch
 
 /**
  * V3 Engine Manager
@@ -345,7 +348,7 @@ object V3EngineManager {
             
             // Upload to Collective Learning (hive mind)
             if (com.lifecyclebot.collective.CollectiveLearning.isEnabled()) {
-                kotlinx.coroutines.GlobalScope.launch(kotlinx.coroutines.Dispatchers.IO) {
+                GlobalScope.launch(Dispatchers.IO) {
                     try {
                         val liquidityBucket = when {
                             liquidityUsd < 5_000 -> "MICRO"
