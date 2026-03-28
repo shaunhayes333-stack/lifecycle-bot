@@ -837,9 +837,39 @@ class SolanaMarketScanner(
     // Running state
     @Volatile private var isRunning = false
     
+    // Staleness detection - track last time we found a new token
+    @Volatile private var lastNewTokenFoundMs = System.currentTimeMillis()
+    @Volatile private var lastStalenessCheckMs = System.currentTimeMillis()
+    private val STALENESS_THRESHOLD_MS = 120_000L  // 2 minutes without new tokens = stale
+    
     // Public status for debugging
     fun getStatus(): String {
-        return "Scanner: running=$isRunning seenMints=${seenMints.size} rejectedMints=${rejectedMints.size} scanRotation=$scanRotation"
+        val staleSeconds = (System.currentTimeMillis() - lastNewTokenFoundMs) / 1000
+        return "Scanner: running=$isRunning seenMints=${seenMints.size} rejectedMints=${rejectedMints.size} scanRotation=$scanRotation stale=${staleSeconds}s"
+    }
+    
+    // Called when a new token passes filters and gets added to watchlist
+    fun recordNewTokenFound() {
+        lastNewTokenFoundMs = System.currentTimeMillis()
+    }
+    
+    // Check if scanner is stuck and needs reset
+    fun checkAndResetIfStale(): Boolean {
+        val now = System.currentTimeMillis()
+        
+        // Only check staleness every 30 seconds to avoid spam
+        if (now - lastStalenessCheckMs < 30_000L) return false
+        lastStalenessCheckMs = now
+        
+        val staleDuration = now - lastNewTokenFoundMs
+        if (staleDuration > STALENESS_THRESHOLD_MS) {
+            ErrorLogger.warn("Scanner", "⚠️ Scanner STALE for ${staleDuration/1000}s - forcing reset")
+            onLog("⚠️ Scanner stuck for ${staleDuration/1000}s - resetting...")
+            forceReset()
+            lastNewTokenFoundMs = now  // Reset timer after clearing
+            return true
+        }
+        return false
     }
     
     // Force clear all maps (emergency reset)

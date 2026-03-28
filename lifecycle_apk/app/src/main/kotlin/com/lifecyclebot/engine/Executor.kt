@@ -3829,9 +3829,37 @@ class Executor(
             } catch (verifyEx: RuntimeException) {
                 throw verifyEx  // Re-throw sell verification failures
             } catch (e: Exception) {
-                // Balance check failed but tx was confirmed - log warning but continue
-                onLog("⚠️ SELL VERIFICATION: Could not verify balance (${e.message?.take(40)})", tradeId.mint)
-                onLog("   Proceeding based on tx confirmation sig=${sig.take(20)}...", tradeId.mint)
+                // Balance check failed but tx was confirmed
+                // CRITICAL FIX: Don't blindly proceed - verify tx on solscan or retry balance check
+                onLog("⚠️ SELL VERIFICATION: Balance check failed (${e.message?.take(40)})", tradeId.mint)
+                
+                // Retry balance check with fresh RPC call
+                try {
+                    Thread.sleep(2000)  // Wait a bit longer for propagation
+                    val retryBalances = wallet.getTokenAccountsWithDecimals()
+                    val retryRemaining = retryBalances[ts.mint]?.first ?: 0.0
+                    
+                    if (retryRemaining > pos.qtyToken * 0.01) {
+                        val retryPct = (retryRemaining / pos.qtyToken * 100).toInt()
+                        onLog("🚨 SELL VERIFICATION RETRY: Still holding ${retryPct}% of tokens!", tradeId.mint)
+                        onNotify("🚨 Sell Incomplete!",
+                            "${ts.symbol}: ${retryPct}% tokens still in wallet after retry!",
+                            com.lifecyclebot.engine.NotificationHistory.NotifEntry.NotifType.INFO)
+                        throw RuntimeException("Sell verification retry failed: still holding ${retryPct}% tokens")
+                    } else {
+                        onLog("✅ SELL VERIFIED on retry: Token balance is now ${retryRemaining}", tradeId.mint)
+                    }
+                } catch (retryEx: RuntimeException) {
+                    throw retryEx  // Re-throw verification failures
+                } catch (retryE: Exception) {
+                    // Both balance checks failed - DO NOT PROCEED, keep position
+                    onLog("🚨 CRITICAL: Cannot verify sell completion - keeping position active!", tradeId.mint)
+                    onNotify("🚨 Sell Unverified!",
+                        "${ts.symbol}: Cannot verify on-chain. Position NOT cleared. Check manually!",
+                        com.lifecyclebot.engine.NotificationHistory.NotifEntry.NotifType.INFO)
+                    onToast("🚨 SELL UNVERIFIED: ${ts.symbol}\nCannot confirm on-chain. Manual check required!")
+                    throw RuntimeException("Sell unverifiable: balance check failed twice (${retryE.message})")
+                }
             }
             
             val price   = ts.ref

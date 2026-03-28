@@ -205,6 +205,13 @@ data class BotConfig(
     val tursoDbUrl: String = "",                    // Turso database URL (libsql://...)
     val tursoAuthToken: String = "",                // Turso auth token
     val collectiveLearningEnabled: Boolean = true,  // Enable collective learning sync
+    // ── V3 Scoring Engine ─────────────────────────────────────────────────
+    // New score-modifier based decision engine (replaces hard-gating)
+    val v3EngineEnabled: Boolean = false,           // Enable V3 scoring engine (experimental)
+    val v3ShadowMode: Boolean = true,               // Run V3 in shadow mode (log-only, no execution)
+    val v3MinScoreToTrade: Int = 55,                // Minimum unified score to consider trade
+    val v3MaxExposurePct: Double = 70.0,            // Max wallet exposure in V3 mode
+    val v3ConservativeMode: Boolean = false,        // More conservative scoring thresholds
 )
 
 /** Persists config — private key stored in EncryptedSharedPreferences */

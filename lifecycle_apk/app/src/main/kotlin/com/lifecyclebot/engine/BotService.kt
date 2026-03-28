@@ -20,6 +20,8 @@ import com.lifecyclebot.data.*
 import com.lifecyclebot.network.DexscreenerApi
 import com.lifecyclebot.network.SolanaWallet
 import com.lifecyclebot.ui.MainActivity
+import com.lifecyclebot.v3.bridge.V3Adapter
+import com.lifecyclebot.v3.core.ProcessResult
 import kotlinx.coroutines.*
 
 class BotService : Service() {
@@ -621,6 +623,9 @@ class BotService : Service() {
                             identity.watchlisted("admitted for strategy evaluation")
                             TradeLifecycle.watchlisted(identity.mint, wl.size, "admitted for strategy evaluation")
                             
+                            // Record that we found a new token (for staleness detection)
+                            marketScanner?.recordNewTokenFound()
+                            
                             addLog("📋 WATCHLISTED: ${identity.symbol} (${source.name}) liq=$${liquidityUsd.toInt()} score=${score.toInt()} | now #${wl.size}", identity.mint)
                             ErrorLogger.info("BotService", "WATCHLISTED: ${identity.symbol} | liq=$${liquidityUsd.toInt()} | watchlist now=${wl.size}")
                             soundManager.playNewToken()
@@ -1211,10 +1216,18 @@ class BotService : Service() {
             }
             
             // ═══════════════════════════════════════════════════════════════════
-            // PERIODIC ORPHAN SCAN - every 30 loops (~2.5 minutes) in live mode
+            // SCANNER STALENESS CHECK - every 6 loops (~30 seconds)
+            // If no new tokens found for 2 minutes, reset scanner maps
+            // ═══════════════════════════════════════════════════════════════════
+            if (loopCount % 6 == 0 && marketScanner != null) {
+                marketScanner?.checkAndResetIfStale()
+            }
+            
+            // ═══════════════════════════════════════════════════════════════════
+            // PERIODIC ORPHAN SCAN - every 10 loops (~50 seconds) in live mode
             // Catches tokens that failed to sell and are stuck in wallet
             // ═══════════════════════════════════════════════════════════════════
-            if (!cfg.paperMode && loopCount % 30 == 0 && wallet != null) {
+            if (!cfg.paperMode && loopCount % 10 == 0 && wallet != null) {
                 scope.launch {
                     try {
                         addLog("🔍 Periodic orphan scan starting...")
@@ -2149,6 +2162,43 @@ class BotService : Service() {
                         tradingModeTag = tradingModeTag,
                     )
                     
+                    // ═══════════════════════════════════════════════════════════════════
+                    // V3 ENGINE: Score-based evaluation (shadow or active mode)
+                    // ═══════════════════════════════════════════════════════════════════
+                    if (cfg.v3EngineEnabled) {
+                        try {
+                            val v3Result = V3Adapter.processV3(
+                                ts = ts,
+                                walletSol = effectiveBalance,
+                                isPaperMode = cfg.paperMode,
+                                marketRegime = modeConf?.mode?.name ?: "NEUTRAL",
+                                classifiedTrades = botBrain?.getTradeCount() ?: 0,
+                                winRate = botBrain?.getRecentWinRate() ?: 50.0,
+                                drawdownPct = 0.0,  // TODO: Get from session stats
+                                apiHealthy = true
+                            )
+                            
+                            val v3Tag = when (v3Result) {
+                                is ProcessResult.Executed -> "V3:EXECUTE(${v3Result.sizeSol.fmt(3)} SOL)"
+                                is ProcessResult.Watch -> "V3:WATCH(${v3Result.band})"
+                                is ProcessResult.Rejected -> "V3:REJECT(${v3Result.reason.take(20)})"
+                                is ProcessResult.Blocked -> "V3:BLOCK(${v3Result.reason.take(20)})"
+                            }
+                            
+                            val fdgTag = if (fdgDecision.canExecute()) "FDG:APPROVE" else "FDG:BLOCK"
+                            
+                            // Log V3 vs FDG comparison
+                            ErrorLogger.info("BotService", "⚡ V3 SCORING: ${identity.symbol} | $v3Tag | $fdgTag")
+                            
+                            // If shadow mode disabled and V3 says execute, use V3 sizing
+                            if (!cfg.v3ShadowMode && v3Result is ProcessResult.Executed) {
+                                addLog("⚡ V3 EXECUTE: ${identity.symbol} | score=${v3Result.band} | size=${v3Result.sizeSol.fmt(3)} SOL", mint)
+                            }
+                        } catch (v3e: Exception) {
+                            ErrorLogger.error("BotService", "V3 engine error for ${identity.symbol}: ${v3e.message}")
+                        }
+                    }
+                    
                     if (fdgDecision.canExecute()) {
                         // ═══════════════════════════════════════════════════════════════════
                         // RECORD PROPOSAL: Track that we proposed (for dedupe)
@@ -2743,8 +2793,10 @@ class BotService : Service() {
             var orphansSold = 0
             
             tokenAccounts.forEach { (mint, qty) ->
-                // Skip dust
-                if (qty < 0.5) return@forEach
+                // Skip actual dust (less than $0.01 value typically)
+                // For meme tokens, even 0.5 could be significant
+                // Better: Skip if qty is essentially zero
+                if (qty < 0.0000001) return@forEach
                 // Skip tracked positions
                 if (mint in trackedMints) return@forEach
                 // Skip SOL
