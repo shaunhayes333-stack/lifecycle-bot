@@ -271,6 +271,31 @@ class Executor(
                 // Silently ignore - circuit breaker is secondary
             }
         }
+        
+        // ═══════════════════════════════════════════════════════════════════
+        // V3.2: Record trade outcome to MetaCognitionAI
+        // This enables the self-aware learning loop:
+        //   AI predictions at entry → Trade outcome → Update layer accuracy
+        // ═══════════════════════════════════════════════════════════════════
+        if (trade.side == "SELL") {
+            try {
+                val holdTimeMs = if (ts.position.entryTime > 0) {
+                    System.currentTimeMillis() - ts.position.entryTime
+                } else {
+                    0L
+                }
+                
+                com.lifecyclebot.v3.scoring.MetaCognitionAI.recordTradeOutcome(
+                    mint = ts.mint,
+                    symbol = ts.symbol,
+                    pnlPct = trade.pnlPct ?: 0.0,
+                    holdTimeMs = holdTimeMs,
+                    exitReason = trade.exitReason ?: "unknown"
+                )
+            } catch (e: Exception) {
+                // Silently ignore - meta-cognition is secondary
+            }
+        }
     }
 
     // ── top-up sizing ─────────────────────────────────────────────────

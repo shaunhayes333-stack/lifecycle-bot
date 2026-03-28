@@ -63,6 +63,8 @@ object AICrossTalk {
         SMART_MONEY_DIVERGENCE,       // Whale behavior vs price divergence
         DRY_LIQUIDITY_WARNING,        // Market-wide liquidity crisis
         RUNNER_SETUP,                 // High-probability runner setup
+        META_COGNITION_BOOST,         // MetaCognition detects high-confidence pattern
+        META_COGNITION_WARNING,       // MetaCognition detects known losing pattern
         NO_CORRELATION,               // Signals not correlated
     }
     
@@ -70,6 +72,7 @@ object AICrossTalk {
     private var smartMoneyPumpsDetected = 0
     private var coordinatedDumpsDetected = 0
     private var narrativeMomentumDetected = 0
+    private var metaCognitionBoostsDetected = 0
     private var totalCrossTalkAnalyses = 0
     
     // Learned correlation weights (adjusted based on outcomes)
@@ -77,6 +80,7 @@ object AICrossTalk {
     private var coordinatedDumpUrgencyWeight = 25.0
     private var narrativeMomentumWeight = 10.0
     private var regimeAmplificationFactor = 0.3  // 30% amplification in strong regimes
+    private var metaCognitionWeight = 1.2  // MetaCognition trust multiplier
     
     // Signal cache to prevent duplicate analyses (5 second TTL)
     private data class CachedCrossTalk(val signal: CrossTalkSignal, val timestamp: Long)
