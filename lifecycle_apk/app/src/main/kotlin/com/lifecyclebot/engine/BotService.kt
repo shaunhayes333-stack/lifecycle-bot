@@ -2251,8 +2251,11 @@ class BotService : Service() {
                 // ═══════════════════════════════════════════════════════════════════
                 if (!ts.position.isOpen && cfg.v3EngineEnabled && com.lifecyclebot.v3.V3EngineManager.isReady()) {
                     
+                    // Calculate token age in minutes
+                    val tokenAgeMinutes = (System.currentTimeMillis() - ts.addedToWatchlistAt) / 60000.0
+                    
                     // Log discovery (entry point to V3 pipeline)
-                    ErrorLogger.debug("BotService", "[DISCOVERY] ${identity.symbol} | src=${ts.source} liq=${ts.meta.liquidity.toInt()} age=${ts.ageMinutes.toInt()}m")
+                    ErrorLogger.debug("BotService", "[DISCOVERY] ${identity.symbol} | src=${ts.source} liq=${ts.lastLiquidityUsd.toInt()} age=${tokenAgeMinutes.toInt()}m")
                     
                     try {
                         val v3Decision = com.lifecyclebot.v3.V3EngineManager.processToken(
@@ -2288,7 +2291,7 @@ class BotService : Service() {
                                     val v3Thesis = "V3 score=${result.score} band=${result.band}"
                                     
                                     // Update lifecycle to V3 states
-                                    identity.v3Execute(result.score, result.band.name, result.sizeSol)
+                                    identity.v3Execute(result.score, result.band, result.sizeSol)
                                     
                                     // Execute the trade
                                     val proposedSize = result.sizeSol
@@ -2299,7 +2302,7 @@ class BotService : Service() {
                                     ErrorLogger.info("BotService", "[EXECUTION] ${identity.symbol} | ${if (cfg.paperMode) "PAPER" else "LIVE"}_BUY | ${proposedSize.fmt(4)} SOL")
                                     
                                     // Record proposal for dedupe
-                                    TradeLifecycle.recordProposal(identity.mint, proposedSize)
+                                    TradeLifecycle.recordProposal(identity.mint)
                                     
                                     // Execute buy through unified executor
                                     executor.v3Buy(
@@ -2307,7 +2310,7 @@ class BotService : Service() {
                                         sizeSol = proposedSize,
                                         walletSol = effectiveBalance,
                                         v3Score = result.score,
-                                        v3Band = result.band.name,
+                                        v3Band = result.band,
                                         v3Confidence = result.confidence,
                                         wallet = wallet,
                                         lastSuccessfulPollMs = lastSuccessfulPollMs,
@@ -2339,7 +2342,7 @@ class BotService : Service() {
                                     currentPrice = ts.ref,
                                     proposedSizeSol = 0.1,
                                     quality = decision.finalQuality,
-                                    confidence = result.confidence,
+                                    confidence = result.confidence.toDouble(),
                                     phase = decision.phase,
                                 )
                                 
