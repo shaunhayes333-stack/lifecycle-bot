@@ -327,7 +327,7 @@ object AIStartupCoordinator {
     private fun initTradeHistory(): Boolean {
         // TradeHistoryStore should initialize
         try {
-            com.lifecyclebot.engine.TradeHistoryStore.getTradeCount()
+            com.lifecyclebot.engine.TradeHistoryStore.getTradeCount24h()
             return true
         } catch (e: Exception) {
             return false
