@@ -151,8 +151,37 @@ class TradeJournal(private val ctx: Context) {
      * Export as TAX-FRIENDLY CSV for accountants.
      * Opens in Excel, Google Sheets, Numbers, etc.
      */
+    /**
+     * Export PAPER trades only as TAX-FRIENDLY CSV
+     */
+    fun exportPaperCsv(tokens: Map<String, TokenState>): Intent? {
+        return exportCsvFiltered(tokens, "paper", "AATE_Paper_Trades")
+    }
+    
+    /**
+     * Export LIVE trades only as TAX-FRIENDLY CSV
+     */
+    fun exportLiveCsv(tokens: Map<String, TokenState>): Intent? {
+        return exportCsvFiltered(tokens, "live", "AATE_Live_Trades")
+    }
+    
+    /**
+     * Export ALL trades as TAX-FRIENDLY CSV (combined)
+     */
     fun exportCsv(tokens: Map<String, TokenState>): Intent? {
-        val entries = buildJournal(tokens)
+        return exportCsvFiltered(tokens, null, "AATE_All_Trades")
+    }
+    
+    /**
+     * Internal: Export CSV with optional mode filter
+     */
+    private fun exportCsvFiltered(tokens: Map<String, TokenState>, modeFilter: String?, filePrefix: String): Intent? {
+        val allEntries = buildJournal(tokens)
+        val entries = if (modeFilter != null) {
+            allEntries.filter { it.mode == modeFilter }
+        } else {
+            allEntries
+        }
         if (entries.isEmpty()) return null
 
         val sdf  = SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.US)
@@ -254,8 +283,13 @@ class TradeJournal(private val ctx: Context) {
         sb.appendLine("")
         sb.appendLine("DISCLAIMER: This report is for informational purposes only. Consult a tax professional for accurate tax advice.")
 
-        // Write to cache file
-        val filename = "lifecycle_trades_${SimpleDateFormat("yyyyMMdd_HHmm",Locale.US).format(Date())}.csv"
+        // Write to cache file with mode indicator
+        val modeLabel = when (modeFilter) {
+            "paper" -> "PAPER"
+            "live" -> "LIVE"
+            else -> "ALL"
+        }
+        val filename = "${filePrefix}_${modeLabel}_${SimpleDateFormat("yyyyMMdd_HHmm",Locale.US).format(Date())}.csv"
         val file = File(ctx.cacheDir, filename)
         file.writeText(sb.toString())
 
@@ -268,8 +302,8 @@ class TradeJournal(private val ctx: Context) {
         return Intent(Intent.ACTION_SEND).apply {
             type    = "text/csv"
             putExtra(Intent.EXTRA_STREAM, uri)
-            putExtra(Intent.EXTRA_SUBJECT, "AATE Trade Journal - Tax Report")
-            putExtra(Intent.EXTRA_TEXT, "${entries.size} trades exported for tax reporting")
+            putExtra(Intent.EXTRA_SUBJECT, "AATE Trade Journal - ${modeLabel} Trades - Tax Report")
+            putExtra(Intent.EXTRA_TEXT, "${entries.size} ${modeLabel.lowercase()} trades exported for tax reporting")
             addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
         }
     }
@@ -289,8 +323,29 @@ class TradeJournal(private val ctx: Context) {
         val scratchCount: Int = 0,
     )
 
+    /**
+     * Get stats for ALL trades
+     */
     fun getStats(tokens: Map<String, TokenState>): JournalStats {
-        val sells = buildJournal(tokens).filter { it.side == "SELL" }
+        return getStatsFiltered(buildJournal(tokens))
+    }
+    
+    /**
+     * Get stats for PAPER trades only
+     */
+    fun getPaperStats(tokens: Map<String, TokenState>): JournalStats {
+        return getStatsFiltered(buildPaperJournal(tokens))
+    }
+    
+    /**
+     * Get stats for LIVE trades only
+     */
+    fun getLiveStats(tokens: Map<String, TokenState>): JournalStats {
+        return getStatsFiltered(buildLiveJournal(tokens))
+    }
+    
+    private fun getStatsFiltered(entries: List<JournalEntry>): JournalStats {
+        val sells = entries.filter { it.side == "SELL" }
         val meaningfulTrades = sells.filter { it.pnlPct < -2.0 || it.pnlPct > 2.0 }
         val scratchTrades = sells.filter { it.pnlPct >= -2.0 && it.pnlPct <= 2.0 }
         val wins  = meaningfulTrades.filter { it.pnlPct > 2.0 }
