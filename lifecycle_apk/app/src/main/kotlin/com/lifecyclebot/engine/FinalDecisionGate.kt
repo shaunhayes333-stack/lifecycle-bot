@@ -1158,6 +1158,298 @@ object FinalDecisionGate {
         }
         
         // ═══════════════════════════════════════════════════════════════════════
+        // GATE 0.1: TOXIC MODE CIRCUIT BREAKER (HARD KILL)
+        // 
+        // CRITICAL: This gate runs FIRST before any other checks.
+        // After catastrophic losses (GROKCHAIN -92%), these patterns are BANNED.
+        // 
+        // HARD KILLS:
+        // 1. COPY_TRADE mode - completely disabled as execution mode
+        // 2. Hard confidence floors (conf < 30 = no execution EVER)
+        // 3. C-grade + low conf + negative memory + AI degraded = REJECT
+        // 4. Liquidity floors: Watch=$2k, Execute=$10k+
+        // ═══════════════════════════════════════════════════════════════════════
+        
+        // Extract memory score early for toxic pattern check
+        val earlyMemoryScore = try {
+            val memMult = TokenWinMemory.getConfidenceMultiplier(
+                ts.mint, ts.symbol, ts.name, ts.lastMcap, 
+                ts.lastLiquidityUsd, 50.0, ts.phase, ts.source
+            )
+            when {
+                memMult < 0.5 -> -15  // Very negative memory
+                memMult < 0.7 -> -10
+                memMult < 0.85 -> -5
+                memMult > 1.3 -> 10   // Positive memory
+                memMult > 1.15 -> 5
+                else -> 0
+            }
+        } catch (_: Exception) { 0 }
+        
+        // Check if AI is degraded (from candidate or market conditions)
+        val earlyAIDegraded = try {
+            currentConditions.entryAiWinRate < 30.0 || currentConditions.exitAiAvgPnl < -10.0
+        } catch (_: Exception) { false }
+        
+        // Get trading mode from tag
+        val tradingModeStr = tradingModeTag?.name ?: ""
+        
+        // ─────────────────────────────────────────────────────────────────────
+        // HARD KILL 1: COPY_TRADE MODE COMPLETELY DISABLED
+        // After -92% GROKCHAIN loss, COPY_TRADE is banned as an execution mode.
+        // Keep as signal for scoring, but NO BUYING through this path.
+        // ─────────────────────────────────────────────────────────────────────
+        if (tradingModeStr.uppercase().contains("COPY")) {
+            ErrorLogger.warn("FDG", "🚫 HARD_KILL: ${ts.symbol} | mode=$tradingModeStr | " +
+                "COPY_TRADE DISABLED → NO EXECUTION")
+            
+            return FinalDecision(
+                shouldTrade = false,
+                mode = mode,
+                approvalClass = ApprovalClass.BLOCKED,
+                quality = candidate.setupQuality,
+                confidence = candidate.aiConfidence,
+                edge = EdgeVerdict.SKIP,
+                blockReason = "COPY_TRADE_MODE_DISABLED",
+                blockLevel = BlockLevel.HARD,
+                sizeSol = 0.0,
+                tags = listOf("copy_trade_disabled", "hard_kill"),
+                mint = ts.mint,
+                symbol = ts.symbol,
+                approvalReason = "COPY_TRADE_HARD_DISABLED_AFTER_CATASTROPHIC_LOSSES",
+                gateChecks = listOf(GateCheck("copy_trade_kill", false, "COPY_TRADE mode completely banned"))
+            )
+        }
+        
+        // ─────────────────────────────────────────────────────────────────────
+        // HARD KILL 2: ABSOLUTE CONFIDENCE FLOORS (NON-NEGOTIABLE)
+        // These are HARD limits. No exceptions. No probes. No paper learning.
+        // 
+        // conf < 30 → NO EXECUTION (garbage)
+        // conf < 35 AND quality C → NO EXECUTION (Kris pattern)
+        // conf < 40 AND AI degraded → NO EXECUTION (blind trading)
+        // ─────────────────────────────────────────────────────────────────────
+        val isCGrade = candidate.setupQuality == "C" || candidate.setupQuality == "D"
+        val confidence = candidate.aiConfidence
+        
+        // Rule 1: conf < 30 is garbage - never trade
+        if (confidence < 30.0) {
+            ErrorLogger.warn("FDG", "🚫 HARD_KILL: ${ts.symbol} | conf=${confidence.toInt()}% < 30% | " +
+                "CONFIDENCE_FLOOR_VIOLATED")
+            
+            return FinalDecision(
+                shouldTrade = false,
+                mode = mode,
+                approvalClass = ApprovalClass.BLOCKED,
+                quality = candidate.setupQuality,
+                confidence = confidence,
+                edge = EdgeVerdict.SKIP,
+                blockReason = "CONFIDENCE_FLOOR_30%",
+                blockLevel = BlockLevel.CONFIDENCE,
+                sizeSol = 0.0,
+                tags = listOf("confidence_floor_30", "hard_kill"),
+                mint = ts.mint,
+                symbol = ts.symbol,
+                approvalReason = "HARD_CONFIDENCE_FLOOR: conf=${confidence.toInt()}% < 30%",
+                gateChecks = listOf(GateCheck("confidence_floor_30", false, "conf < 30% is garbage"))
+            )
+        }
+        
+        // Rule 2: conf < 35 AND C-grade - marginal + low quality = reject
+        if (confidence < 35.0 && isCGrade) {
+            ErrorLogger.warn("FDG", "🚫 HARD_KILL: ${ts.symbol} | conf=${confidence.toInt()}% + quality=${candidate.setupQuality} | " +
+                "C_GRADE_CONFIDENCE_FLOOR_VIOLATED")
+            
+            return FinalDecision(
+                shouldTrade = false,
+                mode = mode,
+                approvalClass = ApprovalClass.BLOCKED,
+                quality = candidate.setupQuality,
+                confidence = confidence,
+                edge = EdgeVerdict.SKIP,
+                blockReason = "C_GRADE_CONFIDENCE_FLOOR_35%",
+                blockLevel = BlockLevel.CONFIDENCE,
+                sizeSol = 0.0,
+                tags = listOf("c_grade_confidence_floor", "hard_kill"),
+                mint = ts.mint,
+                symbol = ts.symbol,
+                approvalReason = "C-GRADE + conf < 35% = REJECT",
+                gateChecks = listOf(GateCheck("c_grade_conf_floor", false, "C-grade requires conf >= 35%"))
+            )
+        }
+        
+        // Rule 3: conf < 40 AND AI degraded - blind trading = reject
+        if (confidence < 40.0 && earlyAIDegraded) {
+            ErrorLogger.warn("FDG", "🚫 HARD_KILL: ${ts.symbol} | conf=${confidence.toInt()}% + AI_DEGRADED | " +
+                "DEGRADED_AI_CONFIDENCE_FLOOR_VIOLATED")
+            
+            return FinalDecision(
+                shouldTrade = false,
+                mode = mode,
+                approvalClass = ApprovalClass.BLOCKED,
+                quality = candidate.setupQuality,
+                confidence = confidence,
+                edge = EdgeVerdict.SKIP,
+                blockReason = "AI_DEGRADED_CONFIDENCE_FLOOR_40%",
+                blockLevel = BlockLevel.CONFIDENCE,
+                sizeSol = 0.0,
+                tags = listOf("ai_degraded_confidence_floor", "hard_kill"),
+                mint = ts.mint,
+                symbol = ts.symbol,
+                approvalReason = "AI_DEGRADED + conf < 40% = REJECT",
+                gateChecks = listOf(GateCheck("ai_degraded_conf_floor", false, "Degraded AI requires conf >= 40%"))
+            )
+        }
+        
+        // ─────────────────────────────────────────────────────────────────────
+        // HARD KILL 3: TOXIC PATTERN COMBO (THE "KRIS" RULE)
+        // 
+        // If ALL or MOST of these are true → HARD REJECT:
+        //   - quality = C
+        //   - conf < 35
+        //   - memory <= -8
+        //   - AI degraded
+        // 
+        // This is exactly the pattern that let "Kris" through.
+        // No PAPER_PROBE. No sizing. No entry. REJECT.
+        // ─────────────────────────────────────────────────────────────────────
+        val toxicPatternFlags = mutableListOf<String>()
+        
+        if (isCGrade) toxicPatternFlags.add("quality_C")
+        if (confidence < 35.0) toxicPatternFlags.add("conf<35")
+        if (earlyMemoryScore <= -8) toxicPatternFlags.add("memory<=-8")
+        if (earlyAIDegraded) toxicPatternFlags.add("AI_degraded")
+        
+        // If 3+ toxic flags → HARD REJECT (covers "Kris" case)
+        if (toxicPatternFlags.size >= 3) {
+            ErrorLogger.warn("FDG", "🚫 HARD_KILL TOXIC PATTERN: ${ts.symbol} | " +
+                "flags=${toxicPatternFlags.joinToString(",")} | KRIS_RULE → REJECT")
+            
+            return FinalDecision(
+                shouldTrade = false,
+                mode = mode,
+                approvalClass = ApprovalClass.BLOCKED,
+                quality = candidate.setupQuality,
+                confidence = confidence,
+                edge = EdgeVerdict.SKIP,
+                blockReason = "TOXIC_PATTERN_KRIS_RULE",
+                blockLevel = BlockLevel.HARD,
+                sizeSol = 0.0,
+                tags = listOf("toxic_pattern", "kris_rule", "hard_kill") + toxicPatternFlags,
+                mint = ts.mint,
+                symbol = ts.symbol,
+                approvalReason = "TOXIC_PATTERN: ${toxicPatternFlags.joinToString(" + ")} → REJECT",
+                gateChecks = listOf(GateCheck("toxic_pattern", false, 
+                    "Kris rule: 3+ toxic flags (${toxicPatternFlags.joinToString(",")}) = HARD REJECT"))
+            )
+        }
+        
+        // ─────────────────────────────────────────────────────────────────────
+        // HARD KILL 4: LIQUIDITY FLOORS FOR EXECUTION
+        // 
+        // Split watchlist floor from execution floor cleanly:
+        //   - Watch/Shadow: $2,000 minimum (for learning)
+        //   - Execution: $10,000 minimum (for actual trades)
+        // 
+        // If liq < $2k → don't even watch (clutters watchlist)
+        // If liq < $10k → watch only, no execution
+        // ─────────────────────────────────────────────────────────────────────
+        val WATCHLIST_FLOOR = 2_000.0
+        val EXECUTION_FLOOR = 10_000.0
+        
+        // Below $2k - don't even watch, too much noise
+        if (ts.lastLiquidityUsd < WATCHLIST_FLOOR) {
+            ErrorLogger.debug("FDG", "🚫 LIQ_FLOOR: ${ts.symbol} | liq=\$${ts.lastLiquidityUsd.toInt()} < \$2k | " +
+                "TOO_LOW_FOR_WATCHLIST")
+            
+            return FinalDecision(
+                shouldTrade = false,
+                mode = mode,
+                approvalClass = ApprovalClass.BLOCKED,
+                quality = candidate.setupQuality,
+                confidence = confidence,
+                edge = EdgeVerdict.SKIP,
+                blockReason = "LIQUIDITY_BELOW_WATCHLIST_FLOOR",
+                blockLevel = BlockLevel.HARD,
+                sizeSol = 0.0,
+                tags = listOf("liq_below_watch_floor", "hard_kill"),
+                mint = ts.mint,
+                symbol = ts.symbol,
+                approvalReason = "Liquidity \$${ts.lastLiquidityUsd.toInt()} < \$2k watchlist floor",
+                gateChecks = listOf(GateCheck("liq_watch_floor", false, "liq < \$2k = not worth watching"))
+            )
+        }
+        
+        // Between $2k-$10k - watch only, no execution (shadow track for learning)
+        if (ts.lastLiquidityUsd < EXECUTION_FLOOR) {
+            ErrorLogger.info("FDG", "👁️ LIQ_FLOOR: ${ts.symbol} | liq=\$${ts.lastLiquidityUsd.toInt()} < \$10k | " +
+                "WATCH_ONLY (no execution)")
+            
+            // Mark as blocked but add tags for shadow tracking
+            return FinalDecision(
+                shouldTrade = false,
+                mode = mode,
+                approvalClass = ApprovalClass.BLOCKED,
+                quality = candidate.setupQuality,
+                confidence = confidence,
+                edge = if (candidate.setupQuality in listOf("A+", "A", "B")) EdgeVerdict.WEAK else EdgeVerdict.SKIP,
+                blockReason = "LIQUIDITY_BELOW_EXECUTION_FLOOR",
+                blockLevel = BlockLevel.MODE,
+                sizeSol = 0.0,
+                tags = listOf("liq_below_exec_floor", "shadow_track", "watch_only"),
+                mint = ts.mint,
+                symbol = ts.symbol,
+                approvalReason = "Liquidity \$${ts.lastLiquidityUsd.toInt()} < \$10k execution floor - WATCH ONLY",
+                gateChecks = listOf(GateCheck("liq_exec_floor", false, 
+                    "liq \$${ts.lastLiquidityUsd.toInt()} < \$10k = shadow track only"))
+            )
+        }
+        
+        // ─────────────────────────────────────────────────────────────────────
+        // HARD KILL 5: CALL TOXIC MODE CIRCUIT BREAKER
+        // 
+        // Check ToxicModeCircuitBreaker for any mode-specific blocks.
+        // This catches frozen modes, banned source+mode combos, etc.
+        // ─────────────────────────────────────────────────────────────────────
+        if (tradingModeStr.isNotBlank()) {
+            val circuitBlockReason = ToxicModeCircuitBreaker.checkEntryAllowed(
+                mode = tradingModeStr,
+                source = ts.source,
+                liquidityUsd = ts.lastLiquidityUsd,
+                phase = ts.phase,
+                memoryScore = earlyMemoryScore,
+                isAIDegraded = earlyAIDegraded,
+                confidence = confidence.toInt()
+            )
+            
+            if (circuitBlockReason != null) {
+                ErrorLogger.warn("FDG", "🚫 CIRCUIT_BREAKER: ${ts.symbol} | mode=$tradingModeStr | " +
+                    "$circuitBlockReason")
+                
+                return FinalDecision(
+                    shouldTrade = false,
+                    mode = mode,
+                    approvalClass = ApprovalClass.BLOCKED,
+                    quality = candidate.setupQuality,
+                    confidence = confidence,
+                    edge = EdgeVerdict.SKIP,
+                    blockReason = "CIRCUIT_BREAKER: $circuitBlockReason",
+                    blockLevel = BlockLevel.HARD,
+                    sizeSol = 0.0,
+                    tags = listOf("circuit_breaker", "mode_blocked"),
+                    mint = ts.mint,
+                    symbol = ts.symbol,
+                    approvalReason = "ToxicModeCircuitBreaker: $circuitBlockReason",
+                    gateChecks = listOf(GateCheck("circuit_breaker", false, circuitBlockReason))
+                )
+            }
+        }
+        
+        // ═══════════════════════════════════════════════════════════════════════
+        // PASSED ALL HARD KILLS - Continue with normal FDG evaluation
+        // ═══════════════════════════════════════════════════════════════════════
+        
+        // ═══════════════════════════════════════════════════════════════════════
         // AUTO-ADJUSTING THRESHOLDS
         // 
         // Get current trade count and win rate from brain for adaptive thresholds

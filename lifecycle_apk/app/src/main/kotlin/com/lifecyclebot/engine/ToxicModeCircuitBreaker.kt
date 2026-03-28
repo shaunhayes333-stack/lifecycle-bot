@@ -50,17 +50,28 @@ object ToxicModeCircuitBreaker {
     // No entry below these thresholds - no exceptions
     // ═══════════════════════════════════════════════════════════════════════════
     
+    // ═══════════════════════════════════════════════════════════════════════════
+    // LIQUIDITY FLOORS BY MODE
+    // 
+    // UPDATED: Clean split between watchlist and execution floors
+    //   - Watchlist/Shadow: $2,000 (handled in FDG)
+    //   - Execution minimum: $10,000 (DEFAULT floor)
+    //   - High-risk modes: $15,000+ (extra safety margin)
+    //
+    // No entry below these thresholds - no exceptions
+    // ═══════════════════════════════════════════════════════════════════════════
+    
     private val LIQUIDITY_FLOORS = mapOf(
-        "COPY_TRADE" to Double.MAX_VALUE,      // Effectively disabled
-        "COPY" to Double.MAX_VALUE,            // Effectively disabled
-        "WHALE_FOLLOW" to 15_000.0,            // $15k minimum
-        "WHALE_ACCUMULATION" to 15_000.0,      // $15k minimum
-        "MOMENTUM" to 10_000.0,                // $10k minimum
-        "MOMENTUM_SWING" to 10_000.0,          // $10k minimum
-        "FRESH_LAUNCH" to 12_000.0,            // $12k minimum
+        "COPY_TRADE" to Double.MAX_VALUE,      // Effectively disabled - no entries allowed
+        "COPY" to Double.MAX_VALUE,            // Effectively disabled - no entries allowed
+        "WHALE_FOLLOW" to 15_000.0,            // $15k minimum (high-risk social following)
+        "WHALE_ACCUMULATION" to 15_000.0,      // $15k minimum (high-risk)
+        "MOMENTUM" to 10_000.0,                // $10k minimum (execution floor)
+        "MOMENTUM_SWING" to 10_000.0,          // $10k minimum (execution floor)
+        "FRESH_LAUNCH" to 12_000.0,            // $12k minimum (new token risk)
         "PRESALE_SNIPE" to 15_000.0,           // $15k minimum (highest risk)
-        "SENTIMENT_IGNITION" to 10_000.0,      // $10k minimum
-        "DEFAULT" to 8_000.0,                  // Absolute floor for any mode
+        "SENTIMENT_IGNITION" to 10_000.0,      // $10k minimum (execution floor)
+        "DEFAULT" to 10_000.0,                 // $10k EXECUTION FLOOR (raised from $8k)
     )
     
     // ═══════════════════════════════════════════════════════════════════════════
