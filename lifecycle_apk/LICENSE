@@ -1,37 +1,81 @@
-MIT License
+# PROPRIETARY SOFTWARE LICENSE
 
-Copyright (c) 2025 AATE Project (Autonomous Algorithmic Trading Engine)
+## Copyright Notice
 
-Permission is hereby granted, free of charge, to any person obtaining a copy
-of this software and associated documentation files (the "Software"), to deal
-in the Software without restriction, including without limitation the rights
-to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
-copies of the Software, and to permit persons to whom the Software is
-furnished to do so, subject to the following conditions:
+Copyright (c) 2024-2026 AATE Project (Autonomous Algorithmic Trading Engine). 
+All Rights Reserved.
 
-The above copyright notice and this permission notice shall be included in all
-copies or substantial portions of the Software.
+## License Terms
 
-THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
-AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
-OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
-SOFTWARE.
+This software and associated documentation files (the "Software") are 
+PROPRIETARY and CONFIDENTIAL. The Software is protected by copyright law 
+and international treaty provisions.
 
----
+### STRICTLY PROHIBITED
 
-TRADEMARK NOTICE:
+1. **NO COPYING** - You may NOT copy, reproduce, or duplicate any part of 
+   this Software.
 
-AATE™ (Autonomous Algorithmic Trading Engine) and the AATE logo (neural 
-infinity design) are trademarks. The MIT license grants rights to the source 
-code only, NOT to the AATE trademarks, logos, or branding. See LEGAL.md for 
-trademark usage guidelines.
+2. **NO DISTRIBUTION** - You may NOT distribute, publish, or share this 
+   Software or any derivative works.
 
----
+3. **NO MODIFICATION** - You may NOT modify, adapt, translate, or create 
+   derivative works based on this Software.
 
-CRYPTOCURRENCY TRADING DISCLAIMER:
+4. **NO REVERSE ENGINEERING** - You may NOT reverse engineer, decompile, 
+   disassemble, or attempt to derive the source code of this Software.
+
+5. **NO COMMERCIAL USE** - You may NOT use this Software for any commercial 
+   purpose without explicit written permission from the copyright holder.
+
+6. **NO SUBLICENSING** - You may NOT sublicense, rent, lease, or lend this 
+   Software.
+
+### PROTECTED INTELLECTUAL PROPERTY
+
+All algorithms, trade logic, AI models, scoring systems, and architectural 
+patterns contained within this Software are TRADE SECRETS and PROPRIETARY 
+INTELLECTUAL PROPERTY.
+
+The following components are specifically protected:
+- V3 Unified Scoring Architecture
+- ArbScannerAI System (VenueLagModel, FlowImbalanceModel, PanicReversionModel)
+- SourceTimingRegistry and venue lag detection algorithms
+- BotBrain Self-Learning System
+- AICrossTalk Engine
+- SuperBrain Enhancements
+- Collective Learning Database Schema
+- All discovery, scoring, execution, and risk algorithms
+- ModeRouter and trading mode logic
+- Jupiter integration patterns
+- All 17+ AI module implementations
+
+### ENFORCEMENT
+
+Unauthorized use, copying, or distribution of this Software will result in:
+1. Immediate legal action
+2. Pursuit of all available civil remedies including injunctive relief
+3. Criminal prosecution where applicable
+4. Recovery of all damages, costs, and attorney fees
+
+### VIEWING ONLY
+
+If you are viewing this repository, you are permitted to VIEW the code for 
+educational purposes ONLY. This does NOT grant any rights to use, copy, 
+modify, or distribute the Software.
+
+### NO WARRANTY
+
+THIS SOFTWARE IS PROVIDED "AS IS" WITHOUT WARRANTY OF ANY KIND, EXPRESS 
+OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, 
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.
+
+### TRADEMARK NOTICE
+
+AATE™ (Autonomous Algorithmic Trading Engine) and the AATE logo are 
+trademarks. NO rights to trademarks, logos, or branding are granted.
+
+### CRYPTOCURRENCY TRADING DISCLAIMER
 
 ⚠️ HIGH RISK WARNING: This software is provided for educational and 
 informational purposes only. It is NOT financial advice.
@@ -40,6 +84,11 @@ informational purposes only. It is NOT financial advice.
 - You may lose some or ALL of your invested capital
 - Past performance is NOT indicative of future results
 - The developers are NOT responsible for any financial losses
-- ALWAYS use paper/demo mode before live trading
 
 USE AT YOUR OWN RISK. TRADE RESPONSIBLY.
+
+---
+
+For licensing inquiries, contact the repository owner.
+
+AATE V3.2 - Confidential and Proprietary

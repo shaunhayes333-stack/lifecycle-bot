@@ -1,8 +1,23 @@
-# AATE V3.1 Competitive Analysis & Comparison
+# AATE V3.2 Competitive Analysis & Comparison
 
 ## Executive Summary
 
-AATE V3.1 occupies a unique position in the Solana trading bot market: **the only mobile-native, AI-powered, fully autonomous trading engine with zero fees**. This document provides detailed comparison against major competitors.
+**AATE V3.2 occupies a unique position in the Solana trading bot market: the only mobile-native, AI-powered, fully autonomous trading engine with zero fees AND built-in arbitrage detection.** This document provides detailed comparison against major competitors.
+
+---
+
+## V3.2 NEW: Arbitrage Capabilities
+
+No competitor has anything like this:
+
+| Feature | AATE V3.2 | All Competitors |
+|---------|-----------|-----------------|
+| **Venue Lag Detection** | ✅ Cross-source timing | ❌ None |
+| **Flow Imbalance Model** | ✅ Order flow vs price | ❌ None |
+| **Panic Reversion Model** | ✅ Mean reversion AI | ❌ None |
+| **Arb-Specific Sizing** | ✅ Conservative sizing | ❌ None |
+| **Time-Based Exits** | ✅ 60-120s max hold | ❌ None |
+| **Self-Learning Thresholds** | ✅ Adapts to outcomes | ❌ None |
 
 ---
 
@@ -126,9 +141,10 @@ AATE V3.1 occupies a unique position in the Solana trading bot market: **the onl
 
 ## Feature Matrix: AATE vs All Competitors
 
-| Feature | AATE V3.1 | BonkBot | Trojan | Photon | Maestro | BullX |
+| Feature | AATE V3.2 | BonkBot | Trojan | Photon | Maestro | BullX |
 |---------|-----------|---------|--------|--------|---------|-------|
-| **AI Modules** | 14 | 0 | 1-2 | 0 | 0 | 0 |
+| **AI Modules** | 17 | 0 | 1-2 | 0 | 0 | 0 |
+| **Arbitrage Detection** | ✅ 3 types | ❌ | ❌ | ❌ | ❌ | ❌ |
 | **Self-Learning** | ✅ | ❌ | ❌ | ❌ | ❌ | ❌ |
 | **Full Autonomy** | ✅ | ❌ | ❌ | ❌ | ❌ | ❌ |
 | **Mobile Native** | ✅ | ❌ | ❌ | ❌ | ❌ | ❌ |
@@ -170,30 +186,32 @@ Assuming 1,000 trades/year at average $50/trade:
 
 | Project | LOC | Architecture |
 |---------|-----|--------------|
-| **AATE V3.1** | **68,000+** | Native Kotlin, V3 Unified Scoring |
+| **AATE V3.2** | **70,000+** | Native Kotlin, V3 Unified Scoring + ArbScannerAI |
 | BonkBot | ~10,000 | Node.js Telegram Bot |
 | Trojan | ~15,000 | TypeScript Bot |
 | Photon | ~25,000 | React + Backend |
 | Maestro | ~20,000 | Multi-chain Bot |
 
-AATE has **3-7x more code** than competitors, reflecting deeper AI integration and autonomous capabilities.
+AATE has **3-7x more code** than competitors, reflecting deeper AI integration, arbitrage capabilities, and autonomous features.
 
 ### AI Architecture
 
-| Bot | Decision Method | Learning |
-|-----|-----------------|----------|
-| **AATE V3.1** | 14-module unified scoring | ✅ Cross-instance |
-| Others | If/then rules or manual | ❌ None |
+| Bot | Decision Method | Learning | Arbitrage |
+|-----|-----------------|----------|-----------|
+| **AATE V3.2** | 17-module unified scoring + 3 arb models | ✅ Cross-instance + Arb learning | ✅ 3 types |
+| Others | If/then rules or manual | ❌ None | ❌ None |
 
 ---
 
-## Unique AATE Advantages
+## Unique AATE V3.2 Advantages
 
 ### 1. True Autonomy
 AATE is the **only** bot that operates completely without human intervention. Others require manual commands or constant monitoring.
 
-### 2. 14 AI Modules
-No competitor has anything close to 14 specialized AI modules working together:
+### 2. 17 AI Modules (14 Core + 3 Arb)
+No competitor has anything close to 17 specialized AI modules working together:
+
+**Core Modules:**
 - Entry Intelligence
 - Momentum Predictor
 - Liquidity Depth
@@ -202,21 +220,36 @@ No competitor has anything close to 14 specialized AI modules working together:
 - Memory System
 - Market Regime
 - Time Optimization
-- Fear & Greed Index (NEW in V3.1)
-- Social Velocity (NEW in V3.1)
+- Fear & Greed Index
+- Social Velocity
 - Holder Safety
 - Cross-Talk Engine
+- Copy Trade AI
+- Suppression AI
 
-### 3. BotBrain Self-Learning
+**Arb Modules (NEW in V3.2):**
+- VenueLagModel - Cross-source timing detection
+- FlowImbalanceModel - Order flow vs price divergence
+- PanicReversionModel - Mean reversion after flushes
+
+### 3. ArbScannerAI (NEW in V3.2)
+AATE V3.2 introduces a parallel arbitrage lane that no competitor has:
+- **Venue Lag Detection:** Catches cross-source timing opportunities
+- **Flow Imbalance:** Detects when order flow exceeds price movement
+- **Panic Reversion:** Mean reversion plays after oversold flushes
+- **Self-Learning:** Adjusts thresholds based on actual outcomes
+- **Conservative Sizing:** Arb trades always smaller than directional
+
+### 4. BotBrain Self-Learning
 AATE learns from every trade and adapts to market conditions. Competitors use static rules.
 
-### 4. Collective Learning (Network Effect)
+### 5. Collective Learning (Network Effect)
 Via Turso edge database, AATE instances share patterns globally. More users = smarter bot for everyone.
 
-### 5. Zero Cost
+### 6. Zero Cost
 $0 monthly. $0 per trade. Forever. This alone saves traders $500-$2,300/year.
 
-### 6. Self-Custody
+### 7. Self-Custody
 Keys never leave your device. Unlike Telegram bots where you trust the bot with your private key.
 
 ---
@@ -261,11 +294,12 @@ Keys never leave your device. Unlike Telegram bots where you trust the bot with 
 
 ## Conclusion
 
-AATE V3.1 is not competing with existing trading bots - it's creating a new category: **AI-native autonomous trading**. 
+AATE V3.2 is not competing with existing trading bots - it's creating a new category: **AI-native autonomous trading with built-in arbitrage detection**. 
 
 The combination of:
-- 14 AI modules
+- 17 AI modules (14 core + 3 arb)
 - Self-learning capability
+- Arbitrage detection (no competitor has this)
 - Collective intelligence
 - Zero fees
 - Self-custody
@@ -273,6 +307,6 @@ The combination of:
 
 ...creates a product that competitors cannot easily replicate without rebuilding from scratch.
 
-The 68,000+ lines of production code represent an 18-month head start that grows with every user (network effects from collective learning).
+The 70,000+ lines of production code represent an 18-month head start that grows with every user (network effects from collective learning).
 
-**Bottom line:** AATE V3.1 is the most technologically advanced consumer trading product in the Solana ecosystem.
+**Bottom line:** AATE V3.2 is the most technologically advanced consumer trading product in the Solana ecosystem.

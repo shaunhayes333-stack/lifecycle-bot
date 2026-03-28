@@ -1,22 +1,30 @@
-# AATE V3.1 VC Outreach Emails
+# AATE V3.2 VC Outreach Emails
 
 ## Email Templates for Different Investor Types
 
-*Updated March 2026 for V3.1 Architecture*
+*Updated March 2026 for V3.2 Architecture (ArbScannerAI)*
 
 ---
 
 ## 1. Crypto-Native VC (a16z Crypto, Paradigm, Polychain)
 
-**Subject:** AATE V3.1: 68K lines of autonomous trading AI for Solana meme coins
+**Subject:** AATE V3.2: 70K lines of autonomous trading AI + arbitrage for Solana
 
 **Body:**
 
 Hi [Name],
 
-I built something I think your team would find technically interesting: a fully autonomous trading engine for Solana meme coins with 68,436 lines of production Kotlin code.
+I built something I think your team would find technically interesting: a fully autonomous trading engine for Solana meme coins with 70,000+ lines of production Kotlin code.
 
-**The core innovation:** V3.1 Architecture - instead of hard-gating trades (if X then block), everything becomes a weighted score. 14 AI modules (including new Fear/Greed Index and Social Velocity) feed into a unified scorer. The engine learns what works and adapts in real-time.
+**The core innovation:** V3.2 Architecture - instead of hard-gating trades (if X then block), everything becomes a weighted score. 17 AI modules (including a NEW ArbScannerAI system) feed into a unified scorer. The engine learns what works and adapts in real-time.
+
+**NEW in V3.2 - ArbScannerAI:**
+- Venue Lag Detection: Catches cross-source timing opportunities
+- Flow Imbalance: Order flow vs price divergence
+- Panic Reversion: Mean reversion after oversold flushes
+- Self-learning thresholds that adapt to actual outcomes
+
+No other consumer trading product has this.
 
 **What makes it different:**
 - True autonomy: runs 24/7 on Android, no human intervention needed
@@ -175,16 +183,16 @@ Raising $500K seed. Would you be interested in a quick demo?
 
 | Metric | Value | Context |
 |--------|-------|---------|
-| Lines of Code | 68,436+ | Top 1% of solo-founder projects |
-| Kotlin Files | 151 | Production-grade architecture |
-| AI Modules | 14 | Unified scoring system (2 NEW in V3.1) |
-| Architecture | V3.1 | Score-based, not hard-gated |
-| NEW: Fear & Greed Index | ✅ | Contrarian market sentiment |
-| NEW: Social Velocity | ✅ | Early pump detection |
+| Lines of Code | 70,900+ | Top 0.1% of solo-founder projects |
+| Kotlin Files | 163 | Production-grade architecture |
+| AI Modules | 17 | 14 core + 3 arb models (UNIQUE) |
+| Architecture | V3.2 | Score-based + ArbScannerAI |
+| Arb Types | 3 | Venue Lag, Flow Imbalance, Panic Reversion |
+| NEW: ArbLearning | ✅ | Self-optimizing thresholds |
 | Collective Learning | Live | Turso edge database |
 | Trading Modes | 7 | Auto-switching by market regime |
 | Target ARR (Y3) | $4.5M | Conservative SaaS projections |
-| Ask | $500K | 10% equity at $5M pre-money |
+| Ask | $600K | 10% equity at $6M pre-money |
 
 ---
 

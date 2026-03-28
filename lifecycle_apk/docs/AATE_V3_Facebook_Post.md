@@ -1,4 +1,4 @@
-# AATE V3.1 Facebook Announcement Post
+# AATE V3.2 Facebook Announcement Post
 
 ## Copy-Paste Ready Post:
 
@@ -6,55 +6,59 @@
 
 **Version 1: Full Announcement (Recommended)**
 
-🚀 **AATE V3.1 is LIVE - The World's First AI-Native Mobile Trading Bot for Solana**
+🚀 **AATE V3.2 is LIVE - Now with Arbitrage AI**
 
 After 18 months of building in silence, I'm finally ready to share what I've been working on.
 
 **AATE (Autonomous Algorithmic Trading Engine)** is a native Android app that trades Solana meme coins 24/7 - completely autonomously.
 
-🧠 **What makes V3.1 special:**
-• 14 AI modules working together (Fear & Greed Index, Social Velocity, Whale Tracking, and 11 more)
-• Self-learning "BotBrain" that adapts to YOUR market conditions
-• 68,000+ lines of production Kotlin code
+🧠 **What's NEW in V3.2:**
+• **ArbScannerAI** - Short-horizon mispricing capture system
+• 3 Arb Types: Venue Lag, Flow Imbalance, Panic Reversion
+• Self-learning arb thresholds that adapt to market conditions
+• 17 total AI modules working together (14 core + 3 arb models)
+
+🔥 **What makes V3.2 special:**
+• Parallel trading lanes: Normal + Arb opportunities
+• 70,000+ lines of production Kotlin code
 • Military-grade rug protection (7 layers of safety)
 • $0 monthly fees. 0% per-trade fees. Forever.
 
-💡 **The Problem We Solve:**
-95% of meme coin traders lose money. Why? Because you can't compete with bots, you can't watch charts 24/7, and emotions kill profits. AATE removes all three problems.
+💡 **The Arb Edge:**
+While other bots wait for obvious pumps, AATE V3.2 detects:
+- Cross-source timing gaps (token seen on source A before B)
+- Order-flow vs price divergence (flow says move, price hasn't)
+- Panic overshoots (flush too hard, bounce incoming)
 
 ⚙️ **The V3 Architecture:**
-Instead of rigid "if X then block" rules, V3 uses unified scoring. Every signal is a weight, not a wall. The AI evaluates 14 different factors and synthesizes them into a single decision with confidence scoring.
+Instead of rigid "if X then block" rules, V3 uses unified scoring. Every signal is a weight, not a wall. The AI evaluates 17 different factors and synthesizes them into a single decision with confidence scoring.
 
 📱 **Why Mobile?**
 Your keys stay on YOUR device. No web wallets. No third-party custody. True self-sovereignty + 24/7 autonomous operation.
-
-🔮 **What's Next:**
-• Play Store beta launch (100 early adopters) - Q2 2026
-• iOS version - Q3 2026
-• Web dashboard for remote monitoring - Q3 2026
 
 🎯 **Interested in early access?**
 Drop a comment or DM me. Looking for 100 beta testers who want to level up their trading game.
 
 This isn't financial advice. This is a tool. The AI makes decisions, but the responsibility is yours.
 
-#Solana #DeFi #TradingBot #CryptoTrading #AI #MemeCoins #AATE
+#Solana #DeFi #TradingBot #CryptoTrading #AI #MemeCoins #AATE #Arbitrage
 
 ---
 
 **Version 2: Shorter/Teaser Version**
 
-🤖 Just shipped 68,000 lines of code.
+🤖 Just shipped 70,000 lines of code.
 
-Meet AATE V3.1 - an AI that trades Solana meme coins while you sleep.
+Meet AATE V3.2 - an AI that trades Solana meme coins while you sleep.
 
-14 AI modules. Self-learning brain. Zero fees.
+NEW: Arbitrage detection across sources.
+17 AI modules. Self-learning brain. Zero fees.
 
 The bot that trades so you don't have to.
 
 Beta coming soon. Who wants early access? 👇
 
-#Solana #TradingBot #AI #Crypto
+#Solana #TradingBot #AI #Crypto #Arbitrage
 
 ---
 
@@ -62,20 +66,26 @@ Beta coming soon. Who wants early access? 👇
 
 For my dev friends:
 
-Just shipped V3.1 of AATE - 68K lines of Kotlin for an autonomous Solana trading engine.
+Just shipped V3.2 of AATE - 70K lines of Kotlin for an autonomous Solana trading engine.
+
+NEW in V3.2 - ArbScannerAI:
+• SourceTimingRegistry for cross-source venue lag detection
+• FlowImbalanceModel - order flow vs price divergence
+• PanicReversionModel - mean reversion after flushes
+• ArbCoordinator - unified arb decision engine
+• ArbExitEngine - time-based aggressive exits
 
 Technical highlights:
 • Unified scoring architecture (not if/then gates)
-• 14 AI scoring modules synthesized into single decision
+• 17 AI scoring modules synthesized into single decision
 • Turso edge DB for collective learning across instances
-• Jupiter Ultra + Jito MEV protection
-• CI/CD with GitHub Actions
+• Jupiter Swap v2 + Jito MEV protection
 
 The core innovation: every signal is a weighted input, not a blocking condition. This lets the system capture opportunities that rule-based bots miss.
 
 Open to technical discussions if anyone wants to chat architecture.
 
-#Kotlin #Android #Solana #DeFi #TradingAlgorithms
+#Kotlin #Android #Solana #DeFi #TradingAlgorithms #Arbitrage
 
 ---
 
