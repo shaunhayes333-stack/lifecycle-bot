@@ -1,14 +1,11 @@
 package com.lifecyclebot.v3
 
-import android.content.Context
 import com.lifecyclebot.data.BotConfig
 import com.lifecyclebot.data.TokenState
 import com.lifecyclebot.engine.ErrorLogger
-import com.lifecyclebot.network.JupiterApi
 import com.lifecyclebot.network.SolanaWallet
 import com.lifecyclebot.v3.bridge.V3Adapter
 import com.lifecyclebot.v3.core.*
-import com.lifecyclebot.v3.decision.ConfidenceEngine
 import com.lifecyclebot.v3.decision.FinalDecisionEngine
 import com.lifecyclebot.v3.decision.OpsMetrics
 import com.lifecyclebot.v3.eligibility.CooldownManager
@@ -16,8 +13,6 @@ import com.lifecyclebot.v3.eligibility.EligibilityGate
 import com.lifecyclebot.v3.eligibility.ExposureGuard
 import com.lifecyclebot.v3.learning.LearningStore
 import com.lifecyclebot.v3.risk.FatalRiskChecker
-import com.lifecyclebot.v3.scanner.CandidateSnapshot
-import com.lifecyclebot.v3.scoring.UnifiedScorer
 import com.lifecyclebot.v3.shadow.ShadowTracker
 import com.lifecyclebot.v3.sizing.PortfolioRiskState
 import com.lifecyclebot.v3.sizing.SmartSizerV3
@@ -49,9 +44,6 @@ object V3EngineManager {
     private var shadowTracker: ShadowTracker? = null
     private var orchestrator: BotOrchestrator? = null
     
-    // Jupiter API for real execution
-    private var jupiterApi: JupiterApi? = null
-    
     // Callback for trade execution
     private var onExecuteCallback: ((ExecuteRequest) -> ExecuteResult)? = null
     
@@ -63,7 +55,6 @@ object V3EngineManager {
      */
     fun initialize(
         botConfig: BotConfig,
-        jupiterApiKey: String = "",
         onExecute: ((ExecuteRequest) -> ExecuteResult)? = null,
         onLog: ((String, String) -> Unit)? = null
     ) {
@@ -119,9 +110,7 @@ object V3EngineManager {
             )
             
             // Set up Jupiter API for real execution
-            if (jupiterApiKey.isNotBlank()) {
-                jupiterApi = JupiterApi(jupiterApiKey)
-            }
+            // (execution is delegated to main Executor via callback)
             
             // Set callbacks
             onExecuteCallback = onExecute
@@ -295,9 +284,8 @@ object V3EngineManager {
             return V3ExecutionResult.shadow(sizeSol)
         }
         
-        // LIVE execution
+        // LIVE execution - delegate to callback (main Executor handles actual trade)
         try {
-            // Use callback if provided (delegates to main Executor)
             if (onExecuteCallback != null) {
                 val request = ExecuteRequest(
                     mint = ts.mint,
@@ -308,9 +296,7 @@ object V3EngineManager {
                 val result = onExecuteCallback!!.invoke(request)
                 
                 if (result.success) {
-                    // Record position opened
                     exposureGuard?.openPosition(ts.mint)
-                    
                     return V3ExecutionResult.success(
                         txSignature = result.txSignature,
                         executedSol = result.executedSol,
@@ -321,44 +307,9 @@ object V3EngineManager {
                 }
             }
             
-            // Direct Jupiter execution (fallback)
-            val jupiter = jupiterApi ?: JupiterApi(jupiterApiKey)
-            
-            // Get quote
-            val lamports = (sizeSol * 1_000_000_000).toLong()
-            val quote = jupiter.getQuoteUltra(
-                inputMint = "So11111111111111111111111111111111111111112",  // SOL
-                outputMint = ts.mint,
-                amount = lamports,
-                slippageBps = config?.maxSlippagePct?.times(100)?.toInt() ?: 200
-            )
-            
-            if (quote == null) {
-                return V3ExecutionResult.failed("No quote available")
-            }
-            
-            // Execute swap
-            val swapResult = jupiter.swapUltra(quote, wallet.getPublicKeyBase58())
-            
-            if (swapResult == null) {
-                return V3ExecutionResult.failed("Swap failed - no result")
-            }
-            
-            // Sign and execute
-            val signature = wallet.signAndExecuteUltra(
-                swapResult.first,  // txBase64
-                swapResult.second, // requestId
-                jupiterApiKey
-            )
-            
-            // Record position
-            exposureGuard?.openPosition(ts.mint)
-            
-            return V3ExecutionResult.success(
-                txSignature = signature,
-                executedSol = sizeSol,
-                executedPrice = null  // Will be determined from tx
-            )
+            // No callback configured - V3 cannot execute directly
+            ErrorLogger.warn(TAG, "V3 LIVE execution requested but no callback configured")
+            return V3ExecutionResult.failed("No execution callback configured")
             
         } catch (e: Exception) {
             ErrorLogger.error(TAG, "V3 execution error: ${e.message}", e)

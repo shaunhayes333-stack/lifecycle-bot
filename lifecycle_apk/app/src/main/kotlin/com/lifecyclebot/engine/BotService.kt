@@ -961,7 +961,6 @@ class BotService : Service() {
             try {
                 com.lifecyclebot.v3.V3EngineManager.initialize(
                     botConfig = cfg,
-                    jupiterApiKey = cfg.jupiterApiKey,
                     onExecute = { request ->
                         // Delegate execution to main Executor
                         try {
