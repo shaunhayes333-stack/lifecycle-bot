@@ -1281,7 +1281,7 @@ class Executor(
                 val liveTrade = Trade("SELL", "live", solBack, actualPrice,  // CRITICAL FIX
                     System.currentTimeMillis(), "partial_${newSoldPct.toInt()}pct",
                     livePnl, liveScore, sig = sig, feeSol = feeSol, netPnlSol = netPnl,
-                    mint = ts.mint, tradingMode = ts.tradingMode, tradingModeEmoji = ts.tradingModeEmoji)
+                    mint = ts.mint, tradingMode = pos.tradingMode, tradingModeEmoji = pos.tradingModeEmoji)
                 recordTrade(ts, liveTrade); security.recordTrade(liveTrade)
                 SmartSizer.recordTrade(livePnl > 0, isPaperMode = false)  // Live trade
                 partialSellInFlight.remove(ts.mint)

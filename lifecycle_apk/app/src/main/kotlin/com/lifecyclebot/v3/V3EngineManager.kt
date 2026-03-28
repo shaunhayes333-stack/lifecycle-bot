@@ -264,8 +264,8 @@ object V3EngineManager {
                     onLogCallback?.invoke(log, ts.mint)
                     
                     V3Decision.watch(
-                        score = result.score,
-                        confidence = result.confidence
+                        score = result.score.toInt(),
+                        confidence = result.confidence.toInt()
                     )
                 }
                 

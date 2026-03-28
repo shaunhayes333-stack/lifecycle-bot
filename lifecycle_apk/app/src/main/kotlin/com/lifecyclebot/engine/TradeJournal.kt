@@ -24,6 +24,11 @@ import java.util.*
  * - PDF (Professional tax report)
  * - IRS Form 8949 compatible format
  *
+ * V3.2: Supports SEPARATE journals for Paper and Live mode
+ * - buildPaperJournal() - Paper trades only
+ * - buildLiveJournal() - Live trades only
+ * - buildJournal() - All trades (for combined export)
+ *
  * TAX-FRIENDLY FORMAT for accountants:
  * - Date/Time, Token Symbol, Token Address (Mint), Transaction Type (BUY/SELL)
  * - Quantity (SOL), Price (USD), Cost Basis (USD), Proceeds (USD)
@@ -54,6 +59,20 @@ class TradeJournal(private val ctx: Context) {
         val feeSol: Double,           // Transaction fees
         val netPnlSol: Double,        // P&L after fees
     )
+    
+    /**
+     * Build PAPER mode journal only
+     */
+    fun buildPaperJournal(tokens: Map<String, TokenState>): List<JournalEntry> {
+        return buildJournal(tokens).filter { it.mode == "paper" }
+    }
+    
+    /**
+     * Build LIVE mode journal only
+     */
+    fun buildLiveJournal(tokens: Map<String, TokenState>): List<JournalEntry> {
+        return buildJournal(tokens).filter { it.mode == "live" }
+    }
 
     fun buildJournal(tokens: Map<String, TokenState>): List<JournalEntry> {
         val entries = mutableListOf<JournalEntry>()

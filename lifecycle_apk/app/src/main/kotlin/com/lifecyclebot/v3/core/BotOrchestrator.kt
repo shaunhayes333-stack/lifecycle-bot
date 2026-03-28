@@ -306,8 +306,8 @@ sealed class ProcessResult {
 private fun openShadowTradeForLearning(
     candidate: com.lifecyclebot.v3.scanner.CandidateSnapshot,
     scoreCard: com.lifecyclebot.v3.scoring.ScoreCard,
-    confidence: com.lifecyclebot.v3.scoring.ConfidenceResult,
-    decision: com.lifecyclebot.v3.scoring.Decision,
+    confidence: com.lifecyclebot.v3.decision.ConfidenceBreakdown,
+    decision: com.lifecyclebot.v3.decision.DecisionResult,
     reason: String
 ) {
     try {

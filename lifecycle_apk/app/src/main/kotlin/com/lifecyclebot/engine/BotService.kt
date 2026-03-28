@@ -1051,7 +1051,7 @@ class BotService : Service() {
             ShadowLearningEngine.start()
             
             // Start V3 AI calibration engine (processes blocked trades)
-            com.lifecyclebot.v3.learning.ShadowLearningEngine.start(serviceScope)
+            com.lifecyclebot.v3.learning.ShadowLearningEngine.start(scope)
             
             addLog("🧠 ShadowLearning: V1 + V3 engines started")
         } catch (e: Exception) {
@@ -1451,7 +1451,7 @@ class BotService : Service() {
                                 com.lifecyclebot.collective.CollectiveLearning.uploadHeartbeat(
                                     instanceId = instanceId,
                                     appVersion = com.lifecyclebot.BuildConfig.VERSION_NAME,
-                                    paperMode = status.paperMode,
+                                    paperMode = BotService.status.paperMode,
                                     trades24h = localStats.trades24h,
                                     pnl24hPct = pnl24hPct
                                 )
