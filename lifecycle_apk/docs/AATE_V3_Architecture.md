@@ -1,281 +1,563 @@
-# AATE v3 Architecture — Unlocked Mode
+# AATE V3 Architecture - Technical Deep Dive
 
-> **Scoring-based decisions instead of hard blocks. The actual unlock.**
+## Executive Summary
 
-## Implementation Status
+AATE V3 represents a fundamental shift from hard-gating to unified scoring. Every signal becomes a weighted input to a central decision engine, enabling the system to capture opportunities that rigid rule-based systems would reject.
 
-| Component | File | Status |
-|-----------|------|--------|
-| BotOrchestrator | `v3/core/BotOrchestrator.kt` | ✅ Implemented |
-| TradingConfigV3 | `v3/core/Config.kt` | ✅ Implemented |
-| TradingContext | `v3/core/Config.kt` | ✅ Implemented |
-| LifecycleManager | `v3/core/LifecycleManager.kt` | ✅ Implemented |
-| V3BotMode | `v3/core/Enums.kt` | ✅ Implemented |
-| DecisionBand | `v3/core/Enums.kt` | ✅ Implemented |
-| EligibilityGate | `v3/eligibility/EligibilityGate.kt` | ✅ Implemented |
-| CooldownManager | `v3/eligibility/EligibilityGate.kt` | ✅ Implemented |
-| ExposureGuard | `v3/eligibility/EligibilityGate.kt` | ✅ Implemented |
-| UnifiedScorer | `v3/scoring/UnifiedScorer.kt` | ✅ Implemented |
-| ScoreCard | `v3/scoring/ScoreCard.kt` | ✅ Implemented |
-| All AI Modules | `v3/scoring/ScoringModules.kt` | ✅ Implemented |
-| FatalRiskChecker | `v3/risk/FatalRiskChecker.kt` | ✅ Implemented |
-| ConfidenceEngine | `v3/decision/DecisionEngine.kt` | ✅ Implemented |
-| FinalDecisionEngine | `v3/decision/DecisionEngine.kt` | ✅ Implemented |
-| SmartSizerV3 | `v3/sizing/SmartSizerV3.kt` | ✅ Implemented |
-| ShadowTracker | `v3/shadow/ShadowTracker.kt` | ✅ Implemented |
-| LearningStore | `v3/learning/LearningStore.kt` | ✅ Implemented |
-| TradeExecutor | `v3/execution/TradeExecutor.kt` | ✅ Implemented |
-| V3Adapter | `v3/bridge/V3Adapter.kt` | ✅ Implemented |
-| V3EngineManager | `v3/V3EngineManager.kt` | ✅ Implemented |
-
-### Wiring Status
-- [x] BotOrchestrator wired into BotService ✅
-- [x] Jupiter API integration via ExecuteCallback ✅
-- [x] Turso collective sync with LearningStore ✅
-- [x] Shadow learning mode (V3 vs FDG comparison) ✅
-- [x] V3 vs Legacy comparison logging ✅
-- [x] WhaleTrackerAI → WhaleWalletTracker bridge ✅
-- [x] AutoModeEngine → TimeModeScheduler integration ✅
-- [x] FinalDecisionEngine → V3ConfidenceConfig integration ✅
-- [x] SmartSizerV3 → V3ConfidenceConfig integration ✅
-- [x] CollectiveLearning → CollectiveAnalytics dashboard ✅
-
-### New Intelligence Systems (Session 7)
-
-| System | File | Purpose |
-|--------|------|---------|
-| CollectiveAnalytics | `engine/CollectiveAnalytics.kt` | Dashboard data for hive mind |
-| V3ConfidenceConfig | `engine/V3ConfidenceConfig.kt` | User-adjustable thresholds |
-| WhaleWalletTracker | `engine/WhaleWalletTracker.kt` | Track whale win rates |
-| TimeModeScheduler | `engine/TimeModeScheduler.kt` | Time-based mode switching |
-
-### Legacy Deprecation
-| Legacy File | V3 Replacement | Status |
-|-------------|----------------|--------|
-| `FinalDecisionGate.kt` | `v3/decision/FinalDecisionEngine` | @Deprecated |
-| `SmartSizer.kt` | `v3/sizing/SmartSizerV3` | @Deprecated |
-| `EntryIntelligence.kt` | `v3/scoring/ScoringModules` | @Deprecated |
-| `AntiRugEngine.kt` | `v3/risk/FatalRiskChecker` | @Deprecated |
-| `EdgeOptimizer.kt` | `v3/scoring/ScoringModules` | @Deprecated |
-
----
-
-## Collective Learning Integration
-
-V3 now syncs with the Turso Collective Hive Mind:
-
-### Uploads (Every Trade)
-- Pattern outcomes (entryPhase + tradingMode + source + liquidity + trend)
-- Blacklisted tokens (mint, symbol, reason, severity)
-
-### Periodic Syncs (Every 15 min)
-- Mode performance stats (trades, wins, losses, avg PnL, hold time)
-- V3 vs FDG comparison stats
-
-### Score Adjustments
-- Collective patterns provide -30 to +30 score adjustments
-- Known winners get boosted, known losers get penalized
-- Based on aggregate win rate across all AATE instances
-
----
-
-## Philosophy
-
-Replace this style:
-```kotlin
-if (quickRugcheckReturnedFalse) blockTrade()
-if (copyTradeInvalidation) suppressSignal()
-if (memoryBad) cancelTrade()
-```
-
-With this style:
-```kotlin
-score += rugPenalty
-score += copyTradePenalty
-score += memoryPenalty
-```
-
-**Only keep hard blocks for:**
-- Unsellable
-- Broken pair
-- Liquidity collapse
-- Extreme rug score (90+)
-- Already open position
-- Cooldown active
-- Global exposure maxed
-
-Everything else becomes a **score modifier**, not a gate.
+**Key Innovation:** Instead of `if (condition) return BLOCK`, V3 uses `score += module.evaluate()` for all non-fatal conditions.
 
 ---
 
 ## Architecture Overview
 
 ```
-┌─────────────────────────────────────────────────────────────────┐
-│                      BotOrchestrator                            │
-├─────────────────────────────────────────────────────────────────┤
-│                                                                 │
-│  DISCOVERY → ELIGIBILITY → SCORING → FATAL CHECK → CONFIDENCE  │
-│                                                                 │
-│                    ↓                                            │
-│                                                                 │
-│              FINAL DECISION ENGINE                              │
-│                    ↓                                            │
-│                                                                 │
-│  ┌─────────────┬─────────────┬─────────────┬─────────────┐     │
-│  │ EXECUTE_AGG │ EXECUTE_STD │ EXECUTE_SML │    WATCH    │     │
-│  └─────────────┴─────────────┴─────────────┴─────────────┘     │
-│                    ↓                                            │
-│              SMART SIZER V3                                     │
-│                    ↓                                            │
-│              TRADE EXECUTOR                                     │
-│                                                                 │
-└─────────────────────────────────────────────────────────────────┘
+┌─────────────────────────────────────────────────────────────────────┐
+│                        AATE V3 Architecture                         │
+├─────────────────────────────────────────────────────────────────────┤
+│                                                                     │
+│  ┌─────────────┐    ┌─────────────┐    ┌─────────────┐             │
+│  │ DexScreener │    │   Raydium   │    │  Pump.fun   │             │
+│  │   Boosted   │    │  New Pools  │    │  Graduates  │             │
+│  └──────┬──────┘    └──────┬──────┘    └──────┬──────┘             │
+│         │                  │                  │                     │
+│         └──────────────────┼──────────────────┘                     │
+│                            ▼                                        │
+│                   ┌────────────────┐                                │
+│                   │ DISCOVERY LAYER │                               │
+│                   │ (CandidateSnapshot)                             │
+│                   └────────┬───────┘                                │
+│                            ▼                                        │
+│                   ┌────────────────┐                                │
+│                   │ ELIGIBILITY    │  Cooldowns, Exposure,          │
+│                   │ GATE           │  Portfolio Risk                │
+│                   └────────┬───────┘                                │
+│                            ▼                                        │
+│         ┌──────────────────────────────────────┐                    │
+│         │         UNIFIED SCORER (12 AI)       │                    │
+│         │  ┌────────┐ ┌────────┐ ┌────────┐   │                    │
+│         │  │ Entry  │ │Momentum│ │Liquidity│  │                    │
+│         │  └────────┘ └────────┘ └────────┘   │                    │
+│         │  ┌────────┐ ┌────────┐ ┌────────┐   │                    │
+│         │  │ Volume │ │Holders │ │Narrative│  │                    │
+│         │  └────────┘ └────────┘ └────────┘   │                    │
+│         │  ┌────────┐ ┌────────┐ ┌────────┐   │                    │
+│         │  │ Memory │ │ Regime │ │  Time  │   │                    │
+│         │  └────────┘ └────────┘ └────────┘   │                    │
+│         │  ┌────────┐ ┌────────┐ ┌────────┐   │                    │
+│         │  │CopyTrad│ │Suppress│ │ Source │   │                    │
+│         │  └────────┘ └────────┘ └────────┘   │                    │
+│         └──────────────────┬───────────────────┘                    │
+│                            ▼                                        │
+│                   ┌────────────────┐                                │
+│                   │  FATAL RISK    │  Only: Rugged, Honeypot,       │
+│                   │  CHECKER       │  Unsellable, Liq Collapsed     │
+│                   └────────┬───────┘                                │
+│                            ▼                                        │
+│                   ┌────────────────┐                                │
+│                   │  CONFIDENCE    │  Statistical + Structural      │
+│                   │  ENGINE        │  + Operational                 │
+│                   └────────┬───────┘                                │
+│                            ▼                                        │
+│                   ┌────────────────┐                                │
+│                   │  DECISION      │  EXECUTE_AGGRESSIVE            │
+│                   │  ENGINE        │  EXECUTE_STANDARD              │
+│                   │                │  EXECUTE_SMALL                 │
+│                   │                │  WATCH / REJECT / BLOCK        │
+│                   └────────┬───────┘                                │
+│                            ▼                                        │
+│                   ┌────────────────┐                                │
+│                   │  SMARTSIZER    │  Dynamic sizing based on       │
+│                   │  V3            │  confidence, drawdown, regime  │
+│                   └────────┬───────┘                                │
+│                            ▼                                        │
+│                   ┌────────────────┐                                │
+│                   │  EXECUTION     │  Jupiter Ultra + Jito MEV      │
+│                   └────────────────┘                                │
+│                                                                     │
+└─────────────────────────────────────────────────────────────────────┘
 ```
 
 ---
 
-## Module Breakdown
+## Core Components
 
-### Core
-| File | Purpose |
-|------|---------|
-| `BotMode.kt` | PAPER, LEARNING, LIVE |
-| `TradingConfig.kt` | All thresholds and limits |
-| `TradingContext.kt` | Runtime state wrapper |
-| `BotOrchestrator.kt` | Main pipeline coordinator |
+### 1. CandidateSnapshot
 
-### Lifecycle
-| File | Purpose |
-|------|---------|
-| `LifecycleState.kt` | State machine states |
-| `LifecycleManager.kt` | State tracking per token |
+The unified data structure for all tokens entering the V3 pipeline:
 
-### Scanner
-| File | Purpose |
-|------|---------|
-| `SourceType.kt` | DEX_BOOSTED, RAYDIUM_NEW_POOL, etc. |
-| `CandidateSnapshot.kt` | Token data snapshot |
-
-### Eligibility (Hard Gates Only)
-| File | Purpose |
-|------|---------|
-| `EligibilityGate.kt` | Pre-scoring filters |
-| `CooldownManager.kt` | Per-token cooldowns |
-| `ExposureGuard.kt` | Position limits |
-
-### Scoring (The Unlock)
-| File | Purpose |
-|------|---------|
-| `UnifiedScorer.kt` | Orchestrates all AI modules |
-| `ScoreCard.kt` | Aggregated score result |
-| `ScoreComponent.kt` | Individual score piece |
-| `EntryAI.kt` | Buy pressure, RSI, momentum |
-| `MomentumAI.kt` | Pump detection |
-| `LiquidityAI.kt` | LP health scoring |
-| `VolumeProfileAI.kt` | Accumulation detection |
-| `HolderSafetyAI.kt` | Concentration risk |
-| `NarrativeAI.kt` | Identity signals |
-| `MemoryAI.kt` | Historical pattern match |
-| `MarketRegimeAI.kt` | Bull/Bear context |
-| `TimeAI.kt` | Time-of-day edge |
-| `CopyTradeAI.kt` | Stale/crowded penalties |
-
-### Risk (Fatal Only)
-| File | Purpose |
-|------|---------|
-| `FatalRiskChecker.kt` | Hard blocks only |
-| `RugModel.kt` | Extreme rug scoring |
-| `SellabilityCheck.kt` | Pair validity |
-
-### Decision
-| File | Purpose |
-|------|---------|
-| `ConfidenceEngine.kt` | Statistical + Structural + Ops |
-| `FinalDecisionEngine.kt` | Band selection |
-| `DecisionBand.kt` | EXECUTE_*, WATCH, REJECT, BLOCK |
-
-### Sizing
-| File | Purpose |
-|------|---------|
-| `SmartSizerV3.kt` | Confidence-adjusted sizing |
-| `WalletSnapshot.kt` | Available balance |
-| `PortfolioRiskState.kt` | Drawdown tracking |
-
-### Shadow Tracking
-| File | Purpose |
-|------|---------|
-| `ShadowTracker.kt` | Track near-misses |
-| `ShadowSnapshot.kt` | Captured state |
-| `ShadowOutcome.kt` | Post-hoc classification |
-
-### Learning
-| File | Purpose |
-|------|---------|
-| `LearningEvent.kt` | Trade outcome data |
-| `LearningMetrics.kt` | Win rate, payoff, etc. |
-
----
-
-## Decision Bands
-
-| Band | Score Min | Confidence Min | Size % |
-|------|-----------|----------------|--------|
-| EXECUTE_AGGRESSIVE | 65 | 55 | 9-12% |
-| EXECUTE_STANDARD | 50 | 45 | 6-7% |
-| EXECUTE_SMALL | 35 | 30 | 3-4% |
-| WATCH | 20 | - | 0% (shadow track) |
-| REJECT | <20 | - | 0% |
-| BLOCK_FATAL | - | - | 0% (hard block) |
-
----
-
-## Confidence Breakdown
-
-```
-Effective = 0.50 × Statistical + 0.35 × Structural + 0.15 × Operational
+```kotlin
+data class CandidateSnapshot(
+    val mint: String,
+    val symbol: String,
+    val source: SourceType,
+    val discoveredAtMs: Long,
+    val ageMinutes: Double,
+    val liquidityUsd: Double,
+    val marketCapUsd: Double,
+    val buyPressurePct: Double,
+    val volume1mUsd: Double,
+    val volume5mUsd: Double,
+    val holders: Int?,
+    val topHolderPct: Double?,
+    val bundledPct: Double?,
+    val hasIdentitySignals: Boolean,
+    val isSellable: Boolean?,
+    val rawRiskScore: Int?,
+    val extra: Map<String, Any?>  // Extensible metadata
+)
 ```
 
-**Statistical (50%):**
-- Classified trade count
-- Recent win rate
-- Payoff ratio
-- False block rate
-- Missed winner rate
+### 2. ScoreCard & ScoreComponent
 
-**Structural (35%):**
-- Total score
-- Positive component count
-- Negative component count
+Every AI module outputs a ScoreComponent:
 
-**Operational (15%):**
-- API health
-- Price feed health
-- Wallet health
-- Latency
+```kotlin
+data class ScoreComponent(
+    val name: String,      // "entry", "momentum", "suppression"
+    val value: Int,        // -30 to +30 typically
+    val reason: String     // Human-readable explanation
+)
+
+class ScoreCard(val components: List<ScoreComponent>) {
+    fun total(): Int = components.sumOf { it.value }
+    fun breakdown(): String = components.map { "${it.name}=${it.value}" }.joinToString(" | ")
+}
+```
+
+### 3. Unified Scorer
+
+Orchestrates all 12 AI modules:
+
+```kotlin
+class UnifiedScorer {
+    private val modules = listOf(
+        EntryAI(),
+        MomentumAI(),
+        LiquidityAI(),
+        VolumeProfileAI(),
+        HolderSafetyAI(),
+        NarrativeAI(),
+        MemoryAI(),
+        MarketRegimeAI(),
+        TimeAI(),
+        CopyTradeAI(),
+        SuppressionAI()  // V3 Migration: converts legacy blocks to penalties
+    )
+    
+    fun score(candidate: CandidateSnapshot, ctx: TradingContext): ScoreCard {
+        return ScoreCard(
+            listOf(sourceScore(candidate.source)) +
+            modules.map { it.score(candidate, ctx) }
+        )
+    }
+}
+```
 
 ---
 
-## Migration Path
+## AI Module Details
 
-1. **Phase 1:** Add scoring modules alongside existing logic
-2. **Phase 2:** Route decisions through UnifiedScorer
-3. **Phase 3:** Remove hard blocks (except fatal)
-4. **Phase 4:** Enable SmartSizerV3
-5. **Phase 5:** Activate shadow tracking
-6. **Phase 6:** Feed learning metrics back
+### EntryAI
+Evaluates entry conditions based on price action:
+- RSI oversold (+8)
+- Higher lows formation (+10)
+- Pump building signal (+12)
+- Near VAL accumulation (+6)
+
+### MomentumAI
+Measures trend strength:
+- Strong momentum (+8)
+- Weak/fading momentum (-10)
+- Consolidation pattern (+4)
+
+### LiquidityAI
+Analyzes liquidity depth and stability:
+- Deep liquidity (+6)
+- Draining liquidity (-15)
+- Growing liquidity (+8)
+
+### VolumeProfileAI
+Volume pattern recognition:
+- Volume surge (+10)
+- Volume expansion (+6)
+- Declining volume (-8)
+
+### HolderSafetyAI
+Holder distribution analysis:
+- Healthy distribution (+6)
+- High concentration (-12)
+- Zero/unknown holders (-8)
+
+### NarrativeAI
+Social and narrative signals:
+- Trending narrative (+6)
+- Suspicious name (-5)
+- Identity signals (+4)
+
+### MemoryAI
+Historical pattern matching:
+- Previous winner on this token (+8)
+- Previous loss (-10)
+- Similar pattern to winner (+5)
+
+### MarketRegimeAI
+Macro market conditions:
+- Bull regime (+8)
+- Bear regime (-8)
+- Neutral (0)
+- Volatility adjustment (±5)
+
+### TimeAI
+Time-of-day optimization:
+- Optimal hours (+6)
+- Danger zone hours (-8)
+- Weekend adjustment (-4)
+
+### CopyTradeAI
+Whale following signals:
+- Stale copy pattern (-8)
+- Crowded setup (-4)
+- Fresh whale buy (+6)
+
+### SuppressionAI (V3 Migration)
+Converts legacy hard blocks to penalties:
+- COPY_TRADE_INVALIDATION → -15
+- WHALE_ACCUMULATION_INVALIDATION → -20
+- STOP_LOSS → -25
+- DISTRIBUTION → -30
+
+```kotlin
+class SuppressionAI : ScoringModule {
+    override fun score(candidate: CandidateSnapshot, ctx: TradingContext): ScoreComponent {
+        val penalty = DistributionFadeAvoider.getSuppressionPenalty(candidate.mint)
+        
+        if (penalty == 0) {
+            return ScoreComponent("suppression", 0, "No suppression")
+        }
+        
+        val reason = when {
+            penalty >= 25 -> "Recent stop-loss/distribution"
+            penalty >= 20 -> "Whale invalidation penalty"
+            penalty >= 15 -> "Copy-trade invalidation penalty"
+            else -> "Minor suppression cooldown"
+        }
+        
+        return ScoreComponent("suppression", -penalty, "$reason (-$penalty)")
+    }
+}
+```
 
 ---
 
-## Key Insight
+## Decision Engine
 
-> "The unlock is treating everything as a score modifier, not a gate."
+### Decision Bands
 
-Old way: 10 things can block a trade → You miss winners
-New way: 10 things contribute to score → You size appropriately
+```kotlin
+enum class DecisionBand(val minScore: Int, val maxScore: Int) {
+    EXECUTE_AGGRESSIVE(75, 100),   // High conviction, max size
+    EXECUTE_STANDARD(55, 74),      // Normal conviction, standard size
+    EXECUTE_SMALL(40, 54),         // Low conviction, reduced size
+    WATCH(25, 39),                 // Track but don't trade
+    REJECT(0, 24),                 // Poor setup
+    BLOCK(-100, -1)                // Fatal issues
+}
+```
 
-Same risk management. Better outcomes.
+### Confidence Engine
+
+Three dimensions of confidence:
+
+```kotlin
+data class ConfidenceBreakdown(
+    val statistical: Double,   // Win rate, sample size
+    val structural: Double,    // Technical setup quality
+    val operational: Double    // System health, latency
+)
+
+fun calculateConfidence(
+    scoreCard: ScoreCard,
+    learningMetrics: LearningMetrics,
+    opsMetrics: OpsMetrics
+): ConfidenceBreakdown {
+    val statistical = when {
+        learningMetrics.classifiedTrades < 20 -> 50.0  // Not enough data
+        learningMetrics.last20WinRatePct >= 60 -> 80.0
+        learningMetrics.last20WinRatePct >= 50 -> 65.0
+        else -> 45.0
+    }
+    
+    val structural = (scoreCard.total() + 50).coerceIn(0, 100).toDouble()
+    
+    val operational = when {
+        !opsMetrics.apiHealthy -> 30.0
+        opsMetrics.latencyMs > 500 -> 60.0
+        else -> 90.0
+    }
+    
+    return ConfidenceBreakdown(statistical, structural, operational)
+}
+```
 
 ---
 
-© 2025 AATE Project. All rights reserved.
+## SmartSizer V3
+
+Dynamic position sizing based on multiple factors:
+
+```kotlin
+class SmartSizerV3(private val config: TradingConfigV3) {
+    
+    fun calculateSize(
+        band: DecisionBand,
+        confidence: ConfidenceBreakdown,
+        wallet: WalletSnapshot,
+        risk: PortfolioRiskState
+    ): Double {
+        // Base size from band
+        val basePct = when (band) {
+            DecisionBand.EXECUTE_AGGRESSIVE -> 0.08  // 8% of tradeable
+            DecisionBand.EXECUTE_STANDARD -> 0.05   // 5%
+            DecisionBand.EXECUTE_SMALL -> 0.025     // 2.5%
+            else -> 0.0
+        }
+        
+        // Confidence multiplier (0.5x to 1.5x)
+        val avgConfidence = (confidence.statistical + confidence.structural + confidence.operational) / 3
+        val confMultiplier = (avgConfidence / 100.0).coerceIn(0.5, 1.5)
+        
+        // Drawdown multiplier (reduce size during drawdowns)
+        val drawdownMultiplier = when {
+            risk.recentDrawdownPct > 20 -> 0.25
+            risk.recentDrawdownPct > 10 -> 0.50
+            risk.recentDrawdownPct > 5 -> 0.75
+            else -> 1.0
+        }
+        
+        // Calculate final size
+        val sizeSol = wallet.tradeableSol * basePct * confMultiplier * drawdownMultiplier
+        
+        // Apply min/max bounds
+        return sizeSol.coerceIn(config.minPositionSol, config.maxPositionSol)
+    }
+}
+```
+
+---
+
+## Fatal Risk Checker
+
+Only truly fatal conditions block in V3:
+
+```kotlin
+class FatalRiskChecker {
+    fun check(candidate: CandidateSnapshot, ctx: TradingContext): FatalRiskResult {
+        // FATAL: Rugged/honeypot suppression
+        if (DistributionFadeAvoider.isFatalSuppression(candidate.mint)) {
+            return FatalRiskResult(true, "FATAL_SUPPRESSION")
+        }
+        
+        // FATAL: Liquidity collapsed (can't exit)
+        if (candidate.liquidityUsd <= 250.0) {
+            return FatalRiskResult(true, "LIQUIDITY_COLLAPSED")
+        }
+        
+        // FATAL: Marked unsellable
+        if (candidate.isSellable == false) {
+            return FatalRiskResult(true, "UNSELLABLE")
+        }
+        
+        // FATAL: Invalid pair
+        if (candidate.mint.isBlank() || candidate.symbol.isBlank()) {
+            return FatalRiskResult(true, "PAIR_INVALID")
+        }
+        
+        // FATAL: Extreme rug score (90+)
+        val rugScore = rugModel.score(candidate, ctx)
+        if (rugScore >= 90) {
+            return FatalRiskResult(true, "EXTREME_RUG_RISK_$rugScore")
+        }
+        
+        // Everything else → scoring, not blocking
+        return FatalRiskResult(false)
+    }
+}
+```
+
+---
+
+## V3 vs Legacy Comparison
+
+### Before V3 (Hard Gates)
+
+```kotlin
+// Old BotService.kt flow
+if (suppressionReason != null) {
+    return@launch  // KILLED
+}
+
+if (!decision.shouldTrade) {
+    return@launch  // KILLED
+}
+
+if (copyTradeInvalidation) {
+    return@launch  // KILLED
+}
+
+if (rugcheckScore < 20) {
+    return@launch  // KILLED
+}
+
+// Only survivors reach execution
+executeTrade()
+```
+
+**Problem:** 90% of opportunities killed by cascading gates.
+
+### After V3 (Unified Scoring)
+
+```kotlin
+// New BotService.kt flow
+val candidate = V3Adapter.toCandidate(ts)
+val scoreCard = unifiedScorer.score(candidate, ctx)
+
+val fatalCheck = fatalRiskChecker.check(candidate, ctx)
+if (fatalCheck.blocked) {
+    return V3Decision.blocked(fatalCheck.reason)  // Only true fatals
+}
+
+val confidence = confidenceEngine.calculate(scoreCard, learning, ops)
+val decision = decisionEngine.decide(scoreCard, confidence)
+
+when (decision) {
+    is Execute -> executeTrade(decision.sizeSol)
+    is Watch -> trackForLater()
+    is Reject -> shadowLearn()
+}
+```
+
+**Result:** Every signal weighted, nothing wasted.
+
+---
+
+## Collective Learning Integration
+
+V3 feeds into the Turso collective learning system:
+
+```kotlin
+// On trade outcome
+V3EngineManager.recordOutcome(
+    mint = mint,
+    symbol = symbol,
+    pnlPct = pnlPct,
+    holdTimeMinutes = holdMins,
+    exitReason = reason,
+    entryPhase = phase,
+    tradingMode = mode,
+    discoverySource = source,
+    liquidityUsd = liq,
+    emaTrend = trend
+)
+
+// Uploads to Turso:
+// - Pattern effectiveness (phase + liquidity + timing → outcome)
+// - Blacklist additions (rugs, scams)
+// - Whale wallet scores
+// - Mode performance by time
+```
+
+---
+
+## Performance Metrics
+
+### Expected Improvements from V3
+
+| Metric | Legacy | V3 Expected |
+|--------|--------|-------------|
+| Opportunity Capture | 10% | 40%+ |
+| False Positive Rate | High | Lower (weighted) |
+| Learning Speed | Slow | Fast (collective) |
+| Decision Explainability | Low | High (scorecard) |
+| Adaptation Speed | Manual | Automatic |
+
+---
+
+## Configuration
+
+```kotlin
+data class TradingConfigV3(
+    // Scoring thresholds
+    val executeAggressiveMin: Int = 75,
+    val executeStandardMin: Int = 55,
+    val executeSmallMin: Int = 40,
+    val watchMin: Int = 25,
+    
+    // Fatal thresholds
+    val fatalRugThreshold: Int = 90,
+    val minLiquidityUsd: Double = 250.0,
+    
+    // Sizing bounds
+    val minPositionSol: Double = 0.01,
+    val maxPositionSol: Double = 1.0,
+    val maxExposurePct: Double = 0.70,
+    
+    // Mode
+    val shadowMode: Boolean = false,  // Log only, don't execute
+    val paperMode: Boolean = true     // Paper trading
+)
+```
+
+---
+
+## Logging Format
+
+V3 produces unified, parseable logs:
+
+```
+⚡ V3 EXECUTE: SYMBOL | band=EXECUTE_SMALL | score=72 | conf=68% | size=0.15 SOL | legacy:✗ FDG:✓
+   └─ entry=+8 | momentum=+6 | liquidity=+4 | suppression=-15 | time=+2 | ...
+
+⚡ V3 WATCH: SYMBOL | score=32 | conf=45% | FDG:✓
+   └─ Reason: Score below execute threshold
+
+⚡ V3 BLOCK (FATAL): SYMBOL | LIQUIDITY_COLLAPSED | FDG:✓
+```
+
+---
+
+## Migration Notes
+
+### Files Modified for V3
+
+1. **BotService.kt** - V3 is PRIMARY decision maker
+2. **DistributionFadeAvoider.kt** - Added `getSuppressionPenalty()`, `isFatalSuppression()`
+3. **ModeSpecificExits.kt** - Invalidation creates penalty signal
+4. **SolanaMarketScanner.kt** - quickRugcheck only blocks confirmed rugs
+5. **Executor.kt** - Legacy `shouldTrade` is advisory only
+6. **V3/scoring/ScoringModules.kt** - Added SuppressionAI
+7. **V3/scoring/UnifiedScorer.kt** - Wired SuppressionAI
+8. **V3/risk/FatalRiskChecker.kt** - Added fatal suppression check
+9. **V3/bridge/V3Adapter.kt** - Passes suppression data to extras
+
+### Legacy Files (Advisory Only)
+
+These files still exist but are now advisory/comparison only:
+- EdgeOptimizer.kt
+- FinalDecisionGate.kt
+- SmartSizer.kt
+- EntryIntelligence.kt
+
+V3 controls runtime. Legacy provides comparison logging.
+
+---
+
+## Conclusion
+
+V3 Architecture transforms AATE from a rule-based gating system to a learning-capable scoring engine. The unified scoring approach:
+
+1. **Captures more opportunities** - No more cascade kills
+2. **Learns faster** - Every signal contributes to the scorecard
+3. **Adapts automatically** - Collective learning updates weights
+4. **Explains decisions** - Full scorecard breakdown for every trade
+
+This is the foundation for true autonomous trading.

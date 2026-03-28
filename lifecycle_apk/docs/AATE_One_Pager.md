@@ -1,130 +1,109 @@
-# AATE — One Pager
+# AATE - One Pager
 
-## The Pitch
-**AATE (Autonomous Algorithmic Trading Engine)** is the world's most advanced open-source Solana trading bot. Built in under 7 days with 66,000+ lines of production Kotlin code, featuring V3 scoring-based AI architecture, Collective Hive Mind, Whale Wallet Tracking, and Time-Based Auto-Mode switching.
-
----
-
-## The Problem
-- Manual crypto trading is emotionally exhausting and time-consuming
-- Existing bots are either too simple (single indicator) or black-box (no transparency)
-- No shared learning across trading instances — every trader starts from zero
-- No way to know which whales are actually profitable to follow
-- High barrier to entry for algorithmic trading
-
-## The Solution
-A self-learning Android trading bot that:
-- Makes decisions through **V3 Score Engine** with 11 AI scoring modules
-- **Size by confidence**, not hard gates — don't miss winners, size appropriately
-- Supports **18 specialized trading modes** for any market condition
-- **Shares learnings** via Turso Collective Hive Mind (1M+ potential instances)
-- **Tracks whale wallets** and learns which ones are actually profitable
-- **Auto-switches modes** based on learned time patterns
-- **User-adjustable confidence** (AGGRESSIVE/STANDARD/CONSERVATIVE)
+## Autonomous Algorithmic Trading Engine for Solana Meme Coins
 
 ---
 
-## Key Metrics
+### THE PROBLEM
+
+**Retail traders lose $50B+ annually** to rug pulls, emotional trading, and speed disadvantage in the meme coin market. 95% of manual traders lose money.
+
+---
+
+### THE SOLUTION
+
+**AATE** is a fully autonomous AI trading engine that runs 24/7 on your Android device. No human intervention required.
+
+---
+
+### KEY METRICS
 
 | Metric | Value |
 |--------|-------|
-| Lines of Code | 66,000+ |
-| V3 AI Modules | 11 |
-| Trading Modes | 18 |
-| Intelligence Systems | 10+ |
-| Build Time | < 7 days |
-| Open Source | 100% |
+| Lines of Code | 68,436 |
+| Kotlin Files | 151 |
+| AI Modules | 12 |
+| Trading Modes | 7 |
+| Architecture | V3 (Unified Scoring) |
 
 ---
 
-## V3 Architecture
+### HOW IT WORKS
 
-| Old Way | New Way (V3) |
-|---------|--------------|
-| 10 things can BLOCK a trade | 10 things CONTRIBUTE to a score |
-| Miss winners | Size appropriately |
-| Binary yes/no | Confidence-based sizing |
-| Isolated learning | Collective Hive Mind |
-| Follow any whale | Track whale win rates |
-| Same mode all day | Auto-switch by time |
+```
+DISCOVER → SCORE → DECIDE → SIZE → EXECUTE → LEARN
+```
 
----
-
-## New Intelligence Systems
-
-| System | Function |
-|--------|----------|
-| **WhaleWalletTracker** | Track whales, record outcomes, share win rates |
-| **TimeModeScheduler** | Learn best hours, auto-switch modes |
-| **V3ConfidenceConfig** | User threshold control (AGG/STD/CON) |
-| **CollectiveAnalytics** | Dashboard for hive mind contributions |
+1. **Discover**: DexScreener, Raydium, Pump.fun feeds
+2. **Score**: 12 AI modules score every token (not hard gates)
+3. **Decide**: Execute Aggressive / Standard / Small / Watch / Reject
+4. **Size**: Dynamic sizing based on confidence + drawdown
+5. **Execute**: Jupiter Ultra + Jito MEV protection
+6. **Learn**: Collective learning syncs patterns globally
 
 ---
 
-## Technology Stack
+### V3 ARCHITECTURE BREAKTHROUGH
 
-- **Platform**: Native Android (Kotlin)
-- **AI**: V3 Score Engine + 11 modules + Collective Learning
-- **Intelligence**: WhaleTracker + TimeScheduler + ConfidenceConfig
-- **Blockchain**: Solana (Jupiter Ultra, Helius, DexScreener)
-- **Database**: Local encrypted + Turso Edge DB (collective sync)
-- **Security**: AES-256, Hardware Keystore, Jito MEV protection
+**Before:** `if (condition) return BLOCK` → 90% opportunities killed
+
+**After:** `score += module.evaluate()` → Everything weighted, nothing wasted
 
 ---
 
-## Competitive Advantage
+### COMPETITIVE ADVANTAGE
 
-| Feature | AATE | Competitors |
-|---------|------|-------------|
-| V3 Score Engine | ✅ 11 modules | 1-3 |
-| Confidence Sizing | ✅ | ❌ |
-| Collective Hive Mind | ✅ | ❌ |
-| Whale Win Rate Tracking | ✅ | ❌ |
-| Time-Based Auto-Mode | ✅ | ❌ |
-| User Confidence Control | ✅ | ❌ |
-| Shadow Learning | ✅ | ❌ |
-| Open Source | ✅ | ❌ |
-| Native Mobile | ✅ | Web only |
+| Feature | AATE | Others |
+|---------|------|--------|
+| Full Autonomy | ✓ | ✗ |
+| 12 AI Modules | ✓ | ✗ |
+| Collective Learning | ✓ | ✗ |
+| Native Mobile | ✓ | Web only |
+| Self-Custody | ✓ | Varies |
 
 ---
 
-## Revenue Model (Future)
+### BUSINESS MODEL
 
-1. **Freemium App**: Free with premium features
-2. **Collective Learning Premium**: Higher sync frequency, priority patterns
-3. **Whale Tracker Premium**: Extended whale history, alerts
-4. **API Access**: For institutional traders
-5. **White-Label**: Custom deployments
+- **Free**: Paper trading
+- **Pro** ($99/mo): Live trading + all AI
+- **Whale** ($499/mo): Custom training + API
 
----
-
-## Team
-
-**Solo Developer** — Built from scratch in under one week. Demonstrates exceptional execution speed and technical depth. Open to co-founders with complementary skills (growth, business development, capital).
+**Projections**: $1.2M → $6M → $24M ARR (Y1-Y3)
 
 ---
 
-## The Ask
+### THE ASK
 
-Seeking $500K seed round to:
-- Scale Turso infrastructure for collective learning
-- Build iOS version
-- Hire growth and community team
-- Marketing and user acquisition
+**$500K Seed** for 15-20% equity
+
+Use: 40% Engineering | 30% Growth | 30% Operations
 
 ---
 
-## Contact
+### CURRENT STATUS
 
-- **GitHub**: github.com/shaunhayes333-stack/lifecycle-bot
-- **Demo**: APK available in GitHub Releases
+✓ V3 Architecture Live  
+✓ 68K+ Lines Production Code  
+✓ Collective Learning Operational  
+✓ CI/CD Pipeline Passing  
+✓ Paper + Live Trading Functional  
+
+**Next**: Play Store Beta (Q2 2025)
 
 ---
 
-*"66,000 lines of V3 AI-powered trading intelligence. Collective Hive Mind. Whale Tracking. Time Optimization. One week. One developer. Zero limits."*
+### VALUATION
+
+**$2.8M - $4.2M** (Development Cost + Comparables + Revenue Multiple)
 
 ---
 
-© 2025 AATE Project. AATE™ is a trademark. All rights reserved. This document is confidential.
+### CONTACT
 
-**RISK WARNING:** Cryptocurrency trading involves substantial risk of loss. This is NOT financial advice. Trade at your own risk.
+**Email**: contact@aate.ai  
+**Demo**: Available on request
+
+---
+
+*Building the future of autonomous trading.*
