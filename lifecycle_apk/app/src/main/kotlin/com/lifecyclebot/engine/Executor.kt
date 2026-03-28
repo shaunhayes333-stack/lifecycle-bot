@@ -37,6 +37,34 @@ object RuggedContracts {
         blacklist[mint] = lossPct
         save()
         ErrorLogger.info("RuggedContracts", "💀 Blacklisted $symbol ($mint) - lost ${lossPct.toInt()}%")
+        
+        // Report to Collective Learning hive mind (async)
+        if (com.lifecyclebot.collective.CollectiveLearning.isEnabled()) {
+            GlobalScope.launch(Dispatchers.IO) {
+                try {
+                    val reason = when {
+                        lossPct <= -50 -> "RUG_PULL"
+                        lossPct <= -33 -> "SEVERE_LOSS"
+                        else -> "LOSS"
+                    }
+                    val severity = when {
+                        lossPct <= -70 -> 5
+                        lossPct <= -50 -> 4
+                        lossPct <= -33 -> 3
+                        else -> 2
+                    }
+                    com.lifecyclebot.collective.CollectiveLearning.reportBlacklistedToken(
+                        mint = mint,
+                        symbol = symbol,
+                        reason = reason,
+                        severity = severity
+                    )
+                    ErrorLogger.info("RuggedContracts", "🌐 Reported $symbol to collective blacklist")
+                } catch (e: Exception) {
+                    ErrorLogger.debug("RuggedContracts", "Collective report error: ${e.message}")
+                }
+            }
+        }
     }
     
     fun isBlacklisted(mint: String): Boolean = blacklist.containsKey(mint)
@@ -3404,6 +3432,40 @@ class Executor(
                 holdTimeMinutes = holdMins,
                 pnlPct = pnlP,
             )
+            
+            // ═══════════════════════════════════════════════════════════════════
+            // COLLECTIVE LEARNING: Upload to Turso hive mind (async, non-blocking)
+            // This shares our trade outcome with all AATE instances worldwide
+            // ═══════════════════════════════════════════════════════════════════
+            if (com.lifecyclebot.collective.CollectiveLearning.isEnabled()) {
+                GlobalScope.launch(Dispatchers.IO) {
+                    try {
+                        // Determine liquidity bucket for collective pattern
+                        val liquidityBucket = when {
+                            ts.lastLiquidityUsd < 5_000 -> "MICRO"
+                            ts.lastLiquidityUsd < 25_000 -> "SMALL"
+                            ts.lastLiquidityUsd < 100_000 -> "MID"
+                            else -> "LARGE"
+                        }
+                        
+                        // Upload pattern outcome to collective
+                        com.lifecyclebot.collective.CollectiveLearning.uploadPatternOutcome(
+                            patternType = "${ts.position.entryPhase}_${ts.position.tradingMode.ifEmpty { "STANDARD" }}",
+                            discoverySource = ts.source.ifEmpty { "UNKNOWN" },
+                            liquidityBucket = liquidityBucket,
+                            emaTrend = marketSentiment,
+                            isWin = shouldLearnAsWin,
+                            pnlPct = pnlP,
+                            holdMins = holdMins.toDouble()
+                        )
+                        
+                        ErrorLogger.debug("CollectiveLearning", 
+                            "📤 Uploaded: ${ts.symbol} | ${if(shouldLearnAsWin) "WIN" else "LOSS"} | ${pnlP.toInt()}%")
+                    } catch (e: Exception) {
+                        ErrorLogger.debug("CollectiveLearning", "Upload error: ${e.message}")
+                    }
+                }
+            }
         } catch (e: Exception) {
             ErrorLogger.debug("BehaviorLearning", "recordTrade error: ${e.message}")
         }

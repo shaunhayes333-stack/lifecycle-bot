@@ -577,6 +577,31 @@ object ModeLearning {
     }
     
     /**
+     * Get all mode stats as a map (for Turso collective sync).
+     */
+    data class ModeStatsSnapshot(
+        val totalTrades: Int,
+        val wins: Int,
+        val losses: Int,
+        val avgPnlPct: Double,
+        val avgHoldMins: Double,
+    )
+    
+    fun getAllModeStats(): Map<String, ModeStatsSnapshot> {
+        return modeData.entries
+            .filter { it.value.totalTrades >= 3 }  // At least 3 trades to report
+            .associate { (mode, data) ->
+                mode to ModeStatsSnapshot(
+                    totalTrades = data.totalTrades,
+                    wins = data.wins,
+                    losses = data.losses,
+                    avgPnlPct = data.avgPnl,
+                    avgHoldMins = (data.avgHoldTimeMs / 60_000.0)
+                )
+            }
+    }
+    
+    /**
      * Get best performing mode.
      */
     fun getBestMode(): String? {

@@ -1197,6 +1197,11 @@ class LifecycleStrategy(
             return "HARD_BLOCK_RUGGED_DEPLOYER"
         }
         
+        // 4b. COLLECTIVE BLACKLIST - Token reported by multiple AATE instances
+        if (com.lifecyclebot.collective.CollectiveLearning.isBlacklisted(ts.mint)) {
+            return "HARD_BLOCK_COLLECTIVE_BLACKLIST"
+        }
+        
         // 5. FREEZE AUTHORITY + LIVE MODE - Honeypot risk
         if (!isPaperMode && safety.freezeAuthorityDisabled == false) {
             return "HARD_BLOCK_FREEZE_AUTHORITY"
@@ -1281,6 +1286,10 @@ class LifecycleStrategy(
         }
         if (BannedTokens.isBanned(ts.mint)) {
             return "Token banned (repeated losses)"
+        }
+        // 6b. COLLECTIVE BLACKLIST - Reported by hive mind
+        if (com.lifecyclebot.collective.CollectiveLearning.isBlacklisted(ts.mint)) {
+            return "Collective blacklist (multiple AATE instances reported)"
         }
         
         // 7. HIGH DISTRIBUTION CONFIDENCE - Clear distribution phase with high confidence

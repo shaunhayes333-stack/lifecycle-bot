@@ -1323,6 +1323,35 @@ class BotService : Service() {
                             addLog("📊 Pattern refresh: $summary")
                             ErrorLogger.info("TokenWinMemory", "📊 15min refresh: $summary")
                         }
+                        
+                        // ═══════════════════════════════════════════════════════════════════
+                        // COLLECTIVE LEARNING SYNC - Share local knowledge with hive mind
+                        // Uploads mode performance stats to Turso for all instances to learn
+                        // ═══════════════════════════════════════════════════════════════════
+                        if (com.lifecyclebot.collective.CollectiveLearning.isEnabled()) {
+                            try {
+                                // Sync mode learning stats to collective
+                                val modeStats = ModeLearning.getAllModeStats()
+                                val snapshots = modeStats.mapValues { (_, stats) ->
+                                    com.lifecyclebot.collective.CollectiveLearning.ModeStatSnapshot(
+                                        totalTrades = stats.totalTrades,
+                                        wins = stats.wins,
+                                        losses = stats.losses,
+                                        avgPnlPct = stats.avgPnlPct,
+                                        avgHoldMins = stats.avgHoldMins,
+                                        marketCondition = "NEUTRAL",
+                                        liquidityBucket = "MID"
+                                    )
+                                }
+                                com.lifecyclebot.collective.CollectiveLearning.syncModeLearning(snapshots)
+                                
+                                // Log collective status
+                                val collectiveInsights = com.lifecyclebot.collective.CollectiveLearning.getInsightsSummary()
+                                addLog("🌐 $collectiveInsights")
+                            } catch (e: Exception) {
+                                ErrorLogger.debug("BotService", "Collective sync error: ${e.message}")
+                            }
+                        }
                     } catch (e: Exception) {
                         ErrorLogger.debug("BotService", "TokenWinMemory refresh error: ${e.message}")
                     }

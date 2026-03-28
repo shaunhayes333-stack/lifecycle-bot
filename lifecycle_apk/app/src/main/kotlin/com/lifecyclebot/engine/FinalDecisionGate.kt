@@ -2438,6 +2438,48 @@ object FinalDecisionGate {
             }
         }
         
+        // ═══════════════════════════════════════════════════════════════════
+        // COLLECTIVE LEARNING: Adjust based on hive mind pattern data
+        // Uses aggregated learnings from all AATE instances worldwide
+        // ═══════════════════════════════════════════════════════════════════
+        val collectiveAdj = try {
+            if (com.lifecyclebot.collective.CollectiveLearning.isEnabled()) {
+                val marketSentiment = when {
+                    ts.meta.emafanAlignment.contains("BULL") -> "BULL"
+                    ts.meta.emafanAlignment.contains("BEAR") -> "BEAR"
+                    else -> "NEUTRAL"
+                }
+                com.lifecyclebot.collective.CollectiveLearning.getPatternScoreAdjustment(
+                    entryPhase = ts.phase.ifEmpty { "UNKNOWN" },
+                    tradingMode = tradingModeTag?.name ?: "STANDARD",
+                    discoverySource = ts.source.ifEmpty { "UNKNOWN" },
+                    liquidityUsd = ts.lastLiquidityUsd,
+                    emaTrend = marketSentiment
+                )
+            } else 0
+        } catch (_: Exception) { 0 }
+        
+        if (collectiveAdj != 0) {
+            val direction = if (collectiveAdj > 0) "boost" else "penalty"
+            val multiplier = if (collectiveAdj > 0) {
+                1.0 + (collectiveAdj.toDouble() / 100.0)  // +30 = 1.3x
+            } else {
+                1.0 + (collectiveAdj.toDouble() / 100.0)  // -30 = 0.7x
+            }
+            val originalSize = finalSize
+            finalSize = (finalSize * multiplier).coerceIn(0.01, 1.0)
+            
+            tags.add("collective_${direction}")
+            checks.add(GateCheck("collective_learning", collectiveAdj > 0,
+                "🌐 Collective $direction: ${originalSize.format(3)} → ${finalSize.format(3)} (adj=$collectiveAdj)"))
+            
+            // Log significant adjustments
+            if (kotlin.math.abs(collectiveAdj) >= 20) {
+                ErrorLogger.info("FDG", "🌐 COLLECTIVE: ${ts.symbol} | " +
+                    "adj=$collectiveAdj | ${if(collectiveAdj > 0) "PROVEN_WINNER" else "KNOWN_LOSER"}")
+            }
+        }
+        
         // Apply AI CrossTalk size multiplier (correlated signals can boost/reduce size)
         val crossTalkSignal = try {
             AICrossTalk.analyzeCrossTalk(ts.mint, ts.symbol, isOpenPosition = false)

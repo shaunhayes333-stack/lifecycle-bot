@@ -591,4 +591,124 @@ object CollectiveLearning {
             "lastSyncTime" to lastSyncTime,
         )
     }
+    
+    // ═══════════════════════════════════════════════════════════════════════════
+    // SCORE ADJUSTMENTS - Use collective intelligence to adjust local decisions
+    // ═══════════════════════════════════════════════════════════════════════════
+    
+    /**
+     * Get a score adjustment based on collective pattern data.
+     * Returns a value between -30 (known loser) and +30 (proven winner).
+     */
+    fun getPatternScoreAdjustment(
+        entryPhase: String,
+        tradingMode: String,
+        discoverySource: String,
+        liquidityUsd: Double,
+        emaTrend: String,
+    ): Int {
+        if (!isEnabled()) return 0
+        
+        val liquidityBucket = when {
+            liquidityUsd < 5_000 -> "MICRO"
+            liquidityUsd < 25_000 -> "SMALL"
+            liquidityUsd < 100_000 -> "MID"
+            else -> "LARGE"
+        }
+        
+        val patternType = "${entryPhase}_$tradingMode"
+        val stats = getPatternStats(patternType, discoverySource, liquidityBucket, emaTrend)
+        
+        if (stats == null || !stats.isReliable) return 0
+        
+        // Score adjustment based on collective win rate
+        return when {
+            stats.winRate >= 70.0 -> +30  // Proven winner
+            stats.winRate >= 60.0 -> +20  // Good pattern
+            stats.winRate >= 50.0 -> +10  // Slightly positive
+            stats.winRate >= 40.0 -> 0    // Neutral
+            stats.winRate >= 30.0 -> -10  // Slightly negative
+            stats.winRate >= 20.0 -> -20  // Known loser
+            else -> -30                   // Toxic pattern
+        }
+    }
+    
+    /**
+     * Check if the collective has a recommended mode for current conditions.
+     */
+    fun getRecommendedMode(
+        liquidityUsd: Double,
+        emaTrend: String,
+    ): String? {
+        if (!isEnabled()) return null
+        
+        val liquidityBucket = when {
+            liquidityUsd < 5_000 -> "MICRO"
+            liquidityUsd < 25_000 -> "SMALL"
+            liquidityUsd < 100_000 -> "MID"
+            else -> "LARGE"
+        }
+        
+        val marketCondition = when (emaTrend.uppercase()) {
+            "BULL", "BULLISH" -> "BULL"
+            "BEAR", "BEARISH" -> "BEAR"
+            else -> "SIDEWAYS"
+        }
+        
+        return getBestMode(marketCondition, liquidityBucket)
+    }
+    
+    /**
+     * Bulk sync local mode learning data to collective.
+     * Call this periodically (e.g., every 15 minutes).
+     */
+    suspend fun syncModeLearning(modeStats: Map<String, ModeStatSnapshot>) {
+        if (!isEnabled()) return
+        
+        try {
+            for ((modeName, stats) in modeStats) {
+                if (stats.totalTrades < 5) continue  // Not enough data
+                
+                uploadModePerformance(
+                    modeName = modeName,
+                    marketCondition = stats.marketCondition,
+                    liquidityBucket = stats.liquidityBucket,
+                    totalTrades = stats.totalTrades,
+                    wins = stats.wins,
+                    losses = stats.losses,
+                    avgPnlPct = stats.avgPnlPct,
+                    avgHoldMins = stats.avgHoldMins
+                )
+            }
+            Log.i(TAG, "📤 Synced ${modeStats.size} mode stats to collective")
+        } catch (e: Exception) {
+            Log.e(TAG, "Mode sync error: ${e.message}")
+        }
+    }
+    
+    /**
+     * Data class for mode stat snapshots from local ModeLearning.
+     */
+    data class ModeStatSnapshot(
+        val totalTrades: Int,
+        val wins: Int,
+        val losses: Int,
+        val avgPnlPct: Double,
+        val avgHoldMins: Double,
+        val marketCondition: String = "NEUTRAL",
+        val liquidityBucket: String = "MID",
+    )
+    
+    /**
+     * Get collective insights summary for logging.
+     */
+    fun getInsightsSummary(): String {
+        if (!isEnabled()) return "Collective: DISABLED"
+        
+        val highWin = getHighWinPatterns().size
+        val highLoss = getHighLossPatterns().size
+        val blacklisted = cachedBlacklist.size
+        
+        return "Collective: $blacklisted blacklisted | $highWin winning patterns | $highLoss losing patterns"
+    }
 }

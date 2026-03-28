@@ -316,7 +316,12 @@ object V3EngineManager {
         symbol: String,
         pnlPct: Double,
         holdTimeMinutes: Int,
-        exitReason: String
+        exitReason: String,
+        entryPhase: String = "UNKNOWN",
+        tradingMode: String = "STANDARD",
+        discoverySource: String = "UNKNOWN",
+        liquidityUsd: Double = 0.0,
+        emaTrend: String = "NEUTRAL"
     ) {
         if (!isReady()) return
         
@@ -337,6 +342,33 @@ object V3EngineManager {
             
             ErrorLogger.info(TAG, "V3 OUTCOME: $symbol | PnL=${pnlPct.fmt(1)}% | " +
                 "hold=${holdTimeMinutes.toInt()}min | $exitReason")
+            
+            // Upload to Collective Learning (hive mind)
+            if (com.lifecyclebot.collective.CollectiveLearning.isEnabled()) {
+                kotlinx.coroutines.GlobalScope.launch(kotlinx.coroutines.Dispatchers.IO) {
+                    try {
+                        val liquidityBucket = when {
+                            liquidityUsd < 5_000 -> "MICRO"
+                            liquidityUsd < 25_000 -> "SMALL"
+                            liquidityUsd < 100_000 -> "MID"
+                            else -> "LARGE"
+                        }
+                        
+                        com.lifecyclebot.collective.CollectiveLearning.uploadPatternOutcome(
+                            patternType = "${entryPhase}_${tradingMode}",
+                            discoverySource = discoverySource,
+                            liquidityBucket = liquidityBucket,
+                            emaTrend = emaTrend,
+                            isWin = pnlPct > 5.0,  // WIN if >5%
+                            pnlPct = pnlPct,
+                            holdMins = holdTimeMinutes.toDouble()
+                        )
+                        ErrorLogger.debug(TAG, "📤 V3 outcome uploaded to collective: $symbol")
+                    } catch (e: Exception) {
+                        ErrorLogger.debug(TAG, "V3 collective upload error: ${e.message}")
+                    }
+                }
+            }
             
         } catch (e: Exception) {
             ErrorLogger.error(TAG, "Failed to record outcome: ${e.message}")
