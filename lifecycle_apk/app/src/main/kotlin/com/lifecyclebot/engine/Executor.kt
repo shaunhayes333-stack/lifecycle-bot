@@ -1040,7 +1040,7 @@ class Executor(
             val jitoTip = c.jitoTipLamports
             val ultraReqId = if (quote.isUltra) txResult.requestId else null
             
-            val sig = wallet.signSendAndConfirm(txResult.txBase64, useJito, jitoTip, ultraReqId, c.jupiterApiKey)
+            val sig = wallet.signSendAndConfirm(txResult.txBase64, useJito, jitoTip, ultraReqId, c.jupiterApiKey, txResult.isRfqRoute)
             val solBack = quote.outAmount / 1_000_000_000.0
             val pnlSol = solBack - pos.costSol * sellFraction
             val pnlPct = pct(pos.costSol * sellFraction, solBack)
@@ -1228,7 +1228,7 @@ class Executor(
                 val useJito = c.jitoEnabled && !quote.isUltra
                 val jitoTip = c.jitoTipLamports
                 val ultraReqId = if (quote.isUltra) txResult.requestId else null
-                val sig       = wallet.signSendAndConfirm(txResult.txBase64, useJito, jitoTip, ultraReqId, c.jupiterApiKey)
+                val sig       = wallet.signSendAndConfirm(txResult.txBase64, useJito, jitoTip, ultraReqId, c.jupiterApiKey, txResult.isRfqRoute)
                 val solBack   = quote.outAmount / 1_000_000_000.0
                 val livePnl   = solBack - pos.costSol * sellFraction
                 val liveScore = pct(pos.costSol * sellFraction, solBack)
@@ -2305,7 +2305,7 @@ class Executor(
             } else {
                 onLog("Broadcasting top-up tx…", ts.mint)
             }
-            val sig    = wallet.signSendAndConfirm(txResult.txBase64, useJito, jitoTip, ultraReqId, c.jupiterApiKey)
+            val sig    = wallet.signSendAndConfirm(txResult.txBase64, useJito, jitoTip, ultraReqId, c.jupiterApiKey, txResult.isRfqRoute)
             val pos    = ts.position
             val price  = getActualPrice(ts)  // CRITICAL FIX: Use actual price
             val newQty = quote.outAmount.toDouble() / tokenScale(quote.outAmount)
@@ -2911,9 +2911,9 @@ class Executor(
                 onLog("Broadcasting buy tx…", ts.mint)
             }
             
-            // Pass Ultra requestId if available for optimal execution
+            // Pass Ultra requestId and RFQ route flag for optimal execution
             val ultraReqId = if (quote.isUltra) txResult.requestId else null
-            val sig = wallet.signSendAndConfirm(txResult.txBase64, useJito, jitoTip, ultraReqId, c.jupiterApiKey)
+            val sig = wallet.signSendAndConfirm(txResult.txBase64, useJito, jitoTip, ultraReqId, c.jupiterApiKey, txResult.isRfqRoute)
             val qty   = quote.outAmount.toDouble() / tokenScale(quote.outAmount)
             val price = getActualPrice(ts)  // CRITICAL FIX: Use actual price
 
@@ -4039,9 +4039,9 @@ class Executor(
                 onLog("Broadcasting sell tx…", ts.mint)
             }
             
-            onLog("📊 SELL DEBUG: Signing and broadcasting...", tradeId.mint)
+            onLog("📊 SELL DEBUG: Signing and broadcasting (router=${txResult.router}, rfq=${txResult.isRfqRoute})...", tradeId.mint)
             val ultraReqId = if (quote.isUltra) txResult.requestId else null
-            val sig     = wallet.signSendAndConfirm(txResult.txBase64, useJito, jitoTip, ultraReqId, c.jupiterApiKey)
+            val sig     = wallet.signSendAndConfirm(txResult.txBase64, useJito, jitoTip, ultraReqId, c.jupiterApiKey, txResult.isRfqRoute)
             onLog("📊 SELL DEBUG: Transaction confirmed! sig=${sig.take(20)}...", tradeId.mint)
             
             // ═══════════════════════════════════════════════════════════════════
@@ -4778,7 +4778,7 @@ class Executor(
             val jitoTip = c.jitoTipLamports
             val ultraReqId = if (quote.isUltra) txResult.requestId else null
             
-            val sig = wallet.signSendAndConfirm(txResult.txBase64, useJito, jitoTip, ultraReqId, c.jupiterApiKey)
+            val sig = wallet.signSendAndConfirm(txResult.txBase64, useJito, jitoTip, ultraReqId, c.jupiterApiKey, txResult.isRfqRoute)
             val solBack = quote.outAmount / 1_000_000_000.0
             
             onLog("✅ Orphan sold: $mint → ${solBack.fmt(4)} SOL | sig=${sig.take(16)}…", mint)

@@ -247,11 +247,12 @@ class SolanaWallet(privateKeyB58: String, val rpcUrl: String) {
         jitoTipLamports: Long = 10000,
         ultraRequestId: String? = null,
         jupiterApiKey: String = "",
+        isRfqRoute: Boolean = false,  // NEW: RFQ routes can't self-broadcast
     ): String {
         // If we have an Ultra requestId, use Jupiter's execute endpoint
         // This provides built-in MEV protection via Jupiter Beam
         if (!ultraRequestId.isNullOrBlank()) {
-            return signAndExecuteUltra(txBase64, ultraRequestId, jupiterApiKey)
+            return signAndExecuteUltra(txBase64, ultraRequestId, jupiterApiKey, isRfqRoute)
         }
         
         val sig = signAndSend(txBase64, useJito, jitoTipLamports)
@@ -263,44 +264,84 @@ class SolanaWallet(privateKeyB58: String, val rpcUrl: String) {
      * Sign transaction and execute via Jupiter Ultra API.
      * Jupiter handles MEV protection and optimal execution.
      * 
-     * CRITICAL FIX #3: FALLBACK TO STANDARD SEND IF ULTRA FAILS
-     * If Jupiter Ultra execute fails (network, rate limit, server error),
-     * fall back to standard Jito/RPC broadcast rather than dropping the sell.
+     * CRITICAL FIX #3: SMART FALLBACK BASED ON ROUTER TYPE
+     * - RFQ routes (iris, dflow, okx): MUST use /execute - retry /execute on failure
+     * - Metis/JupiterZ routes: Can self-broadcast via RPC as fallback
      * 
      * @param jupiterApiKey The Jupiter API key from config
+     * @param isRfqRoute True if this is an RFQ route that requires Jupiter's signature
      */
-    private fun signAndExecuteUltra(txBase64: String, requestId: String, jupiterApiKey: String = ""): String {
+    private fun signAndExecuteUltra(
+        txBase64: String, 
+        requestId: String, 
+        jupiterApiKey: String = "",
+        isRfqRoute: Boolean = false,
+    ): String {
         val txBytes = android.util.Base64.decode(txBase64, android.util.Base64.DEFAULT)
         val signedBytes = signVersionedTx(txBytes)
         val signedB64 = android.util.Base64.encodeToString(signedBytes, android.util.Base64.NO_WRAP)
         
-        // Try Jupiter Ultra's execute endpoint first
-        try {
-            val jupiter = JupiterApi(jupiterApiKey)
-            val signature = jupiter.executeUltra(signedB64, requestId)
-            
-            // Still await confirmation to be safe
-            awaitConfirmation(signature)
-            return signature
-        } catch (ultraEx: Exception) {
-            // ═══════════════════════════════════════════════════════════════════
-            // FALLBACK: Ultra failed, try standard broadcast
-            // This catches: rate limits, server errors, network issues, expired requestId
-            // ═══════════════════════════════════════════════════════════════════
-            android.util.Log.w("SolanaWallet", "⚠️ Ultra execute failed: ${ultraEx.message?.take(60)}")
-            android.util.Log.w("SolanaWallet", "⚠️ Falling back to standard broadcast...")
-            
+        // ═══════════════════════════════════════════════════════════════════
+        // CRITICAL FIX: Retry /execute for RFQ routes, only self-broadcast for Metis
+        // RFQ routes have Jupiter-held market maker signatures that only /execute can add
+        // ═══════════════════════════════════════════════════════════════════
+        val maxAttempts = 3
+        var lastException: Exception? = null
+        
+        for (attempt in 1..maxAttempts) {
             try {
-                // Try standard send (already signed, so just broadcast)
-                val signature = sendRawTransaction(signedB64)
-                android.util.Log.i("SolanaWallet", "✅ Fallback broadcast succeeded! sig=${signature.take(20)}...")
+                val jupiter = JupiterApi(jupiterApiKey)
+                val signature = jupiter.executeUltra(signedB64, requestId)
+                
+                // Still await confirmation to be safe
                 awaitConfirmation(signature)
                 return signature
-            } catch (fallbackEx: Exception) {
-                android.util.Log.e("SolanaWallet", "❌ Fallback also failed: ${fallbackEx.message}")
-                // Throw original Ultra error as it's more descriptive
-                throw ultraEx
+            } catch (e: Exception) {
+                lastException = e
+                android.util.Log.w("SolanaWallet", "⚠️ Ultra execute attempt $attempt/$maxAttempts failed: ${e.message?.take(60)}")
+                
+                // Check if error is retryable
+                val errorMsg = e.message?.lowercase() ?: ""
+                val isRetryable = errorMsg.contains("timeout") || 
+                                  errorMsg.contains("rate") ||
+                                  errorMsg.contains("network") ||
+                                  errorMsg.contains("server") ||
+                                  errorMsg.contains("-1000") ||  // Failed to land
+                                  errorMsg.contains("-1005") ||  // Expired after attempts
+                                  errorMsg.contains("-1006")     // Timed out
+                
+                if (isRetryable && attempt < maxAttempts) {
+                    android.util.Log.w("SolanaWallet", "⚠️ Retrying /execute in ${attempt * 500}ms...")
+                    Thread.sleep(attempt * 500L)
+                    continue
+                }
+                
+                // Non-retryable or max attempts reached
+                break
             }
+        }
+        
+        // ═══════════════════════════════════════════════════════════════════
+        // FALLBACK LOGIC: Only self-broadcast for NON-RFQ routes
+        // RFQ routes REQUIRE Jupiter's market maker signature from /execute
+        // ═══════════════════════════════════════════════════════════════════
+        if (isRfqRoute) {
+            android.util.Log.e("SolanaWallet", "❌ RFQ route failed - cannot self-broadcast, Jupiter signature required")
+            throw lastException ?: RuntimeException("RFQ execute failed after $maxAttempts attempts")
+        }
+        
+        android.util.Log.w("SolanaWallet", "⚠️ Falling back to standard broadcast (non-RFQ route)...")
+        
+        try {
+            // Try standard send (already signed, so just broadcast)
+            val signature = sendRawTransaction(signedB64)
+            android.util.Log.i("SolanaWallet", "✅ Fallback broadcast succeeded! sig=${signature.take(20)}...")
+            awaitConfirmation(signature)
+            return signature
+        } catch (fallbackEx: Exception) {
+            android.util.Log.e("SolanaWallet", "❌ Fallback also failed: ${fallbackEx.message}")
+            // Throw original Ultra error as it's more descriptive
+            throw lastException ?: fallbackEx
         }
     }
     

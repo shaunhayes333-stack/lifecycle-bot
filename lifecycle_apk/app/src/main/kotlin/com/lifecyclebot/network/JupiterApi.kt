@@ -19,6 +19,13 @@ data class SwapQuote(
     val inputMint: String = "",
     val outputMint: String = "",
     val inAmount: Long = 0L,
+    // ═══════════════════════════════════════════════════════════════════
+    // CRITICAL FIX: Track router type for fallback decisions
+    // RFQ routes (iris, dflow, okx, hashflow) need Jupiter's signature
+    // Metis/JupiterZ routes are self-broadcastable
+    // ═══════════════════════════════════════════════════════════════════
+    val router: String = "unknown",
+    val isRfqRoute: Boolean = false,  // True if route requires Jupiter's MM signature
 )
 
 /**
@@ -28,6 +35,12 @@ data class SwapQuote(
 data class SwapTxResult(
     val txBase64: String,
     val requestId: String = "",  // For Ultra execute endpoint
+    // ═══════════════════════════════════════════════════════════════════
+    // CRITICAL FIX: Track router type for fallback decisions
+    // RFQ routes need Jupiter's signature - can't self-broadcast
+    // ═══════════════════════════════════════════════════════════════════
+    val router: String = "unknown",
+    val isRfqRoute: Boolean = false,
 )
 
 class JupiterApi(private val apiKey: String = "") {
@@ -149,6 +162,10 @@ class JupiterApi(private val apiKey: String = "") {
         // Check which router won (for logging)
         val router = json.optString("router", "unknown")
         
+        // RFQ routes require Jupiter's market maker signature at /execute
+        // These CANNOT be self-broadcast - fallback must retry /execute, not RPC
+        val isRfqRoute = router.lowercase() in listOf("iris", "dflow", "okx", "hashflow", "rfq")
+        
         log("✅ SWAP v2 QUOTE OK: out=$outAmount impact=${String.format("%.2f", priceImpact)}% router=$router (${elapsed}ms)")
         
         return SwapQuote(
@@ -162,6 +179,8 @@ class JupiterApi(private val apiKey: String = "") {
             inputMint = inputMint,
             outputMint = outputMint,
             inAmount = amountLamports,
+            router = router,
+            isRfqRoute = isRfqRoute,
         )
     }
 
@@ -205,6 +224,10 @@ class JupiterApi(private val apiKey: String = "") {
         // Check which router won (for logging)
         val router = json.optString("router", "unknown")
         
+        // RFQ routes require Jupiter's market maker signature at /execute
+        // These CANNOT be self-broadcast - fallback must retry /execute, not RPC
+        val isRfqRoute = router.lowercase() in listOf("iris", "dflow", "okx", "hashflow", "rfq")
+        
         if (outAmount <= 0) {
             log("❌ Swap v2 returned 0 output - no route found")
             throw RuntimeException("Jupiter Swap v2: no route found")
@@ -217,7 +240,7 @@ class JupiterApi(private val apiKey: String = "") {
         val priceImpact = json.optString("priceImpactPct", "0").toDoubleOrNull() 
             ?: json.optDouble("priceImpact", 0.0)
         
-        log("✅ SWAP v2 ORDER OK: out=$outAmount reqId=${requestId.take(12)}... tx=${if (swapTx.isNotBlank()) "${swapTx.length}chars" else "NONE"} router=$router (${elapsed}ms)")
+        log("✅ SWAP v2 ORDER OK: out=$outAmount reqId=${requestId.take(12)}... tx=${if (swapTx.isNotBlank()) "${swapTx.length}chars" else "NONE"} router=$router rfq=$isRfqRoute (${elapsed}ms)")
         
         return SwapQuote(
             raw = json,
@@ -230,6 +253,8 @@ class JupiterApi(private val apiKey: String = "") {
             inputMint = inputMint,
             outputMint = outputMint,
             inAmount = amountLamports,
+            router = router,
+            isRfqRoute = isRfqRoute,
         )
     }
     
@@ -287,8 +312,8 @@ class JupiterApi(private val apiKey: String = "") {
     fun buildSwapTx(quote: SwapQuote, userPublicKey: String): SwapTxResult {
         // Ultra API: Transaction already built, just need to update taker
         if (quote.isUltra && quote.swapTransaction.isNotBlank()) {
-            log("🚀 Using pre-built Ultra transaction")
-            return SwapTxResult(quote.swapTransaction, quote.requestId)
+            log("🚀 Using pre-built Ultra transaction (router=${quote.router})")
+            return SwapTxResult(quote.swapTransaction, quote.requestId, quote.router, quote.isRfqRoute)
         }
         
         // Ultra API: Need to fetch order with taker address to get transaction
@@ -296,8 +321,8 @@ class JupiterApi(private val apiKey: String = "") {
             return buildUltraTx(quote, userPublicKey)
         }
         
-        // v6 API: Build via /swap endpoint
-        return SwapTxResult(buildSwapTxV6(quote, userPublicKey), "")
+        // v6 API: Build via /swap endpoint (self-broadcastable, not RFQ)
+        return SwapTxResult(buildSwapTxV6(quote, userPublicKey), "", "metis", false)
     }
     
     /**
@@ -351,9 +376,10 @@ class JupiterApi(private val apiKey: String = "") {
         
         // Log the router that won
         val router = json.optString("router", "unknown")
+        val isRfqRoute = router.lowercase() in listOf("iris", "dflow", "okx", "hashflow", "rfq")
         
-        log("✅ Swap v2 tx built OK (${swapTx.length} chars, reqId=${requestId.take(12)}..., router=$router, ${elapsed}ms)")
-        return SwapTxResult(swapTx, requestId)
+        log("✅ Swap v2 tx built OK (${swapTx.length} chars, reqId=${requestId.take(12)}..., router=$router, rfq=$isRfqRoute, ${elapsed}ms)")
+        return SwapTxResult(swapTx, requestId, router, isRfqRoute)
     }
     
     /**
