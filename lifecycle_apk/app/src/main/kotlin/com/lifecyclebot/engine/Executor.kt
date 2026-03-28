@@ -260,7 +260,7 @@ class Executor(
         // ═══════════════════════════════════════════════════════════════════
         if (trade.side == "SELL" && (trade.pnlPct ?: 0.0) < 0) {
             try {
-                val mode = ts.tradeType?.name ?: ModeRouter.classify(ts).name
+                val mode = ModeRouter.classify(ts).tradeType.name
                 ToxicModeCircuitBreaker.recordLoss(
                     mode = mode,
                     pnlPct = trade.pnlPct ?: 0.0,
@@ -1596,14 +1596,20 @@ class Executor(
                 LiquidityDepthAI.SignalType.LIQUIDITY_COLLAPSE,
                 LiquidityDepthAI.SignalType.LIQUIDITY_DRAINING
             )
-            val depthDangerous = liqSignal?.depthQuality in listOf("POOR", "DANGEROUS", "CRITICAL")
+            val depthDangerous = liqSignal?.depthQuality in listOf(
+                LiquidityDepthAI.DepthQuality.POOR,
+                LiquidityDepthAI.DepthQuality.DANGEROUS
+            )
             
             // Check if whales/copy stopped (from meta or signals)
-            val whalesStopped = ts.meta.whaleRisk <= -20 || ts.meta.whaleBullishRate < 30
-            val copyInvalidated = ts.meta.whaleRisk <= -25 || (ts.tradeType?.name?.contains("COPY") == true && whalesStopped)
+            // Use velocityScore as proxy for whale activity (high velocity = active whales)
+            val whaleActivity = ts.meta.velocityScore
+            val whalesStopped = whaleActivity < 20 && ts.meta.whaleSummary.isBlank()
+            val classification = ModeRouter.classify(ts)
+            val copyInvalidated = classification.tradeType.name.contains("COPY") && whalesStopped
             val buyPressureCollapsing = ts.meta.pressScore < 30
             
-            val tradingMode = ts.tradeType?.name ?: ModeRouter.classify(ts).name
+            val tradingMode = classification.tradeType.name
             
             val shouldForceExit = ToxicModeCircuitBreaker.shouldForceFullExit(
                 liquidityCollapsing = liquidityCollapsing,

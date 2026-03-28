@@ -280,14 +280,8 @@ object ToxicModeCircuitBreaker {
         frozenModes[mode] = freezeEnd
         circuitTrips++
         
-        // Log pattern for learning
-        BehaviorLearning.recordEvent(
-            mint = "",
-            symbol = "",
-            source = "CIRCUIT_BREAKER",
-            event = "MODE_FROZEN",
-            note = "$mode frozen for ${durationMs / 60_000}min: $reason"
-        )
+        // Log for debugging (use ErrorLogger since BehaviorLearning.recordEvent doesn't exist)
+        ErrorLogger.warn(TAG, "CIRCUIT_BREAKER: $mode frozen for ${durationMs / 60_000}min: $reason")
     }
     
     // ═══════════════════════════════════════════════════════════════════════════
