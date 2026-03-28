@@ -72,13 +72,15 @@ class JournalActivity : AppCompatActivity() {
     }
     
     /**
-     * Show export options dialog - CSV, PDF, or IRS 8949
+     * Show export options dialog - Paper/Live + CSV, PDF, or IRS 8949
      */
     private fun showExportDialog() {
         val options = arrayOf(
-            "📊 CSV Spreadsheet (Excel/Sheets)",
-            "📄 PDF Tax Report (Accountants)",
-            "🏛️ IRS Form 8949 (Tax Filing)",
+            "📝 PAPER Trades Only (CSV)",
+            "💰 LIVE Trades Only (CSV)",
+            "📊 ALL Trades (CSV)",
+            "📄 PDF Tax Report (All)",
+            "🏛️ IRS Form 8949 (All)",
             "📦 Export All Formats"
         )
         
@@ -91,15 +93,35 @@ class JournalActivity : AppCompatActivity() {
                     }
                     
                     when (which) {
-                        0 -> exportCsv(tokens)
-                        1 -> exportPdf(tokens)
-                        2 -> exportIrs8949(tokens)
-                        3 -> exportAll(tokens)
+                        0 -> exportPaperCsv(tokens)
+                        1 -> exportLiveCsv(tokens)
+                        2 -> exportCsv(tokens)
+                        3 -> exportPdf(tokens)
+                        4 -> exportIrs8949(tokens)
+                        5 -> exportAll(tokens)
                     }
                 }
             }
             .setNegativeButton("Cancel", null)
             .show()
+    }
+    
+    private fun exportPaperCsv(tokens: Map<String, TokenState>) {
+        val intent = journal.exportPaperCsv(tokens)
+        if (intent != null) {
+            startActivity(Intent.createChooser(intent, "Export Paper Trades CSV"))
+        } else {
+            Toast.makeText(this, "No paper trades to export", Toast.LENGTH_SHORT).show()
+        }
+    }
+    
+    private fun exportLiveCsv(tokens: Map<String, TokenState>) {
+        val intent = journal.exportLiveCsv(tokens)
+        if (intent != null) {
+            startActivity(Intent.createChooser(intent, "Export Live Trades CSV"))
+        } else {
+            Toast.makeText(this, "No live trades to export", Toast.LENGTH_SHORT).show()
+        }
     }
     
     private fun exportCsv(tokens: Map<String, TokenState>) {
@@ -200,7 +222,9 @@ class JournalActivity : AppCompatActivity() {
                 typeface = android.graphics.Typeface.DEFAULT_BOLD
             })
             info.addView(TextView(this).apply {
-                text = "${sdf.format(Date(entry.ts))}  ·  ${entry.mode}"
+                val modeEmoji = if (entry.mode == "paper") "📝" else "💰"
+                val tradingEmoji = entry.tradingModeEmoji.ifEmpty { "📈" }
+                text = "${sdf.format(Date(entry.ts))}  ·  $modeEmoji ${entry.mode.uppercase()}  ·  $tradingEmoji ${entry.tradingMode.ifEmpty { "STANDARD" }}"
                 textSize = 10f
                 setTextColor(muted)
                 typeface = android.graphics.Typeface.MONOSPACE
