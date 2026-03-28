@@ -4,21 +4,22 @@
 
 ## Email 1: Cold Outreach (Crypto-Native VC)
 
-**Subject:** V3 Architecture: Score-Based AI + Collective Hive Mind. 65K Lines. Solo Dev.
+**Subject:** V3 Architecture + Collective Hive Mind + Whale Tracking. 66K Lines. Solo Dev.
 
 Hi [Name],
 
 I built something that shouldn't exist.
 
-**AATE** — an autonomous Solana trading bot with a V3 scoring-based AI architecture. 65,000+ lines of production Kotlin. Built from scratch in under 7 days.
+**AATE** — an autonomous Solana trading bot with a V3 scoring-based AI architecture. 66,000+ lines of production Kotlin. Built from scratch in under 7 days.
 
 Not a weekend hack. Not a wrapper around ChatGPT. A fully self-learning trading engine with:
 
-- **V3 Score Engine**: 11 AI scoring modules — everything becomes a score, size by confidence
+- **V3 Score Engine**: 11 AI scoring modules — size by confidence, not hard gates
 - **Collective Hive Mind**: Turso edge DB syncing learnings across 1M+ potential instances
-- 18 specialized trading modes
-- Shadow learning mode (prove V3 before deploy)
-- Native Android with military-grade encryption
+- **Whale Wallet Tracker**: Track successful whales, learn their win rates, share via collective
+- **Time-Based Auto-Mode**: Learns best hours for each trading mode
+- **Confidence Override**: User-adjustable AGGRESSIVE/STANDARD/CONSERVATIVE modes
+- 18 specialized trading modes + native Android with military-grade encryption
 
 **Why this matters:**
 The meme coin market is $50B+ but trading tools are primitive. AATE brings institutional-grade intelligence to retail traders — and gets smarter with every user.
@@ -26,6 +27,8 @@ The meme coin market is $50B+ but trading tools are primitive. AATE brings insti
 **The edge:**
 - V3 philosophy: Don't block trades, score them and size accordingly
 - Collective intelligence: Every instance shares patterns (good AND bad)
+- Whale tracking: Know which whales to follow based on win rates
+- Time optimization: Auto-switch modes based on learned patterns
 - Built at 10x normal development speed
 - 100% open source (trust through transparency)
 
@@ -94,21 +97,35 @@ Hi [Name],
 
 I know you appreciate technical depth over pitch decks. Here's AATE V3 in engineering terms:
 
-**V3 Architecture (New):**
+**V3 Architecture (Core):**
 - Score-based decisions replacing hard-gating
 - 11 AI scoring modules: EntryAI, MomentumAI, LiquidityAI, VolumeProfileAI, HolderSafetyAI, NarrativeAI, MemoryAI, MarketRegimeAI, TimeAI, CopyTradeAI, SourceScore
 - Confidence-based position sizing via SmartSizerV3
 - Shadow learning mode: V3 runs alongside legacy, logs comparison
 - FinalDecisionEngine produces score bands: EXECUTE_AGGRESSIVE → EXECUTE_STANDARD → WATCH → REJECT → BLOCK_FATAL
 
+**New Intelligence Systems:**
+- **WhaleWalletTracker**: Track whale wallets, record outcomes, calculate win rates, share via collective (hashed for privacy)
+- **TimeModeScheduler**: Learn best trading modes by hour, auto-switch based on patterns, user schedule overrides
+- **V3ConfidenceConfig**: User-adjustable thresholds (AGGRESSIVE/STANDARD/CONSERVATIVE), integrated into FinalDecisionEngine + SmartSizerV3
+- **CollectiveAnalytics**: Dashboard data for hive mind (contributions, patterns learned, best/worst patterns)
+
 **Collective Learning (Turso Edge DB):**
 - Pattern outcomes uploaded after every trade
 - Blacklisted tokens shared across all instances
 - Mode performance stats synced every 15 minutes
 - Score adjustments (-30 to +30) based on collective pattern win rates
+- Whale success rates shared (hashed wallets)
 - Privacy-preserving: no wallet addresses, no trade sizes
 
-**Legacy Deprecation:**
+**Deep Integrations:**
+- WhaleTrackerAI → WhaleWalletTracker (records whale trades, shares outcomes)
+- AutoModeEngine → TimeModeScheduler (auto-switches modes)
+- FinalDecisionEngine → V3ConfidenceConfig (adjustable thresholds)
+- SmartSizerV3 → V3ConfidenceConfig (adjustable size multiplier)
+- CollectiveLearning → CollectiveAnalytics (dashboard updates)
+
+**Legacy Deprecation (Clean Migration):**
 - FinalDecisionGate.kt → @Deprecated (replaced by v3/decision/FinalDecisionEngine)
 - SmartSizer.kt → @Deprecated (replaced by v3/sizing/SmartSizerV3)
 - EntryIntelligence.kt → @Deprecated (replaced by v3/scoring/ScoringModules)
@@ -122,9 +139,10 @@ I know you appreciate technical depth over pitch decks. Here's AATE V3 in engine
 - Turso (LibSQL) for collective sync
 
 **Stats:**
-- 65,000+ lines of production code
+- 66,000+ lines of production code
 - 100+ source files
 - V3 = 17 new files, ~1,800 lines
+- 4 new intelligence systems = ~1,300 lines
 - Compiling and trading live
 
 The GitHub is public. I'd welcome a code review.

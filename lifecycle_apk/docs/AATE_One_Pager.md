@@ -1,7 +1,7 @@
 # AATE — One Pager
 
 ## The Pitch
-**AATE (Autonomous Algorithmic Trading Engine)** is the world's most advanced open-source Solana trading bot. Built in under 7 days with 65,000+ lines of production Kotlin code, featuring V3 scoring-based AI architecture and a Collective Hive Mind that learns from every trade across all instances.
+**AATE (Autonomous Algorithmic Trading Engine)** is the world's most advanced open-source Solana trading bot. Built in under 7 days with 66,000+ lines of production Kotlin code, featuring V3 scoring-based AI architecture, Collective Hive Mind, Whale Wallet Tracking, and Time-Based Auto-Mode switching.
 
 ---
 
@@ -9,6 +9,7 @@
 - Manual crypto trading is emotionally exhausting and time-consuming
 - Existing bots are either too simple (single indicator) or black-box (no transparency)
 - No shared learning across trading instances — every trader starts from zero
+- No way to know which whales are actually profitable to follow
 - High barrier to entry for algorithmic trading
 
 ## The Solution
@@ -17,7 +18,9 @@ A self-learning Android trading bot that:
 - **Size by confidence**, not hard gates — don't miss winners, size appropriately
 - Supports **18 specialized trading modes** for any market condition
 - **Shares learnings** via Turso Collective Hive Mind (1M+ potential instances)
-- **Shadow learning mode** proves V3 vs legacy before deploying
+- **Tracks whale wallets** and learns which ones are actually profitable
+- **Auto-switches modes** based on learned time patterns
+- **User-adjustable confidence** (AGGRESSIVE/STANDARD/CONSERVATIVE)
 
 ---
 
@@ -25,16 +28,16 @@ A self-learning Android trading bot that:
 
 | Metric | Value |
 |--------|-------|
-| Lines of Code | 65,000+ |
+| Lines of Code | 66,000+ |
 | V3 AI Modules | 11 |
 | Trading Modes | 18 |
-| Learning Systems | 6 + Collective |
+| Intelligence Systems | 10+ |
 | Build Time | < 7 days |
 | Open Source | 100% |
 
 ---
 
-## V3 Architecture (New)
+## V3 Architecture
 
 | Old Way | New Way (V3) |
 |---------|--------------|
@@ -42,13 +45,27 @@ A self-learning Android trading bot that:
 | Miss winners | Size appropriately |
 | Binary yes/no | Confidence-based sizing |
 | Isolated learning | Collective Hive Mind |
+| Follow any whale | Track whale win rates |
+| Same mode all day | Auto-switch by time |
+
+---
+
+## New Intelligence Systems
+
+| System | Function |
+|--------|----------|
+| **WhaleWalletTracker** | Track whales, record outcomes, share win rates |
+| **TimeModeScheduler** | Learn best hours, auto-switch modes |
+| **V3ConfidenceConfig** | User threshold control (AGG/STD/CON) |
+| **CollectiveAnalytics** | Dashboard for hive mind contributions |
 
 ---
 
 ## Technology Stack
 
 - **Platform**: Native Android (Kotlin)
-- **AI**: V3 Score Engine with 11 modules + Collective Learning
+- **AI**: V3 Score Engine + 11 modules + Collective Learning
+- **Intelligence**: WhaleTracker + TimeScheduler + ConfidenceConfig
 - **Blockchain**: Solana (Jupiter Ultra, Helius, DexScreener)
 - **Database**: Local encrypted + Turso Edge DB (collective sync)
 - **Security**: AES-256, Hardware Keystore, Jito MEV protection
@@ -62,10 +79,12 @@ A self-learning Android trading bot that:
 | V3 Score Engine | ✅ 11 modules | 1-3 |
 | Confidence Sizing | ✅ | ❌ |
 | Collective Hive Mind | ✅ | ❌ |
+| Whale Win Rate Tracking | ✅ | ❌ |
+| Time-Based Auto-Mode | ✅ | ❌ |
+| User Confidence Control | ✅ | ❌ |
 | Shadow Learning | ✅ | ❌ |
 | Open Source | ✅ | ❌ |
 | Native Mobile | ✅ | Web only |
-| Anti-Rug Protection | ✅ | Limited |
 
 ---
 
@@ -73,8 +92,9 @@ A self-learning Android trading bot that:
 
 1. **Freemium App**: Free with premium features
 2. **Collective Learning Premium**: Higher sync frequency, priority patterns
-3. **API Access**: For institutional traders
-4. **White-Label**: Custom deployments
+3. **Whale Tracker Premium**: Extended whale history, alerts
+4. **API Access**: For institutional traders
+5. **White-Label**: Custom deployments
 
 ---
 
@@ -101,7 +121,7 @@ Seeking $500K seed round to:
 
 ---
 
-*"65,000 lines of V3 AI-powered trading intelligence. Collective Hive Mind. One week. One developer. Zero limits."*
+*"66,000 lines of V3 AI-powered trading intelligence. Collective Hive Mind. Whale Tracking. Time Optimization. One week. One developer. Zero limits."*
 
 ---
 

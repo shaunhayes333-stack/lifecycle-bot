@@ -34,6 +34,20 @@
 - [x] Turso collective sync with LearningStore ✅
 - [x] Shadow learning mode (V3 vs FDG comparison) ✅
 - [x] V3 vs Legacy comparison logging ✅
+- [x] WhaleTrackerAI → WhaleWalletTracker bridge ✅
+- [x] AutoModeEngine → TimeModeScheduler integration ✅
+- [x] FinalDecisionEngine → V3ConfidenceConfig integration ✅
+- [x] SmartSizerV3 → V3ConfidenceConfig integration ✅
+- [x] CollectiveLearning → CollectiveAnalytics dashboard ✅
+
+### New Intelligence Systems (Session 7)
+
+| System | File | Purpose |
+|--------|------|---------|
+| CollectiveAnalytics | `engine/CollectiveAnalytics.kt` | Dashboard data for hive mind |
+| V3ConfidenceConfig | `engine/V3ConfidenceConfig.kt` | User-adjustable thresholds |
+| WhaleWalletTracker | `engine/WhaleWalletTracker.kt` | Track whale win rates |
+| TimeModeScheduler | `engine/TimeModeScheduler.kt` | Time-based mode switching |
 
 ### Legacy Deprecation
 | Legacy File | V3 Replacement | Status |
