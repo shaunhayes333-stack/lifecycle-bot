@@ -143,9 +143,8 @@ class CollectiveBrainActivity : AppCompatActivity() {
                 ?: com.lifecyclebot.engine.ShadowLearningEngine.getTopTrackedMode()
         } catch (_: Exception) { null }
         
-        // Calculate combined PnL (real + shadow virtual)
-        val shadowPnl = shadowStats?.avgPnlPct ?: 0.0
-        val displayPnl = if (localPnl != 0.0) localPnl else (shadowPnl / 100.0) // Convert shadow % to display
+        // Use local PnL (shadow stats don't have PnL in SOL)
+        val displayPnl = localPnl
         
         withContext(Dispatchers.Main) {
             // Update brain animation
