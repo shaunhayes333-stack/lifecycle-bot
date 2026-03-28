@@ -2,6 +2,38 @@
 
 > **Scoring-based decisions instead of hard blocks. The actual unlock.**
 
+## Implementation Status
+
+| Component | File | Status |
+|-----------|------|--------|
+| BotOrchestrator | `v3/core/BotOrchestrator.kt` | ✅ Implemented |
+| TradingConfigV3 | `v3/core/Config.kt` | ✅ Implemented |
+| TradingContext | `v3/core/Config.kt` | ✅ Implemented |
+| LifecycleManager | `v3/core/LifecycleManager.kt` | ✅ Implemented |
+| V3BotMode | `v3/core/Enums.kt` | ✅ Implemented |
+| DecisionBand | `v3/core/Enums.kt` | ✅ Implemented |
+| EligibilityGate | `v3/eligibility/EligibilityGate.kt` | ✅ Implemented |
+| CooldownManager | `v3/eligibility/EligibilityGate.kt` | ✅ Implemented |
+| ExposureGuard | `v3/eligibility/EligibilityGate.kt` | ✅ Implemented |
+| UnifiedScorer | `v3/scoring/UnifiedScorer.kt` | ✅ Implemented |
+| ScoreCard | `v3/scoring/ScoreCard.kt` | ✅ Implemented |
+| All AI Modules | `v3/scoring/ScoringModules.kt` | ✅ Implemented |
+| FatalRiskChecker | `v3/risk/FatalRiskChecker.kt` | ✅ Implemented |
+| ConfidenceEngine | `v3/decision/DecisionEngine.kt` | ✅ Implemented |
+| FinalDecisionEngine | `v3/decision/DecisionEngine.kt` | ✅ Implemented |
+| SmartSizerV3 | `v3/sizing/SmartSizerV3.kt` | ✅ Implemented |
+| ShadowTracker | `v3/shadow/ShadowTracker.kt` | ✅ Implemented |
+| LearningStore | `v3/learning/LearningStore.kt` | ✅ Implemented |
+| TradeExecutor | `v3/execution/TradeExecutor.kt` | ✅ Implemented |
+| V3Adapter | `v3/bridge/V3Adapter.kt` | ✅ Implemented |
+
+### Wiring Status
+- [ ] BotOrchestrator wired into BotService
+- [ ] Jupiter API integration in TradeExecutor
+- [ ] Turso sync with LearningStore
+
+---
+
 ## Philosophy
 
 Replace this style:
