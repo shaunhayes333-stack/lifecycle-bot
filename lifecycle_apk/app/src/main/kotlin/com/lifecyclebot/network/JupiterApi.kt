@@ -35,10 +35,25 @@ class JupiterApi(private val apiKey: String = "") {
     companion object {
         const val SOL_MINT = "So11111111111111111111111111111111111111112"
         private const val BASE_V6 = "https://quote-api.jup.ag/v6"
-        private const val BASE_ULTRA = "https://api.jup.ag/ultra/v1"
+        
+        // ═══════════════════════════════════════════════════════════════════
+        // CRITICAL FIX: Use Jupiter Swap v2 API endpoints
+        // The /swap/v2 endpoints provide:
+        //   - Real-Time Slippage Estimator (RTSE) for dynamic slippage
+        //   - Predictive Execution for accurate quotes
+        //   - Better MEV protection via JupiterZ/Iris routers
+        // 
+        // Reference: https://dev.jup.ag/docs/swap/v2/order-and-execute
+        // ═══════════════════════════════════════════════════════════════════
+        private const val BASE_URL = "https://api.jup.ag"
+        private const val ORDER_ENDPOINT = "$BASE_URL/swap/v2/order"
+        private const val EXECUTE_ENDPOINT = "$BASE_URL/swap/v2/execute"
+        
+        // Legacy endpoint (kept for reference but not used)
+        private const val BASE_ULTRA_LEGACY = "https://api.jup.ag/ultra/v1"
         private const val TAG = "JupiterApi"
         
-        // Use Ultra API by default (faster, better MEV protection, auto-slippage)
+        // Use v2 Swap API by default (better than deprecated Ultra v1)
         var useUltraApi = true
         
         // Track if we've logged DNS status
@@ -90,7 +105,10 @@ class JupiterApi(private val apiKey: String = "") {
      * This is used for price estimation in SlippageGuard.
      * No taker address needed - we just want the price.
      * 
-     * Endpoint: GET /ultra/v1/order?inputMint=...&outputMint=...&amount=...
+     * CRITICAL FIX: Using /swap/v2/order endpoint instead of deprecated /ultra/v1/order
+     * The v2 API provides better routing and RTSE (Real-Time Slippage Estimation)
+     * 
+     * Endpoint: GET /swap/v2/order?inputMint=...&outputMint=...&amount=...
      */
     private fun getUltraQuote(
         inputMint: String,
@@ -98,10 +116,10 @@ class JupiterApi(private val apiKey: String = "") {
         amountLamports: Long,
     ): SwapQuote {
         val startMs = System.currentTimeMillis()
-        log("🚀 ULTRA QUOTE: ${inputMint.take(8)}→${outputMint.take(8)} amt=$amountLamports")
+        log("🚀 SWAP v2 QUOTE: ${inputMint.take(8)}→${outputMint.take(8)} amt=$amountLamports")
         
         // GET request - no taker means no transaction returned, but we get the quote
-        val url = "$BASE_ULTRA/order?inputMint=$inputMint&outputMint=$outputMint&amount=$amountLamports"
+        val url = "$ORDER_ENDPOINT?inputMint=$inputMint&outputMint=$outputMint&amount=$amountLamports"
         
         val body = getOrThrow(url)
         val elapsed = System.currentTimeMillis() - startMs
@@ -111,24 +129,27 @@ class JupiterApi(private val apiKey: String = "") {
         // Check for error
         if (json.has("error")) {
             val error = json.optString("error", "unknown")
-            log("❌ Ultra QUOTE error: $error (${elapsed}ms)")
-            throw RuntimeException("Jupiter Ultra quote error: $error")
+            log("❌ Swap v2 QUOTE error: $error (${elapsed}ms)")
+            throw RuntimeException("Jupiter Swap v2 quote error: $error")
         }
         
-        // Ultra returns outAmount or outputAmount
+        // v2 API returns outAmount or outputAmount
         val outAmount = json.optString("outAmount", "0").toLongOrNull() 
             ?: json.optString("outputAmount", "0").toLongOrNull() ?: 0L
         
         if (outAmount <= 0) {
-            log("❌ Ultra returned 0 output - no route found")
-            throw RuntimeException("Jupiter Ultra: no route found")
+            log("❌ Swap v2 returned 0 output - no route found")
+            throw RuntimeException("Jupiter Swap v2: no route found")
         }
         
-        // Price impact from Ultra
+        // Price impact from response
         val priceImpact = json.optString("priceImpactPct", "0").toDoubleOrNull() 
             ?: json.optDouble("priceImpact", 0.0)
         
-        log("✅ ULTRA QUOTE OK: out=$outAmount impact=${String.format("%.2f", priceImpact)}% (${elapsed}ms)")
+        // Check which router won (for logging)
+        val router = json.optString("router", "unknown")
+        
+        log("✅ SWAP v2 QUOTE OK: out=$outAmount impact=${String.format("%.2f", priceImpact)}% router=$router (${elapsed}ms)")
         
         return SwapQuote(
             raw = json,
@@ -145,10 +166,12 @@ class JupiterApi(private val apiKey: String = "") {
     }
 
     /**
-     * Ultra API: Get order WITH transaction (includes taker address).
+     * Swap v2 API: Get order WITH transaction (includes taker address).
      * Use this when you're ready to execute - provides signed transaction.
      * 
-     * Endpoint: GET /ultra/v1/order?inputMint=...&outputMint=...&amount=...&taker=...
+     * CRITICAL FIX: Using /swap/v2/order endpoint instead of deprecated /ultra/v1/order
+     * 
+     * Endpoint: GET /swap/v2/order?inputMint=...&outputMint=...&amount=...&taker=...
      */
     private fun getUltraOrder(
         inputMint: String,
@@ -157,10 +180,10 @@ class JupiterApi(private val apiKey: String = "") {
         taker: String,
     ): SwapQuote {
         val startMs = System.currentTimeMillis()
-        log("🚀 ULTRA ORDER: ${inputMint.take(8)}→${outputMint.take(8)} amt=$amountLamports taker=${taker.take(8)}...")
+        log("🚀 SWAP v2 ORDER: ${inputMint.take(8)}→${outputMint.take(8)} amt=$amountLamports taker=${taker.take(8)}...")
         
         // GET request with taker to get transaction
-        val url = "$BASE_ULTRA/order?inputMint=$inputMint&outputMint=$outputMint&amount=$amountLamports&taker=$taker"
+        val url = "$ORDER_ENDPOINT?inputMint=$inputMint&outputMint=$outputMint&amount=$amountLamports&taker=$taker"
         
         val body = getOrThrow(url)
         val elapsed = System.currentTimeMillis() - startMs
@@ -170,8 +193,8 @@ class JupiterApi(private val apiKey: String = "") {
         // Check for error
         if (json.has("error")) {
             val error = json.optString("error", "unknown")
-            log("❌ Ultra ORDER error: $error (${elapsed}ms)")
-            throw RuntimeException("Jupiter Ultra order error: $error")
+            log("❌ Swap v2 ORDER error: $error (${elapsed}ms)")
+            throw RuntimeException("Jupiter Swap v2 order error: $error")
         }
         
         val outAmount = json.optString("outAmount", "0").toLongOrNull() 
@@ -179,19 +202,22 @@ class JupiterApi(private val apiKey: String = "") {
         val requestId = json.optString("requestId", "")
         val swapTx = json.optString("transaction", "")
         
+        // Check which router won (for logging)
+        val router = json.optString("router", "unknown")
+        
         if (outAmount <= 0) {
-            log("❌ Ultra returned 0 output - no route found")
-            throw RuntimeException("Jupiter Ultra: no route found")
+            log("❌ Swap v2 returned 0 output - no route found")
+            throw RuntimeException("Jupiter Swap v2: no route found")
         }
         
         if (swapTx.isBlank()) {
-            log("⚠️ Ultra ORDER returned no transaction - taker may be invalid")
+            log("⚠️ Swap v2 ORDER returned no transaction - taker may be invalid")
         }
         
         val priceImpact = json.optString("priceImpactPct", "0").toDoubleOrNull() 
             ?: json.optDouble("priceImpact", 0.0)
         
-        log("✅ ULTRA ORDER OK: out=$outAmount reqId=${requestId.take(12)}... tx=${if (swapTx.isNotBlank()) "${swapTx.length}chars" else "NONE"} (${elapsed}ms)")
+        log("✅ SWAP v2 ORDER OK: out=$outAmount reqId=${requestId.take(12)}... tx=${if (swapTx.isNotBlank()) "${swapTx.length}chars" else "NONE"} router=$router (${elapsed}ms)")
         
         return SwapQuote(
             raw = json,
@@ -275,12 +301,14 @@ class JupiterApi(private val apiKey: String = "") {
     }
     
     /**
-     * Ultra API: Get order with taker address for signing (uses GET request)
+     * Swap v2 API: Get order with taker address for signing (uses GET request)
      * Returns SwapTxResult with transaction and requestId for execute.
+     * 
+     * CRITICAL FIX: Using /swap/v2/order endpoint instead of deprecated /ultra/v1/order
      */
     private fun buildUltraTx(quote: SwapQuote, userPublicKey: String): SwapTxResult {
         val startMs = System.currentTimeMillis()
-        log("🚀 Building Ultra tx for ${userPublicKey.take(8)}...")
+        log("🚀 Building Swap v2 tx for ${userPublicKey.take(8)}...")
         
         // Use stored params from quote (API response doesn't echo them back!)
         val inputMint = quote.inputMint.ifBlank { quote.raw.optString("inputMint", "") }
@@ -290,12 +318,12 @@ class JupiterApi(private val apiKey: String = "") {
         
         // Validate we have the required params
         if (inputMint.isBlank() || outputMint.isBlank() || amount == "0") {
-            log("❌ Missing params for Ultra tx: in=$inputMint out=$outputMint amt=$amount")
-            throw RuntimeException("Jupiter Ultra buildTx: missing input/output mint or amount")
+            log("❌ Missing params for Swap v2 tx: in=$inputMint out=$outputMint amt=$amount")
+            throw RuntimeException("Jupiter Swap v2 buildTx: missing input/output mint or amount")
         }
         
         // GET request with taker to get transaction
-        val url = "$BASE_ULTRA/order?inputMint=$inputMint&outputMint=$outputMint&amount=$amount&taker=$userPublicKey"
+        val url = "$ORDER_ENDPOINT?inputMint=$inputMint&outputMint=$outputMint&amount=$amount&taker=$userPublicKey"
         
         val body = getOrThrow(url)
         val elapsed = System.currentTimeMillis() - startMs
@@ -304,24 +332,27 @@ class JupiterApi(private val apiKey: String = "") {
         
         if (json.has("error")) {
             val error = json.optString("error", "unknown")
-            log("❌ Ultra buildTx error: $error (${elapsed}ms)")
-            throw RuntimeException("Jupiter Ultra buildTx error: $error")
+            log("❌ Swap v2 buildTx error: $error (${elapsed}ms)")
+            throw RuntimeException("Jupiter Swap v2 buildTx error: $error")
         }
         
         val swapTx = json.optString("transaction", "")
         if (swapTx.isBlank()) {
-            log("❌ Ultra returned empty transaction!")
-            throw RuntimeException("Jupiter Ultra returned empty transaction")
+            log("❌ Swap v2 returned empty transaction!")
+            throw RuntimeException("Jupiter Swap v2 returned empty transaction")
         }
         
-        // Get the requestId for execute - CRITICAL: must not be empty for Ultra execute!
+        // Get the requestId for execute - CRITICAL: must not be empty for v2 execute!
         val requestId = json.optString("requestId", "")
         if (requestId.isBlank()) {
-            log("❌ Ultra returned empty requestId - cannot execute without it!")
-            throw RuntimeException("Jupiter Ultra returned empty requestId - order may have expired")
+            log("❌ Swap v2 returned empty requestId - cannot execute without it!")
+            throw RuntimeException("Jupiter Swap v2 returned empty requestId - order may have expired")
         }
         
-        log("✅ Ultra tx built OK (${swapTx.length} chars, reqId=${requestId.take(12)}..., ${elapsed}ms)")
+        // Log the router that won
+        val router = json.optString("router", "unknown")
+        
+        log("✅ Swap v2 tx built OK (${swapTx.length} chars, reqId=${requestId.take(12)}..., router=$router, ${elapsed}ms)")
         return SwapTxResult(swapTx, requestId)
     }
     
@@ -365,37 +396,43 @@ class JupiterApi(private val apiKey: String = "") {
      * Ultra API: Execute signed transaction via Jupiter's infrastructure
      * This provides better MEV protection and faster landing.
      * 
+     * CRITICAL FIX: Using /swap/v2/execute endpoint instead of deprecated /ultra/v1/execute
+     * 
      * @param signedTxB64 Base64 encoded signed transaction
      * @param requestId The requestId from the order response
      * @return Transaction signature
      */
     fun executeUltra(signedTxB64: String, requestId: String): String {
         val startMs = System.currentTimeMillis()
-        log("🚀 ULTRA EXECUTE: reqId=${requestId.take(12)}...")
+        log("🚀 SWAP v2 EXECUTE: reqId=${requestId.take(12)}...")
         
         val payload = JSONObject().apply {
             put("signedTransaction", signedTxB64)
             put("requestId", requestId)
         }
         
-        val body = postOrThrow("$BASE_ULTRA/execute", payload.toString())
+        val body = postOrThrow(EXECUTE_ENDPOINT, payload.toString())
         val elapsed = System.currentTimeMillis() - startMs
         
         val json = JSONObject(body)
         
         if (json.has("error")) {
             val error = json.optString("error", "unknown")
-            log("❌ Ultra EXECUTE error: $error (${elapsed}ms)")
-            throw RuntimeException("Jupiter Ultra execute error: $error")
+            log("❌ Swap v2 EXECUTE error: $error (${elapsed}ms)")
+            throw RuntimeException("Jupiter Swap v2 execute error: $error")
         }
         
         val signature = json.optString("signature", json.optString("txid", ""))
         val status = json.optString("status", "unknown")
         val code = json.optInt("code", 0)
         
+        // v2 response also includes actual amounts
+        val inputAmountResult = json.optLong("inputAmountResult", 0)
+        val outputAmountResult = json.optLong("outputAmountResult", 0)
+        
         // ═══════════════════════════════════════════════════════════════════
         // CRITICAL FIX: Check status and code, not just signature presence!
-        // Jupiter Ultra returns signature even on failed transactions so you
+        // Jupiter Swap v2 returns signature even on failed transactions so you
         // can look them up on explorers. The actual success is indicated by:
         // - status = "Success" AND code = 0
         // - Negative codes indicate various failure types
@@ -416,27 +453,27 @@ class JupiterApi(private val apiKey: String = "") {
                 -1006 -> "Transaction timed out"
                 else -> "Unknown failure (code=$code)"
             }
-            log("❌ Ultra EXECUTE FAILED: status=$status code=$code | $errorMsg (${elapsed}ms)")
-            throw RuntimeException("Jupiter Ultra execute failed: $errorMsg (code=$code, sig=${signature.take(20)})")
+            log("❌ Swap v2 EXECUTE FAILED: status=$status code=$code | $errorMsg (${elapsed}ms)")
+            throw RuntimeException("Jupiter Swap v2 execute failed: $errorMsg (code=$code, sig=${signature.take(20)})")
         }
         
         // Check for negative code even if status doesn't say "Failed"
         if (code < 0) {
-            log("❌ Ultra EXECUTE negative code: $code | status=$status (${elapsed}ms)")
-            throw RuntimeException("Jupiter Ultra execute error code: $code (status=$status)")
+            log("❌ Swap v2 EXECUTE negative code: $code | status=$status (${elapsed}ms)")
+            throw RuntimeException("Jupiter Swap v2 execute error code: $code (status=$status)")
         }
         
         if (signature.isBlank()) {
-            log("❌ Ultra execute returned no signature! status=$status code=$code")
-            throw RuntimeException("Jupiter Ultra: no signature returned, status=$status, code=$code")
+            log("❌ Swap v2 execute returned no signature! status=$status code=$code")
+            throw RuntimeException("Jupiter Swap v2: no signature returned, status=$status, code=$code")
         }
         
         // Only log success if we truly succeeded
         if (status.equals("Success", ignoreCase = true) && code == 0) {
-            log("✅ ULTRA EXECUTED: sig=${signature.take(20)}... status=$status code=$code (${elapsed}ms)")
+            log("✅ SWAP v2 EXECUTED: sig=${signature.take(20)}... in=$inputAmountResult out=$outputAmountResult (${elapsed}ms)")
         } else {
             // Status is unknown or unexpected - warn but continue (awaitConfirmation will verify)
-            log("⚠️ ULTRA EXECUTE uncertain: sig=${signature.take(20)}... status=$status code=$code (${elapsed}ms)")
+            log("⚠️ SWAP v2 EXECUTE uncertain: sig=${signature.take(20)}... status=$status code=$code (${elapsed}ms)")
         }
         
         return signature
