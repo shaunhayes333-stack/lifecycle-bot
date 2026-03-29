@@ -1812,7 +1812,7 @@ for legal compliance.
             })
             
             // Active AI Layers - concise list
-            tvAiLayers.text = "Entry · Exit · Volume · Momentum · Liquidity · Behavior · Regime · Treasury · ShitCoin · Social · Whale · Narrative"
+            tvAiLayers.text = "Entry · Exit · Volume · Momentum · Liquidity · Behavior · Regime · Treasury · ShitCoin · Express · DipHunter · SolArb · Social · Whale · Narrative"
             tvAiLayers.setTextColor(muted)
             
         } catch (e: Exception) {

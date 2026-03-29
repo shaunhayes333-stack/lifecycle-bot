@@ -1454,6 +1454,25 @@ class BotService : Service() {
             } catch (e: Exception) {
                 // Silently ignore - ShitCoin Mode is supplemental
             }
+            
+            // ═══════════════════════════════════════════════════════════════════
+            // V4.0: ADDITIONAL TRADING MODES INITIALIZATION
+            // ═══════════════════════════════════════════════════════════════════
+            try {
+                // 💩🚂 ShitCoin Express - Quick momentum rides for 30%+ profits
+                com.lifecyclebot.v3.scoring.ShitCoinExpress.init(cfg.paperMode)
+            } catch (e: Exception) {}
+            
+            try {
+                // 📉🎯 Dip Hunter - Buy quality dips on established tokens
+                com.lifecyclebot.v3.scoring.DipHunterAI.init(cfg.paperMode)
+            } catch (e: Exception) {}
+            
+            try {
+                // 💰⚡ Solana Arbitrage - Cross-exchange arb (requires treasury >= $500)
+                val treasuryUsd = com.lifecyclebot.v3.scoring.CashGenerationAI.getCurrentBalance() * solPriceUsd
+                com.lifecyclebot.v3.scoring.SolanaArbAI.init(cfg.paperMode, treasuryUsd)
+            } catch (e: Exception) {}
 
             // Log watchlist status every 5 loops for better visibility
             if (loopCount % 5 == 1) {
@@ -2878,6 +2897,165 @@ class BotService : Service() {
                         // ═══════════════════════════════════════════════════════════════════
                         
                         // ═══════════════════════════════════════════════════════════════════
+                        // 💩🚂 SHITCOIN EXPRESS - Quick momentum rides for 30%+ profits
+                        // Only evaluates tokens that are ALREADY pumping hard
+                        // ═══════════════════════════════════════════════════════════════════
+                        if (!ts.position.isOpen && com.lifecyclebot.v3.scoring.ShitCoinExpress.isEnabled()) {
+                            try {
+                                val tokenAgeMinutes = if (ts.addedToWatchlistAt > 0) {
+                                    (System.currentTimeMillis() - ts.addedToWatchlistAt) / 60_000.0
+                                } else 60.0
+                                
+                                // Express only for micro caps <$300K that are pumping
+                                if (ts.lastMcap <= 300_000 && ts.lastMcap >= 5_000 &&
+                                    (ts.momentum ?: 0.0) >= 5.0 && ts.lastBuyPressurePct >= 60) {
+                                    
+                                    val isTrending = ts.source.contains("TRENDING", ignoreCase = true)
+                                    val isBoosted = ts.source.contains("BOOSTED", ignoreCase = true)
+                                    
+                                    // Calculate 5 min price change
+                                    val priceChange5Min = ts.history.takeLastOrNull()?.let { 
+                                        ((ts.ref - it.priceUsd) / it.priceUsd * 100).coerceIn(-50.0, 100.0)
+                                    } ?: 0.0
+                                    
+                                    val expressSignal = com.lifecyclebot.v3.scoring.ShitCoinExpress.evaluate(
+                                        mint = ts.mint,
+                                        symbol = ts.symbol,
+                                        currentPrice = ts.ref,
+                                        marketCapUsd = ts.lastMcap,
+                                        liquidityUsd = ts.lastLiquidityUsd,
+                                        momentum = ts.momentum ?: 0.0,
+                                        buyPressurePct = ts.lastBuyPressurePct,
+                                        volumeChange = 1.5,  // Default estimate
+                                        priceChange5Min = priceChange5Min,
+                                        isTrending = isTrending,
+                                        isBoosted = isBoosted,
+                                        tokenAgeMinutes = tokenAgeMinutes,
+                                    )
+                                    
+                                    if (expressSignal.shouldRide) {
+                                        ErrorLogger.info("BotService", "💩🚂 [EXPRESS] ${ts.symbol} | RIDE | " +
+                                            "${expressSignal.rideType.emoji} ${expressSignal.rideType.name} | " +
+                                            "mom=${(ts.momentum ?: 0.0).fmt(1)}% | " +
+                                            "size=${expressSignal.positionSizeSol.fmt(3)} SOL | " +
+                                            "target=${expressSignal.estimatedGainPct.toInt()}%")
+                                        
+                                        // Board the express ride
+                                        com.lifecyclebot.v3.scoring.ShitCoinExpress.boardRide(
+                                            mint = ts.mint,
+                                            symbol = ts.symbol,
+                                            entryPrice = ts.ref,
+                                            entrySol = expressSignal.positionSizeSol,
+                                            momentum = ts.momentum ?: 0.0,
+                                            buyPressure = ts.lastBuyPressurePct,
+                                            isPaper = cfg.paperMode,
+                                        )
+                                        
+                                        // Execute buy via Executor
+                                        executor.shitCoinBuy(
+                                            ts = ts,
+                                            sizeSol = expressSignal.positionSizeSol,
+                                            walletSol = effectiveBalance,
+                                            takeProfitPct = expressSignal.estimatedGainPct,
+                                            stopLossPct = -8.0,
+                                            wallet = wallet,
+                                            isPaper = cfg.paperMode,
+                                            launchPlatform = com.lifecyclebot.v3.scoring.ShitCoinTraderAI.detectPlatform(ts.source),
+                                            riskLevel = com.lifecyclebot.v3.scoring.ShitCoinTraderAI.RiskLevel.EXTREME,
+                                        )
+                                        
+                                        addLog("💩🚂 EXPRESS: ${ts.symbol} | ${expressSignal.rideType.emoji} | " +
+                                            "target +${expressSignal.estimatedGainPct.toInt()}% | " +
+                                            "${if (cfg.paperMode) "PAPER" else "LIVE"}", ts.mint)
+                                    }
+                                }
+                            } catch (expEx: Exception) {
+                                ErrorLogger.debug("BotService", "💩🚂 [EXPRESS] ${ts.symbol} | ERROR | ${expEx.message}")
+                            }
+                        }
+                        // ═══════════════════════════════════════════════════════════════════
+                        // END ShitCoin Express evaluation
+                        // ═══════════════════════════════════════════════════════════════════
+                        
+                        // ═══════════════════════════════════════════════════════════════════
+                        // 📉🎯 DIP HUNTER - Buy quality dips on established tokens
+                        // ═══════════════════════════════════════════════════════════════════
+                        if (!ts.position.isOpen && com.lifecyclebot.v3.scoring.DipHunterAI.isEnabled()) {
+                            try {
+                                val tokenAgeHours = if (ts.addedToWatchlistAt > 0) {
+                                    (System.currentTimeMillis() - ts.addedToWatchlistAt) / (60 * 60 * 1000.0)
+                                } else 12.0
+                                
+                                // Dip Hunter for tokens $50K-$5M mcap that have been around
+                                if (ts.lastMcap in 50_000.0..5_000_000.0 && tokenAgeHours >= 2.0) {
+                                    
+                                    // Calculate high from ATH or recent high
+                                    val recentHigh = ts.ath.takeIf { it > 0 } ?: (ts.ref * 1.3)
+                                    
+                                    val dipSignal = com.lifecyclebot.v3.scoring.DipHunterAI.evaluate(
+                                        mint = ts.mint,
+                                        symbol = ts.symbol,
+                                        currentPrice = ts.ref,
+                                        highPrice = recentHigh,
+                                        marketCapUsd = ts.lastMcap,
+                                        liquidityUsd = ts.lastLiquidityUsd,
+                                        buyPressurePct = ts.lastBuyPressurePct,
+                                        volumeVsAvg = 1.0,
+                                        tokenAgeHours = tokenAgeHours,
+                                        holderCount = ts.safety.holderCount.takeIf { it > 0 } ?: 100,
+                                        holderChange24h = 0,
+                                        isDevSelling = ts.safety.bundleRisk == "HIGH",
+                                    )
+                                    
+                                    if (dipSignal.shouldBuy) {
+                                        ErrorLogger.info("BotService", "📉🎯 [DIP] ${ts.symbol} | BUY | " +
+                                            "${dipSignal.dipQuality.emoji} ${dipSignal.dipQuality.name} | " +
+                                            "dip=${dipSignal.dipDepthPct.fmt(1)}% | " +
+                                            "size=${dipSignal.positionSizeSol.fmt(3)} SOL | " +
+                                            "target=+${dipSignal.expectedRecoveryPct.toInt()}%")
+                                        
+                                        // Open dip position
+                                        com.lifecyclebot.v3.scoring.DipHunterAI.openDip(
+                                            mint = ts.mint,
+                                            symbol = ts.symbol,
+                                            entryPrice = ts.ref,
+                                            entrySol = dipSignal.positionSizeSol,
+                                            highPrice = recentHigh,
+                                            dipDepthPct = dipSignal.dipDepthPct,
+                                            marketCapUsd = ts.lastMcap,
+                                            liquidityUsd = ts.lastLiquidityUsd,
+                                            isPaper = cfg.paperMode,
+                                        )
+                                        
+                                        // Execute buy
+                                        executor.paperBuy(
+                                            ts = ts,
+                                            sol = dipSignal.positionSizeSol,
+                                            score = dipSignal.confidence.toDouble(),
+                                            identity = identity,
+                                            quality = "DIP_HUNTER",
+                                            skipGraduated = true,
+                                            wallet = wallet,
+                                            walletSol = effectiveBalance
+                                        )
+                                        
+                                        ts.position.tradingMode = "DIP_HUNTER"
+                                        ts.position.tradingModeEmoji = "📉"
+                                        
+                                        addLog("📉🎯 DIP BUY: ${ts.symbol} | ${dipSignal.dipQuality.emoji} | " +
+                                            "dip ${dipSignal.dipDepthPct.toInt()}% | " +
+                                            "${if (cfg.paperMode) "PAPER" else "LIVE"}", ts.mint)
+                                    }
+                                }
+                            } catch (dipEx: Exception) {
+                                ErrorLogger.debug("BotService", "📉🎯 [DIP] ${ts.symbol} | ERROR | ${dipEx.message}")
+                            }
+                        }
+                        // ═══════════════════════════════════════════════════════════════════
+                        // END Dip Hunter evaluation
+                        // ═══════════════════════════════════════════════════════════════════
+                        
+                        // ═══════════════════════════════════════════════════════════════════
                         // END Treasury Mode evaluation - now proceed with V3 decision handling
                         // ═══════════════════════════════════════════════════════════════════
                         
@@ -3559,6 +3737,81 @@ class BotService : Service() {
                                 "${if (cfg.paperMode) "PAPER" else "LIVE"}", ts.mint)
                             
                             return@launch  // Exit processed
+                        }
+                    }
+                    
+                    // ═══════════════════════════════════════════════════════════════════
+                    // 💩🚂 SHITCOIN EXPRESS EXIT CHECK
+                    // ═══════════════════════════════════════════════════════════════════
+                    if (com.lifecyclebot.v3.scoring.ShitCoinExpress.hasRide(ts.mint)) {
+                        val currentPrice = ts.lastPrice.takeIf { it > 0 } 
+                            ?: ts.history.lastOrNull()?.priceUsd 
+                            ?: ts.position.entryPrice
+                        val currentMomentum = ts.momentum ?: 0.0
+                        
+                        val exitSignal = com.lifecyclebot.v3.scoring.ShitCoinExpress.checkExit(
+                            ts.mint, currentPrice, currentMomentum
+                        )
+                        
+                        if (exitSignal != com.lifecyclebot.v3.scoring.ShitCoinExpress.ExitSignal.HOLD) {
+                            val exitEmoji = when (exitSignal) {
+                                com.lifecyclebot.v3.scoring.ShitCoinExpress.ExitSignal.TAKE_PROFIT_100 -> "🚀"
+                                com.lifecyclebot.v3.scoring.ShitCoinExpress.ExitSignal.TAKE_PROFIT_50 -> "🚂"
+                                com.lifecyclebot.v3.scoring.ShitCoinExpress.ExitSignal.TAKE_PROFIT_30 -> "⚡"
+                                com.lifecyclebot.v3.scoring.ShitCoinExpress.ExitSignal.STOP_LOSS -> "💥"
+                                else -> "📉"
+                            }
+                            
+                            executor.requestSell(
+                                ts = ts,
+                                reason = "EXPRESS_${exitSignal.name}",
+                                wallet = wallet,
+                                walletSol = effectiveBalance
+                            )
+                            
+                            com.lifecyclebot.v3.scoring.ShitCoinExpress.exitRide(ts.mint, currentPrice, exitSignal)
+                            
+                            addLog("$exitEmoji EXPRESS SELL: ${ts.symbol} | ${exitSignal.name} | " +
+                                "${if (cfg.paperMode) "PAPER" else "LIVE"}", ts.mint)
+                            
+                            return@launch
+                        }
+                    }
+                    
+                    // ═══════════════════════════════════════════════════════════════════
+                    // 📉🎯 DIP HUNTER EXIT CHECK
+                    // ═══════════════════════════════════════════════════════════════════
+                    if (com.lifecyclebot.v3.scoring.DipHunterAI.hasDip(ts.mint) || ts.position.tradingMode == "DIP_HUNTER") {
+                        val currentPrice = ts.lastPrice.takeIf { it > 0 } 
+                            ?: ts.history.lastOrNull()?.priceUsd 
+                            ?: ts.position.entryPrice
+                        
+                        val exitSignal = com.lifecyclebot.v3.scoring.DipHunterAI.checkExit(
+                            ts.mint, currentPrice, ts.lastLiquidityUsd
+                        )
+                        
+                        if (exitSignal != com.lifecyclebot.v3.scoring.DipHunterAI.DipExitSignal.HOLD) {
+                            val exitEmoji = when (exitSignal) {
+                                com.lifecyclebot.v3.scoring.DipHunterAI.DipExitSignal.MAX_RECOVERY -> "🏆"
+                                com.lifecyclebot.v3.scoring.DipHunterAI.DipExitSignal.RECOVERY_TARGET -> "✅"
+                                com.lifecyclebot.v3.scoring.DipHunterAI.DipExitSignal.STOP_LOSS -> "🛑"
+                                com.lifecyclebot.v3.scoring.DipHunterAI.DipExitSignal.DEATH_SPIRAL -> "💀"
+                                else -> "⏱"
+                            }
+                            
+                            executor.requestSell(
+                                ts = ts,
+                                reason = "DIP_${exitSignal.name}",
+                                wallet = wallet,
+                                walletSol = effectiveBalance
+                            )
+                            
+                            com.lifecyclebot.v3.scoring.DipHunterAI.closeDip(ts.mint, currentPrice, exitSignal)
+                            
+                            addLog("$exitEmoji DIP SELL: ${ts.symbol} | ${exitSignal.name} | " +
+                                "${if (cfg.paperMode) "PAPER" else "LIVE"}", ts.mint)
+                            
+                            return@launch
                         }
                     }
                     
