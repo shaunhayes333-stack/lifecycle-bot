@@ -387,16 +387,22 @@ class Executor(
             }
             
             // ═══════════════════════════════════════════════════════════════
-            // V3.3: Record trade to FluidLearningAI and BehaviorAI
-            // FluidLearningAI: Adjusts adaptive thresholds based on outcomes
-            // BehaviorAI: Tracks streaks, tilt, discipline, big wins/losses
+            // V4.0: Record trade to FluidLearningAI with TIERED WEIGHTS
+            // - LIVE trades: 0.5 weight (real money, highest value learning)
+            // - PAPER trades: 0.1 weight (real decisions, simulated consequences)
+            // Also record to BehaviorAI for pattern analysis
             // ═══════════════════════════════════════════════════════════════
             try {
                 val pnl = trade.pnlPct
                 val isWin = pnl > 2.0
+                val isPaper = cfg().paperMode
                 
-                // Record to FluidLearningAI for learning progress
-                com.lifecyclebot.v3.scoring.FluidLearningAI.recordTrade(isWin)
+                // Record to FluidLearningAI with appropriate weight
+                if (isPaper) {
+                    com.lifecyclebot.v3.scoring.FluidLearningAI.recordPaperTrade(isWin)
+                } else {
+                    com.lifecyclebot.v3.scoring.FluidLearningAI.recordLiveTrade(isWin)
+                }
                 
                 // Record to BehaviorAI for behavior pattern analysis
                 com.lifecyclebot.v3.scoring.BehaviorAI.recordTrade(

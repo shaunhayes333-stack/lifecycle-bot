@@ -118,44 +118,98 @@ object FluidLearningAI {
     
     /**
      * Record a trade for learning progress.
-     * Live/Paper mode trades count at full weight.
-     * Use recordShadowTrade() for shadow learning with discounted weight.
+     * V4.0: Now uses tiered weights based on trade type.
+     * Use recordLiveTrade(), recordPaperTrade(), or recordShadowTrade() for proper weighting.
+     * 
+     * @deprecated Use the specific trade type methods instead
      */
     fun recordTrade(isWin: Boolean) {
-        sessionTrades.incrementAndGet()
-        if (isWin) sessionWins.incrementAndGet()
-        cachedProgress = 0.0  // Force recalculation
+        // Legacy method - defaults to paper weight for backwards compatibility
+        recordPaperTrade(isWin)
     }
     
     // ═══════════════════════════════════════════════════════════════════════════
-    // V4.0: SHADOW LEARNING DISCOUNT SYSTEM
+    // V4.0: TIERED LEARNING WEIGHT SYSTEM
     // 
-    // Shadow trades (simulated paper learning) count at 0.025 weight per trade
-    // instead of 1.0. This slows learning to ensure quality data.
+    // Different trade types contribute differently to maturity:
+    // - LIVE trades:   0.5 weight (real money, real consequences - most valuable)
+    // - PAPER trades:  0.1 weight (real decisions, simulated consequences)
+    // - SHADOW trades: 0.025 weight (simulated decisions, simulated consequences)
     // 
-    // Live/Paper mode trades keep full 1.0 weight - real decisions, real consequences.
+    // This ensures the bot learns appropriately from each type:
+    // - 200 live trades = full contribution
+    // - 1000 paper trades = full contribution
+    // - 4000 shadow trades = full contribution
     // ═══════════════════════════════════════════════════════════════════════════
     
-    private const val SHADOW_LEARNING_WEIGHT = 0.025  // 2.5% weight per shadow trade
+    private const val LIVE_LEARNING_WEIGHT = 0.5      // 50% weight - real money matters most
+    private const val PAPER_LEARNING_WEIGHT = 0.1     // 10% weight - real decisions count
+    private const val SHADOW_LEARNING_WEIGHT = 0.025  // 2.5% weight - simulations help slowly
     
-    // Accumulator for fractional shadow trade progress
+    // Accumulators for fractional trade progress
+    private var liveTradeAccumulator = 0.0
+    private var paperTradeAccumulator = 0.0
     private var shadowTradeAccumulator = 0.0
-    private val shadowTradeAccumulatorLock = Any()
+    private val tradeAccumulatorLock = Any()
     
     /**
-     * Record a shadow trade with discounted learning weight (0.025 per trade).
-     * 40 shadow trades = 1 full trade equivalent for maturity progression.
-     * This ensures quality data and prevents premature maturity from paper simulations.
+     * Record a LIVE trade with highest learning weight (0.5 per trade).
+     * 200 live trades = 100% maturity contribution from live.
+     * Real money, real consequences - this is the gold standard for learning.
+     */
+    fun recordLiveTrade(isWin: Boolean) {
+        synchronized(tradeAccumulatorLock) {
+            liveTradeAccumulator += LIVE_LEARNING_WEIGHT
+            
+            // When accumulator reaches 1.0, count as one full trade
+            while (liveTradeAccumulator >= 1.0) {
+                sessionTrades.incrementAndGet()
+                if (isWin) sessionWins.incrementAndGet()
+                liveTradeAccumulator -= 1.0
+            }
+            
+            cachedProgress = 0.0  // Force recalculation
+        }
+        
+        ErrorLogger.debug(TAG, "🧠 LIVE trade recorded (${LIVE_LEARNING_WEIGHT}x weight) | " +
+            "Progress: ${(getLearningProgress()*100).toInt()}%")
+    }
+    
+    /**
+     * Record a PAPER trade with medium learning weight (0.1 per trade).
+     * 1000 paper trades = 100% maturity contribution from paper.
+     * Real decisions, simulated consequences - valuable for learning patterns.
+     */
+    fun recordPaperTrade(isWin: Boolean) {
+        synchronized(tradeAccumulatorLock) {
+            paperTradeAccumulator += PAPER_LEARNING_WEIGHT
+            
+            // When accumulator reaches 1.0, count as one full trade
+            while (paperTradeAccumulator >= 1.0) {
+                sessionTrades.incrementAndGet()
+                if (isWin) sessionWins.incrementAndGet()
+                paperTradeAccumulator -= 1.0
+            }
+            
+            cachedProgress = 0.0  // Force recalculation
+        }
+        
+        ErrorLogger.debug(TAG, "🧠 PAPER trade recorded (${PAPER_LEARNING_WEIGHT}x weight) | " +
+            "Progress: ${(getLearningProgress()*100).toInt()}%")
+    }
+    
+    /**
+     * Record a SHADOW trade with lowest learning weight (0.025 per trade).
+     * 4000 shadow trades = 100% maturity contribution from shadow.
+     * Simulated everything - helps learn slowly without inflating maturity.
      */
     fun recordShadowTrade(isWin: Boolean) {
-        synchronized(shadowTradeAccumulatorLock) {
+        synchronized(tradeAccumulatorLock) {
             shadowTradeAccumulator += SHADOW_LEARNING_WEIGHT
             
             // When accumulator reaches 1.0, count as one full trade
-            if (shadowTradeAccumulator >= 1.0) {
+            while (shadowTradeAccumulator >= 1.0) {
                 sessionTrades.incrementAndGet()
-                // Win is recorded if this batch had more wins than losses
-                // For simplicity, record based on the triggering trade
                 if (isWin) sessionWins.incrementAndGet()
                 shadowTradeAccumulator -= 1.0
             }
@@ -163,11 +217,15 @@ object FluidLearningAI {
             cachedProgress = 0.0  // Force recalculation
         }
         
-        ErrorLogger.debug(TAG, "🧠 Shadow trade recorded (${SHADOW_LEARNING_WEIGHT}x weight) | " +
-            "Accumulator: ${shadowTradeAccumulator.fmt(3)} | Progress: ${(getLearningProgress()*100).toInt()}%")
+        ErrorLogger.debug(TAG, "🧠 SHADOW trade recorded (${SHADOW_LEARNING_WEIGHT}x weight) | " +
+            "Progress: ${(getLearningProgress()*100).toInt()}%")
     }
     
-    private fun Double.fmt(d: Int) = "%.${d}f".format(this)
+    /**
+     * Get current learning weights for display/debugging.
+     */
+    fun getLearningWeights(): Triple<Double, Double, Double> = 
+        Triple(LIVE_LEARNING_WEIGHT, PAPER_LEARNING_WEIGHT, SHADOW_LEARNING_WEIGHT)
     
     // ═══════════════════════════════════════════════════════════════════════════
     // INTERPOLATION HELPERS
