@@ -2392,6 +2392,10 @@ class BotService : Service() {
                         
                         when (val result = v3Decision) {
                             is com.lifecyclebot.v3.V3Decision.Execute -> {
+                                // Cache V3 scores on TokenState for Treasury Mode to use
+                                ts.lastV3Score = result.score
+                                ts.lastV3Confidence = result.confidence.toInt()
+                                
                                 // ═══════════════════════════════════════════════════════════════════
                                 // V3 EXECUTE: Clean logging + trade execution
                                 // ═══════════════════════════════════════════════════════════════════
@@ -2449,6 +2453,10 @@ class BotService : Service() {
                             }
                             
                             is com.lifecyclebot.v3.V3Decision.Watch -> {
+                                // Cache V3 scores on TokenState for Treasury Mode
+                                ts.lastV3Score = result.score
+                                ts.lastV3Confidence = result.confidence.toInt()
+                                
                                 // ═══════════════════════════════════════════════════════════════════
                                 // V3 WATCH: Track but don't trade
                                 // ═══════════════════════════════════════════════════════════════════
@@ -2546,6 +2554,65 @@ class BotService : Service() {
                     
                     // V3 handled this token - skip legacy flow
                     return@launch
+                }
+                
+                // ═══════════════════════════════════════════════════════════════════
+                // TREASURY MODE (Cash Generation AI) - Concurrent scalping layer
+                // Evaluates ALL tokens (including V3 WATCH) for quick scalp opportunities
+                // Only executes if confidence >= 80% and Treasury Mode not paused
+                // ═══════════════════════════════════════════════════════════════════
+                if (!ts.position.isOpen && com.lifecyclebot.v3.scoring.CashGenerationAI.isEnabled()) {
+                    try {
+                        // Get V3 score and confidence (or use defaults if not available)
+                        val v3Score = ts.lastV3Score ?: 30
+                        val v3Confidence = ts.lastV3Confidence ?: 50
+                        
+                        val treasurySignal = com.lifecyclebot.v3.scoring.CashGenerationAI.evaluate(
+                            mint = ts.mint,
+                            symbol = ts.symbol,
+                            currentPrice = ts.ref,
+                            liquidityUsd = ts.lastLiquidityUsd,
+                            topHolderPct = ts.topHolderPct ?: 20.0,
+                            buyPressurePct = ts.lastBuyPressurePct ?: 50.0,
+                            v3Score = v3Score,
+                            v3Confidence = v3Confidence,
+                            momentum = ts.momentum ?: 0.0,
+                            volatility = ts.volatility ?: 0.0
+                        )
+                        
+                        if (treasurySignal.shouldEnter) {
+                            ErrorLogger.info("BotService", "💰 [TREASURY] ${ts.symbol} | ENTER | " +
+                                "size=${treasurySignal.positionSizeSol.fmt(3)} SOL | " +
+                                "TP=${treasurySignal.takeProfitPct}% | " +
+                                "mode=${treasurySignal.mode}")
+                            
+                            // Execute treasury buy
+                            executor.treasuryBuy(
+                                ts = ts,
+                                sizeSol = treasurySignal.positionSizeSol,
+                                walletSol = effectiveBalance,
+                                takeProfitPct = treasurySignal.takeProfitPct,
+                                stopLossPct = treasurySignal.stopLossPct,
+                                wallet = wallet,
+                                isPaper = cfg.paperMode
+                            )
+                            
+                            // Record treasury position
+                            com.lifecyclebot.v3.scoring.CashGenerationAI.openPosition(
+                                mint = ts.mint,
+                                symbol = ts.symbol,
+                                entryPrice = ts.ref,
+                                positionSol = treasurySignal.positionSizeSol,
+                                takeProfitPct = treasurySignal.takeProfitPct,
+                                stopLossPct = treasurySignal.stopLossPct
+                            )
+                            
+                            addLog("💰 TREASURY BUY: ${ts.symbol} | ${treasurySignal.positionSizeSol.fmt(3)} SOL | " +
+                                "${if (cfg.paperMode) "PAPER" else "LIVE"}", ts.mint)
+                        }
+                    } catch (treasuryEx: Exception) {
+                        ErrorLogger.debug("BotService", "💰 [TREASURY] ${ts.symbol} | ERROR | ${treasuryEx.message}")
+                    }
                 }
                 
                 // ═══════════════════════════════════════════════════════════════════
@@ -2964,6 +3031,41 @@ class BotService : Service() {
                 } else if (ts.position.isOpen) {
                     // Position management (exits) - ALWAYS monitor open positions
                     // Even when paused, we need to manage risk on existing positions
+                    
+                    // ═══════════════════════════════════════════════════════════════════
+                    // TREASURY MODE EXIT CHECK - Quick scalps with tight exits
+                    // Check FIRST before other exit logic since treasury has strict rules
+                    // ═══════════════════════════════════════════════════════════════════
+                    if (ts.position.isTreasuryPosition || ts.position.tradingMode == "TREASURY") {
+                        val currentPrice = ts.lastPrice.takeIf { it > 0 } 
+                            ?: ts.history.lastOrNull()?.priceUsd 
+                            ?: ts.position.entryPrice
+                        
+                        val exitSignal = com.lifecyclebot.v3.scoring.CashGenerationAI.checkExit(ts.mint, currentPrice)
+                        
+                        if (exitSignal != com.lifecyclebot.v3.scoring.CashGenerationAI.ExitSignal.HOLD) {
+                            ErrorLogger.info("BotService", "💰 [TREASURY EXIT] ${ts.symbol} | " +
+                                "signal=$exitSignal | price=$currentPrice")
+                            
+                            // Execute treasury sell
+                            executor.requestSell(
+                                ts = ts,
+                                reason = "TREASURY_${exitSignal.name}",
+                                wallet = wallet,
+                                walletSol = effectiveBalance
+                            )
+                            
+                            // Close treasury position tracking
+                            com.lifecyclebot.v3.scoring.CashGenerationAI.closePosition(
+                                ts.mint, currentPrice, exitSignal
+                            )
+                            
+                            addLog("💰 TREASURY SELL: ${ts.symbol} | ${exitSignal.name} | " +
+                                "${if (cfg.paperMode) "PAPER" else "LIVE"}", ts.mint)
+                            
+                            return@launch  // Exit processed
+                        }
+                    }
                     
                     // ═══════════════════════════════════════════════════════════════════
                     // MODE-SPECIFIC EXIT LOGIC

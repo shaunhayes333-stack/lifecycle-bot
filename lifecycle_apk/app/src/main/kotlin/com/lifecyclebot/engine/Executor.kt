@@ -2938,6 +2938,66 @@ class Executor(
         }
     }
 
+    /**
+     * Treasury Mode Buy - Quick scalp entries with tight exits
+     * Routes to paper or live buy depending on mode
+     */
+    fun treasuryBuy(
+        ts: TokenState,
+        sizeSol: Double,
+        walletSol: Double,
+        takeProfitPct: Double,
+        stopLossPct: Double,
+        wallet: SolanaWallet?,
+        isPaper: Boolean
+    ) {
+        val identity = TradeIdentityManager.getOrCreate(ts.mint, ts.symbol, ts.source)
+        
+        // Mark as executed with TREASURY trading mode
+        identity.executed(getActualPrice(ts), sizeSol, isPaper)
+        
+        // Set trading mode to TREASURY for tracking
+        ts.position.tradingMode = "TREASURY"
+        ts.position.tradingModeEmoji = "💰"
+        ts.position.isTreasuryPosition = true
+        
+        // Store exit targets on position for monitoring
+        ts.position.treasuryTakeProfit = takeProfitPct
+        ts.position.treasuryStopLoss = stopLossPct
+        
+        ErrorLogger.info("Executor", "💰 [TREASURY] ${ts.symbol} | " +
+            "${if (isPaper) "PAPER" else "LIVE"}_BUY | " +
+            "${sizeSol.fmt(3)} SOL | TP=${takeProfitPct}% SL=${stopLossPct}%")
+        
+        if (isPaper) {
+            paperBuy(
+                ts = ts,
+                sol = sizeSol,
+                score = 80.0,  // Treasury mode only takes A-grade setups
+                identity = identity,
+                quality = "TREASURY",
+                skipGraduated = true,
+                wallet = wallet,
+                walletSol = walletSol
+            )
+        } else {
+            if (wallet == null) {
+                ErrorLogger.error("Executor", "💰 [TREASURY] ${ts.symbol} | LIVE_BUY_FAILED | no wallet")
+                return
+            }
+            liveBuy(
+                ts = ts,
+                sol = sizeSol,
+                score = 80.0,
+                wallet = wallet,
+                walletSol = walletSol,
+                identity = identity,
+                quality = "TREASURY",
+                skipGraduated = true
+            )
+        }
+    }
+
     private fun liveBuy(ts: TokenState, sol: Double, score: Double,
                         wallet: SolanaWallet, walletSol: Double,
                         identity: TradeIdentity? = null,

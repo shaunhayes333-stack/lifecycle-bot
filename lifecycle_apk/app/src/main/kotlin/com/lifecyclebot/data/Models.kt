@@ -62,6 +62,12 @@ data class Position(
     var tradingMode: String = "STANDARD",  // ExtendedMode name (e.g., "MOONSHOT", "PUMP_SNIPER")
     var tradingModeEmoji: String = "📈",   // Emoji for display
     var modeHistory: String = "",           // Track mode switches: "PUMP_SNIPER>MOMENTUM_SWING"
+    // ═══════════════════════════════════════════════════════════════════
+    // TREASURY MODE - Quick scalp exits
+    // ═══════════════════════════════════════════════════════════════════
+    var treasuryTakeProfit: Double = 0.0,  // Target profit % for treasury scalps
+    var treasuryStopLoss: Double = 0.0,    // Stop loss % for treasury scalps
+    var isTreasuryPosition: Boolean = false, // True if this is a treasury mode position
     // Top-up tracking
     val topUpCount: Int = 0,
     val topUpCostSol: Double = 0.0,
@@ -187,6 +193,13 @@ data class TokenState(
     var lastSentimentRefresh: Long = 0L,
     var safety: com.lifecyclebot.engine.SafetyReport = com.lifecyclebot.engine.SafetyReport(),
     var lastSafetyCheck: Long = 0L,
+    // V3 scoring cache for Treasury Mode
+    var lastV3Score: Int? = null,
+    var lastV3Confidence: Int? = null,
+    var lastBuyPressurePct: Double = 50.0,  // Buy pressure percentage
+    var topHolderPct: Double? = null,        // Top holder concentration
+    var momentum: Double? = null,            // Price momentum
+    var volatility: Double? = null,          // Price volatility
 ) {
     // CRITICAL FIX: ref should return PRICE, not market cap!
     // Market cap was causing astronomical P&L calculations (+98 billion %)
