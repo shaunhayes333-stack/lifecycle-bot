@@ -1665,6 +1665,33 @@ class Executor(
                 onLog("🚨 DEV DUMP: ${ts.symbol} volume spike ${(lastVol/avgVol).toInt()}x with heavy sells", ts.mint)
                 return "dev_dump"
             }
+            
+            // ══════════════════════════════════════════════════════════════
+            // V4.1: PRICE VELOCITY DETECTION - Catch rapid dumps BEFORE -30%
+            // If price dropped >10% in last 3 candles AND we're losing, EXIT NOW
+            // This catches rapid dumps that might gap past our normal stops
+            // ══════════════════════════════════════════════════════════════
+            if (recentCandles.size >= 2) {
+                val priceStart = recentCandles.first().priceUsd
+                val priceEnd = recentCandles.last().priceUsd
+                if (priceStart > 0 && priceEnd > 0) {
+                    val velocityPct = ((priceEnd - priceStart) / priceStart) * 100
+                    
+                    // Price dropping >10% in 3 candles = rapid dump, exit NOW
+                    if (velocityPct < -10.0 && gainPct < 0) {
+                        onLog("⚡ VELOCITY EXIT: ${ts.symbol} price dropping ${velocityPct.toInt()}% rapidly | exit before worse", ts.mint)
+                        markForRecoveryScan(ts, gainPct, "velocity_dump")
+                        return "velocity_dump"
+                    }
+                    
+                    // Price dropping >5% AND we're already at -10% = exit immediately  
+                    if (velocityPct < -5.0 && gainPct < -10.0) {
+                        onLog("⚡ ACCELERATING LOSS: ${ts.symbol} at ${gainPct.toInt()}% and dropping ${velocityPct.toInt()}%/candle", ts.mint)
+                        markForRecoveryScan(ts, gainPct, "accelerating_loss")
+                        return "accelerating_loss"
+                    }
+                }
+            }
         }
 
         val effectiveStopPct = modeConf?.stopLossPct ?: cfg().stopLossPct
@@ -2369,6 +2396,27 @@ class Executor(
             "quality=${decision.finalQuality} | edge=${decision.edgePhase} | " +
             "conf=${decision.aiConfidence.toInt()}% | penalty=${decision.qualityPenalty} | " +
             "paper=$isPaper | autoTrade=${cfg().autoTrade}")
+        
+        // ═══════════════════════════════════════════════════════════════════
+        // V4.1: VELOCITY CHECK AT ENTRY - Don't enter during rapid dumps
+        // User feedback: "seeing losses over 30% at times"
+        // Prevention: Don't enter tokens that are already dumping rapidly
+        // ═══════════════════════════════════════════════════════════════════
+        if (ts.history.size >= 3) {
+            val recentCandles = ts.history.takeLast(3)
+            val priceStart = recentCandles.first().priceUsd
+            val priceEnd = recentCandles.last().priceUsd
+            if (priceStart > 0 && priceEnd > 0) {
+                val velocityPct = ((priceEnd - priceStart) / priceStart) * 100
+                
+                // Price dropping >5% in 3 candles = don't enter, wait for stabilization
+                if (velocityPct < -5.0) {
+                    ErrorLogger.debug("Executor", "⚡ ${ts.symbol} VELOCITY BLOCK: Price dropping ${velocityPct.toInt()}% rapidly")
+                    onLog("⚡ ${ts.symbol}: Price dropping ${velocityPct.toInt()}% - waiting for stabilization", ts.mint)
+                    return
+                }
+            }
+        }
         
         // Rugged contracts check (by mint address) - FATAL, always block
         if (RuggedContracts.isBlacklisted(ts.mint)) {
