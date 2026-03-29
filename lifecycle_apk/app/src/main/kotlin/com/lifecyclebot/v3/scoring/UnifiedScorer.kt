@@ -86,7 +86,38 @@ class UnifiedScorer(
         )
         
         // ═══════════════════════════════════════════════════════════════════════
-        // METACOGNITION AI - Layer 20: Self-Aware Executive Function
+        // COLLECTIVE INTELLIGENCE AI - Layer 21: Hive Mind Synthesis
+        // Aggregates wisdom from all AATE instances via Turso collective learning
+        // ═══════════════════════════════════════════════════════════════════════
+        val collectiveComponent = try {
+            val insight = CollectiveIntelligenceAI.score(
+                mint = candidate.mint,
+                symbol = candidate.symbol,
+                source = candidate.source,
+                liquidityUsd = candidate.liquidityUsd,
+                v3Score = baseComponents.sumOf { it.value },
+                v3Confidence = 70  // Default, will be refined by MetaCognition
+            )
+            ScoreComponent(
+                name = "COLLECTIVE_AI",
+                value = insight.score,
+                confidence = (60 + insight.confidence).coerceIn(0, 100),
+                reason = "🧠 ${insight.reasoning} (${insight.signal.name})"
+            )
+        } catch (e: Exception) {
+            ScoreComponent(
+                name = "COLLECTIVE_AI",
+                value = 0,
+                confidence = 50,
+                reason = "🧠 NO_DATA"
+            )
+        }
+        
+        // Combine base components with collective intelligence
+        val allComponents = baseComponents + collectiveComponent
+        
+        // ═══════════════════════════════════════════════════════════════════════
+        // METACOGNITION AI - Layer 22: Self-Aware Executive Function
         // 
         // 1. Record predictions from all layers (for learning)
         // 2. Calculate meta-confidence (how much to trust this decision)
@@ -96,10 +127,10 @@ class UnifiedScorer(
         
         try {
             // Record predictions for future correlation with outcomes
-            MetaCognitionAI.recordFromScoreCard(candidate.mint, candidate.symbol, baseComponents)
+            MetaCognitionAI.recordFromScoreCard(candidate.mint, candidate.symbol, allComponents)
             
             // Build predictions list for meta-analysis
-            val predictions = baseComponents.mapNotNull { comp ->
+            val predictions = allComponents.mapNotNull { comp ->
                 val layer = mapComponentNameToLayer(comp.name) ?: return@mapNotNull null
                 val signal = when {
                     comp.value > 5 -> MetaCognitionAI.SignalType.BULLISH
@@ -118,7 +149,7 @@ class UnifiedScorer(
             val metaResult = MetaCognitionAI.calculateMetaConfidence(predictions)
             
             // Calculate base total and get meta-adjusted score
-            val baseTotal = baseComponents.sumOf { it.value }
+            val baseTotal = allComponents.sumOf { it.value }
             val adjustedTotal = MetaCognitionAI.adjustScore(baseTotal, predictions)
             val metaAdjustment = adjustedTotal - baseTotal
             
@@ -177,6 +208,7 @@ class UnifiedScorer(
         "smartmoney" -> MetaCognitionAI.AILayer.SMART_MONEY_DIVERGENCE
         "holdtime" -> MetaCognitionAI.AILayer.HOLD_TIME_OPTIMIZER
         "liquiditycycle" -> MetaCognitionAI.AILayer.LIQUIDITY_CYCLE
+        "collective_ai" -> MetaCognitionAI.AILayer.COLLECTIVE_INTELLIGENCE
         else -> null
     }
     
@@ -204,13 +236,14 @@ class UnifiedScorer(
     }
     
     /**
-     * Get list of all module names (now 20 with MetaCognitionAI)
+     * Get list of all module names (now 22 with CollectiveAI and MetaCognitionAI)
      */
     fun moduleNames(): List<String> = listOf(
         "source", "entry", "momentum", "liquidity", "volume",
         "holders", "narrative", "memory", "regime", "time", 
         "copytrade", "suppression", "feargreed", "social",
         "volatility", "orderflow", "smartmoney", "holdtime", "liquiditycycle",
-        "metacognition"  // Layer 20: Self-aware executive function
+        "collective_ai",   // Layer 21: Hive mind collective intelligence
+        "metacognition"    // Layer 22: Self-aware executive function
     )
 }

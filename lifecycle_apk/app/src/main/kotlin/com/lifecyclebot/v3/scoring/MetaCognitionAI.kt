@@ -57,6 +57,9 @@ object MetaCognitionAI {
         EDGE_LEARNING("EdgeLearning", "learning"),
         TOKEN_WIN_MEMORY("TokenWinMemory", "memory"),
         
+        // Collective layers
+        COLLECTIVE_INTELLIGENCE("CollectiveIntelligenceAI", "collective"),
+        
         // LLM layers
         GEMINI_COPILOT("GeminiCopilot", "llm"),
         GROQ_NARRATIVE("GroqNarrativeAI", "llm"),

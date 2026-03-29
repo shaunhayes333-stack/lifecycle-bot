@@ -897,4 +897,171 @@ object CollectiveLearning {
             }
         }
     }
+    
+    // ═══════════════════════════════════════════════════════════════════════════
+    // COLLECTIVE INTELLIGENCE AI SUPPORT METHODS
+    // ═══════════════════════════════════════════════════════════════════════════
+    
+    /**
+     * Data class for pattern data returned to CollectiveIntelligenceAI
+     */
+    data class CollectivePattern(
+        val patternKey: String,
+        val totalTrades: Int,
+        val wins: Int,
+        val avgPnlPct: Double,
+        val instanceCount: Int,
+        val lastUpdated: Long,
+    )
+    
+    /**
+     * Data class for mode stats returned to CollectiveIntelligenceAI
+     */
+    data class CollectiveModeStats(
+        val modeName: String,
+        val totalTrades: Int,
+        val wins: Int,
+        val avgPnlPct: Double,
+        val instanceCount: Int,
+    )
+    
+    /**
+     * Data class for signal data returned to CollectiveIntelligenceAI
+     */
+    data class CollectiveSignal(
+        val mint: String,
+        val signal: String,
+        val instanceId: String,
+        val timestamp: Long,
+    )
+    
+    /**
+     * Download all patterns for CollectiveIntelligenceAI analysis.
+     */
+    suspend fun downloadAllPatterns(): List<CollectivePattern> {
+        if (!isEnabled()) return emptyList()
+        
+        return withContext(Dispatchers.IO) {
+            try {
+                val result = client!!.query(
+                    "SELECT pattern_key, total_trades, wins, avg_pnl_pct, " +
+                    "COUNT(DISTINCT instance_id) as instance_count, MAX(last_updated) as last_updated " +
+                    "FROM token_patterns GROUP BY pattern_key"
+                )
+                
+                if (result.success) {
+                    result.rows.map { row ->
+                        CollectivePattern(
+                            patternKey = row["pattern_key"] as? String ?: "",
+                            totalTrades = (row["total_trades"] as? Long)?.toInt() ?: 0,
+                            wins = (row["wins"] as? Long)?.toInt() ?: 0,
+                            avgPnlPct = row["avg_pnl_pct"] as? Double ?: 0.0,
+                            instanceCount = (row["instance_count"] as? Long)?.toInt() ?: 1,
+                            lastUpdated = (row["last_updated"] as? Long) ?: 0
+                        )
+                    }
+                } else {
+                    emptyList()
+                }
+            } catch (e: Exception) {
+                Log.e(TAG, "downloadAllPatterns error: ${e.message}")
+                emptyList()
+            }
+        }
+    }
+    
+    /**
+     * Download mode stats for CollectiveIntelligenceAI analysis.
+     */
+    suspend fun downloadModeStatsForAI(): Map<String, CollectiveModeStats> {
+        if (!isEnabled()) return emptyMap()
+        
+        return withContext(Dispatchers.IO) {
+            try {
+                val result = client!!.query(
+                    "SELECT mode_name, SUM(total_trades) as total_trades, SUM(wins) as wins, " +
+                    "AVG(avg_pnl_pct) as avg_pnl_pct, COUNT(DISTINCT id) as instance_count " +
+                    "FROM mode_performance GROUP BY mode_name"
+                )
+                
+                if (result.success) {
+                    result.rows.associate { row ->
+                        val modeName = row["mode_name"] as? String ?: ""
+                        modeName to CollectiveModeStats(
+                            modeName = modeName,
+                            totalTrades = (row["total_trades"] as? Long)?.toInt() ?: 0,
+                            wins = (row["wins"] as? Long)?.toInt() ?: 0,
+                            avgPnlPct = row["avg_pnl_pct"] as? Double ?: 0.0,
+                            instanceCount = (row["instance_count"] as? Long)?.toInt() ?: 1
+                        )
+                    }
+                } else {
+                    emptyMap()
+                }
+            } catch (e: Exception) {
+                Log.e(TAG, "downloadModeStatsForAI error: ${e.message}")
+                emptyMap()
+            }
+        }
+    }
+    
+    /**
+     * Download recent signals for consensus analysis.
+     */
+    suspend fun downloadRecentSignals(): List<CollectiveSignal> {
+        if (!isEnabled()) return emptyList()
+        
+        return withContext(Dispatchers.IO) {
+            try {
+                // Get signals from last 24 hours
+                val cutoff = System.currentTimeMillis() - 24 * 60 * 60 * 1000
+                val result = client!!.query(
+                    "SELECT mint, signal, instance_id, timestamp FROM trade_signals WHERE timestamp > $cutoff"
+                )
+                
+                if (result.success) {
+                    result.rows.map { row ->
+                        CollectiveSignal(
+                            mint = row["mint"] as? String ?: "",
+                            signal = row["signal"] as? String ?: "",
+                            instanceId = row["instance_id"] as? String ?: "",
+                            timestamp = (row["timestamp"] as? Long) ?: 0
+                        )
+                    }
+                } else {
+                    emptyList()
+                }
+            } catch (e: Exception) {
+                Log.e(TAG, "downloadRecentSignals error: ${e.message}")
+                emptyList()
+            }
+        }
+    }
+    
+    /**
+     * Prune patterns older than cutoffTime.
+     */
+    suspend fun pruneOldPatterns(cutoffTime: Long): Int {
+        if (!isEnabled()) return 0
+        
+        return withContext(Dispatchers.IO) {
+            try {
+                val result = client!!.execute(
+                    "DELETE FROM token_patterns WHERE last_updated < $cutoffTime"
+                )
+                
+                if (result.success) {
+                    val deleted = result.rowsAffected?.toInt() ?: 0
+                    Log.i(TAG, "🧹 Pruned $deleted old patterns")
+                    deleted
+                } else {
+                    0
+                }
+            } catch (e: Exception) {
+                Log.e(TAG, "pruneOldPatterns error: ${e.message}")
+                0
+            }
+        }
+    }
 }
+

@@ -1494,6 +1494,16 @@ class BotService : Service() {
                                     addLog("⚡ $v3Comparison")
                                     ErrorLogger.info("V3Comparison", v3Comparison)
                                 }
+                                
+                                // ═══════════════════════════════════════════════════════════════════
+                                // COLLECTIVE INTELLIGENCE AI - Refresh cache every 180 loops (~15 min)
+                                // Analyzes patterns, aggregates mode stats, synthesizes consensus
+                                // ═══════════════════════════════════════════════════════════════════
+                                try {
+                                    com.lifecyclebot.v3.scoring.CollectiveIntelligenceAI.refresh()
+                                } catch (e: Exception) {
+                                    ErrorLogger.debug("BotService", "CollectiveAI refresh error: ${e.message}")
+                                }
                             } catch (e: Exception) {
                                 ErrorLogger.debug("BotService", "Collective sync error: ${e.message}")
                             }
@@ -1509,6 +1519,13 @@ class BotService : Service() {
                 scope.launch {
                     try {
                         BehaviorLearning.decayPatternWeights()
+                    } catch (_: Exception) {}
+                }
+                
+                // Run CollectiveIntelligenceAI maintenance (prune, dedupe, anomaly scan)
+                scope.launch {
+                    try {
+                        com.lifecyclebot.v3.scoring.CollectiveIntelligenceAI.runMaintenance()
                     } catch (_: Exception) {}
                 }
             }
