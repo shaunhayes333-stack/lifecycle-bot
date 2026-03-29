@@ -40,21 +40,22 @@ object LayerTransitionManager {
     
     // ═══════════════════════════════════════════════════════════════════════════
     // LAYER BOUNDARIES (in USD)
+    // V4.1: Adjusted ranges - ShitCoin was way too ranged at $500K
     // ═══════════════════════════════════════════════════════════════════════════
     
-    // ShitCoin Layer - ultra micro caps
-    const val SHITCOIN_MAX_MCAP = 500_000.0
+    // ShitCoin Layer - true micro caps (new launches, pump.fun, etc.)
+    const val SHITCOIN_MAX_MCAP = 30_000.0    // V4.1: Was $500K - way too high!
     const val SHITCOIN_MAX_AGE_HOURS = 6.0
     
-    // Express Layer - momentum plays
-    const val EXPRESS_MAX_MCAP = 300_000.0
+    // Express Layer - momentum plays on micro caps
+    const val EXPRESS_MAX_MCAP = 30_000.0     // V4.1: Was $300K
     const val EXPRESS_MIN_MOMENTUM = 5.0
     
-    // V3 Quality Layer - established micro/small caps
-    const val V3_MIN_MCAP = 20_000.0
+    // V3 Quality Layer - established low caps ($30K - $1M)
+    const val V3_MIN_MCAP = 30_000.0          // V4.1: Was $20K
     const val V3_MAX_MCAP = 5_000_000.0
     
-    // Blue Chip Layer - established tokens
+    // Blue Chip Layer - established tokens (>$1M)
     const val BLUECHIP_MIN_MCAP = 1_000_000.0
     
     // Transition thresholds (with buffer to prevent oscillation)
@@ -73,9 +74,9 @@ object LayerTransitionManager {
         val defaultSL: Double,
         val maxHoldMins: Int,
     ) {
-        SHITCOIN("💩", "ShitCoin", 0.0, 500_000.0, 25.0, 10.0, 15),
-        EXPRESS("💩🚂", "Express", 0.0, 300_000.0, 30.0, 8.0, 10),
-        V3_QUALITY("🎯", "V3 Quality", 20_000.0, 5_000_000.0, 35.0, 12.0, 60),
+        SHITCOIN("💩", "ShitCoin", 0.0, 30_000.0, 25.0, 10.0, 15),
+        EXPRESS("💩🚂", "Express", 0.0, 30_000.0, 30.0, 8.0, 10),
+        V3_QUALITY("🎯", "V3 Quality", 30_000.0, 1_000_000.0, 35.0, 12.0, 60),
         DIP_HUNTER("📉", "DipHunter", 50_000.0, 5_000_000.0, 20.0, 15.0, 360),
         BLUE_CHIP("🔵", "BlueChip", 1_000_000.0, Double.MAX_VALUE, 40.0, 15.0, 120),
         TREASURY("💰", "Treasury", 0.0, Double.MAX_VALUE, 15.0, 8.0, 30),

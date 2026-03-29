@@ -17,7 +17,7 @@ Every trade decision passes through 25 independent AI modules that vote on entry
 | 2 | Fluid Learning AI | Adaptive thresholds based on trade history |
 | 3 | Treasury Mode (Cash Gen) | Quick 4% scalps for consistent profit |
 | 4 | Blue Chip Trader | Quality trades on >$1M mcap tokens |
-| 5 | ShitCoin Trader | Micro-cap (<$500K) degen plays |
+| 5 | ShitCoin Trader | Micro-cap (<$30K) degen plays |
 | 6 | ShitCoin Express | Ultra-aggressive 30%+ momentum rides |
 | 7 | DipHunter AI | Buy quality dips, avoid falling knives |
 | 8 | Solana Arb AI | Cross-exchange SOL arbitrage |
@@ -74,11 +74,11 @@ Every trade decision passes through 25 independent AI modules that vote on entry
 ---
 
 ## 3. ShitCoin Trader (Degen Mode)
-**Purpose:** High-risk micro-cap memecoins (<$500K mcap)
+**Purpose:** High-risk true micro-cap memecoins (<$30K mcap)
 
 | Feature | Value |
 |---------|-------|
-| Max Market Cap | $500,000 |
+| Max Market Cap | $30,000 |
 | Token Age | < 6 hours |
 | Take Profit | 25-100% (fluid) |
 | Stop Loss | -10% |
@@ -91,10 +91,11 @@ Every trade decision passes through 25 independent AI modules that vote on entry
 ---
 
 ## 4. ShitCoin Express
-**Purpose:** Ultra-aggressive momentum hunting for 30%+ moves
+**Purpose:** Ultra-aggressive momentum hunting for 30%+ moves on micro-caps
 
 | Feature | Value |
 |---------|-------|
+| Max Market Cap | $30,000 |
 | Entry Requirement | Already pumping 5%+ |
 | Buy Pressure Required | >= 60% |
 | Stop Loss | -8% (ultra-tight) |
@@ -142,7 +143,7 @@ Every trade decision passes through 25 independent AI modules that vote on entry
 Tokens automatically graduate between layers as they grow:
 
 ```
-ShitCoin (<$500K) → V3 Quality ($500K-$1M) → Blue Chip (>$1M)
+ShitCoin (<$30K) → V3 Quality ($30K-$1M) → Blue Chip (>$1M)
 ```
 
 **Features:**

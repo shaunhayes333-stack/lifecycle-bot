@@ -47,7 +47,7 @@ object ShitCoinExpress {
     // ═══════════════════════════════════════════════════════════════════════════
     
     // Market cap limits - Even lower than ShitCoinTraderAI
-    private const val MAX_MARKET_CAP_USD = 300_000.0  // Only <$300K tokens
+    private const val MAX_MARKET_CAP_USD = 30_000.0   // Only <$30K tokens (V4.1: was $300K)
     private const val MIN_MARKET_CAP_USD = 5_000.0    // At least $5K
     
     // AGGRESSIVE momentum requirements

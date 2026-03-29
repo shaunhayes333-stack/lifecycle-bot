@@ -57,8 +57,9 @@ object ShitCoinTraderAI {
     // CONFIGURATION - Tailored for micro-cap memecoins
     // ═══════════════════════════════════════════════════════════════════════════
     
-    // Market cap filter - MAXIMUM $500K (this is the shitcoin zone)
-    private const val MAX_MARKET_CAP_USD = 500_000.0
+    // Market cap filter - MAXIMUM $30K (true shitcoin/new launch zone)
+    // V4.1: Reduced from $500K - that was way too ranged!
+    private const val MAX_MARKET_CAP_USD = 30_000.0
     private const val MIN_MARKET_CAP_USD = 1_000.0  // Must have SOME value
     
     // Liquidity requirements - LOWER than other layers (micro-caps have less)
