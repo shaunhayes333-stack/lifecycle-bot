@@ -74,6 +74,12 @@ data class Position(
     var blueChipTakeProfit: Double = 0.0,  // Target profit % for blue chip trades
     var blueChipStopLoss: Double = 0.0,    // Stop loss % for blue chip trades
     var isBlueChipPosition: Boolean = false, // True if this is a blue chip position
+    // ═══════════════════════════════════════════════════════════════════
+    // SHITCOIN MODE - Degen plays on micro-cap memecoins <$500K mcap
+    // ═══════════════════════════════════════════════════════════════════
+    var shitCoinTakeProfit: Double = 0.0,  // Target profit % for shitcoin trades
+    var shitCoinStopLoss: Double = 0.0,    // Stop loss % for shitcoin trades
+    var isShitCoinPosition: Boolean = false, // True if this is a shitcoin position
     // Top-up tracking
     val topUpCount: Int = 0,
     val topUpCostSol: Double = 0.0,

@@ -199,6 +199,21 @@ object V3EngineManager {
         }
         
         try {
+            // ═══════════════════════════════════════════════════════════════════
+            // V4.0: Skip ShitCoin candidates - let ShitCoin layer handle them
+            // This keeps micro caps (<$500K) isolated from main V3 engine
+            // ═══════════════════════════════════════════════════════════════════
+            val tokenAgeMinutes = if (ts.addedToWatchlistAt > 0) {
+                (System.currentTimeMillis() - ts.addedToWatchlistAt) / 60_000.0
+            } else 120.0
+            
+            if (com.lifecyclebot.v3.scoring.ShitCoinTraderAI.isShitCoinCandidate(
+                    marketCapUsd = ts.lastMcap,
+                    tokenAgeMinutes = tokenAgeMinutes
+                )) {
+                return V3Decision.rejected("SHITCOIN_CANDIDATE: mcap=\$${(ts.lastMcap/1_000).toInt()}K - handled by ShitCoin layer")
+            }
+            
             // Update context with current market regime
             context = context!!.copy(marketRegime = marketRegime)
             

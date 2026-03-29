@@ -1444,6 +1444,16 @@ class BotService : Service() {
             } catch (e: Exception) {
                 // Silently ignore - Treasury Mode is supplemental
             }
+            
+            // ═══════════════════════════════════════════════════════════════════
+            // SHITCOIN TRADER MODE SYNC
+            // Initialize the ShitCoin trader with current paper/live mode
+            // ═══════════════════════════════════════════════════════════════════
+            try {
+                com.lifecyclebot.v3.scoring.ShitCoinTraderAI.init(cfg.paperMode)
+            } catch (e: Exception) {
+                // Silently ignore - ShitCoin Mode is supplemental
+            }
 
             // Log watchlist status every 5 loops for better visibility
             if (loopCount % 5 == 1) {
@@ -2738,6 +2748,136 @@ class BotService : Service() {
                         // ═══════════════════════════════════════════════════════════════════
                         
                         // ═══════════════════════════════════════════════════════════════════
+                        // SHITCOIN TRADER - Degen plays for <$500K market cap tokens
+                        // Runs CONCURRENTLY with V3, Treasury, and Blue Chip
+                        // Targets pump.fun, raydium, moonshot fresh launches
+                        // ═══════════════════════════════════════════════════════════════════
+                        if (!ts.position.isOpen && com.lifecyclebot.v3.scoring.ShitCoinTraderAI.isEnabled()) {
+                            try {
+                                // Calculate token age
+                                val tokenAgeMinutes = if (ts.addedToWatchlistAt > 0) {
+                                    (System.currentTimeMillis() - ts.addedToWatchlistAt) / 60_000.0
+                                } else {
+                                    120.0  // Default 2 hours if unknown
+                                }
+                                
+                                // Check if this qualifies as a shitcoin candidate
+                                if (com.lifecyclebot.v3.scoring.ShitCoinTraderAI.isShitCoinCandidate(
+                                    marketCapUsd = ts.lastMcap,
+                                    tokenAgeMinutes = tokenAgeMinutes
+                                )) {
+                                    // Detect launch platform from source
+                                    val launchPlatform = com.lifecyclebot.v3.scoring.ShitCoinTraderAI.detectPlatform(ts.source)
+                                    
+                                    // Extract holder and bundle info from safety data
+                                    // Use firstBlockSupplyPct as proxy for dev/bundle holding
+                                    val devHoldPct = ts.safety.firstBlockSupplyPct.takeIf { it >= 0 } ?: 10.0
+                                    val bundlePct = if (ts.safety.bundleRisk == "HIGH") 80.0 
+                                                   else if (ts.safety.bundleRisk == "MEDIUM") 50.0 
+                                                   else 10.0
+                                    
+                                    // Calculate social score from available signals
+                                    val socialScore = calculateSocialScore(ts)
+                                    
+                                    // Check for DEX boost/trending
+                                    val isDexBoosted = ts.source.contains("BOOSTED", ignoreCase = true)
+                                    val dexTrendingRank = if (ts.source.contains("TRENDING", ignoreCase = true)) 25 else 0
+                                    
+                                    // Check for copycat/scam patterns
+                                    val isCopyCat = detectCopyCat(ts.symbol)
+                                    
+                                    // Calculate graduation progress for pump.fun tokens
+                                    val graduationProgress = if (launchPlatform == com.lifecyclebot.v3.scoring.ShitCoinTraderAI.LaunchPlatform.PUMP_FUN) {
+                                        // Graduation happens around $69K mcap on pump.fun
+                                        ((ts.lastMcap / 69_000.0) * 100).coerceAtMost(100.0)
+                                    } else 0.0
+                                    
+                                    val shitCoinSignal = com.lifecyclebot.v3.scoring.ShitCoinTraderAI.evaluate(
+                                        mint = ts.mint,
+                                        symbol = ts.symbol,
+                                        currentPrice = ts.ref,
+                                        marketCapUsd = ts.lastMcap,
+                                        liquidityUsd = ts.lastLiquidityUsd,
+                                        topHolderPct = ts.topHolderPct ?: ts.safety.topHolderPct.takeIf { it >= 0 } ?: 20.0,
+                                        buyPressurePct = ts.lastBuyPressurePct,
+                                        momentum = ts.momentum ?: 0.0,
+                                        volatility = ts.volatility ?: 0.0,
+                                        tokenAgeMinutes = tokenAgeMinutes,
+                                        launchPlatform = launchPlatform,
+                                        devWallet = null,  // Dev wallet tracking not yet implemented
+                                        devHoldPct = devHoldPct,
+                                        bundlePct = bundlePct,
+                                        socialScore = socialScore,
+                                        hasWebsite = ts.symbol.length > 2,  // Heuristic: longer symbols often have more presence
+                                        hasTwitter = socialScore >= 20,      // Infer from social score
+                                        hasTelegram = socialScore >= 35,     // Infer from social score
+                                        hasGithub = false,  // Not tracked yet
+                                        isDexBoosted = isDexBoosted,
+                                        dexTrendingRank = dexTrendingRank,
+                                        isCopyCat = isCopyCat,
+                                        graduationProgress = graduationProgress,
+                                    )
+                                    
+                                    if (shitCoinSignal.shouldEnter) {
+                                        val gradLabel = if (shitCoinSignal.graduationImminent) " [GRAD IMMINENT!]" else ""
+                                        val bundleLabel = if (shitCoinSignal.bundleWarning) " [BUNDLE!]" else ""
+                                        
+                                        ErrorLogger.info("BotService", "💩 [SHITCOIN] ${ts.symbol} | ENTER | " +
+                                            "${shitCoinSignal.launchPlatform.emoji} ${shitCoinSignal.launchPlatform.displayName} | " +
+                                            "mcap=\$${(ts.lastMcap/1_000).fmt(1)}K | " +
+                                            "risk=${shitCoinSignal.riskLevel.emoji}${shitCoinSignal.riskLevel.name} | " +
+                                            "size=${shitCoinSignal.positionSizeSol.fmt(3)} SOL | " +
+                                            "TP=${shitCoinSignal.takeProfitPct}%$gradLabel$bundleLabel")
+                                        
+                                        // Execute ShitCoin buy
+                                        executor.shitCoinBuy(
+                                            ts = ts,
+                                            sizeSol = shitCoinSignal.positionSizeSol,
+                                            walletSol = effectiveBalance,
+                                            takeProfitPct = shitCoinSignal.takeProfitPct,
+                                            stopLossPct = shitCoinSignal.stopLossPct,
+                                            wallet = wallet,
+                                            isPaper = cfg.paperMode,
+                                            launchPlatform = shitCoinSignal.launchPlatform,
+                                            riskLevel = shitCoinSignal.riskLevel,
+                                        )
+                                        
+                                        // Record ShitCoin position
+                                        com.lifecyclebot.v3.scoring.ShitCoinTraderAI.addPosition(
+                                            com.lifecyclebot.v3.scoring.ShitCoinTraderAI.ShitCoinPosition(
+                                                mint = ts.mint,
+                                                symbol = ts.symbol,
+                                                entryPrice = ts.ref,
+                                                entrySol = shitCoinSignal.positionSizeSol,
+                                                entryTime = System.currentTimeMillis(),
+                                                marketCapUsd = ts.lastMcap,
+                                                liquidityUsd = ts.lastLiquidityUsd,
+                                                isPaper = cfg.paperMode,
+                                                takeProfitPct = shitCoinSignal.takeProfitPct,
+                                                stopLossPct = shitCoinSignal.stopLossPct,
+                                                launchPlatform = shitCoinSignal.launchPlatform,
+                                                devWallet = null,  // Dev wallet tracking not yet implemented
+                                                bundlePct = bundlePct,
+                                                socialScore = shitCoinSignal.socialScore,
+                                            )
+                                        )
+                                        
+                                        addLog("💩 SHITCOIN BUY: ${ts.symbol} | " +
+                                            "${shitCoinSignal.launchPlatform.emoji} | " +
+                                            "\$${(ts.lastMcap/1_000).toInt()}K mcap | " +
+                                            "${shitCoinSignal.positionSizeSol.fmt(3)} SOL | " +
+                                            "${if (cfg.paperMode) "PAPER" else "LIVE"}", ts.mint)
+                                    }
+                                }
+                            } catch (scEx: Exception) {
+                                ErrorLogger.debug("BotService", "💩 [SHITCOIN] ${ts.symbol} | ERROR | ${scEx.message}")
+                            }
+                        }
+                        // ═══════════════════════════════════════════════════════════════════
+                        // END ShitCoin evaluation
+                        // ═══════════════════════════════════════════════════════════════════
+                        
+                        // ═══════════════════════════════════════════════════════════════════
                         // END Treasury Mode evaluation - now proceed with V3 decision handling
                         // ═══════════════════════════════════════════════════════════════════
                         
@@ -3381,6 +3521,48 @@ class BotService : Service() {
                     }
                     
                     // ═══════════════════════════════════════════════════════════════════
+                    // SHITCOIN MODE EXIT CHECK - Degen scalps with ultra-fast exits
+                    // Check SECOND after treasury since shitcoins need fast reactions
+                    // ═══════════════════════════════════════════════════════════════════
+                    if (ts.position.isShitCoinPosition || ts.position.tradingMode == "SHITCOIN") {
+                        val currentPrice = ts.lastPrice.takeIf { it > 0 } 
+                            ?: ts.history.lastOrNull()?.priceUsd 
+                            ?: ts.position.entryPrice
+                        
+                        val exitSignal = com.lifecyclebot.v3.scoring.ShitCoinTraderAI.checkExit(ts.mint, currentPrice)
+                        
+                        if (exitSignal != com.lifecyclebot.v3.scoring.ShitCoinTraderAI.ExitSignal.HOLD) {
+                            val exitEmoji = when (exitSignal) {
+                                com.lifecyclebot.v3.scoring.ShitCoinTraderAI.ExitSignal.RUG_DETECTED -> "💀"
+                                com.lifecyclebot.v3.scoring.ShitCoinTraderAI.ExitSignal.DEV_SELL -> "🚨"
+                                com.lifecyclebot.v3.scoring.ShitCoinTraderAI.ExitSignal.TAKE_PROFIT -> "🎯"
+                                else -> "📉"
+                            }
+                            
+                            ErrorLogger.info("BotService", "💩 [SHITCOIN EXIT] ${ts.symbol} | " +
+                                "signal=$exitSignal | price=$currentPrice")
+                            
+                            // Execute shitcoin sell
+                            executor.requestSell(
+                                ts = ts,
+                                reason = "SHITCOIN_${exitSignal.name}",
+                                wallet = wallet,
+                                walletSol = effectiveBalance
+                            )
+                            
+                            // Close shitcoin position tracking
+                            com.lifecyclebot.v3.scoring.ShitCoinTraderAI.closePosition(
+                                ts.mint, currentPrice, exitSignal
+                            )
+                            
+                            addLog("$exitEmoji SHITCOIN SELL: ${ts.symbol} | ${exitSignal.name} | " +
+                                "${if (cfg.paperMode) "PAPER" else "LIVE"}", ts.mint)
+                            
+                            return@launch  // Exit processed
+                        }
+                    }
+                    
+                    // ═══════════════════════════════════════════════════════════════════
                     // MODE-SPECIFIC EXIT LOGIC
                     // 
                     // Each trade type has different exit characteristics:
@@ -3763,6 +3945,80 @@ class BotService : Service() {
             ErrorLogger.info("BotService", "Watchlist cleanup: removed ${tokensToRemove.size} tokens, now ${newWatchlist.size} remaining")
             addLog("🧹 Cleanup: -${tokensToRemove.size} | now ${newWatchlist.size}")
         }
+    }
+
+    // ═══════════════════════════════════════════════════════════════════════════
+    // SHITCOIN LAYER HELPERS
+    // ═══════════════════════════════════════════════════════════════════════════
+    
+    /**
+     * Calculate social score for a token based on available signals
+     */
+    private fun calculateSocialScore(ts: TokenState): Int {
+        var score = 0
+        
+        // Boost for trending tokens
+        if (ts.source.contains("TRENDING", ignoreCase = true)) score += 25
+        if (ts.source.contains("BOOSTED", ignoreCase = true)) score += 20
+        
+        // Boost for tokens from recognized platforms
+        if (ts.source.contains("PUMP_FUN", ignoreCase = true)) score += 15
+        if (ts.source.contains("RAYDIUM", ignoreCase = true)) score += 10
+        
+        // Positive signals from source naming
+        if (ts.source.contains("VERIFIED", ignoreCase = true)) score += 10
+        if (ts.source.contains("MOONSHOT", ignoreCase = true)) score += 10
+        
+        // Symbol length heuristic (legitimate projects often have 3-6 char tickers)
+        val symbolLen = ts.symbol.length
+        if (symbolLen in 3..6) score += 10
+        if (symbolLen > 10) score -= 5  // Too long often indicates scam
+        
+        // Bundle risk affects social perception
+        if (ts.safety.bundleRisk == "LOW") score += 10
+        if (ts.safety.bundleRisk == "HIGH") score -= 15
+        
+        return score.coerceIn(0, 100)
+    }
+    
+    /**
+     * Detect copycat/scam patterns in token symbols
+     * Returns true if the token appears to be a copycat of a known project
+     */
+    private fun detectCopyCat(symbol: String): Boolean {
+        val lowerSymbol = symbol.lowercase()
+        
+        // Known projects that get copied frequently
+        val knownProjects = listOf(
+            "pepe", "doge", "shib", "floki", "wojak", "chad", 
+            "elon", "trump", "biden", "solana", "eth", "btc",
+            "bonk", "myro", "bome", "wif", "popcat", "mew"
+        )
+        
+        // Check for slight variations (e.g., "PEPE2", "PEPEE", "P3PE")
+        for (project in knownProjects) {
+            // Exact match is OK (could be legit)
+            if (lowerSymbol == project) continue
+            
+            // Check for suspicious patterns
+            val variations = listOf(
+                "${project}2", "${project}3", "${project}v2",
+                "${project}inu", "${project}coin", "${project}token",
+                "baby$project", "mini$project", "${project}classic",
+                "${project}ai", "${project}gpt", "${project}bot"
+            )
+            
+            if (variations.any { lowerSymbol.contains(it) || lowerSymbol == it }) {
+                return true
+            }
+            
+            // Check for character substitution (e.g., P3PE, PEP3)
+            if (lowerSymbol.replace("3", "e").replace("0", "o").replace("1", "i") == project) {
+                return true
+            }
+        }
+        
+        return false
     }
 
     private fun addLog(msg: String, mint: String = "") {

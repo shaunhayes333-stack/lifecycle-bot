@@ -3304,6 +3304,94 @@ class Executor(
             ErrorLogger.debug("Collective", "BLUE CHIP BUY upload error: ${e.message}")
         }
     }
+    
+    /**
+     * ShitCoin buy - for degen plays on micro-cap memecoins <$500K mcap
+     * Ultra-fast execution to avoid MEV/rugs
+     */
+    fun shitCoinBuy(
+        ts: TokenState,
+        sizeSol: Double,
+        walletSol: Double,
+        takeProfitPct: Double,
+        stopLossPct: Double,
+        wallet: SolanaWallet?,
+        isPaper: Boolean,
+        launchPlatform: com.lifecyclebot.v3.scoring.ShitCoinTraderAI.LaunchPlatform,
+        riskLevel: com.lifecyclebot.v3.scoring.ShitCoinTraderAI.RiskLevel,
+    ) {
+        val identity = TradeIdentityManager.getOrCreate(ts.mint, ts.symbol, ts.source)
+        
+        // Mark as executed with SHITCOIN trading mode
+        identity.executed(getActualPrice(ts), sizeSol, isPaper)
+        
+        // Set trading mode to SHITCOIN for tracking
+        ts.position.tradingMode = "SHITCOIN"
+        ts.position.tradingModeEmoji = "💩"
+        ts.position.isShitCoinPosition = true
+        
+        // Store exit targets on position for monitoring
+        ts.position.shitCoinTakeProfit = takeProfitPct
+        ts.position.shitCoinStopLoss = stopLossPct
+        
+        ErrorLogger.info("Executor", "💩 [SHITCOIN] ${ts.symbol} | " +
+            "${launchPlatform.emoji} ${launchPlatform.displayName} | " +
+            "${if (isPaper) "PAPER" else "LIVE"}_BUY | " +
+            "mcap=\$${(ts.lastMcap/1_000).fmt(1)}K | " +
+            "risk=${riskLevel.emoji}${riskLevel.name} | " +
+            "${sizeSol.fmt(3)} SOL | TP=${takeProfitPct}% SL=${stopLossPct}%")
+        
+        if (isPaper) {
+            paperBuy(
+                ts = ts,
+                sol = sizeSol,
+                score = 70.0,  // Shitcoin mode - degen plays
+                identity = identity,
+                quality = "SHITCOIN",
+                skipGraduated = true,
+                wallet = wallet,
+                walletSol = walletSol
+            )
+        } else {
+            if (wallet == null) {
+                ErrorLogger.error("Executor", "💩 [SHITCOIN] ${ts.symbol} | LIVE_BUY_FAILED | no wallet")
+                return
+            }
+            liveBuy(
+                ts = ts,
+                sol = sizeSol,
+                score = 70.0,
+                wallet = wallet,
+                walletSol = walletSol,
+                identity = identity,
+                quality = "SHITCOIN",
+                skipGraduated = true
+            )
+        }
+        
+        // Upload SHITCOIN BUY to collective knowledge base
+        try {
+            kotlinx.coroutines.GlobalScope.launch(kotlinx.coroutines.Dispatchers.IO) {
+                val marketSentiment = ts.meta.emafanAlignment.ifBlank { "NEUTRAL" }
+                com.lifecyclebot.collective.CollectiveLearning.uploadTrade(
+                    side = "BUY",
+                    symbol = ts.symbol,
+                    mode = "SHITCOIN",
+                    source = ts.source.ifBlank { "SHITCOIN_SCAN" },
+                    liquidityUsd = ts.lastLiquidityUsd,
+                    marketSentiment = marketSentiment,
+                    entryScore = 70,
+                    confidence = 70,
+                    pnlPct = 0.0,
+                    holdMins = 0.0,
+                    isWin = false,
+                    paperMode = isPaper
+                )
+            }
+        } catch (e: Exception) {
+            ErrorLogger.debug("Collective", "SHITCOIN BUY upload error: ${e.message}")
+        }
+    }
 
     private fun liveBuy(ts: TokenState, sol: Double, score: Double,
                         wallet: SolanaWallet, walletSol: Double,

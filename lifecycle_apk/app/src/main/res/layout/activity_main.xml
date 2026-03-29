@@ -956,6 +956,70 @@
             </LinearLayout>
 
             <!-- ═══════════════════════════════
+                 V4.0: SHITCOIN POSITIONS (Degen Mode)
+                 Separate panel for ShitCoin's micro-cap degen plays <$500K mcap
+                 ═══════════════════════════════ -->
+            <LinearLayout
+                android:id="@+id/cardShitCoinPositions"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:background="@drawable/section_card_bg"
+                android:layout_marginStart="@dimen/card_margin"
+                android:layout_marginEnd="@dimen/card_margin"
+                android:layout_marginBottom="@dimen/card_margin_bottom"
+                android:orientation="vertical"
+                android:padding="@dimen/card_padding"
+                android:visibility="gone">
+
+                <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content"
+                    android:orientation="horizontal" android:gravity="center_vertical"
+                    android:layout_marginBottom="10dp">
+                    <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+                        android:text="💩" android:textSize="16sp"
+                        android:layout_marginEnd="8dp"/>
+                    <TextView android:layout_width="0dp" android:layout_height="wrap_content"
+                        android:layout_weight="1"
+                        android:text="ShitCoin Degen" android:textColor="#F97316"
+                        android:textSize="@dimen/section_title_size" android:textStyle="bold"/>
+                    <TextView android:id="@+id/tvShitCoinExposure"
+                        android:layout_width="wrap_content" android:layout_height="wrap_content"
+                        android:text="" android:textColor="#6B7280"
+                        android:textSize="12sp" android:fontFamily="monospace"/>
+                    <TextView android:id="@+id/tvShitCoinPnl"
+                        android:layout_width="wrap_content" android:layout_height="wrap_content"
+                        android:text="" android:textColor="#10B981"
+                        android:textSize="12sp" android:fontFamily="monospace"
+                        android:layout_marginStart="8dp"/>
+                </LinearLayout>
+                
+                <!-- ShitCoin Stats Row -->
+                <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content"
+                    android:orientation="horizontal" android:gravity="center_vertical"
+                    android:layout_marginBottom="8dp">
+                    <TextView android:id="@+id/tvShitCoinMode"
+                        android:layout_width="wrap_content" android:layout_height="wrap_content"
+                        android:text="HUNTING" android:textColor="#F97316"
+                        android:textSize="10sp" android:fontFamily="monospace"
+                        android:background="#1F1F1F"
+                        android:paddingHorizontal="6dp" android:paddingVertical="2dp"/>
+                    <TextView android:id="@+id/tvShitCoinWinRate"
+                        android:layout_width="wrap_content" android:layout_height="wrap_content"
+                        android:text="0W/0L" android:textColor="#6B7280"
+                        android:textSize="10sp" android:fontFamily="monospace"
+                        android:layout_marginStart="8dp"/>
+                    <TextView android:id="@+id/tvShitCoinDailyPnl"
+                        android:layout_width="wrap_content" android:layout_height="wrap_content"
+                        android:text="Day: +0.00" android:textColor="#10B981"
+                        android:textSize="10sp" android:fontFamily="monospace"
+                        android:layout_marginStart="8dp"/>
+                </LinearLayout>
+
+                <LinearLayout android:id="@+id/llShitCoinPositions"
+                    android:layout_width="match_parent" android:layout_height="wrap_content"
+                    android:orientation="vertical"/>
+            </LinearLayout>
+
+            <!-- ═══════════════════════════════
                  BONDING CURVE + WHALE ROW
                  ═══════════════════════════════ -->
             <LinearLayout
@@ -1168,11 +1232,30 @@
                             android:maxLines="1" android:ellipsize="end"/>
                     </LinearLayout>
                     
-                    <!-- Learning Progress -->
+                    <!-- ShitCoin Mode -->
                     <LinearLayout android:layout_width="0dp" android:layout_height="wrap_content"
                         android:layout_weight="1" android:orientation="vertical"
                         android:background="@drawable/card_bg" android:padding="8dp"
                         android:layout_marginStart="4dp">
+                        <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+                            android:text="💩 SHITCOIN" android:textColor="#F97316"
+                            android:textSize="8sp" android:fontFamily="monospace" android:letterSpacing="0.1"/>
+                        <TextView android:id="@+id/tvAiShitCoin"
+                            android:layout_width="match_parent" android:layout_height="wrap_content"
+                            android:text="HUNT" android:textColor="#F97316"
+                            android:textSize="11sp" android:fontFamily="monospace" android:textStyle="bold"
+                            android:maxLines="1" android:ellipsize="end"/>
+                    </LinearLayout>
+                </LinearLayout>
+                
+                <!-- Row 2.5: Learning Progress -->
+                <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content"
+                    android:orientation="horizontal" android:layout_marginBottom="8dp">
+                    
+                    <!-- Learning Progress -->
+                    <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content"
+                        android:orientation="vertical"
+                        android:background="@drawable/card_bg" android:padding="8dp">
                         <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
                             android:text="🧠 LEARNING" android:textColor="#6B7280"
                             android:textSize="8sp" android:fontFamily="monospace" android:letterSpacing="0.1"/>

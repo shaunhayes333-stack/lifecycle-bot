@@ -110,11 +110,21 @@ class MainActivity : AppCompatActivity() {
     private lateinit var tvBlueChipExposure: TextView
     private lateinit var tvBlueChipPnl: TextView
     
+    // V4.0: ShitCoin positions panel
+    private lateinit var cardShitCoinPositions: android.view.View
+    private lateinit var llShitCoinPositions: LinearLayout
+    private lateinit var tvShitCoinExposure: TextView
+    private lateinit var tvShitCoinPnl: TextView
+    private lateinit var tvShitCoinMode: TextView
+    private lateinit var tvShitCoinWinRate: TextView
+    private lateinit var tvShitCoinDailyPnl: TextView
+    
     // V4.0: AI Status panel
     private lateinit var tvAiHealth: TextView
     private lateinit var tvAiTradingMode: TextView
     private lateinit var tvAiRegime: TextView
     private lateinit var tvAiTreasury: TextView
+    private lateinit var tvAiShitCoin: TextView
     private lateinit var tvAiLearning: TextView
     private lateinit var tvAiLayers: TextView
 
@@ -567,11 +577,21 @@ for legal compliance.
         tvBlueChipExposure = try { findViewById(R.id.tvBlueChipExposure) } catch (_: Exception) { TextView(this) }
         tvBlueChipPnl = try { findViewById(R.id.tvBlueChipPnl) } catch (_: Exception) { TextView(this) }
         
+        // V4.0: ShitCoin positions panel bindings
+        cardShitCoinPositions = try { findViewById(R.id.cardShitCoinPositions) } catch (_: Exception) { android.view.View(this) }
+        llShitCoinPositions = try { findViewById(R.id.llShitCoinPositions) } catch (_: Exception) { LinearLayout(this) }
+        tvShitCoinExposure = try { findViewById(R.id.tvShitCoinExposure) } catch (_: Exception) { TextView(this) }
+        tvShitCoinPnl = try { findViewById(R.id.tvShitCoinPnl) } catch (_: Exception) { TextView(this) }
+        tvShitCoinMode = try { findViewById(R.id.tvShitCoinMode) } catch (_: Exception) { TextView(this) }
+        tvShitCoinWinRate = try { findViewById(R.id.tvShitCoinWinRate) } catch (_: Exception) { TextView(this) }
+        tvShitCoinDailyPnl = try { findViewById(R.id.tvShitCoinDailyPnl) } catch (_: Exception) { TextView(this) }
+        
         // V4.0: AI Status panel bindings
         tvAiHealth = try { findViewById(R.id.tvAiHealth) } catch (_: Exception) { TextView(this) }
         tvAiTradingMode = try { findViewById(R.id.tvAiTradingMode) } catch (_: Exception) { TextView(this) }
         tvAiRegime = try { findViewById(R.id.tvAiRegime) } catch (_: Exception) { TextView(this) }
         tvAiTreasury = try { findViewById(R.id.tvAiTreasury) } catch (_: Exception) { TextView(this) }
+        tvAiShitCoin = try { findViewById(R.id.tvAiShitCoin) } catch (_: Exception) { TextView(this) }
         tvAiLearning = try { findViewById(R.id.tvAiLearning) } catch (_: Exception) { TextView(this) }
         tvAiLayers = try { findViewById(R.id.tvAiLayers) } catch (_: Exception) { TextView(this) }
         
@@ -1130,6 +1150,42 @@ for legal compliance.
             }
         } catch (_: Exception) {}
         
+        // ── V4.0: ShitCoin positions panel ─────────────────────────────────
+        try {
+            val shitCoinPositions = com.lifecyclebot.v3.scoring.ShitCoinTraderAI.getActivePositions()
+            val shitCoinStats = com.lifecyclebot.v3.scoring.ShitCoinTraderAI.getStats()
+            
+            // Always show if we have positions OR if mode is active (not PAUSED)
+            val showShitCoin = shitCoinPositions.isNotEmpty() || shitCoinStats.dailyTradeCount > 0
+            cardShitCoinPositions.visibility = if (showShitCoin) android.view.View.VISIBLE else android.view.View.GONE
+            
+            if (showShitCoin) {
+                val shitCoinExposure = shitCoinPositions.sumOf { it.entrySol }
+                tvShitCoinExposure.text = "%.3f◎".format(shitCoinExposure)
+                
+                val shitCoinDailyPnl = shitCoinStats.dailyPnlSol
+                tvShitCoinPnl.text = "%+.4f◎".format(shitCoinDailyPnl)
+                tvShitCoinPnl.setTextColor(if (shitCoinDailyPnl >= 0) green else red)
+                
+                // Update stats row
+                val modeEmoji = when (shitCoinStats.mode) {
+                    com.lifecyclebot.v3.scoring.ShitCoinTraderAI.ShitCoinMode.HUNTING -> "🎯"
+                    com.lifecyclebot.v3.scoring.ShitCoinTraderAI.ShitCoinMode.POSITIONED -> "📊"
+                    com.lifecyclebot.v3.scoring.ShitCoinTraderAI.ShitCoinMode.CAUTIOUS -> "⚠️"
+                    com.lifecyclebot.v3.scoring.ShitCoinTraderAI.ShitCoinMode.PAUSED -> "⏸️"
+                    com.lifecyclebot.v3.scoring.ShitCoinTraderAI.ShitCoinMode.GRADUATION -> "🎓"
+                }
+                tvShitCoinMode.text = "$modeEmoji ${shitCoinStats.mode.name}"
+                tvShitCoinWinRate.text = "${shitCoinStats.dailyWins}W/${shitCoinStats.dailyLosses}L"
+                tvShitCoinDailyPnl.text = "Day: %+.3f◎".format(shitCoinDailyPnl)
+                tvShitCoinDailyPnl.setTextColor(if (shitCoinDailyPnl >= 0) green else red)
+                
+                if (shitCoinPositions.isNotEmpty()) {
+                    renderShitCoinPositions(shitCoinPositions)
+                }
+            }
+        } catch (_: Exception) {}
+        
         // ── V4.0: AI Status panel ─────────────────────────────────
         try {
             updateAiStatusPanel(ts)
@@ -1588,6 +1644,106 @@ for legal compliance.
         }
     }
     
+    // V4.0: Render ShitCoin Positions with platform icons
+    private fun renderShitCoinPositions(positions: List<com.lifecyclebot.v3.scoring.ShitCoinTraderAI.ShitCoinPosition>) {
+        llShitCoinPositions.removeAllViews()
+        val sdf = java.text.SimpleDateFormat("HH:mm", java.util.Locale.US)
+        
+        positions.forEach { pos ->
+            val currentPrice = pos.highWaterMark * 0.95 // Use actual price from position tracking
+            val gainPct = (currentPrice - pos.entryPrice) / pos.entryPrice * 100
+            val gainCol = if (gainPct >= 0) green else red
+            val pnlSol = pos.entrySol * gainPct / 100.0
+
+            val row = LinearLayout(this).apply {
+                orientation = LinearLayout.HORIZONTAL
+                setPadding(0, 12, 0, 12)
+            }
+
+            // Colour bar on left (orange for ShitCoin)
+            val barColor = when (pos.launchPlatform) {
+                com.lifecyclebot.v3.scoring.ShitCoinTraderAI.LaunchPlatform.PUMP_FUN -> 0xFFFFB800.toInt() // Gold
+                com.lifecyclebot.v3.scoring.ShitCoinTraderAI.LaunchPlatform.RAYDIUM -> 0xFF3B82F6.toInt()  // Blue
+                com.lifecyclebot.v3.scoring.ShitCoinTraderAI.LaunchPlatform.MOONSHOT -> 0xFF9333EA.toInt() // Purple
+                else -> 0xFFF97316.toInt() // Default orange
+            }
+            val bar = View(this).apply {
+                layoutParams = LinearLayout.LayoutParams(4, LinearLayout.LayoutParams.MATCH_PARENT).also {
+                    it.marginEnd = 12
+                }
+                setBackgroundColor(barColor)
+            }
+            row.addView(bar)
+
+            // Token info (left column)
+            val info = LinearLayout(this).apply {
+                orientation = LinearLayout.VERTICAL
+                layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
+            }
+            info.addView(TextView(this).apply {
+                text = "${pos.launchPlatform.emoji} ${pos.symbol}"
+                textSize = resources.getDimension(R.dimen.trade_row_text) / resources.displayMetrics.scaledDensity
+                setTextColor(0xFFF97316.toInt()) // Orange
+                typeface = android.graphics.Typeface.DEFAULT_BOLD
+            })
+            info.addView(TextView(this).apply {
+                text = "${pos.launchPlatform.displayName}  ·  ${sdf.format(java.util.Date(pos.entryTime))}"
+                textSize = resources.getDimension(R.dimen.trade_sub_text) / resources.displayMetrics.scaledDensity
+                setTextColor(muted)
+                typeface = android.graphics.Typeface.MONOSPACE
+            })
+            info.addView(TextView(this).apply {
+                val mcapLabel = if (pos.marketCapUsd >= 1000) {
+                    "\$${String.format("%.1f", pos.marketCapUsd/1_000)}K"
+                } else {
+                    "\$${pos.marketCapUsd.toInt()}"
+                }
+                val bundleWarn = if (pos.bundlePct >= 80) " ⚠️BUNDLE" else ""
+                text = "MCap: $mcapLabel  ·  ${String.format("%.3f", pos.entrySol)}◎$bundleWarn"
+                textSize = resources.getDimension(R.dimen.trade_sub_text) / resources.displayMetrics.scaledDensity
+                setTextColor(muted)
+                typeface = android.graphics.Typeface.MONOSPACE
+            })
+            row.addView(info)
+
+            // P&L (right column)
+            val right = LinearLayout(this).apply {
+                orientation = LinearLayout.VERTICAL
+                gravity = android.view.Gravity.END
+            }
+            right.addView(TextView(this).apply {
+                text = "%+.1f%%".format(gainPct)
+                textSize = resources.getDimension(R.dimen.token_name_size) / resources.displayMetrics.scaledDensity
+                setTextColor(gainCol)
+                typeface = android.graphics.Typeface.DEFAULT_BOLD
+                gravity = android.view.Gravity.END
+            })
+            right.addView(TextView(this).apply {
+                text = "%+.4f◎".format(pnlSol)
+                textSize = resources.getDimension(R.dimen.trade_sub_text) / resources.displayMetrics.scaledDensity
+                setTextColor(gainCol)
+                typeface = android.graphics.Typeface.MONOSPACE
+                gravity = android.view.Gravity.END
+            })
+            right.addView(TextView(this).apply {
+                text = "TP ${pos.takeProfitPct.toInt()}% SL ${pos.stopLossPct.toInt()}%"
+                textSize = 8f
+                setTextColor(muted)
+                typeface = android.graphics.Typeface.MONOSPACE
+                gravity = android.view.Gravity.END
+            })
+            row.addView(right)
+
+            val div = View(this).apply {
+                layoutParams = LinearLayout.LayoutParams(
+                    LinearLayout.LayoutParams.MATCH_PARENT, 1).also { it.topMargin = 10 }
+                setBackgroundColor(0xFF1F2937.toInt())
+            }
+            llShitCoinPositions.addView(row)
+            llShitCoinPositions.addView(div)
+        }
+    }
+    
     // V4.0: Update AI Status Panel with live data
     private fun updateAiStatusPanel(ts: TokenState?) {
         try {
@@ -1630,6 +1786,20 @@ for legal compliance.
             tvAiTreasury.text = treasuryStatus
             tvAiTreasury.setTextColor(0xFFFFD700.toInt())
             
+            // ShitCoin Mode Status
+            val shitCoinStatus = try {
+                val stats = com.lifecyclebot.v3.scoring.ShitCoinTraderAI.getStats()
+                when (stats.mode) {
+                    com.lifecyclebot.v3.scoring.ShitCoinTraderAI.ShitCoinMode.HUNTING -> "HUNTING"
+                    com.lifecyclebot.v3.scoring.ShitCoinTraderAI.ShitCoinMode.POSITIONED -> "ACTIVE (${stats.activePositions})"
+                    com.lifecyclebot.v3.scoring.ShitCoinTraderAI.ShitCoinMode.CAUTIOUS -> "CAUTIOUS"
+                    com.lifecyclebot.v3.scoring.ShitCoinTraderAI.ShitCoinMode.PAUSED -> "PAUSED"
+                    com.lifecyclebot.v3.scoring.ShitCoinTraderAI.ShitCoinMode.GRADUATION -> "WATCHING GRAD"
+                }
+            } catch (_: Exception) { "IDLE" }
+            tvAiShitCoin.text = shitCoinStatus
+            tvAiShitCoin.setTextColor(0xFFF97316.toInt()) // Orange
+            
             // Learning Progress - from FluidLearningAI
             val learningPct = try {
                 com.lifecyclebot.v3.scoring.FluidLearningAI.getMaturityPercent()
@@ -1642,7 +1812,7 @@ for legal compliance.
             })
             
             // Active AI Layers - concise list
-            tvAiLayers.text = "Entry · Exit · Volume · Momentum · Liquidity · Behavior · Regime · Treasury · Social · Whale · Narrative"
+            tvAiLayers.text = "Entry · Exit · Volume · Momentum · Liquidity · Behavior · Regime · Treasury · ShitCoin · Social · Whale · Narrative"
             tvAiLayers.setTextColor(muted)
             
         } catch (e: Exception) {
