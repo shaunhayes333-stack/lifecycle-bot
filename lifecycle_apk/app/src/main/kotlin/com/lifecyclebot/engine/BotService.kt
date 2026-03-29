@@ -2882,11 +2882,19 @@ class BotService : Service() {
                 
                 // ───────────────────────────────────────────────────────────────────
                 // HARD GATE 2: Block C-grade + low confidence
+                // V4.0: Use FLUID threshold instead of hardcoded 35%
+                // At 12% learning, floor should be ~20% not 35%
                 // ───────────────────────────────────────────────────────────────────
                 val isCGrade = decision.setupQuality == "C" || decision.setupQuality == "D"
-                if (isCGrade && confValue < 35) {
+                val fluidCGradeConfFloor = try {
+                    val learningProgress = com.lifecyclebot.v3.scoring.FluidLearningAI.getLearningProgress()
+                    // 18% at bootstrap → 35% at mature
+                    (18 + (learningProgress * 17)).toInt().coerceIn(18, 35)
+                } catch (_: Exception) { 25 }
+                
+                if (isCGrade && confValue < fluidCGradeConfFloor) {
                     ErrorLogger.info("BotService", "[V3|PROMOTION_GATE] ${identity.symbol} | allow=false | " +
-                        "reason=C_grade_conf_${confValue.toInt()}_below_35 → SHADOW_ONLY")
+                        "reason=C_grade_conf_${confValue.toInt()}_below_$fluidCGradeConfFloor → SHADOW_ONLY")
                     
                     com.lifecyclebot.engine.ShadowLearningEngine.onFdgBlockedTrade(
                         mint = ts.mint,
