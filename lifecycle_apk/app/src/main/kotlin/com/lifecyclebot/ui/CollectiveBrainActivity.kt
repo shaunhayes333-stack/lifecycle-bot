@@ -103,8 +103,20 @@ class CollectiveBrainActivity : AppCompatActivity() {
             com.lifecyclebot.engine.CollectiveAnalytics.getSummary()
         } catch (_: Exception) { null }
         
+        // Check if Turso/Collective Learning is enabled (regardless of pattern count)
+        val isTursoEnabled = CollectiveLearning.isEnabled()
+        
         // Check if collective data is actually available from Turso
-        val hasCollectiveData = (analyticsSummary?.collectivePatterns ?: 0) > 0
+        val hasCollectiveData = isTursoEnabled && (analyticsSummary?.collectivePatterns ?: 0) > 0
+        
+        // Get REAL-TIME active instance count directly from Turso if enabled
+        val activeInstanceCount = if (isTursoEnabled) {
+            try {
+                CollectiveLearning.countActiveInstances()
+            } catch (_: Exception) { 1 }
+        } else {
+            1  // Just this device when Turso not enabled
+        }
         
         // Get local stats - THIS IS THE PRIMARY DATA SOURCE
         val localStats = com.lifecyclebot.engine.TradeHistoryStore.getStats()
@@ -123,17 +135,14 @@ class CollectiveBrainActivity : AppCompatActivity() {
         } catch (_: Exception) { 0 }
         
         // Determine data source and label
-        val (dataSourceLabel, combinedTrades) = if (hasCollectiveData) {
-            "🌐 COLLECTIVE" to (analyticsSummary?.collectivePatterns ?: 0)
-        } else {
-            "📱 LOCAL DEVICE" to (totalStoredTrades + shadowTrackedCount)
+        val (dataSourceLabel, combinedTrades) = when {
+            hasCollectiveData -> "🌐 COLLECTIVE" to (analyticsSummary?.collectivePatterns ?: 0)
+            isTursoEnabled -> "🔄 CONNECTED" to (totalStoredTrades + shadowTrackedCount)
+            else -> "📱 LOCAL DEVICE" to (totalStoredTrades + shadowTrackedCount)
         }
         
-        val estimatedInstances = if (hasCollectiveData) {
-            (analyticsSummary?.estimatedInstances ?: 0).coerceAtLeast(1)
-        } else {
-            1 // Just this device
-        }
+        // Use REAL-TIME instance count from Turso (not cached analytics)
+        val estimatedInstances = activeInstanceCount
         
         // Get TokenBlacklist count for local blacklist display
         val localBlacklisted = try {
@@ -157,7 +166,11 @@ class CollectiveBrainActivity : AppCompatActivity() {
         withContext(Dispatchers.Main) {
             // Update data source label with clear indicator
             tvDataSource.text = dataSourceLabel
-            tvDataSource.setTextColor(if (hasCollectiveData) green else purple)
+            tvDataSource.setTextColor(when {
+                hasCollectiveData -> green
+                isTursoEnabled -> 0xFF6366F1.toInt()  // Indigo for connected but syncing
+                else -> purple
+            })
             
             // Update brain animation
             val progress = (combinedTrades.toFloat() / 1_000_000f).coerceIn(0f, 1f)
@@ -180,8 +193,10 @@ class CollectiveBrainActivity : AppCompatActivity() {
                 tvTotalLoss.setTextColor(red)
             }
             
-            // Active instances: 1 for local, actual count for collective
+            // Active instances: REAL-TIME count from Turso database
             tvActiveInstances.text = "$estimatedInstances"
+            // Color green if multiple instances detected
+            tvActiveInstances.setTextColor(if (estimatedInstances > 1) green else white)
             tvPatternsLearned.text = "$localPatterns"
             tvBlacklistedTokens.text = "$localBlacklisted"
             
