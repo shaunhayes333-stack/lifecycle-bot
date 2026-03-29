@@ -136,11 +136,33 @@ object TradeHistoryStore {
         val losses = sells24h.count { it.pnlPct < -2.0 }
         val total = wins + losses
         
+        // Calculate lifetime stats for FluidLearningAI
+        val allSells = trades.filter { it.side == "SELL" }
+        val totalWins = allSells.count { it.pnlPct > 0 }
+        val totalLosses = allSells.count { it.pnlPct < 0 }
+        val totalCompleted = totalWins + totalLosses
+        val lifetimeWinRate = if (totalCompleted > 0) {
+            totalWins.toDouble() / totalCompleted * 100
+        } else 50.0
+        
+        // Average win % and hold time
+        val winningTrades = allSells.filter { it.pnlPct > 0 }
+        val avgWinPct = if (winningTrades.isNotEmpty()) {
+            winningTrades.map { it.pnlPct }.average()
+        } else 10.0
+        
+        // Estimate avg hold time from trade timestamps (if we have buy/sell pairs)
+        val avgHoldMinutes = 10  // Default, could be calculated from trade pairs
+        
         return StatsSnapshot(
             trades24h = getTrades24h().size,
             winRate24h = if (total > 0) (wins * 100 / total) else 0,
             pnl24hSol = sells24h.sumOf { it.pnlSol },
-            totalStoredTrades = trades.size
+            totalStoredTrades = trades.size,
+            totalTrades = totalCompleted,
+            winRate = lifetimeWinRate,
+            avgWinPct = avgWinPct,
+            avgHoldTimeMinutes = avgHoldMinutes,
         )
     }
     
@@ -148,7 +170,12 @@ object TradeHistoryStore {
         val trades24h: Int,
         val winRate24h: Int,
         val pnl24hSol: Double,
-        val totalStoredTrades: Int
+        val totalStoredTrades: Int,
+        // Added for FluidLearningAI
+        val totalTrades: Int = 0,
+        val winRate: Double = 50.0,
+        val avgWinPct: Double = 10.0,
+        val avgHoldTimeMinutes: Int = 10,
     )
     
     /**

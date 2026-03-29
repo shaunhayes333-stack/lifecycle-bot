@@ -591,7 +591,7 @@ object CashGenerationAI {
     fun getStats(): TreasuryStats {
         val dailyPnl = dailyPnlSolBps.get() / 100.0
         val progressPct = (dailyPnl / DAILY_TARGET_MIN_SOL * 100).coerceIn(-100.0, 200.0)
-        val learningProgress = getLearningProgress()
+        val learningProgress = FluidLearningAI.getLearningProgress()
         
         return TreasuryStats(
             dailyPnlSol = dailyPnl,
