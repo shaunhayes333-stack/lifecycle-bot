@@ -413,8 +413,24 @@ object FinalDecisionGate {
     var kellyFraction = 0.5                // Fraction of Kelly to use (half-Kelly)
     var maxKellySize = 0.10                // Maximum Kelly-suggested size (10%)
     
-    // Base confidence thresholds (these are ADAPTED by AdaptiveConfidence)
-    // FIX: Paper mode now has a minimum floor to avoid learning from garbage
+    // ═══════════════════════════════════════════════════════════════════════════
+    // FLUID CONFIDENCE SCALING (All Trading Modes)
+    // 
+    // PHILOSOPHY: Start LOOSE to maximize learning exposure on first install.
+    // ALL modes (paper, live, all trading strategies) use the SAME floor on
+    // day 1, then scale up as the AI matures through trade experience.
+    //
+    // Bootstrap (0 trades):   30% confidence floor (FDG hard minimum)
+    // Mature (500+ trades):   75% confidence (strict filtering)
+    //
+    // This allows the bot to learn from a wide variety of trades initially,
+    // then naturally becomes more selective as it understands what works.
+    // ═══════════════════════════════════════════════════════════════════════════
+    
+    private const val CONF_FLOOR_BOOTSTRAP = 30.0    // Starting floor (same as hard minimum)
+    private const val CONF_FLOOR_MATURE = 75.0       // Target floor after learning
+    
+    // Base confidence thresholds (LEGACY - now uses fluid scaling)
     var paperConfidenceBase = 15.0          // Paper mode: 15% minimum (don't learn from garbage)
     var liveConfidenceBase = 0.0           // ZEROED - let trades flow while brain learns (auto-adjusts)
     
@@ -583,6 +599,7 @@ object FinalDecisionGate {
         val timeSinceLastLossMs: Long = Long.MAX_VALUE,
         val sessionPnlPct: Double = 0.0,      // Session P&L percentage
         val totalSessionTrades: Int = 0,
+        val historicalTradeCount: Int = 0,    // LIFETIME trades (for learning progress)
         // LEARNING LAYER DATA
         val entryAiWinRate: Double = 50.0,    // EntryIntelligence learned win rate
         val exitAiAvgPnl: Double = 0.0,       // ExitIntelligence average P&L
@@ -602,6 +619,7 @@ object FinalDecisionGate {
         timeSinceLastLossMs: Long? = null,
         sessionPnlPct: Double? = null,
         totalSessionTrades: Int? = null,
+        historicalTradeCount: Int? = null,
         entryAiWinRate: Double? = null,
         exitAiAvgPnl: Double? = null,
         edgeLearningAccuracy: Double? = null,
@@ -613,6 +631,7 @@ object FinalDecisionGate {
             timeSinceLastLossMs = timeSinceLastLossMs ?: currentConditions.timeSinceLastLossMs,
             sessionPnlPct = sessionPnlPct ?: currentConditions.sessionPnlPct,
             totalSessionTrades = totalSessionTrades ?: currentConditions.totalSessionTrades,
+            historicalTradeCount = historicalTradeCount ?: currentConditions.historicalTradeCount,
             entryAiWinRate = entryAiWinRate ?: currentConditions.entryAiWinRate,
             exitAiAvgPnl = exitAiAvgPnl ?: currentConditions.exitAiAvgPnl,
             edgeLearningAccuracy = edgeLearningAccuracy ?: currentConditions.edgeLearningAccuracy,
@@ -628,24 +647,42 @@ object FinalDecisionGate {
      *   - When conditions are risky: higher threshold = fewer, safer trades
      */
     fun getAdaptiveConfidence(isPaperMode: Boolean, ts: TokenState? = null): Double {
-        // PAPER MODE: Use paperConfidenceBase as minimum floor
-        // FIX: We need SOME minimum to avoid learning from complete garbage
-        // 15% minimum prevents taking trades with 8% confidence
+        // ═══════════════════════════════════════════════════════════════════
+        // FLUID CONFIDENCE: ALL modes start at CONF_FLOOR_BOOTSTRAP (30%)
+        // and scale up to CONF_FLOOR_MATURE (75%) as the AI learns.
+        //
+        // This ensures maximum learning exposure on first install while
+        // naturally tightening as confidence in the system grows.
+        // ═══════════════════════════════════════════════════════════════════
+        
+        val learningProgress = getLearningProgress(
+            currentConditions.totalSessionTrades + currentConditions.historicalTradeCount,
+            currentConditions.recentWinRate
+        )
+        
+        // Fluid base confidence: 30% (bootstrap) → 75% (mature)
+        val fluidBase = lerp(CONF_FLOOR_BOOTSTRAP, CONF_FLOOR_MATURE, learningProgress)
+        
+        // PAPER MODE: Use even lower floor to maximize learning
+        // Paper can go as low as 15% (paperConfidenceBase) during relaxation
         if (isPaperMode) {
-            // Still adaptive, but with a floor
-            val floor = paperConfidenceBase  // 15% default
+            val floor = lerp(paperConfidenceBase, CONF_FLOOR_MATURE * 0.6, learningProgress) // 15% → 45%
             
             // Adaptive relaxation: If many blocks, lower the floor slightly
             val adaptiveFloor = if (adaptiveRelaxationActive) {
-                (floor * 0.5).coerceAtLeast(5.0)  // 7.5% minimum during relaxation
+                (floor * 0.5).coerceAtLeast(5.0)  // Minimum during relaxation
             } else {
                 floor
             }
             
+            ErrorLogger.debug("FDG", "📊 FLUID CONF (PAPER): floor=${adaptiveFloor.toInt()}% | " +
+                "learning=${(learningProgress*100).toInt()}%")
+            
             return adaptiveFloor
         }
         
-        val baseConfidence = liveConfidenceBase  // Live mode only from here
+        // LIVE MODE: Start at same floor as paper, scale with learning
+        val baseConfidence = fluidBase
         var adjustment = 0.0
         
         // ─────────────────────────────────────────────────────────────────
@@ -942,33 +979,34 @@ object FinalDecisionGate {
         // ─────────────────────────────────────────────────────────────────
         // CALCULATE FINAL ADAPTIVE CONFIDENCE
         // 
-        // BOOTSTRAP MODE: When totalSessionTrades < 30, the AI systems 
-        // are still learning and their signals are unreliable. We use
-        // a MUCH lower minimum threshold to allow trades for learning.
-        // 
-        // The goal is to get 30+ trades so the AI can calibrate properly.
+        // FLUID SCALING: The base confidence (30% → 75%) already incorporates
+        // learning progress. During early bootstrap, adjustments are capped
+        // to prevent blocking trades from unreliable early data.
+        //
+        // NEW APPROACH: ALL modes start at the same low floor (~30%) for
+        // maximum learning exposure, then naturally tighten as AI matures.
         // ─────────────────────────────────────────────────────────────────
-        val isBootstrap = currentConditions.totalSessionTrades < 30
+        val isBootstrap = learningProgress < 0.1  // < 10% learned = bootstrap
         
-        // During bootstrap, ALSO lower the base confidence to encourage trading
-        val effectiveBase = if (isBootstrap && !isPaperMode) {
-            baseConfidence * 0.5  // Use 50% of normal base during bootstrap (15% -> 7.5%)
-        } else {
-            baseConfidence
-        }
-        
-        // During bootstrap, cap total positive adjustment (raising threshold)
+        // During bootstrap, cap positive adjustments (raising threshold)
         // to prevent blocking trades due to unreliable early data
         val cappedAdjustment = if (isBootstrap && adjustment > 0) {
-            adjustment.coerceAtMost(5.0)  // Max +5% during bootstrap (was +10%)
+            adjustment.coerceAtMost(5.0)  // Max +5% during bootstrap
         } else {
             adjustment
         }
         
-        val adaptive = (effectiveBase + cappedAdjustment).coerceIn(
-            if (isPaperMode) 0.0 else if (isBootstrap) 5.0 else 15.0,  // Min: 0% paper, 5% bootstrap (was 10%), 15% live
-            if (isPaperMode) 60.0 else 75.0   // Max: 60% paper, 75% live
+        // Fluid minimum: scales with learning progress
+        val fluidMinimum = lerp(CONF_FLOOR_BOOTSTRAP, CONF_FLOOR_MATURE * 0.5, learningProgress)
+            .coerceIn(CONF_FLOOR_BOOTSTRAP, 50.0)  // 30% → 37.5% as AI matures
+        
+        val adaptive = (baseConfidence + cappedAdjustment).coerceIn(
+            fluidMinimum,   // Fluid minimum based on learning
+            CONF_FLOOR_MATURE + 5.0   // Max 80% 
         )
+        
+        ErrorLogger.debug("FDG", "📊 FLUID CONF (LIVE): base=${baseConfidence.toInt()}% adj=${cappedAdjustment.toInt()}% " +
+            "final=${adaptive.toInt()}% | learning=${(learningProgress*100).toInt()}% | bootstrap=$isBootstrap")
         
         return adaptive
     }
@@ -978,12 +1016,13 @@ object FinalDecisionGate {
      * Useful for logging/debugging.
      */
     fun getAdaptiveConfidenceExplanation(isPaperMode: Boolean): String {
-        val base = if (isPaperMode) paperConfidenceBase else liveConfidenceBase
-        val isBootstrap = currentConditions.totalSessionTrades < 30
-        val effectiveBase = if (isBootstrap && !isPaperMode) base * 0.5 else base
+        val totalTrades = currentConditions.totalSessionTrades + currentConditions.historicalTradeCount
+        val learningProgress = getLearningProgress(totalTrades, currentConditions.recentWinRate)
+        val fluidBase = lerp(CONF_FLOOR_BOOTSTRAP, CONF_FLOOR_MATURE, learningProgress)
         val adaptive = getAdaptiveConfidence(isPaperMode)
-        val diff = adaptive - effectiveBase
+        val diff = adaptive - fluidBase
         val sign = if (diff >= 0) "+" else ""
+        val isBootstrap = learningProgress < 0.1
         
         // Get treasury tier for logging
         val tierLabel = try {
@@ -998,18 +1037,52 @@ object FinalDecisionGate {
             MarketRegimeAI.getCurrentRegime().label
         } catch (_: Exception) { "?" }
         
-        // Bootstrap mode indicator
-        val bootstrapLabel = if (isBootstrap) " [BOOTSTRAP min=5%]" else ""
-        
         return buildString {
-            append("AdaptiveConf: base=${effectiveBase.toInt()}% ${sign}${diff.toInt()}% = ${adaptive.toInt()}%$bootstrapLabel ")
-            append("[vol=${currentConditions.avgVolatility.toInt()}% ")
+            append("FluidConf: base=${fluidBase.toInt()}% ${sign}${diff.toInt()}% = ${adaptive.toInt()}% ")
+            append("[learning=${(learningProgress*100).toInt()}%${if (isBootstrap) " BOOTSTRAP" else ""} ")
+            append("vol=${currentConditions.avgVolatility.toInt()}% ")
             append("wr=${currentConditions.recentWinRate.toInt()}% ")
             append("buy=${currentConditions.buyPressureTrend.toInt()}% ")
             append("tier=$tierLabel ")
             append("regime=$regimeLabel ")
             append("loop=${getClosedLoopState()} ")
-            append("trades=${currentConditions.totalSessionTrades}]")
+            append("trades=$totalTrades]")
+        }
+    }
+    
+    /**
+     * Get current fluid confidence state for UI display.
+     * Shows learning progress and current thresholds.
+     */
+    fun getFluidConfidenceInfo(): FluidConfidenceState {
+        val totalTrades = currentConditions.totalSessionTrades + currentConditions.historicalTradeCount
+        val learningProgress = getLearningProgress(totalTrades, currentConditions.recentWinRate)
+        val paperConf = getAdaptiveConfidence(isPaperMode = true)
+        val liveConf = getAdaptiveConfidence(isPaperMode = false)
+        
+        return FluidConfidenceState(
+            learningProgressPct = (learningProgress * 100).toInt(),
+            totalTradesLearned = totalTrades,
+            paperConfThreshold = paperConf.toInt(),
+            liveConfThreshold = liveConf.toInt(),
+            isBootstrap = learningProgress < 0.1,
+            fluidBase = lerp(CONF_FLOOR_BOOTSTRAP, CONF_FLOOR_MATURE, learningProgress).toInt()
+        )
+    }
+    
+    data class FluidConfidenceState(
+        val learningProgressPct: Int,       // 0-100% AI maturity
+        val totalTradesLearned: Int,        // Lifetime trade count
+        val paperConfThreshold: Int,        // Current paper mode threshold
+        val liveConfThreshold: Int,         // Current live mode threshold
+        val isBootstrap: Boolean,           // True if < 10% learned
+        val fluidBase: Int,                 // Current base before adjustments
+    ) {
+        fun summary(): String = buildString {
+            append("🧠 AI Learning: ${learningProgressPct}% ")
+            append("($totalTradesLearned trades) | ")
+            append("Conf: Paper≥${paperConfThreshold}% Live≥${liveConfThreshold}% ")
+            if (isBootstrap) append("[BOOTSTRAP]")
         }
     }
     
