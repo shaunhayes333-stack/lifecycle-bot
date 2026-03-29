@@ -239,24 +239,34 @@ object FluidLearningAI {
     
     // ═══════════════════════════════════════════════════════════════════════════
     // TREASURY MODE THRESHOLDS (Used by CashGenerationAI)
+    // 
+    // Treasury uses LOOSER thresholds because it has:
+    // - Tight stop losses (5%)
+    // - Quick exits (5-10% TP)
+    // - Short hold times (max 8 min)
+    // So it can afford to take more shots with lower conviction
     // ═══════════════════════════════════════════════════════════════════════════
     
-    private const val TREASURY_CONF_BOOTSTRAP = 30
-    private const val TREASURY_CONF_MATURE = 80
+    private const val TREASURY_CONF_BOOTSTRAP = 15   // Very low - take many shots with tight stops
+    private const val TREASURY_CONF_MATURE = 50      // Still lower than normal trading
     
-    private const val TREASURY_LIQ_BOOTSTRAP = 3000.0
-    private const val TREASURY_LIQ_MATURE = 15000.0
+    private const val TREASURY_LIQ_BOOTSTRAP = 2000.0   // Lower - quick scalps work with less liquidity
+    private const val TREASURY_LIQ_MATURE = 8000.0
     
-    private const val TREASURY_TOP_HOLDER_BOOTSTRAP = 40.0  // Allow 40% top holder
-    private const val TREASURY_TOP_HOLDER_MATURE = 12.0     // Strict 12% when mature
+    private const val TREASURY_TOP_HOLDER_BOOTSTRAP = 35.0  // More tolerant during bootstrap
+    private const val TREASURY_TOP_HOLDER_MATURE = 15.0
     
-    private const val TREASURY_BUY_PRESSURE_BOOTSTRAP = 35.0
-    private const val TREASURY_BUY_PRESSURE_MATURE = 58.0
+    private const val TREASURY_BUY_PRESSURE_BOOTSTRAP = 35.0  // Lower bar
+    private const val TREASURY_BUY_PRESSURE_MATURE = 52.0
+    
+    private const val TREASURY_SCORE_BOOTSTRAP = 5    // Very low - Treasury has its own exit timing
+    private const val TREASURY_SCORE_MATURE = 25
     
     fun getTreasuryConfidenceThreshold(): Int = lerp(TREASURY_CONF_BOOTSTRAP.toDouble(), TREASURY_CONF_MATURE.toDouble()).toInt()
     fun getTreasuryMinLiquidity(): Double = lerp(TREASURY_LIQ_BOOTSTRAP, TREASURY_LIQ_MATURE)
     fun getTreasuryMaxTopHolder(): Double = lerp(TREASURY_TOP_HOLDER_BOOTSTRAP, TREASURY_TOP_HOLDER_MATURE)
     fun getTreasuryMinBuyPressure(): Double = lerp(TREASURY_BUY_PRESSURE_BOOTSTRAP, TREASURY_BUY_PRESSURE_MATURE)
+    fun getTreasuryScoreThreshold(): Int = lerp(TREASURY_SCORE_BOOTSTRAP.toDouble(), TREASURY_SCORE_MATURE.toDouble()).toInt()
     
     // ═══════════════════════════════════════════════════════════════════════════
     // RUG FILTER THRESHOLDS (Used by HardRugPreFilter)

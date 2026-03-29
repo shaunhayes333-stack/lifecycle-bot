@@ -2508,6 +2508,44 @@ class BotService : Service() {
                 // ═══════════════════════════════════════════════════════════════════
                 if (!ts.position.isOpen && cfg.v3EngineEnabled && com.lifecyclebot.v3.V3EngineManager.isReady()) {
                     
+                    // ═══════════════════════════════════════════════════════════════════
+                    // V3.3: CHECK FOR RECOVERY OPPORTUNITY FIRST
+                    // If this token was stopped out but has bounced, consider re-entry
+                    // ═══════════════════════════════════════════════════════════════════
+                    val isRecoveryCandidate = try {
+                        executor.checkRecoveryOpportunity(ts)
+                    } catch (_: Exception) { false }
+                    
+                    if (isRecoveryCandidate) {
+                        ErrorLogger.info("BotService", "🔄 RECOVERY ENTRY: ${identity.symbol} | Bounced from stop - attempting recovery trade")
+                        addLog("🔄 RECOVERY: ${identity.symbol} bounced - attempting re-entry", ts.mint)
+                        
+                        // Execute recovery trade with smaller size and tighter stops
+                        val recoverySize = effectiveBalance * 0.02  // 2% position max for recovery
+                        
+                        try {
+                            executor.v3Buy(
+                                ts = ts,
+                                sizeSol = recoverySize.coerceAtMost(0.05),  // Max 0.05 SOL for recovery
+                                walletSol = effectiveBalance,
+                                v3Score = 50,  // Moderate score for recovery
+                                v3Band = "RECOVERY",
+                                v3Confidence = 60.0,
+                                wallet = wallet,
+                                lastSuccessfulPollMs = lastSuccessfulPollMs,
+                                openPositionCount = status.openPositionCount,
+                                totalExposureSol = status.totalExposureSol
+                            )
+                            
+                            addLog("⚡ RECOVERY EXECUTED: ${identity.symbol} | ${recoverySize.fmt(4)} SOL", ts.mint)
+                        } catch (e: Exception) {
+                            ErrorLogger.debug("BotService", "Recovery trade error: ${e.message}")
+                        }
+                        
+                        // Skip normal V3 processing for this token
+                        return@launch
+                    }
+                    
                     // Calculate token age in minutes
                     val tokenAgeMinutes = (System.currentTimeMillis() - ts.addedToWatchlistAt) / 60000.0
                     

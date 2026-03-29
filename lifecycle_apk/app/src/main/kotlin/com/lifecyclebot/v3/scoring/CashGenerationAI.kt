@@ -313,30 +313,41 @@ object CashGenerationAI {
         val fluidMinLiquidity = FluidLearningAI.getTreasuryMinLiquidity()
         val fluidMaxTopHolder = FluidLearningAI.getTreasuryMaxTopHolder()
         val fluidMinBuyPressure = FluidLearningAI.getTreasuryMinBuyPressure()
+        val fluidScoreThreshold = FluidLearningAI.getTreasuryScoreThreshold()
         
-        // ─── FILTER CHECKS ───
+        // Use fluid score threshold instead of mode-adjusted
+        val effectiveScoreThreshold = fluidScoreThreshold
+        
+        // ─── FILTER CHECKS (Treasury is AGGRESSIVE - fewer filters) ───
         val rejectionReasons = mutableListOf<String>()
         
+        // Confidence check - Treasury uses LOWER bar
         if (v3Confidence < confThreshold) {
             rejectionReasons.add("conf=$v3Confidence<$confThreshold")
         }
-        if (v3Score < scoreThreshold) {
-            rejectionReasons.add("score=$v3Score<$scoreThreshold")
+        // Score check - Treasury uses fluid score threshold
+        if (v3Score < effectiveScoreThreshold) {
+            rejectionReasons.add("score=$v3Score<$effectiveScoreThreshold")
         }
+        // Liquidity check
         if (liquidityUsd < fluidMinLiquidity) {
             rejectionReasons.add("liq=$${liquidityUsd.toInt()}<$${fluidMinLiquidity.toInt()}")
         }
+        // Top holder check - more lenient for Treasury
         if (topHolderPct > fluidMaxTopHolder) {
             rejectionReasons.add("topHolder=${topHolderPct.toInt()}%>${fluidMaxTopHolder.toInt()}%")
         }
+        // Buy pressure - more lenient
         if (buyPressurePct < fluidMinBuyPressure) {
             rejectionReasons.add("buyPressure=${buyPressurePct.toInt()}%<${fluidMinBuyPressure.toInt()}%")
         }
-        if (momentum < 0) {
-            rejectionReasons.add("momentum=$momentum<0")
+        // Momentum - Treasury can trade flat momentum (quick scalps)
+        if (momentum < -5) {  // Only reject strong negative momentum
+            rejectionReasons.add("momentum=$momentum<-5")
         }
-        if (volatility > 50) {
-            rejectionReasons.add("volatility=$volatility>50 (too risky)")
+        // Volatility - Treasury loves volatility (quick moves)
+        if (volatility > 80) {  // Higher tolerance
+            rejectionReasons.add("volatility=$volatility>80 (extreme)")
         }
         
         // Already have position in this token?

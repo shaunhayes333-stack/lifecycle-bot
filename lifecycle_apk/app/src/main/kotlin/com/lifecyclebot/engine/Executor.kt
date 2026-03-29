@@ -143,6 +143,96 @@ class Executor(
     )
     private val shadowPositions = mutableMapOf<String, ShadowPosition>()
     private val MAX_SHADOW_POSITIONS = 20  // Limit to prevent memory bloat
+    
+    // ═══════════════════════════════════════════════════════════════════════════
+    // V3.3: RECOVERY SCAN TRACKING
+    // Tokens that hit hard/fluid stop go back to watchlist for potential recovery
+    // ═══════════════════════════════════════════════════════════════════════════
+    data class RecoveryCandidate(
+        val mint: String,
+        val symbol: String,
+        val stopPrice: Double,        // Price at which we stopped out
+        val lossPct: Double,          // How much we lost
+        val stopTime: Long,           // When we stopped out
+        val stopReason: String,       // "hard_floor" or "fluid_stop"
+        val targetRecoveryPrice: Double,  // Price we need to hit for breakeven re-entry
+    )
+    private val recoveryCandidates = mutableMapOf<String, RecoveryCandidate>()
+    private const val RECOVERY_SCAN_WINDOW_MS = 30 * 60 * 1000L  // 30 minute window for recovery
+    
+    /**
+     * Mark a stopped-out token for potential recovery scan.
+     * Instead of cooldown, we keep watching it for a recovery opportunity.
+     */
+    private fun markForRecoveryScan(ts: TokenState, lossPct: Double, stopReason: String) {
+        val currentPrice = getActualPrice(ts)
+        if (currentPrice <= 0) return
+        
+        // Calculate target price for recovery (breakeven + small profit to cover gas)
+        val entryPrice = ts.position.entryPrice
+        val targetPrice = entryPrice * 1.02  // Need +2% from original entry for breakeven after fees
+        
+        val candidate = RecoveryCandidate(
+            mint = ts.mint,
+            symbol = ts.symbol,
+            stopPrice = currentPrice,
+            lossPct = lossPct,
+            stopTime = System.currentTimeMillis(),
+            stopReason = stopReason,
+            targetRecoveryPrice = targetPrice
+        )
+        
+        recoveryCandidates[ts.mint] = candidate
+        
+        ErrorLogger.info("Executor", "🔄 RECOVERY CANDIDATE: ${ts.symbol} | " +
+            "stopped at ${lossPct.toInt()}% | watching for bounce to \$${String.format("%.8f", targetPrice)}")
+    }
+    
+    /**
+     * Check if a token is a recovery candidate that has bounced.
+     * Returns true if we should re-enter for recovery trade.
+     */
+    fun checkRecoveryOpportunity(ts: TokenState): Boolean {
+        val candidate = recoveryCandidates[ts.mint] ?: return false
+        
+        // Check if recovery window expired
+        val elapsed = System.currentTimeMillis() - candidate.stopTime
+        if (elapsed > RECOVERY_SCAN_WINDOW_MS) {
+            recoveryCandidates.remove(ts.mint)
+            return false
+        }
+        
+        val currentPrice = getActualPrice(ts)
+        if (currentPrice <= 0) return false
+        
+        // Check if price has bounced above target recovery price
+        val bounceFromStop = ((currentPrice - candidate.stopPrice) / candidate.stopPrice) * 100
+        
+        if (bounceFromStop >= 10.0) {  // 10%+ bounce from stop price
+            ErrorLogger.info("Executor", "🚀 RECOVERY BOUNCE: ${ts.symbol} | " +
+                "+${bounceFromStop.toInt()}% from stop | ELIGIBLE for recovery entry")
+            
+            // Check if price approaching target
+            if (currentPrice >= candidate.targetRecoveryPrice * 0.95) {  // Within 5% of target
+                ErrorLogger.info("Executor", "💰 RECOVERY TARGET HIT: ${ts.symbol} | " +
+                    "price approaching recovery target | RE-ENTRY opportunity")
+                recoveryCandidates.remove(ts.mint)
+                return true
+            }
+        }
+        
+        return false
+    }
+    
+    /**
+     * Get all active recovery candidates for display/logging.
+     */
+    fun getRecoveryCandidates(): List<RecoveryCandidate> {
+        // Clean up expired candidates
+        val now = System.currentTimeMillis()
+        recoveryCandidates.entries.removeIf { now - it.value.stopTime > RECOVERY_SCAN_WINDOW_MS }
+        return recoveryCandidates.values.toList()
+    }
 
     /**
      * CRITICAL FIX: Get actual token PRICE, not market cap
@@ -1490,7 +1580,8 @@ class Executor(
         val HARD_FLOOR_STOP_PCT = 15.0  // ABSOLUTE MAXIMUM LOSS - NO EXCEPTIONS
         if (gainPct <= -HARD_FLOOR_STOP_PCT) {
             onLog("🛑 HARD FLOOR STOP: ${ts.symbol} at ${gainPct.toInt()}% - EMERGENCY EXIT", ts.mint)
-            TradeStateMachine.startCooldown(ts.mint)
+            // V3.3: Don't cooldown - mark for RECOVERY SCAN instead
+            markForRecoveryScan(ts, gainPct, "hard_floor")
             return "hard_floor_stop"
         }
         
@@ -1504,7 +1595,8 @@ class Executor(
         }
         if (gainPct <= -fluidStopPct) {
             onLog("🛑 FLUID STOP: ${ts.symbol} at ${gainPct.toInt()}% (limit=${fluidStopPct.toInt()}%)", ts.mint)
-            TradeStateMachine.startCooldown(ts.mint)
+            // V3.3: Don't cooldown - mark for RECOVERY SCAN instead
+            markForRecoveryScan(ts, gainPct, "fluid_stop")
             return "fluid_stop_loss"
         }
 
