@@ -315,6 +315,63 @@ object FinalDecisionGate {
     var hardBlockTopHolderMax = 85.0        // Bootstrap: 85%, Mature: 65%
     
     // ═══════════════════════════════════════════════════════════════════════════
+    // PER-MODE KILL SWITCH (NEW)
+    // 
+    // Tracks recent losses by mode. If a mode accumulates 3+ losses within
+    // the past hour, freeze it temporarily. Prevents bleeding from modes
+    // that are currently not finding edge.
+    // ═══════════════════════════════════════════════════════════════════════════
+    
+    data class ModeLossRecord(
+        val mode: String,
+        val timestamp: Long,
+        val pnlPct: Double,
+    )
+    
+    private val recentModeLosses = mutableListOf<ModeLossRecord>()
+    private const val MODE_LOSS_WINDOW_MS = 60 * 60 * 1000L  // 1 hour
+    private const val MODE_FREEZE_THRESHOLD = 3  // 3 losses = freeze
+    
+    /**
+     * Record a loss for a specific mode (called by TradeHistoryStore on loss)
+     */
+    fun recordModeLoss(mode: String, pnlPct: Double) {
+        if (pnlPct >= 0) return  // Only track losses
+        
+        synchronized(recentModeLosses) {
+            recentModeLosses.add(ModeLossRecord(mode.uppercase(), System.currentTimeMillis(), pnlPct))
+            
+            // Prune old entries
+            val cutoff = System.currentTimeMillis() - MODE_LOSS_WINDOW_MS
+            recentModeLosses.removeAll { it.timestamp < cutoff }
+        }
+        
+        ErrorLogger.debug("FDG", "Mode loss recorded: $mode (${pnlPct}%) | Recent: ${getModeRecentLosses(mode)} losses")
+    }
+    
+    /**
+     * Get count of recent losses for a mode (within last hour)
+     */
+    fun getModeRecentLosses(mode: String): Int {
+        val cutoff = System.currentTimeMillis() - MODE_LOSS_WINDOW_MS
+        val normalizedMode = mode.uppercase()
+        
+        return synchronized(recentModeLosses) {
+            recentModeLosses.count { 
+                it.timestamp >= cutoff && 
+                (it.mode.contains(normalizedMode) || normalizedMode.contains(it.mode))
+            }
+        }
+    }
+    
+    /**
+     * Check if a mode is currently frozen
+     */
+    fun isModeFrozen(mode: String): Boolean {
+        return getModeRecentLosses(mode) >= MODE_FREEZE_THRESHOLD
+    }
+    
+    // ═══════════════════════════════════════════════════════════════════════════
     // EARLY SNIPE MODE (NEW)
     // 
     // For newly discovered tokens with high scores, bypass most checks and 
@@ -1218,6 +1275,63 @@ object FinalDecisionGate {
                 symbol = ts.symbol,
                 approvalReason = "COPY_TRADE_HARD_DISABLED_AFTER_CATASTROPHIC_LOSSES",
                 gateChecks = listOf(GateCheck("copy_trade_kill", false, "COPY_TRADE mode completely banned"))
+            )
+        }
+        
+        // ─────────────────────────────────────────────────────────────────────
+        // HARD KILL 1.5: WHALE_FOLLOW MICRO-SIZE ONLY
+        // After repeated bleeding from this mode, restrict to minimal size.
+        // Still track in shadow, but don't risk real capital.
+        // ─────────────────────────────────────────────────────────────────────
+        if (tradingModeStr.uppercase().contains("WHALE")) {
+            ErrorLogger.warn("FDG", "⚠️ WHALE_FOLLOW: ${ts.symbol} | mode=$tradingModeStr | " +
+                "MICRO_SIZE_ONLY → Restricted after repeated losses")
+            
+            // Allow but force micro size (will be handled by sizing layer)
+            // Add a tag so sizing knows to reduce
+            return FinalDecision(
+                shouldTrade = mode == TradeMode.PAPER,  // Only in paper mode
+                mode = mode,
+                approvalClass = if (mode == TradeMode.PAPER) ApprovalClass.PAPER_EXPLORATION else ApprovalClass.BLOCKED,
+                quality = candidate.setupQuality,
+                confidence = candidate.aiConfidence,
+                edge = candidate.edgeVerdict,
+                blockReason = if (mode == TradeMode.LIVE) "WHALE_FOLLOW_LIVE_DISABLED" else null,
+                blockLevel = if (mode == TradeMode.LIVE) BlockLevel.HARD else null,
+                sizeSol = cfg.minTradeSize * 0.5,  // Micro size only
+                tags = listOf("whale_follow_restricted", "micro_size_only"),
+                mint = ts.mint,
+                symbol = ts.symbol,
+                approvalReason = "WHALE_FOLLOW restricted to PAPER + MICRO after repeated losses",
+                gateChecks = listOf(GateCheck("whale_follow_restriction", mode == TradeMode.PAPER, "WHALE_FOLLOW restricted"))
+            )
+        }
+        
+        // ─────────────────────────────────────────────────────────────────────
+        // HARD KILL 1.6: PER-MODE KILL SWITCH
+        // If a mode has 3+ recent losses (within last hour), freeze it.
+        // Prevents bleeding from modes that are currently not working.
+        // ─────────────────────────────────────────────────────────────────────
+        val modeRecentLosses = getModeRecentLosses(tradingModeStr)
+        if (modeRecentLosses >= 3) {
+            ErrorLogger.warn("FDG", "🚫 MODE_FROZEN: ${ts.symbol} | mode=$tradingModeStr | " +
+                "$modeRecentLosses recent losses → FROZEN FOR 30 MINS")
+            
+            return FinalDecision(
+                shouldTrade = false,
+                mode = mode,
+                approvalClass = ApprovalClass.BLOCKED,
+                quality = candidate.setupQuality,
+                confidence = candidate.aiConfidence,
+                edge = EdgeVerdict.SKIP,
+                blockReason = "MODE_FROZEN_${modeRecentLosses}_LOSSES",
+                blockLevel = BlockLevel.HARD,
+                sizeSol = 0.0,
+                tags = listOf("mode_frozen", "repeated_losses"),
+                mint = ts.mint,
+                symbol = ts.symbol,
+                approvalReason = "Mode $tradingModeStr frozen after $modeRecentLosses recent losses",
+                gateChecks = listOf(GateCheck("mode_freeze_check", false, "$modeRecentLosses losses in last hour"))
             )
         }
         

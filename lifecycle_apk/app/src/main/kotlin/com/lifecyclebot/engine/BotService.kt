@@ -2546,6 +2546,56 @@ class BotService : Service() {
                 // Legacy suppression penalty (for comparison logging)
                 val suppressionPenalty = DistributionFadeAvoider.getSuppressionPenalty(identity.mint)
                 
+                // ───────────────────────────────────────────────────────────────────
+                // HARD GATE: Block edge=SKIP or conf=0 BEFORE candidate promotion
+                // This prevents garbage from going through CANDIDATE/PROPOSED/SIZING
+                // ───────────────────────────────────────────────────────────────────
+                val edgeVerdictStr = decision.edgeVerdict.name
+                val confValue = decision.confidence
+                
+                if (edgeVerdictStr == "SKIP" || confValue <= 0) {
+                    ErrorLogger.info("BotService", "[V3|PROMOTION_GATE] ${identity.symbol} | allow=false | " +
+                        "reason=edge_${edgeVerdictStr.lowercase()}_conf_${confValue.toInt()} → SHADOW_ONLY")
+                    
+                    // Shadow track for learning
+                    com.lifecyclebot.engine.ShadowLearningEngine.onFdgBlockedTrade(
+                        mint = ts.mint,
+                        symbol = ts.symbol,
+                        blockReason = "PROMOTION_GATE_edge_${edgeVerdictStr}_conf_$confValue",
+                        blockLevel = "LEGACY_GATE",
+                        currentPrice = ts.ref,
+                        proposedSizeSol = 0.1,
+                        quality = decision.finalQuality,
+                        confidence = confValue,
+                        phase = decision.phase,
+                    )
+                    
+                    return@launch  // Exit before CANDIDATE/PROPOSED
+                }
+                
+                // ───────────────────────────────────────────────────────────────────
+                // HARD GATE 2: Block C-grade + low confidence
+                // ───────────────────────────────────────────────────────────────────
+                val isCGrade = decision.setupQuality == "C" || decision.setupQuality == "D"
+                if (isCGrade && confValue < 35) {
+                    ErrorLogger.info("BotService", "[V3|PROMOTION_GATE] ${identity.symbol} | allow=false | " +
+                        "reason=C_grade_conf_${confValue.toInt()}_below_35 → SHADOW_ONLY")
+                    
+                    com.lifecyclebot.engine.ShadowLearningEngine.onFdgBlockedTrade(
+                        mint = ts.mint,
+                        symbol = ts.symbol,
+                        blockReason = "PROMOTION_GATE_C_GRADE_CONF_FLOOR",
+                        blockLevel = "LEGACY_GATE",
+                        currentPrice = ts.ref,
+                        proposedSizeSol = 0.1,
+                        quality = decision.finalQuality,
+                        confidence = confValue,
+                        phase = decision.phase,
+                    )
+                    
+                    return@launch  // Exit before CANDIDATE/PROPOSED
+                }
+                
                 if (!ts.position.isOpen && decision.finalSignal == "BUY" && canProposeEarly) {
                     // ═══════════════════════════════════════════════════════════════════
                     // TRADE IDENTITY: Mark as candidate
