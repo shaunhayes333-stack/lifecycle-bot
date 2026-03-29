@@ -4,20 +4,21 @@ import com.lifecyclebot.data.TokenState
 import java.util.concurrent.ConcurrentHashMap
 
 /**
- * ReentryRecoveryMode — Controlled Second-Chance Entries
+ * ReentryRecoveryMode — Controlled Second-Chance Entries (V4.1: SMARTER REENTRY)
  * 
- * Different from ordinary pullback mode. This handles tokens that:
- *   - Were previously blocked by stop-loss or distribution guard
- *   - Have completed cooldown period
- *   - Show materially improved structure
- *   - Have recovered buy pressure
- *   - Have stabilized liquidity
+ * V4.1 CRITICAL CHANGES - USER FEEDBACK:
+ *   - "Quick fire re-entry metrics to recover loss are dumb - re-enters too quickly"
+ *   - Increased base cooldown from 2 min to 10 min
+ *   - Require 80% score threshold (up from 60%)
+ *   - Require SUSTAINED buy pressure for 3+ candles, not just current
+ *   - Block reentry entirely if token lost >20% since failure
+ *   - Only ONE reentry attempt per token (down from 2)
  * 
  * Rules:
- *   - Smaller than first attempt
- *   - Tighter timeout
+ *   - Much smaller than first attempt (max 40% of original size)
+ *   - Much tighter timeout (max 30 min)
  *   - No averaging down
- *   - Only ONE reentry per token unless it proves itself
+ *   - Only ONE reentry allowed, period
  */
 object ReentryRecoveryMode {
     
@@ -25,7 +26,14 @@ object ReentryRecoveryMode {
     
     // Track reentry attempts per token
     private val reentryHistory = ConcurrentHashMap<String, ReentryTracker>()
-    private const val TRACKER_TTL_MS = 600_000L  // 10 minutes
+    
+    // V4.1: MUCH stricter reentry parameters
+    private const val TRACKER_TTL_MS = 1800_000L              // 30 minutes (was 10)
+    private const val BASE_COOLDOWN_MS = 600_000L             // 10 minutes base cooldown (was 2 min)
+    private const val ADDITIONAL_COOLDOWN_PER_ATTEMPT = 300_000L  // +5 min per failed attempt
+    private const val MAX_REENTRY_ATTEMPTS = 1                // Only ONE chance (was 2)
+    private const val MIN_RECOVERY_SCORE = 80.0               // 80% score required (was 60%)
+    private const val MAX_LOSS_SINCE_FAILURE_PCT = 20.0       // Block if dropped >20% since failure
     
     data class ReentryTracker(
         val mint: String,
@@ -101,13 +109,14 @@ object ReentryRecoveryMode {
         var score = 0.0
         
         // ─────────────────────────────────────────────────────────────────
-        // CHECK 1: Cooldown completed
+        // CHECK 1: Cooldown completed (V4.1: MUCH LONGER - 10 min base)
         // ─────────────────────────────────────────────────────────────────
-        val minCooldownMs = 120_000L + (60_000L * tracker.reentryAttempts)  // 2 min + 1 min per attempt
+        val minCooldownMs = BASE_COOLDOWN_MS + (ADDITIONAL_COOLDOWN_PER_ATTEMPT * tracker.reentryAttempts)
         val timeSinceFailure = now - tracker.originalFailTime
         
         if (timeSinceFailure < minCooldownMs) {
-            required.add("Cooldown: ${(minCooldownMs - timeSinceFailure) / 1000}s remaining")
+            val remainingSec = (minCooldownMs - timeSinceFailure) / 1000
+            required.add("Cooldown: ${remainingSec}s remaining (${minCooldownMs/60000}min required)")
             return RecoveryEvaluation(
                 canReenter = false,
                 recoveryScore = 0.0,
@@ -118,14 +127,14 @@ object ReentryRecoveryMode {
                 reason = "COOLDOWN_ACTIVE",
             )
         }
-        met.add("✅ Cooldown completed")
-        score += 20.0
+        met.add("✅ Cooldown completed (${timeSinceFailure/60000}min)")
+        score += 15.0  // Reduced from 20 - cooldown alone isn't enough
         
         // ─────────────────────────────────────────────────────────────────
-        // CHECK 2: Too many reentry attempts
+        // CHECK 2: Too many reentry attempts (V4.1: Only 1 allowed)
         // ─────────────────────────────────────────────────────────────────
-        if (tracker.reentryAttempts >= 2) {
-            required.add("Max reentry attempts reached (${tracker.reentryAttempts})")
+        if (tracker.reentryAttempts >= MAX_REENTRY_ATTEMPTS) {
+            required.add("Max reentry attempts reached (${tracker.reentryAttempts}/$MAX_REENTRY_ATTEMPTS)")
             return RecoveryEvaluation(
                 canReenter = false,
                 recoveryScore = score,
@@ -136,89 +145,101 @@ object ReentryRecoveryMode {
                 reason = "MAX_REENTRY_ATTEMPTS",
             )
         }
-        met.add("✅ Attempts: ${tracker.reentryAttempts}/2")
+        met.add("✅ Attempts: ${tracker.reentryAttempts}/$MAX_REENTRY_ATTEMPTS")
         
         // ─────────────────────────────────────────────────────────────────
-        // CHECK 3: New higher low or reclaim
+        // CHECK 3: Price hasn't collapsed since failure (V4.1: NEW)
+        // If price dropped >20% since we failed, this token is dying
+        // ─────────────────────────────────────────────────────────────────
+        val currentPrice = hist.lastOrNull()?.priceUsd ?: 0.0
+        if (tracker.originalFailPrice > 0 && currentPrice > 0) {
+            val pctChangeSinceFailure = ((currentPrice - tracker.originalFailPrice) / tracker.originalFailPrice) * 100
+            if (pctChangeSinceFailure < -MAX_LOSS_SINCE_FAILURE_PCT) {
+                required.add("Token collapsed ${pctChangeSinceFailure.toInt()}% since failure (max -${MAX_LOSS_SINCE_FAILURE_PCT.toInt()}%)")
+                return RecoveryEvaluation(
+                    canReenter = false,
+                    recoveryScore = score,
+                    requiredImprovement = required,
+                    metCriteria = met,
+                    sizeMultiplier = 0.0,
+                    maxHoldMins = 0,
+                    reason = "TOKEN_COLLAPSED",
+                )
+            }
+        }
+        
+        // ─────────────────────────────────────────────────────────────────
+        // CHECK 4: Price recovery - must be near fail price (V4.1: Stricter)
         // ─────────────────────────────────────────────────────────────────
         if (hist.size >= 5) {
-            val prices = hist.takeLast(5).map { it.priceUsd }
-            val currentPrice = prices.lastOrNull() ?: 0.0
-            val recentLow = prices.minOrNull() ?: 0.0
-            
-            // Must be above original fail price OR showing higher low structure
-            val aboveFailPrice = currentPrice > tracker.originalFailPrice
-            val higherLow = prices.dropLast(1).minOrNull()?.let { recentLow > it * 0.98 } ?: false
+            // V4.1: Must be above 95% of original fail price
+            val aboveFailPrice = currentPrice > tracker.originalFailPrice * 0.95
             
             if (aboveFailPrice) {
-                met.add("✅ Above fail price")
-                score += 25.0
-            } else if (higherLow) {
-                met.add("✅ Higher low forming")
-                score += 20.0
+                met.add("✅ Recovered to near fail price")
+                score += 30.0  // Important criterion
             } else {
-                required.add("Need higher low or reclaim above fail price")
+                required.add("Must recover to near fail price")
             }
         } else {
             required.add("Insufficient history for structure check")
         }
         
         // ─────────────────────────────────────────────────────────────────
-        // CHECK 4: Improved buy pressure
+        // CHECK 5: SUSTAINED buy pressure (V4.1: 3+ consecutive candles)
         // ─────────────────────────────────────────────────────────────────
-        if (hist.size >= 3) {
-            val recentBuyRatios = hist.takeLast(3).map { it.buyRatio }
+        if (hist.size >= 5) {
+            val recentBuyRatios = hist.takeLast(5).map { it.buyRatio }
             val avgBuyRatio = recentBuyRatios.average()
-            val isImproving = recentBuyRatios.zipWithNext { a, b -> b >= a }.count { it } >= 1
+            // V4.1: ALL of the last 3 candles must have >50% buy ratio
+            val sustainedBuyPressure = recentBuyRatios.takeLast(3).all { it > 0.50 }
             
-            if (avgBuyRatio > 0.52 && isImproving) {
-                met.add("✅ Buy pressure recovered: ${(avgBuyRatio * 100).toInt()}%")
+            if (avgBuyRatio > 0.55 && sustainedBuyPressure) {
+                met.add("✅ SUSTAINED buy pressure: ${(avgBuyRatio * 100).toInt()}%")
                 score += 25.0
-            } else if (avgBuyRatio > 0.48) {
-                met.add("✅ Buy pressure stabilizing")
-                score += 15.0
+            } else if (avgBuyRatio > 0.50) {
+                met.add("⚠️ Weak buy pressure: ${(avgBuyRatio * 100).toInt()}%")
+                score += 10.0
             } else {
-                required.add("Need buy ratio > 48% (currently ${(avgBuyRatio * 100).toInt()}%)")
+                required.add("Need sustained buy ratio > 55% (currently ${(avgBuyRatio * 100).toInt()}%)")
             }
         }
         
         // ─────────────────────────────────────────────────────────────────
-        // CHECK 5: Better liquidity than at failure
+        // CHECK 6: Better liquidity (V4.1: Increased to $5000)
         // ─────────────────────────────────────────────────────────────────
         val currentLiq = ts.lastLiquidityUsd
-        if (currentLiq > 3000) {
-            met.add("✅ Liquidity: $${currentLiq.toInt()}")
+        if (currentLiq > 5000) {
+            met.add("✅ Liquidity: \$${currentLiq.toInt()}")
             score += 15.0
         } else {
-            required.add("Need liquidity > $3000 (currently $${currentLiq.toInt()})")
+            required.add("Need liquidity > \$5000 (currently \$${currentLiq.toInt()})")
         }
         
         // ─────────────────────────────────────────────────────────────────
-        // CHECK 6: No active distribution
+        // CHECK 7: No active distribution
         // ─────────────────────────────────────────────────────────────────
         if (DistributionFadeAvoider.canReconsider(ts)) {
             met.add("✅ Distribution cleared")
-            score += 15.0
+            score += 10.0
         } else {
             required.add("Still in distribution cooldown")
         }
         
         // ─────────────────────────────────────────────────────────────────
-        // CALCULATE RESULT
+        // CALCULATE RESULT (V4.1: 80% threshold, stricter)
         // ─────────────────────────────────────────────────────────────────
-        val canReenter = required.isEmpty() && score >= 60
+        val canReenter = required.isEmpty() && score >= MIN_RECOVERY_SCORE
         
-        // Size multiplier decreases with each attempt
+        // V4.1: Much smaller size - max 40% of original
         val sizeMultiplier = when (tracker.reentryAttempts) {
-            0 -> 0.6   // First reentry: 60% of normal size
-            1 -> 0.4   // Second reentry: 40% of normal size
+            0 -> 0.4   // First (and only) reentry: 40% of normal size
             else -> 0.0
         }
         
-        // Tighter timeout for recovery trades
+        // V4.1: Tighter timeout - only 30 mins max
         val maxHoldMins = when (tracker.reentryAttempts) {
-            0 -> 45    // First reentry: 45 min
-            1 -> 30    // Second reentry: 30 min
+            0 -> 30    // First (and only) reentry: 30 min max
             else -> 0
         }
         

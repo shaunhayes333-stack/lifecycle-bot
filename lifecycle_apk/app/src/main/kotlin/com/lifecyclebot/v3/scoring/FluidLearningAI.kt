@@ -527,26 +527,40 @@ object FluidLearningAI {
         }
         
         // ═══════════════════════════════════════════════════════════════
-        // PHASE 3: PROFIT TRAILING (when in profit)
-        // As gains accumulate, trail the stop up to protect profits.
-        // The trail distance narrows as learning progress increases.
+        // PHASE 3: PROFIT TRAILING (V4.1: MORE AGGRESSIVE)
+        // User feedback: "fluid stop loss should move UP as coin makes profit
+        // to lock in those gains and tighten to ensure losses are mitigated"
         // ═══════════════════════════════════════════════════════════════
-        if (currentPnlPct > 0 && peakPnlPct > 5.0) {
-            // Bootstrap: Wide trailing (keep 50% of peak gain)
-            // Mature: Tighter trailing (keep 70% of peak gain)
-            val keepRatio = lerp(0.50, 0.70)
+        if (currentPnlPct > 0 && peakPnlPct > 3.0) {  // V4.1: Start trailing earlier (at 3% not 5%)
+            // V4.1: Much tighter trailing - lock in more gains
+            // Bootstrap: Keep 60% of peak gain (was 50%)
+            // Mature: Keep 80% of peak gain (was 70%)
+            val keepRatio = lerp(0.60, 0.80)
             
             // Trail stop = Peak gain minus trail distance
-            // E.g., peak=20%, keepRatio=0.6 → trail distance=8% → stop at +12%
+            // E.g., peak=20%, keepRatio=0.8 → trail distance=4% → stop at +16%
             val trailDistance = peakPnlPct * (1.0 - keepRatio)
             val trailingStop = peakPnlPct - trailDistance
             
-            // Never trail below breakeven once we've seen significant profit
-            if (peakPnlPct > 10.0) {
-                return -maxOf(0.0, -trailingStop)  // Stop at least at breakeven
+            // V4.1: Once we've seen 8%+ profit, NEVER go below +2% (guaranteed small win)
+            if (peakPnlPct > 8.0) {
+                val minStop = 2.0  // Lock in at least 2% profit
+                return -maxOf(minStop, trailingStop)
             }
             
-            // For smaller gains, use trailing but don't go below base stop
+            // V4.1: Once we've seen 15%+ profit, lock in at least 5%
+            if (peakPnlPct > 15.0) {
+                val minStop = 5.0
+                return -maxOf(minStop, trailingStop)
+            }
+            
+            // V4.1: Once we've seen 25%+ profit, lock in at least 10%
+            if (peakPnlPct > 25.0) {
+                val minStop = 10.0
+                return -maxOf(minStop, trailingStop)
+            }
+            
+            // For smaller gains (3-8%), use trailing but allow down to base stop
             return -maxOf(trailingStop, baseStop)
         }
         
