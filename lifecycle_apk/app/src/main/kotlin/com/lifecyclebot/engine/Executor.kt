@@ -3213,9 +3213,20 @@ class Executor(
             return
         }
         
-        if (isPaper || wallet == null) {
-            onLog("📄 Routing to paperSell (paperMode=$isPaper, wallet=${if(hasWallet) "present" else "NULL"})", tradeId.mint)
+        if (isPaper) {
+            onLog("📄 Routing to paperSell (paperMode=$isPaper)", tradeId.mint)
             paperSell(ts, reason, tradeId)
+        } else if (wallet == null) {
+            // CRITICAL: In LIVE mode with no wallet - DO NOT CLEAR POSITION
+            // The tokens are still in the wallet on-chain!
+            ErrorLogger.error("Executor", "🚨 LIVE MODE SELL BLOCKED: Wallet is NULL!")
+            onLog("🚨 LIVE SELL BLOCKED: ${ts.symbol} | No wallet - position NOT cleared", tradeId.mint)
+            onNotify("🚨 Sell Blocked!", 
+                "Cannot sell ${ts.symbol} - wallet not connected. Position still open!",
+                com.lifecyclebot.engine.NotificationHistory.NotifEntry.NotifType.INFO)
+            onToast("🚨 Cannot sell ${ts.symbol} - reconnect wallet!")
+            // DO NOT clear position - tokens are still on-chain
+            return
         } else {
             onLog("💰 Routing to liveSell", tradeId.mint)
             liveSell(ts, reason, wallet, walletSol, tradeId)
