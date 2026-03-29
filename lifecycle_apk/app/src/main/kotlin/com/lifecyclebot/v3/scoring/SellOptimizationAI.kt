@@ -312,8 +312,8 @@ object SellOptimizationAI {
         
         // Volume dying check
         if (hist.size >= 10) {
-            val recentVol = hist.takeLast(5).map { it.volumeUsd }.average()
-            val priorVol = hist.takeLast(10).take(5).map { it.volumeUsd }.average()
+            val recentVol = hist.takeLast(5).map { it.volumeH1 }.average()
+            val priorVol = hist.takeLast(10).take(5).map { it.volumeH1 }.average()
             if (priorVol > 0 && recentVol < priorVol * 0.3 && currentPnlPct > 10) {
                 signals.add("📉 VOLUME DYING: recent=${recentVol.toInt()} vs prior=${priorVol.toInt()}")
                 totalUrgency += 0.4
@@ -322,14 +322,16 @@ object SellOptimizationAI {
         
         // ─────────────────────────────────────────────────────────────────────
         // SIGNAL 5: WHALE DETECTION (Big sells happening)
+        // Use sellsH1 vs buysH1 ratio as proxy for sell pressure
         // ─────────────────────────────────────────────────────────────────────
         if (hist.size >= 5) {
             val recentCandles = hist.takeLast(5)
-            val bigSellCandles = recentCandles.count { 
-                it.sellVolumeUsd > it.buyVolumeUsd * 2 && it.sellVolumeUsd > 5000 
+            // Detect heavy selling: sells > 2x buys AND significant volume
+            val bigSellCandles = recentCandles.count { candle ->
+                candle.sellsH1 > candle.buysH1 * 2 && candle.volumeH1 > 5000 
             }
             if (bigSellCandles >= 2 && currentPnlPct > 0) {
-                signals.add("🐋 WHALE SELLING: $bigSellCandles big sell candles in last 5")
+                signals.add("🐋 WHALE SELLING: $bigSellCandles heavy sell candles in last 5")
                 totalUrgency += 0.6
                 if (recommendedStrategy == ExitStrategy.HOLD || recommendedStrategy == ExitStrategy.MOMENTUM_EXIT) {
                     recommendedStrategy = ExitStrategy.WHALE_EXIT

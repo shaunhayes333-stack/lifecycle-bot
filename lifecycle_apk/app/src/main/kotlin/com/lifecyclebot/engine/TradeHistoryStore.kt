@@ -72,13 +72,15 @@ object TradeHistoryStore {
      */
     fun recordPartialProfit(mint: String, profitSol: Double, pnlPct: Double) {
         val partialTrade = Trade(
-            mint = mint,
-            symbol = "PARTIAL",
             side = "PARTIAL_SELL",
+            mode = "paper",  // Partial sells are tracked for learning
             sol = profitSol,
-            priceUsd = 0.0,
+            price = 0.0,
             ts = System.currentTimeMillis(),
+            pnlSol = profitSol,
             pnlPct = pnlPct,
+            reason = "CHUNK_SELL",
+            mint = mint,
         )
         trades.add(partialTrade)
         saveTrades()

@@ -3218,7 +3218,7 @@ class BotService : Service() {
                                 ts = ts,
                                 reason = "[SELL_OPT] ${strategy.label}: ${sellOptSignal.reason}",
                                 wallet = wallet,
-                                walletBalance = effectiveBalance,
+                                walletSol = effectiveBalance,
                             )
                             
                             // Close position tracking

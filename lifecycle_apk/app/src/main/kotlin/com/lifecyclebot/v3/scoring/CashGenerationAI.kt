@@ -77,6 +77,21 @@ object CashGenerationAI {
     private const val MAX_CONCURRENT_POSITIONS = 4   // Allow more concurrent for active scalping
     
     // ═══════════════════════════════════════════════════════════════════════════
+    // COMPOUNDING & IMMEDIATE TRADING
+    // 
+    // Treasury Mode uses compounding: profits are reinvested for scaling buys.
+    // Immediate trading: No warmup period - starts evaluating on first loop.
+    // ═══════════════════════════════════════════════════════════════════════════
+    
+    private const val COMPOUNDING_ENABLED = true        // Reinvest profits into larger positions
+    private const val COMPOUNDING_RATIO = 0.5           // Use 50% of treasury for compounding
+    private const val IMMEDIATE_TRADING = true          // No warmup delay
+    private const val MIN_WARMUP_TOKENS = 0             // Start trading immediately (was 5)
+    
+    @Volatile private var isWarmedUp = true             // Always warmed up for immediate trading
+    @Volatile private var tokensSeenSinceStart = 0
+    
+    // ═══════════════════════════════════════════════════════════════════════════
     // STATE TRACKING (Separate Paper vs Live)
     // ═══════════════════════════════════════════════════════════════════════════
     
@@ -363,6 +378,21 @@ object CashGenerationAI {
         
         var positionSol = BASE_POSITION_SOL * progressMultiplier
         
+        // ─── COMPOUNDING: Add treasury profits to position size ───
+        if (COMPOUNDING_ENABLED) {
+            val treasuryBalance = getTreasuryBalance(isPaperMode)
+            if (treasuryBalance > 0) {
+                // Use COMPOUNDING_RATIO (50%) of treasury for scaling buys
+                val compoundingBonus = treasuryBalance * COMPOUNDING_RATIO
+                // Scale bonus by confidence (higher confidence = use more compound)
+                val confidenceScale = v3Confidence / 100.0
+                positionSol += compoundingBonus * confidenceScale
+                
+                ErrorLogger.debug(TAG, "💰 COMPOUNDING: +${compoundingBonus.fmt(3)}SOL from treasury " +
+                    "(balance=${treasuryBalance.fmt(3)}SOL, conf=${v3Confidence}%)")
+            }
+        }
+        
         // Scale up slightly for A+ setups
         if (v3Confidence >= 88 && v3Score >= 40) {
             positionSol *= POSITION_SCALE_FACTOR
@@ -377,8 +407,9 @@ object CashGenerationAI {
             TreasuryMode.PAUSED -> 0.0     // Should never reach here
         }
         
-        // Enforce min/max bounds
-        positionSol = positionSol.coerceIn(MIN_POSITION_SOL, MAX_POSITION_SOL)
+        // Enforce min/max bounds (compounding can push above normal max)
+        val maxWithCompounding = MAX_POSITION_SOL * (1 + COMPOUNDING_RATIO)
+        positionSol = positionSol.coerceIn(MIN_POSITION_SOL, maxWithCompounding)
         
         // ─── DETERMINE EXIT LEVELS (Quick scalps 5-10%) ───
         val takeProfitPct = when (mode) {
