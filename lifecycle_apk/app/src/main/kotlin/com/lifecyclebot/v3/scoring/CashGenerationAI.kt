@@ -72,6 +72,14 @@ object CashGenerationAI {
     private const val MAX_TOP_HOLDER_PCT = 12.0       // Strict rug avoidance
     private const val MIN_BUY_PRESSURE_PCT = 58.0     // Strong buying momentum required
     
+    // FLUID FILTERS: These scale with learning (looser in paper/bootstrap mode)
+    private const val MIN_LIQUIDITY_BOOTSTRAP = 3000.0  // $3K in bootstrap
+    private const val MIN_LIQUIDITY_MATURE = 15000.0    // $15K when mature
+    private const val MAX_TOP_HOLDER_BOOTSTRAP = 35.0   // 35% in bootstrap
+    private const val MAX_TOP_HOLDER_MATURE = 12.0      // 12% when mature
+    private const val MIN_BUY_PRESSURE_BOOTSTRAP = 40.0 // 40% in bootstrap
+    private const val MIN_BUY_PRESSURE_MATURE = 58.0    // 58% when mature
+    
     // Position sizing (DYNAMIC - shrinks as target approaches - user choice 2b)
     private const val BASE_POSITION_SOL = 0.10        // Small base for active scalping
     private const val MAX_POSITION_SOL = 0.25         // Never exceed this
@@ -334,6 +342,11 @@ object CashGenerationAI {
         ErrorLogger.debug(TAG, "💰 TREASURY THRESHOLDS: conf=$confThreshold (base=$baseConfThreshold) | " +
             "score=$scoreThreshold | progress=${(learningProgress*100).toInt()}% | mode=$mode")
         
+        // ─── FLUID FILTER THRESHOLDS (scale with learning) ───
+        val fluidMinLiquidity = lerp(MIN_LIQUIDITY_BOOTSTRAP, MIN_LIQUIDITY_MATURE, learningProgress)
+        val fluidMaxTopHolder = lerp(MAX_TOP_HOLDER_BOOTSTRAP, MAX_TOP_HOLDER_MATURE, learningProgress)
+        val fluidMinBuyPressure = lerp(MIN_BUY_PRESSURE_BOOTSTRAP, MIN_BUY_PRESSURE_MATURE, learningProgress)
+        
         // ─── FILTER CHECKS ───
         val rejectionReasons = mutableListOf<String>()
         
@@ -343,14 +356,14 @@ object CashGenerationAI {
         if (v3Score < scoreThreshold) {
             rejectionReasons.add("score=$v3Score<$scoreThreshold")
         }
-        if (liquidityUsd < MIN_LIQUIDITY_USD) {
-            rejectionReasons.add("liq=$${liquidityUsd.toInt()}<$${MIN_LIQUIDITY_USD.toInt()}")
+        if (liquidityUsd < fluidMinLiquidity) {
+            rejectionReasons.add("liq=$${liquidityUsd.toInt()}<$${fluidMinLiquidity.toInt()}")
         }
-        if (topHolderPct > MAX_TOP_HOLDER_PCT) {
-            rejectionReasons.add("topHolder=${topHolderPct.toInt()}%>${MAX_TOP_HOLDER_PCT.toInt()}%")
+        if (topHolderPct > fluidMaxTopHolder) {
+            rejectionReasons.add("topHolder=${topHolderPct.toInt()}%>${fluidMaxTopHolder.toInt()}%")
         }
-        if (buyPressurePct < MIN_BUY_PRESSURE_PCT) {
-            rejectionReasons.add("buyPressure=${buyPressurePct.toInt()}%<${MIN_BUY_PRESSURE_PCT.toInt()}%")
+        if (buyPressurePct < fluidMinBuyPressure) {
+            rejectionReasons.add("buyPressure=${buyPressurePct.toInt()}%<${fluidMinBuyPressure.toInt()}%")
         }
         if (momentum < 0) {
             rejectionReasons.add("momentum=$momentum<0")
@@ -370,6 +383,10 @@ object CashGenerationAI {
         }
         
         if (rejectionReasons.isNotEmpty()) {
+            // Log rejection for debugging (only first few to avoid spam)
+            if (rejectionReasons.size <= 2) {
+                ErrorLogger.debug(TAG, "💰 TREASURY SKIP: $symbol | ${rejectionReasons.joinToString(", ")}")
+            }
             return TreasurySignal(
                 shouldEnter = false,
                 positionSizeSol = 0.0,
