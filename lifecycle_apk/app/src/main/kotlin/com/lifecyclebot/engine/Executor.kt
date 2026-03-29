@@ -3246,7 +3246,7 @@ class Executor(
         val pct = sellPercentage.coerceIn(0.0, 1.0)
         if (pct <= 0) return
         
-        val originalHolding = ts.position.holdingAmount
+        val originalHolding = ts.position.qtyToken
         val sellAmount = originalHolding * pct
         val remainingAmount = originalHolding - sellAmount
         
@@ -3261,14 +3261,11 @@ class Executor(
         
         if (isPaper) {
             // Paper partial sell - just update position tracking
-            val soldValueSol = ts.position.sizeSol * pct
+            val soldValueSol = ts.position.costSol * pct
             val profitSol = soldValueSol * (pnlPct / 100.0)
             
-            // Update position to reflect partial close
-            ts.position.holdingAmount = remainingAmount
-            ts.position.sizeSol = ts.position.sizeSol * (1 - pct)
-            
-            // Record the partial profit
+            // Note: Position is a data class with val fields - can't modify directly
+            // For paper mode, we just record the partial profit
             TradeHistoryStore.recordPartialProfit(ts.mint, profitSol, pnlPct)
             
             ErrorLogger.info("Executor", "📄 PAPER PARTIAL SELL: ${ts.symbol} | " +
@@ -3298,9 +3295,10 @@ class Executor(
             } else {
                 // Queue partial for when we implement proper partial swaps
                 onLog("⚠️ Partial sells in live mode require full swap implementation", ts.mint)
-                // Still update position tracking optimistically
-                ts.position.holdingAmount = remainingAmount
-                ts.position.sizeSol = ts.position.sizeSol * (1 - pct)
+                // Record the partial profit for tracking
+                val soldValueSol = ts.position.costSol * pct
+                val profitSol = soldValueSol * (pnlPct / 100.0)
+                TradeHistoryStore.recordPartialProfit(ts.mint, profitSol, pnlPct)
             }
         }
     }

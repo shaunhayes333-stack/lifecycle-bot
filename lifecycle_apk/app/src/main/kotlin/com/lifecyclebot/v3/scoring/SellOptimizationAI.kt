@@ -297,8 +297,17 @@ object SellOptimizationAI {
         
         // ─────────────────────────────────────────────────────────────────────
         // SIGNAL 4: MOMENTUM EXHAUSTION
+        // Calculate buy pressure from recent candles (buysH1 vs total)
         // ─────────────────────────────────────────────────────────────────────
-        val buyPressure = ts.buyPressure
+        val buyPressure = if (hist.size >= 3) {
+            val recentCandles = hist.takeLast(3)
+            val totalBuys = recentCandles.sumOf { it.buysH1 }
+            val totalSells = recentCandles.sumOf { it.sellsH1 }
+            if (totalBuys + totalSells > 0) {
+                (totalBuys.toDouble() / (totalBuys + totalSells)) * 100
+            } else 50.0
+        } else 50.0
+        
         val momentumThreshold = getMomentumExitThreshold()
         
         if (buyPressure < momentumThreshold && currentPnlPct > 5) {
@@ -312,8 +321,8 @@ object SellOptimizationAI {
         
         // Volume dying check
         if (hist.size >= 10) {
-            val recentVol = hist.takeLast(5).map { it.volumeH1 }.average()
-            val priorVol = hist.takeLast(10).take(5).map { it.volumeH1 }.average()
+            val recentVol = hist.takeLast(5).sumOf { it.volumeH1 } / 5.0
+            val priorVol = hist.takeLast(10).take(5).sumOf { it.volumeH1 } / 5.0
             if (priorVol > 0 && recentVol < priorVol * 0.3 && currentPnlPct > 10) {
                 signals.add("📉 VOLUME DYING: recent=${recentVol.toInt()} vs prior=${priorVol.toInt()}")
                 totalUrgency += 0.4

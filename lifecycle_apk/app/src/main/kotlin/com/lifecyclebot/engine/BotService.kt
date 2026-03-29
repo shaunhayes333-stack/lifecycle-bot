@@ -3183,7 +3183,7 @@ class BotService : Service() {
                         if (isChunkSell) {
                             // Chunk sell - partial position exit
                             val chunkPct = sellOptSignal.sellPct / 100.0
-                            val sellAmount = ts.position.holdingAmount * chunkPct
+                            val sellAmount = ts.position.qtyToken * chunkPct
                             
                             ErrorLogger.info("BotService", "📊 [SELL_OPT CHUNK] ${ts.symbol} | " +
                                 "${strategy.emoji} ${strategy.label} | sell=${sellOptSignal.sellPct.toInt()}% | " +
@@ -3200,9 +3200,9 @@ class BotService : Service() {
                             )
                             
                             // Record chunk in SellOptimizationAI
-                            val profitSol = (ts.position.sizeSol * chunkPct) * (pnlPct / 100.0)
+                            val profitSol = (ts.position.costSol * chunkPct) * (pnlPct / 100.0)
                             com.lifecyclebot.v3.scoring.SellOptimizationAI.recordChunkSell(
-                                ts.mint, ts.position.sizeSol * chunkPct, pnlPct, profitSol
+                                ts.mint, ts.position.costSol * chunkPct, pnlPct, profitSol
                             )
                             
                         } else if (urgency in listOf(
@@ -3225,10 +3225,10 @@ class BotService : Service() {
                             com.lifecyclebot.v3.scoring.SellOptimizationAI.closePosition(ts.mint, pnlPct)
                         }
                         
-                        // Update stop loss if suggested
+                        // Update stop loss if suggested (for treasury positions)
                         sellOptSignal.suggestedStopLoss?.let { newStop ->
-                            if (newStop > ts.position.stopLoss) {
-                                ts.position.stopLoss = newStop
+                            if (ts.position.isTreasuryPosition && newStop > ts.position.treasuryStopLoss) {
+                                ts.position.treasuryStopLoss = newStop
                                 ErrorLogger.debug("BotService", "🔒 [SELL_OPT] ${ts.symbol} stop moved to +${newStop.toInt()}%")
                             }
                         }
