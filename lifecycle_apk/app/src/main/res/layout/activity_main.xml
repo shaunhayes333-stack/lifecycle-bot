@@ -25,6 +25,12 @@
             android:layout_height="wrap_content"
             android:orientation="vertical">
 
+            <!-- V4.0: Top spacer for camera notch clearance -->
+            <View
+                android:layout_width="match_parent"
+                android:layout_height="28dp"
+                android:background="#0A0A0F"/>
+
             <!-- ═══════════════════════════════
                  TOP BAR
                  ═══════════════════════════════ -->

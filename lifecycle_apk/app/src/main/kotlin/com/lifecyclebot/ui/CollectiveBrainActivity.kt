@@ -400,6 +400,7 @@ class CollectiveBrainActivity : AppCompatActivity() {
 
 /**
  * Custom view that renders an animated brain with progress ring
+ * V4.0: Enhanced with continuous pulse animation and better scaling
  */
 class AnimatedBrainView @JvmOverloads constructor(
     context: Context,
@@ -409,9 +410,14 @@ class AnimatedBrainView @JvmOverloads constructor(
     
     private var progress = 0f
     private var pulseScale = 1f
+    private var breatheScale = 1f  // V4.0: Continuous breathing animation
     private var tradeCount = 0
     var lastTradeCount = 0
         private set
+    
+    // V4.0: Track if we're in "live" mode (receiving continuous data)
+    private var isLiveMode = false
+    private var lastUpdateTime = 0L
     
     // Paints
     private val bgPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
@@ -421,38 +427,38 @@ class AnimatedBrainView @JvmOverloads constructor(
     private val ringBgPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         color = Color.parseColor("#1F2937")
         style = Paint.Style.STROKE
-        strokeWidth = 20f
+        strokeWidth = 24f  // V4.0: Thicker ring
         strokeCap = Paint.Cap.ROUND
     }
     
     private val ringPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         color = Color.parseColor("#9945FF")
         style = Paint.Style.STROKE
-        strokeWidth = 20f
+        strokeWidth = 24f  // V4.0: Thicker ring
         strokeCap = Paint.Cap.ROUND
     }
     
     private val glowPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         color = Color.parseColor("#9945FF")
-        maskFilter = BlurMaskFilter(30f, BlurMaskFilter.Blur.OUTER)
+        maskFilter = BlurMaskFilter(40f, BlurMaskFilter.Blur.OUTER)  // V4.0: Larger glow
     }
     
     private val brainPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         color = Color.parseColor("#9945FF")
-        textSize = 120f
+        textSize = 160f  // V4.0: Larger brain emoji
         textAlign = Paint.Align.CENTER
     }
     
     private val textPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         color = Color.WHITE
-        textSize = 48f
+        textSize = 56f  // V4.0: Larger text
         textAlign = Paint.Align.CENTER
         typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
     }
     
     private val subtextPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         color = Color.parseColor("#6B7280")
-        textSize = 24f
+        textSize = 28f  // V4.0: Larger subtext
         textAlign = Paint.Align.CENTER
     }
     
@@ -460,6 +466,29 @@ class AnimatedBrainView @JvmOverloads constructor(
     
     // Pulse animation
     private var pulseAnimator: ValueAnimator? = null
+    
+    // V4.0: Continuous breathing animation for "live" state
+    private var breatheAnimator: ValueAnimator? = null
+    
+    init {
+        // Start the breathing animation
+        startBreathing()
+    }
+    
+    private fun startBreathing() {
+        breatheAnimator?.cancel()
+        breatheAnimator = ValueAnimator.ofFloat(1f, 1.03f, 1f).apply {
+            duration = 2500
+            repeatCount = ValueAnimator.INFINITE
+            repeatMode = ValueAnimator.RESTART
+            interpolator = AccelerateDecelerateInterpolator()
+            addUpdateListener { animator ->
+                breatheScale = animator.animatedValue as Float
+                invalidate()
+            }
+            start()
+        }
+    }
     
     fun setProgress(p: Float) {
         progress = p.coerceIn(0f, 1f)
@@ -469,13 +498,37 @@ class AnimatedBrainView @JvmOverloads constructor(
     fun setTradeCount(count: Int) {
         lastTradeCount = tradeCount
         tradeCount = count
+        
+        // V4.0: Auto-pulse when trade count increases
+        if (count > lastTradeCount) {
+            pulse()
+            lastUpdateTime = System.currentTimeMillis()
+            
+            // Enable live mode if getting frequent updates
+            if (!isLiveMode) {
+                isLiveMode = true
+                setLiveMode(true)
+            }
+        }
+        
         invalidate()
+    }
+    
+    // V4.0: Set live mode for more dynamic animation
+    fun setLiveMode(live: Boolean) {
+        isLiveMode = live
+        if (live) {
+            // Speed up breathing when live
+            breatheAnimator?.duration = 1500
+        } else {
+            breatheAnimator?.duration = 2500
+        }
     }
     
     fun pulse() {
         pulseAnimator?.cancel()
-        pulseAnimator = ValueAnimator.ofFloat(1f, 1.15f, 1f).apply {
-            duration = 600
+        pulseAnimator = ValueAnimator.ofFloat(1f, 1.2f, 1f).apply {
+            duration = 500
             interpolator = AccelerateDecelerateInterpolator()
             addUpdateListener { animator ->
                 pulseScale = animator.animatedValue as Float
@@ -490,15 +543,20 @@ class AnimatedBrainView @JvmOverloads constructor(
         
         val cx = width / 2f
         val cy = height / 2f
-        val radius = minOf(width, height) / 2f - 40f
+        // V4.0: Better scaling - use more of the available space
+        val radius = (minOf(width, height) / 2f - 30f) * 0.92f
         
         // Background
         canvas.drawColor(Color.parseColor("#000000"))
         
-        // Glow behind brain (when progress > 0)
-        if (progress > 0) {
-            val glowRadius = radius * 0.6f * pulseScale
-            glowPaint.alpha = (progress * 100).toInt().coerceIn(0, 100)
+        // V4.0: Combined scale from pulse + breathing
+        val combinedScale = pulseScale * breatheScale
+        
+        // Glow behind brain (when progress > 0 or live mode)
+        if (progress > 0 || isLiveMode) {
+            val glowRadius = radius * 0.65f * combinedScale
+            val glowAlpha = if (isLiveMode) 80 else (progress * 100).toInt().coerceIn(0, 100)
+            glowPaint.alpha = glowAlpha
             canvas.drawCircle(cx, cy, glowRadius, glowPaint)
         }
         
@@ -510,10 +568,10 @@ class AnimatedBrainView @JvmOverloads constructor(
         val sweepAngle = progress * 360f
         canvas.drawArc(ringRect, -90f, sweepAngle, false, ringPaint)
         
-        // Brain emoji (scaled with pulse)
+        // Brain emoji (scaled with pulse + breathing)
         canvas.save()
-        canvas.scale(pulseScale, pulseScale, cx, cy)
-        canvas.drawText("🧠", cx, cy - 20f, brainPaint)
+        canvas.scale(combinedScale, combinedScale, cx, cy)
+        canvas.drawText("🧠", cx, cy - 10f, brainPaint)
         canvas.restore()
         
         // Trade count
@@ -522,10 +580,11 @@ class AnimatedBrainView @JvmOverloads constructor(
             tradeCount >= 1_000 -> "${String.format("%.1f", tradeCount / 1_000.0)}K"
             else -> "$tradeCount"
         }
-        canvas.drawText(countStr, cx, cy + 80f, textPaint)
+        canvas.drawText(countStr, cx, cy + 100f, textPaint)
         
         // Label
-        canvas.drawText("collective trades", cx, cy + 115f, subtextPaint)
+        val label = if (isLiveMode) "live trades" else "collective trades"
+        canvas.drawText(label, cx, cy + 140f, subtextPaint)
         
         // Progress percentage at bottom
         val pctStr = "${String.format("%.2f", progress * 100)}% to 1M"

@@ -6,12 +6,15 @@
     android:background="#000000"
     android:fitsSystemWindows="true">
 
-    <!-- Header -->
+    <!-- Header - V4.0: Added top padding for camera notch -->
     <LinearLayout
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:orientation="horizontal"
-        android:padding="16dp"
+        android:paddingStart="16dp"
+        android:paddingEnd="16dp"
+        android:paddingTop="32dp"
+        android:paddingBottom="12dp"
         android:gravity="center_vertical"
         android:background="#0A0A0F">
 
@@ -51,11 +54,13 @@
             android:orientation="vertical"
             android:padding="16dp">
 
-            <!-- Animated Brain View -->
+            <!-- Animated Brain View - V4.0: Larger to fill circle on phones -->
             <com.lifecyclebot.ui.AnimatedBrainView
                 android:id="@+id/brainView"
                 android:layout_width="match_parent"
-                android:layout_height="300dp"
+                android:layout_height="0dp"
+                android:layout_weight="0.45"
+                android:minHeight="280dp"
                 android:layout_gravity="center"/>
 
             <!-- Data Source Indicator -->
