@@ -138,10 +138,10 @@ class CollectiveBrainActivity : AppCompatActivity() {
         // Get stats from CollectiveLearning
         val stats = CollectiveLearning.getStats()
         val isEnabled = stats["enabled"] as? Boolean ?: false
-        val patterns = stats["patterns"] as? Int ?: 0
-        val blacklisted = stats["blacklistedTokens"] as? Int ?: 0
-        val modeStats = stats["modeStats"] as? Int ?: 0
-        val whaleStats = stats["whaleStats"] as? Int ?: 0
+        val collectivePatterns = stats["patterns"] as? Int ?: 0
+        val collectiveBlacklisted = stats["blacklistedTokens"] as? Int ?: 0
+        val collectiveModeStats = stats["modeStats"] as? Int ?: 0
+        val collectiveWhaleStats = stats["whaleStats"] as? Int ?: 0
         
         // Get collective analytics summary
         val analyticsSummary = try {
@@ -151,8 +151,8 @@ class CollectiveBrainActivity : AppCompatActivity() {
         // Check if Turso/Collective Learning is enabled (regardless of pattern count)
         val isTursoEnabled = CollectiveLearning.isEnabled()
         
-        // Check if collective data is actually available from Turso
-        val hasCollectiveData = isTursoEnabled && (analyticsSummary?.collectivePatterns ?: 0) > 0
+        // V3.3: Properly detect if collective data exists
+        val hasCollectiveData = isTursoEnabled && collectivePatterns > 0
         
         // Get REAL-TIME active instance count directly from Turso if enabled
         val activeInstanceCount = if (isTursoEnabled) {
@@ -163,47 +163,64 @@ class CollectiveBrainActivity : AppCompatActivity() {
             1  // Just this device when Turso not enabled
         }
         
-        // Get local stats - THIS IS THE PRIMARY DATA SOURCE
+        // Get COLLECTIVE trade count from Turso database
+        val collectiveTotalTrades = if (isTursoEnabled) {
+            try {
+                CollectiveLearning.getCollectiveTradeCount()
+            } catch (_: Exception) { 0 }
+        } else 0
+        
+        // Get local stats - secondary data source
         val localStats = com.lifecyclebot.engine.TradeHistoryStore.getStats()
         val localPnl = localStats.pnl24hSol
         val localTrades = localStats.trades24h
         val totalStoredTrades = localStats.totalStoredTrades
         
         // V3.2: Get shadow learning stats for display
-        // Use LEGACY engine which has the actual tracked blocked trades
-        val shadowStats = try {
-            com.lifecyclebot.engine.ShadowLearningEngine.getBlockedTradeStats()
-        } catch (_: Exception) { null }
-        
         val shadowTrackedCount = try {
             com.lifecyclebot.engine.ShadowLearningEngine.blockedTradesTracked
         } catch (_: Exception) { 0 }
         
         // Determine data source and label
+        // V3.3: Show COLLECTIVE trades when connected, not just local
         val (dataSourceLabel, combinedTrades) = when {
-            hasCollectiveData -> "🌐 COLLECTIVE" to (analyticsSummary?.collectivePatterns ?: 0)
-            isTursoEnabled -> "🔄 CONNECTED" to (totalStoredTrades + shadowTrackedCount)
+            hasCollectiveData -> "🌐 COLLECTIVE" to (collectiveTotalTrades.coerceAtLeast(collectivePatterns))
+            isTursoEnabled -> "🔄 CONNECTED" to (collectiveTotalTrades.coerceAtLeast(totalStoredTrades + shadowTrackedCount))
             else -> "📱 LOCAL DEVICE" to (totalStoredTrades + shadowTrackedCount)
         }
         
         // Use REAL-TIME instance count from Turso (not cached analytics)
         val estimatedInstances = activeInstanceCount
         
-        // Get TokenBlacklist count for local blacklist display
-        val localBlacklisted = try {
-            com.lifecyclebot.engine.TokenBlacklist.getBlacklistSize()
-        } catch (_: Exception) { blacklisted }
+        // Get TokenBlacklist count - prioritize COLLECTIVE data
+        val displayBlacklisted = if (hasCollectiveData) {
+            collectiveBlacklisted.coerceAtLeast(try {
+                com.lifecyclebot.engine.TokenBlacklist.getBlacklistSize()
+            } catch (_: Exception) { 0 })
+        } else {
+            try {
+                com.lifecyclebot.engine.TokenBlacklist.getBlacklistSize()
+            } catch (_: Exception) { collectiveBlacklisted }
+        }
         
-        // Get Edge Learning patterns count
-        val localPatterns = try {
-            com.lifecyclebot.engine.EdgeLearning.getPatternCount()
-        } catch (_: Exception) { patterns }
+        // Get patterns count - prioritize COLLECTIVE data
+        val displayPatterns = if (hasCollectiveData) {
+            collectivePatterns
+        } else {
+            try {
+                com.lifecyclebot.engine.EdgeLearning.getPatternCount()
+            } catch (_: Exception) { collectivePatterns }
+        }
         
-        // Get top trading mode from local history or shadow learning
-        val topMode = try {
-            com.lifecyclebot.engine.TradeHistoryStore.getTopMode() 
-                ?: com.lifecyclebot.engine.ShadowLearningEngine.getTopTrackedMode()
-        } catch (_: Exception) { null }
+        // Get top trading mode from collective or local
+        val topMode = if (hasCollectiveData && analyticsSummary != null && analyticsSummary.bestPatterns.isNotEmpty()) {
+            analyticsSummary.bestPatterns.first().patternType
+        } else {
+            try {
+                com.lifecyclebot.engine.TradeHistoryStore.getTopMode() 
+                    ?: com.lifecyclebot.engine.ShadowLearningEngine.getTopTrackedMode()
+            } catch (_: Exception) { null }
+        }
         
         // Use local PnL (shadow stats don't have PnL in SOL)
         val displayPnl = localPnl
@@ -222,7 +239,7 @@ class CollectiveBrainActivity : AppCompatActivity() {
             brainView.setProgress(progress)
             brainView.setTradeCount(combinedTrades)
             
-            // Update text stats - now showing LOCAL + SHADOW data
+            // Update text stats - now showing COLLECTIVE data when available
             tvTotalTrades.text = formatNumber(combinedTrades)
             
             // Show profit or loss (not both dashed)
@@ -242,8 +259,10 @@ class CollectiveBrainActivity : AppCompatActivity() {
             tvActiveInstances.text = "$estimatedInstances"
             // Color green if multiple instances detected
             tvActiveInstances.setTextColor(if (estimatedInstances > 1) green else white)
-            tvPatternsLearned.text = "$localPatterns"
-            tvBlacklistedTokens.text = "$localBlacklisted"
+            
+            // V3.3: Show COLLECTIVE patterns if available
+            tvPatternsLearned.text = "$displayPatterns"
+            tvBlacklistedTokens.text = "$displayBlacklisted"
             
             // Show top mode
             if (topMode != null) {
@@ -253,7 +272,7 @@ class CollectiveBrainActivity : AppCompatActivity() {
             }
             
             // Update mode stats
-            updateModeStats(analyticsSummary, shadowStats)
+            updateModeStats(analyticsSummary, null)
             
             // Pulse the brain if trades increased
             if (combinedTrades > brainView.lastTradeCount) {

@@ -718,6 +718,28 @@ object CollectiveLearning {
         )
     }
     
+    /**
+     * Get the total number of collective trades from all patterns in Turso.
+     * This represents the aggregate trade count across the entire hive mind.
+     */
+    suspend fun getCollectiveTradeCount(): Int {
+        if (!isEnabled()) return 0
+        
+        return try {
+            // Sum all trades from cached patterns (already downloaded from Turso)
+            val fromPatterns = cachedPatterns.values.sumOf { it.totalTrades }
+            
+            // Also sum from mode performance stats
+            val fromModes = cachedModeStats.values.sumOf { it.totalTrades }
+            
+            // Return the higher count (they may overlap)
+            maxOf(fromPatterns, fromModes)
+        } catch (e: Exception) {
+            Log.w(TAG, "Failed to get collective trade count: ${e.message}")
+            0
+        }
+    }
+    
     // ═══════════════════════════════════════════════════════════════════════════
     // SCORE ADJUSTMENTS - Use collective intelligence to adjust local decisions
     // ═══════════════════════════════════════════════════════════════════════════
