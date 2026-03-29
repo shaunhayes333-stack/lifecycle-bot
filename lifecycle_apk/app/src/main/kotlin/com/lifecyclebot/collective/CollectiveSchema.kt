@@ -205,11 +205,30 @@ object CollectiveSchema {
         )
     """
     
+    // V3.3: Instance registry - Legal compliance record of all app installations
+    // Each instance gets a unique folder identified by instance_id + install timestamp
+    const val CREATE_INSTANCE_REGISTRY_TABLE = """
+        CREATE TABLE IF NOT EXISTS instance_registry (
+            instance_id TEXT PRIMARY KEY NOT NULL,
+            install_timestamp INTEGER NOT NULL,
+            install_timestamp_iso TEXT NOT NULL,
+            device_info TEXT NOT NULL,
+            app_version TEXT NOT NULL,
+            region_code TEXT DEFAULT '',
+            total_trades INTEGER DEFAULT 0,
+            total_pnl_sol REAL DEFAULT 0.0,
+            last_active INTEGER NOT NULL,
+            is_active INTEGER DEFAULT 1
+        )
+    """
+    
     // V3.3: All trades table - captures EVERY trade for collective learning
+    // Each trade linked to instance_id for legal compliance (audit trail)
     const val CREATE_ALL_TRADES_TABLE = """
         CREATE TABLE IF NOT EXISTS collective_trades (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             trade_hash TEXT UNIQUE NOT NULL,
+            instance_id TEXT NOT NULL,
             timestamp INTEGER NOT NULL,
             side TEXT NOT NULL,
             symbol TEXT NOT NULL,
@@ -239,6 +258,8 @@ object CollectiveSchema {
         CREATE INDEX IF NOT EXISTS idx_trades_timestamp ON collective_trades(timestamp);
         CREATE INDEX IF NOT EXISTS idx_trades_mode ON collective_trades(mode);
         CREATE INDEX IF NOT EXISTS idx_trades_symbol ON collective_trades(symbol);
+        CREATE INDEX IF NOT EXISTS idx_trades_instance ON collective_trades(instance_id);
+        CREATE INDEX IF NOT EXISTS idx_registry_active ON instance_registry(last_active);
     """
     
     val ALL_TABLES = listOf(
@@ -248,6 +269,7 @@ object CollectiveSchema {
         CREATE_WHALE_EFFECTIVENESS_TABLE,
         CREATE_LEGAL_AGREEMENTS_TABLE,
         CREATE_INSTANCE_HEARTBEATS_TABLE,
+        CREATE_INSTANCE_REGISTRY_TABLE,
         CREATE_ALL_TRADES_TABLE,
     )
 }

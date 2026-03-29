@@ -127,10 +127,54 @@ object CollectiveLearning {
             // Start background sync
             startBackgroundSync()
             
+            // V3.3: Register this instance in the database for legal compliance
+            registerInstance(ctx)
+            
             return true
         } catch (e: Exception) {
             Log.e(TAG, "Init error: ${e.message}")
             return false
+        }
+    }
+    
+    /**
+     * V3.3: Register this app instance in the database.
+     * Creates a legal record of the installation with timestamp.
+     */
+    private suspend fun registerInstance(ctx: Context) {
+        if (!isEnabled()) return
+        
+        try {
+            val now = System.currentTimeMillis()
+            val isoTimestamp = java.text.SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss'Z'", java.util.Locale.US).apply {
+                timeZone = java.util.TimeZone.getTimeZone("UTC")
+            }.format(java.util.Date(now))
+            
+            val deviceInfo = "${android.os.Build.MANUFACTURER} ${android.os.Build.MODEL}"
+            val appVersion = try {
+                ctx.packageManager.getPackageInfo(ctx.packageName, 0).versionName ?: "unknown"
+            } catch (_: Exception) { "unknown" }
+            
+            val sql = """
+                INSERT INTO instance_registry 
+                    (instance_id, install_timestamp, install_timestamp_iso, device_info, 
+                     app_version, total_trades, total_pnl_sol, last_active, is_active)
+                VALUES (?, ?, ?, ?, ?, 0, 0.0, ?, 1)
+                ON CONFLICT(instance_id) DO UPDATE SET 
+                    last_active = ?,
+                    app_version = ?,
+                    is_active = 1
+            """.trimIndent()
+            
+            val result = client?.execute(sql, listOf(
+                instanceId, now, isoTimestamp, deviceInfo, appVersion, now, now, appVersion
+            ))
+            
+            if (result?.success == true) {
+                Log.i(TAG, "📋 Instance registered: $instanceId (installed: $isoTimestamp)")
+            }
+        } catch (e: Exception) {
+            Log.w(TAG, "Instance registration warning: ${e.message}")
         }
     }
     
@@ -242,27 +286,46 @@ object CollectiveLearning {
                 else -> "LARGE"
             }
             
+            // V3.3: Include instance_id for legal compliance and per-user audit trail
             val sql = """
                 INSERT INTO collective_trades 
-                    (trade_hash, timestamp, side, symbol, mode, source, liquidity_bucket,
+                    (trade_hash, instance_id, timestamp, side, symbol, mode, source, liquidity_bucket,
                      market_sentiment, entry_score, confidence, pnl_pct, hold_mins, is_win, paper_mode)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """.trimIndent()
             
             val result = client!!.execute(sql, listOf(
-                tradeHash, now, side, symbol, mode, source, liquidityBucket,
+                tradeHash, instanceId, now, side, symbol, mode, source, liquidityBucket,
                 marketSentiment, entryScore, confidence, pnlPct, holdMins,
                 if (isWin) 1 else 0, if (paperMode) 1 else 0
             ))
             
             if (result.success) {
                 Log.i(TAG, "📤 TRADE → COLLECTIVE: $side $symbol ($mode) ${if (side == "SELL") "${pnlPct.toInt()}%" else ""}")
+                
+                // V3.3: Update instance registry trade count
+                updateInstanceTradeCount()
             } else {
                 Log.w(TAG, "Failed to upload trade: ${result.error}")
             }
         } catch (e: Exception) {
             Log.e(TAG, "Upload trade error: ${e.message}")
         }
+    }
+    
+    /**
+     * V3.3: Update instance registry trade count.
+     * Called after each successful trade upload.
+     */
+    private suspend fun updateInstanceTradeCount() {
+        try {
+            val now = System.currentTimeMillis()
+            client?.execute("""
+                UPDATE instance_registry 
+                SET total_trades = total_trades + 1, last_active = ?
+                WHERE instance_id = ?
+            """.trimIndent(), listOf(now, instanceId))
+        } catch (_: Exception) {}
     }
     
     /**
@@ -464,16 +527,34 @@ object CollectiveLearning {
         if (!isEnabled()) return 1  // At least this instance
         
         try {
-            val fifteenMinsAgo = System.currentTimeMillis() - (15 * 60 * 1000L)
+            // V3.3: Count "Active Users" - users who have traded in last 24h
+            // This is more meaningful than heartbeat-based instance count
+            val oneDayAgo = System.currentTimeMillis() - (24 * 60 * 60 * 1000L)
             
-            val result = client!!.query(
+            // First try to count from instance_registry (users who traded recently)
+            val registryResult = client!!.query(
+                "SELECT COUNT(*) as count FROM instance_registry WHERE last_active > ? AND total_trades > 0",
+                listOf(oneDayAgo)
+            )
+            
+            if (registryResult.success && registryResult.rows.isNotEmpty()) {
+                val activeTraders = (registryResult.rows[0]["count"] as? Number)?.toInt() ?: 0
+                if (activeTraders > 0) {
+                    Log.d(TAG, "📊 Active trading users (24h): $activeTraders")
+                    return activeTraders.coerceAtLeast(1)
+                }
+            }
+            
+            // Fallback: count from heartbeats (15 min window)
+            val fifteenMinsAgo = System.currentTimeMillis() - (15 * 60 * 1000L)
+            val heartbeatResult = client!!.query(
                 "SELECT COUNT(*) as count FROM instance_heartbeats WHERE last_heartbeat > ?",
                 listOf(fifteenMinsAgo)
             )
             
-            if (result.success && result.rows.isNotEmpty()) {
-                val count = (result.rows[0]["count"] as? Number)?.toInt() ?: 1
-                Log.d(TAG, "📊 Active instances: $count")
+            if (heartbeatResult.success && heartbeatResult.rows.isNotEmpty()) {
+                val count = (heartbeatResult.rows[0]["count"] as? Number)?.toInt() ?: 1
+                Log.d(TAG, "📊 Active instances (heartbeat): $count")
                 return count.coerceAtLeast(1)
             }
         } catch (e: Exception) {
@@ -481,6 +562,31 @@ object CollectiveLearning {
         }
         
         return 1  // Fallback to at least this instance
+    }
+    
+    /**
+     * V3.3: Get count of active trading users (users who traded in last 24h).
+     * More meaningful metric than just instance count.
+     */
+    suspend fun getActiveUsersCount(): Int {
+        if (!isEnabled()) return 1
+        
+        try {
+            val oneDayAgo = System.currentTimeMillis() - (24 * 60 * 60 * 1000L)
+            
+            val result = client!!.query(
+                "SELECT COUNT(DISTINCT instance_id) as count FROM collective_trades WHERE timestamp > ?",
+                listOf(oneDayAgo)
+            )
+            
+            if (result.success && result.rows.isNotEmpty()) {
+                return (result.rows[0]["count"] as? Number)?.toInt()?.coerceAtLeast(1) ?: 1
+            }
+        } catch (e: Exception) {
+            Log.w(TAG, "getActiveUsersCount error: ${e.message}")
+        }
+        
+        return 1
     }
     
     // ═══════════════════════════════════════════════════════════════════════════
