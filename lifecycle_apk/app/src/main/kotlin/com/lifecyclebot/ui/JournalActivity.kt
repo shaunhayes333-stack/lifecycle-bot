@@ -275,10 +275,39 @@ class JournalActivity : AppCompatActivity() {
             .setPositiveButton("Clear All") { _, _ ->
                 com.lifecyclebot.engine.TradeHistoryStore.clearAllTrades()
                 Toast.makeText(this, "Trade history cleared", Toast.LENGTH_SHORT).show()
-                refreshTrades()  // Refresh the UI
+                refreshTrades()
             }
             .setNegativeButton("Cancel", null)
             .show()
+    }
+    
+    /**
+     * Manually refresh the journal UI after clearing trades
+     */
+    private fun refreshTrades() {
+        lifecycleScope.launch {
+            try {
+                val tokens = synchronized(BotService.status.tokens) {
+                    BotService.status.tokens.toMap()
+                }
+                buildJournal(tokens)
+            } catch (_: Exception) {
+                // Fallback: just clear the view
+                llJournalTrades.removeAllViews()
+                llJournalTrades.addView(TextView(this@JournalActivity).apply {
+                    text = "No trades yet"
+                    textSize = 14f
+                    setTextColor(muted)
+                    gravity = android.view.Gravity.CENTER
+                    setPadding(0, dp(48), 0, 0)
+                })
+                tvJournalPnl.text = "0.00 SOL"
+                tvJournalPnl.setTextColor(muted)
+                tvJournalWinRate.text = "0%  (0W/0L)"
+                tvJournalCount.text = "0"
+                tvJournalAvgWin.text = "+0.0%"
+            }
+        }
     }
 
     private fun dp(v: Int) = (v * resources.displayMetrics.density).toInt()
