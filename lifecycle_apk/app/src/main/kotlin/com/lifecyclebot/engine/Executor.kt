@@ -1483,8 +1483,33 @@ class Executor(
             return "v8_${exitSignal.reason.lowercase()}"
         }
 
-        // Wick protection: skip stop in first 90s unless extreme loss
-        if (heldSecs < 90.0 && gainPct > -cfg().stopLossPct * 1.5) return null
+        // ════════════════════════════════════════════════════════════════════
+        // V3.3: HARD FLOOR ABSOLUTE STOP LOSS - NEVER EXCEEDED
+        // This is the FIRST check - no trade should EVER lose more than this
+        // ════════════════════════════════════════════════════════════════════
+        val HARD_FLOOR_STOP_PCT = 15.0  // ABSOLUTE MAXIMUM LOSS - NO EXCEPTIONS
+        if (gainPct <= -HARD_FLOOR_STOP_PCT) {
+            onLog("🛑 HARD FLOOR STOP: ${ts.symbol} at ${gainPct.toInt()}% - EMERGENCY EXIT", ts.mint)
+            TradeStateMachine.startCooldown(ts.mint)
+            return "hard_floor_stop"
+        }
+        
+        // V3.3: Fluid stop loss from FluidLearningAI (mode-aware)
+        // This is tighter than hard floor but adapts to learning progress
+        val fluidStopPct = try {
+            val modeDefault = modeConf?.stopLossPct ?: cfg().stopLossPct
+            com.lifecyclebot.v3.scoring.FluidLearningAI.getFluidStopLoss(modeDefault)
+        } catch (_: Exception) {
+            modeConf?.stopLossPct ?: cfg().stopLossPct
+        }
+        if (gainPct <= -fluidStopPct) {
+            onLog("🛑 FLUID STOP: ${ts.symbol} at ${gainPct.toInt()}% (limit=${fluidStopPct.toInt()}%)", ts.mint)
+            TradeStateMachine.startCooldown(ts.mint)
+            return "fluid_stop_loss"
+        }
+
+        // Wick protection: skip additional checks in first 90s unless already hit hard/fluid stops
+        if (heldSecs < 90.0) return null
 
         // LIQUIDITY COLLAPSE DETECTION: Emergency exit if liquidity drops significantly
         val currentLiq = ts.lastLiquidityUsd
@@ -1524,7 +1549,11 @@ class Executor(
         }
 
         val effectiveStopPct = modeConf?.stopLossPct ?: cfg().stopLossPct
-        if (gainPct <= -effectiveStopPct) return "stop_loss"
+        // Backup stop loss check (should rarely trigger - fluid stop should catch first)
+        if (gainPct <= -effectiveStopPct) {
+            onLog("🛑 BACKUP STOP: ${ts.symbol} at ${gainPct.toInt()}%", ts.mint)
+            return "stop_loss"
+        }
         
         // V5: Smart trailing with trend health signals
         val smartFloor = trailingFloor(

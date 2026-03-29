@@ -1275,8 +1275,102 @@ class BotService : Service() {
 
     // ── main loop ──────────────────────────────────────────
 
+    /**
+     * RAPID STOP-LOSS MONITOR
+     * Runs every 500ms to check ALL open positions against hard floor stop loss.
+     * This catches catastrophic losses that the main loop (5-10sec cycle) might miss.
+     */
+    private suspend fun rapidStopLossMonitor() {
+        ErrorLogger.info("BotService", "🛡️ Rapid Stop-Loss Monitor STARTED (500ms cycle)")
+        
+        val HARD_FLOOR_STOP_PCT = 15.0  // ABSOLUTE MAX LOSS - NEVER EXCEEDED
+        val CHECK_INTERVAL_MS = 500L    // Check every 500ms
+        
+        while (status.running) {
+            try {
+                val cfg = ConfigStore.load(applicationContext)
+                val effectiveBalance = status.getEffectiveBalance(cfg.paperMode)
+                
+                // Get all open positions
+                val openPositions = synchronized(status.tokens) {
+                    status.tokens.values.filter { it.position.isOpen }.toList()
+                }
+                
+                for (ts in openPositions) {
+                    try {
+                        // Get current price - use the most recent available
+                        val currentPrice = ts.lastPrice.takeIf { it > 0 }
+                            ?: ts.history.lastOrNull()?.priceUsd
+                            ?: continue  // Can't check without price
+                        
+                        val entryPrice = ts.position.entryPrice
+                        if (entryPrice <= 0) continue
+                        
+                        // Calculate PnL
+                        val pnlPct = ((currentPrice - entryPrice) / entryPrice) * 100
+                        
+                        // HARD FLOOR CHECK - IMMEDIATE EXIT
+                        if (pnlPct <= -HARD_FLOOR_STOP_PCT) {
+                            ErrorLogger.warn("BotService", "🚨 RAPID STOP: ${ts.symbol} at ${pnlPct.toInt()}% - HARD FLOOR HIT")
+                            addLog("🛑 RAPID STOP: ${ts.symbol} ${pnlPct.toInt()}% | HARD FLOOR EXIT")
+                            
+                            // Execute immediate sell
+                            executor.requestSell(
+                                ts = ts,
+                                reason = "RAPID_HARD_FLOOR_STOP",
+                                wallet = wallet,
+                                walletSol = effectiveBalance
+                            )
+                            
+                            // Force cooldown
+                            TradeStateMachine.startCooldown(ts.mint)
+                        }
+                        
+                        // FLUID STOP CHECK (slightly slower reaction but still fast)
+                        val fluidStopPct = try {
+                            val modeDefault = cfg.stopLossPct
+                            com.lifecyclebot.v3.scoring.FluidLearningAI.getFluidStopLoss(modeDefault)
+                        } catch (_: Exception) { cfg.stopLossPct }
+                        
+                        if (pnlPct <= -fluidStopPct && pnlPct > -HARD_FLOOR_STOP_PCT) {
+                            ErrorLogger.warn("BotService", "⚠️ RAPID FLUID STOP: ${ts.symbol} at ${pnlPct.toInt()}% (limit=${fluidStopPct.toInt()}%)")
+                            addLog("🛑 RAPID FLUID STOP: ${ts.symbol} ${pnlPct.toInt()}%")
+                            
+                            executor.requestSell(
+                                ts = ts,
+                                reason = "RAPID_FLUID_STOP",
+                                wallet = wallet,
+                                walletSol = effectiveBalance
+                            )
+                            
+                            TradeStateMachine.startCooldown(ts.mint)
+                        }
+                        
+                    } catch (e: Exception) {
+                        // Log but don't crash the monitor
+                        ErrorLogger.debug("BotService", "Rapid stop check error for ${ts.symbol}: ${e.message}")
+                    }
+                }
+                
+                kotlinx.coroutines.delay(CHECK_INTERVAL_MS)
+                
+            } catch (e: Exception) {
+                ErrorLogger.error("BotService", "Rapid stop-loss monitor error: ${e.message}")
+                kotlinx.coroutines.delay(1000L)  // Wait longer on error
+            }
+        }
+        
+        ErrorLogger.info("BotService", "🛡️ Rapid Stop-Loss Monitor STOPPED")
+    }
+
     private suspend fun botLoop() {
         ErrorLogger.info("BotService", "botLoop() started")
+        
+        // START RAPID STOP-LOSS MONITOR IN PARALLEL
+        kotlinx.coroutines.GlobalScope.launch(kotlinx.coroutines.Dispatchers.IO) {
+            rapidStopLossMonitor()
+        }
+        
         var loopCount = 0
         while (status.running) {
           try {
