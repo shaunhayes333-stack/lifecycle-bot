@@ -40,6 +40,7 @@ class CollectiveBrainActivity : AppCompatActivity() {
     private lateinit var tvTopMode: TextView
     private lateinit var tvWorstMode: TextView
     private lateinit var llModeStats: LinearLayout
+    private lateinit var tvDataSource: TextView
     
     private val purple = 0xFF9945FF.toInt()
     private val green = 0xFF10B981.toInt()
@@ -85,6 +86,7 @@ class CollectiveBrainActivity : AppCompatActivity() {
         tvTopMode = findViewById(R.id.tvBrainTopMode)
         tvWorstMode = findViewById(R.id.tvBrainWorstMode)
         llModeStats = findViewById(R.id.llBrainModeStats)
+        tvDataSource = findViewById(R.id.tvBrainDataSource)
     }
     
     private suspend fun refreshStats() {
@@ -100,6 +102,9 @@ class CollectiveBrainActivity : AppCompatActivity() {
         val analyticsSummary = try {
             com.lifecyclebot.engine.CollectiveAnalytics.getSummary()
         } catch (_: Exception) { null }
+        
+        // Check if collective data is actually available from Turso
+        val hasCollectiveData = (analyticsSummary?.collectivePatterns ?: 0) > 0
         
         // Get local stats - THIS IS THE PRIMARY DATA SOURCE
         val localStats = com.lifecyclebot.engine.TradeHistoryStore.getStats()
@@ -117,15 +122,18 @@ class CollectiveBrainActivity : AppCompatActivity() {
             com.lifecyclebot.engine.ShadowLearningEngine.blockedTradesTracked
         } catch (_: Exception) { 0 }
         
-        // Use local trades + shadow tracked if collective is empty
-        val combinedTrades = if ((analyticsSummary?.collectivePatterns ?: 0) > 0) {
-            analyticsSummary?.collectivePatterns ?: 0
+        // Determine data source and label
+        val (dataSourceLabel, combinedTrades) = if (hasCollectiveData) {
+            "🌐 COLLECTIVE" to (analyticsSummary?.collectivePatterns ?: 0)
         } else {
-            // Show local trades + shadow tracked trades
-            totalStoredTrades + shadowTrackedCount
+            "📱 LOCAL DEVICE" to (totalStoredTrades + shadowTrackedCount)
         }
         
-        val estimatedInstances = (analyticsSummary?.estimatedInstances ?: 0).coerceAtLeast(1) // At least this instance
+        val estimatedInstances = if (hasCollectiveData) {
+            (analyticsSummary?.estimatedInstances ?: 0).coerceAtLeast(1)
+        } else {
+            1 // Just this device
+        }
         
         // Get TokenBlacklist count for local blacklist display
         val localBlacklisted = try {
@@ -147,6 +155,10 @@ class CollectiveBrainActivity : AppCompatActivity() {
         val displayPnl = localPnl
         
         withContext(Dispatchers.Main) {
+            // Update data source label with clear indicator
+            tvDataSource.text = dataSourceLabel
+            tvDataSource.setTextColor(if (hasCollectiveData) green else purple)
+            
             // Update brain animation
             val progress = (combinedTrades.toFloat() / 1_000_000f).coerceIn(0f, 1f)
             brainView.setProgress(progress)
@@ -168,6 +180,7 @@ class CollectiveBrainActivity : AppCompatActivity() {
                 tvTotalLoss.setTextColor(red)
             }
             
+            // Active instances: 1 for local, actual count for collective
             tvActiveInstances.text = "$estimatedInstances"
             tvPatternsLearned.text = "$localPatterns"
             tvBlacklistedTokens.text = "$localBlacklisted"
