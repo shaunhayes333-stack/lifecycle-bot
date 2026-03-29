@@ -1470,7 +1470,10 @@ class BotService : Service() {
             
             try {
                 // 💰⚡ Solana Arbitrage - Cross-exchange arb (requires treasury >= $500)
-                val treasuryUsd = com.lifecyclebot.v3.scoring.CashGenerationAI.getCurrentBalance() * solPriceUsd
+                // Use paper balance as proxy for treasury size
+                val treasuryBalance = com.lifecyclebot.v3.scoring.CashGenerationAI.getBalance(cfg.paperMode)
+                val solPrice = cfg.startingBalanceSol.takeIf { it > 0 } ?: 150.0  // Estimate SOL price
+                val treasuryUsd = treasuryBalance * solPrice
                 com.lifecyclebot.v3.scoring.SolanaArbAI.init(cfg.paperMode, treasuryUsd)
             } catch (e: Exception) {}
 
@@ -2914,9 +2917,10 @@ class BotService : Service() {
                                     val isBoosted = ts.source.contains("BOOSTED", ignoreCase = true)
                                     
                                     // Calculate 5 min price change
-                                    val priceChange5Min = ts.history.takeLastOrNull()?.let { 
-                                        ((ts.ref - it.priceUsd) / it.priceUsd * 100).coerceIn(-50.0, 100.0)
-                                    } ?: 0.0
+                                    val lastHistoryEntry = ts.history.lastOrNull()
+                                    val priceChange5Min = if (lastHistoryEntry != null && lastHistoryEntry.priceUsd > 0) {
+                                        ((ts.ref - lastHistoryEntry.priceUsd) / lastHistoryEntry.priceUsd * 100).coerceIn(-50.0, 100.0)
+                                    } else 0.0
                                     
                                     val expressSignal = com.lifecyclebot.v3.scoring.ShitCoinExpress.evaluate(
                                         mint = ts.mint,
@@ -2989,8 +2993,9 @@ class BotService : Service() {
                                 // Dip Hunter for tokens $50K-$5M mcap that have been around
                                 if (ts.lastMcap in 50_000.0..5_000_000.0 && tokenAgeHours >= 2.0) {
                                     
-                                    // Calculate high from ATH or recent high
-                                    val recentHigh = ts.ath.takeIf { it > 0 } ?: (ts.ref * 1.3)
+                                    // Calculate high from recent history or estimate
+                                    val historyHigh = ts.history.maxOfOrNull { it.priceUsd } ?: 0.0
+                                    val recentHigh = if (historyHigh > 0) historyHigh else (ts.ref * 1.3)
                                     
                                     val dipSignal = com.lifecyclebot.v3.scoring.DipHunterAI.evaluate(
                                         mint = ts.mint,
@@ -3002,7 +3007,7 @@ class BotService : Service() {
                                         buyPressurePct = ts.lastBuyPressurePct,
                                         volumeVsAvg = 1.0,
                                         tokenAgeHours = tokenAgeHours,
-                                        holderCount = ts.safety.holderCount.takeIf { it > 0 } ?: 100,
+                                        holderCount = 100,  // Default holder count estimate
                                         holderChange24h = 0,
                                         isDevSelling = ts.safety.bundleRisk == "HIGH",
                                     )
