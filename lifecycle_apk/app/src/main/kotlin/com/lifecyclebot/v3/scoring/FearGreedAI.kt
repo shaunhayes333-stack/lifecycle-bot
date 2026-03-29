@@ -108,11 +108,25 @@ class FearGreedAI : ScoringModule {
     override fun score(candidate: CandidateSnapshot, ctx: TradingContext): ScoreComponent {
         val data = fetchIndex()
         
+        // ═══════════════════════════════════════════════════════════════════════
+        // V3.3: Get internal sentiment from BehaviorAI
+        // Blend external market F&G with our own trading behavior sentiment
+        // ═══════════════════════════════════════════════════════════════════════
+        val internalSentiment = try {
+            BehaviorAI.getInternalSentiment()
+        } catch (_: Exception) { 50 }  // Neutral fallback
+        
         if (data == null) {
+            // Use only internal sentiment when external data unavailable
+            val score = when {
+                internalSentiment <= 24 -> -3  // Internal fear = cautious
+                internalSentiment >= 76 -> -5  // Internal euphoria = danger
+                else -> 0
+            }
             return ScoreComponent(
                 name = name,
-                value = 0,
-                reason = "F&G data unavailable"
+                value = score,
+                reason = "F&G: N/A | Internal: ${BehaviorAI.getSentimentClassification()}"
             )
         }
         
@@ -124,39 +138,60 @@ class FearGreedAI : ScoringModule {
         val isGoodSetup = setupQuality in listOf("A", "B")
         val isWeakSetup = setupQuality == "C" || candidate.extraInt("v3Score") < 40
         
-        val score: Int
+        // ═══════════════════════════════════════════════════════════════════════
+        // COMPOSITE SENTIMENT: Blend external market F&G with internal behavior
+        // External F&G = 70% weight (market-wide sentiment)
+        // Internal = 30% weight (our own trading state)
+        // ═══════════════════════════════════════════════════════════════════════
+        val compositeSentiment = ((fgValue * 0.7) + (internalSentiment * 0.3)).toInt()
+        
+        var score: Int
         val reason: String
         
         when {
             // EXTREME FEAR (0-24): Good time to buy if setup is decent
-            fgValue <= 24 -> {
+            compositeSentiment <= 24 -> {
                 score = if (isGoodSetup) 8 else 4
-                reason = "Extreme Fear ($fgValue) - ${if (isGoodSetup) "contrarian buy opportunity" else "cautious entry"}"
+                reason = "Extreme Fear (ext=$fgValue int=$internalSentiment) - ${if (isGoodSetup) "contrarian buy" else "caution"}"
             }
             
             // FEAR (25-44): Slightly bullish
-            fgValue in 25..44 -> {
+            compositeSentiment in 25..44 -> {
                 score = if (isGoodSetup) 4 else 2
-                reason = "Fear ($fgValue) - market cautious"
+                reason = "Fear (ext=$fgValue int=$internalSentiment) - cautious"
             }
             
             // NEUTRAL (45-55): No edge
-            fgValue in 45..55 -> {
+            compositeSentiment in 45..55 -> {
                 score = 0
-                reason = "Neutral ($fgValue)"
+                reason = "Neutral (ext=$fgValue int=$internalSentiment)"
             }
             
             // GREED (56-75): Be careful
-            fgValue in 56..75 -> {
+            compositeSentiment in 56..75 -> {
                 score = if (isWeakSetup) -4 else -1
-                reason = "Greed ($fgValue) - ${if (isWeakSetup) "avoid weak setups" else "caution advised"}"
+                reason = "Greed (ext=$fgValue int=$internalSentiment) - ${if (isWeakSetup) "avoid weak" else "caution"}"
             }
             
             // EXTREME GREED (76-100): High risk of pullback
             else -> {
                 score = if (isWeakSetup) -8 else -3
-                reason = "Extreme Greed ($fgValue) - ${if (isWeakSetup) "high FOMO risk" else "pullback likely"}"
+                reason = "Extreme Greed (ext=$fgValue int=$internalSentiment) - ${if (isWeakSetup) "FOMO risk" else "pullback likely"}"
             }
+        }
+        
+        // ═══════════════════════════════════════════════════════════════════════
+        // BEHAVIOR OVERRIDE: Internal euphoria during external fear = DANGER
+        // This catches "we're winning but market is crashing" situations
+        // ═══════════════════════════════════════════════════════════════════════
+        if (internalSentiment >= 70 && fgValue <= 30) {
+            score -= 5
+            ErrorLogger.debug(TAG, "⚠️ Euphoria during market fear - reducing score")
+        }
+        
+        // Internal fear + external greed = extra caution
+        if (internalSentiment <= 30 && fgValue >= 70) {
+            score -= 3
         }
         
         return ScoreComponent(

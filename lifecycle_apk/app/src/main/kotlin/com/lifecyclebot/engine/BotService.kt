@@ -143,6 +143,14 @@ class BotService : Service() {
         // Initialize TradeHistoryStore for persistent trade stats
         TradeHistoryStore.init(applicationContext)
         
+        // Initialize BehaviorAI from trade history
+        try {
+            com.lifecyclebot.v3.scoring.BehaviorAI.loadFromHistory()
+            ErrorLogger.info("BotService", "BehaviorAI loaded from trade history")
+        } catch (e: Exception) {
+            ErrorLogger.debug("BotService", "BehaviorAI load error: ${e.message}")
+        }
+        
         // Initialize GeminiCopilot with API key from config
         if (cfg.geminiApiKey.isNotBlank()) {
             GeminiCopilot.init(cfg.geminiApiKey)

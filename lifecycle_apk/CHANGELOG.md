@@ -5,23 +5,39 @@ All notable changes to the Autonomous Algorithmic Trading Engine.
 ## [v3.3.0] - 2026-03-29
 
 ### Added - Sentient Trading Architecture
+
+- **BehaviorAI (Layer 25)**: Trading behavior pattern recognition (NEW)
+  - Tracks loss streaks, win streaks, tilt level, discipline score
+  - Detects mega pumps (50%+), 10x runs, 100x moonshots
+  - Tilt protection: Auto-blocks trading after 5+ consecutive losses
+  - Feeds behavior modifier to FluidLearningAI (-1.0 to +1.0)
+  - Internal sentiment (0-100) integrates with FearGreedAI
+  - Session tracking: trades, wins, losses, big wins
+
 - **FluidLearningAI (Layer 23)**: Centralized fluidity controller
   - All thresholds now scale from loose (30%) to strict (75-80%) as bot learns
   - Fresh installs get relaxed liquidity barriers to enable trading from Day 1
   - Automatically tightens as trade count increases ("training wheels" concept)
   - Unified lerp() function for all adaptive thresholds
+  - **NEW**: Behavior modifier integration from BehaviorAI (±15% shift)
 
 - **Fluid Stop Loss & Take Profit** (NEW in this version)
   - Bootstrap: Wide SL (-10% max), tight TP (+5-8%) - learn safely, secure wins
   - Mature: Mode-specific SL/TP - protect capital, let winners run
   - Each trading mode (SNIPE, RANGE, AGGRESSIVE, etc.) gets fluid parameters
   - AutoModeEngine now uses FluidLearningAI for all stop/trailing calculations
+  - Behavior modifier affects all fluid thresholds
 
 - **SellOptimizationAI (Layer 24)**: Intelligent exit strategy layer
   - Chunk selling: 25%/50%/75% partial exits at profit milestones
   - Trailing stop locks that follow price upward
   - Exit urgency classification: NONE, LOW, MEDIUM, HIGH, CRITICAL
   - Tracks position state for coordinated multi-leg exits
+
+- **FearGreedAI + BehaviorAI Integration**
+  - Composite sentiment: 70% external market F&G + 30% internal behavior
+  - Detects dangerous divergence: euphoria during market fear
+  - Internal sentiment classification: EXTREME_FEAR → EUPHORIA
 
 - **Treasury Mode Compounding**: CashGenerationAI now compounds buys
   - Profits from winning trades feed back into position sizing
@@ -41,15 +57,18 @@ All notable changes to the Autonomous Algorithmic Trading Engine.
 - **Collective Learning for New Users**: CollectiveIntelligenceAI.refresh() now triggered on init so new users see shared data immediately
 
 ### Changed
-- Total AI layers increased from 22 to **24**
+- Total AI layers increased from 22 to **25**
 - All modes (Paper/Live/Treasury) use fluid thresholds from FluidLearningAI
-- UnifiedScorer.moduleNames() updated to include all 24 layers
+- UnifiedScorer.moduleNames() updated to include all 25 layers
 - AutoModeEngine: All 6 bot modes (SNIPE, RANGE, AGGRESSIVE, DEFENSIVE, COPY, PAUSED) use fluid SL/TP
+- Executor.recordTrade() now feeds BehaviorAI and FluidLearningAI
+- BotService.onCreate() initializes BehaviorAI from trade history
 
 ### Technical Notes
-- 181 Kotlin source files
+- 182 Kotlin source files
 - All builds verified via GitHub Actions CI
 - Fluid scaling uses sigmoid-like progression tied to lifetime trade count
+- Behavior modifier can shift fluid thresholds up to ±15%
 
 ---
 

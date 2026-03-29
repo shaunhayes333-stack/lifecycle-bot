@@ -295,6 +295,28 @@ class Executor(
             } catch (e: Exception) {
                 // Silently ignore - meta-cognition is secondary
             }
+            
+            // ═══════════════════════════════════════════════════════════════
+            // V3.3: Record trade to FluidLearningAI and BehaviorAI
+            // FluidLearningAI: Adjusts adaptive thresholds based on outcomes
+            // BehaviorAI: Tracks streaks, tilt, discipline, big wins/losses
+            // ═══════════════════════════════════════════════════════════════
+            try {
+                val pnl = trade.pnlPct
+                val isWin = pnl > 2.0
+                
+                // Record to FluidLearningAI for learning progress
+                com.lifecyclebot.v3.scoring.FluidLearningAI.recordTrade(isWin)
+                
+                // Record to BehaviorAI for behavior pattern analysis
+                com.lifecyclebot.v3.scoring.BehaviorAI.recordTrade(
+                    pnlPct = pnl,
+                    reason = trade.reason,
+                    mint = ts.mint
+                )
+            } catch (e: Exception) {
+                // Silently ignore - behavior tracking is secondary
+            }
         }
     }
 

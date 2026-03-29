@@ -41,6 +41,32 @@ object FluidLearningAI {
     // Trades needed to reach full maturity
     private const val TRADES_FOR_MATURITY = 500
     
+    // ═══════════════════════════════════════════════════════════════════════════
+    // BEHAVIOR MODIFIER (From BehaviorAI)
+    // ═══════════════════════════════════════════════════════════════════════════
+    
+    // Behavior modifier: -1.0 to +1.0
+    // Negative = tighten thresholds (bad behavior like loss streaks)
+    // Positive = loosen thresholds (good behavior like win streaks, 10x runs)
+    @Volatile
+    private var behaviorModifier = 0.0
+    
+    /**
+     * Apply a behavior modifier from BehaviorAI.
+     * This affects all fluid thresholds.
+     * 
+     * @param modifier -1.0 (very bad behavior) to +1.0 (excellent behavior)
+     */
+    fun applyBehaviorModifier(modifier: Double) {
+        behaviorModifier = modifier.coerceIn(-1.0, 1.0)
+        ErrorLogger.info(TAG, "🧠 Behavior modifier: ${if (modifier >= 0) "+" else ""}${(modifier * 100).toInt()}%")
+    }
+    
+    /**
+     * Get the current behavior modifier.
+     */
+    fun getBehaviorModifier(): Double = behaviorModifier
+    
     /**
      * Get current learning progress (0.0 = brand new, 1.0 = fully mature).
      * Cached for 10 seconds to avoid expensive recalculations.
@@ -104,17 +130,45 @@ object FluidLearningAI {
     
     /**
      * Linear interpolation between bootstrap (loose) and mature (strict) values.
+     * Now includes behavior modifier:
+     *   - Negative behavior → pushes toward MATURE (stricter)
+     *   - Positive behavior → pushes toward BOOTSTRAP (looser)
      */
     fun lerp(bootstrap: Double, mature: Double): Double {
+        var progress = getLearningProgress()
+        
+        // Apply behavior modifier
+        // Negative behavior (loss streaks) → increase progress (tighter thresholds)
+        // Positive behavior (win streaks, 10x) → decrease progress (looser thresholds)
+        if (behaviorModifier != 0.0) {
+            val behaviorEffect = -behaviorModifier * 0.15  // Max 15% adjustment
+            progress = (progress + behaviorEffect).coerceIn(0.0, 1.0)
+        }
+        
+        return bootstrap + (mature - bootstrap) * progress
+    }
+    
+    /**
+     * Raw lerp without behavior modifier (for display/comparison).
+     */
+    fun lerpRaw(bootstrap: Double, mature: Double): Double {
         val progress = getLearningProgress()
         return bootstrap + (mature - bootstrap) * progress
     }
     
     /**
      * Inverse lerp - returns HIGHER value in bootstrap (for bonuses/scores).
+     * Also includes behavior modifier.
      */
     fun lerpInverse(bootstrap: Double, mature: Double): Double {
-        val progress = getLearningProgress()
+        var progress = getLearningProgress()
+        
+        // Apply behavior modifier (inverse effect)
+        if (behaviorModifier != 0.0) {
+            val behaviorEffect = -behaviorModifier * 0.15
+            progress = (progress + behaviorEffect).coerceIn(0.0, 1.0)
+        }
+        
         return mature + (bootstrap - mature) * (1.0 - progress)
     }
     

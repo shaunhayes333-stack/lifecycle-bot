@@ -166,6 +166,37 @@ class UnifiedScorer(
                 fatal = vetoReason != null && metaResult.confidence < 20  // Only fatal on extreme distrust
             )
             
+            // ═══════════════════════════════════════════════════════════════════════
+            // BEHAVIOR AI - Layer 25: Trading Behavior Pattern Recognition
+            // Integrates trading behavior (streaks, tilt, discipline) into scoring
+            // ═══════════════════════════════════════════════════════════════════════
+            val behaviorComponent = try {
+                // Check for tilt protection (hard block)
+                if (BehaviorAI.isTiltProtectionActive()) {
+                    ScoreComponent(
+                        name = "behavior",
+                        value = -50,  // Strong negative to ensure rejection
+                        reason = "🛑 TILT PROTECTION: ${BehaviorAI.getTiltProtectionRemaining()}s remaining",
+                        fatal = true
+                    )
+                } else {
+                    val scoreAdj = BehaviorAI.getScoreAdjustment()
+                    val state = BehaviorAI.getState()
+                    ScoreComponent(
+                        name = "behavior",
+                        value = scoreAdj,
+                        reason = "${state.sentimentClass} | streak=${state.currentStreak} | " +
+                            "tilt=${state.tiltLevel}% disc=${state.disciplineScore}%"
+                    )
+                }
+            } catch (e: Exception) {
+                ScoreComponent(
+                    name = "behavior",
+                    value = 0,
+                    reason = "NO_DATA"
+                )
+            }
+            
             // Log significant meta-cognition insights
             if (metaAdjustment != 0 || vetoReason != null) {
                 Log.i("UnifiedScorer", "🧠 META: ${candidate.symbol} | adj=$metaAdjustment | " +
@@ -173,8 +204,8 @@ class UnifiedScorer(
                     (if (vetoReason != null) " | VETO" else ""))
             }
             
-            // Return scorecard with all 20 components
-            return ScoreCard(baseComponents + metaComponent)
+            // Return scorecard with all components including behavior
+            return ScoreCard(baseComponents + metaComponent + behaviorComponent)
             
         } catch (e: Exception) {
             Log.w("UnifiedScorer", "MetaCognitionAI error: ${e.message}")
@@ -234,7 +265,7 @@ class UnifiedScorer(
     }
     
     /**
-     * Get list of all module names (now 22 with CollectiveAI and MetaCognitionAI)
+     * Get list of all module names (now 25 with BehaviorAI)
      */
     fun moduleNames(): List<String> = listOf(
         "source", "entry", "momentum", "liquidity", "volume",
@@ -245,5 +276,6 @@ class UnifiedScorer(
         "metacognition",     // Layer 22: Self-aware executive function
         "fluid_learning",    // Layer 23: Centralized fluidity control
         "sell_optimization", // Layer 24: Intelligent exit strategy
+        "behavior",          // Layer 25: Trading behavior pattern recognition
     )
 }
