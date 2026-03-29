@@ -135,252 +135,256 @@ class CollectiveBrainActivity : AppCompatActivity() {
     }
     
     private suspend fun refreshStats() {
-        // Get stats from CollectiveLearning
-        val stats = CollectiveLearning.getStats()
-        val isEnabled = stats["enabled"] as? Boolean ?: false
-        val collectivePatterns = stats["patterns"] as? Int ?: 0
-        val collectiveBlacklisted = stats["blacklistedTokens"] as? Int ?: 0
-        val collectiveModeStats = stats["modeStats"] as? Int ?: 0
-        val collectiveWhaleStats = stats["whaleStats"] as? Int ?: 0
+        // ═══════════════════════════════════════════════════════════════════════════
+        // V4.0: USE REAL COLLECTIVE STATS FROM THE HIVE MIND
+        // No more mixing local + collective - show TRUE network data when connected
+        // ═══════════════════════════════════════════════════════════════════════════
         
-        // Get collective analytics summary
-        val analyticsSummary = try {
-            com.lifecyclebot.engine.CollectiveAnalytics.getSummary()
-        } catch (_: Exception) { null }
-        
-        // Check if Turso/Collective Learning is enabled (regardless of pattern count)
         val isTursoEnabled = CollectiveLearning.isEnabled()
         
-        // V3.3: Properly detect if collective data exists
-        val hasCollectiveData = isTursoEnabled && collectivePatterns > 0
-        
-        // V3.3: Get active USERS count (traders in last 24h) - more meaningful metric
-        val activeUsersCount = if (isTursoEnabled) {
+        // V4.0: Get REAL collective stats from the network
+        val collectiveStats = if (isTursoEnabled) {
             try {
-                // First try active users, fallback to instances
-                val activeUsers = CollectiveLearning.getActiveUsersCount()
-                if (activeUsers > 0) activeUsers else CollectiveLearning.countActiveInstances()
-            } catch (_: Exception) { 1 }
-        } else {
-            1  // Just this device when Turso not enabled
-        }
-        
-        // Get COLLECTIVE trade count from Turso database
-        val collectiveTotalTrades = if (isTursoEnabled) {
-            try {
-                // Use the new getCollectiveTotalTradeCount() which queries collective_trades table
-                CollectiveLearning.getCollectiveTotalTradeCount()
-            } catch (_: Exception) { 0 }
-        } else 0
-        
-        // Get local stats - secondary data source
-        val localStats = com.lifecyclebot.engine.TradeHistoryStore.getStats()
-        val localPnl = localStats.pnl24hSol
-        val localTrades = localStats.trades24h
-        val totalStoredTrades = localStats.totalStoredTrades
-        
-        // V3.2: Get shadow learning stats for display
-        val shadowTrackedCount = try {
-            com.lifecyclebot.engine.ShadowLearningEngine.blockedTradesTracked
-        } catch (_: Exception) { 0 }
-        
-        // Determine data source and label
-        // V3.3: Show COLLECTIVE trades when connected, not just local
-        val (dataSourceLabel, combinedTrades) = when {
-            hasCollectiveData -> "🌐 COLLECTIVE" to (collectiveTotalTrades.coerceAtLeast(collectivePatterns))
-            isTursoEnabled -> "🔄 CONNECTED" to (collectiveTotalTrades.coerceAtLeast(totalStoredTrades + shadowTrackedCount))
-            else -> "📱 LOCAL DEVICE" to (totalStoredTrades + shadowTrackedCount)
-        }
-        
-        // V3.3: Use active USERS count (more meaningful than instances)
-        val estimatedInstances = activeUsersCount
-        
-        // Get TokenBlacklist count - prioritize COLLECTIVE data
-        val displayBlacklisted = if (hasCollectiveData) {
-            collectiveBlacklisted.coerceAtLeast(try {
-                com.lifecyclebot.engine.TokenBlacklist.getBlacklistSize()
-            } catch (_: Exception) { 0 })
-        } else {
-            try {
-                com.lifecyclebot.engine.TokenBlacklist.getBlacklistSize()
-            } catch (_: Exception) { collectiveBlacklisted }
-        }
-        
-        // Get patterns count - prioritize COLLECTIVE data
-        val displayPatterns = if (hasCollectiveData) {
-            collectivePatterns
-        } else {
-            try {
-                com.lifecyclebot.engine.EdgeLearning.getPatternCount()
-            } catch (_: Exception) { collectivePatterns }
-        }
-        
-        // Get top trading mode from collective or local
-        val topMode = if (hasCollectiveData && analyticsSummary != null && analyticsSummary.bestPatterns.isNotEmpty()) {
-            analyticsSummary.bestPatterns.first().patternType
-        } else {
-            try {
-                com.lifecyclebot.engine.TradeHistoryStore.getTopMode() 
-                    ?: com.lifecyclebot.engine.ShadowLearningEngine.getTopTrackedMode()
+                CollectiveLearning.getCollectiveStats()
             } catch (_: Exception) { null }
+        } else null
+        
+        // V4.0: Get top performing modes from collective
+        val topModes = if (isTursoEnabled) {
+            try {
+                CollectiveLearning.getTopModes(5)
+            } catch (_: Exception) { emptyList() }
+        } else emptyList()
+        
+        // V4.0: Get modes to avoid
+        val avoidModes = if (isTursoEnabled) {
+            try {
+                CollectiveLearning.getModesToAvoid(3)
+            } catch (_: Exception) { emptyList() }
+        } else emptyList()
+        
+        // V4.0: Get hot tokens from network
+        val hotTokens = if (isTursoEnabled) {
+            try {
+                CollectiveLearning.getHotTokens(6, 5)
+            } catch (_: Exception) { emptyList() }
+        } else emptyList()
+        
+        // V4.0: Get network signals (broadcasts from other bots)
+        val networkSignals = if (isTursoEnabled) {
+            try {
+                CollectiveLearning.getNetworkSignals(10)
+            } catch (_: Exception) { emptyList() }
+        } else emptyList()
+        
+        // Get basic stats for fallback
+        val basicStats = CollectiveLearning.getStats()
+        val collectivePatterns = basicStats["patterns"] as? Int ?: 0
+        val collectiveBlacklisted = basicStats["blacklistedTokens"] as? Int ?: 0
+        
+        // Get local stats for comparison
+        val localStats = com.lifecyclebot.engine.TradeHistoryStore.getStats()
+        val localWinRate = if (localStats.totalStoredTrades > 0) {
+            (localStats.wins.toDouble() / localStats.totalStoredTrades * 100)
+        } else 0.0
+        
+        // Determine data source and display values
+        val hasCollectiveData = collectiveStats != null && collectiveStats.totalTrades > 0
+        
+        val (dataSourceLabel, displayTrades, displayWinRate, displayAvgPnl, activeUsers) = if (hasCollectiveData) {
+            val stats = collectiveStats!!
+            Triple(
+                "🌐 HIVE MIND",
+                stats.totalTrades,
+                stats.winRate
+            ) to Triple(stats.avgPnlPct, stats.activeUsers24h, true)
+        } else if (isTursoEnabled) {
+            Triple(
+                "🔄 CONNECTING...",
+                localStats.totalStoredTrades,
+                localWinRate
+            ) to Triple(0.0, 1, false)
+        } else {
+            Triple(
+                "📱 LOCAL ONLY",
+                localStats.totalStoredTrades,
+                localWinRate
+            ) to Triple(0.0, 1, false)
         }
         
-        // Use local PnL (shadow stats don't have PnL in SOL)
-        val displayPnl = localPnl
+        val (avgPnl, users, isHive) = Pair(displayAvgPnl, activeUsers).let { 
+            Triple(it.first.first, it.first.second, it.second) 
+        }
         
         withContext(Dispatchers.Main) {
-            // Update data source label with clear indicator
-            tvDataSource.text = dataSourceLabel
+            // Update data source label
+            tvDataSource.text = dataSourceLabel.first
             tvDataSource.setTextColor(when {
                 hasCollectiveData -> green
-                isTursoEnabled -> 0xFF6366F1.toInt()  // Indigo for connected but syncing
+                isTursoEnabled -> 0xFF6366F1.toInt()
                 else -> purple
             })
             
             // Update brain animation
-            val progress = (combinedTrades.toFloat() / 1_000_000f).coerceIn(0f, 1f)
+            val progress = (dataSourceLabel.second.toFloat() / 1_000_000f).coerceIn(0f, 1f)
             brainView.setProgress(progress)
-            brainView.setTradeCount(combinedTrades)
+            brainView.setTradeCount(dataSourceLabel.second)
             
-            // Update text stats - now showing COLLECTIVE data when available
-            tvTotalTrades.text = formatNumber(combinedTrades)
+            // Update trade count
+            tvTotalTrades.text = formatNumber(dataSourceLabel.second)
             
-            // Show profit or loss (not both dashed)
-            if (displayPnl >= 0) {
-                tvTotalProfit.text = "+${String.format("%.4f", displayPnl)} SOL"
-                tvTotalProfit.setTextColor(green)
-                tvTotalLoss.text = "—"
+            // V4.0: Show COLLECTIVE win rate and avg PnL (not local!)
+            if (hasCollectiveData && collectiveStats != null) {
+                // Show win rate as profit indicator
+                val wrText = "${collectiveStats.winRate.toInt()}% WR"
+                val avgText = "${if (collectiveStats.avgPnlPct >= 0) "+" else ""}${String.format("%.1f", collectiveStats.avgPnlPct)}%"
+                tvTotalProfit.text = "$wrText | $avgText avg"
+                tvTotalProfit.setTextColor(if (collectiveStats.winRate >= 50) green else red)
+                
+                // Show total trades breakdown
+                tvTotalLoss.text = "${collectiveStats.totalWins}W / ${collectiveStats.totalLosses}L"
                 tvTotalLoss.setTextColor(muted)
             } else {
-                tvTotalProfit.text = "—"
-                tvTotalProfit.setTextColor(muted)
-                tvTotalLoss.text = "${String.format("%.4f", displayPnl)} SOL"
-                tvTotalLoss.setTextColor(red)
+                // Fallback to local
+                tvTotalProfit.text = "${localWinRate.toInt()}% WR"
+                tvTotalProfit.setTextColor(if (localWinRate >= 50) green else muted)
+                tvTotalLoss.text = "Local data"
+                tvTotalLoss.setTextColor(muted)
             }
             
-            // Active instances: REAL-TIME count from Turso database
-            tvActiveInstances.text = "$estimatedInstances"
-            // Color green if multiple instances detected
-            tvActiveInstances.setTextColor(if (estimatedInstances > 1) green else white)
+            // Active users
+            tvActiveInstances.text = "${collectiveStats?.activeUsers24h ?: 1}"
+            tvActiveInstances.setTextColor(if ((collectiveStats?.activeUsers24h ?: 1) > 1) green else white)
             
-            // V3.3: Show COLLECTIVE patterns if available
-            tvPatternsLearned.text = "$displayPatterns"
-            tvBlacklistedTokens.text = "$displayBlacklisted"
+            // Patterns and blacklist
+            tvPatternsLearned.text = "$collectivePatterns"
+            tvBlacklistedTokens.text = "$collectiveBlacklisted"
             
-            // Show top mode
-            if (topMode != null) {
-                tvTopMode.text = topMode.take(15)
+            // V4.0: Show top mode from collective ranking
+            if (topModes.isNotEmpty()) {
+                val best = topModes.first()
+                tvTopMode.text = "${best.modeName.take(12)} ${best.winRate.toInt()}%"
+                tvTopMode.setTextColor(green)
             } else {
                 tvTopMode.text = "—"
             }
             
-            // Update mode stats
-            updateModeStats(analyticsSummary, null)
+            // V4.0: Show worst mode to avoid
+            if (avoidModes.isNotEmpty()) {
+                val worst = avoidModes.first()
+                tvWorstMode.text = "${worst.modeName.take(12)} ${worst.avgPnlPct.toInt()}%"
+                tvWorstMode.setTextColor(red)
+            } else {
+                tvWorstMode.text = "—"
+            }
+            
+            // V4.0: Update mode stats panel with TOP MODES from collective
+            updateModeStatsV4(topModes, avoidModes, hotTokens, networkSignals)
             
             // Pulse the brain if trades increased
-            if (combinedTrades > brainView.lastTradeCount) {
+            if (dataSourceLabel.second > brainView.lastTradeCount) {
                 brainView.pulse()
             }
         }
     }
     
-    private fun updateModeStats(
-        analyticsSummary: com.lifecyclebot.engine.CollectiveAnalytics.AnalyticsSummary?,
-        shadowStats: com.lifecyclebot.engine.ShadowLearningEngine.BlockedTradeStats?
+    /**
+     * V4.0: Update mode stats with REAL collective data
+     */
+    private fun updateModeStatsV4(
+        topModes: List<CollectiveLearning.ModeRanking>,
+        avoidModes: List<CollectiveLearning.ModeRanking>,
+        hotTokens: List<CollectiveLearning.HotToken>,
+        networkSignals: List<CollectiveLearning.NetworkSignal>
     ) {
-        try {
-            val topPatterns = analyticsSummary?.bestPatterns ?: emptyList()
-            val worstPatterns = analyticsSummary?.worstPatterns ?: emptyList()
-            
-            // V3.2: Use shadow learning mode performance if no collective data
-            val shadowModePerf = try {
-                com.lifecyclebot.engine.ShadowLearningEngine.getModePerformance()
-            } catch (_: Exception) { emptyMap() }
-            
-            // If we have shadow mode performance data, use it
-            if (topPatterns.isEmpty() && shadowModePerf.isNotEmpty()) {
-                // Get top mode from shadow learning
-                val sortedByWinRate = shadowModePerf.values.sortedByDescending { it.winRate }
-                if (sortedByWinRate.isNotEmpty()) {
-                    tvTopMode.text = sortedByWinRate.first().mode.take(15)
-                }
-                if (sortedByWinRate.size > 1) {
-                    tvWorstMode.text = sortedByWinRate.last().mode.take(15)
-                }
-                
-                // Build mode breakdown from shadow stats
-                llModeStats.removeAllViews()
-                sortedByWinRate.take(3).forEachIndexed { index: Int, perf: com.lifecyclebot.engine.ShadowLearningEngine.ModePerformance ->
-                    val row = LinearLayout(this).apply {
-                        orientation = LinearLayout.HORIZONTAL
-                        setPadding(0, dp(4), 0, dp(4))
-                    }
-                    
-                    val emoji = when (index) { 0 -> "🥇"; 1 -> "🥈"; 2 -> "🥉"; else -> "•" }
-                    
-                    row.addView(TextView(this).apply {
-                        text = "$emoji ${perf.mode.take(18)}"
-                        textSize = 12f
-                        setTextColor(white)
-                        layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
-                    })
-                    
-                    row.addView(TextView(this).apply {
-                        text = "${String.format("%.0f", perf.winRate)}%"
-                        textSize = 12f
-                        setTextColor(if (perf.winRate > 50) green else red)
-                        typeface = Typeface.create(Typeface.MONOSPACE, Typeface.BOLD)
-                    })
-                    
-                    llModeStats.addView(row)
-                }
-                
-                return
-            }
-            
-            if (topPatterns.isNotEmpty()) {
-                tvTopMode.text = topPatterns.first().patternType.take(15)
-            } else {
-                tvTopMode.text = "—"
-            }
-            
-            if (worstPatterns.isNotEmpty()) {
-                tvWorstMode.text = worstPatterns.first().patternType.take(15)
-            } else {
-                tvWorstMode.text = "—"
-            }
-            
-            // Build mode breakdown
-            llModeStats.removeAllViews()
-            
-            topPatterns.take(3).forEachIndexed { index: Int, pattern: com.lifecyclebot.engine.CollectiveAnalytics.PatternStat ->
-                val row = LinearLayout(this).apply {
-                    orientation = LinearLayout.HORIZONTAL
-                    setPadding(0, dp(4), 0, dp(4))
-                }
-                
+        llModeStats.removeAllViews()
+        
+        // Section: Top Modes
+        if (topModes.isNotEmpty()) {
+            addSectionHeader("🏆 TOP MODES")
+            topModes.take(3).forEachIndexed { index, mode ->
                 val emoji = when (index) { 0 -> "🥇"; 1 -> "🥈"; 2 -> "🥉"; else -> "•" }
-                
-                row.addView(TextView(this).apply {
-                    text = "$emoji ${pattern.patternType.take(18)}"
-                    textSize = 12f
-                    setTextColor(white)
-                    layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
-                })
-                
-                row.addView(TextView(this).apply {
-                    text = "${String.format("%.0f", pattern.winRate)}%"
-                    textSize = 12f
-                    setTextColor(green)
-                    typeface = Typeface.create(Typeface.MONOSPACE, Typeface.BOLD)
-                })
-                
-                llModeStats.addView(row)
+                addModeRow(emoji, mode.modeName, mode.winRate, mode.avgPnlPct, true)
             }
-            
-        } catch (e: Exception) {
-            com.lifecyclebot.engine.ErrorLogger.error("CollectiveBrain", "Mode stats error: ${e.message}")
         }
+        
+        // Section: Hot Tokens from Network
+        if (networkSignals.isNotEmpty()) {
+            addSectionHeader("📡 NETWORK SIGNALS")
+            networkSignals.filter { it.signalType in listOf("MEGA_WINNER", "HOT_TOKEN") }.take(3).forEach { signal ->
+                val emoji = if (signal.signalType == "MEGA_WINNER") "🔥" else "🌐"
+                addTokenRow(emoji, signal.symbol, signal.pnlPct, signal.ackCount)
+            }
+        } else if (hotTokens.isNotEmpty()) {
+            addSectionHeader("🔥 HOT TOKENS (6h)")
+            hotTokens.take(3).forEach { token ->
+                addTokenRow("💎", token.symbol, token.avgPnlPct, token.botsTrading)
+            }
+        }
+        
+        // Section: Avoid
+        if (avoidModes.isNotEmpty() && avoidModes.first().avgPnlPct < -5) {
+            addSectionHeader("⚠️ AVOID")
+            avoidModes.take(2).forEach { mode ->
+                addModeRow("❌", mode.modeName, mode.winRate, mode.avgPnlPct, false)
+            }
+        }
+    }
+    
+    private fun addSectionHeader(title: String) {
+        llModeStats.addView(android.widget.TextView(this).apply {
+            text = title
+            textSize = 11f
+            setTextColor(muted)
+            setPadding(0, dp(8), 0, dp(4))
+        })
+    }
+    
+    private fun addModeRow(emoji: String, name: String, winRate: Double, avgPnl: Double, isPositive: Boolean) {
+        val row = android.widget.LinearLayout(this).apply {
+            orientation = android.widget.LinearLayout.HORIZONTAL
+            setPadding(0, dp(2), 0, dp(2))
+        }
+        
+        row.addView(android.widget.TextView(this).apply {
+            text = "$emoji ${name.take(14)}"
+            textSize = 12f
+            setTextColor(white)
+            layoutParams = android.widget.LinearLayout.LayoutParams(0, android.widget.LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
+        })
+        
+        row.addView(android.widget.TextView(this).apply {
+            val pnlStr = if (avgPnl >= 0) "+${avgPnl.toInt()}%" else "${avgPnl.toInt()}%"
+            text = "${winRate.toInt()}% | $pnlStr"
+            textSize = 12f
+            setTextColor(if (isPositive) green else red)
+            typeface = android.graphics.Typeface.create(android.graphics.Typeface.MONOSPACE, android.graphics.Typeface.BOLD)
+        })
+        
+        llModeStats.addView(row)
+    }
+    
+    private fun addTokenRow(emoji: String, symbol: String, pnlPct: Double, count: Int) {
+        val row = android.widget.LinearLayout(this).apply {
+            orientation = android.widget.LinearLayout.HORIZONTAL
+            setPadding(0, dp(2), 0, dp(2))
+        }
+        
+        row.addView(android.widget.TextView(this).apply {
+            text = "$emoji $symbol"
+            textSize = 12f
+            setTextColor(white)
+            layoutParams = android.widget.LinearLayout.LayoutParams(0, android.widget.LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
+        })
+        
+        row.addView(android.widget.TextView(this).apply {
+            text = "+${pnlPct.toInt()}% (${count}🤖)"
+            textSize = 12f
+            setTextColor(green)
+            typeface = android.graphics.Typeface.create(android.graphics.Typeface.MONOSPACE, android.graphics.Typeface.BOLD)
+        })
+        
+        llModeStats.addView(row)
     }
     
     private fun formatNumber(n: Int): String {
