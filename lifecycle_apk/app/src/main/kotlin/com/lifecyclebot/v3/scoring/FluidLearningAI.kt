@@ -222,6 +222,102 @@ object FluidLearningAI {
     fun getRugFilterLiqEstablished(): Double = lerp(RUG_LIQ_ESTABLISHED_BOOTSTRAP, RUG_LIQ_ESTABLISHED_MATURE)
     
     // ═══════════════════════════════════════════════════════════════════════════
+    // FLUID STOP LOSS & TAKE PROFIT (Per Mode)
+    // ═══════════════════════════════════════════════════════════════════════════
+    // 
+    // PHILOSOPHY: While learning, use WIDE stop losses and TIGHT take profits.
+    // - Wide SL (-10% to -15%) prevents learning from noise during bootstrap
+    // - Tight TP (+5% to +8%) captures wins early while learning what works
+    // 
+    // As bot matures:
+    // - SL tightens (-3% to -8%) to protect gains
+    // - TP widens (+15% to +50%) to let winners run
+    // 
+    // Each mode has its own fluid parameters that intertwine with mode strategy.
+    // ═══════════════════════════════════════════════════════════════════════════
+    
+    /**
+     * Get fluid stop loss percentage for a trading mode.
+     * Bootstrap: LOOSE stops (allow learning from volatile moves)
+     * Mature: TIGHT stops (protect capital with experience)
+     */
+    fun getFluidStopLoss(modeDefaultStop: Double): Double {
+        val progress = getLearningProgress()
+        
+        // Bootstrap: Use max of mode default or 10% (protect during learning)
+        // Mature: Use tighter mode-specific stops
+        val bootstrapStop = maxOf(modeDefaultStop, 10.0)  // At least -10% during bootstrap
+        val matureStop = modeDefaultStop                   // Use mode's intended stop when mature
+        
+        return lerp(bootstrapStop, matureStop)
+    }
+    
+    /**
+     * Get fluid take profit percentage for a trading mode.
+     * Bootstrap: TIGHT take profits (secure wins while learning)
+     * Mature: WIDE take profits (let winners run with confidence)
+     */
+    fun getFluidTakeProfit(modeDefaultTp: Double): Double {
+        val progress = getLearningProgress()
+        
+        // Bootstrap: Take quick 5-8% profits (learn from small wins)
+        // Mature: Use mode's full TP target
+        val bootstrapTp = minOf(modeDefaultTp, 8.0)  // Max +8% TP during bootstrap
+        val matureTp = modeDefaultTp                  // Use mode's intended TP when mature
+        
+        return lerp(bootstrapTp, matureTp)
+    }
+    
+    /**
+     * Get fluid trailing stop percentage.
+     * Bootstrap: No trailing stops (too tight, gets stopped out during learning)
+     * Mature: Use mode's trailing stop
+     */
+    fun getFluidTrailingStop(modeDefaultTrailing: Double): Double {
+        val progress = getLearningProgress()
+        
+        // Trailing stops only activate after 50% learning progress
+        if (progress < 0.5) return 0.0
+        
+        // Scale from 0 to full trailing as we mature
+        val scaledProgress = (progress - 0.5) * 2.0  // 0.5-1.0 → 0.0-1.0
+        return modeDefaultTrailing * scaledProgress
+    }
+    
+    /**
+     * Mode-specific fluid parameters container.
+     */
+    data class FluidModeParams(
+        val modeName: String,
+        val stopLossPct: Double,      // Current fluid stop loss
+        val takeProfitPct: Double,    // Current fluid take profit
+        val trailingStopPct: Double,  // Current fluid trailing stop
+        val learningProgress: Double,
+    ) {
+        fun summary(): String = "SL=${stopLossPct.toInt()}% TP=${takeProfitPct.toInt()}% " +
+            "Trail=${trailingStopPct.toInt()}% [${(learningProgress*100).toInt()}% learned]"
+    }
+    
+    /**
+     * Get all fluid parameters for a specific trading mode.
+     * This is the main API for BotService/Executor to use.
+     */
+    fun getModeParams(
+        modeName: String,
+        defaultStopPct: Double,
+        defaultTpPct: Double,
+        defaultTrailingPct: Double
+    ): FluidModeParams {
+        return FluidModeParams(
+            modeName = modeName,
+            stopLossPct = getFluidStopLoss(defaultStopPct),
+            takeProfitPct = getFluidTakeProfit(defaultTpPct),
+            trailingStopPct = getFluidTrailingStop(defaultTrailingPct),
+            learningProgress = getLearningProgress()
+        )
+    }
+    
+    // ═══════════════════════════════════════════════════════════════════════════
     // STATUS & DEBUGGING
     // ═══════════════════════════════════════════════════════════════════════════
     
@@ -237,12 +333,17 @@ object FluidLearningAI {
         val confidenceFloor: Int,
         val scoreThreshold: Int,
         val freshAgeMinutes: Int,
+        // V3.3: Fluid SL/TP status
+        val exampleStopLoss: Double,   // Example using 20% mode default
+        val exampleTakeProfit: Double, // Example using 40% mode default
+        val exampleTrailing: Double,   // Example using 15% mode default
     ) {
         fun summary(): String = buildString {
             append("🧠 FLUID AI: ${learningProgressPct}% learned ($totalTrades trades)")
             if (isBootstrap) append(" [BOOTSTRAP]")
             append("\n  Liq: watch≥\$$watchlistFloor exec≥\$$executionFloor scan≥\$$scannerMinLiq")
             append("\n  Conf≥${confidenceFloor}% Score≥$scoreThreshold Fresh≤${freshAgeMinutes}min")
+            append("\n  SL=${exampleStopLoss.toInt()}% TP=${exampleTakeProfit.toInt()}% Trail=${exampleTrailing.toInt()}%")
         }
     }
     
@@ -254,6 +355,9 @@ object FluidLearningAI {
         val sessionWinRate = if (sessionTrades.get() > 0) {
             sessionWins.get().toDouble() / sessionTrades.get() * 100
         } else 0.0
+        
+        // Example fluid SL/TP using typical meme mode values
+        val exampleParams = getModeParams("MEME_BREAKOUT", 20.0, 40.0, 15.0)
         
         return FluidState(
             learningProgressPct = (progress * 100).toInt(),
@@ -267,6 +371,9 @@ object FluidLearningAI {
             confidenceFloor = getLiveConfidenceFloor().toInt(),
             scoreThreshold = getMinScoreThreshold(),
             freshAgeMinutes = getFreshTokenAgeMinutes().toInt(),
+            exampleStopLoss = exampleParams.stopLossPct,
+            exampleTakeProfit = exampleParams.takeProfitPct,
+            exampleTrailing = exampleParams.trailingStopPct,
         )
     }
     

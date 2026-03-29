@@ -256,23 +256,47 @@ class AutoModeEngine(
         BotMode.COPY       -> copyModeConfig(reason)
         BotMode.PAUSED     -> pausedModeConfig(reason)
     }
+    
+    /**
+     * V3.3: Get fluid stop loss from FluidLearningAI.
+     * Bootstrap: Wider stops to learn from volatile moves
+     * Mature: Tighter stops to protect capital
+     */
+    private fun fluidStop(modeDefaultStop: Double): Double {
+        return try {
+            com.lifecyclebot.v3.scoring.FluidLearningAI.getFluidStopLoss(modeDefaultStop)
+        } catch (_: Exception) {
+            modeDefaultStop  // Fallback to mode default
+        }
+    }
+    
+    /**
+     * V3.3: Get fluid trailing stop from FluidLearningAI.
+     */
+    private fun fluidTrailing(modeDefaultTrailing: Double): Double {
+        return try {
+            com.lifecyclebot.v3.scoring.FluidLearningAI.getFluidTrailingStop(modeDefaultTrailing)
+        } catch (_: Exception) {
+            modeDefaultTrailing
+        }
+    }
 
     private fun snitpeModeConfig(reason: String) = ModeConfig(
         mode                   = BotMode.SNIPE,
-        stopLossPct            = 12.0,   // wide — meme coins wick hard at launch
-        trailingStopPct        = 15.0,   // wide trail to ride the move
-        exitScoreThreshold     = 55.0,   // slightly lower — exit faster on snipes
-        entryScoreMultiplier   = 0.85,   // lower entry bar (entry scores multiplied ÷ this)
+        stopLossPct            = fluidStop(12.0),   // FLUID: wide → tighter as learns
+        trailingStopPct        = fluidTrailing(15.0),
+        exitScoreThreshold     = 55.0,
+        entryScoreMultiplier   = 0.85,
         positionSizeMultiplier = 1.0,
-        minHoldMins            = 1.0,    // can exit very quickly if it rugs
-        maxHoldMins            = 30.0,   // 30 min max on a snipe
+        minHoldMins            = 1.0,
+        maxHoldMins            = 30.0,
         reason                 = reason,
     )
 
     private fun rangeModeConfig(reason: String) = ModeConfig(
         mode                   = BotMode.RANGE,
-        stopLossPct            = 8.0,
-        trailingStopPct        = 8.0,
+        stopLossPct            = fluidStop(8.0),   // FLUID
+        trailingStopPct        = fluidTrailing(8.0),
         exitScoreThreshold     = 58.0,
         entryScoreMultiplier   = 1.0,
         positionSizeMultiplier = 1.0,
@@ -283,11 +307,11 @@ class AutoModeEngine(
 
     private fun aggressiveModeConfig(reason: String) = ModeConfig(
         mode                   = BotMode.AGGRESSIVE,
-        stopLossPct            = 12.0,   // wider — high conviction, give it room
-        trailingStopPct        = 12.0,
-        exitScoreThreshold     = 50.0,   // lower threshold — take profits a bit earlier
-        entryScoreMultiplier   = 0.80,   // lower bar — signals are very strong
-        positionSizeMultiplier = 1.5,    // bigger position on high conviction
+        stopLossPct            = fluidStop(12.0),   // FLUID
+        trailingStopPct        = fluidTrailing(12.0),
+        exitScoreThreshold     = 50.0,
+        entryScoreMultiplier   = 0.80,
+        positionSizeMultiplier = 1.5,
         minHoldMins            = 2.0,
         maxHoldMins            = 60.0,
         reason                 = reason,
@@ -295,11 +319,11 @@ class AutoModeEngine(
 
     private fun defensiveModeConfig(reason: String) = ModeConfig(
         mode                   = BotMode.DEFENSIVE,
-        stopLossPct            = 6.0,    // tight — cut losses fast
-        trailingStopPct        = 6.0,
-        exitScoreThreshold     = 65.0,   // higher bar — be very selective
-        entryScoreMultiplier   = 1.3,    // higher entry bar
-        positionSizeMultiplier = 0.5,    // half size — protecting capital
+        stopLossPct            = fluidStop(6.0),    // FLUID
+        trailingStopPct        = fluidTrailing(6.0),
+        exitScoreThreshold     = 65.0,
+        entryScoreMultiplier   = 1.3,
+        positionSizeMultiplier = 0.5,
         minHoldMins            = 2.0,
         maxHoldMins            = 45.0,
         reason                 = reason,
@@ -307,23 +331,23 @@ class AutoModeEngine(
 
     private fun copyModeConfig(reason: String) = ModeConfig(
         mode                   = BotMode.COPY,
-        stopLossPct            = 10.0,
-        trailingStopPct        = 10.0,
-        exitScoreThreshold     = 52.0,   // take profit faster — following not leading
-        entryScoreMultiplier   = 0.5,    // very low bar — we trust the wallet
+        stopLossPct            = fluidStop(10.0),   // FLUID
+        trailingStopPct        = fluidTrailing(10.0),
+        exitScoreThreshold     = 52.0,
+        entryScoreMultiplier   = 0.5,
         positionSizeMultiplier = 1.0,
         minHoldMins            = 1.0,
-        maxHoldMins            = 20.0,   // copy trades are quick
+        maxHoldMins            = 20.0,
         reason                 = reason,
     )
 
     private fun pausedModeConfig(reason: String) = ModeConfig(
         mode                   = BotMode.PAUSED,
-        stopLossPct            = 8.0,    // still exit positions normally
-        trailingStopPct        = 8.0,
-        exitScoreThreshold     = 45.0,   // lower threshold — easier to exit
-        entryScoreMultiplier   = 999.0,  // effectively blocks all new entries
-        positionSizeMultiplier = 0.0,    // no new positions
+        stopLossPct            = fluidStop(8.0),    // FLUID: still exit normally
+        trailingStopPct        = fluidTrailing(8.0),
+        exitScoreThreshold     = 45.0,
+        entryScoreMultiplier   = 999.0,
+        positionSizeMultiplier = 0.0,
         minHoldMins            = 1.0,
         maxHoldMins            = 60.0,
         reason                 = reason,

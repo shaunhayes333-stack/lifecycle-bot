@@ -91,8 +91,18 @@ object CollectiveLearning {
             isInitialized = true
             Log.i(TAG, "✅ Collective learning initialized successfully")
             
-            // Initial sync
+            // Initial sync - download collective data
             downloadAll()
+            
+            // FIX: IMMEDIATELY refresh CollectiveIntelligenceAI caches
+            // This ensures new users see shared data right away, not just local data
+            try {
+                Log.i(TAG, "🧠 Triggering CollectiveIntelligenceAI refresh for new user...")
+                com.lifecyclebot.v3.scoring.CollectiveIntelligenceAI.refresh()
+                Log.i(TAG, "✅ CollectiveIntelligenceAI caches populated")
+            } catch (e: Exception) {
+                Log.w(TAG, "CollectiveIntelligenceAI refresh warning: ${e.message}")
+            }
             
             // Start background sync
             startBackgroundSync()

@@ -1045,8 +1045,33 @@ object MarketStructureRouter {
     
     /**
      * Get position parameters for the given mode.
+     * V3.3: Now returns FLUID stop loss and take profit based on learning progress.
      */
-    fun getPositionParams(mode: StructureMode): PositionParams = PositionParams(
+    fun getPositionParams(mode: StructureMode): PositionParams {
+        // Get fluid parameters from FluidLearningAI
+        val fluidParams = com.lifecyclebot.v3.scoring.FluidLearningAI.getModeParams(
+            modeName = mode.label,
+            defaultStopPct = mode.defaultStopPct,
+            defaultTpPct = mode.defaultTpPct,
+            defaultTrailingPct = mode.trailingStopPct
+        )
+        
+        return PositionParams(
+            maxSizePct = mode.maxSizePct,
+            stopLossPct = fluidParams.stopLossPct,      // FLUID stop loss
+            takeProfitPct = fluidParams.takeProfitPct,  // FLUID take profit
+            trailingStopPct = fluidParams.trailingStopPct, // FLUID trailing
+            maxHoldMins = mode.maxHoldMins,
+            riskTier = mode.riskTier,
+            minLiquidityUsd = mode.minLiquidityUsd,
+            maxSlippagePct = mode.maxSlippagePct,
+        )
+    }
+    
+    /**
+     * Get RAW (non-fluid) position parameters for reference.
+     */
+    fun getRawPositionParams(mode: StructureMode): PositionParams = PositionParams(
         maxSizePct = mode.maxSizePct,
         stopLossPct = mode.defaultStopPct,
         takeProfitPct = mode.defaultTpPct,
