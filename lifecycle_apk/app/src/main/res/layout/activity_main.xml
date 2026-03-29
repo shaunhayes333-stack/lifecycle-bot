@@ -549,12 +549,32 @@
                     android:gravity="center"
                     android:padding="10dp"
                     android:background="@drawable/section_card_bg"
+                    android:layout_marginEnd="6dp"
                     android:clickable="true"
                     android:focusable="true">
                     <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
                         android:text="🤖" android:textSize="20sp"/>
                     <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
                         android:text="21 AIs" android:textColor="#F59E0B" android:textSize="10sp"
+                        android:layout_marginTop="2dp"/>
+                </LinearLayout>
+                
+                <!-- Treasury Mode -->
+                <LinearLayout
+                    android:id="@+id/btnQuickTreasury"
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:orientation="vertical"
+                    android:gravity="center"
+                    android:padding="10dp"
+                    android:background="@drawable/section_card_bg"
+                    android:clickable="true"
+                    android:focusable="true">
+                    <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+                        android:text="💰" android:textSize="20sp"/>
+                    <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+                        android:text="Treasury" android:textColor="#22C55E" android:textSize="10sp"
                         android:layout_marginTop="2dp"/>
                 </LinearLayout>
             </LinearLayout>

@@ -1784,6 +1784,12 @@ for legal compliance.
             showAILayersDialog()
             performHaptic()
         }
+        
+        // Treasury Mode button → Shows Cash Generation AI status
+        findViewById<View>(R.id.btnQuickTreasury)?.setOnClickListener {
+            showTreasuryModeDialog()
+            performHaptic()
+        }
     }
 
     /** Setup clear settings button with confirmation */
@@ -2069,6 +2075,96 @@ risking real capital.
         } catch (e: Exception) {
             Toast.makeText(this, "Shadow Learning: ${e.message ?: "Not available"}", Toast.LENGTH_SHORT).show()
         }
+    }
+
+    /**
+     * Shows Cash Generation AI (Treasury Mode) status and daily stats.
+     * Displays PAPER or LIVE treasury balance based on current mode.
+     */
+    private fun showTreasuryModeDialog() {
+        try {
+            val treasuryAI = com.lifecyclebot.v3.scoring.CashGenerationAI
+            val stats = treasuryAI.getStats()
+            val cfg = com.lifecyclebot.data.ConfigStore.load(applicationContext)
+            val solPrice = com.lifecyclebot.engine.WalletManager.lastKnownSolPrice
+            
+            // Get both paper and live balances for comparison
+            val paperBalance = treasuryAI.getTreasuryBalance(true)
+            val liveBalance = treasuryAI.getTreasuryBalance(false)
+            
+            val modeEmoji = when (stats.mode) {
+                com.lifecyclebot.v3.scoring.CashGenerationAI.TreasuryMode.HUNT -> "🎯"
+                com.lifecyclebot.v3.scoring.CashGenerationAI.TreasuryMode.CRUISE -> "🚢"
+                com.lifecyclebot.v3.scoring.CashGenerationAI.TreasuryMode.DEFENSIVE -> "🛡️"
+                com.lifecyclebot.v3.scoring.CashGenerationAI.TreasuryMode.PAUSED -> "⏸️"
+                com.lifecyclebot.v3.scoring.CashGenerationAI.TreasuryMode.AGGRESSIVE -> "⚡"
+            }
+            
+            val currentModeLabel = if (cfg.paperMode) "📝 PAPER MODE" else "💰 LIVE MODE"
+            val currentBalance = stats.treasuryBalanceSol
+            val currentBalanceUsd = currentBalance * solPrice
+            
+            val pnlSign = if (stats.dailyPnlSol >= 0) "+" else ""
+            val progressBar = buildProgressBar(stats.progressPct.coerceIn(-100.0, 100.0))
+            
+            val message = """
+💰 CASH GENERATION AI (Treasury Mode)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+$currentModeLabel
+Current Treasury: ${"%.4f".format(currentBalance)} SOL (~$${"%.0f".format(currentBalanceUsd)})
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+📊 DAILY PERFORMANCE
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+$modeEmoji Mode: ${stats.mode.name}
+
+Daily P&L: $pnlSign${"%.4f".format(stats.dailyPnlSol)} SOL
+Target: ${"%.2f".format(stats.dailyTargetSol)} SOL (~$500)
+Max Loss: ${"%.2f".format(stats.dailyMaxLossSol)} SOL (~$50)
+
+Progress: $progressBar
+          ${"%.0f".format(stats.progressPct)}% of daily target
+
+Trades: ${stats.dailyTradeCount} | W/L: ${stats.dailyWins}/${stats.dailyLosses}
+Win Rate: ${"%.1f".format(stats.winRate)}%
+Active Positions: ${stats.activePositions}
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+📈 TREASURY BALANCES
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+📝 Paper Treasury: ${"%.4f".format(paperBalance)} SOL
+💰 Live Treasury:  ${"%.4f".format(liveBalance)} SOL
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+ℹ️ Treasury Mode runs concurrent scalps
+aiming for $500-$1000/day with strict
+$50 max daily loss protection.
+            """.trimIndent()
+            
+            AlertDialog.Builder(this, R.style.Theme_AATE_Dialog)
+                .setTitle("💰 Treasury Mode")
+                .setMessage(message)
+                .setPositiveButton("Close") { d, _ -> d.dismiss() }
+                .setNeutralButton("Reset Daily") { d, _ ->
+                    treasuryAI.resetDaily()
+                    Toast.makeText(this, "Daily stats reset for ${if (cfg.paperMode) "Paper" else "Live"} mode", Toast.LENGTH_SHORT).show()
+                    d.dismiss()
+                }
+                .show()
+        } catch (e: Exception) {
+            Toast.makeText(this, "Treasury Mode: ${e.message ?: "Not available"}", Toast.LENGTH_SHORT).show()
+        }
+    }
+    
+    /** Helper to build a visual progress bar */
+    private fun buildProgressBar(pct: Double): String {
+        val filled = ((pct / 100.0) * 10).toInt().coerceIn(0, 10)
+        val empty = 10 - filled
+        return "▓".repeat(filled) + "░".repeat(empty)
     }
 
     /**

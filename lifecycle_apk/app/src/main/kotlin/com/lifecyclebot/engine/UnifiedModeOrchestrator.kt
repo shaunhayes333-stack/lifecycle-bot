@@ -52,6 +52,7 @@ object UnifiedModeOrchestrator {
         PUMP_DUMP("💣", "Pump & Dump", 5, "Aggressive accumulation"),
         MARKET_MAKER("🏛️", "Market Maker", 2, "Spread profit capture"),
         LIQUIDATION_HUNTER("🦅", "Liquidation Hunter", 4, "Distressed selling"),
+        TREASURY("💰", "Treasury", 1, "Conservative cash generation"),
     }
     
     /**

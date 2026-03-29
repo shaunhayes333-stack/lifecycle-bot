@@ -1286,6 +1286,16 @@ class BotService : Service() {
             
             // Update FinalDecisionGate mode for veto cooldown timing
             FinalDecisionGate.setModeForVeto(cfg.paperMode)
+            
+            // ═══════════════════════════════════════════════════════════════════
+            // CASH GENERATION AI (Treasury Mode) - Sync mode with paper/live
+            // This ensures treasury balances display correctly based on mode
+            // ═══════════════════════════════════════════════════════════════════
+            try {
+                com.lifecyclebot.v3.scoring.CashGenerationAI.setTradingMode(cfg.paperMode)
+            } catch (e: Exception) {
+                // Silently ignore - Treasury Mode is supplemental
+            }
 
             // Log watchlist status every 5 loops for better visibility
             if (loopCount % 5 == 1) {
