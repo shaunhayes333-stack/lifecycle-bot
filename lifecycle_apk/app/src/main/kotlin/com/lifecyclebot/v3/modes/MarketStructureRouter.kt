@@ -36,6 +36,65 @@ object MarketStructureRouter {
     private const val TAG = "MarketStructureRouter"
     
     // ═══════════════════════════════════════════════════════════════════════════
+    // FLUID LEARNING - Mode thresholds scale with AI maturity
+    // 
+    // PHILOSOPHY: Start LOOSE to allow ALL modes to fire and learn.
+    // As the AI accumulates trades and learns what works, thresholds tighten.
+    // This ensures maximum mode diversity on fresh installs.
+    // ═══════════════════════════════════════════════════════════════════════════
+    
+    // Bootstrap (0 trades): 20% of normal requirements
+    // Mature (500+ trades): 100% of normal requirements
+    private const val FLUID_SCALE_BOOTSTRAP = 0.20  // 20% of thresholds at start
+    private const val FLUID_SCALE_MATURE = 1.0      // 100% when mature
+    
+    /**
+     * Get current fluid scaling factor based on learning progress.
+     * Uses FinalDecisionGate's learning progress for consistency.
+     */
+    private fun getFluidScale(): Double {
+        return try {
+            val progress = com.lifecyclebot.engine.FinalDecisionGate.getLearningProgress(
+                com.lifecyclebot.engine.FinalDecisionGate.getFluidConfidenceInfo().totalTradesLearned,
+                50.0  // Use neutral win rate as default
+            )
+            lerp(FLUID_SCALE_BOOTSTRAP, FLUID_SCALE_MATURE, progress)
+        } catch (_: Exception) {
+            FLUID_SCALE_BOOTSTRAP  // Default to loose if FDG not available
+        }
+    }
+    
+    private fun lerp(loose: Double, strict: Double, progress: Double): Double {
+        return loose + (strict - loose) * progress
+    }
+    
+    /**
+     * Scale a threshold by the current fluid factor.
+     * Lower thresholds become even lower in bootstrap mode.
+     */
+    fun fluidThreshold(baseValue: Double): Double {
+        return baseValue * getFluidScale()
+    }
+    
+    /**
+     * Scale a minimum requirement - returns LOWER value in bootstrap.
+     */
+    fun fluidMin(baseMin: Double): Double {
+        val scale = getFluidScale()
+        // Minimum stays at 20% of base even in full bootstrap
+        return (baseMin * scale).coerceAtLeast(baseMin * 0.1)
+    }
+    
+    /**
+     * Scale a score bonus - returns HIGHER bonus in bootstrap for more mode triggering.
+     */
+    fun fluidScoreBonus(baseBonus: Double): Double {
+        val scale = getFluidScale()
+        // Inverse scaling: higher bonus when less learned
+        return baseBonus * (2.0 - scale)  // 1.8x bonus at bootstrap, 1x at mature
+    }
+    
+    // ═══════════════════════════════════════════════════════════════════════════
     // MARKET REGIME CLASSIFICATION
     // ═══════════════════════════════════════════════════════════════════════════
     
@@ -412,10 +471,10 @@ object MarketStructureRouter {
         "3NZ9JMVBmGAqocybic2c7LQCJScmgsAZ6vQqTDzcqmJh", // BTC (Wormhole)
     )
     
-    // Known mid-cap ranges
-    private const val MID_CAP_MIN_LIQ = 50_000.0
+    // Known mid-cap ranges - FLUID: these scale with learning
+    private const val MID_CAP_MIN_LIQ_BASE = 50_000.0
     private const val MID_CAP_MAX_LIQ = 5_000_000.0
-    private const val MAJOR_MIN_LIQ = 5_000_000.0
+    private const val MAJOR_MIN_LIQ_BASE = 5_000_000.0
     
     // Cache for expensive lookups
     private val classificationCache = ConcurrentHashMap<String, Pair<StructureClassification, Long>>()
@@ -430,6 +489,10 @@ object MarketStructureRouter {
         if (cached != null && System.currentTimeMillis() - cached.second < CACHE_TTL_MS) {
             return cached.first
         }
+        
+        // FLUID: Scale liquidity thresholds with learning
+        val fluidMidCapMin = fluidMin(MID_CAP_MIN_LIQ_BASE)
+        val fluidMajorMin = fluidMin(MAJOR_MIN_LIQ_BASE)
         
         val signals = mutableListOf<String>()
         val modeScores = mutableMapOf<StructureMode, Double>()
@@ -522,15 +585,20 @@ object MarketStructureRouter {
         signals: MutableList<String>
     ): MarketRegime {
         
+        // FLUID: Get current scaled thresholds
+        val fluidMidCapMin = fluidMin(MID_CAP_MIN_LIQ_BASE)
+        val fluidMajorMin = fluidMin(MAJOR_MIN_LIQ_BASE)
+        val fluidScale = getFluidScale()
+        
         // Check if it's a known major
         if (ts.mint in MAJOR_TOKENS) {
             signals.add("REGIME: known major token")
             return MarketRegime.MAJORS
         }
         
-        // Very high liquidity = treat as major
-        if (liquidity >= MAJOR_MIN_LIQ) {
-            signals.add("REGIME: major liquidity $${(liquidity/1_000_000).toInt()}M")
+        // Very high liquidity = treat as major (fluid threshold)
+        if (liquidity >= fluidMajorMin) {
+            signals.add("REGIME: major liquidity $${(liquidity/1_000_000).toInt()}M (fluid≥$${(fluidMajorMin/1_000_000).toInt()}M)")
             return MarketRegime.MAJORS
         }
         
@@ -539,9 +607,10 @@ object MarketStructureRouter {
             (System.currentTimeMillis() - hist.first().ts) / 60_000.0
         } else 0.0
         
-        // Fresh token = meme micro
-        if (tokenAgeMins < 60 && liquidity < MID_CAP_MIN_LIQ) {
-            signals.add("REGIME: fresh meme (age=${tokenAgeMins.toInt()}min)")
+        // Fresh token = meme micro (FLUID: age threshold scales)
+        val freshAgeThreshold = lerp(120.0, 60.0, fluidScale)  // 120min bootstrap → 60min mature
+        if (tokenAgeMins < freshAgeThreshold && liquidity < fluidMidCapMin) {
+            signals.add("REGIME: fresh meme (age=${tokenAgeMins.toInt()}min < ${freshAgeThreshold.toInt()}min)")
             return MarketRegime.MEME_MICRO
         }
         
@@ -556,32 +625,34 @@ object MarketStructureRouter {
             stdDev * 100
         } else 5.0
         
-        // Very high volatility with low liquidity = meme
-        if (volatility > 10 && liquidity < MID_CAP_MIN_LIQ) {
-            signals.add("REGIME: high vol meme (vol=${volatility.toInt()}%)")
+        // Very high volatility with low liquidity = meme (FLUID: vol threshold scales)
+        val volThreshold = lerp(5.0, 10.0, fluidScale)  // 5% bootstrap → 10% mature
+        if (volatility > volThreshold && liquidity < fluidMidCapMin) {
+            signals.add("REGIME: high vol meme (vol=${volatility.toInt()}% > ${volThreshold.toInt()}%)")
             return MarketRegime.MEME_MICRO
         }
         
-        // Mid-cap range with established history
-        if (liquidity in MID_CAP_MIN_LIQ..MID_CAP_MAX_LIQ && hist.size >= 30) {
-            signals.add("REGIME: mid-cap established")
+        // Mid-cap range with established history (FLUID: history requirement scales)
+        val minHistorySize = lerp(10.0, 30.0, fluidScale).toInt()  // 10 candles bootstrap → 30 mature
+        if (liquidity in fluidMidCapMin..MID_CAP_MAX_LIQ && hist.size >= minHistorySize) {
+            signals.add("REGIME: mid-cap established (fluid hist≥$minHistorySize)")
             return MarketRegime.MID_CAPS
         }
         
         // Check for range-bound behavior (mean reversion candidate)
-        if (hist.size >= 20 && isRangeBound(hist)) {
+        if (hist.size >= minHistorySize && isRangeBound(hist)) {
             signals.add("REGIME: range-bound detected")
             return MarketRegime.MEAN_REVERSION
         }
         
         // Check for strong trend (trend regime candidate)
-        if (hist.size >= 20 && hasStrongTrend(hist)) {
+        if (hist.size >= minHistorySize && hasStrongTrend(hist)) {
             signals.add("REGIME: trend detected")
             return MarketRegime.TREND_REGIME
         }
         
         // Default to meme micro for low liquidity
-        if (liquidity < MID_CAP_MIN_LIQ) {
+        if (liquidity < fluidMidCapMin) {
             signals.add("REGIME: low liq default meme")
             return MarketRegime.MEME_MICRO
         }
@@ -644,27 +715,36 @@ object MarketStructureRouter {
             (System.currentTimeMillis() - hist.first().ts) / 60_000.0
         } else 999.0
         
-        // FRESH_LAUNCH
-        if (tokenAgeMins <= 15) {
-            scores[StructureMode.FRESH_LAUNCH] = scores[StructureMode.FRESH_LAUNCH]!! + 50.0
-            signals.add("MEME: fresh launch ${tokenAgeMins.toInt()}min")
+        // FLUID: Get scale for age thresholds and bonuses
+        val fluidScale = getFluidScale()
+        val freshAgeThreshold = lerp(30.0, 15.0, fluidScale)  // 30min bootstrap → 15min mature
+        
+        // FRESH_LAUNCH (FLUID: age threshold and bonus scale)
+        if (tokenAgeMins <= freshAgeThreshold) {
+            scores[StructureMode.FRESH_LAUNCH] = scores[StructureMode.FRESH_LAUNCH]!! + fluidScoreBonus(50.0)
+            signals.add("MEME: fresh launch ${tokenAgeMins.toInt()}min (fluid≤${freshAgeThreshold.toInt()}min)")
         }
         
-        // MEME_BREAKOUT
-        if (hist.size >= 8) {
+        // MEME_BREAKOUT (FLUID: looser breakout detection in bootstrap)
+        val minHistForBreakout = lerp(4.0, 8.0, fluidScale).toInt()
+        val breakoutThreshold = lerp(0.8, 0.9, fluidScale)  // 80% of high in bootstrap → 90% mature
+        if (hist.size >= minHistForBreakout) {
             val recentHigh = prices.takeLast(10).maxOrNull() ?: 0.0
             val currentPrice = prices.lastOrNull() ?: 0.0
-            if (recentHigh > 0 && currentPrice > recentHigh * 0.9) {
-                scores[StructureMode.MEME_BREAKOUT] = scores[StructureMode.MEME_BREAKOUT]!! + 40.0
-                signals.add("MEME: near high, breakout potential")
+            if (recentHigh > 0 && currentPrice > recentHigh * breakoutThreshold) {
+                scores[StructureMode.MEME_BREAKOUT] = scores[StructureMode.MEME_BREAKOUT]!! + fluidScoreBonus(40.0)
+                signals.add("MEME: near high, breakout potential (fluid≥${(breakoutThreshold*100).toInt()}%)")
             }
         }
         
-        // NARRATIVE_BURST
+        // NARRATIVE_BURST (FLUID: more sources match in bootstrap)
         val source = ts.source.lowercase()
-        if (source.contains("boost") || source.contains("trend")) {
-            scores[StructureMode.NARRATIVE_BURST] = scores[StructureMode.NARRATIVE_BURST]!! + 35.0
-            signals.add("MEME: boosted/trending source")
+        val name = ts.name.lowercase()
+        val narrativeMatches = listOf("boost", "trend", "hot", "pump", "moon", "ai", "trump", "meme", "doge", "pepe")
+        val hasNarrative = narrativeMatches.any { source.contains(it) || name.contains(it) }
+        if (hasNarrative) {
+            scores[StructureMode.NARRATIVE_BURST] = scores[StructureMode.NARRATIVE_BURST]!! + fluidScoreBonus(35.0)
+            signals.add("MEME: narrative match detected")
         }
     }
     

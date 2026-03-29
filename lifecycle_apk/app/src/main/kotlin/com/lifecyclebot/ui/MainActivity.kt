@@ -794,11 +794,20 @@ for legal compliance.
         val ageMins = if (ts != null && ts.history.isNotEmpty()) {
             (System.currentTimeMillis() - ts.history.first().ts) / 60_000.0
         } else -1.0
-        val modeLabel = when {
-            ageMins < 0  -> ""
-            ageMins <= 15 -> " · SNIPE"
-            else         -> " · RANGE"
-        }
+        
+        // V3.2: Show ACTUAL trading mode from MarketStructureRouter instead of simple age label
+        val modeLabel = if (ts != null) {
+            try {
+                val classification = com.lifecyclebot.v3.modes.MarketStructureRouter.classify(ts)
+                " · ${classification.mode.emoji} ${classification.mode.label}"
+            } catch (_: Exception) {
+                when {
+                    ageMins < 0  -> ""
+                    ageMins <= 15 -> " · 🚀 Fresh"
+                    else         -> " · 📊 Range"
+                }
+            }
+        } else ""
         tvTokenPhase.text = "${ts?.phase ?: "—"}$modeLabel"
 
         val sig = ts?.signal ?: "WAIT"
