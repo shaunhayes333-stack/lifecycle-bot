@@ -3221,6 +3221,89 @@ class Executor(
             ErrorLogger.debug("Collective", "TREASURY BUY upload error: ${e.message}")
         }
     }
+    
+    /**
+     * Blue Chip buy - for quality plays on >$1M market cap tokens
+     */
+    fun blueChipBuy(
+        ts: TokenState,
+        sizeSol: Double,
+        walletSol: Double,
+        takeProfitPct: Double,
+        stopLossPct: Double,
+        wallet: SolanaWallet?,
+        isPaper: Boolean
+    ) {
+        val identity = TradeIdentityManager.getOrCreate(ts.mint, ts.symbol, ts.source)
+        
+        // Mark as executed with BLUE_CHIP trading mode
+        identity.executed(getActualPrice(ts), sizeSol, isPaper)
+        
+        // Set trading mode to BLUE_CHIP for tracking
+        ts.position.tradingMode = "BLUE_CHIP"
+        ts.position.tradingModeEmoji = "🔵"
+        ts.position.isBlueChipPosition = true
+        
+        // Store exit targets on position for monitoring
+        ts.position.blueChipTakeProfit = takeProfitPct
+        ts.position.blueChipStopLoss = stopLossPct
+        
+        ErrorLogger.info("Executor", "🔵 [BLUE CHIP] ${ts.symbol} | " +
+            "${if (isPaper) "PAPER" else "LIVE"}_BUY | " +
+            "mcap=\$${(ts.lastMcap/1_000_000).fmt(2)}M | " +
+            "${sizeSol.fmt(3)} SOL | TP=${takeProfitPct}% SL=${stopLossPct}%")
+        
+        if (isPaper) {
+            paperBuy(
+                ts = ts,
+                sol = sizeSol,
+                score = 85.0,  // Blue Chip takes quality setups
+                identity = identity,
+                quality = "BLUE_CHIP",
+                skipGraduated = true,
+                wallet = wallet,
+                walletSol = walletSol
+            )
+        } else {
+            if (wallet == null) {
+                ErrorLogger.error("Executor", "🔵 [BLUE CHIP] ${ts.symbol} | LIVE_BUY_FAILED | no wallet")
+                return
+            }
+            liveBuy(
+                ts = ts,
+                sol = sizeSol,
+                score = 85.0,
+                wallet = wallet,
+                walletSol = walletSol,
+                identity = identity,
+                quality = "BLUE_CHIP",
+                skipGraduated = true
+            )
+        }
+        
+        // Upload BLUE CHIP BUY to collective knowledge base
+        try {
+            kotlinx.coroutines.GlobalScope.launch(kotlinx.coroutines.Dispatchers.IO) {
+                val marketSentiment = ts.meta.emafanAlignment.ifBlank { "NEUTRAL" }
+                com.lifecyclebot.collective.CollectiveLearning.uploadTrade(
+                    side = "BUY",
+                    symbol = ts.symbol,
+                    mode = "BLUE_CHIP",
+                    source = ts.source.ifBlank { "BLUE_CHIP_SCAN" },
+                    liquidityUsd = ts.lastLiquidityUsd,
+                    marketSentiment = marketSentiment,
+                    entryScore = 85,
+                    confidence = 85,
+                    pnlPct = 0.0,
+                    holdMins = 0.0,
+                    isWin = false,
+                    paperMode = isPaper
+                )
+            }
+        } catch (e: Exception) {
+            ErrorLogger.debug("Collective", "BLUE CHIP BUY upload error: ${e.message}")
+        }
+    }
 
     private fun liveBuy(ts: TokenState, sol: Double, score: Double,
                         wallet: SolanaWallet, walletSol: Double,
@@ -4430,6 +4513,24 @@ class Executor(
                 else -> com.lifecyclebot.v3.scoring.CashGenerationAI.ExitSignal.HOLD
             }
             com.lifecyclebot.v3.scoring.CashGenerationAI.closePosition(tradeId.mint, price, treasuryExitSignal)
+        } catch (_: Exception) {}
+        
+        // ═══════════════════════════════════════════════════════════════════
+        // V4.0: Close Blue Chip position if this was a Blue Chip trade
+        // ═══════════════════════════════════════════════════════════════════
+        try {
+            val blueChipExitSignal = when {
+                reason.lowercase().contains("profit") || reason.lowercase().contains("target") -> 
+                    com.lifecyclebot.v3.scoring.BlueChipTraderAI.ExitSignal.TAKE_PROFIT
+                reason.lowercase().contains("stop") || reason.lowercase().contains("loss") -> 
+                    com.lifecyclebot.v3.scoring.BlueChipTraderAI.ExitSignal.STOP_LOSS
+                reason.lowercase().contains("trail") -> 
+                    com.lifecyclebot.v3.scoring.BlueChipTraderAI.ExitSignal.TRAILING_STOP
+                reason.lowercase().contains("time") || reason.lowercase().contains("hold") -> 
+                    com.lifecyclebot.v3.scoring.BlueChipTraderAI.ExitSignal.TIME_EXIT
+                else -> com.lifecyclebot.v3.scoring.BlueChipTraderAI.ExitSignal.HOLD
+            }
+            com.lifecyclebot.v3.scoring.BlueChipTraderAI.closePosition(tradeId.mint, price, blueChipExitSignal)
         } catch (_: Exception) {}
         
         ts.position         = Position()

@@ -68,6 +68,12 @@ data class Position(
     var treasuryTakeProfit: Double = 0.0,  // Target profit % for treasury scalps
     var treasuryStopLoss: Double = 0.0,    // Stop loss % for treasury scalps
     var isTreasuryPosition: Boolean = false, // True if this is a treasury mode position
+    // ═══════════════════════════════════════════════════════════════════
+    // BLUE CHIP MODE - Quality plays on >$1M mcap tokens
+    // ═══════════════════════════════════════════════════════════════════
+    var blueChipTakeProfit: Double = 0.0,  // Target profit % for blue chip trades
+    var blueChipStopLoss: Double = 0.0,    // Stop loss % for blue chip trades
+    var isBlueChipPosition: Boolean = false, // True if this is a blue chip position
     // Top-up tracking
     val topUpCount: Int = 0,
     val topUpCostSol: Double = 0.0,

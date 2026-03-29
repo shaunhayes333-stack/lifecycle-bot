@@ -914,6 +914,48 @@
             </LinearLayout>
 
             <!-- ═══════════════════════════════
+                 V4.0: BLUE CHIP POSITIONS (Quality Mode)
+                 Separate panel for Blue Chip's quality trades >$1M mcap
+                 ═══════════════════════════════ -->
+            <LinearLayout
+                android:id="@+id/cardBlueChipPositions"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:background="@drawable/section_card_bg"
+                android:layout_marginStart="@dimen/card_margin"
+                android:layout_marginEnd="@dimen/card_margin"
+                android:layout_marginBottom="@dimen/card_margin_bottom"
+                android:orientation="vertical"
+                android:padding="@dimen/card_padding"
+                android:visibility="gone">
+
+                <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content"
+                    android:orientation="horizontal" android:gravity="center_vertical"
+                    android:layout_marginBottom="10dp">
+                    <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+                        android:text="🔵" android:textSize="16sp"
+                        android:layout_marginEnd="8dp"/>
+                    <TextView android:layout_width="0dp" android:layout_height="wrap_content"
+                        android:layout_weight="1"
+                        android:text="Blue Chip Trades" android:textColor="#3B82F6"
+                        android:textSize="@dimen/section_title_size" android:textStyle="bold"/>
+                    <TextView android:id="@+id/tvBlueChipExposure"
+                        android:layout_width="wrap_content" android:layout_height="wrap_content"
+                        android:text="" android:textColor="#6B7280"
+                        android:textSize="12sp" android:fontFamily="monospace"/>
+                    <TextView android:id="@+id/tvBlueChipPnl"
+                        android:layout_width="wrap_content" android:layout_height="wrap_content"
+                        android:text="" android:textColor="#10B981"
+                        android:textSize="12sp" android:fontFamily="monospace"
+                        android:layout_marginStart="8dp"/>
+                </LinearLayout>
+
+                <LinearLayout android:id="@+id/llBlueChipPositions"
+                    android:layout_width="match_parent" android:layout_height="wrap_content"
+                    android:orientation="vertical"/>
+            </LinearLayout>
+
+            <!-- ═══════════════════════════════
                  BONDING CURVE + WHALE ROW
                  ═══════════════════════════════ -->
             <LinearLayout

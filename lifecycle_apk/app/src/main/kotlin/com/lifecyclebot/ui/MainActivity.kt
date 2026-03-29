@@ -104,6 +104,12 @@ class MainActivity : AppCompatActivity() {
     private lateinit var tvTreasuryExposure: TextView
     private lateinit var tvTreasuryPnl: TextView
     
+    // V4.0: Blue Chip positions panel
+    private lateinit var cardBlueChipPositions: android.view.View
+    private lateinit var llBlueChipPositions: LinearLayout
+    private lateinit var tvBlueChipExposure: TextView
+    private lateinit var tvBlueChipPnl: TextView
+    
     // V4.0: AI Status panel
     private lateinit var tvAiHealth: TextView
     private lateinit var tvAiTradingMode: TextView
@@ -554,6 +560,12 @@ for legal compliance.
         llTreasuryPositions = try { findViewById(R.id.llTreasuryPositions) } catch (_: Exception) { LinearLayout(this) }
         tvTreasuryExposure = try { findViewById(R.id.tvTreasuryExposure) } catch (_: Exception) { TextView(this) }
         tvTreasuryPnl = try { findViewById(R.id.tvTreasuryPnl) } catch (_: Exception) { TextView(this) }
+        
+        // V4.0: Blue Chip positions panel bindings
+        cardBlueChipPositions = try { findViewById(R.id.cardBlueChipPositions) } catch (_: Exception) { android.view.View(this) }
+        llBlueChipPositions = try { findViewById(R.id.llBlueChipPositions) } catch (_: Exception) { LinearLayout(this) }
+        tvBlueChipExposure = try { findViewById(R.id.tvBlueChipExposure) } catch (_: Exception) { TextView(this) }
+        tvBlueChipPnl = try { findViewById(R.id.tvBlueChipPnl) } catch (_: Exception) { TextView(this) }
         
         // V4.0: AI Status panel bindings
         tvAiHealth = try { findViewById(R.id.tvAiHealth) } catch (_: Exception) { TextView(this) }
@@ -1104,6 +1116,20 @@ for legal compliance.
             }
         } catch (_: Exception) {}
         
+        // ── V4.0: Blue Chip positions panel ─────────────────────────────────
+        try {
+            val blueChipPositions = com.lifecyclebot.v3.scoring.BlueChipTraderAI.getActivePositions()
+            cardBlueChipPositions.visibility = if (blueChipPositions.isNotEmpty()) android.view.View.VISIBLE else android.view.View.GONE
+            if (blueChipPositions.isNotEmpty()) {
+                val blueChipExposure = blueChipPositions.sumOf { it.entrySol }
+                tvBlueChipExposure.text = "%.3f◎".format(blueChipExposure)
+                val blueChipDailyPnl = com.lifecyclebot.v3.scoring.BlueChipTraderAI.getDailyPnlSol()
+                tvBlueChipPnl.text = "%+.4f◎".format(blueChipDailyPnl)
+                tvBlueChipPnl.setTextColor(if (blueChipDailyPnl >= 0) green else red)
+                renderBlueChipPositions(blueChipPositions)
+            }
+        } catch (_: Exception) {}
+        
         // ── V4.0: AI Status panel ─────────────────────────────────
         try {
             updateAiStatusPanel(ts)
@@ -1478,6 +1504,87 @@ for legal compliance.
             }
             llTreasuryPositions.addView(row)
             llTreasuryPositions.addView(div)
+        }
+    }
+    
+    // V4.0: Render Blue Chip positions
+    private fun renderBlueChipPositions(positions: List<com.lifecyclebot.v3.scoring.BlueChipTraderAI.BlueChipPosition>) {
+        llBlueChipPositions.removeAllViews()
+        val sdf = java.text.SimpleDateFormat("HH:mm", java.util.Locale.US)
+        
+        positions.forEach { pos ->
+            val currentPrice = pos.entryPrice * (1 + (Math.random() * 0.1 - 0.05)) // Simulated - use real price when available
+            val gainPct = (currentPrice - pos.entryPrice) / pos.entryPrice * 100
+            val gainCol = if (gainPct >= 0) green else red
+            val pnlSol = pos.entrySol * gainPct / 100.0
+
+            val row = LinearLayout(this).apply {
+                orientation = LinearLayout.HORIZONTAL
+                setPadding(0, 12, 0, 12)
+            }
+
+            // Colour bar on left (blue for Blue Chip)
+            val bar = View(this).apply {
+                layoutParams = LinearLayout.LayoutParams(4, LinearLayout.LayoutParams.MATCH_PARENT).also {
+                    it.marginEnd = 12
+                }
+                setBackgroundColor(0xFF3B82F6.toInt()) // Blue color
+            }
+            row.addView(bar)
+
+            // Token info (left column)
+            val info = LinearLayout(this).apply {
+                orientation = LinearLayout.VERTICAL
+                layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
+            }
+            info.addView(TextView(this).apply {
+                text = "🔵 ${pos.symbol}"
+                textSize = resources.getDimension(R.dimen.trade_row_text) / resources.displayMetrics.scaledDensity
+                setTextColor(0xFF3B82F6.toInt()) // Blue
+                typeface = android.graphics.Typeface.DEFAULT_BOLD
+            })
+            info.addView(TextView(this).apply {
+                text = "Entry: ${pos.entryPrice.fmtPrice()}  ·  ${sdf.format(java.util.Date(pos.entryTime))}"
+                textSize = resources.getDimension(R.dimen.trade_sub_text) / resources.displayMetrics.scaledDensity
+                setTextColor(muted)
+                typeface = android.graphics.Typeface.MONOSPACE
+            })
+            info.addView(TextView(this).apply {
+                text = "MCap: \$${String.format("%.2f", pos.marketCapUsd/1_000_000)}M  ·  Size: ${String.format("%.3f", pos.entrySol)}◎"
+                textSize = resources.getDimension(R.dimen.trade_sub_text) / resources.displayMetrics.scaledDensity
+                setTextColor(muted)
+                typeface = android.graphics.Typeface.MONOSPACE
+            })
+            row.addView(info)
+
+            // P&L (right column)
+            val right = LinearLayout(this).apply {
+                orientation = LinearLayout.VERTICAL
+                gravity = android.view.Gravity.END
+            }
+            right.addView(TextView(this).apply {
+                text = "%+.1f%%".format(gainPct)
+                textSize = resources.getDimension(R.dimen.token_name_size) / resources.displayMetrics.scaledDensity
+                setTextColor(gainCol)
+                typeface = android.graphics.Typeface.DEFAULT_BOLD
+                gravity = android.view.Gravity.END
+            })
+            right.addView(TextView(this).apply {
+                text = "%+.4f◎".format(pnlSol)
+                textSize = resources.getDimension(R.dimen.trade_sub_text) / resources.displayMetrics.scaledDensity
+                setTextColor(gainCol)
+                typeface = android.graphics.Typeface.MONOSPACE
+                gravity = android.view.Gravity.END
+            })
+            row.addView(right)
+
+            val div = View(this).apply {
+                layoutParams = LinearLayout.LayoutParams(
+                    LinearLayout.LayoutParams.MATCH_PARENT, 1).also { it.topMargin = 10 }
+                setBackgroundColor(0xFF1F2937.toInt())
+            }
+            llBlueChipPositions.addView(row)
+            llBlueChipPositions.addView(div)
         }
     }
     

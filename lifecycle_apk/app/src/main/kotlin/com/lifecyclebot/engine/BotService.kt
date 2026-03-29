@@ -2664,6 +2664,79 @@ class BotService : Service() {
                                 ErrorLogger.debug("BotService", "💰 [TREASURY] ${ts.symbol} | ERROR | ${treasuryEx.message}")
                             }
                         }
+                        
+                        // ═══════════════════════════════════════════════════════════════════
+                        // BLUE CHIP TRADER - Quality plays for >$1M market cap tokens
+                        // Runs CONCURRENTLY with V3 and Treasury
+                        // ═══════════════════════════════════════════════════════════════════
+                        if (!ts.position.isOpen && ts.lastMcap >= 1_000_000) {
+                            try {
+                                val (v3Score, v3Confidence) = when (val result = v3Decision) {
+                                    is com.lifecyclebot.v3.V3Decision.Execute -> result.score to result.confidence.toInt()
+                                    is com.lifecyclebot.v3.V3Decision.Watch -> result.score to result.confidence
+                                    is com.lifecyclebot.v3.V3Decision.Rejected -> 20 to 30
+                                    else -> 15 to 25
+                                }
+                                
+                                val blueChipSignal = com.lifecyclebot.v3.scoring.BlueChipTraderAI.evaluate(
+                                    mint = ts.mint,
+                                    symbol = ts.symbol,
+                                    currentPrice = ts.ref,
+                                    marketCapUsd = ts.lastMcap,
+                                    liquidityUsd = ts.lastLiquidityUsd,
+                                    topHolderPct = ts.topHolderPct ?: 20.0,
+                                    buyPressurePct = ts.lastBuyPressurePct,
+                                    v3Score = v3Score,
+                                    v3Confidence = v3Confidence,
+                                    momentum = ts.momentum ?: 0.0,
+                                    volatility = ts.volatility ?: 0.0
+                                )
+                                
+                                if (blueChipSignal.shouldEnter) {
+                                    ErrorLogger.info("BotService", "🔵 [BLUE CHIP] ${ts.symbol} | ENTER | " +
+                                        "mcap=\$${(ts.lastMcap/1_000_000).fmt(2)}M | " +
+                                        "size=${blueChipSignal.positionSizeSol.fmt(3)} SOL | " +
+                                        "TP=${blueChipSignal.takeProfitPct}%")
+                                    
+                                    // Execute Blue Chip buy
+                                    executor.blueChipBuy(
+                                        ts = ts,
+                                        sizeSol = blueChipSignal.positionSizeSol,
+                                        walletSol = effectiveBalance,
+                                        takeProfitPct = blueChipSignal.takeProfitPct,
+                                        stopLossPct = blueChipSignal.stopLossPct,
+                                        wallet = wallet,
+                                        isPaper = cfg.paperMode
+                                    )
+                                    
+                                    // Record Blue Chip position
+                                    com.lifecyclebot.v3.scoring.BlueChipTraderAI.addPosition(
+                                        com.lifecyclebot.v3.scoring.BlueChipTraderAI.BlueChipPosition(
+                                            mint = ts.mint,
+                                            symbol = ts.symbol,
+                                            entryPrice = ts.ref,
+                                            entrySol = blueChipSignal.positionSizeSol,
+                                            entryTime = System.currentTimeMillis(),
+                                            marketCapUsd = ts.lastMcap,
+                                            liquidityUsd = ts.lastLiquidityUsd,
+                                            isPaper = cfg.paperMode,
+                                            takeProfitPct = blueChipSignal.takeProfitPct,
+                                            stopLossPct = blueChipSignal.stopLossPct
+                                        )
+                                    )
+                                    
+                                    addLog("🔵 BLUE CHIP BUY: ${ts.symbol} | \$${(ts.lastMcap/1_000_000).fmt(1)}M mcap | " +
+                                        "${blueChipSignal.positionSizeSol.fmt(3)} SOL | " +
+                                        "${if (cfg.paperMode) "PAPER" else "LIVE"}", ts.mint)
+                                }
+                            } catch (bcEx: Exception) {
+                                ErrorLogger.debug("BotService", "🔵 [BLUE CHIP] ${ts.symbol} | ERROR | ${bcEx.message}")
+                            }
+                        }
+                        // ═══════════════════════════════════════════════════════════════════
+                        // END Blue Chip evaluation
+                        // ═══════════════════════════════════════════════════════════════════
+                        
                         // ═══════════════════════════════════════════════════════════════════
                         // END Treasury Mode evaluation - now proceed with V3 decision handling
                         // ═══════════════════════════════════════════════════════════════════
