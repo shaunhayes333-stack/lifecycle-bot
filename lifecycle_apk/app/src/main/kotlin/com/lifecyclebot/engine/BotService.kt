@@ -2571,6 +2571,79 @@ class BotService : Service() {
                             isAIDegraded = isAIDegraded  // V3 SELECTIVITY: Pass AI degradation
                         )
                         
+                        // ═══════════════════════════════════════════════════════════════════
+                        // V3.3 FIX: Run Treasury Mode IMMEDIATELY after V3 decision
+                        // BEFORE any return statements, so Treasury can evaluate ALL tokens!
+                        // 
+                        // Treasury Mode runs CONCURRENTLY with V3 - it's a "2nd shadow mode"
+                        // that scalps tokens V3 might reject for normal trading.
+                        // It has its own filters (tight stops, lower thresholds).
+                        // ═══════════════════════════════════════════════════════════════════
+                        if (!ts.position.isOpen && com.lifecyclebot.v3.scoring.CashGenerationAI.isEnabled()) {
+                            try {
+                                // Extract V3 scores from decision (any type)
+                                val (v3Score, v3Confidence) = when (val result = v3Decision) {
+                                    is com.lifecyclebot.v3.V3Decision.Execute -> result.score to result.confidence.toInt()
+                                    is com.lifecyclebot.v3.V3Decision.Watch -> result.score to result.confidence
+                                    is com.lifecyclebot.v3.V3Decision.Rejected -> 20 to 30  // Low defaults for rejected
+                                    else -> 15 to 25  // Very low for blocked/fatal
+                                }
+                                
+                                // Cache scores for later use
+                                ts.lastV3Score = v3Score
+                                ts.lastV3Confidence = v3Confidence
+                                
+                                val treasurySignal = com.lifecyclebot.v3.scoring.CashGenerationAI.evaluate(
+                                    mint = ts.mint,
+                                    symbol = ts.symbol,
+                                    currentPrice = ts.ref,
+                                    liquidityUsd = ts.lastLiquidityUsd ?: 0.0,
+                                    topHolderPct = ts.lastTopHolderPct ?: 50.0,
+                                    buyPressurePct = ts.lastBuyPressurePct ?: 50.0,
+                                    v3Score = v3Score,
+                                    v3Confidence = v3Confidence,
+                                    momentum = ts.momentum ?: 0.0,
+                                    volatility = ts.volatility ?: 0.0
+                                )
+                                
+                                if (treasurySignal.shouldEnter) {
+                                    ErrorLogger.info("BotService", "💰 [TREASURY] ${ts.symbol} | ENTER | " +
+                                        "size=${treasurySignal.positionSizeSol.fmt(3)} SOL | " +
+                                        "TP=${treasurySignal.takeProfitPct}% | " +
+                                        "mode=${treasurySignal.mode}")
+                                    
+                                    // Execute treasury buy IMMEDIATELY
+                                    executor.treasuryBuy(
+                                        ts = ts,
+                                        sizeSol = treasurySignal.positionSizeSol,
+                                        walletSol = effectiveBalance,
+                                        takeProfitPct = treasurySignal.takeProfitPct,
+                                        stopLossPct = treasurySignal.stopLossPct,
+                                        wallet = wallet,
+                                        isPaper = cfg.paperMode
+                                    )
+                                    
+                                    // Record treasury position
+                                    com.lifecyclebot.v3.scoring.CashGenerationAI.openPosition(
+                                        mint = ts.mint,
+                                        symbol = ts.symbol,
+                                        entryPrice = ts.ref,
+                                        positionSol = treasurySignal.positionSizeSol,
+                                        takeProfitPct = treasurySignal.takeProfitPct,
+                                        stopLossPct = treasurySignal.stopLossPct
+                                    )
+                                    
+                                    addLog("💰 TREASURY BUY: ${ts.symbol} | ${treasurySignal.positionSizeSol.fmt(3)} SOL | " +
+                                        "${if (cfg.paperMode) "PAPER" else "LIVE"}", ts.mint)
+                                }
+                            } catch (treasuryEx: Exception) {
+                                ErrorLogger.debug("BotService", "💰 [TREASURY] ${ts.symbol} | ERROR | ${treasuryEx.message}")
+                            }
+                        }
+                        // ═══════════════════════════════════════════════════════════════════
+                        // END Treasury Mode evaluation - now proceed with V3 decision handling
+                        // ═══════════════════════════════════════════════════════════════════
+                        
                         when (val result = v3Decision) {
                             is com.lifecyclebot.v3.V3Decision.Execute -> {
                                 // Cache V3 scores on TokenState for Treasury Mode to use
@@ -2639,7 +2712,8 @@ class BotService : Service() {
                                 ts.lastV3Confidence = result.confidence.toInt()
                                 
                                 // ═══════════════════════════════════════════════════════════════════
-                                // V3 WATCH: Track but don't trade
+                                // V3 WATCH: Track but don't trade NORMALLY
+                                // BUT Treasury Mode CAN still evaluate this token for quick scalps!
                                 // ═══════════════════════════════════════════════════════════════════
                                 ErrorLogger.info("BotService", "[SCORING] ${identity.symbol} | total=${result.score} | below threshold")
                                 ErrorLogger.info("BotService", "[DECISION] ${identity.symbol} | WATCH | score=${result.score} conf=${result.confidence}%")
@@ -2657,8 +2731,11 @@ class BotService : Service() {
                                     phase = decision.phase,
                                 )
                                 
-                                // Don't execute, exit cleanly
-                                return@launch
+                                // ═══════════════════════════════════════════════════════════════════
+                                // V3.3 FIX: DO NOT RETURN - Allow Treasury Mode evaluation below!
+                                // Treasury Mode runs CONCURRENTLY and can scalp WATCH tokens
+                                // ═══════════════════════════════════════════════════════════════════
+                                // Previously: return@launch (BLOCKED Treasury Mode!)
                             }
                             
                             is com.lifecyclebot.v3.V3Decision.ShadowOnly -> {
@@ -2733,68 +2810,18 @@ class BotService : Service() {
                         return@launch
                     }
                     
-                    // V3 handled this token - skip legacy flow
-                    return@launch
+                    // ═══════════════════════════════════════════════════════════════════
+                    // V3.3 FIX: DO NOT RETURN HERE!
+                    // Treasury Mode runs CONCURRENTLY and must evaluate ALL tokens,
+                    // including those that V3 marked as WATCH/Execute.
+                    // Previously: return@launch (this KILLED Treasury Mode entirely!)
+                    // ═══════════════════════════════════════════════════════════════════
                 }
                 
                 // ═══════════════════════════════════════════════════════════════════
-                // TREASURY MODE (Cash Generation AI) - Concurrent scalping layer
-                // Evaluates ALL tokens (including V3 WATCH) for quick scalp opportunities
-                // Only executes if confidence >= 80% and Treasury Mode not paused
+                // NOTE: Treasury Mode now runs BEFORE the V3 when block (above)
+                // to ensure it evaluates ALL tokens regardless of V3 decision.
                 // ═══════════════════════════════════════════════════════════════════
-                if (!ts.position.isOpen && com.lifecyclebot.v3.scoring.CashGenerationAI.isEnabled()) {
-                    try {
-                        // Get V3 score and confidence (or use defaults if not available)
-                        val v3Score = ts.lastV3Score ?: 30
-                        val v3Confidence = ts.lastV3Confidence ?: 50
-                        
-                        val treasurySignal = com.lifecyclebot.v3.scoring.CashGenerationAI.evaluate(
-                            mint = ts.mint,
-                            symbol = ts.symbol,
-                            currentPrice = ts.ref,
-                            liquidityUsd = ts.lastLiquidityUsd,
-                            topHolderPct = ts.topHolderPct ?: 20.0,
-                            buyPressurePct = ts.lastBuyPressurePct ?: 50.0,
-                            v3Score = v3Score,
-                            v3Confidence = v3Confidence,
-                            momentum = ts.momentum ?: 0.0,
-                            volatility = ts.volatility ?: 0.0
-                        )
-                        
-                        if (treasurySignal.shouldEnter) {
-                            ErrorLogger.info("BotService", "💰 [TREASURY] ${ts.symbol} | ENTER | " +
-                                "size=${treasurySignal.positionSizeSol.fmt(3)} SOL | " +
-                                "TP=${treasurySignal.takeProfitPct}% | " +
-                                "mode=${treasurySignal.mode}")
-                            
-                            // Execute treasury buy
-                            executor.treasuryBuy(
-                                ts = ts,
-                                sizeSol = treasurySignal.positionSizeSol,
-                                walletSol = effectiveBalance,
-                                takeProfitPct = treasurySignal.takeProfitPct,
-                                stopLossPct = treasurySignal.stopLossPct,
-                                wallet = wallet,
-                                isPaper = cfg.paperMode
-                            )
-                            
-                            // Record treasury position
-                            com.lifecyclebot.v3.scoring.CashGenerationAI.openPosition(
-                                mint = ts.mint,
-                                symbol = ts.symbol,
-                                entryPrice = ts.ref,
-                                positionSol = treasurySignal.positionSizeSol,
-                                takeProfitPct = treasurySignal.takeProfitPct,
-                                stopLossPct = treasurySignal.stopLossPct
-                            )
-                            
-                            addLog("💰 TREASURY BUY: ${ts.symbol} | ${treasurySignal.positionSizeSol.fmt(3)} SOL | " +
-                                "${if (cfg.paperMode) "PAPER" else "LIVE"}", ts.mint)
-                        }
-                    } catch (treasuryEx: Exception) {
-                        ErrorLogger.debug("BotService", "💰 [TREASURY] ${ts.symbol} | ERROR | ${treasuryEx.message}")
-                    }
-                }
                 
                 // ═══════════════════════════════════════════════════════════════════
                 // LEGACY FALLBACK: Only runs if V3 is disabled

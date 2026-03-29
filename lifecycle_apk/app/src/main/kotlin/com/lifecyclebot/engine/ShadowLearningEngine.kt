@@ -490,6 +490,11 @@ object ShadowLearningEngine {
                 blockedCorrectBlocks++
                 ErrorLogger.info("ShadowLearning", "✅ CORRECT BLOCK: ${shadow.symbol} | " +
                     "Would have lost ${shadow.troughPnlPct.toInt()}% | Block: ${shadow.blockReason}")
+                
+                // V3.3: Record to FluidLearning - blocked trade would have been a LOSS
+                try {
+                    com.lifecyclebot.v3.scoring.FluidLearningAI.recordTrade(isWin = false)
+                } catch (_: Exception) {}
             }
             hitTpFirst -> {
                 // Would have hit take profit - BLOCK WAS WRONG (too strict)
@@ -500,6 +505,11 @@ object ShadowLearningEngine {
                 blockedMissedWins++
                 ErrorLogger.info("ShadowLearning", "⚠️ MISSED WIN: ${shadow.symbol} | " +
                     "Would have gained ${shadow.peakPnlPct.toInt()}% | Block: ${shadow.blockReason}")
+                
+                // V3.3: Record to FluidLearning - this was a missed WIN
+                try {
+                    com.lifecyclebot.v3.scoring.FluidLearningAI.recordTrade(isWin = true)
+                } catch (_: Exception) {}
             }
             shadow.peakPnlPct > 10.0 -> {
                 // Moderate gain - BLOCK WAS WRONG
@@ -510,6 +520,11 @@ object ShadowLearningEngine {
                 blockedMissedWins++
                 ErrorLogger.info("ShadowLearning", "⚠️ MISSED GAIN: ${shadow.symbol} | " +
                     "Would have gained ${shadow.peakPnlPct.toInt()}% | Block: ${shadow.blockReason}")
+                
+                // V3.3: Record to FluidLearning
+                try {
+                    com.lifecyclebot.v3.scoring.FluidLearningAI.recordTrade(isWin = true)
+                } catch (_: Exception) {}
             }
             shadow.troughPnlPct < -5.0 -> {
                 // Moderate loss - BLOCK WAS CORRECT
@@ -520,6 +535,11 @@ object ShadowLearningEngine {
                 blockedCorrectBlocks++
                 ErrorLogger.info("ShadowLearning", "✅ AVOIDED LOSS: ${shadow.symbol} | " +
                     "Would have lost ${shadow.troughPnlPct.toInt()}% | Block: ${shadow.blockReason}")
+                
+                // V3.3: Record to FluidLearning
+                try {
+                    com.lifecyclebot.v3.scoring.FluidLearningAI.recordTrade(isWin = false)
+                } catch (_: Exception) {}
             }
             else -> {
                 // Scratch trade - neutral
@@ -528,6 +548,7 @@ object ShadowLearningEngine {
                 shadow.exitReason = "SCRATCH"
                 ErrorLogger.info("ShadowLearning", "📊 SCRATCH: ${shadow.symbol} | " +
                     "Would have been ~${shadow.hypotheticalPnlPct.toInt()}%")
+                // Don't record scratch trades to FluidLearning - they're noise
             }
         }
     }
@@ -731,6 +752,19 @@ object ShadowLearningEngine {
         trade.pnlSol = trade.entrySizeSol * (trade.pnlPct / 100)
         trade.exitReason = exitReason
         trade.isOpen = false
+        
+        // ═══════════════════════════════════════════════════════════════════
+        // V3.3: WIRE SHADOW TRADES TO FLUID LEARNING MATURITY
+        // Shadow trades contribute to overall bot maturity progression.
+        // This makes the bot "smarter" without risking live capital!
+        // ═══════════════════════════════════════════════════════════════════
+        try {
+            val isWin = trade.pnlSol > 0
+            com.lifecyclebot.v3.scoring.FluidLearningAI.recordTrade(isWin)
+            ErrorLogger.debug("ShadowLearning", "🧠 Shadow trade → FluidLearning: ${trade.symbol} ${if (isWin) "WIN" else "LOSS"} (${trade.pnlPct.toInt()}%)")
+        } catch (e: Exception) {
+            ErrorLogger.debug("ShadowLearning", "FluidLearning integration error: ${e.message}")
+        }
         
         // Update performance
         updateVariantPerformance(trade.variantId)

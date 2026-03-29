@@ -38,7 +38,15 @@ object CollectiveLearning {
     // Sync interval (15 minutes)
     private const val SYNC_INTERVAL_MS = 15 * 60 * 1000L
     
-    // Local cache of collective data
+    // V3.3: SharedPreferences for PERSISTENT cache across restarts
+    private const val PREFS_NAME = "collective_learning_cache"
+    private const val KEY_BLACKLIST = "cached_blacklist_json"
+    private const val KEY_PATTERNS = "cached_patterns_json"
+    private const val KEY_MODE_STATS = "cached_mode_stats_json"
+    private const val KEY_LAST_SYNC = "last_sync_time"
+    private var prefs: android.content.SharedPreferences? = null
+    
+    // Local cache of collective data (loaded from SharedPreferences on init)
     private val cachedBlacklist = mutableSetOf<String>()
     private val cachedPatterns = mutableMapOf<String, CollectivePattern>()
     private val cachedModeStats = mutableMapOf<String, ModePerformance>()
@@ -63,12 +71,24 @@ object CollectiveLearning {
         }
         
         try {
+            // V3.3: Initialize SharedPreferences for persistent cache
+            prefs = ctx.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+            
+            // V3.3: IMMEDIATELY load cached data from SharedPreferences
+            // This ensures new instances get prior learning BEFORE network sync
+            loadCacheFromPrefs()
+            Log.i(TAG, "📥 Loaded ${cachedBlacklist.size} blacklist + ${cachedPatterns.size} patterns from LOCAL cache")
+            
             val config = ConfigStore.load(ctx)
             val dbUrl = config.tursoDbUrl
             val authToken = config.tursoAuthToken
             
             if (dbUrl.isBlank() || authToken.isBlank()) {
-                Log.w(TAG, "Turso credentials not configured - collective learning disabled")
+                Log.w(TAG, "Turso credentials not configured - using LOCAL CACHE ONLY")
+                // V3.3: Even without Turso, we have local cache!
+                if (cachedBlacklist.isNotEmpty() || cachedPatterns.isNotEmpty()) {
+                    Log.i(TAG, "✅ Local collective cache available (${cachedBlacklist.size} blacklist, ${cachedPatterns.size} patterns)")
+                }
                 return false
             }
             
@@ -76,7 +96,7 @@ object CollectiveLearning {
             
             // Test connection
             if (!client!!.testConnection()) {
-                Log.e(TAG, "Failed to connect to Turso database")
+                Log.e(TAG, "Failed to connect to Turso database - using LOCAL CACHE")
                 client = null
                 return false
             }
@@ -91,7 +111,7 @@ object CollectiveLearning {
             isInitialized = true
             Log.i(TAG, "✅ Collective learning initialized successfully")
             
-            // Initial sync - download collective data
+            // Initial sync - download collective data (and SAVE to local cache)
             downloadAll()
             
             // FIX: IMMEDIATELY refresh CollectiveIntelligenceAI caches
@@ -480,10 +500,14 @@ object CollectiveLearning {
             downloadWhaleStats()
             lastSyncTime = System.currentTimeMillis()
             
+            // V3.3: PERSIST downloaded data to SharedPreferences
+            // This ensures new app instances inherit the hive mind immediately!
+            saveCacheToPrefs()
+            
             // V3.2: Count active instances
             val activeInstances = countActiveInstances()
             
-            Log.i(TAG, "📥 Full sync completed (${activeInstances} active instances)")
+            Log.i(TAG, "📥 Full sync completed (${activeInstances} active instances) | CACHED TO LOCAL STORAGE")
             
             // Update CollectiveAnalytics with downloaded stats
             try {
@@ -1173,6 +1197,145 @@ object CollectiveLearning {
                 Log.e(TAG, "pruneOldPatterns error: ${e.message}")
                 0
             }
+        }
+    }
+    
+    // ═══════════════════════════════════════════════════════════════════════════
+    // V3.3: PERSISTENT LOCAL CACHE (SharedPreferences)
+    // 
+    // Downloaded collective data is SAVED to local storage so that new app 
+    // instances inherit the "hive mind" immediately, even before network sync.
+    // ═══════════════════════════════════════════════════════════════════════════
+    
+    /**
+     * Save cached data to SharedPreferences for persistence across restarts.
+     */
+    private fun saveCacheToPrefs() {
+        val p = prefs ?: return
+        
+        try {
+            val editor = p.edit()
+            
+            // Save blacklist as JSON array
+            val blacklistJson = org.json.JSONArray(cachedBlacklist.toList()).toString()
+            editor.putString(KEY_BLACKLIST, blacklistJson)
+            
+            // Save patterns as JSON object (simplified - just key fields)
+            val patternsJson = org.json.JSONObject()
+            cachedPatterns.forEach { (hash, pattern) ->
+                val obj = org.json.JSONObject()
+                obj.put("patternType", pattern.patternType)
+                obj.put("discoverySource", pattern.discoverySource)
+                obj.put("liquidityBucket", pattern.liquidityBucket)
+                obj.put("emaTrend", pattern.emaTrend)
+                obj.put("totalTrades", pattern.totalTrades)
+                obj.put("wins", pattern.wins)
+                obj.put("losses", pattern.losses)
+                obj.put("avgPnlPct", pattern.avgPnlPct)
+                obj.put("avgHoldMins", pattern.avgHoldMins)
+                obj.put("lastUpdated", pattern.lastUpdated)
+                patternsJson.put(hash, obj)
+            }
+            editor.putString(KEY_PATTERNS, patternsJson.toString())
+            
+            // Save mode stats as JSON object
+            val modeStatsJson = org.json.JSONObject()
+            cachedModeStats.forEach { (key, stat) ->
+                val obj = org.json.JSONObject()
+                obj.put("modeName", stat.modeName)
+                obj.put("marketCondition", stat.marketCondition)
+                obj.put("liquidityBucket", stat.liquidityBucket)
+                obj.put("totalTrades", stat.totalTrades)
+                obj.put("wins", stat.wins)
+                obj.put("losses", stat.losses)
+                obj.put("avgPnlPct", stat.avgPnlPct)
+                obj.put("avgHoldMins", stat.avgHoldMins)
+                obj.put("lastUpdated", stat.lastUpdated)
+                modeStatsJson.put(key, obj)
+            }
+            editor.putString(KEY_MODE_STATS, modeStatsJson.toString())
+            
+            editor.putLong(KEY_LAST_SYNC, lastSyncTime)
+            
+            // Use commit() for synchronous write (ensures data is saved)
+            editor.commit()
+            
+            Log.i(TAG, "💾 CACHE SAVED: ${cachedBlacklist.size} blacklist | ${cachedPatterns.size} patterns | ${cachedModeStats.size} mode stats")
+        } catch (e: Exception) {
+            Log.e(TAG, "saveCacheToPrefs error: ${e.message}")
+        }
+    }
+    
+    /**
+     * Load cached data from SharedPreferences.
+     */
+    private fun loadCacheFromPrefs() {
+        val p = prefs ?: return
+        
+        try {
+            // Load blacklist
+            val blacklistJson = p.getString(KEY_BLACKLIST, null)
+            if (blacklistJson != null) {
+                val arr = org.json.JSONArray(blacklistJson)
+                cachedBlacklist.clear()
+                for (i in 0 until arr.length()) {
+                    cachedBlacklist.add(arr.getString(i))
+                }
+            }
+            
+            // Load patterns
+            val patternsJson = p.getString(KEY_PATTERNS, null)
+            if (patternsJson != null) {
+                val obj = org.json.JSONObject(patternsJson)
+                cachedPatterns.clear()
+                obj.keys().forEach { hash ->
+                    val pObj = obj.getJSONObject(hash)
+                    val pattern = CollectivePattern(
+                        id = 0,
+                        patternHash = hash,
+                        patternType = pObj.optString("patternType", ""),
+                        discoverySource = pObj.optString("discoverySource", ""),
+                        liquidityBucket = pObj.optString("liquidityBucket", ""),
+                        emaTrend = pObj.optString("emaTrend", ""),
+                        totalTrades = pObj.optInt("totalTrades", 0),
+                        wins = pObj.optInt("wins", 0),
+                        losses = pObj.optInt("losses", 0),
+                        avgPnlPct = pObj.optDouble("avgPnlPct", 0.0),
+                        avgHoldMins = pObj.optDouble("avgHoldMins", 0.0),
+                        lastUpdated = pObj.optLong("lastUpdated", 0)
+                    )
+                    cachedPatterns[hash] = pattern
+                }
+            }
+            
+            // Load mode stats
+            val modeStatsJson = p.getString(KEY_MODE_STATS, null)
+            if (modeStatsJson != null) {
+                val obj = org.json.JSONObject(modeStatsJson)
+                cachedModeStats.clear()
+                obj.keys().forEach { key ->
+                    val mObj = obj.getJSONObject(key)
+                    val stat = ModePerformance(
+                        id = 0,
+                        modeName = mObj.optString("modeName", ""),
+                        marketCondition = mObj.optString("marketCondition", ""),
+                        liquidityBucket = mObj.optString("liquidityBucket", ""),
+                        totalTrades = mObj.optInt("totalTrades", 0),
+                        wins = mObj.optInt("wins", 0),
+                        losses = mObj.optInt("losses", 0),
+                        avgPnlPct = mObj.optDouble("avgPnlPct", 0.0),
+                        avgHoldMins = mObj.optDouble("avgHoldMins", 0.0),
+                        lastUpdated = mObj.optLong("lastUpdated", 0)
+                    )
+                    cachedModeStats[key] = stat
+                }
+            }
+            
+            lastSyncTime = p.getLong(KEY_LAST_SYNC, 0)
+            
+            Log.i(TAG, "📂 CACHE LOADED: ${cachedBlacklist.size} blacklist | ${cachedPatterns.size} patterns | ${cachedModeStats.size} mode stats")
+        } catch (e: Exception) {
+            Log.e(TAG, "loadCacheFromPrefs error: ${e.message}")
         }
     }
 }
