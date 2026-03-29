@@ -201,9 +201,9 @@ data class BotConfig(
     val historicalScanHoursBack: Int = 24,          // how many hours of history to scan
     val historicalScanMinLiquidity: Double = 2000.0, // min liquidity for tokens to scan
     // ── Turso Collective Learning ────────────────────────────────────────
-    // Shared knowledge base across all AATE instances (opt-in)
-    val tursoDbUrl: String = "",                    // Turso database URL (libsql://...)
-    val tursoAuthToken: String = "",                // Turso auth token
+    // Shared knowledge base across all AATE instances (ENABLED BY DEFAULT)
+    val tursoDbUrl: String = "libsql://superbrain-shaunhayes333-stack.aws-ap-northeast-1.turso.io",
+    val tursoAuthToken: String = "eyJhbGciOiJFZERTQSIsInR5cCI6IkpXVCJ9.eyJhIjoicnciLCJpYXQiOjE3NzQ3NzMwMDYsImlkIjoiMDE5ZDMwNjYtMmUwMS03NzcyLTgyMTYtMDIyYzY1YzRmNmVjIiwicmlkIjoiMGExMzRiY2EtZmY1YS00NmQ2LWI2ZWYtYmU4MjAyYWE1ZWI4In0.HFbG4n8j8VFjDZu-u-gWaCVfU3FSxftitCqzrSBwpKAq90m2CT_18kpM-k6qFas_0s3MOf5Q_hzWFKse_mUIDw",
     val collectiveLearningEnabled: Boolean = true,  // Enable collective learning sync
     // ── V3 Scoring Engine ─────────────────────────────────────────────────
     // V3.2: V3 is now the PRIMARY and ONLY decision engine
@@ -393,8 +393,12 @@ object ConfigStore {
             groqApiKey                  = s.getString("groq_api_key", "") ?: "",
             geminiApiKey                = s.getString("gemini_api_key", "") ?: "",
             jupiterApiKey               = s.getString("jupiter_api_key", "") ?: "",
-            tursoDbUrl                  = s.getString("turso_db_url", "") ?: "",
-            tursoAuthToken              = s.getString("turso_auth_token", "") ?: "",
+            tursoDbUrl                  = s.getString("turso_db_url", "").let { 
+                if (it.isNullOrBlank()) "libsql://superbrain-shaunhayes333-stack.aws-ap-northeast-1.turso.io" else it 
+            },
+            tursoAuthToken              = s.getString("turso_auth_token", "").let {
+                if (it.isNullOrBlank()) "eyJhbGciOiJFZERTQSIsInR5cCI6IkpXVCJ9.eyJhIjoicnciLCJpYXQiOjE3NzQ3NzMwMDYsImlkIjoiMDE5ZDMwNjYtMmUwMS03NzcyLTgyMTYtMDIyYzY1YzRmNmVjIiwicmlkIjoiMGExMzRiY2EtZmY1YS00NmQ2LWI2ZWYtYmU4MjAyYWE1ZWI4In0.HFbG4n8j8VFjDZu-u-gWaCVfU3FSxftitCqzrSBwpKAq90m2CT_18kpM-k6qFas_0s3MOf5Q_hzWFKse_mUIDw" else it
+            },
             autoAddNewTokens            = p.getBoolean("auto_add_new_tokens", true),
             geminiEnabled               = p.getBoolean("gemini_enabled", true),
             maxConcurrentPositions      = p.getInt("max_concurrent_positions", 3),
