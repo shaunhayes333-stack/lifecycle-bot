@@ -65,16 +65,20 @@ object DipHunterAI {
     // Age requirements
     private const val MIN_TOKEN_AGE_HOURS = 2.0     // At least 2 hours old
     
-    // Position sizing
-    private const val BASE_POSITION_SOL = 0.08      // Moderate base
-    private const val MAX_POSITION_SOL = 0.25       // Max 0.25 SOL per dip
-    private const val MAX_CONCURRENT_DIPS = 4       // Max 4 dip positions
+    // Position sizing - BOOTSTRAP TIGHT (start conservative, fluid learning will loosen)
+    private const val BASE_POSITION_SOL = 0.05      // Conservative base for bootstrap
+    private const val MAX_POSITION_SOL = 0.15       // Max 0.15 SOL per dip (reduced from 0.25)
+    private const val MAX_CONCURRENT_DIPS = 3       // Only 3 dip positions (reduced from 4)
     
     // Exit targets
     private const val TARGET_RECOVERY_PCT = 20.0    // Target 20% recovery
     private const val MAX_RECOVERY_PCT = 50.0       // Max expectation
     private const val STOP_LOSS_PCT = -15.0         // 15% stop (careful with dips)
     private const val MAX_HOLD_HOURS = 6.0          // 6 hour max hold
+    
+    // Daily limits - CRITICAL for bootstrap protection
+    private const val DAILY_MAX_LOSS_SOL = 0.20     // Max 0.2 SOL daily loss
+    private const val DAILY_MAX_HUNTS = 15          // Max 15 dip hunts per day
     
     // ═══════════════════════════════════════════════════════════════════════════
     // STATE
@@ -179,6 +183,21 @@ object DipHunterAI {
         holderChange24h: Int,        // Net holder change
         isDevSelling: Boolean,
     ): DipSignal {
+        
+        // ═══════════════════════════════════════════════════════════════════
+        // DAILY LIMITS - CRITICAL FOR BOOTSTRAP PROTECTION
+        // ═══════════════════════════════════════════════════════════════════
+        
+        // Check daily hunt count
+        if (dailyHunts.get() >= DAILY_MAX_HUNTS) {
+            return noDip("DAILY_LIMIT: ${dailyHunts.get()}/$DAILY_MAX_HUNTS hunts")
+        }
+        
+        // Check daily loss limit
+        val dailyPnl = dailyPnlSolBps.get() / 100.0
+        if (dailyPnl <= -DAILY_MAX_LOSS_SOL) {
+            return noDip("DAILY_LOSS_LIMIT: ${dailyPnl.fmt(3)}◎")
+        }
         
         // ═══════════════════════════════════════════════════════════════════
         // BASIC FILTERS

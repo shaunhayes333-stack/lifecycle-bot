@@ -1475,8 +1475,8 @@ class BotService : Service() {
             
             try {
                 // 💰⚡ Solana Arbitrage - Cross-exchange arb (requires treasury >= $500)
-                val treasuryBalance = com.lifecyclebot.v3.scoring.CashGenerationAI.getBalance(cfg.paperMode)
-                val solPrice = cfg.startingBalanceSol.takeIf { it > 0 } ?: 150.0
+                val treasuryBalance = com.lifecyclebot.v3.scoring.CashGenerationAI.getTreasuryBalance(cfg.paperMode)
+                val solPrice = WalletManager.lastKnownSolPrice.takeIf { it > 0 } ?: 150.0
                 val treasuryUsd = treasuryBalance * solPrice
                 com.lifecyclebot.v3.scoring.SolanaArbAI.init(cfg.paperMode, treasuryUsd)
             } catch (e: Exception) {
