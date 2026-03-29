@@ -348,6 +348,107 @@ object FluidLearningAI {
         return modeDefaultTrailing * scaledProgress
     }
     
+    // ═══════════════════════════════════════════════════════════════════════════
+    // V3.3: DYNAMIC FLUID STOP LOSS
+    // 
+    // The stop loss MOVES with the token position as it develops:
+    // 1. Entry phase: Wide stop (allow for normal volatility/retraces)
+    // 2. Profit phase: Trailing stop that ratchets up with price
+    // 3. Learning-aware: Tighter stops as bot learns what works
+    // 
+    // This prevents getting stopped out before pump completes,
+    // while protecting gains as they accumulate.
+    // ═══════════════════════════════════════════════════════════════════════════
+    
+    /**
+     * V3.3: Get dynamic fluid stop loss that moves with position.
+     * 
+     * @param modeDefaultStop Base stop loss % for this trading mode
+     * @param currentPnlPct Current P&L percentage of position
+     * @param peakPnlPct Highest P&L achieved this position
+     * @param holdTimeSeconds How long position has been held
+     * @param volatility Current volatility estimate (0-100)
+     * @return Dynamic stop loss percentage (negative, e.g., -8.0 means exit at -8%)
+     */
+    fun getDynamicFluidStop(
+        modeDefaultStop: Double,
+        currentPnlPct: Double,
+        peakPnlPct: Double,
+        holdTimeSeconds: Double,
+        volatility: Double = 50.0
+    ): Double {
+        val progress = getLearningProgress()
+        
+        // Base stop from mode default, adjusted by learning
+        val baseStop = getFluidStopLoss(modeDefaultStop)
+        
+        // ═══════════════════════════════════════════════════════════════
+        // PHASE 1: ENTRY PROTECTION (first 60s)
+        // Allow wider stops during entry volatility - tokens often wick
+        // down 5-10% before pumping. Don't get shaken out early.
+        // ═══════════════════════════════════════════════════════════════
+        if (holdTimeSeconds < 60) {
+            // Bootstrap: Even wider entry protection (15%)
+            // Mature: Tighter entry protection (12%)
+            val entryProtection = lerp(15.0, 12.0)
+            return -entryProtection
+        }
+        
+        // ═══════════════════════════════════════════════════════════════
+        // PHASE 2: VOLATILITY ADJUSTMENT
+        // High volatility = wider stops to avoid noise exits
+        // Low volatility = tighter stops for quick protection
+        // ═══════════════════════════════════════════════════════════════
+        val volatilityMult = when {
+            volatility > 70 -> 1.3   // High vol: 30% wider stops
+            volatility > 50 -> 1.1   // Med vol: 10% wider
+            volatility < 30 -> 0.85  // Low vol: 15% tighter
+            else -> 1.0
+        }
+        
+        // ═══════════════════════════════════════════════════════════════
+        // PHASE 3: PROFIT TRAILING (when in profit)
+        // As gains accumulate, trail the stop up to protect profits.
+        // The trail distance narrows as learning progress increases.
+        // ═══════════════════════════════════════════════════════════════
+        if (currentPnlPct > 0 && peakPnlPct > 5.0) {
+            // Bootstrap: Wide trailing (keep 50% of peak gain)
+            // Mature: Tighter trailing (keep 70% of peak gain)
+            val keepRatio = lerp(0.50, 0.70)
+            
+            // Trail stop = Peak gain minus trail distance
+            // E.g., peak=20%, keepRatio=0.6 → trail distance=8% → stop at +12%
+            val trailDistance = peakPnlPct * (1.0 - keepRatio)
+            val trailingStop = peakPnlPct - trailDistance
+            
+            // Never trail below breakeven once we've seen significant profit
+            if (peakPnlPct > 10.0) {
+                return -maxOf(0.0, -trailingStop)  // Stop at least at breakeven
+            }
+            
+            // For smaller gains, use trailing but don't go below base stop
+            return -maxOf(trailingStop, baseStop)
+        }
+        
+        // ═══════════════════════════════════════════════════════════════
+        // PHASE 4: RETRACEMENT ALLOWANCE (allowing pre-pump retrace)
+        // If we're slightly negative but within normal volatility,
+        // give extra room to allow for typical pump patterns.
+        // ═══════════════════════════════════════════════════════════════
+        if (currentPnlPct > -5.0 && currentPnlPct < 0) {
+            // In "retrace zone" - allow wider stop to not exit before pump
+            // Bootstrap: 12% retrace allowance
+            // Mature: 8% retrace allowance (tighter as we learn patterns)
+            val retraceAllowance = lerp(12.0, 8.0)
+            return -(retraceAllowance * volatilityMult)
+        }
+        
+        // ═══════════════════════════════════════════════════════════════
+        // DEFAULT: Use base fluid stop with volatility adjustment
+        // ═══════════════════════════════════════════════════════════════
+        return -(baseStop * volatilityMult)
+    }
+    
     /**
      * Mode-specific fluid parameters container.
      */

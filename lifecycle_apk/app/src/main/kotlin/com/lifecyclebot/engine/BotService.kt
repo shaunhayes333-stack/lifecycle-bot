@@ -1326,19 +1326,41 @@ class BotService : Service() {
                             TradeStateMachine.startCooldown(ts.mint)
                         }
                         
-                        // FLUID STOP CHECK (slightly slower reaction but still fast)
-                        val fluidStopPct = try {
-                            val modeDefault = cfg.stopLossPct
-                            com.lifecyclebot.v3.scoring.FluidLearningAI.getFluidStopLoss(modeDefault)
-                        } catch (_: Exception) { cfg.stopLossPct }
+                        // V3.3: DYNAMIC FLUID STOP CHECK (moves with position)
+                        val holdTimeMs = System.currentTimeMillis() - ts.position.entryTime
+                        val holdTimeSecs = holdTimeMs / 1000.0
+                        val peakPnlPct = ts.position.peakGainPct
+                        val volatility = ts.volatility ?: 50.0
                         
-                        if (pnlPct <= -fluidStopPct && pnlPct > -HARD_FLOOR_STOP_PCT) {
-                            ErrorLogger.warn("BotService", "⚠️ RAPID FLUID STOP: ${ts.symbol} at ${pnlPct.toInt()}% (limit=${fluidStopPct.toInt()}%)")
-                            addLog("🛑 RAPID FLUID STOP: ${ts.symbol} ${pnlPct.toInt()}%")
+                        val dynamicStopPct = try {
+                            val modeDefault = cfg.stopLossPct
+                            com.lifecyclebot.v3.scoring.FluidLearningAI.getDynamicFluidStop(
+                                modeDefaultStop = modeDefault,
+                                currentPnlPct = pnlPct,
+                                peakPnlPct = peakPnlPct,
+                                holdTimeSeconds = holdTimeSecs,
+                                volatility = volatility
+                            )
+                        } catch (_: Exception) {
+                            // Fallback to static fluid stop
+                            try {
+                                -com.lifecyclebot.v3.scoring.FluidLearningAI.getFluidStopLoss(cfg.stopLossPct)
+                            } catch (_: Exception) { -cfg.stopLossPct }
+                        }
+                        
+                        // Dynamic stop is already negative
+                        if (pnlPct <= dynamicStopPct && pnlPct > -HARD_FLOOR_STOP_PCT) {
+                            val stopType = when {
+                                peakPnlPct > 5.0 -> "TRAILING"
+                                holdTimeSecs < 60 -> "ENTRY_PROTECT"
+                                else -> "FLUID"
+                            }
+                            ErrorLogger.warn("BotService", "⚠️ RAPID $stopType STOP: ${ts.symbol} at ${pnlPct.toInt()}% (limit=${dynamicStopPct.toInt()}%)")
+                            addLog("🛑 RAPID $stopType STOP: ${ts.symbol} ${pnlPct.toInt()}%")
                             
                             executor.requestSell(
                                 ts = ts,
-                                reason = "RAPID_FLUID_STOP",
+                                reason = "RAPID_${stopType}_STOP",
                                 wallet = wallet,
                                 walletSol = effectiveBalance
                             )

@@ -100,14 +100,15 @@ object CashGenerationAI {
     private val paperDailyWins = AtomicInteger(0)
     private val paperDailyLosses = AtomicInteger(0)
     private val paperDailyTradeCount = AtomicInteger(0)
-    private val paperTreasuryBalanceBps = AtomicLong(0)  // Total treasury accumulated (paper)
+    // V3.3: Paper Treasury starts with $500 (~6 SOL at $83/SOL) = 600 basis points
+    private val paperTreasuryBalanceBps = AtomicLong(600)  // Starting balance: 6.0 SOL (~$500)
     
     // LIVE MODE stats (separate tracking)
     private val liveDailyPnlSolBps = AtomicLong(0)
     private val liveDailyWins = AtomicInteger(0)
     private val liveDailyLosses = AtomicInteger(0)
     private val liveDailyTradeCount = AtomicInteger(0)
-    private val liveTreasuryBalanceBps = AtomicLong(0)  // Total treasury accumulated (live)
+    private val liveTreasuryBalanceBps = AtomicLong(0)  // Live treasury starts at 0 (from actual trading profits)
     
     // Current mode flag (set by BotService when mode changes)
     @Volatile private var isPaperMode: Boolean = true

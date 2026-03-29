@@ -1585,19 +1585,40 @@ class Executor(
             return "hard_floor_stop"
         }
         
-        // V3.3: Fluid stop loss from FluidLearningAI (mode-aware)
-        // This is tighter than hard floor but adapts to learning progress
-        val fluidStopPct = try {
+        // V3.3: DYNAMIC FLUID STOP LOSS - Moves with position
+        // This stop adapts based on: current P&L, peak P&L, hold time, volatility
+        val peakPnlPct = pos.peakGainPct  // Track highest P&L achieved
+        val volatility = ts.volatility ?: 50.0
+        
+        val dynamicStopPct = try {
             val modeDefault = modeConf?.stopLossPct ?: cfg().stopLossPct
-            com.lifecyclebot.v3.scoring.FluidLearningAI.getFluidStopLoss(modeDefault)
+            com.lifecyclebot.v3.scoring.FluidLearningAI.getDynamicFluidStop(
+                modeDefaultStop = modeDefault,
+                currentPnlPct = gainPct,
+                peakPnlPct = peakPnlPct,
+                holdTimeSeconds = heldSecs,
+                volatility = volatility
+            )
         } catch (_: Exception) {
-            modeConf?.stopLossPct ?: cfg().stopLossPct
+            // Fallback to static fluid stop if dynamic fails
+            val modeDefault = modeConf?.stopLossPct ?: cfg().stopLossPct
+            try {
+                -com.lifecyclebot.v3.scoring.FluidLearningAI.getFluidStopLoss(modeDefault)
+            } catch (_: Exception) {
+                -(modeConf?.stopLossPct ?: cfg().stopLossPct)
+            }
         }
-        if (gainPct <= -fluidStopPct) {
-            onLog("🛑 FLUID STOP: ${ts.symbol} at ${gainPct.toInt()}% (limit=${fluidStopPct.toInt()}%)", ts.mint)
-            // V3.3: Don't cooldown - mark for RECOVERY SCAN instead
-            markForRecoveryScan(ts, gainPct, "fluid_stop")
-            return "fluid_stop_loss"
+        
+        // Dynamic stop is already negative, gainPct is also negative when losing
+        if (gainPct <= dynamicStopPct) {
+            val stopType = when {
+                peakPnlPct > 5.0 -> "trailing_fluid"  // Was in profit, trail caught it
+                heldSecs < 60 -> "entry_protect"      // Entry phase protection
+                else -> "fluid_stop"                  // Normal fluid stop
+            }
+            onLog("🛑 DYNAMIC STOP ($stopType): ${ts.symbol} at ${gainPct.toInt()}% (dynamic limit=${dynamicStopPct.toInt()}%)", ts.mint)
+            markForRecoveryScan(ts, gainPct, stopType)
+            return "${stopType}_loss"
         }
 
         // Wick protection: skip additional checks in first 90s unless already hit hard/fluid stops
