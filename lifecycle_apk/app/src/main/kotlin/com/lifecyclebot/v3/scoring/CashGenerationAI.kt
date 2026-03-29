@@ -643,10 +643,11 @@ object CashGenerationAI {
         // V4.0: Treasury trades contribute to FluidLearningAI maturity
         // Paper Treasury = 10% weight, Live Treasury = 50% weight (same as regular trades)
         try {
+            val isWin = pnlPct > 0
             if (pos.isPaper) {
-                FluidLearningAI.recordPaperTrade(pos.symbol, pnlPct)
+                FluidLearningAI.recordPaperTrade(isWin)
             } else {
-                FluidLearningAI.recordLiveTrade(pos.symbol, pnlPct)
+                FluidLearningAI.recordLiveTrade(isWin)
             }
         } catch (e: Exception) {
             ErrorLogger.debug(TAG, "FluidLearning update failed: ${e.message}")

@@ -2339,7 +2339,6 @@ risking real capital.
             val currentBalanceUsd = currentBalance * solPrice
             
             val pnlSign = if (stats.dailyPnlSol >= 0) "+" else ""
-            val progressBar = buildProgressBar(stats.progressPct.coerceIn(-100.0, 100.0))
             
             val message = """
 💰 CASH GENERATION AI (Treasury Mode)
@@ -2355,11 +2354,8 @@ Current Treasury: ${"%.4f".format(currentBalance)} SOL (~$${"%.0f".format(curren
 $modeEmoji Mode: ${stats.mode.name}
 
 Daily P&L: $pnlSign${"%.4f".format(stats.dailyPnlSol)} SOL
-Target: ${"%.2f".format(stats.dailyTargetSol)} SOL (~$500)
-Max Loss: ${"%.2f".format(stats.dailyMaxLossSol)} SOL (~$50)
-
-Progress: $progressBar
-          ${"%.0f".format(stats.progressPct)}% of daily target
+Max Loss Limit: ${"%.2f".format(stats.dailyMaxLossSol)} SOL (~$50)
+Target: UNLIMITED 🚀
 
 Trades: ${stats.dailyTradeCount} | W/L: ${stats.dailyWins}/${stats.dailyLosses}
 Win Rate: ${"%.1f".format(stats.winRate)}%
