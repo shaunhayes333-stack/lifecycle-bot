@@ -184,41 +184,42 @@ class CollectiveBrainActivity : AppCompatActivity() {
         
         // Get local stats for comparison
         val localStats = com.lifecyclebot.engine.TradeHistoryStore.getStats()
-        val localWinRate = if (localStats.totalStoredTrades > 0) {
-            (localStats.wins.toDouble() / localStats.totalStoredTrades * 100)
-        } else 0.0
+        val localWinRate = localStats.winRate  // Already a percentage (0-100)
         
         // Determine data source and display values
         val hasCollectiveData = collectiveStats != null && collectiveStats.totalTrades > 0
         
-        val (dataSourceLabel, displayTrades, displayWinRate, displayAvgPnl, activeUsers) = if (hasCollectiveData) {
-            val stats = collectiveStats!!
-            Triple(
-                "🌐 HIVE MIND",
-                stats.totalTrades,
-                stats.winRate
-            ) to Triple(stats.avgPnlPct, stats.activeUsers24h, true)
-        } else if (isTursoEnabled) {
-            Triple(
-                "🔄 CONNECTING...",
-                localStats.totalStoredTrades,
-                localWinRate
-            ) to Triple(0.0, 1, false)
-        } else {
-            Triple(
-                "📱 LOCAL ONLY",
-                localStats.totalStoredTrades,
-                localWinRate
-            ) to Triple(0.0, 1, false)
-        }
+        // Extract values based on connection state
+        val dataSourceLabel: String
+        val displayTrades: Int
+        val displayWinRate: Double
+        val displayAvgPnl: Double
+        val activeUsers: Int
         
-        val (avgPnl, users, isHive) = Pair(displayAvgPnl, activeUsers).let { 
-            Triple(it.first.first, it.first.second, it.second) 
+        if (hasCollectiveData) {
+            val stats = collectiveStats!!
+            dataSourceLabel = "🌐 HIVE MIND"
+            displayTrades = stats.totalTrades
+            displayWinRate = stats.winRate
+            displayAvgPnl = stats.avgPnlPct
+            activeUsers = stats.activeUsers24h
+        } else if (isTursoEnabled) {
+            dataSourceLabel = "🔄 CONNECTING..."
+            displayTrades = localStats.totalStoredTrades
+            displayWinRate = localWinRate
+            displayAvgPnl = 0.0
+            activeUsers = 1
+        } else {
+            dataSourceLabel = "📱 LOCAL ONLY"
+            displayTrades = localStats.totalStoredTrades
+            displayWinRate = localWinRate
+            displayAvgPnl = 0.0
+            activeUsers = 1
         }
         
         withContext(Dispatchers.Main) {
             // Update data source label
-            tvDataSource.text = dataSourceLabel.first
+            tvDataSource.text = dataSourceLabel
             tvDataSource.setTextColor(when {
                 hasCollectiveData -> green
                 isTursoEnabled -> 0xFF6366F1.toInt()
@@ -226,12 +227,12 @@ class CollectiveBrainActivity : AppCompatActivity() {
             })
             
             // Update brain animation
-            val progress = (dataSourceLabel.second.toFloat() / 1_000_000f).coerceIn(0f, 1f)
+            val progress = (displayTrades.toFloat() / 1_000_000f).coerceIn(0f, 1f)
             brainView.setProgress(progress)
-            brainView.setTradeCount(dataSourceLabel.second)
+            brainView.setTradeCount(displayTrades)
             
             // Update trade count
-            tvTotalTrades.text = formatNumber(dataSourceLabel.second)
+            tvTotalTrades.text = formatNumber(displayTrades)
             
             // V4.0: Show COLLECTIVE win rate and avg PnL (not local!)
             if (hasCollectiveData && collectiveStats != null) {
@@ -246,15 +247,15 @@ class CollectiveBrainActivity : AppCompatActivity() {
                 tvTotalLoss.setTextColor(muted)
             } else {
                 // Fallback to local
-                tvTotalProfit.text = "${localWinRate.toInt()}% WR"
-                tvTotalProfit.setTextColor(if (localWinRate >= 50) green else muted)
+                tvTotalProfit.text = "${displayWinRate.toInt()}% WR"
+                tvTotalProfit.setTextColor(if (displayWinRate >= 50) green else muted)
                 tvTotalLoss.text = "Local data"
                 tvTotalLoss.setTextColor(muted)
             }
             
             // Active users
-            tvActiveInstances.text = "${collectiveStats?.activeUsers24h ?: 1}"
-            tvActiveInstances.setTextColor(if ((collectiveStats?.activeUsers24h ?: 1) > 1) green else white)
+            tvActiveInstances.text = "$activeUsers"
+            tvActiveInstances.setTextColor(if (activeUsers > 1) green else white)
             
             // Patterns and blacklist
             tvPatternsLearned.text = "$collectivePatterns"
@@ -282,7 +283,7 @@ class CollectiveBrainActivity : AppCompatActivity() {
             updateModeStatsV4(topModes, avoidModes, hotTokens, networkSignals)
             
             // Pulse the brain if trades increased
-            if (dataSourceLabel.second > brainView.lastTradeCount) {
+            if (displayTrades > brainView.lastTradeCount) {
                 brainView.pulse()
             }
         }
