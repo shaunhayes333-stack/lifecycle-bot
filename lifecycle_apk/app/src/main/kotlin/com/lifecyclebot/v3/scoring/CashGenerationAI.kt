@@ -322,6 +322,14 @@ object CashGenerationAI {
         // ─── FILTER CHECKS (Treasury is AGGRESSIVE - fewer filters) ───
         val rejectionReasons = mutableListOf<String>()
         
+        // V4.0: Enhanced debug logging to trace exactly what's blocking Treasury trades
+        ErrorLogger.debug(TAG, "💰 TREASURY EVAL: $symbol | " +
+            "conf=$v3Confidence (need≥$confThreshold) | " +
+            "score=$v3Score (need≥$effectiveScoreThreshold) | " +
+            "liq=$${liquidityUsd.toInt()} (need≥$${fluidMinLiquidity.toInt()}) | " +
+            "topHolder=${topHolderPct.toInt()}% (need≤${fluidMaxTopHolder.toInt()}%) | " +
+            "buyPress=${buyPressurePct.toInt()}% (need≥${fluidMinBuyPressure.toInt()}%)")
+        
         // Confidence check - Treasury uses LOWER bar
         if (v3Confidence < confThreshold) {
             rejectionReasons.add("conf=$v3Confidence<$confThreshold")

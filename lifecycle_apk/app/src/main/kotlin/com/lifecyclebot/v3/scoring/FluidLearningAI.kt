@@ -39,7 +39,8 @@ object FluidLearningAI {
     private var cachedProgress = 0.0
     
     // Trades needed to reach full maturity
-    private const val TRADES_FOR_MATURITY = 500
+    // V4.0: Increased from 500 to 1000 for better sample size and slower, quality learning
+    private const val TRADES_FOR_MATURITY = 1000
     
     // ═══════════════════════════════════════════════════════════════════════════
     // BEHAVIOR MODIFIER (From BehaviorAI)
@@ -117,12 +118,56 @@ object FluidLearningAI {
     
     /**
      * Record a trade for learning progress.
+     * Live/Paper mode trades count at full weight.
+     * Use recordShadowTrade() for shadow learning with discounted weight.
      */
     fun recordTrade(isWin: Boolean) {
         sessionTrades.incrementAndGet()
         if (isWin) sessionWins.incrementAndGet()
         cachedProgress = 0.0  // Force recalculation
     }
+    
+    // ═══════════════════════════════════════════════════════════════════════════
+    // V4.0: SHADOW LEARNING DISCOUNT SYSTEM
+    // 
+    // Shadow trades (simulated paper learning) count at 0.025 weight per trade
+    // instead of 1.0. This slows learning to ensure quality data.
+    // 
+    // Live/Paper mode trades keep full 1.0 weight - real decisions, real consequences.
+    // ═══════════════════════════════════════════════════════════════════════════
+    
+    private const val SHADOW_LEARNING_WEIGHT = 0.025  // 2.5% weight per shadow trade
+    
+    // Accumulator for fractional shadow trade progress
+    private var shadowTradeAccumulator = 0.0
+    private val shadowTradeAccumulatorLock = Any()
+    
+    /**
+     * Record a shadow trade with discounted learning weight (0.025 per trade).
+     * 40 shadow trades = 1 full trade equivalent for maturity progression.
+     * This ensures quality data and prevents premature maturity from paper simulations.
+     */
+    fun recordShadowTrade(isWin: Boolean) {
+        synchronized(shadowTradeAccumulatorLock) {
+            shadowTradeAccumulator += SHADOW_LEARNING_WEIGHT
+            
+            // When accumulator reaches 1.0, count as one full trade
+            if (shadowTradeAccumulator >= 1.0) {
+                sessionTrades.incrementAndGet()
+                // Win is recorded if this batch had more wins than losses
+                // For simplicity, record based on the triggering trade
+                if (isWin) sessionWins.incrementAndGet()
+                shadowTradeAccumulator -= 1.0
+            }
+            
+            cachedProgress = 0.0  // Force recalculation
+        }
+        
+        ErrorLogger.debug(TAG, "🧠 Shadow trade recorded (${SHADOW_LEARNING_WEIGHT}x weight) | " +
+            "Accumulator: ${shadowTradeAccumulator.fmt(3)} | Progress: ${(getLearningProgress()*100).toInt()}%")
+    }
+    
+    private fun Double.fmt(d: Int) = "%.${d}f".format(this)
     
     // ═══════════════════════════════════════════════════════════════════════════
     // INTERPOLATION HELPERS
@@ -240,27 +285,29 @@ object FluidLearningAI {
     // ═══════════════════════════════════════════════════════════════════════════
     // TREASURY MODE THRESHOLDS (Used by CashGenerationAI)
     // 
+    // V4.0: Made MUCH LOOSER during bootstrap to ensure Treasury actually fires trades.
     // Treasury uses LOOSER thresholds because it has:
-    // - Tight stop losses (5%)
+    // - Tight stop losses (-2%)
     // - Quick exits (5-10% TP)
     // - Short hold times (max 8 min)
-    // So it can afford to take more shots with lower conviction
+    // So it can afford to take MANY shots with lower conviction.
+    // The tight stops protect against bad entries.
     // ═══════════════════════════════════════════════════════════════════════════
     
-    private const val TREASURY_CONF_BOOTSTRAP = 15   // Very low - take many shots with tight stops
-    private const val TREASURY_CONF_MATURE = 50      // Still lower than normal trading
+    private const val TREASURY_CONF_BOOTSTRAP = 10   // V4.0: Lowered from 15 - very low barrier
+    private const val TREASURY_CONF_MATURE = 45      // V4.0: Lowered from 50 - Treasury is risk-tolerant
     
-    private const val TREASURY_LIQ_BOOTSTRAP = 2000.0   // Lower - quick scalps work with less liquidity
-    private const val TREASURY_LIQ_MATURE = 8000.0
+    private const val TREASURY_LIQ_BOOTSTRAP = 1000.0   // V4.0: Lowered from 2000 - early tokens have less liq
+    private const val TREASURY_LIQ_MATURE = 6000.0       // V4.0: Lowered from 8000
     
-    private const val TREASURY_TOP_HOLDER_BOOTSTRAP = 35.0  // More tolerant during bootstrap
-    private const val TREASURY_TOP_HOLDER_MATURE = 15.0
+    private const val TREASURY_TOP_HOLDER_BOOTSTRAP = 50.0  // V4.0: Raised from 35 - be very tolerant early
+    private const val TREASURY_TOP_HOLDER_MATURE = 20.0     // V4.0: Raised from 15 - still lenient when mature
     
-    private const val TREASURY_BUY_PRESSURE_BOOTSTRAP = 35.0  // Lower bar
-    private const val TREASURY_BUY_PRESSURE_MATURE = 52.0
+    private const val TREASURY_BUY_PRESSURE_BOOTSTRAP = 25.0  // V4.0: Lowered from 35 - allow weak pressure
+    private const val TREASURY_BUY_PRESSURE_MATURE = 45.0     // V4.0: Lowered from 52
     
-    private const val TREASURY_SCORE_BOOTSTRAP = 5    // Very low - Treasury has its own exit timing
-    private const val TREASURY_SCORE_MATURE = 25
+    private const val TREASURY_SCORE_BOOTSTRAP = 3    // V4.0: Lowered from 5 - almost no score requirement
+    private const val TREASURY_SCORE_MATURE = 20       // V4.0: Lowered from 25
     
     fun getTreasuryConfidenceThreshold(): Int = lerp(TREASURY_CONF_BOOTSTRAP.toDouble(), TREASURY_CONF_MATURE.toDouble()).toInt()
     fun getTreasuryMinLiquidity(): Double = lerp(TREASURY_LIQ_BOOTSTRAP, TREASURY_LIQ_MATURE)

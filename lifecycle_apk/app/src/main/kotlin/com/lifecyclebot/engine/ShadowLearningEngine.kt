@@ -491,9 +491,9 @@ object ShadowLearningEngine {
                 ErrorLogger.info("ShadowLearning", "✅ CORRECT BLOCK: ${shadow.symbol} | " +
                     "Would have lost ${shadow.troughPnlPct.toInt()}% | Block: ${shadow.blockReason}")
                 
-                // V3.3: Record to FluidLearning - blocked trade would have been a LOSS
+                // V4.0: Record to FluidLearning with DISCOUNTED weight (0.025 per trade)
                 try {
-                    com.lifecyclebot.v3.scoring.FluidLearningAI.recordTrade(isWin = false)
+                    com.lifecyclebot.v3.scoring.FluidLearningAI.recordShadowTrade(isWin = false)
                 } catch (_: Exception) {}
             }
             hitTpFirst -> {
@@ -506,9 +506,9 @@ object ShadowLearningEngine {
                 ErrorLogger.info("ShadowLearning", "⚠️ MISSED WIN: ${shadow.symbol} | " +
                     "Would have gained ${shadow.peakPnlPct.toInt()}% | Block: ${shadow.blockReason}")
                 
-                // V3.3: Record to FluidLearning - this was a missed WIN
+                // V4.0: Record to FluidLearning with DISCOUNTED weight
                 try {
-                    com.lifecyclebot.v3.scoring.FluidLearningAI.recordTrade(isWin = true)
+                    com.lifecyclebot.v3.scoring.FluidLearningAI.recordShadowTrade(isWin = true)
                 } catch (_: Exception) {}
             }
             shadow.peakPnlPct > 10.0 -> {
@@ -521,9 +521,9 @@ object ShadowLearningEngine {
                 ErrorLogger.info("ShadowLearning", "⚠️ MISSED GAIN: ${shadow.symbol} | " +
                     "Would have gained ${shadow.peakPnlPct.toInt()}% | Block: ${shadow.blockReason}")
                 
-                // V3.3: Record to FluidLearning
+                // V4.0: Record to FluidLearning with DISCOUNTED weight
                 try {
-                    com.lifecyclebot.v3.scoring.FluidLearningAI.recordTrade(isWin = true)
+                    com.lifecyclebot.v3.scoring.FluidLearningAI.recordShadowTrade(isWin = true)
                 } catch (_: Exception) {}
             }
             shadow.troughPnlPct < -5.0 -> {
@@ -536,9 +536,9 @@ object ShadowLearningEngine {
                 ErrorLogger.info("ShadowLearning", "✅ AVOIDED LOSS: ${shadow.symbol} | " +
                     "Would have lost ${shadow.troughPnlPct.toInt()}% | Block: ${shadow.blockReason}")
                 
-                // V3.3: Record to FluidLearning
+                // V4.0: Record to FluidLearning with DISCOUNTED weight
                 try {
-                    com.lifecyclebot.v3.scoring.FluidLearningAI.recordTrade(isWin = false)
+                    com.lifecyclebot.v3.scoring.FluidLearningAI.recordShadowTrade(isWin = false)
                 } catch (_: Exception) {}
             }
             else -> {
@@ -754,14 +754,16 @@ object ShadowLearningEngine {
         trade.isOpen = false
         
         // ═══════════════════════════════════════════════════════════════════
-        // V3.3: WIRE SHADOW TRADES TO FLUID LEARNING MATURITY
+        // V4.0: WIRE SHADOW TRADES TO FLUID LEARNING WITH DISCOUNTED WEIGHT
         // Shadow trades contribute to overall bot maturity progression.
-        // This makes the bot "smarter" without risking live capital!
+        // Uses 0.025 weight (2.5%) vs 1.0 for live trades.
+        // This makes the bot "smarter" without overly inflating maturity!
         // ═══════════════════════════════════════════════════════════════════
         try {
             val isWin = trade.pnlSol > 0
-            com.lifecyclebot.v3.scoring.FluidLearningAI.recordTrade(isWin)
-            ErrorLogger.debug("ShadowLearning", "🧠 Shadow trade → FluidLearning: ${trade.symbol} ${if (isWin) "WIN" else "LOSS"} (${trade.pnlPct.toInt()}%)")
+            // V4.0: Use discounted shadow learning weight (0.025 per trade)
+            com.lifecyclebot.v3.scoring.FluidLearningAI.recordShadowTrade(isWin)
+            ErrorLogger.debug("ShadowLearning", "🧠 Shadow trade → FluidLearning (0.025x): ${trade.symbol} ${if (isWin) "WIN" else "LOSS"} (${trade.pnlPct.toInt()}%)")
         } catch (e: Exception) {
             ErrorLogger.debug("ShadowLearning", "FluidLearning integration error: ${e.message}")
         }

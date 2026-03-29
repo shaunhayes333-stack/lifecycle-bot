@@ -760,13 +760,30 @@ for legal compliance.
         }
 
         // ── Treasury + ScalingMode tier ──────────────────────────────
+        // V4.0: Show PAPER TREASURY balance from CashGenerationAI when in paper mode
+        // This ensures paper mode shows the correct simulated treasury balance
         try {
-            val trs     = ws.treasurySol
-            val trsUsd  = ws.treasuryUsd
+            val isPaper = cfg.paperMode
+            val trs: Double
+            val trsUsd: Double
+            
+            if (isPaper) {
+                // In paper mode, show the CashGenerationAI paper treasury balance
+                trs = com.lifecyclebot.v3.scoring.CashGenerationAI.getTreasuryBalance(true)
+                val solPrice = com.lifecyclebot.engine.WalletManager.lastKnownSolPrice
+                trsUsd = trs * solPrice
+            } else {
+                // In live mode, show the TreasuryManager live treasury
+                trs = ws.treasurySol
+                trsUsd = ws.treasuryUsd
+            }
+            
             val tier    = ws.highestMilestoneName
             val nextUsd = ws.nextMilestoneUsd
+            val modeLabel = if (isPaper) " [PAPER]" else ""
+            
             findViewById<android.widget.TextView?>(R.id.tvTreasuryTier)?.text =
-                if (trs > 0.001) "Tier: $tier" else "Tier: None"
+                if (trs > 0.001) "Tier: $tier$modeLabel" else "Tier: None$modeLabel"
             findViewById<android.widget.TextView?>(R.id.tvTreasuryAmount)?.text =
                 if (trs > 0.001) "${"%.3f".format(trs)} SOL  ($${"%.0f".format(trsUsd)})" else "—"
             findViewById<android.widget.TextView?>(R.id.tvTreasuryNext)?.text = when {

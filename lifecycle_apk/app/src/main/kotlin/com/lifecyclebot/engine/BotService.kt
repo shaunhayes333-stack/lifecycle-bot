@@ -2620,7 +2620,9 @@ class BotService : Service() {
                                     symbol = ts.symbol,
                                     currentPrice = ts.ref,
                                     liquidityUsd = ts.lastLiquidityUsd,
-                                    topHolderPct = ts.topHolderPct ?: 50.0,
+                                    // V4.0 FIX: Default to 20% (safe) instead of 50% (fails threshold)
+                                    // Many tokens don't have topHolderPct data early on
+                                    topHolderPct = ts.topHolderPct ?: 20.0,
                                     buyPressurePct = ts.lastBuyPressurePct,
                                     v3Score = v3Score,
                                     v3Confidence = v3Confidence,
