@@ -101,14 +101,12 @@ class UnifiedScorer(
             ScoreComponent(
                 name = "COLLECTIVE_AI",
                 value = insight.score,
-                confidence = (60 + insight.confidence).coerceIn(0, 100),
-                reason = "🧠 ${insight.reasoning} (${insight.signal.name})"
+                reason = "🧠 ${insight.reasoning} (${insight.signal.name}) conf=${insight.confidence}"
             )
         } catch (e: Exception) {
             ScoreComponent(
                 name = "COLLECTIVE_AI",
                 value = 0,
-                confidence = 50,
                 reason = "🧠 NO_DATA"
             )
         }
