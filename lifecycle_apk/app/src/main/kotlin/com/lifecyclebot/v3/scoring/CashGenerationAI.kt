@@ -43,13 +43,12 @@ object CashGenerationAI {
     private const val TAG = "CashGenAI"
     
     // ═══════════════════════════════════════════════════════════════════════════
-    // CONFIGURATION (User-specified Dec 2024)
+    // CONFIGURATION (User-specified Dec 2024 - UPDATED V4.0: No daily limits)
     // ═══════════════════════════════════════════════════════════════════════════
     
-    // Daily targets (in SOL, assuming ~$150/SOL → $500 = 3.33 SOL, $1000 = 6.67 SOL)
-    private const val DAILY_TARGET_MIN_SOL = 3.33     // ~$500 @ $150/SOL
-    private const val DAILY_TARGET_MAX_SOL = 6.67     // ~$1000 @ $150/SOL
-    private const val DAILY_MAX_LOSS_SOL = 0.33       // ~$50 ULTRA-CONSERVATIVE (user choice 1a)
+    // V4.0 UPDATE: REMOVED daily profit targets - Treasury runs unlimited!
+    // Old caps were: $500-$1000/day. Now: UNLIMITED - let it make as much as possible!
+    private const val DAILY_MAX_LOSS_SOL = 0.33       // ~$50 ULTRA-CONSERVATIVE (user choice 1a) - KEEP THIS
     
     // ═══════════════════════════════════════════════════════════════════════════
     // FLUID THRESHOLDS - Now centralized in FluidLearningAI (Layer 23)
@@ -437,14 +436,12 @@ object CashGenerationAI {
         }
         
         // ─── DYNAMIC POSITION SIZING ───
-        // Size shrinks as we approach daily target
+        // V4.0 UPDATE: No daily target cap - Treasury runs unlimited!
+        // Position size now scales with COMPOUNDING only, not progress-based shrinking
         val dailyPnl = dailyPnlSolBps.get() / 100.0
-        val progressToTarget = (dailyPnl / DAILY_TARGET_MIN_SOL).coerceIn(0.0, 1.0)
         
-        // Base size decreases as we approach target (100% → 40%)
-        val progressMultiplier = 1.0 - (progressToTarget * 0.6)
-        
-        var positionSol = BASE_POSITION_SOL * progressMultiplier
+        // V4.0: No more progress-based shrinking - let it compound freely!
+        var positionSol = BASE_POSITION_SOL
         
         // ─── COMPOUNDING: Add treasury profits to position size ───
         if (COMPOUNDING_ENABLED) {
@@ -458,6 +455,13 @@ object CashGenerationAI {
                 
                 ErrorLogger.debug(TAG, "💰 COMPOUNDING: +${compoundingBonus.fmt(3)}SOL from treasury " +
                     "(balance=${treasuryBalance.fmt(3)}SOL, conf=${treasuryConfidence}%)")
+            }
+            
+            // V4.0: Also compound from daily profits (unlimited growth!)
+            if (dailyPnl > 0) {
+                val dailyCompound = dailyPnl * COMPOUNDING_RATIO * (treasuryConfidence / 100.0)
+                positionSol += dailyCompound
+                ErrorLogger.debug(TAG, "💰 DAILY COMPOUND: +${dailyCompound.fmt(3)}SOL from today's profits")
             }
         }
         
@@ -490,7 +494,7 @@ object CashGenerationAI {
         
         ErrorLogger.info(TAG, "💰 TREASURY ENTRY: $symbol | " +
             "score=$treasuryScore conf=${treasuryConfidence}% | " +
-            "size=${positionSol.fmt(3)} SOL (progress=${(progressToTarget*100).toInt()}%) | " +
+            "size=${positionSol.fmt(3)} SOL (dailyPnl=${dailyPnl.fmt(2)}◎) | " +
             "TP=${takeProfitPct}% SL=${stopLossPct}% | mode=$mode | ${if (isPaperMode) "PAPER" else "LIVE"}")
         
         return TreasurySignal(
@@ -654,49 +658,45 @@ object CashGenerationAI {
     // ═══════════════════════════════════════════════════════════════════════════
     
     /**
-     * Get current treasury mode based on daily P&L progress.
+     * Get current treasury mode based on daily P&L.
      * 
-     * PAUSED: Hit $50 loss limit → stop trading
-     * AGGRESSIVE: Behind (negative P&L) → slightly more risk
-     * HUNT: Early progress (< 50% target) → normal trading
-     * CRUISE: Good progress (50-80% target) → standard approach
-     * DEFENSIVE: Near/hit target (> 80%) → protect gains
+     * V4.0 UPDATE: No more daily target caps - Treasury runs UNLIMITED!
+     * PAUSED: Hit $50 loss limit → stop trading (ONLY hard limit)
+     * AGGRESSIVE: Behind (negative P&L) → slightly more risk to recover
+     * HUNT: Normal mode → active scalping
+     * CRUISE: Positive P&L → steady approach (used to be progress-based)
+     * DEFENSIVE: Removed concept (no target = no need to defend)
      */
     fun getCurrentMode(): TreasuryMode {
         val dailyPnl = dailyPnlSolBps.get() / 100.0
-        val progressPct = dailyPnl / DAILY_TARGET_MIN_SOL * 100
         
         return when {
             // Hit max loss ($50) → PAUSE until reset
             dailyPnl <= -DAILY_MAX_LOSS_SOL -> TreasuryMode.PAUSED
             
-            // Hit or exceeded target → DEFENSIVE (protect gains)
-            progressPct >= 80 -> TreasuryMode.DEFENSIVE
-            
-            // Good progress (50-80%) → CRUISE (steady)
-            progressPct >= 50 -> TreasuryMode.CRUISE
-            
+            // V4.0: Simplified modes - no target-based switching
             // Behind (negative) → AGGRESSIVE (slightly more risk)
             dailyPnl < 0 -> TreasuryMode.AGGRESSIVE
             
-            // Normal progress (0-50%) → HUNT
+            // Making profit → CRUISE (steady compound growth)
+            dailyPnl > 0.5 -> TreasuryMode.CRUISE  // > 0.5 SOL profit
+            
+            // Normal → HUNT
             else -> TreasuryMode.HUNT
         }
     }
     
     /**
      * Get current stats for UI display (mode-aware)
+     * V4.0: No daily target limit - Treasury runs unlimited!
      */
     fun getStats(): TreasuryStats {
         val dailyPnl = dailyPnlSolBps.get() / 100.0
-        val progressPct = (dailyPnl / DAILY_TARGET_MIN_SOL * 100).coerceIn(-100.0, 200.0)
         val learningProgress = FluidLearningAI.getLearningProgress()
         
         return TreasuryStats(
             dailyPnlSol = dailyPnl,
-            dailyTargetSol = DAILY_TARGET_MIN_SOL,
             dailyMaxLossSol = DAILY_MAX_LOSS_SOL,
-            progressPct = progressPct,
             dailyWins = dailyWins.get(),
             dailyLosses = dailyLosses.get(),
             dailyTradeCount = dailyTradeCount.get(),
@@ -715,9 +715,7 @@ object CashGenerationAI {
     
     data class TreasuryStats(
         val dailyPnlSol: Double,
-        val dailyTargetSol: Double,
         val dailyMaxLossSol: Double,
-        val progressPct: Double,
         val dailyWins: Int,
         val dailyLosses: Int,
         val dailyTradeCount: Int,
@@ -740,7 +738,7 @@ object CashGenerationAI {
             }
             append("$modeEmoji ${mode.name} | ")
             append("${if (dailyPnlSol >= 0) "+" else ""}${dailyPnlSol.fmt(3)}◎ ")
-            append("(${progressPct.fmt(0)}% of \$500) | ")
+            append("(UNLIMITED) | ")
             append("$dailyWins W / $dailyLosses L | ")
             append("Treasury: ${treasuryBalanceSol.fmt(3)}◎ ")
             append("[${if (isPaperMode) "PAPER" else "LIVE"}] | ")

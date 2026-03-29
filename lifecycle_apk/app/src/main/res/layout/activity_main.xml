@@ -218,6 +218,39 @@
                         android:textSize="@dimen/balance_secondary_size"
                         android:layout_marginStart="8dp"
                         android:layout_marginBottom="5dp"/>
+                    
+                    <!-- Spacer to push SOL price to the right -->
+                    <View
+                        android:layout_width="0dp"
+                        android:layout_height="1dp"
+                        android:layout_weight="1"/>
+                    
+                    <!-- Live SOL Price -->
+                    <LinearLayout
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:orientation="vertical"
+                        android:gravity="end|right"
+                        android:layout_marginBottom="5dp">
+                        <TextView
+                            android:id="@+id/tvSolPrice"
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:text="$—"
+                            android:textColor="#14F195"
+                            android:textSize="18sp"
+                            android:textStyle="bold"
+                            android:fontFamily="monospace"
+                            android:gravity="end"/>
+                        <TextView
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:text="SOL/USD"
+                            android:textColor="#6B7280"
+                            android:textSize="9sp"
+                            android:fontFamily="monospace"
+                            android:gravity="end"/>
+                    </LinearLayout>
                 </LinearLayout>
 
                 <LinearLayout

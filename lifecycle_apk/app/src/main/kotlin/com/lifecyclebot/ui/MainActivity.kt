@@ -54,6 +54,7 @@ class MainActivity : AppCompatActivity() {
     private lateinit var tvBalanceUsd: TextView
     private lateinit var tvPnlChange: TextView
     private lateinit var tvPnlChangePct: TextView
+    private lateinit var tvSolPrice: TextView
 
     // bot status card
     private lateinit var tvTokenName: TextView
@@ -476,6 +477,7 @@ for legal compliance.
         tvBalanceUsd    = findViewById(R.id.tvBalanceUsd)
         tvPnlChange     = findViewById(R.id.tvPnlChange)
         tvPnlChangePct  = findViewById(R.id.tvPnlChangePct)
+        tvSolPrice      = try { findViewById(R.id.tvSolPrice) } catch (_: Exception) { TextView(this) }
         tvTokenName     = findViewById(R.id.tvTokenName)
         tvTokenPhase    = findViewById(R.id.tvTokenPhase)
         tvSignalChip    = findViewById(R.id.tvSignalChip)
@@ -775,6 +777,14 @@ for legal compliance.
         } else {
             tvBalanceLarge.text = "—"
             tvBalanceUsd.text   = ""
+        }
+        
+        // ── Live SOL Price ──────────────────────────────────────────────
+        val solPrice = com.lifecyclebot.engine.WalletManager.lastKnownSolPrice
+        if (solPrice > 0) {
+            tvSolPrice.text = "$${solPrice.toInt()}"
+        } else {
+            tvSolPrice.text = "$—"
         }
 
         val pnl    = ws.totalPnlSol
