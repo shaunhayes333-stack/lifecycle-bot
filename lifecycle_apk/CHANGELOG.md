@@ -2,6 +2,49 @@
 
 All notable changes to the Autonomous Algorithmic Trading Engine.
 
+## [v3.3.0] - 2026-03-29
+
+### Added - Sentient Trading Architecture
+- **FluidLearningAI (Layer 23)**: Centralized fluidity controller
+  - All thresholds now scale from loose (30%) to strict (75-80%) as bot learns
+  - Fresh installs get relaxed liquidity barriers to enable trading from Day 1
+  - Automatically tightens as trade count increases ("training wheels" concept)
+  - Unified lerp() function for all adaptive thresholds
+
+- **SellOptimizationAI (Layer 24)**: Intelligent exit strategy layer
+  - Chunk selling: 25%/50%/75% partial exits at profit milestones
+  - Trailing stop locks that follow price upward
+  - Exit urgency classification: NONE, LOW, MEDIUM, HIGH, CRITICAL
+  - Tracks position state for coordinated multi-leg exits
+
+- **Treasury Mode Compounding**: CashGenerationAI now compounds buys
+  - Profits from winning trades feed back into position sizing
+  - Immediate trading triggers on startup (no warm-up delay)
+  - Aggressive mode kicks in after first win streak
+
+- **Journal Data Persistence**: TradeHistoryStore improvements
+  - Removed automatic 7-day cleanup (data persists until manual clear)
+  - Win rate on MainActivity now calculated from persisted trades only
+  - Added "Clear All" manual button in JournalActivity
+  - StatsSnapshot includes totalTrades, winRate, avgWinPct
+
+### Fixed
+- **UI Trading Mode Labels**: MainActivity now shows actual MarketStructureRouter mode (e.g., "🚀 Fresh Launch") instead of hardcoded age-based labels
+- **Collective Brain Instance Count**: Immediate heartbeats on init and screen open for accurate "Active Instances" display
+- **JournalActivity refreshTrades()**: Added missing method that was breaking CI builds
+
+### Changed
+- Total AI layers increased from 22 to **24**
+- All modes (Paper/Live/Treasury) use fluid thresholds from FluidLearningAI
+- UnifiedScorer.moduleNames() updated to include all 24 layers
+
+### Technical Notes
+- 181 Kotlin source files
+- All builds verified via GitHub Actions CI
+- Fluid scaling uses sigmoid-like progression tied to lifetime trade count
+
+---
+
 ## [v1.2.0] - 2025-03-27
 
 ### Added

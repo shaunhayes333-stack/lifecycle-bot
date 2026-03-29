@@ -1,6 +1,6 @@
 # AATE™ — Autonomous Algorithmic Trading Engine
 
-> **The World's Most Advanced Open-Source Solana Trading Bot** — Built in under a week with 63,000+ lines of production Kotlin code
+> **The World's Most Advanced Open-Source Solana Trading Bot** — Native Android with 24 AI Layers, Fluid Learning, and Sentient Trading Architecture
 
 [![Build Status](https://github.com/shaunhayes333-stack/lifecycle-bot/actions/workflows/build.yml/badge.svg)](https://github.com/shaunhayes333-stack/lifecycle-bot/actions)
 [![License](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
@@ -13,86 +13,109 @@
 
 ## Executive Summary
 
-AATE is a native Android trading bot featuring a **12-layer AI consensus mechanism** that autonomously trades Solana meme coins. It learns from every trade, adapts to market conditions in real-time, and now shares learnings across all instances via **Turso Collective Intelligence**.
+AATE is a native Android trading bot featuring a **24-layer AI consensus mechanism** that autonomously trades Solana meme coins. It learns from every trade, adapts to market conditions in real-time, and shares learnings across all instances via **Turso Collective Intelligence**.
 
 **Key Stats:**
-- 63,000+ lines of production Kotlin code
-- 12 AI layers working in consensus
-- 18 specialized trading modes
-- 6 learning systems that improve with every trade
-- Built from scratch in under 7 days
+- 181 Kotlin source files (90,000+ lines of production code)
+- **24 AI layers** working in parallel consensus
+- **19 specialized trading modes** + Treasury Mode
+- **Fluid Learning** - thresholds adapt as bot gains experience
+- **Sentient Architecture** - AI that monitors and improves itself
+
+---
+
+## What's New in V3.3 (Sentient Trading)
+
+### FluidLearningAI (Layer 23) - The Training Wheels
+Fresh installs start with relaxed thresholds (30% confidence) so you can trade from Day 1. As the bot accumulates trades and learns, thresholds automatically tighten to 75-80%. No more waiting days before first trade.
+
+### SellOptimizationAI (Layer 24) - Intelligent Exits
+Chunk selling at profit milestones (25%, 50%, 75%), trailing stop locks, and exit urgency classification. The bot now knows *when* to take profits and *how much* to take.
+
+### Persistent Journal & True Win Rates
+Trade history persists until manually cleared. Win rate displayed on main screen now reflects actual historical performance, not ephemeral in-memory data.
 
 ---
 
 ## Architecture Overview
 
-### The 12-Layer AI Consensus System
+### The 24-Layer AI Consensus System
 
 ```
 ┌─────────────────────────────────────────────────────────────────────┐
-│                     FINAL DECISION GATE (Layer 12)                  │
-│              All 11 layers must agree for trade execution           │
+│                     SENTIENT TRADING ARCHITECTURE                    │
 ├─────────────────────────────────────────────────────────────────────┤
-│ Layer 11: AICrossTalk          │ Inter-layer signal arbitration     │
-│ Layer 10: LiquidityDepthAI     │ Real-time LP monitoring            │
-│ Layer  9: TimeOptimizationAI   │ Optimal trading hours              │
+│ Layer 24: SellOptimizationAI   │ Intelligent exit strategies        │
+│ Layer 23: FluidLearningAI      │ Adaptive threshold controller      │
+│ Layer 22: MetaCognitionAI      │ Self-aware executive function      │
+│ Layer 21: CollectiveIntelAI    │ Hive mind synthesis                │
+│ Layer 20: LiquidityCycleAI     │ Market-wide liquidity tracking     │
+│ Layer 19: HoldTimeOptimizerAI  │ Optimal hold duration              │
+│ Layer 18: SmartMoneyDivergence │ Whale behavior vs price            │
+│ Layer 17: OrderFlowImbalanceAI │ Buy/sell pressure detection        │
+│ Layer 16: VolatilityRegimeAI   │ Volatility & squeeze detection     │
+│ Layer 15: SocialVelocityAI     │ Social momentum tracking           │
+│ Layer 14: FearGreedAI          │ Market sentiment analysis          │
+│ Layer 13: SuppressionAI        │ Manipulation detection             │
+│ Layer 12: CopyTradeAI          │ Whale signal processing            │
+│ Layer 11: TimeOptimizationAI   │ Best trading hours                 │
+│ Layer 10: MarketRegimeAI       │ Bull/Bear/Crab detection           │
+│ Layer  9: TokenWinMemoryAI     │ Historical performance             │
 │ Layer  8: NarrativeDetectorAI  │ Trending theme detection           │
-│ Layer  7: MomentumPredictorAI  │ Pump probability scoring           │
-│ Layer  6: MarketRegimeAI       │ Bull/Bear/Crab detection           │
-│ Layer  5: WhaleTrackerAI       │ Smart money flow analysis          │
-│ Layer  4: ExitIntelligence     │ Optimal exit timing                │
-│ Layer  3: EntryIntelligence    │ Entry pattern recognition          │
-│ Layer  2: BehaviorLearning     │ Pattern outcome memory             │
-│ Layer  1: EdgeLearning         │ Dynamic threshold adjustment       │
-├─────────────────────────────────────────────────────────────────────┤
-│                    STATISTICAL FOUNDATION                           │
-│     EMA Fan · Volume Profile · Buy Pressure · RSI · MACD            │
+│ Layer  7: HolderSafetyAI       │ Rug pull detection (6 checks)      │
+│ Layer  6: VolumeProfileAI      │ Volume pattern analysis            │
+│ Layer  5: LiquidityDepthAI     │ Real-time LP monitoring            │
+│ Layer  4: MomentumPredictorAI  │ Price trajectory analysis          │
+│ Layer  3: EntryTimingAI        │ Perfect entry detection            │
+│ Layer  2: SourceReliabilityAI  │ Signal source quality              │
+│ Layer  1: StatisticalBase      │ EMA · Volume · RSI · MACD          │
 └─────────────────────────────────────────────────────────────────────┘
 ```
 
-### 18 Trading Modes
+### 19 Trading Modes + Treasury
 
 | Mode | Strategy | Best For |
 |------|----------|----------|
-| PUMP_SNIPER | Ultra-fast entry on new launches | Fresh pump.fun tokens |
-| MOMENTUM_RIDE | Trend following with trailing stops | Confirmed pumps |
+| STANDARD | Balanced quality gates | Default trading |
+| MOONSHOT | Early high-potential detection | Fresh launches |
+| PUMP_SNIPER | Ultra-fast entry on viral pumps | pump.fun tokens |
+| MOMENTUM_SWING | Strong trend following | Confirmed pumps |
 | WHALE_FOLLOW | Copy smart money movements | Whale-detected tokens |
-| SCALP_QUICK | Fast in-out on micro-moves | High-frequency action |
-| RANGE_BOUND | Buy support, sell resistance | Consolidating tokens |
-| RECOVERY_MODE | Average down on quality dips | Oversold conditions |
-| COPY_TRADE | Mirror tracked wallets | Following alpha wallets |
-| DIAMOND_HANDS | Extended holds on conviction | High-belief tokens |
-| SNIPE_GRADUATE | Catch pump→Raydium migrations | Bonding curve graduates |
-| NARRATIVE_PLAY | Theme-based entries | AI, DeSci, GameFi trends |
+| COPY_TRADE | Mirror tracked wallets | Following alpha |
+| LONG_HOLD | Diamond hands - extended holds | High conviction |
 | BLUE_CHIP | Conservative, larger caps | Lower-risk tokens |
-| SCALP_MICRO | Tiny position rapid trades | Learning mode |
-| DIP_HUNTER | Catch oversold bounces | Panic sell reversals |
-| BREAKOUT | Entry on range breaks | Technical breakouts |
-| MEAN_REVERT | Fade extreme moves | Overextended tokens |
-| NEWS_TRADE | React to sentiment spikes | Social catalysts |
-| GRID_TRADE | Automated grid orders | Ranging markets |
-| DEFENSIVE | Capital preservation | Losing streaks |
+| CYCLIC | Pattern-based trading | Repeating patterns |
+| SLEEPER | Dormant token revivals | Sleeping giants |
+| NICHE | Low supply opportunities | Micro-cap gems |
+| PRESALE_SNIPE | First-block entry | Token launches |
+| ARBITRAGE | Cross-DEX spreads | Price discrepancies |
+| MICRO_CAP | Ultra-small mcap plays | High risk/reward |
+| REVIVAL | Phoenix - crashed recovery | Oversold bounces |
+| PUMP_DUMP | Aggressive accumulation | Pump detection |
+| MARKET_MAKER | Spread profit capture | Ranging markets |
+| LIQUIDATION_HUNTER | Distressed selling | Panic sells |
+| **TREASURY** | Conservative cash generation | Daily income |
 
 ---
 
 ## Self-Learning Systems
 
-### 1. EdgeLearning
+### 1. FluidLearningAI (Layer 23) - NEW
+Centralized adaptive threshold controller. Day 1 installs start at 30% confidence thresholds; as the bot learns from trades, thresholds tighten to 75-80%. Eliminates the "cold start" problem.
+
+### 2. SellOptimizationAI (Layer 24) - NEW
+Intelligent exit strategy layer. Calculates chunk sell milestones (25%/50%/75%), trailing stop locks, and exit urgency. Turns profit-taking from guesswork into science.
+
+### 3. EdgeLearning
 Dynamically adjusts entry/exit thresholds based on win rate. If the bot is winning 70%+, it loosens thresholds to take more trades. If dropping below 40%, it tightens to protect capital.
 
-### 2. BehaviorLearning
+### 4. BehaviorLearning
 Remembers every pattern that led to a win or loss. Patterns include EMA alignment, volume profile, liquidity depth, and time of day. Over time, builds a statistical edge.
 
-### 3. EntryIntelligence
-Neural-inspired entry scoring. Learns which combinations of indicators produce winning entries and adjusts weights accordingly.
+### 5. MetaCognitionAI (Layer 22)
+Self-aware "prefrontal cortex" that monitors all other AI layers. Tracks accuracy of each layer, adjusts trust dynamically, and can veto trades when reliable AIs disagree.
 
-### 4. ExitIntelligence
-Learns optimal hold times and exit triggers. Tracks profitability by exit reason (trailing stop, target hit, time exit, etc.).
-
-### 5. ModeLearning
-Tracks performance by trading mode. Automatically suggests the best mode for current market conditions.
-
-### 6. CollectiveLearning (NEW)
+### 6. CollectiveLearning (Layer 21)
 **Turso-powered shared knowledge base.** All AATE instances anonymously share:
 - Pattern outcomes (win/loss aggregates)
 - Token blacklist (confirmed rugs, honeypots)

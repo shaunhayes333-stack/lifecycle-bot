@@ -1,6 +1,6 @@
-# AATE V3.2 - Complete Technical Architecture
+# AATE V3.3 - Complete Technical Architecture (Sentient Trading)
 
-## TRADING MODES (19 Total)
+## TRADING MODES (19 Total + Treasury)
 
 | # | Mode | Emoji | Risk | Description |
 |---|------|-------|------|-------------|
@@ -26,7 +26,7 @@
 
 ---
 
-## 22 AI SCORING LAYERS
+## 24 AI SCORING LAYERS
 
 ### Layer 1-14: Base Scoring Modules
 
@@ -63,7 +63,129 @@
 |-------|-----------|----------|-------------|
 | 20 | CollectiveIntelligenceAI | Hive mind synthesis | -20 to +20 |
 | 21 | MetaCognitionAI | Self-aware oversight | -10 to +15 |
-| 22 | CashGenerationAI | Treasury mode (separate) | Pass/Fail |
+| 22 | CashGenerationAI | Treasury mode scoring | Pass/Fail |
+
+### Layer 23-24: V3.3 Sentient Trading (NEW)
+
+| Layer | AI Module | Function | Score Range |
+|-------|-----------|----------|-------------|
+| 23 | **FluidLearningAI** | Centralized adaptive thresholds | N/A (Controller) |
+| 24 | **SellOptimizationAI** | Intelligent exit strategies | N/A (Exit Logic) |
+
+#### FluidLearningAI Details (Layer 23)
+- **Purpose**: Centralizes ALL adaptive thresholds in one location
+- **Scaling**: 30% confidence (Day 1) → 75-80% (mature bot)
+- **Methods**:
+  - `getLearningProgress()` - Returns 0.0 to 1.0 based on lifetime trades
+  - `lerp(loose, strict)` - Interpolates between loose and strict values
+  - `getTreasuryConfidenceThreshold()` - Fluid confidence for Treasury Mode
+  - `getMinScoreThreshold()` - Fluid minimum score for entries
+  - `getRugFilterLiq*()` - Fluid liquidity floors for rug detection
+
+#### SellOptimizationAI Details (Layer 24)
+- **Purpose**: Intelligent profit-taking and exit management
+- **Exit Strategies**:
+  - `HOLD` - Keep position
+  - `CHUNK_25` - Sell 25% at first profit milestone
+  - `CHUNK_50` - Sell 50% at second milestone
+  - `CHUNK_75` - Sell 75% at third milestone
+  - `FULL_EXIT` - Close entire position
+  - `TRAILING_LOCK` - Set trailing stop at current level
+- **Urgency Levels**: NONE, LOW, MEDIUM, HIGH, CRITICAL
+- **Tracking**: Maintains chunk state per position for coordinated exits
+
+---
+
+## FLUID LEARNING SYSTEM (V3.3 NEW)
+
+### How It Works
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│                    FLUID LEARNING ARCHITECTURE                   │
+└─────────────────────────────────────────────────────────────────┘
+                              │
+                              ▼
+                    ┌─────────────────┐
+                    │  Lifetime Trade │
+                    │     Counter     │
+                    └────────┬────────┘
+                              │
+              ┌───────────────┼───────────────┐
+              │               │               │
+              ▼               ▼               ▼
+        ┌─────────┐    ┌─────────────┐   ┌─────────┐
+        │ 0-50    │    │  50-200     │   │ 200+    │
+        │ trades  │    │  trades     │   │ trades  │
+        │ (FRESH) │    │ (LEARNING)  │   │ (MATURE)│
+        └────┬────┘    └──────┬──────┘   └────┬────┘
+              │               │               │
+              ▼               ▼               ▼
+        ┌─────────┐    ┌─────────────┐   ┌─────────┐
+        │  LOOSE  │    │   SCALING   │   │ STRICT  │
+        │   30%   │    │   30-75%    │   │  75-80% │
+        │ thresholds│  │ thresholds  │   │thresholds│
+        └─────────┘    └─────────────┘   └─────────┘
+```
+
+### Threshold Categories
+
+| Category | Fresh (0-50) | Learning (50-200) | Mature (200+) |
+|----------|--------------|-------------------|---------------|
+| Confidence | 30% | 30% → 75% | 75-80% |
+| Min Score | 15 | 15 → 40 | 40+ |
+| Liquidity Floor | $2,000 | $2K → $15K | $15,000+ |
+| Top Holder Max | 25% | 25% → 12% | 12% |
+| Buy Pressure Min | 40% | 40% → 58% | 58%+ |
+
+---
+
+## SELL OPTIMIZATION SYSTEM (V3.3 NEW)
+
+### Exit Strategy Flow
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│                 SELL OPTIMIZATION AI FLOW                        │
+└─────────────────────────────────────────────────────────────────┘
+                              │
+                              ▼
+                    ┌─────────────────┐
+                    │ Position Open   │
+                    │ Current PnL: X% │
+                    └────────┬────────┘
+                              │
+                              ▼
+                    ┌─────────────────┐
+                    │ SellOptimization│
+                    │ AI.evaluate()   │
+                    └────────┬────────┘
+                              │
+              ┌───────────────┼───────────────┐───────────────┐
+              │               │               │               │
+              ▼               ▼               ▼               ▼
+        ┌─────────┐    ┌─────────────┐ ┌────────────┐  ┌──────────┐
+        │PnL < 15%│    │PnL 15-30%   │ │PnL 30-50%  │  │PnL > 50% │
+        │  HOLD   │    │ CHUNK_25    │ │ CHUNK_50   │  │ CHUNK_75 │
+        └─────────┘    └──────┬──────┘ └─────┬──────┘  └────┬─────┘
+                              │              │              │
+                              ▼              ▼              ▼
+                       ┌─────────────────────────────────────────┐
+                       │ Sell X% of position, keep remainder     │
+                       │ Update chunk state in SellOptimizationAI│
+                       │ Set trailing stop on remaining          │
+                       └─────────────────────────────────────────┘
+```
+
+### Urgency Classification
+
+| Urgency | Condition | Action |
+|---------|-----------|--------|
+| NONE | Position healthy | Continue holding |
+| LOW | Minor warning signs | Monitor closely |
+| MEDIUM | Profit targets approaching | Prepare chunk sell |
+| HIGH | Strong sell signal | Execute chunk immediately |
+| CRITICAL | Danger (rug/dump detected) | Full exit NOW |
 
 ---
 
@@ -429,5 +551,7 @@ GitHub Push → GitHub Actions CI → Gradle Build → APK Release
 
 ---
 
-*Document Version: V3.2*
+*Document Version: V3.3 (Sentient Trading)*
 *Last Updated: March 2026*
+*Total AI Layers: 24*
+*Total Trading Modes: 19 + Treasury*

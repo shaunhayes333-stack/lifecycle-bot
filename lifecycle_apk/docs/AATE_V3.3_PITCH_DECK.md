@@ -1,5 +1,5 @@
-# AATE V3.2 - Investor Pitch Deck
-## Autonomous Algorithmic Trading Engine
+# AATE V3.3 - Investor Pitch Deck
+## Autonomous Algorithmic Trading Engine - Sentient Trading Architecture
 
 ![Hero Banner](https://static.prod-images.emergentagent.com/jobs/c96a278f-5165-49c5-9eb2-6b21033169ed/images/07fa776587c6ae5bd4a4b37b8a5e46e399907159b901a3f47c76a302ffe3c1e1.png)
 
@@ -14,6 +14,7 @@
 - **Emotional Trading**: 80% of retail traders lose money
 - **Complexity**: Solana memecoins require 24/7 monitoring
 - **Rug Pulls**: New traders lose everything to scams
+- **Cold Start Problem**: Traditional bots need days of learning before first trade
 
 **The Result**: $50B+ lost by retail traders annually to bots, whales, and scams.
 
@@ -21,51 +22,82 @@
 
 ## SLIDE 2: THE SOLUTION
 
-### AATE V3.2 - The World's Most Advanced AI Trading Bot
+### AATE V3.3 - Sentient Trading Architecture
 
-![22 AI Layers](https://static.prod-images.emergentagent.com/jobs/c96a278f-5165-49c5-9eb2-6b21033169ed/images/a33f9c7d889fdbbe8049e08a75c4669b8d59c9b3e2d690e372d123e5b52bd497.png)
+![24 AI Layers](https://static.prod-images.emergentagent.com/jobs/c96a278f-5165-49c5-9eb2-6b21033169ed/images/a33f9c7d889fdbbe8049e08a75c4669b8d59c9b3e2d690e372d123e5b52bd497.png)
 
 **Native Android App** with:
-- **22 AI Scoring Layers** working in parallel
-- **7 Market Regimes** with 21+ Trading Modes
+- **24 AI Scoring Layers** working in parallel (industry record)
+- **FluidLearningAI** - Trades from Day 1, thresholds adapt as it learns
+- **SellOptimizationAI** - Intelligent chunk selling & trailing stops
 - **MetaCognition AI** - The bot that thinks about its own thinking
 - **Collective Intelligence** - Learn from ALL AATE users
 - **Treasury Mode** - Conservative cash generation ($500-$1000/day target)
 
-**One app. Zero coding. Professional-grade AI trading.**
+**One app. Zero coding. Professional-grade sentient trading.**
 
 ---
 
-## SLIDE 3: 22 AI LAYERS - UNPRECEDENTED INTELLIGENCE
+## SLIDE 3: 24 AI LAYERS - UNPRECEDENTED INTELLIGENCE
 
 | Layer | AI Module | Function |
 |-------|-----------|----------|
-| 1 | SourceReliabilityAI | Rates signal sources |
-| 2 | EntryTimingAI | Perfect entry timing |
-| 3 | MomentumPredictorAI | Price trajectory |
-| 4 | LiquidityDepthAI | Liquidity analysis |
-| 5 | VolumeProfileAI | Volume patterns |
-| 6 | HolderSafetyAI | Rug pull detection |
-| 7 | NarrativeDetectorAI | Viral trend detection |
-| 8 | TokenWinMemoryAI | Historical performance |
-| 9 | MarketRegimeAI | Market conditions |
-| 10 | TimeOptimizationAI | Best trading hours |
-| 11 | WhaleTrackerAI | Whale wallet monitoring |
-| 12 | SuppressionDetectorAI | Market manipulation |
-| 13 | FearGreedAI | Sentiment analysis |
-| 14 | SocialVelocityAI | Social momentum |
-| 15 | VolatilityRegimeAI | Volatility patterns |
-| 16 | OrderFlowImbalanceAI | Order book analysis |
-| 17 | SmartMoneyDivergenceAI | Institutional tracking |
-| 18 | HoldTimeOptimizerAI | Exit timing |
-| 19 | LiquidityCycleAI | Market cycles |
-| 20 | MetaCognitionAI | Self-aware oversight |
-| 21 | CollectiveIntelligenceAI | Hive mind learning |
+| 1-14 | **Base Scoring** | Entry, momentum, liquidity, volume, holders, narrative, memory, regime, time, whale, suppression, fear/greed, social |
+| 15-19 | **V3.2 Advanced** | Volatility, order flow, smart money, hold time, liquidity cycles |
+| 20 | CollectiveIntelligenceAI | Hive mind learning |
+| 21 | MetaCognitionAI | Self-aware oversight |
 | 22 | CashGenerationAI | Treasury mode scalping |
+| **23** | **FluidLearningAI** | **Adaptive threshold controller (NEW)** |
+| **24** | **SellOptimizationAI** | **Intelligent exit strategies (NEW)** |
+
+**No competitor has more than 3 AI layers. We have 24.**
 
 ---
 
-## SLIDE 4: COLLECTIVE BRAIN - THE NETWORK EFFECT
+## SLIDE 4: FLUID LEARNING - TRADE FROM DAY 1 (V3.3 NEW)
+
+### The "Training Wheels" That Remove Themselves
+
+**Problem**: Traditional bots need days of paper trading before going live.
+
+**Solution**: FluidLearningAI starts with relaxed thresholds and tightens as it learns.
+
+| Stage | Trades | Confidence | Liquidity Floor |
+|-------|--------|------------|-----------------|
+| **Fresh Install** | 0-50 | 30% | $2,000 |
+| **Learning** | 50-200 | 30-75% | $2K-$15K |
+| **Mature** | 200+ | 75-80% | $15,000+ |
+
+**Day 1**: Loose thresholds, more trades, faster learning
+**Day 30**: Strict thresholds, quality trades, optimized profits
+
+**No more waiting. No cold start. Trade immediately.**
+
+---
+
+## SLIDE 5: SELL OPTIMIZATION - INTELLIGENT EXITS (V3.3 NEW)
+
+### Know WHEN and HOW MUCH to Sell
+
+| Profit Level | Action | Position Sold |
+|--------------|--------|---------------|
+| 15-30% | CHUNK_25 | 25% |
+| 30-50% | CHUNK_50 | 50% |
+| 50%+ | CHUNK_75 | 75% |
+| Emergency | FULL_EXIT | 100% |
+
+**Features:**
+- **Trailing Stop Locks** - Protect gains as price rises
+- **Urgency Classification** - NONE → LOW → MEDIUM → HIGH → CRITICAL
+- **Coordinated Multi-Leg Exits** - Track state across chunks
+- **Adaptive Thresholds** - Fluid scaling based on learning progress
+
+**Competitors: "Set stop loss at -10%"**
+**AATE: Intelligent profit-taking with surgical precision**
+
+---
+
+## SLIDE 6: COLLECTIVE BRAIN - THE NETWORK EFFECT
 
 ![Collective Brain](https://static.prod-images.emergentagent.com/jobs/c96a278f-5165-49c5-9eb2-6b21033169ed/images/9bc156f894e06f692948b177bc6853cf522b123e2032916b35d94b0cf3b7fe09.png)
 
@@ -81,7 +113,7 @@
 
 ---
 
-## SLIDE 5: TREASURY MODE - CONSISTENT CASH GENERATION
+## SLIDE 7: TREASURY MODE - CONSISTENT CASH GENERATION
 
 ![Treasury Mode](https://static.prod-images.emergentagent.com/jobs/c96a278f-5165-49c5-9eb2-6b21033169ed/images/df3c2a18087e2e88dd5515d40dacaf6182c86501fbe962a90be409eb8d7dcd2a.png)
 
@@ -96,6 +128,7 @@
 | **Exit Strategy** | Quick 5-10% scalps |
 | **Hold Time** | Max 8 minutes |
 | **Trailing Stop** | 2% |
+| **Compounding** | Profits feed back into position sizing (V3.3) |
 
 **5 Adaptive Modes**: HUNT → CRUISE → DEFENSIVE → PAUSED
 
@@ -103,32 +136,35 @@ Separate Paper/Live treasury balances for full transparency.
 
 ---
 
-## SLIDE 6: COMPETITIVE LANDSCAPE
+## SLIDE 8: COMPETITIVE LANDSCAPE
 
-| Feature | AATE V3.2 | Trojan | BonkBot | Photon | Banana Gun |
+| Feature | AATE V3.3 | Trojan | BonkBot | Photon | Banana Gun |
 |---------|-----------|--------|---------|--------|------------|
-| AI Layers | **22** | 0 | 0 | 1-2 | 0 |
+| AI Layers | **24** | 0 | 0 | 1-2 | 0 |
+| FluidLearning | **YES** | NO | NO | NO | NO |
+| SellOptimization | **YES** | NO | NO | NO | NO |
 | MetaCognition | **YES** | NO | NO | NO | NO |
 | Collective Learning | **YES** | NO | NO | NO | NO |
 | Treasury Mode | **YES** | NO | NO | NO | NO |
 | Paper Trading | **YES** | NO | YES | NO | NO |
 | Native Android | **YES** | NO | NO | NO | NO |
-| Rug Protection | **22 layers** | Basic | Basic | Basic | Basic |
+| Rug Protection | **24 layers** | Basic | Basic | Basic | Basic |
 | Self-Improving | **YES** | NO | NO | NO | NO |
 
 **AATE is not competing with trading bots. It's replacing them.**
 
 ---
 
-## SLIDE 7: TRACTION & METRICS
+## SLIDE 9: TRACTION & METRICS
 
 ### Current State (Beta)
 
 - **Platform**: Native Android (Kotlin)
-- **AI Layers**: 22 active, fully integrated
-- **Market Regimes**: 7 regimes, 21+ modes
+- **AI Layers**: **24 active**, fully integrated
+- **Market Regimes**: 7 regimes, 19+ modes
 - **Build Status**: Production-ready, CI/CD via GitHub Actions
 - **Data Persistence**: Local + Cloud (Turso) hybrid
+- **Source Files**: 181 Kotlin files
 
 ### Target Metrics (Post-Launch)
 
@@ -141,7 +177,7 @@ Separate Paper/Live treasury balances for full transparency.
 
 ---
 
-## SLIDE 8: BUSINESS MODEL
+## SLIDE 10: BUSINESS MODEL
 
 ### Revenue Streams
 
