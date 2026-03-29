@@ -1297,13 +1297,13 @@ object FinalDecisionGate {
                 confidence = candidate.aiConfidence,
                 edge = when (candidate.edgeQuality) {
                     "A" -> EdgeVerdict.STRONG
-                    "B" -> EdgeVerdict.PROCEED
+                    "B" -> EdgeVerdict.WEAK  // Use WEAK instead of non-existent PROCEED
                     "C" -> EdgeVerdict.WEAK
                     else -> EdgeVerdict.SKIP
                 },
                 blockReason = if (mode == TradeMode.LIVE) "WHALE_FOLLOW_LIVE_DISABLED" else null,
                 blockLevel = if (mode == TradeMode.LIVE) BlockLevel.HARD else null,
-                sizeSol = config.minTradeSize * 0.5,  // Micro size only
+                sizeSol = config.smallBuySol * 0.5,  // Micro size only (use smallBuySol)
                 tags = listOf("whale_follow_restricted", "micro_size_only"),
                 mint = ts.mint,
                 symbol = ts.symbol,
