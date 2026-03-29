@@ -558,16 +558,16 @@ for legal compliance.
         
         // Notification toggle listener - save immediately when toggled
         switchNotifications.setOnCheckedChangeListener { _, isChecked ->
-            val currentConfig = BotConfigStore.load(applicationContext)
-            BotConfigStore.save(applicationContext, currentConfig.copy(notificationsEnabled = isChecked))
-            ErrorLogger.info("Settings", "Notifications ${if (isChecked) "ENABLED" else "DISABLED"}")
+            val currentConfig = com.lifecyclebot.data.ConfigStore.load(applicationContext)
+            com.lifecyclebot.data.ConfigStore.save(applicationContext, currentConfig.copy(notificationsEnabled = isChecked))
+            com.lifecyclebot.engine.ErrorLogger.info("Settings", "Notifications ${if (isChecked) "ENABLED" else "DISABLED"}")
         }
         
         // Sound toggle listener - save immediately when toggled
         switchSounds.setOnCheckedChangeListener { _, isChecked ->
-            val currentConfig = BotConfigStore.load(applicationContext)
-            BotConfigStore.save(applicationContext, currentConfig.copy(soundEnabled = isChecked))
-            ErrorLogger.info("Settings", "Sounds ${if (isChecked) "ENABLED" else "DISABLED"}")
+            val currentConfig = com.lifecyclebot.data.ConfigStore.load(applicationContext)
+            com.lifecyclebot.data.ConfigStore.save(applicationContext, currentConfig.copy(soundEnabled = isChecked))
+            com.lifecyclebot.engine.ErrorLogger.info("Settings", "Sounds ${if (isChecked) "ENABLED" else "DISABLED"}")
         }
         
         // Dark mode toggle listener
