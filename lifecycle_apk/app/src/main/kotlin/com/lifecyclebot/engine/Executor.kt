@@ -4146,16 +4146,37 @@ class Executor(
                 val originalTokens = pos.qtyToken
                 if (originalTokens > 0 && remainingTokens > originalTokens * 0.01) {
                     val remainingPct = (remainingTokens / originalTokens * 100).toInt()
-                    onLog("🚨 SELL VERIFICATION FAILED: Still holding ${remainingPct}% of tokens!", tradeId.mint)
+                    onLog("🚨 SELL INCOMPLETE: Still holding ${remainingPct}% of tokens!", tradeId.mint)
                     onLog("   Original: $originalTokens | Remaining: $remainingTokens", tradeId.mint)
-                    onLog("   Transaction sig=${sig.take(20)}... may have failed on-chain", tradeId.mint)
-                    onNotify("🚨 Sell Incomplete!",
-                        "${ts.symbol}: ${remainingPct}% tokens still in wallet! Check tx: ${sig.take(16)}",
-                        com.lifecyclebot.engine.NotificationHistory.NotifEntry.NotifType.INFO)
-                    onToast("🚨 SELL INCOMPLETE: ${ts.symbol}\nStill holding ${remainingPct}% tokens!")
                     
-                    // Don't clear the position - tokens are still there!
-                    throw RuntimeException("Sell verification failed: still holding ${remainingPct}% tokens (${remainingTokens})")
+                    // ═══════════════════════════════════════════════════════════════════
+                    // DUST-BUSTER: Attempt to sell remaining tokens
+                    // This handles partial fill issues common with low-liq meme coins
+                    // ═══════════════════════════════════════════════════════════════════
+                    if (remainingTokens > 0.01) {  // Only if worth attempting
+                        onLog("🧹 DUST-BUSTER: Attempting to sell remaining $remainingTokens tokens...", tradeId.mint)
+                        try {
+                            val remainingUnits = (remainingTokens * 1_000_000_000.0).toLong()
+                            val dustQuote = getQuoteWithSlippageGuard(ts.mint, JupiterApi.SOL_MINT,
+                                                                       remainingUnits, 1500, isBuy = false)  // Higher slippage for dust
+                            val dustTx = buildTxWithRetry(dustQuote, wallet.publicKeyB58)
+                            val dustSig = wallet.signSendAndConfirm(dustTx.txBase64, c.jitoEnabled, c.jitoTipLamports, 
+                                if (dustQuote.isUltra) dustTx.requestId else null, c.jupiterApiKey, dustTx.isRfqRoute)
+                            
+                            onLog("🧹 DUST-BUSTER SUCCESS: Sold remaining tokens | sig=${dustSig.take(20)}...", tradeId.mint)
+                            
+                            // Re-check balance after dust sell
+                            Thread.sleep(1500)
+                            val finalBalances = wallet.getTokenAccountsWithDecimals()
+                            val finalRemaining = finalBalances[ts.mint]?.first ?: 0.0
+                            onLog("🧹 DUST-BUSTER: Final balance = $finalRemaining tokens", tradeId.mint)
+                        } catch (dustEx: Exception) {
+                            onLog("⚠️ DUST-BUSTER FAILED: ${dustEx.message?.take(60)}", tradeId.mint)
+                            onNotify("🚨 Dust Remaining!",
+                                "${ts.symbol}: ${remainingPct}% tokens still in wallet. Manual sell may be needed.",
+                                com.lifecyclebot.engine.NotificationHistory.NotifEntry.NotifType.INFO)
+                        }
+                    }
                 } else {
                     onLog("✅ SELL VERIFIED: Token balance is now ${remainingTokens} (was $originalTokens)", tradeId.mint)
                 }
@@ -4175,6 +4196,23 @@ class Executor(
                     if (retryRemaining > pos.qtyToken * 0.01) {
                         val retryPct = (retryRemaining / pos.qtyToken * 100).toInt()
                         onLog("🚨 SELL VERIFICATION RETRY: Still holding ${retryPct}% of tokens!", tradeId.mint)
+                        
+                        // Try dust-buster on retry
+                        if (retryRemaining > 0.01) {
+                            onLog("🧹 DUST-BUSTER (retry): Attempting to sell remaining $retryRemaining tokens...", tradeId.mint)
+                            try {
+                                val retryUnits = (retryRemaining * 1_000_000_000.0).toLong()
+                                val dustQuote = getQuoteWithSlippageGuard(ts.mint, JupiterApi.SOL_MINT,
+                                                                           retryUnits, 2000, isBuy = false)  // Even higher slippage
+                                val dustTx = buildTxWithRetry(dustQuote, wallet.publicKeyB58)
+                                val dustSig = wallet.signSendAndConfirm(dustTx.txBase64, c.jitoEnabled, c.jitoTipLamports,
+                                    if (dustQuote.isUltra) dustTx.requestId else null, c.jupiterApiKey, dustTx.isRfqRoute)
+                                onLog("🧹 DUST-BUSTER (retry) SUCCESS: sig=${dustSig.take(20)}...", tradeId.mint)
+                            } catch (dustEx: Exception) {
+                                onLog("⚠️ DUST-BUSTER (retry) FAILED: ${dustEx.message?.take(60)}", tradeId.mint)
+                            }
+                        }
+                        
                         onNotify("🚨 Sell Incomplete!",
                             "${ts.symbol}: ${retryPct}% tokens still in wallet after retry!",
                             com.lifecyclebot.engine.NotificationHistory.NotifEntry.NotifType.INFO)
