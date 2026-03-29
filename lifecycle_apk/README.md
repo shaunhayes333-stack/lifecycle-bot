@@ -1,9 +1,10 @@
-# AATE™ — Autonomous Algorithmic Trading Engine
+# AATE™ V4.0 — Autonomous Algorithmic Trading Engine
 
-> **The World's Most Advanced Open-Source Solana Trading Bot** — Native Android with 24 AI Layers, Fluid Learning, and Sentient Trading Architecture
+> **The World's First Sentient Solana Trading Bot** — Native Android with 25 AI Layers, Fluid Learning, Auto-Compounding, and Collective Swarm Intelligence
 
 [![Build Status](https://github.com/shaunhayes333-stack/lifecycle-bot/actions/workflows/build.yml/badge.svg)](https://github.com/shaunhayes333-stack/lifecycle-bot/actions)
 [![License](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
+[![Version](https://img.shields.io/badge/Version-4.0.0-green.svg)](CHANGELOG.md)
 
 ---
 
@@ -13,33 +14,51 @@
 
 ## Executive Summary
 
-AATE is a native Android trading bot featuring a **24-layer AI consensus mechanism** that autonomously trades Solana meme coins. It learns from every trade, adapts to market conditions in real-time, and shares learnings across all instances via **Turso Collective Intelligence**.
+AATE V4.0 is a native Android trading bot featuring a **25-layer AI neural network** that autonomously trades Solana tokens. It learns from every trade, adapts to market conditions in real-time, and shares learnings across all instances via **Turso Collective Swarm Intelligence**.
+
+**Built in 8 days. By one person. On a phone.**
 
 **Key Stats:**
-- 181 Kotlin source files (90,000+ lines of production code)
-- **24 AI layers** working in parallel consensus
-- **19 specialized trading modes** + Treasury Mode
+- 182+ Kotlin source files (50,000+ lines of production code)
+- **25 AI layers** working in parallel neural network
+- **19 specialized market regime modes** + Treasury Mode
 - **Fluid Learning** - thresholds adapt as bot gains experience
-- **Sentient Architecture** - AI that monitors and improves itself
+- **Auto-Compounding** - profits automatically reinvested
+- **Shadow Learning** - learns from trades it DOESN'T take
+- **Collective Intelligence** - swarm learning from ALL users
 
 ---
 
-## What's New in V3.3 (Sentient Trading)
+## What's New in V4.0 (Complete Neural Network)
 
-### FluidLearningAI (Layer 23) - The Training Wheels
-Fresh installs start with relaxed thresholds (30% confidence) so you can trade from Day 1. As the bot accumulates trades and learns, thresholds automatically tighten to 75-80%. No more waiting days before first trade.
+### BehaviorAI (Layer 25) - Trading Psychology
+Tracks streaks, tilt levels, and discipline. Prevents overtrading after losses. Scales penalties by learning progress — more forgiving during bootstrap.
 
-### SellOptimizationAI (Layer 24) - Intelligent Exits
-Chunk selling at profit milestones (25%, 50%, 75%), trailing stop locks, and exit urgency classification. The bot now knows *when* to take profits and *how much* to take.
+### Auto-Compound Profit System
+Every winning trade automatically splits:
+- 20% → Treasury (locked, protected)
+- 40% → Compound Pool (position size scaling)
+- 40% → Wallet (liquid for trading)
 
-### Persistent Journal & True Win Rates
-Trade history persists until manually cleared. Win rate displayed on main screen now reflects actual historical performance, not ephemeral in-memory data.
+### Dynamic Fluid Stop Losses
+Stops that MOVE with your position:
+- Entry Protection (0-60s): Wide stops for entry volatility
+- Profit Trailing: Locks in gains as price rises
+- Retrace Allowance: Room for normal pullbacks before pump
+
+### Instance Registry (Legal Compliance)
+- Per-installation audit trail with timestamps
+- All trades linked to instance_id
+- Active Users tracking (24h traders)
+
+### Shadow Learning → Maturity
+Shadow trades and blocked trade outcomes now feed FluidLearningAI, accelerating bot intelligence without risking capital.
 
 ---
 
 ## Architecture Overview
 
-### The 24-Layer AI Consensus System
+### The 25-Layer AI Neural Network
 
 ```
 ┌─────────────────────────────────────────────────────────────────────┐

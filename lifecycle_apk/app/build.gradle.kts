@@ -12,8 +12,8 @@ android {
         applicationId = "com.lifecyclebot.aate"
         minSdk = 26
         targetSdk = 34
-        versionCode = 320
-        versionName = "3.2.0"
+        versionCode = 400
+        versionName = "4.0.0"
         
         // App name
         resValue("string", "app_name_override", "AATE")
