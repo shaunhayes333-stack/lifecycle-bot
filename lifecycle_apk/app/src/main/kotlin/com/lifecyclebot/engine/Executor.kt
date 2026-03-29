@@ -4412,6 +4412,14 @@ class Executor(
             ErrorLogger.debug("ModeOrchestrator", "Recording error: ${e.message}")
         }
         
+        // ═══════════════════════════════════════════════════════════════════
+        // V4.0: Close Treasury position if this was a Treasury trade
+        // This frees up the slot for new Treasury positions
+        // ═══════════════════════════════════════════════════════════════════
+        try {
+            com.lifecyclebot.v3.scoring.CashGenerationAI.closePosition(tradeId.mint, pnlP)
+        } catch (_: Exception) {}
+        
         ts.position         = Position()
         ts.lastExitTs       = System.currentTimeMillis()
         ts.lastExitPrice    = price

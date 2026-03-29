@@ -171,13 +171,16 @@ class UnifiedScorer(
             // Integrates trading behavior (streaks, tilt, discipline) into scoring
             // ═══════════════════════════════════════════════════════════════════════
             val behaviorComponent = try {
-                // Check for tilt protection (hard block)
+                // Check for tilt protection (soft block with 1 min cooldown)
                 if (BehaviorAI.isTiltProtectionActive()) {
+                    val remaining = BehaviorAI.getTiltProtectionRemaining()
                     ScoreComponent(
                         name = "behavior",
-                        value = -50,  // Strong negative to ensure rejection
-                        reason = "🛑 TILT PROTECTION: ${BehaviorAI.getTiltProtectionRemaining()}s remaining",
-                        fatal = true
+                        // V4.0: Reduced penalty from -50 to -15 since cooldown is only 1 min
+                        // Don't want to completely kill trades, just add caution
+                        value = -15,
+                        reason = "🛑 Tilt cooldown: ${remaining}s",
+                        fatal = false  // V4.0: No longer fatal - let other factors decide
                     )
                 } else {
                     val scoreAdj = BehaviorAI.getScoreAdjustment()

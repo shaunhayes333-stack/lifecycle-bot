@@ -81,7 +81,8 @@ object BehaviorAI {
     private const val TEN_X_PCT = 900.0            // 900%+ = 10x
     private const val HUNDRED_X_PCT = 9900.0       // 9900%+ = 100x
     private const val BIG_LOSS_PCT = -50.0         // -50% or worse
-    private const val TILT_COOLDOWN_MS = 15 * 60 * 1000L  // 15 min cooldown after tilt
+    // V4.0: Reduced tilt cooldown from 15 min to 1 min - don't want to miss opportunities
+    private const val TILT_COOLDOWN_MS = 1 * 60 * 1000L  // 1 min cooldown after tilt
     private const val RAPID_TRADE_MS = 60 * 1000L  // 60 sec = rapid trading
     
     // ═══════════════════════════════════════════════════════════════════════════
