@@ -241,8 +241,9 @@ class UnifiedScorer(
         "holders", "narrative", "memory", "regime", "time", 
         "copytrade", "suppression", "feargreed", "social",
         "volatility", "orderflow", "smartmoney", "holdtime", "liquiditycycle",
-        "collective_ai",   // Layer 21: Hive mind collective intelligence
-        "metacognition",   // Layer 22: Self-aware executive function
-        "fluid_learning"   // Layer 23: Centralized fluidity control
+        "collective_ai",     // Layer 21: Hive mind collective intelligence
+        "metacognition",     // Layer 22: Self-aware executive function
+        "fluid_learning",    // Layer 23: Centralized fluidity control
+        "sell_optimization", // Layer 24: Intelligent exit strategy
     )
 }

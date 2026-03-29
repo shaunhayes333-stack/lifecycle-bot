@@ -3226,6 +3226,84 @@ class Executor(
     fun requestSell(ts: TokenState, reason: String, wallet: SolanaWallet?, walletSol: Double) {
         doSell(ts, reason, wallet, walletSol)
     }
+    
+    /**
+     * Request a partial sell (chunk selling) for progressive profit taking.
+     * 
+     * @param ts TokenState of the position
+     * @param sellPercentage Fraction of position to sell (0.0-1.0)
+     * @param reason Reason for the partial sell
+     * @param wallet Wallet for live trades
+     * @param walletBalance Current wallet balance
+     */
+    fun requestPartialSell(
+        ts: TokenState, 
+        sellPercentage: Double, 
+        reason: String, 
+        wallet: SolanaWallet?, 
+        walletBalance: Double
+    ) {
+        val pct = sellPercentage.coerceIn(0.0, 1.0)
+        if (pct <= 0) return
+        
+        val originalHolding = ts.position.holdingAmount
+        val sellAmount = originalHolding * pct
+        val remainingAmount = originalHolding - sellAmount
+        
+        val isPaper = cfg().paperMode
+        val currentPrice = ts.lastPrice.takeIf { it > 0 } ?: ts.position.entryPrice
+        val pnlPct = if (ts.position.entryPrice > 0) {
+            ((currentPrice - ts.position.entryPrice) / ts.position.entryPrice) * 100
+        } else 0.0
+        
+        onLog("📊 PARTIAL SELL: ${ts.symbol} | ${(pct * 100).toInt()}% of position | " +
+            "sell=$sellAmount remain=$remainingAmount | pnl=${pnlPct.toInt()}% | $reason", ts.mint)
+        
+        if (isPaper) {
+            // Paper partial sell - just update position tracking
+            val soldValueSol = ts.position.sizeSol * pct
+            val profitSol = soldValueSol * (pnlPct / 100.0)
+            
+            // Update position to reflect partial close
+            ts.position.holdingAmount = remainingAmount
+            ts.position.sizeSol = ts.position.sizeSol * (1 - pct)
+            
+            // Record the partial profit
+            TradeHistoryStore.recordPartialProfit(ts.mint, profitSol, pnlPct)
+            
+            ErrorLogger.info("Executor", "📄 PAPER PARTIAL SELL: ${ts.symbol} | " +
+                "sold=${(pct * 100).toInt()}% @ ${pnlPct.toInt()}% | profit=${profitSol}SOL | " +
+                "remaining=${((1-pct) * 100).toInt()}%")
+            
+            onNotify("📊 Partial Profit (PAPER)", 
+                "${ts.symbol}: Sold ${(pct * 100).toInt()}% @ +${pnlPct.toInt()}% | +${String.format("%.4f", profitSol)}SOL",
+                com.lifecyclebot.engine.NotificationHistory.NotifEntry.NotifType.INFO)
+            
+        } else {
+            // Live partial sell - execute actual transaction
+            if (wallet == null) {
+                ErrorLogger.error("Executor", "🚨 PARTIAL SELL BLOCKED: No wallet for ${ts.symbol}")
+                return
+            }
+            
+            // For live, we need to execute an actual partial swap
+            // This would use Jupiter to swap only a portion
+            ErrorLogger.info("Executor", "🔄 LIVE PARTIAL SELL: ${ts.symbol} | " +
+                "${(pct * 100).toInt()}% of holdings")
+            
+            // TODO: Implement actual partial swap via Jupiter
+            // For now, treat high-percentage partials as full sells
+            if (pct >= 0.9) {
+                doSell(ts, "[PARTIAL→FULL] $reason", wallet, walletBalance)
+            } else {
+                // Queue partial for when we implement proper partial swaps
+                onLog("⚠️ Partial sells in live mode require full swap implementation", ts.mint)
+                // Still update position tracking optimistically
+                ts.position.holdingAmount = remainingAmount
+                ts.position.sizeSol = ts.position.sizeSol * (1 - pct)
+            }
+        }
+    }
 
     private fun doSell(ts: TokenState, reason: String,
                        wallet: SolanaWallet?, walletSol: Double,

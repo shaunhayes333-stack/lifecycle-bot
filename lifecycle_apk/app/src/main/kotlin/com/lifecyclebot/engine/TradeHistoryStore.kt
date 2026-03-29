@@ -67,6 +67,25 @@ object TradeHistoryStore {
     fun getAllTrades(): List<Trade> = trades.toList()
     
     /**
+     * Record a partial profit from chunk selling (SellOptimizationAI).
+     * This doesn't close the position, just records the partial exit.
+     */
+    fun recordPartialProfit(mint: String, profitSol: Double, pnlPct: Double) {
+        val partialTrade = Trade(
+            mint = mint,
+            symbol = "PARTIAL",
+            side = "PARTIAL_SELL",
+            sol = profitSol,
+            priceUsd = 0.0,
+            ts = System.currentTimeMillis(),
+            pnlPct = pnlPct,
+        )
+        trades.add(partialTrade)
+        saveTrades()
+        ErrorLogger.debug("TradeHistoryStore", "📊 PARTIAL PROFIT: ${profitSol.fmt(4)} SOL @ ${pnlPct.toInt()}%")
+    }
+    
+    /**
      * Get trades from last 24 hours
      */
     fun getTrades24h(): List<Trade> {

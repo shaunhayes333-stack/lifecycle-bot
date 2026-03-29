@@ -3143,6 +3143,96 @@ class BotService : Service() {
                         ((currentPrice - ts.position.entryPrice) / ts.position.entryPrice) * 100
                     } else 0.0
                     val holdTimeMs = System.currentTimeMillis() - ts.position.entryTime
+                    val holdTimeMinutes = (holdTimeMs / 60_000).toInt()
+                    
+                    // ═══════════════════════════════════════════════════════════════════
+                    // SELL OPTIMIZATION AI (Layer 24)
+                    // 
+                    // Intelligent exit strategy that:
+                    // - Takes profits progressively (chunk selling)
+                    // - Detects momentum exhaustion
+                    // - Learns from historical outcomes
+                    // - Prevents "400% runs with nothing gained"
+                    // ═══════════════════════════════════════════════════════════════════
+                    val sellOptSignal = try {
+                        com.lifecyclebot.v3.scoring.SellOptimizationAI.evaluate(
+                            ts = ts,
+                            currentPnlPct = pnlPct,
+                            holdTimeMinutes = holdTimeMinutes,
+                            entryPrice = ts.position.entryPrice,
+                        )
+                    } catch (e: Exception) {
+                        ErrorLogger.debug("BotService", "SellOptAI error: ${e.message}")
+                        null
+                    }
+                    
+                    // Execute chunk sells or urgent exits from SellOptimizationAI
+                    if (sellOptSignal != null && sellOptSignal.sellPct > 0 && 
+                        sellOptSignal.urgency != com.lifecyclebot.v3.scoring.SellOptimizationAI.ExitUrgency.NONE) {
+                        
+                        val strategy = sellOptSignal.strategy
+                        val urgency = sellOptSignal.urgency
+                        
+                        // For chunk sells, calculate actual amount to sell
+                        val isChunkSell = strategy in listOf(
+                            com.lifecyclebot.v3.scoring.SellOptimizationAI.ExitStrategy.CHUNK_25,
+                            com.lifecyclebot.v3.scoring.SellOptimizationAI.ExitStrategy.CHUNK_50,
+                            com.lifecyclebot.v3.scoring.SellOptimizationAI.ExitStrategy.CHUNK_75,
+                        )
+                        
+                        if (isChunkSell) {
+                            // Chunk sell - partial position exit
+                            val chunkPct = sellOptSignal.sellPct / 100.0
+                            val sellAmount = ts.position.holdingAmount * chunkPct
+                            
+                            ErrorLogger.info("BotService", "📊 [SELL_OPT CHUNK] ${ts.symbol} | " +
+                                "${strategy.emoji} ${strategy.label} | sell=${sellOptSignal.sellPct.toInt()}% | " +
+                                "pnl=${pnlPct.toInt()}% | peak=${sellOptSignal.peakPnlPct.toInt()}% | " +
+                                "locked=${sellOptSignal.lockedProfitSol}SOL")
+                            
+                            // Execute partial sell
+                            executor.requestPartialSell(
+                                ts = ts,
+                                sellPercentage = chunkPct,
+                                reason = "[SELL_OPT] ${strategy.label}: ${sellOptSignal.reason}",
+                                wallet = wallet,
+                                walletBalance = effectiveBalance,
+                            )
+                            
+                            // Record chunk in SellOptimizationAI
+                            val profitSol = (ts.position.sizeSol * chunkPct) * (pnlPct / 100.0)
+                            com.lifecyclebot.v3.scoring.SellOptimizationAI.recordChunkSell(
+                                ts.mint, ts.position.sizeSol * chunkPct, pnlPct, profitSol
+                            )
+                            
+                        } else if (urgency in listOf(
+                            com.lifecyclebot.v3.scoring.SellOptimizationAI.ExitUrgency.HIGH,
+                            com.lifecyclebot.v3.scoring.SellOptimizationAI.ExitUrgency.CRITICAL
+                        )) {
+                            // Full exit for high urgency signals
+                            ErrorLogger.info("BotService", "🎯 [SELL_OPT EXIT] ${ts.symbol} | " +
+                                "${strategy.emoji} ${strategy.label} | urgency=${urgency.name} | " +
+                                "pnl=${pnlPct.toInt()}% | peak=${sellOptSignal.peakPnlPct.toInt()}%")
+                            
+                            executor.requestSell(
+                                ts = ts,
+                                reason = "[SELL_OPT] ${strategy.label}: ${sellOptSignal.reason}",
+                                wallet = wallet,
+                                walletBalance = effectiveBalance,
+                            )
+                            
+                            // Close position tracking
+                            com.lifecyclebot.v3.scoring.SellOptimizationAI.closePosition(ts.mint, pnlPct)
+                        }
+                        
+                        // Update stop loss if suggested
+                        sellOptSignal.suggestedStopLoss?.let { newStop ->
+                            if (newStop > ts.position.stopLoss) {
+                                ts.position.stopLoss = newStop
+                                ErrorLogger.debug("BotService", "🔒 [SELL_OPT] ${ts.symbol} stop moved to +${newStop.toInt()}%")
+                            }
+                        }
+                    }
                     
                     // Get mode-specific exit recommendation
                     val exitRec = try {
