@@ -93,7 +93,7 @@ class UnifiedScorer(
             val insight = CollectiveIntelligenceAI.score(
                 mint = candidate.mint,
                 symbol = candidate.symbol,
-                source = candidate.source,
+                source = candidate.source.name,  // Convert SourceType to String
                 liquidityUsd = candidate.liquidityUsd,
                 v3Score = baseComponents.sumOf { it.value },
                 v3Confidence = 70  // Default, will be refined by MetaCognition
