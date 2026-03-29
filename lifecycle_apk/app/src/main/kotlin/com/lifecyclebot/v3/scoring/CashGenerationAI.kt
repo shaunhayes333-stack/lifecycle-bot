@@ -233,13 +233,16 @@ object CashGenerationAI {
     // ═══════════════════════════════════════════════════════════════════════════
     
     /**
-     * Evaluate a token for Treasury Mode entry.
-     * Returns a signal with entry decision and DYNAMIC position sizing.
+     * V4.0: Treasury evaluates tokens INDEPENDENTLY from V3.
      * 
-     * DYNAMIC SIZING (User choice 2b):
-     * - Size shrinks as we approach daily target
-     * - Size grows slightly when behind (but never recklessly)
-     * - A+ setups get slight boost
+     * Treasury is a WEALTH GENERATOR that operates on its own criteria:
+     * - Liquidity (can I get in/out fast?)
+     * - Buy Pressure (is buying momentum strong?)
+     * - Momentum (is price moving up?)
+     * - Volatility (is there opportunity for quick scalps?)
+     * 
+     * It does NOT use V3 scores - Treasury has its own scoring system!
+     * The v3Score/v3Confidence parameters are IGNORED (kept for API compat).
      */
     fun evaluate(
         mint: String,
@@ -248,8 +251,8 @@ object CashGenerationAI {
         liquidityUsd: Double,
         topHolderPct: Double,
         buyPressurePct: Double,
-        v3Score: Int,
-        v3Confidence: Int,
+        v3Score: Int,        // IGNORED in V4.0 - kept for API compatibility
+        v3Confidence: Int,   // IGNORED in V4.0 - kept for API compatibility
         momentum: Double,
         volatility: Double,
     ): TreasurySignal {
@@ -279,84 +282,131 @@ object CashGenerationAI {
         // ═══════════════════════════════════════════════════════════════════
         
         // ═══════════════════════════════════════════════════════════════════
-        // FLUID THRESHOLDS FROM FluidLearningAI (Layer 23)
+        // V4.0: INDEPENDENT TREASURY SCORING
         // 
-        // All thresholds are now centralized for consistency.
-        // Mode adjustments still apply on top of the fluid base.
+        // Treasury calculates its OWN score based on scalping criteria.
+        // This is completely separate from V3 trading logic!
         // ═══════════════════════════════════════════════════════════════════
         
-        val baseConfThreshold = FluidLearningAI.getTreasuryConfidenceThreshold()
-        val baseScoreThreshold = FluidLearningAI.getMinScoreThreshold()
+        var treasuryScore = 0
+        var treasuryConfidence = 0
+        val scoreReasons = mutableListOf<String>()
+        
+        // 1. LIQUIDITY SCORE (0-25 pts)
+        val liqScore = when {
+            liquidityUsd >= 50000 -> 25
+            liquidityUsd >= 20000 -> 20
+            liquidityUsd >= 10000 -> 15
+            liquidityUsd >= 5000 -> 10
+            liquidityUsd >= 2000 -> 5
+            else -> 0
+        }
+        treasuryScore += liqScore
+        if (liqScore > 0) scoreReasons.add("liq+$liqScore")
+        
+        // 2. BUY PRESSURE SCORE (0-30 pts)
+        val buyScore = when {
+            buyPressurePct >= 70 -> 30
+            buyPressurePct >= 60 -> 25
+            buyPressurePct >= 55 -> 20
+            buyPressurePct >= 50 -> 15
+            buyPressurePct >= 45 -> 10
+            buyPressurePct >= 40 -> 5
+            else -> 0
+        }
+        treasuryScore += buyScore
+        if (buyScore > 0) scoreReasons.add("buy+$buyScore")
+        
+        // 3. MOMENTUM SCORE (-10 to +20 pts)
+        val momentumScore = when {
+            momentum >= 10 -> 20
+            momentum >= 5 -> 15
+            momentum >= 2 -> 10
+            momentum >= 0 -> 5
+            momentum >= -3 -> 0
+            momentum >= -5 -> -5
+            else -> -10
+        }
+        treasuryScore += momentumScore
+        if (momentumScore != 0) scoreReasons.add("mom${if(momentumScore>0)"+" else ""}$momentumScore")
+        
+        // 4. VOLATILITY SCORE (0-15 pts)
+        val volScore = when {
+            volatility in 20.0..60.0 -> 15
+            volatility in 10.0..70.0 -> 10
+            volatility in 5.0..80.0 -> 5
+            else -> 0
+        }
+        treasuryScore += volScore
+        if (volScore > 0) scoreReasons.add("vol+$volScore")
+        
+        // 5. TOP HOLDER PENALTY (-20 to 0 pts)
+        val holderPenalty = when {
+            topHolderPct <= 10 -> 0
+            topHolderPct <= 20 -> -2
+            topHolderPct <= 30 -> -5
+            topHolderPct <= 40 -> -10
+            else -> -20
+        }
+        treasuryScore += holderPenalty
+        if (holderPenalty < 0) scoreReasons.add("holder$holderPenalty")
+        
+        // 6. MODE BONUS
+        val modeBonus = when (mode) {
+            TreasuryMode.AGGRESSIVE -> 10
+            TreasuryMode.HUNT -> 5
+            TreasuryMode.CRUISE -> 0
+            TreasuryMode.DEFENSIVE -> -5
+            else -> 0
+        }
+        treasuryScore += modeBonus
+        if (modeBonus != 0) scoreReasons.add("mode${if(modeBonus>0)"+" else ""}$modeBonus")
+        
+        // Calculate confidence
+        treasuryConfidence = (
+            (if (liquidityUsd > 5000) 25 else 10) +
+            (if (buyPressurePct > 45) 25 else 10) +
+            (if (momentum > -2) 25 else 10) +
+            (if (topHolderPct < 30) 25 else 10)
+        ).coerceIn(0, 100)
+        
+        // ═══════════════════════════════════════════════════════════════════
+        // THRESHOLDS (Using FluidLearningAI for consistency)
+        // ═══════════════════════════════════════════════════════════════════
         val learningProgress = FluidLearningAI.getLearningProgress()
         
-        // Mode adjustments (relative to base, scaled by progress)
-        // When immature: smaller adjustments. When mature: full adjustments.
-        val modeConfAdjust = when (mode) {
-            TreasuryMode.DEFENSIVE -> (8 * learningProgress).toInt()   // Up to +8% when protecting
-            TreasuryMode.CRUISE -> (2 * learningProgress).toInt()      // Up to +2% when cruising
-            TreasuryMode.AGGRESSIVE -> -(2 * learningProgress).toInt() // Up to -2% when behind
-            else -> 0
-        }
-        val modeScoreAdjust = when (mode) {
-            TreasuryMode.DEFENSIVE -> (10 * learningProgress).toInt()
-            TreasuryMode.CRUISE -> (2 * learningProgress).toInt()
-            TreasuryMode.AGGRESSIVE -> -(2 * learningProgress).toInt()
-            else -> 0
-        }
+        // Treasury thresholds - LOWER than V3 because tight stops protect us
+        val minTreasuryScore = FluidLearningAI.getTreasuryScoreThreshold()
+        val minTreasuryConf = FluidLearningAI.getTreasuryConfidenceThreshold()
+        val minLiquidity = FluidLearningAI.getTreasuryMinLiquidity()
+        val maxTopHolder = FluidLearningAI.getTreasuryMaxTopHolder()
+        val minBuyPressure = FluidLearningAI.getTreasuryMinBuyPressure()
         
-        val confThreshold = (baseConfThreshold + modeConfAdjust).coerceIn(30, 95)
-        val scoreThreshold = (baseScoreThreshold + modeScoreAdjust).coerceIn(10, 50)
+        ErrorLogger.debug(TAG, "💰 TREASURY SCORE: $symbol | " +
+            "score=$treasuryScore (need≥$minTreasuryScore) | " +
+            "conf=$treasuryConfidence% (need≥$minTreasuryConf%) | " +
+            "${scoreReasons.joinToString(",")}")
         
-        ErrorLogger.debug(TAG, "💰 TREASURY THRESHOLDS: conf=$confThreshold (base=$baseConfThreshold) | " +
-            "score=$scoreThreshold | progress=${(learningProgress*100).toInt()}% | mode=$mode")
-        
-        // ─── FLUID FILTER THRESHOLDS from FluidLearningAI ───
-        val fluidMinLiquidity = FluidLearningAI.getTreasuryMinLiquidity()
-        val fluidMaxTopHolder = FluidLearningAI.getTreasuryMaxTopHolder()
-        val fluidMinBuyPressure = FluidLearningAI.getTreasuryMinBuyPressure()
-        val fluidScoreThreshold = FluidLearningAI.getTreasuryScoreThreshold()
-        
-        // Use fluid score threshold instead of mode-adjusted
-        val effectiveScoreThreshold = fluidScoreThreshold
-        
-        // ─── FILTER CHECKS (Treasury is AGGRESSIVE - fewer filters) ───
+        // ─── FILTER CHECKS ───
         val rejectionReasons = mutableListOf<String>()
         
-        // V4.0: Enhanced debug logging to trace exactly what's blocking Treasury trades
-        ErrorLogger.debug(TAG, "💰 TREASURY EVAL: $symbol | " +
-            "conf=$v3Confidence (need≥$confThreshold) | " +
-            "score=$v3Score (need≥$effectiveScoreThreshold) | " +
-            "liq=$${liquidityUsd.toInt()} (need≥$${fluidMinLiquidity.toInt()}) | " +
-            "topHolder=${topHolderPct.toInt()}% (need≤${fluidMaxTopHolder.toInt()}%) | " +
-            "buyPress=${buyPressurePct.toInt()}% (need≥${fluidMinBuyPressure.toInt()}%)")
-        
-        // Confidence check - Treasury uses LOWER bar
-        if (v3Confidence < confThreshold) {
-            rejectionReasons.add("conf=$v3Confidence<$confThreshold")
+        if (treasuryScore < minTreasuryScore) {
+            rejectionReasons.add("score=$treasuryScore<$minTreasuryScore")
         }
-        // Score check - Treasury uses fluid score threshold
-        if (v3Score < effectiveScoreThreshold) {
-            rejectionReasons.add("score=$v3Score<$effectiveScoreThreshold")
+        if (treasuryConfidence < minTreasuryConf) {
+            rejectionReasons.add("conf=$treasuryConfidence<$minTreasuryConf")
         }
-        // Liquidity check
-        if (liquidityUsd < fluidMinLiquidity) {
-            rejectionReasons.add("liq=$${liquidityUsd.toInt()}<$${fluidMinLiquidity.toInt()}")
+        if (liquidityUsd < minLiquidity) {
+            rejectionReasons.add("liq=$${liquidityUsd.toInt()}<$${minLiquidity.toInt()}")
         }
-        // Top holder check - more lenient for Treasury
-        if (topHolderPct > fluidMaxTopHolder) {
-            rejectionReasons.add("topHolder=${topHolderPct.toInt()}%>${fluidMaxTopHolder.toInt()}%")
+        if (topHolderPct > maxTopHolder) {
+            rejectionReasons.add("holder=${topHolderPct.toInt()}%>${maxTopHolder.toInt()}%")
         }
-        // Buy pressure - more lenient
-        if (buyPressurePct < fluidMinBuyPressure) {
-            rejectionReasons.add("buyPressure=${buyPressurePct.toInt()}%<${fluidMinBuyPressure.toInt()}%")
+        if (buyPressurePct < minBuyPressure) {
+            rejectionReasons.add("buy=${buyPressurePct.toInt()}%<${minBuyPressure.toInt()}%")
         }
-        // Momentum - Treasury can trade flat momentum (quick scalps)
-        if (momentum < -5) {  // Only reject strong negative momentum
-            rejectionReasons.add("momentum=$momentum<-5")
-        }
-        // Volatility - Treasury loves volatility (quick moves)
-        if (volatility > 80) {  // Higher tolerance
-            rejectionReasons.add("volatility=$volatility>80 (extreme)")
+        if (momentum < -5) {
+            rejectionReasons.add("momentum=${"%.1f".format(momentum)}<-5")
         }
         
         // Already have position in this token?
@@ -379,14 +429,14 @@ object CashGenerationAI {
                 positionSizeSol = 0.0,
                 takeProfitPct = 0.0,
                 stopLossPct = 0.0,
-                confidence = v3Confidence,
+                confidence = treasuryConfidence,
                 reason = "REJECTED: ${rejectionReasons.joinToString(", ")}",
                 mode = mode,
                 isPaperMode = isPaperMode
             )
         }
         
-        // ─── DYNAMIC POSITION SIZING (User choice 2b) ───
+        // ─── DYNAMIC POSITION SIZING ───
         // Size shrinks as we approach daily target
         val dailyPnl = dailyPnlSolBps.get() / 100.0
         val progressToTarget = (dailyPnl / DAILY_TARGET_MIN_SOL).coerceIn(0.0, 1.0)
@@ -403,16 +453,16 @@ object CashGenerationAI {
                 // Use COMPOUNDING_RATIO (50%) of treasury for scaling buys
                 val compoundingBonus = treasuryBalance * COMPOUNDING_RATIO
                 // Scale bonus by confidence (higher confidence = use more compound)
-                val confidenceScale = v3Confidence / 100.0
+                val confidenceScale = treasuryConfidence / 100.0
                 positionSol += compoundingBonus * confidenceScale
                 
                 ErrorLogger.debug(TAG, "💰 COMPOUNDING: +${compoundingBonus.fmt(3)}SOL from treasury " +
-                    "(balance=${treasuryBalance.fmt(3)}SOL, conf=${v3Confidence}%)")
+                    "(balance=${treasuryBalance.fmt(3)}SOL, conf=${treasuryConfidence}%)")
             }
         }
         
-        // Scale up slightly for A+ setups
-        if (v3Confidence >= 88 && v3Score >= 40) {
+        // Scale up slightly for A+ setups (high treasury score)
+        if (treasuryConfidence >= 75 && treasuryScore >= 50) {
             positionSol *= POSITION_SCALE_FACTOR
         }
         
@@ -439,7 +489,7 @@ object CashGenerationAI {
         val stopLossPct = STOP_LOSS_PCT  // Never compromise on stop loss (-2%)
         
         ErrorLogger.info(TAG, "💰 TREASURY ENTRY: $symbol | " +
-            "conf=$v3Confidence score=$v3Score | " +
+            "score=$treasuryScore conf=${treasuryConfidence}% | " +
             "size=${positionSol.fmt(3)} SOL (progress=${(progressToTarget*100).toInt()}%) | " +
             "TP=${takeProfitPct}% SL=${stopLossPct}% | mode=$mode | ${if (isPaperMode) "PAPER" else "LIVE"}")
         
@@ -448,8 +498,8 @@ object CashGenerationAI {
             positionSizeSol = positionSol,
             takeProfitPct = takeProfitPct,
             stopLossPct = stopLossPct,
-            confidence = v3Confidence,
-            reason = "TREASURY_ENTRY: A-grade scalp setup",
+            confidence = treasuryConfidence,
+            reason = "TREASURY_ENTRY: score=$treasuryScore (${scoreReasons.joinToString(",")})",
             mode = mode,
             isPaperMode = isPaperMode
         )
