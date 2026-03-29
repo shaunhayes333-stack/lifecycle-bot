@@ -781,11 +781,33 @@ for legal compliance.
         }
 
         // ── hero balance ──────────────────────────────────────────────
-        if (ws.isConnected && ws.solBalance > 0) {
+        // V4.0 FIX: Show PAPER balance when in paper mode, REAL wallet balance when live
+        val config = com.lifecyclebot.data.BotConfig.load(applicationContext)
+        val displayBalance: Double
+        val balanceLabel: String
+        
+        if (config.paperMode) {
+            // PAPER MODE: Show simulated paper balance
+            displayBalance = com.lifecyclebot.engine.FluidLearning.getSimulatedBalance()
+            balanceLabel = "PAPER"
+        } else {
+            // LIVE MODE: Show real wallet balance
+            displayBalance = ws.solBalance
+            balanceLabel = ""
+        }
+        
+        if (displayBalance > 0) {
+            tvBalanceLarge.text = currency.format(displayBalance)
+            // Secondary: show mode indicator or SOL amount
+            tvBalanceUsd.text = if (config.paperMode) {
+                "📝 $balanceLabel ◎ %.4f".format(displayBalance)
+            } else if (currency.selectedCurrency != "SOL") {
+                "◎ %.4f".format(displayBalance)
+            } else ""
+        } else if (ws.isConnected && ws.solBalance > 0) {
+            // Fallback to wallet if paper balance is 0
             tvBalanceLarge.text = currency.format(ws.solBalance)
-            // Secondary: always show SOL if displaying another currency
-            tvBalanceUsd.text = if (currency.selectedCurrency != "SOL")
-                "◎ %.4f".format(ws.solBalance) else ""
+            tvBalanceUsd.text = if (config.paperMode) "📝 PAPER" else ""
         } else {
             tvBalanceLarge.text = "—"
             tvBalanceUsd.text   = ""

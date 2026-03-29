@@ -189,6 +189,11 @@ class CollectiveBrainActivity : AppCompatActivity() {
         // Determine data source and display values
         val hasCollectiveData = collectiveStats != null && collectiveStats.totalTrades > 0
         
+        // V4.0 FIX: Better status detection
+        // Check if we're actually connected vs just initialized with empty data
+        val isActuallyConnected = isTursoEnabled && collectiveStats != null
+        val hasNetworkData = hasCollectiveData
+        
         // Extract values based on connection state
         val dataSourceLabel: String
         val displayTrades: Int
@@ -196,15 +201,23 @@ class CollectiveBrainActivity : AppCompatActivity() {
         val displayAvgPnl: Double
         val activeUsers: Int
         
-        if (hasCollectiveData) {
+        if (hasNetworkData) {
             val stats = collectiveStats!!
             dataSourceLabel = "🌐 HIVE MIND"
             displayTrades = stats.totalTrades
             displayWinRate = stats.winRate
             displayAvgPnl = stats.avgPnlPct
             activeUsers = stats.activeUsers24h
+        } else if (isActuallyConnected) {
+            // Connected but no trades yet - this is normal for new network
+            dataSourceLabel = "🌐 CONNECTED (No trades yet)"
+            displayTrades = localStats.totalStoredTrades
+            displayWinRate = localWinRate
+            displayAvgPnl = 0.0
+            activeUsers = collectiveStats?.activeUsers24h ?: 1
         } else if (isTursoEnabled) {
-            dataSourceLabel = "🔄 CONNECTING..."
+            // Turso enabled but connection may be failing
+            dataSourceLabel = "⚠️ CONNECTION ISSUE"
             displayTrades = localStats.totalStoredTrades
             displayWinRate = localWinRate
             displayAvgPnl = 0.0
@@ -221,8 +234,9 @@ class CollectiveBrainActivity : AppCompatActivity() {
             // Update data source label
             tvDataSource.text = dataSourceLabel
             tvDataSource.setTextColor(when {
-                hasCollectiveData -> green
-                isTursoEnabled -> 0xFF6366F1.toInt()
+                hasNetworkData -> green
+                isActuallyConnected -> 0xFF10B981.toInt()  // Green for connected
+                isTursoEnabled -> 0xFFF59E0B.toInt()       // Amber for connection issue
                 else -> purple
             })
             
