@@ -125,7 +125,7 @@ class CollectiveBrainActivity : AppCompatActivity() {
             totalStoredTrades + shadowTrackedCount
         }
         
-        val estimatedInstances = analyticsSummary?.estimatedInstances ?: 1 // At least this instance
+        val estimatedInstances = (analyticsSummary?.estimatedInstances ?: 0).coerceAtLeast(1) // At least this instance
         
         // Get TokenBlacklist count for local blacklist display
         val localBlacklisted = try {

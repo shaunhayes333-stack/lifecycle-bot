@@ -577,25 +577,52 @@ object ShadowLearningEngine {
     
     /**
      * Get top trading mode from tracked blocked trades (for UI display)
+     * Filters out internal labels like V3, LEGACY, etc.
      */
     fun getTopTrackedMode(): String? {
-        val modes = blockedTradeShadows.values
-            .map { it.blockLevel.substringBefore("|") }
-            .filter { it.isNotBlank() && it != "V3" && it != "LEGACY" }
+        // Internal labels to filter out
+        val internalLabels = setOf("V3", "LEGACY", "LEGACY_GATE", "V3_PRE_PROPOSAL", "PROMOTION", "GATE", "FDG")
         
-        return if (modes.isEmpty()) {
-            // Try to get from block reason patterns
-            blockedTradeShadows.values
-                .map { it.blockReason.substringBefore("_").uppercase() }
-                .filter { it.isNotBlank() && it.length > 2 }
-                .groupBy { it }
-                .maxByOrNull { it.value.size }
-                ?.key
-        } else {
-            modes.groupBy { it }
-                .maxByOrNull { it.value.size }
-                ?.key
+        // First try to get from TradeHistoryStore (actual executed trades)
+        val historyMode = try {
+            TradeHistoryStore.getTopMode()
+        } catch (_: Exception) { null }
+        
+        if (historyMode != null && historyMode !in internalLabels) {
+            return historyMode
         }
+        
+        // Fallback: extract trading mode from shadow tracking
+        val modes = blockedTradeShadows.values
+            .mapNotNull { shadow ->
+                // Try to extract actual trading mode from metadata if available
+                val modeFromReason = shadow.blockReason
+                    .split("_")
+                    .filter { it.length >= 4 && it !in internalLabels && it.uppercase() !in internalLabels }
+                    .firstOrNull { it.matches(Regex("[A-Z_]+")) }
+                
+                modeFromReason ?: shadow.blockLevel
+                    .split("|", "_")
+                    .filter { it.length >= 4 && it !in internalLabels && it.uppercase() !in internalLabels }
+                    .firstOrNull()
+            }
+            .filter { it.isNotBlank() && it.uppercase() !in internalLabels }
+        
+        return modes
+            .groupBy { it.uppercase() }
+            .maxByOrNull { it.value.size }
+            ?.key
+            ?.let { 
+                // Convert to display format
+                when (it) {
+                    "MOONSHOT" -> "MOONSHOT"
+                    "WHALE", "WHALE_FOLLOW" -> "WHALE_FOLLOW"
+                    "MOMENTUM", "MOMENTUM_SWING" -> "MOMENTUM_SWING"
+                    "FRESH", "FRESH_LAUNCH" -> "FRESH_LAUNCH"
+                    "PUMP", "PUMP_SNIPER" -> "PUMP_SNIPER"
+                    else -> it
+                }
+            }
     }
     
     /**
@@ -610,14 +637,40 @@ object ShadowLearningEngine {
     
     /**
      * Get mode performance from blocked trade shadows
+     * Filters out internal labels and returns actual trading modes
      */
     fun getModePerformance(): Map<String, ModePerformance> {
+        // Internal labels to filter out
+        val internalLabels = setOf("V3", "LEGACY", "LEGACY_GATE", "V3_PRE_PROPOSAL", "PROMOTION", "GATE", "FDG", "WATCH", "BLOCK", "SHADOW")
+        
         val byMode = mutableMapOf<String, MutableList<BlockedTradeShadow>>()
         
         blockedTradeShadows.values.filter { it.outcomeClassified }.forEach { shadow ->
-            val mode = shadow.blockLevel.ifBlank { 
-                shadow.blockReason.substringBefore("_").uppercase().take(15)
+            // Extract actual trading mode, filtering out internal labels
+            var mode = shadow.blockLevel
+                .split("|", "_")
+                .filter { it.length >= 4 && it.uppercase() !in internalLabels }
+                .firstOrNull()
+                ?: shadow.blockReason
+                    .split("_")
+                    .filter { it.length >= 4 && it.uppercase() !in internalLabels }
+                    .firstOrNull()
+                ?: "UNKNOWN"
+            
+            // Normalize mode names
+            mode = when (mode.uppercase()) {
+                "MOONSHOT" -> "MOONSHOT"
+                "WHALE", "WHALE_FOLLOW" -> "WHALE_FOLLOW"
+                "MOMENTUM", "MOMENTUM_SWING" -> "MOMENTUM_SWING"
+                "FRESH", "FRESH_LAUNCH" -> "FRESH_LAUNCH"
+                "PUMP", "PUMP_SNIPER" -> "PUMP_SNIPER"
+                "COPY", "COPY_TRADE" -> "COPY_TRADE"
+                else -> mode.uppercase().take(15)
             }
+            
+            // Skip internal labels
+            if (mode.uppercase() in internalLabels || mode == "UNKNOWN") return@forEach
+            
             byMode.getOrPut(mode) { mutableListOf() }.add(shadow)
         }
         
