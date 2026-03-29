@@ -782,7 +782,7 @@ for legal compliance.
 
         // ── hero balance ──────────────────────────────────────────────
         // V4.0 FIX: Show PAPER balance when in paper mode, REAL wallet balance when live
-        val config = com.lifecyclebot.data.BotConfig.load(applicationContext)
+        val config = com.lifecyclebot.data.ConfigStore.load(applicationContext)
         val displayBalance: Double
         val balanceLabel: String
         
