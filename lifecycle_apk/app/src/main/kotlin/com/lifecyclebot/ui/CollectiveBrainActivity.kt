@@ -154,10 +154,12 @@ class CollectiveBrainActivity : AppCompatActivity() {
         // V3.3: Properly detect if collective data exists
         val hasCollectiveData = isTursoEnabled && collectivePatterns > 0
         
-        // Get REAL-TIME active instance count directly from Turso if enabled
-        val activeInstanceCount = if (isTursoEnabled) {
+        // V3.3: Get active USERS count (traders in last 24h) - more meaningful metric
+        val activeUsersCount = if (isTursoEnabled) {
             try {
-                CollectiveLearning.countActiveInstances()
+                // First try active users, fallback to instances
+                val activeUsers = CollectiveLearning.getActiveUsersCount()
+                if (activeUsers > 0) activeUsers else CollectiveLearning.countActiveInstances()
             } catch (_: Exception) { 1 }
         } else {
             1  // Just this device when Turso not enabled
@@ -190,8 +192,8 @@ class CollectiveBrainActivity : AppCompatActivity() {
             else -> "📱 LOCAL DEVICE" to (totalStoredTrades + shadowTrackedCount)
         }
         
-        // Use REAL-TIME instance count from Turso (not cached analytics)
-        val estimatedInstances = activeInstanceCount
+        // V3.3: Use active USERS count (more meaningful than instances)
+        val estimatedInstances = activeUsersCount
         
         // Get TokenBlacklist count - prioritize COLLECTIVE data
         val displayBlacklisted = if (hasCollectiveData) {
