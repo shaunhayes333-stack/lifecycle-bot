@@ -1295,10 +1295,15 @@ object FinalDecisionGate {
                 approvalClass = if (mode == TradeMode.PAPER) ApprovalClass.PAPER_EXPLORATION else ApprovalClass.BLOCKED,
                 quality = candidate.setupQuality,
                 confidence = candidate.aiConfidence,
-                edge = candidate.edgeVerdict,
+                edge = when (candidate.edgeQuality) {
+                    "A" -> EdgeVerdict.STRONG
+                    "B" -> EdgeVerdict.PROCEED
+                    "C" -> EdgeVerdict.WEAK
+                    else -> EdgeVerdict.SKIP
+                },
                 blockReason = if (mode == TradeMode.LIVE) "WHALE_FOLLOW_LIVE_DISABLED" else null,
                 blockLevel = if (mode == TradeMode.LIVE) BlockLevel.HARD else null,
-                sizeSol = cfg.minTradeSize * 0.5,  // Micro size only
+                sizeSol = config.minTradeSize * 0.5,  // Micro size only
                 tags = listOf("whale_follow_restricted", "micro_size_only"),
                 mint = ts.mint,
                 symbol = ts.symbol,

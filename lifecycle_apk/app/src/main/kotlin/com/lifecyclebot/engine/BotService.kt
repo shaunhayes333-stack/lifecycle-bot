@@ -2550,8 +2550,8 @@ class BotService : Service() {
                 // HARD GATE: Block edge=SKIP or conf=0 BEFORE candidate promotion
                 // This prevents garbage from going through CANDIDATE/PROPOSED/SIZING
                 // ───────────────────────────────────────────────────────────────────
-                val edgeVerdictStr = decision.edgeVerdict.name
-                val confValue = decision.confidence
+                val edgeVerdictStr = decision.edgeQuality  // "A", "B", "C", or "SKIP"
+                val confValue = decision.aiConfidence
                 
                 if (edgeVerdictStr == "SKIP" || confValue <= 0) {
                     ErrorLogger.info("BotService", "[V3|PROMOTION_GATE] ${identity.symbol} | allow=false | " +
