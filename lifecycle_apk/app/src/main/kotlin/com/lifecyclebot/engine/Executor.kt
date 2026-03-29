@@ -158,7 +158,7 @@ class Executor(
         val targetRecoveryPrice: Double,  // Price we need to hit for breakeven re-entry
     )
     private val recoveryCandidates = mutableMapOf<String, RecoveryCandidate>()
-    private const val RECOVERY_SCAN_WINDOW_MS = 30 * 60 * 1000L  // 30 minute window for recovery
+    private val RECOVERY_SCAN_WINDOW_MS = 30 * 60 * 1000L  // 30 minute window for recovery
     
     /**
      * Mark a stopped-out token for potential recovery scan.
@@ -4026,7 +4026,7 @@ class Executor(
                             liquidityUsd = ts.lastLiquidityUsd,
                             marketSentiment = marketSentiment,
                             entryScore = ts.position.entryScore.toInt(),
-                            confidence = (ts.position.entryConfidence * 100).toInt(),
+                            confidence = 50,  // Default confidence for sell tracking
                             pnlPct = pnlP,
                             holdMins = holdMins.toDouble(),
                             isWin = shouldLearnAsWin,
