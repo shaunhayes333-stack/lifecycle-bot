@@ -277,8 +277,6 @@ object CashGenerationAI {
         // Mode adjustments apply ON TOP of the learned base
         // ═══════════════════════════════════════════════════════════════════
         
-        val baseConfThreshold = getCurrentConfidenceThreshold()
-        val baseScoreThreshold = getCurrentScoreThreshold()
         // ═══════════════════════════════════════════════════════════════════
         // FLUID THRESHOLDS FROM FluidLearningAI (Layer 23)
         // 
