@@ -2369,7 +2369,7 @@ class BotService : Service() {
                         } catch (_: Exception) {}
                     }
                 }
-                return@launch   // skip full cycle — but we may have added data above
+                return   // skip full cycle — but we may have added data above
             }
     
             synchronized(status.tokens) {
@@ -2384,7 +2384,7 @@ class BotService : Service() {
                         logoUrl    = "https://dd.dexscreener.com/ds-data/tokens/solana/$mint.png",
                     )
                 }
-                val ts = status.tokens[mint] ?: return@launch
+                val ts = status.tokens[mint] ?: return
                 
                 // Try to infer source if unknown
                 if (ts.source.isEmpty() || ts.source == "UNKNOWN") {
@@ -2424,7 +2424,7 @@ class BotService : Service() {
                 }
             }
     
-            val ts = status.tokens[mint] ?: return@launch
+            val ts = status.tokens[mint] ?: return
             
             // ═══════════════════════════════════════════════════════════════════
             // PAPER MODE LEARNING: Update shadow tracking for blocked trades
@@ -2444,7 +2444,7 @@ class BotService : Service() {
                     status.tokens.remove(mint)
                 }
                 ErrorLogger.debug("BotService", "Removing banned token ${ts.symbol} from watchlist")
-                return@launch
+                return
             }
             
             // ── Rug Detection - Learn from sudden liquidity/price drops ──
@@ -2549,7 +2549,7 @@ class BotService : Service() {
             
             if (!preFilterResult.pass) {
                 HardRugPreFilter.logFailure(ts, preFilterResult)
-                return@launch  // Skip to next token (exit this coroutine)
+                return  // Skip to next token (exit this coroutine)
             }
         }
         
@@ -2568,7 +2568,7 @@ class BotService : Service() {
         
         if (distributionCheck.shouldBlock && !ts.position.isOpen) {
             ErrorLogger.info("BotService", "🔻 ${ts.symbol} DISTRIBUTION_FADE: ${distributionCheck.reason}")
-            return@launch  // Skip to next token (exit this coroutine)
+            return  // Skip to next token (exit this coroutine)
         }
         
         // ═══════════════════════════════════════════════════════════════════
@@ -2752,11 +2752,11 @@ class BotService : Service() {
                 executor.maybeAct(ts, "EXIT", 0.0, effectiveBalance, wallet,
                     lastSuccessfulPollMs, status.openPositionCount, status.totalExposureSol)
             }
-            return@launch
+            return
         }
     
         // In PAUSED mode: no new entries (existing positions still managed)
-        if (modeConf?.mode == AutoModeEngine.BotMode.PAUSED && !ts.position.isOpen) return@launch
+        if (modeConf?.mode == AutoModeEngine.BotMode.PAUSED && !ts.position.isOpen) return
     
         // Trade on ALL watchlist tokens simultaneously
         val cbState = securityGuard.getCircuitBreakerState()
@@ -2785,7 +2785,7 @@ class BotService : Service() {
         val (canProposeEarly, dedupeReason) = TradeLifecycle.canPropose(identity.mint)
         if (!canProposeEarly && !ts.position.isOpen) {
             // Silently skip - no spam logging
-            return@launch
+            return
         }
         
         // FATAL SUPPRESSION: Only rugged/honeypot/unsellable blocks
@@ -2793,7 +2793,7 @@ class BotService : Service() {
         if (isFatalSuppression && !ts.position.isOpen) {
             val reason = DistributionFadeAvoider.checkRawStrategySuppression(identity.mint)
             ErrorLogger.info("BotService", "[FATAL] ${identity.symbol} | BLOCK | $reason")
-            return@launch
+            return
         }
         
         // ═══════════════════════════════════════════════════════════════════
@@ -2838,7 +2838,7 @@ class BotService : Service() {
                 }
                 
                 // Skip normal V3 processing for this token
-                return@launch
+                return
             }
             
             // Calculate token age in minutes
@@ -3414,7 +3414,7 @@ class BotService : Service() {
                         // V3.3 FIX: DO NOT RETURN - Allow Treasury Mode evaluation below!
                         // Treasury Mode runs CONCURRENTLY and can scalp WATCH tokens
                         // ═══════════════════════════════════════════════════════════════════
-                        // Previously: return@launch (BLOCKED Treasury Mode!)
+                        // Previously: return (BLOCKED Treasury Mode!)
                     }
                     
                     is com.lifecyclebot.v3.V3Decision.ShadowOnly -> {
@@ -3436,7 +3436,7 @@ class BotService : Service() {
                             phase = decision.phase,
                         )
                         
-                        return@launch
+                        return
                     }
                     
                     is com.lifecyclebot.v3.V3Decision.Rejected -> {
@@ -3458,7 +3458,7 @@ class BotService : Service() {
                             phase = decision.phase,
                         )
                         
-                        return@launch
+                        return
                     }
                     
                     is com.lifecyclebot.v3.V3Decision.BlockFatal -> {
@@ -3466,7 +3466,7 @@ class BotService : Service() {
                         // V3 BLOCK_FATAL: Fatal risk detected
                         // ═══════════════════════════════════════════════════════════════════
                         ErrorLogger.info("BotService", "[DECISION] ${identity.symbol} | BLOCK_FATAL | ${result.reason}")
-                        return@launch
+                        return
                     }
                     
                     is com.lifecyclebot.v3.V3Decision.Blocked -> {
@@ -3474,26 +3474,26 @@ class BotService : Service() {
                         // V3 BLOCK: Legacy fatal block
                         // ═══════════════════════════════════════════════════════════════════
                         ErrorLogger.info("BotService", "[DECISION] ${identity.symbol} | BLOCK_FATAL | ${result.reason}")
-                        return@launch
+                        return
                     }
                     
                     else -> {
                         // V3 not ready or error - skip this token
                         ErrorLogger.debug("BotService", "[V3] ${identity.symbol} | NOT_READY")
-                        return@launch
+                        return
                     }
                 }
                 
             } catch (v3e: Exception) {
                 ErrorLogger.error("BotService", "[V3] ${identity.symbol} | ERROR | ${v3e.message}")
-                return@launch
+                return
             }
             
             // ═══════════════════════════════════════════════════════════════════
             // V3.3 FIX: DO NOT RETURN HERE!
             // Treasury Mode runs CONCURRENTLY and must evaluate ALL tokens,
             // including those that V3 marked as WATCH/Execute.
-            // Previously: return@launch (this KILLED Treasury Mode entirely!)
+            // Previously: return (this KILLED Treasury Mode entirely!)
             // ═══════════════════════════════════════════════════════════════════
         }
         
@@ -3534,7 +3534,7 @@ class BotService : Service() {
                 phase = decision.phase,
             )
             
-            return@launch  // Exit before CANDIDATE/PROPOSED
+            return  // Exit before CANDIDATE/PROPOSED
         }
         
         // ───────────────────────────────────────────────────────────────────
@@ -3565,7 +3565,7 @@ class BotService : Service() {
                 phase = decision.phase,
             )
             
-            return@launch  // Exit before CANDIDATE/PROPOSED
+            return  // Exit before CANDIDATE/PROPOSED
         }
         
         if (!ts.position.isOpen && decision.finalSignal == "BUY" && canProposeEarly) {
@@ -3703,7 +3703,7 @@ class BotService : Service() {
                             if (v3ControlsExecution) {
                                 addLog("⚡ V3 WATCH: ${identity.symbol} | score=${result.score} (no trade)", mint)
                                 // Don't set useV3Decision - this blocks the trade
-                                return@launch  // V3 says WATCH = exit without executing
+                                return  // V3 says WATCH = exit without executing
                             }
                         }
                         
@@ -3722,7 +3722,7 @@ class BotService : Service() {
                             // V3 REJECT = DO NOT EXECUTE
                             if (v3ControlsExecution) {
                                 addLog("⚡ V3 REJECT: ${identity.symbol} | ${result.reason}", mint)
-                                return@launch  // V3 says REJECT = exit
+                                return  // V3 says REJECT = exit
                             }
                         }
                         
@@ -3741,7 +3741,7 @@ class BotService : Service() {
                             // V3 BLOCK = FATAL, DO NOT EXECUTE
                             if (v3ControlsExecution) {
                                 addLog("⚡ V3 BLOCKED: ${identity.symbol} | ${result.reason}", mint)
-                                return@launch  // V3 says BLOCK = exit
+                                return  // V3 says BLOCK = exit
                             }
                         }
                         
@@ -3750,7 +3750,7 @@ class BotService : Service() {
                             ErrorLogger.warn("BotService", "⚡ V3 unavailable for ${identity.symbol} - ${if (v3ControlsExecution) "SKIPPING" else "using FDG"}")
                             if (v3ControlsExecution) {
                                 // V3 is supposed to control but failed - don't trade on uncertainty
-                                return@launch
+                                return
                             }
                         }
                     }
@@ -3759,7 +3759,7 @@ class BotService : Service() {
                     ErrorLogger.error("BotService", "V3 engine error for ${identity.symbol}: ${v3e.message}")
                     if (v3ControlsExecution) {
                         // V3 controls but errored - don't fall back to legacy
-                        return@launch
+                        return
                     }
                 }
             }
@@ -4014,7 +4014,7 @@ class BotService : Service() {
                     addLog("💰 TREASURY SELL: ${ts.symbol} | ${exitSignal.name} | " +
                         "${if (cfg.paperMode) "PAPER" else "LIVE"}", ts.mint)
                     
-                    return@launch  // Exit processed
+                    return  // Exit processed
                 }
             }
             
@@ -4056,7 +4056,7 @@ class BotService : Service() {
                     addLog("$exitEmoji SHITCOIN SELL: ${ts.symbol} | ${exitSignal.name} | " +
                         "${if (cfg.paperMode) "PAPER" else "LIVE"}", ts.mint)
                     
-                    return@launch  // Exit processed
+                    return  // Exit processed
                 }
             }
             
@@ -4094,7 +4094,7 @@ class BotService : Service() {
                     addLog("$exitEmoji EXPRESS SELL: ${ts.symbol} | ${exitSignal.name} | " +
                         "${if (cfg.paperMode) "PAPER" else "LIVE"}", ts.mint)
                     
-                    return@launch
+                    return
                 }
             }
             
@@ -4131,7 +4131,7 @@ class BotService : Service() {
                     addLog("$exitEmoji DIP SELL: ${ts.symbol} | ${exitSignal.name} | " +
                         "${if (cfg.paperMode) "PAPER" else "LIVE"}", ts.mint)
                     
-                    return@launch
+                    return
                 }
             }
             
