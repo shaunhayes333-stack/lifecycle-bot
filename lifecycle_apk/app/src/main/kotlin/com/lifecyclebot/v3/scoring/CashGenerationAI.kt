@@ -51,9 +51,23 @@ object CashGenerationAI {
     private const val DAILY_TARGET_MAX_SOL = 6.67     // ~$1000 @ $150/SOL
     private const val DAILY_MAX_LOSS_SOL = 0.33       // ~$50 ULTRA-CONSERVATIVE (user choice 1a)
     
-    // Entry criteria (STRICT - A-grade only)
-    private const val MIN_CONFIDENCE_FOR_ENTRY = 80   // Only A-grade (80%+)
-    private const val MIN_SCORE_FOR_ENTRY = 30        // Decent score required
+    // ═══════════════════════════════════════════════════════════════════════════
+    // FLUID CONFIDENCE THRESHOLDS (Scales with AI learning)
+    // 
+    // PHILOSOPHY: Start loose (same as paper mode defaults), tighten as AI learns.
+    // This allows Treasury Mode to participate early while the AI is calibrating,
+    // then naturally becomes more selective as confidence in the system grows.
+    // ═══════════════════════════════════════════════════════════════════════════
+    
+    // Bootstrap (0 trades): 30% confidence floor (same as FDG hard minimum)
+    // Mature (500+ trades): 80% confidence (A-grade only)
+    private const val CONF_BOOTSTRAP = 30             // Starting threshold (loose)
+    private const val CONF_MATURE = 80                // Target threshold (strict A-grade)
+    
+    // Score thresholds also scale with learning
+    private const val SCORE_BOOTSTRAP = 15            // Starting score threshold
+    private const val SCORE_MATURE = 30               // Mature score threshold
+    
     private const val MIN_LIQUIDITY_USD = 15000.0     // Higher liq = safer quick exits
     private const val MAX_TOP_HOLDER_PCT = 12.0       // Strict rug avoidance
     private const val MIN_BUY_PRESSURE_PCT = 58.0     // Strong buying momentum required
@@ -199,6 +213,53 @@ object CashGenerationAI {
     }
     
     // ═══════════════════════════════════════════════════════════════════════════
+    // FLUID LEARNING - Confidence scales with AI maturity
+    // ═══════════════════════════════════════════════════════════════════════════
+    
+    /**
+     * Get the current learning progress (0.0 = brand new, 1.0 = fully mature).
+     * Uses FinalDecisionGate's learning progress for consistency with core AI.
+     */
+    private fun getLearningProgress(): Double {
+        return try {
+            val tradeCount = dailyTradeCount.get() + 
+                (paperDailyTradeCount.get() + liveDailyTradeCount.get()) / 2
+            val winRate = if (dailyTradeCount.get() > 0) {
+                dailyWins.get().toDouble() / dailyTradeCount.get() * 100
+            } else 50.0
+            
+            // Use FDG's learning function for consistency
+            com.lifecyclebot.engine.FinalDecisionGate.getLearningProgress(tradeCount, winRate)
+        } catch (_: Exception) {
+            0.0  // Default to bootstrap mode if FDG not available
+        }
+    }
+    
+    /**
+     * Interpolate between bootstrap (loose) and mature (strict) values.
+     */
+    private fun lerp(loose: Double, strict: Double, progress: Double): Double {
+        return loose + (strict - loose) * progress
+    }
+    
+    /**
+     * Get current fluid confidence threshold based on learning progress.
+     * Starts at 30% (same as FDG floor), scales to 80% as AI matures.
+     */
+    fun getCurrentConfidenceThreshold(): Int {
+        val progress = getLearningProgress()
+        return lerp(CONF_BOOTSTRAP.toDouble(), CONF_MATURE.toDouble(), progress).toInt()
+    }
+    
+    /**
+     * Get current fluid score threshold based on learning progress.
+     */
+    fun getCurrentScoreThreshold(): Int {
+        val progress = getLearningProgress()
+        return lerp(SCORE_BOOTSTRAP.toDouble(), SCORE_MATURE.toDouble(), progress).toInt()
+    }
+    
+    // ═══════════════════════════════════════════════════════════════════════════
     // CORE EVALUATION
     // ═══════════════════════════════════════════════════════════════════════════
     
@@ -241,19 +302,37 @@ object CashGenerationAI {
             )
         }
         
-        // Adjust thresholds based on mode
-        val confThreshold = when (mode) {
-            TreasuryMode.DEFENSIVE -> 88  // Very strict when protecting gains
-            TreasuryMode.CRUISE -> 82     // Slightly relaxed when cruising
-            TreasuryMode.AGGRESSIVE -> 78 // A bit looser when behind (but still A-grade)
-            else -> MIN_CONFIDENCE_FOR_ENTRY // 80% default
+        // ═══════════════════════════════════════════════════════════════════
+        // FLUID CONFIDENCE THRESHOLDS
+        // 
+        // Base threshold scales with learning (30% → 80% as AI matures)
+        // Mode adjustments apply ON TOP of the learned base
+        // ═══════════════════════════════════════════════════════════════════
+        
+        val baseConfThreshold = getCurrentConfidenceThreshold()
+        val baseScoreThreshold = getCurrentScoreThreshold()
+        val learningProgress = getLearningProgress()
+        
+        // Mode adjustments (relative to base, scaled by progress)
+        // When immature: smaller adjustments. When mature: full adjustments.
+        val modeConfAdjust = when (mode) {
+            TreasuryMode.DEFENSIVE -> (8 * learningProgress).toInt()   // Up to +8% when protecting
+            TreasuryMode.CRUISE -> (2 * learningProgress).toInt()      // Up to +2% when cruising
+            TreasuryMode.AGGRESSIVE -> -(2 * learningProgress).toInt() // Up to -2% when behind
+            else -> 0
         }
-        val scoreThreshold = when (mode) {
-            TreasuryMode.DEFENSIVE -> 40
-            TreasuryMode.CRUISE -> 32
-            TreasuryMode.AGGRESSIVE -> 28
-            else -> MIN_SCORE_FOR_ENTRY
+        val modeScoreAdjust = when (mode) {
+            TreasuryMode.DEFENSIVE -> (10 * learningProgress).toInt()
+            TreasuryMode.CRUISE -> (2 * learningProgress).toInt()
+            TreasuryMode.AGGRESSIVE -> -(2 * learningProgress).toInt()
+            else -> 0
         }
+        
+        val confThreshold = (baseConfThreshold + modeConfAdjust).coerceIn(CONF_BOOTSTRAP, 95)
+        val scoreThreshold = (baseScoreThreshold + modeScoreAdjust).coerceIn(SCORE_BOOTSTRAP, 50)
+        
+        ErrorLogger.debug(TAG, "💰 TREASURY THRESHOLDS: conf=$confThreshold (base=$baseConfThreshold) | " +
+            "score=$scoreThreshold | progress=${(learningProgress*100).toInt()}% | mode=$mode")
         
         // ─── FILTER CHECKS ───
         val rejectionReasons = mutableListOf<String>()
@@ -541,6 +620,7 @@ object CashGenerationAI {
     fun getStats(): TreasuryStats {
         val dailyPnl = dailyPnlSolBps.get() / 100.0
         val progressPct = (dailyPnl / DAILY_TARGET_MIN_SOL * 100).coerceIn(-100.0, 200.0)
+        val learningProgress = getLearningProgress()
         
         return TreasuryStats(
             dailyPnlSol = dailyPnl,
@@ -557,6 +637,9 @@ object CashGenerationAI {
             mode = getCurrentMode(),
             treasuryBalanceSol = getCurrentTreasuryBalance(),
             isPaperMode = isPaperMode,
+            learningProgressPct = (learningProgress * 100).toInt(),
+            currentConfThreshold = getCurrentConfidenceThreshold(),
+            currentScoreThreshold = getCurrentScoreThreshold(),
         )
     }
     
@@ -573,6 +656,9 @@ object CashGenerationAI {
         val mode: TreasuryMode,
         val treasuryBalanceSol: Double,
         val isPaperMode: Boolean,
+        val learningProgressPct: Int = 0,        // How mature the AI is (0-100%)
+        val currentConfThreshold: Int = 30,      // Current fluid confidence threshold
+        val currentScoreThreshold: Int = 15,     // Current fluid score threshold
     ) {
         fun summary(): String = buildString {
             val modeEmoji = when (mode) {
@@ -587,7 +673,8 @@ object CashGenerationAI {
             append("(${progressPct.fmt(0)}% of \$500) | ")
             append("$dailyWins W / $dailyLosses L | ")
             append("Treasury: ${treasuryBalanceSol.fmt(3)}◎ ")
-            append("[${if (isPaperMode) "PAPER" else "LIVE"}]")
+            append("[${if (isPaperMode) "PAPER" else "LIVE"}] | ")
+            append("AI: ${learningProgressPct}% → conf≥$currentConfThreshold")
         }
     }
     
