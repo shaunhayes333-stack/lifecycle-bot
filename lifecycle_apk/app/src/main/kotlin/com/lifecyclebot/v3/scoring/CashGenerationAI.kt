@@ -803,6 +803,13 @@ object CashGenerationAI {
         }
     }
     
+    /**
+     * Get daily P&L in SOL for UI display
+     */
+    fun getDailyPnlSol(): Double {
+        return dailyPnlSolBps.get() / 100.0
+    }
+    
     // Helper extension
     private fun Double.fmt(decimals: Int): String = String.format("%.${decimals}f", this)
 }

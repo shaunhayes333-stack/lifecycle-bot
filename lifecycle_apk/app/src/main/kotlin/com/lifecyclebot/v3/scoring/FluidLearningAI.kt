@@ -651,4 +651,11 @@ object FluidLearningAI {
         val state = getState()
         ErrorLogger.info(TAG, state.summary())
     }
+    
+    /**
+     * Get maturity as percentage (0-100) for UI display
+     */
+    fun getMaturityPercent(): Double {
+        return getLearningProgress() * 100.0
+    }
 }

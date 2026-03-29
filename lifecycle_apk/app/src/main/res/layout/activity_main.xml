@@ -820,6 +820,48 @@
             </LinearLayout>
 
             <!-- ═══════════════════════════════
+                 V4.0: TREASURY POSITIONS (Wealth Generator)
+                 Separate panel for Treasury's own positions
+                 ═══════════════════════════════ -->
+            <LinearLayout
+                android:id="@+id/cardTreasuryPositions"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:background="@drawable/section_card_bg"
+                android:layout_marginStart="@dimen/card_margin"
+                android:layout_marginEnd="@dimen/card_margin"
+                android:layout_marginBottom="@dimen/card_margin_bottom"
+                android:orientation="vertical"
+                android:padding="@dimen/card_padding"
+                android:visibility="gone">
+
+                <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content"
+                    android:orientation="horizontal" android:gravity="center_vertical"
+                    android:layout_marginBottom="10dp">
+                    <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+                        android:text="💰" android:textSize="16sp"
+                        android:layout_marginEnd="8dp"/>
+                    <TextView android:layout_width="0dp" android:layout_height="wrap_content"
+                        android:layout_weight="1"
+                        android:text="Treasury Scalps" android:textColor="#FFD700"
+                        android:textSize="@dimen/section_title_size" android:textStyle="bold"/>
+                    <TextView android:id="@+id/tvTreasuryExposure"
+                        android:layout_width="wrap_content" android:layout_height="wrap_content"
+                        android:text="" android:textColor="#6B7280"
+                        android:textSize="12sp" android:fontFamily="monospace"/>
+                    <TextView android:id="@+id/tvTreasuryPnl"
+                        android:layout_width="wrap_content" android:layout_height="wrap_content"
+                        android:text="" android:textColor="#10B981"
+                        android:textSize="12sp" android:fontFamily="monospace"
+                        android:layout_marginStart="8dp"/>
+                </LinearLayout>
+
+                <LinearLayout android:id="@+id/llTreasuryPositions"
+                    android:layout_width="match_parent" android:layout_height="wrap_content"
+                    android:orientation="vertical"/>
+            </LinearLayout>
+
+            <!-- ═══════════════════════════════
                  BONDING CURVE + WHALE ROW
                  ═══════════════════════════════ -->
             <LinearLayout
@@ -946,6 +988,123 @@
                     android:text="RC —" android:textColor="#6B7280"
                     android:textSize="13sp" android:fontFamily="monospace" android:textStyle="bold"
                     android:layout_marginStart="8dp"/>
+            </LinearLayout>
+
+            <!-- ═══════════════════════════════
+                 V4.0: AI STATUS PANEL
+                 Shows Trading Mode, Regime, Active Layers
+                 ═══════════════════════════════ -->
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:background="@drawable/section_card_bg"
+                android:layout_marginStart="@dimen/card_margin"
+                android:layout_marginEnd="@dimen/card_margin"
+                android:layout_marginBottom="@dimen/card_margin_bottom"
+                android:orientation="vertical"
+                android:padding="@dimen/card_padding">
+
+                <!-- Header -->
+                <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content"
+                    android:orientation="horizontal" android:gravity="center_vertical"
+                    android:layout_marginBottom="8dp">
+                    <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+                        android:text="🤖" android:textSize="14sp" android:layout_marginEnd="6dp"/>
+                    <TextView android:layout_width="0dp" android:layout_height="wrap_content"
+                        android:layout_weight="1"
+                        android:text="AI Status" android:textColor="#FFFFFF"
+                        android:textSize="@dimen/section_title_size" android:textStyle="bold"/>
+                    <TextView android:id="@+id/tvAiHealth"
+                        android:layout_width="wrap_content" android:layout_height="wrap_content"
+                        android:text="25 layers" android:textColor="#10B981"
+                        android:textSize="11sp" android:fontFamily="monospace"/>
+                </LinearLayout>
+
+                <!-- Row 1: Trading Mode + Regime -->
+                <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content"
+                    android:orientation="horizontal" android:layout_marginBottom="8dp">
+                    
+                    <!-- Trading Mode -->
+                    <LinearLayout android:layout_width="0dp" android:layout_height="wrap_content"
+                        android:layout_weight="1" android:orientation="vertical"
+                        android:background="@drawable/card_bg" android:padding="8dp"
+                        android:layout_marginEnd="4dp">
+                        <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+                            android:text="TRADING MODE" android:textColor="#6B7280"
+                            android:textSize="8sp" android:fontFamily="monospace" android:letterSpacing="0.1"/>
+                        <TextView android:id="@+id/tvAiTradingMode"
+                            android:layout_width="match_parent" android:layout_height="wrap_content"
+                            android:text="FRESH_LAUNCH" android:textColor="#9945FF"
+                            android:textSize="11sp" android:fontFamily="monospace" android:textStyle="bold"
+                            android:maxLines="1" android:ellipsize="end"/>
+                    </LinearLayout>
+                    
+                    <!-- Market Regime -->
+                    <LinearLayout android:layout_width="0dp" android:layout_height="wrap_content"
+                        android:layout_weight="1" android:orientation="vertical"
+                        android:background="@drawable/card_bg" android:padding="8dp"
+                        android:layout_marginStart="4dp">
+                        <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+                            android:text="MARKET REGIME" android:textColor="#6B7280"
+                            android:textSize="8sp" android:fontFamily="monospace" android:letterSpacing="0.1"/>
+                        <TextView android:id="@+id/tvAiRegime"
+                            android:layout_width="match_parent" android:layout_height="wrap_content"
+                            android:text="TRENDING" android:textColor="#10B981"
+                            android:textSize="11sp" android:fontFamily="monospace" android:textStyle="bold"
+                            android:maxLines="1" android:ellipsize="end"/>
+                    </LinearLayout>
+                </LinearLayout>
+
+                <!-- Row 2: Treasury Mode + Learning Progress -->
+                <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content"
+                    android:orientation="horizontal" android:layout_marginBottom="8dp">
+                    
+                    <!-- Treasury Mode -->
+                    <LinearLayout android:layout_width="0dp" android:layout_height="wrap_content"
+                        android:layout_weight="1" android:orientation="vertical"
+                        android:background="@drawable/card_bg" android:padding="8dp"
+                        android:layout_marginEnd="4dp">
+                        <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+                            android:text="💰 TREASURY" android:textColor="#FFD700"
+                            android:textSize="8sp" android:fontFamily="monospace" android:letterSpacing="0.1"/>
+                        <TextView android:id="@+id/tvAiTreasury"
+                            android:layout_width="match_parent" android:layout_height="wrap_content"
+                            android:text="HUNT" android:textColor="#FFD700"
+                            android:textSize="11sp" android:fontFamily="monospace" android:textStyle="bold"
+                            android:maxLines="1" android:ellipsize="end"/>
+                    </LinearLayout>
+                    
+                    <!-- Learning Progress -->
+                    <LinearLayout android:layout_width="0dp" android:layout_height="wrap_content"
+                        android:layout_weight="1" android:orientation="vertical"
+                        android:background="@drawable/card_bg" android:padding="8dp"
+                        android:layout_marginStart="4dp">
+                        <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+                            android:text="🧠 LEARNING" android:textColor="#6B7280"
+                            android:textSize="8sp" android:fontFamily="monospace" android:letterSpacing="0.1"/>
+                        <TextView android:id="@+id/tvAiLearning"
+                            android:layout_width="match_parent" android:layout_height="wrap_content"
+                            android:text="2% maturity" android:textColor="#3B82F6"
+                            android:textSize="11sp" android:fontFamily="monospace" android:textStyle="bold"
+                            android:maxLines="1" android:ellipsize="end"/>
+                    </LinearLayout>
+                </LinearLayout>
+
+                <!-- Row 3: Active AI Layers summary -->
+                <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content"
+                    android:orientation="vertical"
+                    android:background="@drawable/card_bg" android:padding="8dp">
+                    <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+                        android:text="ACTIVE AI LAYERS" android:textColor="#6B7280"
+                        android:textSize="8sp" android:fontFamily="monospace" android:letterSpacing="0.1"
+                        android:layout_marginBottom="4dp"/>
+                    <TextView android:id="@+id/tvAiLayers"
+                        android:layout_width="match_parent" android:layout_height="wrap_content"
+                        android:text="Entry · Exit · Momentum · Liquidity · Volume · Narrative · Regime · Social · Behavior"
+                        android:textColor="#9CA3AF"
+                        android:textSize="10sp" android:fontFamily="monospace"
+                        android:maxLines="2" android:ellipsize="end"/>
+                </LinearLayout>
             </LinearLayout>
 
             <!-- ═══════════════════════════════

@@ -4417,7 +4417,19 @@ class Executor(
         // This frees up the slot for new Treasury positions
         // ═══════════════════════════════════════════════════════════════════
         try {
-            com.lifecyclebot.v3.scoring.CashGenerationAI.closePosition(tradeId.mint, pnlP)
+            // Convert exit reason string to CashGenerationAI.ExitSignal
+            val treasuryExitSignal = when {
+                reason.lowercase().contains("profit") || reason.lowercase().contains("target") -> 
+                    com.lifecyclebot.v3.scoring.CashGenerationAI.ExitSignal.TAKE_PROFIT
+                reason.lowercase().contains("stop") || reason.lowercase().contains("loss") -> 
+                    com.lifecyclebot.v3.scoring.CashGenerationAI.ExitSignal.STOP_LOSS
+                reason.lowercase().contains("trail") -> 
+                    com.lifecyclebot.v3.scoring.CashGenerationAI.ExitSignal.TRAILING_STOP
+                reason.lowercase().contains("time") || reason.lowercase().contains("hold") -> 
+                    com.lifecyclebot.v3.scoring.CashGenerationAI.ExitSignal.TIME_EXIT
+                else -> com.lifecyclebot.v3.scoring.CashGenerationAI.ExitSignal.HOLD
+            }
+            com.lifecyclebot.v3.scoring.CashGenerationAI.closePosition(tradeId.mint, price, treasuryExitSignal)
         } catch (_: Exception) {}
         
         ts.position         = Position()

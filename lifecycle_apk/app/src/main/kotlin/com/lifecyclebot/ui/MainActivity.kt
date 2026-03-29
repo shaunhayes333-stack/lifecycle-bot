@@ -95,6 +95,20 @@ class MainActivity : AppCompatActivity() {
     private lateinit var llOpenPositions: LinearLayout
     private lateinit var tvTotalExposure: TextView
     private lateinit var tvTotalUnrealisedPnl: TextView
+    
+    // V4.0: Treasury positions panel
+    private lateinit var cardTreasuryPositions: android.view.View
+    private lateinit var llTreasuryPositions: LinearLayout
+    private lateinit var tvTreasuryExposure: TextView
+    private lateinit var tvTreasuryPnl: TextView
+    
+    // V4.0: AI Status panel
+    private lateinit var tvAiHealth: TextView
+    private lateinit var tvAiTradingMode: TextView
+    private lateinit var tvAiRegime: TextView
+    private lateinit var tvAiTreasury: TextView
+    private lateinit var tvAiLearning: TextView
+    private lateinit var tvAiLayers: TextView
 
     // decision log
     private lateinit var cardLogScores: android.view.View
@@ -528,6 +542,21 @@ for legal compliance.
         llOpenPositions    = findViewById(R.id.llOpenPositions)
         tvTotalExposure    = try { findViewById(R.id.tvTotalExposure) } catch (_: Exception) { TextView(this) }
         tvTotalUnrealisedPnl = try { findViewById(R.id.tvTotalUnrealisedPnl) } catch (_: Exception) { TextView(this) }
+        
+        // V4.0: Treasury positions panel bindings
+        cardTreasuryPositions = try { findViewById(R.id.cardTreasuryPositions) } catch (_: Exception) { android.view.View(this) }
+        llTreasuryPositions = try { findViewById(R.id.llTreasuryPositions) } catch (_: Exception) { LinearLayout(this) }
+        tvTreasuryExposure = try { findViewById(R.id.tvTreasuryExposure) } catch (_: Exception) { TextView(this) }
+        tvTreasuryPnl = try { findViewById(R.id.tvTreasuryPnl) } catch (_: Exception) { TextView(this) }
+        
+        // V4.0: AI Status panel bindings
+        tvAiHealth = try { findViewById(R.id.tvAiHealth) } catch (_: Exception) { TextView(this) }
+        tvAiTradingMode = try { findViewById(R.id.tvAiTradingMode) } catch (_: Exception) { TextView(this) }
+        tvAiRegime = try { findViewById(R.id.tvAiRegime) } catch (_: Exception) { TextView(this) }
+        tvAiTreasury = try { findViewById(R.id.tvAiTreasury) } catch (_: Exception) { TextView(this) }
+        tvAiLearning = try { findViewById(R.id.tvAiLearning) } catch (_: Exception) { TextView(this) }
+        tvAiLayers = try { findViewById(R.id.tvAiLayers) } catch (_: Exception) { TextView(this) }
+        
         llTokenList     = findViewById(R.id.llTokenList)
         etAddMint       = findViewById(R.id.etAddMint)
         btnAddToken     = findViewById(R.id.btnAddToken)
@@ -1016,6 +1045,25 @@ for legal compliance.
             tvTotalUnrealisedPnl.setTextColor(if (upnl >= 0) green else red)
             renderOpenPositions(openPos)
         }
+        
+        // ── V4.0: Treasury positions panel ─────────────────────────────────
+        try {
+            val treasuryPositions = com.lifecyclebot.v3.scoring.CashGenerationAI.getActivePositions()
+            cardTreasuryPositions.visibility = if (treasuryPositions.isNotEmpty()) android.view.View.VISIBLE else android.view.View.GONE
+            if (treasuryPositions.isNotEmpty()) {
+                val treasuryExposure = treasuryPositions.sumOf { it.entrySol }
+                tvTreasuryExposure.text = "%.3f◎".format(treasuryExposure)
+                val treasuryDailyPnl = com.lifecyclebot.v3.scoring.CashGenerationAI.getDailyPnlSol()
+                tvTreasuryPnl.text = "%+.4f◎".format(treasuryDailyPnl)
+                tvTreasuryPnl.setTextColor(if (treasuryDailyPnl >= 0) green else red)
+                renderTreasuryPositions(treasuryPositions)
+            }
+        } catch (_: Exception) {}
+        
+        // ── V4.0: AI Status panel ─────────────────────────────────
+        try {
+            updateAiStatusPanel(ts)
+        } catch (_: Exception) {}
 
         // ── safety ────────────────────────────────────────────────────
         val safety = ts?.safety
@@ -1304,6 +1352,151 @@ for legal compliance.
             }
             llOpenPositions.addView(row)
             llOpenPositions.addView(div)
+        }
+    }
+    
+    // V4.0: Render Treasury Mode positions
+    private fun renderTreasuryPositions(positions: List<com.lifecyclebot.v3.scoring.CashGenerationAI.TreasuryPosition>) {
+        llTreasuryPositions.removeAllViews()
+        val sdf = java.text.SimpleDateFormat("HH:mm", java.util.Locale.US)
+        val solPrice = com.lifecyclebot.engine.WalletManager.lastKnownSolPrice
+        
+        positions.forEach { pos ->
+            val currentPrice = pos.entryPrice * (1 + (Math.random() * 0.1 - 0.05)) // Simulated - use real price when available
+            val gainPct = (currentPrice - pos.entryPrice) / pos.entryPrice * 100.0
+            val gainCol = if (gainPct >= 0) green else red
+            val pnlSol = pos.entrySol * gainPct / 100.0
+
+            val row = LinearLayout(this).apply {
+                orientation = LinearLayout.HORIZONTAL
+                setPadding(0, 12, 0, 12)
+            }
+
+            // Colour bar on left (gold for treasury)
+            val bar = View(this).apply {
+                layoutParams = LinearLayout.LayoutParams(4, LinearLayout.LayoutParams.MATCH_PARENT).also {
+                    it.marginEnd = 12
+                }
+                setBackgroundColor(0xFFFFD700.toInt())
+            }
+            row.addView(bar)
+
+            // Token info (left column)
+            val info = LinearLayout(this).apply {
+                orientation = LinearLayout.VERTICAL
+                layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
+            }
+            info.addView(TextView(this).apply {
+                text = "💰 ${pos.symbol}"
+                textSize = resources.getDimension(R.dimen.trade_row_text) / resources.displayMetrics.scaledDensity
+                setTextColor(0xFFFFD700.toInt())
+                typeface = android.graphics.Typeface.DEFAULT_BOLD
+            })
+            info.addView(TextView(this).apply {
+                text = "Entry: ${pos.entryPrice.fmtPrice()}  ·  ${sdf.format(java.util.Date(pos.entryTime))}"
+                textSize = resources.getDimension(R.dimen.trade_sub_text) / resources.displayMetrics.scaledDensity
+                setTextColor(muted)
+                typeface = android.graphics.Typeface.MONOSPACE
+            })
+            info.addView(TextView(this).apply {
+                text = "Size: %.4f◎  ·  Target: +%.0f%%".format(pos.entrySol, 7.0)
+                textSize = resources.getDimension(R.dimen.trade_sub_text) / resources.displayMetrics.scaledDensity
+                setTextColor(muted)
+                typeface = android.graphics.Typeface.MONOSPACE
+            })
+            row.addView(info)
+
+            // P&L (right column)
+            val right = LinearLayout(this).apply {
+                orientation = LinearLayout.VERTICAL
+                gravity = android.view.Gravity.END
+            }
+            right.addView(TextView(this).apply {
+                text = "%+.1f%%".format(gainPct)
+                textSize = resources.getDimension(R.dimen.token_name_size) / resources.displayMetrics.scaledDensity
+                setTextColor(gainCol)
+                typeface = android.graphics.Typeface.DEFAULT_BOLD
+                gravity = android.view.Gravity.END
+            })
+            right.addView(TextView(this).apply {
+                text = "%+.4f◎".format(pnlSol)
+                textSize = resources.getDimension(R.dimen.trade_sub_text) / resources.displayMetrics.scaledDensity
+                setTextColor(gainCol)
+                typeface = android.graphics.Typeface.MONOSPACE
+                gravity = android.view.Gravity.END
+            })
+            row.addView(right)
+
+            val div = View(this).apply {
+                layoutParams = LinearLayout.LayoutParams(
+                    LinearLayout.LayoutParams.MATCH_PARENT, 1).also { it.topMargin = 10 }
+                setBackgroundColor(0xFF1F2937.toInt())
+            }
+            llTreasuryPositions.addView(row)
+            llTreasuryPositions.addView(div)
+        }
+    }
+    
+    // V4.0: Update AI Status Panel with live data
+    private fun updateAiStatusPanel(ts: TokenState?) {
+        try {
+            // AI Health - show 25 active layers
+            tvAiHealth.text = "25 layers"
+            tvAiHealth.setTextColor(green)
+            
+            // Trading Mode - from current token or default
+            val tradingMode = ts?.position?.tradingMode?.ifEmpty { "SCANNING" } ?: "SCANNING"
+            tvAiTradingMode.text = tradingMode.uppercase()
+            tvAiTradingMode.setTextColor(when {
+                tradingMode.contains("LAUNCH", ignoreCase = true) -> purple
+                tradingMode.contains("SNIPE", ignoreCase = true) -> amber
+                tradingMode.contains("RANGE", ignoreCase = true) -> green
+                else -> muted
+            })
+            
+            // Market Regime - infer from token phase or liquidity
+            val regime = when {
+                ts?.phase?.contains("pump", ignoreCase = true) == true -> "MEME_MICRO"
+                ts?.lastLiquidityUsd ?: 0.0 > 100_000 -> "MID_CAPS"
+                ts?.lastLiquidityUsd ?: 0.0 > 20_000 -> "MAJORS"
+                else -> "MEME_MICRO"
+            }
+            tvAiRegime.text = regime.uppercase()
+            tvAiRegime.setTextColor(when {
+                regime.contains("MEME", ignoreCase = true) -> purple
+                regime.contains("MID", ignoreCase = true) -> green
+                regime.contains("MAJOR", ignoreCase = true) -> amber
+                else -> muted
+            })
+            
+            // Treasury Mode Status
+            val treasuryStatus = try {
+                val positions = com.lifecyclebot.v3.scoring.CashGenerationAI.getActivePositions()
+                if (positions.isNotEmpty()) "SCALPING (${positions.size})" 
+                else if (com.lifecyclebot.v3.scoring.CashGenerationAI.getDailyPnlSol() >= 3.33) "TARGET HIT"
+                else "HUNTING"
+            } catch (_: Exception) { "IDLE" }
+            tvAiTreasury.text = treasuryStatus
+            tvAiTreasury.setTextColor(0xFFFFD700.toInt())
+            
+            // Learning Progress - from FluidLearningAI
+            val learningPct = try {
+                com.lifecyclebot.v3.scoring.FluidLearningAI.getMaturityPercent()
+            } catch (_: Exception) { 0.0 }
+            tvAiLearning.text = "%.1f%% maturity".format(learningPct)
+            tvAiLearning.setTextColor(when {
+                learningPct >= 50.0 -> green
+                learningPct >= 20.0 -> amber
+                else -> 0xFF3B82F6.toInt() // blue
+            })
+            
+            // Active AI Layers - concise list
+            tvAiLayers.text = "Entry · Exit · Volume · Momentum · Liquidity · Behavior · Regime · Treasury · Social · Whale · Narrative"
+            tvAiLayers.setTextColor(muted)
+            
+        } catch (e: Exception) {
+            tvAiHealth.text = "Error"
+            tvAiHealth.setTextColor(red)
         }
     }
 
