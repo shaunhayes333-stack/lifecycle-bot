@@ -92,6 +92,9 @@ dependencies {
     implementation("androidx.lifecycle:lifecycle-viewmodel-ktx:2.8.3")
     implementation("androidx.lifecycle:lifecycle-runtime-ktx:2.8.3")
     implementation("androidx.security:security-crypto:1.1.0-alpha06")
+    
+    // Biometric Authentication
+    implementation("androidx.biometric:biometric:1.1.0")
 
     // Coroutines
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.8.1")
