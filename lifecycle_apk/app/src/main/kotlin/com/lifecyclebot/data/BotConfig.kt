@@ -41,6 +41,9 @@ data class BotConfig(
     val telegramChannels: List<String> = emptyList(),
     val telegramChatId: String = "",          // your personal chat ID for trade alerts
     val telegramTradeAlerts: Boolean = false, // send BUY/SELL notifications to Telegram
+    // V4.0: Discord webhook alerts
+    val discordWebhookUrl: String = "",       // Discord webhook URL for trade alerts
+    val discordTradeAlerts: Boolean = false,  // send BUY/SELL notifications to Discord
     val sentimentEnabled: Boolean = true,
     val sentimentPollMins: Int = 3,
     val sentimentBlockThreshold: Double = -40.0,
@@ -227,6 +230,9 @@ object ConfigStore {
             putString("telegram_bot_token",  cfg.telegramBotToken)
             putString("telegram_chat_id",    cfg.telegramChatId)
             putBoolean("telegram_trade_alerts", cfg.telegramTradeAlerts)
+            // V4.0: Discord
+            putString("discord_webhook_url", cfg.discordWebhookUrl)
+            putBoolean("discord_trade_alerts", cfg.discordTradeAlerts)
             putString("helius_api_key",      cfg.heliusApiKey)
             putString("birdeye_api_key",     cfg.birdeyeApiKey)
             putString("groq_api_key",        cfg.groqApiKey)
@@ -376,6 +382,9 @@ object ConfigStore {
             telegramChatId              = s.getString("telegram_chat_id", "") ?: "",
             telegramTradeAlerts         = p.getBoolean("telegram_trade_alerts", false),
             telegramChannels            = (p.getString("telegram_channels", "") ?: "").split(",").filter { it.isNotBlank() },
+            // V4.0: Discord
+            discordWebhookUrl           = s.getString("discord_webhook_url", "") ?: "",
+            discordTradeAlerts          = p.getBoolean("discord_trade_alerts", false),
             sentimentEnabled            = p.getBoolean("sentiment_enabled", true),
             sentimentPollMins           = p.getInt("sentiment_poll_mins", 3),
             sentimentBlockThreshold     = p.getFloat("sentiment_block_threshold", -40.0f).toDouble(),

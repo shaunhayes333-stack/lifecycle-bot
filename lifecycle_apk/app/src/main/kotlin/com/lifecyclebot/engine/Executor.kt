@@ -3032,6 +3032,9 @@ class Executor(
         val buildInfo = if (buildPhase == 1) " [BUILD 1/3]" else ""
         onLog("PAPER BUY  @ ${price.fmt()} | ${actualSol.fmt(4)} SOL | score=${score.toInt()}$buildInfo", tradeId.mint)
         onNotify("📈 Paper Buy", "${tradeId.symbol}  ${actualSol.fmt(3)} SOL$buildInfo", com.lifecyclebot.engine.NotificationHistory.NotifEntry.NotifType.INFO)
+        
+        // V4.0: Send Telegram/Discord alerts
+        TradeAlerts.onBuy(cfg(), tradeId.symbol, actualSol, score, 0.0, ts.position.tradingMode, isPaper = true)
     }
     
     // ═══════════════════════════════════════════════════════════════════════════
@@ -3398,6 +3401,9 @@ class Executor(
                   "impact=${quote.priceImpactPct.fmt(2)}% | sig=${sig.take(16)}…", tradeId.mint)
             onNotify("✅ Live Buy", "${tradeId.symbol}  ${sol.fmt(3)} SOL", com.lifecyclebot.engine.NotificationHistory.NotifEntry.NotifType.INFO)
             
+            // V4.0: Send Telegram/Discord alerts
+            TradeAlerts.onBuy(cfg(), tradeId.symbol, sol, score, walletSol, ts.position.tradingMode, isPaper = false)
+            
             // 🔔 TOAST: Immediate visual feedback for live buy
             onToast("✅ LIVE BUY: ${tradeId.symbol}\n${sol.fmt(4)} SOL @ ${price.fmt()}")
             
@@ -3651,6 +3657,10 @@ class Executor(
         // Use identity for consistent logging
         onLog("PAPER SELL @ ${price.fmt()} | $reason | pnl ${pnl.fmt(4)} SOL (${pnlP.fmtPct()})", tradeId.mint)
         onNotify("📉 Paper Sell", "${tradeId.symbol}  $reason  PnL ${pnlP.fmtPct()}", com.lifecyclebot.engine.NotificationHistory.NotifEntry.NotifType.INFO)
+        
+        // V4.0: Send Telegram/Discord alerts
+        TradeAlerts.onSell(cfg(), tradeId.symbol, pnl, pnlP, reason, isPaper = true)
+        
         // Play trade sound
         if (pnl > 0) sounds?.playCashRegister() else sounds?.playWarningSiren()
         // Milestone sounds while still holding (for live mode this fires on sell)
@@ -3907,6 +3917,9 @@ class Executor(
                             reason = if (pnlP >= 50) "MEGA_WINNER_${pnlP.toInt()}%" else "BIG_WIN_${pnlP.toInt()}%"
                         )
                         ErrorLogger.info("Executor", "📡 BROADCAST TO NETWORK: ${ts.symbol} +${pnlP.toInt()}% → All bots notified!")
+                        
+                        // V4.0: Also send Telegram/Discord big win alert
+                        TradeAlerts.onBigWin(cfg(), ts.symbol, pnl, pnlP, isPaper = true)
                     } catch (e: Exception) {
                         ErrorLogger.debug("Executor", "Broadcast error: ${e.message}")
                     }
@@ -4752,6 +4765,14 @@ class Executor(
             onNotify("✅ Live Sell",
                 "${ts.symbol}  $reason  PnL ${pnlP.fmtPct()}",
                 com.lifecyclebot.engine.NotificationHistory.NotifEntry.NotifType.INFO)
+            
+            // V4.0: Send Telegram/Discord alerts
+            TradeAlerts.onSell(cfg(), ts.symbol, pnl, pnlP, reason, isPaper = false)
+            
+            // V4.0: Send big win alert if applicable
+            if (pnlP >= 20.0) {
+                TradeAlerts.onBigWin(cfg(), ts.symbol, pnl, pnlP, isPaper = false)
+            }
             
             // 🔔 TOAST: Immediate visual feedback for live sell
             val emoji = if (pnlP >= 0) "✅" else "📉"
