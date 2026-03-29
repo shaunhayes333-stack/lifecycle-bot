@@ -35,6 +35,9 @@ object CollectiveLearning {
     private var isInitialized = false
     private var lastSyncTime = 0L
     
+    // V3.3: Instance ID for this app installation (hashed for privacy)
+    private var instanceId: String = ""
+    
     // Sync interval (15 minutes)
     private const val SYNC_INTERVAL_MS = 15 * 60 * 1000L
     
@@ -44,6 +47,7 @@ object CollectiveLearning {
     private const val KEY_PATTERNS = "cached_patterns_json"
     private const val KEY_MODE_STATS = "cached_mode_stats_json"
     private const val KEY_LAST_SYNC = "last_sync_time"
+    private const val KEY_INSTANCE_ID = "instance_id"
     private var prefs: android.content.SharedPreferences? = null
     
     // Local cache of collective data (loaded from SharedPreferences on init)
@@ -73,6 +77,14 @@ object CollectiveLearning {
         try {
             // V3.3: Initialize SharedPreferences for persistent cache
             prefs = ctx.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+            
+            // V3.3: Generate or load instance ID (persistent across app launches)
+            instanceId = prefs?.getString(KEY_INSTANCE_ID, null) ?: run {
+                val newId = sha256("${ctx.packageName}|${System.currentTimeMillis()}|${android.os.Build.FINGERPRINT}").take(16)
+                prefs?.edit()?.putString(KEY_INSTANCE_ID, newId)?.apply()
+                newId
+            }
+            Log.i(TAG, "📱 Instance ID: $instanceId")
             
             // V3.3: IMMEDIATELY load cached data from SharedPreferences
             // This ensures new instances get prior learning BEFORE network sync
