@@ -166,7 +166,8 @@ class CollectiveBrainActivity : AppCompatActivity() {
         // Get COLLECTIVE trade count from Turso database
         val collectiveTotalTrades = if (isTursoEnabled) {
             try {
-                CollectiveLearning.getCollectiveTradeCount()
+                // Use the new getCollectiveTotalTradeCount() which queries collective_trades table
+                CollectiveLearning.getCollectiveTotalTradeCount()
             } catch (_: Exception) { 0 }
         } else 0
         

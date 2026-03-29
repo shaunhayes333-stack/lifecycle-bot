@@ -188,6 +188,81 @@ object CollectiveLearning {
     }
     
     /**
+     * V3.3: Upload EVERY trade to the collective knowledge base.
+     * This captures all trading activity for the hive mind.
+     * 
+     * Call this IMMEDIATELY after every BUY or SELL execution.
+     */
+    suspend fun uploadTrade(
+        side: String,           // "BUY" or "SELL"
+        symbol: String,         // Token symbol
+        mode: String,           // Trading mode (e.g., "PUMP_SNIPER", "WHALE_FOLLOW")
+        source: String,         // Discovery source
+        liquidityUsd: Double,   // Liquidity at time of trade
+        marketSentiment: String, // EMA trend / sentiment
+        entryScore: Int,        // V3 score at entry
+        confidence: Int,        // Confidence percentage
+        pnlPct: Double = 0.0,   // PnL % (0 for BUY, actual for SELL)
+        holdMins: Double = 0.0, // Hold time (0 for BUY, actual for SELL)
+        isWin: Boolean = false, // Only relevant for SELL
+        paperMode: Boolean = true,
+    ) {
+        if (!isEnabled()) return
+        
+        try {
+            val now = System.currentTimeMillis()
+            
+            // Create unique hash for this trade (privacy: no wallet, no mint)
+            val tradeHash = sha256("$now|$side|$symbol|$mode|${System.nanoTime()}").take(24)
+            
+            val liquidityBucket = when {
+                liquidityUsd < 5_000 -> "MICRO"
+                liquidityUsd < 25_000 -> "SMALL"
+                liquidityUsd < 100_000 -> "MID"
+                else -> "LARGE"
+            }
+            
+            val sql = """
+                INSERT INTO collective_trades 
+                    (trade_hash, timestamp, side, symbol, mode, source, liquidity_bucket,
+                     market_sentiment, entry_score, confidence, pnl_pct, hold_mins, is_win, paper_mode)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """.trimIndent()
+            
+            val result = client!!.execute(sql, listOf(
+                tradeHash, now, side, symbol, mode, source, liquidityBucket,
+                marketSentiment, entryScore, confidence, pnlPct, holdMins,
+                if (isWin) 1 else 0, if (paperMode) 1 else 0
+            ))
+            
+            if (result.success) {
+                Log.i(TAG, "📤 TRADE → COLLECTIVE: $side $symbol ($mode) ${if (side == "SELL") "${pnlPct.toInt()}%" else ""}")
+            } else {
+                Log.w(TAG, "Failed to upload trade: ${result.error}")
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "Upload trade error: ${e.message}")
+        }
+    }
+    
+    /**
+     * Get total count of all trades in the collective database.
+     */
+    suspend fun getCollectiveTotalTradeCount(): Int {
+        if (!isEnabled()) return 0
+        
+        return try {
+            val result = client?.execute("SELECT COUNT(*) as cnt FROM collective_trades")
+            if (result?.success == true && result.rows.isNotEmpty()) {
+                (result.rows[0]["cnt"] as? Long)?.toInt() ?: 0
+            } else 0
+        } catch (e: Exception) {
+            Log.w(TAG, "Failed to get trade count: ${e.message}")
+            0
+        }
+    }
+    
+    /**
      * Report a blacklisted token (rug, honeypot, scam).
      * Call this when a token is detected as malicious.
      */
@@ -726,7 +801,11 @@ object CollectiveLearning {
         if (!isEnabled()) return 0
         
         return try {
-            // Sum all trades from cached patterns (already downloaded from Turso)
+            // First try to get actual trade count from collective_trades table
+            val tradeCount = getCollectiveTotalTradeCount()
+            if (tradeCount > 0) return tradeCount
+            
+            // Fallback: Sum all trades from cached patterns (already downloaded from Turso)
             val fromPatterns = cachedPatterns.values.sumOf { it.totalTrades }
             
             // Also sum from mode performance stats

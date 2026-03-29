@@ -2958,6 +2958,32 @@ class Executor(
         } catch (e: Exception) {
             ErrorLogger.debug("Executor", "[V3] Learning record error: ${e.message}")
         }
+        
+        // ═══════════════════════════════════════════════════════════════════
+        // V3.3: Upload BUY to collective knowledge base IMMEDIATELY
+        // Every trade goes to the hive mind for shared learning
+        // ═══════════════════════════════════════════════════════════════════
+        try {
+            kotlinx.coroutines.GlobalScope.launch(kotlinx.coroutines.Dispatchers.IO) {
+                val marketSentiment = ts.meta.emafanAlignment.ifBlank { "NEUTRAL" }
+                com.lifecyclebot.collective.CollectiveLearning.uploadTrade(
+                    side = "BUY",
+                    symbol = ts.symbol,
+                    mode = ts.position.tradingMode.ifBlank { v3Band },
+                    source = ts.source.ifBlank { "UNKNOWN" },
+                    liquidityUsd = ts.lastLiquidityUsd,
+                    marketSentiment = marketSentiment,
+                    entryScore = v3Score,
+                    confidence = v3Confidence.toInt(),
+                    pnlPct = 0.0,  // No PnL on entry
+                    holdMins = 0.0,
+                    isWin = false,
+                    paperMode = isPaper
+                )
+            }
+        } catch (e: Exception) {
+            ErrorLogger.debug("Collective", "BUY upload error: ${e.message}")
+        }
     }
 
     /**
@@ -3017,6 +3043,31 @@ class Executor(
                 quality = "TREASURY",
                 skipGraduated = true
             )
+        }
+        
+        // ═══════════════════════════════════════════════════════════════════
+        // V3.3: Upload TREASURY BUY to collective knowledge base IMMEDIATELY
+        // ═══════════════════════════════════════════════════════════════════
+        try {
+            kotlinx.coroutines.GlobalScope.launch(kotlinx.coroutines.Dispatchers.IO) {
+                val marketSentiment = ts.meta.emafanAlignment.ifBlank { "NEUTRAL" }
+                com.lifecyclebot.collective.CollectiveLearning.uploadTrade(
+                    side = "BUY",
+                    symbol = ts.symbol,
+                    mode = "TREASURY",
+                    source = ts.source.ifBlank { "TREASURY_SCAN" },
+                    liquidityUsd = ts.lastLiquidityUsd,
+                    marketSentiment = marketSentiment,
+                    entryScore = 80,
+                    confidence = 80,
+                    pnlPct = 0.0,
+                    holdMins = 0.0,
+                    isWin = false,
+                    paperMode = isPaper
+                )
+            }
+        } catch (e: Exception) {
+            ErrorLogger.debug("Collective", "TREASURY BUY upload error: ${e.message}")
         }
     }
 
@@ -3843,6 +3894,22 @@ class Executor(
                             isWin = shouldLearnAsWin,
                             pnlPct = pnlP,
                             holdMins = holdMins.toDouble()
+                        )
+                        
+                        // V3.3: Upload EVERY SELL trade to collective_trades table
+                        com.lifecyclebot.collective.CollectiveLearning.uploadTrade(
+                            side = "SELL",
+                            symbol = ts.symbol,
+                            mode = ts.position.tradingMode.ifEmpty { "STANDARD" },
+                            source = ts.source.ifEmpty { "UNKNOWN" },
+                            liquidityUsd = ts.lastLiquidityUsd,
+                            marketSentiment = marketSentiment,
+                            entryScore = ts.position.entryScore.toInt(),
+                            confidence = (ts.position.entryConfidence * 100).toInt(),
+                            pnlPct = pnlP,
+                            holdMins = holdMins.toDouble(),
+                            isWin = shouldLearnAsWin,
+                            paperMode = cfg().paperMode
                         )
                         
                         // Track contribution for analytics dashboard

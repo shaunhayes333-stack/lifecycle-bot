@@ -205,6 +205,27 @@ object CollectiveSchema {
         )
     """
     
+    // V3.3: All trades table - captures EVERY trade for collective learning
+    const val CREATE_ALL_TRADES_TABLE = """
+        CREATE TABLE IF NOT EXISTS collective_trades (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            trade_hash TEXT UNIQUE NOT NULL,
+            timestamp INTEGER NOT NULL,
+            side TEXT NOT NULL,
+            symbol TEXT NOT NULL,
+            mode TEXT NOT NULL,
+            source TEXT NOT NULL,
+            liquidity_bucket TEXT NOT NULL,
+            market_sentiment TEXT NOT NULL,
+            entry_score INTEGER DEFAULT 0,
+            confidence INTEGER DEFAULT 0,
+            pnl_pct REAL DEFAULT 0.0,
+            hold_mins REAL DEFAULT 0.0,
+            is_win INTEGER DEFAULT 0,
+            paper_mode INTEGER DEFAULT 1
+        )
+    """
+    
     // Indexes for performance
     const val CREATE_INDEXES = """
         CREATE INDEX IF NOT EXISTS idx_patterns_type ON collective_patterns(pattern_type);
@@ -215,6 +236,9 @@ object CollectiveSchema {
         CREATE INDEX IF NOT EXISTS idx_legal_instance ON legal_agreements(instance_id);
         CREATE INDEX IF NOT EXISTS idx_legal_type ON legal_agreements(agreement_type);
         CREATE INDEX IF NOT EXISTS idx_heartbeat_time ON instance_heartbeats(last_heartbeat);
+        CREATE INDEX IF NOT EXISTS idx_trades_timestamp ON collective_trades(timestamp);
+        CREATE INDEX IF NOT EXISTS idx_trades_mode ON collective_trades(mode);
+        CREATE INDEX IF NOT EXISTS idx_trades_symbol ON collective_trades(symbol);
     """
     
     val ALL_TABLES = listOf(
@@ -224,5 +248,6 @@ object CollectiveSchema {
         CREATE_WHALE_EFFECTIVENESS_TABLE,
         CREATE_LEGAL_AGREEMENTS_TABLE,
         CREATE_INSTANCE_HEARTBEATS_TABLE,
+        CREATE_ALL_TRADES_TABLE,
     )
 }
