@@ -904,8 +904,9 @@ object CollectiveLearning {
     
     /**
      * Data class for pattern data returned to CollectiveIntelligenceAI
+     * (Different from CollectiveSchema.CollectivePattern)
      */
-    data class CollectivePattern(
+    data class AIPattern(
         val patternKey: String,
         val totalTrades: Int,
         val wins: Int,
@@ -938,20 +939,20 @@ object CollectiveLearning {
     /**
      * Download all patterns for CollectiveIntelligenceAI analysis.
      */
-    suspend fun downloadAllPatterns(): List<CollectivePattern> {
+    suspend fun downloadAllPatterns(): List<AIPattern> {
         if (!isEnabled()) return emptyList()
         
         return withContext(Dispatchers.IO) {
             try {
                 val result = client!!.query(
-                    "SELECT pattern_key, total_trades, wins, avg_pnl_pct, " +
-                    "COUNT(DISTINCT instance_id) as instance_count, MAX(last_updated) as last_updated " +
-                    "FROM token_patterns GROUP BY pattern_key"
+                    "SELECT pattern_hash as pattern_key, total_trades, wins, avg_pnl_pct, " +
+                    "1 as instance_count, last_updated " +
+                    "FROM token_patterns"
                 )
                 
                 if (result.success) {
                     result.rows.map { row ->
-                        CollectivePattern(
+                        AIPattern(
                             patternKey = row["pattern_key"] as? String ?: "",
                             totalTrades = (row["total_trades"] as? Long)?.toInt() ?: 0,
                             wins = (row["wins"] as? Long)?.toInt() ?: 0,
