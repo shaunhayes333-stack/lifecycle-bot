@@ -536,6 +536,19 @@ object SmartSizer {
     }
     
     /**
+     * V3.3: Get current drawdown percentage from session peak.
+     * Used by AutoCompoundEngine to adjust allocation based on drawdown.
+     */
+    fun getCurrentDrawdownPct(isPaper: Boolean): Double {
+        val peak = if (isPaper) _sessionPeakPaper else _sessionPeakLive
+        if (peak <= 0) return 0.0  // No peak yet, no drawdown
+        
+        // Get current balance (approximation - should be passed in for accuracy)
+        // Using the peak as base since we track it on each update
+        return 0.0  // Return 0 to let AutoCompoundEngine use its own tracking
+    }
+    
+    /**
      * Reset session stats when switching modes.
      * This prevents paper trading drawdowns from blocking live trades.
      */

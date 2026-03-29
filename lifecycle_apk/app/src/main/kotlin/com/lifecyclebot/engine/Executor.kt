@@ -3650,6 +3650,30 @@ class Executor(
         // Milestone sounds while still holding (for live mode this fires on sell)
         if (pnl > 0) sounds?.playMilestone(pnlP)
         SmartSizer.recordTrade(pnl > 0, isPaperMode = true)  // Paper trade
+        
+        // ═══════════════════════════════════════════════════════════════════
+        // V3.3: AUTO-COMPOUND - Reinvest profits to accelerate growth
+        // Splits winning trade profit into: Treasury / Compound Pool / Wallet
+        // ═══════════════════════════════════════════════════════════════════
+        if (pnl > 0) {
+            try {
+                val drawdownPct = SmartSizer.getCurrentDrawdownPct(isPaper = true)
+                val allocation = AutoCompoundEngine.processWin(pnl, drawdownPct)
+                
+                // Update Treasury (via CashGenerationAI for paper mode tracking)
+                if (allocation.toTreasury > 0) {
+                    com.lifecyclebot.v3.scoring.CashGenerationAI.addToTreasury(allocation.toTreasury, isPaper = true)
+                }
+                
+                ErrorLogger.info("Executor", "🔄 AUTO-COMPOUND [PAPER]: ${pnl.fmt(4)} SOL profit → " +
+                    "Treasury: ${allocation.toTreasury.fmt(3)} | " +
+                    "Compound: ${allocation.toCompound.fmt(3)} | " +
+                    "Wallet: ${allocation.toWallet.fmt(3)} | " +
+                    "Size mult: ${allocation.newSizeMultiplier.fmt(2)}x")
+            } catch (e: Exception) {
+                ErrorLogger.debug("Executor", "AutoCompound error (paper): ${e.message}")
+            }
+        }
 
         // ═══════════════════════════════════════════════════════════════════
         // TRADE OUTCOME CLASSIFICATION (TIGHTENED)
@@ -4639,10 +4663,35 @@ class Executor(
 
             SmartSizer.recordTrade(pnl > 0, isPaperMode = false)  // Live trade
             
-            // FIX #5: Lock realized profit to treasury (LIVE mode only)
+            // ═══════════════════════════════════════════════════════════════════
+            // V3.3: AUTO-COMPOUND - Reinvest profits to accelerate growth
+            // Splits winning trade profit into: Treasury / Compound Pool / Wallet
+            // ═══════════════════════════════════════════════════════════════════
             if (pnl > 0) {
-                val solPrice = WalletManager.lastKnownSolPrice
-                TreasuryManager.lockRealizedProfit(pnl, solPrice)
+                try {
+                    val drawdownPct = SmartSizer.getCurrentDrawdownPct(isPaper = false)
+                    val allocation = AutoCompoundEngine.processWin(pnl, drawdownPct)
+                    
+                    // Update Treasury (via CashGenerationAI for live mode tracking)
+                    if (allocation.toTreasury > 0) {
+                        com.lifecyclebot.v3.scoring.CashGenerationAI.addToTreasury(allocation.toTreasury, isPaper = false)
+                    }
+                    
+                    // TreasuryManager gets the same treasury allocation (legacy integration)
+                    val solPrice = WalletManager.lastKnownSolPrice
+                    TreasuryManager.lockRealizedProfit(allocation.toTreasury, solPrice)
+                    
+                    ErrorLogger.info("Executor", "🔄 AUTO-COMPOUND [LIVE]: ${pnl.fmt(4)} SOL profit → " +
+                        "Treasury: ${allocation.toTreasury.fmt(3)} | " +
+                        "Compound: ${allocation.toCompound.fmt(3)} | " +
+                        "Wallet: ${allocation.toWallet.fmt(3)} | " +
+                        "Size mult: ${allocation.newSizeMultiplier.fmt(2)}x")
+                } catch (e: Exception) {
+                    ErrorLogger.debug("Executor", "AutoCompound error (live): ${e.message}")
+                    // Fallback: Lock full profit to treasury if AutoCompound fails
+                    val solPrice = WalletManager.lastKnownSolPrice
+                    TreasuryManager.lockRealizedProfit(pnl, solPrice)
+                }
             }
 
             onLog("✅ LIVE SELL COMPLETE @ ${price.fmt()} | $reason | pnl ${pnl.fmt(4)} SOL " +
