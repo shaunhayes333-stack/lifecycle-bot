@@ -219,6 +219,25 @@
                         android:layout_marginStart="8dp"
                         android:layout_marginBottom="5dp"/>
                     
+                    <!-- Currency Selector Button -->
+                    <TextView
+                        android:id="@+id/btnCurrencySelector"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="USD ▼"
+                        android:textColor="#9CA3AF"
+                        android:textSize="11sp"
+                        android:fontFamily="monospace"
+                        android:background="@drawable/pill_bg"
+                        android:paddingStart="8dp"
+                        android:paddingEnd="8dp"
+                        android:paddingTop="4dp"
+                        android:paddingBottom="4dp"
+                        android:layout_marginStart="8dp"
+                        android:layout_marginBottom="5dp"
+                        android:clickable="true"
+                        android:focusable="true"/>
+                    
                     <!-- Spacer to push SOL price to the right -->
                     <View
                         android:layout_width="0dp"

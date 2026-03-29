@@ -55,6 +55,7 @@ class MainActivity : AppCompatActivity() {
     private lateinit var tvPnlChange: TextView
     private lateinit var tvPnlChangePct: TextView
     private lateinit var tvSolPrice: TextView
+    private lateinit var btnCurrencySelector: TextView
 
     // bot status card
     private lateinit var tvTokenName: TextView
@@ -319,6 +320,8 @@ class MainActivity : AppCompatActivity() {
                 com.lifecyclebot.engine.ErrorLogger.error("MainActivity", "onResume refresh error: ${e.message}")
             }
         }
+        // Update currency selector text (user may have changed currency)
+        updateCurrencySelectorText()
     }
 
     override fun onStop() {
@@ -478,6 +481,7 @@ for legal compliance.
         tvPnlChange     = findViewById(R.id.tvPnlChange)
         tvPnlChangePct  = findViewById(R.id.tvPnlChangePct)
         tvSolPrice      = try { findViewById(R.id.tvSolPrice) } catch (_: Exception) { TextView(this) }
+        btnCurrencySelector = try { findViewById(R.id.btnCurrencySelector) } catch (_: Exception) { TextView(this) }
         tvTokenName     = findViewById(R.id.tvTokenName)
         tvTokenPhase    = findViewById(R.id.tvTokenPhase)
         tvSignalChip    = findViewById(R.id.tvSignalChip)
@@ -683,6 +687,14 @@ for legal compliance.
         btnWalletTop.setOnClickListener {
             startActivity(Intent(this, WalletActivity::class.java))
         }
+        
+        // Currency selector - opens currency picker
+        btnCurrencySelector.setOnClickListener {
+            startActivity(Intent(this, CurrencyActivity::class.java))
+        }
+        // Update currency selector text on init
+        updateCurrencySelectorText()
+        
         btnAddToken.setOnClickListener { addToken() }
         btnSave.setOnClickListener { saveSettings() }
         tvAdvancedToggle.setOnClickListener {
@@ -2548,6 +2560,16 @@ Keep trading to make it smarter!
                 .show()
                 
             performHaptic()
+        } catch (_: Exception) {}
+    }
+    
+    /**
+     * Update the currency selector button text to show current currency
+     */
+    private fun updateCurrencySelectorText() {
+        try {
+            val info = currency.selectedInfo
+            btnCurrencySelector.text = "${info.code} ▼"
         } catch (_: Exception) {}
     }
 }
