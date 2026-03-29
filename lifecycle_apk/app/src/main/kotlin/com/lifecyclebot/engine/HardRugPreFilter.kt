@@ -34,11 +34,8 @@ object HardRugPreFilter {
     
     // ═══════════════════════════════════════════════════════════════════
     // LIQUIDITY THRESHOLDS BY TOKEN AGE
+    // Now uses FluidLearningAI for adaptive thresholds
     // ═══════════════════════════════════════════════════════════════════
-    
-    private const val MIN_LIQ_FRESH = 1500.0       // Under 5 min age
-    private const val MIN_LIQ_YOUNG = 2500.0       // 5-30 min age
-    private const val MIN_LIQ_ESTABLISHED = 3500.0 // Over 30 min age
     
     // ═══════════════════════════════════════════════════════════════════
     // MAIN PRE-FILTER
@@ -58,13 +55,13 @@ object HardRugPreFilter {
         } else 0.0
         
         // ─────────────────────────────────────────────────────────────────
-        // CHECK 1: Zero or critically low liquidity
+        // CHECK 1: Zero or critically low liquidity (FLUID thresholds)
         // ─────────────────────────────────────────────────────────────────
         val liq = ts.lastLiquidityUsd
         val minLiq = when {
-            tokenAgeMins < 5 -> MIN_LIQ_FRESH
-            tokenAgeMins < 30 -> MIN_LIQ_YOUNG
-            else -> MIN_LIQ_ESTABLISHED
+            tokenAgeMins < 5 -> com.lifecyclebot.v3.scoring.FluidLearningAI.getRugFilterLiqFresh()
+            tokenAgeMins < 30 -> com.lifecyclebot.v3.scoring.FluidLearningAI.getRugFilterLiqYoung()
+            else -> com.lifecyclebot.v3.scoring.FluidLearningAI.getRugFilterLiqEstablished()
         }
         
         if (liq <= 0) {

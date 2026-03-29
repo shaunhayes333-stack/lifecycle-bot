@@ -52,33 +52,11 @@ object CashGenerationAI {
     private const val DAILY_MAX_LOSS_SOL = 0.33       // ~$50 ULTRA-CONSERVATIVE (user choice 1a)
     
     // ═══════════════════════════════════════════════════════════════════════════
-    // FLUID CONFIDENCE THRESHOLDS (Scales with AI learning)
+    // FLUID THRESHOLDS - Now centralized in FluidLearningAI (Layer 23)
     // 
-    // PHILOSOPHY: Start loose (same as paper mode defaults), tighten as AI learns.
-    // This allows Treasury Mode to participate early while the AI is calibrating,
-    // then naturally becomes more selective as confidence in the system grows.
+    // CashGenerationAI queries FluidLearningAI for all adaptive thresholds.
+    // This ensures consistency across all components.
     // ═══════════════════════════════════════════════════════════════════════════
-    
-    // Bootstrap (0 trades): 30% confidence floor (same as FDG hard minimum)
-    // Mature (500+ trades): 80% confidence (A-grade only)
-    private const val CONF_BOOTSTRAP = 30             // Starting threshold (loose)
-    private const val CONF_MATURE = 80                // Target threshold (strict A-grade)
-    
-    // Score thresholds also scale with learning
-    private const val SCORE_BOOTSTRAP = 15            // Starting score threshold
-    private const val SCORE_MATURE = 30               // Mature score threshold
-    
-    private const val MIN_LIQUIDITY_USD = 15000.0     // Higher liq = safer quick exits
-    private const val MAX_TOP_HOLDER_PCT = 12.0       // Strict rug avoidance
-    private const val MIN_BUY_PRESSURE_PCT = 58.0     // Strong buying momentum required
-    
-    // FLUID FILTERS: These scale with learning (looser in paper/bootstrap mode)
-    private const val MIN_LIQUIDITY_BOOTSTRAP = 3000.0  // $3K in bootstrap
-    private const val MIN_LIQUIDITY_MATURE = 15000.0    // $15K when mature
-    private const val MAX_TOP_HOLDER_BOOTSTRAP = 35.0   // 35% in bootstrap
-    private const val MAX_TOP_HOLDER_MATURE = 12.0      // 12% when mature
-    private const val MIN_BUY_PRESSURE_BOOTSTRAP = 40.0 // 40% in bootstrap
-    private const val MIN_BUY_PRESSURE_MATURE = 58.0    // 58% when mature
     
     // Position sizing (DYNAMIC - shrinks as target approaches - user choice 2b)
     private const val BASE_POSITION_SOL = 0.10        // Small base for active scalping
@@ -225,47 +203,14 @@ object CashGenerationAI {
     // ═══════════════════════════════════════════════════════════════════════════
     
     /**
-     * Get the current learning progress (0.0 = brand new, 1.0 = fully mature).
-     * Uses FinalDecisionGate's learning progress for consistency with core AI.
+     * Get current fluid confidence threshold (delegates to FluidLearningAI).
      */
-    private fun getLearningProgress(): Double {
-        return try {
-            val tradeCount = dailyTradeCount.get() + 
-                (paperDailyTradeCount.get() + liveDailyTradeCount.get()) / 2
-            val winRate = if (dailyTradeCount.get() > 0) {
-                dailyWins.get().toDouble() / dailyTradeCount.get() * 100
-            } else 50.0
-            
-            // Use FDG's learning function for consistency
-            com.lifecyclebot.engine.FinalDecisionGate.getLearningProgress(tradeCount, winRate)
-        } catch (_: Exception) {
-            0.0  // Default to bootstrap mode if FDG not available
-        }
-    }
+    fun getCurrentConfidenceThreshold(): Int = FluidLearningAI.getTreasuryConfidenceThreshold()
     
     /**
-     * Interpolate between bootstrap (loose) and mature (strict) values.
+     * Get current fluid score threshold (delegates to FluidLearningAI).
      */
-    private fun lerp(loose: Double, strict: Double, progress: Double): Double {
-        return loose + (strict - loose) * progress
-    }
-    
-    /**
-     * Get current fluid confidence threshold based on learning progress.
-     * Starts at 30% (same as FDG floor), scales to 80% as AI matures.
-     */
-    fun getCurrentConfidenceThreshold(): Int {
-        val progress = getLearningProgress()
-        return lerp(CONF_BOOTSTRAP.toDouble(), CONF_MATURE.toDouble(), progress).toInt()
-    }
-    
-    /**
-     * Get current fluid score threshold based on learning progress.
-     */
-    fun getCurrentScoreThreshold(): Int {
-        val progress = getLearningProgress()
-        return lerp(SCORE_BOOTSTRAP.toDouble(), SCORE_MATURE.toDouble(), progress).toInt()
-    }
+    fun getCurrentScoreThreshold(): Int = FluidLearningAI.getMinScoreThreshold()
     
     // ═══════════════════════════════════════════════════════════════════════════
     // CORE EVALUATION
@@ -319,7 +264,16 @@ object CashGenerationAI {
         
         val baseConfThreshold = getCurrentConfidenceThreshold()
         val baseScoreThreshold = getCurrentScoreThreshold()
-        val learningProgress = getLearningProgress()
+        // ═══════════════════════════════════════════════════════════════════
+        // FLUID THRESHOLDS FROM FluidLearningAI (Layer 23)
+        // 
+        // All thresholds are now centralized for consistency.
+        // Mode adjustments still apply on top of the fluid base.
+        // ═══════════════════════════════════════════════════════════════════
+        
+        val baseConfThreshold = FluidLearningAI.getTreasuryConfidenceThreshold()
+        val baseScoreThreshold = FluidLearningAI.getMinScoreThreshold()
+        val learningProgress = FluidLearningAI.getLearningProgress()
         
         // Mode adjustments (relative to base, scaled by progress)
         // When immature: smaller adjustments. When mature: full adjustments.
@@ -336,16 +290,16 @@ object CashGenerationAI {
             else -> 0
         }
         
-        val confThreshold = (baseConfThreshold + modeConfAdjust).coerceIn(CONF_BOOTSTRAP, 95)
-        val scoreThreshold = (baseScoreThreshold + modeScoreAdjust).coerceIn(SCORE_BOOTSTRAP, 50)
+        val confThreshold = (baseConfThreshold + modeConfAdjust).coerceIn(30, 95)
+        val scoreThreshold = (baseScoreThreshold + modeScoreAdjust).coerceIn(10, 50)
         
         ErrorLogger.debug(TAG, "💰 TREASURY THRESHOLDS: conf=$confThreshold (base=$baseConfThreshold) | " +
             "score=$scoreThreshold | progress=${(learningProgress*100).toInt()}% | mode=$mode")
         
-        // ─── FLUID FILTER THRESHOLDS (scale with learning) ───
-        val fluidMinLiquidity = lerp(MIN_LIQUIDITY_BOOTSTRAP, MIN_LIQUIDITY_MATURE, learningProgress)
-        val fluidMaxTopHolder = lerp(MAX_TOP_HOLDER_BOOTSTRAP, MAX_TOP_HOLDER_MATURE, learningProgress)
-        val fluidMinBuyPressure = lerp(MIN_BUY_PRESSURE_BOOTSTRAP, MIN_BUY_PRESSURE_MATURE, learningProgress)
+        // ─── FLUID FILTER THRESHOLDS from FluidLearningAI ───
+        val fluidMinLiquidity = FluidLearningAI.getTreasuryMinLiquidity()
+        val fluidMaxTopHolder = FluidLearningAI.getTreasuryMaxTopHolder()
+        val fluidMinBuyPressure = FluidLearningAI.getTreasuryMinBuyPressure()
         
         // ─── FILTER CHECKS ───
         val rejectionReasons = mutableListOf<String>()

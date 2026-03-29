@@ -1543,15 +1543,17 @@ object FinalDecisionGate {
         //   - Watch/Shadow: $2,000 minimum (for learning)
         //   - Execution: $10,000 minimum (for actual trades)
         // 
-        // If liq < $2k → don't even watch (clutters watchlist)
-        // If liq < $10k → watch only, no execution
+        // FLUID LIQUIDITY FLOORS (from FluidLearningAI - Layer 23)
+        // 
+        // Bootstrap: watchlist=$500, exec=$1500
+        // Mature:    watchlist=$2000, exec=$10000
         // ─────────────────────────────────────────────────────────────────────
-        val WATCHLIST_FLOOR = 2_000.0
-        val EXECUTION_FLOOR = 10_000.0
+        val WATCHLIST_FLOOR = com.lifecyclebot.v3.scoring.FluidLearningAI.getWatchlistFloor()
+        val EXECUTION_FLOOR = com.lifecyclebot.v3.scoring.FluidLearningAI.getExecutionFloor()
         
-        // Below $2k - don't even watch, too much noise
+        // Below watchlist floor - don't even watch, too much noise
         if (ts.lastLiquidityUsd < WATCHLIST_FLOOR) {
-            ErrorLogger.debug("FDG", "🚫 LIQ_FLOOR: ${ts.symbol} | liq=\$${ts.lastLiquidityUsd.toInt()} < \$2k | " +
+            ErrorLogger.debug("FDG", "🚫 LIQ_FLOOR: ${ts.symbol} | liq=\$${ts.lastLiquidityUsd.toInt()} < \$${WATCHLIST_FLOOR.toInt()} | " +
                 "TOO_LOW_FOR_WATCHLIST")
             
             return FinalDecision(
@@ -1567,14 +1569,14 @@ object FinalDecisionGate {
                 tags = listOf("liq_below_watch_floor", "hard_kill"),
                 mint = ts.mint,
                 symbol = ts.symbol,
-                approvalReason = "Liquidity \$${ts.lastLiquidityUsd.toInt()} < \$2k watchlist floor",
-                gateChecks = listOf(GateCheck("liq_watch_floor", false, "liq < \$2k = not worth watching"))
+                approvalReason = "Liquidity \$${ts.lastLiquidityUsd.toInt()} < \$${WATCHLIST_FLOOR.toInt()} watchlist floor",
+                gateChecks = listOf(GateCheck("liq_watch_floor", false, "liq < \$${WATCHLIST_FLOOR.toInt()} = not worth watching"))
             )
         }
         
-        // Between $2k-$10k - watch only, no execution (shadow track for learning)
+        // Between watchlist and execution floor - watch only, no execution (shadow track for learning)
         if (ts.lastLiquidityUsd < EXECUTION_FLOOR) {
-            ErrorLogger.info("FDG", "👁️ LIQ_FLOOR: ${ts.symbol} | liq=\$${ts.lastLiquidityUsd.toInt()} < \$10k | " +
+            ErrorLogger.info("FDG", "👁️ LIQ_FLOOR: ${ts.symbol} | liq=\$${ts.lastLiquidityUsd.toInt()} < \$${EXECUTION_FLOOR.toInt()} | " +
                 "WATCH_ONLY (no execution)")
             
             // Mark as blocked but add tags for shadow tracking
@@ -1591,9 +1593,9 @@ object FinalDecisionGate {
                 tags = listOf("liq_below_exec_floor", "shadow_track", "watch_only"),
                 mint = ts.mint,
                 symbol = ts.symbol,
-                approvalReason = "Liquidity \$${ts.lastLiquidityUsd.toInt()} < \$10k execution floor - WATCH ONLY",
+                approvalReason = "Liquidity \$${ts.lastLiquidityUsd.toInt()} < \$${EXECUTION_FLOOR.toInt()} execution floor - WATCH ONLY",
                 gateChecks = listOf(GateCheck("liq_exec_floor", false, 
-                    "liq \$${ts.lastLiquidityUsd.toInt()} < \$10k = shadow track only"))
+                    "liq \$${ts.lastLiquidityUsd.toInt()} < \$${EXECUTION_FLOOR.toInt()} = shadow track only"))
             )
         }
         
