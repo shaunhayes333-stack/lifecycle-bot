@@ -241,7 +241,11 @@ class FinalDecisionEngine(
         }
         
         val minScoreForExecute = try {
-            com.lifecyclebot.engine.V3ConfidenceConfig.getMinScoreForExecute(config.executeStandardMin)
+            // V3.3: Use FLUID thresholds from FluidLearningAI during bootstrap
+            val fluidMinScore = com.lifecyclebot.v3.scoring.FluidLearningAI.getMinScoreThreshold()
+            val configMinScore = com.lifecyclebot.engine.V3ConfidenceConfig.getMinScoreForExecute(config.executeStandardMin)
+            // Use the LOWER of fluid vs config during bootstrap (3% learning = use fluid)
+            minOf(fluidMinScore, configMinScore)
         } catch (e: Exception) {
             config.executeStandardMin
         }
@@ -252,31 +256,39 @@ class FinalDecisionEngine(
         // ═══════════════════════════════════════════════════════════════════
         // V3 SELECTIVITY: HARD C-GRADE EXECUTION BAN
         // 
-        // V3.2: LOOSENED THRESHOLDS - previous settings blocked EVERYTHING
+        // V3.3: FLUID THRESHOLDS - looser during bootstrap to learn
         // 
         // For quality=C, require ALL of:
-        //   - conf >= 25 (was 35)
-        //   - memory > -12 (was -8)
+        //   - conf >= 18 at bootstrap → 25 at mature
+        //   - memory > -15 at bootstrap → -12 at mature
         //   - AI not degraded
-        //   - phase is not early_unknown
+        //   - phase is not early_unknown (ONLY for mature - allow early learning)
         //
         // If ANY fail → WATCH ONLY, SHADOW TRACK, NO BUY
         // ═══════════════════════════════════════════════════════════════════
+        val cGradeProgress = try {
+            com.lifecyclebot.v3.scoring.FluidLearningAI.getLearningProgress()
+        } catch (e: Exception) { 0.0 }
+        
+        // Fluid thresholds for C-grade
+        val cGradeConfFloor = (18 + (cGradeProgress * 7)).toInt().coerceIn(18, 25)
+        val cGradeMemoryFloor = (-15 + (cGradeProgress * 3)).toInt().coerceIn(-15, -12)
+        
         if (isCGrade) {
             val cGradeBlockReasons = mutableListOf<String>()
             
-            if (conf < 25) {  // V3.2: Lowered from 35
-                cGradeBlockReasons.add("conf=$conf<25")
+            if (conf < cGradeConfFloor) {
+                cGradeBlockReasons.add("conf=$conf<$cGradeConfFloor")
             }
-            if (memoryScore <= -12) {  // V3.2: Lowered from -8
-                cGradeBlockReasons.add("memory=$memoryScore<=-12")
+            if (memoryScore <= cGradeMemoryFloor) {
+                cGradeBlockReasons.add("memory=$memoryScore<=$cGradeMemoryFloor")
             }
             if (effectiveAIDegraded) {
                 cGradeBlockReasons.add("AI_DEGRADED")
             }
-            // NOTE: liquidityUsd comes from candidate in BotOrchestrator, not scoreCard
-            // We check this in BotOrchestrator before calling decide()
-            if (effectivePhase == "early_unknown") {
+            // V3.3: Only block early_unknown phase when mature (>30% learning)
+            // During bootstrap, allow early_unknown to let bot learn
+            if (effectivePhase == "early_unknown" && cGradeProgress > 0.3) {
                 cGradeBlockReasons.add("phase=early_unknown")
             }
             
@@ -311,14 +323,28 @@ class FinalDecisionEngine(
         // 
         // At this point, C-grade trash has been filtered by C_GRADE_BAN above.
         // Only legitimate setups reach here.
+        // 
+        // V3.3: FLUID THRESHOLDS based on learning progress
+        // Bootstrap (0-20% learning): Much looser - take more shots to learn
+        // Mature (50%+ learning): Tighter - only high-conviction trades
         // ═══════════════════════════════════════════════════════════════════
+        val learningProgress = try {
+            com.lifecyclebot.v3.scoring.FluidLearningAI.getLearningProgress()
+        } catch (e: Exception) { 0.0 }
+        
+        // Fluid confidence threshold: 20% at bootstrap → 35% at mature
+        val fluidMinConfForExecute = (20 + (learningProgress * 15)).toInt().coerceIn(20, 35)
+        
         val minConfForExecute = try {
-            com.lifecyclebot.engine.V3ConfidenceConfig.getMinConfidenceForExecute(35)  // V3.2: Lowered from 45
+            val configMinConf = com.lifecyclebot.engine.V3ConfidenceConfig.getMinConfidenceForExecute(35)
+            // Use fluid (lower) threshold during bootstrap
+            minOf(fluidMinConfForExecute, configMinConf)
         } catch (e: Exception) {
-            35  // V3.2: Lowered from 45
+            fluidMinConfForExecute
         }
         
-        val cGradeMinConf = 28  // V3.2: Lowered from 35 (C-grade can execute with conf >= 28)
+        // C-grade confidence floor: 18% at bootstrap → 28% at mature
+        val cGradeMinConf = (18 + (learningProgress * 10)).toInt().coerceIn(18, 28)
         
         val band = when {
             score >= (minScoreForExecute * 1.3).toInt() && effectiveConf >= minConfForExecute + 10 -> DecisionBand.EXECUTE_AGGRESSIVE

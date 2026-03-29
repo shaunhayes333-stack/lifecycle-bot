@@ -307,25 +307,38 @@ object BehaviorAI {
     fun getScoreAdjustment(): Int {
         var score = 0
         
-        // Tilt penalty
+        // V3.3: Scale penalties by learning progress
+        // At bootstrap (0-20% learning), behavior penalties are reduced
+        // This prevents no-data penalties from crushing early trades
+        val learningProgress = try {
+            FluidLearningAI.getLearningProgress()
+        } catch (e: Exception) { 0.0 }
+        
+        // Penalty multiplier: 0.3 at bootstrap → 1.0 at mature
+        val penaltyMult = (0.3 + (learningProgress * 0.7)).coerceIn(0.3, 1.0)
+        
+        // Tilt penalty (reduced during bootstrap)
         val tilt = tiltLevel.get()
-        if (tilt >= 80) score -= 15
-        else if (tilt >= 60) score -= 10
-        else if (tilt >= 40) score -= 5
+        if (tilt >= 80) score -= (15 * penaltyMult).toInt()
+        else if (tilt >= 60) score -= (10 * penaltyMult).toInt()
+        else if (tilt >= 40) score -= (5 * penaltyMult).toInt()
         
-        // Discipline bonus
+        // Discipline bonus/penalty
         val discipline = disciplineScore.get()
-        if (discipline >= 80) score += 10
+        if (discipline >= 80) score += 10  // Bonuses stay full
         else if (discipline >= 60) score += 5
-        else if (discipline <= 20) score -= 5
+        else if (discipline <= 20) {
+            // V3.3: Reduced penalty during bootstrap (no trade history = low discipline score)
+            score -= (5 * penaltyMult).toInt()
+        }
         
-        // Current streak effect
+        // Current streak effect (bonuses full, penalties scaled)
         val streak = currentStreak.get()
         when {
             streak >= 5 -> score += 8   // 5+ win streak = confidence
             streak >= 3 -> score += 4   // 3+ win streak = momentum
-            streak <= -5 -> score -= 10 // 5+ loss streak = caution
-            streak <= -3 -> score -= 5  // 3+ loss streak = warning
+            streak <= -5 -> score -= (10 * penaltyMult).toInt() // 5+ loss streak = caution
+            streak <= -3 -> score -= (5 * penaltyMult).toInt()  // 3+ loss streak = warning
         }
         
         // Recent big wins boost confidence

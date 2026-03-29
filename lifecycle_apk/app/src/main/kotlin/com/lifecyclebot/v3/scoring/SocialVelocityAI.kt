@@ -109,6 +109,13 @@ class SocialVelocityAI : ScoringModule {
         var score = 0
         val reasons = mutableListOf<String>()
         
+        // V3.3: Scale penalties by learning progress
+        // At bootstrap, social data penalties are reduced (many good tokens have no social yet)
+        val learningProgress = try {
+            FluidLearningAI.getLearningProgress()
+        } catch (e: Exception) { 0.0 }
+        val penaltyMult = (0.3 + (learningProgress * 0.7)).coerceIn(0.3, 1.0)
+        
         // 1. Check if token is boosted on DexScreener
         val boostAmount = getBoostAmount(candidate.mint)
         if (boostAmount > 0) {
@@ -135,7 +142,11 @@ class SocialVelocityAI : ScoringModule {
             3 -> { score += 4; reasons += "Full social presence" }
             2 -> { score += 2; reasons += "Partial social presence" }
             1 -> { score += 1; reasons += "Minimal social presence" }
-            0 -> { score -= 2; reasons += "No social links" }
+            0 -> { 
+                // V3.3: Reduced penalty during bootstrap
+                score -= (2 * penaltyMult).toInt()
+                reasons += "No social links"
+            }
         }
         
         // 3. Check for identity signals (name recognition, meme potential)
@@ -150,7 +161,8 @@ class SocialVelocityAI : ScoringModule {
             score += 3
             reasons += "New token with social backing"
         } else if (ageMinutes < 30 && socialCount == 0) {
-            score -= 3
+            // V3.3: Reduced penalty during bootstrap (many fresh launches lack socials initially)
+            score -= (3 * penaltyMult).toInt()
             reasons += "Very new, no social = risky"
         }
         
