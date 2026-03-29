@@ -56,6 +56,7 @@ class JournalActivity : AppCompatActivity() {
 
         findViewById<View>(R.id.btnJournalBack).setOnClickListener { finish() }
         findViewById<View>(R.id.btnExportCsv).setOnClickListener { showExportDialog() }
+        findViewById<View>(R.id.btnClearJournal).setOnClickListener { showClearConfirmDialog() }
 
         // Simple polling loop - no ViewModel, just read from BotService
         lifecycleScope.launch {
@@ -261,6 +262,23 @@ class JournalActivity : AppCompatActivity() {
                 setBackgroundColor(divider)
             })
         }
+    }
+    
+    private fun showClearConfirmDialog() {
+        val tradeCount = com.lifecyclebot.engine.TradeHistoryStore.getTotalTradeCount()
+        
+        android.app.AlertDialog.Builder(this)
+            .setTitle("Clear All Trade History?")
+            .setMessage("This will permanently delete $tradeCount trades from the journal.\n\n" +
+                "Your win rate and all statistics will be reset to 0.\n\n" +
+                "This action cannot be undone.")
+            .setPositiveButton("Clear All") { _, _ ->
+                com.lifecyclebot.engine.TradeHistoryStore.clearAllTrades()
+                Toast.makeText(this, "Trade history cleared", Toast.LENGTH_SHORT).show()
+                refreshTrades()  // Refresh the UI
+            }
+            .setNegativeButton("Cancel", null)
+            .show()
     }
 
     private fun dp(v: Int) = (v * resources.displayMetrics.density).toInt()

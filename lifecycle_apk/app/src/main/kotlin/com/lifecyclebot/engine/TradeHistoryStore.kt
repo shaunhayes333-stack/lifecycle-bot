@@ -67,6 +67,21 @@ object TradeHistoryStore {
     fun getAllTrades(): List<Trade> = trades.toList()
     
     /**
+     * MANUAL CLEAR - Only callable by user from Journal UI.
+     * Clears all trade history and resets stats.
+     */
+    fun clearAllTrades() {
+        trades.clear()
+        saveTrades()
+        ErrorLogger.info("TradeHistoryStore", "🗑️ MANUAL CLEAR: All trade history cleared by user")
+    }
+    
+    /**
+     * Get total trade count (for display)
+     */
+    fun getTotalTradeCount(): Int = trades.size
+    
+    /**
      * Record a partial profit from chunk selling (SellOptimizationAI).
      * This doesn't close the position, just records the partial exit.
      */
@@ -256,23 +271,12 @@ object TradeHistoryStore {
     }
     
     private fun cleanupOldTrades() {
-        val now = System.currentTimeMillis()
-        val lastCleanup = prefs?.getLong(KEY_LAST_CLEANUP, 0L) ?: 0L
-        
-        // Only cleanup once per hour
-        if (now - lastCleanup < 60 * 60 * 1000L) return
-        
-        val cutoff = now - MAX_AGE_MS
-        val before = trades.size
-        trades.removeAll { it.ts < cutoff }
-        val removed = before - trades.size
-        
-        if (removed > 0) {
-            saveTrades()
-            ErrorLogger.info("TradeHistoryStore", "🧹 Cleaned up $removed old trades (>7 days)")
-        }
-        
-        prefs?.edit()?.putLong(KEY_LAST_CLEANUP, now)?.apply()
+        // REMOVED AUTO-CLEANUP
+        // Journal data should persist indefinitely until manually cleared by user.
+        // The win rate and stats need ALL historical trades to be accurate.
+        // 
+        // If storage becomes an issue, user can manually clear from Journal screen.
+        ErrorLogger.debug("TradeHistoryStore", "📊 Journal has ${trades.size} total trades (no auto-cleanup)")
     }
     
     private fun Double.fmt(d: Int = 4) = "%.${d}f".format(this)

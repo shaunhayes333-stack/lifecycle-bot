@@ -890,32 +890,25 @@ for legal compliance.
             val now = System.currentTimeMillis()
             val twentyFourHoursAgo = now - (24 * 60 * 60 * 1000L)
             
-            // PRIMARY: Get stats from persistent storage (survives bot restarts)
+            // ═══════════════════════════════════════════════════════════════════
+            // USE PERSISTED JOURNAL DATA ONLY
+            // 
+            // The journal (TradeHistoryStore) is the source of truth for stats.
+            // Stats are calculated from ALL stored trades, not just 24h.
+            // Data persists across app restarts and is never auto-cleared.
+            // ═══════════════════════════════════════════════════════════════════
             val persistedStats = com.lifecyclebot.engine.TradeHistoryStore.getStats()
             
-            // SECONDARY: Get in-memory trades for current session
-            val inMemoryTrades = state.tokens.values.flatMap { it.trades }
-            val inMemoryTrades24h = inMemoryTrades.filter { it.ts >= twentyFourHoursAgo }
-            
-            // Use MAX of persisted vs in-memory (handles restart scenarios)
-            // Persisted has historical trades, in-memory may have very recent ones not yet saved
-            val trades24h = maxOf(persistedStats.trades24h, inMemoryTrades24h.size)
+            // 24H trades from persisted journal
+            val trades24h = persistedStats.trades24h
             tvStats24hTrades.text = "$trades24h"
             
-            // Win rate: Use persisted unless in-memory has meaningful data
-            val inMemorySells24h = inMemoryTrades.filter { it.side == "SELL" && it.ts >= twentyFourHoursAgo }
-            val winRate = if (inMemorySells24h.size >= 3) {
-                // Enough in-memory data to calculate
-                val wins24h = inMemorySells24h.count { it.pnlPct > 2.0 }
-                val losses24h = inMemorySells24h.count { it.pnlPct < -2.0 }
-                val total = wins24h + losses24h
-                if (total > 0) (wins24h * 100 / total) else persistedStats.winRate24h
-            } else if (persistedStats.winRate24h > 0) {
-                // Use persisted win rate
-                persistedStats.winRate24h
-            } else {
-                // Fallback to wallet state win rate
-                ws.winRate
+            // Win rate: Use LIFETIME win rate from persisted journal
+            // This gives true percentage figures based on all recorded trades
+            val winRate = when {
+                persistedStats.totalTrades >= 1 -> persistedStats.winRate.toInt()
+                persistedStats.winRate24h > 0 -> persistedStats.winRate24h
+                else -> 0  // No trades yet
             }
             
             tvStatsWinRate.text = "$winRate%"
