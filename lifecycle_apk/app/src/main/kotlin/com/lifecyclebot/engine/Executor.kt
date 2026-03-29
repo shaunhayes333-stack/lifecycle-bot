@@ -3820,6 +3820,29 @@ class Executor(
                 volumeToLiqRatio = if (ts.lastLiquidityUsd > 0) ts.history.lastOrNull()?.vol?.div(ts.lastLiquidityUsd) ?: 0.0 else 0.0,
             )
             onLog("🤖 AI LEARNED: Loss on ${ts.symbol} | phase=$ph ema=$fanName | Pattern recorded", ts.mint)
+            
+            // ═══════════════════════════════════════════════════════════════════
+            // V4.0: BROADCAST BIG LOSERS TO WARN OTHER BOTS
+            // When we hit a significant loss (-15%+), warn the network!
+            // ═══════════════════════════════════════════════════════════════════
+            if (pnlP <= -15.0) {
+                kotlinx.coroutines.GlobalScope.launch(kotlinx.coroutines.Dispatchers.IO) {
+                    try {
+                        com.lifecyclebot.collective.CollectiveLearning.broadcastHotToken(
+                            mint = ts.mint,
+                            symbol = ts.symbol,
+                            pnlPct = pnlP,
+                            confidence = 0,
+                            liquidityUsd = ts.lastLiquidityUsd,
+                            mode = pos.tradingMode.ifBlank { "PAPER" },
+                            reason = "AVOID_${(-pnlP).toInt()}%_LOSS"
+                        )
+                        ErrorLogger.info("Executor", "⚠️ BROADCAST AVOID: ${ts.symbol} ${pnlP.toInt()}% → Network warned!")
+                    } catch (e: Exception) {
+                        ErrorLogger.debug("Executor", "Broadcast avoid error: ${e.message}")
+                    }
+                }
+            }
         } else if (shouldLearnAsWin) {
             // Meaningful win — let the brain know this pattern is working
             val fanName = ts.meta.emafanAlignment
@@ -3865,6 +3888,30 @@ class Executor(
                 holdTimeMinutes = holdTimeMins,
             )
             onLog("🤖 AI LEARNED: Win on ${ts.symbol} +${pnlP.toInt()}% | Pattern reinforced", ts.mint)
+            
+            // ═══════════════════════════════════════════════════════════════════
+            // V4.0: BROADCAST BIG WINNERS TO THE HIVE MIND NETWORK
+            // When we hit a significant win (20%+), tell ALL other bots!
+            // This creates a network effect where hot tokens get discovered faster
+            // ═══════════════════════════════════════════════════════════════════
+            if (pnlP >= 20.0) {
+                kotlinx.coroutines.GlobalScope.launch(kotlinx.coroutines.Dispatchers.IO) {
+                    try {
+                        com.lifecyclebot.collective.CollectiveLearning.broadcastHotToken(
+                            mint = ts.mint,
+                            symbol = ts.symbol,
+                            pnlPct = pnlP,
+                            confidence = pos.entryScore.toInt().coerceIn(0, 100),
+                            liquidityUsd = ts.lastLiquidityUsd,
+                            mode = pos.tradingMode.ifBlank { "PAPER" },
+                            reason = if (pnlP >= 50) "MEGA_WINNER_${pnlP.toInt()}%" else "BIG_WIN_${pnlP.toInt()}%"
+                        )
+                        ErrorLogger.info("Executor", "📡 BROADCAST TO NETWORK: ${ts.symbol} +${pnlP.toInt()}% → All bots notified!")
+                    } catch (e: Exception) {
+                        ErrorLogger.debug("Executor", "Broadcast error: ${e.message}")
+                    }
+                }
+            }
         } else {
             // SCRATCH trade - near breakeven, not meaningful for learning
             onLog("📊 ${ts.symbol}: Scratch trade (${pnlP.toInt()}%) - skipped for learning", ts.mint)

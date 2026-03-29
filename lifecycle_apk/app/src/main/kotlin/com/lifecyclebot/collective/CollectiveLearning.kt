@@ -1318,6 +1318,431 @@ object CollectiveLearning {
         }
     }
     
+    // ═══════════════════════════════════════════════════════════════════════════════
+    // V4.0: ENHANCED COLLECTIVE INTELLIGENCE - HIVE MIND NETWORK
+    // 
+    // These methods enable 500,000 bots to work together:
+    // 1. Query aggregated stats from all trades in the network
+    // 2. Broadcast hot tokens when a big winner is found
+    // 3. Get network signals (hot tokens from other bots)
+    // 4. Compare local performance vs swarm
+    // ═══════════════════════════════════════════════════════════════════════════════
+    
+    /**
+     * V4.0: Get aggregated collective stats from ALL trades in the network.
+     * This is the TRUE collective performance - not just local device.
+     */
+    data class CollectiveStats(
+        val totalTrades: Int,
+        val totalBuys: Int,
+        val totalSells: Int,
+        val totalWins: Int,
+        val totalLosses: Int,
+        val winRate: Double,
+        val avgPnlPct: Double,
+        val totalProfitPct: Double,
+        val totalLossPct: Double,
+        val activeUsers24h: Int,
+        val lastUpdated: Long
+    )
+    
+    suspend fun getCollectiveStats(): CollectiveStats {
+        if (!isEnabled()) return CollectiveStats(0, 0, 0, 0, 0, 0.0, 0.0, 0.0, 0.0, 1, 0)
+        
+        return withContext(Dispatchers.IO) {
+            try {
+                // Query aggregated stats from collective_trades
+                val result = client!!.query("""
+                    SELECT 
+                        COUNT(*) as total_trades,
+                        SUM(CASE WHEN side = 'BUY' THEN 1 ELSE 0 END) as total_buys,
+                        SUM(CASE WHEN side = 'SELL' THEN 1 ELSE 0 END) as total_sells,
+                        SUM(CASE WHEN side = 'SELL' AND is_win = 1 THEN 1 ELSE 0 END) as total_wins,
+                        SUM(CASE WHEN side = 'SELL' AND is_win = 0 THEN 1 ELSE 0 END) as total_losses,
+                        AVG(CASE WHEN side = 'SELL' THEN pnl_pct ELSE NULL END) as avg_pnl,
+                        SUM(CASE WHEN side = 'SELL' AND pnl_pct > 0 THEN pnl_pct ELSE 0 END) as total_profit,
+                        SUM(CASE WHEN side = 'SELL' AND pnl_pct < 0 THEN pnl_pct ELSE 0 END) as total_loss
+                    FROM collective_trades
+                """.trimIndent())
+                
+                if (result.success && result.rows.isNotEmpty()) {
+                    val row = result.rows[0]
+                    val totalSells = (row["total_sells"] as? Number)?.toInt() ?: 0
+                    val totalWins = (row["total_wins"] as? Number)?.toInt() ?: 0
+                    
+                    val activeUsers = getActiveUsersCount()
+                    
+                    CollectiveStats(
+                        totalTrades = (row["total_trades"] as? Number)?.toInt() ?: 0,
+                        totalBuys = (row["total_buys"] as? Number)?.toInt() ?: 0,
+                        totalSells = totalSells,
+                        totalWins = totalWins,
+                        totalLosses = (row["total_losses"] as? Number)?.toInt() ?: 0,
+                        winRate = if (totalSells > 0) (totalWins.toDouble() / totalSells * 100) else 0.0,
+                        avgPnlPct = (row["avg_pnl"] as? Number)?.toDouble() ?: 0.0,
+                        totalProfitPct = (row["total_profit"] as? Number)?.toDouble() ?: 0.0,
+                        totalLossPct = (row["total_loss"] as? Number)?.toDouble() ?: 0.0,
+                        activeUsers24h = activeUsers,
+                        lastUpdated = System.currentTimeMillis()
+                    )
+                } else {
+                    CollectiveStats(0, 0, 0, 0, 0, 0.0, 0.0, 0.0, 0.0, 1, 0)
+                }
+            } catch (e: Exception) {
+                Log.e(TAG, "getCollectiveStats error: ${e.message}")
+                CollectiveStats(0, 0, 0, 0, 0, 0.0, 0.0, 0.0, 0.0, 1, 0)
+            }
+        }
+    }
+    
+    /**
+     * V4.0: Get top performing modes from collective trades.
+     * Returns modes ranked by win rate with enough sample size.
+     */
+    data class ModeRanking(
+        val modeName: String,
+        val trades: Int,
+        val wins: Int,
+        val winRate: Double,
+        val avgPnlPct: Double,
+        val rank: Int
+    )
+    
+    suspend fun getTopModes(limit: Int = 5): List<ModeRanking> {
+        if (!isEnabled()) return emptyList()
+        
+        return withContext(Dispatchers.IO) {
+            try {
+                val result = client!!.query("""
+                    SELECT 
+                        mode,
+                        COUNT(*) as trades,
+                        SUM(CASE WHEN is_win = 1 THEN 1 ELSE 0 END) as wins,
+                        AVG(pnl_pct) as avg_pnl
+                    FROM collective_trades 
+                    WHERE side = 'SELL'
+                    GROUP BY mode
+                    HAVING COUNT(*) >= 5
+                    ORDER BY (SUM(CASE WHEN is_win = 1 THEN 1 ELSE 0 END) * 1.0 / COUNT(*)) DESC
+                    LIMIT $limit
+                """.trimIndent())
+                
+                if (result.success) {
+                    result.rows.mapIndexed { index, row ->
+                        val trades = (row["trades"] as? Number)?.toInt() ?: 0
+                        val wins = (row["wins"] as? Number)?.toInt() ?: 0
+                        ModeRanking(
+                            modeName = row["mode"] as? String ?: "UNKNOWN",
+                            trades = trades,
+                            wins = wins,
+                            winRate = if (trades > 0) (wins.toDouble() / trades * 100) else 0.0,
+                            avgPnlPct = (row["avg_pnl"] as? Number)?.toDouble() ?: 0.0,
+                            rank = index + 1
+                        )
+                    }
+                } else emptyList()
+            } catch (e: Exception) {
+                Log.e(TAG, "getTopModes error: ${e.message}")
+                emptyList()
+            }
+        }
+    }
+    
+    /**
+     * V4.0: Get modes to AVOID (worst performing).
+     */
+    suspend fun getModesToAvoid(limit: Int = 3): List<ModeRanking> {
+        if (!isEnabled()) return emptyList()
+        
+        return withContext(Dispatchers.IO) {
+            try {
+                val result = client!!.query("""
+                    SELECT 
+                        mode,
+                        COUNT(*) as trades,
+                        SUM(CASE WHEN is_win = 1 THEN 1 ELSE 0 END) as wins,
+                        AVG(pnl_pct) as avg_pnl
+                    FROM collective_trades 
+                    WHERE side = 'SELL'
+                    GROUP BY mode
+                    HAVING COUNT(*) >= 5
+                    ORDER BY AVG(pnl_pct) ASC
+                    LIMIT $limit
+                """.trimIndent())
+                
+                if (result.success) {
+                    result.rows.mapIndexed { index, row ->
+                        val trades = (row["trades"] as? Number)?.toInt() ?: 0
+                        val wins = (row["wins"] as? Number)?.toInt() ?: 0
+                        ModeRanking(
+                            modeName = row["mode"] as? String ?: "UNKNOWN",
+                            trades = trades,
+                            wins = wins,
+                            winRate = if (trades > 0) (wins.toDouble() / trades * 100) else 0.0,
+                            avgPnlPct = (row["avg_pnl"] as? Number)?.toDouble() ?: 0.0,
+                            rank = index + 1
+                        )
+                    }
+                } else emptyList()
+            } catch (e: Exception) {
+                Log.e(TAG, "getModesToAvoid error: ${e.message}")
+                emptyList()
+            }
+        }
+    }
+    
+    /**
+     * V4.0: Get hot tokens - tokens that are WINNING right now across the network.
+     * Other bots can add these to their watchlist!
+     */
+    data class HotToken(
+        val symbol: String,
+        val trades: Int,
+        val wins: Int,
+        val winRate: Double,
+        val avgPnlPct: Double,
+        val lastTradeTime: Long,
+        val botsTrading: Int
+    )
+    
+    suspend fun getHotTokens(hoursBack: Int = 6, limit: Int = 10): List<HotToken> {
+        if (!isEnabled()) return emptyList()
+        
+        return withContext(Dispatchers.IO) {
+            try {
+                val cutoffTime = System.currentTimeMillis() - (hoursBack * 60 * 60 * 1000L)
+                
+                val result = client!!.query("""
+                    SELECT 
+                        symbol,
+                        COUNT(*) as trades,
+                        SUM(CASE WHEN is_win = 1 THEN 1 ELSE 0 END) as wins,
+                        AVG(pnl_pct) as avg_pnl,
+                        MAX(timestamp) as last_trade,
+                        COUNT(DISTINCT instance_id) as bots_trading
+                    FROM collective_trades 
+                    WHERE side = 'SELL' AND timestamp > $cutoffTime AND is_win = 1
+                    GROUP BY symbol
+                    HAVING COUNT(*) >= 2 AND AVG(pnl_pct) > 5
+                    ORDER BY AVG(pnl_pct) DESC
+                    LIMIT $limit
+                """.trimIndent())
+                
+                if (result.success) {
+                    result.rows.map { row ->
+                        val trades = (row["trades"] as? Number)?.toInt() ?: 0
+                        val wins = (row["wins"] as? Number)?.toInt() ?: 0
+                        HotToken(
+                            symbol = row["symbol"] as? String ?: "???",
+                            trades = trades,
+                            wins = wins,
+                            winRate = if (trades > 0) (wins.toDouble() / trades * 100) else 0.0,
+                            avgPnlPct = (row["avg_pnl"] as? Number)?.toDouble() ?: 0.0,
+                            lastTradeTime = (row["last_trade"] as? Number)?.toLong() ?: 0,
+                            botsTrading = (row["bots_trading"] as? Number)?.toInt() ?: 1
+                        )
+                    }
+                } else emptyList()
+            } catch (e: Exception) {
+                Log.e(TAG, "getHotTokens error: ${e.message}")
+                emptyList()
+            }
+        }
+    }
+    
+    /**
+     * V4.0: BROADCAST a hot token to the entire network!
+     * Call this when your bot finds a huge winner (>20% gain).
+     * Other bots will receive this and can add to their watchlist.
+     */
+    data class NetworkSignal(
+        val id: Long,
+        val signalType: String,      // "HOT_TOKEN", "AVOID", "WHALE_ALERT"
+        val mint: String,
+        val symbol: String,
+        val broadcasterId: String,
+        val timestamp: Long,
+        val pnlPct: Double,
+        val confidence: Int,
+        val liquidityUsd: Double,
+        val mode: String,
+        val reason: String,
+        val expiresAt: Long,
+        val ackCount: Int
+    )
+    
+    suspend fun broadcastHotToken(
+        mint: String,
+        symbol: String,
+        pnlPct: Double,
+        confidence: Int,
+        liquidityUsd: Double,
+        mode: String,
+        reason: String = "BIG_WINNER"
+    ): Boolean {
+        if (!isEnabled()) return false
+        
+        return withContext(Dispatchers.IO) {
+            try {
+                val now = System.currentTimeMillis()
+                val expiresAt = now + (2 * 60 * 60 * 1000L)  // Expires in 2 hours
+                
+                val signalType = when {
+                    pnlPct >= 50 -> "MEGA_WINNER"
+                    pnlPct >= 20 -> "HOT_TOKEN"
+                    pnlPct <= -15 -> "AVOID"
+                    else -> "INFO"
+                }
+                
+                val result = client!!.execute("""
+                    INSERT INTO network_signals 
+                        (signal_type, mint, symbol, broadcaster_id, timestamp, pnl_pct, 
+                         confidence, liquidity_usd, mode, reason, expires_at, ack_count)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0)
+                """.trimIndent(), listOf(
+                    signalType, mint, symbol, instanceId, now, pnlPct,
+                    confidence, liquidityUsd, mode, reason, expiresAt
+                ))
+                
+                if (result.success) {
+                    Log.i(TAG, "📡 BROADCAST: $signalType $symbol +${pnlPct.toInt()}% → NETWORK")
+                }
+                
+                result.success
+            } catch (e: Exception) {
+                Log.e(TAG, "broadcastHotToken error: ${e.message}")
+                false
+            }
+        }
+    }
+    
+    /**
+     * V4.0: Get network signals from other bots.
+     * Returns hot tokens that other bots have broadcast.
+     * Your bot should add these to watchlist and potentially trade them!
+     */
+    suspend fun getNetworkSignals(limit: Int = 20): List<NetworkSignal> {
+        if (!isEnabled()) return emptyList()
+        
+        return withContext(Dispatchers.IO) {
+            try {
+                val now = System.currentTimeMillis()
+                
+                val result = client!!.query("""
+                    SELECT * FROM network_signals 
+                    WHERE expires_at > $now 
+                      AND broadcaster_id != '$instanceId'
+                    ORDER BY pnl_pct DESC, timestamp DESC
+                    LIMIT $limit
+                """.trimIndent())
+                
+                if (result.success) {
+                    result.rows.map { row ->
+                        NetworkSignal(
+                            id = (row["id"] as? Number)?.toLong() ?: 0,
+                            signalType = row["signal_type"] as? String ?: "",
+                            mint = row["mint"] as? String ?: "",
+                            symbol = row["symbol"] as? String ?: "",
+                            broadcasterId = row["broadcaster_id"] as? String ?: "",
+                            timestamp = (row["timestamp"] as? Number)?.toLong() ?: 0,
+                            pnlPct = (row["pnl_pct"] as? Number)?.toDouble() ?: 0.0,
+                            confidence = (row["confidence"] as? Number)?.toInt() ?: 0,
+                            liquidityUsd = (row["liquidity_usd"] as? Number)?.toDouble() ?: 0.0,
+                            mode = row["mode"] as? String ?: "",
+                            reason = row["reason"] as? String ?: "",
+                            expiresAt = (row["expires_at"] as? Number)?.toLong() ?: 0,
+                            ackCount = (row["ack_count"] as? Number)?.toInt() ?: 0
+                        )
+                    }
+                } else emptyList()
+            } catch (e: Exception) {
+                Log.e(TAG, "getNetworkSignals error: ${e.message}")
+                emptyList()
+            }
+        }
+    }
+    
+    /**
+     * V4.0: Acknowledge a network signal (increment ack_count).
+     * Call this when your bot acts on a signal from the network.
+     */
+    suspend fun acknowledgeSignal(signalId: Long) {
+        if (!isEnabled()) return
+        
+        withContext(Dispatchers.IO) {
+            try {
+                client!!.execute("""
+                    UPDATE network_signals 
+                    SET ack_count = ack_count + 1 
+                    WHERE id = $signalId
+                """.trimIndent())
+            } catch (_: Exception) {}
+        }
+    }
+    
+    /**
+     * V4.0: Check if a mint has a hot signal on the network.
+     * Returns boost points if other bots are winning with this token.
+     */
+    suspend fun getNetworkBoostForMint(mint: String): Int {
+        if (!isEnabled()) return 0
+        
+        return withContext(Dispatchers.IO) {
+            try {
+                val now = System.currentTimeMillis()
+                
+                val result = client!!.query("""
+                    SELECT signal_type, pnl_pct, ack_count 
+                    FROM network_signals 
+                    WHERE mint = ? AND expires_at > $now
+                    ORDER BY pnl_pct DESC
+                    LIMIT 1
+                """.trimIndent(), listOf(mint))
+                
+                if (result.success && result.rows.isNotEmpty()) {
+                    val row = result.rows[0]
+                    val signalType = row["signal_type"] as? String ?: ""
+                    val pnlPct = (row["pnl_pct"] as? Number)?.toDouble() ?: 0.0
+                    val ackCount = (row["ack_count"] as? Number)?.toInt() ?: 0
+                    
+                    // Calculate boost based on signal strength
+                    when {
+                        signalType == "MEGA_WINNER" -> 20 + (ackCount * 2).coerceAtMost(10)
+                        signalType == "HOT_TOKEN" -> 12 + (ackCount * 2).coerceAtMost(8)
+                        signalType == "AVOID" -> -15
+                        pnlPct > 30 -> 15
+                        pnlPct > 15 -> 10
+                        pnlPct > 5 -> 5
+                        pnlPct < -10 -> -10
+                        else -> 0
+                    }
+                } else 0
+            } catch (e: Exception) {
+                0
+            }
+        }
+    }
+    
+    /**
+     * V4.0: Clean up expired network signals.
+     */
+    suspend fun cleanupExpiredSignals() {
+        if (!isEnabled()) return
+        
+        withContext(Dispatchers.IO) {
+            try {
+                val now = System.currentTimeMillis()
+                val result = client!!.execute("""
+                    DELETE FROM network_signals WHERE expires_at < $now
+                """.trimIndent())
+                
+                if (result.success && (result.rowsAffected ?: 0) > 0) {
+                    Log.d(TAG, "🧹 Cleaned ${result.rowsAffected} expired network signals")
+                }
+            } catch (_: Exception) {}
+        }
+    }
+    
     // ═══════════════════════════════════════════════════════════════════════════
     // V3.3: PERSISTENT LOCAL CACHE (SharedPreferences)
     // 

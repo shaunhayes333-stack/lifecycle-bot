@@ -205,6 +205,35 @@ object CollectiveSchema {
         )
     """
     
+    // V4.0: Network signals - Hot tokens broadcast across all bots
+    // When one bot finds a huge winner, it pushes to the network
+    const val CREATE_NETWORK_SIGNALS_TABLE = """
+        CREATE TABLE IF NOT EXISTS network_signals (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            signal_type TEXT NOT NULL,
+            mint TEXT NOT NULL,
+            symbol TEXT NOT NULL,
+            broadcaster_id TEXT NOT NULL,
+            timestamp INTEGER NOT NULL,
+            pnl_pct REAL DEFAULT 0.0,
+            confidence INTEGER DEFAULT 0,
+            liquidity_usd REAL DEFAULT 0.0,
+            mode TEXT DEFAULT '',
+            reason TEXT DEFAULT '',
+            expires_at INTEGER NOT NULL,
+            ack_count INTEGER DEFAULT 0
+        )
+    """
+    
+    // V4.0: Collective stats cache - Pre-aggregated stats for fast queries
+    const val CREATE_COLLECTIVE_STATS_TABLE = """
+        CREATE TABLE IF NOT EXISTS collective_stats (
+            stat_key TEXT PRIMARY KEY NOT NULL,
+            stat_value REAL NOT NULL,
+            last_updated INTEGER NOT NULL
+        )
+    """
+    
     // V3.3: Instance registry - Legal compliance record of all app installations
     // Each instance gets a unique folder identified by instance_id + install timestamp
     const val CREATE_INSTANCE_REGISTRY_TABLE = """
@@ -260,6 +289,9 @@ object CollectiveSchema {
         CREATE INDEX IF NOT EXISTS idx_trades_symbol ON collective_trades(symbol);
         CREATE INDEX IF NOT EXISTS idx_trades_instance ON collective_trades(instance_id);
         CREATE INDEX IF NOT EXISTS idx_registry_active ON instance_registry(last_active);
+        CREATE INDEX IF NOT EXISTS idx_network_signals_mint ON network_signals(mint);
+        CREATE INDEX IF NOT EXISTS idx_network_signals_expires ON network_signals(expires_at);
+        CREATE INDEX IF NOT EXISTS idx_network_signals_type ON network_signals(signal_type)
     """
     
     val ALL_TABLES = listOf(
@@ -269,6 +301,8 @@ object CollectiveSchema {
         CREATE_WHALE_EFFECTIVENESS_TABLE,
         CREATE_LEGAL_AGREEMENTS_TABLE,
         CREATE_INSTANCE_HEARTBEATS_TABLE,
+        CREATE_NETWORK_SIGNALS_TABLE,
+        CREATE_COLLECTIVE_STATS_TABLE,
         CREATE_INSTANCE_REGISTRY_TABLE,
         CREATE_ALL_TRADES_TABLE,
     )

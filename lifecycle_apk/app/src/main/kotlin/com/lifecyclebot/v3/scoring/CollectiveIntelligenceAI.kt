@@ -78,6 +78,9 @@ object CollectiveIntelligenceAI {
     private val tokenPredictionCache = ConcurrentHashMap<String, TokenPrediction>()
     private val consensusCache = ConcurrentHashMap<String, ConsensusSignal>()
     
+    // V4.0: Network signals cache - Hot tokens from other bots
+    private val networkSignalsCache = ConcurrentHashMap<String, CollectiveLearning.NetworkSignal>()
+    
     // Dynamic thresholds (adjusted based on collective performance)
     @Volatile private var dynamicConfidenceThreshold = 70
     @Volatile private var dynamicScoreThreshold = 35
@@ -178,6 +181,9 @@ object CollectiveIntelligenceAI {
     /**
      * Score a token based on collective intelligence.
      * Returns a score adjustment (-20 to +20) and confidence adjustment.
+     * 
+     * V4.0: Now integrates NETWORK SIGNALS - hot tokens broadcast by other bots
+     * get significant score boosts, making the hive mind work together!
      */
     fun score(
         mint: String,
@@ -210,10 +216,46 @@ object CollectiveIntelligenceAI {
             val patternKey = "${source}_${getLiquidityBucket(liquidityUsd)}"
             val patternQuality = patternQualityCache[patternKey]
             
+            // 4. V4.0: Check network signals cache for hot tokens from other bots
+            val networkSignal = networkSignalsCache[mint]
+            
             // Calculate score adjustment based on collective data
             var scoreAdj = 0
             var confAdj = 0
             var reasoning = mutableListOf<String>()
+            
+            // ═══════════════════════════════════════════════════════════════════
+            // V4.0: NETWORK SIGNAL BOOST - The Hive Mind Working Together
+            // When other bots broadcast a winner, THIS bot gets a score boost!
+            // ═══════════════════════════════════════════════════════════════════
+            if (networkSignal != null) {
+                when (networkSignal.signalType) {
+                    "MEGA_WINNER" -> {
+                        // Another bot made 50%+ on this token - BIG BOOST
+                        scoreAdj += 25
+                        confAdj += 12
+                        reasoning.add("🔥NETWORK_MEGA(+${networkSignal.pnlPct.toInt()}%)")
+                    }
+                    "HOT_TOKEN" -> {
+                        // Another bot made 20%+ - solid boost
+                        scoreAdj += 15
+                        confAdj += 8
+                        reasoning.add("🌐NETWORK_HOT(+${networkSignal.pnlPct.toInt()}%)")
+                    }
+                    "AVOID" -> {
+                        // Another bot lost big - PENALIZE
+                        scoreAdj -= 20
+                        confAdj -= 10
+                        reasoning.add("⚠️NETWORK_AVOID(${networkSignal.pnlPct.toInt()}%)")
+                    }
+                }
+                
+                // Extra boost if multiple bots acknowledged this signal
+                if (networkSignal.ackCount >= 3) {
+                    scoreAdj += 5
+                    reasoning.add("MULTI_ACK(${networkSignal.ackCount})")
+                }
+            }
             
             // Token-specific prediction
             if (prediction != null && prediction.instancesReporting >= MIN_INSTANCES_FOR_CONSENSUS) {
@@ -297,13 +339,16 @@ object CollectiveIntelligenceAI {
                 reasoning.add("BELOW_COLLECTIVE_THRESHOLD")
             }
             
-            // Clamp adjustments
-            scoreAdj = scoreAdj.coerceIn(-20, 20)
-            confAdj = confAdj.coerceIn(-10, 10)
+            // V4.0: Clamp adjustments (higher max due to network signals)
+            scoreAdj = scoreAdj.coerceIn(-30, 30)
+            confAdj = confAdj.coerceIn(-15, 15)
             
-            val finalSignal = prediction?.collectiveSignal 
-                ?: consensus?.signal 
-                ?: Signal.NO_DATA
+            val finalSignal = when {
+                networkSignal?.signalType == "MEGA_WINNER" -> Signal.STRONG_BUY
+                networkSignal?.signalType == "HOT_TOKEN" -> Signal.BUY
+                networkSignal?.signalType == "AVOID" -> Signal.STRONG_SELL
+                else -> prediction?.collectiveSignal ?: consensus?.signal ?: Signal.NO_DATA
+            }
             
             return CollectiveInsight(
                 score = scoreAdj,
@@ -708,6 +753,8 @@ object CollectiveIntelligenceAI {
     /**
      * Full refresh of all collective intelligence caches.
      * Should be called periodically (e.g., every 15 minutes).
+     * 
+     * V4.0: Now also refreshes NETWORK SIGNALS - hot tokens from other bots!
      */
     suspend fun refresh() {
         if (!CollectiveLearning.isEnabled()) return
@@ -720,6 +767,7 @@ object CollectiveIntelligenceAI {
             launch { analyzePatternQuality() }
             launch { aggregateModePerformance() }
             launch { synthesizeConsensus() }
+            launch { refreshNetworkSignals() }  // V4.0: New!
         }
         
         lastRefreshMs.set(System.currentTimeMillis())
@@ -728,7 +776,65 @@ object CollectiveIntelligenceAI {
         ErrorLogger.info(TAG, "🧠 Refresh complete in ${elapsed}ms | " +
             "patterns=${patternQualityCache.size} | " +
             "modes=${modePerformanceCache.size} | " +
-            "consensus=${consensusCache.size}")
+            "consensus=${consensusCache.size} | " +
+            "network=${networkSignalsCache.size}")
+    }
+    
+    /**
+     * V4.0: Refresh network signals from other bots.
+     * These are hot tokens that other bots have broadcast.
+     */
+    private suspend fun refreshNetworkSignals() {
+        try {
+            val signals = CollectiveLearning.getNetworkSignals(50)
+            
+            // Clear old and update cache
+            networkSignalsCache.clear()
+            
+            for (signal in signals) {
+                // Key by mint address
+                networkSignalsCache[signal.mint] = signal
+                
+                // Log significant signals
+                if (signal.signalType == "MEGA_WINNER" || signal.signalType == "HOT_TOKEN") {
+                    ErrorLogger.info(TAG, "📡 NETWORK SIGNAL: ${signal.signalType} ${signal.symbol} " +
+                        "+${signal.pnlPct.toInt()}% from ${signal.broadcasterId.take(8)}...")
+                }
+            }
+            
+            // Also cleanup expired signals in the database
+            CollectiveLearning.cleanupExpiredSignals()
+            
+            ErrorLogger.info(TAG, "📡 Loaded ${signals.size} network signals from hive")
+        } catch (e: Exception) {
+            ErrorLogger.debug(TAG, "refreshNetworkSignals error: ${e.message}")
+        }
+    }
+    
+    /**
+     * V4.0: Get list of mints that have active network signals.
+     * BotService can use this to add hot tokens to watchlist!
+     */
+    fun getNetworkHotMints(): List<String> {
+        return networkSignalsCache.filter { 
+            it.value.signalType in listOf("MEGA_WINNER", "HOT_TOKEN")
+        }.keys.toList()
+    }
+    
+    /**
+     * V4.0: Check if a mint has a positive network signal.
+     */
+    fun hasPositiveNetworkSignal(mint: String): Boolean {
+        val signal = networkSignalsCache[mint] ?: return false
+        return signal.signalType in listOf("MEGA_WINNER", "HOT_TOKEN")
+    }
+    
+    /**
+     * V4.0: Check if a mint should be avoided (negative network signal).
+     */
+    fun shouldAvoid(mint: String): Boolean {
+        val signal = networkSignalsCache[mint] ?: return false
+        return signal.signalType == "AVOID"
     }
     
     /**
