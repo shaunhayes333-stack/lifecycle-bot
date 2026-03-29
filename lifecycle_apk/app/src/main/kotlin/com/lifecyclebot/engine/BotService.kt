@@ -1436,73 +1436,9 @@ class BotService : Service() {
             FinalDecisionGate.setModeForVeto(cfg.paperMode)
             
             // ═══════════════════════════════════════════════════════════════════
-            // CASH GENERATION AI (Treasury Mode) - Sync mode with paper/live
-            // This ensures treasury balances display correctly based on mode
+            // INITIALIZE ALL TRADING MODES - Extracted to reduce function complexity
             // ═══════════════════════════════════════════════════════════════════
-            try {
-                com.lifecyclebot.v3.scoring.CashGenerationAI.setTradingMode(cfg.paperMode)
-            } catch (e: Exception) {
-                // Silently ignore - Treasury Mode is supplemental
-            }
-            
-            // ═══════════════════════════════════════════════════════════════════
-            // SHITCOIN TRADER MODE SYNC
-            // Initialize the ShitCoin trader with current paper/live mode
-            // ═══════════════════════════════════════════════════════════════════
-            try {
-                com.lifecyclebot.v3.scoring.ShitCoinTraderAI.init(cfg.paperMode)
-            } catch (e: Exception) {
-                ErrorLogger.debug("BotService", "ShitCoinTraderAI init failed: ${e.message}")
-            }
-            
-            // ═══════════════════════════════════════════════════════════════════
-            // V4.0: COMPREHENSIVE TRADING MODES INITIALIZATION
-            // All layers must be initialized for proper cross-talk and learning
-            // ═══════════════════════════════════════════════════════════════════
-            try {
-                // 💩🚂 ShitCoin Express - Quick momentum rides for 30%+ profits
-                com.lifecyclebot.v3.scoring.ShitCoinExpress.init(cfg.paperMode)
-            } catch (e: Exception) {
-                ErrorLogger.debug("BotService", "ShitCoinExpress init failed: ${e.message}")
-            }
-            
-            try {
-                // 📉🎯 Dip Hunter - Buy quality dips on established tokens
-                com.lifecyclebot.v3.scoring.DipHunterAI.init(cfg.paperMode)
-            } catch (e: Exception) {
-                ErrorLogger.debug("BotService", "DipHunterAI init failed: ${e.message}")
-            }
-            
-            try {
-                // 💰⚡ Solana Arbitrage - Cross-exchange arb (requires treasury >= $500)
-                val treasuryBalance = com.lifecyclebot.v3.scoring.CashGenerationAI.getTreasuryBalance(cfg.paperMode)
-                val solPrice = WalletManager.lastKnownSolPrice.takeIf { it > 0 } ?: 150.0
-                val treasuryUsd = treasuryBalance * solPrice
-                com.lifecyclebot.v3.scoring.SolanaArbAI.init(cfg.paperMode, treasuryUsd)
-            } catch (e: Exception) {
-                ErrorLogger.debug("BotService", "SolanaArbAI init failed: ${e.message}")
-            }
-            
-            try {
-                // 🔄 Layer Transition Manager - Handles position upgrades between layers
-                com.lifecyclebot.v3.scoring.LayerTransitionManager.init()
-            } catch (e: Exception) {
-                ErrorLogger.debug("BotService", "LayerTransitionManager init failed: ${e.message}")
-            }
-            
-            try {
-                // 🔵 Blue Chip Trader - Established tokens >$1M
-                com.lifecyclebot.v3.scoring.BlueChipTraderAI.init(cfg.paperMode)
-            } catch (e: Exception) {
-                ErrorLogger.debug("BotService", "BlueChipTraderAI init failed: ${e.message}")
-            }
-            
-            try {
-                // 🧠 Fluid Learning AI - Central learning controller
-                com.lifecyclebot.v3.scoring.FluidLearningAI.init()
-            } catch (e: Exception) {
-                ErrorLogger.debug("BotService", "FluidLearningAI init failed: ${e.message}")
-            }
+            initTradingModes(cfg)
 
             // Log watchlist status every 5 loops for better visibility
             if (loopCount % 5 == 1) {
@@ -4304,6 +4240,72 @@ class BotService : Service() {
             ErrorLogger.info("BotService", "Watchlist cleanup: removed ${tokensToRemove.size} tokens, now ${newWatchlist.size} remaining")
             addLog("🧹 Cleanup: -${tokensToRemove.size} | now ${newWatchlist.size}")
         }
+    }
+
+    /**
+     * Initialize all trading modes/layers with current configuration.
+     * Extracted from botLoop to reduce function complexity and avoid compiler stack overflow.
+     */
+    private fun initTradingModes(cfg: BotConfig) {
+        // Cash Generation AI (Treasury Mode)
+        try {
+            com.lifecyclebot.v3.scoring.CashGenerationAI.setTradingMode(cfg.paperMode)
+        } catch (_: Exception) {}
+        
+        // ShitCoin Trader
+        try {
+            com.lifecyclebot.v3.scoring.ShitCoinTraderAI.init(cfg.paperMode)
+        } catch (e: Exception) {
+            ErrorLogger.debug("BotService", "ShitCoinTraderAI init: ${e.message}")
+        }
+        
+        // ShitCoin Express
+        try {
+            com.lifecyclebot.v3.scoring.ShitCoinExpress.init(cfg.paperMode)
+        } catch (e: Exception) {
+            ErrorLogger.debug("BotService", "ShitCoinExpress init: ${e.message}")
+        }
+        
+        // Dip Hunter
+        try {
+            com.lifecyclebot.v3.scoring.DipHunterAI.init(cfg.paperMode)
+        } catch (e: Exception) {
+            ErrorLogger.debug("BotService", "DipHunterAI init: ${e.message}")
+        }
+        
+        // Solana Arbitrage
+        try {
+            val treasuryBalance = com.lifecyclebot.v3.scoring.CashGenerationAI.getTreasuryBalance(cfg.paperMode)
+            val solPrice = WalletManager.lastKnownSolPrice.takeIf { it > 0 } ?: 150.0
+            val treasuryUsd = treasuryBalance * solPrice
+            com.lifecyclebot.v3.scoring.SolanaArbAI.init(cfg.paperMode, treasuryUsd)
+        } catch (e: Exception) {
+            ErrorLogger.debug("BotService", "SolanaArbAI init: ${e.message}")
+        }
+        
+        // Layer Transition Manager
+        try {
+            com.lifecyclebot.v3.scoring.LayerTransitionManager.init()
+        } catch (e: Exception) {
+            ErrorLogger.debug("BotService", "LayerTransitionManager init: ${e.message}")
+        }
+        
+        // Blue Chip Trader
+        try {
+            com.lifecyclebot.v3.scoring.BlueChipTraderAI.init(cfg.paperMode)
+        } catch (e: Exception) {
+            ErrorLogger.debug("BotService", "BlueChipTraderAI init: ${e.message}")
+        }
+        
+        // Fluid Learning AI
+        try {
+            com.lifecyclebot.v3.scoring.FluidLearningAI.init()
+        } catch (e: Exception) {
+            ErrorLogger.debug("BotService", "FluidLearningAI init: ${e.message}")
+        }
+        
+        // Update FinalDecisionGate mode
+        FinalDecisionGate.setModeForVeto(cfg.paperMode)
     }
 
     // ═══════════════════════════════════════════════════════════════════════════
