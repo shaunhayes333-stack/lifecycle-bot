@@ -98,6 +98,29 @@ Trade history persists until manually cleared. Win rate displayed on main screen
 
 ---
 
+### 7. Fluid Stop Loss & Take Profit (Layer 23 Extension)
+All trading modes now use adaptive SL/TP based on learning progress:
+
+| Stage | Stop Loss | Take Profit | Trailing |
+|-------|-----------|-------------|----------|
+| Bootstrap (0-50 trades) | Wide (-10% max) | Tight (+5-8%) | Disabled |
+| Learning (50-200 trades) | Scaling | Scaling | Scaling |
+| Mature (200+ trades) | Mode default | Mode default | Mode default |
+
+**Philosophy:**
+- **During bootstrap**: Wide stops prevent getting shaken out while learning. Tight TPs secure quick wins for fast feedback.
+- **When mature**: Tight stops protect capital. Wide TPs let winners run.
+
+**Implementation:**
+```kotlin
+// In FluidLearningAI.kt
+fun getFluidStopLoss(modeDefaultStop: Double): Double
+fun getFluidTakeProfit(modeDefaultTp: Double): Double  
+fun getFluidTrailingStop(modeDefaultTrailing: Double): Double
+```
+
+---
+
 ## Self-Learning Systems
 
 ### 1. FluidLearningAI (Layer 23) - NEW

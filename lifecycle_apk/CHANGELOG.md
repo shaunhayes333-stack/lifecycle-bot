@@ -11,6 +11,12 @@ All notable changes to the Autonomous Algorithmic Trading Engine.
   - Automatically tightens as trade count increases ("training wheels" concept)
   - Unified lerp() function for all adaptive thresholds
 
+- **Fluid Stop Loss & Take Profit** (NEW in this version)
+  - Bootstrap: Wide SL (-10% max), tight TP (+5-8%) - learn safely, secure wins
+  - Mature: Mode-specific SL/TP - protect capital, let winners run
+  - Each trading mode (SNIPE, RANGE, AGGRESSIVE, etc.) gets fluid parameters
+  - AutoModeEngine now uses FluidLearningAI for all stop/trailing calculations
+
 - **SellOptimizationAI (Layer 24)**: Intelligent exit strategy layer
   - Chunk selling: 25%/50%/75% partial exits at profit milestones
   - Trailing stop locks that follow price upward
@@ -32,11 +38,13 @@ All notable changes to the Autonomous Algorithmic Trading Engine.
 - **UI Trading Mode Labels**: MainActivity now shows actual MarketStructureRouter mode (e.g., "🚀 Fresh Launch") instead of hardcoded age-based labels
 - **Collective Brain Instance Count**: Immediate heartbeats on init and screen open for accurate "Active Instances" display
 - **JournalActivity refreshTrades()**: Added missing method that was breaking CI builds
+- **Collective Learning for New Users**: CollectiveIntelligenceAI.refresh() now triggered on init so new users see shared data immediately
 
 ### Changed
 - Total AI layers increased from 22 to **24**
 - All modes (Paper/Live/Treasury) use fluid thresholds from FluidLearningAI
 - UnifiedScorer.moduleNames() updated to include all 24 layers
+- AutoModeEngine: All 6 bot modes (SNIPE, RANGE, AGGRESSIVE, DEFENSIVE, COPY, PAUSED) use fluid SL/TP
 
 ### Technical Notes
 - 181 Kotlin source files
