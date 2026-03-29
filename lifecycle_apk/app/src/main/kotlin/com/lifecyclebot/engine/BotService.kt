@@ -803,6 +803,30 @@ class BotService : Service() {
                     if (success) {
                         val stats = com.lifecyclebot.collective.CollectiveLearning.getStats()
                         addLog("🌐 CollectiveLearning: ${stats["blacklistedTokens"]} blacklisted, ${stats["patterns"]} patterns")
+                        
+                        // V3.2: Send IMMEDIATE heartbeat on init so instance appears right away
+                        val botPrefs = getSharedPreferences("bot_service", android.content.Context.MODE_PRIVATE)
+                        val instanceId = botPrefs.getString("instance_id", null) 
+                            ?: java.util.UUID.randomUUID().toString().also { 
+                                botPrefs.edit().putString("instance_id", it).apply() 
+                            }
+                        val localStats = TradeHistoryStore.getStats()
+                        val pnl24hPct = if (localStats.trades24h > 0) {
+                            (localStats.pnl24hSol / (localStats.trades24h * 0.1).coerceAtLeast(0.01)) * 100
+                        } else 0.0
+                        
+                        com.lifecyclebot.collective.CollectiveLearning.uploadHeartbeat(
+                            instanceId = instanceId,
+                            appVersion = com.lifecyclebot.BuildConfig.VERSION_NAME,
+                            paperMode = cfg.paperMode,
+                            trades24h = localStats.trades24h,
+                            pnl24hPct = pnl24hPct
+                        )
+                        addLog("💓 Instance registered with collective")
+                        
+                        // Get initial instance count
+                        val activeCount = com.lifecyclebot.collective.CollectiveLearning.countActiveInstances()
+                        addLog("🌐 Active instances: $activeCount")
                     } else {
                         addLog("⚠️ CollectiveLearning: Failed to connect to Turso")
                     }

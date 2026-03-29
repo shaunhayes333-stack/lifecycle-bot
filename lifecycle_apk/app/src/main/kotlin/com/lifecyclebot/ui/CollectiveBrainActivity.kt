@@ -62,6 +62,11 @@ class CollectiveBrainActivity : AppCompatActivity() {
         
         findViewById<View>(R.id.btnBrainBack).setOnClickListener { finish() }
         
+        // V3.2: Send heartbeat when screen opens (in case bot isn't running)
+        lifecycleScope.launch {
+            sendHeartbeatIfEnabled()
+        }
+        
         // Start polling for updates
         lifecycleScope.launch {
             while (true) {
@@ -72,6 +77,46 @@ class CollectiveBrainActivity : AppCompatActivity() {
                 }
                 delay(5000) // Refresh every 5 seconds
             }
+        }
+    }
+    
+    /**
+     * Send a heartbeat to Turso when screen opens (ensures this instance is counted).
+     */
+    private suspend fun sendHeartbeatIfEnabled() {
+        if (!CollectiveLearning.isEnabled()) {
+            // Try to initialize if not yet done
+            try {
+                CollectiveLearning.init(applicationContext)
+            } catch (_: Exception) { return }
+        }
+        
+        if (!CollectiveLearning.isEnabled()) return
+        
+        try {
+            val prefs = getSharedPreferences("bot_service", android.content.Context.MODE_PRIVATE)
+            val instanceId = prefs.getString("instance_id", null) 
+                ?: java.util.UUID.randomUUID().toString().also { 
+                    prefs.edit().putString("instance_id", it).apply() 
+                }
+            
+            val config = com.lifecyclebot.data.ConfigStore.load(applicationContext)
+            val localStats = com.lifecyclebot.engine.TradeHistoryStore.getStats()
+            val pnl24hPct = if (localStats.trades24h > 0) {
+                (localStats.pnl24hSol / (localStats.trades24h * 0.1).coerceAtLeast(0.01)) * 100
+            } else 0.0
+            
+            CollectiveLearning.uploadHeartbeat(
+                instanceId = instanceId,
+                appVersion = com.lifecyclebot.BuildConfig.VERSION_NAME,
+                paperMode = config.paperMode,
+                trades24h = localStats.trades24h,
+                pnl24hPct = pnl24hPct
+            )
+            
+            com.lifecyclebot.engine.ErrorLogger.debug("CollectiveBrain", "💓 Heartbeat sent on screen open")
+        } catch (e: Exception) {
+            com.lifecyclebot.engine.ErrorLogger.debug("CollectiveBrain", "Heartbeat error: ${e.message}")
         }
     }
     
