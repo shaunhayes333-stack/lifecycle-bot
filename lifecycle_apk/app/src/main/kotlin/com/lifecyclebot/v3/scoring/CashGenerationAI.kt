@@ -620,6 +620,7 @@ object CashGenerationAI {
     /**
      * Close a treasury position and record P&L.
      * Profits are added to the mode-specific treasury balance.
+     * V4.0: Treasury trades now contribute to FluidLearningAI maturity!
      */
     fun closePosition(mint: String, exitPrice: Double, exitReason: ExitSignal) {
         val pos = synchronized(activePositions) { activePositions.remove(mint) } ?: return
@@ -637,6 +638,18 @@ object CashGenerationAI {
             addToTreasury(pnlSol, pos.isPaper)
         } else {
             dailyLosses.incrementAndGet()
+        }
+        
+        // V4.0: Treasury trades contribute to FluidLearningAI maturity
+        // Paper Treasury = 10% weight, Live Treasury = 50% weight (same as regular trades)
+        try {
+            if (pos.isPaper) {
+                FluidLearningAI.recordPaperTrade(pos.symbol, pnlPct)
+            } else {
+                FluidLearningAI.recordLiveTrade(pos.symbol, pnlPct)
+            }
+        } catch (e: Exception) {
+            ErrorLogger.debug(TAG, "FluidLearning update failed: ${e.message}")
         }
         
         val dailyPnl = dailyPnlSolBps.get() / 100.0
