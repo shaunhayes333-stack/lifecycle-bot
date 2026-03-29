@@ -1452,30 +1452,57 @@ class BotService : Service() {
             try {
                 com.lifecyclebot.v3.scoring.ShitCoinTraderAI.init(cfg.paperMode)
             } catch (e: Exception) {
-                // Silently ignore - ShitCoin Mode is supplemental
+                ErrorLogger.debug("BotService", "ShitCoinTraderAI init failed: ${e.message}")
             }
             
             // ═══════════════════════════════════════════════════════════════════
-            // V4.0: ADDITIONAL TRADING MODES INITIALIZATION
+            // V4.0: COMPREHENSIVE TRADING MODES INITIALIZATION
+            // All layers must be initialized for proper cross-talk and learning
             // ═══════════════════════════════════════════════════════════════════
             try {
                 // 💩🚂 ShitCoin Express - Quick momentum rides for 30%+ profits
                 com.lifecyclebot.v3.scoring.ShitCoinExpress.init(cfg.paperMode)
-            } catch (e: Exception) {}
+            } catch (e: Exception) {
+                ErrorLogger.debug("BotService", "ShitCoinExpress init failed: ${e.message}")
+            }
             
             try {
                 // 📉🎯 Dip Hunter - Buy quality dips on established tokens
                 com.lifecyclebot.v3.scoring.DipHunterAI.init(cfg.paperMode)
-            } catch (e: Exception) {}
+            } catch (e: Exception) {
+                ErrorLogger.debug("BotService", "DipHunterAI init failed: ${e.message}")
+            }
             
             try {
                 // 💰⚡ Solana Arbitrage - Cross-exchange arb (requires treasury >= $500)
-                // Use paper balance as proxy for treasury size
                 val treasuryBalance = com.lifecyclebot.v3.scoring.CashGenerationAI.getBalance(cfg.paperMode)
-                val solPrice = cfg.startingBalanceSol.takeIf { it > 0 } ?: 150.0  // Estimate SOL price
+                val solPrice = cfg.startingBalanceSol.takeIf { it > 0 } ?: 150.0
                 val treasuryUsd = treasuryBalance * solPrice
                 com.lifecyclebot.v3.scoring.SolanaArbAI.init(cfg.paperMode, treasuryUsd)
-            } catch (e: Exception) {}
+            } catch (e: Exception) {
+                ErrorLogger.debug("BotService", "SolanaArbAI init failed: ${e.message}")
+            }
+            
+            try {
+                // 🔄 Layer Transition Manager - Handles position upgrades between layers
+                com.lifecyclebot.v3.scoring.LayerTransitionManager.init()
+            } catch (e: Exception) {
+                ErrorLogger.debug("BotService", "LayerTransitionManager init failed: ${e.message}")
+            }
+            
+            try {
+                // 🔵 Blue Chip Trader - Established tokens >$1M
+                com.lifecyclebot.v3.scoring.BlueChipTraderAI.init(cfg.paperMode)
+            } catch (e: Exception) {
+                ErrorLogger.debug("BotService", "BlueChipTraderAI init failed: ${e.message}")
+            }
+            
+            try {
+                // 🧠 Fluid Learning AI - Central learning controller
+                com.lifecyclebot.v3.scoring.FluidLearningAI.init()
+            } catch (e: Exception) {
+                ErrorLogger.debug("BotService", "FluidLearningAI init failed: ${e.message}")
+            }
 
             // Log watchlist status every 5 loops for better visibility
             if (loopCount % 5 == 1) {
@@ -2757,6 +2784,15 @@ class BotService : Service() {
                                         )
                                     )
                                     
+                                    // Register with Layer Transition Manager
+                                    com.lifecyclebot.v3.scoring.LayerTransitionManager.registerPosition(
+                                        mint = ts.mint,
+                                        symbol = ts.symbol,
+                                        layer = com.lifecyclebot.v3.scoring.LayerTransitionManager.TradingLayer.BLUE_CHIP,
+                                        entryMcap = ts.lastMcap,
+                                        entryPrice = ts.ref,
+                                    )
+                                    
                                     addLog("🔵 BLUE CHIP BUY: ${ts.symbol} | \$${(ts.lastMcap/1_000_000).fmt(1)}M mcap | " +
                                         "${blueChipSignal.positionSizeSol.fmt(3)} SOL | " +
                                         "${if (cfg.paperMode) "PAPER" else "LIVE"}", ts.mint)
@@ -2882,6 +2918,15 @@ class BotService : Service() {
                                                 bundlePct = bundlePct,
                                                 socialScore = shitCoinSignal.socialScore,
                                             )
+                                        )
+                                        
+                                        // Register with Layer Transition Manager
+                                        com.lifecyclebot.v3.scoring.LayerTransitionManager.registerPosition(
+                                            mint = ts.mint,
+                                            symbol = ts.symbol,
+                                            layer = com.lifecyclebot.v3.scoring.LayerTransitionManager.TradingLayer.SHITCOIN,
+                                            entryMcap = ts.lastMcap,
+                                            entryPrice = ts.ref,
                                         )
                                         
                                         addLog("💩 SHITCOIN BUY: ${ts.symbol} | " +
@@ -3667,6 +3712,62 @@ class BotService : Service() {
                 } else if (ts.position.isOpen) {
                     // Position management (exits) - ALWAYS monitor open positions
                     // Even when paused, we need to manage risk on existing positions
+                    
+                    // ═══════════════════════════════════════════════════════════════════
+                    // LAYER TRANSITION CHECK - Upgrade positions on the way UP
+                    // Check if position should transition to a higher layer
+                    // ═══════════════════════════════════════════════════════════════════
+                    try {
+                        val currentPrice = ts.lastPrice.takeIf { it > 0 } 
+                            ?: ts.history.lastOrNull()?.priceUsd 
+                            ?: ts.position.entryPrice
+                        
+                        val transition = com.lifecyclebot.v3.scoring.LayerTransitionManager.checkTransition(
+                            mint = ts.mint,
+                            currentMcap = ts.lastMcap,
+                            currentPrice = currentPrice,
+                        )
+                        
+                        if (transition.shouldTransition) {
+                            // Update position's trading mode to new layer
+                            ts.position.tradingMode = transition.toLayer.displayName.uppercase().replace(" ", "_")
+                            ts.position.tradingModeEmoji = transition.toLayer.emoji
+                            
+                            // Update targets for new layer
+                            val (newTP, newSL) = com.lifecyclebot.v3.scoring.LayerTransitionManager.getAdjustedTargets(
+                                ts.mint, transition.newTakeProfit, transition.newStopLoss
+                            )
+                            
+                            // Update position flags based on new layer
+                            when (transition.toLayer) {
+                                com.lifecyclebot.v3.scoring.LayerTransitionManager.TradingLayer.BLUE_CHIP -> {
+                                    ts.position.isBlueChipPosition = true
+                                    ts.position.isShitCoinPosition = false
+                                    ts.position.blueChipTakeProfit = newTP
+                                    ts.position.blueChipStopLoss = newSL
+                                }
+                                com.lifecyclebot.v3.scoring.LayerTransitionManager.TradingLayer.V3_QUALITY -> {
+                                    ts.position.isShitCoinPosition = false
+                                }
+                                else -> {}
+                            }
+                            
+                            addLog("🚀 LAYER UP: ${ts.symbol} | " +
+                                "${transition.fromLayer.emoji} → ${transition.toLayer.emoji} | " +
+                                "mcap \$${(ts.lastMcap/1000).toInt()}K", ts.mint)
+                            
+                            // Record to FluidLearning as a positive signal
+                            try {
+                                if (cfg.paperMode) {
+                                    com.lifecyclebot.v3.scoring.FluidLearningAI.recordPaperTrade(true)
+                                } else {
+                                    com.lifecyclebot.v3.scoring.FluidLearningAI.recordLiveTrade(true)
+                                }
+                            } catch (e: Exception) {}
+                        }
+                    } catch (transEx: Exception) {
+                        ErrorLogger.debug("BotService", "Layer transition check failed: ${transEx.message}")
+                    }
                     
                     // ═══════════════════════════════════════════════════════════════════
                     // TREASURY MODE EXIT CHECK - Quick scalps with tight exits

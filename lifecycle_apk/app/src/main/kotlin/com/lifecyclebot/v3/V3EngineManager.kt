@@ -200,18 +200,42 @@ object V3EngineManager {
         
         try {
             // ═══════════════════════════════════════════════════════════════════
-            // V4.0: Skip ShitCoin candidates - let ShitCoin layer handle them
-            // This keeps micro caps (<$500K) isolated from main V3 engine
+            // V4.0: Layer Routing Logic
+            // - ShitCoin layer handles: <$500K mcap AND <6h age
+            // - V3 Quality handles: $20K-$5M mcap with quality setups
+            // - Let quality low caps through to V3!
             // ═══════════════════════════════════════════════════════════════════
             val tokenAgeMinutes = if (ts.addedToWatchlistAt > 0) {
                 (System.currentTimeMillis() - ts.addedToWatchlistAt) / 60_000.0
             } else 120.0
+            val tokenAgeHours = tokenAgeMinutes / 60.0
             
-            if (com.lifecyclebot.v3.scoring.ShitCoinTraderAI.isShitCoinCandidate(
-                    marketCapUsd = ts.lastMcap,
-                    tokenAgeMinutes = tokenAgeMinutes
-                )) {
+            // Check if ShitCoin layer should handle this
+            val isShitCoinCandidate = com.lifecyclebot.v3.scoring.ShitCoinTraderAI.isShitCoinCandidate(
+                marketCapUsd = ts.lastMcap,
+                tokenAgeMinutes = tokenAgeMinutes
+            )
+            
+            // Check if this is a quality setup that V3 should handle
+            val isQualityLowCap = com.lifecyclebot.v3.scoring.LayerTransitionManager.isV3QualityCandidate(
+                marketCapUsd = ts.lastMcap,
+                tokenAgeHours = tokenAgeHours,
+                liquidityUsd = ts.lastLiquidityUsd,
+                buyPressurePct = ts.lastBuyPressurePct,
+                holderConcentration = ts.topHolderPct ?: 20.0,
+            )
+            
+            // Route decision:
+            // - If it's a quality low cap ($20K+), V3 handles it
+            // - If it's a pure shitcoin (<$500K, fresh, not quality), ShitCoin layer handles it
+            if (isShitCoinCandidate && !isQualityLowCap) {
                 return V3Decision.rejected("SHITCOIN_CANDIDATE: mcap=\$${(ts.lastMcap/1_000).toInt()}K - handled by ShitCoin layer")
+            }
+            
+            // V3 minimum mcap check - must be at least $20K for quality consideration
+            val minMcap = com.lifecyclebot.v3.scoring.LayerTransitionManager.V3_MIN_MCAP
+            if (ts.lastMcap < minMcap && !isQualityLowCap) {
+                return V3Decision.rejected("MCAP_TOO_LOW: \$${(ts.lastMcap/1_000).toInt()}K < \$${(minMcap/1_000).toInt()}K")
             }
             
             // Update context with current market regime
