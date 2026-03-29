@@ -285,7 +285,7 @@ object BehaviorLearning {
             // Bad pattern match
             if (badMatch != null && badMatch.isReliable) {
                 val lossRate = 100.0 - badMatch.winRate
-                scoreAdjust -= lossRate * 0.4  // Up to -40 for 100% loss rate
+                scoreAdjust -= lossRate * 0.06  // Up to -6 for 100% loss rate (reduced from -40)
                 confidence = maxOf(confidence, badMatch.confidence)
                 reasons.add("❌ Matches losing pattern (${lossRate.toInt()}% loss, ${badMatch.occurrences} trades)")
             }
@@ -730,7 +730,7 @@ object BehaviorLearning {
     
     /**
      * Get confidence-weighted score adjustment for FDG.
-     * Returns adjustment in range -50 to +30.
+     * Returns adjustment in range -6 to +30.
      */
     fun getScoreAdjustment(
         entryPhase: String,
@@ -742,8 +742,8 @@ object BehaviorLearning {
         return try {
             val eval = evaluate(entryPhase, setupQuality, tradingMode, liquidityUsd, volumeSignal)
             
-            // Weight by confidence
-            (eval.scoreAdjustment * eval.confidence).toInt().coerceIn(-50, 30)
+            // Weight by confidence (reduced bad penalty from -50 to -6)
+            (eval.scoreAdjustment * eval.confidence).toInt().coerceIn(-6, 30)
         } catch (e: Exception) {
             0
         }
