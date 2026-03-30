@@ -2906,7 +2906,8 @@ class BotService : Service() {
     // DEDUPE: Skip if we recently evaluated this token
     val (canProposeEarly, dedupeReason) = TradeLifecycle.canPropose(identity.mint)
     if (!canProposeEarly && !ts.position.isOpen) {
-        // Silently skip - no spam logging
+        // V5.0: Log why tokens are being skipped (for debugging)
+        ErrorLogger.debug("BotService", "⏭️ SKIP: ${identity.symbol} | $dedupeReason")
         return
     }
     
