@@ -77,6 +77,177 @@ object FluidLearningAI {
      * 
      * @param modifier -1.0 (very bad behavior) to +1.0 (excellent behavior)
      */
+    // ═══════════════════════════════════════════════════════════════════════════
+    // V4.1 COLD-START FIX: BOOTSTRAP ENTRY OVERRIDE
+    // 
+    // Problem: No trades → no data → no learning → no confidence → no trades
+    // This is a classic cold-start deadlock.
+    //
+    // Solution: Force controlled entries during bootstrap to break the deadlock:
+    // 1. Allow entry if score >= 80 AND liquidity >= $3K AND age < 10min
+    // 2. Add synthetic confidence boost based on trade count
+    // 3. Use micro-positions (0.01-0.05 SOL) to limit risk
+    // ═══════════════════════════════════════════════════════════════════════════
+    
+    /**
+     * Check if we should force a bootstrap entry to break the cold-start deadlock.
+     * Returns true if conditions are exceptional enough to warrant forced learning.
+     */
+    fun shouldForceBootstrapEntry(
+        score: Int,
+        liquidityUsd: Double,
+        tokenAgeMinutes: Double,
+        buyPressurePct: Double,
+        isPaper: Boolean
+    ): Boolean {
+        // Only apply during true bootstrap (learning < 5%)
+        if (getLearningProgress() >= 0.05) return false
+        
+        // Paper mode: be more aggressive to learn faster
+        if (isPaper) {
+            return score >= 70 && 
+                   liquidityUsd >= 1500 && 
+                   tokenAgeMinutes <= 15 &&
+                   buyPressurePct >= 40
+        }
+        
+        // Live mode: strict conditions only
+        return score >= 85 && 
+               liquidityUsd >= 3000 && 
+               tokenAgeMinutes <= 10 &&
+               buyPressurePct >= 55
+    }
+    
+    /**
+     * Get synthetic confidence boost for bootstrap mode.
+     * This simulates early confidence until real learning kicks in.
+     * 
+     * Formula: bootstrapBoost = min(20%, tradeCount * 0.5%)
+     * 
+     * At 0 trades: +0%
+     * At 10 trades: +5%
+     * At 20 trades: +10%
+     * At 40+ trades: +20% (capped)
+     */
+    fun getBootstrapConfidenceBoost(): Double {
+        val tradeCount = getTotalTradeCount()
+        val boost = (tradeCount * 0.5).coerceAtMost(20.0)
+        return boost
+    }
+    
+    /**
+     * Get adjusted confidence including bootstrap boost.
+     * Use this instead of raw confidence during bootstrap.
+     */
+    fun getAdjustedConfidence(rawConfidence: Double, isPaper: Boolean): Double {
+        val progress = getLearningProgress()
+        
+        // Apply bootstrap boost only during early learning
+        val boost = if (progress < 0.3) {
+            getBootstrapConfidenceBoost()
+        } else {
+            0.0
+        }
+        
+        // Apply behavior modifier
+        val behaviorAdjustment = rawConfidence * behaviorModifier * 0.1
+        
+        return (rawConfidence + boost + behaviorAdjustment).coerceIn(0.0, 100.0)
+    }
+    
+    /**
+     * Get bootstrap position size multiplier.
+     * During bootstrap, use micro-positions (0.01-0.05 SOL).
+     */
+    fun getBootstrapSizeMultiplier(): Double {
+        val progress = getLearningProgress()
+        
+        return when {
+            progress < 0.05 -> 0.10  // 10% of normal size (micro-position)
+            progress < 0.15 -> 0.25  // 25% of normal size
+            progress < 0.30 -> 0.50  // 50% of normal size
+            progress < 0.50 -> 0.75  // 75% of normal size
+            else -> 1.0               // Full size when mature
+        }
+    }
+    
+    // ═══════════════════════════════════════════════════════════════════════════
+    // V4.1: HEURISTIC FALLBACK (When patterns = 0)
+    // 
+    // When CollectiveAI has no patterns, use a simple heuristic model
+    // ═══════════════════════════════════════════════════════════════════════════
+    
+    data class HeuristicSignal(
+        val shouldEnter: Boolean,
+        val confidence: Double,
+        val reason: String,
+    )
+    
+    /**
+     * Simple heuristic model for when AI has no learned patterns.
+     * Uses basic market signals: buy pressure, liquidity, age, momentum.
+     */
+    fun getHeuristicSignal(
+        buyPressurePct: Double,
+        liquidityUsd: Double,
+        tokenAgeMinutes: Double,
+        momentum: Double,
+        score: Int,
+    ): HeuristicSignal {
+        var confidence = 20.0  // Base confidence
+        val reasons = mutableListOf<String>()
+        
+        // Buy pressure signal
+        when {
+            buyPressurePct >= 70 -> { confidence += 25; reasons.add("strong_buy_pressure") }
+            buyPressurePct >= 55 -> { confidence += 15; reasons.add("good_buy_pressure") }
+            buyPressurePct >= 45 -> { confidence += 5; reasons.add("neutral_pressure") }
+            else -> { confidence -= 10; reasons.add("weak_pressure") }
+        }
+        
+        // Liquidity signal
+        when {
+            liquidityUsd >= 10000 -> { confidence += 15; reasons.add("high_liquidity") }
+            liquidityUsd >= 5000 -> { confidence += 10; reasons.add("good_liquidity") }
+            liquidityUsd >= 2000 -> { confidence += 5; reasons.add("ok_liquidity") }
+            else -> { confidence -= 5; reasons.add("low_liquidity") }
+        }
+        
+        // Age signal (fresher = better for momentum plays)
+        when {
+            tokenAgeMinutes <= 5 -> { confidence += 15; reasons.add("very_fresh") }
+            tokenAgeMinutes <= 15 -> { confidence += 10; reasons.add("fresh") }
+            tokenAgeMinutes <= 30 -> { confidence += 5; reasons.add("young") }
+            else -> { confidence -= 5; reasons.add("older") }
+        }
+        
+        // Momentum signal
+        when {
+            momentum >= 20 -> { confidence += 15; reasons.add("strong_momentum") }
+            momentum >= 10 -> { confidence += 10; reasons.add("good_momentum") }
+            momentum >= 0 -> { confidence += 5; reasons.add("neutral_momentum") }
+            else -> { confidence -= 10; reasons.add("negative_momentum") }
+        }
+        
+        // Score signal
+        when {
+            score >= 80 -> { confidence += 10; reasons.add("high_score") }
+            score >= 50 -> { confidence += 5; reasons.add("good_score") }
+            else -> {}
+        }
+        
+        confidence = confidence.coerceIn(0.0, 100.0)
+        
+        // Threshold for entry
+        val shouldEnter = confidence >= 45  // Lower threshold for heuristic mode
+        
+        return HeuristicSignal(
+            shouldEnter = shouldEnter,
+            confidence = confidence,
+            reason = reasons.joinToString(", ")
+        )
+    }
+    
     fun applyBehaviorModifier(modifier: Double) {
         behaviorModifier = modifier.coerceIn(-1.0, 1.0)
         ErrorLogger.info(TAG, "🧠 Behavior modifier: ${if (modifier >= 0) "+" else ""}${(modifier * 100).toInt()}%")
@@ -145,6 +316,16 @@ object FluidLearningAI {
     fun recordTrade(isWin: Boolean) {
         // Legacy method - defaults to paper weight for backwards compatibility
         recordPaperTrade(isWin)
+    }
+    
+    /**
+     * Record that a trade has started (for bootstrap counting).
+     * Call this when any layer opens a position.
+     */
+    fun recordTradeStart() {
+        sessionTrades.incrementAndGet()
+        lastProgressUpdate.set(0)  // Force progress recalculation
+        ErrorLogger.debug(TAG, "📊 Trade started | total=${getTotalTradeCount()} | progress=${(getLearningProgress()*100).toInt()}%")
     }
     
     // ═══════════════════════════════════════════════════════════════════════════

@@ -3016,6 +3016,22 @@ class BotService : Service() {
                         ts.lastV3Score = v3Score
                         ts.lastV3Confidence = v3Confidence
                         
+                        // ═══════════════════════════════════════════════════════════════════
+                        // V4.1 COLD-START FIX: Check for bootstrap forced entry
+                        // This breaks the deadlock: no trades → no learning → no trades
+                        // ═══════════════════════════════════════════════════════════════════
+                        val tokenAge = if (ts.addedToWatchlistAt > 0) {
+                            (System.currentTimeMillis() - ts.addedToWatchlistAt) / 60_000.0
+                        } else 30.0
+                        
+                        val forceBootstrapEntry = com.lifecyclebot.v3.scoring.FluidLearningAI.shouldForceBootstrapEntry(
+                            score = v3Score,
+                            liquidityUsd = ts.lastLiquidityUsd,
+                            tokenAgeMinutes = tokenAge,
+                            buyPressurePct = ts.lastBuyPressurePct,
+                            isPaper = cfg.paperMode
+                        )
+                        
                         val treasurySignal = com.lifecyclebot.v3.scoring.CashGenerationAI.evaluate(
                             mint = ts.mint,
                             symbol = ts.symbol,
@@ -3031,25 +3047,33 @@ class BotService : Service() {
                             volatility = ts.volatility ?: 0.0
                         )
                         
-                        if (treasurySignal.shouldEnter) {
+                        // V4.1: Enter if Treasury says yes OR bootstrap override triggered
+                        val shouldEnter = treasurySignal.shouldEnter || forceBootstrapEntry
+                        
+                        if (shouldEnter) {
+                            // V4.1: Apply bootstrap size multiplier for micro-positions
+                            val bootstrapMultiplier = com.lifecyclebot.v3.scoring.FluidLearningAI.getBootstrapSizeMultiplier()
+                            val adjustedSize = (treasurySignal.positionSizeSol * bootstrapMultiplier).coerceAtLeast(0.01)
+                            
                             // Try to acquire execution permit
                             val canExecute = FinalExecutionPermit.tryAcquireExecution(
                                 mint = ts.mint,
                                 symbol = ts.symbol,
                                 layer = "TREASURY",
-                                sizeSol = treasurySignal.positionSizeSol
+                                sizeSol = adjustedSize
                             )
                             
                             if (canExecute) {
-                                ErrorLogger.info("BotService", "💰 [TREASURY] ${ts.symbol} | ENTER | " +
-                                    "size=${treasurySignal.positionSizeSol.fmt(3)} SOL | " +
+                                val bootstrapTag = if (forceBootstrapEntry) " [BOOTSTRAP OVERRIDE]" else ""
+                                ErrorLogger.info("BotService", "💰 [TREASURY] ${ts.symbol} | ENTER$bootstrapTag | " +
+                                    "size=${adjustedSize.fmt(3)} SOL (${(bootstrapMultiplier*100).toInt()}%) | " +
                                     "TP=${treasurySignal.takeProfitPct}% | " +
                                     "mode=${treasurySignal.mode}")
                                 
                                 // Execute treasury buy
                                 executor.treasuryBuy(
                                     ts = ts,
-                                    sizeSol = treasurySignal.positionSizeSol,
+                                    sizeSol = adjustedSize,
                                     walletSol = effectiveBalance,
                                     takeProfitPct = treasurySignal.takeProfitPct,
                                     stopLossPct = treasurySignal.stopLossPct,
@@ -3062,7 +3086,7 @@ class BotService : Service() {
                                     mint = ts.mint,
                                     symbol = ts.symbol,
                                     entryPrice = ts.ref,
-                                    positionSol = treasurySignal.positionSizeSol,
+                                    positionSol = adjustedSize,
                                     takeProfitPct = treasurySignal.takeProfitPct,
                                     stopLossPct = treasurySignal.stopLossPct
                                 )
@@ -3070,7 +3094,11 @@ class BotService : Service() {
                                 // Release permit after successful execution
                                 FinalExecutionPermit.releaseExecution(ts.mint)
                                 
-                                addLog("💰 TREASURY BUY: ${ts.symbol} | ${treasurySignal.positionSizeSol.fmt(3)} SOL | " +
+                                // V4.1: Record trade for learning
+                                com.lifecyclebot.v3.scoring.FluidLearningAI.recordTradeStart()
+                                
+                                val bootstrapLabel = if (forceBootstrapEntry) " [BOOTSTRAP]" else ""
+                                addLog("💰 TREASURY BUY$bootstrapLabel: ${ts.symbol} | ${adjustedSize.fmt(3)} SOL | " +
                                     "${if (cfg.paperMode) "PAPER" else "LIVE"}", ts.mint)
                             } else {
                                 ErrorLogger.debug("BotService", "💰 [TREASURY] ${ts.symbol} | EXECUTION_BLOCKED | another layer executing")
@@ -3276,30 +3304,49 @@ class BotService : Service() {
                             graduationProgress = graduationProgress,
                         )
                         
-                        if (shitCoinSignal.shouldEnter) {
+                        // ═══════════════════════════════════════════════════════════════════
+                        // V4.1 COLD-START FIX: Check for bootstrap forced entry
+                        // ═══════════════════════════════════════════════════════════════════
+                        val forceBootstrapEntry = com.lifecyclebot.v3.scoring.FluidLearningAI.shouldForceBootstrapEntry(
+                            score = shitCoinSignal.totalScore,
+                            liquidityUsd = ts.lastLiquidityUsd,
+                            tokenAgeMinutes = tokenAgeMinutes,
+                            buyPressurePct = ts.lastBuyPressurePct,
+                            isPaper = cfg.paperMode
+                        )
+                        
+                        // V4.1: Enter if ShitCoin says yes OR bootstrap override triggered
+                        val shouldEnter = shitCoinSignal.shouldEnter || forceBootstrapEntry
+                        
+                        if (shouldEnter) {
+                            // V4.1: Apply bootstrap size multiplier for micro-positions
+                            val bootstrapMultiplier = com.lifecyclebot.v3.scoring.FluidLearningAI.getBootstrapSizeMultiplier()
+                            val adjustedSize = (shitCoinSignal.positionSizeSol * bootstrapMultiplier).coerceAtLeast(0.01)
+                            
                             // V4.0: Try to acquire execution permit
                             val canExecute = FinalExecutionPermit.tryAcquireExecution(
                                 mint = ts.mint,
                                 symbol = ts.symbol,
                                 layer = "SHITCOIN",
-                                sizeSol = shitCoinSignal.positionSizeSol
+                                sizeSol = adjustedSize
                             )
                             
                             if (canExecute) {
                                 val gradLabel = if (shitCoinSignal.graduationImminent) " [GRAD IMMINENT!]" else ""
                                 val bundleLabel = if (shitCoinSignal.bundleWarning) " [BUNDLE!]" else ""
+                                val bootstrapTag = if (forceBootstrapEntry) " [BOOTSTRAP]" else ""
                                 
-                                ErrorLogger.info("BotService", "💩 [SHITCOIN] ${ts.symbol} | ENTER | " +
+                                ErrorLogger.info("BotService", "💩 [SHITCOIN] ${ts.symbol} | ENTER$bootstrapTag | " +
                                     "${shitCoinSignal.launchPlatform.emoji} ${shitCoinSignal.launchPlatform.displayName} | " +
                                     "mcap=\$${(ts.lastMcap/1_000).fmt(1)}K | " +
                                     "risk=${shitCoinSignal.riskLevel.emoji}${shitCoinSignal.riskLevel.name} | " +
-                                    "size=${shitCoinSignal.positionSizeSol.fmt(3)} SOL | " +
+                                    "size=${adjustedSize.fmt(3)} SOL (${(bootstrapMultiplier*100).toInt()}%) | " +
                                     "TP=${shitCoinSignal.takeProfitPct}%$gradLabel$bundleLabel")
                                 
                                 // Execute ShitCoin buy
                                 executor.shitCoinBuy(
                                     ts = ts,
-                                    sizeSol = shitCoinSignal.positionSizeSol,
+                                    sizeSol = adjustedSize,
                                     walletSol = effectiveBalance,
                                     takeProfitPct = shitCoinSignal.takeProfitPct,
                                     stopLossPct = shitCoinSignal.stopLossPct,
@@ -3315,7 +3362,7 @@ class BotService : Service() {
                                         mint = ts.mint,
                                         symbol = ts.symbol,
                                         entryPrice = ts.ref,
-                                        entrySol = shitCoinSignal.positionSizeSol,
+                                        entrySol = adjustedSize,
                                         entryTime = System.currentTimeMillis(),
                                         marketCapUsd = ts.lastMcap,
                                         liquidityUsd = ts.lastLiquidityUsd,
@@ -3341,10 +3388,14 @@ class BotService : Service() {
                                 // Release permit
                                 FinalExecutionPermit.releaseExecution(ts.mint)
                                 
-                                addLog("💩 SHITCOIN BUY: ${ts.symbol} | " +
+                                // V4.1: Record trade for learning
+                                com.lifecyclebot.v3.scoring.FluidLearningAI.recordTradeStart()
+                                
+                                val bootstrapLabel = if (forceBootstrapEntry) " [BOOTSTRAP]" else ""
+                                addLog("💩 SHITCOIN BUY$bootstrapLabel: ${ts.symbol} | " +
                                     "${shitCoinSignal.launchPlatform.emoji} | " +
                                     "\$${(ts.lastMcap/1_000).toInt()}K mcap | " +
-                                    "${shitCoinSignal.positionSizeSol.fmt(3)} SOL | " +
+                                    "${adjustedSize.fmt(3)} SOL | " +
                                     "${if (cfg.paperMode) "PAPER" else "LIVE"}", ts.mint)
                             } else {
                                 ErrorLogger.debug("BotService", "💩 [SHITCOIN] ${ts.symbol} | EXECUTION_BLOCKED | another layer executing")
