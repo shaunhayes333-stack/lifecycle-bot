@@ -627,16 +627,17 @@ object FluidLearningAI {
     
     /**
      * Get fluid stop loss percentage for a trading mode.
-     * Bootstrap: LOOSE stops (allow learning from volatile moves)
-     * Mature: TIGHT stops (protect capital with experience)
+     * V5.1: TIGHTER bootstrap stops - don't let losses run while learning
+     * Bootstrap: Use tighter stops (-6% max) to protect capital while learning
+     * Mature: Use mode-specific stops (can be wider with experience)
      */
     fun getFluidStopLoss(modeDefaultStop: Double): Double {
         val progress = getLearningProgress()
         
-        // Bootstrap: Use max of mode default or 10% (protect during learning)
-        // Mature: Use tighter mode-specific stops
-        val bootstrapStop = maxOf(modeDefaultStop, 10.0)  // At least -10% during bootstrap
-        val matureStop = modeDefaultStop                   // Use mode's intended stop when mature
+        // V5.1: Tighter bootstrap stops - was maxOf(10%), now maxOf(6%)
+        // This prevents letting losses run too much while learning
+        val bootstrapStop = maxOf(modeDefaultStop, 6.0)  // At least -6% during bootstrap (was -10%)
+        val matureStop = modeDefaultStop                  // Use mode's intended stop when mature
         
         return lerp(bootstrapStop, matureStop)
     }
