@@ -3991,12 +3991,12 @@ class Executor(
         } else 0.0
         
         val tradeClassification = when {
-            pnlP >= 5.0 -> "WIN"              // Real winner - LEARN
-            pnlP <= -5.0 -> "LOSS"            // Real loser - LEARN
+            pnlP >= 2.0 -> "WIN"              // V5.0: +2% is a win (was 5%) - count scalps!
+            pnlP <= -3.0 -> "LOSS"            // V5.0: -3% is a loss (was -5%)
             else -> "SCRATCH"                  // Noise - DO NOT LEARN
         }
         
-        // STRICT: Only learn from ±5%+ trades
+        // V5.0: Learn from ±2-3% trades now
         val isScratchTrade = tradeClassification == "SCRATCH"
         val shouldLearnAsLoss = tradeClassification == "LOSS"
         val shouldLearnAsWin = tradeClassification == "WIN"
@@ -5124,8 +5124,8 @@ class Executor(
         } else 0.0
         
         val tradeClassification = when {
-            pnlP >= 5.0 -> "WIN"              // Real winner - LEARN
-            pnlP <= -5.0 -> "LOSS"            // Real loser - LEARN
+            pnlP >= 2.0 -> "WIN"              // V5.0: +2% is a win (was 5%) - count scalps!
+            pnlP <= -3.0 -> "LOSS"            // V5.0: -3% is a loss (was -5%)
             else -> "SCRATCH"                  // Noise - DO NOT LEARN
         }
         

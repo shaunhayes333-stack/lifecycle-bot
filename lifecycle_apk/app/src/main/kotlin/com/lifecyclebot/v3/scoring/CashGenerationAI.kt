@@ -69,9 +69,9 @@ object CashGenerationAI {
     // Can cycle same coin repeatedly if green
     private const val TAKE_PROFIT_PCT_PAPER = 0.5     // Paper: Exit at 0.5%+ (learn fast)
     private const val TAKE_PROFIT_PCT_LIVE = 2.5      // Live: 2.5% minimum (covers fees + profit)
-    private const val TAKE_PROFIT_MIN_PCT = 3.0       // Minimum TP for DEFENSIVE mode (quick 3%)
+    private const val TAKE_PROFIT_MIN_PCT = 2.5       // V5.0: Quick 2.5% for DEFENSIVE mode
     private const val TAKE_PROFIT_PCT = 3.5           // Standard TP for CRUISE mode
-    private const val TAKE_PROFIT_MAX_PCT = 8.0       // Let winners run to 8% if momentum continues
+    private const val TAKE_PROFIT_MAX_PCT = 4.0       // V5.0: Cap at 4% for AGGRESSIVE (was 8%)
     private const val STOP_LOSS_PCT = -2.0            // Cut at -2%, no exceptions
     private const val TRAILING_STOP_PCT = 1.5         // Tighter 1.5% trail after profit
     private const val MAX_HOLD_MINUTES = 30           // Extended to 30min - let positions breathe
@@ -377,12 +377,12 @@ object CashGenerationAI {
         treasuryScore += modeBonus
         if (modeBonus != 0) scoreReasons.add("mode${if(modeBonus>0)"+" else ""}$modeBonus")
         
-        // Calculate confidence
+        // Calculate confidence - V5.0: Tighter thresholds
         treasuryConfidence = (
-            (if (liquidityUsd > 5000) 25 else 10) +
-            (if (buyPressurePct > 45) 25 else 10) +
-            (if (momentum > -2) 25 else 10) +
-            (if (topHolderPct < 30) 25 else 10)
+            (if (liquidityUsd > 10000) 25 else if (liquidityUsd > 5000) 15 else 5) +
+            (if (buyPressurePct > 55) 25 else if (buyPressurePct > 45) 15 else 5) +
+            (if (momentum > 2) 25 else if (momentum > -2) 15 else 5) +
+            (if (topHolderPct < 20) 25 else if (topHolderPct < 30) 15 else 5)
         ).coerceIn(0, 100)
         
         // ═══════════════════════════════════════════════════════════════════
