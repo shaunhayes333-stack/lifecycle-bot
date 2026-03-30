@@ -1,5 +1,6 @@
 package com.lifecyclebot.v3.scoring
 
+import com.lifecyclebot.engine.AutoCompoundEngine
 import com.lifecyclebot.engine.ErrorLogger
 import java.util.concurrent.atomic.AtomicLong
 import java.util.concurrent.atomic.AtomicInteger
@@ -68,6 +69,8 @@ object CashGenerationAI {
     // Can cycle same coin repeatedly if green
     private const val TAKE_PROFIT_PCT_PAPER = 0.5     // Paper: Exit at 0.5%+ (learn fast)
     private const val TAKE_PROFIT_PCT_LIVE = 1.5      // Live: 1.5% minimum to cover fees/slippage
+    private const val TAKE_PROFIT_MIN_PCT = 3.0       // Minimum TP for DEFENSIVE mode (quick 3%)
+    private const val TAKE_PROFIT_PCT = 3.5           // Standard TP for CRUISE mode
     private const val TAKE_PROFIT_MAX_PCT = 8.0       // Let winners run to 8% if momentum continues
     private const val STOP_LOSS_PCT = -2.0            // Cut at -2%, no exceptions
     private const val TRAILING_STOP_PCT = 1.5         // Tighter 1.5% trail after profit
@@ -503,6 +506,15 @@ object CashGenerationAI {
         // Enforce min/max bounds (compounding can push above normal max)
         val maxWithCompounding = MAX_POSITION_SOL * (1 + COMPOUNDING_RATIO)
         positionSol = positionSol.coerceIn(MIN_POSITION_SOL, maxWithCompounding)
+        
+        // V4.20: Apply AutoCompoundEngine global size multiplier
+        // This multiplier grows as the compound pool accumulates from winning trades
+        val globalMultiplier = AutoCompoundEngine.getSizeMultiplier()
+        if (globalMultiplier > 1.0) {
+            positionSol *= globalMultiplier
+            positionSol = positionSol.coerceAtMost(maxWithCompounding * 1.5) // Allow slight overshoot
+            ErrorLogger.debug(TAG, "💰 GLOBAL COMPOUND BOOST: ${globalMultiplier.fmt(2)}x → pos=${positionSol.fmt(3)}SOL")
+        }
         
         // ─── DETERMINE EXIT LEVELS (Quick scalps 3-7% for Treasury Mode) ───
         val takeProfitPct = when (mode) {

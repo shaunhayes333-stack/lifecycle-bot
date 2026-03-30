@@ -1,5 +1,6 @@
 package com.lifecyclebot.v3.scoring
 
+import com.lifecyclebot.engine.AutoCompoundEngine
 import com.lifecyclebot.engine.ErrorLogger
 import java.util.concurrent.atomic.AtomicLong
 import java.util.concurrent.atomic.AtomicInteger
@@ -696,6 +697,15 @@ object ShitCoinTraderAI {
         
         // Cap at max
         positionSol = positionSol.coerceIn(0.02, MAX_POSITION_SOL)
+        
+        // V4.20: Apply AutoCompoundEngine global size multiplier
+        // This multiplier grows as the compound pool accumulates from winning trades
+        val globalMultiplier = AutoCompoundEngine.getSizeMultiplier()
+        if (globalMultiplier > 1.0) {
+            positionSol *= globalMultiplier
+            positionSol = positionSol.coerceAtMost(MAX_POSITION_SOL * 1.5) // Cap overshoot
+            ErrorLogger.debug(TAG, "💩 GLOBAL COMPOUND BOOST: ${globalMultiplier.fmt(2)}x → pos=${positionSol.fmt(4)}SOL")
+        }
         
         // Get fluid take profit and stop loss
         val takeProfitPct = getFluidTakeProfit()
