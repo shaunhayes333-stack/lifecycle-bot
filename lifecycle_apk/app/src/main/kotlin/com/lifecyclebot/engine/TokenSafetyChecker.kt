@@ -149,11 +149,21 @@ class TokenSafetyChecker(private val cfg: () -> BotConfig) {
     // this is a DATA_CONFLICT that should trigger quarantine.
     // ═══════════════════════════════════════════════════════════════════════════
     
+    companion object {
+        /** Check if a token mint is in the whitelist of verified major tokens */
+        fun isWhitelisted(mint: String): Boolean = mint in WHITELISTED_MINTS
+        
+        /** Get the list of all whitelisted mints */
+        fun getWhitelistedMints(): Set<String> = WHITELISTED_MINTS
+        
+        // V4.1 Liquidity conflict detection constants
+        private const val LIQUIDITY_HISTORY_MAX_SIZE = 10  // Keep last 10 readings
+        private const val LIQUIDITY_CONFLICT_THRESHOLD = 0.15  // Drop to 15% or less = conflict
+        private const val MIN_LIQUIDITY_FOR_CONFLICT_CHECK = 3000.0  // Only check if was $3K+
+    }
+    
     // Historical liquidity cache: mint → list of (timestamp, liquidityUsd)
     private val liquidityHistory = java.util.concurrent.ConcurrentHashMap<String, MutableList<Pair<Long, Double>>>()
-    private const val LIQUIDITY_HISTORY_MAX_SIZE = 10  // Keep last 10 readings
-    private const val LIQUIDITY_CONFLICT_THRESHOLD = 0.15  // Drop to 15% or less = conflict
-    private const val MIN_LIQUIDITY_FOR_CONFLICT_CHECK = 3000.0  // Only check if was $3K+
     
     /**
      * Check for liquidity conflicts (sudden drops that indicate rug/drain).
@@ -209,16 +219,6 @@ class TokenSafetyChecker(private val cfg: () -> BotConfig) {
      */
     fun clearLiquidityHistory(mint: String) {
         liquidityHistory.remove(mint)
-    }
-
-    // ── public interface ──────────────────────────────────────────────
-    
-    companion object {
-        /** Check if a token mint is in the whitelist of verified major tokens */
-        fun isWhitelisted(mint: String): Boolean = mint in WHITELISTED_MINTS
-        
-        /** Get the list of all whitelisted mints */
-        fun getWhitelistedMints(): Set<String> = WHITELISTED_MINTS
     }
 
     /**
@@ -308,29 +308,29 @@ class TokenSafetyChecker(private val cfg: () -> BotConfig) {
         // 
         // OLD BEHAVIOR: Timeout = soft allow (too permissive)
         // NEW BEHAVIOR:
-        //   - Paper mode: Apply penalty (-20 points) + mark PENDING_REVIEW
-        //   - Live mode: Apply penalty (-25 points) + require fallback safety
+        //   - Paper mode: Apply light penalty (-10 points) - allow learning
+        //   - Live mode: Apply penalty (-15 points) + require fallback safety
         // 
-        // This prevents blindly buying fresh-launch tokens when the API fails.
+        // V4.1.1: REDUCED penalties to unblock bootstrap learning
         // ═══════════════════════════════════════════════════════════════════════════
         if (rugcheck == null || rcScore == -1) {
             rugcheckStatus = "TIMEOUT"
             
             if (isPaperMode) {
-                // Paper mode: Apply moderate penalty for learning, don't hard block
-                rugcheckTimeoutPenalty = 20
-                soft.add("Rugcheck API timeout (paper: -20 penalty)" to 20)
-                penalty += 20
+                // Paper mode: Light penalty, allow learning to continue
+                rugcheckTimeoutPenalty = 10
+                soft.add("Rugcheck API timeout (paper: -10 penalty)" to 10)
+                penalty += 10
                 ErrorLogger.debug("SafetyChecker", 
-                    "Rugcheck TIMEOUT for ${symbol}: applying -20 penalty (paper mode)")
+                    "Rugcheck TIMEOUT for ${symbol}: applying -10 penalty (paper mode)")
             } else {
-                // Live mode: Apply heavier penalty, mark for review
-                rugcheckTimeoutPenalty = 25
+                // Live mode: Moderate penalty, mark for review
+                rugcheckTimeoutPenalty = 15
                 rugcheckStatus = "PENDING_REVIEW"
-                soft.add("Rugcheck API timeout (live: -25 penalty, PENDING_REVIEW)" to 25)
-                penalty += 25
+                soft.add("Rugcheck API timeout (live: -15 penalty, PENDING_REVIEW)" to 15)
+                penalty += 15
                 ErrorLogger.warn("SafetyChecker", 
-                    "Rugcheck TIMEOUT for ${symbol}: applying -25 penalty + PENDING_REVIEW (live mode)")
+                    "Rugcheck TIMEOUT for ${symbol}: applying -15 penalty + PENDING_REVIEW (live mode)")
             }
         } else {
             // Rugcheck succeeded - mark as confirmed

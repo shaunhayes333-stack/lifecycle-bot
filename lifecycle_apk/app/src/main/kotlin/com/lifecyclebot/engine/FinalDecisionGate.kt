@@ -4,6 +4,7 @@ import com.lifecyclebot.data.BotConfig
 import com.lifecyclebot.data.CandidateDecision
 import com.lifecyclebot.data.TokenState
 import com.lifecyclebot.engine.quant.EVCalculator
+import com.lifecyclebot.v3.scoring.FluidLearningAI
 
 /**
  * FinalDecisionGate (FDG)
@@ -1414,18 +1415,35 @@ object FinalDecisionGate {
         }
         
         // ─────────────────────────────────────────────────────────────────────
-        // HARD KILL 2: ABSOLUTE CONFIDENCE FLOORS (NON-NEGOTIABLE)
-        // These are HARD limits. No exceptions. No probes. No paper learning.
+        // HARD KILL 2: ABSOLUTE CONFIDENCE FLOORS (NON-NEGOTIABLE IN LIVE MODE)
+        // These are HARD limits for live trading. Paper/Shadow can bypass during bootstrap.
         // 
         // conf < 30 → NO EXECUTION (garbage)
         // conf < 35 AND quality C → NO EXECUTION (Kris pattern)
         // conf < 40 AND AI degraded → NO EXECUTION (blind trading)
+        // 
+        // V4.1.1 BOOTSTRAP OVERRIDE:
+        // During bootstrap (< 10% learning progress) in paper/shadow mode,
+        // we SKIP confidence floors to allow the bot to learn. This is critical
+        // because confidence is low when we have no learned signals!
         // ─────────────────────────────────────────────────────────────────────
         val isCGrade = candidate.setupQuality == "C" || candidate.setupQuality == "D"
         val confidence = candidate.aiConfidence
         
-        // Rule 1: conf < 30 is garbage - never trade
-        if (confidence < 30.0) {
+        // V4.1.1: Check if we're in bootstrap learning mode
+        val learningProgress = FluidLearningAI.getLearningProgress()
+        val isBootstrap = learningProgress < 0.10  // First 10% of learning
+        val isPaperOrShadow = mode == TradingMode.PAPER || mode == TradingMode.SHADOW
+        val canBypassConfidenceFloors = isBootstrap && isPaperOrShadow
+        
+        if (canBypassConfidenceFloors && confidence < 30.0) {
+            // Bootstrap override: Allow learning even with low confidence
+            ErrorLogger.info("FDG", "🎓 BOOTSTRAP_OVERRIDE: ${ts.symbol} | conf=${confidence.toInt()}% | " +
+                "Bypassing confidence floor for learning (progress=${(learningProgress*100).toInt()}%)")
+            tags.add("bootstrap_learning")
+            // Don't return - continue to other checks
+        } else if (confidence < 30.0) {
+            // Rule 1: conf < 30 is garbage - never trade in live mode
             ErrorLogger.warn("FDG", "🚫 HARD_KILL: ${ts.symbol} | conf=${confidence.toInt()}% < 30% | " +
                 "CONFIDENCE_FLOOR_VIOLATED")
             
@@ -1447,8 +1465,8 @@ object FinalDecisionGate {
             )
         }
         
-        // Rule 2: conf < 35 AND C-grade - marginal + low quality = reject
-        if (confidence < 35.0 && isCGrade) {
+        // Rule 2: conf < 35 AND C-grade - marginal + low quality = reject (unless bootstrap)
+        if (confidence < 35.0 && isCGrade && !canBypassConfidenceFloors) {
             ErrorLogger.warn("FDG", "🚫 HARD_KILL: ${ts.symbol} | conf=${confidence.toInt()}% + quality=${candidate.setupQuality} | " +
                 "C_GRADE_CONFIDENCE_FLOOR_VIOLATED")
             
@@ -1470,8 +1488,8 @@ object FinalDecisionGate {
             )
         }
         
-        // Rule 3: conf < 40 AND AI degraded - blind trading = reject
-        if (confidence < 40.0 && earlyAIDegraded) {
+        // Rule 3: conf < 40 AND AI degraded - blind trading = reject (unless bootstrap)
+        if (confidence < 40.0 && earlyAIDegraded && !canBypassConfidenceFloors) {
             ErrorLogger.warn("FDG", "🚫 HARD_KILL: ${ts.symbol} | conf=${confidence.toInt()}% + AI_DEGRADED | " +
                 "DEGRADED_AI_CONFIDENCE_FLOOR_VIOLATED")
             
@@ -1513,7 +1531,8 @@ object FinalDecisionGate {
         if (earlyAIDegraded) toxicPatternFlags.add("AI_degraded")
         
         // If 3+ toxic flags → HARD REJECT (covers "Kris" case)
-        if (toxicPatternFlags.size >= 3) {
+        // V4.1.1: Skip toxic pattern detection during bootstrap learning
+        if (toxicPatternFlags.size >= 3 && !canBypassConfidenceFloors) {
             ErrorLogger.warn("FDG", "🚫 HARD_KILL TOXIC PATTERN: ${ts.symbol} | " +
                 "flags=${toxicPatternFlags.joinToString(",")} | KRIS_RULE → REJECT")
             
@@ -1534,6 +1553,11 @@ object FinalDecisionGate {
                 gateChecks = listOf(GateCheck("toxic_pattern", false, 
                     "Kris rule: 3+ toxic flags (${toxicPatternFlags.joinToString(",")}) = HARD REJECT"))
             )
+        } else if (toxicPatternFlags.size >= 3 && canBypassConfidenceFloors) {
+            // Log that we're bypassing toxic pattern for learning
+            ErrorLogger.info("FDG", "🎓 BOOTSTRAP_OVERRIDE: ${ts.symbol} | " +
+                "Bypassing toxic pattern check for learning (flags=${toxicPatternFlags.joinToString(",")})")
+            tags.add("bootstrap_toxic_bypass")
         }
         
         // ─────────────────────────────────────────────────────────────────────

@@ -501,7 +501,8 @@ object FluidLearningAI {
     private const val LIQ_WATCHLIST_MATURE = 2000.0      // $2000 when mature
     
     // Execution floor: minimum liquidity to actually trade
-    private const val LIQ_EXECUTION_BOOTSTRAP = 1500.0   // $1500 in bootstrap
+    // V4.1.1: LOWERED bootstrap from $1500 to $800 to allow learning on smaller tokens
+    private const val LIQ_EXECUTION_BOOTSTRAP = 800.0    // $800 in bootstrap - allow more learning
     private const val LIQ_EXECUTION_MATURE = 10000.0     // $10000 when mature
     
     // Scanner minimum: for fresh token discovery
