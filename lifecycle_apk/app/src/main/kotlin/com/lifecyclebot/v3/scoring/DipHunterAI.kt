@@ -591,12 +591,25 @@ object DipHunterAI {
     // FLUID THRESHOLDS
     // ═══════════════════════════════════════════════════════════════════════════
     
-    private const val DIP_CONF_BOOTSTRAP = 65  // Need good confidence at start
-    private const val DIP_CONF_MATURE = 50     // Can take riskier dips when experienced
+    // V4.1.2: Lowered bootstrap conf from 65% to 25% + boost system
+    private const val DIP_CONF_BOOTSTRAP = 25   // Start lower to allow learning
+    private const val DIP_CONF_MATURE = 50      // Build up to 50% as we scale
+    private const val DIP_CONF_BOOST_MAX = 10.0 // 10% bootstrap boost (decays as we learn)
+    
+    /**
+     * V4.1.2: Bootstrap confidence boost for DipHunter layer
+     * Starts at +10% and decays to 0% as learning progresses
+     */
+    private fun getBootstrapConfBoost(): Double {
+        val progress = FluidLearningAI.getLearningProgress()
+        return DIP_CONF_BOOST_MAX * (1.0 - progress).coerceIn(0.0, 1.0)
+    }
     
     private fun getFluidConfidenceThreshold(): Int {
         val progress = FluidLearningAI.getLearningProgress()
-        return (DIP_CONF_BOOTSTRAP + (DIP_CONF_MATURE - DIP_CONF_BOOTSTRAP) * progress).toInt()
+        val baseConf = DIP_CONF_BOOTSTRAP + (DIP_CONF_MATURE - DIP_CONF_BOOTSTRAP) * progress
+        val boost = getBootstrapConfBoost()
+        return (baseConf + boost).toInt()
     }
     
     // ═══════════════════════════════════════════════════════════════════════════
