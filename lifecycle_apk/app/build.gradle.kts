@@ -10,10 +10,10 @@ val baseVersionCode = 500
 val ciBuildNumber = (project.findProperty("buildNumber") as String?)?.toIntOrNull() ?: 0
 val finalVersionCode = baseVersionCode + ciBuildNumber
 
-// V5.0: If no build number provided, use timestamp to ensure unique filename
+// V5.0: If no build number provided, use epoch minutes for unique filename
 val timestampSuffix = if (ciBuildNumber == 0) {
-    val sdf = java.text.SimpleDateFormat("MMddHHmm")
-    sdf.format(java.util.Date())
+    // Use epoch minutes (smaller number than millis, still unique per minute)
+    (System.currentTimeMillis() / 60000).toString().takeLast(6)
 } else {
     ciBuildNumber.toString()
 }

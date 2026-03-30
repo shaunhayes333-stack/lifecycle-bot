@@ -257,6 +257,12 @@ object GlobalTradeRegistry {
     }
     
     /**
+     * V5.0: Get watchlist entry for a token (for UI display).
+     * Returns null if token is not in watchlist.
+     */
+    fun getEntry(mint: String): WatchlistEntry? = watchlist[mint]
+    
+    /**
      * Check if we can process a token (not processed too recently).
      */
     fun canProcess(mint: String): Boolean {
