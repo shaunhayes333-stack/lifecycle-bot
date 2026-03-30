@@ -3019,13 +3019,25 @@ class BotService : Service() {
                         // ═══════════════════════════════════════════════════════════════════
                         // V4.1 COLD-START FIX: Check for bootstrap forced entry
                         // This breaks the deadlock: no trades → no learning → no trades
+                        // 
+                        // NOTE: Use momentum/buy-pressure based score, NOT v3Score!
+                        // v3Score is low (20-30) for rejected tokens, but Treasury trades
+                        // tokens V3 doesn't like. Use a composite of raw signals instead.
                         // ═══════════════════════════════════════════════════════════════════
                         val tokenAge = if (ts.addedToWatchlistAt > 0) {
                             (System.currentTimeMillis() - ts.addedToWatchlistAt) / 60_000.0
                         } else 30.0
                         
+                        // Calculate raw signal score for bootstrap (not v3Score)
+                        val rawSignalScore = calculateBootstrapScore(
+                            buyPressurePct = ts.lastBuyPressurePct,
+                            liquidityUsd = ts.lastLiquidityUsd,
+                            momentum = ts.momentum ?: 0.0,
+                            volatility = ts.volatility ?: 0.0,
+                        )
+                        
                         val forceBootstrapEntry = com.lifecyclebot.v3.scoring.FluidLearningAI.shouldForceBootstrapEntry(
-                            score = v3Score,
+                            score = rawSignalScore,
                             liquidityUsd = ts.lastLiquidityUsd,
                             tokenAgeMinutes = tokenAge,
                             buyPressurePct = ts.lastBuyPressurePct,
@@ -3306,9 +3318,17 @@ class BotService : Service() {
                         
                         // ═══════════════════════════════════════════════════════════════════
                         // V4.1 COLD-START FIX: Check for bootstrap forced entry
+                        // Use raw signal score, not shitCoinSignal.confidence which may be low
                         // ═══════════════════════════════════════════════════════════════════
+                        val rawShitcoinScore = calculateBootstrapScore(
+                            buyPressurePct = ts.lastBuyPressurePct,
+                            liquidityUsd = ts.lastLiquidityUsd,
+                            momentum = ts.momentum ?: 0.0,
+                            volatility = ts.volatility ?: 0.0,
+                        )
+                        
                         val forceBootstrapEntry = com.lifecyclebot.v3.scoring.FluidLearningAI.shouldForceBootstrapEntry(
-                            score = shitCoinSignal.confidence,  // Use confidence as score proxy
+                            score = rawShitcoinScore,
                             liquidityUsd = ts.lastLiquidityUsd,
                             tokenAgeMinutes = tokenAgeMinutes,
                             buyPressurePct = ts.lastBuyPressurePct,
@@ -5066,6 +5086,56 @@ class BotService : Service() {
             addLog("⚠️ Orphan scan failed: ${e.message}")
             ErrorLogger.error("BotService", "Orphan scan error: ${e.message}", e)
         }
+    }
+    
+    /**
+     * Calculate a raw signal score for bootstrap entry decisions.
+     * This is independent of V3 score - uses raw market signals only.
+     * Used to allow bootstrap trades even when V3 rejects a token.
+     */
+    private fun calculateBootstrapScore(
+        buyPressurePct: Double,
+        liquidityUsd: Double,
+        momentum: Double,
+        volatility: Double,
+    ): Int {
+        var score = 40  // Base score
+        
+        // Buy pressure (most important)
+        score += when {
+            buyPressurePct >= 70 -> 30
+            buyPressurePct >= 60 -> 25
+            buyPressurePct >= 50 -> 20
+            buyPressurePct >= 40 -> 10
+            else -> 0
+        }
+        
+        // Liquidity
+        score += when {
+            liquidityUsd >= 10000 -> 15
+            liquidityUsd >= 5000 -> 12
+            liquidityUsd >= 3000 -> 8
+            liquidityUsd >= 1500 -> 5
+            else -> 0
+        }
+        
+        // Momentum
+        score += when {
+            momentum >= 20 -> 10
+            momentum >= 10 -> 7
+            momentum >= 5 -> 4
+            momentum >= 0 -> 2
+            else -> 0
+        }
+        
+        // Volatility penalty (too volatile = risky)
+        score -= when {
+            volatility >= 50 -> 10
+            volatility >= 30 -> 5
+            else -> 0
+        }
+        
+        return score.coerceIn(0, 100)
     }
 }
 
