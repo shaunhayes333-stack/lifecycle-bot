@@ -3135,12 +3135,12 @@ class BotService : Service() {
                             val authResult = TradeAuthorizer.authorize(
                                 mint = ts.mint,
                                 symbol = ts.symbol,
-                                score = ts.lastV3Score,
-                                confidence = ts.lastV3Confidence.toDouble(),
-                                quality = treasurySignal.grade ?: "C",
+                                score = ts.lastV3Score ?: 0,
+                                confidence = (ts.lastV3Confidence ?: 0).toDouble(),
+                                quality = "C",  // Treasury doesn't have grade, use default
                                 isPaperMode = cfg.paperMode,
                                 requestedBook = TradeAuthorizer.ExecutionBook.TREASURY,
-                                rugcheckScore = ts.rugcheckScore ?: 100,
+                                rugcheckScore = ts.safety.rugcheckScore.takeIf { it >= 0 } ?: 100,
                                 liquidity = ts.lastLiquidityUsd,
                                 isBanned = BannedTokens.isBanned(ts.mint),
                             )
@@ -3448,12 +3448,12 @@ class BotService : Service() {
                             val authResult = TradeAuthorizer.authorize(
                                 mint = ts.mint,
                                 symbol = ts.symbol,
-                                score = shitCoinSignal.score,
+                                score = ts.lastV3Score ?: shitCoinSignal.confidence,
                                 confidence = shitCoinSignal.confidence.toDouble(),
-                                quality = shitCoinSignal.grade ?: "C",
+                                quality = "C",  // ShitCoin doesn't have grade, use default
                                 isPaperMode = cfg.paperMode,
                                 requestedBook = TradeAuthorizer.ExecutionBook.SHITCOIN,
-                                rugcheckScore = ts.rugcheckScore ?: 100,
+                                rugcheckScore = ts.safety.rugcheckScore.takeIf { it >= 0 } ?: 100,
                                 liquidity = ts.lastLiquidityUsd,
                                 isBanned = BannedTokens.isBanned(ts.mint),
                             )
@@ -4178,12 +4178,12 @@ class BotService : Service() {
         val authResult = TradeAuthorizer.authorize(
             mint = mint,
             symbol = identity.symbol,
-            score = ts.lastV3Score,
+            score = ts.lastV3Score ?: 0,
             confidence = fdgDecision.confidence,
             quality = fdgDecision.quality,
             isPaperMode = cfg.paperMode,
             requestedBook = TradeAuthorizer.ExecutionBook.CORE,
-            rugcheckScore = ts.rugcheckScore ?: 100,
+            rugcheckScore = ts.safety.rugcheckScore.takeIf { it >= 0 } ?: 100,
             liquidity = ts.lastLiquidityUsd,
             isBanned = BannedTokens.isBanned(mint),
         )
@@ -4191,10 +4191,13 @@ class BotService : Service() {
         // If TradeAuthorizer says SHADOW_ONLY, track but don't execute
         if (authResult.isShadowOnly()) {
             ErrorLogger.info("BotService", "[V3|TRADE_AUTH] ${identity.symbol} | SHADOW_ONLY | ${authResult.reason}")
-            ShadowLearning.trackBlockedTrade(
-                ts = ts,
+            // Track as shadow avoid for learning
+            com.lifecyclebot.v3.learning.ShadowLearningEngine.recordShadowAvoid(
+                mint = mint,
+                symbol = identity.symbol,
                 reason = "TRADE_AUTH_${authResult.reason}",
-                confidence = fdgDecision.confidence
+                confidence = fdgDecision.confidence,
+                entryPrice = ts.ref
             )
             return // Skip execution entirely
         }
