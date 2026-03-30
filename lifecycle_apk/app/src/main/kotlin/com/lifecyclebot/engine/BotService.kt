@@ -3977,12 +3977,22 @@ class BotService : Service() {
     
     // ───────────────────────────────────────────────────────────────────
     // HARD GATE: Block edge=SKIP or conf=0 BEFORE candidate promotion
+    // V5.2: Allow SKIP through during bootstrap (<20% learning) for V3 learning
     // This prevents garbage from going through CANDIDATE/PROPOSED/SIZING
     // ───────────────────────────────────────────────────────────────────
     val edgeVerdictStr = decision.edgeQuality  // "A", "B", "C", or "SKIP"
     val confValue = decision.aiConfidence
     
-    if (edgeVerdictStr == "SKIP" || confValue <= 0) {
+    // V5.2: Check if we're in bootstrap mode - allow SKIP trades for learning
+    val learningProgress = try {
+        com.lifecyclebot.v3.scoring.FluidLearningAI.getLearningProgress()
+    } catch (_: Exception) { 0.0 }
+    val isBootstrap = learningProgress < 0.20  // Under 20% = bootstrap mode
+    
+    // During bootstrap: Allow SKIP trades through for V3 learning (paper mode only)
+    val allowSkipForLearning = isBootstrap && cfg.paperMode && edgeVerdictStr == "SKIP"
+    
+    if ((edgeVerdictStr == "SKIP" || confValue <= 0) && !allowSkipForLearning) {
         ErrorLogger.info("BotService", "[V3|PROMOTION_GATE] ${identity.symbol} | allow=false | " +
             "reason=edge_${edgeVerdictStr.lowercase()}_conf_${confValue.toInt()} → SHADOW_ONLY")
         
@@ -4000,6 +4010,12 @@ class BotService : Service() {
         )
         
         return  // Exit before CANDIDATE/PROPOSED
+    }
+    
+    // Log when bootstrap override is used
+    if (allowSkipForLearning) {
+        ErrorLogger.info("BotService", "[V3|BOOTSTRAP] ${identity.symbol} | SKIP override | " +
+            "learning=${(learningProgress * 100).toInt()}% | Allowing for V3 learning")
     }
     
     // ───────────────────────────────────────────────────────────────────
