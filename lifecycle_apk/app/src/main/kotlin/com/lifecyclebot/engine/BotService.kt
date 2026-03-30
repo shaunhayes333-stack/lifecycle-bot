@@ -3144,6 +3144,11 @@ class BotService : Service() {
                                     isPaper = cfg.paperMode
                                 )
                                 
+                                // V5.0 FIX: Mark position as treasury so checkExit uses correct thresholds
+                                ts.position.isTreasuryPosition = true
+                                ts.position.tradingMode = "TREASURY"
+                                ts.position.tradingModeEmoji = "💰"
+                                
                                 // Record treasury position
                                 com.lifecyclebot.v3.scoring.CashGenerationAI.openPosition(
                                     mint = ts.mint,
@@ -3455,6 +3460,11 @@ class BotService : Service() {
                                     entryMcap = ts.lastMcap,
                                     entryPrice = ts.ref,
                                 )
+                                
+                                // V5.0 FIX: Mark position as shitcoin so checkExit uses correct thresholds
+                                ts.position.isShitCoinPosition = true
+                                ts.position.tradingMode = "SHITCOIN"
+                                ts.position.tradingModeEmoji = "💩"
                                 
                                 // Release permit
                                 FinalExecutionPermit.releaseExecution(ts.mint)

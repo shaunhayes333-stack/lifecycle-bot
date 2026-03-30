@@ -4,11 +4,12 @@ plugins {
     id("org.jetbrains.kotlin.plugin.serialization")
 }
 
-// Auto-incrementing version: Base version (420 for V4.20) + CI run number
-// CI passes -PbuildNumber=XX to Gradle, falls back to 0 for local builds
-val baseVersionCode = 420
+// V5.0 - Clean start with auto-incrementing version
+// versionCode increments with each CI build for seamless updates
+val baseVersionCode = 500
 val ciBuildNumber = (project.findProperty("buildNumber") as String?)?.toIntOrNull() ?: 0
 val finalVersionCode = baseVersionCode + ciBuildNumber
+val finalVersionName = "5.0.$ciBuildNumber"
 
 android {
     namespace = "com.lifecyclebot"
@@ -19,7 +20,7 @@ android {
         minSdk = 26
         targetSdk = 34
         versionCode = finalVersionCode
-        versionName = "4.20.$ciBuildNumber"
+        versionName = finalVersionName
         
         // App name
         resValue("string", "app_name_override", "AATE")
@@ -62,13 +63,12 @@ android {
         }
     }
     
-    // Custom APK naming: AATE_v4.20.XX.apk
-    // Must use afterEvaluate to ensure versionName is resolved
+    // Custom APK naming: AATE_v4.5.XX.apk
     android.applicationVariants.all {
         val variant = this
         variant.outputs.all {
             val output = this as com.android.build.gradle.internal.api.BaseVariantOutputImpl
-            output.outputFileName = "AATE_v${variant.versionName}.apk"
+            output.outputFileName = "AATE_v${finalVersionName}.apk"
         }
     }
 

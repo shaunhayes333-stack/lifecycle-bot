@@ -34,17 +34,14 @@ jobs:
           mkdir -p gradle/wrapper
           curl -sL -o gradle/wrapper/gradle-wrapper.jar "https://raw.githubusercontent.com/gradle/gradle/v8.7.0/gradle/wrapper/gradle-wrapper.jar"
           echo "========================================"
-          echo "Building AATE v4.20.${{ github.run_number }}"
-          echo "versionCode = $((420 + ${{ github.run_number }}))"
-          echo "buildNumber property = ${{ github.run_number }}"
+          echo "Building AATE v5.0.${{ github.run_number }}"
+          echo "versionCode = $((500 + ${{ github.run_number }}))"
           echo "========================================"
           ./gradlew assembleRelease --no-daemon -PbuildNumber=${{ github.run_number }}
-          echo "========================================"
-          echo "Built APK files:"
+          echo "Built APK:"
           ls -la app/build/outputs/apk/release/
-          echo "========================================"
 
       - uses: actions/upload-artifact@v4
         with:
-          name: AATE_v4.20.${{ github.run_number }}
+          name: AATE_v5.0.${{ github.run_number }}
           path: lifecycle_apk/app/build/outputs/apk/release/*.apk
