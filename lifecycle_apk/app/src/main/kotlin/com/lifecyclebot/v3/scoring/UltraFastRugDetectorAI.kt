@@ -2,6 +2,7 @@ package com.lifecyclebot.v3.scoring
 
 import com.lifecyclebot.data.TokenState
 import com.lifecyclebot.data.Candle
+import com.lifecyclebot.util.ErrorLogger
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.atomic.AtomicInteger
 import kotlin.math.abs
