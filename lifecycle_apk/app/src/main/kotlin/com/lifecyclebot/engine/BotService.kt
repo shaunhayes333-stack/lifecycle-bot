@@ -4869,8 +4869,10 @@ class BotService : Service() {
         
         // ═══════════════════════════════════════════════════════════════════
         // 🌙 MOONSHOT EXIT CHECK
+        // V5.2: Check for MOONSHOT prefix since mode includes space mode (MOONSHOT_ORBITAL, etc)
         // ═══════════════════════════════════════════════════════════════════
-        if (com.lifecyclebot.v3.scoring.MoonshotTraderAI.hasPosition(ts.mint) || ts.position.tradingMode == "MOONSHOT") {
+        if (com.lifecyclebot.v3.scoring.MoonshotTraderAI.hasPosition(ts.mint) || 
+            ts.position.tradingMode?.startsWith("MOONSHOT") == true) {
             val currentPrice = ts.lastPrice.takeIf { it > 0 } 
                 ?: ts.history.lastOrNull()?.priceUsd 
                 ?: ts.position.entryPrice
