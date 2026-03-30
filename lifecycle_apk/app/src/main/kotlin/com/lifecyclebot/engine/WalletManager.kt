@@ -229,7 +229,7 @@ class WalletManager private constructor(private val ctx: Context) {
 
     // ── balance refresh ───────────────────────────────────────────────
 
-    suspend fun refreshBalance() {
+    suspend fun refreshBalance(force: Boolean = false) {
         var w = wallet
         
         // If wallet is null, try to reconnect using saved credentials
@@ -240,19 +240,57 @@ class WalletManager private constructor(private val ctx: Context) {
             return
         }
         
+        // V4.20: Check cache first (unless forced refresh)
+        if (!force) {
+            val cachedWallet = EfficiencyLayer.getCachedWallet()
+            val cachedPrice = EfficiencyLayer.getCachedPrice()
+            
+            if (cachedWallet != null && cachedPrice != null) {
+                // Use cached values - no I/O needed
+                _state.value = _state.value.copy(
+                    solBalance    = cachedWallet.solBalance,
+                    balanceUsd    = cachedWallet.solBalance * cachedPrice.solPriceUsd,
+                    solPriceUsd   = cachedPrice.solPriceUsd,
+                    lastRefreshed = cachedWallet.timestamp,
+                    treasurySol   = TreasuryManager.treasurySol,
+                    treasuryUsd   = TreasuryManager.treasurySol * cachedPrice.solPriceUsd,
+                    highestMilestoneName = TreasuryManager.MILESTONES
+                        .getOrNull(TreasuryManager.highestMilestoneHit)?.label ?: "—",
+                    nextMilestoneUsd = TreasuryManager.MILESTONES
+                        .getOrNull(TreasuryManager.highestMilestoneHit + 1)
+                        ?.thresholdUsd ?: 0.0,
+                )
+                // No log spam - cache hit is silent
+                return
+            }
+        }
+        
         try {
-            ErrorLogger.debug("Wallet", "Refreshing balance...")
+            ErrorLogger.debug("Wallet", "Refreshing balance (force=$force)...")
             
-            // Use NonCancellable to ensure balance refresh completes even if parent job is cancelled
-            val solBal = kotlinx.coroutines.withContext(Dispatchers.IO + kotlinx.coroutines.NonCancellable) { 
-                w.getSolBalance() 
+            // V4.20: Only refresh wallet if cache is stale
+            val solBal = if (!force && EfficiencyLayer.isCachedWalletFresh()) {
+                EfficiencyLayer.getCachedWallet()!!.solBalance
+            } else {
+                val bal = kotlinx.coroutines.withContext(Dispatchers.IO + kotlinx.coroutines.NonCancellable) { 
+                    w.getSolBalance() 
+                }
+                EfficiencyLayer.updateWalletCache(bal)
+                ErrorLogger.info("Wallet", "SOL Balance: $bal")
+                bal
             }
-            ErrorLogger.info("Wallet", "SOL Balance: $solBal")
             
-            val solPrice = kotlinx.coroutines.withContext(Dispatchers.IO + kotlinx.coroutines.NonCancellable) { 
-                fetchSolPrice() 
+            // V4.20: Only refresh price if cache is stale
+            val solPrice = if (!force && EfficiencyLayer.isCachedPriceFresh()) {
+                EfficiencyLayer.getCachedPrice()!!.solPriceUsd
+            } else {
+                val price = kotlinx.coroutines.withContext(Dispatchers.IO + kotlinx.coroutines.NonCancellable) { 
+                    fetchSolPrice() 
+                }
+                EfficiencyLayer.updatePriceCache(price)
+                ErrorLogger.debug("Wallet", "SOL Price: $$price")
+                price
             }
-            ErrorLogger.debug("Wallet", "SOL Price: $$solPrice")
             
             if (solPrice > 0) WalletManager.lastKnownSolPrice = solPrice
             _state.value = _state.value.copy(
@@ -279,6 +317,15 @@ class WalletManager private constructor(private val ctx: Context) {
                 errorMessage = "Balance refresh failed: ${e.message}"
             )
         }
+    }
+    
+    /**
+     * V4.20: Force refresh before order placement or after fill.
+     * Invalidates cache and fetches fresh data.
+     */
+    suspend fun forceRefresh() {
+        EfficiencyLayer.invalidateCaches()
+        refreshBalance(force = true)
     }
 
     // ── SOL price (free, no key) ──────────────────────────────────────
