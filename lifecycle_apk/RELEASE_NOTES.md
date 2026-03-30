@@ -1,5 +1,75 @@
 # AATE V4.1 Release Notes
 
+## Version 4.1.1 - December 2025
+
+### Overview
+
+V4.1.1 fixes critical orchestration bugs where multiple AI subsystems (Treasury, V3, BlueChip, ShitCoin) were executing trades independently without coordination.
+
+---
+
+## What's New (V4.1.1)
+
+### FinalExecutionPermit - Unified Execution Authority (Critical Fix)
+
+**Problem:** Multiple AI "brains" were trading the same token simultaneously:
+- Treasury buying while V3 rejects
+- BlueChip and ShitCoin layers executing duplicates
+- No coordination between subsystems
+
+**Solution:** New `FinalExecutionPermit.kt` singleton acts as a gate:
+1. V3 decisions register as APPROVAL or REJECTION
+2. Treasury/BlueChip/ShitCoin must check permit before executing
+3. First-come-first-served prevents duplicate executions
+4. 60-second cooldown on V3 rejections
+
+**Result:** Treasury cannot buy tokens that V3 rejected. All layers coordinate.
+
+---
+
+### Treasury Take Profit Adjusted (User Request)
+
+| Setting | Old | New |
+|---------|-----|-----|
+| Take Profit Target | 4% | 3.5% |
+| Min Profit | 3.5% | 3% |
+| Max Profit | 8% | 7% |
+
+**Why:** User requested tighter scalps at 3.5%, max 7%.
+
+---
+
+### Stop Bot Button - Full Position Closing (Bug Fix)
+
+**Problem:** Stop button only closed `status.tokens` positions. Treasury, BlueChip, and ShitCoin positions remained open.
+
+**Solution:** `stopBot()` now closes ALL position types:
+- Main positions (status.tokens)
+- Treasury positions (CashGenerationAI.activePositions)
+- BlueChip positions (BlueChipTraderAI)
+- ShitCoin positions (ShitCoinTraderAI)
+
+---
+
+## Technical Changes (V4.1.1)
+
+### Files Modified
+- `BotService.kt` - FinalExecutionPermit integration, stopBot fix
+- `CashGenerationAI.kt` - Take profit 3.5-7%
+
+### New Files
+- `FinalExecutionPermit.kt` - Unified execution authority singleton
+
+### Functions Added
+- `FinalExecutionPermit.registerRejection()` - V3 blocks a token
+- `FinalExecutionPermit.registerApproval()` - V3 approves a token
+- `FinalExecutionPermit.canExecute()` - Check if layer can trade
+- `FinalExecutionPermit.tryAcquireExecution()` - Reserve execution slot
+- `FinalExecutionPermit.releaseExecution()` - Release after trade
+- `FinalExecutionPermit.clearCycleState()` - Clean up at loop start
+
+---
+
 ## Version 4.1.0 - December 2025
 
 ### Overview
