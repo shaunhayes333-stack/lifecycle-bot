@@ -1416,32 +1416,33 @@ object FinalDecisionGate {
         
         // ─────────────────────────────────────────────────────────────────────
         // HARD KILL 2: ABSOLUTE CONFIDENCE FLOORS (NON-NEGOTIABLE IN LIVE MODE)
-        // These are HARD limits for live trading. Paper/Shadow can bypass during bootstrap.
+        // These are HARD limits for live trading. Paper can bypass during bootstrap.
         // 
         // conf < 30 → NO EXECUTION (garbage)
         // conf < 35 AND quality C → NO EXECUTION (Kris pattern)
         // conf < 40 AND AI degraded → NO EXECUTION (blind trading)
         // 
         // V4.1.1 BOOTSTRAP OVERRIDE:
-        // During bootstrap (< 10% learning progress) in paper/shadow mode,
+        // During bootstrap (< 25% learning progress) in paper mode,
         // we SKIP confidence floors to allow the bot to learn. This is critical
         // because confidence is low when we have no learned signals!
         // ─────────────────────────────────────────────────────────────────────
+        
+        // V4.1.1: Check if we're in bootstrap learning mode (MUST be declared first)
+        val learningProgress = FluidLearningAI.getLearningProgress()
+        val isBootstrapPhase = learningProgress < 0.25  // First 25% of learning (~250 trades)
+        val isPaperMode = mode == TradeMode.PAPER
+        val canBypassConfidenceFloors = isBootstrapPhase && isPaperMode
+        
         val isCGrade = candidate.setupQuality == "C" || candidate.setupQuality == "D"
         val rawConfidence = candidate.aiConfidence
         
         // V4.1.2: Apply bootstrap confidence boost so floors use adjusted value
         val confidence = if (canBypassConfidenceFloors) {
-            FluidLearningAI.getAdjustedConfidence(rawConfidence, isPaperOrShadow)
+            FluidLearningAI.getAdjustedConfidence(rawConfidence, isPaperMode)
         } else {
             rawConfidence
         }
-        
-        // V4.1.1: Check if we're in bootstrap learning mode
-        val learningProgress = FluidLearningAI.getLearningProgress()
-        val isBootstrap = learningProgress < 0.25  // First 25% of learning (~250 trades)
-        val isPaperOrShadow = mode == TradingMode.PAPER || mode == TradingMode.SHADOW
-        val canBypassConfidenceFloors = isBootstrap && isPaperOrShadow
         
         // V4.1.2: Even bootstrap has a minimum floor - don't learn from complete garbage
         val BOOTSTRAP_MIN_CONFIDENCE = 15.0
