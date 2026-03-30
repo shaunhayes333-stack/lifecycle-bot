@@ -84,7 +84,8 @@ object ShitCoinTraderAI {
     private const val STOP_LOSS_BOOTSTRAP = -8.0      // 8% stop at start (tight protection)
     private const val STOP_LOSS_MATURE = -12.0        // 12% stop when mature (learned volatility)
     private const val TRAILING_STOP_PCT = 8.0         // Tighter trailing for volatile moves
-    private const val MAX_HOLD_MINUTES = 15           // Short hold time (15 mins max)
+    private const val MAX_HOLD_MINUTES = 10           // V5.0: Reduced from 15 to 10 mins max
+    private const val FLAT_EXIT_MINUTES = 5           // V5.0: Exit if flat after 5 mins
     
     // Compounding - Conservative for shitcoins
     private const val COMPOUNDING_ENABLED = true
@@ -853,21 +854,28 @@ object ShitCoinTraderAI {
             return ExitSignal.TRAILING_STOP
         }
         
-        // 5. MAX HOLD TIME (15 mins for shitcoins) - but NOT if we're mooning!
+        // 5. V5.0: FLAT EXIT - If nothing happening after 5 mins, get out
+        if (holdMinutes >= FLAT_EXIT_MINUTES && pnlPct > -5.0 && pnlPct < 10.0) {
+            // Token is just sitting flat - wasting time and opportunity cost
+            ErrorLogger.info(TAG, "💩😴 FLAT EXIT: ${pos.symbol} | ${pnlPct.fmt(1)}% after ${holdMinutes}min (stagnant)")
+            return ExitSignal.TIME_EXIT
+        }
+        
+        // 6. MAX HOLD TIME (10 mins for shitcoins) - but NOT if we're mooning!
         if (holdMinutes >= MAX_HOLD_MINUTES && pnlPct < 100.0) {
             // Only time exit if NOT in moonshot territory
             ErrorLogger.info(TAG, "💩⏱ TIME EXIT: ${pos.symbol} | ${pnlPct.fmt(1)}% after ${holdMinutes}min")
             return ExitSignal.TIME_EXIT
         }
         
-        // 6. Early exit if profitable after 5 mins (but not if running hot)
-        if (holdMinutes >= 5 && pnlPct >= 20.0 && pnlPct < 50.0) {
-            // Only early exit in the "meh" profit zone - let runners run!
+        // 7. Early exit if profitable after 3 mins (but not if running hot)
+        if (holdMinutes >= 3 && pnlPct >= 15.0 && pnlPct < 50.0) {
+            // V5.0: Quick 15%+ profit - take it and move on
             ErrorLogger.info(TAG, "💩💰 EARLY TP: ${pos.symbol} | +${pnlPct.fmt(1)}% @ ${holdMinutes}min")
             return ExitSignal.TAKE_PROFIT
         }
         
-        // 7. HOLD - Let it ride! No hard caps.
+        // 8. HOLD - Let it ride! No hard caps.
         return ExitSignal.HOLD
     }
     
