@@ -3790,8 +3790,8 @@ class BotService : Service() {
             // ═══════════════════════════════════════════════════════════════════
             if (!ts.position.isOpen) {
                 try {
-                    // Get volume score from history or use default
-                    val volScore = ts.history.lastOrNull()?.volScore?.toInt() ?: 15
+                    // Use default volume score - Moonshot has its own scoring logic
+                    val volScore = 20  // Default moderate volume score
                     
                     // Score the token for moonshot potential
                     val moonshotScore = com.lifecyclebot.v3.scoring.MoonshotTraderAI.scoreToken(
