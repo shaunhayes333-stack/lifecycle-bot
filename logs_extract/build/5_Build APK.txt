@@ -1,74 +1,85 @@
-﻿2026-03-30T06:54:48.9869296Z ##[group]Run chmod +x gradlew || true
-2026-03-30T06:54:48.9869694Z [36;1mchmod +x gradlew || true[0m
-2026-03-30T06:54:48.9869973Z [36;1mmkdir -p gradle/wrapper[0m
-2026-03-30T06:54:48.9870622Z [36;1mcurl -sL -o gradle/wrapper/gradle-wrapper.jar "https://raw.githubusercontent.com/gradle/gradle/v8.7.0/gradle/wrapper/gradle-wrapper.jar"[0m
-2026-03-30T06:54:48.9871237Z [36;1m./gradlew assembleDebug --no-daemon[0m
-2026-03-30T06:54:48.9890104Z shell: /usr/bin/bash -e {0}
-2026-03-30T06:54:48.9890358Z env:
-2026-03-30T06:54:48.9890648Z   JAVA_HOME: /opt/hostedtoolcache/Java_Temurin-Hotspot_jdk/17.0.18-8/x64
-2026-03-30T06:54:48.9891080Z   JAVA_HOME_17_X64: /opt/hostedtoolcache/Java_Temurin-Hotspot_jdk/17.0.18-8/x64
-2026-03-30T06:54:48.9891438Z   ANDROID_HOME: /usr/local/lib/android/sdk
-2026-03-30T06:54:48.9891701Z   ANDROID_SDK_ROOT: /usr/local/lib/android/sdk
-2026-03-30T06:54:48.9891935Z ##[endgroup]
-2026-03-30T06:54:49.2084778Z Downloading https://services.gradle.org/distributions/gradle-8.7-bin.zip
-2026-03-30T06:54:51.2400573Z ............10%.............20%.............30%.............40%............50%.............60%.............70%.............80%.............90%............100%
-2026-03-30T06:54:52.3664816Z 
-2026-03-30T06:54:52.3666509Z Welcome to Gradle 8.7!
-2026-03-30T06:54:52.3667692Z 
-2026-03-30T06:54:52.3668809Z Here are the highlights of this release:
-2026-03-30T06:54:52.3669665Z  - Compiling and testing with Java 22
-2026-03-30T06:54:52.3670911Z  - Cacheable Groovy script compilation
-2026-03-30T06:54:52.3672737Z  - New methods in lazy collection properties
-2026-03-30T06:54:52.3673049Z 
-2026-03-30T06:54:52.3673453Z For more details see https://docs.gradle.org/8.7/release-notes.html
-2026-03-30T06:54:52.3674080Z 
-2026-03-30T06:54:52.4690678Z To honour the JVM settings for this build a single-use Daemon process will be forked. For more on this, please refer to https://docs.gradle.org/8.7/userguide/gradle_daemon.html#sec:disabling_the_daemon in the Gradle documentation.
-2026-03-30T06:54:53.7648458Z Daemon will be stopped at the end of the build 
-2026-03-30T06:56:15.4709583Z > Task :app:preBuild UP-TO-DATE
-2026-03-30T06:56:15.4724789Z > Task :app:preDebugBuild UP-TO-DATE
-2026-03-30T06:56:15.4725611Z > Task :app:mergeDebugNativeDebugMetadata NO-SOURCE
-2026-03-30T06:56:15.4731996Z > Task :app:checkKotlinGradlePluginConfigurationErrors
-2026-03-30T06:56:34.2672962Z > Task :app:dataBindingMergeDependencyArtifactsDebug
-2026-03-30T06:56:34.2683484Z > Task :app:generateDebugResValues
-2026-03-30T06:56:34.3647998Z > Task :app:generateDebugResources
-2026-03-30T06:56:36.9654814Z > Task :app:packageDebugResources
-2026-03-30T06:56:38.6647038Z > Task :app:parseDebugLocalResources
-2026-03-30T06:56:38.7647257Z > Task :app:generateDebugBuildConfig
-2026-03-30T06:56:38.7652635Z > Task :app:mergeDebugResources
-2026-03-30T06:56:39.0657397Z > Task :app:checkDebugAarMetadata
-2026-03-30T06:56:39.5648472Z > Task :app:dataBindingGenBaseClassesDebug
-2026-03-30T06:56:39.5650265Z > Task :app:mapDebugSourceSetPaths
-2026-03-30T06:56:39.5651848Z > Task :app:createDebugCompatibleScreenManifests
-2026-03-30T06:56:39.5653283Z > Task :app:extractDeepLinksDebug
-2026-03-30T06:56:40.0647178Z > Task :app:processDebugMainManifest
-2026-03-30T06:56:40.1650075Z > Task :app:processDebugManifest
-2026-03-30T06:56:40.1653057Z > Task :app:processDebugManifestForPackage
-2026-03-30T06:56:40.1655893Z > Task :app:javaPreCompileDebug
-2026-03-30T06:56:41.6648007Z > Task :app:mergeDebugShaders
-2026-03-30T06:56:41.6649490Z > Task :app:compileDebugShaders NO-SOURCE
-2026-03-30T06:56:41.6650882Z > Task :app:generateDebugAssets UP-TO-DATE
-2026-03-30T06:56:41.8647203Z > Task :app:mergeDebugAssets
-2026-03-30T06:56:41.9661513Z > Task :app:compressDebugAssets
-2026-03-30T06:56:41.9663262Z > Task :app:desugarDebugFileDependencies
-2026-03-30T06:56:45.1647111Z > Task :app:processDebugResources FAILED
-2026-03-30T06:56:45.3647303Z > Task :app:checkDebugDuplicateClasses
-2026-03-30T06:56:45.4670733Z 
-2026-03-30T06:56:45.4672333Z FAILURE: Build failed with an exception.
-2026-03-30T06:56:45.4674472Z 
-2026-03-30T06:56:45.4675602Z * What went wrong:
-2026-03-30T06:56:45.4677032Z Execution failed for task ':app:processDebugResources'.
-2026-03-30T06:56:45.4679155Z > A failure occurred while executing com.android.build.gradle.internal.res.LinkApplicationAndroidResourcesTask$TaskAction
-2026-03-30T06:56:45.4681328Z    > Android resource linking failed
-2026-03-30T06:56:45.4683327Z      com.lifecyclebot.app-mergeDebugResources-45:/layout/activity_collective_brain.xml:115: error: resource drawable/btn_outline (aka com.lifecyclebot.aate:drawable/btn_outline) not found.
-2026-03-30T06:56:45.4685572Z      error: failed linking file resources.
-2026-03-30T06:56:45.4685851Z 
-2026-03-30T06:56:45.4685865Z 
-2026-03-30T06:56:45.4685959Z * Try:
-2026-03-30T06:56:45.4686361Z > Run with --stacktrace option to get the stack trace.
-2026-03-30T06:56:45.4687067Z > Run with --info or --debug option to get more log output.
-2026-03-30T06:56:45.4687665Z > Run with --scan to get full insights.
-2026-03-30T06:56:45.4688128Z > Get more help at https://help.gradle.org.
-2026-03-30T06:56:45.4688451Z 
-2026-03-30T06:56:45.4688625Z BUILD FAILED in 1m 56s
-2026-03-30T06:56:45.4690373Z 23 actionable tasks: 23 executed
-2026-03-30T06:56:45.9094943Z ##[error]Process completed with exit code 1.
+﻿2026-03-30T07:03:34.4939244Z ##[group]Run chmod +x gradlew || true
+2026-03-30T07:03:34.4939603Z [36;1mchmod +x gradlew || true[0m
+2026-03-30T07:03:34.4939860Z [36;1mmkdir -p gradle/wrapper[0m
+2026-03-30T07:03:34.4940510Z [36;1mcurl -sL -o gradle/wrapper/gradle-wrapper.jar "https://raw.githubusercontent.com/gradle/gradle/v8.7.0/gradle/wrapper/gradle-wrapper.jar"[0m
+2026-03-30T07:03:34.4941167Z [36;1m./gradlew assembleDebug --no-daemon[0m
+2026-03-30T07:03:34.4971864Z shell: /usr/bin/bash -e {0}
+2026-03-30T07:03:34.4972128Z env:
+2026-03-30T07:03:34.4972416Z   JAVA_HOME: /opt/hostedtoolcache/Java_Temurin-Hotspot_jdk/17.0.18-8/x64
+2026-03-30T07:03:34.4972890Z   JAVA_HOME_17_X64: /opt/hostedtoolcache/Java_Temurin-Hotspot_jdk/17.0.18-8/x64
+2026-03-30T07:03:34.4973647Z   ANDROID_HOME: /usr/local/lib/android/sdk
+2026-03-30T07:03:34.4973931Z   ANDROID_SDK_ROOT: /usr/local/lib/android/sdk
+2026-03-30T07:03:34.4974180Z ##[endgroup]
+2026-03-30T07:03:34.6508206Z Downloading https://services.gradle.org/distributions/gradle-8.7-bin.zip
+2026-03-30T07:03:36.6483877Z ............10%.............20%.............30%.............40%............50%.............60%.............70%.............80%.............90%............100%
+2026-03-30T07:03:37.8513136Z 
+2026-03-30T07:03:37.8518876Z Welcome to Gradle 8.7!
+2026-03-30T07:03:37.8526146Z 
+2026-03-30T07:03:37.8529920Z Here are the highlights of this release:
+2026-03-30T07:03:37.8538267Z  - Compiling and testing with Java 22
+2026-03-30T07:03:37.8543557Z  - Cacheable Groovy script compilation
+2026-03-30T07:03:37.8549474Z  - New methods in lazy collection properties
+2026-03-30T07:03:37.8551732Z 
+2026-03-30T07:03:37.8560350Z For more details see https://docs.gradle.org/8.7/release-notes.html
+2026-03-30T07:03:37.8562692Z 
+2026-03-30T07:03:38.0499633Z To honour the JVM settings for this build a single-use Daemon process will be forked. For more on this, please refer to https://docs.gradle.org/8.7/userguide/gradle_daemon.html#sec:disabling_the_daemon in the Gradle documentation.
+2026-03-30T07:03:39.3488397Z Daemon will be stopped at the end of the build 
+2026-03-30T07:04:56.3537176Z > Task :app:preBuild UP-TO-DATE
+2026-03-30T07:04:56.3546621Z > Task :app:preDebugBuild UP-TO-DATE
+2026-03-30T07:04:56.4488198Z > Task :app:mergeDebugNativeDebugMetadata NO-SOURCE
+2026-03-30T07:04:56.4492673Z > Task :app:checkKotlinGradlePluginConfigurationErrors
+2026-03-30T07:05:08.4487470Z > Task :app:dataBindingMergeDependencyArtifactsDebug
+2026-03-30T07:05:08.4488218Z > Task :app:generateDebugResValues
+2026-03-30T07:05:08.5518653Z > Task :app:generateDebugResources
+2026-03-30T07:05:13.0486700Z > Task :app:packageDebugResources
+2026-03-30T07:05:13.2489869Z > Task :app:mergeDebugResources
+2026-03-30T07:05:13.9492045Z > Task :app:generateDebugBuildConfig
+2026-03-30T07:05:14.2500886Z > Task :app:parseDebugLocalResources
+2026-03-30T07:05:14.2502673Z > Task :app:checkDebugAarMetadata
+2026-03-30T07:05:15.0488937Z > Task :app:dataBindingGenBaseClassesDebug
+2026-03-30T07:05:15.0491158Z > Task :app:mapDebugSourceSetPaths
+2026-03-30T07:05:15.0493112Z > Task :app:createDebugCompatibleScreenManifests
+2026-03-30T07:05:15.0495294Z > Task :app:extractDeepLinksDebug
+2026-03-30T07:05:15.5507096Z > Task :app:processDebugMainManifest
+2026-03-30T07:05:15.6487504Z > Task :app:processDebugManifest
+2026-03-30T07:05:15.7487266Z > Task :app:processDebugManifestForPackage
+2026-03-30T07:05:15.7488154Z > Task :app:javaPreCompileDebug
+2026-03-30T07:05:16.9504524Z > Task :app:mergeDebugShaders
+2026-03-30T07:05:16.9505310Z > Task :app:compileDebugShaders NO-SOURCE
+2026-03-30T07:05:16.9506164Z > Task :app:generateDebugAssets UP-TO-DATE
+2026-03-30T07:05:17.0486952Z > Task :app:mergeDebugAssets
+2026-03-30T07:05:17.0487798Z > Task :app:compressDebugAssets
+2026-03-30T07:05:17.1509761Z > Task :app:desugarDebugFileDependencies
+2026-03-30T07:05:21.0507043Z > Task :app:processDebugResources
+2026-03-30T07:05:21.2486813Z > Task :app:checkDebugDuplicateClasses
+2026-03-30T07:05:51.1490062Z > Task :app:compileDebugKotlin
+2026-03-30T07:05:56.7486985Z > Task :app:mergeExtDexDebug
+2026-03-30T07:08:02.8504750Z > Task :app:mergeLibDexDebug
+2026-03-30T07:08:02.8505372Z > Task :app:mergeDebugJniLibFolders
+2026-03-30T07:08:03.1487051Z > Task :app:mergeDebugNativeLibs NO-SOURCE
+2026-03-30T07:08:03.2527502Z > Task :app:stripDebugDebugSymbols NO-SOURCE
+2026-03-30T07:08:05.3486920Z > Task :app:validateSigningDebug
+2026-03-30T07:08:05.3489119Z > Task :app:writeDebugAppMetadata
+2026-03-30T07:08:05.4487316Z > Task :app:writeDebugSigningConfigVersions
+2026-03-30T07:08:25.4510061Z e: file:///home/runner/work/lifecycle-bot/lifecycle-bot/lifecycle_apk/app/src/main/kotlin/com/lifecyclebot/collective/CollectiveLearning.kt:1965:18 Unresolved reference: cachedInstanceCount
+2026-03-30T07:08:25.4511501Z 
+2026-03-30T07:08:25.4511995Z > Task :app:compileDebugKotlin
+2026-03-30T07:08:25.5486228Z 
+2026-03-30T07:08:25.5505272Z > Task :app:compileDebugKotlin FAILED
+2026-03-30T07:08:25.6485729Z 
+2026-03-30T07:08:25.6517235Z 30 actionable tasks: 30 executed
+2026-03-30T07:08:25.6518042Z FAILURE: Build failed with an exception.
+2026-03-30T07:08:25.6523759Z 
+2026-03-30T07:08:25.6524080Z * What went wrong:
+2026-03-30T07:08:25.6524819Z Execution failed for task ':app:compileDebugKotlin'.
+2026-03-30T07:08:25.6526613Z > A failure occurred while executing org.jetbrains.kotlin.compilerRunner.GradleCompilerRunnerWithWorkers$GradleKotlinCompilerWorkAction
+2026-03-30T07:08:25.6528177Z    > Compilation error. See log for more details
+2026-03-30T07:08:25.6528663Z 
+2026-03-30T07:08:25.6528920Z * Try:
+2026-03-30T07:08:25.6529876Z > Run with --stacktrace option to get the stack trace.
+2026-03-30T07:08:25.6530744Z > Run with --info or --debug option to get more log output.
+2026-03-30T07:08:25.6531499Z > Run with --scan to get full insights.
+2026-03-30T07:08:25.6532183Z > Get more help at https://help.gradle.org.
+2026-03-30T07:08:25.6532646Z 
+2026-03-30T07:08:25.6548625Z BUILD FAILED in 4m 50s
+2026-03-30T07:08:26.1277294Z ##[error]Process completed with exit code 1.

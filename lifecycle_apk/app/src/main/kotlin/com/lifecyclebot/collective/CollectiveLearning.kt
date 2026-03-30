@@ -1962,7 +1962,6 @@ Instance: $instanceId
 Blacklist: $afterBlacklist (+$blacklistDelta new)
 Patterns: $afterPatterns (+$patternDelta new)
 Mode Stats: ${cachedModeStats.size}
-Network Nodes: ${cachedInstanceCount}
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
             """.trimIndent()
         } catch (e: Exception) {
