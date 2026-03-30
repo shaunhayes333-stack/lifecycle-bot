@@ -36,8 +36,13 @@ jobs:
           echo "========================================"
           echo "Building AATE v4.20.${{ github.run_number }}"
           echo "versionCode = $((420 + ${{ github.run_number }}))"
+          echo "buildNumber property = ${{ github.run_number }}"
           echo "========================================"
           ./gradlew assembleRelease --no-daemon -PbuildNumber=${{ github.run_number }}
+          echo "========================================"
+          echo "Built APK files:"
+          ls -la app/build/outputs/apk/release/
+          echo "========================================"
 
       - uses: actions/upload-artifact@v4
         with:

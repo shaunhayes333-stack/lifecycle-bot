@@ -62,13 +62,13 @@ android {
         }
     }
     
-    // Custom APK naming: AATE_v3.2.0.apk
-    applicationVariants.all {
+    // Custom APK naming: AATE_v4.20.XX.apk
+    // Must use afterEvaluate to ensure versionName is resolved
+    android.applicationVariants.all {
         val variant = this
         variant.outputs.all {
             val output = this as com.android.build.gradle.internal.api.BaseVariantOutputImpl
-            val versionName = variant.versionName
-            output.outputFileName = "AATE_v${versionName}.apk"
+            output.outputFileName = "AATE_v${variant.versionName}.apk"
         }
     }
 
