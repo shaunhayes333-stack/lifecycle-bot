@@ -1,5 +1,57 @@
 # AATE V4.1 Release Notes
 
+## Version 4.1.2 - December 2025
+
+### Overview
+
+V4.1.2 fixes critical state management bugs and adds coordination between multiple scanners and AI layers.
+
+---
+
+## What's New (V4.1.2)
+
+### GlobalTradeRegistry - Thread-Safe Watchlist (Critical Fix)
+
+**Problem:** Watchlist randomly resetting from 31 tokens to 1 due to:
+- Multiple threads reading/writing cfg.watchlist
+- ConfigStore.save() called with stale data
+- No synchronization between scanners and AI layers
+
+**Solution:** New `GlobalTradeRegistry.kt` singleton:
+- ConcurrentHashMap for thread-safe watchlist storage
+- Single source of truth for all token tracking
+- Duplicate suppression with 5-minute cooldown
+- Position tracking across ALL layers (V3, Treasury, BlueChip, ShitCoin)
+- Automatic pruning when full (100 token limit)
+- Periodic sync to ConfigStore every 50 seconds
+
+---
+
+### Module Initialization Timing (P1 Fix)
+
+**Problem:** Trading started BEFORE all AI layers were initialized, causing undefined behavior.
+
+**Solution:**
+- Added `allTradingLayersReady` flag
+- Trading blocked until ALL layers successfully init
+- Error logging for failed layer initializations
+- Clear status messages during startup
+
+---
+
+### TokenMergeQueue - Scanner Coordination (P2 Fix)
+
+**Problem:** Multiple scanners (DEX_BOOSTED, PUMP_FUN, V3_SCANNER) finding same token simultaneously caused duplicates.
+
+**Solution:** New `TokenMergeQueue.kt`:
+- Batches discoveries within 5-second window
+- Merges same token found by multiple scanners
+- Multi-scanner detection = confidence boost
+- Scanner rankings: DEX_BOOSTED (90), V3_PREMIUM (85), PUMP_FUN (80), etc.
+- Emits single merged token per batch
+
+---
+
 ## Version 4.1.1 - December 2025
 
 ### Overview
