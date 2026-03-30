@@ -3207,11 +3207,11 @@ class LifecycleStrategy(
                 ErrorLogger.debug("Strategy", "${ts.symbol}: LAUNCH_SNIPE mode, phase=$phase, adjEntry=${adjustedEntryScore.toInt()}")
                 when (phase) {
                     // ULTRA AGGRESSIVE - enter as early as possible
-                    "pre_pump"      -> if (adjustedEntryScore >= (20 + brainAdj + tierThAdj) - adj) return "BUY"  // lowered from 30
-                    "pumping"       -> if (adjustedEntryScore >= (15 + brainAdj + tierThAdj) - adj) return "BUY"  // lowered from 25
-                    "pump_pullback" -> if (adjustedEntryScore >= (10 + brainAdj + tierThAdj))       return "BUY"  // lowered from 15
-                    "early_unknown" -> if (adjustedEntryScore >= (25 + brainAdj + tierThAdj) - adj) return "BUY"  // lowered from 35
-                    "accumulation"  -> if (adjustedEntryScore >= (15 + brainAdj + tierThAdj) - adj) return "BUY"  // NEW - enter accumulation early
+                    "pre_pump"      -> if (adjustedEntryScore >= (15 + brainAdj + tierThAdj) - adj) return "BUY"  // V5.0: lowered from 20
+                    "pumping"       -> if (adjustedEntryScore >= (10 + brainAdj + tierThAdj) - adj) return "BUY"  // V5.0: lowered from 15
+                    "pump_pullback" -> if (adjustedEntryScore >= (5 + brainAdj + tierThAdj))        return "BUY"  // V5.0: lowered from 10
+                    "early_unknown" -> if (adjustedEntryScore >= (15 + brainAdj + tierThAdj) - adj) return "BUY"  // V5.0: lowered from 25
+                    "accumulation"  -> if (adjustedEntryScore >= (10 + brainAdj + tierThAdj) - adj) return "BUY"  // V5.0: lowered from 15
                 }
             }
             TradingMode.RANGE_TRADE -> {
