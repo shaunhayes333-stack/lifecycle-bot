@@ -525,8 +525,11 @@ object BlueChipTraderAI {
     private const val BC_SCORE_BOOTSTRAP = 50       // Higher than Treasury
     private const val BC_SCORE_MATURE = 35          // Loosen as we learn
     
-    private const val BC_CONF_BOOTSTRAP = 55        // Higher than Treasury
-    private const val BC_CONF_MATURE = 40           // Loosen as we learn
+    // V4.1.2: Lowered bootstrap conf from 55% to 25% + boost system
+    // Same pattern as ShitCoin - allows learning while filtering garbage
+    private const val BC_CONF_BOOTSTRAP = 25        // Start lower to allow learning
+    private const val BC_CONF_MATURE = 50           // Build up to 50% as we scale
+    private const val BC_CONF_BOOST_MAX = 10.0      // 10% bootstrap boost (decays as we learn)
     
     private const val BC_LIQ_BOOTSTRAP = 75_000.0   // Higher than Treasury
     private const val BC_LIQ_MATURE = 50_000.0      // Can take lower liq when experienced
@@ -536,8 +539,26 @@ object BlueChipTraderAI {
         return bootstrap + (mature - bootstrap) * progress
     }
     
+    /**
+     * V4.1.2: Bootstrap confidence boost for BlueChip layer
+     * Starts at +10% and decays to 0% as learning progresses
+     */
+    private fun getBootstrapConfBoost(): Double {
+        val progress = FluidLearningAI.getLearningProgress()
+        // Boost decays from 10% to 0% as we learn
+        return BC_CONF_BOOST_MAX * (1.0 - progress).coerceIn(0.0, 1.0)
+    }
+    
     fun getFluidScoreThreshold(): Int = lerp(BC_SCORE_BOOTSTRAP.toDouble(), BC_SCORE_MATURE.toDouble()).toInt()
-    fun getFluidConfidenceThreshold(): Int = lerp(BC_CONF_BOOTSTRAP.toDouble(), BC_CONF_MATURE.toDouble()).toInt()
+    
+    fun getFluidConfidenceThreshold(): Int {
+        val baseConf = lerp(BC_CONF_BOOTSTRAP.toDouble(), BC_CONF_MATURE.toDouble())
+        val boost = getBootstrapConfBoost()
+        // During bootstrap: 25% base + 10% boost = 35% effective
+        // At maturity: 50% base + 0% boost = 50% effective
+        return (baseConf + boost).toInt()
+    }
+    
     fun getFluidMinLiquidity(): Double = lerp(BC_LIQ_BOOTSTRAP, BC_LIQ_MATURE)
     fun getFluidTakeProfit(): Double = lerp(TAKE_PROFIT_BOOTSTRAP, TAKE_PROFIT_MATURE)
     

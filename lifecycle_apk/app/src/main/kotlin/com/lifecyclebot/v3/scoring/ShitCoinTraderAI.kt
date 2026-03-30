@@ -802,16 +802,36 @@ object ShitCoinTraderAI {
     private const val SC_SCORE_BOOTSTRAP = 45       // Higher bar at start
     private const val SC_SCORE_MATURE = 30          // Loosen as we learn what works
     
-    private const val SC_CONF_BOOTSTRAP = 50        // Need reasonable confidence
-    private const val SC_CONF_MATURE = 35           // Can take riskier plays when experienced
+    // V4.1.2: Lowered bootstrap conf from 50% to 25% + boost system
+    // Allows learning while still filtering garbage
+    private const val SC_CONF_BOOTSTRAP = 25        // Start lower to allow learning
+    private const val SC_CONF_MATURE = 50           // Build up to 50% as we scale
+    private const val SC_CONF_BOOST_MAX = 10.0      // 10% bootstrap boost (decays as we learn)
     
     private fun lerp(bootstrap: Double, mature: Double): Double {
         val progress = FluidLearningAI.getLearningProgress()
         return bootstrap + (mature - bootstrap) * progress
     }
     
+    /**
+     * V4.1.2: Bootstrap confidence boost for ShitCoin layer
+     * Starts at +10% and decays to 0% as learning progresses
+     */
+    private fun getBootstrapConfBoost(): Double {
+        val progress = FluidLearningAI.getLearningProgress()
+        // Boost decays from 10% to 0% as we learn
+        return SC_CONF_BOOST_MAX * (1.0 - progress).coerceIn(0.0, 1.0)
+    }
+    
     fun getFluidScoreThreshold(): Int = lerp(SC_SCORE_BOOTSTRAP.toDouble(), SC_SCORE_MATURE.toDouble()).toInt()
-    fun getFluidConfidenceThreshold(): Int = lerp(SC_CONF_BOOTSTRAP.toDouble(), SC_CONF_MATURE.toDouble()).toInt()
+    
+    fun getFluidConfidenceThreshold(): Int {
+        val baseConf = lerp(SC_CONF_BOOTSTRAP.toDouble(), SC_CONF_MATURE.toDouble())
+        val boost = getBootstrapConfBoost()
+        // During bootstrap: 25% base + 10% boost = 35% effective
+        // At maturity: 50% base + 0% boost = 50% effective
+        return (baseConf + boost).toInt()
+    }
     fun getFluidMinLiquidity(): Double = lerp(MIN_LIQUIDITY_USD_BOOTSTRAP, MIN_LIQUIDITY_USD_MATURE)
     fun getFluidTakeProfit(): Double = lerp(TAKE_PROFIT_BOOTSTRAP, TAKE_PROFIT_MATURE)
     
