@@ -2533,7 +2533,6 @@ for legal compliance.
                     val backupFile = com.lifecyclebot.engine.PersistentLearning.exportFullBackup(this)
                     if (backupFile != null) {
                         Toast.makeText(this, "✅ Exported to:\n${backupFile.absolutePath}", Toast.LENGTH_LONG).show()
-                        addLog("📦 BACKUP EXPORTED: ${backupFile.name}")
                     } else {
                         Toast.makeText(this, "❌ Export failed - check storage permission", Toast.LENGTH_LONG).show()
                     }
@@ -2583,7 +2582,6 @@ for legal compliance.
                             val success = com.lifecyclebot.engine.PersistentLearning.importFullBackup(this, selectedBackup)
                             if (success) {
                                 Toast.makeText(this, "✅ Learning data restored!\n\nRestart the app for changes to take effect.", Toast.LENGTH_LONG).show()
-                                addLog("📥 BACKUP IMPORTED: ${selectedBackup.name}")
                             } else {
                                 Toast.makeText(this, "❌ Import failed", Toast.LENGTH_SHORT).show()
                             }

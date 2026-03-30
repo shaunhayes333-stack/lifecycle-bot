@@ -77,7 +77,7 @@ object TradeAuthorizer {
     }
     
     // ═══════════════════════════════════════════════════════════════════════════
-    // TOKEN BOOK LOCKS - Prevent same token in multiple books
+    // TOKEN BOOK LOCKS - V5.1: Allow same token in MULTIPLE books
     // ═══════════════════════════════════════════════════════════════════════════
     
     data class TokenLock(
@@ -96,8 +96,12 @@ object TradeAuthorizer {
         SHADOW,         // Shadow tracking only (NOT a real position)
     }
     
-    // Active locks per token
+    // V5.1: Active locks per token PER BOOK (allows multi-mode trading)
+    // Key: "mint:book" (e.g., "abc123:TREASURY")
     private val tokenLocks = ConcurrentHashMap<String, TokenLock>()
+    
+    // Helper to create lock key
+    private fun lockKey(mint: String, book: ExecutionBook): String = "$mint:${book.name}"
     
     // Decision epoch to prevent stale re-authorization
     private var currentEpoch = 0L
@@ -176,32 +180,22 @@ object TradeAuthorizer {
         }
         
         // ─────────────────────────────────────────────────────────────────────
-        // GATE 4: BOOK LOCK CHECK - Is token already in another book?
+        // GATE 4: BOOK LOCK CHECK - V5.1: ALLOW multi-mode trading
+        // Different modes (V3, TREASURY, SHITCOIN, BLUECHIP) can trade the same token
+        // Only block duplicate trades in the SAME book
         // ─────────────────────────────────────────────────────────────────────
-        val existingLock = tokenLocks[mint]
+        val existingLock = tokenLocks[lockKey(mint, requestedBook)]
         if (existingLock != null) {
-            // Token is already locked
-            if (existingLock.book != requestedBook && existingLock.book != ExecutionBook.SHADOW) {
-                // Already in a DIFFERENT execution book (not shadow)
-                ErrorLogger.info(TAG, "❌ REJECT $symbol: ALREADY_IN_${existingLock.book}")
-                return AuthorizationResult(
-                    verdict = ExecutionVerdict.REJECT,
-                    reason = "BOOK_CONFLICT_${existingLock.book}",
-                    blockLevel = BlockLevel.SOFT,
-                    canRetry = false,
-                )
-            }
+            // V5.1: Only check if this SPECIFIC book already has a position
             
             // If in shadow, can upgrade to real execution
-            if (existingLock.state == TokenState.SHADOW_TRACKING && 
-                requestedBook != ExecutionBook.SHADOW) {
+            if (existingLock.state == TokenState.SHADOW_TRACKING) {
                 // Allow upgrade from shadow to real position
                 ErrorLogger.debug(TAG, "⬆️ $symbol: Upgrading from SHADOW to $requestedBook")
             }
             
-            // If already open in same book, reject duplicate
-            if (existingLock.state == TokenState.PAPER_OPEN || 
-                existingLock.state == TokenState.LIVE_OPEN) {
+            // Reject if this book already has an open position
+            if (existingLock.state == TokenState.PAPER_OPEN || existingLock.state == TokenState.LIVE_OPEN) {
                 ErrorLogger.info(TAG, "❌ REJECT $symbol: ALREADY_OPEN_IN_$requestedBook")
                 return AuthorizationResult(
                     verdict = ExecutionVerdict.REJECT,
@@ -210,6 +204,14 @@ object TradeAuthorizer {
                     canRetry = false,
                 )
             }
+        }
+        
+        // V5.1: Log if other books have this token (for visibility)
+        val otherBooks = ExecutionBook.values()
+            .filter { it != requestedBook && it != ExecutionBook.SHADOW }
+            .filter { tokenLocks[lockKey(mint, it)]?.state in listOf(TokenState.PAPER_OPEN, TokenState.LIVE_OPEN) }
+        if (otherBooks.isNotEmpty()) {
+            ErrorLogger.debug(TAG, "✅ $symbol: Multi-mode trade - also in: ${otherBooks.joinToString()}")
         }
         
         // ─────────────────────────────────────────────────────────────────────
@@ -221,8 +223,8 @@ object TradeAuthorizer {
             // SHADOW ONLY - track but do NOT execute
             ErrorLogger.info(TAG, "👁️ SHADOW_ONLY $symbol: ${promotionResult.reason}")
             
-            // Lock as shadow tracking
-            tokenLocks[mint] = TokenLock(
+            // Lock as shadow tracking (use SHADOW key, not book-specific)
+            tokenLocks[lockKey(mint, ExecutionBook.SHADOW)] = TokenLock(
                 mint = mint,
                 state = TokenState.SHADOW_TRACKING,
                 book = ExecutionBook.SHADOW,
@@ -244,8 +246,8 @@ object TradeAuthorizer {
         val verdict = if (isPaperMode) ExecutionVerdict.PAPER_EXECUTE else ExecutionVerdict.LIVE_EXECUTE
         val newState = if (isPaperMode) TokenState.PAPER_OPEN else TokenState.LIVE_OPEN
         
-        // Lock the token to this book
-        tokenLocks[mint] = TokenLock(
+        // V5.1: Lock the token to this SPECIFIC book (allows multi-mode)
+        tokenLocks[lockKey(mint, requestedBook)] = TokenLock(
             mint = mint,
             state = newState,
             book = requestedBook,
@@ -324,67 +326,93 @@ object TradeAuthorizer {
     // ═══════════════════════════════════════════════════════════════════════════
     
     /**
-     * Called when a position is closed.
-     * Releases the book lock so the token can be re-evaluated.
+     * V5.1: Releases the book lock for a specific book.
      */
-    fun releasePosition(mint: String, reason: String = "CLOSED") {
-        val lock = tokenLocks.remove(mint)
-        if (lock != null) {
-            ErrorLogger.debug(TAG, "🔓 Released $mint from ${lock.book}: $reason")
+    fun releasePosition(mint: String, reason: String = "CLOSED", book: ExecutionBook? = null) {
+        if (book != null) {
+            // Release specific book
+            val lock = tokenLocks.remove(lockKey(mint, book))
+            if (lock != null) {
+                ErrorLogger.debug(TAG, "🔓 Released $mint from ${lock.book}: $reason")
+            }
+        } else {
+            // Release ALL books for this mint (legacy compatibility)
+            ExecutionBook.values().forEach { b ->
+                val lock = tokenLocks.remove(lockKey(mint, b))
+                if (lock != null) {
+                    ErrorLogger.debug(TAG, "🔓 Released $mint from ${lock.book}: $reason")
+                }
+            }
         }
     }
     
     /**
-     * Get current state of a token.
+     * V5.1: Get current state of a token in a specific book.
      */
-    fun getTokenState(mint: String): TokenState? {
-        return tokenLocks[mint]?.state
+    fun getTokenState(mint: String, book: ExecutionBook? = null): TokenState? {
+        if (book != null) {
+            return tokenLocks[lockKey(mint, book)]?.state
+        }
+        // Return first found state (legacy compatibility)
+        return ExecutionBook.values().firstNotNullOfOrNull { tokenLocks[lockKey(mint, it)]?.state }
     }
     
     /**
-     * Get which book a token is locked to.
+     * V5.1: Get all books a token is locked to.
      */
-    fun getTokenBook(mint: String): ExecutionBook? {
-        return tokenLocks[mint]?.book
+    fun getTokenBooks(mint: String): List<ExecutionBook> {
+        return ExecutionBook.values().filter { tokenLocks[lockKey(mint, it)] != null }
     }
     
     /**
-     * Check if a token is in shadow tracking (NOT a real position).
+     * V5.1: Check if a token is in shadow tracking (NOT a real position).
      */
     fun isShadowOnly(mint: String): Boolean {
-        return tokenLocks[mint]?.state == TokenState.SHADOW_TRACKING
+        return tokenLocks[lockKey(mint, ExecutionBook.SHADOW)]?.state == TokenState.SHADOW_TRACKING
     }
     
     /**
-     * Check if a token has a real open position.
+     * V5.1: Check if a token has a real open position in ANY book.
      */
     fun hasOpenPosition(mint: String): Boolean {
-        val state = tokenLocks[mint]?.state
+        return ExecutionBook.values().any { b ->
+            val state = tokenLocks[lockKey(mint, b)]?.state
+            state == TokenState.PAPER_OPEN || state == TokenState.LIVE_OPEN
+        }
+    }
+    
+    /**
+     * V5.1: Check if a token has a position in a specific book.
+     */
+    fun hasOpenPositionInBook(mint: String, book: ExecutionBook): Boolean {
+        val state = tokenLocks[lockKey(mint, book)]?.state
         return state == TokenState.PAPER_OPEN || state == TokenState.LIVE_OPEN
     }
     
     /**
-     * Get all tokens in a specific book.
+     * V5.1: Get all tokens in a specific book.
      */
     fun getTokensInBook(book: ExecutionBook): List<String> {
-        return tokenLocks.filter { it.value.book == book }.keys.toList()
+        return tokenLocks.filter { it.key.endsWith(":${book.name}") }
+            .values.map { it.mint }.distinct()
     }
     
     /**
-     * Get all real open positions (excludes shadow tracking).
+     * V5.1: Get all real open positions (excludes shadow tracking).
      */
     fun getOpenPositions(): List<String> {
         return tokenLocks.filter { 
             it.value.state == TokenState.PAPER_OPEN || 
             it.value.state == TokenState.LIVE_OPEN 
-        }.keys.toList()
+        }.values.map { it.mint }.distinct()
     }
     
     /**
      * Get all shadow tracking tokens.
      */
     fun getShadowTracking(): List<String> {
-        return tokenLocks.filter { it.value.state == TokenState.SHADOW_TRACKING }.keys.toList()
+        return tokenLocks.filter { it.value.state == TokenState.SHADOW_TRACKING }
+            .values.map { it.mint }.distinct()
     }
     
     // ═══════════════════════════════════════════════════════════════════════════

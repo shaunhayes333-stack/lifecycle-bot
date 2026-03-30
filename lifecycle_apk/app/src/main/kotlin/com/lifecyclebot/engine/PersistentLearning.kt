@@ -496,30 +496,45 @@ object PersistentLearning {
                 put("appVersion", "5.1")
                 
                 // 1. Edge Learning
-                loadEdgeLearning()?.let { put("edge_learning", it) }
+                loadEdgeLearning()?.let { 
+                    put("edge_learning", JSONObject(it)) 
+                }
                 
-                // 2. Entry Intelligence
-                loadEntryIntelligence()?.let { put("entry_intelligence", it) }
+                // 2. Entry Intelligence - read from file directly
+                try {
+                    val entryFile = File(storageDir, "entry_intelligence.json")
+                    if (entryFile.exists()) {
+                        put("entry_intelligence", JSONObject(entryFile.readText()))
+                    }
+                } catch (_: Exception) {}
                 
-                // 3. Exit Intelligence
-                loadExitIntelligence()?.let { put("exit_intelligence", it) }
+                // 3. Exit Intelligence - read from file directly
+                try {
+                    val exitFile = File(storageDir, "exit_intelligence.json")
+                    if (exitFile.exists()) {
+                        put("exit_intelligence", JSONObject(exitFile.readText()))
+                    }
+                } catch (_: Exception) {}
                 
-                // 4. Trading Memory
-                loadTradingMemory()?.let { put("trading_memory", it) }
+                // 4. Token Win Memory
+                loadTokenWinMemory()?.let { (winners, patterns) ->
+                    put("token_win_memory", JSONObject().apply {
+                        put("winners", winners)
+                        put("patterns", patterns)
+                    })
+                }
                 
-                // 5. Token Win Memory
-                loadTokenWinMemory()?.let { put("token_win_memory", it) }
-                
-                // 6. All persistent JSON files
+                // 5. All persistent JSON files from storage dir
                 storageDir?.listFiles()?.filter { it.extension == "json" && !it.name.startsWith("backup") }?.forEach { file ->
                     try {
-                        if (!has(file.nameWithoutExtension)) {
-                            put(file.nameWithoutExtension, JSONObject(file.readText()))
+                        val key = file.nameWithoutExtension
+                        if (!has(key)) {
+                            put(key, JSONObject(file.readText()))
                         }
                     } catch (_: Exception) {}
                 }
                 
-                // 7. SharedPreferences data
+                // 6. SharedPreferences data
                 val prefsBackup = JSONObject()
                 
                 // Fluid Learning prefs
@@ -607,28 +622,25 @@ object PersistentLearning {
                 restoredCount++
             }
             
-            // 2. Restore Entry Intelligence
+            // 2. Restore Entry Intelligence - write file directly
             if (backupJson.has("entry_intelligence")) {
-                val entry = backupJson.getJSONObject("entry_intelligence")
-                saveEntryIntelligence(entry.toString())
-                restoredCount++
+                try {
+                    val entryFile = File(storageDir, "entry_intelligence.json")
+                    entryFile.writeText(backupJson.getJSONObject("entry_intelligence").toString(2))
+                    restoredCount++
+                } catch (_: Exception) {}
             }
             
-            // 3. Restore Exit Intelligence
+            // 3. Restore Exit Intelligence - write file directly
             if (backupJson.has("exit_intelligence")) {
-                val exit = backupJson.getJSONObject("exit_intelligence")
-                saveExitIntelligence(exit.toString())
-                restoredCount++
+                try {
+                    val exitFile = File(storageDir, "exit_intelligence.json")
+                    exitFile.writeText(backupJson.getJSONObject("exit_intelligence").toString(2))
+                    restoredCount++
+                } catch (_: Exception) {}
             }
             
-            // 4. Restore Trading Memory
-            if (backupJson.has("trading_memory")) {
-                val memory = backupJson.getJSONObject("trading_memory")
-                saveTradingMemory(memory.toString())
-                restoredCount++
-            }
-            
-            // 5. Restore Token Win Memory
+            // 4. Restore Token Win Memory
             if (backupJson.has("token_win_memory")) {
                 val winMem = backupJson.getJSONObject("token_win_memory")
                 saveTokenWinMemory(
@@ -638,7 +650,7 @@ object PersistentLearning {
                 restoredCount++
             }
             
-            // 6. Restore SharedPreferences
+            // 5. Restore SharedPreferences
             if (backupJson.has("shared_preferences")) {
                 val prefs = backupJson.getJSONObject("shared_preferences")
                 
