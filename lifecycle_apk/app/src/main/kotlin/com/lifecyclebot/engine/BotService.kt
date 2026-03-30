@@ -1493,6 +1493,12 @@ class BotService : Service() {
             // ═══════════════════════════════════════════════════════════════════
             FinalExecutionPermit.clearCycleState()
             
+            // ═══════════════════════════════════════════════════════════════════
+            // V4.0: GlobalTradeRegistry cleanup
+            // Clean expired rejections and cooldowns
+            // ═══════════════════════════════════════════════════════════════════
+            GlobalTradeRegistry.cleanup()
+            
             val cfg       = ConfigStore.load(applicationContext)
             val watchlist = cfg.watchlist.toMutableList()
             if (cfg.activeToken.isNotBlank() && cfg.activeToken !in watchlist)
@@ -1561,6 +1567,19 @@ class BotService : Service() {
                     } catch (e: Exception) {
                         ErrorLogger.error("BotService", "Watchlist cleanup error: ${e.message}")
                     }
+                }
+            }
+            
+            // ═══════════════════════════════════════════════════════════════════
+            // V4.0: SYNC GLOBALTRADEREGISTRY TO CONFIG - every 10 loops (~50 seconds)
+            // Persists the thread-safe watchlist to ConfigStore for restart recovery
+            // ═══════════════════════════════════════════════════════════════════
+            if (loopCount % 10 == 0) {
+                try {
+                    GlobalTradeRegistry.syncToConfig(applicationContext)
+                    ErrorLogger.debug("BotService", GlobalTradeRegistry.getStats())
+                } catch (e: Exception) {
+                    ErrorLogger.error("BotService", "GlobalTradeRegistry sync error: ${e.message}")
                 }
             }
             
@@ -2095,6 +2114,53 @@ class BotService : Service() {
             // Process all tokens in parallel — each gets its own coroutine.
             // This reduces per-cycle latency from (N×50ms + pollSeconds) to just pollSeconds.
             // V4.1: Lambda body extracted to processTokenCycle() to reduce compiler complexity
+            
+            // ═══════════════════════════════════════════════════════════════════
+            // V4.0: CHECK TRADING LAYER READINESS
+            // Block all trading until AI layers are fully initialized
+            // ═══════════════════════════════════════════════════════════════════
+            if (!allTradingLayersReady && loopCount > 1) {
+                addLog("⏳ Waiting for trading layers to initialize...")
+                kotlinx.coroutines.delay(1000)
+                continue  // Skip this cycle, try again
+            }
+            
+            // ═══════════════════════════════════════════════════════════════════
+            // V4.0: PROCESS MERGE QUEUE
+            // Batch scanner discoveries and add merged tokens to watchlist
+            // ═══════════════════════════════════════════════════════════════════
+            try {
+                val mergedTokens = TokenMergeQueue.processQueue()
+                for (merged in mergedTokens) {
+                    val addResult = GlobalTradeRegistry.addToWatchlist(
+                        mint = merged.mint,
+                        symbol = merged.symbol,
+                        addedBy = merged.primaryScanner,
+                        source = merged.allScanners.joinToString(","),
+                        initialMcap = merged.marketCapUsd,
+                    )
+                    
+                    if (addResult.added) {
+                        val boostLabel = if (merged.multiScannerBoost) " [MULTI-SCANNER]" else ""
+                        addLog("🔀 MERGED: ${merged.symbol} | ${merged.primaryScanner}$boostLabel | conf=${merged.confidence}", merged.mint)
+                    }
+                }
+            } catch (e: Exception) {
+                ErrorLogger.debug("BotService", "MergeQueue process error: ${e.message}")
+            }
+            
+            // ═══════════════════════════════════════════════════════════════════
+            // V4.0: USE GLOBALTRADEREGISTRY WATCHLIST
+            // Instead of cfg.watchlist which can reset, use the thread-safe registry
+            // ═══════════════════════════════════════════════════════════════════
+            val registryWatchlist = GlobalTradeRegistry.getWatchlist()
+            val effectiveWatchlist = if (registryWatchlist.isNotEmpty()) {
+                registryWatchlist
+            } else {
+                // Fallback to config watchlist if registry is empty
+                watchlist
+            }
+            
             val tokenJobs = prioritizedWatchlist.map { mint ->
               scope.launch {
                 if (!status.running) return@launch
@@ -4421,31 +4487,53 @@ class BotService : Service() {
             addLog("Error [$mint]: ${e.message}", mint)
         }
     }
+    // ═══════════════════════════════════════════════════════════════════════════
+    // V4.0: TRADING LAYER READINESS FLAG
+    // Prevents trading before all AI layers are initialized
+    // ═══════════════════════════════════════════════════════════════════════════
+    @Volatile
+    private var allTradingLayersReady = false
+    
     private fun initTradingModes(cfg: BotConfig) {
+        // Reset readiness flag at start
+        allTradingLayersReady = false
+        var initCount = 0
+        var failCount = 0
+        
         // Cash Generation AI (Treasury Mode)
         try {
             com.lifecyclebot.v3.scoring.CashGenerationAI.setTradingMode(cfg.paperMode)
-        } catch (_: Exception) {}
+            initCount++
+        } catch (e: Exception) {
+            failCount++
+            ErrorLogger.error("BotService", "CashGenerationAI init FAILED: ${e.message}", e)
+        }
         
         // ShitCoin Trader
         try {
             com.lifecyclebot.v3.scoring.ShitCoinTraderAI.init(cfg.paperMode)
+            initCount++
         } catch (e: Exception) {
-            ErrorLogger.debug("BotService", "ShitCoinTraderAI init: ${e.message}")
+            failCount++
+            ErrorLogger.error("BotService", "ShitCoinTraderAI init FAILED: ${e.message}", e)
         }
         
         // ShitCoin Express
         try {
             com.lifecyclebot.v3.scoring.ShitCoinExpress.init(cfg.paperMode)
+            initCount++
         } catch (e: Exception) {
-            ErrorLogger.debug("BotService", "ShitCoinExpress init: ${e.message}")
+            failCount++
+            ErrorLogger.error("BotService", "ShitCoinExpress init FAILED: ${e.message}", e)
         }
         
         // Dip Hunter
         try {
             com.lifecyclebot.v3.scoring.DipHunterAI.init(cfg.paperMode)
+            initCount++
         } catch (e: Exception) {
-            ErrorLogger.debug("BotService", "DipHunterAI init: ${e.message}")
+            failCount++
+            ErrorLogger.error("BotService", "DipHunterAI init FAILED: ${e.message}", e)
         }
         
         // Solana Arbitrage
@@ -4454,33 +4542,62 @@ class BotService : Service() {
             val solPrice = WalletManager.lastKnownSolPrice.takeIf { it > 0 } ?: 150.0
             val treasuryUsd = treasuryBalance * solPrice
             com.lifecyclebot.v3.scoring.SolanaArbAI.init(cfg.paperMode, treasuryUsd)
+            initCount++
         } catch (e: Exception) {
-            ErrorLogger.debug("BotService", "SolanaArbAI init: ${e.message}")
+            failCount++
+            ErrorLogger.error("BotService", "SolanaArbAI init FAILED: ${e.message}", e)
         }
         
         // Layer Transition Manager
         try {
             com.lifecyclebot.v3.scoring.LayerTransitionManager.init()
+            initCount++
         } catch (e: Exception) {
-            ErrorLogger.debug("BotService", "LayerTransitionManager init: ${e.message}")
+            failCount++
+            ErrorLogger.error("BotService", "LayerTransitionManager init FAILED: ${e.message}", e)
         }
         
         // Blue Chip Trader
         try {
             com.lifecyclebot.v3.scoring.BlueChipTraderAI.init(cfg.paperMode)
+            initCount++
         } catch (e: Exception) {
-            ErrorLogger.debug("BotService", "BlueChipTraderAI init: ${e.message}")
+            failCount++
+            ErrorLogger.error("BotService", "BlueChipTraderAI init FAILED: ${e.message}", e)
         }
         
         // Fluid Learning AI
         try {
             com.lifecyclebot.v3.scoring.FluidLearningAI.init()
+            initCount++
         } catch (e: Exception) {
-            ErrorLogger.debug("BotService", "FluidLearningAI init: ${e.message}")
+            failCount++
+            ErrorLogger.error("BotService", "FluidLearningAI init FAILED: ${e.message}", e)
         }
         
         // Update FinalDecisionGate mode
         FinalDecisionGate.setModeForVeto(cfg.paperMode)
+        
+        // ═══════════════════════════════════════════════════════════════════════════
+        // V4.0: Initialize GlobalTradeRegistry from config watchlist
+        // ═══════════════════════════════════════════════════════════════════════════
+        try {
+            GlobalTradeRegistry.init(cfg.watchlist, "CONFIG")
+            initCount++
+        } catch (e: Exception) {
+            failCount++
+            ErrorLogger.error("BotService", "GlobalTradeRegistry init FAILED: ${e.message}", e)
+        }
+        
+        // Set readiness flag - only if critical layers initialized
+        // Critical: Treasury, ShitCoin, BlueChip, FluidLearning, GlobalTradeRegistry
+        allTradingLayersReady = failCount == 0
+        
+        if (allTradingLayersReady) {
+            addLog("✅ All $initCount trading layers initialized")
+        } else {
+            addLog("⚠️ Trading layers: $initCount OK, $failCount FAILED - trading may be limited")
+        }
     }
 
     // ═══════════════════════════════════════════════════════════════════════════
