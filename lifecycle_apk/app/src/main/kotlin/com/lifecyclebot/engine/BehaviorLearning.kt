@@ -1,5 +1,6 @@
 package com.lifecyclebot.engine
 
+import com.lifecyclebot.v3.scoring.FluidLearningAI
 import org.json.JSONArray
 import org.json.JSONObject
 import java.util.concurrent.ConcurrentHashMap
@@ -742,8 +743,9 @@ object BehaviorLearning {
         return try {
             val eval = evaluate(entryPhase, setupQuality, tradingMode, liquidityUsd, volumeSignal)
             
-            // Weight by confidence (reduced bad penalty from -50 to -6)
-            (eval.scoreAdjustment * eval.confidence).toInt().coerceIn(-6, 30)
+            // Weight by confidence - fluid penalty: -6 bootstrap → -15 mature
+            val maxPenalty = -6 - (9 * FluidLearningAI.getLearningProgress()).toInt()  // -6 to -15
+            (eval.scoreAdjustment * eval.confidence).toInt().coerceIn(maxPenalty, 30)
         } catch (e: Exception) {
             0
         }
