@@ -582,21 +582,39 @@ object PersistentLearning {
                     prefsBackup.put("trade_history", historyData)
                 } catch (_: Exception) {}
                 
-                // V5.2: Include API keys so user doesn't have to re-enter them
+                // V5.2 FIX: Include API keys from ConfigStore (via BotConfig)
+                // BUGFIX: Was previously reading from wrong SharedPreferences file
                 try {
-                    val configPrefs = context.getSharedPreferences("bot_config", Context.MODE_PRIVATE)
+                    // Get API keys via ConfigStore which handles encrypted storage properly
+                    val botConfig = com.lifecyclebot.data.ConfigStore.load(context)
+                    
                     val apiKeysData = JSONObject().apply {
-                        put("helius_api_key", configPrefs.getString("helius_api_key", "") ?: "")
-                        put("birdeye_api_key", configPrefs.getString("birdeye_api_key", "") ?: "")
-                        put("groq_api_key", configPrefs.getString("groq_api_key", "") ?: "")
-                        put("gemini_api_key", configPrefs.getString("gemini_api_key", "") ?: "")
-                        put("jupiter_api_key", configPrefs.getString("jupiter_api_key", "") ?: "")
-                        // Also backup the private key (encrypted) for full restore
-                        put("private_key_b58", configPrefs.getString("private_key_b58", "") ?: "")
+                        put("helius_api_key", botConfig.heliusApiKey)
+                        put("birdeye_api_key", botConfig.birdeyeApiKey)
+                        put("groq_api_key", botConfig.groqApiKey)
+                        put("gemini_api_key", botConfig.geminiApiKey)
+                        put("jupiter_api_key", botConfig.jupiterApiKey)
+                        // Also backup the private key for full restore
+                        put("private_key_b58", botConfig.privateKeyB58)
+                        // Telegram config
+                        put("telegram_bot_token", botConfig.telegramBotToken)
+                        put("telegram_chat_id", botConfig.telegramChatId)
                     }
                     prefsBackup.put("api_keys", apiKeysData)
-                    ErrorLogger.info(TAG, "📦 API keys included in backup")
-                } catch (_: Exception) {}
+                    
+                    // Log which keys were found (without revealing values)
+                    val foundKeys = listOfNotNull(
+                        if (botConfig.heliusApiKey.isNotBlank()) "helius" else null,
+                        if (botConfig.birdeyeApiKey.isNotBlank()) "birdeye" else null,
+                        if (botConfig.groqApiKey.isNotBlank()) "groq" else null,
+                        if (botConfig.geminiApiKey.isNotBlank()) "gemini" else null,
+                        if (botConfig.jupiterApiKey.isNotBlank()) "jupiter" else null,
+                        if (botConfig.privateKeyB58.isNotBlank()) "wallet" else null,
+                    )
+                    ErrorLogger.info(TAG, "📦 API keys included in backup: ${foundKeys.joinToString(", ")}")
+                } catch (keyEx: Exception) {
+                    ErrorLogger.warn(TAG, "📦 Could not backup API keys: ${keyEx.message}")
+                }
                 
                 put("shared_preferences", prefsBackup)
             }
@@ -719,27 +737,52 @@ object PersistentLearning {
                     restoredCount++
                 }
                 
-                // V5.2: Restore API keys
+                // V5.2 FIX: Restore API keys via ConfigStore
+                // BUGFIX: Now properly restores to encrypted storage
                 if (prefs.has("api_keys")) {
                     val apiKeys = prefs.getJSONObject("api_keys")
-                    context.getSharedPreferences("bot_config", Context.MODE_PRIVATE).edit().apply {
+                    
+                    try {
+                        // Load current config, merge API keys, then save
+                        val currentConfig = com.lifecyclebot.data.ConfigStore.load(context)
+                        
                         val helius = apiKeys.optString("helius_api_key", "")
                         val birdeye = apiKeys.optString("birdeye_api_key", "")
                         val groq = apiKeys.optString("groq_api_key", "")
                         val gemini = apiKeys.optString("gemini_api_key", "")
                         val jupiter = apiKeys.optString("jupiter_api_key", "")
                         val privateKey = apiKeys.optString("private_key_b58", "")
+                        val tgBotToken = apiKeys.optString("telegram_bot_token", "")
+                        val tgChatId = apiKeys.optString("telegram_chat_id", "")
                         
-                        if (helius.isNotEmpty()) putString("helius_api_key", helius)
-                        if (birdeye.isNotEmpty()) putString("birdeye_api_key", birdeye)
-                        if (groq.isNotEmpty()) putString("groq_api_key", groq)
-                        if (gemini.isNotEmpty()) putString("gemini_api_key", gemini)
-                        if (jupiter.isNotEmpty()) putString("jupiter_api_key", jupiter)
-                        if (privateKey.isNotEmpty()) putString("private_key_b58", privateKey)
-                        apply()
+                        // Create updated config with restored keys (only if backup has non-empty values)
+                        val updatedConfig = currentConfig.copy(
+                            heliusApiKey = if (helius.isNotEmpty()) helius else currentConfig.heliusApiKey,
+                            birdeyeApiKey = if (birdeye.isNotEmpty()) birdeye else currentConfig.birdeyeApiKey,
+                            groqApiKey = if (groq.isNotEmpty()) groq else currentConfig.groqApiKey,
+                            geminiApiKey = if (gemini.isNotEmpty()) gemini else currentConfig.geminiApiKey,
+                            jupiterApiKey = if (jupiter.isNotEmpty()) jupiter else currentConfig.jupiterApiKey,
+                            privateKeyB58 = if (privateKey.isNotEmpty()) privateKey else currentConfig.privateKeyB58,
+                            telegramBotToken = if (tgBotToken.isNotEmpty()) tgBotToken else currentConfig.telegramBotToken,
+                            telegramChatId = if (tgChatId.isNotEmpty()) tgChatId else currentConfig.telegramChatId,
+                        )
+                        
+                        // Save via ConfigStore which handles encryption properly
+                        com.lifecyclebot.data.ConfigStore.save(context, updatedConfig)
+                        
+                        val restoredKeys = listOfNotNull(
+                            if (helius.isNotBlank()) "helius" else null,
+                            if (birdeye.isNotBlank()) "birdeye" else null,
+                            if (groq.isNotBlank()) "groq" else null,
+                            if (gemini.isNotBlank()) "gemini" else null,
+                            if (jupiter.isNotBlank()) "jupiter" else null,
+                            if (privateKey.isNotBlank()) "wallet" else null,
+                        )
+                        ErrorLogger.info(TAG, "🔑 API keys restored from backup: ${restoredKeys.joinToString(", ")}")
+                        restoredCount++
+                    } catch (keyEx: Exception) {
+                        ErrorLogger.warn(TAG, "🔑 Could not restore API keys: ${keyEx.message}")
                     }
-                    ErrorLogger.info(TAG, "🔑 API keys restored from backup")
-                    restoredCount++
                 }
             }
             

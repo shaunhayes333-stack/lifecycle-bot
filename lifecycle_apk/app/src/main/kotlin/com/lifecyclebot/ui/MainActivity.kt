@@ -2957,6 +2957,12 @@ for legal compliance.
             performHaptic()
         }
         
+        // V5.2: V3 Core Mode button → Shows V3 Engine status
+        findViewById<View>(R.id.btnQuickV3)?.setOnClickListener {
+            showV3ModeDialog()
+            performHaptic()
+        }
+        
         // Treasury Mode button → Shows Cash Generation AI status
         findViewById<View>(R.id.btnQuickTreasury)?.setOnClickListener {
             showTreasuryModeDialog()
@@ -2972,6 +2978,12 @@ for legal compliance.
         // V4.20: ShitCoin Mode button → Shows ShitCoin AI status
         findViewById<View>(R.id.btnQuickShitCoin)?.setOnClickListener {
             showShitCoinModeDialog()
+            performHaptic()
+        }
+        
+        // V5.2: Moonshot Mode button → Shows Moonshot AI status
+        findViewById<View>(R.id.btnQuickMoonshot)?.setOnClickListener {
+            showMoonshotModeDialog()
             performHaptic()
         }
     }
@@ -3564,7 +3576,7 @@ Max Loss/Day: ${"%.2f".format(stats.dailyMaxLossSol)} SOL (~$50)
 🎰 TARGET TOKENS
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-Market Cap: <$500K
+Market Cap: <$30K
 Token Age: <6 hours
 Max Position: 0.20 SOL
 Hold Time: <15 minutes
@@ -3588,6 +3600,161 @@ Use with caution - moon or zero!
                 .show()
         } catch (e: Exception) {
             Toast.makeText(this, "ShitCoin Mode: ${e.message ?: "Not available"}", Toast.LENGTH_SHORT).show()
+        }
+    }
+    
+    // ═══════════════════════════════════════════════════════════════════════════
+    // V5.2: V3 CORE MODE DIALOG
+    // ═══════════════════════════════════════════════════════════════════════════
+    private fun showV3ModeDialog() {
+        try {
+            val v3Engine = com.lifecyclebot.v3.V3Engine
+            val tradeStore = com.lifecyclebot.engine.TradeHistoryStore
+            val cfg = com.lifecyclebot.data.ConfigStore.load(applicationContext)
+            val solPrice = com.lifecyclebot.engine.WalletManager.lastKnownSolPrice
+            
+            val currentModeLabel = if (cfg.paperMode) "📝 PAPER MODE" else "💰 LIVE MODE"
+            
+            // Get stats from trade history
+            val recent24hTrades = tradeStore.getRecentTrades(24 * 60 * 60 * 1000L)
+            val v3Trades = recent24hTrades.filter { it.mode?.contains("V3", ignoreCase = true) == true || it.mode == "CORE" }
+            val wins = v3Trades.count { it.pnlPct ?: 0.0 > 0 }
+            val losses = v3Trades.count { it.pnlPct ?: 0.0 <= 0 }
+            val totalPnl = v3Trades.sumOf { it.pnlSol ?: 0.0 }
+            val winRate = if (v3Trades.isNotEmpty()) (wins.toDouble() / v3Trades.size * 100) else 0.0
+            
+            val pnlSign = if (totalPnl >= 0) "+" else ""
+            val totalPnlUsd = totalPnl * solPrice
+            
+            // Get fluid learning progress
+            val learningProgress = try {
+                com.lifecyclebot.v3.scoring.FluidLearningAI.getLearningProgress()
+            } catch (_: Exception) { 0.0 }
+            
+            val message = """
+🎯 V3 CORE ENGINE
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+$currentModeLabel
+🧠 Learning: ${"%.0f".format(learningProgress * 100)}%
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+📊 24H PERFORMANCE
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Daily P&L: $pnlSign${"%.4f".format(totalPnl)} SOL (~$${"%.2f".format(totalPnlUsd)})
+Trades: ${v3Trades.size} | W/L: $wins/$losses
+Win Rate: ${"%.1f".format(winRate)}%
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+🎯 V3 SCORING LAYERS
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+• Entry AI: Buy pressure, RSI, hour
+• Momentum AI: Pump detection  
+• Liquidity AI: Pool health
+• Volume Profile: VAL/VAH zones
+• Behavior AI: Tilt protection
+• Edge AI: Threshold learning
+• Exit AI: Optimal sell timing
+• +18 more AI components
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+🎯 TARGET TOKENS
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Market Cap: $30K - $1M
+Quality Grade: B+ or better
+Confidence: >25%
+            """.trimIndent()
+            
+            AlertDialog.Builder(this, R.style.Theme_AATE_Dialog)
+                .setTitle("🎯 V3 Core Engine")
+                .setMessage(message)
+                .setPositiveButton("Close") { d, _ -> d.dismiss() }
+                .show()
+        } catch (e: Exception) {
+            Toast.makeText(this, "V3 Mode: ${e.message ?: "Not available"}", Toast.LENGTH_SHORT).show()
+        }
+    }
+    
+    // ═══════════════════════════════════════════════════════════════════════════
+    // V5.2: MOONSHOT MODE DIALOG - Space-themed 10x Hunter!
+    // ═══════════════════════════════════════════════════════════════════════════
+    private fun showMoonshotModeDialog() {
+        try {
+            val moonshotAI = com.lifecyclebot.v3.scoring.MoonshotTraderAI
+            val cfg = com.lifecyclebot.data.ConfigStore.load(applicationContext)
+            val solPrice = com.lifecyclebot.engine.WalletManager.lastKnownSolPrice
+            
+            val currentModeLabel = if (cfg.paperMode) "📝 PAPER MODE" else "💰 LIVE MODE"
+            val pnlSign = if (moonshotAI.getDailyPnlSol() >= 0) "+" else ""
+            val dailyPnlUsd = moonshotAI.getDailyPnlSol() * solPrice
+            
+            val winRate = moonshotAI.getWinRatePct()
+            val learningPct = (moonshotAI.getLearningProgress() * 100).toInt()
+            val positionCount = moonshotAI.getPositionCount()
+            
+            // Space mode distribution
+            val spaceModeStats = moonshotAI.getSpaceModeStats()
+            val orbitalCount = spaceModeStats[com.lifecyclebot.v3.scoring.MoonshotTraderAI.SpaceMode.ORBITAL] ?: 0
+            val lunarCount = spaceModeStats[com.lifecyclebot.v3.scoring.MoonshotTraderAI.SpaceMode.LUNAR] ?: 0
+            val marsCount = spaceModeStats[com.lifecyclebot.v3.scoring.MoonshotTraderAI.SpaceMode.MARS] ?: 0
+            val jupiterCount = spaceModeStats[com.lifecyclebot.v3.scoring.MoonshotTraderAI.SpaceMode.JUPITER] ?: 0
+            
+            val message = """
+🚀 MOONSHOT AI - TO THE MOON!
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+$currentModeLabel
+🧠 Learning: $learningPct%
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+📊 DAILY PERFORMANCE
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Daily P&L: $pnlSign${"%.4f".format(moonshotAI.getDailyPnlSol())} SOL (~$${"%.2f".format(dailyPnlUsd)})
+W/L: ${moonshotAI.getDailyWins()}/${moonshotAI.getDailyLosses()} | Win Rate: $winRate%
+🔟 Today's 10x+: ${moonshotAI.getDailyTenX()}
+💯 Today's 100x+: ${moonshotAI.getDailyHundredX()}
+Active Positions: $positionCount
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+🚀 LIFETIME MILESTONES
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+🔟 10x Wins: ${moonshotAI.getLifetimeTenX()}
+💯 100x Wins: ${moonshotAI.getLifetimeHundredX()}
+🌌 1000x Wins: ${moonshotAI.getLifetimeThousandX()}
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+🛸 SPACE MODES (Active)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+🛸 Orbital ($100K-$500K): $orbitalCount
+🌙 Lunar ($500K-$2M): $lunarCount
+🔴 Mars ($2M-$5M): $marsCount
+🪐 Jupiter ($5M-$50M): $jupiterCount
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+🚀 200%+ gains from other layers
+get PROMOTED here to ride for
+10x-100x-1000x! LET IT RIDE!
+            """.trimIndent()
+            
+            AlertDialog.Builder(this, R.style.Theme_AATE_Dialog)
+                .setTitle("🚀 Moonshot Mode")
+                .setMessage(message)
+                .setPositiveButton("Close") { d, _ -> d.dismiss() }
+                .setNeutralButton("Reset Daily") { d, _ ->
+                    moonshotAI.resetDaily()
+                    Toast.makeText(this, "Moonshot daily stats reset", Toast.LENGTH_SHORT).show()
+                    d.dismiss()
+                }
+                .show()
+        } catch (e: Exception) {
+            Toast.makeText(this, "Moonshot Mode: ${e.message ?: "Not available"}", Toast.LENGTH_SHORT).show()
         }
     }
 

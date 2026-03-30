@@ -224,19 +224,53 @@ object BehaviorAI {
     
     // ═══════════════════════════════════════════════════════════════════════════
     // TILT PROTECTION
+    // V5.2: More lenient during bootstrap phase to prevent over-blocking
     // ═══════════════════════════════════════════════════════════════════════════
     
     private fun checkTiltProtection() {
         val losses = consecutiveLosses.get()
         val tilt = tiltLevel.get()
         
-        if (losses >= 5 || tilt >= 80) {
-            // Enter tilt protection mode
-            tiltProtectionUntil = System.currentTimeMillis() + TILT_COOLDOWN_MS
+        // V5.2: Get learning progress - be much more lenient during bootstrap
+        val learningProgress = try {
+            FluidLearningAI.getLearningProgress()
+        } catch (e: Exception) { 0.0 }
+        
+        // V5.2: Scale tilt thresholds based on learning progress
+        // At bootstrap (0-20% learning): require 15 losses or 150% tilt (basically never tilt)
+        // At mature (100% learning): require 5 losses or 80% tilt
+        val lossThreshold = when {
+            learningProgress < 0.1 -> 15     // Very early: almost never tilt
+            learningProgress < 0.2 -> 12     // Bootstrap: very lenient
+            learningProgress < 0.4 -> 10     // Learning: still lenient  
+            learningProgress < 0.6 -> 8      // Progressing: moderate
+            learningProgress < 0.8 -> 6      // Approaching mature
+            else -> 5                        // Mature: standard threshold
+        }
+        
+        val tiltThreshold = when {
+            learningProgress < 0.1 -> 150    // Very early: effectively disabled
+            learningProgress < 0.2 -> 120    // Bootstrap: very high threshold
+            learningProgress < 0.4 -> 100    // Learning: high threshold
+            learningProgress < 0.6 -> 90     // Progressing: still high
+            else -> 80                       // Mature: standard threshold
+        }
+        
+        if (losses >= lossThreshold || tilt >= tiltThreshold) {
+            // V5.2: Shorter cooldown during bootstrap
+            val cooldownMs = when {
+                learningProgress < 0.2 -> 30 * 1000L      // 30 seconds at bootstrap
+                learningProgress < 0.5 -> 45 * 1000L     // 45 seconds during learning
+                else -> TILT_COOLDOWN_MS                  // 1 min at mature
+            }
+            
+            tiltProtectionUntil = System.currentTimeMillis() + cooldownMs
             lastLossStreakEnd = System.currentTimeMillis()
             
-            ErrorLogger.warn(TAG, "🛑 TILT PROTECTION ACTIVATED | ${TILT_COOLDOWN_MS / 60000}min cooldown")
-            ErrorLogger.warn(TAG, "🛑 Reason: ${losses} consecutive losses, tilt level ${tilt}%")
+            ErrorLogger.warn(TAG, "🛑 TILT PROTECTION ACTIVATED | ${cooldownMs / 1000}s cooldown | " +
+                "learning=${(learningProgress * 100).toInt()}% | threshold=$lossThreshold losses")
+            ErrorLogger.warn(TAG, "🛑 Reason: ${losses} consecutive losses (threshold=$lossThreshold), " +
+                "tilt level ${tilt}% (threshold=$tiltThreshold)")
         }
     }
     

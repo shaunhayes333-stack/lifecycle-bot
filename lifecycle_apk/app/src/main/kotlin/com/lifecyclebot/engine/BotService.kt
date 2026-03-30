@@ -3391,7 +3391,152 @@ class BotService : Service() {
             // ═══════════════════════════════════════════════════════════════════
             
             // ═══════════════════════════════════════════════════════════════════
-            // SHITCOIN TRADER - Degen plays for <$500K market cap tokens
+            // 🚀 MOONSHOT TRADER - 10x/100x/1000x Hunter ($100K-$50M mcap)
+            // V5.2: Space-themed trading modes - ORBITAL → LUNAR → MARS → JUPITER
+            // Runs BEFORE ShitCoin (different mcap range, no overlap)
+            // Cross-trade promotions: 200%+ gains from other layers graduate here
+            // ═══════════════════════════════════════════════════════════════════
+            if (!ts.position.isOpen && com.lifecyclebot.v3.scoring.MoonshotTraderAI.isEnabled()) {
+                try {
+                    // Check if mcap is in moonshot zone ($100K-$50M)
+                    if (ts.lastMcap in 100_000.0..50_000_000.0) {
+                        
+                        // V5.2: Check execution permit for MOONSHOT book
+                        val moonshotPermit = FinalExecutionPermit.canExecute(
+                            mint = ts.mint,
+                            symbol = ts.symbol,
+                            requestingLayer = "MOONSHOT",
+                            hasOpenPosition = ts.position.isOpen
+                        )
+                        
+                        if (!moonshotPermit.allowed) {
+                            ErrorLogger.debug("BotService", "🚀 [MOONSHOT] ${ts.symbol} | BLOCKED | ${moonshotPermit.reason}")
+                        } else {
+                            // Calculate volume score from recent data
+                            val volScore = try {
+                                val volHistory = ts.history.takeLast(10).mapNotNull { it.volumeUsd }
+                                if (volHistory.size >= 2) {
+                                    val recent = volHistory.takeLast(3).average()
+                                    val older = volHistory.take(3).average()
+                                    if (older > 0) ((recent / older - 1) * 100).coerceIn(-50.0, 100.0).toInt() else 20
+                                } else 20
+                            } catch (_: Exception) { 20 }
+                            
+                            // Check for collective intelligence boost
+                            val isCollectiveWinner = com.lifecyclebot.v3.scoring.MoonshotTraderAI.isCollectiveWinner(ts.mint)
+                            
+                            val moonshotScore = com.lifecyclebot.v3.scoring.MoonshotTraderAI.scoreToken(
+                                mint = ts.mint,
+                                symbol = ts.symbol,
+                                marketCapUsd = ts.lastMcap,
+                                liquidityUsd = ts.lastLiquidityUsd,
+                                volumeScore = volScore,
+                                buyPressurePct = ts.lastBuyPressurePct,
+                                rugcheckScore = ts.safety.rugcheckScore,
+                                v3EntryScore = ts.v3CachedEntryScore,
+                                v3Confidence = ts.v3CachedConfidence,
+                                phase = ts.phase,
+                                isPaper = cfg.paperMode,
+                            )
+                            
+                            if (moonshotScore.eligible) {
+                                // V5.2: Authorize through TradeAuthorizer
+                                val authResult = tradeAuth.requestAuthorization(
+                                    mint = ts.mint,
+                                    symbol = ts.symbol,
+                                    score = moonshotScore.score,
+                                    confidence = moonshotScore.confidence.toInt(),
+                                    quality = moonshotScore.spaceMode.displayName,
+                                    isPaperMode = cfg.paperMode,
+                                    requestedBook = TradeAuthorizer.ExecutionBook.MOONSHOT,
+                                )
+                                
+                                if (!authResult.authorized) {
+                                    ErrorLogger.debug("BotService", "🚀 [MOONSHOT] ${ts.symbol} | AUTH_DENIED | ${authResult.reason}")
+                                } else {
+                                    // Acquire final execution permit
+                                    if (FinalExecutionPermit.acquireExecution(ts.mint, ts.symbol, "MOONSHOT")) {
+                                        try {
+                                            val collectiveLabel = if (moonshotScore.isCollectiveBoost) " [COLLECTIVE]" else ""
+                                            
+                                            ErrorLogger.info("BotService", "🚀 [MOONSHOT] ${ts.symbol} | ENTRY$collectiveLabel | " +
+                                                "${moonshotScore.spaceMode.emoji} ${moonshotScore.spaceMode.displayName} | " +
+                                                "score=${moonshotScore.score} conf=${moonshotScore.confidence.toInt()}% | " +
+                                                "mcap=\$${(ts.lastMcap/1000).toInt()}K | " +
+                                                "TP=${moonshotScore.takeProfitPct.toInt()}% SL=${moonshotScore.stopLossPct.toInt()}%")
+                                            
+                                            // Execute moonshot entry
+                                            executor.paperBuy(
+                                                ts = ts,
+                                                sol = moonshotScore.suggestedSizeSol,
+                                                score = moonshotScore.score.toDouble(),
+                                                identity = identity,
+                                                quality = moonshotScore.spaceMode.displayName,
+                                                skipGraduated = true,
+                                                wallet = wallet,
+                                                walletSol = effectiveBalance
+                                            )
+                                            
+                                            // Register with MoonshotTraderAI
+                                            com.lifecyclebot.v3.scoring.MoonshotTraderAI.addPosition(
+                                                com.lifecyclebot.v3.scoring.MoonshotTraderAI.MoonshotPosition(
+                                                    mint = ts.mint,
+                                                    symbol = ts.symbol,
+                                                    entryPrice = ts.ref,
+                                                    entrySol = moonshotScore.suggestedSizeSol,
+                                                    entryTime = System.currentTimeMillis(),
+                                                    takeProfitPct = moonshotScore.takeProfitPct,
+                                                    stopLossPct = moonshotScore.stopLossPct,
+                                                    marketCapUsd = ts.lastMcap,
+                                                    liquidityUsd = ts.lastLiquidityUsd,
+                                                    entryScore = moonshotScore.score.toDouble(),
+                                                    spaceMode = moonshotScore.spaceMode,
+                                                    isPaperMode = cfg.paperMode,
+                                                    isCollectiveWinner = moonshotScore.isCollectiveBoost,
+                                                )
+                                            )
+                                            
+                                            // Register with LayerTransitionManager for tracking
+                                            com.lifecyclebot.v3.scoring.LayerTransitionManager.registerPosition(
+                                                mint = ts.mint,
+                                                symbol = ts.symbol,
+                                                layer = com.lifecyclebot.v3.scoring.LayerTransitionManager.TradingLayer.MOONSHOT,
+                                                entryMcap = ts.lastMcap,
+                                                entryPrice = ts.ref,
+                                            )
+                                            
+                                            ts.position.tradingMode = "MOONSHOT_${moonshotScore.spaceMode.name}"
+                                            ts.position.tradingModeEmoji = moonshotScore.spaceMode.emoji
+                                            
+                                            addLog("${moonshotScore.spaceMode.emoji} MOONSHOT BUY$collectiveLabel: ${ts.symbol} | " +
+                                                "${moonshotScore.spaceMode.displayName} | " +
+                                                "\$${(ts.lastMcap/1_000).toInt()}K mcap | " +
+                                                "score=${moonshotScore.score} | " +
+                                                "${moonshotScore.suggestedSizeSol.fmt(3)} SOL | " +
+                                                "${if (cfg.paperMode) "PAPER" else "LIVE"}", ts.mint)
+                                                
+                                        } finally {
+                                            FinalExecutionPermit.releaseExecution(ts.mint)
+                                        }
+                                    } else {
+                                        ErrorLogger.debug("BotService", "🚀 [MOONSHOT] ${ts.symbol} | EXECUTION_BLOCKED | another layer executing")
+                                    }
+                                }
+                            }
+                        }
+                    }
+                } catch (moonEx: Exception) {
+                    ErrorLogger.debug("BotService", "🚀 [MOONSHOT] ${ts.symbol} | ERROR | ${moonEx.message}")
+                    FinalExecutionPermit.releaseExecution(ts.mint)
+                }
+            }
+            // ═══════════════════════════════════════════════════════════════════
+            // END Moonshot evaluation
+            // ═══════════════════════════════════════════════════════════════════
+            
+            // ═══════════════════════════════════════════════════════════════════
+            // SHITCOIN TRADER - Degen plays for <$30K market cap tokens
+            // V5.2 FIX: Updated mcap range to avoid overlap with Moonshot
             // Runs CONCURRENTLY with V3, Treasury, and Blue Chip
             // Targets pump.fun, raydium, moonshot fresh launches
             // V4.0 FIX: Must check FinalExecutionPermit before executing
@@ -3785,84 +3930,8 @@ class BotService : Service() {
             // ═══════════════════════════════════════════════════════════════════
             
             // ═══════════════════════════════════════════════════════════════════
-            // 🌙 MOONSHOT TRADER - Asymmetric bets for $100K-$5M mcap tokens
-            // Target: Tokens that survived micro-cap, building momentum
-            // ═══════════════════════════════════════════════════════════════════
-            if (!ts.position.isOpen) {
-                try {
-                    // Use default volume score - Moonshot has its own scoring logic
-                    val volScore = 20  // Default moderate volume score
-                    
-                    // Score the token for moonshot potential
-                    val moonshotScore = com.lifecyclebot.v3.scoring.MoonshotTraderAI.scoreToken(
-                        mint = ts.mint,
-                        symbol = ts.symbol,
-                        marketCapUsd = ts.lastMcap,
-                        liquidityUsd = ts.lastLiquidityUsd,
-                        volumeScore = volScore,
-                        buyPressurePct = ts.lastBuyPressurePct,
-                        rugcheckScore = ts.safety.rugcheckScore,
-                        v3EntryScore = 70.0,  // Default score - Moonshot has its own scoring
-                        v3Confidence = 50.0,  // Default confidence
-                        phase = "unknown",    // Phase not critical for moonshot
-                        isPaper = cfg.paperMode,
-                    )
-                    
-                    if (moonshotScore.eligible) {
-                        ErrorLogger.info("BotService", "🌙 [MOONSHOT] ${ts.symbol} | ELIGIBLE | " +
-                            "score=${moonshotScore.score} conf=${moonshotScore.confidence.toInt()}% | " +
-                            "mcap=\$${(ts.lastMcap/1000).toInt()}K | " +
-                            "TP=${moonshotScore.takeProfitPct.toInt()}% SL=${moonshotScore.stopLossPct.toInt()}%")
-                        
-                        // Execute moonshot entry
-                        executor.paperBuy(
-                            ts = ts,
-                            sol = moonshotScore.suggestedSizeSol,
-                            score = moonshotScore.score.toDouble(),
-                            identity = identity,
-                            quality = "MOONSHOT",
-                            skipGraduated = true,
-                            wallet = wallet,
-                            walletSol = effectiveBalance
-                        )
-                        
-                        // Register with MoonshotTraderAI
-                        com.lifecyclebot.v3.scoring.MoonshotTraderAI.addPosition(
-                            com.lifecyclebot.v3.scoring.MoonshotTraderAI.MoonshotPosition(
-                                mint = ts.mint,
-                                symbol = ts.symbol,
-                                entryPrice = ts.ref,
-                                entrySol = moonshotScore.suggestedSizeSol,
-                                entryTime = System.currentTimeMillis(),
-                                takeProfitPct = moonshotScore.takeProfitPct,
-                                stopLossPct = moonshotScore.stopLossPct,
-                                marketCapUsd = ts.lastMcap,
-                                liquidityUsd = ts.lastLiquidityUsd,
-                                entryScore = moonshotScore.score.toDouble(),
-                                mode = "MOONSHOT",
-                                isPaperMode = cfg.paperMode,
-                            )
-                        )
-                        
-                        ts.position.tradingMode = "MOONSHOT"
-                        ts.position.tradingModeEmoji = "🌙"
-                        
-                        addLog("🌙 MOONSHOT BUY: ${ts.symbol} | " +
-                            "\$${(ts.lastMcap/1_000).toInt()}K mcap | " +
-                            "score=${moonshotScore.score} | " +
-                            "${moonshotScore.suggestedSizeSol.fmt(3)} SOL | " +
-                            "${if (cfg.paperMode) "PAPER" else "LIVE"}", ts.mint)
-                    }
-                } catch (moonEx: Exception) {
-                    ErrorLogger.debug("BotService", "🌙 [MOONSHOT] ${ts.symbol} | ERROR | ${moonEx.message}")
-                }
-            }
-            // ═══════════════════════════════════════════════════════════════════
-            // END Moonshot evaluation
-            // ═══════════════════════════════════════════════════════════════════
-            
-            // ═══════════════════════════════════════════════════════════════════
             // END Treasury Mode evaluation - now proceed with V3 decision handling
+            // V5.2: Moonshot evaluation moved BEFORE ShitCoin for proper execution order
             // ═══════════════════════════════════════════════════════════════════
             
             when (val result = v3Decision) {
@@ -4591,6 +4660,56 @@ class BotService : Service() {
                 ?: ts.history.lastOrNull()?.priceUsd 
                 ?: ts.position.entryPrice
             
+            // V5.2: Calculate current P&L for potential Moonshot promotion
+            val currentPnlPct = if (ts.position.entryPrice > 0) {
+                ((currentPrice - ts.position.entryPrice) / ts.position.entryPrice) * 100
+            } else 0.0
+            
+            // V5.2: Check for cross-trade promotion to Moonshot (200%+ gains)
+            if (currentPnlPct >= 200.0 && ts.lastMcap in 100_000.0..50_000_000.0) {
+                val shouldPromote = com.lifecyclebot.v3.scoring.MoonshotTraderAI.shouldPromoteToMoonshot(
+                    mint = ts.mint,
+                    symbol = ts.symbol,
+                    fromLayer = "TREASURY",
+                    currentPnlPct = currentPnlPct,
+                    currentPrice = currentPrice,
+                    marketCapUsd = ts.lastMcap,
+                )
+                
+                if (shouldPromote) {
+                    ErrorLogger.info("BotService", "🚀💰 [PROMOTION] ${ts.symbol} | TREASURY → MOONSHOT | " +
+                        "+${currentPnlPct.toInt()}% | Let it RIDE!")
+                    
+                    // Execute the promotion (close Treasury position, open Moonshot)
+                    com.lifecyclebot.v3.scoring.MoonshotTraderAI.executePromotion(
+                        mint = ts.mint,
+                        symbol = ts.symbol,
+                        fromLayer = "TREASURY",
+                        entryPrice = currentPrice,  // New entry = current price
+                        positionSol = ts.position.solQty,
+                        currentPnlPct = currentPnlPct,
+                        marketCapUsd = ts.lastMcap,
+                        liquidityUsd = ts.lastLiquidityUsd,
+                        isPaper = cfg.paperMode,
+                    )
+                    
+                    // Close Treasury tracking (position stays open under Moonshot)
+                    com.lifecyclebot.v3.scoring.CashGenerationAI.closePosition(
+                        ts.mint, currentPrice, com.lifecyclebot.v3.scoring.CashGenerationAI.ExitSignal.TAKE_PROFIT
+                    )
+                    
+                    // Update position mode
+                    ts.position.isTreasuryPosition = false
+                    ts.position.tradingMode = "MOONSHOT_LUNAR"
+                    ts.position.tradingModeEmoji = "🚀"
+                    
+                    addLog("🚀💰 PROMOTED TO MOONSHOT: ${ts.symbol} | +${currentPnlPct.toInt()}% from Treasury | " +
+                        "Now riding for 10x-1000x!", ts.mint)
+                    
+                    return  // Promotion processed, don't exit
+                }
+            }
+            
             val exitSignal = com.lifecyclebot.v3.scoring.CashGenerationAI.checkExit(ts.mint, currentPrice)
             
             if (exitSignal != com.lifecyclebot.v3.scoring.CashGenerationAI.ExitSignal.HOLD) {
@@ -4625,6 +4744,57 @@ class BotService : Service() {
             val currentPrice = ts.lastPrice.takeIf { it > 0 } 
                 ?: ts.history.lastOrNull()?.priceUsd 
                 ?: ts.position.entryPrice
+            
+            // V5.2: Calculate current P&L for potential Moonshot promotion
+            val currentPnlPct = if (ts.position.entryPrice > 0) {
+                ((currentPrice - ts.position.entryPrice) / ts.position.entryPrice) * 100
+            } else 0.0
+            
+            // V5.2: Check for cross-trade promotion to Moonshot (200%+ gains)
+            // ShitCoin → Moonshot: The degen play turned into a moonshot!
+            if (currentPnlPct >= 200.0 && ts.lastMcap in 100_000.0..50_000_000.0) {
+                val shouldPromote = com.lifecyclebot.v3.scoring.MoonshotTraderAI.shouldPromoteToMoonshot(
+                    mint = ts.mint,
+                    symbol = ts.symbol,
+                    fromLayer = "SHITCOIN",
+                    currentPnlPct = currentPnlPct,
+                    currentPrice = currentPrice,
+                    marketCapUsd = ts.lastMcap,
+                )
+                
+                if (shouldPromote) {
+                    ErrorLogger.info("BotService", "🚀💩 [PROMOTION] ${ts.symbol} | SHITCOIN → MOONSHOT | " +
+                        "+${currentPnlPct.toInt()}% | DEGEN WIN → MOONSHOT!")
+                    
+                    // Execute the promotion (close ShitCoin position, open Moonshot)
+                    com.lifecyclebot.v3.scoring.MoonshotTraderAI.executePromotion(
+                        mint = ts.mint,
+                        symbol = ts.symbol,
+                        fromLayer = "SHITCOIN",
+                        entryPrice = currentPrice,  // New entry = current price
+                        positionSol = ts.position.solQty,
+                        currentPnlPct = currentPnlPct,
+                        marketCapUsd = ts.lastMcap,
+                        liquidityUsd = ts.lastLiquidityUsd,
+                        isPaper = cfg.paperMode,
+                    )
+                    
+                    // Close ShitCoin tracking (position stays open under Moonshot)
+                    com.lifecyclebot.v3.scoring.ShitCoinTraderAI.closePosition(
+                        ts.mint, currentPrice, com.lifecyclebot.v3.scoring.ShitCoinTraderAI.ExitSignal.TAKE_PROFIT
+                    )
+                    
+                    // Update position mode
+                    ts.position.isShitCoinPosition = false
+                    ts.position.tradingMode = "MOONSHOT_ORBITAL"
+                    ts.position.tradingModeEmoji = "🛸"
+                    
+                    addLog("🛸💩 DEGEN → MOONSHOT: ${ts.symbol} | +${currentPnlPct.toInt()}% ShitCoin win → " +
+                        "Now hunting 10x-1000x!", ts.mint)
+                    
+                    return  // Promotion processed, don't exit
+                }
+            }
             
             val exitSignal = com.lifecyclebot.v3.scoring.ShitCoinTraderAI.checkExit(ts.mint, currentPrice)
             

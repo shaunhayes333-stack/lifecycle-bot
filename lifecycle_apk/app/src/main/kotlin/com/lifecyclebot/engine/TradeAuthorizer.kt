@@ -93,6 +93,7 @@ object TradeAuthorizer {
         TREASURY,       // Treasury scalping
         SHITCOIN,       // ShitCoin layer
         BLUECHIP,       // BlueChip layer
+        MOONSHOT,       // Moonshot 10x-1000x hunter layer ($100K-$5M)
         SHADOW,         // Shadow tracking only (NOT a real position)
     }
     

@@ -80,6 +80,13 @@ object LayerTransitionManager {
         DIP_HUNTER("📉", "DipHunter", 50_000.0, 5_000_000.0, 20.0, 15.0, 360),
         BLUE_CHIP("🔵", "BlueChip", 1_000_000.0, Double.MAX_VALUE, 40.0, 15.0, 120),
         TREASURY("💰", "Treasury", 0.0, Double.MAX_VALUE, 15.0, 8.0, 30),
+        // V5.2: Moonshot Layer - 10x to 1000x hunter
+        MOONSHOT("🚀", "Moonshot", 100_000.0, 5_000_000.0, 200.0, 12.0, 60),
+        // V5.2: Space-themed sub-modes for Moonshot
+        ORBITAL("🛸", "Orbital", 100_000.0, 500_000.0, 100.0, 10.0, 45),     // Early moonshots
+        LUNAR("🌙", "Lunar", 500_000.0, 2_000_000.0, 200.0, 12.0, 60),       // Mid moonshots  
+        MARS("🔴", "Mars", 2_000_000.0, 5_000_000.0, 500.0, 15.0, 120),      // High conviction plays
+        JUPITER("🪐", "Jupiter", 5_000_000.0, 50_000_000.0, 1000.0, 20.0, 240), // Mega moonshots promoted from collective
     }
     
     // ═══════════════════════════════════════════════════════════════════════════
