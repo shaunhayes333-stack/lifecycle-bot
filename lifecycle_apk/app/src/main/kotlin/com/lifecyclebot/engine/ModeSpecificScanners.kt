@@ -2,10 +2,15 @@ package com.lifecyclebot.engine
 
 import com.lifecyclebot.data.TokenState
 import com.lifecyclebot.data.Candle
+import com.lifecyclebot.v3.scoring.FluidLearningAI
 import java.util.concurrent.ConcurrentHashMap
 
 /**
  * ModeSpecificScanners — Specialized Token Discovery Systems
+ * 
+ * V4.1.2: Now uses FLUID LEARNING thresholds that adapt as the bot learns.
+ * Bootstrap mode is more lenient to gather data, mature mode is stricter
+ * to focus on higher-quality setups with better win rates.
  * 
  * Instead of one universal scanner, we run multiple specialized feeds:
  *   A. Fresh Launch Scanner — Newest tokens with safety floor
@@ -20,6 +25,53 @@ import java.util.concurrent.ConcurrentHashMap
 object ModeSpecificScanners {
     
     private const val TAG = "ModeScanner"
+    
+    // ═══════════════════════════════════════════════════════════════════
+    // FLUID THRESHOLDS - Adapt as bot learns
+    // Bootstrap: Lower bars to gather learning data
+    // Mature: Higher bars to focus on quality setups
+    // ═══════════════════════════════════════════════════════════════════
+    
+    // Minimum score thresholds
+    private const val SCORE_BOOTSTRAP = 30.0      // Lower bar at start
+    private const val SCORE_MATURE = 55.0         // Higher bar when experienced
+    
+    // Liquidity thresholds
+    private const val LIQ_BOOTSTRAP = 1500.0      // $1.5K minimum at start
+    private const val LIQ_MATURE = 5000.0         // $5K minimum when mature
+    
+    // Buy pressure thresholds  
+    private const val BUY_PRESS_BOOTSTRAP = 0.45  // 45% buy ratio at start
+    private const val BUY_PRESS_MATURE = 0.55     // 55% buy ratio when mature
+    
+    // Impulse (prior move) thresholds for breakout
+    private const val IMPULSE_BOOTSTRAP = 15.0    // 15% prior move at start
+    private const val IMPULSE_MATURE = 30.0       // 30% prior move when mature
+    
+    // Dip depth for reversal
+    private const val DIP_MIN_BOOTSTRAP = 20.0    // 20% dip at start
+    private const val DIP_MIN_MATURE = 30.0       // 30% dip when mature
+    
+    /** Lerp between bootstrap and mature values based on learning progress */
+    private fun lerp(bootstrap: Double, mature: Double): Double {
+        val progress = FluidLearningAI.getLearningProgress()
+        return bootstrap + (mature - bootstrap) * progress
+    }
+    
+    /** Get fluid minimum score threshold */
+    fun getMinScoreThreshold(): Double = lerp(SCORE_BOOTSTRAP, SCORE_MATURE)
+    
+    /** Get fluid minimum liquidity threshold */
+    fun getMinLiquidityThreshold(): Double = lerp(LIQ_BOOTSTRAP, LIQ_MATURE)
+    
+    /** Get fluid minimum buy pressure threshold */
+    fun getMinBuyPressure(): Double = lerp(BUY_PRESS_BOOTSTRAP, BUY_PRESS_MATURE)
+    
+    /** Get fluid minimum impulse for breakout */
+    fun getMinImpulse(): Double = lerp(IMPULSE_BOOTSTRAP, IMPULSE_MATURE)
+    
+    /** Get fluid minimum dip for reversal */
+    fun getMinDipDepth(): Double = lerp(DIP_MIN_BOOTSTRAP, DIP_MIN_MATURE)
     
     // ═══════════════════════════════════════════════════════════════════
     // SCANNER RESULTS
@@ -82,21 +134,23 @@ object ModeSpecificScanners {
         score += ageFactor * 30
         signals.add("Age: ${tokenAgeMins.toInt()}min")
         
-        // Liquidity floor
-        if (ts.lastLiquidityUsd >= 5000) {
+        // Liquidity floor - FLUID
+        val minLiq = getMinLiquidityThreshold()
+        if (ts.lastLiquidityUsd >= minLiq * 2) {
             score += 25.0
             signals.add("Liq: $${ts.lastLiquidityUsd.toInt()}")
-        } else if (ts.lastLiquidityUsd >= 2000) {
+        } else if (ts.lastLiquidityUsd >= minLiq) {
             score += 15.0
             signals.add("Liq: $${ts.lastLiquidityUsd.toInt()}")
         } else {
             return null  // Below safety floor
         }
         
-        // Early buy pressure
+        // Early buy pressure - FLUID
+        val minBuyPress = getMinBuyPressure()
         val lastCandle = hist.lastOrNull()
         if (lastCandle != null) {
-            if (lastCandle.buyRatio > 0.55) {
+            if (lastCandle.buyRatio > minBuyPress) {
                 score += 20.0
                 signals.add("Buy%: ${(lastCandle.buyRatio * 100).toInt()}%")
             }
@@ -120,7 +174,9 @@ object ModeSpecificScanners {
             return null  // Too concentrated - risky
         }
         
-        if (score < 40) return null
+        // Minimum score threshold - FLUID
+        val minScore = getMinScoreThreshold()
+        if (score < minScore) return null
         
         return ScanResult(
             mint = ts.mint,
@@ -161,8 +217,9 @@ object ModeSpecificScanners {
         val priorLow = prices.dropLast(6).takeLast(10).minOrNull() ?: return null
         val impulsePct = if (priorLow > 0) ((recentHigh - priorLow) / priorLow) * 100 else 0.0
         
-        // Need meaningful prior move
-        if (impulsePct < 25) return null
+        // Need meaningful prior move - FLUID
+        val minImpulse = getMinImpulse()
+        if (impulsePct < minImpulse) return null
         
         score += 20.0
         signals.add("Prior move: +${impulsePct.toInt()}%")
@@ -198,8 +255,9 @@ object ModeSpecificScanners {
             signals.add("Near breakout")
         }
         
-        // Liquidity stability
-        if (ts.lastLiquidityUsd > 5000) {
+        // Liquidity stability - FLUID
+        val minLiq = getMinLiquidityThreshold()
+        if (ts.lastLiquidityUsd > minLiq) {
             score += 10.0
         }
         
@@ -209,7 +267,9 @@ object ModeSpecificScanners {
             score += 5.0
         }
         
-        if (score < 50) return null
+        // Minimum score - FLUID
+        val minScore = getMinScoreThreshold()
+        if (score < minScore) return null
         
         return ScanResult(
             mint = ts.mint,
@@ -249,8 +309,9 @@ object ModeSpecificScanners {
         val recentLow = prices.takeLast(6).minOrNull() ?: return null
         val dumpPct = if (recentHigh > 0) ((recentHigh - recentLow) / recentHigh) * 100 else 0.0
         
-        // Need meaningful dump (25-70%)
-        if (dumpPct < 25 || dumpPct > 70) return null
+        // Need meaningful dump - FLUID (min 20% bootstrap, 30% mature)
+        val minDip = getMinDipDepth()
+        if (dumpPct < minDip || dumpPct > 70) return null
         
         score += 20.0
         signals.add("Dump: -${dumpPct.toInt()}%")
@@ -295,8 +356,9 @@ object ModeSpecificScanners {
             signals.add("Recovery: ${recovery.toInt()}%")
         }
         
-        // Liquidity holding
-        if (ts.lastLiquidityUsd > 2000) {
+        // Liquidity holding - FLUID
+        val minLiq = getMinLiquidityThreshold()
+        if (ts.lastLiquidityUsd > minLiq) {
             score += 5.0
         }
         
@@ -308,7 +370,9 @@ object ModeSpecificScanners {
             score += 5.0
         }
         
-        if (score < 50) return null
+        // Minimum score - FLUID
+        val minScore = getMinScoreThreshold()
+        if (score < minScore) return null
         
         return ScanResult(
             mint = ts.mint,
@@ -393,14 +457,17 @@ object ModeSpecificScanners {
             }
         }
         
-        // Liquidity for size
-        if (ts.lastLiquidityUsd > 8000) {
+        // Liquidity for size - FLUID
+        val minLiq = getMinLiquidityThreshold()
+        if (ts.lastLiquidityUsd > minLiq * 2) {
             score += 5.0
-        } else if (ts.lastLiquidityUsd < 3000) {
+        } else if (ts.lastLiquidityUsd < minLiq) {
             return null  // Can't absorb whale size
         }
         
-        if (score < 45) return null
+        // Minimum score - FLUID
+        val minScore = getMinScoreThreshold()
+        if (score < minScore) return null
         
         return ScanResult(
             mint = ts.mint,
@@ -484,14 +551,17 @@ object ModeSpecificScanners {
             signals.add("Holders: ${lastCandle.holderCount}")
         }
         
-        // Good liquidity floor
-        if (ts.lastLiquidityUsd > 10000) {
+        // Good liquidity floor - FLUID
+        val minLiq = getMinLiquidityThreshold()
+        if (ts.lastLiquidityUsd > minLiq * 2) {
             score += 5.0
-        } else if (ts.lastLiquidityUsd < 3000) {
+        } else if (ts.lastLiquidityUsd < minLiq) {
             return null
         }
         
-        if (score < 45) return null
+        // Minimum score - FLUID
+        val minScore = getMinScoreThreshold()
+        if (score < minScore) return null
         
         return ScanResult(
             mint = ts.mint,
@@ -523,9 +593,10 @@ object ModeSpecificScanners {
         var score = 0.0
         val signals = mutableListOf<String>()
         
-        // Current liquidity level
+        // Current liquidity level - FLUID
         val currentLiq = ts.lastLiquidityUsd
-        if (currentLiq < 5000) return null
+        val minLiq = getMinLiquidityThreshold()
+        if (currentLiq < minLiq) return null
         
         // Liquidity trend (using volume as proxy for depth changes)
         val volumes = hist.map { it.vol }
@@ -586,7 +657,9 @@ object ModeSpecificScanners {
             score += 10.0
         }
         
-        if (score < 50) return null
+        // Minimum score - FLUID
+        val minScore = getMinScoreThreshold()
+        if (score < minScore) return null
         
         return ScanResult(
             mint = ts.mint,
