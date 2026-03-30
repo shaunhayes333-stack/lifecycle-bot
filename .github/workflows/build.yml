@@ -40,10 +40,7 @@ jobs:
           ./gradlew assembleRelease --no-daemon -PbuildNumber=${{ github.run_number }}
           echo "Built APK:"
           ls -la app/build/outputs/apk/release/
-          # Rename APK to include build number explicitly
-          mv app/build/outputs/apk/release/*.apk app/build/outputs/apk/release/AATE_v5.0.${{ github.run_number }}.apk
-          echo "Final APK:"
-          ls -la app/build/outputs/apk/release/
+          # APK is already named AATE_v5.0.{buildNumber}.apk by gradle
 
       - uses: actions/upload-artifact@v4
         with:

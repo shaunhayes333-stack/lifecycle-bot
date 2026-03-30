@@ -3437,6 +3437,25 @@ class Executor(
         ts.position.shitCoinTakeProfit = takeProfitPct
         ts.position.shitCoinStopLoss = stopLossPct
         
+        // V5.2 FIX: Register position with ShitCoinTraderAI so checkExit can find it!
+        com.lifecyclebot.v3.scoring.ShitCoinTraderAI.addPosition(
+            com.lifecyclebot.v3.scoring.ShitCoinTraderAI.ShitCoinPosition(
+                mint = ts.mint,
+                symbol = ts.symbol,
+                entryPrice = getActualPrice(ts),
+                entrySol = sizeSol,
+                entryTime = System.currentTimeMillis(),
+                takeProfitPct = takeProfitPct,
+                stopLossPct = stopLossPct,
+                marketCapUsd = ts.lastMcap,
+                liquidityUsd = ts.lastLiquidityUsd,
+                mode = riskLevel.name,
+                isPaperMode = isPaper,
+                launchPlatform = launchPlatform,
+                riskLevel = riskLevel,
+            )
+        )
+        
         ErrorLogger.info("Executor", "💩 [SHITCOIN] ${ts.symbol} | " +
             "${launchPlatform.emoji} ${launchPlatform.displayName} | " +
             "${if (isPaper) "PAPER" else "LIVE"}_BUY | " +

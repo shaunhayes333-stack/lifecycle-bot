@@ -3785,6 +3785,80 @@ class BotService : Service() {
             // ═══════════════════════════════════════════════════════════════════
             
             // ═══════════════════════════════════════════════════════════════════
+            // 🌙 MOONSHOT TRADER - Asymmetric bets for $100K-$5M mcap tokens
+            // Target: Tokens that survived micro-cap, building momentum
+            // ═══════════════════════════════════════════════════════════════════
+            if (!ts.position.isOpen) {
+                try {
+                    // Score the token for moonshot potential
+                    val moonshotScore = com.lifecyclebot.v3.scoring.MoonshotTraderAI.scoreToken(
+                        mint = ts.mint,
+                        symbol = ts.symbol,
+                        marketCapUsd = ts.lastMcap,
+                        liquidityUsd = ts.lastLiquidityUsd,
+                        volumeScore = ts.lastVolScore,
+                        buyPressurePct = ts.lastBuyPressurePct,
+                        rugcheckScore = ts.safety.rugcheckScore,
+                        v3EntryScore = decision.score.toDouble(),
+                        v3Confidence = decision.aiConfidence,
+                        phase = decision.phase,
+                        isPaper = cfg.paperMode,
+                    )
+                    
+                    if (moonshotScore.eligible) {
+                        ErrorLogger.info("BotService", "🌙 [MOONSHOT] ${ts.symbol} | ELIGIBLE | " +
+                            "score=${moonshotScore.score} conf=${moonshotScore.confidence.toInt()}% | " +
+                            "mcap=\$${(ts.lastMcap/1000).toInt()}K | " +
+                            "TP=${moonshotScore.takeProfitPct.toInt()}% SL=${moonshotScore.stopLossPct.toInt()}%")
+                        
+                        // Execute moonshot entry
+                        executor.paperBuy(
+                            ts = ts,
+                            sol = moonshotScore.suggestedSizeSol,
+                            score = moonshotScore.score.toDouble(),
+                            identity = identity,
+                            quality = "MOONSHOT",
+                            skipGraduated = true,
+                            wallet = wallet,
+                            walletSol = effectiveBalance
+                        )
+                        
+                        // Register with MoonshotTraderAI
+                        com.lifecyclebot.v3.scoring.MoonshotTraderAI.addPosition(
+                            com.lifecyclebot.v3.scoring.MoonshotTraderAI.MoonshotPosition(
+                                mint = ts.mint,
+                                symbol = ts.symbol,
+                                entryPrice = ts.ref,
+                                entrySol = moonshotScore.suggestedSizeSol,
+                                entryTime = System.currentTimeMillis(),
+                                takeProfitPct = moonshotScore.takeProfitPct,
+                                stopLossPct = moonshotScore.stopLossPct,
+                                marketCapUsd = ts.lastMcap,
+                                liquidityUsd = ts.lastLiquidityUsd,
+                                entryScore = moonshotScore.score.toDouble(),
+                                mode = "MOONSHOT",
+                                isPaperMode = cfg.paperMode,
+                            )
+                        )
+                        
+                        ts.position.tradingMode = "MOONSHOT"
+                        ts.position.tradingModeEmoji = "🌙"
+                        
+                        addLog("🌙 MOONSHOT BUY: ${ts.symbol} | " +
+                            "\$${(ts.lastMcap/1_000).toInt()}K mcap | " +
+                            "score=${moonshotScore.score} | " +
+                            "${moonshotScore.suggestedSizeSol.fmt(3)} SOL | " +
+                            "${if (cfg.paperMode) "PAPER" else "LIVE"}", ts.mint)
+                    }
+                } catch (moonEx: Exception) {
+                    ErrorLogger.debug("BotService", "🌙 [MOONSHOT] ${ts.symbol} | ERROR | ${moonEx.message}")
+                }
+            }
+            // ═══════════════════════════════════════════════════════════════════
+            // END Moonshot evaluation
+            // ═══════════════════════════════════════════════════════════════════
+            
+            // ═══════════════════════════════════════════════════════════════════
             // END Treasury Mode evaluation - now proceed with V3 decision handling
             // ═══════════════════════════════════════════════════════════════════
             
@@ -4614,6 +4688,44 @@ class BotService : Service() {
                 com.lifecyclebot.v3.scoring.ShitCoinExpress.exitRide(ts.mint, currentPrice, exitSignal)
                 
                 addLog("$exitEmoji EXPRESS SELL: ${ts.symbol} | ${exitSignal.name} | " +
+                    "${if (cfg.paperMode) "PAPER" else "LIVE"}", ts.mint)
+                
+                return
+            }
+        }
+        
+        // ═══════════════════════════════════════════════════════════════════
+        // 🌙 MOONSHOT EXIT CHECK
+        // ═══════════════════════════════════════════════════════════════════
+        if (com.lifecyclebot.v3.scoring.MoonshotTraderAI.hasPosition(ts.mint) || ts.position.tradingMode == "MOONSHOT") {
+            val currentPrice = ts.lastPrice.takeIf { it > 0 } 
+                ?: ts.history.lastOrNull()?.priceUsd 
+                ?: ts.position.entryPrice
+            
+            val exitSignal = com.lifecyclebot.v3.scoring.MoonshotTraderAI.checkExit(ts.mint, currentPrice)
+            
+            if (exitSignal != com.lifecyclebot.v3.scoring.MoonshotTraderAI.ExitSignal.HOLD) {
+                val exitEmoji = when (exitSignal) {
+                    com.lifecyclebot.v3.scoring.MoonshotTraderAI.ExitSignal.TAKE_PROFIT -> "🌙"
+                    com.lifecyclebot.v3.scoring.MoonshotTraderAI.ExitSignal.TRAILING_STOP -> "🎯"
+                    com.lifecyclebot.v3.scoring.MoonshotTraderAI.ExitSignal.PARTIAL_TAKE -> "💰"
+                    com.lifecyclebot.v3.scoring.MoonshotTraderAI.ExitSignal.STOP_LOSS -> "🛑"
+                    com.lifecyclebot.v3.scoring.MoonshotTraderAI.ExitSignal.RUG_DETECTED -> "⚠️"
+                    else -> "📉"
+                }
+                
+                ErrorLogger.info("BotService", "🌙 [MOONSHOT EXIT] ${identity.symbol} | signal=$exitSignal | price=$currentPrice")
+                
+                executor.requestSell(
+                    ts = ts,
+                    reason = "MOONSHOT_${exitSignal.name}",
+                    wallet = wallet,
+                    walletSol = effectiveBalance
+                )
+                
+                com.lifecyclebot.v3.scoring.MoonshotTraderAI.closePosition(ts.mint, currentPrice, exitSignal)
+                
+                addLog("$exitEmoji MOONSHOT SELL: ${ts.symbol} | ${exitSignal.name} | " +
                     "${if (cfg.paperMode) "PAPER" else "LIVE"}", ts.mint)
                 
                 return

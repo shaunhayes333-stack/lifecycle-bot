@@ -119,6 +119,33 @@ class MainActivity : AppCompatActivity() {
     private lateinit var tvShitCoinWinRate: TextView
     private lateinit var tvShitCoinDailyPnl: TextView
     
+    // V5.2: Moonshot positions panel
+    private lateinit var cardMoonshotPositions: android.view.View
+    private lateinit var llMoonshotPositions: LinearLayout
+    private lateinit var tvMoonshotExposure: TextView
+    private lateinit var tvMoonshotPnl: TextView
+    private lateinit var tvMoonshotMode: TextView
+    private lateinit var tvMoonshotWinRate: TextView
+    private lateinit var tvMoonshotDailyPnl: TextView
+    private lateinit var tvMoonshotLearning: TextView
+    
+    // V5.2: Side-by-side Treasury + Moonshot row
+    private lateinit var rowTreasuryMoonshot: android.view.View
+    private lateinit var cardTreasuryMini: android.view.View
+    private lateinit var cardMoonshotMini: android.view.View
+    private lateinit var llTreasuryMiniPositions: LinearLayout
+    private lateinit var llMoonshotMiniPositions: LinearLayout
+    private lateinit var tvTreasuryMiniPnl: TextView
+    private lateinit var tvMoonshotMiniPnl: TextView
+    
+    // V5.2: Chart enhancements
+    private lateinit var tvChartSymbol: TextView
+    private lateinit var tvChartPrice: TextView
+    private lateinit var candleChart: com.github.mikephil.charting.charts.CandleStickChart
+    private var selectedChartMint: String? = null
+    private var chartTimeRange: String = "5m"
+    private var chartType: String = "line"
+    
     // V4.0: AI Status panel
     private lateinit var tvAiHealth: TextView
     private lateinit var tvAiTradingMode: TextView
@@ -587,6 +614,33 @@ for legal compliance.
         tvShitCoinMode = try { findViewById(R.id.tvShitCoinMode) } catch (_: Exception) { TextView(this) }
         tvShitCoinWinRate = try { findViewById(R.id.tvShitCoinWinRate) } catch (_: Exception) { TextView(this) }
         tvShitCoinDailyPnl = try { findViewById(R.id.tvShitCoinDailyPnl) } catch (_: Exception) { TextView(this) }
+        
+        // V5.2: Moonshot positions panel bindings
+        cardMoonshotPositions = try { findViewById(R.id.cardMoonshotPositions) } catch (_: Exception) { android.view.View(this) }
+        llMoonshotPositions = try { findViewById(R.id.llMoonshotPositions) } catch (_: Exception) { LinearLayout(this) }
+        tvMoonshotExposure = try { findViewById(R.id.tvMoonshotExposure) } catch (_: Exception) { TextView(this) }
+        tvMoonshotPnl = try { findViewById(R.id.tvMoonshotPnl) } catch (_: Exception) { TextView(this) }
+        tvMoonshotMode = try { findViewById(R.id.tvMoonshotMode) } catch (_: Exception) { TextView(this) }
+        tvMoonshotWinRate = try { findViewById(R.id.tvMoonshotWinRate) } catch (_: Exception) { TextView(this) }
+        tvMoonshotDailyPnl = try { findViewById(R.id.tvMoonshotDailyPnl) } catch (_: Exception) { TextView(this) }
+        tvMoonshotLearning = try { findViewById(R.id.tvMoonshotLearning) } catch (_: Exception) { TextView(this) }
+        
+        // V5.2: Side-by-side Treasury + Moonshot
+        rowTreasuryMoonshot = try { findViewById(R.id.rowTreasuryMoonshot) } catch (_: Exception) { android.view.View(this) }
+        cardTreasuryMini = try { findViewById(R.id.cardTreasuryMini) } catch (_: Exception) { android.view.View(this) }
+        cardMoonshotMini = try { findViewById(R.id.cardMoonshotMini) } catch (_: Exception) { android.view.View(this) }
+        llTreasuryMiniPositions = try { findViewById(R.id.llTreasuryMiniPositions) } catch (_: Exception) { LinearLayout(this) }
+        llMoonshotMiniPositions = try { findViewById(R.id.llMoonshotMiniPositions) } catch (_: Exception) { LinearLayout(this) }
+        tvTreasuryMiniPnl = try { findViewById(R.id.tvTreasuryMiniPnl) } catch (_: Exception) { TextView(this) }
+        tvMoonshotMiniPnl = try { findViewById(R.id.tvMoonshotMiniPnl) } catch (_: Exception) { TextView(this) }
+        
+        // V5.2: Chart enhancements
+        tvChartSymbol = try { findViewById(R.id.tvChartSymbol) } catch (_: Exception) { TextView(this) }
+        tvChartPrice = try { findViewById(R.id.tvChartPrice) } catch (_: Exception) { TextView(this) }
+        candleChart = try { findViewById(R.id.candleChart) } catch (_: Exception) { com.github.mikephil.charting.charts.CandleStickChart(this) }
+        
+        // V5.2: Chart time range button listeners
+        setupChartControls()
         
         // V4.0: AI Status panel bindings
         tvAiHealth = try { findViewById(R.id.tvAiHealth) } catch (_: Exception) { TextView(this) }
@@ -1195,6 +1249,68 @@ for legal compliance.
             }
         } catch (_: Exception) {}
         
+        // ── V5.2: Moonshot positions panel ────────────────────────────
+        try {
+            val moonshotPositions = com.lifecyclebot.v3.scoring.MoonshotTraderAI.getActivePositions()
+            val showMoonshot = moonshotPositions.isNotEmpty()
+            
+            cardMoonshotPositions.visibility = if (showMoonshot) android.view.View.VISIBLE else android.view.View.GONE
+            
+            if (showMoonshot) {
+                val moonshotExposure = moonshotPositions.sumOf { it.entrySol }
+                tvMoonshotExposure.text = "${String.format("%.3f", moonshotExposure)} SOL"
+                
+                // Calculate total P&L
+                var totalPnl = 0.0
+                for (pos in moonshotPositions) {
+                    val currentPrice = try {
+                        com.lifecyclebot.engine.BotService.status.tokens[pos.mint]?.ref ?: pos.entryPrice
+                    } catch (_: Exception) { pos.entryPrice }
+                    val pnlPct = if (pos.entryPrice > 0) ((currentPrice - pos.entryPrice) / pos.entryPrice * 100) else 0.0
+                    totalPnl += pos.entrySol * (pnlPct / 100)
+                }
+                
+                val pnlColor = if (totalPnl >= 0) green else red
+                tvMoonshotPnl.text = "${if (totalPnl >= 0) "+" else ""}${String.format("%.4f", totalPnl)} SOL"
+                tvMoonshotPnl.setTextColor(pnlColor)
+                
+                // Stats
+                val winRate = com.lifecyclebot.v3.scoring.MoonshotTraderAI.getWinRatePct()
+                val dailyPnl = com.lifecyclebot.v3.scoring.MoonshotTraderAI.getDailyPnlSol()
+                val learning = (com.lifecyclebot.v3.scoring.MoonshotTraderAI.getLearningProgress() * 100).toInt()
+                
+                tvMoonshotMode.text = if (moonshotPositions.size >= 3) "RIDING" else "HUNTING"
+                tvMoonshotWinRate.text = "${com.lifecyclebot.v3.scoring.MoonshotTraderAI.getDailyWins()}W/${com.lifecyclebot.v3.scoring.MoonshotTraderAI.getDailyLosses()}L"
+                tvMoonshotDailyPnl.text = "Day: ${if (dailyPnl >= 0) "+" else ""}${String.format("%.3f", dailyPnl)}"
+                tvMoonshotDailyPnl.setTextColor(if (dailyPnl >= 0) green else red)
+                tvMoonshotLearning.text = "Learn: $learning%"
+                
+                renderMoonshotPositions(moonshotPositions)
+            }
+            
+            // V5.2: Update Treasury+Moonshot side-by-side row
+            val treasuryPositions = com.lifecyclebot.v3.scoring.CashGenerationAI.getActivePositions()
+            val showTreasuryMini = treasuryPositions.isNotEmpty()
+            val showMoonshotMini = moonshotPositions.isNotEmpty()
+            
+            if (showTreasuryMini && showMoonshotMini) {
+                rowTreasuryMoonshot.visibility = android.view.View.VISIBLE
+                cardTreasuryMini.visibility = android.view.View.VISIBLE
+                cardMoonshotMini.visibility = android.view.View.VISIBLE
+                
+                // Treasury mini P&L
+                val treasuryPnl = com.lifecyclebot.v3.scoring.CashGenerationAI.getDailyPnlSol()
+                tvTreasuryMiniPnl.text = "${if (treasuryPnl >= 0) "+" else ""}${String.format("%.3f", treasuryPnl)}"
+                tvTreasuryMiniPnl.setTextColor(if (treasuryPnl >= 0) green else red)
+                
+                // Moonshot mini P&L
+                tvMoonshotMiniPnl.text = "${if (totalPnl >= 0) "+" else ""}${String.format("%.3f", totalPnl)}"
+                tvMoonshotMiniPnl.setTextColor(if (totalPnl >= 0) green else red)
+            } else {
+                rowTreasuryMoonshot.visibility = android.view.View.GONE
+            }
+        } catch (_: Exception) {}
+        
         // ── V4.0: AI Status panel ─────────────────────────────────
         try {
             updateAiStatusPanel(ts)
@@ -1756,6 +1872,127 @@ for legal compliance.
             }
             llShitCoinPositions.addView(row)
             llShitCoinPositions.addView(div)
+        }
+    }
+    
+    // V5.2: Render Moonshot positions
+    private fun renderMoonshotPositions(positions: List<com.lifecyclebot.v3.scoring.MoonshotTraderAI.MoonshotPosition>) {
+        llMoonshotPositions.removeAllViews()
+        
+        for (pos in positions) {
+            val currentPrice = try {
+                com.lifecyclebot.engine.BotService.status.tokens[pos.mint]?.ref ?: pos.entryPrice
+            } catch (_: Exception) { pos.entryPrice }
+            
+            val pnlPct = if (pos.entryPrice > 0) ((currentPrice - pos.entryPrice) / pos.entryPrice * 100) else 0.0
+            val holdMins = (System.currentTimeMillis() - pos.entryTime) / 60000
+            
+            val row = LinearLayout(this).apply {
+                orientation = LinearLayout.HORIZONTAL
+                gravity = android.view.Gravity.CENTER_VERTICAL
+                layoutParams = LinearLayout.LayoutParams(
+                    LinearLayout.LayoutParams.MATCH_PARENT,
+                    LinearLayout.LayoutParams.WRAP_CONTENT
+                ).also { it.bottomMargin = 6 }
+                
+                // V5.2: Click to show chart for this token
+                setOnClickListener {
+                    selectedChartMint = pos.mint
+                    tvChartSymbol.text = pos.symbol
+                    // Trigger chart update on next cycle
+                }
+            }
+            
+            // Symbol
+            val tvSymbol = TextView(this).apply {
+                text = pos.symbol
+                setTextColor(0xFFA855F7.toInt())  // Purple for moonshots
+                textSize = 12f
+                typeface = android.graphics.Typeface.create("monospace", android.graphics.Typeface.BOLD)
+                layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
+            }
+            
+            // Entry / Current
+            val tvEntry = TextView(this).apply {
+                text = "${String.format("%.6f", pos.entryPrice)} → ${String.format("%.6f", currentPrice)}"
+                setTextColor(0xFF6B7280.toInt())
+                textSize = 10f
+                typeface = android.graphics.Typeface.create("monospace", android.graphics.Typeface.NORMAL)
+                layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1.2f)
+            }
+            
+            // P&L
+            val tvPnl = TextView(this).apply {
+                text = "${if (pnlPct >= 0) "+" else ""}${String.format("%.1f", pnlPct)}%"
+                setTextColor(if (pnlPct >= 0) 0xFF10B981.toInt() else 0xFFEF4444.toInt())
+                textSize = 12f
+                typeface = android.graphics.Typeface.create("monospace", android.graphics.Typeface.BOLD)
+                layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 0.5f)
+            }
+            
+            // Hold time
+            val tvHold = TextView(this).apply {
+                text = "${holdMins}m"
+                setTextColor(0xFF6B7280.toInt())
+                textSize = 10f
+                typeface = android.graphics.Typeface.create("monospace", android.graphics.Typeface.NORMAL)
+                layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 0.3f)
+            }
+            
+            row.addView(tvSymbol)
+            row.addView(tvEntry)
+            row.addView(tvPnl)
+            row.addView(tvHold)
+            
+            val div = View(this).apply {
+                layoutParams = LinearLayout.LayoutParams(
+                    LinearLayout.LayoutParams.MATCH_PARENT, 1).also { it.topMargin = 6 }
+                setBackgroundColor(0xFF1F2937.toInt())
+            }
+            llMoonshotPositions.addView(row)
+            llMoonshotPositions.addView(div)
+        }
+    }
+    
+    // V5.2: Setup chart time range and type controls
+    private fun setupChartControls() {
+        val timeButtons = listOf(
+            "1m" to try { findViewById<TextView>(R.id.btnChart1m) } catch (_: Exception) { null },
+            "5m" to try { findViewById<TextView>(R.id.btnChart5m) } catch (_: Exception) { null },
+            "15m" to try { findViewById<TextView>(R.id.btnChart15m) } catch (_: Exception) { null },
+            "1h" to try { findViewById<TextView>(R.id.btnChart1h) } catch (_: Exception) { null },
+        )
+        
+        val typeButtons = listOf(
+            "line" to try { findViewById<TextView>(R.id.btnChartLine) } catch (_: Exception) { null },
+            "candle" to try { findViewById<TextView>(R.id.btnChartCandle) } catch (_: Exception) { null },
+        )
+        
+        // Time range buttons
+        for ((range, btn) in timeButtons) {
+            btn?.setOnClickListener {
+                chartTimeRange = range
+                // Update button styles
+                for ((r, b) in timeButtons) {
+                    b?.setTextColor(if (r == range) 0xFFFFFFFF.toInt() else 0xFF6B7280.toInt())
+                    b?.setBackgroundColor(if (r == range) 0xFF3B82F6.toInt() else 0xFF2A2A2A.toInt())
+                }
+            }
+        }
+        
+        // Chart type buttons
+        for ((type, btn) in typeButtons) {
+            btn?.setOnClickListener {
+                chartType = type
+                // Update button styles
+                for ((t, b) in typeButtons) {
+                    b?.setTextColor(if (t == type) 0xFFFFFFFF.toInt() else 0xFF6B7280.toInt())
+                    b?.setBackgroundColor(if (t == type) 0xFF10B981.toInt() else 0xFF2A2A2A.toInt())
+                }
+                // Toggle chart visibility
+                priceChart.visibility = if (type == "line") android.view.View.VISIBLE else android.view.View.GONE
+                candleChart.visibility = if (type == "candle") android.view.View.VISIBLE else android.view.View.GONE
+            }
         }
     }
     

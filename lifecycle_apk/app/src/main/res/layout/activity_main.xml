@@ -1076,6 +1076,146 @@
             </LinearLayout>
 
             <!-- ═══════════════════════════════
+                 V5.2: TREASURY + MOONSHOT SIDE-BY-SIDE ROW
+                 Both show when they have open positions
+                 ═══════════════════════════════ -->
+            <LinearLayout
+                android:id="@+id/rowTreasuryMoonshot"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="horizontal"
+                android:layout_marginStart="@dimen/card_margin"
+                android:layout_marginEnd="@dimen/card_margin"
+                android:layout_marginBottom="@dimen/card_margin_bottom"
+                android:visibility="gone">
+                
+                <!-- Treasury Mini Card -->
+                <LinearLayout
+                    android:id="@+id/cardTreasuryMini"
+                    android:layout_width="0dp"
+                    android:layout_weight="1"
+                    android:layout_height="wrap_content"
+                    android:background="@drawable/section_card_bg"
+                    android:layout_marginEnd="4dp"
+                    android:orientation="vertical"
+                    android:padding="8dp"
+                    android:visibility="gone">
+                    
+                    <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content"
+                        android:orientation="horizontal" android:gravity="center_vertical">
+                        <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+                            android:text="Treasury" android:textColor="#10B981"
+                            android:textSize="12sp" android:textStyle="bold"/>
+                        <TextView android:id="@+id/tvTreasuryMiniPnl"
+                            android:layout_width="wrap_content" android:layout_height="wrap_content"
+                            android:text="" android:textColor="#10B981"
+                            android:textSize="10sp" android:fontFamily="monospace"
+                            android:layout_marginStart="6dp"/>
+                    </LinearLayout>
+                    <LinearLayout android:id="@+id/llTreasuryMiniPositions"
+                        android:layout_width="match_parent" android:layout_height="wrap_content"
+                        android:orientation="vertical" android:layout_marginTop="4dp"/>
+                </LinearLayout>
+                
+                <!-- Moonshot Mini Card -->
+                <LinearLayout
+                    android:id="@+id/cardMoonshotMini"
+                    android:layout_width="0dp"
+                    android:layout_weight="1"
+                    android:layout_height="wrap_content"
+                    android:background="@drawable/section_card_bg"
+                    android:layout_marginStart="4dp"
+                    android:orientation="vertical"
+                    android:padding="8dp"
+                    android:visibility="gone">
+                    
+                    <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content"
+                        android:orientation="horizontal" android:gravity="center_vertical">
+                        <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+                            android:text="Moonshot" android:textColor="#A855F7"
+                            android:textSize="12sp" android:textStyle="bold"/>
+                        <TextView android:id="@+id/tvMoonshotMiniPnl"
+                            android:layout_width="wrap_content" android:layout_height="wrap_content"
+                            android:text="" android:textColor="#A855F7"
+                            android:textSize="10sp" android:fontFamily="monospace"
+                            android:layout_marginStart="6dp"/>
+                    </LinearLayout>
+                    <LinearLayout android:id="@+id/llMoonshotMiniPositions"
+                        android:layout_width="match_parent" android:layout_height="wrap_content"
+                        android:orientation="vertical" android:layout_marginTop="4dp"/>
+                </LinearLayout>
+            </LinearLayout>
+
+            <!-- ═══════════════════════════════
+                 V5.2: MOONSHOT POSITIONS (Full Card)
+                 Asymmetric bets $100K-$5M mcap
+                 ═══════════════════════════════ -->
+            <LinearLayout
+                android:id="@+id/cardMoonshotPositions"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:background="@drawable/section_card_bg"
+                android:layout_marginStart="@dimen/card_margin"
+                android:layout_marginEnd="@dimen/card_margin"
+                android:layout_marginBottom="@dimen/card_margin_bottom"
+                android:orientation="vertical"
+                android:padding="@dimen/card_padding"
+                android:visibility="gone">
+
+                <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content"
+                    android:orientation="horizontal" android:gravity="center_vertical"
+                    android:layout_marginBottom="10dp">
+                    <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+                        android:text="🌙" android:textSize="16sp"
+                        android:layout_marginEnd="8dp"/>
+                    <TextView android:layout_width="0dp" android:layout_height="wrap_content"
+                        android:layout_weight="1"
+                        android:text="Moonshot" android:textColor="#A855F7"
+                        android:textSize="@dimen/section_title_size" android:textStyle="bold"/>
+                    <TextView android:id="@+id/tvMoonshotExposure"
+                        android:layout_width="wrap_content" android:layout_height="wrap_content"
+                        android:text="" android:textColor="#6B7280"
+                        android:textSize="12sp" android:fontFamily="monospace"/>
+                    <TextView android:id="@+id/tvMoonshotPnl"
+                        android:layout_width="wrap_content" android:layout_height="wrap_content"
+                        android:text="" android:textColor="#A855F7"
+                        android:textSize="12sp" android:fontFamily="monospace"
+                        android:layout_marginStart="8dp"/>
+                </LinearLayout>
+                
+                <!-- Moonshot Stats Row -->
+                <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content"
+                    android:orientation="horizontal" android:gravity="center_vertical"
+                    android:layout_marginBottom="8dp">
+                    <TextView android:id="@+id/tvMoonshotMode"
+                        android:layout_width="wrap_content" android:layout_height="wrap_content"
+                        android:text="HUNTING" android:textColor="#A855F7"
+                        android:textSize="10sp" android:fontFamily="monospace"
+                        android:background="#1F1F1F"
+                        android:paddingHorizontal="6dp" android:paddingVertical="2dp"/>
+                    <TextView android:id="@+id/tvMoonshotWinRate"
+                        android:layout_width="wrap_content" android:layout_height="wrap_content"
+                        android:text="0W/0L" android:textColor="#6B7280"
+                        android:textSize="10sp" android:fontFamily="monospace"
+                        android:layout_marginStart="8dp"/>
+                    <TextView android:id="@+id/tvMoonshotDailyPnl"
+                        android:layout_width="wrap_content" android:layout_height="wrap_content"
+                        android:text="Day: +0.00" android:textColor="#A855F7"
+                        android:textSize="10sp" android:fontFamily="monospace"
+                        android:layout_marginStart="8dp"/>
+                    <TextView android:id="@+id/tvMoonshotLearning"
+                        android:layout_width="wrap_content" android:layout_height="wrap_content"
+                        android:text="Learn: 0%" android:textColor="#6B7280"
+                        android:textSize="10sp" android:fontFamily="monospace"
+                        android:layout_marginStart="8dp"/>
+                </LinearLayout>
+
+                <LinearLayout android:id="@+id/llMoonshotPositions"
+                    android:layout_width="match_parent" android:layout_height="wrap_content"
+                    android:orientation="vertical"/>
+            </LinearLayout>
+
+            <!-- ═══════════════════════════════
                  BONDING CURVE + WHALE ROW
                  ═══════════════════════════════ -->
             <LinearLayout
@@ -1139,7 +1279,8 @@
             </LinearLayout>
 
             <!-- ═══════════════════════════════
-                 PRICE CHART
+                 PRICE CHART - Interactive with time range
+                 Click positions to show that token's chart
                  ═══════════════════════════════ -->
             <LinearLayout
                 android:layout_width="match_parent"
@@ -1151,24 +1292,86 @@
                 android:orientation="vertical"
                 android:padding="@dimen/card_padding">
 
+                <!-- Chart Header with Token Info -->
                 <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content"
                     android:orientation="horizontal" android:gravity="center_vertical"
-                    android:layout_marginBottom="10dp">
-                    <TextView android:layout_width="0dp" android:layout_height="wrap_content"
+                    android:layout_marginBottom="8dp">
+                    <TextView android:id="@+id/tvChartSymbol"
+                        android:layout_width="0dp" android:layout_height="wrap_content"
                         android:layout_weight="1"
                         android:text="Price" android:textColor="#FFFFFF"
                         android:textSize="@dimen/section_title_size" android:textStyle="bold"/>
+                    <TextView android:id="@+id/tvChartPrice"
+                        android:layout_width="wrap_content" android:layout_height="wrap_content"
+                        android:text="" android:textColor="#10B981"
+                        android:textSize="14sp" android:fontFamily="monospace"
+                        android:layout_marginEnd="8dp"/>
                     <TextView android:id="@+id/tvSafetyChip"
                         android:layout_width="wrap_content" android:layout_height="wrap_content"
                         android:text="—" android:textColor="#6B7280"
                         android:textSize="10sp" android:fontFamily="monospace"
-                        android:maxLines="1" android:ellipsize="end" android:maxWidth="160dp"/>
+                        android:maxLines="1" android:ellipsize="end" android:maxWidth="120dp"/>
+                </LinearLayout>
+                
+                <!-- V5.2: Time Range Selectors -->
+                <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content"
+                    android:orientation="horizontal" android:gravity="center"
+                    android:layout_marginBottom="8dp">
+                    <TextView android:id="@+id/btnChart1m"
+                        android:layout_width="wrap_content" android:layout_height="wrap_content"
+                        android:text="1m" android:textColor="#6B7280"
+                        android:textSize="11sp" android:fontFamily="monospace"
+                        android:background="#2A2A2A"
+                        android:paddingHorizontal="12dp" android:paddingVertical="4dp"
+                        android:layout_marginEnd="4dp"/>
+                    <TextView android:id="@+id/btnChart5m"
+                        android:layout_width="wrap_content" android:layout_height="wrap_content"
+                        android:text="5m" android:textColor="#FFFFFF"
+                        android:textSize="11sp" android:fontFamily="monospace"
+                        android:background="#3B82F6"
+                        android:paddingHorizontal="12dp" android:paddingVertical="4dp"
+                        android:layout_marginEnd="4dp"/>
+                    <TextView android:id="@+id/btnChart15m"
+                        android:layout_width="wrap_content" android:layout_height="wrap_content"
+                        android:text="15m" android:textColor="#6B7280"
+                        android:textSize="11sp" android:fontFamily="monospace"
+                        android:background="#2A2A2A"
+                        android:paddingHorizontal="12dp" android:paddingVertical="4dp"
+                        android:layout_marginEnd="4dp"/>
+                    <TextView android:id="@+id/btnChart1h"
+                        android:layout_width="wrap_content" android:layout_height="wrap_content"
+                        android:text="1h" android:textColor="#6B7280"
+                        android:textSize="11sp" android:fontFamily="monospace"
+                        android:background="#2A2A2A"
+                        android:paddingHorizontal="12dp" android:paddingVertical="4dp"
+                        android:layout_marginEnd="8dp"/>
+                    <!-- Chart Type Toggle -->
+                    <TextView android:id="@+id/btnChartLine"
+                        android:layout_width="wrap_content" android:layout_height="wrap_content"
+                        android:text="Line" android:textColor="#FFFFFF"
+                        android:textSize="11sp" android:fontFamily="monospace"
+                        android:background="#10B981"
+                        android:paddingHorizontal="10dp" android:paddingVertical="4dp"
+                        android:layout_marginEnd="4dp"/>
+                    <TextView android:id="@+id/btnChartCandle"
+                        android:layout_width="wrap_content" android:layout_height="wrap_content"
+                        android:text="Candle" android:textColor="#6B7280"
+                        android:textSize="11sp" android:fontFamily="monospace"
+                        android:background="#2A2A2A"
+                        android:paddingHorizontal="10dp" android:paddingVertical="4dp"/>
                 </LinearLayout>
 
                 <com.github.mikephil.charting.charts.LineChart
                     android:id="@+id/priceChart"
                     android:layout_width="match_parent"
                     android:layout_height="@dimen/chart_height"/>
+                    
+                <!-- V5.2: Candlestick Chart (hidden by default) -->
+                <com.github.mikephil.charting.charts.CandleStickChart
+                    android:id="@+id/candleChart"
+                    android:layout_width="match_parent"
+                    android:layout_height="@dimen/chart_height"
+                    android:visibility="gone"/>
             </LinearLayout>
 
             <!-- ═══════════════════════════════
