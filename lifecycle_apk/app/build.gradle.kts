@@ -9,12 +9,22 @@ plugins {
 val baseVersionCode = 500
 val ciBuildNumber = (project.findProperty("buildNumber") as String?)?.toIntOrNull() ?: 0
 val finalVersionCode = baseVersionCode + ciBuildNumber
-val finalVersionName = "5.0.$ciBuildNumber"
+
+// V5.0: If no build number provided, use timestamp to ensure unique filename
+val timestampSuffix = if (ciBuildNumber == 0) {
+    val sdf = java.text.SimpleDateFormat("MMddHHmm")
+    sdf.format(java.util.Date())
+} else {
+    ciBuildNumber.toString()
+}
+val finalVersionName = "5.0.$timestampSuffix"
 
 // Debug: Print version info during build
 println("========================================")
 println("Building AATE v$finalVersionName")
 println("versionCode = $finalVersionCode")
+println("ciBuildNumber = $ciBuildNumber")
+println("timestampSuffix = $timestampSuffix")
 println("buildNumber property = ${project.findProperty("buildNumber")}")
 println("========================================")
 
