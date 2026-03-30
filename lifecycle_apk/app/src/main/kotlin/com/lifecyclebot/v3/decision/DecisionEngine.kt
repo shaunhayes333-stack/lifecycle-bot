@@ -271,8 +271,9 @@ class FinalDecisionEngine(
         } catch (e: Exception) { 0.0 }
         
         // Fluid thresholds for C-grade
-        val cGradeConfFloor = (18 + (cGradeProgress * 7)).toInt().coerceIn(18, 25)
-        val cGradeMemoryFloor = (-15 + (cGradeProgress * 3)).toInt().coerceIn(-15, -12)
+        // V5.0: Dramatically lowered for bootstrap - bot MUST trade to learn
+        val cGradeConfFloor = (8 + (cGradeProgress * 12)).toInt().coerceIn(8, 20)
+        val cGradeMemoryFloor = (-25 + (cGradeProgress * 10)).toInt().coerceIn(-25, -15)
         
         if (isCGrade) {
             val cGradeBlockReasons = mutableListOf<String>()
@@ -332,8 +333,9 @@ class FinalDecisionEngine(
             com.lifecyclebot.v3.scoring.FluidLearningAI.getLearningProgress()
         } catch (e: Exception) { 0.0 }
         
-        // Fluid confidence threshold: 20% at bootstrap → 35% at mature
-        val fluidMinConfForExecute = (20 + (learningProgress * 15)).toInt().coerceIn(20, 35)
+        // Fluid confidence threshold: 10% at bootstrap → 30% at mature
+        // V5.0: Much lower to allow paper mode learning
+        val fluidMinConfForExecute = (10 + (learningProgress * 20)).toInt().coerceIn(10, 30)
         
         val minConfForExecute = try {
             val configMinConf = com.lifecyclebot.engine.V3ConfidenceConfig.getMinConfidenceForExecute(35)
@@ -343,8 +345,9 @@ class FinalDecisionEngine(
             fluidMinConfForExecute
         }
         
-        // C-grade confidence floor: 18% at bootstrap → 28% at mature
-        val cGradeMinConf = (18 + (learningProgress * 10)).toInt().coerceIn(18, 28)
+        // C-grade confidence floor: 8% at bootstrap → 20% at mature
+        // V5.0: Ultra low bootstrap to break learning deadlock
+        val cGradeMinConf = (8 + (learningProgress * 12)).toInt().coerceIn(8, 20)
         
         val band = when {
             score >= (minScoreForExecute * 1.3).toInt() && effectiveConf >= minConfForExecute + 10 -> DecisionBand.EXECUTE_AGGRESSIVE

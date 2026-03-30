@@ -279,21 +279,16 @@ object TradeAuthorizer {
         isPaperMode: Boolean,
     ): PromotionResult {
         
-        // Paper mode: More lenient but still has floors
+        // Paper mode: ULTRA LENIENT for bootstrap learning
+        // The bot MUST trade to learn. No trades = no learning = permanent deadlock
         if (isPaperMode) {
-            // Paper allows C grade if confidence >= 10%
-            if (quality == "C" && confidence < 10.0) {
-                return PromotionResult(false, "C_grade_conf_${confidence.toInt()}_below_10")
+            // V5.0 FIX: Only block absolute garbage (F grade with zero confidence)
+            // Everything else should execute to build learning data
+            if (quality == "F" && confidence < 5.0) {
+                return PromotionResult(false, "F_grade_zero_conf_shadow_only")
             }
-            // Paper allows D grade if confidence >= 15%
-            if (quality == "D" && confidence < 15.0) {
-                return PromotionResult(false, "D_grade_conf_${confidence.toInt()}_below_15")
-            }
-            // F grade always shadow only
-            if (quality == "F") {
-                return PromotionResult(false, "F_grade_shadow_only")
-            }
-            return PromotionResult(true, "PAPER_PASS")
+            // ALL other paper trades pass - we need data!
+            return PromotionResult(true, "PAPER_BOOTSTRAP_PASS")
         }
         
         // Live mode: Stricter requirements

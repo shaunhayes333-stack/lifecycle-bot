@@ -429,7 +429,7 @@ object FinalDecisionGate {
     // then naturally becomes more selective as it understands what works.
     // ═══════════════════════════════════════════════════════════════════════════
     
-    private const val CONF_FLOOR_BOOTSTRAP = 22.0    // V4.20: Lowered by 8 points
+    private const val CONF_FLOOR_BOOTSTRAP = 10.0    // V5.0: Dramatically lowered for paper bootstrap
     private const val CONF_FLOOR_MATURE = 67.0       // V4.20: Lowered by 8 points
     
     // Base confidence thresholds (LEGACY - now uses fluid scaling)
@@ -1472,9 +1472,9 @@ object FinalDecisionGate {
         
         // V4.20: Lowered all confidence floors by 8 points
         // V4.1.2: Even bootstrap has a minimum floor - don't learn from complete garbage
-        val BOOTSTRAP_MIN_CONFIDENCE = 7.0  // V4.20: was 15%, lowered by 8
+        val BOOTSTRAP_MIN_CONFIDENCE = 3.0  // V5.0: Ultra low - just filter absolute garbage
         if (confidence < BOOTSTRAP_MIN_CONFIDENCE) {
-            ErrorLogger.debug("FDG", "🚫 BOOTSTRAP_FLOOR: ${ts.symbol} | conf=${confidence.toInt()}% < 7% | " +
+            ErrorLogger.debug("FDG", "🚫 BOOTSTRAP_FLOOR: ${ts.symbol} | conf=${confidence.toInt()}% < 3% | " +
                 "TOO_LOW_EVEN_FOR_LEARNING")
             
             return FinalDecision(
@@ -1484,7 +1484,7 @@ object FinalDecisionGate {
                 quality = candidate.setupQuality,
                 confidence = confidence,
                 edge = EdgeVerdict.SKIP,
-                blockReason = "BOOTSTRAP_MIN_CONFIDENCE_7%",
+                blockReason = "BOOTSTRAP_MIN_CONFIDENCE_3%",
                 blockLevel = BlockLevel.CONFIDENCE,
                 sizeSol = 0.0,
                 tags = listOf("bootstrap_floor_7", "too_low_to_learn"),
