@@ -369,22 +369,23 @@ object FluidLearningAI {
     // - Quick exits (5-10% TP)
     // - Short hold times (max 8 min)
     // But it should NOT take garbage trades on first startup!
+    // V4.0.1: LOWERED bootstrap thresholds - they were blocking ALL trades!
     // ═══════════════════════════════════════════════════════════════════════════
     
-    private const val TREASURY_CONF_BOOTSTRAP = 35   // V4.0 FIX: Raised from 10 - need decent confidence to start
-    private const val TREASURY_CONF_MATURE = 25      // Loosen as we learn (inverse - we trust ourselves more)
+    private const val TREASURY_CONF_BOOTSTRAP = 20   // V4.0.1: Lowered from 35 - allow learning
+    private const val TREASURY_CONF_MATURE = 35      // Raise as we learn (normal progression)
     
-    private const val TREASURY_LIQ_BOOTSTRAP = 5000.0   // V4.0 FIX: Raised from 1000 - need real liquidity
-    private const val TREASURY_LIQ_MATURE = 3000.0       // Can take smaller liq once we know what we're doing
+    private const val TREASURY_LIQ_BOOTSTRAP = 1500.0   // V4.0.1: Lowered from 5000 - allow smaller plays
+    private const val TREASURY_LIQ_MATURE = 5000.0       // Raise threshold as we learn
     
-    private const val TREASURY_TOP_HOLDER_BOOTSTRAP = 25.0  // V4.0 FIX: Lowered from 50 - avoid whales early
-    private const val TREASURY_TOP_HOLDER_MATURE = 35.0     // Can tolerate more once experienced
+    private const val TREASURY_TOP_HOLDER_BOOTSTRAP = 40.0  // V4.0.1: Raised from 25 - allow more tokens
+    private const val TREASURY_TOP_HOLDER_MATURE = 25.0     // Tighten as we learn
     
-    private const val TREASURY_BUY_PRESSURE_BOOTSTRAP = 50.0  // V4.0 FIX: Raised from 25 - need real buying
-    private const val TREASURY_BUY_PRESSURE_MATURE = 40.0     // Can take weaker pressure when experienced
+    private const val TREASURY_BUY_PRESSURE_BOOTSTRAP = 30.0  // V4.0.1: Lowered from 50 - too restrictive
+    private const val TREASURY_BUY_PRESSURE_MATURE = 45.0     // Raise as we learn
     
-    private const val TREASURY_SCORE_BOOTSTRAP = 25    // V4.0 FIX: Raised from 3 - need decent score to start
-    private const val TREASURY_SCORE_MATURE = 15       // Loosen once we have experience
+    private const val TREASURY_SCORE_BOOTSTRAP = 10    // V4.0.1: Lowered from 25 - allow more trades
+    private const val TREASURY_SCORE_MATURE = 25       // Raise as we learn
     
     fun getTreasuryConfidenceThreshold(): Int = lerp(TREASURY_CONF_BOOTSTRAP.toDouble(), TREASURY_CONF_MATURE.toDouble()).toInt()
     fun getTreasuryMinLiquidity(): Double = lerp(TREASURY_LIQ_BOOTSTRAP, TREASURY_LIQ_MATURE)
