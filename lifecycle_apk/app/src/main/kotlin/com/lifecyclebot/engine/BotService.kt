@@ -3243,7 +3243,7 @@ class BotService : Service() {
                                 ErrorLogger.debug("BotService", "💩 [SHITCOIN] ${ts.symbol} | EXECUTION_BLOCKED | another layer executing")
                             }
                         }
-                        }
+                    }
                     }
                 } catch (scEx: Exception) {
                     ErrorLogger.debug("BotService", "💩 [SHITCOIN] ${ts.symbol} | ERROR | ${scEx.message}")
