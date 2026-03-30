@@ -23,78 +23,77 @@
         <LinearLayout
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:orientation="vertical">
-
-            <!-- V4.0: Top spacer for camera notch clearance -->
-            <View
-                android:layout_width="match_parent"
-                android:layout_height="28dp"
-                android:background="#0A0A0F"/>
+            android:orientation="vertical"
+            android:fitsSystemWindows="true">
 
             <!-- ═══════════════════════════════
-                 TOP BAR
+                 TOP BAR (Compact + Responsive)
                  ═══════════════════════════════ -->
             <LinearLayout
+                android:id="@+id/topBarContainer"
                 android:layout_width="match_parent"
-                android:layout_height="@dimen/topbar_height"
+                android:layout_height="wrap_content"
+                android:minHeight="48dp"
                 android:orientation="horizontal"
                 android:gravity="center_vertical"
                 android:paddingStart="@dimen/screen_padding"
-                android:paddingEnd="@dimen/screen_padding">
+                android:paddingEnd="@dimen/screen_padding"
+                android:paddingTop="8dp"
+                android:paddingBottom="4dp"
+                android:background="#0A0A0F">
 
+                <!-- Left: AATE title -->
                 <LinearLayout
-                    android:layout_width="0dp"
+                    android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
-                    android:layout_weight="1"
-                    android:orientation="horizontal"
-                    android:gravity="center_vertical">
-
-                    <LinearLayout
+                    android:orientation="vertical">
+                    <TextView
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
-                        android:orientation="vertical">
-                        <TextView
-                            android:layout_width="wrap_content"
-                            android:layout_height="wrap_content"
-                            android:text="AATE"
-                            android:textColor="#FFFFFF"
-                            android:textSize="@dimen/section_title_size"
-                            android:textStyle="bold"/>
-                        <TextView
-                            android:id="@+id/tvNetworkLabel"
-                            android:layout_width="wrap_content"
-                            android:layout_height="wrap_content"
-                            android:text="Solana Mainnet"
-                            android:textColor="#6B7280"
-                            android:textSize="11sp"/>
-                    </LinearLayout>
+                        android:text="AATE"
+                        android:textColor="#FFFFFF"
+                        android:textSize="14sp"
+                        android:textStyle="bold"/>
+                    <TextView
+                        android:id="@+id/tvNetworkLabel"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="Solana Mainnet"
+                        android:textColor="#6B7280"
+                        android:textSize="9sp"/>
                 </LinearLayout>
+                
+                <!-- Spacer -->
+                <View
+                    android:layout_width="0dp"
+                    android:layout_height="1dp"
+                    android:layout_weight="1"/>
 
-                <!-- Currency toggle button -->
+                <!-- Currency toggle button (smaller) -->
                 <TextView
                     android:id="@+id/btnCurrency"
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
                     android:text="USD"
                     android:textColor="#9945FF"
-                    android:textSize="11sp"
+                    android:textSize="10sp"
                     android:fontFamily="monospace"
                     android:textStyle="bold"
                     android:background="@drawable/pill_bg"
-                    android:paddingStart="10dp"
-                    android:paddingEnd="10dp"
-                    android:paddingTop="5dp"
-                    android:paddingBottom="5dp"
-                    android:layout_marginEnd="8dp"
+                    android:paddingStart="8dp"
+                    android:paddingEnd="8dp"
+                    android:paddingTop="4dp"
+                    android:paddingBottom="4dp"
+                    android:layout_marginEnd="6dp"
                     android:clickable="true"
                     android:focusable="true"/>
 
-                <!-- Brain Learning Indicator -->
+                <!-- Brain Learning Indicator (smaller) -->
                 <FrameLayout
                     android:id="@+id/brainContainer"
-                    android:layout_width="36dp"
-                    android:layout_height="36dp"
-                    android:layout_marginEnd="8dp">
+                    android:layout_width="32dp"
+                    android:layout_height="32dp"
+                    android:layout_marginEnd="6dp">
                     
                     <!-- Background circle -->
                     <View
@@ -120,11 +119,11 @@
                         android:layout_width="match_parent"
                         android:layout_height="match_parent"
                         android:text="🧠"
-                        android:textSize="16sp"
+                        android:textSize="14sp"
                         android:gravity="center"/>
                 </FrameLayout>
 
-                <!-- Wallet pill -->
+                <!-- Wallet pill (compact) -->
                 <LinearLayout
                     android:id="@+id/btnWalletTop"
                     android:layout_width="wrap_content"
@@ -132,41 +131,41 @@
                     android:orientation="horizontal"
                     android:gravity="center_vertical"
                     android:background="@drawable/pill_bg"
-                    android:paddingStart="@dimen/inner_gap"
-                    android:paddingEnd="@dimen/inner_gap"
-                    android:paddingTop="6dp"
-                    android:paddingBottom="6dp"
+                    android:paddingStart="6dp"
+                    android:paddingEnd="6dp"
+                    android:paddingTop="4dp"
+                    android:paddingBottom="4dp"
                     android:clickable="true"
                     android:focusable="true">
 
                     <View
                         android:id="@+id/tvWalletDot"
-                        android:layout_width="@dimen/dot_size"
-                        android:layout_height="@dimen/dot_size"
+                        android:layout_width="6dp"
+                        android:layout_height="6dp"
                         android:background="@drawable/dot_bg"
-                        android:layout_marginEnd="@dimen/dot_margin"/>
+                        android:layout_marginEnd="4dp"/>
 
                     <TextView
                         android:id="@+id/tvWalletShort"
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
-                        android:text="Connect wallet"
+                        android:text="Connect"
                         android:textColor="#9CA3AF"
-                        android:textSize="12sp"
-                        android:maxWidth="120dp"
+                        android:textSize="10sp"
+                        android:maxWidth="80dp"
                         android:ellipsize="end"
                         android:singleLine="true"/>
                 </LinearLayout>
                 
-                <!-- Logo - Right side of header -->
+                <!-- Logo (smaller) -->
                 <ImageView
                     android:id="@+id/ivLogo"
-                    android:layout_width="52dp"
-                    android:layout_height="52dp"
+                    android:layout_width="40dp"
+                    android:layout_height="40dp"
                     android:src="@drawable/logo"
                     android:scaleType="centerCrop"
                     android:contentDescription="AATE Logo"
-                    android:layout_marginStart="8dp"
+                    android:layout_marginStart="6dp"
                     android:background="@drawable/logo_bg"
                     android:padding="2dp"/>
             </LinearLayout>
@@ -526,7 +525,11 @@
             </LinearLayout>
 
             <!-- ═══════════════════════════════
-                 AI FEATURES ROW (V3.2)
+                 ═══════════════════════════════ -->
+            
+            <!-- ═══════════════════════════════
+                 TRADING MODES ROW (Grouped together)
+                 Treasury + BlueChip + ShitCoin
                  ═══════════════════════════════ -->
             <LinearLayout
                 android:layout_width="match_parent"
@@ -535,88 +538,8 @@
                 android:gravity="center"
                 android:paddingStart="@dimen/screen_padding"
                 android:paddingEnd="@dimen/screen_padding"
-                android:layout_marginBottom="12dp">
+                android:layout_marginBottom="8dp">
 
-                <!-- Collective Brain -->
-                <LinearLayout
-                    android:id="@+id/btnQuickBrain"
-                    android:layout_width="0dp"
-                    android:layout_height="wrap_content"
-                    android:layout_weight="1"
-                    android:orientation="vertical"
-                    android:gravity="center"
-                    android:padding="10dp"
-                    android:background="@drawable/section_card_bg"
-                    android:layout_marginEnd="6dp"
-                    android:clickable="true"
-                    android:focusable="true">
-                    <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
-                        android:text="🧠" android:textSize="20sp"/>
-                    <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
-                        android:text="AI Brain" android:textColor="#9945FF" android:textSize="10sp"
-                        android:layout_marginTop="2dp"/>
-                </LinearLayout>
-
-                <!-- Shadow Learning -->
-                <LinearLayout
-                    android:id="@+id/btnQuickShadow"
-                    android:layout_width="0dp"
-                    android:layout_height="wrap_content"
-                    android:layout_weight="1"
-                    android:orientation="vertical"
-                    android:gravity="center"
-                    android:padding="10dp"
-                    android:background="@drawable/section_card_bg"
-                    android:layout_marginEnd="6dp"
-                    android:clickable="true"
-                    android:focusable="true">
-                    <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
-                        android:text="👁️" android:textSize="20sp"/>
-                    <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
-                        android:text="Shadow" android:textColor="#6366F1" android:textSize="10sp"
-                        android:layout_marginTop="2dp"/>
-                </LinearLayout>
-
-                <!-- Market Regimes -->
-                <LinearLayout
-                    android:id="@+id/btnQuickRegimes"
-                    android:layout_width="0dp"
-                    android:layout_height="wrap_content"
-                    android:layout_weight="1"
-                    android:orientation="vertical"
-                    android:gravity="center"
-                    android:padding="10dp"
-                    android:background="@drawable/section_card_bg"
-                    android:layout_marginEnd="6dp"
-                    android:clickable="true"
-                    android:focusable="true">
-                    <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
-                        android:text="📊" android:textSize="20sp"/>
-                    <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
-                        android:text="Regimes" android:textColor="#10B981" android:textSize="10sp"
-                        android:layout_marginTop="2dp"/>
-                </LinearLayout>
-
-                <!-- AI Layers -->
-                <LinearLayout
-                    android:id="@+id/btnQuickAILayers"
-                    android:layout_width="0dp"
-                    android:layout_height="wrap_content"
-                    android:layout_weight="1"
-                    android:orientation="vertical"
-                    android:gravity="center"
-                    android:padding="10dp"
-                    android:background="@drawable/section_card_bg"
-                    android:layout_marginEnd="6dp"
-                    android:clickable="true"
-                    android:focusable="true">
-                    <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
-                        android:text="🤖" android:textSize="20sp"/>
-                    <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
-                        android:text="25 AIs" android:textColor="#F59E0B" android:textSize="10sp"
-                        android:layout_marginTop="2dp"/>
-                </LinearLayout>
-                
                 <!-- Treasury Mode -->
                 <LinearLayout
                     android:id="@+id/btnQuickTreasury"
@@ -625,28 +548,17 @@
                     android:layout_weight="1"
                     android:orientation="vertical"
                     android:gravity="center"
-                    android:padding="10dp"
+                    android:padding="8dp"
                     android:background="@drawable/section_card_bg"
+                    android:layout_marginEnd="4dp"
                     android:clickable="true"
                     android:focusable="true">
                     <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
-                        android:text="💰" android:textSize="20sp"/>
+                        android:text="💰" android:textSize="18sp"/>
                     <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
-                        android:text="Treasury" android:textColor="#22C55E" android:textSize="10sp"
+                        android:text="Treasury" android:textColor="#22C55E" android:textSize="9sp"
                         android:layout_marginTop="2dp"/>
                 </LinearLayout>
-            </LinearLayout>
-            
-            <!-- ═══════════════════════════════
-                 V4.20: ROW 3 - BlueChip + ShitCoin Tiles
-                 ═══════════════════════════════ -->
-            <LinearLayout
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:orientation="horizontal"
-                android:layout_marginStart="@dimen/card_margin"
-                android:layout_marginEnd="@dimen/card_margin"
-                android:layout_marginBottom="@dimen/card_margin_bottom">
                 
                 <!-- BlueChip Mode -->
                 <LinearLayout
@@ -656,15 +568,15 @@
                     android:layout_weight="1"
                     android:orientation="vertical"
                     android:gravity="center"
-                    android:padding="10dp"
+                    android:padding="8dp"
                     android:background="@drawable/section_card_bg"
-                    android:layout_marginEnd="6dp"
+                    android:layout_marginEnd="4dp"
                     android:clickable="true"
                     android:focusable="true">
                     <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
-                        android:text="🔵" android:textSize="20sp"/>
+                        android:text="🔵" android:textSize="18sp"/>
                     <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
-                        android:text="BlueChip" android:textColor="#3B82F6" android:textSize="10sp"
+                        android:text="BlueChip" android:textColor="#3B82F6" android:textSize="9sp"
                         android:layout_marginTop="2dp"/>
                 </LinearLayout>
                 
@@ -676,14 +588,107 @@
                     android:layout_weight="1"
                     android:orientation="vertical"
                     android:gravity="center"
-                    android:padding="10dp"
+                    android:padding="8dp"
                     android:background="@drawable/section_card_bg"
                     android:clickable="true"
                     android:focusable="true">
                     <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
-                        android:text="💩" android:textSize="20sp"/>
+                        android:text="💩" android:textSize="18sp"/>
                     <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
-                        android:text="ShitCoin" android:textColor="#F97316" android:textSize="10sp"
+                        android:text="ShitCoin" android:textColor="#F97316" android:textSize="9sp"
+                        android:layout_marginTop="2dp"/>
+                </LinearLayout>
+            </LinearLayout>
+
+            <!-- ═══════════════════════════════
+                 AI FEATURES ROW (Grouped together)
+                 Brain + Shadow + Regimes + 25 AIs
+                 ═══════════════════════════════ -->
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="horizontal"
+                android:gravity="center"
+                android:paddingStart="@dimen/screen_padding"
+                android:paddingEnd="@dimen/screen_padding"
+                android:layout_marginBottom="@dimen/card_margin_bottom">
+
+                <!-- Collective Brain -->
+                <LinearLayout
+                    android:id="@+id/btnQuickBrain"
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:orientation="vertical"
+                    android:gravity="center"
+                    android:padding="8dp"
+                    android:background="@drawable/section_card_bg"
+                    android:layout_marginEnd="4dp"
+                    android:clickable="true"
+                    android:focusable="true">
+                    <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+                        android:text="🧠" android:textSize="18sp"/>
+                    <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+                        android:text="AI Brain" android:textColor="#9945FF" android:textSize="9sp"
+                        android:layout_marginTop="2dp"/>
+                </LinearLayout>
+
+                <!-- Shadow Learning -->
+                <LinearLayout
+                    android:id="@+id/btnQuickShadow"
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:orientation="vertical"
+                    android:gravity="center"
+                    android:padding="8dp"
+                    android:background="@drawable/section_card_bg"
+                    android:layout_marginEnd="4dp"
+                    android:clickable="true"
+                    android:focusable="true">
+                    <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+                        android:text="👁️" android:textSize="18sp"/>
+                    <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+                        android:text="Shadow" android:textColor="#6366F1" android:textSize="9sp"
+                        android:layout_marginTop="2dp"/>
+                </LinearLayout>
+
+                <!-- Market Regimes -->
+                <LinearLayout
+                    android:id="@+id/btnQuickRegimes"
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:orientation="vertical"
+                    android:gravity="center"
+                    android:padding="8dp"
+                    android:background="@drawable/section_card_bg"
+                    android:layout_marginEnd="4dp"
+                    android:clickable="true"
+                    android:focusable="true">
+                    <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+                        android:text="📊" android:textSize="18sp"/>
+                    <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+                        android:text="Regimes" android:textColor="#10B981" android:textSize="9sp"
+                        android:layout_marginTop="2dp"/>
+                </LinearLayout>
+
+                <!-- AI Layers -->
+                <LinearLayout
+                    android:id="@+id/btnQuickAILayers"
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:orientation="vertical"
+                    android:gravity="center"
+                    android:padding="8dp"
+                    android:background="@drawable/section_card_bg"
+                    android:clickable="true"
+                    android:focusable="true">
+                    <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+                        android:text="🤖" android:textSize="18sp"/>
+                    <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+                        android:text="25 AIs" android:textColor="#F59E0B" android:textSize="9sp"
                         android:layout_marginTop="2dp"/>
                 </LinearLayout>
             </LinearLayout>
