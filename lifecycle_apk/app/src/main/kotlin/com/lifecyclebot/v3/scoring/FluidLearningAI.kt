@@ -107,14 +107,22 @@ object FluidLearningAI {
     // This is a classic cold-start deadlock.
     //
     // Solution: Force controlled entries during bootstrap to break the deadlock:
-    // 1. Allow entry if score >= 80 AND liquidity >= $3K AND age < 10min
-    // 2. Add synthetic confidence boost based on trade count
-    // 3. Use micro-positions (0.01-0.05 SOL) to limit risk
+    // V5.2: STRICTER CONDITIONS for 30-50% win rate
+    // 1. Minimum age 2 minutes (price discovery)
+    // 2. Buy pressure >= 50% (strong demand)
+    // 3. Score >= 75 (quality setup)
+    // 4. Liquidity >= $5K (reduces rug risk)
     // ═══════════════════════════════════════════════════════════════════════════
+    
+    // V5.2: Minimum token age before entry (wait for price discovery)
+    private const val MIN_TOKEN_AGE_BOOTSTRAP = 2.0  // Minutes - don't enter at age=0
+    private const val MIN_BUY_PRESSURE_BOOTSTRAP = 50.0  // Require strong buy pressure
+    private const val MIN_SCORE_BOOTSTRAP = 70  // Quality threshold
+    private const val MIN_LIQUIDITY_BOOTSTRAP = 5000.0  // Reduce rug risk
     
     /**
      * Check if we should force a bootstrap entry to break the cold-start deadlock.
-     * Returns true if conditions are exceptional enough to warrant forced learning.
+     * V5.2: STRICTER to improve win rate to 30-50%
      */
     fun shouldForceBootstrapEntry(
         score: Int,
@@ -126,18 +134,30 @@ object FluidLearningAI {
         // Only apply during true bootstrap (learning < 5%)
         if (getLearningProgress() >= 0.05) return false
         
-        // Paper mode: be more aggressive to learn faster
-        if (isPaper) {
-            return score >= 70 && 
-                   liquidityUsd >= 1500 && 
-                   tokenAgeMinutes <= 15 &&
-                   buyPressurePct >= 40
+        // V5.2: Don't enter at age=0, wait for price discovery
+        if (tokenAgeMinutes < MIN_TOKEN_AGE_BOOTSTRAP) {
+            ErrorLogger.debug(TAG, "⏳ Bootstrap skip: age=${tokenAgeMinutes}m < ${MIN_TOKEN_AGE_BOOTSTRAP}m min")
+            return false
         }
         
-        // Live mode: strict conditions only
-        return score >= 85 && 
-               liquidityUsd >= 3000 && 
-               tokenAgeMinutes <= 10 &&
+        // V5.2: Require strong buy pressure
+        if (buyPressurePct < MIN_BUY_PRESSURE_BOOTSTRAP) {
+            ErrorLogger.debug(TAG, "📉 Bootstrap skip: buy%=$buyPressurePct < $MIN_BUY_PRESSURE_BOOTSTRAP min")
+            return false
+        }
+        
+        // Paper mode: still somewhat aggressive to learn, but stricter
+        if (isPaper) {
+            return score >= MIN_SCORE_BOOTSTRAP && 
+                   liquidityUsd >= 3000 && 
+                   tokenAgeMinutes >= MIN_TOKEN_AGE_BOOTSTRAP &&
+                   buyPressurePct >= MIN_BUY_PRESSURE_BOOTSTRAP
+        }
+        
+        // Live mode: very strict conditions
+        return score >= 80 && 
+               liquidityUsd >= MIN_LIQUIDITY_BOOTSTRAP && 
+               tokenAgeMinutes >= MIN_TOKEN_AGE_BOOTSTRAP &&
                buyPressurePct >= 55
     }
     

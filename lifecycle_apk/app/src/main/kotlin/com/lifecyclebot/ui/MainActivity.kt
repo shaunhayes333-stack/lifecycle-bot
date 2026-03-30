@@ -2562,35 +2562,31 @@ for legal compliance.
             return
         }
         
-        // Show backup selection dialog
+        // Show backup selection dialog with OK button
         val backupNames = backups.map { file ->
             val date = java.text.SimpleDateFormat("yyyy-MM-dd HH:mm").format(java.util.Date(file.lastModified()))
-            "${file.name}\n($date)"
+            "${file.name} ($date)"
         }.toTypedArray()
+        
+        var selectedIndex = 0  // Default to first backup
         
         android.app.AlertDialog.Builder(this)
             .setTitle("📥 Import Learning Data")
-            .setItems(backupNames) { _, index ->
-                val selectedBackup = backups[index]
-                
-                // Confirm import
-                android.app.AlertDialog.Builder(this)
-                    .setTitle("Confirm Import")
-                    .setMessage("Import data from:\n${selectedBackup.name}\n\nThis will restore:\n• Edge learning thresholds\n• Entry/Exit intelligence\n• Trade history\n• FluidLearning progress\n\nContinue?")
-                    .setPositiveButton("Import") { _, _ ->
-                        try {
-                            val success = com.lifecyclebot.engine.PersistentLearning.importFullBackup(this, selectedBackup)
-                            if (success) {
-                                Toast.makeText(this, "✅ Learning data restored!\n\nRestart the app for changes to take effect.", Toast.LENGTH_LONG).show()
-                            } else {
-                                Toast.makeText(this, "❌ Import failed", Toast.LENGTH_SHORT).show()
-                            }
-                        } catch (e: Exception) {
-                            Toast.makeText(this, "❌ Import error: ${e.message}", Toast.LENGTH_LONG).show()
-                        }
+            .setSingleChoiceItems(backupNames, 0) { _, which ->
+                selectedIndex = which
+            }
+            .setPositiveButton("Import") { _, _ ->
+                val selectedBackup = backups[selectedIndex]
+                try {
+                    val success = com.lifecyclebot.engine.PersistentLearning.importFullBackup(this, selectedBackup)
+                    if (success) {
+                        Toast.makeText(this, "✅ Learning data + API keys restored!\n\nRestart app for changes.", Toast.LENGTH_LONG).show()
+                    } else {
+                        Toast.makeText(this, "❌ Import failed", Toast.LENGTH_SHORT).show()
                     }
-                    .setNegativeButton("Cancel", null)
-                    .show()
+                } catch (e: Exception) {
+                    Toast.makeText(this, "❌ Import error: ${e.message}", Toast.LENGTH_LONG).show()
+                }
             }
             .setNegativeButton("Cancel", null)
             .show()

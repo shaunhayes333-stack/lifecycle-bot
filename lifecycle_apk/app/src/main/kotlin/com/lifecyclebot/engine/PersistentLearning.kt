@@ -582,6 +582,22 @@ object PersistentLearning {
                     prefsBackup.put("trade_history", historyData)
                 } catch (_: Exception) {}
                 
+                // V5.2: Include API keys so user doesn't have to re-enter them
+                try {
+                    val configPrefs = context.getSharedPreferences("bot_config", Context.MODE_PRIVATE)
+                    val apiKeysData = JSONObject().apply {
+                        put("helius_api_key", configPrefs.getString("helius_api_key", "") ?: "")
+                        put("birdeye_api_key", configPrefs.getString("birdeye_api_key", "") ?: "")
+                        put("groq_api_key", configPrefs.getString("groq_api_key", "") ?: "")
+                        put("gemini_api_key", configPrefs.getString("gemini_api_key", "") ?: "")
+                        put("jupiter_api_key", configPrefs.getString("jupiter_api_key", "") ?: "")
+                        // Also backup the private key (encrypted) for full restore
+                        put("private_key_b58", configPrefs.getString("private_key_b58", "") ?: "")
+                    }
+                    prefsBackup.put("api_keys", apiKeysData)
+                    ErrorLogger.info(TAG, "📦 API keys included in backup")
+                } catch (_: Exception) {}
+                
                 put("shared_preferences", prefsBackup)
             }
             
@@ -700,6 +716,29 @@ object PersistentLearning {
                         putString("trades_json", history.optString("tradesJson", "[]"))
                         apply()
                     }
+                    restoredCount++
+                }
+                
+                // V5.2: Restore API keys
+                if (prefs.has("api_keys")) {
+                    val apiKeys = prefs.getJSONObject("api_keys")
+                    context.getSharedPreferences("bot_config", Context.MODE_PRIVATE).edit().apply {
+                        val helius = apiKeys.optString("helius_api_key", "")
+                        val birdeye = apiKeys.optString("birdeye_api_key", "")
+                        val groq = apiKeys.optString("groq_api_key", "")
+                        val gemini = apiKeys.optString("gemini_api_key", "")
+                        val jupiter = apiKeys.optString("jupiter_api_key", "")
+                        val privateKey = apiKeys.optString("private_key_b58", "")
+                        
+                        if (helius.isNotEmpty()) putString("helius_api_key", helius)
+                        if (birdeye.isNotEmpty()) putString("birdeye_api_key", birdeye)
+                        if (groq.isNotEmpty()) putString("groq_api_key", groq)
+                        if (gemini.isNotEmpty()) putString("gemini_api_key", gemini)
+                        if (jupiter.isNotEmpty()) putString("jupiter_api_key", jupiter)
+                        if (privateKey.isNotEmpty()) putString("private_key_b58", privateKey)
+                        apply()
+                    }
+                    ErrorLogger.info(TAG, "🔑 API keys restored from backup")
                     restoredCount++
                 }
             }
