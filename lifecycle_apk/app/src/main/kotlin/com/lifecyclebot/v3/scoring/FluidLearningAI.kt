@@ -71,6 +71,19 @@ object FluidLearningAI {
     // V4.0: Increased from 500 to 1000 for better sample size and slower, quality learning
     private const val TRADES_FOR_MATURITY = 1000
     
+    /**
+     * Get total trade count (historical + session).
+     * Used for bootstrap calculations and logging.
+     */
+    fun getTotalTradeCount(): Int {
+        val historicalStats = try {
+            TradeHistoryStore.getStats()
+        } catch (_: Exception) { null }
+        
+        val historicalTrades = historicalStats?.totalTrades ?: 0
+        return historicalTrades + sessionTrades.get()
+    }
+    
     // ═══════════════════════════════════════════════════════════════════════════
     // BEHAVIOR MODIFIER (From BehaviorAI)
     // ═══════════════════════════════════════════════════════════════════════════
