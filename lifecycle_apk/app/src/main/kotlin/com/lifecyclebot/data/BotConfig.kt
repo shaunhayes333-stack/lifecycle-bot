@@ -497,19 +497,19 @@ object ConfigStore {
                 EncryptedSharedPreferences.PrefValueEncryptionScheme.AES256_GCM
             )
         } catch (e: Exception) {
-            // V5.0: If encryption fails (e.g., key changed after app update),
-            // fall back to unencrypted storage to preserve user data.
-            // This can happen when signing key changes between versions.
-            android.util.Log.w("ConfigStore", "EncryptedPrefs failed, using fallback: ${e.message}")
-            
-            // Try to recover by clearing corrupted encrypted storage and using regular prefs
-            try {
-                // Clear the corrupted encrypted file
-                ctx.getSharedPreferences(KEY_FILE, Context.MODE_PRIVATE).edit().clear().apply()
-            } catch (_: Exception) {}
+            // V5.0: If encryption fails (e.g., MasterKey invalidated after signing key change),
+            // the old encrypted data is unrecoverable. Fall back to unencrypted storage.
+            // 
+            // This is a ONE-TIME issue: after this update, the consistent release.keystore
+            // ensures future updates won't change the signing key or invalidate MasterKey.
+            //
+            // User will need to re-enter API keys once after this update.
+            android.util.Log.w("ConfigStore", "EncryptedPrefs failed (signing key changed?): ${e.message}")
+            android.util.Log.w("ConfigStore", "Using fallback storage - API keys will need to be re-entered once")
             
             // Return regular SharedPreferences as fallback
-            // User will need to re-enter API keys once, but data won't be lost on future updates
+            // NOT ideal for security but preserves functionality
+            // Future versions can migrate back to encrypted once signing is stable
             return ctx.getSharedPreferences("${KEY_FILE}_fallback", Context.MODE_PRIVATE)
         }
     }
