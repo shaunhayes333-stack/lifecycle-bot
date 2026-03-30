@@ -1428,7 +1428,14 @@ object FinalDecisionGate {
         // because confidence is low when we have no learned signals!
         // ─────────────────────────────────────────────────────────────────────
         val isCGrade = candidate.setupQuality == "C" || candidate.setupQuality == "D"
-        val confidence = candidate.aiConfidence
+        val rawConfidence = candidate.aiConfidence
+        
+        // V4.1.2: Apply bootstrap confidence boost so floors use adjusted value
+        val confidence = if (canBypassConfidenceFloors) {
+            FluidLearningAI.getAdjustedConfidence(rawConfidence, isPaperOrShadow)
+        } else {
+            rawConfidence
+        }
         
         // V4.1.1: Check if we're in bootstrap learning mode
         val learningProgress = FluidLearningAI.getLearningProgress()
