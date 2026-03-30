@@ -114,8 +114,19 @@ object LayerTransitionManager {
     // INITIALIZATION
     // ═══════════════════════════════════════════════════════════════════════════
     
+    // V4.0 CRITICAL: Flag to prevent re-initialization during runtime
+    @Volatile
+    private var initialized = false
+    
     fun init() {
-        ErrorLogger.info(TAG, "🔄 Layer Transition Manager initialized")
+        // V4.0 CRITICAL: Guard against re-initialization
+        if (initialized) {
+            ErrorLogger.warn(TAG, "⚠️ init() called again - BLOCKED (already initialized)")
+            return
+        }
+        
+        initialized = true
+        ErrorLogger.info(TAG, "🔄 Layer Transition Manager initialized (ONE-TIME)")
         ErrorLogger.info(TAG, "   ShitCoin: <\$${(SHITCOIN_MAX_MCAP/1000).toInt()}K")
         ErrorLogger.info(TAG, "   V3 Quality: \$${(V3_MIN_MCAP/1000).toInt()}K - \$${(V3_MAX_MCAP/1_000_000).toInt()}M")
         ErrorLogger.info(TAG, "   Blue Chip: >\$${(BLUECHIP_MIN_MCAP/1_000_000).toInt()}M")

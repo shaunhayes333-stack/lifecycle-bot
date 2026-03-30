@@ -99,11 +99,21 @@ object GlobalTradeRegistry {
     // INITIALIZATION
     // ═══════════════════════════════════════════════════════════════════════════
     
+    // V4.0 CRITICAL: Flag to prevent re-initialization during runtime
+    @Volatile
+    private var initialized = false
+    
     /**
      * Initialize from ConfigStore watchlist.
-     * Called once at bot startup.
+     * Called once at bot startup. BLOCKED if already initialized.
      */
     fun init(initialWatchlist: List<String>, defaultSource: String = "CONFIG") {
+        // V4.0 CRITICAL: Guard against re-initialization
+        if (initialized && watchlist.isNotEmpty()) {
+            ErrorLogger.warn(TAG, "⚠️ init() called again with ${initialWatchlist.size} tokens - BLOCKED (already has ${watchlist.size} tokens)")
+            return
+        }
+        
         watchlist.clear()
         val now = System.currentTimeMillis()
         
@@ -120,7 +130,8 @@ object GlobalTradeRegistry {
             }
         }
         
-        ErrorLogger.info(TAG, "✅ Initialized with ${watchlist.size} tokens from $defaultSource")
+        initialized = true
+        ErrorLogger.info(TAG, "✅ Initialized with ${watchlist.size} tokens from $defaultSource (ONE-TIME)")
     }
     
     // ═══════════════════════════════════════════════════════════════════════════
@@ -403,6 +414,7 @@ object GlobalTradeRegistry {
     
     /**
      * Reset all state (for testing or full restart).
+     * V4.0: Also resets initialized flag to allow reinit on next session.
      */
     fun reset() {
         watchlist.clear()
@@ -412,6 +424,7 @@ object GlobalTradeRegistry {
         totalTokensAdded.set(0)
         totalTokensRemoved.set(0)
         duplicatesBlocked.set(0)
-        ErrorLogger.info(TAG, "🔄 Registry reset")
+        initialized = false  // Allow reinit
+        ErrorLogger.info(TAG, "🔄 Registry reset - can reinit on next session")
     }
 }

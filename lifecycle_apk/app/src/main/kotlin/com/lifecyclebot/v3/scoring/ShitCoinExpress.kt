@@ -150,9 +150,20 @@ object ShitCoinExpress {
     // INITIALIZATION
     // ═══════════════════════════════════════════════════════════════════════════
     
+    // V4.0 CRITICAL: Flag to prevent re-initialization during runtime
+    @Volatile
+    private var initialized = false
+    
     fun init(paperMode: Boolean) {
+        // V4.0 CRITICAL: Guard against re-initialization
+        if (initialized) {
+            ErrorLogger.warn(TAG, "⚠️ init() called again - BLOCKED (already initialized)")
+            return
+        }
+        
         isPaperMode = paperMode
-        ErrorLogger.info(TAG, "💩🚂 SHITCOIN EXPRESS initialized | " +
+        initialized = true
+        ErrorLogger.info(TAG, "💩🚂 SHITCOIN EXPRESS initialized (ONE-TIME) | " +
             "mode=${if (paperMode) "PAPER" else "LIVE"} | " +
             "target=+${MIN_TAKE_PROFIT_PCT.toInt()}% | " +
             "maxHold=${MAX_HOLD_MINUTES}min")

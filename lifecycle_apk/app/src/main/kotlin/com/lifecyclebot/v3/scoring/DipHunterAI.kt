@@ -146,9 +146,20 @@ object DipHunterAI {
     // INITIALIZATION
     // ═══════════════════════════════════════════════════════════════════════════
     
+    // V4.0 CRITICAL: Flag to prevent re-initialization during runtime
+    @Volatile
+    private var initialized = false
+    
     fun init(paperMode: Boolean) {
+        // V4.0 CRITICAL: Guard against re-initialization
+        if (initialized) {
+            ErrorLogger.warn(TAG, "⚠️ init() called again - BLOCKED (already initialized)")
+            return
+        }
+        
         isPaperMode = paperMode
-        ErrorLogger.info(TAG, "📉🎯 DIP HUNTER AI initialized | " +
+        initialized = true
+        ErrorLogger.info(TAG, "📉🎯 DIP HUNTER AI initialized (ONE-TIME) | " +
             "mode=${if (paperMode) "PAPER" else "LIVE"} | " +
             "dipRange=${MIN_DIP_PCT.toInt()}-${MAX_DIP_PCT.toInt()}% | " +
             "target=+${TARGET_RECOVERY_PCT.toInt()}%")

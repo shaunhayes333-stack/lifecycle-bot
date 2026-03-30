@@ -37,9 +37,13 @@ object FluidLearningAI {
     private var isInitialized = false
     
     fun init() {
-        if (isInitialized) return
+        // V4.0 CRITICAL: Guard against re-initialization
+        if (isInitialized) {
+            ErrorLogger.warn(TAG, "⚠️ init() called again - BLOCKED (already initialized)")
+            return
+        }
         isInitialized = true
-        ErrorLogger.info(TAG, "🧠 FluidLearningAI initialized | " +
+        ErrorLogger.info(TAG, "🧠 FluidLearningAI initialized (ONE-TIME) | " +
             "maturityTarget=$TRADES_FOR_MATURITY trades | " +
             "currentProgress=${(getLearningProgress() * 100).toInt()}%")
     }

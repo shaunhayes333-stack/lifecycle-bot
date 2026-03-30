@@ -166,19 +166,30 @@ object SolanaArbAI {
     // INITIALIZATION
     // ═══════════════════════════════════════════════════════════════════════════
     
+    // V4.0 CRITICAL: Flag to prevent re-initialization during runtime
+    @Volatile
+    private var initialized = false
+    
     fun init(paperMode: Boolean, treasuryUsd: Double) {
+        // V4.0 CRITICAL: Guard against re-initialization
+        if (initialized) {
+            ErrorLogger.warn(TAG, "⚠️ init() called again - BLOCKED (already initialized)")
+            return
+        }
+        
         isPaperMode = paperMode
         
         // Check if treasury meets minimum
         isEnabled = treasuryUsd >= MIN_TREASURY_USD
         
+        initialized = true
         if (isEnabled) {
-            ErrorLogger.info(TAG, "💰⚡ SOLANA ARB AI initialized | " +
+            ErrorLogger.info(TAG, "💰⚡ SOLANA ARB AI initialized (ONE-TIME) | " +
                 "treasury=\$${treasuryUsd.toInt()} | " +
                 "minSpread=${MIN_SPREAD_BPS}bps | " +
                 "maxHold=${MAX_HOLD_SECONDS}s")
         } else {
-            ErrorLogger.info(TAG, "💰⚡ SOLANA ARB AI DISABLED | " +
+            ErrorLogger.info(TAG, "💰⚡ SOLANA ARB AI DISABLED (ONE-TIME) | " +
                 "treasury=\$${treasuryUsd.toInt()} < \$${MIN_TREASURY_USD.toInt()}")
         }
     }

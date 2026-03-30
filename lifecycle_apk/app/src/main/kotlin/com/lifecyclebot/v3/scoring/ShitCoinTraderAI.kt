@@ -213,7 +213,17 @@ object ShitCoinTraderAI {
     // INITIALIZATION
     // ═══════════════════════════════════════════════════════════════════════════
     
+    // V4.0 CRITICAL: Flag to prevent re-initialization during runtime
+    @Volatile
+    private var initialized = false
+    
     fun init(paperMode: Boolean, startingBalanceSol: Double = 1.0) {
+        // V4.0 CRITICAL: Guard against re-initialization
+        if (initialized) {
+            ErrorLogger.warn(TAG, "⚠️ init() called again - BLOCKED (already initialized)")
+            return
+        }
+        
         isPaperMode = paperMode
         
         // Initialize balance if needed
@@ -221,7 +231,8 @@ object ShitCoinTraderAI {
             paperBalanceBps.set((startingBalanceSol * 100).toLong())
         }
         
-        ErrorLogger.info(TAG, "💩 ShitCoin Trader initialized | " +
+        initialized = true
+        ErrorLogger.info(TAG, "💩 ShitCoin Trader initialized (ONE-TIME) | " +
             "mode=${if (paperMode) "PAPER" else "LIVE"} | " +
             "balance=${getBalance(paperMode).fmt(4)} SOL | " +
             "maxMcap=\$${(MAX_MARKET_CAP_USD/1_000).toInt()}K")

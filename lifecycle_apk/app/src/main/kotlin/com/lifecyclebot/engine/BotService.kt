@@ -1329,6 +1329,11 @@ class BotService : Service() {
             .edit().putBoolean("was_running_before_shutdown", false).apply()
         wakeLock?.let { if (it.isHeld) it.release() }
         wakeLock = null
+        
+        // V4.0: Reset initialization flags so services can reinit on next start
+        tradingModesInitialized = false
+        allTradingLayersReady = false
+        
         addLog("Bot stopped. All positions closed. Wallet remains connected.")
         
         // Show Toast on UI thread for immediate feedback
@@ -1565,9 +1570,14 @@ class BotService : Service() {
             FinalDecisionGate.setModeForVeto(cfg.paperMode)
             
             // ═══════════════════════════════════════════════════════════════════
-            // INITIALIZE ALL TRADING MODES - Extracted to reduce function complexity
+            // V4.0 CRITICAL FIX: ONLY INITIALIZE TRADING MODES ONCE
+            // Previously this was called every loop, causing state resets!
+            // Services are singletons - they should init once per session.
             // ═══════════════════════════════════════════════════════════════════
-            initTradingModes(cfg)
+            if (!tradingModesInitialized) {
+                initTradingModes(cfg)
+                tradingModesInitialized = true
+            }
 
             // Log watchlist status every 5 loops for better visibility
             // V4.0: Use GlobalTradeRegistry for accurate count
@@ -4536,11 +4546,26 @@ class BotService : Service() {
     @Volatile
     private var allTradingLayersReady = false
     
+    // V4.0 CRITICAL: Flag to ensure trading modes only init ONCE per session
+    // Previously these were being reinit every loop, causing state resets!
+    @Volatile
+    private var tradingModesInitialized = false
+    
     private fun initTradingModes(cfg: BotConfig) {
+        // V4.0 CRITICAL: Guard against re-initialization
+        if (tradingModesInitialized) {
+            ErrorLogger.warn("BotService", "⚠️ initTradingModes() called again - BLOCKED (already initialized)")
+            return
+        }
+        
         // Reset readiness flag at start
         allTradingLayersReady = false
         var initCount = 0
         var failCount = 0
+        
+        ErrorLogger.info("BotService", "═══════════════════════════════════════════════════")
+        ErrorLogger.info("BotService", "INITIALIZING TRADING MODES (ONE-TIME ONLY)")
+        ErrorLogger.info("BotService", "═══════════════════════════════════════════════════")
         
         // Cash Generation AI (Treasury Mode)
         try {
