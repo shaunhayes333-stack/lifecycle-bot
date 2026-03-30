@@ -3608,19 +3608,21 @@ Use with caution - moon or zero!
     // ═══════════════════════════════════════════════════════════════════════════
     private fun showV3ModeDialog() {
         try {
-            val v3Engine = com.lifecyclebot.v3.V3Engine
             val tradeStore = com.lifecyclebot.engine.TradeHistoryStore
             val cfg = com.lifecyclebot.data.ConfigStore.load(applicationContext)
             val solPrice = com.lifecyclebot.engine.WalletManager.lastKnownSolPrice
             
             val currentModeLabel = if (cfg.paperMode) "📝 PAPER MODE" else "💰 LIVE MODE"
             
-            // Get stats from trade history
-            val recent24hTrades = tradeStore.getRecentTrades(24 * 60 * 60 * 1000L)
-            val v3Trades = recent24hTrades.filter { it.mode?.contains("V3", ignoreCase = true) == true || it.mode == "CORE" }
-            val wins = v3Trades.count { it.pnlPct ?: 0.0 > 0 }
-            val losses = v3Trades.count { it.pnlPct ?: 0.0 <= 0 }
-            val totalPnl = v3Trades.sumOf { it.pnlSol ?: 0.0 }
+            // Get stats from trade history using existing methods
+            val v3Trades = tradeStore.getTrades24h().filter { 
+                it.tradingMode.contains("V3", ignoreCase = true) || 
+                it.tradingMode == "CORE" || 
+                it.tradingMode == "STANDARD" 
+            }
+            val wins = v3Trades.count { it.pnlPct > 0 }
+            val losses = v3Trades.count { it.pnlPct <= 0 }
+            val totalPnl = v3Trades.sumOf { it.pnlSol }
             val winRate = if (v3Trades.isNotEmpty()) (wins.toDouble() / v3Trades.size * 100) else 0.0
             
             val pnlSign = if (totalPnl >= 0) "+" else ""

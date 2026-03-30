@@ -3412,15 +3412,8 @@ class BotService : Service() {
                         if (!moonshotPermit.allowed) {
                             ErrorLogger.debug("BotService", "🚀 [MOONSHOT] ${ts.symbol} | BLOCKED | ${moonshotPermit.reason}")
                         } else {
-                            // Calculate volume score from recent data
-                            val volScore = try {
-                                val volHistory = ts.history.takeLast(10).mapNotNull { it.volumeUsd }
-                                if (volHistory.size >= 2) {
-                                    val recent = volHistory.takeLast(3).average()
-                                    val older = volHistory.take(3).average()
-                                    if (older > 0) ((recent / older - 1) * 100).coerceIn(-50.0, 100.0).toInt() else 20
-                                } else 20
-                            } catch (_: Exception) { 20 }
+                            // Calculate volume score from recent data (use lastV3Score as proxy)
+                            val volScore = ts.lastV3Score ?: 20
                             
                             // Check for collective intelligence boost
                             val isCollectiveWinner = com.lifecyclebot.v3.scoring.MoonshotTraderAI.isCollectiveWinner(ts.mint)
@@ -3433,15 +3426,15 @@ class BotService : Service() {
                                 volumeScore = volScore,
                                 buyPressurePct = ts.lastBuyPressurePct,
                                 rugcheckScore = ts.safety.rugcheckScore,
-                                v3EntryScore = ts.v3CachedEntryScore,
-                                v3Confidence = ts.v3CachedConfidence,
+                                v3EntryScore = (ts.lastV3Score ?: 50).toDouble(),
+                                v3Confidence = (ts.lastV3Confidence ?: 50).toDouble(),
                                 phase = ts.phase,
                                 isPaper = cfg.paperMode,
                             )
                             
                             if (moonshotScore.eligible) {
                                 // V5.2: Authorize through TradeAuthorizer
-                                val authResult = tradeAuth.requestAuthorization(
+                                val authResult = TradeAuthorizer.requestAuthorization(
                                     mint = ts.mint,
                                     symbol = ts.symbol,
                                     score = moonshotScore.score,
@@ -3455,7 +3448,7 @@ class BotService : Service() {
                                     ErrorLogger.debug("BotService", "🚀 [MOONSHOT] ${ts.symbol} | AUTH_DENIED | ${authResult.reason}")
                                 } else {
                                     // Acquire final execution permit
-                                    if (FinalExecutionPermit.acquireExecution(ts.mint, ts.symbol, "MOONSHOT")) {
+                                    if (FinalExecutionPermit.tryAcquireExecution(ts.mint, "MOONSHOT")) {
                                         try {
                                             val collectiveLabel = if (moonshotScore.isCollectiveBoost) " [COLLECTIVE]" else ""
                                             
@@ -4686,7 +4679,7 @@ class BotService : Service() {
                         symbol = ts.symbol,
                         fromLayer = "TREASURY",
                         entryPrice = currentPrice,  // New entry = current price
-                        positionSol = ts.position.solQty,
+                        positionSol = ts.position.costSol,
                         currentPnlPct = currentPnlPct,
                         marketCapUsd = ts.lastMcap,
                         liquidityUsd = ts.lastLiquidityUsd,
@@ -4772,7 +4765,7 @@ class BotService : Service() {
                         symbol = ts.symbol,
                         fromLayer = "SHITCOIN",
                         entryPrice = currentPrice,  // New entry = current price
-                        positionSol = ts.position.solQty,
+                        positionSol = ts.position.costSol,
                         currentPnlPct = currentPnlPct,
                         marketCapUsd = ts.lastMcap,
                         liquidityUsd = ts.lastLiquidityUsd,

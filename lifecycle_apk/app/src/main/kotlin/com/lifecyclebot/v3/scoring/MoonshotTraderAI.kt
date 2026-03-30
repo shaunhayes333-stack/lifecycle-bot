@@ -493,7 +493,7 @@ object MoonshotTraderAI {
         // Notify AI CrossTalk about the promotion
         try {
             AICrossTalk.recordOutcome(
-                signalType = AICrossTalk.SignalType.MODE_SWITCH,
+                signalType = AICrossTalk.SignalType.MODE_SWITCH_RECOMMENDED,
                 pnlPct = currentPnlPct,
                 wasProfit = true
             )
