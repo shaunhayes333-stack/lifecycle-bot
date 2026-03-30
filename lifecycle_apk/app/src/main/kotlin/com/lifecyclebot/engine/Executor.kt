@@ -2296,6 +2296,60 @@ class Executor(
                 ErrorLogger.debug("HoldingLogic", "Evaluation error for ${identity.symbol}: ${e.message}")
             }
             
+            // ═══════════════════════════════════════════════════════════════
+            // V4.20: CROSS-TALK MODE SWITCH EVALUATION
+            // 
+            // When token moves into a different mcap/liquidity range, the
+            // CrossTalk brain coordinates all AI signals to recommend the
+            // best trading mode. This catches graduations (shitcoin→mid-cap)
+            // and defensive switches (healthy→draining liquidity).
+            // ═══════════════════════════════════════════════════════════════
+            try {
+                val currentPnl = ((getActualPrice(ts) - ts.position.entryPrice) / ts.position.entryPrice) * 100
+                val mcapChange = if (ts.position.entryMcap > 0) {
+                    ((ts.lastMcap - ts.position.entryMcap) / ts.position.entryMcap) * 100
+                } else 0.0
+                val liquidityChange = if (ts.position.entryLiquidityUsd > 0) {
+                    ((ts.lastLiquidityUsd - ts.position.entryLiquidityUsd) / ts.position.entryLiquidityUsd) * 100
+                } else 0.0
+                val holdTimeMs = System.currentTimeMillis() - ts.position.entryTime
+                val tokenAgeMs = System.currentTimeMillis() - ts.addedToWatchlistAt
+                
+                // Check if significant changes warrant mode evaluation
+                if (AICrossTalk.shouldCheckModeSwitch(ts.mint, mcapChange, liquidityChange, currentPnl)) {
+                    val modeSwitchSignal = AICrossTalk.evaluateModeSwitchCrossTalk(
+                        mint = ts.mint,
+                        symbol = identity.symbol,
+                        currentMode = ts.position.tradingMode,
+                        mcap = ts.lastMcap,
+                        liquidity = ts.lastLiquidityUsd,
+                        ageMs = tokenAgeMs,
+                        currentPnlPct = currentPnl,
+                        holdTimeMs = holdTimeMs,
+                    )
+                    
+                    // Apply mode switch if recommended with high confidence
+                    if (modeSwitchSignal.shouldSwitch && modeSwitchSignal.confidence >= 70.0) {
+                        val oldMode = ts.position.tradingMode
+                        val oldEmoji = ts.position.tradingModeEmoji
+                        val newEmoji = HoldingLogicLayer.getModeEmoji(modeSwitchSignal.recommendedMode)
+                        
+                        ts.position.tradingMode = modeSwitchSignal.recommendedMode
+                        ts.position.tradingModeEmoji = newEmoji
+                        ts.position.modeHistory = if (ts.position.modeHistory.isEmpty()) {
+                            "$oldMode>${modeSwitchSignal.recommendedMode}"
+                        } else {
+                            "${ts.position.modeHistory}>${modeSwitchSignal.recommendedMode}"
+                        }
+                        
+                        onLog("🔗🔄 CROSSTALK SWITCH: ${identity.symbol} | $oldEmoji $oldMode → $newEmoji ${modeSwitchSignal.recommendedMode} | ${modeSwitchSignal.participatingAIs.joinToString("+")} | ${modeSwitchSignal.reason}", identity.mint)
+                        ErrorLogger.info("CrossTalk", "Mode switch applied: ${identity.symbol} $oldMode→${modeSwitchSignal.recommendedMode} (conf=${modeSwitchSignal.confidence.toInt()}%)")
+                    }
+                }
+            } catch (e: Exception) {
+                ErrorLogger.debug("CrossTalk", "Mode switch eval error for ${identity.symbol}: ${e.message}")
+            }
+            
             // V8 quick exit check
             val quickExit = PrecisionExitLogic.quickCheck(
                 mint = identity.mint,
@@ -2970,6 +3024,7 @@ class Executor(
             entryPhase   = ts.phase,
             entryScore   = score,
             entryLiquidityUsd = ts.lastLiquidityUsd,
+            entryMcap    = ts.lastMcap,  // V4.20: Track entry mcap for graduation detection
             tradingMode  = currentMode.name,
             tradingModeEmoji = currentMode.emoji,
             buildPhase   = buildPhase,
@@ -3544,6 +3599,7 @@ class Executor(
                 entryPhase   = ts.phase,
                 entryScore   = score,
                 entryLiquidityUsd = ts.lastLiquidityUsd,  // Track liquidity for collapse detection
+                entryMcap    = ts.lastMcap,  // V4.20: Track entry mcap for graduation detection
                 tradingMode  = currentMode.name,
                 tradingModeEmoji = currentMode.emoji,
             )

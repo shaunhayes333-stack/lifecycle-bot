@@ -613,7 +613,7 @@
                     <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
                         android:text="🤖" android:textSize="20sp"/>
                     <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
-                        android:text="21 AIs" android:textColor="#F59E0B" android:textSize="10sp"
+                        android:text="25 AIs" android:textColor="#F59E0B" android:textSize="10sp"
                         android:layout_marginTop="2dp"/>
                 </LinearLayout>
                 
@@ -633,6 +633,57 @@
                         android:text="💰" android:textSize="20sp"/>
                     <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
                         android:text="Treasury" android:textColor="#22C55E" android:textSize="10sp"
+                        android:layout_marginTop="2dp"/>
+                </LinearLayout>
+            </LinearLayout>
+            
+            <!-- ═══════════════════════════════
+                 V4.20: ROW 3 - BlueChip + ShitCoin Tiles
+                 ═══════════════════════════════ -->
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="horizontal"
+                android:layout_marginStart="@dimen/card_margin"
+                android:layout_marginEnd="@dimen/card_margin"
+                android:layout_marginBottom="@dimen/card_margin_bottom">
+                
+                <!-- BlueChip Mode -->
+                <LinearLayout
+                    android:id="@+id/btnQuickBlueChip"
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:orientation="vertical"
+                    android:gravity="center"
+                    android:padding="10dp"
+                    android:background="@drawable/section_card_bg"
+                    android:layout_marginEnd="6dp"
+                    android:clickable="true"
+                    android:focusable="true">
+                    <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+                        android:text="🔵" android:textSize="20sp"/>
+                    <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+                        android:text="BlueChip" android:textColor="#3B82F6" android:textSize="10sp"
+                        android:layout_marginTop="2dp"/>
+                </LinearLayout>
+                
+                <!-- ShitCoin Mode -->
+                <LinearLayout
+                    android:id="@+id/btnQuickShitCoin"
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:orientation="vertical"
+                    android:gravity="center"
+                    android:padding="10dp"
+                    android:background="@drawable/section_card_bg"
+                    android:clickable="true"
+                    android:focusable="true">
+                    <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+                        android:text="💩" android:textSize="20sp"/>
+                    <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+                        android:text="ShitCoin" android:textColor="#F97316" android:textSize="10sp"
                         android:layout_marginTop="2dp"/>
                 </LinearLayout>
             </LinearLayout>

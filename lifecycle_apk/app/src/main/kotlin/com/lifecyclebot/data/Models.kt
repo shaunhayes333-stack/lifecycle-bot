@@ -55,6 +55,7 @@ data class Position(
     val entryPhase: String = "",
     val entryScore: Double = 0.0,
     val entryLiquidityUsd: Double = 0.0,  // liquidity at entry for collapse detection
+    val entryMcap: Double = 0.0,          // V4.20: market cap at entry for graduation detection
     // ═══════════════════════════════════════════════════════════════════
     // TRADING MODE TRACKING - Which mode was this position opened in?
     // Now MUTABLE for dynamic mode switching by HoldingLogicLayer

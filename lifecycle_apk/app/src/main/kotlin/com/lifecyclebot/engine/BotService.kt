@@ -656,55 +656,34 @@ class BotService : Service() {
                             }
                             
                             // ═══════════════════════════════════════════════════════════════════
-                            // ADMITTED TO WATCHLIST - V4.0: Use GlobalTradeRegistry
+                            // V4.20: ENQUEUE TO MERGE QUEUE
+                            // 
+                            // Instead of adding directly to watchlist, enqueue to TokenMergeQueue.
+                            // Benefits:
+                            //   - Deduplication: Same token found by 3 scanners = 1 watchlist add
+                            //   - Multi-scanner boost: Confidence increases when scanners agree
+                            //   - Batched processing: Reduces overhead every 2 seconds
+                            // 
+                            // Flow: Scanner → Eligibility → MergeQueue → processQueue() → Watchlist
                             // ═══════════════════════════════════════════════════════════════════
-                            val addResult = GlobalTradeRegistry.addToWatchlist(
+                            
+                            // Enqueue to merge queue - handles deduplication internally
+                            TokenMergeQueue.enqueue(
                                 mint = identity.mint,
                                 symbol = identity.symbol,
-                                addedBy = source.name,
-                                source = source.name,
-                                initialMcap = liquidityUsd * 10,  // Rough estimate
+                                scanner = source.name,
+                                marketCapUsd = liquidityUsd * 10,  // Rough mcap estimate
+                                liquidityUsd = liquidityUsd,
                             )
                             
-                            if (!addResult.added) {
-                                TradeLifecycle.filtered(identity.mint, "GlobalTradeRegistry: ${addResult.reason}")
-                                ErrorLogger.debug("BotService", "FILTERED: ${identity.symbol} - ${addResult.reason}")
-                                return@SolanaMarketScanner
-                            }
+                            // Mark identity as queued (not yet watchlisted)
+                            identity.eligible(score, "enqueued to merge queue")
                             
-                            // Mark as WATCHLISTED (both TradeIdentity and TradeLifecycle)
-                            val newWatchlistSize = GlobalTradeRegistry.size()
-                            identity.watchlisted("admitted for strategy evaluation")
-                            TradeLifecycle.watchlisted(identity.mint, newWatchlistSize, "admitted for strategy evaluation")
-                            
-                            // Record that we found a new token (for staleness detection)
+                            // Record scanner found a token (for staleness detection)
                             marketScanner?.recordNewTokenFound()
                             
-                            // V4.0: Log using GlobalTradeRegistry count
-                            addLog("📋 WATCHLISTED: ${identity.symbol} (${source.name}) liq=$${liquidityUsd.toInt()} score=${score.toInt()} | now #${newWatchlistSize}", identity.mint)
-                            ErrorLogger.info("BotService", "WATCHLISTED: ${identity.symbol} | liq=$${liquidityUsd.toInt()} | watchlist now=${newWatchlistSize}")
-                            soundManager.playNewToken()
-                            
-                            // Seed candle history immediately
-                            scope.launch {
-                                try {
-                                    val ts = synchronized(status.tokens) {
-                                        status.tokens.getOrPut(identity.mint) {
-                                            com.lifecyclebot.data.TokenState(
-                                                mint=identity.mint, symbol=identity.symbol, name=name,
-                                                candleTimeframeMinutes = 1,
-                                                source = source.name,  // Track discovery source for learning
-                                                logoUrl = "https://dd.dexscreener.com/ds-data/tokens/solana/${identity.mint}.png",
-                                            )
-                                        }
-                                    }
-                                    // Also update source if token already existed but had no source
-                                    if (ts.source.isEmpty()) {
-                                        ts.source = source.name
-                                    }
-                                    orchestrator?.onTokenAdded(mint, symbol)
-                                } catch (_: Exception) {}
-                            }
+                            // Debug log (watchlist add log happens in processQueue)
+                            ErrorLogger.debug("BotService", "📥 ENQUEUED: ${identity.symbol} | ${source.name} | liq=$${liquidityUsd.toInt()} | score=$score")
                         } catch (e: Exception) {
                             ErrorLogger.error("BotService", "Error adding token $symbol: ${e.message}", e)
                         }
@@ -2165,12 +2144,25 @@ class BotService : Service() {
             }
             
             // ═══════════════════════════════════════════════════════════════════
-            // V4.0: PROCESS MERGE QUEUE
-            // Batch scanner discoveries and add merged tokens to watchlist
+            // V4.20: PROCESS MERGE QUEUE - Full Lifecycle Integration
+            // 
+            // This is where tokens actually get added to the watchlist.
+            // MergeQueue batches scanner discoveries and deduplicates:
+            //   - Token found by DEX_BOOSTED + PUMP_FUN = 1 add with confidence boost
+            //   - Processes every 2 seconds after 5-second merge window
             // ═══════════════════════════════════════════════════════════════════
             try {
                 val mergedTokens = TokenMergeQueue.processQueue()
                 for (merged in mergedTokens) {
+                    // Check watchlist capacity
+                    val currentSize = GlobalTradeRegistry.size()
+                    val maxSize = if (cfg.paperMode) 100 else cfg.maxWatchlistSize
+                    if (currentSize >= maxSize) {
+                        ErrorLogger.debug("BotService", "MergeQueue: ${merged.symbol} skipped - watchlist full ($currentSize/$maxSize)")
+                        continue
+                    }
+                    
+                    // Add to GlobalTradeRegistry
                     val addResult = GlobalTradeRegistry.addToWatchlist(
                         mint = merged.mint,
                         symbol = merged.symbol,
@@ -2180,12 +2172,48 @@ class BotService : Service() {
                     )
                     
                     if (addResult.added) {
+                        val newSize = GlobalTradeRegistry.size()
                         val boostLabel = if (merged.multiScannerBoost) " [MULTI-SCANNER]" else ""
-                        addLog("🔀 MERGED: ${merged.symbol} | ${merged.primaryScanner}$boostLabel | conf=${merged.confidence}", merged.mint)
+                        val scannersInfo = if (merged.allScanners.size > 1) 
+                            " (${merged.allScanners.joinToString("+")})" else ""
+                        
+                        // Track in TradeLifecycle
+                        TradeLifecycle.watchlisted(merged.mint, newSize, "merged: ${merged.primaryScanner}$scannersInfo")
+                        
+                        // Log to UI
+                        addLog("📋 WATCHLISTED: ${merged.symbol} (${merged.primaryScanner})$boostLabel | liq=$${merged.liquidityUsd.toInt()} | conf=${merged.confidence} | #$newSize", merged.mint)
+                        ErrorLogger.info("BotService", "WATCHLISTED: ${merged.symbol} | scanners=${merged.allScanners.size} | conf=${merged.confidence}")
+                        
+                        // Play sound for new token
+                        soundManager.playNewToken()
+                        
+                        // Seed TokenState for the merged token
+                        scope.launch {
+                            try {
+                                synchronized(status.tokens) {
+                                    status.tokens.getOrPut(merged.mint) {
+                                        com.lifecyclebot.data.TokenState(
+                                            mint = merged.mint,
+                                            symbol = merged.symbol,
+                                            name = merged.symbol,
+                                            candleTimeframeMinutes = 1,
+                                            source = merged.allScanners.joinToString(","),
+                                            logoUrl = "https://dd.dexscreener.com/ds-data/tokens/solana/${merged.mint}.png",
+                                        )
+                                    }
+                                }
+                                orchestrator?.onTokenAdded(merged.mint, merged.symbol)
+                            } catch (_: Exception) {}
+                        }
                     }
                 }
+                
+                // Log merge queue stats every 30 cycles
+                if (loopCount % 30 == 0 && TokenMergeQueue.getPendingCount() > 0) {
+                    addLog("🔀 ${TokenMergeQueue.getStats()}")
+                }
             } catch (e: Exception) {
-                ErrorLogger.debug("BotService", "MergeQueue process error: ${e.message}")
+                ErrorLogger.debug("BotService", "MergeQueue error: ${e.message}")
             }
             
             // ═══════════════════════════════════════════════════════════════════

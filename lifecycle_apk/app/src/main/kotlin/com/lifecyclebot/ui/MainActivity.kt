@@ -2078,11 +2078,23 @@ for legal compliance.
     private fun renderWatchlist(state: UiState) {
         llTokenList.removeAllViews()
         val active = state.config.activeToken
-        val tradeSubSp = resources.getDimension(R.dimen.trade_sub_text) / resources.displayMetrics.scaledDensity
+        val solPrice = com.lifecyclebot.engine.WalletManager.lastKnownSolPrice
+        
         state.tokens.values.forEach { ts ->
+            // Calculate % change from reference price (first candle or position entry)
+            val refPrice = when {
+                ts.position.isOpen -> ts.position.entryPrice
+                ts.history.isNotEmpty() -> ts.history.first().priceUsd
+                else -> ts.lastPrice
+            }
+            val pctChange = if (refPrice > 0 && ts.lastPrice > 0 && ts.lastPrice != refPrice) {
+                ((ts.lastPrice - refPrice) / refPrice) * 100.0
+            } else 0.0
+            val changeCol = if (pctChange >= 0) green else red
+            
             val row = LinearLayout(this).apply {
                 orientation = LinearLayout.HORIZONTAL
-                setPadding(0, 10, 0, 10)
+                setPadding(0, 12, 0, 12)
                 isClickable  = true
                 isFocusable  = true
                 setOnClickListener {
@@ -2091,31 +2103,105 @@ for legal compliance.
                     settingsPopulated = false
                 }
             }
-            val left = LinearLayout(this).apply {
+            
+            // Colour bar on left (like Open Positions)
+            val bar = View(this).apply {
+                layoutParams = LinearLayout.LayoutParams(4, LinearLayout.LayoutParams.MATCH_PARENT).also {
+                    it.marginEnd = 12
+                }
+                setBackgroundColor(if (ts.mint == active) 0xFF9945FF.toInt() else changeCol)
+            }
+            row.addView(bar)
+            
+            // Token Logo placeholder
+            val logoView = android.widget.ImageView(this).apply {
+                layoutParams = LinearLayout.LayoutParams(36, 36).also {
+                    it.marginEnd = 10
+                    it.gravity = android.view.Gravity.CENTER_VERTICAL
+                }
+                scaleType = android.widget.ImageView.ScaleType.CENTER_CROP
+                background = resources.getDrawable(R.drawable.token_logo_bg, null)
+                
+                // Load actual logo using Coil
+                val logoUrl = "https://dd.dexscreener.com/ds-data/tokens/solana/${ts.mint}.png"
+                load(logoUrl) {
+                    crossfade(true)
+                    placeholder(R.drawable.ic_token_placeholder)
+                    error(R.drawable.ic_token_placeholder)
+                    transformations(coil.transform.CircleCropTransformation())
+                }
+            }
+            row.addView(logoView)
+            
+            // Token info (left column)
+            val info = LinearLayout(this).apply {
                 orientation = LinearLayout.VERTICAL
                 layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
             }
+            
+            // Symbol + active indicator
             val watchTextSp = resources.getDimension(R.dimen.token_name_size) / resources.displayMetrics.scaledDensity
-            left.addView(TextView(this).apply {
-                text      = (if (ts.mint == active) "● " else "  ") + (ts.symbol.ifBlank { ts.mint.take(8) })
+            val tradeSubSp = resources.getDimension(R.dimen.trade_sub_text) / resources.displayMetrics.scaledDensity
+            info.addView(TextView(this).apply {
+                text = (if (ts.mint == active) "● " else "") + (ts.symbol.ifBlank { ts.mint.take(8) })
                 textSize  = watchTextSp
-                setTextColor(if (ts.mint == active) white else muted)
+                setTextColor(if (ts.mint == active) white else white)
                 typeface  = android.graphics.Typeface.DEFAULT_BOLD
             })
-            left.addView(TextView(this).apply {
-                text      = ts.lastPrice.fmtPrice()
+            
+            // Market cap + liquidity
+            val mcapStr = when {
+                ts.lastMcap >= 1_000_000 -> "$%.2fM".format(ts.lastMcap / 1_000_000)
+                ts.lastMcap >= 1_000 -> "$%.1fK".format(ts.lastMcap / 1_000)
+                else -> "$%.0f".format(ts.lastMcap)
+            }
+            val liqStr = when {
+                ts.lastLiquidityUsd >= 1_000_000 -> "$%.1fM".format(ts.lastLiquidityUsd / 1_000_000)
+                ts.lastLiquidityUsd >= 1_000 -> "$%.0fK".format(ts.lastLiquidityUsd / 1_000)
+                else -> "$%.0f".format(ts.lastLiquidityUsd)
+            }
+            info.addView(TextView(this).apply {
+                text = "MCap: $mcapStr  ·  Liq: $liqStr"
                 textSize  = tradeSubSp
                 setTextColor(muted)
                 typeface  = android.graphics.Typeface.MONOSPACE
             })
-            row.addView(left)
-            row.addView(TextView(this).apply {
-                text      = ts.phase
-                textSize  = 11f
+            
+            // Price
+            info.addView(TextView(this).apply {
+                text = "Price: ${ts.lastPrice.fmtPrice()}"
+                textSize  = tradeSubSp
                 setTextColor(muted)
                 typeface  = android.graphics.Typeface.MONOSPACE
-                gravity   = android.view.Gravity.END
             })
+            row.addView(info)
+            
+            // Right column - % change + position status
+            val right = LinearLayout(this).apply {
+                orientation = LinearLayout.VERTICAL
+                gravity = android.view.Gravity.END
+            }
+            
+            // % change
+            right.addView(TextView(this).apply {
+                text = if (pctChange != 0.0) "%+.1f%%".format(pctChange) else "—"
+                textSize = watchTextSp
+                setTextColor(changeCol)
+                typeface = android.graphics.Typeface.DEFAULT_BOLD
+                gravity = android.view.Gravity.END
+            })
+            
+            // Position status
+            val posStatus = if (ts.position.isOpen) "● OPEN" else if (ts.phase.isNotEmpty()) ts.phase.take(8) else "watching"
+            right.addView(TextView(this).apply {
+                text = posStatus
+                textSize = tradeSubSp
+                setTextColor(if (ts.position.isOpen) green else muted)
+                typeface = android.graphics.Typeface.MONOSPACE
+                gravity = android.view.Gravity.END
+            })
+            row.addView(right)
+            
             val div = View(this).apply {
                 layoutParams = LinearLayout.LayoutParams(
                     LinearLayout.LayoutParams.MATCH_PARENT, 1
@@ -2327,6 +2413,18 @@ for legal compliance.
         // Treasury Mode button → Shows Cash Generation AI status
         findViewById<View>(R.id.btnQuickTreasury)?.setOnClickListener {
             showTreasuryModeDialog()
+            performHaptic()
+        }
+        
+        // V4.20: BlueChip Mode button → Shows BlueChip AI status
+        findViewById<View>(R.id.btnQuickBlueChip)?.setOnClickListener {
+            showBlueChipModeDialog()
+            performHaptic()
+        }
+        
+        // V4.20: ShitCoin Mode button → Shows ShitCoin AI status
+        findViewById<View>(R.id.btnQuickShitCoin)?.setOnClickListener {
+            showShitCoinModeDialog()
             performHaptic()
         }
     }
@@ -2757,7 +2855,7 @@ $regimeTransitionStatus
     }
 
     /**
-     * Shows status of all 21 AI layers
+     * Shows status of all 25 AI layers
      */
     private fun showAILayersDialog() {
         try {
@@ -2769,7 +2867,7 @@ $regimeTransitionStatus
             val tradingStatus = if (healthReport.tradingAllowed) "🟢 ENABLED" else "🔴 DISABLED"
             
             // Build layer status list
-            val layerLines = detailedStatus.take(21).joinToString("\n") { (name, status) ->
+            val layerLines = detailedStatus.take(25).joinToString("\n") { (name, status) ->
                 "$status $name"
             }
             
@@ -2782,7 +2880,7 @@ Critical Issues: ${healthReport.criticalIssues}
 Warnings: ${healthReport.warnings}
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-📋 Layer Status (21 AI Modules):
+📋 Layer Status (25 AI Modules):
 
 $layerLines
 
@@ -2796,7 +2894,7 @@ Last Check: ${java.text.SimpleDateFormat("HH:mm:ss", java.util.Locale.US).format
             """.trimIndent()
             
             AlertDialog.Builder(this, R.style.Theme_AATE_Dialog)
-                .setTitle("🤖 21 AI Layers")
+                .setTitle("🤖 25 AI Layers")
                 .setMessage(message)
                 .setPositiveButton("Close") { d, _ -> d.dismiss() }
                 .setNeutralButton("Refresh") { _, _ -> 
@@ -2805,6 +2903,144 @@ Last Check: ${java.text.SimpleDateFormat("HH:mm:ss", java.util.Locale.US).format
                 .show()
         } catch (e: Exception) {
             Toast.makeText(this, "AI Layers: ${e.message ?: "Not available"}", Toast.LENGTH_SHORT).show()
+        }
+    }
+    
+    /**
+     * V4.20: Shows BlueChip AI status - similar to Treasury dialog
+     */
+    private fun showBlueChipModeDialog() {
+        try {
+            val blueChipAI = com.lifecyclebot.v3.scoring.BlueChipTraderAI
+            val stats = blueChipAI.getStats()
+            val cfg = com.lifecyclebot.data.ConfigStore.load(applicationContext)
+            val solPrice = com.lifecyclebot.engine.WalletManager.lastKnownSolPrice
+            
+            val currentModeLabel = if (cfg.paperMode) "📝 PAPER MODE" else "💰 LIVE MODE"
+            val pnlSign = if (stats.dailyPnlSol >= 0) "+" else ""
+            val dailyPnlUsd = stats.dailyPnlSol * solPrice
+            
+            val modeEmoji = when (stats.mode) {
+                com.lifecyclebot.v3.scoring.BlueChipTraderAI.BlueChipMode.HUNTING -> "🎯"
+                com.lifecyclebot.v3.scoring.BlueChipTraderAI.BlueChipMode.POSITIONED -> "📊"
+                com.lifecyclebot.v3.scoring.BlueChipTraderAI.BlueChipMode.CAUTIOUS -> "⚠️"
+                com.lifecyclebot.v3.scoring.BlueChipTraderAI.BlueChipMode.PAUSED -> "⏸️"
+            }
+            
+            val message = """
+🔵 BLUE CHIP AI (Quality Plays)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+$currentModeLabel
+$modeEmoji Mode: ${stats.mode.name}
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+📊 DAILY PERFORMANCE
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Daily P&L: $pnlSign${"%.4f".format(stats.dailyPnlSol)} SOL (~$${"%.2f".format(dailyPnlUsd)})
+Trades: ${stats.dailyTradeCount} | W/L: ${stats.dailyWins}/${stats.dailyLosses}
+Win Rate: ${"%.1f".format(stats.winRate)}%
+Active Positions: ${stats.activePositions}
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+📈 ENTRY CRITERIA
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Min Market Cap: $1M+
+Min Liquidity: $200K+
+Target: 10-20% gains
+Stop Loss: 8%
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+ℹ️ BlueChip AI targets established
+tokens with strong fundamentals
+for safer, steady returns.
+            """.trimIndent()
+            
+            AlertDialog.Builder(this, R.style.Theme_AATE_Dialog)
+                .setTitle("🔵 BlueChip Mode")
+                .setMessage(message)
+                .setPositiveButton("Close") { d, _ -> d.dismiss() }
+                .setNeutralButton("Reset Daily") { d, _ ->
+                    blueChipAI.resetDaily()
+                    Toast.makeText(this, "BlueChip daily stats reset", Toast.LENGTH_SHORT).show()
+                    d.dismiss()
+                }
+                .show()
+        } catch (e: Exception) {
+            Toast.makeText(this, "BlueChip Mode: ${e.message ?: "Not available"}", Toast.LENGTH_SHORT).show()
+        }
+    }
+    
+    /**
+     * V4.20: Shows ShitCoin AI status - similar to Treasury dialog
+     */
+    private fun showShitCoinModeDialog() {
+        try {
+            val shitCoinAI = com.lifecyclebot.v3.scoring.ShitCoinTraderAI
+            val stats = shitCoinAI.getStats()
+            val cfg = com.lifecyclebot.data.ConfigStore.load(applicationContext)
+            val solPrice = com.lifecyclebot.engine.WalletManager.lastKnownSolPrice
+            
+            val currentModeLabel = if (cfg.paperMode) "📝 PAPER MODE" else "💰 LIVE MODE"
+            val pnlSign = if (stats.dailyPnlSol >= 0) "+" else ""
+            val dailyPnlUsd = stats.dailyPnlSol * solPrice
+            
+            val modeEmoji = when (stats.mode) {
+                com.lifecyclebot.v3.scoring.ShitCoinTraderAI.ShitCoinMode.HUNTING -> "🎯"
+                com.lifecyclebot.v3.scoring.ShitCoinTraderAI.ShitCoinMode.POSITIONED -> "📍"
+                com.lifecyclebot.v3.scoring.ShitCoinTraderAI.ShitCoinMode.CAUTIOUS -> "⚠️"
+                com.lifecyclebot.v3.scoring.ShitCoinTraderAI.ShitCoinMode.PAUSED -> "⏸️"
+                com.lifecyclebot.v3.scoring.ShitCoinTraderAI.ShitCoinMode.GRADUATION -> "🎓"
+            }
+            
+            val message = """
+💩 SHITCOIN AI (Degen Plays)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+$currentModeLabel
+$modeEmoji Mode: ${stats.mode.name}
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+📊 DAILY PERFORMANCE
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Daily P&L: $pnlSign${"%.4f".format(stats.dailyPnlSol)} SOL (~$${"%.2f".format(dailyPnlUsd)})
+Trades: ${stats.dailyTradeCount} | W/L: ${stats.dailyWins}/${stats.dailyLosses}
+Win Rate: ${"%.1f".format(stats.winRate)}%
+Active Positions: ${stats.activePositions}
+Max Loss/Day: ${"%.2f".format(stats.dailyMaxLossSol)} SOL (~$50)
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+🎰 TARGET TOKENS
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Market Cap: <$500K
+Token Age: <6 hours
+Max Position: 0.20 SOL
+Hold Time: <15 minutes
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+⚠️ HIGH RISK! ShitCoin AI hunts
+pump.fun launches and micro-caps.
+Use with caution - moon or zero!
+            """.trimIndent()
+            
+            AlertDialog.Builder(this, R.style.Theme_AATE_Dialog)
+                .setTitle("💩 ShitCoin Mode")
+                .setMessage(message)
+                .setPositiveButton("Close") { d, _ -> d.dismiss() }
+                .setNeutralButton("Reset Daily") { d, _ ->
+                    shitCoinAI.resetDaily()
+                    Toast.makeText(this, "ShitCoin daily stats reset", Toast.LENGTH_SHORT).show()
+                    d.dismiss()
+                }
+                .show()
+        } catch (e: Exception) {
+            Toast.makeText(this, "ShitCoin Mode: ${e.message ?: "Not available"}", Toast.LENGTH_SHORT).show()
         }
     }
 

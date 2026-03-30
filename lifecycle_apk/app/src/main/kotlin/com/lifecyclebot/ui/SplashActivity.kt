@@ -1,36 +1,53 @@
 package com.lifecyclebot.ui
 
+import android.animation.Animator
+import android.animation.AnimatorSet
+import android.animation.ObjectAnimator
+import android.animation.ValueAnimator
 import android.annotation.SuppressLint
 import android.content.Intent
+import android.graphics.Color
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
+import android.view.Gravity
 import android.view.View
+import android.view.animation.AccelerateDecelerateInterpolator
 import android.view.animation.AlphaAnimation
 import android.view.animation.Animation
 import android.view.animation.ScaleAnimation
+import android.widget.FrameLayout
 import android.widget.ImageView
 import android.widget.TextView
 import androidx.appcompat.app.AppCompatActivity
-import com.lifecyclebot.BuildConfig
 import com.lifecyclebot.R
+import kotlin.math.cos
+import kotlin.math.sin
+import kotlin.random.Random
 
 /**
- * SplashActivity — Premium launch experience
+ * SplashActivity — Premium launch experience with neural pathway animation
  * 
- * Displays the AATE logo with smooth animations for 5 seconds
- * before transitioning to the main trading interface.
+ * V4.20: Enhanced with twinkling particles flowing into the center
+ *        like data flowing into the hivemind collective intelligence.
  * 
- * V3.2: Added trademark and copyright notices
- *       Dynamic version display from BuildConfig
+ * Features:
+ *   - Neural pathway particles twinkling from edges to center
+ *   - Logo with pulsing glow effect
+ *   - Smooth version and tagline fade-ins
  */
 @SuppressLint("CustomSplashScreen")
 class SplashActivity : AppCompatActivity() {
 
     companion object {
-        private const val SPLASH_DURATION = 5000L // 5 seconds
+        private const val SPLASH_DURATION = 5000L
         private const val SCALE_DURATION = 2000L
+        private const val PARTICLE_COUNT = 30
+        private const val VERSION_NAME = "4.20"
     }
+    
+    private val particles = mutableListOf<View>()
+    private val particleAnimators = mutableListOf<AnimatorSet>()
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -49,13 +66,26 @@ class SplashActivity : AppCompatActivity() {
         val logo = findViewById<ImageView>(R.id.ivSplashLogo)
         val tagline = findViewById<TextView>(R.id.tvSplashTagline)
         val version = findViewById<TextView>(R.id.tvSplashVersion)
+        val glow = findViewById<View>(R.id.viewGlow)
+        val particleContainer = findViewById<FrameLayout>(R.id.layoutParticles)
 
-        // Ensure logo is visible first (in case animation fails)
+        // Ensure logo is visible
         logo.alpha = 1f
         
-        // Set version dynamically from BuildConfig
-        version.text = "v${BuildConfig.VERSION_NAME}"
+        // Set version
+        version.text = "v$VERSION_NAME"
         
+        // Start neural pathway particle animation
+        startParticleAnimation(particleContainer)
+        
+        // Animate glow pulsing
+        val glowPulse = ObjectAnimator.ofFloat(glow, "alpha", 0.2f, 0.5f, 0.2f).apply {
+            duration = 2000L
+            repeatCount = ValueAnimator.INFINITE
+            interpolator = AccelerateDecelerateInterpolator()
+        }
+        glowPulse.start()
+
         // Animate logo: subtle scale pulse
         val scaleUp = ScaleAnimation(
             0.85f, 1.05f, 0.85f, 1.05f,
@@ -90,10 +120,111 @@ class SplashActivity : AppCompatActivity() {
 
         // Navigate to MainActivity after splash duration
         Handler(Looper.getMainLooper()).postDelayed({
+            stopParticleAnimation()
             startActivity(Intent(this, MainActivity::class.java))
             overridePendingTransition(android.R.anim.fade_in, android.R.anim.fade_out)
             finish()
         }, SPLASH_DURATION)
+    }
+    
+    /**
+     * Creates twinkling particles that flow from edges toward the center
+     * like data streaming into the hivemind.
+     */
+    private fun startParticleAnimation(container: FrameLayout) {
+        val screenWidth = resources.displayMetrics.widthPixels
+        val screenHeight = resources.displayMetrics.heightPixels
+        val centerX = screenWidth / 2f
+        val centerY = screenHeight / 2f
+        
+        repeat(PARTICLE_COUNT) { i ->
+            // Create particle view
+            val particle = View(this).apply {
+                val size = Random.nextInt(4, 12)
+                layoutParams = FrameLayout.LayoutParams(size, size).apply {
+                    gravity = Gravity.TOP or Gravity.START
+                }
+                // Cyan/teal color palette matching AATE theme
+                val colors = listOf(
+                    Color.parseColor("#64D2D2"),  // Primary cyan
+                    Color.parseColor("#4ECDC4"),  // Teal
+                    Color.parseColor("#45B7AA"),  // Darker teal
+                    Color.parseColor("#88E0E0"),  // Light cyan
+                    Color.parseColor("#3AA89F"),  // Deep teal
+                )
+                setBackgroundColor(colors[Random.nextInt(colors.size)])
+                alpha = 0f
+            }
+            
+            container.addView(particle)
+            particles.add(particle)
+            
+            // Calculate start position on edge
+            val angle = Random.nextDouble(0.0, 2 * Math.PI)
+            val radius = maxOf(screenWidth, screenHeight).toFloat()
+            val startX = centerX + (cos(angle) * radius).toFloat()
+            val startY = centerY + (sin(angle) * radius).toFloat()
+            
+            // Randomize end position slightly off-center for natural look
+            val endX = centerX + Random.nextInt(-50, 50)
+            val endY = centerY + Random.nextInt(-50, 50)
+            
+            // Set initial position
+            particle.x = startX
+            particle.y = startY
+            
+            // Create animation with delay based on index
+            val delay = (i * 100L) + Random.nextLong(0, 500)
+            val duration = Random.nextLong(1500, 3000)
+            
+            val moveX = ObjectAnimator.ofFloat(particle, "x", startX, endX)
+            val moveY = ObjectAnimator.ofFloat(particle, "y", startY, endY)
+            val fadeIn = ObjectAnimator.ofFloat(particle, "alpha", 0f, 0.8f, 0f)
+            val scale = ObjectAnimator.ofFloat(particle, "scaleX", 1f, 1.5f, 0.3f)
+            val scaleY = ObjectAnimator.ofFloat(particle, "scaleY", 1f, 1.5f, 0.3f)
+            
+            val animatorSet = AnimatorSet().apply {
+                playTogether(moveX, moveY, fadeIn, scale, scaleY)
+                this.duration = duration
+                startDelay = delay
+                interpolator = AccelerateDecelerateInterpolator()
+                
+                addListener(object : Animator.AnimatorListener {
+                    override fun onAnimationStart(animation: Animator) {}
+                    override fun onAnimationCancel(animation: Animator) {}
+                    override fun onAnimationRepeat(animation: Animator) {}
+                    override fun onAnimationEnd(animation: Animator) {
+                        // Restart animation for continuous effect
+                        if (!isFinishing) {
+                            val newAngle = Random.nextDouble(0.0, 2 * Math.PI)
+                            val newStartX = centerX + (cos(newAngle) * radius).toFloat()
+                            val newStartY = centerY + (sin(newAngle) * radius).toFloat()
+                            particle.x = newStartX
+                            particle.y = newStartY
+                            
+                            moveX.setFloatValues(newStartX, centerX + Random.nextInt(-50, 50).toFloat())
+                            moveY.setFloatValues(newStartY, centerY + Random.nextInt(-50, 50).toFloat())
+                            
+                            this@apply.startDelay = Random.nextLong(0, 300)
+                            this@apply.start()
+                        }
+                    }
+                })
+            }
+            
+            particleAnimators.add(animatorSet)
+            animatorSet.start()
+        }
+    }
+    
+    private fun stopParticleAnimation() {
+        particleAnimators.forEach { it.cancel() }
+        particleAnimators.clear()
+    }
+
+    override fun onDestroy() {
+        super.onDestroy()
+        stopParticleAnimation()
     }
 
     @Deprecated("Deprecated in Java")

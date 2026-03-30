@@ -65,13 +65,25 @@ object AICrossTalk {
         RUNNER_SETUP,                 // High-probability runner setup
         META_COGNITION_BOOST,         // MetaCognition detects high-confidence pattern
         META_COGNITION_WARNING,       // MetaCognition detects known losing pattern
+        MODE_SWITCH_RECOMMENDED,      // V4.20: Token should switch trading mode
         NO_CORRELATION,               // Signals not correlated
     }
+    
+    // V4.20: Mode Switch Recommendation
+    data class ModeSwitchSignal(
+        val shouldSwitch: Boolean,
+        val currentMode: String,
+        val recommendedMode: String,
+        val confidence: Double,
+        val reason: String,
+        val participatingAIs: List<String>,
+    )
     
     // Stats tracking
     private var smartMoneyPumpsDetected = 0
     private var coordinatedDumpsDetected = 0
     private var narrativeMomentumDetected = 0
+    private var modeSwitchesRecommended = 0
     private var metaCognitionBoostsDetected = 0
     private var totalCrossTalkAnalyses = 0
     
@@ -600,6 +612,235 @@ object AICrossTalk {
     }
     
     // ═══════════════════════════════════════════════════════════════════════════
+    // V4.20: CROSS-TALK MODE SWITCH EVALUATION
+    // 
+    // Analyzes ALL AI signals to recommend the best trading mode for a token.
+    // Called when token characteristics change (mcap, liquidity, momentum, etc.)
+    // 
+    // Mode Categories:
+    //   SHITCOIN → mcap <$500K, age <6h, high volatility
+    //   MOONSHOT → strong momentum, whale accumulation, growing liquidity
+    //   BLUE_CHIP → mcap >$1M, liquidity >$200K, stable
+    //   DIP_HUNTER → underwater but recovery signals
+    //   MOMENTUM_SWING → stable trend with good momentum
+    //   LONG_HOLD → mature fundamentals, conviction hold
+    // ═══════════════════════════════════════════════════════════════════════════
+    
+    /**
+     * Evaluate if a token should switch trading modes based on all AI signals.
+     * Call this periodically for held positions or when token characteristics change.
+     */
+    fun evaluateModeSwitchCrossTalk(
+        mint: String,
+        symbol: String,
+        currentMode: String,
+        mcap: Double,
+        liquidity: Double,
+        ageMs: Long,
+        currentPnlPct: Double,
+        holdTimeMs: Long,
+    ): ModeSwitchSignal {
+        val participatingAIs = mutableListOf<String>()
+        val reasons = mutableListOf<String>()
+        var bestMode = currentMode
+        var highestConfidence = 0.0
+        
+        val ageMinutes = ageMs / (60 * 1000)
+        val holdMinutes = holdTimeMs / (60 * 1000)
+        
+        // ─────────────────────────────────────────────────────────────────
+        // Gather signals from all AI layers
+        // ─────────────────────────────────────────────────────────────────
+        val whaleSignal = try { WhaleTrackerAI.getWhaleSignal(mint, symbol) } catch (_: Exception) { null }
+        val momentum = try { MomentumPredictorAI.getPrediction(mint) } catch (_: Exception) { null }
+        val liquidity_signal = try { LiquidityDepthAI.getSignal(mint, symbol, true) } catch (_: Exception) { null }
+        val regime = try { MarketRegimeAI.getCurrentRegime() } catch (_: Exception) { null }
+        
+        val isWhaleAccumulating = whaleSignal?.recommendation in listOf("STRONG_BUY", "BUY", "LEAN_BUY")
+        val isWhaleSelling = whaleSignal?.recommendation in listOf("STRONG_SELL", "SELL", "LEAN_SELL")
+        val isMomentumBullish = momentum in listOf(
+            MomentumPredictorAI.MomentumPrediction.STRONG_PUMP,
+            MomentumPredictorAI.MomentumPrediction.PUMP_BUILDING
+        )
+        val isLiquidityGrowing = liquidity_signal?.signal in listOf(
+            LiquidityDepthAI.SignalType.LIQUIDITY_SPIKE,
+            LiquidityDepthAI.SignalType.LIQUIDITY_GROWING
+        )
+        val isLiquidityDraining = liquidity_signal?.signal in listOf(
+            LiquidityDepthAI.SignalType.LIQUIDITY_COLLAPSE,
+            LiquidityDepthAI.SignalType.LIQUIDITY_DRAINING
+        )
+        
+        // ─────────────────────────────────────────────────────────────────
+        // CHECK 1: ShitCoin → Better Model (graduated)
+        // Token has matured out of shitcoin range
+        // ─────────────────────────────────────────────────────────────────
+        if (currentMode in listOf("SHITCOIN", "MICRO_CAP", "PUMP_SNIPER")) {
+            // Graduated to mid-cap territory
+            if (mcap > 1_000_000 && liquidity > 100_000) {
+                participatingAIs.add("MarketCap")
+                participatingAIs.add("Liquidity")
+                
+                // Determine best mode based on momentum
+                if (isWhaleAccumulating && isMomentumBullish) {
+                    bestMode = "MOONSHOT"
+                    highestConfidence = 85.0
+                    reasons.add("Graduated to $${(mcap/1000).toInt()}k mcap with whale accumulation")
+                } else if (isLiquidityGrowing && isMomentumBullish) {
+                    bestMode = "MOMENTUM_SWING"
+                    highestConfidence = 78.0
+                    reasons.add("Graduated with growing liquidity + momentum")
+                } else {
+                    bestMode = "LONG_HOLD"
+                    highestConfidence = 72.0
+                    reasons.add("Graduated to established mcap ($${(mcap/1000).toInt()}k)")
+                }
+            }
+            // Strong gains - ride the wave
+            else if (currentPnlPct > 100.0 && isMomentumBullish) {
+                participatingAIs.add("Momentum")
+                bestMode = "MOONSHOT"
+                highestConfidence = 80.0
+                reasons.add("100x potential - switch to trailing mode")
+            }
+        }
+        
+        // ─────────────────────────────────────────────────────────────────
+        // CHECK 2: Any Mode → BLUE_CHIP (token became established)
+        // ─────────────────────────────────────────────────────────────────
+        if (currentMode !in listOf("BLUE_CHIP", "LONG_HOLD") && bestMode == currentMode) {
+            if (mcap > 5_000_000 && liquidity > 500_000 && ageMinutes > 60 * 24) {
+                participatingAIs.add("MarketCap")
+                participatingAIs.add("Liquidity")
+                participatingAIs.add("Age")
+                bestMode = "BLUE_CHIP"
+                highestConfidence = 88.0
+                reasons.add("Token established: mcap=$${(mcap/1_000_000).toInt()}M, liq=$${(liquidity/1000).toInt()}k")
+            }
+        }
+        
+        // ─────────────────────────────────────────────────────────────────
+        // CHECK 3: Profit → MOONSHOT (let winners run)
+        // Token showing moonshot characteristics
+        // ─────────────────────────────────────────────────────────────────
+        if (currentMode !in listOf("MOONSHOT") && bestMode == currentMode) {
+            val bigGains = currentPnlPct > 80.0
+            val stillBullish = isMomentumBullish && isWhaleAccumulating
+            val liquidityHealthy = liquidity > 30_000 && !isLiquidityDraining
+            
+            if (bigGains && stillBullish && liquidityHealthy) {
+                participatingAIs.add("WhaleTracker")
+                participatingAIs.add("Momentum")
+                participatingAIs.add("Liquidity")
+                bestMode = "MOONSHOT"
+                highestConfidence = 82.0
+                reasons.add("Winner running: +${currentPnlPct.toInt()}% with whale support")
+            }
+        }
+        
+        // ─────────────────────────────────────────────────────────────────
+        // CHECK 4: Underwater → DIP_HUNTER (recovery signals)
+        // ─────────────────────────────────────────────────────────────────
+        if (currentPnlPct < -15.0 && currentPnlPct > -40.0 && bestMode == currentMode) {
+            val recoverySignals = isMomentumBullish || isWhaleAccumulating
+            val liquidityStable = !isLiquidityDraining
+            
+            if (recoverySignals && liquidityStable) {
+                participatingAIs.add(if (isMomentumBullish) "Momentum" else "WhaleTracker")
+                bestMode = "DIP_HUNTER"
+                highestConfidence = 70.0
+                reasons.add("Recovery signals while underwater (${currentPnlPct.toInt()}%)")
+            }
+        }
+        
+        // ─────────────────────────────────────────────────────────────────
+        // CHECK 5: Declining Liquidity → Defensive Mode
+        // ─────────────────────────────────────────────────────────────────
+        if (isLiquidityDraining && isWhaleSelling && bestMode == currentMode) {
+            // Don't switch mode but signal urgency
+            participatingAIs.add("Liquidity")
+            participatingAIs.add("WhaleTracker")
+            bestMode = "DEFENSIVE"
+            highestConfidence = 90.0
+            reasons.add("Liquidity draining + whale selling - go defensive")
+        }
+        
+        // ─────────────────────────────────────────────────────────────────
+        // CHECK 6: Regime-based Mode Adjustment
+        // ─────────────────────────────────────────────────────────────────
+        if (bestMode == currentMode) {
+            val isBullRegime = regime in listOf(
+                MarketRegimeAI.Regime.STRONG_BULL,
+                MarketRegimeAI.Regime.BULL
+            )
+            val isBearRegime = regime in listOf(
+                MarketRegimeAI.Regime.STRONG_BEAR,
+                MarketRegimeAI.Regime.BEAR
+            )
+            
+            // In strong bull, be more aggressive
+            if (isBullRegime && currentMode == "STANDARD" && isMomentumBullish) {
+                participatingAIs.add("MarketRegime")
+                participatingAIs.add("Momentum")
+                bestMode = "MOMENTUM_SWING"
+                highestConfidence = 72.0
+                reasons.add("Bull regime + momentum - switch to aggressive")
+            }
+            
+            // In bear, be more defensive
+            if (isBearRegime && currentMode != "DEFENSIVE" && isLiquidityDraining) {
+                participatingAIs.add("MarketRegime")
+                participatingAIs.add("Liquidity")
+                bestMode = "DEFENSIVE"
+                highestConfidence = 75.0
+                reasons.add("Bear regime + weak liquidity - go defensive")
+            }
+        }
+        
+        // ─────────────────────────────────────────────────────────────────
+        // BUILD RESULT
+        // ─────────────────────────────────────────────────────────────────
+        val shouldSwitch = bestMode != currentMode && highestConfidence >= 65.0
+        
+        if (shouldSwitch) {
+            modeSwitchesRecommended++
+            ErrorLogger.info("CrossTalk", "🔄 MODE SWITCH: $symbol | $currentMode → $bestMode | conf=${highestConfidence.toInt()}% | ${reasons.joinToString("; ")}")
+        }
+        
+        return ModeSwitchSignal(
+            shouldSwitch = shouldSwitch,
+            currentMode = currentMode,
+            recommendedMode = bestMode,
+            confidence = highestConfidence,
+            reason = if (reasons.isNotEmpty()) reasons.joinToString("; ") else "No switch needed",
+            participatingAIs = participatingAIs.distinct(),
+        )
+    }
+    
+    /**
+     * Quick check if mode switch should be evaluated (call frequently).
+     * Returns true if significant characteristic changes detected.
+     */
+    fun shouldCheckModeSwitch(
+        mint: String,
+        mcapChange: Double,      // % change in mcap since entry
+        liquidityChange: Double, // % change in liquidity
+        pnlPct: Double,
+    ): Boolean {
+        // Check if characteristics changed significantly
+        return when {
+            // Major mcap change (graduated or crashed)
+            kotlin.math.abs(mcapChange) > 100.0 -> true
+            // Major liquidity shift
+            kotlin.math.abs(liquidityChange) > 50.0 -> true
+            // Major P&L swing
+            pnlPct > 80.0 || pnlPct < -20.0 -> true
+            // Otherwise check periodically via caller
+            else -> false
+        }
+    }
+    
+    // ═══════════════════════════════════════════════════════════════════════════
     // LEARNING
     // ═══════════════════════════════════════════════════════════════════════════
     
@@ -646,6 +887,7 @@ object AICrossTalk {
             put("smartMoneyPumpsDetected", smartMoneyPumpsDetected)
             put("coordinatedDumpsDetected", coordinatedDumpsDetected)
             put("narrativeMomentumDetected", narrativeMomentumDetected)
+            put("modeSwitchesRecommended", modeSwitchesRecommended)
             put("totalCrossTalkAnalyses", totalCrossTalkAnalyses)
         }
     }
@@ -659,6 +901,7 @@ object AICrossTalk {
             smartMoneyPumpsDetected = json.optInt("smartMoneyPumpsDetected", 0)
             coordinatedDumpsDetected = json.optInt("coordinatedDumpsDetected", 0)
             narrativeMomentumDetected = json.optInt("narrativeMomentumDetected", 0)
+            modeSwitchesRecommended = json.optInt("modeSwitchesRecommended", 0)
             totalCrossTalkAnalyses = json.optInt("totalCrossTalkAnalyses", 0)
         } catch (e: Exception) {
             ErrorLogger.error("CrossTalk", "Failed to load: ${e.message}")
@@ -667,7 +910,7 @@ object AICrossTalk {
     
     fun getStats(): String {
         return "CrossTalk: $totalCrossTalkAnalyses analyses | " +
-               "pumps=$smartMoneyPumpsDetected dumps=$coordinatedDumpsDetected narrative=$narrativeMomentumDetected | " +
+               "pumps=$smartMoneyPumpsDetected dumps=$coordinatedDumpsDetected narrative=$narrativeMomentumDetected switches=$modeSwitchesRecommended | " +
                "weights: pump=${smartMoneyBoostWeight.toInt()} dump=${coordinatedDumpUrgencyWeight.toInt()} narr=${narrativeMomentumWeight.toInt()}"
     }
     
