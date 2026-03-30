@@ -3308,7 +3308,7 @@ class BotService : Service() {
                         // V4.1 COLD-START FIX: Check for bootstrap forced entry
                         // ═══════════════════════════════════════════════════════════════════
                         val forceBootstrapEntry = com.lifecyclebot.v3.scoring.FluidLearningAI.shouldForceBootstrapEntry(
-                            score = shitCoinSignal.totalScore,
+                            score = shitCoinSignal.confidence,  // Use confidence as score proxy
                             liquidityUsd = ts.lastLiquidityUsd,
                             tokenAgeMinutes = tokenAgeMinutes,
                             buyPressurePct = ts.lastBuyPressurePct,

@@ -30,6 +30,16 @@ object FluidLearningAI {
     private const val TAG = "FluidLearningAI"
     
     // ═══════════════════════════════════════════════════════════════════════════
+    // DATA CLASSES (defined at top for visibility)
+    // ═══════════════════════════════════════════════════════════════════════════
+    
+    data class HeuristicSignal(
+        val shouldEnter: Boolean,
+        val confidence: Double,
+        val reason: String,
+    )
+    
+    // ═══════════════════════════════════════════════════════════════════════════
     // INITIALIZATION
     // ═══════════════════════════════════════════════════════════════════════════
     
@@ -176,12 +186,6 @@ object FluidLearningAI {
     // 
     // When CollectiveAI has no patterns, use a simple heuristic model
     // ═══════════════════════════════════════════════════════════════════════════
-    
-    data class HeuristicSignal(
-        val shouldEnter: Boolean,
-        val confidence: Double,
-        val reason: String,
-    )
     
     /**
      * Simple heuristic model for when AI has no learned patterns.
