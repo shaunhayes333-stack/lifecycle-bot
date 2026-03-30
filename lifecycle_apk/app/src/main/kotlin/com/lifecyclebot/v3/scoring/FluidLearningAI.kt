@@ -569,21 +569,22 @@ object FluidLearningAI {
     // - Short hold times (max 8 min)
     // But it should NOT take garbage trades on first startup!
     // V5.0: RAISED bootstrap thresholds - too much garbage was getting through!
+    // V5.1: SLIGHTLY LOWERED to allow more trading during bootstrap
     // ═══════════════════════════════════════════════════════════════════════════
     
-    private const val TREASURY_CONF_BOOTSTRAP = 35   // V5.0: Raised from 20 - filter garbage
+    private const val TREASURY_CONF_BOOTSTRAP = 30   // V5.1: Lowered from 35 - allow more trades
     private const val TREASURY_CONF_MATURE = 45      // Raise as we learn (normal progression)
     
-    private const val TREASURY_LIQ_BOOTSTRAP = 5000.0   // V5.0: Raised from 1500 - no micro-liq garbage
+    private const val TREASURY_LIQ_BOOTSTRAP = 3000.0   // V5.1: Lowered from 5000 - allow smaller liq
     private const val TREASURY_LIQ_MATURE = 10000.0      // Raise threshold as we learn
     
-    private const val TREASURY_TOP_HOLDER_BOOTSTRAP = 35.0  // V5.0: Lowered from 40 - filter concentrated
+    private const val TREASURY_TOP_HOLDER_BOOTSTRAP = 40.0  // V5.1: Raised from 35 - more permissive
     private const val TREASURY_TOP_HOLDER_MATURE = 25.0     // Tighten as we learn
     
-    private const val TREASURY_BUY_PRESSURE_BOOTSTRAP = 40.0  // V5.0: Raised from 30 - need buy pressure
+    private const val TREASURY_BUY_PRESSURE_BOOTSTRAP = 35.0  // V5.1: Lowered from 40 - allow more
     private const val TREASURY_BUY_PRESSURE_MATURE = 50.0     // Raise as we learn
     
-    private const val TREASURY_SCORE_BOOTSTRAP = 20    // V5.0: Raised from 10 - filter low-score garbage
+    private const val TREASURY_SCORE_BOOTSTRAP = 15    // V5.1: Lowered from 20 - allow more trades
     private const val TREASURY_SCORE_MATURE = 30       // Raise as we learn
     
     fun getTreasuryConfidenceThreshold(): Int = lerp(TREASURY_CONF_BOOTSTRAP.toDouble(), TREASURY_CONF_MATURE.toDouble()).toInt()

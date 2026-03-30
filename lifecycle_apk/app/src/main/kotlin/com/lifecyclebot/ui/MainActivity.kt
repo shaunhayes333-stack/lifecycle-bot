@@ -155,6 +155,8 @@ class MainActivity : AppCompatActivity() {
 
     // watchlist
     private lateinit var llTokenList: LinearLayout
+    private lateinit var llProbationList: LinearLayout  // V5.0: Side-by-side probation
+    private lateinit var tvProbationHeader: TextView    // V5.0: Probation header
     private lateinit var etAddMint: EditText
     private lateinit var btnAddToken: Button
 
@@ -596,6 +598,8 @@ for legal compliance.
         tvAiLayers = try { findViewById(R.id.tvAiLayers) } catch (_: Exception) { TextView(this) }
         
         llTokenList     = findViewById(R.id.llTokenList)
+        llProbationList = findViewById(R.id.llProbationList)  // V5.0
+        tvProbationHeader = findViewById(R.id.tvProbationHeader)  // V5.0
         etAddMint       = findViewById(R.id.etAddMint)
         btnAddToken     = findViewById(R.id.btnAddToken)
         etActiveToken   = findViewById(R.id.etActiveToken)
@@ -2077,24 +2081,21 @@ for legal compliance.
 
     private fun renderWatchlist(state: UiState) {
         llTokenList.removeAllViews()
+        llProbationList.removeAllViews()
         val active = state.config.activeToken
         val solPrice = com.lifecyclebot.engine.WalletManager.lastKnownSolPrice
         
         // ═══════════════════════════════════════════════════════════════════════
-        // V5.0: PROBATION SECTION
-        // Show tokens in probation tier above the watchlist
+        // V5.0: SIDE-BY-SIDE PROBATION + WATCHLIST
+        // Probation on the left, Watchlist on the right
         // ═══════════════════════════════════════════════════════════════════════
         val probationEntries = com.lifecyclebot.engine.GlobalTradeRegistry.getProbationEntries()
+        
         if (probationEntries.isNotEmpty()) {
-            // Section header
-            val probationHeader = TextView(this).apply {
-                text = "⏳ PROBATION (${probationEntries.size})"
-                textSize = 12f
-                setTextColor(0xFFFF9500.toInt())  // Orange
-                setPadding(0, 8, 0, 8)
-                typeface = android.graphics.Typeface.DEFAULT_BOLD
-            }
-            llTokenList.addView(probationHeader)
+            // Show probation column
+            tvProbationHeader.visibility = android.view.View.VISIBLE
+            llProbationList.visibility = android.view.View.VISIBLE
+            tvProbationHeader.text = "⏳ Probation (${probationEntries.size})"
             
             for (entry in probationEntries) {
                 val elapsed = (System.currentTimeMillis() - entry.addedAt) / 1000
@@ -2104,74 +2105,81 @@ for legal compliance.
                 }
                 
                 val probationCard = LinearLayout(this).apply {
-                    orientation = LinearLayout.HORIZONTAL
-                    setPadding(12, 10, 12, 10)
-                    gravity = android.view.Gravity.CENTER_VERTICAL
+                    orientation = LinearLayout.VERTICAL
+                    setPadding(8, 8, 8, 8)
                     background = ContextCompat.getDrawable(this@MainActivity, R.drawable.card_bg)
                 }
                 
-                // Symbol
-                probationCard.addView(TextView(this).apply {
+                // Row 1: Symbol + Timer
+                val row1 = LinearLayout(this).apply {
+                    orientation = LinearLayout.HORIZONTAL
+                    gravity = android.view.Gravity.CENTER_VERTICAL
+                }
+                row1.addView(TextView(this).apply {
                     text = entry.symbol
-                    textSize = 14f
+                    textSize = 13f
                     setTextColor(0xFFFF9500.toInt())
                     typeface = android.graphics.Typeface.DEFAULT_BOLD
                     layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
                 })
+                row1.addView(TextView(this).apply {
+                    text = elapsedStr
+                    textSize = 10f
+                    setTextColor(muted)
+                })
+                probationCard.addView(row1)
                 
-                // Reason badge
+                // Row 2: Reason + Conf
+                val row2 = LinearLayout(this).apply {
+                    orientation = LinearLayout.HORIZONTAL
+                    gravity = android.view.Gravity.CENTER_VERTICAL
+                    setPadding(0, 4, 0, 0)
+                }
                 val reasonShort = when {
-                    entry.isSingleSource -> "1src"
-                    entry.isEstimatedLiquidity -> "est$"
-                    entry.initialConfidence < 50 -> "low"
+                    entry.isSingleSource -> "1-src"
+                    entry.isEstimatedLiquidity -> "est-$"
+                    entry.initialConfidence < 50 -> "low-c"
                     else -> "wait"
                 }
-                probationCard.addView(TextView(this).apply {
+                row2.addView(TextView(this).apply {
                     text = reasonShort
-                    textSize = 11f
-                    setTextColor(muted)
-                    setPadding(8, 2, 8, 2)
+                    textSize = 10f
+                    setTextColor(0xFFFF9500.toInt())
+                    setPadding(4, 2, 4, 2)
                     background = ContextCompat.getDrawable(this@MainActivity, R.drawable.badge_bg)
                 })
-                
-                // RC score if available
                 if (entry.rcScore >= 0) {
-                    probationCard.addView(TextView(this).apply {
-                        text = "  RC:${entry.rcScore}"
-                        textSize = 11f
+                    row2.addView(TextView(this).apply {
+                        text = " RC:${entry.rcScore}"
+                        textSize = 10f
                         setTextColor(if (entry.rcScore >= 30) green else if (entry.rcScore >= 15) 0xFFFFCC00.toInt() else red)
                         typeface = android.graphics.Typeface.MONOSPACE
                     })
                 }
-                
-                // Timer
-                probationCard.addView(TextView(this).apply {
-                    text = "  $elapsedStr"
-                    textSize = 11f
-                    setTextColor(muted)
-                    typeface = android.graphics.Typeface.MONOSPACE
-                })
+                if (entry.initialConfidence > 0) {
+                    row2.addView(TextView(this).apply {
+                        text = " ${entry.initialConfidence}%"
+                        textSize = 10f
+                        setTextColor(muted)
+                    })
+                }
+                probationCard.addView(row2)
                 
                 val wrapper = LinearLayout(this).apply {
                     orientation = LinearLayout.VERTICAL
                     setPadding(0, 0, 0, 6)
                 }
                 wrapper.addView(probationCard)
-                llTokenList.addView(wrapper)
+                llProbationList.addView(wrapper)
             }
-            
-            // Divider between probation and watchlist
-            val divider = View(this).apply {
-                layoutParams = LinearLayout.LayoutParams(
-                    LinearLayout.LayoutParams.MATCH_PARENT, 2
-                ).also { it.topMargin = 8; it.bottomMargin = 8 }
-                setBackgroundColor(0xFF1F2937.toInt())
-            }
-            llTokenList.addView(divider)
+        } else {
+            // Hide probation column when empty
+            tvProbationHeader.visibility = android.view.View.GONE
+            llProbationList.visibility = android.view.View.GONE
         }
         
         // ═══════════════════════════════════════════════════════════════════════
-        // MAIN WATCHLIST
+        // MAIN WATCHLIST (right column)
         // ═══════════════════════════════════════════════════════════════════════
         // V5.0: Enhanced watchlist with scanner scoring info
         state.tokens.values.forEach { ts ->

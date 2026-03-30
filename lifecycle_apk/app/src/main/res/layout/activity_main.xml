@@ -1739,14 +1739,52 @@
                 android:orientation="vertical"
                 android:padding="@dimen/card_padding">
 
-                <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
-                    android:text="👀 Watchlist" android:textColor="#FFFFFF"
-                    android:textSize="@dimen/section_title_size" android:textStyle="bold"
-                    android:layout_marginBottom="10dp"/>
+                <!-- V5.0: Side-by-side Probation + Watchlist headers -->
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="horizontal"
+                    android:layout_marginBottom="10dp">
 
-                <LinearLayout android:id="@+id/llTokenList"
-                    android:layout_width="match_parent" android:layout_height="wrap_content"
-                    android:orientation="vertical"/>
+                    <TextView android:id="@+id/tvProbationHeader"
+                        android:layout_width="0dp"
+                        android:layout_height="wrap_content"
+                        android:layout_weight="1"
+                        android:text="⏳ Probation"
+                        android:textColor="#FF9500"
+                        android:textSize="@dimen/section_title_size"
+                        android:textStyle="bold"
+                        android:visibility="gone"/>
+
+                    <TextView android:layout_width="0dp" android:layout_height="wrap_content"
+                        android:layout_weight="1"
+                        android:text="👀 Watchlist" android:textColor="#FFFFFF"
+                        android:textSize="@dimen/section_title_size" android:textStyle="bold"/>
+                </LinearLayout>
+
+                <!-- V5.0: Side-by-side token lists -->
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="horizontal"
+                    android:baselineAligned="false">
+
+                    <!-- Probation column (left) -->
+                    <LinearLayout android:id="@+id/llProbationList"
+                        android:layout_width="0dp"
+                        android:layout_height="wrap_content"
+                        android:layout_weight="1"
+                        android:orientation="vertical"
+                        android:paddingEnd="4dp"
+                        android:visibility="gone"/>
+
+                    <!-- Watchlist column (right) -->
+                    <LinearLayout android:id="@+id/llTokenList"
+                        android:layout_width="0dp" android:layout_height="wrap_content"
+                        android:layout_weight="1"
+                        android:orientation="vertical"
+                        android:paddingStart="4dp"/>
+                </LinearLayout>
 
                 <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content"
                     android:orientation="horizontal" android:gravity="center_vertical"

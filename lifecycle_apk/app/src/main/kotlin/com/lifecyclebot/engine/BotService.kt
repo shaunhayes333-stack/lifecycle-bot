@@ -4011,9 +4011,9 @@ class BotService : Service() {
     val isCGrade = decision.setupQuality == "C" || decision.setupQuality == "D"
     val fluidCGradeConfFloor = try {
         val learningProgress = com.lifecyclebot.v3.scoring.FluidLearningAI.getLearningProgress()
-        // V4.20: 10% at bootstrap → 27% at mature (lowered by 8 points)
-        (10 + (learningProgress * 17)).toInt().coerceIn(10, 27)
-    } catch (_: Exception) { 15 }
+        // V5.1: 7% at bootstrap → 20% at mature (lowered to allow more C-grade trades)
+        (7 + (learningProgress * 13)).toInt().coerceIn(7, 20)
+    } catch (_: Exception) { 10 }
     
     if (isCGrade && confValue < fluidCGradeConfFloor) {
         ErrorLogger.info("BotService", "[V3|PROMOTION_GATE] ${identity.symbol} | allow=false | " +
