@@ -2219,1953 +2219,1954 @@ class BotService : Service() {
                 return  // skip full cycle — but we may have added fallback data
             }
 
-                    synchronized(status.tokens) {
-                        if (!status.tokens.containsKey(mint)) {
-                            status.tokens[mint] = TokenState(
-                                mint       = mint,
-                                symbol     = pair.baseSymbol.ifBlank { mint.take(6) },
-                                name       = pair.baseName,
-                                pairAddress = pair.pairAddress,
-                                pairUrl    = pair.url,
-                                source     = "WATCHLIST",  // Tokens loaded from config
-                                logoUrl    = "https://dd.dexscreener.com/ds-data/tokens/solana/$mint.png",
-                            )
-                        }
-                        val ts = status.tokens[mint] ?: return
-                        
-                        // Try to infer source if unknown
-                        if (ts.source.isEmpty() || ts.source == "UNKNOWN") {
-                            ts.source = when {
-                                pair.url.contains("pump.fun") -> "PUMP_FUN_GRADUATE"
-                                pair.url.contains("raydium") -> "RAYDIUM_NEW_POOL"
-                                else -> "DEX_TRENDING"
-                            }
-                        }
-                        
-                        ts.lastPrice        = pair.candle.priceUsd
-                        ts.lastMcap         = pair.candle.marketCap
-                        ts.lastLiquidityUsd = pair.liquidity
-                        ts.lastFdv          = pair.fdv
-                        
-                        // V3.2: Update shadow learning engine with price
-                        if (pair.candle.priceUsd > 0) {
-                            com.lifecyclebot.v3.learning.ShadowLearningEngine.updatePrice(
-                                ts.mint, pair.candle.priceUsd
-                            )
-                        }
-                        
-                        synchronized(ts.history) {
-                            ts.history.addLast(pair.candle)
-                            if (ts.history.size > 300) ts.history.removeFirst()
-                        }
-                        // Update peak holder count and growth rate
-                        val latestHolders = pair.candle.holderCount
-                        if (latestHolders > ts.peakHolderCount) ts.peakHolderCount = latestHolders
-                        if (ts.history.size >= 12) {
-                            val recentH = ts.history.takeLast(3).map { it.holderCount }.filter { it > 0 }
-                            val earlierH = ts.history.takeLast(12).take(6).map { it.holderCount }.filter { it > 0 }
-                            if (recentH.isNotEmpty() && earlierH.isNotEmpty()) {
-                                val rAvg = recentH.average(); val eAvg = earlierH.average()
-                                ts.holderGrowthRate = if (eAvg > 0) (rAvg - eAvg) / eAvg * 100.0 else 0.0
-                            }
-                        }
-                    }
 
-                    val ts = status.tokens[mint] ?: return
-                    
-                    // ═══════════════════════════════════════════════════════════════════
-                    // PAPER MODE LEARNING: Update shadow tracking for blocked trades
-                    // Track what would have happened if we traded FDG-blocked opportunities
-                    // ═══════════════════════════════════════════════════════════════════
-                    if (cfg.paperMode && ts.ref > 0) {
-                        ShadowLearningEngine.updateBlockedTradePrices(mint, ts.ref)
-                    }
-                    
-                    // ═══════════════════════════════════════════════════════════════════
-                    // Skip permanently banned tokens immediately (REAL MODE ONLY)
-                    // In paper mode, we want to keep trading banned tokens for learning
-                    // ═══════════════════════════════════════════════════════════════════
-                    if (!cfg.paperMode && BannedTokens.isBanned(mint)) {
-                        // Remove from watchlist to stop wasting resources
-                        synchronized(status.tokens) {
-                            status.tokens.remove(mint)
-                        }
-                        ErrorLogger.debug("BotService", "Removing banned token ${ts.symbol} from watchlist")
-                        return
-                    }
-                    
-                    // ── Rug Detection - Learn from sudden liquidity/price drops ──
-                    if (ts.history.size >= 3) {
-                        val recentCandles = ts.history.takeLast(3)
-                        val olderCandles = ts.history.takeLast(6).take(3)
-                        
-                        val recentLiq = pair.liquidity
-                        val olderLiq = olderCandles.firstOrNull()?.let { 
-                            // Estimate older liquidity from mcap if available
-                            ts.history.takeLast(6).firstOrNull()?.marketCap?.let { it * 0.1 } ?: recentLiq 
-                        } ?: recentLiq
-                        
-                        val recentPrice = recentCandles.lastOrNull()?.priceUsd ?: 0.0
-                        val olderPrice = olderCandles.firstOrNull()?.priceUsd ?: recentPrice
-                        
-                        // Detect potential rug: >50% price drop or liquidity collapse
-                        if (olderPrice > 0 && recentPrice > 0) {
-                            val priceDropPct = ((olderPrice - recentPrice) / olderPrice) * 100
-                            val liqDropPct = if (olderLiq > 0) ((olderLiq - recentLiq) / olderLiq) * 100 else 0.0
-                            
-                            if (priceDropPct >= 50 || liqDropPct >= 70) {
-                                val ageHours = (System.currentTimeMillis() - (ts.addedToWatchlistAt)) / 3_600_000.0
-                                val volumeSpike = recentCandles.sumOf { it.vol } > olderCandles.sumOf { it.vol } * 2
-                                
-                                TradingMemory.learnFromRug(
-                                    mint = mint,
-                                    symbol = ts.symbol,
-                                    creatorWallet = null,  // Would need API to get this
-                                    liquidityDropPct = liqDropPct,
-                                    priceDropPct = priceDropPct,
-                                    volumeSpikeBeforeRug = volumeSpike,
-                                    holderDumpDetected = ts.holderGrowthRate < -20,
-                                    timeFromLaunchHours = ageHours,
-                                )
-                                addLog("🤖 AI RUG LEARNED: ${ts.symbol} | price -${priceDropPct.toInt()}% liq -${liqDropPct.toInt()}% | Pattern saved", mint)
-                                TokenBlacklist.block(mint, "Rug detected: price -${priceDropPct.toInt()}%")
-                            }
-                        }
-                    }
-                    
-                    // ── Safety check (cached 10 min) ──────────────────────
-                val safetyAge = System.currentTimeMillis() - ts.lastSafetyCheck
-                if (safetyAge > 10 * 60_000L) {
-                    scope.launch {
-                        try {
-                            val pairCreatedAt = pair.pairCreatedAtMs.takeIf { it > 0L } ?: pair.candle.ts
-                            val report = safetyChecker.check(
-                                mint            = mint,
-                                symbol          = ts.symbol,
-                                name            = ts.name,
-                                pairCreatedAtMs = pairCreatedAt,
-                            )
-                            synchronized(ts) {
-                                ts.safety       = report
-                                ts.lastSafetyCheck = System.currentTimeMillis()
-                            }
-                            when (report.tier) {
-                                SafetyTier.HARD_BLOCK -> {
-                                    val reason = report.hardBlockReasons.firstOrNull() ?: "Safety check"
-                                    addLog("SAFETY BLOCK [${ts.symbol}]: $reason", mint)
-                                    sendTradeNotif("Token Blocked", "${ts.symbol}: ${report.summary}",
-                                        NotificationHistory.NotifEntry.NotifType.SAFETY_BLOCK)
-                                    TokenBlacklist.block(mint, "Safety: $reason")
-                                    // Permanent ban for rug/scam patterns
-                                    if (reason.contains("rug", ignoreCase = true) || 
-                                        reason.contains("honeypot", ignoreCase = true) ||
-                                        reason.contains("scam", ignoreCase = true)) {
-                                        BannedTokens.ban(mint, "Safety: $reason")
-                                        addLog("🚫 PERMANENTLY BANNED: ${ts.symbol} - $reason", mint)
-                                    }
-                                    soundManager.playSafetyBlock()
-                                }
-                                SafetyTier.CAUTION -> {
-                                    addLog("SAFETY CAUTION [${ts.symbol}]: ${report.summary}", mint)
-                                }
-                                else -> {}
-                            }
-                        } catch (_: Exception) {}
-                    }
+        synchronized(status.tokens) {
+            if (!status.tokens.containsKey(mint)) {
+                status.tokens[mint] = TokenState(
+                    mint       = mint,
+                    symbol     = pair.baseSymbol.ifBlank { mint.take(6) },
+                    name       = pair.baseName,
+                    pairAddress = pair.pairAddress,
+                    pairUrl    = pair.url,
+                    source     = "WATCHLIST",  // Tokens loaded from config
+                    logoUrl    = "https://dd.dexscreener.com/ds-data/tokens/solana/$mint.png",
+                )
+            }
+            val ts = status.tokens[mint] ?: return
+            
+            // Try to infer source if unknown
+            if (ts.source.isEmpty() || ts.source == "UNKNOWN") {
+                ts.source = when {
+                    pair.url.contains("pump.fun") -> "PUMP_FUN_GRADUATE"
+                    pair.url.contains("raydium") -> "RAYDIUM_NEW_POOL"
+                    else -> "DEX_TRENDING"
                 }
+            }
+            
+            ts.lastPrice        = pair.candle.priceUsd
+            ts.lastMcap         = pair.candle.marketCap
+            ts.lastLiquidityUsd = pair.liquidity
+            ts.lastFdv          = pair.fdv
+            
+            // V3.2: Update shadow learning engine with price
+            if (pair.candle.priceUsd > 0) {
+                com.lifecyclebot.v3.learning.ShadowLearningEngine.updatePrice(
+                    ts.mint, pair.candle.priceUsd
+                )
+            }
+            
+            synchronized(ts.history) {
+                ts.history.addLast(pair.candle)
+                if (ts.history.size > 300) ts.history.removeFirst()
+            }
+            // Update peak holder count and growth rate
+            val latestHolders = pair.candle.holderCount
+            if (latestHolders > ts.peakHolderCount) ts.peakHolderCount = latestHolders
+            if (ts.history.size >= 12) {
+                val recentH = ts.history.takeLast(3).map { it.holderCount }.filter { it > 0 }
+                val earlierH = ts.history.takeLast(12).take(6).map { it.holderCount }.filter { it > 0 }
+                if (recentH.isNotEmpty() && earlierH.isNotEmpty()) {
+                    val rAvg = recentH.average(); val eAvg = earlierH.average()
+                    ts.holderGrowthRate = if (eAvg > 0) (rAvg - eAvg) / eAvg * 100.0 else 0.0
+                }
+            }
+        }
 
-                lastSuccessfulPollMs = System.currentTimeMillis()
+        val ts = status.tokens[mint] ?: return
+        
+        // ═══════════════════════════════════════════════════════════════════
+        // PAPER MODE LEARNING: Update shadow tracking for blocked trades
+        // Track what would have happened if we traded FDG-blocked opportunities
+        // ═══════════════════════════════════════════════════════════════════
+        if (cfg.paperMode && ts.ref > 0) {
+            ShadowLearningEngine.updateBlockedTradePrices(mint, ts.ref)
+        }
+        
+        // ═══════════════════════════════════════════════════════════════════
+        // Skip permanently banned tokens immediately (REAL MODE ONLY)
+        // In paper mode, we want to keep trading banned tokens for learning
+        // ═══════════════════════════════════════════════════════════════════
+        if (!cfg.paperMode && BannedTokens.isBanned(mint)) {
+            // Remove from watchlist to stop wasting resources
+            synchronized(status.tokens) {
+                status.tokens.remove(mint)
+            }
+            ErrorLogger.debug("BotService", "Removing banned token ${ts.symbol} from watchlist")
+            return
+        }
+        
+        // ── Rug Detection - Learn from sudden liquidity/price drops ──
+        if (ts.history.size >= 3) {
+            val recentCandles = ts.history.takeLast(3)
+            val olderCandles = ts.history.takeLast(6).take(3)
+            
+            val recentLiq = pair.liquidity
+            val olderLiq = olderCandles.firstOrNull()?.let { 
+                // Estimate older liquidity from mcap if available
+                ts.history.takeLast(6).firstOrNull()?.marketCap?.let { it * 0.1 } ?: recentLiq 
+            } ?: recentLiq
+            
+            val recentPrice = recentCandles.lastOrNull()?.priceUsd ?: 0.0
+            val olderPrice = olderCandles.firstOrNull()?.priceUsd ?: recentPrice
+            
+            // Detect potential rug: >50% price drop or liquidity collapse
+            if (olderPrice > 0 && recentPrice > 0) {
+                val priceDropPct = ((olderPrice - recentPrice) / olderPrice) * 100
+                val liqDropPct = if (olderLiq > 0) ((olderLiq - recentLiq) / olderLiq) * 100 else 0.0
                 
-                // ═══════════════════════════════════════════════════════════════════
-                // STEP 0: CORE EVALUATIONS (needed by subsequent steps)
-                // ═══════════════════════════════════════════════════════════════════
-                val curveState = BondingCurveTracker.evaluate(ts)
-                val whaleState = WhaleDetector.evaluate(mint, ts)
-                
-                // ═══════════════════════════════════════════════════════════════════
-                // STEP 1: HARD RUG PRE-FILTER
-                // Kill obvious garbage BEFORE consuming strategy/FDG cycles
-                // ═══════════════════════════════════════════════════════════════════
-                if (!ts.position.isOpen) {
-                    val preFilterResult = try {
-                        HardRugPreFilter.filter(ts)
-                    } catch (e: Exception) {
-                        ErrorLogger.debug("BotService", "PreFilter error: ${e.message}")
-                        HardRugPreFilter.PreFilterResult(true, null, HardRugPreFilter.FilterSeverity.PASS)
-                    }
+                if (priceDropPct >= 50 || liqDropPct >= 70) {
+                    val ageHours = (System.currentTimeMillis() - (ts.addedToWatchlistAt)) / 3_600_000.0
+                    val volumeSpike = recentCandles.sumOf { it.vol } > olderCandles.sumOf { it.vol } * 2
                     
-                    if (!preFilterResult.pass) {
-                        HardRugPreFilter.logFailure(ts, preFilterResult)
-                        return  // Skip to next token (exit this coroutine)
-                    }
-                }
-                
-                // ═══════════════════════════════════════════════════════════════════
-                // STEP 2: DISTRIBUTION FADE AVOIDER
-                // Check if token is in distribution/dead-bounce state
-                // Note: edgePhase comes from ScoreResult later, so we pass null here
-                // and rely on price/volume pattern detection instead
-                // ═══════════════════════════════════════════════════════════════════
-                val distributionCheck = try {
-                    DistributionFadeAvoider.evaluate(ts, null)
-                } catch (e: Exception) {
-                    ErrorLogger.debug("BotService", "DistFade error: ${e.message}")
-                    DistributionFadeAvoider.FadeResult(false, null, 1.0, 0L)
-                }
-                
-                if (distributionCheck.shouldBlock && !ts.position.isOpen) {
-                    ErrorLogger.info("BotService", "🔻 ${ts.symbol} DISTRIBUTION_FADE: ${distributionCheck.reason}")
-                    return  // Skip to next token (exit this coroutine)
-                }
-                
-                // ═══════════════════════════════════════════════════════════════════
-                // STEP 3: LIQUIDITY BUCKET CLASSIFICATION
-                // Determines which mode family is appropriate
-                // ═══════════════════════════════════════════════════════════════════
-                val liquidityBucket = try {
-                    LiquidityBucketRouter.classify(ts)
-                } catch (e: Exception) {
-                    ErrorLogger.debug("BotService", "LiqBucket error: ${e.message}")
-                    null
-                }
-                
-                // ═══════════════════════════════════════════════════════════════════
-                // STEP 4: REENTRY RECOVERY CHECK
-                // If token previously failed, use stricter recovery rules
-                // ═══════════════════════════════════════════════════════════════════
-                val isRecoveryCandidate = ReentryRecoveryMode.isRecoveryCandidate(ts.mint)
-                val recoveryEval = if (isRecoveryCandidate && !ts.position.isOpen) {
-                    try {
-                        val eval = ReentryRecoveryMode.evaluateRecovery(ts)
-                        ReentryRecoveryMode.logEvaluation(ts, eval)
-                        eval
-                    } catch (e: Exception) {
-                        ErrorLogger.debug("BotService", "ReentryRecovery error: ${e.message}")
-                        null
-                    }
-                } else null
-                
-                // Auto-mode evaluation - must come before strategy.evaluate
-                val trendRank  = try { null } catch (_: Exception) { null } // from CoinGecko cache
-                val modeConf   = if (cfg.autoMode) {
-                    autoMode.evaluate(ts, whaleState.whaleScore, trendRank, curveState.stage)
-                } else null
-                
-                // ═══════════════════════════════════════════════════════════════════
-                // STEP 5: MODE ROUTER - Classify what KIND of trade this is
-                // 
-                // Pipeline: prefilter → distribution check → liq bucket → mode classifier → FDG
-                // ═══════════════════════════════════════════════════════════════════
-                val modeClassification = try {
-                    ModeRouter.classify(ts)
-                } catch (e: Exception) {
-                    ErrorLogger.debug("BotService", "ModeRouter error: ${e.message}")
-                    ModeRouter.Classification(
-                        tradeType = ModeRouter.TradeType.UNKNOWN,
-                        confidence = 0.0,
-                        signals = emptyList(),
-                        subSignals = emptyMap(),
+                    TradingMemory.learnFromRug(
+                        mint = mint,
+                        symbol = ts.symbol,
+                        creatorWallet = null,  // Would need API to get this
+                        liquidityDropPct = liqDropPct,
+                        priceDropPct = priceDropPct,
+                        volumeSpikeBeforeRug = volumeSpike,
+                        holderDumpDetected = ts.holderGrowthRate < -20,
+                        timeFromLaunchHours = ageHours,
                     )
+                    addLog("🤖 AI RUG LEARNED: ${ts.symbol} | price -${priceDropPct.toInt()}% liq -${liqDropPct.toInt()}% | Pattern saved", mint)
+                    TokenBlacklist.block(mint, "Rug detected: price -${priceDropPct.toInt()}%")
                 }
-                
-                // Apply distribution penalty to mode classification confidence
-                val adjustedModeConfidence = modeClassification.confidence * distributionCheck.scoreMultiplier
-                
-                // Apply liquidity bucket size multiplier
-                val liqSizeMultiplier = liquidityBucket?.maxSizeMultiplier ?: 1.0
-                
-                // Apply recovery mode restrictions if applicable
-                val finalSizeMultiplier = if (recoveryEval?.canReenter == true) {
-                    liqSizeMultiplier * recoveryEval.sizeMultiplier
-                } else {
-                    liqSizeMultiplier
+            }
+        }
+        
+        // ── Safety check (cached 10 min) ──────────────────────
+    val safetyAge = System.currentTimeMillis() - ts.lastSafetyCheck
+    if (safetyAge > 10 * 60_000L) {
+        scope.launch {
+            try {
+                val pairCreatedAt = pair.pairCreatedAtMs.takeIf { it > 0L } ?: pair.candle.ts
+                val report = safetyChecker.check(
+                    mint            = mint,
+                    symbol          = ts.symbol,
+                    name            = ts.name,
+                    pairCreatedAtMs = pairCreatedAt,
+                )
+                synchronized(ts) {
+                    ts.safety       = report
+                    ts.lastSafetyCheck = System.currentTimeMillis()
                 }
-                
-                // Run specialized scanners for additional signals
-                val scanResult = try {
-                    ModeSpecificScanners.scanAll(ts)
-                } catch (e: Exception) {
-                    ErrorLogger.debug("BotService", "ModeScanner error: ${e.message}")
-                    null
+                when (report.tier) {
+                    SafetyTier.HARD_BLOCK -> {
+                        val reason = report.hardBlockReasons.firstOrNull() ?: "Safety check"
+                        addLog("SAFETY BLOCK [${ts.symbol}]: $reason", mint)
+                        sendTradeNotif("Token Blocked", "${ts.symbol}: ${report.summary}",
+                            NotificationHistory.NotifEntry.NotifType.SAFETY_BLOCK)
+                        TokenBlacklist.block(mint, "Safety: $reason")
+                        // Permanent ban for rug/scam patterns
+                        if (reason.contains("rug", ignoreCase = true) || 
+                            reason.contains("honeypot", ignoreCase = true) ||
+                            reason.contains("scam", ignoreCase = true)) {
+                            BannedTokens.ban(mint, "Safety: $reason")
+                            addLog("🚫 PERMANENTLY BANNED: ${ts.symbol} - $reason", mint)
+                        }
+                        soundManager.playSafetyBlock()
+                    }
+                    SafetyTier.CAUTION -> {
+                        addLog("SAFETY CAUTION [${ts.symbol}]: ${report.summary}", mint)
+                    }
+                    else -> {}
                 }
-                
-                // Log significant classifications
-                if (modeClassification.tradeType != ModeRouter.TradeType.UNKNOWN && 
-                    modeClassification.confidence > 50 && !ts.position.isOpen) {
-                    ModeRouter.logClassification(ts, modeClassification)
+            } catch (_: Exception) {}
+        }
+    }
+
+    lastSuccessfulPollMs = System.currentTimeMillis()
+    
+    // ═══════════════════════════════════════════════════════════════════
+    // STEP 0: CORE EVALUATIONS (needed by subsequent steps)
+    // ═══════════════════════════════════════════════════════════════════
+    val curveState = BondingCurveTracker.evaluate(ts)
+    val whaleState = WhaleDetector.evaluate(mint, ts)
+    
+    // ═══════════════════════════════════════════════════════════════════
+    // STEP 1: HARD RUG PRE-FILTER
+    // Kill obvious garbage BEFORE consuming strategy/FDG cycles
+    // ═══════════════════════════════════════════════════════════════════
+    if (!ts.position.isOpen) {
+        val preFilterResult = try {
+            HardRugPreFilter.filter(ts)
+        } catch (e: Exception) {
+            ErrorLogger.debug("BotService", "PreFilter error: ${e.message}")
+            HardRugPreFilter.PreFilterResult(true, null, HardRugPreFilter.FilterSeverity.PASS)
+        }
+        
+        if (!preFilterResult.pass) {
+            HardRugPreFilter.logFailure(ts, preFilterResult)
+            return  // Skip to next token (exit this coroutine)
+        }
+    }
+    
+    // ═══════════════════════════════════════════════════════════════════
+    // STEP 2: DISTRIBUTION FADE AVOIDER
+    // Check if token is in distribution/dead-bounce state
+    // Note: edgePhase comes from ScoreResult later, so we pass null here
+    // and rely on price/volume pattern detection instead
+    // ═══════════════════════════════════════════════════════════════════
+    val distributionCheck = try {
+        DistributionFadeAvoider.evaluate(ts, null)
+    } catch (e: Exception) {
+        ErrorLogger.debug("BotService", "DistFade error: ${e.message}")
+        DistributionFadeAvoider.FadeResult(false, null, 1.0, 0L)
+    }
+    
+    if (distributionCheck.shouldBlock && !ts.position.isOpen) {
+        ErrorLogger.info("BotService", "🔻 ${ts.symbol} DISTRIBUTION_FADE: ${distributionCheck.reason}")
+        return  // Skip to next token (exit this coroutine)
+    }
+    
+    // ═══════════════════════════════════════════════════════════════════
+    // STEP 3: LIQUIDITY BUCKET CLASSIFICATION
+    // Determines which mode family is appropriate
+    // ═══════════════════════════════════════════════════════════════════
+    val liquidityBucket = try {
+        LiquidityBucketRouter.classify(ts)
+    } catch (e: Exception) {
+        ErrorLogger.debug("BotService", "LiqBucket error: ${e.message}")
+        null
+    }
+    
+    // ═══════════════════════════════════════════════════════════════════
+    // STEP 4: REENTRY RECOVERY CHECK
+    // If token previously failed, use stricter recovery rules
+    // ═══════════════════════════════════════════════════════════════════
+    val isRecoveryCandidate = ReentryRecoveryMode.isRecoveryCandidate(ts.mint)
+    val recoveryEval = if (isRecoveryCandidate && !ts.position.isOpen) {
+        try {
+            val eval = ReentryRecoveryMode.evaluateRecovery(ts)
+            ReentryRecoveryMode.logEvaluation(ts, eval)
+            eval
+        } catch (e: Exception) {
+            ErrorLogger.debug("BotService", "ReentryRecovery error: ${e.message}")
+            null
+        }
+    } else null
+    
+    // Auto-mode evaluation - must come before strategy.evaluate
+    val trendRank  = try { null } catch (_: Exception) { null } // from CoinGecko cache
+    val modeConf   = if (cfg.autoMode) {
+        autoMode.evaluate(ts, whaleState.whaleScore, trendRank, curveState.stage)
+    } else null
+    
+    // ═══════════════════════════════════════════════════════════════════
+    // STEP 5: MODE ROUTER - Classify what KIND of trade this is
+    // 
+    // Pipeline: prefilter → distribution check → liq bucket → mode classifier → FDG
+    // ═══════════════════════════════════════════════════════════════════
+    val modeClassification = try {
+        ModeRouter.classify(ts)
+    } catch (e: Exception) {
+        ErrorLogger.debug("BotService", "ModeRouter error: ${e.message}")
+        ModeRouter.Classification(
+            tradeType = ModeRouter.TradeType.UNKNOWN,
+            confidence = 0.0,
+            signals = emptyList(),
+            subSignals = emptyMap(),
+        )
+    }
+    
+    // Apply distribution penalty to mode classification confidence
+    val adjustedModeConfidence = modeClassification.confidence * distributionCheck.scoreMultiplier
+    
+    // Apply liquidity bucket size multiplier
+    val liqSizeMultiplier = liquidityBucket?.maxSizeMultiplier ?: 1.0
+    
+    // Apply recovery mode restrictions if applicable
+    val finalSizeMultiplier = if (recoveryEval?.canReenter == true) {
+        liqSizeMultiplier * recoveryEval.sizeMultiplier
+    } else {
+        liqSizeMultiplier
+    }
+    
+    // Run specialized scanners for additional signals
+    val scanResult = try {
+        ModeSpecificScanners.scanAll(ts)
+    } catch (e: Exception) {
+        ErrorLogger.debug("BotService", "ModeScanner error: ${e.message}")
+        null
+    }
+    
+    // Log significant classifications
+    if (modeClassification.tradeType != ModeRouter.TradeType.UNKNOWN && 
+        modeClassification.confidence > 50 && !ts.position.isOpen) {
+        ModeRouter.logClassification(ts, modeClassification)
+    }
+    
+    // ═══════════════════════════════════════════════════════════════════
+    // PRIORITY 2: Use unified evaluateWithDecision for complete analysis
+    // Pass isPaperMode to relax Edge veto in paper mode for better learning
+    // Pass brain for adaptive threshold learning
+    // ═══════════════════════════════════════════════════════════════════
+    
+    // ═══════════════════════════════════════════════════════════════════
+    // MOMENTUM PREDICTOR AI: Record price/volume data for pattern detection
+    // ═══════════════════════════════════════════════════════════════════
+    try {
+        if (ts.history.size >= 2) {
+            val lastCandle = ts.history.lastOrNull()
+            if (lastCandle != null) {
+                MomentumPredictorAI.recordPricePoint(
+                    mint = mint,
+                    symbol = ts.symbol,
+                    price = lastCandle.priceUsd,
+                    volume = lastCandle.vol,
+                    buyPressure = (lastCandle.buyRatio * 100),
+                    txCount = lastCandle.buysH1 + lastCandle.sellsH1,
+                )
+            }
+        }
+    } catch (e: Exception) {
+        ErrorLogger.debug("BotService", "MomentumPredictorAI record error: ${e.message}")
+    }
+    
+    val modeConfForEval = if (cfg.autoMode) modeConf else null
+    val (result, decision) = strategy.evaluateWithDecision(ts, modeConfForEval, cfg.paperMode, executor.brain)
+
+        synchronized(ts) {
+            ts.phase      = result.phase
+            ts.signal     = result.signal
+            ts.entryScore = result.entryScore
+            ts.exitScore  = result.exitScore
+            ts.meta       = result.meta
+        }
+        
+        // ═══════════════════════════════════════════════════════════════════
+        // V3 CLEAN RUNTIME: Strategy output is now INPUT to V3, not a decision
+        // 
+        // Old flow: Strategy → "BUY SIGNAL" → CANDIDATE → FDG → V3 (nested)
+        // New flow: Strategy → V3 input → V3 SCORING → V3 DECISION → Execute
+        // 
+        // Strategy still calculates entry/exit scores, phases, quality - but
+        // these become V3 CandidateSnapshot extras, not decision authority.
+        // V3 is the ONLY thing that outputs EXECUTE/WATCH/REJECT.
+        // ═══════════════════════════════════════════════════════════════════
+        
+        // NOTE: Legacy logs like "BUY SIGNAL", "shouldTrade", "CANDIDATE" 
+        // are now suppressed. V3 will output clean decision logs.
+
+        // Sentiment refresh (every sentimentPollMins)
+    val sentAge = System.currentTimeMillis() - ts.lastSentimentRefresh
+    if (cfg.sentimentEnabled && sentAge > cfg.sentimentPollMins * 60_000L) {
+        scope.launch {
+            try {
+                val fresh = sentimentEngine.refresh(mint, ts.symbol, ts.lastPrice)
+                synchronized(ts) {
+                    ts.sentiment = fresh
+                    ts.lastSentimentRefresh = System.currentTimeMillis()
                 }
+                if (fresh.blocked) {
+                    addLog("SENTIMENT BLOCK: ${fresh.blockReason}", mint)
+                    sendTradeNotif("Blocked", "${ts.symbol}: ${fresh.blockReason}", NotificationHistory.NotifEntry.NotifType.SAFETY_BLOCK)
+                }
+            } catch (_: Exception) {}
+        }
+    }
+    
+    // ═══════════════════════════════════════════════════════════════════
+    // SMART CHART SCANNER — Multi-timeframe pattern detection
+    // Runs asynchronously to avoid blocking main evaluation loop
+    // Feeds insights to SuperBrainEnhancements for learning
+    // ═══════════════════════════════════════════════════════════════════
+    if (ts.history.size >= 10) {
+        scope.launch {
+            try {
+                val scanResult = SmartChartScanner.quickScan(ts)
+                if (scanResult != null && scanResult.confidence >= 60) {
+                    // Log significant patterns
+                    val patternStr = buildString {
+                        scanResult.candlePatterns.forEach { append(it.emoji) }
+                        scanResult.chartPatterns.forEach { append(it.emoji) }
+                    }
+                    if (patternStr.isNotEmpty()) {
+                        ErrorLogger.debug("SmartChart", 
+                            "${ts.symbol}: $patternStr ${scanResult.overallBias} (${scanResult.confidence.toInt()}%)")
+                    }
+                }
+            } catch (e: Exception) {
+                ErrorLogger.debug("BotService", "SmartChart scan error: ${e.message}")
+            }
+        }
+    }
+
+    // Blacklist check — immediate skip if blocked
+    if (TokenBlacklist.isBlocked(mint)) {
+        if (ts.position.isOpen) {
+            // Force exit if we somehow hold a blacklisted token
+            val effectiveBalance = status.getEffectiveBalance(cfg.paperMode)
+            executor.maybeAct(ts, "EXIT", 0.0, effectiveBalance, wallet,
+                lastSuccessfulPollMs, status.openPositionCount, status.totalExposureSol)
+        }
+        return
+    }
+
+    // In PAUSED mode: no new entries (existing positions still managed)
+    if (modeConf?.mode == AutoModeEngine.BotMode.PAUSED && !ts.position.isOpen) return
+
+    // Trade on ALL watchlist tokens simultaneously
+    val cbState = securityGuard.getCircuitBreakerState()
+    val effectiveBalance = status.getEffectiveBalance(cfg.paperMode)
+    
+    // ═══════════════════════════════════════════════════════════════════
+    // TRADE IDENTITY: Get or create canonical identity for this token
+    // This ensures mint/symbol are always consistent across all systems
+    // ═══════════════════════════════════════════════════════════════════
+    val identity = TradeIdentityManager.getOrCreate(ts.mint, ts.symbol, ts.source)
+    
+    // ═══════════════════════════════════════════════════════════════════
+    // V3 CLEAN RUNTIME: V3 is the PRIMARY and ONLY decision authority
+    // 
+    // Flow:
+    //   1. Basic eligibility (dedupe, fatal suppression)
+    //   2. V3 processes token using Strategy output as input
+    //   3. V3 outputs: EXECUTE/WATCH/REJECT/BLOCK with clean logs
+    //   4. Only EXECUTE triggers trade
+    //
+    // Legacy concepts (shouldTrade, BUY SIGNAL, CANDIDATE) are internal
+    // notes only - they do NOT control execution anymore.
+    // ═══════════════════════════════════════════════════════════════════
+    
+    // DEDUPE: Skip if we recently evaluated this token
+    val (canProposeEarly, dedupeReason) = TradeLifecycle.canPropose(identity.mint)
+    if (!canProposeEarly && !ts.position.isOpen) {
+        // Silently skip - no spam logging
+        return
+    }
+    
+    // FATAL SUPPRESSION: Only rugged/honeypot/unsellable blocks
+    val isFatalSuppression = DistributionFadeAvoider.isFatalSuppression(identity.mint)
+    if (isFatalSuppression && !ts.position.isOpen) {
+        val reason = DistributionFadeAvoider.checkRawStrategySuppression(identity.mint)
+        ErrorLogger.info("BotService", "[FATAL] ${identity.symbol} | BLOCK | $reason")
+        return
+    }
+    
+    // ═══════════════════════════════════════════════════════════════════
+    // V3 ENGINE: Process token through unified scoring
+    // Strategy output (phase, entry/exit scores, quality) feeds into V3
+    // V3 is the ONLY thing that decides EXECUTE/WATCH/REJECT
+    // ═══════════════════════════════════════════════════════════════════
+    if (!ts.position.isOpen && cfg.v3EngineEnabled && com.lifecyclebot.v3.V3EngineManager.isReady()) {
+        
+        // ═══════════════════════════════════════════════════════════════════
+        // V3.3: CHECK FOR RECOVERY OPPORTUNITY FIRST
+        // If this token was stopped out but has bounced, consider re-entry
+        // ═══════════════════════════════════════════════════════════════════
+        val isRecoveryCandidate = try {
+            executor.checkRecoveryOpportunity(ts)
+        } catch (_: Exception) { false }
+        
+        if (isRecoveryCandidate) {
+            ErrorLogger.info("BotService", "🔄 RECOVERY ENTRY: ${identity.symbol} | Bounced from stop - attempting recovery trade")
+            addLog("🔄 RECOVERY: ${identity.symbol} bounced - attempting re-entry", ts.mint)
+            
+            // Execute recovery trade with smaller size and tighter stops
+            val recoverySize = effectiveBalance * 0.02  // 2% position max for recovery
+            
+            try {
+                executor.v3Buy(
+                    ts = ts,
+                    sizeSol = recoverySize.coerceAtMost(0.05),  // Max 0.05 SOL for recovery
+                    walletSol = effectiveBalance,
+                    v3Score = 50,  // Moderate score for recovery
+                    v3Band = "RECOVERY",
+                    v3Confidence = 60.0,
+                    wallet = wallet,
+                    lastSuccessfulPollMs = lastSuccessfulPollMs,
+                    openPositionCount = status.openPositionCount,
+                    totalExposureSol = status.totalExposureSol
+                )
                 
-                // ═══════════════════════════════════════════════════════════════════
-                // PRIORITY 2: Use unified evaluateWithDecision for complete analysis
-                // Pass isPaperMode to relax Edge veto in paper mode for better learning
-                // Pass brain for adaptive threshold learning
-                // ═══════════════════════════════════════════════════════════════════
-                
-                // ═══════════════════════════════════════════════════════════════════
-                // MOMENTUM PREDICTOR AI: Record price/volume data for pattern detection
-                // ═══════════════════════════════════════════════════════════════════
+                addLog("⚡ RECOVERY EXECUTED: ${identity.symbol} | ${recoverySize.fmt(4)} SOL", ts.mint)
+            } catch (e: Exception) {
+                ErrorLogger.debug("BotService", "Recovery trade error: ${e.message}")
+            }
+            
+            // Skip normal V3 processing for this token
+            return
+        }
+        
+        // Calculate token age in minutes
+        val tokenAgeMinutes = (System.currentTimeMillis() - ts.addedToWatchlistAt) / 60000.0
+        
+        // Log discovery (entry point to V3 pipeline)
+        ErrorLogger.debug("BotService", "[DISCOVERY] ${identity.symbol} | src=${ts.source} liq=${ts.lastLiquidityUsd.toInt()} age=${tokenAgeMinutes.toInt()}m")
+        
+        // Check AI degradation state
+        val isAIDegraded = try {
+            GeminiCopilot.isAIDegraded()
+        } catch (e: Exception) {
+            false
+        }
+        
+        try {
+            val v3Decision = com.lifecyclebot.v3.V3EngineManager.processToken(
+                ts = ts,
+                walletSol = effectiveBalance,
+                totalExposureSol = status.totalExposureSol,
+                openPositions = status.openPositionCount,
+                recentWinRate = botBrain?.getRecentWinRate() ?: 50.0,
+                recentTradeCount = botBrain?.getTradeCount() ?: 0,
+                marketRegime = modeConf?.mode?.name ?: "NEUTRAL",
+                isAIDegraded = isAIDegraded  // V3 SELECTIVITY: Pass AI degradation
+            )
+            
+            // ═══════════════════════════════════════════════════════════════════
+            // V3.3 FIX: Run Treasury Mode IMMEDIATELY after V3 decision
+            // BEFORE any return statements, so Treasury can evaluate ALL tokens!
+            // 
+            // Treasury Mode runs CONCURRENTLY with V3 - it's a "2nd shadow mode"
+            // that scalps tokens V3 might reject for normal trading.
+            // It has its own filters (tight stops, lower thresholds).
+            // ═══════════════════════════════════════════════════════════════════
+            if (!ts.position.isOpen && com.lifecyclebot.v3.scoring.CashGenerationAI.isEnabled()) {
                 try {
-                    if (ts.history.size >= 2) {
-                        val lastCandle = ts.history.lastOrNull()
-                        if (lastCandle != null) {
-                            MomentumPredictorAI.recordPricePoint(
-                                mint = mint,
-                                symbol = ts.symbol,
-                                price = lastCandle.priceUsd,
-                                volume = lastCandle.vol,
-                                buyPressure = (lastCandle.buyRatio * 100),
-                                txCount = lastCandle.buysH1 + lastCandle.sellsH1,
-                            )
-                        }
-                    }
-                } catch (e: Exception) {
-                    ErrorLogger.debug("BotService", "MomentumPredictorAI record error: ${e.message}")
-                }
-                
-                val modeConfForEval = if (cfg.autoMode) modeConf else null
-                val (result, decision) = strategy.evaluateWithDecision(ts, modeConfForEval, cfg.paperMode, executor.brain)
-
-                    synchronized(ts) {
-                        ts.phase      = result.phase
-                        ts.signal     = result.signal
-                        ts.entryScore = result.entryScore
-                        ts.exitScore  = result.exitScore
-                        ts.meta       = result.meta
+                    // Extract V3 scores from decision (any type)
+                    val (v3Score, v3Confidence) = when (val result = v3Decision) {
+                        is com.lifecyclebot.v3.V3Decision.Execute -> result.score to result.confidence.toInt()
+                        is com.lifecyclebot.v3.V3Decision.Watch -> result.score to result.confidence
+                        is com.lifecyclebot.v3.V3Decision.Rejected -> 20 to 30  // Low defaults for rejected
+                        else -> 15 to 25  // Very low for blocked/fatal
                     }
                     
-                    // ═══════════════════════════════════════════════════════════════════
-                    // V3 CLEAN RUNTIME: Strategy output is now INPUT to V3, not a decision
-                    // 
-                    // Old flow: Strategy → "BUY SIGNAL" → CANDIDATE → FDG → V3 (nested)
-                    // New flow: Strategy → V3 input → V3 SCORING → V3 DECISION → Execute
-                    // 
-                    // Strategy still calculates entry/exit scores, phases, quality - but
-                    // these become V3 CandidateSnapshot extras, not decision authority.
-                    // V3 is the ONLY thing that outputs EXECUTE/WATCH/REJECT.
-                    // ═══════════════════════════════════════════════════════════════════
+                    // Cache scores for later use
+                    ts.lastV3Score = v3Score
+                    ts.lastV3Confidence = v3Confidence
                     
-                    // NOTE: Legacy logs like "BUY SIGNAL", "shouldTrade", "CANDIDATE" 
-                    // are now suppressed. V3 will output clean decision logs.
-
-                    // Sentiment refresh (every sentimentPollMins)
-                val sentAge = System.currentTimeMillis() - ts.lastSentimentRefresh
-                if (cfg.sentimentEnabled && sentAge > cfg.sentimentPollMins * 60_000L) {
-                    scope.launch {
-                        try {
-                            val fresh = sentimentEngine.refresh(mint, ts.symbol, ts.lastPrice)
-                            synchronized(ts) {
-                                ts.sentiment = fresh
-                                ts.lastSentimentRefresh = System.currentTimeMillis()
-                            }
-                            if (fresh.blocked) {
-                                addLog("SENTIMENT BLOCK: ${fresh.blockReason}", mint)
-                                sendTradeNotif("Blocked", "${ts.symbol}: ${fresh.blockReason}", NotificationHistory.NotifEntry.NotifType.SAFETY_BLOCK)
-                            }
-                        } catch (_: Exception) {}
-                    }
-                }
-                
-                // ═══════════════════════════════════════════════════════════════════
-                // SMART CHART SCANNER — Multi-timeframe pattern detection
-                // Runs asynchronously to avoid blocking main evaluation loop
-                // Feeds insights to SuperBrainEnhancements for learning
-                // ═══════════════════════════════════════════════════════════════════
-                if (ts.history.size >= 10) {
-                    scope.launch {
-                        try {
-                            val scanResult = SmartChartScanner.quickScan(ts)
-                            if (scanResult != null && scanResult.confidence >= 60) {
-                                // Log significant patterns
-                                val patternStr = buildString {
-                                    scanResult.candlePatterns.forEach { append(it.emoji) }
-                                    scanResult.chartPatterns.forEach { append(it.emoji) }
-                                }
-                                if (patternStr.isNotEmpty()) {
-                                    ErrorLogger.debug("SmartChart", 
-                                        "${ts.symbol}: $patternStr ${scanResult.overallBias} (${scanResult.confidence.toInt()}%)")
-                                }
-                            }
-                        } catch (e: Exception) {
-                            ErrorLogger.debug("BotService", "SmartChart scan error: ${e.message}")
-                        }
-                    }
-                }
-
-                // Blacklist check — immediate skip if blocked
-                if (TokenBlacklist.isBlocked(mint)) {
-                    if (ts.position.isOpen) {
-                        // Force exit if we somehow hold a blacklisted token
-                        val effectiveBalance = status.getEffectiveBalance(cfg.paperMode)
-                        executor.maybeAct(ts, "EXIT", 0.0, effectiveBalance, wallet,
-                            lastSuccessfulPollMs, status.openPositionCount, status.totalExposureSol)
-                    }
-                    return
-                }
-
-                // In PAUSED mode: no new entries (existing positions still managed)
-                if (modeConf?.mode == AutoModeEngine.BotMode.PAUSED && !ts.position.isOpen) return
-
-                // Trade on ALL watchlist tokens simultaneously
-                val cbState = securityGuard.getCircuitBreakerState()
-                val effectiveBalance = status.getEffectiveBalance(cfg.paperMode)
-                
-                // ═══════════════════════════════════════════════════════════════════
-                // TRADE IDENTITY: Get or create canonical identity for this token
-                // This ensures mint/symbol are always consistent across all systems
-                // ═══════════════════════════════════════════════════════════════════
-                val identity = TradeIdentityManager.getOrCreate(ts.mint, ts.symbol, ts.source)
-                
-                // ═══════════════════════════════════════════════════════════════════
-                // V3 CLEAN RUNTIME: V3 is the PRIMARY and ONLY decision authority
-                // 
-                // Flow:
-                //   1. Basic eligibility (dedupe, fatal suppression)
-                //   2. V3 processes token using Strategy output as input
-                //   3. V3 outputs: EXECUTE/WATCH/REJECT/BLOCK with clean logs
-                //   4. Only EXECUTE triggers trade
-                //
-                // Legacy concepts (shouldTrade, BUY SIGNAL, CANDIDATE) are internal
-                // notes only - they do NOT control execution anymore.
-                // ═══════════════════════════════════════════════════════════════════
-                
-                // DEDUPE: Skip if we recently evaluated this token
-                val (canProposeEarly, dedupeReason) = TradeLifecycle.canPropose(identity.mint)
-                if (!canProposeEarly && !ts.position.isOpen) {
-                    // Silently skip - no spam logging
-                    return
-                }
-                
-                // FATAL SUPPRESSION: Only rugged/honeypot/unsellable blocks
-                val isFatalSuppression = DistributionFadeAvoider.isFatalSuppression(identity.mint)
-                if (isFatalSuppression && !ts.position.isOpen) {
-                    val reason = DistributionFadeAvoider.checkRawStrategySuppression(identity.mint)
-                    ErrorLogger.info("BotService", "[FATAL] ${identity.symbol} | BLOCK | $reason")
-                    return
-                }
-                
-                // ═══════════════════════════════════════════════════════════════════
-                // V3 ENGINE: Process token through unified scoring
-                // Strategy output (phase, entry/exit scores, quality) feeds into V3
-                // V3 is the ONLY thing that decides EXECUTE/WATCH/REJECT
-                // ═══════════════════════════════════════════════════════════════════
-                if (!ts.position.isOpen && cfg.v3EngineEnabled && com.lifecyclebot.v3.V3EngineManager.isReady()) {
+                    val treasurySignal = com.lifecyclebot.v3.scoring.CashGenerationAI.evaluate(
+                        mint = ts.mint,
+                        symbol = ts.symbol,
+                        currentPrice = ts.ref,
+                        liquidityUsd = ts.lastLiquidityUsd,
+                        // V4.0 FIX: Default to 20% (safe) instead of 50% (fails threshold)
+                        // Many tokens don't have topHolderPct data early on
+                        topHolderPct = ts.topHolderPct ?: 20.0,
+                        buyPressurePct = ts.lastBuyPressurePct,
+                        v3Score = v3Score,
+                        v3Confidence = v3Confidence,
+                        momentum = ts.momentum ?: 0.0,
+                        volatility = ts.volatility ?: 0.0
+                    )
                     
-                    // ═══════════════════════════════════════════════════════════════════
-                    // V3.3: CHECK FOR RECOVERY OPPORTUNITY FIRST
-                    // If this token was stopped out but has bounced, consider re-entry
-                    // ═══════════════════════════════════════════════════════════════════
-                    val isRecoveryCandidate = try {
-                        executor.checkRecoveryOpportunity(ts)
-                    } catch (_: Exception) { false }
-                    
-                    if (isRecoveryCandidate) {
-                        ErrorLogger.info("BotService", "🔄 RECOVERY ENTRY: ${identity.symbol} | Bounced from stop - attempting recovery trade")
-                        addLog("🔄 RECOVERY: ${identity.symbol} bounced - attempting re-entry", ts.mint)
+                    if (treasurySignal.shouldEnter) {
+                        ErrorLogger.info("BotService", "💰 [TREASURY] ${ts.symbol} | ENTER | " +
+                            "size=${treasurySignal.positionSizeSol.fmt(3)} SOL | " +
+                            "TP=${treasurySignal.takeProfitPct}% | " +
+                            "mode=${treasurySignal.mode}")
                         
-                        // Execute recovery trade with smaller size and tighter stops
-                        val recoverySize = effectiveBalance * 0.02  // 2% position max for recovery
-                        
-                        try {
-                            executor.v3Buy(
-                                ts = ts,
-                                sizeSol = recoverySize.coerceAtMost(0.05),  // Max 0.05 SOL for recovery
-                                walletSol = effectiveBalance,
-                                v3Score = 50,  // Moderate score for recovery
-                                v3Band = "RECOVERY",
-                                v3Confidence = 60.0,
-                                wallet = wallet,
-                                lastSuccessfulPollMs = lastSuccessfulPollMs,
-                                openPositionCount = status.openPositionCount,
-                                totalExposureSol = status.totalExposureSol
-                            )
-                            
-                            addLog("⚡ RECOVERY EXECUTED: ${identity.symbol} | ${recoverySize.fmt(4)} SOL", ts.mint)
-                        } catch (e: Exception) {
-                            ErrorLogger.debug("BotService", "Recovery trade error: ${e.message}")
-                        }
-                        
-                        // Skip normal V3 processing for this token
-                        return
-                    }
-                    
-                    // Calculate token age in minutes
-                    val tokenAgeMinutes = (System.currentTimeMillis() - ts.addedToWatchlistAt) / 60000.0
-                    
-                    // Log discovery (entry point to V3 pipeline)
-                    ErrorLogger.debug("BotService", "[DISCOVERY] ${identity.symbol} | src=${ts.source} liq=${ts.lastLiquidityUsd.toInt()} age=${tokenAgeMinutes.toInt()}m")
-                    
-                    // Check AI degradation state
-                    val isAIDegraded = try {
-                        GeminiCopilot.isAIDegraded()
-                    } catch (e: Exception) {
-                        false
-                    }
-                    
-                    try {
-                        val v3Decision = com.lifecyclebot.v3.V3EngineManager.processToken(
+                        // Execute treasury buy IMMEDIATELY
+                        executor.treasuryBuy(
                             ts = ts,
+                            sizeSol = treasurySignal.positionSizeSol,
                             walletSol = effectiveBalance,
-                            totalExposureSol = status.totalExposureSol,
-                            openPositions = status.openPositionCount,
-                            recentWinRate = botBrain?.getRecentWinRate() ?: 50.0,
-                            recentTradeCount = botBrain?.getTradeCount() ?: 0,
-                            marketRegime = modeConf?.mode?.name ?: "NEUTRAL",
-                            isAIDegraded = isAIDegraded  // V3 SELECTIVITY: Pass AI degradation
+                            takeProfitPct = treasurySignal.takeProfitPct,
+                            stopLossPct = treasurySignal.stopLossPct,
+                            wallet = wallet,
+                            isPaper = cfg.paperMode
                         )
                         
-                        // ═══════════════════════════════════════════════════════════════════
-                        // V3.3 FIX: Run Treasury Mode IMMEDIATELY after V3 decision
-                        // BEFORE any return statements, so Treasury can evaluate ALL tokens!
-                        // 
-                        // Treasury Mode runs CONCURRENTLY with V3 - it's a "2nd shadow mode"
-                        // that scalps tokens V3 might reject for normal trading.
-                        // It has its own filters (tight stops, lower thresholds).
-                        // ═══════════════════════════════════════════════════════════════════
-                        if (!ts.position.isOpen && com.lifecyclebot.v3.scoring.CashGenerationAI.isEnabled()) {
-                            try {
-                                // Extract V3 scores from decision (any type)
-                                val (v3Score, v3Confidence) = when (val result = v3Decision) {
-                                    is com.lifecyclebot.v3.V3Decision.Execute -> result.score to result.confidence.toInt()
-                                    is com.lifecyclebot.v3.V3Decision.Watch -> result.score to result.confidence
-                                    is com.lifecyclebot.v3.V3Decision.Rejected -> 20 to 30  // Low defaults for rejected
-                                    else -> 15 to 25  // Very low for blocked/fatal
-                                }
-                                
-                                // Cache scores for later use
-                                ts.lastV3Score = v3Score
-                                ts.lastV3Confidence = v3Confidence
-                                
-                                val treasurySignal = com.lifecyclebot.v3.scoring.CashGenerationAI.evaluate(
-                                    mint = ts.mint,
-                                    symbol = ts.symbol,
-                                    currentPrice = ts.ref,
-                                    liquidityUsd = ts.lastLiquidityUsd,
-                                    // V4.0 FIX: Default to 20% (safe) instead of 50% (fails threshold)
-                                    // Many tokens don't have topHolderPct data early on
-                                    topHolderPct = ts.topHolderPct ?: 20.0,
-                                    buyPressurePct = ts.lastBuyPressurePct,
-                                    v3Score = v3Score,
-                                    v3Confidence = v3Confidence,
-                                    momentum = ts.momentum ?: 0.0,
-                                    volatility = ts.volatility ?: 0.0
-                                )
-                                
-                                if (treasurySignal.shouldEnter) {
-                                    ErrorLogger.info("BotService", "💰 [TREASURY] ${ts.symbol} | ENTER | " +
-                                        "size=${treasurySignal.positionSizeSol.fmt(3)} SOL | " +
-                                        "TP=${treasurySignal.takeProfitPct}% | " +
-                                        "mode=${treasurySignal.mode}")
-                                    
-                                    // Execute treasury buy IMMEDIATELY
-                                    executor.treasuryBuy(
-                                        ts = ts,
-                                        sizeSol = treasurySignal.positionSizeSol,
-                                        walletSol = effectiveBalance,
-                                        takeProfitPct = treasurySignal.takeProfitPct,
-                                        stopLossPct = treasurySignal.stopLossPct,
-                                        wallet = wallet,
-                                        isPaper = cfg.paperMode
-                                    )
-                                    
-                                    // Record treasury position
-                                    com.lifecyclebot.v3.scoring.CashGenerationAI.openPosition(
-                                        mint = ts.mint,
-                                        symbol = ts.symbol,
-                                        entryPrice = ts.ref,
-                                        positionSol = treasurySignal.positionSizeSol,
-                                        takeProfitPct = treasurySignal.takeProfitPct,
-                                        stopLossPct = treasurySignal.stopLossPct
-                                    )
-                                    
-                                    addLog("💰 TREASURY BUY: ${ts.symbol} | ${treasurySignal.positionSizeSol.fmt(3)} SOL | " +
-                                        "${if (cfg.paperMode) "PAPER" else "LIVE"}", ts.mint)
-                                }
-                            } catch (treasuryEx: Exception) {
-                                ErrorLogger.debug("BotService", "💰 [TREASURY] ${ts.symbol} | ERROR | ${treasuryEx.message}")
-                            }
-                        }
+                        // Record treasury position
+                        com.lifecyclebot.v3.scoring.CashGenerationAI.openPosition(
+                            mint = ts.mint,
+                            symbol = ts.symbol,
+                            entryPrice = ts.ref,
+                            positionSol = treasurySignal.positionSizeSol,
+                            takeProfitPct = treasurySignal.takeProfitPct,
+                            stopLossPct = treasurySignal.stopLossPct
+                        )
                         
-                        // ═══════════════════════════════════════════════════════════════════
-                        // BLUE CHIP TRADER - Quality plays for >$1M market cap tokens
-                        // Runs CONCURRENTLY with V3 and Treasury
-                        // ═══════════════════════════════════════════════════════════════════
-                        if (!ts.position.isOpen && ts.lastMcap >= 1_000_000) {
-                            try {
-                                val (v3Score, v3Confidence) = when (val result = v3Decision) {
-                                    is com.lifecyclebot.v3.V3Decision.Execute -> result.score to result.confidence.toInt()
-                                    is com.lifecyclebot.v3.V3Decision.Watch -> result.score to result.confidence
-                                    is com.lifecyclebot.v3.V3Decision.Rejected -> 20 to 30
-                                    else -> 15 to 25
-                                }
-                                
-                                val blueChipSignal = com.lifecyclebot.v3.scoring.BlueChipTraderAI.evaluate(
-                                    mint = ts.mint,
-                                    symbol = ts.symbol,
-                                    currentPrice = ts.ref,
-                                    marketCapUsd = ts.lastMcap,
-                                    liquidityUsd = ts.lastLiquidityUsd,
-                                    topHolderPct = ts.topHolderPct ?: 20.0,
-                                    buyPressurePct = ts.lastBuyPressurePct,
-                                    v3Score = v3Score,
-                                    v3Confidence = v3Confidence,
-                                    momentum = ts.momentum ?: 0.0,
-                                    volatility = ts.volatility ?: 0.0
-                                )
-                                
-                                if (blueChipSignal.shouldEnter) {
-                                    ErrorLogger.info("BotService", "🔵 [BLUE CHIP] ${ts.symbol} | ENTER | " +
-                                        "mcap=\$${(ts.lastMcap/1_000_000).fmt(2)}M | " +
-                                        "size=${blueChipSignal.positionSizeSol.fmt(3)} SOL | " +
-                                        "TP=${blueChipSignal.takeProfitPct}%")
-                                    
-                                    // Execute Blue Chip buy
-                                    executor.blueChipBuy(
-                                        ts = ts,
-                                        sizeSol = blueChipSignal.positionSizeSol,
-                                        walletSol = effectiveBalance,
-                                        takeProfitPct = blueChipSignal.takeProfitPct,
-                                        stopLossPct = blueChipSignal.stopLossPct,
-                                        wallet = wallet,
-                                        isPaper = cfg.paperMode
-                                    )
-                                    
-                                    // Record Blue Chip position
-                                    com.lifecyclebot.v3.scoring.BlueChipTraderAI.addPosition(
-                                        com.lifecyclebot.v3.scoring.BlueChipTraderAI.BlueChipPosition(
-                                            mint = ts.mint,
-                                            symbol = ts.symbol,
-                                            entryPrice = ts.ref,
-                                            entrySol = blueChipSignal.positionSizeSol,
-                                            entryTime = System.currentTimeMillis(),
-                                            marketCapUsd = ts.lastMcap,
-                                            liquidityUsd = ts.lastLiquidityUsd,
-                                            isPaper = cfg.paperMode,
-                                            takeProfitPct = blueChipSignal.takeProfitPct,
-                                            stopLossPct = blueChipSignal.stopLossPct
-                                        )
-                                    )
-                                    
-                                    // Register with Layer Transition Manager
-                                    com.lifecyclebot.v3.scoring.LayerTransitionManager.registerPosition(
-                                        mint = ts.mint,
-                                        symbol = ts.symbol,
-                                        layer = com.lifecyclebot.v3.scoring.LayerTransitionManager.TradingLayer.BLUE_CHIP,
-                                        entryMcap = ts.lastMcap,
-                                        entryPrice = ts.ref,
-                                    )
-                                    
-                                    addLog("🔵 BLUE CHIP BUY: ${ts.symbol} | \$${(ts.lastMcap/1_000_000).fmt(1)}M mcap | " +
-                                        "${blueChipSignal.positionSizeSol.fmt(3)} SOL | " +
-                                        "${if (cfg.paperMode) "PAPER" else "LIVE"}", ts.mint)
-                                }
-                            } catch (bcEx: Exception) {
-                                ErrorLogger.debug("BotService", "🔵 [BLUE CHIP] ${ts.symbol} | ERROR | ${bcEx.message}")
-                            }
-                        }
-                        // ═══════════════════════════════════════════════════════════════════
-                        // END Blue Chip evaluation
-                        // ═══════════════════════════════════════════════════════════════════
-                        
-                        // ═══════════════════════════════════════════════════════════════════
-                        // SHITCOIN TRADER - Degen plays for <$500K market cap tokens
-                        // Runs CONCURRENTLY with V3, Treasury, and Blue Chip
-                        // Targets pump.fun, raydium, moonshot fresh launches
-                        // ═══════════════════════════════════════════════════════════════════
-                        if (!ts.position.isOpen && com.lifecyclebot.v3.scoring.ShitCoinTraderAI.isEnabled()) {
-                            try {
-                                // Calculate token age
-                                val tokenAgeMinutes = if (ts.addedToWatchlistAt > 0) {
-                                    (System.currentTimeMillis() - ts.addedToWatchlistAt) / 60_000.0
-                                } else {
-                                    120.0  // Default 2 hours if unknown
-                                }
-                                
-                                // Check if this qualifies as a shitcoin candidate
-                                if (com.lifecyclebot.v3.scoring.ShitCoinTraderAI.isShitCoinCandidate(
-                                    marketCapUsd = ts.lastMcap,
-                                    tokenAgeMinutes = tokenAgeMinutes
-                                )) {
-                                    // Detect launch platform from source
-                                    val launchPlatform = com.lifecyclebot.v3.scoring.ShitCoinTraderAI.detectPlatform(ts.source)
-                                    
-                                    // Extract holder and bundle info from safety data
-                                    // Use firstBlockSupplyPct as proxy for dev/bundle holding
-                                    val devHoldPct = ts.safety.firstBlockSupplyPct.takeIf { it >= 0 } ?: 10.0
-                                    val bundlePct = if (ts.safety.bundleRisk == "HIGH") 80.0 
-                                                   else if (ts.safety.bundleRisk == "MEDIUM") 50.0 
-                                                   else 10.0
-                                    
-                                    // Calculate social score from available signals
-                                    val socialScore = calculateSocialScore(ts)
-                                    
-                                    // Check for DEX boost/trending
-                                    val isDexBoosted = ts.source.contains("BOOSTED", ignoreCase = true)
-                                    val dexTrendingRank = if (ts.source.contains("TRENDING", ignoreCase = true)) 25 else 0
-                                    
-                                    // Check for copycat/scam patterns
-                                    val isCopyCat = detectCopyCat(ts.symbol)
-                                    
-                                    // Calculate graduation progress for pump.fun tokens
-                                    val graduationProgress = if (launchPlatform == com.lifecyclebot.v3.scoring.ShitCoinTraderAI.LaunchPlatform.PUMP_FUN) {
-                                        // Graduation happens around $69K mcap on pump.fun
-                                        ((ts.lastMcap / 69_000.0) * 100).coerceAtMost(100.0)
-                                    } else 0.0
-                                    
-                                    val shitCoinSignal = com.lifecyclebot.v3.scoring.ShitCoinTraderAI.evaluate(
-                                        mint = ts.mint,
-                                        symbol = ts.symbol,
-                                        currentPrice = ts.ref,
-                                        marketCapUsd = ts.lastMcap,
-                                        liquidityUsd = ts.lastLiquidityUsd,
-                                        topHolderPct = ts.topHolderPct ?: ts.safety.topHolderPct.takeIf { it >= 0 } ?: 20.0,
-                                        buyPressurePct = ts.lastBuyPressurePct,
-                                        momentum = ts.momentum ?: 0.0,
-                                        volatility = ts.volatility ?: 0.0,
-                                        tokenAgeMinutes = tokenAgeMinutes,
-                                        launchPlatform = launchPlatform,
-                                        devWallet = null,  // Dev wallet tracking not yet implemented
-                                        devHoldPct = devHoldPct,
-                                        bundlePct = bundlePct,
-                                        socialScore = socialScore,
-                                        hasWebsite = ts.symbol.length > 2,  // Heuristic: longer symbols often have more presence
-                                        hasTwitter = socialScore >= 20,      // Infer from social score
-                                        hasTelegram = socialScore >= 35,     // Infer from social score
-                                        hasGithub = false,  // Not tracked yet
-                                        isDexBoosted = isDexBoosted,
-                                        dexTrendingRank = dexTrendingRank,
-                                        isCopyCat = isCopyCat,
-                                        graduationProgress = graduationProgress,
-                                    )
-                                    
-                                    if (shitCoinSignal.shouldEnter) {
-                                        val gradLabel = if (shitCoinSignal.graduationImminent) " [GRAD IMMINENT!]" else ""
-                                        val bundleLabel = if (shitCoinSignal.bundleWarning) " [BUNDLE!]" else ""
-                                        
-                                        ErrorLogger.info("BotService", "💩 [SHITCOIN] ${ts.symbol} | ENTER | " +
-                                            "${shitCoinSignal.launchPlatform.emoji} ${shitCoinSignal.launchPlatform.displayName} | " +
-                                            "mcap=\$${(ts.lastMcap/1_000).fmt(1)}K | " +
-                                            "risk=${shitCoinSignal.riskLevel.emoji}${shitCoinSignal.riskLevel.name} | " +
-                                            "size=${shitCoinSignal.positionSizeSol.fmt(3)} SOL | " +
-                                            "TP=${shitCoinSignal.takeProfitPct}%$gradLabel$bundleLabel")
-                                        
-                                        // Execute ShitCoin buy
-                                        executor.shitCoinBuy(
-                                            ts = ts,
-                                            sizeSol = shitCoinSignal.positionSizeSol,
-                                            walletSol = effectiveBalance,
-                                            takeProfitPct = shitCoinSignal.takeProfitPct,
-                                            stopLossPct = shitCoinSignal.stopLossPct,
-                                            wallet = wallet,
-                                            isPaper = cfg.paperMode,
-                                            launchPlatform = shitCoinSignal.launchPlatform,
-                                            riskLevel = shitCoinSignal.riskLevel,
-                                        )
-                                        
-                                        // Record ShitCoin position
-                                        com.lifecyclebot.v3.scoring.ShitCoinTraderAI.addPosition(
-                                            com.lifecyclebot.v3.scoring.ShitCoinTraderAI.ShitCoinPosition(
-                                                mint = ts.mint,
-                                                symbol = ts.symbol,
-                                                entryPrice = ts.ref,
-                                                entrySol = shitCoinSignal.positionSizeSol,
-                                                entryTime = System.currentTimeMillis(),
-                                                marketCapUsd = ts.lastMcap,
-                                                liquidityUsd = ts.lastLiquidityUsd,
-                                                isPaper = cfg.paperMode,
-                                                takeProfitPct = shitCoinSignal.takeProfitPct,
-                                                stopLossPct = shitCoinSignal.stopLossPct,
-                                                launchPlatform = shitCoinSignal.launchPlatform,
-                                                devWallet = null,  // Dev wallet tracking not yet implemented
-                                                bundlePct = bundlePct,
-                                                socialScore = shitCoinSignal.socialScore,
-                                            )
-                                        )
-                                        
-                                        // Register with Layer Transition Manager
-                                        com.lifecyclebot.v3.scoring.LayerTransitionManager.registerPosition(
-                                            mint = ts.mint,
-                                            symbol = ts.symbol,
-                                            layer = com.lifecyclebot.v3.scoring.LayerTransitionManager.TradingLayer.SHITCOIN,
-                                            entryMcap = ts.lastMcap,
-                                            entryPrice = ts.ref,
-                                        )
-                                        
-                                        addLog("💩 SHITCOIN BUY: ${ts.symbol} | " +
-                                            "${shitCoinSignal.launchPlatform.emoji} | " +
-                                            "\$${(ts.lastMcap/1_000).toInt()}K mcap | " +
-                                            "${shitCoinSignal.positionSizeSol.fmt(3)} SOL | " +
-                                            "${if (cfg.paperMode) "PAPER" else "LIVE"}", ts.mint)
-                                    }
-                                }
-                            } catch (scEx: Exception) {
-                                ErrorLogger.debug("BotService", "💩 [SHITCOIN] ${ts.symbol} | ERROR | ${scEx.message}")
-                            }
-                        }
-                        // ═══════════════════════════════════════════════════════════════════
-                        // END ShitCoin evaluation
-                        // ═══════════════════════════════════════════════════════════════════
-                        
-                        // ═══════════════════════════════════════════════════════════════════
-                        // 💩🚂 SHITCOIN EXPRESS - Quick momentum rides for 30%+ profits
-                        // Only evaluates tokens that are ALREADY pumping hard
-                        // ═══════════════════════════════════════════════════════════════════
-                        if (!ts.position.isOpen && com.lifecyclebot.v3.scoring.ShitCoinExpress.isEnabled()) {
-                            try {
-                                val tokenAgeMinutes = if (ts.addedToWatchlistAt > 0) {
-                                    (System.currentTimeMillis() - ts.addedToWatchlistAt) / 60_000.0
-                                } else 60.0
-                                
-                                // Express only for micro caps <$300K that are pumping
-                                if (ts.lastMcap <= 300_000 && ts.lastMcap >= 5_000 &&
-                                    (ts.momentum ?: 0.0) >= 5.0 && ts.lastBuyPressurePct >= 60) {
-                                    
-                                    val isTrending = ts.source.contains("TRENDING", ignoreCase = true)
-                                    val isBoosted = ts.source.contains("BOOSTED", ignoreCase = true)
-                                    
-                                    // Calculate 5 min price change
-                                    val lastHistoryEntry = ts.history.lastOrNull()
-                                    val priceChange5Min = if (lastHistoryEntry != null && lastHistoryEntry.priceUsd > 0) {
-                                        ((ts.ref - lastHistoryEntry.priceUsd) / lastHistoryEntry.priceUsd * 100).coerceIn(-50.0, 100.0)
-                                    } else 0.0
-                                    
-                                    val expressSignal = com.lifecyclebot.v3.scoring.ShitCoinExpress.evaluate(
-                                        mint = ts.mint,
-                                        symbol = ts.symbol,
-                                        currentPrice = ts.ref,
-                                        marketCapUsd = ts.lastMcap,
-                                        liquidityUsd = ts.lastLiquidityUsd,
-                                        momentum = ts.momentum ?: 0.0,
-                                        buyPressurePct = ts.lastBuyPressurePct,
-                                        volumeChange = 1.5,  // Default estimate
-                                        priceChange5Min = priceChange5Min,
-                                        isTrending = isTrending,
-                                        isBoosted = isBoosted,
-                                        tokenAgeMinutes = tokenAgeMinutes,
-                                    )
-                                    
-                                    if (expressSignal.shouldRide) {
-                                        ErrorLogger.info("BotService", "💩🚂 [EXPRESS] ${ts.symbol} | RIDE | " +
-                                            "${expressSignal.rideType.emoji} ${expressSignal.rideType.name} | " +
-                                            "mom=${(ts.momentum ?: 0.0).fmt(1)}% | " +
-                                            "size=${expressSignal.positionSizeSol.fmt(3)} SOL | " +
-                                            "target=${expressSignal.estimatedGainPct.toInt()}%")
-                                        
-                                        // Board the express ride
-                                        com.lifecyclebot.v3.scoring.ShitCoinExpress.boardRide(
-                                            mint = ts.mint,
-                                            symbol = ts.symbol,
-                                            entryPrice = ts.ref,
-                                            entrySol = expressSignal.positionSizeSol,
-                                            momentum = ts.momentum ?: 0.0,
-                                            buyPressure = ts.lastBuyPressurePct,
-                                            isPaper = cfg.paperMode,
-                                        )
-                                        
-                                        // Execute buy via Executor
-                                        executor.shitCoinBuy(
-                                            ts = ts,
-                                            sizeSol = expressSignal.positionSizeSol,
-                                            walletSol = effectiveBalance,
-                                            takeProfitPct = expressSignal.estimatedGainPct,
-                                            stopLossPct = -8.0,
-                                            wallet = wallet,
-                                            isPaper = cfg.paperMode,
-                                            launchPlatform = com.lifecyclebot.v3.scoring.ShitCoinTraderAI.detectPlatform(ts.source),
-                                            riskLevel = com.lifecyclebot.v3.scoring.ShitCoinTraderAI.RiskLevel.EXTREME,
-                                        )
-                                        
-                                        addLog("💩🚂 EXPRESS: ${ts.symbol} | ${expressSignal.rideType.emoji} | " +
-                                            "target +${expressSignal.estimatedGainPct.toInt()}% | " +
-                                            "${if (cfg.paperMode) "PAPER" else "LIVE"}", ts.mint)
-                                    }
-                                }
-                            } catch (expEx: Exception) {
-                                ErrorLogger.debug("BotService", "💩🚂 [EXPRESS] ${ts.symbol} | ERROR | ${expEx.message}")
-                            }
-                        }
-                        // ═══════════════════════════════════════════════════════════════════
-                        // END ShitCoin Express evaluation
-                        // ═══════════════════════════════════════════════════════════════════
-                        
-                        // ═══════════════════════════════════════════════════════════════════
-                        // 📉🎯 DIP HUNTER - Buy quality dips on established tokens
-                        // ═══════════════════════════════════════════════════════════════════
-                        if (!ts.position.isOpen && com.lifecyclebot.v3.scoring.DipHunterAI.isEnabled()) {
-                            try {
-                                val tokenAgeHours = if (ts.addedToWatchlistAt > 0) {
-                                    (System.currentTimeMillis() - ts.addedToWatchlistAt) / (60 * 60 * 1000.0)
-                                } else 12.0
-                                
-                                // Dip Hunter for tokens $50K-$5M mcap that have been around
-                                if (ts.lastMcap in 50_000.0..5_000_000.0 && tokenAgeHours >= 2.0) {
-                                    
-                                    // Calculate high from recent history or estimate
-                                    val historyHigh = ts.history.maxOfOrNull { it.priceUsd } ?: 0.0
-                                    val recentHigh = if (historyHigh > 0) historyHigh else (ts.ref * 1.3)
-                                    
-                                    val dipSignal = com.lifecyclebot.v3.scoring.DipHunterAI.evaluate(
-                                        mint = ts.mint,
-                                        symbol = ts.symbol,
-                                        currentPrice = ts.ref,
-                                        highPrice = recentHigh,
-                                        marketCapUsd = ts.lastMcap,
-                                        liquidityUsd = ts.lastLiquidityUsd,
-                                        buyPressurePct = ts.lastBuyPressurePct,
-                                        volumeVsAvg = 1.0,
-                                        tokenAgeHours = tokenAgeHours,
-                                        holderCount = 100,  // Default holder count estimate
-                                        holderChange24h = 0,
-                                        isDevSelling = ts.safety.bundleRisk == "HIGH",
-                                    )
-                                    
-                                    if (dipSignal.shouldBuy) {
-                                        ErrorLogger.info("BotService", "📉🎯 [DIP] ${ts.symbol} | BUY | " +
-                                            "${dipSignal.dipQuality.emoji} ${dipSignal.dipQuality.name} | " +
-                                            "dip=${dipSignal.dipDepthPct.fmt(1)}% | " +
-                                            "size=${dipSignal.positionSizeSol.fmt(3)} SOL | " +
-                                            "target=+${dipSignal.expectedRecoveryPct.toInt()}%")
-                                        
-                                        // Open dip position
-                                        com.lifecyclebot.v3.scoring.DipHunterAI.openDip(
-                                            mint = ts.mint,
-                                            symbol = ts.symbol,
-                                            entryPrice = ts.ref,
-                                            entrySol = dipSignal.positionSizeSol,
-                                            highPrice = recentHigh,
-                                            dipDepthPct = dipSignal.dipDepthPct,
-                                            marketCapUsd = ts.lastMcap,
-                                            liquidityUsd = ts.lastLiquidityUsd,
-                                            isPaper = cfg.paperMode,
-                                        )
-                                        
-                                        // Execute buy
-                                        executor.paperBuy(
-                                            ts = ts,
-                                            sol = dipSignal.positionSizeSol,
-                                            score = dipSignal.confidence.toDouble(),
-                                            identity = identity,
-                                            quality = "DIP_HUNTER",
-                                            skipGraduated = true,
-                                            wallet = wallet,
-                                            walletSol = effectiveBalance
-                                        )
-                                        
-                                        ts.position.tradingMode = "DIP_HUNTER"
-                                        ts.position.tradingModeEmoji = "📉"
-                                        
-                                        addLog("📉🎯 DIP BUY: ${ts.symbol} | ${dipSignal.dipQuality.emoji} | " +
-                                            "dip ${dipSignal.dipDepthPct.toInt()}% | " +
-                                            "${if (cfg.paperMode) "PAPER" else "LIVE"}", ts.mint)
-                                    }
-                                }
-                            } catch (dipEx: Exception) {
-                                ErrorLogger.debug("BotService", "📉🎯 [DIP] ${ts.symbol} | ERROR | ${dipEx.message}")
-                            }
-                        }
-                        // ═══════════════════════════════════════════════════════════════════
-                        // END Dip Hunter evaluation
-                        // ═══════════════════════════════════════════════════════════════════
-                        
-                        // ═══════════════════════════════════════════════════════════════════
-                        // END Treasury Mode evaluation - now proceed with V3 decision handling
-                        // ═══════════════════════════════════════════════════════════════════
-                        
-                        when (val result = v3Decision) {
-                            is com.lifecyclebot.v3.V3Decision.Execute -> {
-                                // Cache V3 scores on TokenState for Treasury Mode to use
-                                ts.lastV3Score = result.score
-                                ts.lastV3Confidence = result.confidence.toInt()
-                                
-                                // ═══════════════════════════════════════════════════════════════════
-                                // V3 EXECUTE: Clean logging + trade execution
-                                // ═══════════════════════════════════════════════════════════════════
-                                ErrorLogger.info("BotService", "[SCORING] ${identity.symbol} | total=${result.score} | ${result.breakdown}")
-                                ErrorLogger.info("BotService", "[FATAL] ${identity.symbol} | PASS")
-                                ErrorLogger.info("BotService", "[CONFIDENCE] ${identity.symbol} | ${result.confidence.toInt()}%")
-                                ErrorLogger.info("BotService", "[DECISION] ${identity.symbol} | ${result.band} | score=${result.score} conf=${result.confidence.toInt()}%")
-                                ErrorLogger.info("BotService", "[SIZING] ${identity.symbol} | ${result.sizeSol.fmt(4)} SOL")
-                                
-                                // A+ alert for high-conviction setups
-                                if (result.score >= 75) {
-                                    soundManager.playAplusAlert()
-                                    addLog("⭐ HIGH CONFIDENCE: ${identity.symbol} | score=${result.score}", ts.mint)
-                                }
-                                
-                                if (!cfg.v3ShadowMode) {
-                                    // V3 CONTROLS EXECUTION
-                                    val v3SizeSol = result.sizeSol
-                                    val v3Thesis = "V3 score=${result.score} band=${result.band}"
-                                    
-                                    // Update lifecycle to V3 states
-                                    identity.v3Execute(result.score, result.band, result.sizeSol)
-                                    
-                                    // Execute the trade
-                                    val proposedSize = result.sizeSol
-                                    val modeTag = try {
-                                        modeConf?.mode?.let { ModeSpecificGates.fromBotMode(it) }
-                                    } catch (e: Exception) { null }
-                                    
-                                    ErrorLogger.info("BotService", "[EXECUTION] ${identity.symbol} | ${if (cfg.paperMode) "PAPER" else "LIVE"}_BUY | ${proposedSize.fmt(4)} SOL")
-                                    
-                                    // Record proposal for dedupe
-                                    TradeLifecycle.recordProposal(identity.mint)
-                                    
-                                    // Execute buy through unified executor
-                                    executor.v3Buy(
-                                        ts = ts,
-                                        sizeSol = proposedSize,
-                                        walletSol = effectiveBalance,
-                                        v3Score = result.score,
-                                        v3Band = result.band,
-                                        v3Confidence = result.confidence,
-                                        wallet = wallet,
-                                        lastSuccessfulPollMs = lastSuccessfulPollMs,
-                                        openPositionCount = status.openPositionCount,
-                                        totalExposureSol = status.totalExposureSol
-                                    )
-                                    
-                                    addLog("⚡ V3 EXECUTE: ${identity.symbol} | ${result.band} | ${proposedSize.fmt(4)} SOL", ts.mint)
-                                } else {
-                                    // Shadow mode - log only
-                                    ErrorLogger.info("BotService", "[SHADOW] ${identity.symbol} | WOULD_EXECUTE | ${result.band} | ${result.sizeSol.fmt(4)} SOL")
-                                    addLog("🔬 V3 SHADOW: ${identity.symbol} | ${result.band}", ts.mint)
-                                }
-                            }
-                            
-                            is com.lifecyclebot.v3.V3Decision.Watch -> {
-                                // Cache V3 scores on TokenState for Treasury Mode
-                                ts.lastV3Score = result.score
-                                ts.lastV3Confidence = result.confidence.toInt()
-                                
-                                // ═══════════════════════════════════════════════════════════════════
-                                // V3 WATCH: Track but don't trade NORMALLY
-                                // BUT Treasury Mode CAN still evaluate this token for quick scalps!
-                                // ═══════════════════════════════════════════════════════════════════
-                                ErrorLogger.info("BotService", "[SCORING] ${identity.symbol} | total=${result.score} | below threshold")
-                                ErrorLogger.info("BotService", "[DECISION] ${identity.symbol} | WATCH | score=${result.score} conf=${result.confidence}%")
-                                
-                                // Shadow track for learning
-                                ShadowLearningEngine.onFdgBlockedTrade(
-                                    mint = ts.mint,
-                                    symbol = ts.symbol,
-                                    blockReason = "V3_WATCH_score=${result.score}",
-                                    blockLevel = "V3",
-                                    currentPrice = ts.ref,
-                                    proposedSizeSol = 0.1,
-                                    quality = decision.finalQuality,
-                                    confidence = result.confidence.toDouble(),
-                                    phase = decision.phase,
-                                )
-                                
-                                // ═══════════════════════════════════════════════════════════════════
-                                // V3.3 FIX: DO NOT RETURN - Allow Treasury Mode evaluation below!
-                                // Treasury Mode runs CONCURRENTLY and can scalp WATCH tokens
-                                // ═══════════════════════════════════════════════════════════════════
-                                // Previously: return (BLOCKED Treasury Mode!)
-                            }
-                            
-                            is com.lifecyclebot.v3.V3Decision.ShadowOnly -> {
-                                // ═══════════════════════════════════════════════════════════════════
-                                // V3 SHADOW_ONLY: Pre-proposal kill, learning only
-                                // ═══════════════════════════════════════════════════════════════════
-                                ErrorLogger.info("BotService", "[DECISION] ${identity.symbol} | SHADOW_ONLY | ${result.reason}")
-                                
-                                // Shadow track for learning
-                                ShadowLearningEngine.onFdgBlockedTrade(
-                                    mint = ts.mint,
-                                    symbol = ts.symbol,
-                                    blockReason = "V3_SHADOW_ONLY_${result.reason}",
-                                    blockLevel = "V3_PRE_PROPOSAL",
-                                    currentPrice = ts.ref,
-                                    proposedSizeSol = 0.1,
-                                    quality = decision.finalQuality,
-                                    confidence = result.confidence.toDouble(),
-                                    phase = decision.phase,
-                                )
-                                
-                                return
-                            }
-                            
-                            is com.lifecyclebot.v3.V3Decision.Rejected -> {
-                                // ═══════════════════════════════════════════════════════════════════
-                                // V3 REJECT: Poor setup
-                                // ═══════════════════════════════════════════════════════════════════
-                                ErrorLogger.info("BotService", "[DECISION] ${identity.symbol} | REJECT | ${result.reason}")
-                                
-                                // Shadow track
-                                ShadowLearningEngine.onFdgBlockedTrade(
-                                    mint = ts.mint,
-                                    symbol = ts.symbol,
-                                    blockReason = "V3_REJECT_${result.reason}",
-                                    blockLevel = "V3",
-                                    currentPrice = ts.ref,
-                                    proposedSizeSol = 0.1,
-                                    quality = decision.finalQuality,
-                                    confidence = 0.0,
-                                    phase = decision.phase,
-                                )
-                                
-                                return
-                            }
-                            
-                            is com.lifecyclebot.v3.V3Decision.BlockFatal -> {
-                                // ═══════════════════════════════════════════════════════════════════
-                                // V3 BLOCK_FATAL: Fatal risk detected
-                                // ═══════════════════════════════════════════════════════════════════
-                                ErrorLogger.info("BotService", "[DECISION] ${identity.symbol} | BLOCK_FATAL | ${result.reason}")
-                                return
-                            }
-                            
-                            is com.lifecyclebot.v3.V3Decision.Blocked -> {
-                                // ═══════════════════════════════════════════════════════════════════
-                                // V3 BLOCK: Legacy fatal block
-                                // ═══════════════════════════════════════════════════════════════════
-                                ErrorLogger.info("BotService", "[DECISION] ${identity.symbol} | BLOCK_FATAL | ${result.reason}")
-                                return
-                            }
-                            
-                            else -> {
-                                // V3 not ready or error - skip this token
-                                ErrorLogger.debug("BotService", "[V3] ${identity.symbol} | NOT_READY")
-                                return
-                            }
-                        }
-                        
-                    } catch (v3e: Exception) {
-                        ErrorLogger.error("BotService", "[V3] ${identity.symbol} | ERROR | ${v3e.message}")
-                        return
+                        addLog("💰 TREASURY BUY: ${ts.symbol} | ${treasurySignal.positionSizeSol.fmt(3)} SOL | " +
+                            "${if (cfg.paperMode) "PAPER" else "LIVE"}", ts.mint)
+                    }
+                } catch (treasuryEx: Exception) {
+                    ErrorLogger.debug("BotService", "💰 [TREASURY] ${ts.symbol} | ERROR | ${treasuryEx.message}")
+                }
+            }
+            
+            // ═══════════════════════════════════════════════════════════════════
+            // BLUE CHIP TRADER - Quality plays for >$1M market cap tokens
+            // Runs CONCURRENTLY with V3 and Treasury
+            // ═══════════════════════════════════════════════════════════════════
+            if (!ts.position.isOpen && ts.lastMcap >= 1_000_000) {
+                try {
+                    val (v3Score, v3Confidence) = when (val result = v3Decision) {
+                        is com.lifecyclebot.v3.V3Decision.Execute -> result.score to result.confidence.toInt()
+                        is com.lifecyclebot.v3.V3Decision.Watch -> result.score to result.confidence
+                        is com.lifecyclebot.v3.V3Decision.Rejected -> 20 to 30
+                        else -> 15 to 25
                     }
                     
+                    val blueChipSignal = com.lifecyclebot.v3.scoring.BlueChipTraderAI.evaluate(
+                        mint = ts.mint,
+                        symbol = ts.symbol,
+                        currentPrice = ts.ref,
+                        marketCapUsd = ts.lastMcap,
+                        liquidityUsd = ts.lastLiquidityUsd,
+                        topHolderPct = ts.topHolderPct ?: 20.0,
+                        buyPressurePct = ts.lastBuyPressurePct,
+                        v3Score = v3Score,
+                        v3Confidence = v3Confidence,
+                        momentum = ts.momentum ?: 0.0,
+                        volatility = ts.volatility ?: 0.0
+                    )
+                    
+                    if (blueChipSignal.shouldEnter) {
+                        ErrorLogger.info("BotService", "🔵 [BLUE CHIP] ${ts.symbol} | ENTER | " +
+                            "mcap=\$${(ts.lastMcap/1_000_000).fmt(2)}M | " +
+                            "size=${blueChipSignal.positionSizeSol.fmt(3)} SOL | " +
+                            "TP=${blueChipSignal.takeProfitPct}%")
+                        
+                        // Execute Blue Chip buy
+                        executor.blueChipBuy(
+                            ts = ts,
+                            sizeSol = blueChipSignal.positionSizeSol,
+                            walletSol = effectiveBalance,
+                            takeProfitPct = blueChipSignal.takeProfitPct,
+                            stopLossPct = blueChipSignal.stopLossPct,
+                            wallet = wallet,
+                            isPaper = cfg.paperMode
+                        )
+                        
+                        // Record Blue Chip position
+                        com.lifecyclebot.v3.scoring.BlueChipTraderAI.addPosition(
+                            com.lifecyclebot.v3.scoring.BlueChipTraderAI.BlueChipPosition(
+                                mint = ts.mint,
+                                symbol = ts.symbol,
+                                entryPrice = ts.ref,
+                                entrySol = blueChipSignal.positionSizeSol,
+                                entryTime = System.currentTimeMillis(),
+                                marketCapUsd = ts.lastMcap,
+                                liquidityUsd = ts.lastLiquidityUsd,
+                                isPaper = cfg.paperMode,
+                                takeProfitPct = blueChipSignal.takeProfitPct,
+                                stopLossPct = blueChipSignal.stopLossPct
+                            )
+                        )
+                        
+                        // Register with Layer Transition Manager
+                        com.lifecyclebot.v3.scoring.LayerTransitionManager.registerPosition(
+                            mint = ts.mint,
+                            symbol = ts.symbol,
+                            layer = com.lifecyclebot.v3.scoring.LayerTransitionManager.TradingLayer.BLUE_CHIP,
+                            entryMcap = ts.lastMcap,
+                            entryPrice = ts.ref,
+                        )
+                        
+                        addLog("🔵 BLUE CHIP BUY: ${ts.symbol} | \$${(ts.lastMcap/1_000_000).fmt(1)}M mcap | " +
+                            "${blueChipSignal.positionSizeSol.fmt(3)} SOL | " +
+                            "${if (cfg.paperMode) "PAPER" else "LIVE"}", ts.mint)
+                    }
+                } catch (bcEx: Exception) {
+                    ErrorLogger.debug("BotService", "🔵 [BLUE CHIP] ${ts.symbol} | ERROR | ${bcEx.message}")
+                }
+            }
+            // ═══════════════════════════════════════════════════════════════════
+            // END Blue Chip evaluation
+            // ═══════════════════════════════════════════════════════════════════
+            
+            // ═══════════════════════════════════════════════════════════════════
+            // SHITCOIN TRADER - Degen plays for <$500K market cap tokens
+            // Runs CONCURRENTLY with V3, Treasury, and Blue Chip
+            // Targets pump.fun, raydium, moonshot fresh launches
+            // ═══════════════════════════════════════════════════════════════════
+            if (!ts.position.isOpen && com.lifecyclebot.v3.scoring.ShitCoinTraderAI.isEnabled()) {
+                try {
+                    // Calculate token age
+                    val tokenAgeMinutes = if (ts.addedToWatchlistAt > 0) {
+                        (System.currentTimeMillis() - ts.addedToWatchlistAt) / 60_000.0
+                    } else {
+                        120.0  // Default 2 hours if unknown
+                    }
+                    
+                    // Check if this qualifies as a shitcoin candidate
+                    if (com.lifecyclebot.v3.scoring.ShitCoinTraderAI.isShitCoinCandidate(
+                        marketCapUsd = ts.lastMcap,
+                        tokenAgeMinutes = tokenAgeMinutes
+                    )) {
+                        // Detect launch platform from source
+                        val launchPlatform = com.lifecyclebot.v3.scoring.ShitCoinTraderAI.detectPlatform(ts.source)
+                        
+                        // Extract holder and bundle info from safety data
+                        // Use firstBlockSupplyPct as proxy for dev/bundle holding
+                        val devHoldPct = ts.safety.firstBlockSupplyPct.takeIf { it >= 0 } ?: 10.0
+                        val bundlePct = if (ts.safety.bundleRisk == "HIGH") 80.0 
+                                       else if (ts.safety.bundleRisk == "MEDIUM") 50.0 
+                                       else 10.0
+                        
+                        // Calculate social score from available signals
+                        val socialScore = calculateSocialScore(ts)
+                        
+                        // Check for DEX boost/trending
+                        val isDexBoosted = ts.source.contains("BOOSTED", ignoreCase = true)
+                        val dexTrendingRank = if (ts.source.contains("TRENDING", ignoreCase = true)) 25 else 0
+                        
+                        // Check for copycat/scam patterns
+                        val isCopyCat = detectCopyCat(ts.symbol)
+                        
+                        // Calculate graduation progress for pump.fun tokens
+                        val graduationProgress = if (launchPlatform == com.lifecyclebot.v3.scoring.ShitCoinTraderAI.LaunchPlatform.PUMP_FUN) {
+                            // Graduation happens around $69K mcap on pump.fun
+                            ((ts.lastMcap / 69_000.0) * 100).coerceAtMost(100.0)
+                        } else 0.0
+                        
+                        val shitCoinSignal = com.lifecyclebot.v3.scoring.ShitCoinTraderAI.evaluate(
+                            mint = ts.mint,
+                            symbol = ts.symbol,
+                            currentPrice = ts.ref,
+                            marketCapUsd = ts.lastMcap,
+                            liquidityUsd = ts.lastLiquidityUsd,
+                            topHolderPct = ts.topHolderPct ?: ts.safety.topHolderPct.takeIf { it >= 0 } ?: 20.0,
+                            buyPressurePct = ts.lastBuyPressurePct,
+                            momentum = ts.momentum ?: 0.0,
+                            volatility = ts.volatility ?: 0.0,
+                            tokenAgeMinutes = tokenAgeMinutes,
+                            launchPlatform = launchPlatform,
+                            devWallet = null,  // Dev wallet tracking not yet implemented
+                            devHoldPct = devHoldPct,
+                            bundlePct = bundlePct,
+                            socialScore = socialScore,
+                            hasWebsite = ts.symbol.length > 2,  // Heuristic: longer symbols often have more presence
+                            hasTwitter = socialScore >= 20,      // Infer from social score
+                            hasTelegram = socialScore >= 35,     // Infer from social score
+                            hasGithub = false,  // Not tracked yet
+                            isDexBoosted = isDexBoosted,
+                            dexTrendingRank = dexTrendingRank,
+                            isCopyCat = isCopyCat,
+                            graduationProgress = graduationProgress,
+                        )
+                        
+                        if (shitCoinSignal.shouldEnter) {
+                            val gradLabel = if (shitCoinSignal.graduationImminent) " [GRAD IMMINENT!]" else ""
+                            val bundleLabel = if (shitCoinSignal.bundleWarning) " [BUNDLE!]" else ""
+                            
+                            ErrorLogger.info("BotService", "💩 [SHITCOIN] ${ts.symbol} | ENTER | " +
+                                "${shitCoinSignal.launchPlatform.emoji} ${shitCoinSignal.launchPlatform.displayName} | " +
+                                "mcap=\$${(ts.lastMcap/1_000).fmt(1)}K | " +
+                                "risk=${shitCoinSignal.riskLevel.emoji}${shitCoinSignal.riskLevel.name} | " +
+                                "size=${shitCoinSignal.positionSizeSol.fmt(3)} SOL | " +
+                                "TP=${shitCoinSignal.takeProfitPct}%$gradLabel$bundleLabel")
+                            
+                            // Execute ShitCoin buy
+                            executor.shitCoinBuy(
+                                ts = ts,
+                                sizeSol = shitCoinSignal.positionSizeSol,
+                                walletSol = effectiveBalance,
+                                takeProfitPct = shitCoinSignal.takeProfitPct,
+                                stopLossPct = shitCoinSignal.stopLossPct,
+                                wallet = wallet,
+                                isPaper = cfg.paperMode,
+                                launchPlatform = shitCoinSignal.launchPlatform,
+                                riskLevel = shitCoinSignal.riskLevel,
+                            )
+                            
+                            // Record ShitCoin position
+                            com.lifecyclebot.v3.scoring.ShitCoinTraderAI.addPosition(
+                                com.lifecyclebot.v3.scoring.ShitCoinTraderAI.ShitCoinPosition(
+                                    mint = ts.mint,
+                                    symbol = ts.symbol,
+                                    entryPrice = ts.ref,
+                                    entrySol = shitCoinSignal.positionSizeSol,
+                                    entryTime = System.currentTimeMillis(),
+                                    marketCapUsd = ts.lastMcap,
+                                    liquidityUsd = ts.lastLiquidityUsd,
+                                    isPaper = cfg.paperMode,
+                                    takeProfitPct = shitCoinSignal.takeProfitPct,
+                                    stopLossPct = shitCoinSignal.stopLossPct,
+                                    launchPlatform = shitCoinSignal.launchPlatform,
+                                    devWallet = null,  // Dev wallet tracking not yet implemented
+                                    bundlePct = bundlePct,
+                                    socialScore = shitCoinSignal.socialScore,
+                                )
+                            )
+                            
+                            // Register with Layer Transition Manager
+                            com.lifecyclebot.v3.scoring.LayerTransitionManager.registerPosition(
+                                mint = ts.mint,
+                                symbol = ts.symbol,
+                                layer = com.lifecyclebot.v3.scoring.LayerTransitionManager.TradingLayer.SHITCOIN,
+                                entryMcap = ts.lastMcap,
+                                entryPrice = ts.ref,
+                            )
+                            
+                            addLog("💩 SHITCOIN BUY: ${ts.symbol} | " +
+                                "${shitCoinSignal.launchPlatform.emoji} | " +
+                                "\$${(ts.lastMcap/1_000).toInt()}K mcap | " +
+                                "${shitCoinSignal.positionSizeSol.fmt(3)} SOL | " +
+                                "${if (cfg.paperMode) "PAPER" else "LIVE"}", ts.mint)
+                        }
+                    }
+                } catch (scEx: Exception) {
+                    ErrorLogger.debug("BotService", "💩 [SHITCOIN] ${ts.symbol} | ERROR | ${scEx.message}")
+                }
+            }
+            // ═══════════════════════════════════════════════════════════════════
+            // END ShitCoin evaluation
+            // ═══════════════════════════════════════════════════════════════════
+            
+            // ═══════════════════════════════════════════════════════════════════
+            // 💩🚂 SHITCOIN EXPRESS - Quick momentum rides for 30%+ profits
+            // Only evaluates tokens that are ALREADY pumping hard
+            // ═══════════════════════════════════════════════════════════════════
+            if (!ts.position.isOpen && com.lifecyclebot.v3.scoring.ShitCoinExpress.isEnabled()) {
+                try {
+                    val tokenAgeMinutes = if (ts.addedToWatchlistAt > 0) {
+                        (System.currentTimeMillis() - ts.addedToWatchlistAt) / 60_000.0
+                    } else 60.0
+                    
+                    // Express only for micro caps <$300K that are pumping
+                    if (ts.lastMcap <= 300_000 && ts.lastMcap >= 5_000 &&
+                        (ts.momentum ?: 0.0) >= 5.0 && ts.lastBuyPressurePct >= 60) {
+                        
+                        val isTrending = ts.source.contains("TRENDING", ignoreCase = true)
+                        val isBoosted = ts.source.contains("BOOSTED", ignoreCase = true)
+                        
+                        // Calculate 5 min price change
+                        val lastHistoryEntry = ts.history.lastOrNull()
+                        val priceChange5Min = if (lastHistoryEntry != null && lastHistoryEntry.priceUsd > 0) {
+                            ((ts.ref - lastHistoryEntry.priceUsd) / lastHistoryEntry.priceUsd * 100).coerceIn(-50.0, 100.0)
+                        } else 0.0
+                        
+                        val expressSignal = com.lifecyclebot.v3.scoring.ShitCoinExpress.evaluate(
+                            mint = ts.mint,
+                            symbol = ts.symbol,
+                            currentPrice = ts.ref,
+                            marketCapUsd = ts.lastMcap,
+                            liquidityUsd = ts.lastLiquidityUsd,
+                            momentum = ts.momentum ?: 0.0,
+                            buyPressurePct = ts.lastBuyPressurePct,
+                            volumeChange = 1.5,  // Default estimate
+                            priceChange5Min = priceChange5Min,
+                            isTrending = isTrending,
+                            isBoosted = isBoosted,
+                            tokenAgeMinutes = tokenAgeMinutes,
+                        )
+                        
+                        if (expressSignal.shouldRide) {
+                            ErrorLogger.info("BotService", "💩🚂 [EXPRESS] ${ts.symbol} | RIDE | " +
+                                "${expressSignal.rideType.emoji} ${expressSignal.rideType.name} | " +
+                                "mom=${(ts.momentum ?: 0.0).fmt(1)}% | " +
+                                "size=${expressSignal.positionSizeSol.fmt(3)} SOL | " +
+                                "target=${expressSignal.estimatedGainPct.toInt()}%")
+                            
+                            // Board the express ride
+                            com.lifecyclebot.v3.scoring.ShitCoinExpress.boardRide(
+                                mint = ts.mint,
+                                symbol = ts.symbol,
+                                entryPrice = ts.ref,
+                                entrySol = expressSignal.positionSizeSol,
+                                momentum = ts.momentum ?: 0.0,
+                                buyPressure = ts.lastBuyPressurePct,
+                                isPaper = cfg.paperMode,
+                            )
+                            
+                            // Execute buy via Executor
+                            executor.shitCoinBuy(
+                                ts = ts,
+                                sizeSol = expressSignal.positionSizeSol,
+                                walletSol = effectiveBalance,
+                                takeProfitPct = expressSignal.estimatedGainPct,
+                                stopLossPct = -8.0,
+                                wallet = wallet,
+                                isPaper = cfg.paperMode,
+                                launchPlatform = com.lifecyclebot.v3.scoring.ShitCoinTraderAI.detectPlatform(ts.source),
+                                riskLevel = com.lifecyclebot.v3.scoring.ShitCoinTraderAI.RiskLevel.EXTREME,
+                            )
+                            
+                            addLog("💩🚂 EXPRESS: ${ts.symbol} | ${expressSignal.rideType.emoji} | " +
+                                "target +${expressSignal.estimatedGainPct.toInt()}% | " +
+                                "${if (cfg.paperMode) "PAPER" else "LIVE"}", ts.mint)
+                        }
+                    }
+                } catch (expEx: Exception) {
+                    ErrorLogger.debug("BotService", "💩🚂 [EXPRESS] ${ts.symbol} | ERROR | ${expEx.message}")
+                }
+            }
+            // ═══════════════════════════════════════════════════════════════════
+            // END ShitCoin Express evaluation
+            // ═══════════════════════════════════════════════════════════════════
+            
+            // ═══════════════════════════════════════════════════════════════════
+            // 📉🎯 DIP HUNTER - Buy quality dips on established tokens
+            // ═══════════════════════════════════════════════════════════════════
+            if (!ts.position.isOpen && com.lifecyclebot.v3.scoring.DipHunterAI.isEnabled()) {
+                try {
+                    val tokenAgeHours = if (ts.addedToWatchlistAt > 0) {
+                        (System.currentTimeMillis() - ts.addedToWatchlistAt) / (60 * 60 * 1000.0)
+                    } else 12.0
+                    
+                    // Dip Hunter for tokens $50K-$5M mcap that have been around
+                    if (ts.lastMcap in 50_000.0..5_000_000.0 && tokenAgeHours >= 2.0) {
+                        
+                        // Calculate high from recent history or estimate
+                        val historyHigh = ts.history.maxOfOrNull { it.priceUsd } ?: 0.0
+                        val recentHigh = if (historyHigh > 0) historyHigh else (ts.ref * 1.3)
+                        
+                        val dipSignal = com.lifecyclebot.v3.scoring.DipHunterAI.evaluate(
+                            mint = ts.mint,
+                            symbol = ts.symbol,
+                            currentPrice = ts.ref,
+                            highPrice = recentHigh,
+                            marketCapUsd = ts.lastMcap,
+                            liquidityUsd = ts.lastLiquidityUsd,
+                            buyPressurePct = ts.lastBuyPressurePct,
+                            volumeVsAvg = 1.0,
+                            tokenAgeHours = tokenAgeHours,
+                            holderCount = 100,  // Default holder count estimate
+                            holderChange24h = 0,
+                            isDevSelling = ts.safety.bundleRisk == "HIGH",
+                        )
+                        
+                        if (dipSignal.shouldBuy) {
+                            ErrorLogger.info("BotService", "📉🎯 [DIP] ${ts.symbol} | BUY | " +
+                                "${dipSignal.dipQuality.emoji} ${dipSignal.dipQuality.name} | " +
+                                "dip=${dipSignal.dipDepthPct.fmt(1)}% | " +
+                                "size=${dipSignal.positionSizeSol.fmt(3)} SOL | " +
+                                "target=+${dipSignal.expectedRecoveryPct.toInt()}%")
+                            
+                            // Open dip position
+                            com.lifecyclebot.v3.scoring.DipHunterAI.openDip(
+                                mint = ts.mint,
+                                symbol = ts.symbol,
+                                entryPrice = ts.ref,
+                                entrySol = dipSignal.positionSizeSol,
+                                highPrice = recentHigh,
+                                dipDepthPct = dipSignal.dipDepthPct,
+                                marketCapUsd = ts.lastMcap,
+                                liquidityUsd = ts.lastLiquidityUsd,
+                                isPaper = cfg.paperMode,
+                            )
+                            
+                            // Execute buy
+                            executor.paperBuy(
+                                ts = ts,
+                                sol = dipSignal.positionSizeSol,
+                                score = dipSignal.confidence.toDouble(),
+                                identity = identity,
+                                quality = "DIP_HUNTER",
+                                skipGraduated = true,
+                                wallet = wallet,
+                                walletSol = effectiveBalance
+                            )
+                            
+                            ts.position.tradingMode = "DIP_HUNTER"
+                            ts.position.tradingModeEmoji = "📉"
+                            
+                            addLog("📉🎯 DIP BUY: ${ts.symbol} | ${dipSignal.dipQuality.emoji} | " +
+                                "dip ${dipSignal.dipDepthPct.toInt()}% | " +
+                                "${if (cfg.paperMode) "PAPER" else "LIVE"}", ts.mint)
+                        }
+                    }
+                } catch (dipEx: Exception) {
+                    ErrorLogger.debug("BotService", "📉🎯 [DIP] ${ts.symbol} | ERROR | ${dipEx.message}")
+                }
+            }
+            // ═══════════════════════════════════════════════════════════════════
+            // END Dip Hunter evaluation
+            // ═══════════════════════════════════════════════════════════════════
+            
+            // ═══════════════════════════════════════════════════════════════════
+            // END Treasury Mode evaluation - now proceed with V3 decision handling
+            // ═══════════════════════════════════════════════════════════════════
+            
+            when (val result = v3Decision) {
+                is com.lifecyclebot.v3.V3Decision.Execute -> {
+                    // Cache V3 scores on TokenState for Treasury Mode to use
+                    ts.lastV3Score = result.score
+                    ts.lastV3Confidence = result.confidence.toInt()
+                    
                     // ═══════════════════════════════════════════════════════════════════
-                    // V3.3 FIX: DO NOT RETURN HERE!
-                    // Treasury Mode runs CONCURRENTLY and must evaluate ALL tokens,
-                    // including those that V3 marked as WATCH/Execute.
-                    // Previously: return (this KILLED Treasury Mode entirely!)
+                    // V3 EXECUTE: Clean logging + trade execution
                     // ═══════════════════════════════════════════════════════════════════
+                    ErrorLogger.info("BotService", "[SCORING] ${identity.symbol} | total=${result.score} | ${result.breakdown}")
+                    ErrorLogger.info("BotService", "[FATAL] ${identity.symbol} | PASS")
+                    ErrorLogger.info("BotService", "[CONFIDENCE] ${identity.symbol} | ${result.confidence.toInt()}%")
+                    ErrorLogger.info("BotService", "[DECISION] ${identity.symbol} | ${result.band} | score=${result.score} conf=${result.confidence.toInt()}%")
+                    ErrorLogger.info("BotService", "[SIZING] ${identity.symbol} | ${result.sizeSol.fmt(4)} SOL")
+                    
+                    // A+ alert for high-conviction setups
+                    if (result.score >= 75) {
+                        soundManager.playAplusAlert()
+                        addLog("⭐ HIGH CONFIDENCE: ${identity.symbol} | score=${result.score}", ts.mint)
+                    }
+                    
+                    if (!cfg.v3ShadowMode) {
+                        // V3 CONTROLS EXECUTION
+                        val v3SizeSol = result.sizeSol
+                        val v3Thesis = "V3 score=${result.score} band=${result.band}"
+                        
+                        // Update lifecycle to V3 states
+                        identity.v3Execute(result.score, result.band, result.sizeSol)
+                        
+                        // Execute the trade
+                        val proposedSize = result.sizeSol
+                        val modeTag = try {
+                            modeConf?.mode?.let { ModeSpecificGates.fromBotMode(it) }
+                        } catch (e: Exception) { null }
+                        
+                        ErrorLogger.info("BotService", "[EXECUTION] ${identity.symbol} | ${if (cfg.paperMode) "PAPER" else "LIVE"}_BUY | ${proposedSize.fmt(4)} SOL")
+                        
+                        // Record proposal for dedupe
+                        TradeLifecycle.recordProposal(identity.mint)
+                        
+                        // Execute buy through unified executor
+                        executor.v3Buy(
+                            ts = ts,
+                            sizeSol = proposedSize,
+                            walletSol = effectiveBalance,
+                            v3Score = result.score,
+                            v3Band = result.band,
+                            v3Confidence = result.confidence,
+                            wallet = wallet,
+                            lastSuccessfulPollMs = lastSuccessfulPollMs,
+                            openPositionCount = status.openPositionCount,
+                            totalExposureSol = status.totalExposureSol
+                        )
+                        
+                        addLog("⚡ V3 EXECUTE: ${identity.symbol} | ${result.band} | ${proposedSize.fmt(4)} SOL", ts.mint)
+                    } else {
+                        // Shadow mode - log only
+                        ErrorLogger.info("BotService", "[SHADOW] ${identity.symbol} | WOULD_EXECUTE | ${result.band} | ${result.sizeSol.fmt(4)} SOL")
+                        addLog("🔬 V3 SHADOW: ${identity.symbol} | ${result.band}", ts.mint)
+                    }
                 }
                 
-                // ═══════════════════════════════════════════════════════════════════
-                // NOTE: Treasury Mode now runs BEFORE the V3 when block (above)
-                // to ensure it evaluates ALL tokens regardless of V3 decision.
-                // ═══════════════════════════════════════════════════════════════════
-                
-                // ═══════════════════════════════════════════════════════════════════
-                // LEGACY FALLBACK: Only runs if V3 is disabled
-                // This path will be deprecated once V3 is fully validated
-                // ═══════════════════════════════════════════════════════════════════
-                
-                // Legacy suppression penalty (for comparison logging)
-                val suppressionPenalty = DistributionFadeAvoider.getSuppressionPenalty(identity.mint)
-                
-                // ───────────────────────────────────────────────────────────────────
-                // HARD GATE: Block edge=SKIP or conf=0 BEFORE candidate promotion
-                // This prevents garbage from going through CANDIDATE/PROPOSED/SIZING
-                // ───────────────────────────────────────────────────────────────────
-                val edgeVerdictStr = decision.edgeQuality  // "A", "B", "C", or "SKIP"
-                val confValue = decision.aiConfidence
-                
-                if (edgeVerdictStr == "SKIP" || confValue <= 0) {
-                    ErrorLogger.info("BotService", "[V3|PROMOTION_GATE] ${identity.symbol} | allow=false | " +
-                        "reason=edge_${edgeVerdictStr.lowercase()}_conf_${confValue.toInt()} → SHADOW_ONLY")
+                is com.lifecyclebot.v3.V3Decision.Watch -> {
+                    // Cache V3 scores on TokenState for Treasury Mode
+                    ts.lastV3Score = result.score
+                    ts.lastV3Confidence = result.confidence.toInt()
+                    
+                    // ═══════════════════════════════════════════════════════════════════
+                    // V3 WATCH: Track but don't trade NORMALLY
+                    // BUT Treasury Mode CAN still evaluate this token for quick scalps!
+                    // ═══════════════════════════════════════════════════════════════════
+                    ErrorLogger.info("BotService", "[SCORING] ${identity.symbol} | total=${result.score} | below threshold")
+                    ErrorLogger.info("BotService", "[DECISION] ${identity.symbol} | WATCH | score=${result.score} conf=${result.confidence}%")
                     
                     // Shadow track for learning
-                    com.lifecyclebot.engine.ShadowLearningEngine.onFdgBlockedTrade(
+                    ShadowLearningEngine.onFdgBlockedTrade(
                         mint = ts.mint,
                         symbol = ts.symbol,
-                        blockReason = "PROMOTION_GATE_edge_${edgeVerdictStr}_conf_$confValue",
-                        blockLevel = "LEGACY_GATE",
+                        blockReason = "V3_WATCH_score=${result.score}",
+                        blockLevel = "V3",
                         currentPrice = ts.ref,
                         proposedSizeSol = 0.1,
                         quality = decision.finalQuality,
-                        confidence = confValue,
+                        confidence = result.confidence.toDouble(),
                         phase = decision.phase,
                     )
                     
-                    return  // Exit before CANDIDATE/PROPOSED
+                    // ═══════════════════════════════════════════════════════════════════
+                    // V3.3 FIX: DO NOT RETURN - Allow Treasury Mode evaluation below!
+                    // Treasury Mode runs CONCURRENTLY and can scalp WATCH tokens
+                    // ═══════════════════════════════════════════════════════════════════
+                    // Previously: return (BLOCKED Treasury Mode!)
                 }
                 
-                // ───────────────────────────────────────────────────────────────────
-                // HARD GATE 2: Block C-grade + low confidence
-                // V4.0: Use FLUID threshold instead of hardcoded 35%
-                // At 12% learning, floor should be ~20% not 35%
-                // ───────────────────────────────────────────────────────────────────
-                val isCGrade = decision.setupQuality == "C" || decision.setupQuality == "D"
-                val fluidCGradeConfFloor = try {
-                    val learningProgress = com.lifecyclebot.v3.scoring.FluidLearningAI.getLearningProgress()
-                    // 18% at bootstrap → 35% at mature
-                    (18 + (learningProgress * 17)).toInt().coerceIn(18, 35)
-                } catch (_: Exception) { 25 }
-                
-                if (isCGrade && confValue < fluidCGradeConfFloor) {
-                    ErrorLogger.info("BotService", "[V3|PROMOTION_GATE] ${identity.symbol} | allow=false | " +
-                        "reason=C_grade_conf_${confValue.toInt()}_below_$fluidCGradeConfFloor → SHADOW_ONLY")
+                is com.lifecyclebot.v3.V3Decision.ShadowOnly -> {
+                    // ═══════════════════════════════════════════════════════════════════
+                    // V3 SHADOW_ONLY: Pre-proposal kill, learning only
+                    // ═══════════════════════════════════════════════════════════════════
+                    ErrorLogger.info("BotService", "[DECISION] ${identity.symbol} | SHADOW_ONLY | ${result.reason}")
                     
-                    com.lifecyclebot.engine.ShadowLearningEngine.onFdgBlockedTrade(
+                    // Shadow track for learning
+                    ShadowLearningEngine.onFdgBlockedTrade(
                         mint = ts.mint,
                         symbol = ts.symbol,
-                        blockReason = "PROMOTION_GATE_C_GRADE_CONF_FLOOR",
-                        blockLevel = "LEGACY_GATE",
+                        blockReason = "V3_SHADOW_ONLY_${result.reason}",
+                        blockLevel = "V3_PRE_PROPOSAL",
                         currentPrice = ts.ref,
                         proposedSizeSol = 0.1,
                         quality = decision.finalQuality,
-                        confidence = confValue,
+                        confidence = result.confidence.toDouble(),
                         phase = decision.phase,
                     )
                     
-                    return  // Exit before CANDIDATE/PROPOSED
+                    return
                 }
                 
-                if (!ts.position.isOpen && decision.finalSignal == "BUY" && canProposeEarly) {
+                is com.lifecyclebot.v3.V3Decision.Rejected -> {
                     // ═══════════════════════════════════════════════════════════════════
-                    // TRADE IDENTITY: Mark as candidate
+                    // V3 REJECT: Poor setup
                     // ═══════════════════════════════════════════════════════════════════
-                    identity.candidate(decision.entryScore, decision.phase, decision.setupQuality)
+                    ErrorLogger.info("BotService", "[DECISION] ${identity.symbol} | REJECT | ${result.reason}")
                     
-                    // ═══════════════════════════════════════════════════════════════════
-                    // LIFECYCLE: CANDIDATE (strategy generated BUY signal)
-                    // ═══════════════════════════════════════════════════════════════════
-                    TradeLifecycle.candidate(
-                        identity.mint, 
-                        decision.entryScore, 
-                        decision.phase, 
-                        decision.setupQuality
-                    )
-                    // Calculate proposed size first
-                    val proposedSize = executor.calculateBuySize(
-                        ts = ts,
-                        walletSol = effectiveBalance,
-                        totalExposureSol = status.totalExposureSol,
-                        openPositionCount = status.openPositionCount,
+                    // Shadow track
+                    ShadowLearningEngine.onFdgBlockedTrade(
+                        mint = ts.mint,
+                        symbol = ts.symbol,
+                        blockReason = "V3_REJECT_${result.reason}",
+                        blockLevel = "V3",
+                        currentPrice = ts.ref,
+                        proposedSizeSol = 0.1,
                         quality = decision.finalQuality,
+                        confidence = 0.0,
+                        phase = decision.phase,
                     )
                     
+                    return
+                }
+                
+                is com.lifecyclebot.v3.V3Decision.BlockFatal -> {
                     // ═══════════════════════════════════════════════════════════════════
-                    // TRADE IDENTITY: Mark as proposed
+                    // V3 BLOCK_FATAL: Fatal risk detected
                     // ═══════════════════════════════════════════════════════════════════
-                    identity.proposed()
-                    
+                    ErrorLogger.info("BotService", "[DECISION] ${identity.symbol} | BLOCK_FATAL | ${result.reason}")
+                    return
+                }
+                
+                is com.lifecyclebot.v3.V3Decision.Blocked -> {
                     // ═══════════════════════════════════════════════════════════════════
-                    // LIFECYCLE: PROPOSED → FDG evaluation
-                    // NOTE: recordProposal() moved AFTER FDG evaluation to prevent
-                    // FDG's canPropose() check from blocking the same proposal
+                    // V3 BLOCK: Legacy fatal block
                     // ═══════════════════════════════════════════════════════════════════
-                    TradeLifecycle.proposed(identity.mint)
-                    
-                    // Get trading mode tag for FDG mode-specific thresholds
-                    val tradingModeTag = try {
-                        modeConf?.mode?.let { ModeSpecificGates.fromBotMode(it) }
-                    } catch (e: Exception) {
-                        null
-                    }
-                    
-                    // Run through Final Decision Gate
-                    val fdgDecision = FinalDecisionGate.evaluate(
-                        ts = ts,
-                        candidate = decision,
-                        config = cfg,
-                        proposedSizeSol = proposedSize,
-                        brain = executor.brain,
-                        tradingModeTag = tradingModeTag,
-                    )
-                    
-                    // ═══════════════════════════════════════════════════════════════════
-                    // V3 ENGINE: PRIMARY DECISION AUTHORITY
-                    // 
-                    // V3 MIGRATION: V3 is now the ONLY decision maker when enabled.
-                    // FDG is kept for comparison logging only.
-                    // 
-                    // Decision flow:
-                    //   1. V3 scores the candidate (includes all penalties)
-                    //   2. V3 outputs: EXECUTE_AGGRESSIVE, EXECUTE_STANDARD, EXECUTE_SMALL, WATCH, REJECT, BLOCK
-                    //   3. Only V3 decision matters for execution
-                    //   4. FDG result is logged for comparison tracking only
-                    // ═══════════════════════════════════════════════════════════════════
-                    var useV3Decision = false
-                    var v3SizeSol = 0.0
-                    var v3Thesis = ""
-                    var v3ControlsExecution = false  // V3 is the boss when enabled
-                    
-                    if (cfg.v3EngineEnabled && com.lifecyclebot.v3.V3EngineManager.isReady()) {
-                        v3ControlsExecution = !cfg.v3ShadowMode  // V3 controls execution unless shadow mode
+                    ErrorLogger.info("BotService", "[DECISION] ${identity.symbol} | BLOCK_FATAL | ${result.reason}")
+                    return
+                }
+                
+                else -> {
+                    // V3 not ready or error - skip this token
+                    ErrorLogger.debug("BotService", "[V3] ${identity.symbol} | NOT_READY")
+                    return
+                }
+            }
+            
+        } catch (v3e: Exception) {
+            ErrorLogger.error("BotService", "[V3] ${identity.symbol} | ERROR | ${v3e.message}")
+            return
+        }
+        
+        // ═══════════════════════════════════════════════════════════════════
+        // V3.3 FIX: DO NOT RETURN HERE!
+        // Treasury Mode runs CONCURRENTLY and must evaluate ALL tokens,
+        // including those that V3 marked as WATCH/Execute.
+        // Previously: return (this KILLED Treasury Mode entirely!)
+        // ═══════════════════════════════════════════════════════════════════
+    }
+    
+    // ═══════════════════════════════════════════════════════════════════
+    // NOTE: Treasury Mode now runs BEFORE the V3 when block (above)
+    // to ensure it evaluates ALL tokens regardless of V3 decision.
+    // ═══════════════════════════════════════════════════════════════════
+    
+    // ═══════════════════════════════════════════════════════════════════
+    // LEGACY FALLBACK: Only runs if V3 is disabled
+    // This path will be deprecated once V3 is fully validated
+    // ═══════════════════════════════════════════════════════════════════
+    
+    // Legacy suppression penalty (for comparison logging)
+    val suppressionPenalty = DistributionFadeAvoider.getSuppressionPenalty(identity.mint)
+    
+    // ───────────────────────────────────────────────────────────────────
+    // HARD GATE: Block edge=SKIP or conf=0 BEFORE candidate promotion
+    // This prevents garbage from going through CANDIDATE/PROPOSED/SIZING
+    // ───────────────────────────────────────────────────────────────────
+    val edgeVerdictStr = decision.edgeQuality  // "A", "B", "C", or "SKIP"
+    val confValue = decision.aiConfidence
+    
+    if (edgeVerdictStr == "SKIP" || confValue <= 0) {
+        ErrorLogger.info("BotService", "[V3|PROMOTION_GATE] ${identity.symbol} | allow=false | " +
+            "reason=edge_${edgeVerdictStr.lowercase()}_conf_${confValue.toInt()} → SHADOW_ONLY")
+        
+        // Shadow track for learning
+        com.lifecyclebot.engine.ShadowLearningEngine.onFdgBlockedTrade(
+            mint = ts.mint,
+            symbol = ts.symbol,
+            blockReason = "PROMOTION_GATE_edge_${edgeVerdictStr}_conf_$confValue",
+            blockLevel = "LEGACY_GATE",
+            currentPrice = ts.ref,
+            proposedSizeSol = 0.1,
+            quality = decision.finalQuality,
+            confidence = confValue,
+            phase = decision.phase,
+        )
+        
+        return  // Exit before CANDIDATE/PROPOSED
+    }
+    
+    // ───────────────────────────────────────────────────────────────────
+    // HARD GATE 2: Block C-grade + low confidence
+    // V4.0: Use FLUID threshold instead of hardcoded 35%
+    // At 12% learning, floor should be ~20% not 35%
+    // ───────────────────────────────────────────────────────────────────
+    val isCGrade = decision.setupQuality == "C" || decision.setupQuality == "D"
+    val fluidCGradeConfFloor = try {
+        val learningProgress = com.lifecyclebot.v3.scoring.FluidLearningAI.getLearningProgress()
+        // 18% at bootstrap → 35% at mature
+        (18 + (learningProgress * 17)).toInt().coerceIn(18, 35)
+    } catch (_: Exception) { 25 }
+    
+    if (isCGrade && confValue < fluidCGradeConfFloor) {
+        ErrorLogger.info("BotService", "[V3|PROMOTION_GATE] ${identity.symbol} | allow=false | " +
+            "reason=C_grade_conf_${confValue.toInt()}_below_$fluidCGradeConfFloor → SHADOW_ONLY")
+        
+        com.lifecyclebot.engine.ShadowLearningEngine.onFdgBlockedTrade(
+            mint = ts.mint,
+            symbol = ts.symbol,
+            blockReason = "PROMOTION_GATE_C_GRADE_CONF_FLOOR",
+            blockLevel = "LEGACY_GATE",
+            currentPrice = ts.ref,
+            proposedSizeSol = 0.1,
+            quality = decision.finalQuality,
+            confidence = confValue,
+            phase = decision.phase,
+        )
+        
+        return  // Exit before CANDIDATE/PROPOSED
+    }
+    
+    if (!ts.position.isOpen && decision.finalSignal == "BUY" && canProposeEarly) {
+        // ═══════════════════════════════════════════════════════════════════
+        // TRADE IDENTITY: Mark as candidate
+        // ═══════════════════════════════════════════════════════════════════
+        identity.candidate(decision.entryScore, decision.phase, decision.setupQuality)
+        
+        // ═══════════════════════════════════════════════════════════════════
+        // LIFECYCLE: CANDIDATE (strategy generated BUY signal)
+        // ═══════════════════════════════════════════════════════════════════
+        TradeLifecycle.candidate(
+            identity.mint, 
+            decision.entryScore, 
+            decision.phase, 
+            decision.setupQuality
+        )
+        // Calculate proposed size first
+        val proposedSize = executor.calculateBuySize(
+            ts = ts,
+            walletSol = effectiveBalance,
+            totalExposureSol = status.totalExposureSol,
+            openPositionCount = status.openPositionCount,
+            quality = decision.finalQuality,
+        )
+        
+        // ═══════════════════════════════════════════════════════════════════
+        // TRADE IDENTITY: Mark as proposed
+        // ═══════════════════════════════════════════════════════════════════
+        identity.proposed()
+        
+        // ═══════════════════════════════════════════════════════════════════
+        // LIFECYCLE: PROPOSED → FDG evaluation
+        // NOTE: recordProposal() moved AFTER FDG evaluation to prevent
+        // FDG's canPropose() check from blocking the same proposal
+        // ═══════════════════════════════════════════════════════════════════
+        TradeLifecycle.proposed(identity.mint)
+        
+        // Get trading mode tag for FDG mode-specific thresholds
+        val tradingModeTag = try {
+            modeConf?.mode?.let { ModeSpecificGates.fromBotMode(it) }
+        } catch (e: Exception) {
+            null
+        }
+        
+        // Run through Final Decision Gate
+        val fdgDecision = FinalDecisionGate.evaluate(
+            ts = ts,
+            candidate = decision,
+            config = cfg,
+            proposedSizeSol = proposedSize,
+            brain = executor.brain,
+            tradingModeTag = tradingModeTag,
+        )
+        
+        // ═══════════════════════════════════════════════════════════════════
+        // V3 ENGINE: PRIMARY DECISION AUTHORITY
+        // 
+        // V3 MIGRATION: V3 is now the ONLY decision maker when enabled.
+        // FDG is kept for comparison logging only.
+        // 
+        // Decision flow:
+        //   1. V3 scores the candidate (includes all penalties)
+        //   2. V3 outputs: EXECUTE_AGGRESSIVE, EXECUTE_STANDARD, EXECUTE_SMALL, WATCH, REJECT, BLOCK
+        //   3. Only V3 decision matters for execution
+        //   4. FDG result is logged for comparison tracking only
+        // ═══════════════════════════════════════════════════════════════════
+        var useV3Decision = false
+        var v3SizeSol = 0.0
+        var v3Thesis = ""
+        var v3ControlsExecution = false  // V3 is the boss when enabled
+        
+        if (cfg.v3EngineEnabled && com.lifecyclebot.v3.V3EngineManager.isReady()) {
+            v3ControlsExecution = !cfg.v3ShadowMode  // V3 controls execution unless shadow mode
+            
+            try {
+                // Log legacy decision for comparison
+                val legacyShouldTrade = decision.shouldTrade
+                val legacyPenalty = suppressionPenalty
+                
+                val v3Decision = com.lifecyclebot.v3.V3EngineManager.processToken(
+                    ts = ts,
+                    walletSol = effectiveBalance,
+                    totalExposureSol = status.totalExposureSol,
+                    openPositions = status.openPositionCount,
+                    recentWinRate = botBrain?.getRecentWinRate() ?: 50.0,
+                    recentTradeCount = botBrain?.getTradeCount() ?: 0,
+                    marketRegime = modeConf?.mode?.name ?: "NEUTRAL"
+                )
+                
+                when (val result = v3Decision) {
+                    is com.lifecyclebot.v3.V3Decision.Execute -> {
+                        val fdgTag = if (fdgDecision.canExecute()) "FDG:✓" else "FDG:✗"
+                        val legacyTag = if (legacyShouldTrade) "legacy:✓" else "legacy:✗"
                         
-                        try {
-                            // Log legacy decision for comparison
-                            val legacyShouldTrade = decision.shouldTrade
-                            val legacyPenalty = suppressionPenalty
-                            
-                            val v3Decision = com.lifecyclebot.v3.V3EngineManager.processToken(
-                                ts = ts,
-                                walletSol = effectiveBalance,
-                                totalExposureSol = status.totalExposureSol,
-                                openPositions = status.openPositionCount,
-                                recentWinRate = botBrain?.getRecentWinRate() ?: 50.0,
-                                recentTradeCount = botBrain?.getTradeCount() ?: 0,
-                                marketRegime = modeConf?.mode?.name ?: "NEUTRAL"
-                            )
-                            
-                            when (val result = v3Decision) {
-                                is com.lifecyclebot.v3.V3Decision.Execute -> {
-                                    val fdgTag = if (fdgDecision.canExecute()) "FDG:✓" else "FDG:✗"
-                                    val legacyTag = if (legacyShouldTrade) "legacy:✓" else "legacy:✗"
-                                    
-                                    // V3 UNIFIED LOG: Shows score, confidence, band, size
-                                    ErrorLogger.info("BotService", "⚡ V3 EXECUTE: ${identity.symbol} | " +
-                                        "band=${result.band} | score=${result.score} | " +
-                                        "conf=${result.confidence.toInt()}% | size=${result.sizeSol.fmt(4)} SOL | " +
-                                        "$legacyTag $fdgTag")
-                                    
-                                    // Track V3 vs legacy comparison
-                                    com.lifecyclebot.v3.V3EngineManager.recordDecisionComparison(
-                                        v3Decision = "EXECUTE",
-                                        fdgWouldExecute = fdgDecision.canExecute()
-                                    )
-                                    
-                                    // V3 CONTROLS EXECUTION
-                                    if (v3ControlsExecution) {
-                                        useV3Decision = true
-                                        v3SizeSol = result.sizeSol
-                                        v3Thesis = "V3 score=${result.score} band=${result.band}"
-                                        addLog("⚡ V3: ${identity.symbol} | ${result.band} | " +
-                                            "${v3SizeSol.fmt(4)} SOL | conf=${result.confidence.toInt()}%", mint)
-                                    } else {
-                                        // Shadow mode - log only
-                                        addLog("🔬 V3 SHADOW: ${identity.symbol} | ${result.band} | " +
-                                            "${result.sizeSol.fmt(4)} SOL ($fdgTag)", mint)
-                                    }
-                                }
-                                
-                                is com.lifecyclebot.v3.V3Decision.Watch -> {
-                                    val fdgTag = if (fdgDecision.canExecute()) "FDG:✓" else "FDG:✗"
-                                    
-                                    ErrorLogger.info("BotService", "⚡ V3 WATCH: ${identity.symbol} | " +
-                                        "score=${result.score} | conf=${result.confidence} | $fdgTag")
-                                    
-                                    // Track comparison
-                                    com.lifecyclebot.v3.V3EngineManager.recordDecisionComparison(
-                                        v3Decision = "WATCH",
-                                        fdgWouldExecute = fdgDecision.canExecute()
-                                    )
-                                    
-                                    // V3 WATCH = DO NOT EXECUTE (even if FDG would approve)
-                                    if (v3ControlsExecution) {
-                                        addLog("⚡ V3 WATCH: ${identity.symbol} | score=${result.score} (no trade)", mint)
-                                        // Don't set useV3Decision - this blocks the trade
-                                        return  // V3 says WATCH = exit without executing
-                                    }
-                                }
-                                
-                                is com.lifecyclebot.v3.V3Decision.Rejected -> {
-                                    val fdgTag = if (fdgDecision.canExecute()) "FDG:✓" else "FDG:✗"
-                                    
-                                    ErrorLogger.info("BotService", "⚡ V3 REJECT: ${identity.symbol} | " +
-                                        "${result.reason} | $fdgTag")
-                                    
-                                    // Track comparison
-                                    com.lifecyclebot.v3.V3EngineManager.recordDecisionComparison(
-                                        v3Decision = "REJECT",
-                                        fdgWouldExecute = fdgDecision.canExecute()
-                                    )
-                                    
-                                    // V3 REJECT = DO NOT EXECUTE
-                                    if (v3ControlsExecution) {
-                                        addLog("⚡ V3 REJECT: ${identity.symbol} | ${result.reason}", mint)
-                                        return  // V3 says REJECT = exit
-                                    }
-                                }
-                                
-                                is com.lifecyclebot.v3.V3Decision.Blocked -> {
-                                    val fdgTag = if (fdgDecision.canExecute()) "FDG:✓" else "FDG:✗"
-                                    
-                                    ErrorLogger.info("BotService", "⚡ V3 BLOCK (FATAL): ${identity.symbol} | " +
-                                        "${result.reason} | $fdgTag")
-                                    
-                                    // Track comparison
-                                    com.lifecyclebot.v3.V3EngineManager.recordDecisionComparison(
-                                        v3Decision = "BLOCK",
-                                        fdgWouldExecute = fdgDecision.canExecute()
-                                    )
-                                    
-                                    // V3 BLOCK = FATAL, DO NOT EXECUTE
-                                    if (v3ControlsExecution) {
-                                        addLog("⚡ V3 BLOCKED: ${identity.symbol} | ${result.reason}", mint)
-                                        return  // V3 says BLOCK = exit
-                                    }
-                                }
-                                
-                                else -> {
-                                    // Error or NotReady - fall back to FDG only if V3 is not controlling
-                                    ErrorLogger.warn("BotService", "⚡ V3 unavailable for ${identity.symbol} - ${if (v3ControlsExecution) "SKIPPING" else "using FDG"}")
-                                    if (v3ControlsExecution) {
-                                        // V3 is supposed to control but failed - don't trade on uncertainty
-                                        return
-                                    }
-                                }
-                            }
-                            
-                        } catch (v3e: Exception) {
-                            ErrorLogger.error("BotService", "V3 engine error for ${identity.symbol}: ${v3e.message}")
-                            if (v3ControlsExecution) {
-                                // V3 controls but errored - don't fall back to legacy
-                                return
-                            }
-                        }
-                    }
-                    
-                    // ═══════════════════════════════════════════════════════════════════
-                    // EXECUTION PATH: Use V3 decision if active, otherwise FDG
-                    // ═══════════════════════════════════════════════════════════════════
-                    val shouldExecute = useV3Decision || fdgDecision.canExecute()
-                    
-                    if (shouldExecute) {
-                        // ═══════════════════════════════════════════════════════════════════
-                        // RECORD PROPOSAL: Track that we proposed (for dedupe)
-                        // Moved here from before FDG to prevent self-blocking
-                        // ═══════════════════════════════════════════════════════════════════
-                        TradeLifecycle.recordProposal(identity.mint)
+                        // V3 UNIFIED LOG: Shows score, confidence, band, size
+                        ErrorLogger.info("BotService", "⚡ V3 EXECUTE: ${identity.symbol} | " +
+                            "band=${result.band} | score=${result.score} | " +
+                            "conf=${result.confidence.toInt()}% | size=${result.sizeSol.fmt(4)} SOL | " +
+                            "$legacyTag $fdgTag")
                         
-                        // ═══════════════════════════════════════════════════════════════════
-                        // COMPUTE FINAL SIZE: Use V3 size if available, otherwise FDG size
-                        // ═══════════════════════════════════════════════════════════════════
-                        var finalSize = if (useV3Decision && v3SizeSol > 0) {
-                            v3SizeSol
-                        } else {
-                            fdgDecision.sizeSol
-                        }
-                        
-                        // Apply mode multiplier if present (only for FDG path)
-                        if (!useV3Decision) {
-                            modeConf?.let { finalSize *= it.positionSizeMultiplier }
-                        }
-                        
-                        // Apply graduated building reduction for B+ setups (only for FDG path)
-                        val isGraduated = !useV3Decision && decision.setupQuality in listOf("A+", "B")
-                        val actualInitialSize = if (isGraduated) {
-                            executor.graduatedInitialSize(finalSize, decision.setupQuality)
-                        } else {
-                            finalSize
-                        }
-                        
-                        // Determine approval class and confidence
-                        val approvalClass = if (useV3Decision) {
-                            FinalDecisionGate.ApprovalClass.LIVE  // V3 decisions are always "live"
-                        } else {
-                            fdgDecision.approvalClass
-                        }
-                        
-                        val quality = if (useV3Decision) "V3" else fdgDecision.quality
-                        val confidence = if (useV3Decision) 85.0 else fdgDecision.confidence
-                        
-                        // ═══════════════════════════════════════════════════════════════════
-                        // TRADE IDENTITY: Mark as approved with ACTUAL initial size
-                        // ═══════════════════════════════════════════════════════════════════
-                        identity.approved(actualInitialSize, quality, confidence)
-                        
-                        // ═══════════════════════════════════════════════════════════════════
-                        // LIFECYCLE: APPROVED → SIZED
-                        // ═══════════════════════════════════════════════════════════════════
-                        TradeLifecycle.fdgApproved(
-                            identity.mint, 
-                            quality, 
-                            confidence,
-                            approvalClass.name
+                        // Track V3 vs legacy comparison
+                        com.lifecyclebot.v3.V3EngineManager.recordDecisionComparison(
+                            v3Decision = "EXECUTE",
+                            fdgWouldExecute = fdgDecision.canExecute()
                         )
-                        TradeLifecycle.recordApproval(identity.mint)  // Track for dedupe
-                        TradeLifecycle.sized(identity.mint, actualInitialSize, "medium")
                         
-                        // Log approval (V3 or FDG)
-                        if (useV3Decision) {
-                            addLog("⚡ V3 APPROVED: ${identity.symbol} | size=${actualInitialSize.fmt(4)} SOL | thesis: $v3Thesis", mint)
-                            ErrorLogger.info("BotService", "⚡ V3 APPROVED: ${identity.symbol} | " +
-                                "size=${actualInitialSize.fmt(4)} SOL")
+                        // V3 CONTROLS EXECUTION
+                        if (v3ControlsExecution) {
+                            useV3Decision = true
+                            v3SizeSol = result.sizeSol
+                            v3Thesis = "V3 score=${result.score} band=${result.band}"
+                            addLog("⚡ V3: ${identity.symbol} | ${result.band} | " +
+                                "${v3SizeSol.fmt(4)} SOL | conf=${result.confidence.toInt()}%", mint)
                         } else {
-                            FinalDecisionGate.logApprovedTrade(fdgDecision) { addLog(it, mint) }
-                            ErrorLogger.info("BotService", "${if(fdgDecision.isBenchmarkQuality()) "🟢" else "🟡"} " +
-                                "FDG ${fdgDecision.approvalClass}: ${identity.symbol} | " +
-                                "quality=${fdgDecision.quality} | conf=${fdgDecision.confidence.toInt()}% | " +
-                                "size=${actualInitialSize.fmt(4)} SOL" +
-                                if (isGraduated) " (grad: target=${finalSize.fmt(4)})" else "")
+                            // Shadow mode - log only
+                            addLog("🔬 V3 SHADOW: ${identity.symbol} | ${result.band} | " +
+                                "${result.sizeSol.fmt(4)} SOL ($fdgTag)", mint)
                         }
+                    }
+                    
+                    is com.lifecyclebot.v3.V3Decision.Watch -> {
+                        val fdgTag = if (fdgDecision.canExecute()) "FDG:✓" else "FDG:✗"
                         
-                        if (!cbState.isHalted && !cbState.isPaused) {
-                            executor.maybeActWithDecision(
-                                ts                 = ts,
-                                decision           = decision,
-                                walletSol          = effectiveBalance,
-                                wallet             = wallet,
-                                lastPollMs         = lastSuccessfulPollMs,
-                                openPositionCount  = status.openPositionCount,
-                                totalExposureSol   = status.totalExposureSol,
-                                modeConfig         = null,  // Don't pass mode config - already applied above
-                                fdgApprovedSize    = actualInitialSize,  // Use final computed size
-                                walletTotalTrades  = try {
-                                    com.lifecyclebot.engine.BotService.walletManager
-                                        ?.state?.value?.totalTrades ?: 0
-                                } catch (_: Exception) { 0 },
-                                tradeIdentity      = identity,  // Pass canonical identity
-                                fdgApprovalClass   = approvalClass,  // Pass approval class for learning
-                            )
-                            
-                            // Record V3 position opened
-                            if (useV3Decision) {
-                                com.lifecyclebot.v3.V3EngineManager.setCooldown(identity.mint, 60_000L)
-                            }
+                        ErrorLogger.info("BotService", "⚡ V3 WATCH: ${identity.symbol} | " +
+                            "score=${result.score} | conf=${result.confidence} | $fdgTag")
+                        
+                        // Track comparison
+                        com.lifecyclebot.v3.V3EngineManager.recordDecisionComparison(
+                            v3Decision = "WATCH",
+                            fdgWouldExecute = fdgDecision.canExecute()
+                        )
+                        
+                        // V3 WATCH = DO NOT EXECUTE (even if FDG would approve)
+                        if (v3ControlsExecution) {
+                            addLog("⚡ V3 WATCH: ${identity.symbol} | score=${result.score} (no trade)", mint)
+                            // Don't set useV3Decision - this blocks the trade
+                            return  // V3 says WATCH = exit without executing
                         }
+                    }
+                    
+                    is com.lifecyclebot.v3.V3Decision.Rejected -> {
+                        val fdgTag = if (fdgDecision.canExecute()) "FDG:✓" else "FDG:✗"
+                        
+                        ErrorLogger.info("BotService", "⚡ V3 REJECT: ${identity.symbol} | " +
+                            "${result.reason} | $fdgTag")
+                        
+                        // Track comparison
+                        com.lifecyclebot.v3.V3EngineManager.recordDecisionComparison(
+                            v3Decision = "REJECT",
+                            fdgWouldExecute = fdgDecision.canExecute()
+                        )
+                        
+                        // V3 REJECT = DO NOT EXECUTE
+                        if (v3ControlsExecution) {
+                            addLog("⚡ V3 REJECT: ${identity.symbol} | ${result.reason}", mint)
+                            return  // V3 says REJECT = exit
+                        }
+                    }
+                    
+                    is com.lifecyclebot.v3.V3Decision.Blocked -> {
+                        val fdgTag = if (fdgDecision.canExecute()) "FDG:✓" else "FDG:✗"
+                        
+                        ErrorLogger.info("BotService", "⚡ V3 BLOCK (FATAL): ${identity.symbol} | " +
+                            "${result.reason} | $fdgTag")
+                        
+                        // Track comparison
+                        com.lifecyclebot.v3.V3EngineManager.recordDecisionComparison(
+                            v3Decision = "BLOCK",
+                            fdgWouldExecute = fdgDecision.canExecute()
+                        )
+                        
+                        // V3 BLOCK = FATAL, DO NOT EXECUTE
+                        if (v3ControlsExecution) {
+                            addLog("⚡ V3 BLOCKED: ${identity.symbol} | ${result.reason}", mint)
+                            return  // V3 says BLOCK = exit
+                        }
+                    }
+                    
+                    else -> {
+                        // Error or NotReady - fall back to FDG only if V3 is not controlling
+                        ErrorLogger.warn("BotService", "⚡ V3 unavailable for ${identity.symbol} - ${if (v3ControlsExecution) "SKIPPING" else "using FDG"}")
+                        if (v3ControlsExecution) {
+                            // V3 is supposed to control but failed - don't trade on uncertainty
+                            return
+                        }
+                    }
+                }
+                
+            } catch (v3e: Exception) {
+                ErrorLogger.error("BotService", "V3 engine error for ${identity.symbol}: ${v3e.message}")
+                if (v3ControlsExecution) {
+                    // V3 controls but errored - don't fall back to legacy
+                    return
+                }
+            }
+        }
+        
+        // ═══════════════════════════════════════════════════════════════════
+        // EXECUTION PATH: Use V3 decision if active, otherwise FDG
+        // ═══════════════════════════════════════════════════════════════════
+        val shouldExecute = useV3Decision || fdgDecision.canExecute()
+        
+        if (shouldExecute) {
+            // ═══════════════════════════════════════════════════════════════════
+            // RECORD PROPOSAL: Track that we proposed (for dedupe)
+            // Moved here from before FDG to prevent self-blocking
+            // ═══════════════════════════════════════════════════════════════════
+            TradeLifecycle.recordProposal(identity.mint)
+            
+            // ═══════════════════════════════════════════════════════════════════
+            // COMPUTE FINAL SIZE: Use V3 size if available, otherwise FDG size
+            // ═══════════════════════════════════════════════════════════════════
+            var finalSize = if (useV3Decision && v3SizeSol > 0) {
+                v3SizeSol
+            } else {
+                fdgDecision.sizeSol
+            }
+            
+            // Apply mode multiplier if present (only for FDG path)
+            if (!useV3Decision) {
+                modeConf?.let { finalSize *= it.positionSizeMultiplier }
+            }
+            
+            // Apply graduated building reduction for B+ setups (only for FDG path)
+            val isGraduated = !useV3Decision && decision.setupQuality in listOf("A+", "B")
+            val actualInitialSize = if (isGraduated) {
+                executor.graduatedInitialSize(finalSize, decision.setupQuality)
+            } else {
+                finalSize
+            }
+            
+            // Determine approval class and confidence
+            val approvalClass = if (useV3Decision) {
+                FinalDecisionGate.ApprovalClass.LIVE  // V3 decisions are always "live"
+            } else {
+                fdgDecision.approvalClass
+            }
+            
+            val quality = if (useV3Decision) "V3" else fdgDecision.quality
+            val confidence = if (useV3Decision) 85.0 else fdgDecision.confidence
+            
+            // ═══════════════════════════════════════════════════════════════════
+            // TRADE IDENTITY: Mark as approved with ACTUAL initial size
+            // ═══════════════════════════════════════════════════════════════════
+            identity.approved(actualInitialSize, quality, confidence)
+            
+            // ═══════════════════════════════════════════════════════════════════
+            // LIFECYCLE: APPROVED → SIZED
+            // ═══════════════════════════════════════════════════════════════════
+            TradeLifecycle.fdgApproved(
+                identity.mint, 
+                quality, 
+                confidence,
+                approvalClass.name
+            )
+            TradeLifecycle.recordApproval(identity.mint)  // Track for dedupe
+            TradeLifecycle.sized(identity.mint, actualInitialSize, "medium")
+            
+            // Log approval (V3 or FDG)
+            if (useV3Decision) {
+                addLog("⚡ V3 APPROVED: ${identity.symbol} | size=${actualInitialSize.fmt(4)} SOL | thesis: $v3Thesis", mint)
+                ErrorLogger.info("BotService", "⚡ V3 APPROVED: ${identity.symbol} | " +
+                    "size=${actualInitialSize.fmt(4)} SOL")
+            } else {
+                FinalDecisionGate.logApprovedTrade(fdgDecision) { addLog(it, mint) }
+                ErrorLogger.info("BotService", "${if(fdgDecision.isBenchmarkQuality()) "🟢" else "🟡"} " +
+                    "FDG ${fdgDecision.approvalClass}: ${identity.symbol} | " +
+                    "quality=${fdgDecision.quality} | conf=${fdgDecision.confidence.toInt()}% | " +
+                    "size=${actualInitialSize.fmt(4)} SOL" +
+                    if (isGraduated) " (grad: target=${finalSize.fmt(4)})" else "")
+            }
+            
+            if (!cbState.isHalted && !cbState.isPaused) {
+                executor.maybeActWithDecision(
+                    ts                 = ts,
+                    decision           = decision,
+                    walletSol          = effectiveBalance,
+                    wallet             = wallet,
+                    lastPollMs         = lastSuccessfulPollMs,
+                    openPositionCount  = status.openPositionCount,
+                    totalExposureSol   = status.totalExposureSol,
+                    modeConfig         = null,  // Don't pass mode config - already applied above
+                    fdgApprovedSize    = actualInitialSize,  // Use final computed size
+                    walletTotalTrades  = try {
+                        com.lifecyclebot.engine.BotService.walletManager
+                            ?.state?.value?.totalTrades ?: 0
+                    } catch (_: Exception) { 0 },
+                    tradeIdentity      = identity,  // Pass canonical identity
+                    fdgApprovalClass   = approvalClass,  // Pass approval class for learning
+                )
+                
+                // Record V3 position opened
+                if (useV3Decision) {
+                    com.lifecyclebot.v3.V3EngineManager.setCooldown(identity.mint, 60_000L)
+                }
+            }
+        } else {
+            // ═══════════════════════════════════════════════════════════════════
+            // RECORD PROPOSAL: Track that we proposed (for dedupe), even if blocked
+            // This prevents spam re-proposals of the same token
+            // ═══════════════════════════════════════════════════════════════════
+            TradeLifecycle.recordProposal(identity.mint)
+            
+            // ═══════════════════════════════════════════════════════════════════
+            // TRADE IDENTITY: Mark as blocked
+            // ═══════════════════════════════════════════════════════════════════
+            identity.blocked(
+                fdgDecision.blockReason ?: "UNKNOWN",
+                fdgDecision.blockLevel?.name ?: "UNKNOWN",
+                fdgDecision.quality,
+                fdgDecision.confidence
+            )
+            
+            // ═══════════════════════════════════════════════════════════════════
+            // LIFECYCLE: FDG_BLOCKED (using identity for consistency)
+            // ═══════════════════════════════════════════════════════════════════
+            TradeLifecycle.fdgBlocked(
+                identity.mint, 
+                fdgDecision.blockReason ?: "UNKNOWN",
+                fdgDecision.blockLevel?.name ?: "UNKNOWN"
+            )
+            
+            FinalDecisionGate.logBlockedTrade(fdgDecision) { addLog(it, mint) }
+            
+            ErrorLogger.info("BotService", "🚫 FDG BLOCKED: ${identity.symbol} | " +
+                "reason=${fdgDecision.blockReason} | level=${fdgDecision.blockLevel}")
+            
+            // Record this for learning (simulation only, no execution)
+            executor.brain?.recordBlockedTrade(
+                mint = identity.mint,
+                phase = identity.phase,
+                source = identity.source,
+                blockReason = fdgDecision.blockReason ?: "UNKNOWN",
+                quality = fdgDecision.quality,
+                confidence = fdgDecision.confidence,
+            )
+            
+            // ═══════════════════════════════════════════════════════════════════
+            // PAPER MODE LEARNING: Shadow track blocked trades
+            // Track what WOULD have happened if we traded this opportunity
+            // This enables learning whether the FDG is too strict or appropriate
+            // ═══════════════════════════════════════════════════════════════════
+            if (cfg.paperMode) {
+                ShadowLearningEngine.onFdgBlockedTrade(
+                    mint = identity.mint,
+                    symbol = identity.symbol,
+                    blockReason = fdgDecision.blockReason ?: "UNKNOWN",
+                    blockLevel = fdgDecision.blockLevel?.name ?: "UNKNOWN",
+                    currentPrice = ts.ref,
+                    proposedSizeSol = proposedSize,
+                    quality = fdgDecision.quality,
+                    confidence = fdgDecision.confidence,
+                    phase = identity.phase,
+                )
+            }
+        }
+    } else if (ts.position.isOpen) {
+        // Position management (exits) - ALWAYS monitor open positions
+        // Even when paused, we need to manage risk on existing positions
+        
+        // ═══════════════════════════════════════════════════════════════════
+        // LAYER TRANSITION CHECK - Upgrade positions on the way UP
+        // Check if position should transition to a higher layer
+        // ═══════════════════════════════════════════════════════════════════
+        try {
+            val currentPrice = ts.lastPrice.takeIf { it > 0 } 
+                ?: ts.history.lastOrNull()?.priceUsd 
+                ?: ts.position.entryPrice
+            
+            val transition = com.lifecyclebot.v3.scoring.LayerTransitionManager.checkTransition(
+                mint = ts.mint,
+                currentMcap = ts.lastMcap,
+                currentPrice = currentPrice,
+            )
+            
+            if (transition.shouldTransition) {
+                // Update position's trading mode to new layer
+                ts.position.tradingMode = transition.toLayer.displayName.uppercase().replace(" ", "_")
+                ts.position.tradingModeEmoji = transition.toLayer.emoji
+                
+                // Update targets for new layer
+                val (newTP, newSL) = com.lifecyclebot.v3.scoring.LayerTransitionManager.getAdjustedTargets(
+                    ts.mint, transition.newTakeProfit, transition.newStopLoss
+                )
+                
+                // Update position flags based on new layer
+                when (transition.toLayer) {
+                    com.lifecyclebot.v3.scoring.LayerTransitionManager.TradingLayer.BLUE_CHIP -> {
+                        ts.position.isBlueChipPosition = true
+                        ts.position.isShitCoinPosition = false
+                        ts.position.blueChipTakeProfit = newTP
+                        ts.position.blueChipStopLoss = newSL
+                    }
+                    com.lifecyclebot.v3.scoring.LayerTransitionManager.TradingLayer.V3_QUALITY -> {
+                        ts.position.isShitCoinPosition = false
+                    }
+                    else -> {}
+                }
+                
+                addLog("🚀 LAYER UP: ${ts.symbol} | " +
+                    "${transition.fromLayer.emoji} → ${transition.toLayer.emoji} | " +
+                    "mcap \$${(ts.lastMcap/1000).toInt()}K", ts.mint)
+                
+                // Record to FluidLearning as a positive signal
+                try {
+                    if (cfg.paperMode) {
+                        com.lifecyclebot.v3.scoring.FluidLearningAI.recordPaperTrade(true)
                     } else {
-                        // ═══════════════════════════════════════════════════════════════════
-                        // RECORD PROPOSAL: Track that we proposed (for dedupe), even if blocked
-                        // This prevents spam re-proposals of the same token
-                        // ═══════════════════════════════════════════════════════════════════
-                        TradeLifecycle.recordProposal(identity.mint)
-                        
-                        // ═══════════════════════════════════════════════════════════════════
-                        // TRADE IDENTITY: Mark as blocked
-                        // ═══════════════════════════════════════════════════════════════════
-                        identity.blocked(
-                            fdgDecision.blockReason ?: "UNKNOWN",
-                            fdgDecision.blockLevel?.name ?: "UNKNOWN",
-                            fdgDecision.quality,
-                            fdgDecision.confidence
-                        )
-                        
-                        // ═══════════════════════════════════════════════════════════════════
-                        // LIFECYCLE: FDG_BLOCKED (using identity for consistency)
-                        // ═══════════════════════════════════════════════════════════════════
-                        TradeLifecycle.fdgBlocked(
-                            identity.mint, 
-                            fdgDecision.blockReason ?: "UNKNOWN",
-                            fdgDecision.blockLevel?.name ?: "UNKNOWN"
-                        )
-                        
-                        FinalDecisionGate.logBlockedTrade(fdgDecision) { addLog(it, mint) }
-                        
-                        ErrorLogger.info("BotService", "🚫 FDG BLOCKED: ${identity.symbol} | " +
-                            "reason=${fdgDecision.blockReason} | level=${fdgDecision.blockLevel}")
-                        
-                        // Record this for learning (simulation only, no execution)
-                        executor.brain?.recordBlockedTrade(
-                            mint = identity.mint,
-                            phase = identity.phase,
-                            source = identity.source,
-                            blockReason = fdgDecision.blockReason ?: "UNKNOWN",
-                            quality = fdgDecision.quality,
-                            confidence = fdgDecision.confidence,
-                        )
-                        
-                        // ═══════════════════════════════════════════════════════════════════
-                        // PAPER MODE LEARNING: Shadow track blocked trades
-                        // Track what WOULD have happened if we traded this opportunity
-                        // This enables learning whether the FDG is too strict or appropriate
-                        // ═══════════════════════════════════════════════════════════════════
-                        if (cfg.paperMode) {
-                            ShadowLearningEngine.onFdgBlockedTrade(
-                                mint = identity.mint,
-                                symbol = identity.symbol,
-                                blockReason = fdgDecision.blockReason ?: "UNKNOWN",
-                                blockLevel = fdgDecision.blockLevel?.name ?: "UNKNOWN",
-                                currentPrice = ts.ref,
-                                proposedSizeSol = proposedSize,
-                                quality = fdgDecision.quality,
-                                confidence = fdgDecision.confidence,
-                                phase = identity.phase,
-                            )
-                        }
+                        com.lifecyclebot.v3.scoring.FluidLearningAI.recordLiveTrade(true)
                     }
-                } else if (ts.position.isOpen) {
-                    // Position management (exits) - ALWAYS monitor open positions
-                    // Even when paused, we need to manage risk on existing positions
-                    
-                    // ═══════════════════════════════════════════════════════════════════
-                    // LAYER TRANSITION CHECK - Upgrade positions on the way UP
-                    // Check if position should transition to a higher layer
-                    // ═══════════════════════════════════════════════════════════════════
-                    try {
-                        val currentPrice = ts.lastPrice.takeIf { it > 0 } 
-                            ?: ts.history.lastOrNull()?.priceUsd 
-                            ?: ts.position.entryPrice
-                        
-                        val transition = com.lifecyclebot.v3.scoring.LayerTransitionManager.checkTransition(
-                            mint = ts.mint,
-                            currentMcap = ts.lastMcap,
-                            currentPrice = currentPrice,
-                        )
-                        
-                        if (transition.shouldTransition) {
-                            // Update position's trading mode to new layer
-                            ts.position.tradingMode = transition.toLayer.displayName.uppercase().replace(" ", "_")
-                            ts.position.tradingModeEmoji = transition.toLayer.emoji
-                            
-                            // Update targets for new layer
-                            val (newTP, newSL) = com.lifecyclebot.v3.scoring.LayerTransitionManager.getAdjustedTargets(
-                                ts.mint, transition.newTakeProfit, transition.newStopLoss
-                            )
-                            
-                            // Update position flags based on new layer
-                            when (transition.toLayer) {
-                                com.lifecyclebot.v3.scoring.LayerTransitionManager.TradingLayer.BLUE_CHIP -> {
-                                    ts.position.isBlueChipPosition = true
-                                    ts.position.isShitCoinPosition = false
-                                    ts.position.blueChipTakeProfit = newTP
-                                    ts.position.blueChipStopLoss = newSL
-                                }
-                                com.lifecyclebot.v3.scoring.LayerTransitionManager.TradingLayer.V3_QUALITY -> {
-                                    ts.position.isShitCoinPosition = false
-                                }
-                                else -> {}
-                            }
-                            
-                            addLog("🚀 LAYER UP: ${ts.symbol} | " +
-                                "${transition.fromLayer.emoji} → ${transition.toLayer.emoji} | " +
-                                "mcap \$${(ts.lastMcap/1000).toInt()}K", ts.mint)
-                            
-                            // Record to FluidLearning as a positive signal
-                            try {
-                                if (cfg.paperMode) {
-                                    com.lifecyclebot.v3.scoring.FluidLearningAI.recordPaperTrade(true)
-                                } else {
-                                    com.lifecyclebot.v3.scoring.FluidLearningAI.recordLiveTrade(true)
-                                }
-                            } catch (e: Exception) {}
-                        }
-                    } catch (transEx: Exception) {
-                        ErrorLogger.debug("BotService", "Layer transition check failed: ${transEx.message}")
-                    }
-                    
-                    // ═══════════════════════════════════════════════════════════════════
-                    // TREASURY MODE EXIT CHECK - Quick scalps with tight exits
-                    // Check FIRST before other exit logic since treasury has strict rules
-                    // ═══════════════════════════════════════════════════════════════════
-                    if (ts.position.isTreasuryPosition || ts.position.tradingMode == "TREASURY") {
-                        val currentPrice = ts.lastPrice.takeIf { it > 0 } 
-                            ?: ts.history.lastOrNull()?.priceUsd 
-                            ?: ts.position.entryPrice
-                        
-                        val exitSignal = com.lifecyclebot.v3.scoring.CashGenerationAI.checkExit(ts.mint, currentPrice)
-                        
-                        if (exitSignal != com.lifecyclebot.v3.scoring.CashGenerationAI.ExitSignal.HOLD) {
-                            ErrorLogger.info("BotService", "💰 [TREASURY EXIT] ${ts.symbol} | " +
-                                "signal=$exitSignal | price=$currentPrice")
-                            
-                            // Execute treasury sell
-                            executor.requestSell(
-                                ts = ts,
-                                reason = "TREASURY_${exitSignal.name}",
-                                wallet = wallet,
-                                walletSol = effectiveBalance
-                            )
-                            
-                            // Close treasury position tracking
-                            com.lifecyclebot.v3.scoring.CashGenerationAI.closePosition(
-                                ts.mint, currentPrice, exitSignal
-                            )
-                            
-                            addLog("💰 TREASURY SELL: ${ts.symbol} | ${exitSignal.name} | " +
-                                "${if (cfg.paperMode) "PAPER" else "LIVE"}", ts.mint)
-                            
-                            return  // Exit processed
-                        }
-                    }
-                    
-                    // ═══════════════════════════════════════════════════════════════════
-                    // SHITCOIN MODE EXIT CHECK - Degen scalps with ultra-fast exits
-                    // Check SECOND after treasury since shitcoins need fast reactions
-                    // ═══════════════════════════════════════════════════════════════════
-                    if (ts.position.isShitCoinPosition || ts.position.tradingMode == "SHITCOIN") {
-                        val currentPrice = ts.lastPrice.takeIf { it > 0 } 
-                            ?: ts.history.lastOrNull()?.priceUsd 
-                            ?: ts.position.entryPrice
-                        
-                        val exitSignal = com.lifecyclebot.v3.scoring.ShitCoinTraderAI.checkExit(ts.mint, currentPrice)
-                        
-                        if (exitSignal != com.lifecyclebot.v3.scoring.ShitCoinTraderAI.ExitSignal.HOLD) {
-                            val exitEmoji = when (exitSignal) {
-                                com.lifecyclebot.v3.scoring.ShitCoinTraderAI.ExitSignal.RUG_DETECTED -> "💀"
-                                com.lifecyclebot.v3.scoring.ShitCoinTraderAI.ExitSignal.DEV_SELL -> "🚨"
-                                com.lifecyclebot.v3.scoring.ShitCoinTraderAI.ExitSignal.TAKE_PROFIT -> "🎯"
-                                else -> "📉"
-                            }
-                            
-                            ErrorLogger.info("BotService", "💩 [SHITCOIN EXIT] ${ts.symbol} | " +
-                                "signal=$exitSignal | price=$currentPrice")
-                            
-                            // Execute shitcoin sell
-                            executor.requestSell(
-                                ts = ts,
-                                reason = "SHITCOIN_${exitSignal.name}",
-                                wallet = wallet,
-                                walletSol = effectiveBalance
-                            )
-                            
-                            // Close shitcoin position tracking
-                            com.lifecyclebot.v3.scoring.ShitCoinTraderAI.closePosition(
-                                ts.mint, currentPrice, exitSignal
-                            )
-                            
-                            addLog("$exitEmoji SHITCOIN SELL: ${ts.symbol} | ${exitSignal.name} | " +
-                                "${if (cfg.paperMode) "PAPER" else "LIVE"}", ts.mint)
-                            
-                            return  // Exit processed
-                        }
-                    }
-                    
-                    // ═══════════════════════════════════════════════════════════════════
-                    // 💩🚂 SHITCOIN EXPRESS EXIT CHECK
-                    // ═══════════════════════════════════════════════════════════════════
-                    if (com.lifecyclebot.v3.scoring.ShitCoinExpress.hasRide(ts.mint)) {
-                        val currentPrice = ts.lastPrice.takeIf { it > 0 } 
-                            ?: ts.history.lastOrNull()?.priceUsd 
-                            ?: ts.position.entryPrice
-                        val currentMomentum = ts.momentum ?: 0.0
-                        
-                        val exitSignal = com.lifecyclebot.v3.scoring.ShitCoinExpress.checkExit(
-                            ts.mint, currentPrice, currentMomentum
-                        )
-                        
-                        if (exitSignal != com.lifecyclebot.v3.scoring.ShitCoinExpress.ExitSignal.HOLD) {
-                            val exitEmoji = when (exitSignal) {
-                                com.lifecyclebot.v3.scoring.ShitCoinExpress.ExitSignal.TAKE_PROFIT_100 -> "🚀"
-                                com.lifecyclebot.v3.scoring.ShitCoinExpress.ExitSignal.TAKE_PROFIT_50 -> "🚂"
-                                com.lifecyclebot.v3.scoring.ShitCoinExpress.ExitSignal.TAKE_PROFIT_30 -> "⚡"
-                                com.lifecyclebot.v3.scoring.ShitCoinExpress.ExitSignal.STOP_LOSS -> "💥"
-                                else -> "📉"
-                            }
-                            
-                            executor.requestSell(
-                                ts = ts,
-                                reason = "EXPRESS_${exitSignal.name}",
-                                wallet = wallet,
-                                walletSol = effectiveBalance
-                            )
-                            
-                            com.lifecyclebot.v3.scoring.ShitCoinExpress.exitRide(ts.mint, currentPrice, exitSignal)
-                            
-                            addLog("$exitEmoji EXPRESS SELL: ${ts.symbol} | ${exitSignal.name} | " +
-                                "${if (cfg.paperMode) "PAPER" else "LIVE"}", ts.mint)
-                            
-                            return
-                        }
-                    }
-                    
-                    // ═══════════════════════════════════════════════════════════════════
-                    // 📉🎯 DIP HUNTER EXIT CHECK
-                    // ═══════════════════════════════════════════════════════════════════
-                    if (com.lifecyclebot.v3.scoring.DipHunterAI.hasDip(ts.mint) || ts.position.tradingMode == "DIP_HUNTER") {
-                        val currentPrice = ts.lastPrice.takeIf { it > 0 } 
-                            ?: ts.history.lastOrNull()?.priceUsd 
-                            ?: ts.position.entryPrice
-                        
-                        val exitSignal = com.lifecyclebot.v3.scoring.DipHunterAI.checkExit(
-                            ts.mint, currentPrice, ts.lastLiquidityUsd
-                        )
-                        
-                        if (exitSignal != com.lifecyclebot.v3.scoring.DipHunterAI.DipExitSignal.HOLD) {
-                            val exitEmoji = when (exitSignal) {
-                                com.lifecyclebot.v3.scoring.DipHunterAI.DipExitSignal.MAX_RECOVERY -> "🏆"
-                                com.lifecyclebot.v3.scoring.DipHunterAI.DipExitSignal.RECOVERY_TARGET -> "✅"
-                                com.lifecyclebot.v3.scoring.DipHunterAI.DipExitSignal.STOP_LOSS -> "🛑"
-                                com.lifecyclebot.v3.scoring.DipHunterAI.DipExitSignal.DEATH_SPIRAL -> "💀"
-                                else -> "⏱"
-                            }
-                            
-                            executor.requestSell(
-                                ts = ts,
-                                reason = "DIP_${exitSignal.name}",
-                                wallet = wallet,
-                                walletSol = effectiveBalance
-                            )
-                            
-                            com.lifecyclebot.v3.scoring.DipHunterAI.closeDip(ts.mint, currentPrice, exitSignal)
-                            
-                            addLog("$exitEmoji DIP SELL: ${ts.symbol} | ${exitSignal.name} | " +
-                                "${if (cfg.paperMode) "PAPER" else "LIVE"}", ts.mint)
-                            
-                            return
-                        }
-                    }
-                    
-                    // ═══════════════════════════════════════════════════════════════════
-                    // MODE-SPECIFIC EXIT LOGIC
-                    // 
-                    // Each trade type has different exit characteristics:
-                    //   - Fresh Launch: Fastest stops, fastest partials
-                    //   - Breakout: Trail below structure, allow longer hold
-                    //   - Reversal: Take first target quicker, breakeven early
-                    //   - Trend Pullback: Widest patience, tightest stop
-                    // ═══════════════════════════════════════════════════════════════════
-                    val positionTradeType = try {
-                        // Try to get the trade type from position's trading mode
-                        // PRIORITY 5: Each mode should have ISOLATED exit logic
-                        when (ts.position.tradingMode.uppercase()) {
-                            "PRESALE_SNIPE", "MICRO_CAP" -> ModeRouter.TradeType.FRESH_LAUNCH
-                            "MOMENTUM_SWING" -> ModeRouter.TradeType.BREAKOUT_CONTINUATION
-                            "REVIVAL" -> ModeRouter.TradeType.REVERSAL_RECLAIM
-                            "WHALE_FOLLOW" -> ModeRouter.TradeType.WHALE_ACCUMULATION
-                            "COPY_TRADE" -> ModeRouter.TradeType.COPY_TRADE  // FIX: Separate exit logic
-                            "MOONSHOT" -> ModeRouter.TradeType.GRADUATION
-                            "PUMP_SNIPER" -> ModeRouter.TradeType.SENTIMENT_IGNITION
-                            "STANDARD", "CYCLIC", "BLUE_CHIP" -> ModeRouter.TradeType.TREND_PULLBACK
-                            else -> ModeRouter.TradeType.UNKNOWN
-                        }
-                    } catch (_: Exception) { ModeRouter.TradeType.UNKNOWN }
-                    
-                    // Calculate current PnL using ACTUAL PRICE, not market cap
-                    // CRITICAL FIX: ts.ref can be market cap, not price!
-                    // Use ts.lastPrice for consistent price tracking
-                    val currentPrice = ts.lastPrice.takeIf { it > 0 } 
-                        ?: ts.history.lastOrNull()?.priceUsd 
-                        ?: ts.position.entryPrice
-                    val pnlPct = if (ts.position.entryPrice > 0) {
-                        ((currentPrice - ts.position.entryPrice) / ts.position.entryPrice) * 100
-                    } else 0.0
-                    val holdTimeMs = System.currentTimeMillis() - ts.position.entryTime
-                    val holdTimeMinutes = (holdTimeMs / 60_000).toInt()
-                    
-                    // ═══════════════════════════════════════════════════════════════════
-                    // SELL OPTIMIZATION AI (Layer 24)
-                    // 
-                    // Intelligent exit strategy that:
-                    // - Takes profits progressively (chunk selling)
-                    // - Detects momentum exhaustion
-                    // - Learns from historical outcomes
-                    // - Prevents "400% runs with nothing gained"
-                    // ═══════════════════════════════════════════════════════════════════
-                    val sellOptSignal = try {
-                        com.lifecyclebot.v3.scoring.SellOptimizationAI.evaluate(
-                            ts = ts,
-                            currentPnlPct = pnlPct,
-                            holdTimeMinutes = holdTimeMinutes,
-                            entryPrice = ts.position.entryPrice,
-                        )
-                    } catch (e: Exception) {
-                        ErrorLogger.debug("BotService", "SellOptAI error: ${e.message}")
-                        null
-                    }
-                    
-                    // Execute chunk sells or urgent exits from SellOptimizationAI
-                    if (sellOptSignal != null && sellOptSignal.sellPct > 0 && 
-                        sellOptSignal.urgency != com.lifecyclebot.v3.scoring.SellOptimizationAI.ExitUrgency.NONE) {
-                        
-                        val strategy = sellOptSignal.strategy
-                        val urgency = sellOptSignal.urgency
-                        
-                        // For chunk sells, calculate actual amount to sell
-                        val isChunkSell = strategy in listOf(
-                            com.lifecyclebot.v3.scoring.SellOptimizationAI.ExitStrategy.CHUNK_25,
-                            com.lifecyclebot.v3.scoring.SellOptimizationAI.ExitStrategy.CHUNK_50,
-                            com.lifecyclebot.v3.scoring.SellOptimizationAI.ExitStrategy.CHUNK_75,
-                        )
-                        
-                        if (isChunkSell) {
-                            // Chunk sell - partial position exit
-                            val chunkPct = sellOptSignal.sellPct / 100.0
-                            val sellAmount = ts.position.qtyToken * chunkPct
-                            
-                            ErrorLogger.info("BotService", "📊 [SELL_OPT CHUNK] ${ts.symbol} | " +
-                                "${strategy.emoji} ${strategy.label} | sell=${sellOptSignal.sellPct.toInt()}% | " +
-                                "pnl=${pnlPct.toInt()}% | peak=${sellOptSignal.peakPnlPct.toInt()}% | " +
-                                "locked=${sellOptSignal.lockedProfitSol}SOL")
-                            
-                            // Execute partial sell
-                            executor.requestPartialSell(
-                                ts = ts,
-                                sellPercentage = chunkPct,
-                                reason = "[SELL_OPT] ${strategy.label}: ${sellOptSignal.reason}",
-                                wallet = wallet,
-                                walletBalance = effectiveBalance,
-                            )
-                            
-                            // Record chunk in SellOptimizationAI
-                            val profitSol = (ts.position.costSol * chunkPct) * (pnlPct / 100.0)
-                            com.lifecyclebot.v3.scoring.SellOptimizationAI.recordChunkSell(
-                                ts.mint, ts.position.costSol * chunkPct, pnlPct, profitSol
-                            )
-                            
-                        } else if (urgency in listOf(
-                            com.lifecyclebot.v3.scoring.SellOptimizationAI.ExitUrgency.HIGH,
-                            com.lifecyclebot.v3.scoring.SellOptimizationAI.ExitUrgency.CRITICAL
-                        )) {
-                            // Full exit for high urgency signals
-                            ErrorLogger.info("BotService", "🎯 [SELL_OPT EXIT] ${ts.symbol} | " +
-                                "${strategy.emoji} ${strategy.label} | urgency=${urgency.name} | " +
-                                "pnl=${pnlPct.toInt()}% | peak=${sellOptSignal.peakPnlPct.toInt()}%")
-                            
-                            executor.requestSell(
-                                ts = ts,
-                                reason = "[SELL_OPT] ${strategy.label}: ${sellOptSignal.reason}",
-                                wallet = wallet,
-                                walletSol = effectiveBalance,
-                            )
-                            
-                            // Close position tracking
-                            com.lifecyclebot.v3.scoring.SellOptimizationAI.closePosition(ts.mint, pnlPct)
-                        }
-                        
-                        // Update stop loss if suggested (for treasury positions)
-                        sellOptSignal.suggestedStopLoss?.let { newStop ->
-                            if (ts.position.isTreasuryPosition && newStop > ts.position.treasuryStopLoss) {
-                                ts.position.treasuryStopLoss = newStop
-                                ErrorLogger.debug("BotService", "🔒 [SELL_OPT] ${ts.symbol} stop moved to +${newStop.toInt()}%")
-                            }
-                        }
-                    }
-                    
-                    // Get mode-specific exit recommendation
-                    val exitRec = try {
-                        ModeSpecificExits.getExitRecommendation(ts, positionTradeType, pnlPct, holdTimeMs)
-                    } catch (e: Exception) {
-                        ErrorLogger.debug("BotService", "ModeExit error: ${e.message}")
-                        null
-                    }
-                    
-                    // Log urgent exit recommendations
-                    if (exitRec != null && exitRec.shouldExit && 
-                        exitRec.urgency in listOf(ModeSpecificExits.ExitUrgency.IMMEDIATE, ModeSpecificExits.ExitUrgency.URGENT)) {
-                        ModeSpecificExits.logExitRecommendation(ts, positionTradeType, exitRec)
-                    }
-                    
-                    if (!cbState.isHalted) {
-                        executor.maybeActWithDecision(
-                            ts                 = ts,
-                            decision           = decision,
-                            walletSol          = effectiveBalance,
-                            wallet             = wallet,
-                            lastPollMs         = lastSuccessfulPollMs,
-                            openPositionCount  = status.openPositionCount,
-                            totalExposureSol   = status.totalExposureSol,
-                            modeConfig         = modeConf,
-                            walletTotalTrades  = try {
-                                com.lifecyclebot.engine.BotService.walletManager
-                                    ?.state?.value?.totalTrades ?: 0
-                            } catch (_: Exception) { 0 },
-                        )
-                        
-                        // Log that we're monitoring during pause
-                        if (cbState.isPaused) {
-                            addLog("⏸ Paused but monitoring ${ts.symbol} position", mint)
-                        }
-                    }
+                } catch (e: Exception) {}
+            }
+        } catch (transEx: Exception) {
+            ErrorLogger.debug("BotService", "Layer transition check failed: ${transEx.message}")
+        }
+        
+        // ═══════════════════════════════════════════════════════════════════
+        // TREASURY MODE EXIT CHECK - Quick scalps with tight exits
+        // Check FIRST before other exit logic since treasury has strict rules
+        // ═══════════════════════════════════════════════════════════════════
+        if (ts.position.isTreasuryPosition || ts.position.tradingMode == "TREASURY") {
+            val currentPrice = ts.lastPrice.takeIf { it > 0 } 
+                ?: ts.history.lastOrNull()?.priceUsd 
+                ?: ts.position.entryPrice
+            
+            val exitSignal = com.lifecyclebot.v3.scoring.CashGenerationAI.checkExit(ts.mint, currentPrice)
+            
+            if (exitSignal != com.lifecyclebot.v3.scoring.CashGenerationAI.ExitSignal.HOLD) {
+                ErrorLogger.info("BotService", "💰 [TREASURY EXIT] ${ts.symbol} | " +
+                    "signal=$exitSignal | price=$currentPrice")
+                
+                // Execute treasury sell
+                executor.requestSell(
+                    ts = ts,
+                    reason = "TREASURY_${exitSignal.name}",
+                    wallet = wallet,
+                    walletSol = effectiveBalance
+                )
+                
+                // Close treasury position tracking
+                com.lifecyclebot.v3.scoring.CashGenerationAI.closePosition(
+                    ts.mint, currentPrice, exitSignal
+                )
+                
+                addLog("💰 TREASURY SELL: ${ts.symbol} | ${exitSignal.name} | " +
+                    "${if (cfg.paperMode) "PAPER" else "LIVE"}", ts.mint)
+                
+                return  // Exit processed
+            }
+        }
+        
+        // ═══════════════════════════════════════════════════════════════════
+        // SHITCOIN MODE EXIT CHECK - Degen scalps with ultra-fast exits
+        // Check SECOND after treasury since shitcoins need fast reactions
+        // ═══════════════════════════════════════════════════════════════════
+        if (ts.position.isShitCoinPosition || ts.position.tradingMode == "SHITCOIN") {
+            val currentPrice = ts.lastPrice.takeIf { it > 0 } 
+                ?: ts.history.lastOrNull()?.priceUsd 
+                ?: ts.position.entryPrice
+            
+            val exitSignal = com.lifecyclebot.v3.scoring.ShitCoinTraderAI.checkExit(ts.mint, currentPrice)
+            
+            if (exitSignal != com.lifecyclebot.v3.scoring.ShitCoinTraderAI.ExitSignal.HOLD) {
+                val exitEmoji = when (exitSignal) {
+                    com.lifecyclebot.v3.scoring.ShitCoinTraderAI.ExitSignal.RUG_DETECTED -> "💀"
+                    com.lifecyclebot.v3.scoring.ShitCoinTraderAI.ExitSignal.DEV_SELL -> "🚨"
+                    com.lifecyclebot.v3.scoring.ShitCoinTraderAI.ExitSignal.TAKE_PROFIT -> "🎯"
+                    else -> "📉"
                 }
                 
-                if (cbState.isHalted) {
-                    if (mint == cfg.activeToken) addLog("🛑 HALTED: ${cbState.haltReason}", mint)
-                } else {
-                    if (mint == cfg.activeToken) addLog("⏸ CB: ${cbState.pauseRemainingSecs}s", mint)
+                ErrorLogger.info("BotService", "💩 [SHITCOIN EXIT] ${ts.symbol} | " +
+                    "signal=$exitSignal | price=$currentPrice")
+                
+                // Execute shitcoin sell
+                executor.requestSell(
+                    ts = ts,
+                    reason = "SHITCOIN_${exitSignal.name}",
+                    wallet = wallet,
+                    walletSol = effectiveBalance
+                )
+                
+                // Close shitcoin position tracking
+                com.lifecyclebot.v3.scoring.ShitCoinTraderAI.closePosition(
+                    ts.mint, currentPrice, exitSignal
+                )
+                
+                addLog("$exitEmoji SHITCOIN SELL: ${ts.symbol} | ${exitSignal.name} | " +
+                    "${if (cfg.paperMode) "PAPER" else "LIVE"}", ts.mint)
+                
+                return  // Exit processed
+            }
+        }
+        
+        // ═══════════════════════════════════════════════════════════════════
+        // 💩🚂 SHITCOIN EXPRESS EXIT CHECK
+        // ═══════════════════════════════════════════════════════════════════
+        if (com.lifecyclebot.v3.scoring.ShitCoinExpress.hasRide(ts.mint)) {
+            val currentPrice = ts.lastPrice.takeIf { it > 0 } 
+                ?: ts.history.lastOrNull()?.priceUsd 
+                ?: ts.position.entryPrice
+            val currentMomentum = ts.momentum ?: 0.0
+            
+            val exitSignal = com.lifecyclebot.v3.scoring.ShitCoinExpress.checkExit(
+                ts.mint, currentPrice, currentMomentum
+            )
+            
+            if (exitSignal != com.lifecyclebot.v3.scoring.ShitCoinExpress.ExitSignal.HOLD) {
+                val exitEmoji = when (exitSignal) {
+                    com.lifecyclebot.v3.scoring.ShitCoinExpress.ExitSignal.TAKE_PROFIT_100 -> "🚀"
+                    com.lifecyclebot.v3.scoring.ShitCoinExpress.ExitSignal.TAKE_PROFIT_50 -> "🚂"
+                    com.lifecyclebot.v3.scoring.ShitCoinExpress.ExitSignal.TAKE_PROFIT_30 -> "⚡"
+                    com.lifecyclebot.v3.scoring.ShitCoinExpress.ExitSignal.STOP_LOSS -> "💥"
+                    else -> "📉"
                 }
+                
+                executor.requestSell(
+                    ts = ts,
+                    reason = "EXPRESS_${exitSignal.name}",
+                    wallet = wallet,
+                    walletSol = effectiveBalance
+                )
+                
+                com.lifecyclebot.v3.scoring.ShitCoinExpress.exitRide(ts.mint, currentPrice, exitSignal)
+                
+                addLog("$exitEmoji EXPRESS SELL: ${ts.symbol} | ${exitSignal.name} | " +
+                    "${if (cfg.paperMode) "PAPER" else "LIVE"}", ts.mint)
+                
+                return
+            }
+        }
+        
+        // ═══════════════════════════════════════════════════════════════════
+        // 📉🎯 DIP HUNTER EXIT CHECK
+        // ═══════════════════════════════════════════════════════════════════
+        if (com.lifecyclebot.v3.scoring.DipHunterAI.hasDip(ts.mint) || ts.position.tradingMode == "DIP_HUNTER") {
+            val currentPrice = ts.lastPrice.takeIf { it > 0 } 
+                ?: ts.history.lastOrNull()?.priceUsd 
+                ?: ts.position.entryPrice
+            
+            val exitSignal = com.lifecyclebot.v3.scoring.DipHunterAI.checkExit(
+                ts.mint, currentPrice, ts.lastLiquidityUsd
+            )
+            
+            if (exitSignal != com.lifecyclebot.v3.scoring.DipHunterAI.DipExitSignal.HOLD) {
+                val exitEmoji = when (exitSignal) {
+                    com.lifecyclebot.v3.scoring.DipHunterAI.DipExitSignal.MAX_RECOVERY -> "🏆"
+                    com.lifecyclebot.v3.scoring.DipHunterAI.DipExitSignal.RECOVERY_TARGET -> "✅"
+                    com.lifecyclebot.v3.scoring.DipHunterAI.DipExitSignal.STOP_LOSS -> "🛑"
+                    com.lifecyclebot.v3.scoring.DipHunterAI.DipExitSignal.DEATH_SPIRAL -> "💀"
+                    else -> "⏱"
+                }
+                
+                executor.requestSell(
+                    ts = ts,
+                    reason = "DIP_${exitSignal.name}",
+                    wallet = wallet,
+                    walletSol = effectiveBalance
+                )
+                
+                com.lifecyclebot.v3.scoring.DipHunterAI.closeDip(ts.mint, currentPrice, exitSignal)
+                
+                addLog("$exitEmoji DIP SELL: ${ts.symbol} | ${exitSignal.name} | " +
+                    "${if (cfg.paperMode) "PAPER" else "LIVE"}", ts.mint)
+                
+                return
+            }
+        }
+        
+        // ═══════════════════════════════════════════════════════════════════
+        // MODE-SPECIFIC EXIT LOGIC
+        // 
+        // Each trade type has different exit characteristics:
+        //   - Fresh Launch: Fastest stops, fastest partials
+        //   - Breakout: Trail below structure, allow longer hold
+        //   - Reversal: Take first target quicker, breakeven early
+        //   - Trend Pullback: Widest patience, tightest stop
+        // ═══════════════════════════════════════════════════════════════════
+        val positionTradeType = try {
+            // Try to get the trade type from position's trading mode
+            // PRIORITY 5: Each mode should have ISOLATED exit logic
+            when (ts.position.tradingMode.uppercase()) {
+                "PRESALE_SNIPE", "MICRO_CAP" -> ModeRouter.TradeType.FRESH_LAUNCH
+                "MOMENTUM_SWING" -> ModeRouter.TradeType.BREAKOUT_CONTINUATION
+                "REVIVAL" -> ModeRouter.TradeType.REVERSAL_RECLAIM
+                "WHALE_FOLLOW" -> ModeRouter.TradeType.WHALE_ACCUMULATION
+                "COPY_TRADE" -> ModeRouter.TradeType.COPY_TRADE  // FIX: Separate exit logic
+                "MOONSHOT" -> ModeRouter.TradeType.GRADUATION
+                "PUMP_SNIPER" -> ModeRouter.TradeType.SENTIMENT_IGNITION
+                "STANDARD", "CYCLIC", "BLUE_CHIP" -> ModeRouter.TradeType.TREND_PULLBACK
+                else -> ModeRouter.TradeType.UNKNOWN
+            }
+        } catch (_: Exception) { ModeRouter.TradeType.UNKNOWN }
+        
+        // Calculate current PnL using ACTUAL PRICE, not market cap
+        // CRITICAL FIX: ts.ref can be market cap, not price!
+        // Use ts.lastPrice for consistent price tracking
+        val currentPrice = ts.lastPrice.takeIf { it > 0 } 
+            ?: ts.history.lastOrNull()?.priceUsd 
+            ?: ts.position.entryPrice
+        val pnlPct = if (ts.position.entryPrice > 0) {
+            ((currentPrice - ts.position.entryPrice) / ts.position.entryPrice) * 100
+        } else 0.0
+        val holdTimeMs = System.currentTimeMillis() - ts.position.entryTime
+        val holdTimeMinutes = (holdTimeMs / 60_000).toInt()
+        
+        // ═══════════════════════════════════════════════════════════════════
+        // SELL OPTIMIZATION AI (Layer 24)
+        // 
+        // Intelligent exit strategy that:
+        // - Takes profits progressively (chunk selling)
+        // - Detects momentum exhaustion
+        // - Learns from historical outcomes
+        // - Prevents "400% runs with nothing gained"
+        // ═══════════════════════════════════════════════════════════════════
+        val sellOptSignal = try {
+            com.lifecyclebot.v3.scoring.SellOptimizationAI.evaluate(
+                ts = ts,
+                currentPnlPct = pnlPct,
+                holdTimeMinutes = holdTimeMinutes,
+                entryPrice = ts.position.entryPrice,
+            )
+        } catch (e: Exception) {
+            ErrorLogger.debug("BotService", "SellOptAI error: ${e.message}")
+            null
+        }
+        
+        // Execute chunk sells or urgent exits from SellOptimizationAI
+        if (sellOptSignal != null && sellOptSignal.sellPct > 0 && 
+            sellOptSignal.urgency != com.lifecyclebot.v3.scoring.SellOptimizationAI.ExitUrgency.NONE) {
+            
+            val strategy = sellOptSignal.strategy
+            val urgency = sellOptSignal.urgency
+            
+            // For chunk sells, calculate actual amount to sell
+            val isChunkSell = strategy in listOf(
+                com.lifecyclebot.v3.scoring.SellOptimizationAI.ExitStrategy.CHUNK_25,
+                com.lifecyclebot.v3.scoring.SellOptimizationAI.ExitStrategy.CHUNK_50,
+                com.lifecyclebot.v3.scoring.SellOptimizationAI.ExitStrategy.CHUNK_75,
+            )
+            
+            if (isChunkSell) {
+                // Chunk sell - partial position exit
+                val chunkPct = sellOptSignal.sellPct / 100.0
+                val sellAmount = ts.position.qtyToken * chunkPct
+                
+                ErrorLogger.info("BotService", "📊 [SELL_OPT CHUNK] ${ts.symbol} | " +
+                    "${strategy.emoji} ${strategy.label} | sell=${sellOptSignal.sellPct.toInt()}% | " +
+                    "pnl=${pnlPct.toInt()}% | peak=${sellOptSignal.peakPnlPct.toInt()}% | " +
+                    "locked=${sellOptSignal.lockedProfitSol}SOL")
+                
+                // Execute partial sell
+                executor.requestPartialSell(
+                    ts = ts,
+                    sellPercentage = chunkPct,
+                    reason = "[SELL_OPT] ${strategy.label}: ${sellOptSignal.reason}",
+                    wallet = wallet,
+                    walletBalance = effectiveBalance,
+                )
+                
+                // Record chunk in SellOptimizationAI
+                val profitSol = (ts.position.costSol * chunkPct) * (pnlPct / 100.0)
+                com.lifecyclebot.v3.scoring.SellOptimizationAI.recordChunkSell(
+                    ts.mint, ts.position.costSol * chunkPct, pnlPct, profitSol
+                )
+                
+            } else if (urgency in listOf(
+                com.lifecyclebot.v3.scoring.SellOptimizationAI.ExitUrgency.HIGH,
+                com.lifecyclebot.v3.scoring.SellOptimizationAI.ExitUrgency.CRITICAL
+            )) {
+                // Full exit for high urgency signals
+                ErrorLogger.info("BotService", "🎯 [SELL_OPT EXIT] ${ts.symbol} | " +
+                    "${strategy.emoji} ${strategy.label} | urgency=${urgency.name} | " +
+                    "pnl=${pnlPct.toInt()}% | peak=${sellOptSignal.peakPnlPct.toInt()}%")
+                
+                executor.requestSell(
+                    ts = ts,
+                    reason = "[SELL_OPT] ${strategy.label}: ${sellOptSignal.reason}",
+                    wallet = wallet,
+                    walletSol = effectiveBalance,
+                )
+                
+                // Close position tracking
+                com.lifecyclebot.v3.scoring.SellOptimizationAI.closePosition(ts.mint, pnlPct)
+            }
+            
+            // Update stop loss if suggested (for treasury positions)
+            sellOptSignal.suggestedStopLoss?.let { newStop ->
+                if (ts.position.isTreasuryPosition && newStop > ts.position.treasuryStopLoss) {
+                    ts.position.treasuryStopLoss = newStop
+                    ErrorLogger.debug("BotService", "🔒 [SELL_OPT] ${ts.symbol} stop moved to +${newStop.toInt()}%")
+                }
+            }
+        }
+        
+        // Get mode-specific exit recommendation
+        val exitRec = try {
+            ModeSpecificExits.getExitRecommendation(ts, positionTradeType, pnlPct, holdTimeMs)
+        } catch (e: Exception) {
+            ErrorLogger.debug("BotService", "ModeExit error: ${e.message}")
+            null
+        }
+        
+        // Log urgent exit recommendations
+        if (exitRec != null && exitRec.shouldExit && 
+            exitRec.urgency in listOf(ModeSpecificExits.ExitUrgency.IMMEDIATE, ModeSpecificExits.ExitUrgency.URGENT)) {
+            ModeSpecificExits.logExitRecommendation(ts, positionTradeType, exitRec)
+        }
+        
+        if (!cbState.isHalted) {
+            executor.maybeActWithDecision(
+                ts                 = ts,
+                decision           = decision,
+                walletSol          = effectiveBalance,
+                wallet             = wallet,
+                lastPollMs         = lastSuccessfulPollMs,
+                openPositionCount  = status.openPositionCount,
+                totalExposureSol   = status.totalExposureSol,
+                modeConfig         = modeConf,
+                walletTotalTrades  = try {
+                    com.lifecyclebot.engine.BotService.walletManager
+                        ?.state?.value?.totalTrades ?: 0
+                } catch (_: Exception) { 0 },
+            )
+            
+            // Log that we're monitoring during pause
+            if (cbState.isPaused) {
+                addLog("⏸ Paused but monitoring ${ts.symbol} position", mint)
+            }
+        }
+    }
+    
+    if (cbState.isHalted) {
+        if (mint == cfg.activeToken) addLog("🛑 HALTED: ${cbState.haltReason}", mint)
+    } else {
+        if (mint == cfg.activeToken) addLog("⏸ CB: ${cbState.pauseRemainingSecs}s", mint)
+    }
 
-                    // Include treasury tier and scaling mode in status log
-                    val solPxLog = WalletManager.lastKnownSolPrice
-                    val trsLog   = TreasuryManager.treasurySol * solPxLog
-                    val tierLog  = ScalingMode.activeTier(trsLog)
-                    val tierStr  = if (tierLog != ScalingMode.Tier.MICRO) " ${tierLog.icon}${tierLog.label}" else ""
-                    val trsStr   = if (TreasuryManager.treasurySol > 0.001)
-                        " 🏦${TreasuryManager.treasurySol.fmt(3)}◎" else ""
-                    addLog(
-                        "${ts.symbol.padEnd(8)} ${result.phase.padEnd(18)} " +
-                        "sig=${result.signal.padEnd(18)} " +
-                        "entry=${result.entryScore.toInt()} exit=${result.exitScore.toInt()} " +
-                        "vol=${result.meta.volScore.toInt()} press=${result.meta.pressScore.toInt()}" +
-                        tierStr + trsStr,
-                        mint
-                    )
+        // Include treasury tier and scaling mode in status log
+        val solPxLog = WalletManager.lastKnownSolPrice
+        val trsLog   = TreasuryManager.treasurySol * solPxLog
+        val tierLog  = ScalingMode.activeTier(trsLog)
+        val tierStr  = if (tierLog != ScalingMode.Tier.MICRO) " ${tierLog.icon}${tierLog.label}" else ""
+        val trsStr   = if (TreasuryManager.treasurySol > 0.001)
+            " 🏦${TreasuryManager.treasurySol.fmt(3)}◎" else ""
+        addLog(
+            "${ts.symbol.padEnd(8)} ${result.phase.padEnd(18)} " +
+            "sig=${result.signal.padEnd(18)} " +
+            "entry=${result.entryScore.toInt()} exit=${result.exitScore.toInt()} " +
+            "vol=${result.meta.volScore.toInt()} press=${result.meta.pressScore.toInt()}" +
+            tierStr + trsStr,
+            mint
+        )
 
         } catch (e: Exception) {
             status.tokens[mint]?.lastError = e.message ?: "unknown"
