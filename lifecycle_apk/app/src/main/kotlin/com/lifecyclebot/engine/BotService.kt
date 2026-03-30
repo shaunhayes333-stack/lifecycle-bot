@@ -2930,30 +2930,12 @@ class BotService : Service() {
             
             // ═══════════════════════════════════════════════════════════════════
             // V4.0 FIX: Register V3 decision with FinalExecutionPermit
-            // This BLOCKS Treasury/BlueChip/ShitCoin from trading rejected tokens
+            // ONLY register HARD BLOCKS (safety issues, fatal problems)
+            // Soft rejections (low score, timing) should NOT block Treasury/ShitCoin
             // ═══════════════════════════════════════════════════════════════════
             when (val result = v3Decision) {
-                is com.lifecyclebot.v3.V3Decision.Rejected -> {
-                    FinalExecutionPermit.registerRejection(
-                        mint = ts.mint,
-                        symbol = ts.symbol,
-                        reason = result.reason,
-                        rejectedBy = "V3_REJECT",
-                        v3Score = 0,
-                        v3Confidence = 0
-                    )
-                }
-                is com.lifecyclebot.v3.V3Decision.Blocked -> {
-                    FinalExecutionPermit.registerRejection(
-                        mint = ts.mint,
-                        symbol = ts.symbol,
-                        reason = result.reason,
-                        rejectedBy = "V3_BLOCK",
-                        v3Score = 0,
-                        v3Confidence = 0
-                    )
-                }
                 is com.lifecyclebot.v3.V3Decision.BlockFatal -> {
+                    // HARD BLOCK: Safety issue - block ALL layers
                     FinalExecutionPermit.registerRejection(
                         mint = ts.mint,
                         symbol = ts.symbol,
@@ -2963,14 +2945,15 @@ class BotService : Service() {
                         v3Confidence = 0
                     )
                 }
-                is com.lifecyclebot.v3.V3Decision.ShadowOnly -> {
+                is com.lifecyclebot.v3.V3Decision.Blocked -> {
+                    // HARD BLOCK: Safety/exposure issue - block ALL layers
                     FinalExecutionPermit.registerRejection(
                         mint = ts.mint,
                         symbol = ts.symbol,
                         reason = result.reason,
-                        rejectedBy = "V3_SHADOW_ONLY",
-                        v3Score = result.score,
-                        v3Confidence = result.confidence
+                        rejectedBy = "V3_BLOCK",
+                        v3Score = 0,
+                        v3Confidence = 0
                     )
                 }
                 is com.lifecyclebot.v3.V3Decision.Execute -> {
@@ -2983,8 +2966,14 @@ class BotService : Service() {
                         v3Confidence = result.confidence.toInt()
                     )
                 }
-                // Watch decisions don't register rejection - Treasury CAN scalp WATCH tokens
-                else -> { /* No action for Watch/other */ }
+                // V4.0 FIX: These are SOFT decisions - DON'T block other layers!
+                // - Rejected: V3 doesn't want it, but Treasury/ShitCoin might
+                // - ShadowOnly: Tracking only, other layers can trade
+                // - Watch: Monitoring, other layers can trade
+                else -> { 
+                    // No FinalExecutionPermit action for soft decisions
+                    // Treasury, ShitCoin, BlueChip can still evaluate and trade
+                }
             }
             
             // ═══════════════════════════════════════════════════════════════════
