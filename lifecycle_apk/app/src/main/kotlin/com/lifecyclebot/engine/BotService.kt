@@ -2007,90 +2007,7 @@ class BotService : Service() {
                     // Fallback to Birdeye, then pump.fun API for bonding curve tokens
                     val pair = dex.getBestPair(mint) ?: run {
                         val ts = status.tokens[mint]
-                        if (ts != null) {
-                            // Try Birdeye first
-                            try {
-                                val cfg2  = ConfigStore.load(applicationContext)
-                                val ov    = com.lifecyclebot.network.BirdeyeApi(cfg2.birdeyeApiKey)
-                                    .getTokenOverview(mint)
-                                if (ov != null && ov.priceUsd > 0) {
-                                    synchronized(ts) {
-                                        ts.lastPrice        = ov.priceUsd
-                                        ts.lastLiquidityUsd = ov.liquidity
-                                        ts.lastMcap         = ov.marketCap
-                                        ts.lastFdv          = ov.marketCap
-                                        // Create synthetic candle for history
-                                        val syntheticCandle = com.lifecyclebot.data.Candle(
-                                            ts          = System.currentTimeMillis(),
-                                            priceUsd    = ov.priceUsd,
-                                            marketCap   = ov.marketCap,
-                                            volumeH1    = 0.0,
-                                            volume24h   = 0.0,
-                                            buysH1      = 0,
-                                            sellsH1     = 0,
-                                            highUsd     = ov.priceUsd,
-                                            lowUsd      = ov.priceUsd,
-                                            openUsd     = ov.priceUsd,
-                                        )
-                                        synchronized(ts.history) {
-                                            ts.history.addLast(syntheticCandle)
-                                            if (ts.history.size > 300) ts.history.removeFirst()
-                                        }
-                                    }
-                                    addLog("📡 Birdeye data for ${ts.symbol}: \$${ov.priceUsd}", mint)
-                                }
-                            } catch (_: Exception) {}
-                            
-                            // Try pump.fun API directly for bonding curve tokens
-                            if (ts.lastPrice <= 0) {
-                                try {
-                                    val pumpUrl = "https://frontend-api.pump.fun/coins/$mint"
-                                    val request = okhttp3.Request.Builder()
-                                        .url(pumpUrl)
-                                        .header("Accept", "application/json")
-                                        .build()
-                                    val client = okhttp3.OkHttpClient.Builder()
-                                        .connectTimeout(5, java.util.concurrent.TimeUnit.SECONDS)
-                                        .readTimeout(5, java.util.concurrent.TimeUnit.SECONDS)
-                                        .build()
-                                    val response = client.newCall(request).execute()
-                                    if (response.isSuccessful) {
-                                        val body = response.body?.string()
-                                        if (body != null) {
-                                            val json = org.json.JSONObject(body)
-                                            val mcap = json.optDouble("usd_market_cap", 0.0)
-                                            val price = json.optDouble("price", 0.0)
-                                            if (mcap > 0 || price > 0) {
-                                                synchronized(ts) {
-                                                    ts.lastPrice = price
-                                                    ts.lastMcap = mcap
-                                                    ts.lastFdv = mcap
-                                                    ts.lastLiquidityUsd = mcap * 0.1  // Estimate
-                                                    // Create synthetic candle
-                                                    val syntheticCandle = com.lifecyclebot.data.Candle(
-                                                        ts          = System.currentTimeMillis(),
-                                                        priceUsd    = price,
-                                                        marketCap   = mcap,
-                                                        volumeH1    = 0.0,
-                                                        volume24h   = 0.0,
-                                                        buysH1      = 0,
-                                                        sellsH1     = 0,
-                                                        highUsd     = price,
-                                                        lowUsd      = price,
-                                                        openUsd     = price,
-                                                    )
-                                                    synchronized(ts.history) {
-                                                        ts.history.addLast(syntheticCandle)
-                                                        if (ts.history.size > 300) ts.history.removeFirst()
-                                                    }
-                                                }
-                                                addLog("🎯 Pump.fun data for ${ts.symbol}: mcap=\$${mcap.toInt()}", mint)
-                                            }
-                                        }
-                                    }
-                                } catch (_: Exception) {}
-                            }
-                        }
+                        if (ts != null) tryFallbackPriceData(mint, ts)
                         return@launch   // skip full cycle — but we may have added data above
                     }
 
@@ -4306,6 +4223,85 @@ class BotService : Service() {
         
         // Update FinalDecisionGate mode
         FinalDecisionGate.setModeForVeto(cfg.paperMode)
+    }
+
+    // ═══════════════════════════════════════════════════════════════════════════
+    // PRICE FALLBACK HELPER - Extracted to reduce botLoop complexity
+    // ═══════════════════════════════════════════════════════════════════════════
+    
+    /**
+     * Try to get price data from fallback sources (Birdeye, pump.fun)
+     * when Dexscreener doesn't have the pair.
+     * Returns true if data was fetched successfully.
+     */
+    private fun tryFallbackPriceData(mint: String, ts: TokenState): Boolean {
+        // Try Birdeye first
+        try {
+            val cfg2 = ConfigStore.load(applicationContext)
+            val ov = com.lifecyclebot.network.BirdeyeApi(cfg2.birdeyeApiKey).getTokenOverview(mint)
+            if (ov != null && ov.priceUsd > 0) {
+                synchronized(ts) {
+                    ts.lastPrice = ov.priceUsd
+                    ts.lastLiquidityUsd = ov.liquidity
+                    ts.lastMcap = ov.marketCap
+                    ts.lastFdv = ov.marketCap
+                    val syntheticCandle = com.lifecyclebot.data.Candle(
+                        ts = System.currentTimeMillis(), priceUsd = ov.priceUsd,
+                        marketCap = ov.marketCap, volumeH1 = 0.0, volume24h = 0.0,
+                        buysH1 = 0, sellsH1 = 0, highUsd = ov.priceUsd,
+                        lowUsd = ov.priceUsd, openUsd = ov.priceUsd,
+                    )
+                    synchronized(ts.history) {
+                        ts.history.addLast(syntheticCandle)
+                        if (ts.history.size > 300) ts.history.removeFirst()
+                    }
+                }
+                addLog("📡 Birdeye: ${ts.symbol} \$${ov.priceUsd}", mint)
+                return true
+            }
+        } catch (_: Exception) {}
+        
+        // Try pump.fun API
+        if (ts.lastPrice <= 0) {
+            try {
+                val client = okhttp3.OkHttpClient.Builder()
+                    .connectTimeout(5, java.util.concurrent.TimeUnit.SECONDS)
+                    .readTimeout(5, java.util.concurrent.TimeUnit.SECONDS).build()
+                val request = okhttp3.Request.Builder()
+                    .url("https://frontend-api.pump.fun/coins/$mint")
+                    .header("Accept", "application/json").build()
+                val response = client.newCall(request).execute()
+                if (response.isSuccessful) {
+                    val body = response.body?.string()
+                    if (body != null) {
+                        val json = org.json.JSONObject(body)
+                        val mcap = json.optDouble("usd_market_cap", 0.0)
+                        val price = json.optDouble("price", 0.0)
+                        if (mcap > 0 || price > 0) {
+                            synchronized(ts) {
+                                ts.lastPrice = price
+                                ts.lastMcap = mcap
+                                ts.lastFdv = mcap
+                                ts.lastLiquidityUsd = mcap * 0.1
+                                val syntheticCandle = com.lifecyclebot.data.Candle(
+                                    ts = System.currentTimeMillis(), priceUsd = price,
+                                    marketCap = mcap, volumeH1 = 0.0, volume24h = 0.0,
+                                    buysH1 = 0, sellsH1 = 0, highUsd = price,
+                                    lowUsd = price, openUsd = price,
+                                )
+                                synchronized(ts.history) {
+                                    ts.history.addLast(syntheticCandle)
+                                    if (ts.history.size > 300) ts.history.removeFirst()
+                                }
+                            }
+                            addLog("🎯 Pump.fun: ${ts.symbol} mcap=\$${mcap.toInt()}", mint)
+                            return true
+                        }
+                    }
+                }
+            } catch (_: Exception) {}
+        }
+        return false
     }
 
     // ═══════════════════════════════════════════════════════════════════════════
