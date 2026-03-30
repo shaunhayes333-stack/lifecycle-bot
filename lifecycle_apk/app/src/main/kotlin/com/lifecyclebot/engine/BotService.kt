@@ -3790,18 +3790,21 @@ class BotService : Service() {
             // ═══════════════════════════════════════════════════════════════════
             if (!ts.position.isOpen) {
                 try {
+                    // Get volume score from history or use default
+                    val volScore = ts.history.lastOrNull()?.volScore?.toInt() ?: 15
+                    
                     // Score the token for moonshot potential
                     val moonshotScore = com.lifecyclebot.v3.scoring.MoonshotTraderAI.scoreToken(
                         mint = ts.mint,
                         symbol = ts.symbol,
                         marketCapUsd = ts.lastMcap,
                         liquidityUsd = ts.lastLiquidityUsd,
-                        volumeScore = ts.lastVolScore,
+                        volumeScore = volScore,
                         buyPressurePct = ts.lastBuyPressurePct,
                         rugcheckScore = ts.safety.rugcheckScore,
-                        v3EntryScore = decision.score.toDouble(),
-                        v3Confidence = decision.aiConfidence,
-                        phase = decision.phase,
+                        v3EntryScore = 70.0,  // Default score - Moonshot has its own scoring
+                        v3Confidence = 50.0,  // Default confidence
+                        phase = "unknown",    // Phase not critical for moonshot
                         isPaper = cfg.paperMode,
                     )
                     

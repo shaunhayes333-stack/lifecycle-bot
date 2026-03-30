@@ -3445,14 +3445,12 @@ class Executor(
                 entryPrice = getActualPrice(ts),
                 entrySol = sizeSol,
                 entryTime = System.currentTimeMillis(),
-                takeProfitPct = takeProfitPct,
-                stopLossPct = stopLossPct,
                 marketCapUsd = ts.lastMcap,
                 liquidityUsd = ts.lastLiquidityUsd,
-                mode = riskLevel.name,
-                isPaperMode = isPaper,
+                isPaper = isPaper,
+                takeProfitPct = takeProfitPct,
+                stopLossPct = stopLossPct,
                 launchPlatform = launchPlatform,
-                riskLevel = riskLevel,
             )
         )
         

@@ -1304,8 +1304,9 @@ for legal compliance.
                 tvTreasuryMiniPnl.setTextColor(if (treasuryPnl >= 0) green else red)
                 
                 // Moonshot mini P&L
-                tvMoonshotMiniPnl.text = "${if (totalPnl >= 0) "+" else ""}${String.format("%.3f", totalPnl)}"
-                tvMoonshotMiniPnl.setTextColor(if (totalPnl >= 0) green else red)
+                val moonshotDailyPnl = com.lifecyclebot.v3.scoring.MoonshotTraderAI.getDailyPnlSol()
+                tvMoonshotMiniPnl.text = "${if (moonshotDailyPnl >= 0) "+" else ""}${String.format("%.3f", moonshotDailyPnl)}"
+                tvMoonshotMiniPnl.setTextColor(if (moonshotDailyPnl >= 0) green else red)
             } else {
                 rowTreasuryMoonshot.visibility = android.view.View.GONE
             }
