@@ -1533,6 +1533,12 @@ class BotService : Service() {
             // ═══════════════════════════════════════════════════════════════════
             EfficiencyLayer.cleanup()
             
+            // ═══════════════════════════════════════════════════════════════════
+            // V5.0: TradeAuthorizer cleanup
+            // Clean stale shadow tracking entries
+            // ═══════════════════════════════════════════════════════════════════
+            TradeAuthorizer.cleanup()
+            
             val cfg       = ConfigStore.load(applicationContext)
             val watchlist = cfg.watchlist.toMutableList()
             if (cfg.activeToken.isNotBlank() && cfg.activeToken !in watchlist)
@@ -1570,6 +1576,9 @@ class BotService : Service() {
             
             // Update FinalDecisionGate mode for veto cooldown timing
             FinalDecisionGate.setModeForVeto(cfg.paperMode)
+            
+            // V5.0: Advance TradeAuthorizer epoch for decision tracking
+            TradeAuthorizer.advanceEpoch()
             
             // ═══════════════════════════════════════════════════════════════════
             // V4.0 CRITICAL FIX: ONLY INITIALIZE TRADING MODES ONCE
@@ -3118,6 +3127,36 @@ class BotService : Service() {
                             val bootstrapMultiplier = com.lifecyclebot.v3.scoring.FluidLearningAI.getBootstrapSizeMultiplier()
                             val adjustedSize = (treasurySignal.positionSizeSol * bootstrapMultiplier).coerceAtLeast(0.01)
                             
+                            // ═══════════════════════════════════════════════════════════════════
+                            // V5.0: TRADE AUTHORIZER - MUST pass before ANY execution
+                            // This is the SINGLE source of truth for execution permission
+                            // Prevents post-execution gating drift (inokumi bug)
+                            // ═══════════════════════════════════════════════════════════════════
+                            val authResult = TradeAuthorizer.authorize(
+                                mint = ts.mint,
+                                symbol = ts.symbol,
+                                score = ts.lastV3Score,
+                                confidence = ts.lastV3Confidence.toDouble(),
+                                quality = treasurySignal.grade ?: "C",
+                                isPaperMode = cfg.paperMode,
+                                requestedBook = TradeAuthorizer.ExecutionBook.TREASURY,
+                                rugcheckScore = ts.rugcheckScore ?: 100,
+                                liquidity = ts.lastLiquidityUsd,
+                                isBanned = BannedTokens.isBanned(ts.mint),
+                            )
+                            
+                            if (!authResult.isExecutable()) {
+                                // NOT AUTHORIZED - log and skip
+                                if (authResult.isShadowOnly()) {
+                                    ErrorLogger.info("BotService", "💰 [TREASURY] ${ts.symbol} | SHADOW_ONLY | ${authResult.reason}")
+                                    // Track for learning but do NOT create position
+                                } else {
+                                    ErrorLogger.debug("BotService", "💰 [TREASURY] ${ts.symbol} | REJECTED | ${authResult.reason}")
+                                }
+                                // Skip execution - do NOT proceed to buy
+                            } else {
+                                // AUTHORIZED - proceed with execution
+                            
                             // Try to acquire execution permit
                             val canExecute = FinalExecutionPermit.tryAcquireExecution(
                                 mint = ts.mint,
@@ -3170,7 +3209,10 @@ class BotService : Service() {
                                     "${if (cfg.paperMode) "PAPER" else "LIVE"}", ts.mint)
                             } else {
                                 ErrorLogger.debug("BotService", "💰 [TREASURY] ${ts.symbol} | EXECUTION_BLOCKED | another layer executing")
+                                // Release authorizer lock since we didn't execute
+                                TradeAuthorizer.releasePosition(ts.mint, "PERMIT_BLOCKED")
                             }
+                            } // end authResult.isExecutable()
                         }
                     }
                 } catch (treasuryEx: Exception) {
@@ -3399,6 +3441,32 @@ class BotService : Service() {
                             val bootstrapMultiplier = com.lifecyclebot.v3.scoring.FluidLearningAI.getBootstrapSizeMultiplier()
                             val adjustedSize = (shitCoinSignal.positionSizeSol * bootstrapMultiplier).coerceAtLeast(0.01)
                             
+                            // ═══════════════════════════════════════════════════════════════════
+                            // V5.0: TRADE AUTHORIZER - MUST pass before ANY execution
+                            // Prevents post-execution gating drift
+                            // ═══════════════════════════════════════════════════════════════════
+                            val authResult = TradeAuthorizer.authorize(
+                                mint = ts.mint,
+                                symbol = ts.symbol,
+                                score = shitCoinSignal.score,
+                                confidence = shitCoinSignal.confidence.toDouble(),
+                                quality = shitCoinSignal.grade ?: "C",
+                                isPaperMode = cfg.paperMode,
+                                requestedBook = TradeAuthorizer.ExecutionBook.SHITCOIN,
+                                rugcheckScore = ts.rugcheckScore ?: 100,
+                                liquidity = ts.lastLiquidityUsd,
+                                isBanned = BannedTokens.isBanned(ts.mint),
+                            )
+                            
+                            if (!authResult.isExecutable()) {
+                                if (authResult.isShadowOnly()) {
+                                    ErrorLogger.info("BotService", "💩 [SHITCOIN] ${ts.symbol} | SHADOW_ONLY | ${authResult.reason}")
+                                } else {
+                                    ErrorLogger.debug("BotService", "💩 [SHITCOIN] ${ts.symbol} | REJECTED | ${authResult.reason}")
+                                }
+                            } else {
+                            // AUTHORIZED - proceed with execution
+                            
                             // V4.0: Try to acquire execution permit
                             val canExecute = FinalExecutionPermit.tryAcquireExecution(
                                 mint = ts.mint,
@@ -3480,7 +3548,10 @@ class BotService : Service() {
                                     "${if (cfg.paperMode) "PAPER" else "LIVE"}", ts.mint)
                             } else {
                                 ErrorLogger.debug("BotService", "💩 [SHITCOIN] ${ts.symbol} | EXECUTION_BLOCKED | another layer executing")
+                                // Release authorizer lock since we didn't execute
+                                TradeAuthorizer.releasePosition(ts.mint, "PERMIT_BLOCKED")
                             }
+                            } // end authResult.isExecutable()
                         }
                     }
                     }
