@@ -68,10 +68,10 @@ object CashGenerationAI {
     // Chip away at profits constantly - no hold time limit
     // Can cycle same coin repeatedly if green
     private const val TAKE_PROFIT_PCT_PAPER = 0.5     // Paper: Exit at 0.5%+ (learn fast)
-    private const val TAKE_PROFIT_PCT_LIVE = 1.5      // Live: 1.5% minimum to cover fees/slippage
-    private const val TAKE_PROFIT_MIN_PCT = 3.0       // Minimum TP for DEFENSIVE mode (quick 3%)
-    private const val TAKE_PROFIT_PCT = 3.5           // Standard TP for CRUISE mode
-    private const val TAKE_PROFIT_MAX_PCT = 8.0       // Let winners run to 8% if momentum continues
+    private const val TAKE_PROFIT_PCT_LIVE = 2.0      // Live: 2% minimum (covers fees + small profit)
+    private const val TAKE_PROFIT_MIN_PCT = 2.0       // Minimum TP for DEFENSIVE mode (quick 2%)
+    private const val TAKE_PROFIT_PCT = 2.5           // Standard TP for CRUISE mode
+    private const val TAKE_PROFIT_MAX_PCT = 3.0       // Max TP for AGGRESSIVE mode (cap at 3%)
     private const val STOP_LOSS_PCT = -2.0            // Cut at -2%, no exceptions
     private const val TRAILING_STOP_PCT = 1.5         // Tighter 1.5% trail after profit
     private const val MAX_HOLD_MINUTES = 30           // Extended to 30min - let positions breathe
@@ -81,7 +81,7 @@ object CashGenerationAI {
     // Jupiter: ~0.5% per swap × 2 = 1%
     // Slippage: ~0.5% × 2 = 1%  
     // Total round-trip: ~1.5-2%
-    private const val MIN_PROFIT_FOR_LIVE = 1.5       // Must clear 1.5% to cover fees
+    private const val MIN_PROFIT_FOR_LIVE = 2.0       // Must clear 2% to cover fees + profit
     
     // Trade frequency (ACTIVE - user choice 3c: 10+ trades/day)
     private const val MIN_TRADES_PER_DAY = 10
