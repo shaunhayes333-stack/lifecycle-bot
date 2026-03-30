@@ -1525,7 +1525,13 @@ for legal compliance.
                 typeface = android.graphics.Typeface.MONOSPACE
             })
             info.addView(TextView(this).apply {
-                text = "Size: %.4f◎  ·  Target: +%.0f%%".format(pos.entrySol, 7.0)
+                // V4.0: Calculate actual TP% from position data instead of hardcoded 7%
+                val tpPct = if (pos.entryPrice > 0 && pos.targetPrice > 0) {
+                    ((pos.targetPrice - pos.entryPrice) / pos.entryPrice) * 100
+                } else {
+                    3.5  // Default to 3.5% if data missing
+                }
+                text = "Size: %.4f◎  ·  Target: +%.1f%%".format(pos.entrySol, tpPct)
                 textSize = resources.getDimension(R.dimen.trade_sub_text) / resources.displayMetrics.scaledDensity
                 setTextColor(muted)
                 typeface = android.graphics.Typeface.MONOSPACE
