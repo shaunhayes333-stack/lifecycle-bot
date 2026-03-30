@@ -1436,6 +1436,30 @@ object FinalDecisionGate {
         val isPaperOrShadow = mode == TradingMode.PAPER || mode == TradingMode.SHADOW
         val canBypassConfidenceFloors = isBootstrap && isPaperOrShadow
         
+        // V4.1.2: Even bootstrap has a minimum floor - don't learn from complete garbage
+        val BOOTSTRAP_MIN_CONFIDENCE = 15.0
+        if (confidence < BOOTSTRAP_MIN_CONFIDENCE) {
+            ErrorLogger.debug("FDG", "🚫 BOOTSTRAP_FLOOR: ${ts.symbol} | conf=${confidence.toInt()}% < 15% | " +
+                "TOO_LOW_EVEN_FOR_LEARNING")
+            
+            return FinalDecision(
+                shouldTrade = false,
+                mode = mode,
+                approvalClass = ApprovalClass.BLOCKED,
+                quality = candidate.setupQuality,
+                confidence = confidence,
+                edge = EdgeVerdict.SKIP,
+                blockReason = "BOOTSTRAP_MIN_CONFIDENCE_15%",
+                blockLevel = BlockLevel.CONFIDENCE,
+                sizeSol = 0.0,
+                tags = listOf("bootstrap_floor_15", "too_low_to_learn"),
+                mint = ts.mint,
+                symbol = ts.symbol,
+                approvalReason = "BOOTSTRAP_MIN: conf=${confidence.toInt()}% < 15% (even learning has standards)",
+                gateChecks = listOf(GateCheck("bootstrap_min_conf", false, "conf < 15% is garbage even for learning"))
+            )
+        }
+        
         if (canBypassConfidenceFloors && confidence < 30.0) {
             // Bootstrap override: Allow learning even with low confidence
             ErrorLogger.info("FDG", "🎓 BOOTSTRAP_OVERRIDE: ${ts.symbol} | conf=${confidence.toInt()}% | " +
