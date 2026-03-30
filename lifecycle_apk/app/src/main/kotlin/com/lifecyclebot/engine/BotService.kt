@@ -2205,13 +2205,19 @@ class BotService : Service() {
                         continue
                     }
                     
-                    // Add to GlobalTradeRegistry
-                    val addResult = GlobalTradeRegistry.addToWatchlist(
+                    // V5.0: Use addWithProbation for smarter routing
+                    // Low confidence or single-source tokens go to probation first
+                    val addResult = GlobalTradeRegistry.addWithProbation(
                         mint = merged.mint,
                         symbol = merged.symbol,
                         addedBy = merged.primaryScanner,
                         source = merged.allScanners.joinToString(","),
                         initialMcap = merged.marketCapUsd,
+                        liquidityUsd = merged.liquidityUsd,
+                        confidence = merged.confidence,
+                        isMultiSource = merged.multiScannerBoost,
+                        isEstimatedLiquidity = false,  // TODO: Track this in MergeQueue
+                        price = 0.0,  // Will be updated when token data is fetched
                     )
                     
                     if (addResult.added) {
@@ -2248,12 +2254,53 @@ class BotService : Service() {
                                 orchestrator?.onTokenAdded(merged.mint, merged.symbol)
                             } catch (_: Exception) {}
                         }
+                    } else if (addResult.probation) {
+                        // V5.0: Token went to probation
+                        addLog("⏳ PROBATION: ${merged.symbol} | ${addResult.reason}", merged.mint)
+                    }
+                }
+                
+                // V5.0: Process probation tier - check for promotions/rejections
+                val probationResults = GlobalTradeRegistry.processProbation()
+                for (result in probationResults) {
+                    when (result.action) {
+                        "PROMOTED" -> {
+                            addLog("✅ PROMOTED: ${result.symbol} | ${result.reason}", result.mint)
+                            soundManager.playNewToken()
+                            
+                            // Seed TokenState for promoted token
+                            scope.launch {
+                                try {
+                                    synchronized(status.tokens) {
+                                        status.tokens.getOrPut(result.mint) {
+                                            com.lifecyclebot.data.TokenState(
+                                                mint = result.mint,
+                                                symbol = result.symbol,
+                                                name = result.symbol,
+                                                candleTimeframeMinutes = 1,
+                                                source = "PROBATION",
+                                                logoUrl = "https://dd.dexscreener.com/ds-data/tokens/solana/${result.mint}.png",
+                                            )
+                                        }
+                                    }
+                                    orchestrator?.onTokenAdded(result.mint, result.symbol)
+                                } catch (_: Exception) {}
+                            }
+                        }
+                        "REJECTED" -> {
+                            addLog("❌ PROBATION_REJECT: ${result.symbol} | ${result.reason}", result.mint)
+                        }
                     }
                 }
                 
                 // Log merge queue stats every 30 cycles
                 if (loopCount % 30 == 0 && TokenMergeQueue.getPendingCount() > 0) {
                     addLog("🔀 ${TokenMergeQueue.getStats()}")
+                }
+                
+                // Log probation stats every 30 cycles
+                if (loopCount % 30 == 0 && GlobalTradeRegistry.probationSize() > 0) {
+                    addLog("⏳ ${GlobalTradeRegistry.getProbationStats()}")
                 }
             } catch (e: Exception) {
                 ErrorLogger.debug("BotService", "MergeQueue error: ${e.message}")

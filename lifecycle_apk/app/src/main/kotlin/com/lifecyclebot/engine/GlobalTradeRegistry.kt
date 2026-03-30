@@ -54,18 +54,35 @@ object GlobalTradeRegistry {
     // Key: mint, Value: PositionEntry
     private val activePositions = ConcurrentHashMap<String, PositionEntry>()
     
+    // ═══════════════════════════════════════════════════════════════════════════
+    // V5.0 PROBATION TIER
+    // ═══════════════════════════════════════════════════════════════════════════
+    // Single-source or low-confidence tokens must prove themselves before
+    // being promoted to the main watchlist. This prevents registry flooding.
+    // Key: mint, Value: ProbationEntry
+    private val probation = ConcurrentHashMap<String, ProbationEntry>()
+    
     // Counters
     private val totalTokensAdded = AtomicLong(0)
     private val totalTokensRemoved = AtomicLong(0)
     private val duplicatesBlocked = AtomicLong(0)
+    private val probationPromotions = AtomicLong(0)
+    private val probationRejections = AtomicLong(0)
     
     // Timing constants
     private const val DUPLICATE_COOLDOWN_MS = 300_000L  // 5 minutes - don't re-add same token
     private const val REJECTION_COOLDOWN_MS = 600_000L  // 10 minutes - rejected tokens can't be re-added
     private const val PROCESS_COOLDOWN_MS = 10_000L     // 10 seconds - between processing same token
     
+    // V5.0 Probation constants
+    private const val PROBATION_MIN_TIME_MS = 60_000L       // 1 minute minimum probation
+    private const val PROBATION_MAX_TIME_MS = 300_000L      // 5 minutes max probation before auto-reject
+    private const val PROBATION_CONF_THRESHOLD = 50         // Confidence below this = probation
+    private const val PROBATION_MULTI_SOURCE_EXEMPT = true  // Multi-source tokens skip probation
+    
     // Maximum watchlist size to prevent memory issues
     private const val MAX_WATCHLIST_SIZE = 100
+    private const val MAX_PROBATION_SIZE = 30
     
     data class WatchlistEntry(
         val mint: String,
@@ -93,6 +110,28 @@ object GlobalTradeRegistry {
         val openedAt: Long,
         val sizeSol: Double,
         var currentPnlPct: Double = 0.0,
+    )
+    
+    /**
+     * V5.0 PROBATION ENTRY
+     * Tokens in probation need additional confirmation before being promoted.
+     */
+    data class ProbationEntry(
+        val mint: String,
+        val symbol: String,
+        val addedAt: Long,
+        val addedBy: String,
+        val source: String,
+        val initialMcap: Double,
+        val initialLiquidity: Double,
+        val initialConfidence: Int,
+        val isEstimatedLiquidity: Boolean,  // True if liquidity was estimated, not confirmed
+        val isSingleSource: Boolean,        // True if only 1 scanner found it
+        var additionalScanners: MutableSet<String> = mutableSetOf(),  // Other scanners that found it later
+        var rcScore: Int = -1,              // Rugcheck score (-1 = not checked)
+        var priceAtAdd: Double = 0.0,       // Track price to check if it holds
+        var currentPrice: Double = 0.0,
+        var promotionReason: String? = null,
     )
     
     // ═══════════════════════════════════════════════════════════════════════════
@@ -214,7 +253,319 @@ object GlobalTradeRegistry {
     data class AddResult(
         val added: Boolean,
         val reason: String,
+        val probation: Boolean = false,  // V5.0: True if token went to probation instead
     )
+    
+    /**
+     * V5.0: Add a token with probation awareness.
+     * Low-confidence or single-source tokens go to probation first.
+     * Multi-source tokens or USER_ADDED bypass probation.
+     */
+    fun addWithProbation(
+        mint: String,
+        symbol: String,
+        addedBy: String,
+        source: String = addedBy,
+        initialMcap: Double = 0.0,
+        liquidityUsd: Double = 0.0,
+        confidence: Int = 50,
+        isMultiSource: Boolean = false,
+        isEstimatedLiquidity: Boolean = false,
+        price: Double = 0.0,
+    ): AddResult {
+        // Validate mint
+        if (mint.isBlank() || mint.length < 30) {
+            return AddResult(false, "INVALID_MINT")
+        }
+        
+        val now = System.currentTimeMillis()
+        
+        // Check if already in watchlist
+        if (watchlist.containsKey(mint)) {
+            duplicatesBlocked.incrementAndGet()
+            return AddResult(false, "DUPLICATE: already in watchlist")
+        }
+        
+        // Check if already in probation - update with additional scanner
+        val existingProbation = probation[mint]
+        if (existingProbation != null) {
+            existingProbation.additionalScanners.add(addedBy)
+            // Check if this promotes it
+            if (existingProbation.additionalScanners.size >= 1) {
+                return promoteFromProbation(mint, "MULTI_SCANNER_CONFIRM")
+            }
+            return AddResult(false, "ALREADY_IN_PROBATION", probation = true)
+        }
+        
+        // Check if recently rejected
+        val rejection = rejectedTokens[mint]
+        if (rejection != null) {
+            val elapsed = now - rejection.rejectedAt
+            if (elapsed < REJECTION_COOLDOWN_MS) {
+                return AddResult(false, "REJECTED: ${rejection.reason}")
+            } else {
+                rejectedTokens.remove(mint)
+            }
+        }
+        
+        // ═══════════════════════════════════════════════════════════════════
+        // PROBATION ROUTING DECISION
+        // ═══════════════════════════════════════════════════════════════════
+        val needsProbation = when {
+            // USER_ADDED always bypasses probation
+            addedBy == "USER_ADDED" || addedBy == "USER" || addedBy == "CONFIG" -> false
+            // Multi-source tokens with sufficient confidence bypass
+            isMultiSource && confidence >= PROBATION_CONF_THRESHOLD -> false
+            // Low confidence = probation
+            confidence < PROBATION_CONF_THRESHOLD -> true
+            // Estimated liquidity = probation
+            isEstimatedLiquidity -> true
+            // Single source with borderline confidence = probation
+            !isMultiSource && confidence < 60 -> true
+            // Otherwise, allow
+            else -> false
+        }
+        
+        if (needsProbation) {
+            return addToProbation(
+                mint = mint,
+                symbol = symbol,
+                addedBy = addedBy,
+                source = source,
+                initialMcap = initialMcap,
+                liquidityUsd = liquidityUsd,
+                confidence = confidence,
+                isEstimatedLiquidity = isEstimatedLiquidity,
+                isSingleSource = !isMultiSource,
+                price = price,
+            )
+        }
+        
+        // Direct add to watchlist
+        return addToWatchlist(mint, symbol, addedBy, source, initialMcap)
+    }
+    
+    /**
+     * V5.0: Add token to probation tier.
+     */
+    private fun addToProbation(
+        mint: String,
+        symbol: String,
+        addedBy: String,
+        source: String,
+        initialMcap: Double,
+        liquidityUsd: Double,
+        confidence: Int,
+        isEstimatedLiquidity: Boolean,
+        isSingleSource: Boolean,
+        price: Double,
+    ): AddResult {
+        // Check probation size
+        if (probation.size >= MAX_PROBATION_SIZE) {
+            // Prune oldest probation entry
+            val oldest = probation.values.minByOrNull { it.addedAt }
+            if (oldest != null) {
+                probation.remove(oldest.mint)
+                probationRejections.incrementAndGet()
+                ErrorLogger.debug(TAG, "🗑️ Probation pruned: ${oldest.symbol} (full)")
+            }
+        }
+        
+        val now = System.currentTimeMillis()
+        probation[mint] = ProbationEntry(
+            mint = mint,
+            symbol = symbol,
+            addedAt = now,
+            addedBy = addedBy,
+            source = source,
+            initialMcap = initialMcap,
+            initialLiquidity = liquidityUsd,
+            initialConfidence = confidence,
+            isEstimatedLiquidity = isEstimatedLiquidity,
+            isSingleSource = isSingleSource,
+            priceAtAdd = price,
+            currentPrice = price,
+        )
+        
+        val reason = when {
+            isSingleSource -> "SINGLE_SOURCE"
+            isEstimatedLiquidity -> "ESTIMATED_LIQ"
+            confidence < PROBATION_CONF_THRESHOLD -> "LOW_CONF($confidence)"
+            else -> "REVIEW_NEEDED"
+        }
+        
+        ErrorLogger.info(TAG, "⏳ PROBATION: $symbol | $reason | conf=$confidence | liq=$${liquidityUsd.toInt()}")
+        return AddResult(false, "PROBATION: $reason", probation = true)
+    }
+    
+    /**
+     * V5.0: Promote a token from probation to watchlist.
+     */
+    fun promoteFromProbation(mint: String, reason: String): AddResult {
+        val entry = probation.remove(mint) ?: return AddResult(false, "NOT_IN_PROBATION")
+        
+        // Add to watchlist
+        val now = System.currentTimeMillis()
+        watchlist[mint] = WatchlistEntry(
+            mint = mint,
+            symbol = entry.symbol,
+            addedAt = now,
+            addedBy = "${entry.addedBy}+PROBATION",
+            source = entry.source,
+            initialMcap = entry.initialMcap,
+        )
+        
+        totalTokensAdded.incrementAndGet()
+        probationPromotions.incrementAndGet()
+        
+        ErrorLogger.info(TAG, "✅ PROMOTED: ${entry.symbol} | reason=$reason | was in probation ${(now - entry.addedAt)/1000}s")
+        return AddResult(true, "PROMOTED: $reason")
+    }
+    
+    /**
+     * V5.0: Reject a token from probation.
+     */
+    fun rejectFromProbation(mint: String, reason: String) {
+        val entry = probation.remove(mint) ?: return
+        
+        registerRejection(mint, entry.symbol, "PROBATION_FAILED: $reason", "PROBATION")
+        probationRejections.incrementAndGet()
+        
+        ErrorLogger.info(TAG, "❌ PROBATION REJECTED: ${entry.symbol} | $reason")
+    }
+    
+    /**
+     * V5.0: Update probation entry with new scanner confirmation.
+     */
+    fun updateProbationScanner(mint: String, scanner: String): Boolean {
+        val entry = probation[mint] ?: return false
+        entry.additionalScanners.add(scanner)
+        
+        // Auto-promote if multi-scanner confirmed
+        if (entry.additionalScanners.size >= 1 && entry.isSingleSource) {
+            promoteFromProbation(mint, "SCANNER_CONFIRM: ${entry.additionalScanners.joinToString(",")}")
+            return true
+        }
+        return false
+    }
+    
+    /**
+     * V5.0: Update probation entry with RC score.
+     */
+    fun updateProbationRC(mint: String, rcScore: Int): Boolean {
+        val entry = probation[mint] ?: return false
+        entry.rcScore = rcScore
+        
+        // Good RC score can promote
+        if (rcScore >= 30) {
+            promoteFromProbation(mint, "GOOD_RC:$rcScore")
+            return true
+        }
+        // Bad RC score = instant reject
+        if (rcScore <= 5) {
+            rejectFromProbation(mint, "BAD_RC:$rcScore")
+            return true
+        }
+        return false
+    }
+    
+    /**
+     * V5.0: Update probation entry with price.
+     */
+    fun updateProbationPrice(mint: String, price: Double) {
+        val entry = probation[mint] ?: return
+        entry.currentPrice = price
+    }
+    
+    /**
+     * V5.0: Process probation tier - check for promotions/rejections.
+     * Call this periodically from bot loop.
+     */
+    fun processProbation(): List<ProbationResult> {
+        val results = mutableListOf<ProbationResult>()
+        val now = System.currentTimeMillis()
+        
+        for ((mint, entry) in probation) {
+            val elapsed = now - entry.addedAt
+            
+            // Check timeout - reject if too long in probation
+            if (elapsed >= PROBATION_MAX_TIME_MS) {
+                rejectFromProbation(mint, "TIMEOUT")
+                results.add(ProbationResult(mint, entry.symbol, "REJECTED", "TIMEOUT"))
+                continue
+            }
+            
+            // Check minimum time
+            if (elapsed < PROBATION_MIN_TIME_MS) continue
+            
+            // Check price action - promote if price held or increased
+            if (entry.priceAtAdd > 0 && entry.currentPrice > 0) {
+                val priceChange = (entry.currentPrice - entry.priceAtAdd) / entry.priceAtAdd * 100
+                if (priceChange >= 5.0) {
+                    // Price up 5%+ = promote
+                    promoteFromProbation(mint, "PRICE_UP:${priceChange.toInt()}%")
+                    results.add(ProbationResult(mint, entry.symbol, "PROMOTED", "PRICE_UP"))
+                    continue
+                }
+                if (priceChange <= -20.0) {
+                    // Price down 20%+ = reject
+                    rejectFromProbation(mint, "PRICE_DUMP:${priceChange.toInt()}%")
+                    results.add(ProbationResult(mint, entry.symbol, "REJECTED", "PRICE_DUMP"))
+                    continue
+                }
+            }
+            
+            // Check if multi-scanner confirmed
+            if (entry.additionalScanners.isNotEmpty()) {
+                promoteFromProbation(mint, "MULTI_CONFIRM")
+                results.add(ProbationResult(mint, entry.symbol, "PROMOTED", "MULTI_CONFIRM"))
+                continue
+            }
+            
+            // Check if RC confirmed
+            if (entry.rcScore >= 30) {
+                promoteFromProbation(mint, "RC_OK:${entry.rcScore}")
+                results.add(ProbationResult(mint, entry.symbol, "PROMOTED", "RC_OK"))
+                continue
+            }
+        }
+        
+        return results
+    }
+    
+    data class ProbationResult(
+        val mint: String,
+        val symbol: String,
+        val action: String,  // "PROMOTED" or "REJECTED"
+        val reason: String,
+    )
+    
+    /**
+     * V5.0: Get probation entries.
+     */
+    fun getProbationEntries(): List<ProbationEntry> = probation.values.toList()
+    
+    /**
+     * V5.0: Get probation entry for a specific token.
+     */
+    fun getProbationEntry(mint: String): ProbationEntry? = probation[mint]
+    
+    /**
+     * V5.0: Check if token is in probation.
+     */
+    fun isInProbation(mint: String): Boolean = probation.containsKey(mint)
+    
+    /**
+     * V5.0: Get probation size.
+     */
+    fun probationSize(): Int = probation.size
+    
+    /**
+     * V5.0: Get probation stats.
+     */
+    fun getProbationStats(): String {
+        return "PROBATION: ${probation.size}/$MAX_PROBATION_SIZE | promoted=${probationPromotions.get()} | rejected=${probationRejections.get()}"
+    }
     
     /**
      * Remove a token from the watchlist.
@@ -421,15 +772,19 @@ object GlobalTradeRegistry {
     /**
      * Reset all state (for testing or full restart).
      * V4.0: Also resets initialized flag to allow reinit on next session.
+     * V5.0: Also clears probation tier.
      */
     fun reset() {
         watchlist.clear()
         recentlyProcessed.clear()
         rejectedTokens.clear()
         activePositions.clear()
+        probation.clear()
         totalTokensAdded.set(0)
         totalTokensRemoved.set(0)
         duplicatesBlocked.set(0)
+        probationPromotions.set(0)
+        probationRejections.set(0)
         initialized = false  // Allow reinit
         ErrorLogger.info(TAG, "🔄 Registry reset - can reinit on next session")
     }

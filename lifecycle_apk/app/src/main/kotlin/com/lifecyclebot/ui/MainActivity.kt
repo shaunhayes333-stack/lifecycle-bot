@@ -2080,6 +2080,99 @@ for legal compliance.
         val active = state.config.activeToken
         val solPrice = com.lifecyclebot.engine.WalletManager.lastKnownSolPrice
         
+        // ═══════════════════════════════════════════════════════════════════════
+        // V5.0: PROBATION SECTION
+        // Show tokens in probation tier above the watchlist
+        // ═══════════════════════════════════════════════════════════════════════
+        val probationEntries = com.lifecyclebot.engine.GlobalTradeRegistry.getProbationEntries()
+        if (probationEntries.isNotEmpty()) {
+            // Section header
+            val probationHeader = TextView(this).apply {
+                text = "⏳ PROBATION (${probationEntries.size})"
+                textSize = 12f
+                setTextColor(0xFFFF9500.toInt())  // Orange
+                setPadding(0, 8, 0, 8)
+                typeface = android.graphics.Typeface.DEFAULT_BOLD
+            }
+            llTokenList.addView(probationHeader)
+            
+            for (entry in probationEntries) {
+                val elapsed = (System.currentTimeMillis() - entry.addedAt) / 1000
+                val elapsedStr = when {
+                    elapsed < 60 -> "${elapsed}s"
+                    else -> "${elapsed / 60}m"
+                }
+                
+                val probationCard = LinearLayout(this).apply {
+                    orientation = LinearLayout.HORIZONTAL
+                    setPadding(12, 10, 12, 10)
+                    gravity = android.view.Gravity.CENTER_VERTICAL
+                    background = ContextCompat.getDrawable(this@MainActivity, R.drawable.card_bg)
+                }
+                
+                // Symbol
+                probationCard.addView(TextView(this).apply {
+                    text = entry.symbol
+                    textSize = 14f
+                    setTextColor(0xFFFF9500.toInt())
+                    typeface = android.graphics.Typeface.DEFAULT_BOLD
+                    layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
+                })
+                
+                // Reason badge
+                val reasonShort = when {
+                    entry.isSingleSource -> "1src"
+                    entry.isEstimatedLiquidity -> "est$"
+                    entry.initialConfidence < 50 -> "low"
+                    else -> "wait"
+                }
+                probationCard.addView(TextView(this).apply {
+                    text = reasonShort
+                    textSize = 11f
+                    setTextColor(muted)
+                    setPadding(8, 2, 8, 2)
+                    background = ContextCompat.getDrawable(this@MainActivity, R.drawable.badge_bg)
+                })
+                
+                // RC score if available
+                if (entry.rcScore >= 0) {
+                    probationCard.addView(TextView(this).apply {
+                        text = "  RC:${entry.rcScore}"
+                        textSize = 11f
+                        setTextColor(if (entry.rcScore >= 30) green else if (entry.rcScore >= 15) 0xFFFFCC00.toInt() else red)
+                        typeface = android.graphics.Typeface.MONOSPACE
+                    })
+                }
+                
+                // Timer
+                probationCard.addView(TextView(this).apply {
+                    text = "  $elapsedStr"
+                    textSize = 11f
+                    setTextColor(muted)
+                    typeface = android.graphics.Typeface.MONOSPACE
+                })
+                
+                val wrapper = LinearLayout(this).apply {
+                    orientation = LinearLayout.VERTICAL
+                    setPadding(0, 0, 0, 6)
+                }
+                wrapper.addView(probationCard)
+                llTokenList.addView(wrapper)
+            }
+            
+            // Divider between probation and watchlist
+            val divider = View(this).apply {
+                layoutParams = LinearLayout.LayoutParams(
+                    LinearLayout.LayoutParams.MATCH_PARENT, 2
+                ).also { it.topMargin = 8; it.bottomMargin = 8 }
+                setBackgroundColor(0xFF1F2937.toInt())
+            }
+            llTokenList.addView(divider)
+        }
+        
+        // ═══════════════════════════════════════════════════════════════════════
+        // MAIN WATCHLIST
+        // ═══════════════════════════════════════════════════════════════════════
         // V5.0: Enhanced watchlist with scanner scoring info
         state.tokens.values.forEach { ts ->
             // Calculate % change from reference price (first candle or position entry)
