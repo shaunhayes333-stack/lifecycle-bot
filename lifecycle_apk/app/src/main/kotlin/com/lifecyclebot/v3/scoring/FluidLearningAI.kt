@@ -154,7 +154,7 @@ object FluidLearningAI {
      */
     fun getBootstrapConfidenceBoost(): Double {
         val tradeCount = getTotalTradeCount()
-        val boost = (tradeCount * 0.5).coerceAtMost(20.0)
+        val boost = (tradeCount * 0.5).coerceAtMost(25.0)
         return boost
     }
     
