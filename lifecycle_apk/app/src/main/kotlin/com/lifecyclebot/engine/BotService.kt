@@ -1998,18 +1998,226 @@ class BotService : Service() {
 
             // Process all tokens in parallel — each gets its own coroutine.
             // This reduces per-cycle latency from (N×50ms + pollSeconds) to just pollSeconds.
+            // V4.1: Lambda body extracted to processTokenCycle() to reduce compiler complexity
             val tokenJobs = prioritizedWatchlist.map { mint ->
               scope.launch {
                 if (!status.running) return@launch
                 if (orchestrator?.shouldPoll(mint) == false) return@launch
+                processTokenCycle(mint)
+              } // end scope.launch
+            } // end map
+
+            
+            // Wait for all tokens with a maximum timeout of 15 seconds total
+            // Increased from 8s to process more tokens per cycle
+            try {
+                kotlinx.coroutines.withTimeout(15000L) {
+                    tokenJobs.forEach { it.join() }
+                }
+            } catch (e: kotlinx.coroutines.TimeoutCancellationException) {
+                addLog("⏰ Watchlist scan timeout - moving to next cycle")
+                ErrorLogger.warn("BotService", "Token processing batch timeout - some tokens skipped")
+                // Cancel any still-running jobs
+                tokenJobs.forEach { if (it.isActive) it.cancel() }
+            }
+
+            // ═══════════════════════════════════════════════════════════════════
+            // SHADOW PAPER TRADING - Check shadow positions for exits
+            // This runs during LIVE mode to learn from background paper trades
+            // ═══════════════════════════════════════════════════════════════════
+            if (cfg.shadowPaperEnabled && !cfg.paperMode) {
                 try {
-                    // Primary price source: Dexscreener
-                    // Fallback to Birdeye, then pump.fun API for bonding curve tokens
-                    val pair = dex.getBestPair(mint) ?: run {
-                        val ts = status.tokens[mint]
-                        if (ts != null) tryFallbackPriceData(mint, ts)
-                        return@launch   // skip full cycle — but we may have added data above
+                    // Pass current token states so shadow positions can get price updates
+                    val tokenStatesCopy = synchronized(status.tokens) {
+                        status.tokens.toMap()
                     }
+                    executor.checkShadowPositions(tokenStatesCopy)
+                } catch (e: Exception) {
+                    ErrorLogger.debug("BotService", "Shadow position check error: ${e.message}")
+                }
+            }
+            
+            // Periodically persist session state - use synchronized copy
+            val tradeCount = synchronized(status.tokens) {
+                status.tokens.values.toList().sumOf { it.trades.size }
+            }
+            if (tradeCount % 5 == 0 && status.running) {
+                try { SessionStore.save(applicationContext, cfg.paperMode) } catch (_: Exception) {}
+            }
+            delay(cfg.pollSeconds * 1000L)
+          } catch (e: Exception) {
+            // Catch any crash in the main loop and log it
+            addLog("❌ Loop error: ${e.message}")
+            delay(5000) // wait 5 seconds before retrying
+          }
+        }
+    }
+
+    // ── logging ────────────────────────────────────────────
+
+    /**
+     * Aggressively clean up the watchlist to make room for new opportunities.
+     * Removes tokens that are:
+     * - Blocked by safety checker (rugcheck failed)
+     * - Stale (no price updates)
+     * - Dead (zero liquidity or volume)
+     * - IDLE too long without getting a buy signal
+     * - Underperforming (flat price with no buys)
+     */
+    private suspend fun cleanupWatchlist() {
+        val cfg = ConfigStore.load(applicationContext)
+        val currentWatchlist = cfg.watchlist.toMutableList()
+        if (currentWatchlist.size <= 3) return  // Keep at least 3 tokens
+        
+        val tokensToRemove = mutableListOf<String>()
+        val now = System.currentTimeMillis()
+        val isPaperMode = cfg.paperMode
+        
+        // MUCH LESS AGGRESSIVE - give tokens time to develop and generate signals
+        val staleThresholdMs = if (isPaperMode) 120_000L else 180_000L   // 2 min in paper, 3 min in real
+        val idleThresholdMs = if (isPaperMode) 180_000L else 300_000L    // 3 min idle in paper, 5 min in real
+        val maxWatchlistAge = if (isPaperMode) 600_000L else 900_000L    // 10 min max in paper, 15 min in real
+        
+        for (mint in currentWatchlist) {
+            val ts = status.tokens[mint]
+            
+            // Skip if we have an open position
+            if (ts?.position?.isOpen == true) {
+                continue
+            }
+            
+            // Remove if blocked by safety checker
+            if (ts?.safety?.isBlocked == true) {
+                tokensToRemove.add(mint)
+                val reason = ts.safety.hardBlockReasons.firstOrNull() ?: "Safety check failed"
+                addLog("🚫 BLOCKED: ${ts.symbol} - $reason", mint)
+                marketScanner?.markTokenRejected(mint)
+                continue
+            }
+            
+            // Remove if explicitly blacklisted
+            if (TokenBlacklist.isBlocked(mint)) {
+                val reason = TokenBlacklist.getBlockReason(mint)
+                tokensToRemove.add(mint)
+                addLog("🚫 BLACKLIST: ${ts?.symbol ?: mint.take(8)} - $reason", mint)
+                marketScanner?.markTokenRejected(mint)
+                continue
+            }
+            
+            // Check token state
+            if (ts != null) {
+                val lastUpdate = ts.history.lastOrNull()?.ts ?: ts.addedToWatchlistAt
+                val age = now - lastUpdate
+                val timeInWatchlist = now - ts.addedToWatchlistAt
+                
+                // Remove "idle" phase tokens ONLY if they've been idle for a while
+                // Give them time to transition to a better phase
+                if (ts.phase == "idle" && timeInWatchlist > idleThresholdMs && ts.history.size < 5) {
+                    tokensToRemove.add(mint)
+                    addLog("😴 IDLE PHASE: ${ts.symbol} - no activity", mint)
+                    marketScanner?.markTokenRejected(mint)
+                    continue
+                }
+                
+                // AGGRESSIVE: Remove "dying", "dead", "rug_likely" phases immediately
+                if (ts.phase in listOf("dying", "dead", "rug_likely", "distribution")) {
+                    tokensToRemove.add(mint)
+                    addLog("💀 BAD PHASE: ${ts.symbol} (${ts.phase})", mint)
+                    marketScanner?.markTokenRejected(mint)
+                    continue
+                }
+                
+                // Remove if stale (no data for 30 seconds)
+                if (lastUpdate > 0 && age > staleThresholdMs) {
+                    tokensToRemove.add(mint)
+                    addLog("⏰ STALE: ${ts.symbol}", mint)
+                    marketScanner?.markTokenRejected(mint)
+                    continue
+                }
+                
+                // Remove if dead (very low liquidity) - but keep if we're in paper mode learning
+                if (ts.lastLiquidityUsd < 200 && !isPaperMode) {
+                    tokensToRemove.add(mint)
+                    addLog("💀 NO LIQ: ${ts.symbol}", mint)
+                    marketScanner?.markTokenRejected(mint)
+                    continue
+                }
+                
+                // Remove any token after max time if no trade executed
+                // But be generous - tokens need time to develop
+                if (timeInWatchlist > maxWatchlistAge && ts.trades.isEmpty()) {
+                    tokensToRemove.add(mint)
+                    addLog("⏳ TIMEOUT: ${ts.symbol} - ${(maxWatchlistAge/60000)}min no trade", mint)
+                    marketScanner?.markTokenRejected(mint)
+                    continue
+                }
+                
+                // Remove if WAIT signal for too long - but give more time in paper mode
+                val waitTimeout = if (isPaperMode) 300_000L else 120_000L  // 5 min in paper, 2 min in real
+                if (ts.signal == "WAIT" && timeInWatchlist > waitTimeout && ts.trades.isEmpty()) {
+                    tokensToRemove.add(mint)
+                    addLog("⏳ WAIT TIMEOUT: ${ts.symbol}", mint)
+                    marketScanner?.markTokenRejected(mint)
+                    continue
+                }
+                
+                // Remove if flat - but only after enough candles and in real mode
+                // Paper mode keeps flat tokens to learn from them too
+                if (!isPaperMode && ts.history.size >= 6) {
+                    val recentCandles = ts.history.takeLast(6)
+                    val priceRange = recentCandles.maxOf { it.priceUsd } - recentCandles.minOf { it.priceUsd }
+                    val avgPrice = recentCandles.map { it.priceUsd }.average()
+                    val priceChangePercent = if (avgPrice > 0) (priceRange / avgPrice) * 100 else 0.0
+                    val totalBuys = recentCandles.sumOf { it.buysH1 }
+                    
+                    // Flat price (<1.5% range) AND no recent buys
+                    if (priceChangePercent < 1.5 && totalBuys < 2) {
+                        tokensToRemove.add(mint)
+                        addLog("📉 FLAT: ${ts.symbol}", mint)
+                        marketScanner?.markTokenRejected(mint)
+                        continue
+                    }
+                }
+            } else {
+                // No token state - remove it
+                tokensToRemove.add(mint)
+            }
+        }
+        
+        // Apply removals
+        if (tokensToRemove.isNotEmpty()) {
+            val newWatchlist = currentWatchlist.filter { it !in tokensToRemove }
+            ConfigStore.save(applicationContext, cfg.copy(watchlist = newWatchlist))
+            
+            // Also remove from status.tokens
+            tokensToRemove.forEach { mint ->
+                synchronized(status.tokens) {
+                    status.tokens.remove(mint)
+                }
+            }
+            
+            ErrorLogger.info("BotService", "Watchlist cleanup: removed ${tokensToRemove.size} tokens, now ${newWatchlist.size} remaining")
+            addLog("🧹 Cleanup: -${tokensToRemove.size} | now ${newWatchlist.size}")
+        }
+    }
+
+    /**
+     * Initialize all trading modes/layers with current configuration.
+     * Extracted from botLoop to reduce function complexity and avoid compiler stack overflow.
+     */
+
+    /**
+     * Process a single token's full cycle - price fetch, evaluation, trading decisions.
+     * V4.1: Extracted from botLoop to reduce compiler complexity (was causing StackOverflow).
+     */
+    private fun processTokenCycle(mint: String) {
+        try {
+            // Primary price source: Dexscreener
+            val pair = dex.getBestPair(mint) ?: run {
+                val ts = status.tokens[mint]
+                if (ts != null) tryFallbackPriceData(mint, ts)
+                return  // skip full cycle — but we may have added fallback data
+            }
 
                     synchronized(status.tokens) {
                         if (!status.tokens.containsKey(mint)) {
@@ -2023,7 +2231,7 @@ class BotService : Service() {
                                 logoUrl    = "https://dd.dexscreener.com/ds-data/tokens/solana/$mint.png",
                             )
                         }
-                        val ts = status.tokens[mint] ?: return@launch
+                        val ts = status.tokens[mint] ?: return
                         
                         // Try to infer source if unknown
                         if (ts.source.isEmpty() || ts.source == "UNKNOWN") {
@@ -2063,7 +2271,7 @@ class BotService : Service() {
                         }
                     }
 
-                    val ts = status.tokens[mint] ?: return@launch
+                    val ts = status.tokens[mint] ?: return
                     
                     // ═══════════════════════════════════════════════════════════════════
                     // PAPER MODE LEARNING: Update shadow tracking for blocked trades
@@ -2083,7 +2291,7 @@ class BotService : Service() {
                             status.tokens.remove(mint)
                         }
                         ErrorLogger.debug("BotService", "Removing banned token ${ts.symbol} from watchlist")
-                        return@launch
+                        return
                     }
                     
                     // ── Rug Detection - Learn from sudden liquidity/price drops ──
@@ -2188,7 +2396,7 @@ class BotService : Service() {
                     
                     if (!preFilterResult.pass) {
                         HardRugPreFilter.logFailure(ts, preFilterResult)
-                        return@launch  // Skip to next token (exit this coroutine)
+                        return  // Skip to next token (exit this coroutine)
                     }
                 }
                 
@@ -2207,7 +2415,7 @@ class BotService : Service() {
                 
                 if (distributionCheck.shouldBlock && !ts.position.isOpen) {
                     ErrorLogger.info("BotService", "🔻 ${ts.symbol} DISTRIBUTION_FADE: ${distributionCheck.reason}")
-                    return@launch  // Skip to next token (exit this coroutine)
+                    return  // Skip to next token (exit this coroutine)
                 }
                 
                 // ═══════════════════════════════════════════════════════════════════
@@ -2391,11 +2599,11 @@ class BotService : Service() {
                         executor.maybeAct(ts, "EXIT", 0.0, effectiveBalance, wallet,
                             lastSuccessfulPollMs, status.openPositionCount, status.totalExposureSol)
                     }
-                    return@launch
+                    return
                 }
 
                 // In PAUSED mode: no new entries (existing positions still managed)
-                if (modeConf?.mode == AutoModeEngine.BotMode.PAUSED && !ts.position.isOpen) return@launch
+                if (modeConf?.mode == AutoModeEngine.BotMode.PAUSED && !ts.position.isOpen) return
 
                 // Trade on ALL watchlist tokens simultaneously
                 val cbState = securityGuard.getCircuitBreakerState()
@@ -2424,7 +2632,7 @@ class BotService : Service() {
                 val (canProposeEarly, dedupeReason) = TradeLifecycle.canPropose(identity.mint)
                 if (!canProposeEarly && !ts.position.isOpen) {
                     // Silently skip - no spam logging
-                    return@launch
+                    return
                 }
                 
                 // FATAL SUPPRESSION: Only rugged/honeypot/unsellable blocks
@@ -2432,7 +2640,7 @@ class BotService : Service() {
                 if (isFatalSuppression && !ts.position.isOpen) {
                     val reason = DistributionFadeAvoider.checkRawStrategySuppression(identity.mint)
                     ErrorLogger.info("BotService", "[FATAL] ${identity.symbol} | BLOCK | $reason")
-                    return@launch
+                    return
                 }
                 
                 // ═══════════════════════════════════════════════════════════════════
@@ -2477,7 +2685,7 @@ class BotService : Service() {
                         }
                         
                         // Skip normal V3 processing for this token
-                        return@launch
+                        return
                     }
                     
                     // Calculate token age in minutes
@@ -3053,7 +3261,7 @@ class BotService : Service() {
                                 // V3.3 FIX: DO NOT RETURN - Allow Treasury Mode evaluation below!
                                 // Treasury Mode runs CONCURRENTLY and can scalp WATCH tokens
                                 // ═══════════════════════════════════════════════════════════════════
-                                // Previously: return@launch (BLOCKED Treasury Mode!)
+                                // Previously: return (BLOCKED Treasury Mode!)
                             }
                             
                             is com.lifecyclebot.v3.V3Decision.ShadowOnly -> {
@@ -3075,7 +3283,7 @@ class BotService : Service() {
                                     phase = decision.phase,
                                 )
                                 
-                                return@launch
+                                return
                             }
                             
                             is com.lifecyclebot.v3.V3Decision.Rejected -> {
@@ -3097,7 +3305,7 @@ class BotService : Service() {
                                     phase = decision.phase,
                                 )
                                 
-                                return@launch
+                                return
                             }
                             
                             is com.lifecyclebot.v3.V3Decision.BlockFatal -> {
@@ -3105,7 +3313,7 @@ class BotService : Service() {
                                 // V3 BLOCK_FATAL: Fatal risk detected
                                 // ═══════════════════════════════════════════════════════════════════
                                 ErrorLogger.info("BotService", "[DECISION] ${identity.symbol} | BLOCK_FATAL | ${result.reason}")
-                                return@launch
+                                return
                             }
                             
                             is com.lifecyclebot.v3.V3Decision.Blocked -> {
@@ -3113,26 +3321,26 @@ class BotService : Service() {
                                 // V3 BLOCK: Legacy fatal block
                                 // ═══════════════════════════════════════════════════════════════════
                                 ErrorLogger.info("BotService", "[DECISION] ${identity.symbol} | BLOCK_FATAL | ${result.reason}")
-                                return@launch
+                                return
                             }
                             
                             else -> {
                                 // V3 not ready or error - skip this token
                                 ErrorLogger.debug("BotService", "[V3] ${identity.symbol} | NOT_READY")
-                                return@launch
+                                return
                             }
                         }
                         
                     } catch (v3e: Exception) {
                         ErrorLogger.error("BotService", "[V3] ${identity.symbol} | ERROR | ${v3e.message}")
-                        return@launch
+                        return
                     }
                     
                     // ═══════════════════════════════════════════════════════════════════
                     // V3.3 FIX: DO NOT RETURN HERE!
                     // Treasury Mode runs CONCURRENTLY and must evaluate ALL tokens,
                     // including those that V3 marked as WATCH/Execute.
-                    // Previously: return@launch (this KILLED Treasury Mode entirely!)
+                    // Previously: return (this KILLED Treasury Mode entirely!)
                     // ═══════════════════════════════════════════════════════════════════
                 }
                 
@@ -3173,7 +3381,7 @@ class BotService : Service() {
                         phase = decision.phase,
                     )
                     
-                    return@launch  // Exit before CANDIDATE/PROPOSED
+                    return  // Exit before CANDIDATE/PROPOSED
                 }
                 
                 // ───────────────────────────────────────────────────────────────────
@@ -3204,7 +3412,7 @@ class BotService : Service() {
                         phase = decision.phase,
                     )
                     
-                    return@launch  // Exit before CANDIDATE/PROPOSED
+                    return  // Exit before CANDIDATE/PROPOSED
                 }
                 
                 if (!ts.position.isOpen && decision.finalSignal == "BUY" && canProposeEarly) {
@@ -3342,7 +3550,7 @@ class BotService : Service() {
                                     if (v3ControlsExecution) {
                                         addLog("⚡ V3 WATCH: ${identity.symbol} | score=${result.score} (no trade)", mint)
                                         // Don't set useV3Decision - this blocks the trade
-                                        return@launch  // V3 says WATCH = exit without executing
+                                        return  // V3 says WATCH = exit without executing
                                     }
                                 }
                                 
@@ -3361,7 +3569,7 @@ class BotService : Service() {
                                     // V3 REJECT = DO NOT EXECUTE
                                     if (v3ControlsExecution) {
                                         addLog("⚡ V3 REJECT: ${identity.symbol} | ${result.reason}", mint)
-                                        return@launch  // V3 says REJECT = exit
+                                        return  // V3 says REJECT = exit
                                     }
                                 }
                                 
@@ -3380,7 +3588,7 @@ class BotService : Service() {
                                     // V3 BLOCK = FATAL, DO NOT EXECUTE
                                     if (v3ControlsExecution) {
                                         addLog("⚡ V3 BLOCKED: ${identity.symbol} | ${result.reason}", mint)
-                                        return@launch  // V3 says BLOCK = exit
+                                        return  // V3 says BLOCK = exit
                                     }
                                 }
                                 
@@ -3389,7 +3597,7 @@ class BotService : Service() {
                                     ErrorLogger.warn("BotService", "⚡ V3 unavailable for ${identity.symbol} - ${if (v3ControlsExecution) "SKIPPING" else "using FDG"}")
                                     if (v3ControlsExecution) {
                                         // V3 is supposed to control but failed - don't trade on uncertainty
-                                        return@launch
+                                        return
                                     }
                                 }
                             }
@@ -3398,7 +3606,7 @@ class BotService : Service() {
                             ErrorLogger.error("BotService", "V3 engine error for ${identity.symbol}: ${v3e.message}")
                             if (v3ControlsExecution) {
                                 // V3 controls but errored - don't fall back to legacy
-                                return@launch
+                                return
                             }
                         }
                     }
@@ -3653,7 +3861,7 @@ class BotService : Service() {
                             addLog("💰 TREASURY SELL: ${ts.symbol} | ${exitSignal.name} | " +
                                 "${if (cfg.paperMode) "PAPER" else "LIVE"}", ts.mint)
                             
-                            return@launch  // Exit processed
+                            return  // Exit processed
                         }
                     }
                     
@@ -3695,7 +3903,7 @@ class BotService : Service() {
                             addLog("$exitEmoji SHITCOIN SELL: ${ts.symbol} | ${exitSignal.name} | " +
                                 "${if (cfg.paperMode) "PAPER" else "LIVE"}", ts.mint)
                             
-                            return@launch  // Exit processed
+                            return  // Exit processed
                         }
                     }
                     
@@ -3733,7 +3941,7 @@ class BotService : Service() {
                             addLog("$exitEmoji EXPRESS SELL: ${ts.symbol} | ${exitSignal.name} | " +
                                 "${if (cfg.paperMode) "PAPER" else "LIVE"}", ts.mint)
                             
-                            return@launch
+                            return
                         }
                     }
                     
@@ -3770,7 +3978,7 @@ class BotService : Service() {
                             addLog("$exitEmoji DIP SELL: ${ts.symbol} | ${exitSignal.name} | " +
                                 "${if (cfg.paperMode) "PAPER" else "LIVE"}", ts.mint)
                             
-                            return@launch
+                            return
                         }
                     }
                     
@@ -3959,210 +4167,11 @@ class BotService : Service() {
                         mint
                     )
 
-                } catch (e: Exception) {
-                    status.tokens[mint]?.lastError = e.message ?: "unknown"
-                    addLog("Error [$mint]: ${e.message}", mint)
-                }
-              } // end scope.launch
-            } // end map
-            
-            // Wait for all tokens with a maximum timeout of 15 seconds total
-            // Increased from 8s to process more tokens per cycle
-            try {
-                kotlinx.coroutines.withTimeout(15000L) {
-                    tokenJobs.forEach { it.join() }
-                }
-            } catch (e: kotlinx.coroutines.TimeoutCancellationException) {
-                addLog("⏰ Watchlist scan timeout - moving to next cycle")
-                ErrorLogger.warn("BotService", "Token processing batch timeout - some tokens skipped")
-                // Cancel any still-running jobs
-                tokenJobs.forEach { if (it.isActive) it.cancel() }
-            }
-
-            // ═══════════════════════════════════════════════════════════════════
-            // SHADOW PAPER TRADING - Check shadow positions for exits
-            // This runs during LIVE mode to learn from background paper trades
-            // ═══════════════════════════════════════════════════════════════════
-            if (cfg.shadowPaperEnabled && !cfg.paperMode) {
-                try {
-                    // Pass current token states so shadow positions can get price updates
-                    val tokenStatesCopy = synchronized(status.tokens) {
-                        status.tokens.toMap()
-                    }
-                    executor.checkShadowPositions(tokenStatesCopy)
-                } catch (e: Exception) {
-                    ErrorLogger.debug("BotService", "Shadow position check error: ${e.message}")
-                }
-            }
-            
-            // Periodically persist session state - use synchronized copy
-            val tradeCount = synchronized(status.tokens) {
-                status.tokens.values.toList().sumOf { it.trades.size }
-            }
-            if (tradeCount % 5 == 0 && status.running) {
-                try { SessionStore.save(applicationContext, cfg.paperMode) } catch (_: Exception) {}
-            }
-            delay(cfg.pollSeconds * 1000L)
-          } catch (e: Exception) {
-            // Catch any crash in the main loop and log it
-            addLog("❌ Loop error: ${e.message}")
-            delay(5000) // wait 5 seconds before retrying
-          }
+        } catch (e: Exception) {
+            status.tokens[mint]?.lastError = e.message ?: "unknown"
+            addLog("Error [$mint]: ${e.message}", mint)
         }
     }
-
-    // ── logging ────────────────────────────────────────────
-
-    /**
-     * Aggressively clean up the watchlist to make room for new opportunities.
-     * Removes tokens that are:
-     * - Blocked by safety checker (rugcheck failed)
-     * - Stale (no price updates)
-     * - Dead (zero liquidity or volume)
-     * - IDLE too long without getting a buy signal
-     * - Underperforming (flat price with no buys)
-     */
-    private suspend fun cleanupWatchlist() {
-        val cfg = ConfigStore.load(applicationContext)
-        val currentWatchlist = cfg.watchlist.toMutableList()
-        if (currentWatchlist.size <= 3) return  // Keep at least 3 tokens
-        
-        val tokensToRemove = mutableListOf<String>()
-        val now = System.currentTimeMillis()
-        val isPaperMode = cfg.paperMode
-        
-        // MUCH LESS AGGRESSIVE - give tokens time to develop and generate signals
-        val staleThresholdMs = if (isPaperMode) 120_000L else 180_000L   // 2 min in paper, 3 min in real
-        val idleThresholdMs = if (isPaperMode) 180_000L else 300_000L    // 3 min idle in paper, 5 min in real
-        val maxWatchlistAge = if (isPaperMode) 600_000L else 900_000L    // 10 min max in paper, 15 min in real
-        
-        for (mint in currentWatchlist) {
-            val ts = status.tokens[mint]
-            
-            // Skip if we have an open position
-            if (ts?.position?.isOpen == true) {
-                continue
-            }
-            
-            // Remove if blocked by safety checker
-            if (ts?.safety?.isBlocked == true) {
-                tokensToRemove.add(mint)
-                val reason = ts.safety.hardBlockReasons.firstOrNull() ?: "Safety check failed"
-                addLog("🚫 BLOCKED: ${ts.symbol} - $reason", mint)
-                marketScanner?.markTokenRejected(mint)
-                continue
-            }
-            
-            // Remove if explicitly blacklisted
-            if (TokenBlacklist.isBlocked(mint)) {
-                val reason = TokenBlacklist.getBlockReason(mint)
-                tokensToRemove.add(mint)
-                addLog("🚫 BLACKLIST: ${ts?.symbol ?: mint.take(8)} - $reason", mint)
-                marketScanner?.markTokenRejected(mint)
-                continue
-            }
-            
-            // Check token state
-            if (ts != null) {
-                val lastUpdate = ts.history.lastOrNull()?.ts ?: ts.addedToWatchlistAt
-                val age = now - lastUpdate
-                val timeInWatchlist = now - ts.addedToWatchlistAt
-                
-                // Remove "idle" phase tokens ONLY if they've been idle for a while
-                // Give them time to transition to a better phase
-                if (ts.phase == "idle" && timeInWatchlist > idleThresholdMs && ts.history.size < 5) {
-                    tokensToRemove.add(mint)
-                    addLog("😴 IDLE PHASE: ${ts.symbol} - no activity", mint)
-                    marketScanner?.markTokenRejected(mint)
-                    continue
-                }
-                
-                // AGGRESSIVE: Remove "dying", "dead", "rug_likely" phases immediately
-                if (ts.phase in listOf("dying", "dead", "rug_likely", "distribution")) {
-                    tokensToRemove.add(mint)
-                    addLog("💀 BAD PHASE: ${ts.symbol} (${ts.phase})", mint)
-                    marketScanner?.markTokenRejected(mint)
-                    continue
-                }
-                
-                // Remove if stale (no data for 30 seconds)
-                if (lastUpdate > 0 && age > staleThresholdMs) {
-                    tokensToRemove.add(mint)
-                    addLog("⏰ STALE: ${ts.symbol}", mint)
-                    marketScanner?.markTokenRejected(mint)
-                    continue
-                }
-                
-                // Remove if dead (very low liquidity) - but keep if we're in paper mode learning
-                if (ts.lastLiquidityUsd < 200 && !isPaperMode) {
-                    tokensToRemove.add(mint)
-                    addLog("💀 NO LIQ: ${ts.symbol}", mint)
-                    marketScanner?.markTokenRejected(mint)
-                    continue
-                }
-                
-                // Remove any token after max time if no trade executed
-                // But be generous - tokens need time to develop
-                if (timeInWatchlist > maxWatchlistAge && ts.trades.isEmpty()) {
-                    tokensToRemove.add(mint)
-                    addLog("⏳ TIMEOUT: ${ts.symbol} - ${(maxWatchlistAge/60000)}min no trade", mint)
-                    marketScanner?.markTokenRejected(mint)
-                    continue
-                }
-                
-                // Remove if WAIT signal for too long - but give more time in paper mode
-                val waitTimeout = if (isPaperMode) 300_000L else 120_000L  // 5 min in paper, 2 min in real
-                if (ts.signal == "WAIT" && timeInWatchlist > waitTimeout && ts.trades.isEmpty()) {
-                    tokensToRemove.add(mint)
-                    addLog("⏳ WAIT TIMEOUT: ${ts.symbol}", mint)
-                    marketScanner?.markTokenRejected(mint)
-                    continue
-                }
-                
-                // Remove if flat - but only after enough candles and in real mode
-                // Paper mode keeps flat tokens to learn from them too
-                if (!isPaperMode && ts.history.size >= 6) {
-                    val recentCandles = ts.history.takeLast(6)
-                    val priceRange = recentCandles.maxOf { it.priceUsd } - recentCandles.minOf { it.priceUsd }
-                    val avgPrice = recentCandles.map { it.priceUsd }.average()
-                    val priceChangePercent = if (avgPrice > 0) (priceRange / avgPrice) * 100 else 0.0
-                    val totalBuys = recentCandles.sumOf { it.buysH1 }
-                    
-                    // Flat price (<1.5% range) AND no recent buys
-                    if (priceChangePercent < 1.5 && totalBuys < 2) {
-                        tokensToRemove.add(mint)
-                        addLog("📉 FLAT: ${ts.symbol}", mint)
-                        marketScanner?.markTokenRejected(mint)
-                        continue
-                    }
-                }
-            } else {
-                // No token state - remove it
-                tokensToRemove.add(mint)
-            }
-        }
-        
-        // Apply removals
-        if (tokensToRemove.isNotEmpty()) {
-            val newWatchlist = currentWatchlist.filter { it !in tokensToRemove }
-            ConfigStore.save(applicationContext, cfg.copy(watchlist = newWatchlist))
-            
-            // Also remove from status.tokens
-            tokensToRemove.forEach { mint ->
-                synchronized(status.tokens) {
-                    status.tokens.remove(mint)
-                }
-            }
-            
-            ErrorLogger.info("BotService", "Watchlist cleanup: removed ${tokensToRemove.size} tokens, now ${newWatchlist.size} remaining")
-            addLog("🧹 Cleanup: -${tokensToRemove.size} | now ${newWatchlist.size}")
-        }
-    }
-
-    /**
-     * Initialize all trading modes/layers with current configuration.
-     * Extracted from botLoop to reduce function complexity and avoid compiler stack overflow.
-     */
     private fun initTradingModes(cfg: BotConfig) {
         // Cash Generation AI (Treasury Mode)
         try {
