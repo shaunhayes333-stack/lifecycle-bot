@@ -31,18 +31,17 @@ android {
         buildConfigField("String", "GROQ_KEY_P2", "\"\"")
     }
     
-    // Use debug signing for CI builds (user can sign with their own key for Play Store)
+    // CONSISTENT signing key - stored in repo for seamless updates
     signingConfigs {
         getByName("debug") {
             // Uses default debug keystore at ~/.android/debug.keystore
         }
         create("release") {
-            // CI creates this keystore during build
-            // For Play Store: replace with your production signing key
-            storeFile = file(System.getProperty("user.home") + "/.android/release.keystore")
-            storePassword = "android123"
-            keyAlias = "release"
-            keyPassword = "android123"
+            // Consistent key stored in repo - allows APK updates without uninstall
+            storeFile = file("../keystore/release.keystore")
+            storePassword = "aate2024bot"
+            keyAlias = "aate_release"
+            keyPassword = "aate2024bot"
         }
     }
 

@@ -28,25 +28,15 @@ jobs:
         run: |
           yes | $ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager --licenses || true
 
-      - name: Create Release Keystore
-        run: |
-          mkdir -p ~/.android
-          keytool -genkeypair -v \
-            -keystore ~/.android/release.keystore \
-            -alias release \
-            -keyalg RSA \
-            -keysize 2048 \
-            -validity 10000 \
-            -storepass android123 \
-            -keypass android123 \
-            -dname "CN=AATE, OU=Crypto, O=Lifecycle, L=Sydney, ST=NSW, C=AU"
-
       - name: Build Release APK
         run: |
           chmod +x gradlew || true
           mkdir -p gradle/wrapper
           curl -sL -o gradle/wrapper/gradle-wrapper.jar "https://raw.githubusercontent.com/gradle/gradle/v8.7.0/gradle/wrapper/gradle-wrapper.jar"
-          echo "Building with versionCode = 420 + ${{ github.run_number }}"
+          echo "========================================"
+          echo "Building AATE v4.20.${{ github.run_number }}"
+          echo "versionCode = $((420 + ${{ github.run_number }}))"
+          echo "========================================"
           ./gradlew assembleRelease --no-daemon -PbuildNumber=${{ github.run_number }}
 
       - uses: actions/upload-artifact@v4

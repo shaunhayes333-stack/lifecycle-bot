@@ -30,6 +30,8 @@ local.properties
 *.jks
 *.keystore
 keystore.properties
+# Exception: Our CI signing key (allows app updates without uninstall)
+!keystore/release.keystore
 
 # API Keys - NEVER commit these!
 **/secrets.properties
