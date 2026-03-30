@@ -305,6 +305,15 @@ object ShitCoinTraderAI {
         }
         dailyTradeCount.incrementAndGet()
         
+        // V4.1.3: Start ultra-fast rug monitoring
+        UltraFastRugDetectorAI.startMonitoring(
+            mint = position.mint,
+            symbol = position.symbol,
+            entryPrice = position.entryPrice,
+            entryLiquidity = position.liquidityUsd,
+            entryHolders = 0,  // Will be updated by scanner
+        )
+        
         ErrorLogger.info(TAG, "💩 SHITCOIN ENTRY: ${position.symbol} | " +
             "${position.launchPlatform.emoji} ${position.launchPlatform.displayName} | " +
             "mcap=\$${(position.marketCapUsd/1_000).fmt(1)}K | " +
@@ -315,6 +324,9 @@ object ShitCoinTraderAI {
     
     fun closePosition(mint: String, exitPrice: Double, exitReason: ExitSignal) {
         val pos = synchronized(activePositions) { activePositions.remove(mint) } ?: return
+        
+        // V4.1.3: Stop rug monitoring
+        UltraFastRugDetectorAI.stopMonitoring(mint)
         
         val pnlPct = (exitPrice - pos.entryPrice) / pos.entryPrice * 100
         val pnlSol = pos.entrySol * pnlPct / 100
@@ -760,7 +772,7 @@ object ShitCoinTraderAI {
         }
         
         // ═══════════════════════════════════════════════════════════════════════════
-        // V4.1.3: MOONSHOT EXIT STRATEGY
+        // V4.1.3: MOONSHOT EXIT STRATEGY + ULTRA-FAST RUG DETECTION
         // 
         // NO HARD CAPS! Let runners run with trailing stops and partial takes.
         // 
@@ -769,11 +781,38 @@ object ShitCoinTraderAI {
         //   - Then let it ride with trailing stop
         //   - Trailing stop tightens as profits grow (lock in gains)
         //   - NO MAX TP - can ride to 1000x, 10000x, or beyond!
+        // 
+        // V4.1.3: ULTRA-FAST RUG DETECTION
+        //   - Uses UltraFastRugDetectorAI for real-time monitoring
+        //   - EMA crosses, RSI, support/resistance analysis
+        //   - Instant exit on rug signals
         // ═══════════════════════════════════════════════════════════════════════════
         
         // ─── EXIT CONDITIONS (Priority order) ───
         
-        // 1. RUG DETECTED - Price dropped >50% in <5 mins
+        // 0. ULTRA-FAST RUG CHECK (runs first, every update)
+        val rugSignal = UltraFastRugDetectorAI.checkForRug(
+            mint = mint,
+            currentPrice = currentPrice,
+            currentLiquidity = pos.liquidityUsd,  // Use last known
+            currentHolders = 0,  // Will be updated by scanner
+            recentCandles = null,
+        )
+        
+        if (rugSignal.shouldExit && rugSignal.urgency == UltraFastRugDetectorAI.ExitUrgency.INSTANT) {
+            ErrorLogger.warn(TAG, "💀💨 ULTRA-FAST RUG EXIT: ${pos.symbol} | ${rugSignal.reason}")
+            return ExitSignal.RUG_DETECTED
+        }
+        
+        // Log technical signals if any
+        if (rugSignal.technicalSignals.isNotEmpty()) {
+            val techSummary = rugSignal.technicalSignals.joinToString(" | ") { 
+                "${it.type}: ${it.interpretation}" 
+            }
+            ErrorLogger.debug(TAG, "📊 TECHNICALS ${pos.symbol}: $techSummary")
+        }
+        
+        // 1. RUG DETECTED - Price dropped >50% in <5 mins (backup check)
         if (holdMinutes < 5 && pnlPct < -50) {
             ErrorLogger.warn(TAG, "💩💀 RUG DETECTED: ${pos.symbol} | ${pnlPct.toInt()}% in ${holdMinutes}min")
             return ExitSignal.RUG_DETECTED
