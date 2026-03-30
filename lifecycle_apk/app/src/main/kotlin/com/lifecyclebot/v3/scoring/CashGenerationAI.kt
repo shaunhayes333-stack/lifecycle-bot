@@ -63,10 +63,10 @@ object CashGenerationAI {
     private const val MIN_POSITION_SOL = 0.03         // Minimum viable trade
     private const val POSITION_SCALE_FACTOR = 1.15    // Scale up slightly on A+ setups
     
-    // Exit strategy (QUICK SCALPS 4-8% - user choice: lower to catch more quick trades)
-    private const val TAKE_PROFIT_PCT = 4.0           // Quick 4% scalp target (covers fees + profit)
-    private const val TAKE_PROFIT_MIN_PCT = 3.5       // Minimum acceptable profit (must cover fees)
-    private const val TAKE_PROFIT_MAX_PCT = 8.0       // Exit by 8% no matter what
+    // Exit strategy (QUICK SCALPS 3.5-7% - V4.0: 3.5% target, max 7% per user request)
+    private const val TAKE_PROFIT_PCT = 3.5           // Quick 3.5% scalp target (V4.0: per user request)
+    private const val TAKE_PROFIT_MIN_PCT = 3.0       // Minimum acceptable profit (must cover fees)
+    private const val TAKE_PROFIT_MAX_PCT = 7.0       // Exit by 7% no matter what (V4.0: per user request)
     private const val STOP_LOSS_PCT = -2.0            // Cut at -2%, no exceptions
     private const val TRAILING_STOP_PCT = 2.0         // Tight 2% trail after profit
     private const val MAX_HOLD_MINUTES = 8            // Quick scalps - don't hold long
@@ -483,11 +483,11 @@ object CashGenerationAI {
         val maxWithCompounding = MAX_POSITION_SOL * (1 + COMPOUNDING_RATIO)
         positionSol = positionSol.coerceIn(MIN_POSITION_SOL, maxWithCompounding)
         
-        // ─── DETERMINE EXIT LEVELS (Quick scalps 3.5-8% to catch more trades) ───
+        // ─── DETERMINE EXIT LEVELS (Quick scalps 3-7% for Treasury Mode) ───
         val takeProfitPct = when (mode) {
-            TreasuryMode.DEFENSIVE -> TAKE_PROFIT_MIN_PCT  // Take quick 3.5% when protecting
-            TreasuryMode.CRUISE -> TAKE_PROFIT_PCT         // Standard 4%
-            TreasuryMode.AGGRESSIVE -> TAKE_PROFIT_MAX_PCT // Let run to 8% when behind
+            TreasuryMode.DEFENSIVE -> TAKE_PROFIT_MIN_PCT  // Take quick 3% when protecting
+            TreasuryMode.CRUISE -> TAKE_PROFIT_PCT         // Standard 3.5%
+            TreasuryMode.AGGRESSIVE -> TAKE_PROFIT_MAX_PCT // Let run to 7% when behind
             else -> TAKE_PROFIT_PCT
         }
         val stopLossPct = STOP_LOSS_PCT  // Never compromise on stop loss (-2%)

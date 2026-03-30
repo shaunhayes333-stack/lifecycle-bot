@@ -1153,6 +1153,89 @@ class BotService : Service() {
                     addLog("✅ Closed $closedCount position(s) before shutdown")
                 }
                 
+                // ═══════════════════════════════════════════════════════════════════
+                // V4.0 FIX: Also close Treasury Mode positions
+                // Treasury tracks positions separately in CashGenerationAI
+                // ═══════════════════════════════════════════════════════════════════
+                try {
+                    val treasuryPositions = com.lifecyclebot.v3.scoring.CashGenerationAI.getActivePositions()
+                    if (treasuryPositions.isNotEmpty()) {
+                        addLog("💰 Closing ${treasuryPositions.size} Treasury position(s)...")
+                        for (tPos in treasuryPositions) {
+                            try {
+                                val ts = tokensCopy[tPos.mint]
+                                val currentPrice = ts?.lastPrice ?: ts?.ref ?: tPos.entryPrice
+                                
+                                // Close the treasury position tracking
+                                com.lifecyclebot.v3.scoring.CashGenerationAI.closePosition(
+                                    mint = tPos.mint,
+                                    exitPrice = currentPrice,
+                                    exitReason = com.lifecyclebot.v3.scoring.CashGenerationAI.ExitSignal.TIME_EXIT
+                                )
+                                addLog("💰 Closed Treasury position: ${tPos.symbol}", tPos.mint)
+                            } catch (te: Exception) {
+                                addLog("⚠️ Failed to close Treasury ${tPos.symbol}: ${te.message}", tPos.mint)
+                            }
+                        }
+                    }
+                } catch (treasuryEx: Exception) {
+                    ErrorLogger.error("BotService", "Error closing Treasury positions: ${treasuryEx.message}", treasuryEx)
+                }
+                
+                // ═══════════════════════════════════════════════════════════════════
+                // V4.0 FIX: Also close Blue Chip positions
+                // ═══════════════════════════════════════════════════════════════════
+                try {
+                    val blueChipPositions = com.lifecyclebot.v3.scoring.BlueChipTraderAI.getActivePositions()
+                    if (blueChipPositions.isNotEmpty()) {
+                        addLog("🔵 Closing ${blueChipPositions.size} Blue Chip position(s)...")
+                        for (bcPos in blueChipPositions) {
+                            try {
+                                val ts = tokensCopy[bcPos.mint]
+                                val currentPrice = ts?.lastPrice ?: ts?.ref ?: bcPos.entryPrice
+                                
+                                com.lifecyclebot.v3.scoring.BlueChipTraderAI.closePosition(
+                                    mint = bcPos.mint,
+                                    exitPrice = currentPrice,
+                                    exitReason = "bot_shutdown"
+                                )
+                                addLog("🔵 Closed Blue Chip position: ${bcPos.symbol}", bcPos.mint)
+                            } catch (bcEx: Exception) {
+                                addLog("⚠️ Failed to close BlueChip ${bcPos.symbol}: ${bcEx.message}", bcPos.mint)
+                            }
+                        }
+                    }
+                } catch (bcEx: Exception) {
+                    ErrorLogger.error("BotService", "Error closing BlueChip positions: ${bcEx.message}", bcEx)
+                }
+                
+                // ═══════════════════════════════════════════════════════════════════
+                // V4.0 FIX: Also close ShitCoin positions
+                // ═══════════════════════════════════════════════════════════════════
+                try {
+                    val shitCoinPositions = com.lifecyclebot.v3.scoring.ShitCoinTraderAI.getActivePositions()
+                    if (shitCoinPositions.isNotEmpty()) {
+                        addLog("💩 Closing ${shitCoinPositions.size} ShitCoin position(s)...")
+                        for (scPos in shitCoinPositions) {
+                            try {
+                                val ts = tokensCopy[scPos.mint]
+                                val currentPrice = ts?.lastPrice ?: ts?.ref ?: scPos.entryPrice
+                                
+                                com.lifecyclebot.v3.scoring.ShitCoinTraderAI.closePosition(
+                                    mint = scPos.mint,
+                                    exitPrice = currentPrice,
+                                    exitReason = "bot_shutdown"
+                                )
+                                addLog("💩 Closed ShitCoin position: ${scPos.symbol}", scPos.mint)
+                            } catch (scEx: Exception) {
+                                addLog("⚠️ Failed to close ShitCoin ${scPos.symbol}: ${scEx.message}", scPos.mint)
+                            }
+                        }
+                    }
+                } catch (scEx: Exception) {
+                    ErrorLogger.error("BotService", "Error closing ShitCoin positions: ${scEx.message}", scEx)
+                }
+                
                 // Also purge any orphaned tokens (live mode only)
                 if (!cfg.paperMode && wallet != null) {
                     purgeOrphanedTokensOnStop(cfg)
@@ -1161,8 +1244,14 @@ class BotService : Service() {
                 val openCount = synchronized(status.tokens) {
                     status.tokens.values.count { it.position.isOpen }
                 }
-                if (openCount > 0) {
-                    addLog("⚠️ $openCount position(s) left open (closePositionsOnStop=false)")
+                val treasuryCount = com.lifecyclebot.v3.scoring.CashGenerationAI.getActivePositions().size
+                val blueChipCount = com.lifecyclebot.v3.scoring.BlueChipTraderAI.getActivePositions().size
+                val shitCoinCount = com.lifecyclebot.v3.scoring.ShitCoinTraderAI.getActivePositions().size
+                val totalOpen = openCount + treasuryCount + blueChipCount + shitCoinCount
+                
+                if (totalOpen > 0) {
+                    addLog("⚠️ $totalOpen position(s) left open (closePositionsOnStop=false) | " +
+                        "main=$openCount treasury=$treasuryCount bluechip=$blueChipCount shitcoin=$shitCoinCount")
                 }
             }
         } catch (e: Exception) {
@@ -1397,6 +1486,13 @@ class BotService : Service() {
         while (status.running) {
           try {
             loopCount++
+            
+            // ═══════════════════════════════════════════════════════════════════
+            // V4.0: Clear FinalExecutionPermit state at start of each cycle
+            // This allows tokens to be re-evaluated fresh each loop
+            // ═══════════════════════════════════════════════════════════════════
+            FinalExecutionPermit.clearCycleState()
+            
             val cfg       = ConfigStore.load(applicationContext)
             val watchlist = cfg.watchlist.toMutableList()
             if (cfg.activeToken.isNotBlank() && cfg.activeToken !in watchlist)
@@ -2715,152 +2811,275 @@ class BotService : Service() {
             )
             
             // ═══════════════════════════════════════════════════════════════════
+            // V4.0 FIX: Register V3 decision with FinalExecutionPermit
+            // This BLOCKS Treasury/BlueChip/ShitCoin from trading rejected tokens
+            // ═══════════════════════════════════════════════════════════════════
+            when (val result = v3Decision) {
+                is com.lifecyclebot.v3.V3Decision.Rejected -> {
+                    FinalExecutionPermit.registerRejection(
+                        mint = ts.mint,
+                        symbol = ts.symbol,
+                        reason = result.reason,
+                        rejectedBy = "V3_REJECT",
+                        v3Score = 0,
+                        v3Confidence = 0
+                    )
+                }
+                is com.lifecyclebot.v3.V3Decision.Blocked -> {
+                    FinalExecutionPermit.registerRejection(
+                        mint = ts.mint,
+                        symbol = ts.symbol,
+                        reason = result.reason,
+                        rejectedBy = "V3_BLOCK",
+                        v3Score = 0,
+                        v3Confidence = 0
+                    )
+                }
+                is com.lifecyclebot.v3.V3Decision.BlockFatal -> {
+                    FinalExecutionPermit.registerRejection(
+                        mint = ts.mint,
+                        symbol = ts.symbol,
+                        reason = result.reason,
+                        rejectedBy = "V3_BLOCK_FATAL",
+                        v3Score = 0,
+                        v3Confidence = 0
+                    )
+                }
+                is com.lifecyclebot.v3.V3Decision.ShadowOnly -> {
+                    FinalExecutionPermit.registerRejection(
+                        mint = ts.mint,
+                        symbol = ts.symbol,
+                        reason = result.reason,
+                        rejectedBy = "V3_SHADOW_ONLY",
+                        v3Score = result.score,
+                        v3Confidence = result.confidence
+                    )
+                }
+                is com.lifecyclebot.v3.V3Decision.Execute -> {
+                    // V3 approved - register approval to clear any previous rejection
+                    FinalExecutionPermit.registerApproval(
+                        mint = ts.mint,
+                        symbol = ts.symbol,
+                        approvedBy = "V3",
+                        v3Score = result.score,
+                        v3Confidence = result.confidence.toInt()
+                    )
+                }
+                // Watch decisions don't register rejection - Treasury CAN scalp WATCH tokens
+                else -> { /* No action for Watch/other */ }
+            }
+            
+            // ═══════════════════════════════════════════════════════════════════
             // V3.3 FIX: Run Treasury Mode IMMEDIATELY after V3 decision
             // BEFORE any return statements, so Treasury can evaluate ALL tokens!
             // 
             // Treasury Mode runs CONCURRENTLY with V3 - it's a "2nd shadow mode"
             // that scalps tokens V3 might reject for normal trading.
             // It has its own filters (tight stops, lower thresholds).
+            // 
+            // V4.0 FIX: But Treasury CANNOT override V3 rejections!
+            // If V3 REJECTED/BLOCKED a token, Treasury must respect that decision.
             // ═══════════════════════════════════════════════════════════════════
             if (!ts.position.isOpen && com.lifecyclebot.v3.scoring.CashGenerationAI.isEnabled()) {
                 try {
-                    // Extract V3 scores from decision (any type)
-                    val (v3Score, v3Confidence) = when (val result = v3Decision) {
-                        is com.lifecyclebot.v3.V3Decision.Execute -> result.score to result.confidence.toInt()
-                        is com.lifecyclebot.v3.V3Decision.Watch -> result.score to result.confidence
-                        is com.lifecyclebot.v3.V3Decision.Rejected -> 20 to 30  // Low defaults for rejected
-                        else -> 15 to 25  // Very low for blocked/fatal
-                    }
-                    
-                    // Cache scores for later use
-                    ts.lastV3Score = v3Score
-                    ts.lastV3Confidence = v3Confidence
-                    
-                    val treasurySignal = com.lifecyclebot.v3.scoring.CashGenerationAI.evaluate(
+                    // ═══════════════════════════════════════════════════════════════════
+                    // V4.0 FIX: CHECK FINAL EXECUTION PERMIT
+                    // If V3 rejected this token, Treasury CANNOT buy it
+                    // ═══════════════════════════════════════════════════════════════════
+                    val permitResult = FinalExecutionPermit.canExecute(
                         mint = ts.mint,
                         symbol = ts.symbol,
-                        currentPrice = ts.ref,
-                        liquidityUsd = ts.lastLiquidityUsd,
-                        // V4.0 FIX: Default to 20% (safe) instead of 50% (fails threshold)
-                        // Many tokens don't have topHolderPct data early on
-                        topHolderPct = ts.topHolderPct ?: 20.0,
-                        buyPressurePct = ts.lastBuyPressurePct,
-                        v3Score = v3Score,
-                        v3Confidence = v3Confidence,
-                        momentum = ts.momentum ?: 0.0,
-                        volatility = ts.volatility ?: 0.0
+                        requestingLayer = "TREASURY",
+                        hasOpenPosition = ts.position.isOpen
                     )
                     
-                    if (treasurySignal.shouldEnter) {
-                        ErrorLogger.info("BotService", "💰 [TREASURY] ${ts.symbol} | ENTER | " +
-                            "size=${treasurySignal.positionSizeSol.fmt(3)} SOL | " +
-                            "TP=${treasurySignal.takeProfitPct}% | " +
-                            "mode=${treasurySignal.mode}")
+                    if (!permitResult.allowed) {
+                        ErrorLogger.debug("BotService", "💰 [TREASURY] ${ts.symbol} | BLOCKED | ${permitResult.reason}")
+                        // Skip treasury evaluation for this token
+                    } else {
+                        // Extract V3 scores from decision (any type)
+                        val (v3Score, v3Confidence) = when (val result = v3Decision) {
+                            is com.lifecyclebot.v3.V3Decision.Execute -> result.score to result.confidence.toInt()
+                            is com.lifecyclebot.v3.V3Decision.Watch -> result.score to result.confidence
+                            is com.lifecyclebot.v3.V3Decision.Rejected -> 20 to 30  // Low defaults for rejected
+                            else -> 15 to 25  // Very low for blocked/fatal
+                        }
                         
-                        // Execute treasury buy IMMEDIATELY
-                        executor.treasuryBuy(
-                            ts = ts,
-                            sizeSol = treasurySignal.positionSizeSol,
-                            walletSol = effectiveBalance,
-                            takeProfitPct = treasurySignal.takeProfitPct,
-                            stopLossPct = treasurySignal.stopLossPct,
-                            wallet = wallet,
-                            isPaper = cfg.paperMode
-                        )
+                        // Cache scores for later use
+                        ts.lastV3Score = v3Score
+                        ts.lastV3Confidence = v3Confidence
                         
-                        // Record treasury position
-                        com.lifecyclebot.v3.scoring.CashGenerationAI.openPosition(
+                        val treasurySignal = com.lifecyclebot.v3.scoring.CashGenerationAI.evaluate(
                             mint = ts.mint,
                             symbol = ts.symbol,
-                            entryPrice = ts.ref,
-                            positionSol = treasurySignal.positionSizeSol,
-                            takeProfitPct = treasurySignal.takeProfitPct,
-                            stopLossPct = treasurySignal.stopLossPct
+                            currentPrice = ts.ref,
+                            liquidityUsd = ts.lastLiquidityUsd,
+                            // V4.0 FIX: Default to 20% (safe) instead of 50% (fails threshold)
+                            // Many tokens don't have topHolderPct data early on
+                            topHolderPct = ts.topHolderPct ?: 20.0,
+                            buyPressurePct = ts.lastBuyPressurePct,
+                            v3Score = v3Score,
+                            v3Confidence = v3Confidence,
+                            momentum = ts.momentum ?: 0.0,
+                            volatility = ts.volatility ?: 0.0
                         )
                         
-                        addLog("💰 TREASURY BUY: ${ts.symbol} | ${treasurySignal.positionSizeSol.fmt(3)} SOL | " +
-                            "${if (cfg.paperMode) "PAPER" else "LIVE"}", ts.mint)
+                        if (treasurySignal.shouldEnter) {
+                            // Try to acquire execution permit
+                            val canExecute = FinalExecutionPermit.tryAcquireExecution(
+                                mint = ts.mint,
+                                symbol = ts.symbol,
+                                layer = "TREASURY",
+                                sizeSol = treasurySignal.positionSizeSol
+                            )
+                            
+                            if (canExecute) {
+                                ErrorLogger.info("BotService", "💰 [TREASURY] ${ts.symbol} | ENTER | " +
+                                    "size=${treasurySignal.positionSizeSol.fmt(3)} SOL | " +
+                                    "TP=${treasurySignal.takeProfitPct}% | " +
+                                    "mode=${treasurySignal.mode}")
+                                
+                                // Execute treasury buy
+                                executor.treasuryBuy(
+                                    ts = ts,
+                                    sizeSol = treasurySignal.positionSizeSol,
+                                    walletSol = effectiveBalance,
+                                    takeProfitPct = treasurySignal.takeProfitPct,
+                                    stopLossPct = treasurySignal.stopLossPct,
+                                    wallet = wallet,
+                                    isPaper = cfg.paperMode
+                                )
+                                
+                                // Record treasury position
+                                com.lifecyclebot.v3.scoring.CashGenerationAI.openPosition(
+                                    mint = ts.mint,
+                                    symbol = ts.symbol,
+                                    entryPrice = ts.ref,
+                                    positionSol = treasurySignal.positionSizeSol,
+                                    takeProfitPct = treasurySignal.takeProfitPct,
+                                    stopLossPct = treasurySignal.stopLossPct
+                                )
+                                
+                                // Release permit after successful execution
+                                FinalExecutionPermit.releaseExecution(ts.mint)
+                                
+                                addLog("💰 TREASURY BUY: ${ts.symbol} | ${treasurySignal.positionSizeSol.fmt(3)} SOL | " +
+                                    "${if (cfg.paperMode) "PAPER" else "LIVE"}", ts.mint)
+                            } else {
+                                ErrorLogger.debug("BotService", "💰 [TREASURY] ${ts.symbol} | EXECUTION_BLOCKED | another layer executing")
+                            }
+                        }
                     }
                 } catch (treasuryEx: Exception) {
                     ErrorLogger.debug("BotService", "💰 [TREASURY] ${ts.symbol} | ERROR | ${treasuryEx.message}")
+                    FinalExecutionPermit.releaseExecution(ts.mint)  // Release on error
                 }
             }
             
             // ═══════════════════════════════════════════════════════════════════
             // BLUE CHIP TRADER - Quality plays for >$1M market cap tokens
             // Runs CONCURRENTLY with V3 and Treasury
+            // V4.0 FIX: Must check FinalExecutionPermit before executing
             // ═══════════════════════════════════════════════════════════════════
             if (!ts.position.isOpen && ts.lastMcap >= 1_000_000) {
                 try {
-                    val (v3Score, v3Confidence) = when (val result = v3Decision) {
-                        is com.lifecyclebot.v3.V3Decision.Execute -> result.score to result.confidence.toInt()
-                        is com.lifecyclebot.v3.V3Decision.Watch -> result.score to result.confidence
-                        is com.lifecyclebot.v3.V3Decision.Rejected -> 20 to 30
-                        else -> 15 to 25
-                    }
-                    
-                    val blueChipSignal = com.lifecyclebot.v3.scoring.BlueChipTraderAI.evaluate(
+                    // V4.0 FIX: Check execution permit first
+                    val permitResult = FinalExecutionPermit.canExecute(
                         mint = ts.mint,
                         symbol = ts.symbol,
-                        currentPrice = ts.ref,
-                        marketCapUsd = ts.lastMcap,
-                        liquidityUsd = ts.lastLiquidityUsd,
-                        topHolderPct = ts.topHolderPct ?: 20.0,
-                        buyPressurePct = ts.lastBuyPressurePct,
-                        v3Score = v3Score,
-                        v3Confidence = v3Confidence,
-                        momentum = ts.momentum ?: 0.0,
-                        volatility = ts.volatility ?: 0.0
+                        requestingLayer = "BLUE_CHIP",
+                        hasOpenPosition = ts.position.isOpen
                     )
                     
-                    if (blueChipSignal.shouldEnter) {
-                        ErrorLogger.info("BotService", "🔵 [BLUE CHIP] ${ts.symbol} | ENTER | " +
-                            "mcap=\$${(ts.lastMcap/1_000_000).fmt(2)}M | " +
-                            "size=${blueChipSignal.positionSizeSol.fmt(3)} SOL | " +
-                            "TP=${blueChipSignal.takeProfitPct}%")
+                    if (!permitResult.allowed) {
+                        ErrorLogger.debug("BotService", "🔵 [BLUE CHIP] ${ts.symbol} | BLOCKED | ${permitResult.reason}")
+                    } else {
+                        val (v3Score, v3Confidence) = when (val result = v3Decision) {
+                            is com.lifecyclebot.v3.V3Decision.Execute -> result.score to result.confidence.toInt()
+                            is com.lifecyclebot.v3.V3Decision.Watch -> result.score to result.confidence
+                            is com.lifecyclebot.v3.V3Decision.Rejected -> 20 to 30
+                            else -> 15 to 25
+                        }
                         
-                        // Execute Blue Chip buy
-                        executor.blueChipBuy(
-                            ts = ts,
-                            sizeSol = blueChipSignal.positionSizeSol,
-                            walletSol = effectiveBalance,
-                            takeProfitPct = blueChipSignal.takeProfitPct,
-                            stopLossPct = blueChipSignal.stopLossPct,
-                            wallet = wallet,
-                            isPaper = cfg.paperMode
-                        )
-                        
-                        // Record Blue Chip position
-                        com.lifecyclebot.v3.scoring.BlueChipTraderAI.addPosition(
-                            com.lifecyclebot.v3.scoring.BlueChipTraderAI.BlueChipPosition(
-                                mint = ts.mint,
-                                symbol = ts.symbol,
-                                entryPrice = ts.ref,
-                                entrySol = blueChipSignal.positionSizeSol,
-                                entryTime = System.currentTimeMillis(),
-                                marketCapUsd = ts.lastMcap,
-                                liquidityUsd = ts.lastLiquidityUsd,
-                                isPaper = cfg.paperMode,
-                                takeProfitPct = blueChipSignal.takeProfitPct,
-                                stopLossPct = blueChipSignal.stopLossPct
-                            )
-                        )
-                        
-                        // Register with Layer Transition Manager
-                        com.lifecyclebot.v3.scoring.LayerTransitionManager.registerPosition(
+                        val blueChipSignal = com.lifecyclebot.v3.scoring.BlueChipTraderAI.evaluate(
                             mint = ts.mint,
                             symbol = ts.symbol,
-                            layer = com.lifecyclebot.v3.scoring.LayerTransitionManager.TradingLayer.BLUE_CHIP,
-                            entryMcap = ts.lastMcap,
-                            entryPrice = ts.ref,
+                            currentPrice = ts.ref,
+                            marketCapUsd = ts.lastMcap,
+                            liquidityUsd = ts.lastLiquidityUsd,
+                            topHolderPct = ts.topHolderPct ?: 20.0,
+                            buyPressurePct = ts.lastBuyPressurePct,
+                            v3Score = v3Score,
+                            v3Confidence = v3Confidence,
+                            momentum = ts.momentum ?: 0.0,
+                            volatility = ts.volatility ?: 0.0
                         )
                         
-                        addLog("🔵 BLUE CHIP BUY: ${ts.symbol} | \$${(ts.lastMcap/1_000_000).fmt(1)}M mcap | " +
-                            "${blueChipSignal.positionSizeSol.fmt(3)} SOL | " +
-                            "${if (cfg.paperMode) "PAPER" else "LIVE"}", ts.mint)
+                        if (blueChipSignal.shouldEnter) {
+                            // V4.0: Try to acquire execution permit
+                            val canExecute = FinalExecutionPermit.tryAcquireExecution(
+                                mint = ts.mint,
+                                symbol = ts.symbol,
+                                layer = "BLUE_CHIP",
+                                sizeSol = blueChipSignal.positionSizeSol
+                            )
+                            
+                            if (canExecute) {
+                                ErrorLogger.info("BotService", "🔵 [BLUE CHIP] ${ts.symbol} | ENTER | " +
+                                    "mcap=\$${(ts.lastMcap/1_000_000).fmt(2)}M | " +
+                                    "size=${blueChipSignal.positionSizeSol.fmt(3)} SOL | " +
+                                    "TP=${blueChipSignal.takeProfitPct}%")
+                                
+                                // Execute Blue Chip buy
+                                executor.blueChipBuy(
+                                    ts = ts,
+                                    sizeSol = blueChipSignal.positionSizeSol,
+                                    walletSol = effectiveBalance,
+                                    takeProfitPct = blueChipSignal.takeProfitPct,
+                                    stopLossPct = blueChipSignal.stopLossPct,
+                                    wallet = wallet,
+                                    isPaper = cfg.paperMode
+                                )
+                                
+                                // Record Blue Chip position
+                                com.lifecyclebot.v3.scoring.BlueChipTraderAI.addPosition(
+                                    com.lifecyclebot.v3.scoring.BlueChipTraderAI.BlueChipPosition(
+                                        mint = ts.mint,
+                                        symbol = ts.symbol,
+                                        entryPrice = ts.ref,
+                                        entrySol = blueChipSignal.positionSizeSol,
+                                        entryTime = System.currentTimeMillis(),
+                                        marketCapUsd = ts.lastMcap,
+                                        liquidityUsd = ts.lastLiquidityUsd,
+                                        isPaper = cfg.paperMode,
+                                        takeProfitPct = blueChipSignal.takeProfitPct,
+                                        stopLossPct = blueChipSignal.stopLossPct
+                                    )
+                                )
+                                
+                                // Register with Layer Transition Manager
+                                com.lifecyclebot.v3.scoring.LayerTransitionManager.registerPosition(
+                                    mint = ts.mint,
+                                    symbol = ts.symbol,
+                                    layer = com.lifecyclebot.v3.scoring.LayerTransitionManager.TradingLayer.BLUE_CHIP,
+                                    entryMcap = ts.lastMcap,
+                                    entryPrice = ts.ref,
+                                )
+                                
+                                // Release permit
+                                FinalExecutionPermit.releaseExecution(ts.mint)
+                                
+                                addLog("🔵 BLUE CHIP BUY: ${ts.symbol} | \$${(ts.lastMcap/1_000_000).fmt(1)}M mcap | " +
+                                    "${blueChipSignal.positionSizeSol.fmt(3)} SOL | " +
+                                    "${if (cfg.paperMode) "PAPER" else "LIVE"}", ts.mint)
+                            } else {
+                                ErrorLogger.debug("BotService", "🔵 [BLUE CHIP] ${ts.symbol} | EXECUTION_BLOCKED | another layer executing")
+                            }
+                        }
                     }
                 } catch (bcEx: Exception) {
                     ErrorLogger.debug("BotService", "🔵 [BLUE CHIP] ${ts.symbol} | ERROR | ${bcEx.message}")
+                    FinalExecutionPermit.releaseExecution(ts.mint)
                 }
             }
             // ═══════════════════════════════════════════════════════════════════
@@ -2871,21 +3090,33 @@ class BotService : Service() {
             // SHITCOIN TRADER - Degen plays for <$500K market cap tokens
             // Runs CONCURRENTLY with V3, Treasury, and Blue Chip
             // Targets pump.fun, raydium, moonshot fresh launches
+            // V4.0 FIX: Must check FinalExecutionPermit before executing
             // ═══════════════════════════════════════════════════════════════════
             if (!ts.position.isOpen && com.lifecyclebot.v3.scoring.ShitCoinTraderAI.isEnabled()) {
                 try {
-                    // Calculate token age
-                    val tokenAgeMinutes = if (ts.addedToWatchlistAt > 0) {
-                        (System.currentTimeMillis() - ts.addedToWatchlistAt) / 60_000.0
-                    } else {
-                        120.0  // Default 2 hours if unknown
-                    }
+                    // V4.0 FIX: Check execution permit first
+                    val permitResult = FinalExecutionPermit.canExecute(
+                        mint = ts.mint,
+                        symbol = ts.symbol,
+                        requestingLayer = "SHITCOIN",
+                        hasOpenPosition = ts.position.isOpen
+                    )
                     
-                    // Check if this qualifies as a shitcoin candidate
-                    if (com.lifecyclebot.v3.scoring.ShitCoinTraderAI.isShitCoinCandidate(
-                        marketCapUsd = ts.lastMcap,
-                        tokenAgeMinutes = tokenAgeMinutes
-                    )) {
+                    if (!permitResult.allowed) {
+                        ErrorLogger.debug("BotService", "💩 [SHITCOIN] ${ts.symbol} | BLOCKED | ${permitResult.reason}")
+                    } else {
+                        // Calculate token age
+                        val tokenAgeMinutes = if (ts.addedToWatchlistAt > 0) {
+                            (System.currentTimeMillis() - ts.addedToWatchlistAt) / 60_000.0
+                        } else {
+                            120.0  // Default 2 hours if unknown
+                        }
+                        
+                        // Check if this qualifies as a shitcoin candidate
+                        if (com.lifecyclebot.v3.scoring.ShitCoinTraderAI.isShitCoinCandidate(
+                            marketCapUsd = ts.lastMcap,
+                            tokenAgeMinutes = tokenAgeMinutes
+                        )) {
                         // Detect launch platform from source
                         val launchPlatform = com.lifecyclebot.v3.scoring.ShitCoinTraderAI.detectPlatform(ts.source)
                         
@@ -2939,67 +3170,84 @@ class BotService : Service() {
                         )
                         
                         if (shitCoinSignal.shouldEnter) {
-                            val gradLabel = if (shitCoinSignal.graduationImminent) " [GRAD IMMINENT!]" else ""
-                            val bundleLabel = if (shitCoinSignal.bundleWarning) " [BUNDLE!]" else ""
-                            
-                            ErrorLogger.info("BotService", "💩 [SHITCOIN] ${ts.symbol} | ENTER | " +
-                                "${shitCoinSignal.launchPlatform.emoji} ${shitCoinSignal.launchPlatform.displayName} | " +
-                                "mcap=\$${(ts.lastMcap/1_000).fmt(1)}K | " +
-                                "risk=${shitCoinSignal.riskLevel.emoji}${shitCoinSignal.riskLevel.name} | " +
-                                "size=${shitCoinSignal.positionSizeSol.fmt(3)} SOL | " +
-                                "TP=${shitCoinSignal.takeProfitPct}%$gradLabel$bundleLabel")
-                            
-                            // Execute ShitCoin buy
-                            executor.shitCoinBuy(
-                                ts = ts,
-                                sizeSol = shitCoinSignal.positionSizeSol,
-                                walletSol = effectiveBalance,
-                                takeProfitPct = shitCoinSignal.takeProfitPct,
-                                stopLossPct = shitCoinSignal.stopLossPct,
-                                wallet = wallet,
-                                isPaper = cfg.paperMode,
-                                launchPlatform = shitCoinSignal.launchPlatform,
-                                riskLevel = shitCoinSignal.riskLevel,
-                            )
-                            
-                            // Record ShitCoin position
-                            com.lifecyclebot.v3.scoring.ShitCoinTraderAI.addPosition(
-                                com.lifecyclebot.v3.scoring.ShitCoinTraderAI.ShitCoinPosition(
-                                    mint = ts.mint,
-                                    symbol = ts.symbol,
-                                    entryPrice = ts.ref,
-                                    entrySol = shitCoinSignal.positionSizeSol,
-                                    entryTime = System.currentTimeMillis(),
-                                    marketCapUsd = ts.lastMcap,
-                                    liquidityUsd = ts.lastLiquidityUsd,
-                                    isPaper = cfg.paperMode,
-                                    takeProfitPct = shitCoinSignal.takeProfitPct,
-                                    stopLossPct = shitCoinSignal.stopLossPct,
-                                    launchPlatform = shitCoinSignal.launchPlatform,
-                                    devWallet = null,  // Dev wallet tracking not yet implemented
-                                    bundlePct = bundlePct,
-                                    socialScore = shitCoinSignal.socialScore,
-                                )
-                            )
-                            
-                            // Register with Layer Transition Manager
-                            com.lifecyclebot.v3.scoring.LayerTransitionManager.registerPosition(
+                            // V4.0: Try to acquire execution permit
+                            val canExecute = FinalExecutionPermit.tryAcquireExecution(
                                 mint = ts.mint,
                                 symbol = ts.symbol,
-                                layer = com.lifecyclebot.v3.scoring.LayerTransitionManager.TradingLayer.SHITCOIN,
-                                entryMcap = ts.lastMcap,
-                                entryPrice = ts.ref,
+                                layer = "SHITCOIN",
+                                sizeSol = shitCoinSignal.positionSizeSol
                             )
                             
-                            addLog("💩 SHITCOIN BUY: ${ts.symbol} | " +
-                                "${shitCoinSignal.launchPlatform.emoji} | " +
-                                "\$${(ts.lastMcap/1_000).toInt()}K mcap | " +
-                                "${shitCoinSignal.positionSizeSol.fmt(3)} SOL | " +
-                                "${if (cfg.paperMode) "PAPER" else "LIVE"}", ts.mint)
+                            if (canExecute) {
+                                val gradLabel = if (shitCoinSignal.graduationImminent) " [GRAD IMMINENT!]" else ""
+                                val bundleLabel = if (shitCoinSignal.bundleWarning) " [BUNDLE!]" else ""
+                                
+                                ErrorLogger.info("BotService", "💩 [SHITCOIN] ${ts.symbol} | ENTER | " +
+                                    "${shitCoinSignal.launchPlatform.emoji} ${shitCoinSignal.launchPlatform.displayName} | " +
+                                    "mcap=\$${(ts.lastMcap/1_000).fmt(1)}K | " +
+                                    "risk=${shitCoinSignal.riskLevel.emoji}${shitCoinSignal.riskLevel.name} | " +
+                                    "size=${shitCoinSignal.positionSizeSol.fmt(3)} SOL | " +
+                                    "TP=${shitCoinSignal.takeProfitPct}%$gradLabel$bundleLabel")
+                                
+                                // Execute ShitCoin buy
+                                executor.shitCoinBuy(
+                                    ts = ts,
+                                    sizeSol = shitCoinSignal.positionSizeSol,
+                                    walletSol = effectiveBalance,
+                                    takeProfitPct = shitCoinSignal.takeProfitPct,
+                                    stopLossPct = shitCoinSignal.stopLossPct,
+                                    wallet = wallet,
+                                    isPaper = cfg.paperMode,
+                                    launchPlatform = shitCoinSignal.launchPlatform,
+                                    riskLevel = shitCoinSignal.riskLevel,
+                                )
+                                
+                                // Record ShitCoin position
+                                com.lifecyclebot.v3.scoring.ShitCoinTraderAI.addPosition(
+                                    com.lifecyclebot.v3.scoring.ShitCoinTraderAI.ShitCoinPosition(
+                                        mint = ts.mint,
+                                        symbol = ts.symbol,
+                                        entryPrice = ts.ref,
+                                        entrySol = shitCoinSignal.positionSizeSol,
+                                        entryTime = System.currentTimeMillis(),
+                                        marketCapUsd = ts.lastMcap,
+                                        liquidityUsd = ts.lastLiquidityUsd,
+                                        isPaper = cfg.paperMode,
+                                        takeProfitPct = shitCoinSignal.takeProfitPct,
+                                        stopLossPct = shitCoinSignal.stopLossPct,
+                                        launchPlatform = shitCoinSignal.launchPlatform,
+                                        devWallet = null,  // Dev wallet tracking not yet implemented
+                                        bundlePct = bundlePct,
+                                        socialScore = shitCoinSignal.socialScore,
+                                    )
+                                )
+                                
+                                // Register with Layer Transition Manager
+                                com.lifecyclebot.v3.scoring.LayerTransitionManager.registerPosition(
+                                    mint = ts.mint,
+                                    symbol = ts.symbol,
+                                    layer = com.lifecyclebot.v3.scoring.LayerTransitionManager.TradingLayer.SHITCOIN,
+                                    entryMcap = ts.lastMcap,
+                                    entryPrice = ts.ref,
+                                )
+                                
+                                // Release permit
+                                FinalExecutionPermit.releaseExecution(ts.mint)
+                                
+                                addLog("💩 SHITCOIN BUY: ${ts.symbol} | " +
+                                    "${shitCoinSignal.launchPlatform.emoji} | " +
+                                    "\$${(ts.lastMcap/1_000).toInt()}K mcap | " +
+                                    "${shitCoinSignal.positionSizeSol.fmt(3)} SOL | " +
+                                    "${if (cfg.paperMode) "PAPER" else "LIVE"}", ts.mint)
+                            } else {
+                                ErrorLogger.debug("BotService", "💩 [SHITCOIN] ${ts.symbol} | EXECUTION_BLOCKED | another layer executing")
+                            }
+                        }
                         }
                     }
                 } catch (scEx: Exception) {
                     ErrorLogger.debug("BotService", "💩 [SHITCOIN] ${ts.symbol} | ERROR | ${scEx.message}")
+                    FinalExecutionPermit.releaseExecution(ts.mint)
                 }
             }
             // ═══════════════════════════════════════════════════════════════════
