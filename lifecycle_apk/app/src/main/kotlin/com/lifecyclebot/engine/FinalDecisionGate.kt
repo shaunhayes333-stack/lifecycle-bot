@@ -1432,7 +1432,7 @@ object FinalDecisionGate {
         
         // V4.1.1: Check if we're in bootstrap learning mode
         val learningProgress = FluidLearningAI.getLearningProgress()
-        val isBootstrap = learningProgress < 0.10  // First 10% of learning (~100 trades)
+        val isBootstrap = learningProgress < 0.25  // First 25% of learning (~250 trades)
         val isPaperOrShadow = mode == TradingMode.PAPER || mode == TradingMode.SHADOW
         val canBypassConfidenceFloors = isBootstrap && isPaperOrShadow
         
