@@ -1197,7 +1197,7 @@ class BotService : Service() {
                                 com.lifecyclebot.v3.scoring.BlueChipTraderAI.closePosition(
                                     mint = bcPos.mint,
                                     exitPrice = currentPrice,
-                                    exitReason = "bot_shutdown"
+                                    exitReason = com.lifecyclebot.v3.scoring.BlueChipTraderAI.ExitSignal.TIME_EXIT
                                 )
                                 addLog("🔵 Closed Blue Chip position: ${bcPos.symbol}", bcPos.mint)
                             } catch (bcEx: Exception) {
@@ -1224,7 +1224,7 @@ class BotService : Service() {
                                 com.lifecyclebot.v3.scoring.ShitCoinTraderAI.closePosition(
                                     mint = scPos.mint,
                                     exitPrice = currentPrice,
-                                    exitReason = "bot_shutdown"
+                                    exitReason = com.lifecyclebot.v3.scoring.ShitCoinTraderAI.ExitSignal.TIME_EXIT
                                 )
                                 addLog("💩 Closed ShitCoin position: ${scPos.symbol}", scPos.mint)
                             } catch (scEx: Exception) {
