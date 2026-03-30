@@ -1958,8 +1958,8 @@ object FinalDecisionGate {
         // MATURE MODE: Hard block reliable 100% loss patterns
         // ═══════════════════════════════════════════════════════════════════════
         
-        // Unified bootstrap check - used by all soft gates below
-        val isBootstrapPhase = currentConditions.totalSessionTrades < 50
+        // Use isBootstrapPhase already defined above (line ~1433)
+        // val isBootstrapPhase = currentConditions.totalSessionTrades < 50  // REMOVED - duplicate
         var softPenaltyScore = 0  // Accumulated soft penalties instead of blocks
         var sizeMultiplier = 1.0  // Size reduction for risky but allowed trades
         var isProbeCandidate = false  // Flag for PROBE approval class
