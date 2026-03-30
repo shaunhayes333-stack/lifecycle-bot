@@ -2264,6 +2264,43 @@
                     android:textSize="@dimen/input_text_size"
                     android:backgroundTint="#1F2937"/>
 
+                <!-- V5.1: Export/Import Learning Data -->
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="horizontal"
+                    android:layout_marginTop="12dp">
+                    
+                    <Button android:id="@+id/btnExportData"
+                        android:layout_width="0dp"
+                        android:layout_weight="1"
+                        android:layout_height="@dimen/input_height"
+                        android:layout_marginEnd="4dp"
+                        android:text="📦 Export"
+                        android:textColor="#14F195" android:textStyle="bold"
+                        android:textSize="@dimen/input_text_size"
+                        android:backgroundTint="#1F2937"/>
+                        
+                    <Button android:id="@+id/btnImportData"
+                        android:layout_width="0dp"
+                        android:layout_weight="1"
+                        android:layout_height="@dimen/input_height"
+                        android:layout_marginStart="4dp"
+                        android:text="📥 Import"
+                        android:textColor="#3B82F6" android:textStyle="bold"
+                        android:textSize="@dimen/input_text_size"
+                        android:backgroundTint="#1F2937"/>
+                </LinearLayout>
+                
+                <TextView
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:text="↑ Backup/restore learned AI data for reinstalls"
+                    android:textColor="#6B7280"
+                    android:textSize="11sp"
+                    android:layout_marginTop="4dp"
+                    android:gravity="center"/>
+
                 <Button android:id="@+id/btnClearSettings"
                     android:layout_width="match_parent"
                     android:layout_height="@dimen/input_height"

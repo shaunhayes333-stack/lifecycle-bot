@@ -733,6 +733,11 @@ for legal compliance.
         
         btnAddToken.setOnClickListener { addToken() }
         btnSave.setOnClickListener { saveSettings() }
+        
+        // V5.1: Export/Import learning data buttons
+        findViewById<View>(R.id.btnExportData)?.setOnClickListener { exportLearningData() }
+        findViewById<View>(R.id.btnImportData)?.setOnClickListener { importLearningData() }
+        
         tvAdvancedToggle.setOnClickListener {
             try {
                 advancedExpanded = !advancedExpanded
@@ -2503,6 +2508,94 @@ for legal compliance.
         vm.saveConfig(cfg)
         settingsPopulated = false
         Toast.makeText(this, "Saved", Toast.LENGTH_SHORT).show()
+    }
+    
+    // ═══════════════════════════════════════════════════════════════════════════
+    // V5.1: EXPORT/IMPORT LEARNING DATA
+    // ═══════════════════════════════════════════════════════════════════════════
+    
+    private fun exportLearningData() {
+        // Request storage permission if needed
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+            if (!android.os.Environment.isExternalStorageManager()) {
+                requestStoragePermission()
+                Toast.makeText(this, "Please grant storage permission, then try again", Toast.LENGTH_LONG).show()
+                return
+            }
+        }
+        
+        // Show confirmation dialog
+        android.app.AlertDialog.Builder(this)
+            .setTitle("📦 Export Learning Data")
+            .setMessage("This will export all learned AI data to Downloads/AATE_Backups/\n\nThe backup file survives app uninstall and can be imported after reinstall.\n\nExport now?")
+            .setPositiveButton("Export") { _, _ ->
+                try {
+                    val backupFile = com.lifecyclebot.engine.PersistentLearning.exportFullBackup(this)
+                    if (backupFile != null) {
+                        Toast.makeText(this, "✅ Exported to:\n${backupFile.absolutePath}", Toast.LENGTH_LONG).show()
+                        addLog("📦 BACKUP EXPORTED: ${backupFile.name}")
+                    } else {
+                        Toast.makeText(this, "❌ Export failed - check storage permission", Toast.LENGTH_LONG).show()
+                    }
+                } catch (e: Exception) {
+                    Toast.makeText(this, "❌ Export error: ${e.message}", Toast.LENGTH_LONG).show()
+                }
+            }
+            .setNegativeButton("Cancel", null)
+            .show()
+    }
+    
+    private fun importLearningData() {
+        // Request storage permission if needed
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+            if (!android.os.Environment.isExternalStorageManager()) {
+                requestStoragePermission()
+                Toast.makeText(this, "Please grant storage permission, then try again", Toast.LENGTH_LONG).show()
+                return
+            }
+        }
+        
+        // Find available backups
+        val backups = com.lifecyclebot.engine.PersistentLearning.listBackups()
+        
+        if (backups.isEmpty()) {
+            Toast.makeText(this, "No backups found in Downloads/AATE_Backups/", Toast.LENGTH_LONG).show()
+            return
+        }
+        
+        // Show backup selection dialog
+        val backupNames = backups.map { file ->
+            val date = java.text.SimpleDateFormat("yyyy-MM-dd HH:mm").format(java.util.Date(file.lastModified()))
+            "${file.name}\n($date)"
+        }.toTypedArray()
+        
+        android.app.AlertDialog.Builder(this)
+            .setTitle("📥 Import Learning Data")
+            .setItems(backupNames) { _, index ->
+                val selectedBackup = backups[index]
+                
+                // Confirm import
+                android.app.AlertDialog.Builder(this)
+                    .setTitle("Confirm Import")
+                    .setMessage("Import data from:\n${selectedBackup.name}\n\nThis will restore:\n• Edge learning thresholds\n• Entry/Exit intelligence\n• Trade history\n• FluidLearning progress\n\nContinue?")
+                    .setPositiveButton("Import") { _, _ ->
+                        try {
+                            val success = com.lifecyclebot.engine.PersistentLearning.importFullBackup(this, selectedBackup)
+                            if (success) {
+                                Toast.makeText(this, "✅ Learning data restored!\n\nRestart the app for changes to take effect.", Toast.LENGTH_LONG).show()
+                                addLog("📥 BACKUP IMPORTED: ${selectedBackup.name}")
+                            } else {
+                                Toast.makeText(this, "❌ Import failed", Toast.LENGTH_SHORT).show()
+                            }
+                        } catch (e: Exception) {
+                            Toast.makeText(this, "❌ Import error: ${e.message}", Toast.LENGTH_LONG).show()
+                        }
+                    }
+                    .setNegativeButton("Cancel", null)
+                    .show()
+            }
+            .setNegativeButton("Cancel", null)
+            .show()
     }
 
     // ── permissions ───────────────────────────────────────────────────

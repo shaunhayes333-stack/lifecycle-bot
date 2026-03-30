@@ -461,4 +461,280 @@ object PersistentLearning {
             false
         }
     }
+    
+    // ═══════════════════════════════════════════════════════════════════════════
+    // V5.1: FULL EXPORT/IMPORT FOR APP REINSTALL
+    // ═══════════════════════════════════════════════════════════════════════════
+    
+    /**
+     * Export ALL learning data to a single backup file in Downloads folder.
+     * This file survives app uninstall and can be imported after reinstall.
+     * 
+     * Exports:
+     * - Edge learning thresholds
+     * - Entry/Exit intelligence
+     * - Trading memory patterns
+     * - FluidLearning progress
+     * - Trade history
+     * - Scanner learning stats
+     * - BehaviorAI state
+     */
+    fun exportFullBackup(context: Context): File? {
+        return try {
+            // Use Downloads folder for better user access
+            val downloadsDir = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS)
+            val aateDir = File(downloadsDir, "AATE_Backups")
+            if (!aateDir.exists()) aateDir.mkdirs()
+            
+            val timestamp = java.text.SimpleDateFormat("yyyyMMdd_HHmmss").format(java.util.Date())
+            val backupFile = File(aateDir, "AATE_backup_$timestamp.json")
+            
+            val fullBackup = JSONObject().apply {
+                put("exportTime", System.currentTimeMillis())
+                put("exportTimeReadable", java.text.SimpleDateFormat("yyyy-MM-dd HH:mm:ss").format(java.util.Date()))
+                put("version", VERSION)
+                put("appVersion", "5.1")
+                
+                // 1. Edge Learning
+                loadEdgeLearning()?.let { put("edge_learning", it) }
+                
+                // 2. Entry Intelligence
+                loadEntryIntelligence()?.let { put("entry_intelligence", it) }
+                
+                // 3. Exit Intelligence
+                loadExitIntelligence()?.let { put("exit_intelligence", it) }
+                
+                // 4. Trading Memory
+                loadTradingMemory()?.let { put("trading_memory", it) }
+                
+                // 5. Token Win Memory
+                loadTokenWinMemory()?.let { put("token_win_memory", it) }
+                
+                // 6. All persistent JSON files
+                storageDir?.listFiles()?.filter { it.extension == "json" && !it.name.startsWith("backup") }?.forEach { file ->
+                    try {
+                        if (!has(file.nameWithoutExtension)) {
+                            put(file.nameWithoutExtension, JSONObject(file.readText()))
+                        }
+                    } catch (_: Exception) {}
+                }
+                
+                // 7. SharedPreferences data
+                val prefsBackup = JSONObject()
+                
+                // Fluid Learning prefs
+                try {
+                    val fluidPrefs = context.getSharedPreferences("fluid_learning", Context.MODE_PRIVATE)
+                    val fluidData = JSONObject().apply {
+                        put("paperBalance", fluidPrefs.getFloat("paper_balance", 5.0f))
+                        put("totalPaperPnl", fluidPrefs.getFloat("total_paper_pnl", 0.0f))
+                        put("paperWins", fluidPrefs.getInt("paper_wins", 0))
+                        put("paperLosses", fluidPrefs.getInt("paper_losses", 0))
+                    }
+                    prefsBackup.put("fluid_learning", fluidData)
+                } catch (_: Exception) {}
+                
+                // Bot Brain prefs
+                try {
+                    val brainPrefs = context.getSharedPreferences("bot_brain_thresholds", Context.MODE_PRIVATE)
+                    val brainData = JSONObject().apply {
+                        put("dynamicBuyThreshold", brainPrefs.getFloat("dynamicBuyThreshold", 50f))
+                        put("dynamicRsiLower", brainPrefs.getFloat("dynamicRsiLower", 30f))
+                        put("dynamicRsiUpper", brainPrefs.getFloat("dynamicRsiUpper", 70f))
+                        put("dynamicVolatilityMultiplier", brainPrefs.getFloat("dynamicVolatilityMultiplier", 1.0f))
+                    }
+                    prefsBackup.put("bot_brain", brainData)
+                } catch (_: Exception) {}
+                
+                // FluidLearningAI stats
+                try {
+                    val fluidAIPrefs = context.getSharedPreferences("fluid_learning_ai", Context.MODE_PRIVATE)
+                    val fluidAIData = JSONObject().apply {
+                        put("totalWins", fluidAIPrefs.getInt("total_wins", 0))
+                        put("totalLosses", fluidAIPrefs.getInt("total_losses", 0))
+                        put("totalPnlPct", fluidAIPrefs.getFloat("total_pnl_pct", 0f))
+                    }
+                    prefsBackup.put("fluid_learning_ai", fluidAIData)
+                } catch (_: Exception) {}
+                
+                // Trade history count
+                try {
+                    val historyPrefs = context.getSharedPreferences("trade_history", Context.MODE_PRIVATE)
+                    val historyData = JSONObject().apply {
+                        put("tradeCount", historyPrefs.getInt("trade_count", 0))
+                        put("tradesJson", historyPrefs.getString("trades_json", "[]"))
+                    }
+                    prefsBackup.put("trade_history", historyData)
+                } catch (_: Exception) {}
+                
+                put("shared_preferences", prefsBackup)
+            }
+            
+            backupFile.writeText(fullBackup.toString(2))
+            ErrorLogger.info(TAG, "📦 FULL BACKUP exported: ${backupFile.absolutePath}")
+            backupFile
+        } catch (e: Exception) {
+            ErrorLogger.error(TAG, "Failed to export full backup: ${e.message}", e)
+            null
+        }
+    }
+    
+    /**
+     * Import learning data from a backup file.
+     * Call this after reinstalling the app.
+     */
+    fun importFullBackup(context: Context, backupFile: File): Boolean {
+        return try {
+            if (!backupFile.exists()) {
+                ErrorLogger.warn(TAG, "Backup file not found: ${backupFile.absolutePath}")
+                return false
+            }
+            
+            val backupJson = JSONObject(backupFile.readText())
+            var restoredCount = 0
+            
+            // 1. Restore Edge Learning
+            if (backupJson.has("edge_learning")) {
+                val edge = backupJson.getJSONObject("edge_learning")
+                saveEdgeLearning(
+                    paperBuyPctMin = edge.optDouble("paperBuyPctMin", 45.0),
+                    paperVolumeMin = edge.optDouble("paperVolumeMin", 10.0),
+                    liveBuyPctMin = edge.optDouble("liveBuyPctMin", 55.0),
+                    liveVolumeMin = edge.optDouble("liveVolumeMin", 15.0),
+                    totalTrades = edge.optInt("totalTrades", 0),
+                    winningTrades = edge.optInt("winningTrades", 0),
+                )
+                restoredCount++
+            }
+            
+            // 2. Restore Entry Intelligence
+            if (backupJson.has("entry_intelligence")) {
+                val entry = backupJson.getJSONObject("entry_intelligence")
+                saveEntryIntelligence(entry.toString())
+                restoredCount++
+            }
+            
+            // 3. Restore Exit Intelligence
+            if (backupJson.has("exit_intelligence")) {
+                val exit = backupJson.getJSONObject("exit_intelligence")
+                saveExitIntelligence(exit.toString())
+                restoredCount++
+            }
+            
+            // 4. Restore Trading Memory
+            if (backupJson.has("trading_memory")) {
+                val memory = backupJson.getJSONObject("trading_memory")
+                saveTradingMemory(memory.toString())
+                restoredCount++
+            }
+            
+            // 5. Restore Token Win Memory
+            if (backupJson.has("token_win_memory")) {
+                val winMem = backupJson.getJSONObject("token_win_memory")
+                saveTokenWinMemory(
+                    winMem.optString("winners", "{}"),
+                    winMem.optString("patterns", "{}")
+                )
+                restoredCount++
+            }
+            
+            // 6. Restore SharedPreferences
+            if (backupJson.has("shared_preferences")) {
+                val prefs = backupJson.getJSONObject("shared_preferences")
+                
+                // Fluid Learning
+                if (prefs.has("fluid_learning")) {
+                    val fluid = prefs.getJSONObject("fluid_learning")
+                    context.getSharedPreferences("fluid_learning", Context.MODE_PRIVATE).edit().apply {
+                        putFloat("paper_balance", fluid.optDouble("paperBalance", 5.0).toFloat())
+                        putFloat("total_paper_pnl", fluid.optDouble("totalPaperPnl", 0.0).toFloat())
+                        putInt("paper_wins", fluid.optInt("paperWins", 0))
+                        putInt("paper_losses", fluid.optInt("paperLosses", 0))
+                        apply()
+                    }
+                    restoredCount++
+                }
+                
+                // Bot Brain
+                if (prefs.has("bot_brain")) {
+                    val brain = prefs.getJSONObject("bot_brain")
+                    context.getSharedPreferences("bot_brain_thresholds", Context.MODE_PRIVATE).edit().apply {
+                        putFloat("dynamicBuyThreshold", brain.optDouble("dynamicBuyThreshold", 50.0).toFloat())
+                        putFloat("dynamicRsiLower", brain.optDouble("dynamicRsiLower", 30.0).toFloat())
+                        putFloat("dynamicRsiUpper", brain.optDouble("dynamicRsiUpper", 70.0).toFloat())
+                        putFloat("dynamicVolatilityMultiplier", brain.optDouble("dynamicVolatilityMultiplier", 1.0).toFloat())
+                        apply()
+                    }
+                    restoredCount++
+                }
+                
+                // FluidLearningAI
+                if (prefs.has("fluid_learning_ai")) {
+                    val fluidAI = prefs.getJSONObject("fluid_learning_ai")
+                    context.getSharedPreferences("fluid_learning_ai", Context.MODE_PRIVATE).edit().apply {
+                        putInt("total_wins", fluidAI.optInt("totalWins", 0))
+                        putInt("total_losses", fluidAI.optInt("totalLosses", 0))
+                        putFloat("total_pnl_pct", fluidAI.optDouble("totalPnlPct", 0.0).toFloat())
+                        apply()
+                    }
+                    restoredCount++
+                }
+                
+                // Trade History
+                if (prefs.has("trade_history")) {
+                    val history = prefs.getJSONObject("trade_history")
+                    context.getSharedPreferences("trade_history", Context.MODE_PRIVATE).edit().apply {
+                        putInt("trade_count", history.optInt("tradeCount", 0))
+                        putString("trades_json", history.optString("tradesJson", "[]"))
+                        apply()
+                    }
+                    restoredCount++
+                }
+            }
+            
+            ErrorLogger.info(TAG, "✅ BACKUP RESTORED: $restoredCount components from ${backupFile.name}")
+            true
+        } catch (e: Exception) {
+            ErrorLogger.error(TAG, "Failed to import backup: ${e.message}", e)
+            false
+        }
+    }
+    
+    /**
+     * Find the most recent backup file in Downloads/AATE_Backups/
+     */
+    fun findLatestBackup(): File? {
+        return try {
+            val downloadsDir = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS)
+            val aateDir = File(downloadsDir, "AATE_Backups")
+            
+            if (!aateDir.exists()) return null
+            
+            aateDir.listFiles()
+                ?.filter { it.name.startsWith("AATE_backup_") && it.extension == "json" }
+                ?.maxByOrNull { it.lastModified() }
+        } catch (e: Exception) {
+            ErrorLogger.error(TAG, "Failed to find backup: ${e.message}", e)
+            null
+        }
+    }
+    
+    /**
+     * List all available backups
+     */
+    fun listBackups(): List<File> {
+        return try {
+            val downloadsDir = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS)
+            val aateDir = File(downloadsDir, "AATE_Backups")
+            
+            if (!aateDir.exists()) return emptyList()
+            
+            aateDir.listFiles()
+                ?.filter { it.name.startsWith("AATE_backup_") && it.extension == "json" }
+                ?.sortedByDescending { it.lastModified() }
+                ?: emptyList()
+        } catch (e: Exception) {
+            emptyList()
+        }
+    }
 }
