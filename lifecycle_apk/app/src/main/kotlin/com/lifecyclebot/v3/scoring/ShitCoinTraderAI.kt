@@ -152,6 +152,7 @@ object ShitCoinTraderAI {
         val socialScore: Int = 0,
         var highWaterMark: Double = entryPrice,
         var trailingStop: Double = entryPrice * (1 - abs(stopLossPct) / 100),
+        var firstTakeDone: Boolean = false,  // V4.1.3: Track if first partial take was done
     )
     
     data class ShitCoinSignal(
@@ -204,6 +205,7 @@ object ShitCoinTraderAI {
     
     enum class ExitSignal {
         TAKE_PROFIT,
+        PARTIAL_TAKE,    // V4.1.3: Take 25%, let rest ride
         STOP_LOSS,
         TRAILING_STOP,
         TIME_EXIT,
@@ -746,8 +748,28 @@ object ShitCoinTraderAI {
         // Update high water mark and trailing stop
         if (currentPrice > pos.highWaterMark) {
             pos.highWaterMark = currentPrice
-            pos.trailingStop = currentPrice * (1 - TRAILING_STOP_PCT / 100)
+            // DYNAMIC TRAILING: Tighter trailing as profits grow
+            // 100% gain → 15% trail, 500% gain → 10% trail, 1000%+ → 8% trail
+            val dynamicTrailPct = when {
+                pnlPct >= 1000 -> 8.0   // 10x+ → tight 8% trail
+                pnlPct >= 500 -> 10.0   // 5x+ → 10% trail
+                pnlPct >= 100 -> 12.0   // 2x+ → 12% trail
+                else -> TRAILING_STOP_PCT  // Default 8%
+            }
+            pos.trailingStop = currentPrice * (1 - dynamicTrailPct / 100)
         }
+        
+        // ═══════════════════════════════════════════════════════════════════════════
+        // V4.1.3: MOONSHOT EXIT STRATEGY
+        // 
+        // NO HARD CAPS! Let runners run with trailing stops and partial takes.
+        // 
+        // Strategy: Take 25% at each milestone, let 75% ride with trailing stop
+        //   - First TP at fluid target (25-100%): PARTIAL TAKE 25%
+        //   - Then let it ride with trailing stop
+        //   - Trailing stop tightens as profits grow (lock in gains)
+        //   - NO MAX TP - can ride to 1000x, 10000x, or beyond!
+        // ═══════════════════════════════════════════════════════════════════════════
         
         // ─── EXIT CONDITIONS (Priority order) ───
         
@@ -757,44 +779,45 @@ object ShitCoinTraderAI {
             return ExitSignal.RUG_DETECTED
         }
         
-        // 2. HIT TAKE PROFIT (max)
-        val maxTP = TAKE_PROFIT_MATURE
-        if (pnlPct >= maxTP) {
-            ErrorLogger.info(TAG, "💩🎯 MAX TP: ${pos.symbol} | +${pnlPct.fmt(1)}%")
-            return ExitSignal.TAKE_PROFIT
-        }
-        
-        // 3. HIT STOP LOSS
+        // 2. HIT STOP LOSS
         val effectiveStop = pos.stopLossPct
         if (pnlPct <= effectiveStop) {
             ErrorLogger.info(TAG, "💩🛑 SL HIT: ${pos.symbol} | ${pnlPct.fmt(1)}%")
             return ExitSignal.STOP_LOSS
         }
         
-        // 4. HIT TARGET TAKE PROFIT
-        if (pnlPct >= pos.takeProfitPct) {
-            ErrorLogger.info(TAG, "💩✅ TP HIT: ${pos.symbol} | +${pnlPct.fmt(1)}%")
-            return ExitSignal.TAKE_PROFIT
+        // 3. PARTIAL TAKE at first target (25-100% based on fluid learning)
+        // Only triggers once - after this, trailing stop takes over
+        if (!pos.firstTakeDone && pnlPct >= pos.takeProfitPct) {
+            pos.firstTakeDone = true
+            ErrorLogger.info(TAG, "💩💰 PARTIAL TP (25%): ${pos.symbol} | +${pnlPct.fmt(1)}% - LETTING REST RIDE!")
+            return ExitSignal.PARTIAL_TAKE  // Executor should sell 25%, keep 75%
         }
         
-        // 5. HIT TRAILING STOP (only if in profit > 10%)
-        if (pnlPct > 10.0 && currentPrice <= pos.trailingStop) {
-            ErrorLogger.info(TAG, "💩📉 TRAIL HIT: ${pos.symbol} | +${pnlPct.fmt(1)}%")
+        // 4. TRAILING STOP - The moonshot catcher!
+        // Once in profit, trailing stop locks in gains while letting it run
+        if (pnlPct > 15.0 && currentPrice <= pos.trailingStop) {
+            val fromPeak = ((pos.highWaterMark - currentPrice) / pos.highWaterMark * 100)
+            val totalGain = pnlPct
+            ErrorLogger.info(TAG, "💩🚀 TRAIL EXIT: ${pos.symbol} | +${totalGain.fmt(1)}% (peak was +${((pos.highWaterMark - pos.entryPrice) / pos.entryPrice * 100).fmt(1)}%)")
             return ExitSignal.TRAILING_STOP
         }
         
-        // 6. MAX HOLD TIME (15 mins for shitcoins)
-        if (holdMinutes >= MAX_HOLD_MINUTES) {
+        // 5. MAX HOLD TIME (15 mins for shitcoins) - but NOT if we're mooning!
+        if (holdMinutes >= MAX_HOLD_MINUTES && pnlPct < 100.0) {
+            // Only time exit if NOT in moonshot territory
             ErrorLogger.info(TAG, "💩⏱ TIME EXIT: ${pos.symbol} | ${pnlPct.fmt(1)}% after ${holdMinutes}min")
             return ExitSignal.TIME_EXIT
         }
         
-        // 7. Early exit if profitable after 5 mins
-        if (holdMinutes >= 5 && pnlPct >= 15.0) {
+        // 6. Early exit if profitable after 5 mins (but not if running hot)
+        if (holdMinutes >= 5 && pnlPct >= 20.0 && pnlPct < 50.0) {
+            // Only early exit in the "meh" profit zone - let runners run!
             ErrorLogger.info(TAG, "💩💰 EARLY TP: ${pos.symbol} | +${pnlPct.fmt(1)}% @ ${holdMinutes}min")
             return ExitSignal.TAKE_PROFIT
         }
         
+        // 7. HOLD - Let it ride! No hard caps.
         return ExitSignal.HOLD
     }
     
