@@ -2527,7 +2527,7 @@ class BotService : Service() {
             }
         }
     
-        lastSuccessfulPollMs = System.currentTimeMillis()
+        // Note: lastSuccessfulPollMs is updated in botLoop after all tokens processed
         
         // ═══════════════════════════════════════════════════════════════════
         // STEP 0: CORE EVALUATIONS (needed by subsequent steps)
