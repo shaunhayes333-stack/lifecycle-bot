@@ -177,7 +177,7 @@ object DipHunterAI {
         ErrorLogger.info(TAG, "📉🎯 DIP HUNTER AI initialized (ONE-TIME) | " +
             "mode=${if (paperMode) "PAPER" else "LIVE"} | " +
             "dipRange=${MIN_DIP_PCT.toInt()}-${MAX_DIP_PCT.toInt()}% | " +
-            "target=+${TARGET_RECOVERY_PCT.toInt()}%")
+            "target=+${getFluidRecoveryTarget().toInt()}%")
     }
     
     fun resetDaily() {
@@ -437,11 +437,12 @@ object DipHunterAI {
         // Cap
         positionSol = positionSol.coerceIn(0.03, MAX_POSITION_SOL)
         
-        // Expected recovery
+        // Expected recovery - FLUID
+        val baseRecovery = getFluidRecoveryTarget()
         val expectedRecovery = when (dipQuality) {
-            DipQuality.GOLDEN_DIP -> TARGET_RECOVERY_PCT * 1.5
-            DipQuality.QUALITY_DIP -> TARGET_RECOVERY_PCT
-            DipQuality.RISKY_DIP -> TARGET_RECOVERY_PCT * 0.75
+            DipQuality.GOLDEN_DIP -> baseRecovery * 1.5
+            DipQuality.QUALITY_DIP -> baseRecovery
+            DipQuality.RISKY_DIP -> baseRecovery * 0.75
             else -> 0.0
         }
         
