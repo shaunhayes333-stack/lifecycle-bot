@@ -11,6 +11,13 @@ val ciBuildNumber = (project.findProperty("buildNumber") as String?)?.toIntOrNul
 val finalVersionCode = baseVersionCode + ciBuildNumber
 val finalVersionName = "5.0.$ciBuildNumber"
 
+// Debug: Print version info during build
+println("========================================")
+println("Building AATE v$finalVersionName")
+println("versionCode = $finalVersionCode")
+println("buildNumber property = ${project.findProperty("buildNumber")}")
+println("========================================")
+
 android {
     namespace = "com.lifecyclebot"
     compileSdk = 34
