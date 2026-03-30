@@ -11,10 +11,6 @@ jobs:
     defaults:
       run:
         working-directory: lifecycle_apk
-    
-    env:
-      # Pass GitHub run number to Gradle for auto-incrementing versionCode
-      CI_BUILD_NUMBER: ${{ github.run_number }}
 
     steps:
       - uses: actions/checkout@v4
@@ -50,7 +46,8 @@ jobs:
           chmod +x gradlew || true
           mkdir -p gradle/wrapper
           curl -sL -o gradle/wrapper/gradle-wrapper.jar "https://raw.githubusercontent.com/gradle/gradle/v8.7.0/gradle/wrapper/gradle-wrapper.jar"
-          ./gradlew assembleRelease --no-daemon
+          echo "Building with versionCode = 420 + ${{ github.run_number }}"
+          ./gradlew assembleRelease --no-daemon -PbuildNumber=${{ github.run_number }}
 
       - uses: actions/upload-artifact@v4
         with:

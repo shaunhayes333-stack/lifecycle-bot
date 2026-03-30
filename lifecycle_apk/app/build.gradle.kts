@@ -5,9 +5,9 @@ plugins {
 }
 
 // Auto-incrementing version: Base version (420 for V4.20) + CI run number
-// This ensures every CI build has a higher versionCode for seamless updates
+// CI passes -PbuildNumber=XX to Gradle, falls back to 0 for local builds
 val baseVersionCode = 420
-val ciBuildNumber = System.getenv("CI_BUILD_NUMBER")?.toIntOrNull() ?: 0
+val ciBuildNumber = (project.findProperty("buildNumber") as String?)?.toIntOrNull() ?: 0
 val finalVersionCode = baseVersionCode + ciBuildNumber
 
 android {
