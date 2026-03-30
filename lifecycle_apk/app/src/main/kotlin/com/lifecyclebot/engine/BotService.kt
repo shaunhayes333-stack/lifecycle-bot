@@ -4172,6 +4172,40 @@ class BotService : Service() {
         }
         
         // ═══════════════════════════════════════════════════════════════════
+        // V5.0: TRADE AUTHORIZER - Check BEFORE any execution
+        // This is the unified gate that prevents post-execution gating drift
+        // ═══════════════════════════════════════════════════════════════════
+        val authResult = TradeAuthorizer.authorize(
+            mint = mint,
+            symbol = identity.symbol,
+            score = ts.lastV3Score,
+            confidence = fdgDecision.confidence,
+            quality = fdgDecision.quality,
+            isPaperMode = cfg.paperMode,
+            requestedBook = TradeAuthorizer.ExecutionBook.CORE,
+            rugcheckScore = ts.rugcheckScore ?: 100,
+            liquidity = ts.lastLiquidityUsd,
+            isBanned = BannedTokens.isBanned(mint),
+        )
+        
+        // If TradeAuthorizer says SHADOW_ONLY, track but don't execute
+        if (authResult.isShadowOnly()) {
+            ErrorLogger.info("BotService", "[V3|TRADE_AUTH] ${identity.symbol} | SHADOW_ONLY | ${authResult.reason}")
+            ShadowLearning.trackBlockedTrade(
+                ts = ts,
+                reason = "TRADE_AUTH_${authResult.reason}",
+                confidence = fdgDecision.confidence
+            )
+            return // Skip execution entirely
+        }
+        
+        // If TradeAuthorizer says REJECT, skip entirely
+        if (!authResult.isExecutable()) {
+            ErrorLogger.debug("BotService", "[V3|TRADE_AUTH] ${identity.symbol} | REJECTED | ${authResult.reason}")
+            return // Skip execution entirely
+        }
+        
+        // ═══════════════════════════════════════════════════════════════════
         // EXECUTION PATH: Use V3 decision if active, otherwise FDG
         // ═══════════════════════════════════════════════════════════════════
         val shouldExecute = useV3Decision || fdgDecision.canExecute()

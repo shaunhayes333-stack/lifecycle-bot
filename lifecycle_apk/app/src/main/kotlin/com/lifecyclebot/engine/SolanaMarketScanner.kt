@@ -2264,11 +2264,19 @@ class SolanaMarketScanner(
                              token.dexId == "pump.fun" ||
                              token.pairCreatedHoursAgo < 1.0  // Very new = likely pump.fun
         
-        // PAPER MODE: No hard minimums - trade everything to learn
+        // V5.0: PAPER MODE still needs minimum liquidity to be tradeable
+        // Without liquidity, we can't learn anything meaningful
         if (isPaperMode) {
+            // Paper mode floor: $1000 liquidity minimum
+            // This filters out truly untradeable tokens while still allowing learning
+            val PAPER_LIQ_FLOOR = 1000.0
+            if (token.liquidityUsd > 0 && token.liquidityUsd < PAPER_LIQ_FLOOR) {
+                ErrorLogger.debug("Scanner", "FILTER REJECT ${token.symbol}: paper liq \$${token.liquidityUsd.toInt()} < \$$PAPER_LIQ_FLOOR")
+                return false
+            }
             // Only reject if literally zero or negative values
             if (token.mcapUsd < 0) return false
-            // Allow everything else in paper mode
+            // Allow through if liquidity is OK
             return true
         }
         
