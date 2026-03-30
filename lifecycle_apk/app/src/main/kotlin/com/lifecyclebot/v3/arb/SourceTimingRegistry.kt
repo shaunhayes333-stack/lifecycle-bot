@@ -209,6 +209,97 @@ object SourceTimingRegistry {
         return "SourceTiming: ${firstSeen.size} tokens | $totalRecords records | $venueLagsDetected lags detected"
     }
     
+    // ═══════════════════════════════════════════════════════════════════════════
+    // V4.1 SOURCE TIMING LAG SCORING (P2)
+    // 
+    // Penalize tokens that are ONLY seen on DEX trending (late signals).
+    // If a token appears on DEX trending but was NOT seen on pump.fun or new-pool,
+    // it means we're late to the party and entry risk is higher.
+    // 
+    // Scoring:
+    //   - First seen on PUMP_FUN_NEW/RAYDIUM_NEW_POOL: +0 (ideal)
+    //   - First seen on DEX_TRENDING but ALSO on early source: -5 (moderate lag)
+    //   - ONLY seen on DEX_TRENDING/GAINERS: -15 (late entry)
+    //   - ONLY seen on BIRDEYE/COINGECKO trending: -20 (very late)
+    // ═══════════════════════════════════════════════════════════════════════════
+    
+    // Early sources (tokens discovered here first = good timing)
+    private val EARLY_SOURCES = setOf(
+        "PUMP_FUN_NEW", "PUMP_FUN_GRADUATE", "RAYDIUM_NEW_POOL", "MOONSHOT_NEW"
+    )
+    
+    // Trending sources (tokens only found here = late timing)
+    private val TRENDING_SOURCES = setOf(
+        "DEX_TRENDING", "DEX_GAINERS", "BIRDEYE_TRENDING", "COINGECKO_TRENDING"
+    )
+    
+    /**
+     * Calculate source timing penalty for a token.
+     * Returns a negative score adjustment (penalty) for late-discovered tokens.
+     * 
+     * @param mint Token mint address
+     * @return Pair(penalty, reason) where penalty is 0 to -20
+     */
+    fun getSourceTimingPenalty(mint: String): Pair<Int, String> {
+        return try {
+            val records = firstSeen[mint] ?: return Pair(0, "no_source_data")
+            if (records.isEmpty()) return Pair(0, "no_source_data")
+            
+            val sources = records.map { it.source.uppercase() }.distinct()
+            val firstSource = records.minByOrNull { it.seenAtMs }?.source?.uppercase() ?: "UNKNOWN"
+            
+            // Check if ANY early source was seen
+            val hasEarlySource = sources.any { it in EARLY_SOURCES }
+            
+            // Check if ONLY trending sources
+            val onlyTrending = sources.all { it in TRENDING_SOURCES || it.contains("TRENDING") || it.contains("GAINERS") }
+            
+            // Check first source type
+            val firstWasEarly = firstSource in EARLY_SOURCES
+            val firstWasTrending = firstSource in TRENDING_SOURCES || firstSource.contains("TRENDING")
+            
+            when {
+                // Best case: first seen on early source
+                firstWasEarly -> Pair(0, "early_discovery:$firstSource")
+                
+                // Good: seen on trending but also has early source data
+                hasEarlySource && firstWasTrending -> {
+                    val lag = getVenueLagMs(mint)
+                    if (lag != null && lag > 60_000) {
+                        // More than 1 minute lag = more penalty
+                        Pair(-8, "late_arrival:${lag/1000}s_lag")
+                    } else {
+                        Pair(-5, "moderate_lag:has_early_but_trending_first")
+                    }
+                }
+                
+                // Bad: only seen on DEX trending/gainers
+                onlyTrending && (firstSource.contains("DEX") || firstSource.contains("GAINERS")) -> {
+                    Pair(-15, "late_signal:only_dex_trending")
+                }
+                
+                // Worst: only seen on social trending (very late)
+                onlyTrending -> {
+                    Pair(-20, "very_late:only_social_trending")
+                }
+                
+                // Unknown source pattern
+                else -> Pair(-3, "unknown_timing:$firstSource")
+            }
+        } catch (e: Exception) {
+            ErrorLogger.debug(TAG, "getSourceTimingPenalty error: ${e.message}")
+            Pair(0, "error")
+        }
+    }
+    
+    /**
+     * Check if a token is a "late signal" (only seen on trending, not on new-pool sources).
+     */
+    fun isLateSignal(mint: String): Boolean {
+        val (penalty, _) = getSourceTimingPenalty(mint)
+        return penalty <= -10
+    }
+    
     /**
      * Clear all data.
      */

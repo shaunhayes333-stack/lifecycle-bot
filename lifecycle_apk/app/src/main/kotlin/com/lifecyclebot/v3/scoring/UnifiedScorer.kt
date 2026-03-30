@@ -62,8 +62,9 @@ class UnifiedScorer(
      */
     fun score(candidate: CandidateSnapshot, ctx: TradingContext): ScoreCard {
         // Collect scores from all 19 base AI modules
+        // V4.1: Use sourceScoreWithTiming for source timing lag penalty
         val baseComponents = listOf(
-            sourceScore(candidate.source),
+            sourceScoreWithTiming(candidate.source, candidate.mint),
             entryAI.score(candidate, ctx),
             momentumAI.score(candidate, ctx),
             liquidityAI.score(candidate, ctx),

@@ -39,6 +39,21 @@ data class SafetyReport(
     val firstBlockBuyers: Int = -1,               // Number of unique wallets in first block
     val bundleRecommendation: String = "UNKNOWN", // SAFE, CAUTION, AVOID
     val bundleReason: String = "",                // Explanation of bundle analysis
+    // ═══════════════════════════════════════════════════════════════════════════
+    // V4.1 DATA QUALITY FLAGS
+    // 
+    // These flags help the bot make smarter decisions about data reliability:
+    // - rugcheckStatus: CONFIRMED, TIMEOUT, ERROR, PENDING_REVIEW
+    // - liqConfirmed: true if liquidity from reliable source (raydium pool data)
+    // - liqEstimated: true if liquidity derived from mcap/price heuristics
+    // - dataConflictFlag: true if conflicting data detected (e.g., liq showed then $0)
+    // ═══════════════════════════════════════════════════════════════════════════
+    val rugcheckStatus: String = "UNKNOWN",       // CONFIRMED, TIMEOUT, ERROR, PENDING_REVIEW, UNKNOWN
+    val liqConfirmed: Boolean = false,            // Liquidity from verified pool data
+    val liqEstimated: Boolean = false,            // Liquidity estimated from market cap
+    val dataConflictFlag: Boolean = false,        // Conflicting data detected
+    val dataConflictReason: String = "",          // Explanation of conflict
+    val rugcheckTimeoutPenalty: Int = 0,          // Penalty applied due to rugcheck timeout
 ) {
     val isBlocked  get() = tier == SafetyTier.HARD_BLOCK
     val ageMinutes get() = (System.currentTimeMillis() - checkedAt) / 60_000.0
@@ -48,6 +63,12 @@ data class SafetyReport(
     val hasDangerousBundles get() = bundleRisk == "HIGH"
     val hasModerateBundle get() = bundleRisk == "MEDIUM"
     val hasPumpBundle get() = bundleType == "PUMP_BUNDLE"
+    
+    // V4.1: Data quality helpers
+    val hasRugcheckTimeout get() = rugcheckStatus == "TIMEOUT"
+    val hasDataConflict get() = dataConflictFlag
+    val isLiquidityReliable get() = liqConfirmed && !liqEstimated
+    val needsReview get() = rugcheckStatus == "PENDING_REVIEW" || dataConflictFlag
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -119,6 +140,76 @@ class TokenSafetyChecker(private val cfg: () -> BotConfig) {
 
     // Cache: mint → report (valid for 10 min)
     private val cache = mutableMapOf<String, SafetyReport>()
+    
+    // ═══════════════════════════════════════════════════════════════════════════
+    // V4.1 DATA CONFLICT DETECTION (P2)
+    // 
+    // Track historical liquidity values to detect sudden drops (rug signals).
+    // If liquidity was normal ($5K+) and suddenly drops to near-zero,
+    // this is a DATA_CONFLICT that should trigger quarantine.
+    // ═══════════════════════════════════════════════════════════════════════════
+    
+    // Historical liquidity cache: mint → list of (timestamp, liquidityUsd)
+    private val liquidityHistory = java.util.concurrent.ConcurrentHashMap<String, MutableList<Pair<Long, Double>>>()
+    private const val LIQUIDITY_HISTORY_MAX_SIZE = 10  // Keep last 10 readings
+    private const val LIQUIDITY_CONFLICT_THRESHOLD = 0.15  // Drop to 15% or less = conflict
+    private const val MIN_LIQUIDITY_FOR_CONFLICT_CHECK = 3000.0  // Only check if was $3K+
+    
+    /**
+     * Check for liquidity conflicts (sudden drops that indicate rug/drain).
+     * Returns Pair(hasConflict, conflictReason)
+     */
+    fun checkLiquidityConflict(mint: String, currentLiquidity: Double): Pair<Boolean, String> {
+        val history = liquidityHistory.getOrPut(mint) { mutableListOf() }
+        val now = System.currentTimeMillis()
+        
+        // Add current reading
+        history.add(Pair(now, currentLiquidity))
+        
+        // Prune old entries (keep last N)
+        while (history.size > LIQUIDITY_HISTORY_MAX_SIZE) {
+            history.removeAt(0)
+        }
+        
+        // Need at least 2 readings to detect conflict
+        if (history.size < 2) return Pair(false, "")
+        
+        // Find max liquidity from recent history (last 5 minutes)
+        val fiveMinutesAgo = now - (5 * 60 * 1000L)
+        val recentReadings = history.filter { it.first >= fiveMinutesAgo }
+        
+        if (recentReadings.size < 2) return Pair(false, "")
+        
+        val maxRecentLiq = recentReadings.maxOf { it.second }
+        
+        // Check for conflict: was healthy, now near-zero
+        if (maxRecentLiq >= MIN_LIQUIDITY_FOR_CONFLICT_CHECK && currentLiquidity < 500.0) {
+            val dropPct = ((maxRecentLiq - currentLiquidity) / maxRecentLiq * 100).toInt()
+            val reason = "DATA_CONFLICT: Liquidity dropped ${dropPct}% (\$${maxRecentLiq.toInt()} → \$${currentLiquidity.toInt()})"
+            ErrorLogger.warn("SafetyChecker", "🚨 $reason")
+            return Pair(true, reason)
+        }
+        
+        // Check for severe drop (to less than 15% of recent max)
+        if (maxRecentLiq >= MIN_LIQUIDITY_FOR_CONFLICT_CHECK) {
+            val ratio = currentLiquidity / maxRecentLiq
+            if (ratio <= LIQUIDITY_CONFLICT_THRESHOLD) {
+                val dropPct = ((1 - ratio) * 100).toInt()
+                val reason = "DATA_CONFLICT: Liquidity dropped ${dropPct}% (\$${maxRecentLiq.toInt()} → \$${currentLiquidity.toInt()})"
+                ErrorLogger.warn("SafetyChecker", "🚨 $reason")
+                return Pair(true, reason)
+            }
+        }
+        
+        return Pair(false, "")
+    }
+    
+    /**
+     * Clear liquidity history for a token (e.g., after trade closed).
+     */
+    fun clearLiquidityHistory(mint: String) {
+        liquidityHistory.remove(mint)
+    }
 
     // ── public interface ──────────────────────────────────────────────
     
@@ -137,12 +228,15 @@ class TokenSafetyChecker(private val cfg: () -> BotConfig) {
      * 
      * WHITELISTED tokens (major SOL coins like SOL, USDC, BONK, JUP, etc.)
      * are automatically marked SAFE without any checks.
+     * 
+     * @param currentLiquidityUsd Current liquidity from market data (for conflict detection)
      */
     fun check(
         mint: String,
         symbol: String,
         name: String,
         pairCreatedAtMs: Long = 0L,
+        currentLiquidityUsd: Double = -1.0,
     ): SafetyReport {
         // FAST PATH: Whitelisted tokens are always safe
         if (mint in WHITELISTED_MINTS) {
@@ -165,6 +259,41 @@ class TokenSafetyChecker(private val cfg: () -> BotConfig) {
         // Paper mode flag - used for lenient safety checks
         val isPaperMode = cfg().paperMode
 
+        // ═══════════════════════════════════════════════════════════════════════════
+        // V4.1 DATA QUALITY FLAGS
+        // Track data reliability throughout the check process
+        // ═══════════════════════════════════════════════════════════════════════════
+        var rugcheckStatus = "UNKNOWN"
+        var liqConfirmed = false
+        var liqEstimated = false
+        var dataConflictFlag = false
+        var dataConflictReason = ""
+        var rugcheckTimeoutPenalty = 0
+        
+        // ═══════════════════════════════════════════════════════════════════════════
+        // V4.1 LIQUIDITY CONFLICT DETECTION (P2)
+        // Check for sudden liquidity drops that indicate rug/drain
+        // ═══════════════════════════════════════════════════════════════════════════
+        if (currentLiquidityUsd >= 0) {
+            val (hasConflict, conflictReason) = checkLiquidityConflict(mint, currentLiquidityUsd)
+            if (hasConflict) {
+                dataConflictFlag = true
+                dataConflictReason = conflictReason
+                // Apply heavy penalty for liquidity conflict
+                soft.add("$conflictReason" to 50)
+                penalty += 50
+                
+                // In live mode, treat as hard block (potential rug in progress)
+                if (!isPaperMode) {
+                    hard.add(conflictReason)
+                }
+            }
+            
+            // Determine if liquidity is confirmed or estimated
+            // For now, we assume liquidity from DexScreener is confirmed
+            liqConfirmed = currentLiquidityUsd > 0
+        }
+
         // ── 1. Rugcheck.xyz composite report (free, no key) ───────────
         val rugcheck = fetchRugcheck(mint)
         // Use score_normalised (0-100) not raw score (can be thousands)
@@ -173,6 +302,40 @@ class TokenSafetyChecker(private val cfg: () -> BotConfig) {
         var freezeDisabled : Boolean? = null
         var lpLockPct      = -1.0
         var topHolderPct   = -1.0
+        
+        // ═══════════════════════════════════════════════════════════════════════════
+        // V4.1 RUGCHECK TIMEOUT HANDLING
+        // 
+        // OLD BEHAVIOR: Timeout = soft allow (too permissive)
+        // NEW BEHAVIOR:
+        //   - Paper mode: Apply penalty (-20 points) + mark PENDING_REVIEW
+        //   - Live mode: Apply penalty (-25 points) + require fallback safety
+        // 
+        // This prevents blindly buying fresh-launch tokens when the API fails.
+        // ═══════════════════════════════════════════════════════════════════════════
+        if (rugcheck == null || rcScore == -1) {
+            rugcheckStatus = "TIMEOUT"
+            
+            if (isPaperMode) {
+                // Paper mode: Apply moderate penalty for learning, don't hard block
+                rugcheckTimeoutPenalty = 20
+                soft.add("Rugcheck API timeout (paper: -20 penalty)" to 20)
+                penalty += 20
+                ErrorLogger.debug("SafetyChecker", 
+                    "Rugcheck TIMEOUT for ${symbol}: applying -20 penalty (paper mode)")
+            } else {
+                // Live mode: Apply heavier penalty, mark for review
+                rugcheckTimeoutPenalty = 25
+                rugcheckStatus = "PENDING_REVIEW"
+                soft.add("Rugcheck API timeout (live: -25 penalty, PENDING_REVIEW)" to 25)
+                penalty += 25
+                ErrorLogger.warn("SafetyChecker", 
+                    "Rugcheck TIMEOUT for ${symbol}: applying -25 penalty + PENDING_REVIEW (live mode)")
+            }
+        } else {
+            // Rugcheck succeeded - mark as confirmed
+            rugcheckStatus = "CONFIRMED"
+        }
 
         if (rugcheck != null) {
             // Rugcheck returns risks as an array of {name, description, level}
@@ -433,6 +596,13 @@ class TokenSafetyChecker(private val cfg: () -> BotConfig) {
             firstBlockBuyers        = firstBlockBuyers,
             bundleRecommendation    = bundleRecommendation,
             bundleReason            = bundleReason,
+            // V4.1 Data quality flags
+            rugcheckStatus          = rugcheckStatus,
+            liqConfirmed            = liqConfirmed,
+            liqEstimated            = liqEstimated,
+            dataConflictFlag        = dataConflictFlag,
+            dataConflictReason      = dataConflictReason,
+            rugcheckTimeoutPenalty  = rugcheckTimeoutPenalty,
         )
         cache[mint] = report
         return report

@@ -1753,65 +1753,90 @@ object FinalDecisionGate {
         }
         
         // 1b. Rugcheck score critically low
-        // PAPER MODE: Allow -1 (API error/no data) to enable learning
-        // LIVE MODE: Handle -1 (API timeout) with fallback safety checks
-        //            - If other safety signals are strong, allow the trade
-        //            - This prevents API timeouts from blocking ALL live trades
+        // ═══════════════════════════════════════════════════════════════════════════
+        // V4.1 RUGCHECK TIMEOUT POLICY (P1 FIX)
+        // 
+        // OLD: Timeout = soft allow (too permissive, allowed junk trades)
+        // NEW: Use rugcheckStatus and rugcheckTimeoutPenalty from SafetyReport
+        //   - CONFIRMED: Score is real, use normal thresholds
+        //   - TIMEOUT: Penalty already applied in SafetyChecker, add extra caution
+        //   - PENDING_REVIEW: Live mode timeout, require stronger fallback signals
+        // 
+        // The penalty is now applied at SafetyChecker level, FDG just respects it.
+        // ═══════════════════════════════════════════════════════════════════════════
         val rugcheckScore = ts.safety.rugcheckScore
+        val rugcheckStatus = ts.safety.rugcheckStatus
+        val rugcheckTimeoutPenalty = ts.safety.rugcheckTimeoutPenalty
+        
         val rugcheckBlock = when {
-            // Paper mode: always allow API errors for learning
-            rugcheckScore == -1 && config.paperMode -> false
+            // CONFIRMED status: use normal score-based blocking
+            rugcheckStatus == "CONFIRMED" && rugcheckScore <= rugcheckThreshold -> true
+            rugcheckStatus == "CONFIRMED" && rugcheckScore > rugcheckThreshold -> false
             
-            // Live mode: API timeout (-1) - use fallback safety checks
-            rugcheckScore == -1 && !config.paperMode -> {
-                // Don't hard-block if we have other strong safety signals
-                // Allow trade if: good buy pressure (55%+) AND decent liquidity ($5K+)
-                val hasStrongBuyers = ts.meta.pressScore >= 55.0
-                val hasGoodLiquidity = ts.lastLiquidityUsd >= 5000.0
-                val hasGoodVolume = ts.history.lastOrNull()?.volumeH1 ?: 0.0 >= 1000.0
+            // TIMEOUT in paper mode: Penalty already applied, allow for learning
+            // but add a tag so we can track these trades separately
+            rugcheckStatus == "TIMEOUT" && config.paperMode -> {
+                tags.add("rugcheck_timeout")
+                false  // Allow but with penalty already applied
+            }
+            
+            // TIMEOUT/PENDING_REVIEW in live mode: Require stronger fallback signals
+            (rugcheckStatus == "TIMEOUT" || rugcheckStatus == "PENDING_REVIEW") && !config.paperMode -> {
+                // V4.1: Stricter fallback requirements
+                // Only allow if we have STRONG safety signals (higher bar than before)
+                val hasStrongBuyers = ts.meta.pressScore >= 60.0  // Raised from 55%
+                val hasGoodLiquidity = ts.lastLiquidityUsd >= 8000.0  // Raised from $5K
+                val hasGoodVolume = ts.history.lastOrNull()?.volumeH1 ?: 0.0 >= 2000.0  // Added volume check
                 
-                // Only block if safety signals are weak
-                val shouldBlock = !(hasStrongBuyers && hasGoodLiquidity)
+                val shouldBlock = !(hasStrongBuyers && hasGoodLiquidity && hasGoodVolume)
                 
                 if (!shouldBlock) {
-                    // Log that we're allowing despite API timeout
-                    ErrorLogger.info("FDG", "Rugcheck API timeout for ${ts.symbol}, allowing with safety fallback: " +
-                        "buy%=${ts.meta.pressScore.toInt()} liq=\$${ts.lastLiquidityUsd.toInt()}")
+                    ErrorLogger.info("FDG", "Rugcheck $rugcheckStatus for ${ts.symbol}, " +
+                        "allowing with STRICT safety fallback: buy%=${ts.meta.pressScore.toInt()} " +
+                        "liq=\$${ts.lastLiquidityUsd.toInt()} vol=\$${(ts.history.lastOrNull()?.volumeH1 ?: 0.0).toInt()}")
+                    tags.add("rugcheck_timeout_fallback")
+                } else {
+                    // Log why we're blocking
+                    ErrorLogger.warn("FDG", "Rugcheck $rugcheckStatus BLOCKED for ${ts.symbol}: " +
+                        "weak fallback signals (buy%=${ts.meta.pressScore.toInt()} " +
+                        "liq=\$${ts.lastLiquidityUsd.toInt()} - need 60%+ buy, \$8K+ liq, \$2K+ vol)")
                 }
                 shouldBlock
             }
             
-            // Low scores: block
-            rugcheckScore <= rugcheckThreshold -> true
-            
-            // Normal scores: allow
-            else -> false
+            // Unknown status: treat as timeout with caution
+            else -> {
+                tags.add("rugcheck_unknown")
+                rugcheckScore <= rugcheckThreshold
+            }
         }
         
         if (blockReason == null && rugcheckBlock) {
             // Provide more informative block reason for API timeouts
-            val blockReasonDetail = if (rugcheckScore == -1) {
-                "HARD_BLOCK_RUGCHECK_API_TIMEOUT"
-            } else {
-                "HARD_BLOCK_RUGCHECK_$rugcheckScore"
+            val blockReasonDetail = when (rugcheckStatus) {
+                "TIMEOUT", "PENDING_REVIEW" -> "HARD_BLOCK_RUGCHECK_${rugcheckStatus}_WEAK_FALLBACK"
+                else -> "HARD_BLOCK_RUGCHECK_$rugcheckScore"
             }
             blockReason = blockReasonDetail
             blockLevel = BlockLevel.HARD
             
-            val checkReason = if (rugcheckScore == -1) {
-                "score=-1 (API timeout) + weak safety: buy%=${ts.meta.pressScore.toInt()} liq=\$${ts.lastLiquidityUsd.toInt()}"
-            } else {
-                "score=$rugcheckScore <= $rugcheckThreshold"
+            val checkReason = when (rugcheckStatus) {
+                "TIMEOUT", "PENDING_REVIEW" -> 
+                    "status=$rugcheckStatus, weak fallback: buy%=${ts.meta.pressScore.toInt()} liq=\$${ts.lastLiquidityUsd.toInt()}"
+                else -> 
+                    "score=$rugcheckScore <= $rugcheckThreshold"
             }
             checks.add(GateCheck("rugcheck", false, checkReason))
             tags.add("low_rugcheck")
         } else if (blockReason == null) {
             // Log detailed pass reason
-            val passReason = when {
-                rugcheckScore == -1 && config.paperMode -> 
-                    "score=-1 (paper: allowed for learning)"
-                rugcheckScore == -1 && !config.paperMode -> 
-                    "score=-1 (API timeout) BYPASSED: strong safety (buy%=${ts.meta.pressScore.toInt()} liq=\$${ts.lastLiquidityUsd.toInt()})"
+            val passReason = when (rugcheckStatus) {
+                "TIMEOUT" -> 
+                    "status=TIMEOUT (paper: penalty=$rugcheckTimeoutPenalty applied, allowed for learning)"
+                "PENDING_REVIEW" -> 
+                    "status=PENDING_REVIEW, strong fallback (buy%=${ts.meta.pressScore.toInt()} liq=\$${ts.lastLiquidityUsd.toInt()})"
+                "CONFIRMED" ->
+                    "score=$rugcheckScore > $rugcheckThreshold"
                 else -> null
             }
             checks.add(GateCheck("rugcheck", true, passReason))
