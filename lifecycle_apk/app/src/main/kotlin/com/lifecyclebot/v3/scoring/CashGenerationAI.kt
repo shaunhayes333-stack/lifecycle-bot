@@ -63,15 +63,22 @@ object CashGenerationAI {
     private const val MIN_POSITION_SOL = 0.03         // Minimum viable trade
     private const val POSITION_SCALE_FACTOR = 1.15    // Scale up slightly on A+ setups
     
-    // Exit strategy (QUICK SCALPS 3.5-7% - V4.0: 3.5% target, max 7% per user request)
-    // V4.20: Lowered take profit thresholds to grab quick gains
-    // User seeing 4%+ flashes but TP was at 3.5% - peaks only hitting 2%
-    private const val TAKE_PROFIT_PCT = 2.5           // Quick 2.5% scalp target (was 3.5%)
-    private const val TAKE_PROFIT_MIN_PCT = 2.0       // Early exit at 2% after 3 mins (was 3.0%)
-    private const val TAKE_PROFIT_MAX_PCT = 6.0       // Exit by 6% no matter what (was 7%)
+    // Exit strategy (AGGRESSIVE SCALPING - V4.20)
+    // Chip away at profits constantly - no hold time limit
+    // Can cycle same coin repeatedly if green
+    private const val TAKE_PROFIT_PCT_PAPER = 0.5     // Paper: Exit at 0.5%+ (learn fast)
+    private const val TAKE_PROFIT_PCT_LIVE = 1.5      // Live: 1.5% minimum to cover fees/slippage
+    private const val TAKE_PROFIT_MAX_PCT = 8.0       // Let winners run to 8% if momentum continues
     private const val STOP_LOSS_PCT = -2.0            // Cut at -2%, no exceptions
-    private const val TRAILING_STOP_PCT = 2.0         // Tight 2% trail after profit
-    private const val MAX_HOLD_MINUTES = 8            // Quick scalps - don't hold long
+    private const val TRAILING_STOP_PCT = 1.5         // Tighter 1.5% trail after profit
+    private const val MAX_HOLD_MINUTES = 30           // Extended to 30min - let positions breathe
+    private const val REENTRY_COOLDOWN_MS = 5000L     // 5 second cooldown between same-token trades
+    
+    // Live mode fee coverage
+    // Jupiter: ~0.5% per swap × 2 = 1%
+    // Slippage: ~0.5% × 2 = 1%  
+    // Total round-trip: ~1.5-2%
+    private const val MIN_PROFIT_FOR_LIVE = 1.5       // Must clear 1.5% to cover fees
     
     // Trade frequency (ACTIVE - user choice 3c: 10+ trades/day)
     private const val MIN_TRADES_PER_DAY = 10
@@ -118,6 +125,10 @@ object CashGenerationAI {
     // Active treasury positions (mint -> TreasuryPosition) - separate for paper/live
     private val paperPositions = mutableMapOf<String, TreasuryPosition>()
     private val livePositions = mutableMapOf<String, TreasuryPosition>()
+    
+    // V4.20: Track recent exits for quick re-entry cycling
+    // Key = mint, Value = exit timestamp
+    private val recentExits = mutableMapOf<String, Long>()
     
     // Convenience: get active positions for current mode
     private val activePositions: MutableMap<String, TreasuryPosition>
@@ -415,6 +426,14 @@ object CashGenerationAI {
             rejectionReasons.add("already_in_position")
         }
         
+        // V4.20: Check re-entry cooldown for cycling same token
+        val lastExitTime = recentExits[mint] ?: 0L
+        val timeSinceExit = System.currentTimeMillis() - lastExitTime
+        if (lastExitTime > 0 && timeSinceExit < REENTRY_COOLDOWN_MS) {
+            val remaining = (REENTRY_COOLDOWN_MS - timeSinceExit) / 1000
+            rejectionReasons.add("reentry_cooldown (${remaining}s)")
+        }
+        
         // Too many active treasury positions? (Increased for active scalping)
         if (activePositions.size >= MAX_CONCURRENT_POSITIONS) {
             rejectionReasons.add("max_positions_reached (${MAX_CONCURRENT_POSITIONS})")
@@ -555,7 +574,7 @@ object CashGenerationAI {
     
     /**
      * Check if position should exit (called on each price update).
-     * Quick scalps with tight exits.
+     * V4.20: Aggressive scalping - exit as soon as profitable (covers fees in live)
      */
     fun checkExit(mint: String, currentPrice: Double): ExitSignal {
         val pos = synchronized(activePositions) { activePositions[mint] } ?: return ExitSignal.HOLD
@@ -563,18 +582,21 @@ object CashGenerationAI {
         val pnlPct = (currentPrice - pos.entryPrice) / pos.entryPrice * 100
         val holdMinutes = (System.currentTimeMillis() - pos.entryTime) / 60000
         
+        // Determine min profit based on mode
+        val minProfitPct = if (isPaperMode) TAKE_PROFIT_PCT_PAPER else TAKE_PROFIT_PCT_LIVE
+        
         // Update high water mark and trailing stop
         if (currentPrice > pos.highWaterMark) {
             pos.highWaterMark = currentPrice
-            // Tight 2% trailing stop for quick scalps
+            // Tight trailing stop for quick scalps
             pos.trailingStop = currentPrice * (1 - TRAILING_STOP_PCT / 100)
         }
         
         // ─── EXIT CONDITIONS (Priority order) ───
         
-        // 1. HIT MAX TAKE PROFIT (10%) - always exit
+        // 1. HIT MAX TAKE PROFIT (8%) - always exit, let winners run but cap
         if (pnlPct >= TAKE_PROFIT_MAX_PCT) {
-            ErrorLogger.info(TAG, "💰 TREASURY MAX TP: ${pos.symbol} | +${pnlPct.fmt(1)}% (capped at ${TAKE_PROFIT_MAX_PCT}%)")
+            ErrorLogger.info(TAG, "💰 TREASURY MAX TP: ${pos.symbol} | +${pnlPct.fmt(1)}% (hit ${TAKE_PROFIT_MAX_PCT}% cap)")
             return ExitSignal.TAKE_PROFIT
         }
         
@@ -584,28 +606,31 @@ object CashGenerationAI {
             return ExitSignal.STOP_LOSS
         }
         
-        // 3. HIT TARGET TAKE PROFIT
-        if (currentPrice >= pos.targetPrice) {
-            ErrorLogger.info(TAG, "💰 TREASURY TP HIT: ${pos.symbol} | +${pnlPct.fmt(1)}%")
+        // 3. V4.20: AGGRESSIVE TP - Exit as soon as we clear min profit
+        // Paper: 0.5%+, Live: 1.5%+ (covers fees)
+        if (pnlPct >= minProfitPct) {
+            val modeLabel = if (isPaperMode) "PAPER" else "LIVE"
+            ErrorLogger.info(TAG, "💰 TREASURY SCALP [$modeLabel]: ${pos.symbol} | +${pnlPct.fmt(1)}% (min=${minProfitPct}%)")
             return ExitSignal.TAKE_PROFIT
         }
         
-        // 4. HIT TRAILING STOP (only if in profit > 3%)
-        if (pnlPct > 3.0 && currentPrice <= pos.trailingStop) {
+        // 4. HIT TRAILING STOP (only if we were in decent profit > 2%)
+        if (pnlPct > 2.0 && currentPrice <= pos.trailingStop) {
             ErrorLogger.info(TAG, "💰 TREASURY TRAIL HIT: ${pos.symbol} | +${pnlPct.fmt(1)}%")
             return ExitSignal.TRAILING_STOP
         }
         
-        // 5. MAX HOLD TIME (8 mins for quick scalps)
+        // 5. MAX HOLD TIME (30 mins) - extended for better opportunities
         if (holdMinutes >= MAX_HOLD_MINUTES) {
             ErrorLogger.info(TAG, "💰 TREASURY TIME EXIT: ${pos.symbol} | ${pnlPct.fmt(1)}% after ${holdMinutes}min")
             return ExitSignal.TIME_EXIT
         }
         
-        // 6. EARLY EXIT if profitable enough after 3 mins (was 4 mins)
-        if (holdMinutes >= 3 && pnlPct >= TAKE_PROFIT_MIN_PCT) {
-            ErrorLogger.info(TAG, "💰 TREASURY EARLY TP: ${pos.symbol} | +${pnlPct.fmt(1)}% @ ${holdMinutes}min")
-            return ExitSignal.TAKE_PROFIT
+        // 6. EXTENDED HOLD - if close to profit after 10min, give it more time
+        // Only force exit if deeply underwater
+        if (holdMinutes >= 10 && pnlPct < -1.5) {
+            ErrorLogger.info(TAG, "💰 TREASURY CUT LOSS: ${pos.symbol} | ${pnlPct.fmt(1)}% - not recovering")
+            return ExitSignal.STOP_LOSS
         }
         
         return ExitSignal.HOLD
@@ -629,6 +654,15 @@ object CashGenerationAI {
         
         val pnlPct = (exitPrice - pos.entryPrice) / pos.entryPrice * 100
         val pnlSol = pos.entrySol * pnlPct / 100
+        
+        // V4.20: Record exit time for re-entry cycling
+        // If profitable exit, allow quick re-entry. If loss, longer cooldown.
+        val cooldownMs = if (pnlPct > 0) REENTRY_COOLDOWN_MS else REENTRY_COOLDOWN_MS * 3
+        recentExits[mint] = System.currentTimeMillis()
+        
+        // Clean up old exit records (older than 1 minute)
+        val oneMinuteAgo = System.currentTimeMillis() - 60_000
+        recentExits.entries.removeIf { it.value < oneMinuteAgo }
         
         // Record to daily P&L (using mode-specific counters)
         val pnlBps = (pnlSol * 100).toLong()
@@ -660,10 +694,11 @@ object CashGenerationAI {
             dailyWins.get().toDouble() / dailyTradeCount.get() * 100
         } else 0.0
         
+        val cycleLabel = if (pnlPct > 0) " [CYCLE OK in ${REENTRY_COOLDOWN_MS/1000}s]" else ""
         val modeLabel = if (pos.isPaper) "PAPER" else "LIVE"
         ErrorLogger.info(TAG, "💰 TREASURY CLOSED [$modeLabel]: ${pos.symbol} | " +
             "P&L: ${if (pnlSol >= 0) "+" else ""}${pnlSol.fmt(4)} SOL (${pnlPct.fmt(1)}%) | " +
-            "reason=$exitReason | " +
+            "reason=$exitReason$cycleLabel | " +
             "Daily: ${dailyPnl.fmt(4)} SOL | " +
             "Win rate: ${winRate.fmt(0)}% | " +
             "Treasury: ${getCurrentTreasuryBalance().fmt(4)} SOL")
