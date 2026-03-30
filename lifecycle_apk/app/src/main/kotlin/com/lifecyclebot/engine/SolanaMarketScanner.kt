@@ -1142,10 +1142,10 @@ class SolanaMarketScanner(
                 // Clean up old seen/rejected entries every cycle
                 cleanupSeenMaps()
                 
-                // Log map sizes every cycle for debugging discovery issues
-                val watchlistSize = cfg().watchlist.size
+                // V4.0: Use GlobalTradeRegistry for authoritative watchlist count
+                val watchlistSize = GlobalTradeRegistry.size()
                 if (scanRotation == 0) {
-                    ErrorLogger.info("Scanner", "Discovery health: seen=${seenMints.size} rejected=${rejectedMints.size} watchlist=$watchlistSize")
+                    ErrorLogger.info("Scanner", "Discovery health: seen=${seenMints.size} rejected=${rejectedMints.size} watchlist=$watchlistSize (GlobalTradeRegistry)")
                     onLog("📊 Discovery: seen=${seenMints.size} rejected=${rejectedMints.size} watchlist=$watchlistSize")
                 }
                 

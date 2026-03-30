@@ -351,11 +351,12 @@ object TradeLifecycle {
     /**
      * Token admitted to watchlist for active strategy evaluation.
      * This is the final gate before strategy runs on the token.
+     * V4.0: watchlistSize should come from GlobalTradeRegistry.size()
      */
     fun watchlisted(mint: String, watchlistSize: Int, reason: String = "admitted for evaluation") {
         lifecycles[mint]?.let { lc ->
             lc.transition(State.WATCHLISTED, reason, mapOf("watchlistSize" to watchlistSize))
-            ErrorLogger.info("Lifecycle", "📋 WATCHLISTED: ${lc.symbol} | watchlist now=$watchlistSize")
+            ErrorLogger.info("Lifecycle", "📋 WATCHLISTED: ${lc.symbol} | watchlist now=$watchlistSize (GlobalTradeRegistry)")
         }
     }
     

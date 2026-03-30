@@ -561,6 +561,14 @@ class BotService : Service() {
             addLog("⚠️ Orchestrator error: ${e.message}")
         }
 
+        // ═══════════════════════════════════════════════════════════════════
+        // V4.0: INITIALIZE GLOBALTRADEREGISTRY BEFORE SCANNER STARTS
+        // This ensures all scanner discoveries go through the registry
+        // ═══════════════════════════════════════════════════════════════════
+        val preScanCfg = ConfigStore.load(applicationContext)
+        GlobalTradeRegistry.init(preScanCfg.watchlist, "CONFIG_PRESCAN")
+        addLog("📋 GlobalTradeRegistry initialized with ${GlobalTradeRegistry.size()} tokens")
+
         // Start full Solana market scanner
         val scanCfg = ConfigStore.load(applicationContext)
         ErrorLogger.info("BotService", "fullMarketScanEnabled = ${scanCfg.fullMarketScanEnabled}")
@@ -572,7 +580,11 @@ class BotService : Service() {
                     onTokenFound = { mint, symbol, name, source, score, liquidityUsd ->
                         try {
                             val c = ConfigStore.load(applicationContext)
-                            val wl = c.watchlist.toMutableList()
+                            
+                            // ═══════════════════════════════════════════════════════════════════
+                            // V4.0: USE GLOBALTRADEREGISTRY - NOT LOCAL WATCHLIST
+                            // This prevents the watchlist reset bug (31→1)
+                            // ═══════════════════════════════════════════════════════════════════
                             
                             // ═══════════════════════════════════════════════════════════════════
                             // TRADE IDENTITY: Create canonical identity for this trade
@@ -587,9 +599,9 @@ class BotService : Service() {
                             
                             ErrorLogger.debug("BotService", "DISCOVERED: ${identity.symbol} | liq=$${liquidityUsd.toInt()} | score=$score | src=${source.name}")
                             
-                            // Already tracked?
-                            if (identity.mint in wl) {
-                                ErrorLogger.debug("BotService", "Token ${identity.symbol} already in watchlist")
+                            // V4.0: Check GlobalTradeRegistry instead of local watchlist
+                            if (GlobalTradeRegistry.isWatching(identity.mint)) {
+                                ErrorLogger.debug("BotService", "Token ${identity.symbol} already in GlobalTradeRegistry")
                                 return@SolanaMarketScanner
                             }
                             
@@ -631,31 +643,46 @@ class BotService : Service() {
                             
                             // ═══════════════════════════════════════════════════════════════════
                             // STAGE 3: WATCHLIST ADMISSION (capacity check)
+                            // V4.0: Use GlobalTradeRegistry for capacity check
                             // ═══════════════════════════════════════════════════════════════════
                             
-                            // Check 3a: Watchlist capacity
+                            // Check 3a: Watchlist capacity via GlobalTradeRegistry
+                            val currentWatchlistSize = GlobalTradeRegistry.size()
                             val effectiveMaxWatchlist = if (c.paperMode) 100 else c.maxWatchlistSize
-                            if (wl.size >= effectiveMaxWatchlist) {
-                                TradeLifecycle.filtered(identity.mint, "Watchlist full (${wl.size}/${effectiveMaxWatchlist})")
+                            if (currentWatchlistSize >= effectiveMaxWatchlist) {
+                                TradeLifecycle.filtered(identity.mint, "Watchlist full (${currentWatchlistSize}/${effectiveMaxWatchlist})")
                                 ErrorLogger.debug("BotService", "FILTERED: ${identity.symbol} - watchlist full")
                                 return@SolanaMarketScanner
                             }
                             
                             // ═══════════════════════════════════════════════════════════════════
-                            // ADMITTED TO WATCHLIST
+                            // ADMITTED TO WATCHLIST - V4.0: Use GlobalTradeRegistry
                             // ═══════════════════════════════════════════════════════════════════
-                            wl.add(identity.mint)
-                            ConfigStore.save(applicationContext, c.copy(watchlist = wl))
+                            val addResult = GlobalTradeRegistry.addToWatchlist(
+                                mint = identity.mint,
+                                symbol = identity.symbol,
+                                addedBy = source.name,
+                                source = source.name,
+                                initialMcap = liquidityUsd * 10,  // Rough estimate
+                            )
+                            
+                            if (!addResult.added) {
+                                TradeLifecycle.filtered(identity.mint, "GlobalTradeRegistry: ${addResult.reason}")
+                                ErrorLogger.debug("BotService", "FILTERED: ${identity.symbol} - ${addResult.reason}")
+                                return@SolanaMarketScanner
+                            }
                             
                             // Mark as WATCHLISTED (both TradeIdentity and TradeLifecycle)
+                            val newWatchlistSize = GlobalTradeRegistry.size()
                             identity.watchlisted("admitted for strategy evaluation")
-                            TradeLifecycle.watchlisted(identity.mint, wl.size, "admitted for strategy evaluation")
+                            TradeLifecycle.watchlisted(identity.mint, newWatchlistSize, "admitted for strategy evaluation")
                             
                             // Record that we found a new token (for staleness detection)
                             marketScanner?.recordNewTokenFound()
                             
-                            addLog("📋 WATCHLISTED: ${identity.symbol} (${source.name}) liq=$${liquidityUsd.toInt()} score=${score.toInt()} | now #${wl.size}", identity.mint)
-                            ErrorLogger.info("BotService", "WATCHLISTED: ${identity.symbol} | liq=$${liquidityUsd.toInt()} | watchlist now=${wl.size}")
+                            // V4.0: Log using GlobalTradeRegistry count
+                            addLog("📋 WATCHLISTED: ${identity.symbol} (${source.name}) liq=$${liquidityUsd.toInt()} score=${score.toInt()} | now #${newWatchlistSize}", identity.mint)
+                            ErrorLogger.info("BotService", "WATCHLISTED: ${identity.symbol} | liq=$${liquidityUsd.toInt()} | watchlist now=${newWatchlistSize}")
                             soundManager.playNewToken()
                             
                             // Seed candle history immediately
@@ -1543,14 +1570,16 @@ class BotService : Service() {
             initTradingModes(cfg)
 
             // Log watchlist status every 5 loops for better visibility
+            // V4.0: Use GlobalTradeRegistry for accurate count
             if (loopCount % 5 == 1) {
-                ErrorLogger.info("BotService", "Bot loop #$loopCount - Watchlist size: ${watchlist.size}")
-                addLog("🔄 Loop #$loopCount | Watchlist: ${watchlist.size} tokens | Scanner: ${if(marketScanner != null) "ACTIVE" else "INACTIVE"}")
-                if (watchlist.isEmpty()) {
+                val registrySize = GlobalTradeRegistry.size()
+                ErrorLogger.info("BotService", "Bot loop #$loopCount - Watchlist size: $registrySize (GlobalTradeRegistry)")
+                addLog("🔄 Loop #$loopCount | Watchlist: $registrySize tokens | Scanner: ${if(marketScanner != null) "ACTIVE" else "INACTIVE"}")
+                if (registrySize == 0) {
                     addLog("⚠️ Watchlist empty - waiting for scanner to discover tokens...")
                 } else {
                     // Log first 3 tokens being processed
-                    val firstTokens = watchlist.take(3).joinToString(", ") { it.take(8) + "..." }
+                    val firstTokens = GlobalTradeRegistry.getWatchlist().take(3).joinToString(", ") { it.take(8) + "..." }
                     addLog("📊 Processing: $firstTokens")
                 }
                 
@@ -1559,8 +1588,8 @@ class BotService : Service() {
             }
             
             // AGGRESSIVE WATCHLIST CLEANUP - every 5 loops (about 25 seconds)
-            // Remove tokens that are blocked, stale, or underperforming
-            if (loopCount % 5 == 0 && watchlist.size > 3) {
+            // V4.0: Use GlobalTradeRegistry.size() for check
+            if (loopCount % 5 == 0 && GlobalTradeRegistry.size() > 3) {
                 scope.launch {
                     try {
                         cleanupWatchlist()
@@ -2227,10 +2256,11 @@ class BotService : Service() {
      * - Underperforming (flat price with no buys)
      */
     private suspend fun cleanupWatchlist() {
-        val cfg = ConfigStore.load(applicationContext)
-        val currentWatchlist = cfg.watchlist.toMutableList()
-        if (currentWatchlist.size <= 3) return  // Keep at least 3 tokens
+        // V4.0: Use GlobalTradeRegistry as the source of truth
+        val registryWatchlist = GlobalTradeRegistry.getWatchlist()
+        if (registryWatchlist.size <= 3) return  // Keep at least 3 tokens
         
+        val cfg = ConfigStore.load(applicationContext)
         val tokensToRemove = mutableListOf<String>()
         val now = System.currentTimeMillis()
         val isPaperMode = cfg.paperMode
@@ -2240,11 +2270,11 @@ class BotService : Service() {
         val idleThresholdMs = if (isPaperMode) 180_000L else 300_000L    // 3 min idle in paper, 5 min in real
         val maxWatchlistAge = if (isPaperMode) 600_000L else 900_000L    // 10 min max in paper, 15 min in real
         
-        for (mint in currentWatchlist) {
+        for (mint in registryWatchlist) {
             val ts = status.tokens[mint]
             
-            // Skip if we have an open position
-            if (ts?.position?.isOpen == true) {
+            // Skip if we have an open position (check both status.tokens AND GlobalTradeRegistry)
+            if (ts?.position?.isOpen == true || GlobalTradeRegistry.hasOpenPosition(mint)) {
                 continue
             }
             
@@ -2254,6 +2284,8 @@ class BotService : Service() {
                 val reason = ts.safety.hardBlockReasons.firstOrNull() ?: "Safety check failed"
                 addLog("🚫 BLOCKED: ${ts.symbol} - $reason", mint)
                 marketScanner?.markTokenRejected(mint)
+                // V4.0: Register rejection in GlobalTradeRegistry
+                GlobalTradeRegistry.registerRejection(mint, ts.symbol, reason, "SAFETY_CHECK")
                 continue
             }
             
@@ -2263,6 +2295,7 @@ class BotService : Service() {
                 tokensToRemove.add(mint)
                 addLog("🚫 BLACKLIST: ${ts?.symbol ?: mint.take(8)} - $reason", mint)
                 marketScanner?.markTokenRejected(mint)
+                GlobalTradeRegistry.registerRejection(mint, ts?.symbol ?: mint.take(8), reason, "BLACKLIST")
                 continue
             }
             
@@ -2278,6 +2311,7 @@ class BotService : Service() {
                     tokensToRemove.add(mint)
                     addLog("😴 IDLE PHASE: ${ts.symbol} - no activity", mint)
                     marketScanner?.markTokenRejected(mint)
+                    GlobalTradeRegistry.registerRejection(mint, ts.symbol, "idle_phase", "CLEANUP")
                     continue
                 }
                 
@@ -2286,6 +2320,7 @@ class BotService : Service() {
                     tokensToRemove.add(mint)
                     addLog("💀 BAD PHASE: ${ts.symbol} (${ts.phase})", mint)
                     marketScanner?.markTokenRejected(mint)
+                    GlobalTradeRegistry.registerRejection(mint, ts.symbol, ts.phase, "CLEANUP")
                     continue
                 }
                 
@@ -2294,6 +2329,7 @@ class BotService : Service() {
                     tokensToRemove.add(mint)
                     addLog("⏰ STALE: ${ts.symbol}", mint)
                     marketScanner?.markTokenRejected(mint)
+                    GlobalTradeRegistry.registerRejection(mint, ts.symbol, "stale", "CLEANUP")
                     continue
                 }
                 
@@ -2302,6 +2338,7 @@ class BotService : Service() {
                     tokensToRemove.add(mint)
                     addLog("💀 NO LIQ: ${ts.symbol}", mint)
                     marketScanner?.markTokenRejected(mint)
+                    GlobalTradeRegistry.registerRejection(mint, ts.symbol, "no_liquidity", "CLEANUP")
                     continue
                 }
                 
@@ -2311,6 +2348,7 @@ class BotService : Service() {
                     tokensToRemove.add(mint)
                     addLog("⏳ TIMEOUT: ${ts.symbol} - ${(maxWatchlistAge/60000)}min no trade", mint)
                     marketScanner?.markTokenRejected(mint)
+                    GlobalTradeRegistry.registerRejection(mint, ts.symbol, "timeout", "CLEANUP")
                     continue
                 }
                 
@@ -2320,6 +2358,7 @@ class BotService : Service() {
                     tokensToRemove.add(mint)
                     addLog("⏳ WAIT TIMEOUT: ${ts.symbol}", mint)
                     marketScanner?.markTokenRejected(mint)
+                    GlobalTradeRegistry.registerRejection(mint, ts.symbol, "wait_timeout", "CLEANUP")
                     continue
                 }
                 
@@ -2337,6 +2376,7 @@ class BotService : Service() {
                         tokensToRemove.add(mint)
                         addLog("📉 FLAT: ${ts.symbol}", mint)
                         marketScanner?.markTokenRejected(mint)
+                        GlobalTradeRegistry.registerRejection(mint, ts.symbol, "flat", "CLEANUP")
                         continue
                     }
                 }
@@ -2346,10 +2386,11 @@ class BotService : Service() {
             }
         }
         
-        // Apply removals
+        // V4.0: Apply removals via GlobalTradeRegistry (NOT ConfigStore directly)
         if (tokensToRemove.isNotEmpty()) {
-            val newWatchlist = currentWatchlist.filter { it !in tokensToRemove }
-            ConfigStore.save(applicationContext, cfg.copy(watchlist = newWatchlist))
+            for (mint in tokensToRemove) {
+                GlobalTradeRegistry.removeFromWatchlist(mint, "CLEANUP")
+            }
             
             // Also remove from status.tokens
             tokensToRemove.forEach { mint ->
@@ -2358,8 +2399,9 @@ class BotService : Service() {
                 }
             }
             
-            ErrorLogger.info("BotService", "Watchlist cleanup: removed ${tokensToRemove.size} tokens, now ${newWatchlist.size} remaining")
-            addLog("🧹 Cleanup: -${tokensToRemove.size} | now ${newWatchlist.size}")
+            val newSize = GlobalTradeRegistry.size()
+            ErrorLogger.info("BotService", "Watchlist cleanup: removed ${tokensToRemove.size} tokens, now $newSize remaining (GlobalTradeRegistry)")
+            addLog("🧹 Cleanup: -${tokensToRemove.size} | now $newSize")
         }
     }
 
