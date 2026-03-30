@@ -44,18 +44,25 @@ object TokenMergeQueue {
     private const val PROCESS_INTERVAL_MS = 2_000L  // 2 seconds
     
     // Scanner confidence rankings (higher = better)
+    // V5.0: DRASTICALLY lowered single-source confidence
+    // PUMP_FUN_GRADUATE was flooding the registry at conf=80
     private val scannerConfidence = mapOf(
-        "DEX_BOOSTED" to 90,
-        "V3_PREMIUM" to 85,
-        "PUMP_FUN_GRADUATE" to 80,
-        "WHALE_COPY" to 75,
-        "RAYDIUM_NEW" to 70,
-        "MOONSHOT" to 65,
-        "V3_SCANNER" to 60,
-        "SOCIAL_TRENDING" to 55,
-        "USER_ADDED" to 50,
-        "UNKNOWN" to 40,
+        "DEX_BOOSTED" to 60,           // Was 90 - still needs multi-source
+        "V3_PREMIUM" to 55,            // Was 85
+        "PUMP_FUN_GRADUATE" to 35,     // Was 80 - THIS WAS THE BUG
+        "WHALE_COPY" to 50,            // Was 75
+        "RAYDIUM_NEW_POOL" to 40,      // Was 70
+        "RAYDIUM_NEW" to 40,           // Was 70
+        "MOONSHOT" to 45,              // Was 65
+        "V3_SCANNER" to 40,            // Was 60
+        "SOCIAL_TRENDING" to 35,       // Was 55
+        "DEX_TRENDING" to 45,          // Added
+        "USER_ADDED" to 30,            // Was 50
+        "UNKNOWN" to 20,               // Was 40
     )
+    
+    // Multi-source boost - only significant conf comes from confirmation
+    private const val MULTI_SOURCE_BOOST = 25  // Bonus for 2+ sources
     
     // Pending discoveries queue
     private val pendingDiscoveries = ConcurrentHashMap<String, MergeEntry>()
@@ -213,24 +220,25 @@ object TokenMergeQueue {
     
     /**
      * Calculate combined confidence from multiple scanners.
-     * Multi-scanner detection increases confidence.
+     * V5.0: Much more conservative - single source stays LOW
+     * Multi-scanner detection increases confidence significantly.
      */
     private fun calculateMergedConfidence(scanners: Set<String>): Int {
-        if (scanners.isEmpty()) return 40
+        if (scanners.isEmpty()) return 20
         
-        // Start with best scanner's confidence
-        val baseConfidence = scanners.maxOfOrNull { scannerConfidence[it] ?: 40 } ?: 40
+        // Start with best scanner's confidence (now much lower)
+        val baseConfidence = scanners.maxOfOrNull { scannerConfidence[it] ?: 20 } ?: 20
         
-        // Add bonus for each additional scanner (diminishing returns)
-        val bonusPerScanner = when (scanners.size) {
-            1 -> 0
-            2 -> 10   // +10 for 2nd scanner
-            3 -> 15   // +5 for 3rd
-            4 -> 18   // +3 for 4th
-            else -> 20  // cap at +20
+        // V5.0: Only boost if MULTIPLE sources confirm
+        // Single source stays at base (which is now 35-60 max)
+        val multiSourceBonus = when (scanners.size) {
+            1 -> 0                        // NO BONUS for single source!
+            2 -> MULTI_SOURCE_BOOST       // +25 for confirmation
+            3 -> MULTI_SOURCE_BOOST + 10  // +35 for triple confirm
+            else -> MULTI_SOURCE_BOOST + 15  // +40 cap
         }
         
-        return (baseConfidence + bonusPerScanner).coerceAtMost(100)
+        return (baseConfidence + multiSourceBonus).coerceAtMost(95)
     }
     
     // ═══════════════════════════════════════════════════════════════════════════

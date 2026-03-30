@@ -833,6 +833,10 @@ class SolanaMarketScanner(
     private val dex        = DexscreenerApi()
     private val coingecko  = CoinGeckoTrending()
     
+    // V5.0: RC score cache for eligibility checks
+    // Key = mint, Value = rugcheck score (0-100)
+    private val rcScoreCache = ConcurrentHashMap<String, Int>()
+    
     // Use a mutable scope that can be recreated when starting
     private var scope: CoroutineScope? = null
     private var scanJob: Job? = null
@@ -858,6 +862,12 @@ class SolanaMarketScanner(
     
     // Scan rotation - alternate between different scan sources for variety
     @Volatile private var scanRotation = 0
+    
+    /**
+     * V5.0: Get cached RC score for a mint
+     * Returns null if not cached
+     */
+    fun getCachedRcScore(mint: String): Int? = rcScoreCache[mint]
     
     // Running state
     @Volatile private var isRunning = false
@@ -2583,12 +2593,16 @@ class SolanaMarketScanner(
             val scoreNormalized = json.optInt("score_normalised", json.optInt("score", 50))
             val rugged = json.optString("rugged", "").lowercase()
             
+            // V5.0: Cache the RC score for eligibility checks
+            rcScoreCache[mint] = scoreNormalized
+            
             // ═══════════════════════════════════════════════════════════════════
-            // V3 MIGRATION: ONLY block CONFIRMED rugs
+            // V5.0 MIGRATION: RC IS NOW A HARD GATE, not advisory!
             // 
-            // - rugged=true → FATAL BLOCK (confirmed rug pull, tokens worthless)
-            // - score < 5 AND honeypot/freeze flags → FATAL BLOCK (unsellable)
-            // - Everything else → PASS (V3 will handle as penalty in scorer)
+            // - rugged=true → FATAL BLOCK (confirmed rug pull)
+            // - RC <= 3 → HARD BLOCK (catastrophic safety)
+            // - RC 4-10 → BLOCK (dangerous) - let FDG handle as shadow
+            // - RC > 10 → PASS (V3 will score it)
             // ═══════════════════════════════════════════════════════════════════
             
             // CONFIRMED RUG = always block (token is worthless)
@@ -2598,33 +2612,23 @@ class SolanaMarketScanner(
                 return false
             }
             
-            // Check for honeypot/freeze risk at extremely low scores
-            if (scoreNormalized < 5) {
-                // Look for specific fatal risks in the response
-                val risks = json.optJSONArray("risks")
-                var hasFatalRisk = false
-                if (risks != null) {
-                    for (i in 0 until risks.length()) {
-                        val risk = risks.optJSONObject(i)?.optString("name", "")?.lowercase() ?: ""
-                        if (risk.contains("honeypot") || risk.contains("freeze") || 
-                            risk.contains("blacklist") || risk.contains("unsellable")) {
-                            hasFatalRisk = true
-                            break
-                        }
-                    }
-                }
-                
-                if (hasFatalRisk) {
-                    onLog("🚫 HONEYPOT: ${mint.take(8)}... (unsellable)")
-                    ErrorLogger.info("Scanner", "quickRugcheck FATAL: ${mint.take(12)} score=$scoreNormalized + honeypot risk")
-                    return false
-                }
+            // V5.0: RC <= 3 = HARD BLOCK (no exceptions!)
+            if (scoreNormalized <= 3) {
+                onLog("🚫 RC HARD BLOCK: ${mint.take(8)}... score=$scoreNormalized (catastrophic)")
+                ErrorLogger.info("Scanner", "RC HARD_BLOCK: ${mint.take(12)} score=$scoreNormalized <= 3")
+                return false
             }
             
-            // PASS EVERYTHING ELSE - V3 scorer will apply appropriate penalty
-            // Log for visibility but don't block
-            if (scoreNormalized < 20) {
-                ErrorLogger.debug("Scanner", "RC ${mint.take(8)}: score=$scoreNormalized (V3 will penalize)")
+            // V5.0: RC 4-10 = BLOCK (dangerous)
+            if (scoreNormalized in 4..10) {
+                onLog("🚫 RC BLOCK: ${mint.take(8)}... score=$scoreNormalized (dangerous)")
+                ErrorLogger.info("Scanner", "RC BLOCK: ${mint.take(12)} score=$scoreNormalized (4-10)")
+                return false
+            }
+            
+            // RC 11-20: Log warning but pass - V3 will handle
+            if (scoreNormalized in 11..20) {
+                ErrorLogger.debug("Scanner", "RC ${mint.take(8)}: score=$scoreNormalized (low - V3 caution)")
             }
             
             return true  // Pass - V3 handles risk scoring

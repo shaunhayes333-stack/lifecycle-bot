@@ -608,6 +608,7 @@ class BotService : Service() {
                             // ═══════════════════════════════════════════════════════════════════
                             // STAGE 2: ELIGIBILITY CHECKS (filter junk before watchlisting)
                             // V4.20: DUAL ELIGIBILITY GATES - Paper vs Live
+                            // V5.0: RC is now checked in Scanner (hard gate at RC <= 10)
                             // 
                             // Paper mode: Loose gates for learning (score >= 35, liq >= $3K)
                             // Live mode: Strict gates for capital protection (score >= 65, liq >= $8K)
@@ -664,11 +665,21 @@ class BotService : Service() {
                             // ═══════════════════════════════════════════════════════════════════
                             
                             // Check 3a: Watchlist capacity via GlobalTradeRegistry
+                            // V5.0: MUCH TIGHTER LIMITS in bootstrap mode
                             val currentWatchlistSize = GlobalTradeRegistry.size()
-                            val effectiveMaxWatchlist = if (c.paperMode) 100 else c.maxWatchlistSize
+                            val learningProgress = com.lifecyclebot.v3.scoring.FluidLearningAI.getLearningProgress()
+                            val isBootstrap = learningProgress < 0.3  // First 30% of learning
+                            
+                            // Bootstrap: max 10 | Normal paper: max 30 | Live: user setting
+                            val effectiveMaxWatchlist = when {
+                                isBootstrap && c.paperMode -> 10  // V5.0: Tight budget during bootstrap
+                                c.paperMode -> 30                  // Normal paper mode
+                                else -> c.maxWatchlistSize         // Live mode uses user setting
+                            }
+                            
                             if (currentWatchlistSize >= effectiveMaxWatchlist) {
                                 TradeLifecycle.filtered(identity.mint, "Watchlist full (${currentWatchlistSize}/${effectiveMaxWatchlist})")
-                                ErrorLogger.debug("BotService", "FILTERED: ${identity.symbol} - watchlist full")
+                                ErrorLogger.debug("BotService", "FILTERED: ${identity.symbol} - watchlist full (bootstrap=$isBootstrap)")
                                 return@SolanaMarketScanner
                             }
                             

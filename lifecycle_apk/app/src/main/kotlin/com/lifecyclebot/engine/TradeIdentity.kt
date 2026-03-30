@@ -174,6 +174,7 @@ data class TradeIdentity(
     // ═══════════════════════════════════════════════════════════════════════════
     var discoveryScore: Double = 0.0,
     var phase: String = "",
+    var rugcheckScore: Int? = null,  // V5.0: RC score for hard gating (-1 = not fetched)
     
     // ═══════════════════════════════════════════════════════════════════════════
     // FDG DECISION
