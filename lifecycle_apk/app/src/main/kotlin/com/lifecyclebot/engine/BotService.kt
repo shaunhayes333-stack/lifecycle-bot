@@ -3446,7 +3446,7 @@ class BotService : Service() {
                                     liquidity = ts.lastLiquidityUsd,
                                 )
                                 
-                                if (authResult.verdict != TradeAuthorizer.ExecutionVerdict.APPROVE) {
+                                if (!authResult.isExecutable()) {
                                     ErrorLogger.debug("BotService", "🚀 [MOONSHOT] ${ts.symbol} | AUTH_DENIED | ${authResult.reason}")
                                 } else {
                                     // Acquire final execution permit
