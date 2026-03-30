@@ -4195,9 +4195,12 @@ class BotService : Service() {
             com.lifecyclebot.v3.learning.ShadowLearningEngine.recordShadowAvoid(
                 mint = mint,
                 symbol = identity.symbol,
-                reason = "TRADE_AUTH_${authResult.reason}",
-                confidence = fdgDecision.confidence,
-                entryPrice = ts.ref
+                price = ts.ref,
+                aiConfidence = fdgDecision.confidence.toInt(),
+                setupQuality = fdgDecision.quality,
+                regime = botBrain?.currentRegime ?: "UNKNOWN",
+                mode = if (cfg.paperMode) "PAPER" else "LIVE",
+                blockReason = "TRADE_AUTH_${authResult.reason}"
             )
             return // Skip execution entirely
         }

@@ -487,13 +487,30 @@ object ConfigStore {
         ctx.getSharedPreferences(FILE, Context.MODE_PRIVATE)
 
     private fun secrets(ctx: Context): android.content.SharedPreferences {
-        val masterKey = MasterKey.Builder(ctx)
-            .setKeyScheme(MasterKey.KeyScheme.AES256_GCM)
-            .build()
-        return EncryptedSharedPreferences.create(
-            ctx, KEY_FILE, masterKey,
-            EncryptedSharedPreferences.PrefKeyEncryptionScheme.AES256_SIV,
-            EncryptedSharedPreferences.PrefValueEncryptionScheme.AES256_GCM
-        )
+        try {
+            val masterKey = MasterKey.Builder(ctx)
+                .setKeyScheme(MasterKey.KeyScheme.AES256_GCM)
+                .build()
+            return EncryptedSharedPreferences.create(
+                ctx, KEY_FILE, masterKey,
+                EncryptedSharedPreferences.PrefKeyEncryptionScheme.AES256_SIV,
+                EncryptedSharedPreferences.PrefValueEncryptionScheme.AES256_GCM
+            )
+        } catch (e: Exception) {
+            // V5.0: If encryption fails (e.g., key changed after app update),
+            // fall back to unencrypted storage to preserve user data.
+            // This can happen when signing key changes between versions.
+            android.util.Log.w("ConfigStore", "EncryptedPrefs failed, using fallback: ${e.message}")
+            
+            // Try to recover by clearing corrupted encrypted storage and using regular prefs
+            try {
+                // Clear the corrupted encrypted file
+                ctx.getSharedPreferences(KEY_FILE, Context.MODE_PRIVATE).edit().clear().apply()
+            } catch (_: Exception) {}
+            
+            // Return regular SharedPreferences as fallback
+            // User will need to re-enter API keys once, but data won't be lost on future updates
+            return ctx.getSharedPreferences("${KEY_FILE}_fallback", Context.MODE_PRIVATE)
+        }
     }
 }
