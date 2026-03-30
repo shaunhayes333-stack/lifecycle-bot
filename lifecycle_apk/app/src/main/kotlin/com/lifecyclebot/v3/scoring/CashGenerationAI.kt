@@ -64,9 +64,11 @@ object CashGenerationAI {
     private const val POSITION_SCALE_FACTOR = 1.15    // Scale up slightly on A+ setups
     
     // Exit strategy (QUICK SCALPS 3.5-7% - V4.0: 3.5% target, max 7% per user request)
-    private const val TAKE_PROFIT_PCT = 3.5           // Quick 3.5% scalp target (V4.0: per user request)
-    private const val TAKE_PROFIT_MIN_PCT = 3.0       // Minimum acceptable profit (must cover fees)
-    private const val TAKE_PROFIT_MAX_PCT = 7.0       // Exit by 7% no matter what (V4.0: per user request)
+    // V4.20: Lowered take profit thresholds to grab quick gains
+    // User seeing 4%+ flashes but TP was at 3.5% - peaks only hitting 2%
+    private const val TAKE_PROFIT_PCT = 2.5           // Quick 2.5% scalp target (was 3.5%)
+    private const val TAKE_PROFIT_MIN_PCT = 2.0       // Early exit at 2% after 3 mins (was 3.0%)
+    private const val TAKE_PROFIT_MAX_PCT = 6.0       // Exit by 6% no matter what (was 7%)
     private const val STOP_LOSS_PCT = -2.0            // Cut at -2%, no exceptions
     private const val TRAILING_STOP_PCT = 2.0         // Tight 2% trail after profit
     private const val MAX_HOLD_MINUTES = 8            // Quick scalps - don't hold long
@@ -600,8 +602,8 @@ object CashGenerationAI {
             return ExitSignal.TIME_EXIT
         }
         
-        // 6. EARLY EXIT if profitable enough after 4 mins
-        if (holdMinutes >= 4 && pnlPct >= TAKE_PROFIT_MIN_PCT) {
+        // 6. EARLY EXIT if profitable enough after 3 mins (was 4 mins)
+        if (holdMinutes >= 3 && pnlPct >= TAKE_PROFIT_MIN_PCT) {
             ErrorLogger.info(TAG, "💰 TREASURY EARLY TP: ${pos.symbol} | +${pnlPct.fmt(1)}% @ ${holdMinutes}min")
             return ExitSignal.TAKE_PROFIT
         }

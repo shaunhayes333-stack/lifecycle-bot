@@ -527,15 +527,17 @@ object BlueChipTraderAI {
     // FLUID THRESHOLDS - Blue Chip specific
     // ═══════════════════════════════════════════════════════════════════════════
     
+    // V4.20: BlueChip gets slightly higher thresholds than other layers
+    // but still lowered by 5 points (not 8) to allow quality paper trades
     // Bootstrap thresholds - STRICT (Blue Chip is quality-focused)
-    private const val BC_SCORE_BOOTSTRAP = 50       // Higher than Treasury
-    private const val BC_SCORE_MATURE = 35          // Loosen as we learn
+    private const val BC_SCORE_BOOTSTRAP = 40       // Lowered from 50 to find quality trades
+    private const val BC_SCORE_MATURE = 30          // Loosen as we learn
     
-    // V4.1.2: Lowered bootstrap conf from 55% to 25% + boost system
-    // Same pattern as ShitCoin - allows learning while filtering garbage
-    private const val BC_CONF_BOOTSTRAP = 25        // Start lower to allow learning
-    private const val BC_CONF_MATURE = 50           // Build up to 50% as we scale
-    private const val BC_CONF_BOOST_MAX = 10.0      // 10% bootstrap boost (decays as we learn)
+    // V4.20: Lowered bootstrap conf from 25% to 20% (only 5 points)
+    // BlueChip should be pickier but still able to learn
+    private const val BC_CONF_BOOTSTRAP = 20        // Lowered by 5 points
+    private const val BC_CONF_MATURE = 45           // Lowered from 50%
+    private const val BC_CONF_BOOST_MAX = 12.0      // 12% bootstrap boost
     
     private const val BC_LIQ_BOOTSTRAP = 75_000.0   // Higher than Treasury
     private const val BC_LIQ_MATURE = 50_000.0      // Can take lower liq when experienced

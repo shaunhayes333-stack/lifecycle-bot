@@ -421,18 +421,19 @@ object FinalDecisionGate {
     // ALL modes (paper, live, all trading strategies) use the SAME floor on
     // day 1, then scale up as the AI matures through trade experience.
     //
-    // Bootstrap (0 trades):   30% confidence floor (FDG hard minimum)
-    // Mature (500+ trades):   75% confidence (strict filtering)
+    // V4.20: Lowered all floors by 8 points - too many quality trades blocked
+    // Bootstrap (0 trades):   22% confidence floor (was 30%)
+    // Mature (500+ trades):   67% confidence (was 75%)
     //
     // This allows the bot to learn from a wide variety of trades initially,
     // then naturally becomes more selective as it understands what works.
     // ═══════════════════════════════════════════════════════════════════════════
     
-    private const val CONF_FLOOR_BOOTSTRAP = 30.0    // Starting floor (same as hard minimum)
-    private const val CONF_FLOOR_MATURE = 75.0       // Target floor after learning
+    private const val CONF_FLOOR_BOOTSTRAP = 22.0    // V4.20: Lowered by 8 points
+    private const val CONF_FLOOR_MATURE = 67.0       // V4.20: Lowered by 8 points
     
     // Base confidence thresholds (LEGACY - now uses fluid scaling)
-    var paperConfidenceBase = 15.0          // Paper mode: 15% minimum (don't learn from garbage)
+    var paperConfidenceBase = 7.0           // V4.20: Lowered from 15%
     var liveConfidenceBase = 0.0           // ZEROED - let trades flow while brain learns (auto-adjusts)
     
     // ═══════════════════════════════════════════════════════════════════════════
@@ -1444,10 +1445,11 @@ object FinalDecisionGate {
             rawConfidence
         }
         
+        // V4.20: Lowered all confidence floors by 8 points
         // V4.1.2: Even bootstrap has a minimum floor - don't learn from complete garbage
-        val BOOTSTRAP_MIN_CONFIDENCE = 15.0
+        val BOOTSTRAP_MIN_CONFIDENCE = 7.0  // V4.20: was 15%, lowered by 8
         if (confidence < BOOTSTRAP_MIN_CONFIDENCE) {
-            ErrorLogger.debug("FDG", "🚫 BOOTSTRAP_FLOOR: ${ts.symbol} | conf=${confidence.toInt()}% < 15% | " +
+            ErrorLogger.debug("FDG", "🚫 BOOTSTRAP_FLOOR: ${ts.symbol} | conf=${confidence.toInt()}% < 7% | " +
                 "TOO_LOW_EVEN_FOR_LEARNING")
             
             return FinalDecision(
@@ -1457,26 +1459,26 @@ object FinalDecisionGate {
                 quality = candidate.setupQuality,
                 confidence = confidence,
                 edge = EdgeVerdict.SKIP,
-                blockReason = "BOOTSTRAP_MIN_CONFIDENCE_15%",
+                blockReason = "BOOTSTRAP_MIN_CONFIDENCE_7%",
                 blockLevel = BlockLevel.CONFIDENCE,
                 sizeSol = 0.0,
-                tags = listOf("bootstrap_floor_15", "too_low_to_learn"),
+                tags = listOf("bootstrap_floor_7", "too_low_to_learn"),
                 mint = ts.mint,
                 symbol = ts.symbol,
-                approvalReason = "BOOTSTRAP_MIN: conf=${confidence.toInt()}% < 15% (even learning has standards)",
-                gateChecks = listOf(GateCheck("bootstrap_min_conf", false, "conf < 15% is garbage even for learning"))
+                approvalReason = "BOOTSTRAP_MIN: conf=${confidence.toInt()}% < 7% (even learning has standards)",
+                gateChecks = listOf(GateCheck("bootstrap_min_conf", false, "conf < 7% is garbage even for learning"))
             )
         }
         
-        if (canBypassConfidenceFloors && confidence < 30.0) {
+        if (canBypassConfidenceFloors && confidence < 22.0) {
             // Bootstrap override: Allow learning even with low confidence
             ErrorLogger.info("FDG", "🎓 BOOTSTRAP_OVERRIDE: ${ts.symbol} | conf=${confidence.toInt()}% | " +
                 "Bypassing confidence floor for learning (progress=${(learningProgress*100).toInt()}%)")
             tags.add("bootstrap_learning")
             // Don't return - continue to other checks
-        } else if (confidence < 30.0) {
-            // Rule 1: conf < 30 is garbage - never trade in live mode
-            ErrorLogger.warn("FDG", "🚫 HARD_KILL: ${ts.symbol} | conf=${confidence.toInt()}% < 30% | " +
+        } else if (confidence < 22.0) {
+            // Rule 1: conf < 22 is garbage - never trade in live mode (was 30%)
+            ErrorLogger.warn("FDG", "🚫 HARD_KILL: ${ts.symbol} | conf=${confidence.toInt()}% < 22% | " +
                 "CONFIDENCE_FLOOR_VIOLATED")
             
             return FinalDecision(
@@ -1486,19 +1488,19 @@ object FinalDecisionGate {
                 quality = candidate.setupQuality,
                 confidence = confidence,
                 edge = EdgeVerdict.SKIP,
-                blockReason = "CONFIDENCE_FLOOR_30%",
+                blockReason = "CONFIDENCE_FLOOR_22%",
                 blockLevel = BlockLevel.CONFIDENCE,
                 sizeSol = 0.0,
-                tags = listOf("confidence_floor_30", "hard_kill"),
+                tags = listOf("confidence_floor_22", "hard_kill"),
                 mint = ts.mint,
                 symbol = ts.symbol,
-                approvalReason = "HARD_CONFIDENCE_FLOOR: conf=${confidence.toInt()}% < 30%",
-                gateChecks = listOf(GateCheck("confidence_floor_30", false, "conf < 30% is garbage"))
+                approvalReason = "HARD_CONFIDENCE_FLOOR: conf=${confidence.toInt()}% < 22%",
+                gateChecks = listOf(GateCheck("confidence_floor_22", false, "conf < 22% is garbage"))
             )
         }
         
-        // Rule 2: conf < 35 AND C-grade - marginal + low quality = reject (unless bootstrap)
-        if (confidence < 35.0 && isCGrade && !canBypassConfidenceFloors) {
+        // Rule 2: conf < 27 AND C-grade - marginal + low quality = reject (was 35%)
+        if (confidence < 27.0 && isCGrade && !canBypassConfidenceFloors) {
             ErrorLogger.warn("FDG", "🚫 HARD_KILL: ${ts.symbol} | conf=${confidence.toInt()}% + quality=${candidate.setupQuality} | " +
                 "C_GRADE_CONFIDENCE_FLOOR_VIOLATED")
             
@@ -1509,19 +1511,19 @@ object FinalDecisionGate {
                 quality = candidate.setupQuality,
                 confidence = confidence,
                 edge = EdgeVerdict.SKIP,
-                blockReason = "C_GRADE_CONFIDENCE_FLOOR_35%",
+                blockReason = "C_GRADE_CONFIDENCE_FLOOR_27%",
                 blockLevel = BlockLevel.CONFIDENCE,
                 sizeSol = 0.0,
                 tags = listOf("c_grade_confidence_floor", "hard_kill"),
                 mint = ts.mint,
                 symbol = ts.symbol,
-                approvalReason = "C-GRADE + conf < 35% = REJECT",
-                gateChecks = listOf(GateCheck("c_grade_conf_floor", false, "C-grade requires conf >= 35%"))
+                approvalReason = "C-GRADE + conf < 27% = REJECT",
+                gateChecks = listOf(GateCheck("c_grade_conf_floor", false, "C-grade requires conf >= 27%"))
             )
         }
         
-        // Rule 3: conf < 40 AND AI degraded - blind trading = reject (unless bootstrap)
-        if (confidence < 40.0 && earlyAIDegraded && !canBypassConfidenceFloors) {
+        // Rule 3: conf < 32 AND AI degraded - blind trading = reject (was 40%)
+        if (confidence < 32.0 && earlyAIDegraded && !canBypassConfidenceFloors) {
             ErrorLogger.warn("FDG", "🚫 HARD_KILL: ${ts.symbol} | conf=${confidence.toInt()}% + AI_DEGRADED | " +
                 "DEGRADED_AI_CONFIDENCE_FLOOR_VIOLATED")
             
@@ -1532,14 +1534,14 @@ object FinalDecisionGate {
                 quality = candidate.setupQuality,
                 confidence = confidence,
                 edge = EdgeVerdict.SKIP,
-                blockReason = "AI_DEGRADED_CONFIDENCE_FLOOR_40%",
+                blockReason = "AI_DEGRADED_CONFIDENCE_FLOOR_32%",
                 blockLevel = BlockLevel.CONFIDENCE,
                 sizeSol = 0.0,
                 tags = listOf("ai_degraded_confidence_floor", "hard_kill"),
                 mint = ts.mint,
                 symbol = ts.symbol,
-                approvalReason = "AI_DEGRADED + conf < 40% = REJECT",
-                gateChecks = listOf(GateCheck("ai_degraded_conf_floor", false, "Degraded AI requires conf >= 40%"))
+                approvalReason = "AI_DEGRADED + conf < 32% = REJECT",
+                gateChecks = listOf(GateCheck("ai_degraded_conf_floor", false, "Degraded AI requires conf >= 32%"))
             )
         }
         

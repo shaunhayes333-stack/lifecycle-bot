@@ -607,39 +607,56 @@ class BotService : Service() {
                             
                             // ═══════════════════════════════════════════════════════════════════
                             // STAGE 2: ELIGIBILITY CHECKS (filter junk before watchlisting)
-                            // Minimum prerequisites: liquidity, safety, not banned
+                            // V4.20: DUAL ELIGIBILITY GATES - Paper vs Live
+                            // 
+                            // Paper mode: Loose gates for learning (score >= 35, liq >= $3K)
+                            // Live mode: Strict gates for capital protection (score >= 65, liq >= $8K)
                             // ═══════════════════════════════════════════════════════════════════
                             
-                            // Check 2a: MINIMUM LIQUIDITY (most important filter!)
-                            // Zero-liq tokens are untradeable junk - don't waste watchlist space
-                            // V3.2: Raised floors to reduce watchlist clutter
-                            //   - Watch/Shadow floor: $2K (was $500 paper, $3K live)
-                            //   - Execution floor: $10K (enforced in BotOrchestrator)
-                            val minLiquidity = if (c.paperMode) 2000.0 else 2000.0  // $2K unified floor
+                            // Define dual eligibility thresholds
+                            val paperMinLiquidity = 3000.0   // $3K for paper exploration
+                            val liveMinLiquidity = 8000.0    // $8K for live capital protection
+                            val paperMinScore = 35.0          // Lower bar for learning
+                            val liveMinScore = 65.0           // Higher bar for live execution
+                            
+                            // Check 2a: MINIMUM LIQUIDITY (mode-dependent)
+                            val minLiquidity = if (c.paperMode) paperMinLiquidity else liveMinLiquidity
                             if (liquidityUsd < minLiquidity) {
                                 TradeLifecycle.ineligible(identity.mint, "Liquidity too low: $${liquidityUsd.toInt()} < $${minLiquidity.toInt()}")
                                 ErrorLogger.debug("BotService", "INELIGIBLE: ${identity.symbol} - liq $${liquidityUsd.toInt()} < $${minLiquidity.toInt()}")
                                 return@SolanaMarketScanner
                             }
                             
-                            // Check 2b: Blacklist (skip in paper mode - we want to learn)
+                            // Check 2b: Blacklist (always check in live, optional in paper)
                             if (!c.paperMode && TokenBlacklist.isBlocked(identity.mint)) {
                                 TradeLifecycle.ineligible(identity.mint, "Blacklisted")
                                 ErrorLogger.debug("BotService", "INELIGIBLE: ${identity.symbol} - blacklisted")
                                 return@SolanaMarketScanner
                             }
                             
-                            // Check 2c: Minimum score threshold
-                            val minScore = if (c.paperMode) 30.0 else 40.0
+                            // Check 2c: Minimum score threshold (mode-dependent)
+                            val minScore = if (c.paperMode) paperMinScore else liveMinScore
                             if (score < minScore) {
                                 TradeLifecycle.ineligible(identity.mint, "Score too low: $score < $minScore")
                                 ErrorLogger.debug("BotService", "INELIGIBLE: ${identity.symbol} - score $score < $minScore")
                                 return@SolanaMarketScanner
                             }
                             
+                            // V4.20: Additional live-mode strictness
+                            // In live mode, also require stronger fundamentals
+                            if (!c.paperMode) {
+                                // Reject very low scores even if above threshold but marginal
+                                if (score < 70.0 && liquidityUsd < 12000.0) {
+                                    TradeLifecycle.ineligible(identity.mint, "Live mode: marginal quality (score=$score, liq=$${liquidityUsd.toInt()})")
+                                    ErrorLogger.debug("BotService", "INELIGIBLE (LIVE): ${identity.symbol} - marginal quality")
+                                    return@SolanaMarketScanner
+                                }
+                            }
+                            
                             // Mark as ELIGIBLE (passed all prereqs)
-                            identity.eligible(score, "Passed eligibility checks")
-                            TradeLifecycle.eligible(identity.mint, score, "liq=$${liquidityUsd.toInt()}, score=$score")
+                            val modeLabel = if (c.paperMode) "PAPER" else "LIVE"
+                            identity.eligible(score, "Passed $modeLabel eligibility")
+                            TradeLifecycle.eligible(identity.mint, score, "[$modeLabel] liq=$${liquidityUsd.toInt()}, score=$score")
                             
                             // ═══════════════════════════════════════════════════════════════════
                             // STAGE 3: WATCHLIST ADMISSION (capacity check)
@@ -3841,15 +3858,16 @@ class BotService : Service() {
     
     // ───────────────────────────────────────────────────────────────────
     // HARD GATE 2: Block C-grade + low confidence
+    // V4.20: Lowered all floors by 8 points
     // V4.0: Use FLUID threshold instead of hardcoded 35%
-    // At 12% learning, floor should be ~20% not 35%
+    // At 12% learning, floor should be ~10% not 18%
     // ───────────────────────────────────────────────────────────────────
     val isCGrade = decision.setupQuality == "C" || decision.setupQuality == "D"
     val fluidCGradeConfFloor = try {
         val learningProgress = com.lifecyclebot.v3.scoring.FluidLearningAI.getLearningProgress()
-        // 18% at bootstrap → 35% at mature
-        (18 + (learningProgress * 17)).toInt().coerceIn(18, 35)
-    } catch (_: Exception) { 25 }
+        // V4.20: 10% at bootstrap → 27% at mature (lowered by 8 points)
+        (10 + (learningProgress * 17)).toInt().coerceIn(10, 27)
+    } catch (_: Exception) { 15 }
     
     if (isCGrade && confValue < fluidCGradeConfFloor) {
         ErrorLogger.info("BotService", "[V3|PROMOTION_GATE] ${identity.symbol} | allow=false | " +

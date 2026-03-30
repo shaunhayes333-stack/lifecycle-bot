@@ -57,9 +57,9 @@ object ShitCoinTraderAI {
     // CONFIGURATION - Tailored for micro-cap memecoins
     // ═══════════════════════════════════════════════════════════════════════════
     
-    // Market cap filter - MAXIMUM $30K (true shitcoin/new launch zone)
-    // V4.1: Reduced from $500K - that was way too ranged!
-    private const val MAX_MARKET_CAP_USD = 30_000.0
+    // Market cap filter - V4.20: Raised to $500K for realistic shitcoin range
+    // Tokens under $500K mcap are true degen plays
+    private const val MAX_MARKET_CAP_USD = 500_000.0
     private const val MIN_MARKET_CAP_USD = 1_000.0  // Must have SOME value
     
     // Liquidity requirements - LOWER than other layers (micro-caps have less)
@@ -71,8 +71,9 @@ object ShitCoinTraderAI {
     private const val MAX_POSITION_SOL = 0.20         // Never exceed 0.2 SOL per shitcoin
     private const val MAX_CONCURRENT_POSITIONS = 5    // Max 5 shitcoin positions at once
     
-    // Daily limits
-    private const val DAILY_MAX_LOSS_SOL = 0.5        // ~$75 daily loss limit for shitcoins
+    // V4.20: Removed daily loss limit - ShitCoin is now primary layer
+    // Loss prevention is handled by global stop-loss and position sizing
+    // private const val DAILY_MAX_LOSS_SOL = 0.5     // REMOVED - let it trade freely
     
     // Take profit / Stop loss - FLUID (adapts as bot learns)
     // Bootstrap: Tighter exits (quick wins, tight stops)
@@ -864,15 +865,16 @@ object ShitCoinTraderAI {
     // FLUID THRESHOLDS - ShitCoin specific
     // ═══════════════════════════════════════════════════════════════════════════
     
-    // Bootstrap thresholds - STRICT for shitcoins (high risk market)
-    private const val SC_SCORE_BOOTSTRAP = 45       // Higher bar at start
-    private const val SC_SCORE_MATURE = 30          // Loosen as we learn what works
+    // V4.20: Lowered bootstrap thresholds to allow more learning
+    // Bootstrap: score >= 25, conf >= 15%
+    // Mature: score >= 35, conf >= 45%
+    private const val SC_SCORE_BOOTSTRAP = 25         // Low bar to learn (was 45)
+    private const val SC_SCORE_MATURE = 35            // Tighten as we learn (was 30)
     
-    // V4.1.2: Lowered bootstrap conf from 50% to 25% + boost system
-    // Allows learning while still filtering garbage
-    private const val SC_CONF_BOOTSTRAP = 25        // Start lower to allow learning
-    private const val SC_CONF_MATURE = 50           // Build up to 50% as we scale
-    private const val SC_CONF_BOOST_MAX = 10.0      // 10% bootstrap boost (decays as we learn)
+    // V4.20: Further lowered bootstrap conf for degen learning
+    private const val SC_CONF_BOOTSTRAP = 15          // Start very low (was 25)
+    private const val SC_CONF_MATURE = 45             // Build up (was 50)
+    private const val SC_CONF_BOOST_MAX = 15.0        // 15% bootstrap boost (was 10)
     
     private fun lerp(bootstrap: Double, mature: Double): Double {
         val progress = FluidLearningAI.getLearningProgress()
@@ -907,12 +909,10 @@ object ShitCoinTraderAI {
     // ═══════════════════════════════════════════════════════════════════════════
     
     fun getCurrentMode(): ShitCoinMode {
-        val dailyPnl = dailyPnlSolBps.get() / 100.0
+        // V4.20: Removed daily loss limit - always hunting unless positioned
         val positionCount = activePositions.size
         
         return when {
-            dailyPnl <= -DAILY_MAX_LOSS_SOL -> ShitCoinMode.PAUSED
-            dailyPnl <= -DAILY_MAX_LOSS_SOL * 0.7 -> ShitCoinMode.CAUTIOUS
             positionCount > 0 -> ShitCoinMode.POSITIONED
             else -> ShitCoinMode.HUNTING
         }
@@ -959,7 +959,7 @@ object ShitCoinTraderAI {
         
         return ShitCoinStats(
             dailyPnlSol = dailyPnl,
-            dailyMaxLossSol = DAILY_MAX_LOSS_SOL,
+            dailyMaxLossSol = 0.0,  // V4.20: No daily loss limit
             dailyWins = dailyWins.get(),
             dailyLosses = dailyLosses.get(),
             dailyTradeCount = dailyTradeCount.get(),
