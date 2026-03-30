@@ -4,6 +4,12 @@ plugins {
     id("org.jetbrains.kotlin.plugin.serialization")
 }
 
+// Auto-incrementing version: Base version (420 for V4.20) + CI run number
+// This ensures every CI build has a higher versionCode for seamless updates
+val baseVersionCode = 420
+val ciBuildNumber = System.getenv("CI_BUILD_NUMBER")?.toIntOrNull() ?: 0
+val finalVersionCode = baseVersionCode + ciBuildNumber
+
 android {
     namespace = "com.lifecyclebot"
     compileSdk = 34
@@ -12,8 +18,8 @@ android {
         applicationId = "com.lifecyclebot.aate"
         minSdk = 26
         targetSdk = 34
-        versionCode = 420
-        versionName = "4.20.0"
+        versionCode = finalVersionCode
+        versionName = "4.20.$ciBuildNumber"
         
         // App name
         resValue("string", "app_name_override", "AATE")

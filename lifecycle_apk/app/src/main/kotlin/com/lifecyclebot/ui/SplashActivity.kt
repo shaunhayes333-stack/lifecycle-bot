@@ -20,6 +20,7 @@ import android.widget.FrameLayout
 import android.widget.ImageView
 import android.widget.TextView
 import androidx.appcompat.app.AppCompatActivity
+import com.lifecyclebot.BuildConfig
 import com.lifecyclebot.R
 import kotlin.math.cos
 import kotlin.math.sin
@@ -35,6 +36,7 @@ import kotlin.random.Random
  *   - Neural pathway particles twinkling from edges to center
  *   - Logo with pulsing glow effect
  *   - Smooth version and tagline fade-ins
+ *   - Version read from BuildConfig (auto-incremented by CI)
  */
 @SuppressLint("CustomSplashScreen")
 class SplashActivity : AppCompatActivity() {
@@ -43,7 +45,6 @@ class SplashActivity : AppCompatActivity() {
         private const val SPLASH_DURATION = 5000L
         private const val SCALE_DURATION = 2000L
         private const val PARTICLE_COUNT = 30
-        private const val VERSION_NAME = "4.20"
     }
     
     private val particles = mutableListOf<View>()
@@ -72,8 +73,8 @@ class SplashActivity : AppCompatActivity() {
         // Ensure logo is visible
         logo.alpha = 1f
         
-        // Set version
-        version.text = "v$VERSION_NAME"
+        // Set version from BuildConfig (auto-incremented by CI)
+        version.text = "v${BuildConfig.VERSION_NAME}"
         
         // Start neural pathway particle animation
         startParticleAnimation(particleContainer)

@@ -53,14 +53,14 @@
 
     </LinearLayout>
 
-    <!-- Version at bottom -->
+    <!-- Version at bottom (set from BuildConfig at runtime) -->
     <TextView
         android:id="@+id/tvSplashVersion"
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
         android:layout_gravity="bottom|center_horizontal"
         android:layout_marginBottom="80dp"
-        android:text="v4.20"
+        android:text=""
         android:textColor="#64D2D2"
         android:textSize="16sp"
         android:textStyle="bold"

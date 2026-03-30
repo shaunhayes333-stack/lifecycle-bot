@@ -11,6 +11,10 @@ jobs:
     defaults:
       run:
         working-directory: lifecycle_apk
+    
+    env:
+      # Pass GitHub run number to Gradle for auto-incrementing versionCode
+      CI_BUILD_NUMBER: ${{ github.run_number }}
 
     steps:
       - uses: actions/checkout@v4
@@ -50,5 +54,5 @@ jobs:
 
       - uses: actions/upload-artifact@v4
         with:
-          name: AATE_v4.20.0
+          name: AATE_v4.20.${{ github.run_number }}
           path: lifecycle_apk/app/build/outputs/apk/release/*.apk
