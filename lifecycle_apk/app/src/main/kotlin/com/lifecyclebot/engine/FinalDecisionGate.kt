@@ -680,6 +680,20 @@ object FinalDecisionGate {
             ErrorLogger.debug("FDG", "📊 FLUID CONF (PAPER): floor=${adaptiveFloor.toInt()}% | " +
                 "learning=${(learningProgress*100).toInt()}%")
             
+            // V4.20: Only log if state changed (reduces log spam)
+            val fdgState = EfficiencyLayer.createFdgState(
+                mode = "PAPER",
+                base = paperConfidenceBase.toInt(),
+                adj = 0,
+                final = adaptiveFloor.toInt(),
+                learning = (learningProgress * 100).toInt(),
+                bootstrap = learningProgress < 0.1
+            )
+            if (EfficiencyLayer.shouldLogFdgState(fdgState)) {
+                ErrorLogger.info("FDG", "📊 FLUID CONF (PAPER): floor=${adaptiveFloor.toInt()}% | " +
+                    "learning=${(learningProgress*100).toInt()}%")
+            }
+            
             return adaptiveFloor
         }
         
@@ -1007,8 +1021,19 @@ object FinalDecisionGate {
             CONF_FLOOR_MATURE + 5.0   // Max 80% 
         )
         
-        ErrorLogger.debug("FDG", "📊 FLUID CONF (LIVE): base=${baseConfidence.toInt()}% adj=${cappedAdjustment.toInt()}% " +
-            "final=${adaptive.toInt()}% | learning=${(learningProgress*100).toInt()}% | bootstrap=$isBootstrap")
+        // V4.20: Only log if state changed (reduces log spam)
+        val fdgState = EfficiencyLayer.createFdgState(
+            mode = "LIVE",
+            base = baseConfidence.toInt(),
+            adj = cappedAdjustment.toInt(),
+            final = adaptive.toInt(),
+            learning = (learningProgress * 100).toInt(),
+            bootstrap = isBootstrap
+        )
+        if (EfficiencyLayer.shouldLogFdgState(fdgState)) {
+            ErrorLogger.info("FDG", "📊 FLUID CONF (LIVE): base=${baseConfidence.toInt()}% adj=${cappedAdjustment.toInt()}% " +
+                "final=${adaptive.toInt()}% | learning=${(learningProgress*100).toInt()}% | bootstrap=$isBootstrap")
+        }
         
         return adaptive
     }

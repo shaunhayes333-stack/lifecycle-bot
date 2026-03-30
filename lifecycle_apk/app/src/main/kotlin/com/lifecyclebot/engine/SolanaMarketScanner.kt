@@ -2197,16 +2197,51 @@ class SolanaMarketScanner(
     // ── Filtering ─────────────────────────────────────────────────────
 
     private fun passesFilter(token: ScannedToken): Boolean {
+        // V4.20: Check if suppressed due to low liquidity (efficiency optimization)
+        if (EfficiencyLayer.isLiquiditySuppressed(token.mint)) {
+            ErrorLogger.debug("Scanner", "SKIP ${token.symbol}: liquidity-suppressed")
+            return false
+        }
+        
+        // V4.20: Check discovery cooldown - prevents duplicate processing across venues
+        val decision = EfficiencyLayer.shouldFullProcess(
+            mint = token.mint,
+            source = token.source.name,
+            liquidity = token.liquidityUsd,
+            score = token.score.toInt()
+        )
+        
+        if (!decision.shouldProcess) {
+            ErrorLogger.debug("Scanner", "SKIP ${token.symbol}: ${decision.reason}")
+            return false
+        }
+        
+        // V4.20: Record liquidity snapshot for fusion
+        val liqQuality = when (token.source) {
+            TokenSource.RAYDIUM_NEW_POOL -> EfficiencyLayer.LiqSourceQuality.DIRECT_POOL
+            TokenSource.DEX_BOOSTED, TokenSource.DEX_TRENDING -> EfficiencyLayer.LiqSourceQuality.DEX_AGGREGATOR
+            TokenSource.PUMP_FUN_NEW, TokenSource.PUMP_FUN_GRADUATE -> EfficiencyLayer.LiqSourceQuality.VERIFIED_PAIR
+            else -> EfficiencyLayer.LiqSourceQuality.ESTIMATED_MCAP
+        }
+        EfficiencyLayer.recordLiquidity(token.mint, token.liquidityUsd, token.source.name, liqQuality)
+        
         val passed = passesFilterInternal(token)
         if (!passed) {
             // Mark rejected tokens so we don't keep re-scanning them
             markRejected(token.mint)
+            
+            // V4.20: If rejected due to low liquidity, register for suppression
+            val c = cfg()
+            val liqFloor = if (c.paperMode) 100.0 else 3000.0
+            if (token.liquidityUsd < liqFloor && token.liquidityUsd > 0) {
+                EfficiencyLayer.registerLiquidityRejection(token.mint, token.liquidityUsd, liqFloor)
+            }
         } else {
             // Mark PASSING tokens as seen immediately to prevent duplicate processing
             // This prevents the same token from being evaluated multiple times
             // while waiting for rugcheck or other async operations
             seenMints[token.mint] = System.currentTimeMillis()
-            ErrorLogger.info("Scanner", "FILTER PASS ${token.symbol}: liq=\$${token.liquidityUsd.toInt()} score=${token.score.toInt()}")
+            ErrorLogger.info("Scanner", "FILTER PASS ${token.symbol}: liq=\$${token.liquidityUsd.toInt()} score=${token.score.toInt()} (${decision.reason})")
         }
         return passed
     }

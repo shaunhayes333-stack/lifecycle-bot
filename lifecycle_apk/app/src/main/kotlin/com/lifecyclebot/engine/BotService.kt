@@ -1527,6 +1527,12 @@ class BotService : Service() {
             // ═══════════════════════════════════════════════════════════════════
             GlobalTradeRegistry.cleanup()
             
+            // ═══════════════════════════════════════════════════════════════════
+            // V4.20: EfficiencyLayer cleanup
+            // Clean stale seen tokens, expired liquidity rejections, etc.
+            // ═══════════════════════════════════════════════════════════════════
+            EfficiencyLayer.cleanup()
+            
             val cfg       = ConfigStore.load(applicationContext)
             val watchlist = cfg.watchlist.toMutableList()
             if (cfg.activeToken.isNotBlank() && cfg.activeToken !in watchlist)
