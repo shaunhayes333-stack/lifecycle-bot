@@ -74,10 +74,13 @@ object ShitCoinTraderAI {
     // Daily limits
     private const val DAILY_MAX_LOSS_SOL = 0.5        // ~$75 daily loss limit for shitcoins
     
-    // Take profit / Stop loss - TIGHT for protection
+    // Take profit / Stop loss - FLUID (adapts as bot learns)
+    // Bootstrap: Tighter exits (quick wins, tight stops)
+    // Mature: Wider targets (let winners run, learned patterns)
     private const val TAKE_PROFIT_BOOTSTRAP = 25.0    // 25% at start (quick wins)
     private const val TAKE_PROFIT_MATURE = 100.0      // 100% when experienced (let runners run)
-    private const val STOP_LOSS_PCT = -10.0           // Tight 10% stop (shitcoins move fast)
+    private const val STOP_LOSS_BOOTSTRAP = -8.0      // 8% stop at start (tight protection)
+    private const val STOP_LOSS_MATURE = -12.0        // 12% stop when mature (learned volatility)
     private const val TRAILING_STOP_PCT = 8.0         // Tighter trailing for volatile moves
     private const val MAX_HOLD_MINUTES = 15           // Short hold time (15 mins max)
     
@@ -679,14 +682,15 @@ object ShitCoinTraderAI {
         // Cap at max
         positionSol = positionSol.coerceIn(0.02, MAX_POSITION_SOL)
         
-        // Get fluid take profit
+        // Get fluid take profit and stop loss
         val takeProfitPct = getFluidTakeProfit()
+        val baseStopLoss = getFluidStopLoss()
         
-        // Bundle trades get tighter stops
+        // Bundle trades get tighter stops (70% of normal)
         val effectiveStopLoss = if (bundleWarning) {
-            STOP_LOSS_PCT * 0.7  // Tighter stop for bundles (7% instead of 10%)
+            baseStopLoss * 0.7  // Tighter stop for bundles
         } else {
-            STOP_LOSS_PCT
+            baseStopLoss
         }
         
         ErrorLogger.info(TAG, "💩 SHITCOIN QUALIFIED: $symbol | " +
@@ -834,6 +838,7 @@ object ShitCoinTraderAI {
     }
     fun getFluidMinLiquidity(): Double = lerp(MIN_LIQUIDITY_USD_BOOTSTRAP, MIN_LIQUIDITY_USD_MATURE)
     fun getFluidTakeProfit(): Double = lerp(TAKE_PROFIT_BOOTSTRAP, TAKE_PROFIT_MATURE)
+    fun getFluidStopLoss(): Double = lerp(STOP_LOSS_BOOTSTRAP, STOP_LOSS_MATURE)
     
     // ═══════════════════════════════════════════════════════════════════════════
     // MODE MANAGEMENT

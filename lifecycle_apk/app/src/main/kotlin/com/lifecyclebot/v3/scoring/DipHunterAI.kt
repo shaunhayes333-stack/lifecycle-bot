@@ -70,11 +70,26 @@ object DipHunterAI {
     private const val MAX_POSITION_SOL = 0.15       // Max 0.15 SOL per dip (reduced from 0.25)
     private const val MAX_CONCURRENT_DIPS = 3       // Only 3 dip positions (reduced from 4)
     
-    // Exit targets
-    private const val TARGET_RECOVERY_PCT = 20.0    // Target 20% recovery
-    private const val MAX_RECOVERY_PCT = 50.0       // Max expectation
-    private const val STOP_LOSS_PCT = -15.0         // 15% stop (careful with dips)
-    private const val MAX_HOLD_HOURS = 6.0          // 6 hour max hold
+    // Exit targets - FLUID (adapt as bot learns)
+    // Bootstrap: Tighter exits (secure small wins while learning)
+    // Mature: Let winners run (20-50% recovery targets)
+    private const val TARGET_RECOVERY_BOOTSTRAP = 12.0   // 12% recovery target at start
+    private const val TARGET_RECOVERY_MATURE = 25.0      // 25% recovery when experienced
+    private const val STOP_LOSS_BOOTSTRAP = -12.0        // 12% stop at start (tighter)
+    private const val STOP_LOSS_MATURE = -18.0           // 18% stop when experienced (wider, let it breathe)
+    private const val MAX_HOLD_HOURS = 6.0               // 6 hour max hold
+    
+    /** Get fluid take profit for dip recovery */
+    fun getFluidRecoveryTarget(): Double {
+        val progress = FluidLearningAI.getLearningProgress()
+        return TARGET_RECOVERY_BOOTSTRAP + (TARGET_RECOVERY_MATURE - TARGET_RECOVERY_BOOTSTRAP) * progress
+    }
+    
+    /** Get fluid stop loss for dips */
+    fun getFluidStopLoss(): Double {
+        val progress = FluidLearningAI.getLearningProgress()
+        return STOP_LOSS_BOOTSTRAP + (STOP_LOSS_MATURE - STOP_LOSS_BOOTSTRAP) * progress
+    }
     
     // Daily limits - CRITICAL for bootstrap protection
     private const val DAILY_MAX_LOSS_SOL = 0.20     // Max 0.2 SOL daily loss
@@ -512,23 +527,26 @@ object DipHunterAI {
             pos.recoveryHighPct = pnlPct
         }
         
-        // ─── EXIT CONDITIONS ───
+        // ─── EXIT CONDITIONS (FLUID) ───
+        val targetRecovery = getFluidRecoveryTarget()
+        val stopLoss = getFluidStopLoss()
         
-        // 1. MAX RECOVERY
-        if (pnlPct >= MAX_RECOVERY_PCT) {
-            ErrorLogger.info(TAG, "📉🏆 MAX RECOVERY! $mint | +${pnlPct.fmt(1)}%")
+        // 1. MAX RECOVERY (2x the target)
+        val maxRecovery = targetRecovery * 2
+        if (pnlPct >= maxRecovery) {
+            ErrorLogger.info(TAG, "📉🏆 MAX RECOVERY! $mint | +${pnlPct.fmt(1)}% (target was ${targetRecovery.toInt()}%)")
             return DipExitSignal.MAX_RECOVERY
         }
         
-        // 2. TARGET RECOVERY
-        if (pnlPct >= TARGET_RECOVERY_PCT) {
-            ErrorLogger.info(TAG, "📉✅ TARGET HIT! $mint | +${pnlPct.fmt(1)}%")
+        // 2. TARGET RECOVERY - FLUID
+        if (pnlPct >= targetRecovery) {
+            ErrorLogger.info(TAG, "📉✅ TARGET HIT! $mint | +${pnlPct.fmt(1)}% (fluid target: ${targetRecovery.toInt()}%)")
             return DipExitSignal.RECOVERY_TARGET
         }
         
-        // 3. STOP LOSS
-        if (pnlPct <= STOP_LOSS_PCT) {
-            ErrorLogger.info(TAG, "📉🛑 STOP LOSS! $mint | ${pnlPct.fmt(1)}%")
+        // 3. STOP LOSS - FLUID
+        if (pnlPct <= stopLoss) {
+            ErrorLogger.info(TAG, "📉🛑 STOP LOSS! $mint | ${pnlPct.fmt(1)}% (fluid SL: ${stopLoss.toInt()}%)")
             return DipExitSignal.STOP_LOSS
         }
         

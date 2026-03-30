@@ -60,10 +60,13 @@ object BlueChipTraderAI {
     // Daily limits
     private const val DAILY_MAX_LOSS_SOL = 1.0         // ~$150 daily loss limit
     
-    // Take profit / Stop loss (WIDER than Treasury)
+    // Take profit / Stop loss - FLUID (adapts as bot learns)
+    // Bootstrap: Tighter exits (secure wins while learning)
+    // Mature: Wider targets (let quality plays develop)
     private const val TAKE_PROFIT_BOOTSTRAP = 10.0     // 10% at start
     private const val TAKE_PROFIT_MATURE = 25.0        // 25% when experienced
-    private const val STOP_LOSS_PCT = -5.0             // Wider stop than Treasury
+    private const val STOP_LOSS_BOOTSTRAP = -4.0       // 4% stop at start (tight)
+    private const val STOP_LOSS_MATURE = -7.0          // 7% stop when mature (learned volatility)
     private const val MAX_HOLD_MINUTES = 30            // Longer hold time
     
     // Compounding
@@ -499,17 +502,20 @@ object BlueChipTraderAI {
         // Get fluid take profit
         val takeProfitPct = getFluidTakeProfit()
         
+        // Get fluid exits
+        val stopLossPct = getFluidStopLoss()
+        
         ErrorLogger.info(TAG, "🔵 BLUE CHIP QUALIFIED: $symbol | " +
             "score=$blueChipScore conf=$blueChipConfidence% | " +
             "mcap=\$${(marketCapUsd/1_000_000).fmt(2)}M | " +
             "size=${positionSol.fmt(4)} SOL | " +
-            "TP=${takeProfitPct.fmt(0)}% SL=${STOP_LOSS_PCT}%")
+            "TP=${takeProfitPct.fmt(0)}% SL=${stopLossPct.toInt()}%")
         
         return BlueChipSignal(
             shouldEnter = true,
             positionSizeSol = positionSol,
             takeProfitPct = takeProfitPct,
-            stopLossPct = STOP_LOSS_PCT,
+            stopLossPct = stopLossPct,
             confidence = blueChipConfidence,
             reason = "QUALIFIED: ${scoreReasons.joinToString(" ")}",
             mode = mode,
@@ -561,6 +567,7 @@ object BlueChipTraderAI {
     
     fun getFluidMinLiquidity(): Double = lerp(BC_LIQ_BOOTSTRAP, BC_LIQ_MATURE)
     fun getFluidTakeProfit(): Double = lerp(TAKE_PROFIT_BOOTSTRAP, TAKE_PROFIT_MATURE)
+    fun getFluidStopLoss(): Double = lerp(STOP_LOSS_BOOTSTRAP, STOP_LOSS_MATURE)
     
     // ═══════════════════════════════════════════════════════════════════════════
     // MODE MANAGEMENT
