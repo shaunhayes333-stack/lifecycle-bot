@@ -314,6 +314,7 @@ object CollectiveLearning {
             
             if (result.success) {
                 Log.i(TAG, "📤 TRADE → COLLECTIVE: $side $symbol ($mode) ${if (side == "SELL") "${pnlPct.toInt()}%" else ""}")
+                totalUploadsThisSession++
                 
                 // V3.3: Update instance registry trade count
                 updateInstanceTradeCount()
@@ -1879,6 +1880,93 @@ object CollectiveLearning {
             Log.i(TAG, "📂 CACHE LOADED: ${cachedBlacklist.size} blacklist | ${cachedPatterns.size} patterns | ${cachedModeStats.size} mode stats")
         } catch (e: Exception) {
             Log.e(TAG, "loadCacheFromPrefs error: ${e.message}")
+        }
+    }
+    
+    // ═══════════════════════════════════════════════════════════════════════════
+    // V4.20: SYNC STATUS VERIFICATION
+    // Returns a clear status string for UI display
+    // ═══════════════════════════════════════════════════════════════════════════
+    
+    data class SyncStatus(
+        val isConnected: Boolean,
+        val tursoConfigured: Boolean,
+        val lastSyncTimeMs: Long,
+        val totalUploads: Int,
+        val totalDownloads: Int,
+        val cachedBlacklistCount: Int,
+        val cachedPatternsCount: Int,
+        val cachedModeStatsCount: Int,
+        val instanceId: String,
+        val statusMessage: String,
+    )
+    
+    private var totalUploadsThisSession = 0
+    private var totalDownloadsThisSession = 0
+    
+    fun getSyncStatus(): SyncStatus {
+        val tursoConfigured = client != null
+        val connected = isInitialized && tursoConfigured
+        
+        val message = when {
+            !tursoConfigured -> "❌ Turso not configured - LOCAL ONLY mode"
+            !isInitialized -> "⚠️ Collective learning not initialized"
+            lastSyncTime == 0L -> "🔄 Connected but never synced"
+            else -> {
+                val ago = (System.currentTimeMillis() - lastSyncTime) / 60000
+                "✅ Connected | Last sync: ${ago}m ago"
+            }
+        }
+        
+        return SyncStatus(
+            isConnected = connected,
+            tursoConfigured = tursoConfigured,
+            lastSyncTimeMs = lastSyncTime,
+            totalUploads = totalUploadsThisSession,
+            totalDownloads = totalDownloadsThisSession,
+            cachedBlacklistCount = cachedBlacklist.size,
+            cachedPatternsCount = cachedPatterns.size,
+            cachedModeStatsCount = cachedModeStats.size,
+            instanceId = instanceId,
+            statusMessage = message,
+        )
+    }
+    
+    /**
+     * Force an immediate sync and return detailed result.
+     * Use this for manual verification.
+     */
+    suspend fun forceSyncNow(): String {
+        if (!isEnabled()) {
+            return "❌ Collective learning disabled or Turso not configured"
+        }
+        
+        return try {
+            val beforeBlacklist = cachedBlacklist.size
+            val beforePatterns = cachedPatterns.size
+            
+            downloadAll()
+            
+            val afterBlacklist = cachedBlacklist.size
+            val afterPatterns = cachedPatterns.size
+            
+            val blacklistDelta = afterBlacklist - beforeBlacklist
+            val patternDelta = afterPatterns - beforePatterns
+            
+            totalDownloadsThisSession++
+            
+            """
+✅ SYNC COMPLETE
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+Instance: $instanceId
+Blacklist: $afterBlacklist (+$blacklistDelta new)
+Patterns: $afterPatterns (+$patternDelta new)
+Mode Stats: ${cachedModeStats.size}
+Network Nodes: ${cachedInstanceCount}
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+            """.trimIndent()
+        } catch (e: Exception) {
+            "❌ Sync failed: ${e.message}"
         }
     }
 }

@@ -41,6 +41,8 @@ class CollectiveBrainActivity : AppCompatActivity() {
     private lateinit var tvWorstMode: TextView
     private lateinit var llModeStats: LinearLayout
     private lateinit var tvDataSource: TextView
+    private lateinit var tvSyncStatus: TextView
+    private lateinit var btnForceSync: TextView
     
     private val purple = 0xFF9945FF.toInt()
     private val green = 0xFF10B981.toInt()
@@ -132,6 +134,44 @@ class CollectiveBrainActivity : AppCompatActivity() {
         tvWorstMode = findViewById(R.id.tvBrainWorstMode)
         llModeStats = findViewById(R.id.llBrainModeStats)
         tvDataSource = findViewById(R.id.tvBrainDataSource)
+        tvSyncStatus = findViewById(R.id.tvSyncStatus)
+        btnForceSync = findViewById(R.id.btnForceSync)
+        
+        // V4.20: Force sync button
+        btnForceSync.setOnClickListener {
+            lifecycleScope.launch {
+                tvSyncStatus.text = "🔄 Syncing..."
+                btnForceSync.isEnabled = false
+                btnForceSync.alpha = 0.5f
+                
+                try {
+                    val result = withContext(Dispatchers.IO) {
+                        CollectiveLearning.forceSyncNow()
+                    }
+                    
+                    // Show result in a toast
+                    android.widget.Toast.makeText(this@CollectiveBrainActivity, result, android.widget.Toast.LENGTH_LONG).show()
+                    
+                    // Refresh the UI
+                    refreshStats()
+                    updateSyncStatus()
+                } catch (e: Exception) {
+                    android.widget.Toast.makeText(this@CollectiveBrainActivity, "Sync failed: ${e.message}", android.widget.Toast.LENGTH_LONG).show()
+                }
+                
+                btnForceSync.isEnabled = true
+                btnForceSync.alpha = 1.0f
+            }
+        }
+        
+        // Initial sync status
+        updateSyncStatus()
+    }
+    
+    private fun updateSyncStatus() {
+        val status = CollectiveLearning.getSyncStatus()
+        tvSyncStatus.text = status.statusMessage
+        tvSyncStatus.setTextColor(if (status.isConnected) green else muted)
     }
     
     private suspend fun refreshStats() {
