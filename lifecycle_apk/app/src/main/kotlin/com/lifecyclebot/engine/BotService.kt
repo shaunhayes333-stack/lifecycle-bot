@@ -2003,7 +2003,7 @@ class BotService : Service() {
               scope.launch {
                 if (!status.running) return@launch
                 if (orchestrator?.shouldPoll(mint) == false) return@launch
-                processTokenCycle(mint)
+                processTokenCycle(mint, cfg, wallet, lastSuccessfulPollMs)
               } // end scope.launch
             } // end map
 
@@ -2210,7 +2210,7 @@ class BotService : Service() {
      * Process a single token's full cycle - price fetch, evaluation, trading decisions.
      * V4.1: Extracted from botLoop to reduce compiler complexity (was causing StackOverflow).
      */
-    private fun processTokenCycle(mint: String) {
+    private fun processTokenCycle(mint: String, cfg: BotConfig, wallet: SolanaWallet?, lastSuccessfulPollMs: Long) {
         try {
             // Primary price source: Dexscreener
             val pair = dex.getBestPair(mint) ?: run {
