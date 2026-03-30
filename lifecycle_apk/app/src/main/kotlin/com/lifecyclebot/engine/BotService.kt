@@ -3434,21 +3434,28 @@ class BotService : Service() {
                             
                             if (moonshotScore.eligible) {
                                 // V5.2: Authorize through TradeAuthorizer
-                                val authResult = TradeAuthorizer.requestAuthorization(
+                                val authResult = TradeAuthorizer.authorize(
                                     mint = ts.mint,
                                     symbol = ts.symbol,
                                     score = moonshotScore.score,
-                                    confidence = moonshotScore.confidence.toInt(),
+                                    confidence = moonshotScore.confidence,
                                     quality = moonshotScore.spaceMode.displayName,
                                     isPaperMode = cfg.paperMode,
                                     requestedBook = TradeAuthorizer.ExecutionBook.MOONSHOT,
+                                    rugcheckScore = ts.safety.rugcheckScore,
+                                    liquidity = ts.lastLiquidityUsd,
                                 )
                                 
-                                if (!authResult.authorized) {
+                                if (authResult.verdict != TradeAuthorizer.ExecutionVerdict.APPROVE) {
                                     ErrorLogger.debug("BotService", "🚀 [MOONSHOT] ${ts.symbol} | AUTH_DENIED | ${authResult.reason}")
                                 } else {
                                     // Acquire final execution permit
-                                    if (FinalExecutionPermit.tryAcquireExecution(ts.mint, "MOONSHOT")) {
+                                    if (FinalExecutionPermit.tryAcquireExecution(
+                                        mint = ts.mint,
+                                        symbol = ts.symbol,
+                                        layer = "MOONSHOT",
+                                        sizeSol = moonshotScore.suggestedSizeSol,
+                                    )) {
                                         try {
                                             val collectiveLabel = if (moonshotScore.isCollectiveBoost) " [COLLECTIVE]" else ""
                                             
