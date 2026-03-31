@@ -2612,22 +2612,22 @@ class SolanaMarketScanner(
                 return false
             }
             
-            // V5.0: RC <= 3 = HARD BLOCK (no exceptions!)
+            // V5.2: RC <= 3 = HARD BLOCK (no exceptions!)
             if (scoreNormalized <= 3) {
                 onLog("🚫 RC HARD BLOCK: ${mint.take(8)}... score=$scoreNormalized (catastrophic)")
                 ErrorLogger.info("Scanner", "RC HARD_BLOCK: ${mint.take(12)} score=$scoreNormalized <= 3")
                 return false
             }
             
-            // V5.0: RC 4-10 = BLOCK (dangerous)
-            if (scoreNormalized in 4..10) {
+            // V5.2: RC 4-6 = BLOCK (dangerous) - lowered from 4-10
+            if (scoreNormalized in 4..6) {
                 onLog("🚫 RC BLOCK: ${mint.take(8)}... score=$scoreNormalized (dangerous)")
-                ErrorLogger.info("Scanner", "RC BLOCK: ${mint.take(12)} score=$scoreNormalized (4-10)")
+                ErrorLogger.info("Scanner", "RC BLOCK: ${mint.take(12)} score=$scoreNormalized (4-6)")
                 return false
             }
             
-            // RC 11-20: Log warning but pass - V3 will handle
-            if (scoreNormalized in 11..20) {
+            // V5.2: RC 7-15: Log warning but pass - many good tokens here
+            if (scoreNormalized in 7..15) {
                 ErrorLogger.debug("Scanner", "RC ${mint.take(8)}: score=$scoreNormalized (low - V3 caution)")
             }
             

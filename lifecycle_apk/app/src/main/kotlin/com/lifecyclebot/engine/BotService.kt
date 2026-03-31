@@ -2580,6 +2580,12 @@ class BotService : Service() {
                 com.lifecyclebot.v3.learning.ShadowLearningEngine.updatePrice(
                     ts.mint, pair.candle.priceUsd
                 )
+                
+                // V5.2: Update CashGenerationAI (Treasury) with independent price tracking
+                // This ensures Treasury layer has its OWN price reference for TP calculations
+                com.lifecyclebot.v3.scoring.CashGenerationAI.updatePrice(
+                    ts.mint, pair.candle.priceUsd
+                )
             }
             
             synchronized(ts.history) {
@@ -3248,10 +3254,12 @@ class BotService : Service() {
                                 ts.position.tradingModeEmoji = "💰"
                                 
                                 // Record treasury position
+                                // V5.2 FIX: Use actual position entry price, not ts.ref
+                                val actualEntryPrice = ts.position.entryPrice.takeIf { it > 0 } ?: ts.ref
                                 com.lifecyclebot.v3.scoring.CashGenerationAI.openPosition(
                                     mint = ts.mint,
                                     symbol = ts.symbol,
-                                    entryPrice = ts.ref,
+                                    entryPrice = actualEntryPrice,
                                     positionSol = adjustedSize,
                                     takeProfitPct = treasurySignal.takeProfitPct,
                                     stopLossPct = treasurySignal.stopLossPct

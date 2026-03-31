@@ -2,6 +2,7 @@ package com.lifecyclebot.v3.scoring
 
 import com.lifecyclebot.engine.AutoCompoundEngine
 import com.lifecyclebot.engine.ErrorLogger
+import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.atomic.AtomicLong
 import java.util.concurrent.atomic.AtomicInteger
 import kotlin.math.abs
@@ -148,6 +149,10 @@ object CashGenerationAI {
         get() = if (isPaperMode) paperDailyTradeCount else liveDailyTradeCount
     private val treasuryBalanceBps: AtomicLong
         get() = if (isPaperMode) paperTreasuryBalanceBps else liveTreasuryBalanceBps
+    
+    // V5.2: Treasury's own price tracking - independent of other layers
+    private val currentPrices = ConcurrentHashMap<String, Double>()
+    private val lastPriceUpdate = ConcurrentHashMap<String, Long>()
     
     data class TreasuryPosition(
         val mint: String,
@@ -592,10 +597,102 @@ object CashGenerationAI {
     }
     
     /**
+     * V5.2: Update price for a treasury position - independent price tracking
+     */
+    fun updatePrice(mint: String, price: Double) {
+        if (price > 0) {
+            currentPrices[mint] = price
+            lastPriceUpdate[mint] = System.currentTimeMillis()
+        }
+    }
+    
+    /**
+     * V5.2: Get tracked price for a position
+     */
+    fun getTrackedPrice(mint: String): Double? {
+        return currentPrices[mint]
+    }
+    
+    /**
+     * V5.2: Check ALL treasury positions for exits using tracked prices
+     * Returns list of (mint, exitSignal) pairs that need to be acted on
+     */
+    fun checkAllPositionsForExit(): List<Pair<String, ExitSignal>> {
+        val exits = mutableListOf<Pair<String, ExitSignal>>()
+        
+        synchronized(activePositions) {
+            for ((mint, pos) in activePositions) {
+                val currentPrice = currentPrices[mint] ?: continue
+                val signal = checkExitInternal(pos, currentPrice)
+                if (signal != ExitSignal.HOLD) {
+                    exits.add(mint to signal)
+                    ErrorLogger.info(TAG, "💰 TREASURY EXIT SIGNAL: ${pos.symbol} | $signal | " +
+                        "price=$currentPrice entry=${pos.entryPrice} pnl=${((currentPrice - pos.entryPrice) / pos.entryPrice * 100).toInt()}%")
+                }
+            }
+        }
+        
+        return exits
+    }
+    
+    /**
+     * Internal exit check logic
+     */
+    private fun checkExitInternal(pos: TreasuryPosition, currentPrice: Double): ExitSignal {
+        val pnlPct = (currentPrice - pos.entryPrice) / pos.entryPrice * 100
+        val holdMinutes = (System.currentTimeMillis() - pos.entryTime) / 60000
+        
+        val targetProfitPct = TAKE_PROFIT_PCT  // 3.5%
+        
+        // Update high water mark and trailing stop
+        if (currentPrice > pos.highWaterMark) {
+            pos.highWaterMark = currentPrice
+            pos.trailingStop = currentPrice * (1 - TRAILING_STOP_PCT / 100)
+        }
+        
+        // 1. HIT TARGET PROFIT (3.5%+) - EXIT IMMEDIATELY!
+        if (pnlPct >= targetProfitPct) {
+            val holdSeconds = (System.currentTimeMillis() - pos.entryTime) / 1000
+            ErrorLogger.info(TAG, "💰 TREASURY TP HIT: ${pos.symbol} | +${pnlPct.toInt()}% in ${holdSeconds}s | SELLING!")
+            return ExitSignal.TAKE_PROFIT
+        }
+        
+        // 2. HIT MAX TAKE PROFIT (4%)
+        if (pnlPct >= TAKE_PROFIT_MAX_PCT) {
+            return ExitSignal.TAKE_PROFIT
+        }
+        
+        // 3. HIT STOP LOSS
+        if (currentPrice <= pos.stopPrice) {
+            return ExitSignal.STOP_LOSS
+        }
+        
+        // 4. HIT TRAILING STOP (if in profit > 2%)
+        if (pnlPct > 2.0 && currentPrice <= pos.trailingStop) {
+            return ExitSignal.TRAILING_STOP
+        }
+        
+        // 5. MAX HOLD TIME (30 mins)
+        if (holdMinutes >= MAX_HOLD_MINUTES) {
+            return ExitSignal.TIME_EXIT
+        }
+        
+        // 6. Cut loss if underwater after 10 min
+        if (holdMinutes >= 10 && pnlPct < -1.5) {
+            return ExitSignal.STOP_LOSS
+        }
+        
+        return ExitSignal.HOLD
+    }
+    
+    /**
      * Check if position should exit (called on each price update).
      * V4.20: Aggressive scalping - exit as soon as profitable (covers fees in live)
      */
     fun checkExit(mint: String, currentPrice: Double): ExitSignal {
+        // V5.2: Also update our tracked price
+        updatePrice(mint, currentPrice)
+        
         val pos = synchronized(activePositions) { activePositions[mint] } ?: return ExitSignal.HOLD
         
         val pnlPct = (currentPrice - pos.entryPrice) / pos.entryPrice * 100

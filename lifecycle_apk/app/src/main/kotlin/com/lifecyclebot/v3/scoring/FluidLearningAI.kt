@@ -118,7 +118,7 @@ object FluidLearningAI {
     private const val MIN_TOKEN_AGE_BOOTSTRAP = 1.0   // Minutes - quick entry
     private const val MIN_BUY_PRESSURE_BOOTSTRAP = 45.0  // Reasonable buy pressure
     private const val MIN_SCORE_BOOTSTRAP = 50  // Allow medium quality setups to learn
-    private const val MIN_LIQUIDITY_BOOTSTRAP = 5000.0  // Keep at $5K to filter shitcoins
+    private const val MIN_LIQUIDITY_BOOTSTRAP = 7500.0  // V5.2: Raised to $7.5K for paper mode to filter junk
     
     /**
      * Check if we should force a bootstrap entry to break the cold-start deadlock.
@@ -149,14 +149,14 @@ object FluidLearningAI {
         // Paper mode: MORE LENIENT to generate learning data
         if (isPaper) {
             return score >= MIN_SCORE_BOOTSTRAP && 
-                   liquidityUsd >= MIN_LIQUIDITY_BOOTSTRAP &&  // $5K minimum
+                   liquidityUsd >= MIN_LIQUIDITY_BOOTSTRAP &&  // $7.5K minimum
                    tokenAgeMinutes >= MIN_TOKEN_AGE_BOOTSTRAP &&
                    buyPressurePct >= MIN_BUY_PRESSURE_BOOTSTRAP
         }
         
         // Live mode: slightly stricter but still reasonable
         return score >= 60 && 
-               liquidityUsd >= MIN_LIQUIDITY_BOOTSTRAP &&  // $5K minimum
+               liquidityUsd >= MIN_LIQUIDITY_BOOTSTRAP &&  // $7.5K minimum
                tokenAgeMinutes >= MIN_TOKEN_AGE_BOOTSTRAP &&
                buyPressurePct >= 50
     }
