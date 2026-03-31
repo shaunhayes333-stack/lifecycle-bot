@@ -469,11 +469,11 @@ class BrainNetworkView @JvmOverloads constructor(
         }
         
         // Outer glow
-        brainGlowPaint.color = if (isMegaBrain) 0x60FFD700 else 0x4000FF88
+        brainGlowPaint.color = if (isMegaBrain) 0x60FFD700.toInt() else 0x4000FF88.toInt()
         canvas.drawCircle(cx, cy, animRadius * 1.8f, brainGlowPaint)
         
         // Middle glow  
-        brainGlowPaint.color = if (isMegaBrain) 0x80FFD700 else 0x6000FF88
+        brainGlowPaint.color = if (isMegaBrain) 0x80FFD700.toInt() else 0x6000FF88.toInt()
         canvas.drawCircle(cx, cy, animRadius * 1.4f, brainGlowPaint)
         
         // Brain gradient - gold for mega brain, green otherwise

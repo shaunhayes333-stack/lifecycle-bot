@@ -60,12 +60,13 @@ object HoldTimeOptimizerAI {
         val runnerProbability: Double,      // 0-100, chance this runs big
         val confidence: Double,             // 0-100, confidence in prediction
         val entryBoost: Int,                // Score adjustment
-        val reason: String,
+        val reason: String
+    ) {
         // Legacy compatibility - convert to minutes for old code
-        val optimalMinutes: Int get() = (optimalSeconds / 60).coerceAtLeast(1),
-        val minMinutes: Int get() = (minSeconds / 60).coerceAtLeast(1),
+        val optimalMinutes: Int get() = (optimalSeconds / 60).coerceAtLeast(1)
+        val minMinutes: Int get() = (minSeconds / 60).coerceAtLeast(1)
         val maxMinutes: Int get() = (maxSeconds / 60).coerceAtLeast(1)
-    )
+    }
     
     // Learned hold time patterns (in seconds now)
     data class HoldPattern(
@@ -537,9 +538,9 @@ object HoldTimeOptimizerAI {
             patternsBySetup.forEach { (quality, pattern) ->
                 patternsJson.put(quality, JSONObject().apply {
                     put("totalTrades", pattern.totalTrades)
-                    put("avgHoldMinutes", pattern.avgHoldMinutes)
+                    put("avgHoldSeconds", pattern.avgHoldSeconds)
                     put("avgPnl", pattern.avgPnl)
-                    put("bestHoldMinutes", pattern.bestHoldMinutes)
+                    put("bestHoldSeconds", pattern.bestHoldSeconds)
                 })
             }
             put("patterns", patternsJson)
@@ -556,9 +557,11 @@ object HoldTimeOptimizerAI {
                 val patternJson = patternsJson.getJSONObject(quality)
                 patternsBySetup[quality] = HoldPattern(
                     totalTrades = patternJson.optInt("totalTrades", 0),
-                    avgHoldMinutes = patternJson.optDouble("avgHoldMinutes", 0.0),
+                    avgHoldSeconds = patternJson.optDouble("avgHoldSeconds", 
+                        patternJson.optDouble("avgHoldMinutes", 0.0) * 60),  // Legacy: convert minutes to seconds
                     avgPnl = patternJson.optDouble("avgPnl", 0.0),
-                    bestHoldMinutes = patternJson.optInt("bestHoldMinutes", 0)
+                    bestHoldSeconds = patternJson.optInt("bestHoldSeconds",
+                        patternJson.optInt("bestHoldMinutes", 0) * 60)  // Legacy: convert minutes to seconds
                 )
             }
         } catch (e: Exception) {
