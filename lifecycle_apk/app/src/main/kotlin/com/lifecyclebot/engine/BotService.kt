@@ -667,21 +667,9 @@ class BotService : Service() {
                             // Check 3a: Watchlist capacity via GlobalTradeRegistry
                             // V5.0: MUCH TIGHTER LIMITS in bootstrap mode
                             val currentWatchlistSize = GlobalTradeRegistry.size()
-                            val learningProgress = com.lifecyclebot.v3.scoring.FluidLearningAI.getLearningProgress()
-                            val isBootstrap = learningProgress < 0.3  // First 30% of learning
-                            
-                            // Bootstrap: max 10 | Normal paper: max 30 | Live: user setting
-                            val effectiveMaxWatchlist = when {
-                                isBootstrap && c.paperMode -> 10  // V5.0: Tight budget during bootstrap
-                                c.paperMode -> 30                  // Normal paper mode
-                                else -> c.maxWatchlistSize         // Live mode uses user setting
-                            }
-                            
-                            if (currentWatchlistSize >= effectiveMaxWatchlist) {
-                                TradeLifecycle.filtered(identity.mint, "Watchlist full (${currentWatchlistSize}/${effectiveMaxWatchlist})")
-                                ErrorLogger.debug("BotService", "FILTERED: ${identity.symbol} - watchlist full (bootstrap=$isBootstrap)")
-                                return@SolanaMarketScanner
-                            }
+                            // V5.2: NO WATCHLIST LIMITS - let it grow as big as it needs
+                            // Learning requires seeing many tokens - don't artificially restrict
+                            // The bot will naturally prune stale/rejected tokens anyway
                             
                             // ═══════════════════════════════════════════════════════════════════
                             // V4.20: ENQUEUE TO MERGE QUEUE
@@ -2197,13 +2185,8 @@ class BotService : Service() {
             try {
                 val mergedTokens = TokenMergeQueue.processQueue()
                 for (merged in mergedTokens) {
-                    // Check watchlist capacity
-                    val currentSize = GlobalTradeRegistry.size()
-                    val maxSize = if (cfg.paperMode) 100 else cfg.maxWatchlistSize
-                    if (currentSize >= maxSize) {
-                        ErrorLogger.debug("BotService", "MergeQueue: ${merged.symbol} skipped - watchlist full ($currentSize/$maxSize)")
-                        continue
-                    }
+                    // V5.2: No watchlist limits - let it grow as needed
+                    // Learning requires exposure to many tokens
                     
                     // V5.0: Use addWithProbation for smarter routing
                     // Low confidence or single-source tokens go to probation first

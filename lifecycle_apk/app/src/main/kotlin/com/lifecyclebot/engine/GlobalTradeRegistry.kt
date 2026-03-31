@@ -225,14 +225,9 @@ object GlobalTradeRegistry {
             }
         }
         
-        // Check watchlist size
-        if (watchlist.size >= MAX_WATCHLIST_SIZE) {
-            // Remove oldest non-position entry
-            val removed = pruneOldestEntry()
-            if (!removed) {
-                return AddResult(false, "WATCHLIST_FULL: ${watchlist.size}/$MAX_WATCHLIST_SIZE")
-            }
-        }
+        // V5.2: No max size check - let watchlist grow as needed
+        // Learning requires seeing many tokens
+        // Stale tokens are pruned automatically by age/loss tracking
         
         // Add to watchlist
         watchlist[mint] = WatchlistEntry(
