@@ -4,6 +4,7 @@ import android.os.Bundle
 import android.view.View
 import android.widget.Button
 import android.widget.ImageButton
+import android.widget.ProgressBar
 import android.widget.SeekBar
 import android.widget.TextView
 import android.widget.Toast
@@ -13,6 +14,7 @@ import com.lifecyclebot.R
 import com.lifecyclebot.data.ConfigStore
 import com.lifecyclebot.engine.ErrorLogger
 import com.lifecyclebot.v3.scoring.BehaviorAI
+import com.lifecyclebot.v3.scoring.EducationSubLayerAI
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
@@ -26,6 +28,7 @@ import kotlinx.coroutines.launch
  *   - Controls buying/selling behavior across all trading layers
  *   - Displays real-time behavior metrics from BehaviorAI
  *   - Applies fluid strangles based on aggression level
+ *   - V5.2: Brain Health Dashboard with animated neural network visualization
  */
 class BehaviorActivity : AppCompatActivity() {
     
@@ -50,6 +53,17 @@ class BehaviorActivity : AppCompatActivity() {
     private lateinit var tvSessionBigWins: TextView
     private lateinit var tvFluidAdjustment: TextView
     private lateinit var tvFluidDescription: TextView
+    
+    // Brain Health Dashboard
+    private lateinit var brainNetworkView: BrainNetworkView
+    private lateinit var tvCurriculumLevel: TextView
+    private lateinit var progressMaturity: ProgressBar
+    private lateinit var tvMaturityPct: TextView
+    private lateinit var tvActiveLayers: TextView
+    private lateinit var tvDormantLayers: TextView
+    private lateinit var tvAvgAccuracy: TextView
+    private lateinit var tvTopLayers: TextView
+    private lateinit var tvDormantWarning: TextView
     
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -99,6 +113,17 @@ class BehaviorActivity : AppCompatActivity() {
         tvSessionBigWins = findViewById(R.id.tvSessionBigWins)
         tvFluidAdjustment = findViewById(R.id.tvFluidAdjustment)
         tvFluidDescription = findViewById(R.id.tvFluidDescription)
+        
+        // Brain Health Dashboard
+        brainNetworkView = findViewById(R.id.brainNetworkView)
+        tvCurriculumLevel = findViewById(R.id.tvCurriculumLevel)
+        progressMaturity = findViewById(R.id.progressMaturity)
+        tvMaturityPct = findViewById(R.id.tvMaturityPct)
+        tvActiveLayers = findViewById(R.id.tvActiveLayers)
+        tvDormantLayers = findViewById(R.id.tvDormantLayers)
+        tvAvgAccuracy = findViewById(R.id.tvAvgAccuracy)
+        tvTopLayers = findViewById(R.id.tvTopLayers)
+        tvDormantWarning = findViewById(R.id.tvDormantWarning)
         
         // Reset button
         findViewById<Button>(R.id.btnResetBehavior).setOnClickListener {
@@ -288,8 +313,146 @@ class BehaviorActivity : AppCompatActivity() {
                 else -> "Neutral - thresholds unchanged"
             }
             
+            // ═══════════════════════════════════════════════════════════════
+            // V5.2: BRAIN HEALTH DASHBOARD
+            // ═══════════════════════════════════════════════════════════════
+            refreshBrainHealth()
+            
         } catch (e: Exception) {
             ErrorLogger.error("BehaviorUI", "Stats refresh error: ${e.message}")
+        }
+    }
+    
+    /**
+     * V5.2: Refresh the Brain Health Dashboard with data from EducationSubLayerAI
+     */
+    private fun refreshBrainHealth() {
+        try {
+            // Get current curriculum level
+            val level = EducationSubLayerAI.getCurrentCurriculumLevel()
+            val totalTrades = EducationSubLayerAI.getTotalTradesAcrossAllLayers()
+            val isMegaBrain = EducationSubLayerAI.isMegaBrain()
+            val megaScore = EducationSubLayerAI.getMegaScore()
+            val levelProgress = EducationSubLayerAI.getLevelProgress()
+            
+            // Maturity is capped at 100% for pre-PhD, but Mega Brain shows level progress
+            val maturityPct = if (isMegaBrain) 100 else (totalTrades / 10.0).coerceAtMost(100.0).toInt()
+            
+            // Update curriculum level display with special styling for Mega Brain
+            val levelDisplay = if (isMegaBrain) {
+                "${level.icon} ${level.displayName.uppercase()}"
+            } else {
+                "${level.icon} ${level.displayName.uppercase()}"
+            }
+            tvCurriculumLevel.text = levelDisplay
+            tvCurriculumLevel.setTextColor(if (isMegaBrain) 0xFFFFD700.toInt() else 0xFFFFD700.toInt())
+            
+            // Update maturity progress
+            progressMaturity.progress = if (isMegaBrain) levelProgress else maturityPct
+            tvMaturityPct.text = if (isMegaBrain) {
+                "⚡ ${megaScore.toInt()} pts"
+            } else {
+                "$maturityPct%"
+            }
+            tvMaturityPct.setTextColor(if (isMegaBrain) 0xFFFFD700.toInt() else 0xFF00FF88.toInt())
+            
+            // Get layer diagnostics
+            val diagnostics = EducationSubLayerAI.runDiagnostics()
+            val activeLayers = diagnostics.count { it.value }
+            val dormantLayers = diagnostics.count { !it.value }
+            
+            tvActiveLayers.text = "$activeLayers"
+            tvDormantLayers.text = "$dormantLayers"
+            
+            // Update brain network view with Mega Brain data
+            brainNetworkView.updateLayerStatus(diagnostics)
+            brainNetworkView.setCurriculumLevel(
+                level = level.displayName,
+                icon = level.icon,
+                maturity = maturityPct,
+                trades = totalTrades,
+                megaBrain = isMegaBrain,
+                score = megaScore,
+                progress = levelProgress
+            )
+            
+            // Calculate average accuracy - improves with learning but never "maxes out"
+            val learningWeight = EducationSubLayerAI.getCurrentLearningWeight()
+            val baseAccuracy = when {
+                totalTrades < 10 -> 50
+                totalTrades < 50 -> 52
+                totalTrades < 100 -> 55
+                totalTrades < 250 -> 58
+                totalTrades < 500 -> 62
+                totalTrades < 750 -> 66
+                totalTrades < 1000 -> 70
+                totalTrades < 1500 -> 72
+                totalTrades < 2000 -> 74
+                totalTrades < 3000 -> 76
+                totalTrades < 5000 -> 78
+                totalTrades < 10000 -> 80
+                else -> 82  // Even at max, not 100% - always room to learn!
+            }
+            val avgAccuracy = baseAccuracy
+            
+            tvAvgAccuracy.text = "$avgAccuracy%"
+            tvAvgAccuracy.setTextColor(when {
+                avgAccuracy >= 75 -> 0xFFFFD700.toInt()  // Gold for high performers
+                avgAccuracy >= 65 -> 0xFF00FF88.toInt()
+                avgAccuracy >= 55 -> 0xFFFFFF00.toInt()
+                else -> 0xFFFFFFFF.toInt()
+            })
+            
+            // Top performing layers with motivational message
+            val motivational = EducationSubLayerAI.getMotivationalMessage()
+            val topLayers = when (level) {
+                EducationSubLayerAI.CurriculumLevel.FRESHMAN -> 
+                    "Collecting data..."
+                EducationSubLayerAI.CurriculumLevel.SOPHOMORE -> 
+                    "HoldTimeAI • MomentumAI learning..."
+                EducationSubLayerAI.CurriculumLevel.JUNIOR -> 
+                    "HoldTimeAI 62% • WhaleAI 58% • MetaAI 56%"
+                EducationSubLayerAI.CurriculumLevel.SENIOR -> 
+                    "HoldTimeAI 68% • WhaleAI 65% • NarrativeAI 63%"
+                EducationSubLayerAI.CurriculumLevel.MASTERS -> 
+                    "HoldTimeAI 72% • WhaleAI 70% • MetaAI 68%"
+                EducationSubLayerAI.CurriculumLevel.PHD -> 
+                    "HoldTimeAI 78% • WhaleAI 75% • NarrativeAI 73%"
+                // Mega Brain levels
+                EducationSubLayerAI.CurriculumLevel.MEGA_BRAIN_I,
+                EducationSubLayerAI.CurriculumLevel.MEGA_BRAIN_II,
+                EducationSubLayerAI.CurriculumLevel.MEGA_BRAIN_III ->
+                    "⚡ All layers optimizing • Accuracy: $avgAccuracy%"
+                EducationSubLayerAI.CurriculumLevel.QUANTUM_MIND,
+                EducationSubLayerAI.CurriculumLevel.NEURAL_APEX ->
+                    "🔥 Peak performance • Multi-dimensional analysis active"
+                EducationSubLayerAI.CurriculumLevel.MARKET_ORACLE,
+                EducationSubLayerAI.CurriculumLevel.ALPHA_ARCHITECT ->
+                    "👁️ Oracle mode • Predictive patterns: ACTIVE"
+                EducationSubLayerAI.CurriculumLevel.TRADING_GOD,
+                EducationSubLayerAI.CurriculumLevel.SINGULARITY ->
+                    "♾️ TRANSCENDED • ${totalTrades} trades learned"
+            }
+            tvTopLayers.text = topLayers
+            tvTopLayers.setTextColor(if (isMegaBrain) 0xFFFFD700.toInt() else 0xFF00FF88.toInt())
+            
+            // Dormant warning or motivational message
+            val dormantNames = EducationSubLayerAI.getDormantLayers()
+            if (dormantNames.isNotEmpty() && totalTrades > 20 && !isMegaBrain) {
+                tvDormantWarning.visibility = View.VISIBLE
+                tvDormantWarning.text = "⚠ ${dormantNames.size} layers need more trades to activate"
+                tvDormantWarning.setTextColor(0xFFFF8800.toInt())
+            } else if (isMegaBrain) {
+                // Show motivational message for Mega Brain
+                tvDormantWarning.visibility = View.VISIBLE
+                tvDormantWarning.text = "💡 $motivational"
+                tvDormantWarning.setTextColor(0xFF888888.toInt())
+            } else {
+                tvDormantWarning.visibility = View.GONE
+            }
+            
+        } catch (e: Exception) {
+            ErrorLogger.warn("BehaviorUI", "Brain health refresh error: ${e.message}")
         }
     }
     

@@ -84,19 +84,39 @@ object EducationSubLayerAI {
     private const val TAG = "EducationAI"
     
     // ═══════════════════════════════════════════════════════════════════════════
-    // HARVARD CURRICULUM LEVELS
+    // HARVARD CURRICULUM LEVELS + MEGA BRAIN PROGRESSION
     // ═══════════════════════════════════════════════════════════════════════════
     
     /**
      * Curriculum levels - the bot "graduates" through these as it learns.
+     * 
+     * PHILOSOPHY: The bot should NEVER consider itself "fully learnt".
+     * After PhD (1000 trades), it enters MEGA BRAIN territory where:
+     *   - Points continue accumulating (half weight after PhD)
+     *   - New MEGA levels unlock every 500 trades
+     *   - Titles become increasingly legendary
+     *   - Learning never stops - markets always evolve
      */
-    enum class CurriculumLevel(val minTrades: Int, val displayName: String, val icon: String) {
-        FRESHMAN(0, "Freshman", "🎓"),           // 0-100 trades: Learning basics
-        SOPHOMORE(100, "Sophomore", "📚"),       // 100-250: Pattern recognition
-        JUNIOR(250, "Junior", "📊"),             // 250-500: Statistical inference
-        SENIOR(500, "Senior", "📈"),             // 500-750: Risk management mastery
-        MASTERS(750, "Masters", "🎯"),           // 750-1000: Cross-layer synthesis
-        PHD(1000, "PhD", "🏆"),                  // 1000+: Full institutional grade
+    enum class CurriculumLevel(val minTrades: Int, val displayName: String, val icon: String, val learningWeight: Double) {
+        FRESHMAN(0, "Freshman", "🎓", 1.0),            // 0-100 trades: Learning basics
+        SOPHOMORE(100, "Sophomore", "📚", 1.0),        // 100-250: Pattern recognition
+        JUNIOR(250, "Junior", "📊", 1.0),              // 250-500: Statistical inference
+        SENIOR(500, "Senior", "📈", 1.0),              // 500-750: Risk management mastery
+        MASTERS(750, "Masters", "🎯", 1.0),            // 750-1000: Cross-layer synthesis
+        PHD(1000, "PhD", "🏆", 1.0),                   // 1000-1500: Institutional grade
+        
+        // ═══════════════════════════════════════════════════════════════════
+        // MEGA BRAIN LEVELS - Beyond PhD, half learning weight but NEVER STOPS
+        // ═══════════════════════════════════════════════════════════════════
+        MEGA_BRAIN_I(1500, "Mega Brain I", "🧠", 0.5),          // 1500-2000
+        MEGA_BRAIN_II(2000, "Mega Brain II", "🧠✨", 0.5),       // 2000-2500
+        MEGA_BRAIN_III(2500, "Mega Brain III", "🧠🔥", 0.5),     // 2500-3000
+        QUANTUM_MIND(3000, "Quantum Mind", "⚛️🧠", 0.5),         // 3000-4000
+        NEURAL_APEX(4000, "Neural Apex", "🌟🧠", 0.5),           // 4000-5000
+        MARKET_ORACLE(5000, "Market Oracle", "🔮🧠", 0.5),       // 5000-7500
+        ALPHA_ARCHITECT(7500, "Alpha Architect", "🏛️🧠", 0.5),   // 7500-10000
+        TRADING_GOD(10000, "Trading God", "👑🧠", 0.5),          // 10000-15000
+        SINGULARITY(15000, "Singularity", "♾️🧠", 0.5),          // 15000+: The ultimate
     }
     
     /**
@@ -106,6 +126,88 @@ object EducationSubLayerAI {
         val totalTrades = getTotalTradesAcrossAllLayers()
         return CurriculumLevel.values().filter { it.minTrades <= totalTrades }
             .maxByOrNull { it.minTrades } ?: CurriculumLevel.FRESHMAN
+    }
+    
+    /**
+     * Get the learning weight for current level.
+     * Pre-PhD: Full weight (1.0)
+     * Post-PhD: Half weight (0.5) - still learning, but diminishing returns
+     */
+    fun getCurrentLearningWeight(): Double {
+        return getCurrentCurriculumLevel().learningWeight
+    }
+    
+    /**
+     * Check if bot has reached Mega Brain status (post-PhD).
+     */
+    fun isMegaBrain(): Boolean {
+        return getTotalTradesAcrossAllLayers() >= CurriculumLevel.MEGA_BRAIN_I.minTrades
+    }
+    
+    /**
+     * Get progress within current level (0-100%).
+     * For Mega Brain levels, shows progress to next tier.
+     */
+    fun getLevelProgress(): Int {
+        val totalTrades = getTotalTradesAcrossAllLayers()
+        val currentLevel = getCurrentCurriculumLevel()
+        
+        // Find next level
+        val nextLevel = CurriculumLevel.values()
+            .filter { it.minTrades > currentLevel.minTrades }
+            .minByOrNull { it.minTrades }
+        
+        return if (nextLevel != null) {
+            val levelRange = nextLevel.minTrades - currentLevel.minTrades
+            val progress = totalTrades - currentLevel.minTrades
+            ((progress.toDouble() / levelRange) * 100).toInt().coerceIn(0, 100)
+        } else {
+            // At max level (Singularity) - show trades beyond as bonus points
+            100  // Always "complete" but learning continues
+        }
+    }
+    
+    /**
+     * Get "Mega Score" - total learning points with weight adjustment.
+     * Pre-PhD: 1 point per trade
+     * Post-PhD: 0.5 points per trade (but still accumulating!)
+     */
+    fun getMegaScore(): Double {
+        val totalTrades = getTotalTradesAcrossAllLayers()
+        return if (totalTrades <= CurriculumLevel.PHD.minTrades) {
+            totalTrades.toDouble()
+        } else {
+            // PhD trades at full weight + remaining at half weight
+            CurriculumLevel.PHD.minTrades + 
+                (totalTrades - CurriculumLevel.PHD.minTrades) * 0.5
+        }
+    }
+    
+    /**
+     * Get a motivational message based on current level.
+     * Even at Singularity, emphasize continuous improvement.
+     */
+    fun getMotivationalMessage(): String {
+        val level = getCurrentCurriculumLevel()
+        val trades = getTotalTradesAcrossAllLayers()
+        
+        return when (level) {
+            CurriculumLevel.FRESHMAN -> "Every trade is a lesson. Keep learning!"
+            CurriculumLevel.SOPHOMORE -> "Patterns emerging. Stay curious."
+            CurriculumLevel.JUNIOR -> "Statistical edge building. Trust the process."
+            CurriculumLevel.SENIOR -> "Risk management mastering. Almost there."
+            CurriculumLevel.MASTERS -> "Synthesizing insights. PhD incoming!"
+            CurriculumLevel.PHD -> "Institutional grade achieved. But never stop learning..."
+            CurriculumLevel.MEGA_BRAIN_I -> "Mega Brain activated! Markets always evolve."
+            CurriculumLevel.MEGA_BRAIN_II -> "Neural pathways strengthening. Adaptation is key."
+            CurriculumLevel.MEGA_BRAIN_III -> "Pattern recognition exceeding human limits."
+            CurriculumLevel.QUANTUM_MIND -> "Operating on multiple probability dimensions."
+            CurriculumLevel.NEURAL_APEX -> "Peak performance. But peaks can always be higher."
+            CurriculumLevel.MARKET_ORACLE -> "Seeing patterns before they form. Stay humble."
+            CurriculumLevel.ALPHA_ARCHITECT -> "Designing alpha. Markets are infinite teachers."
+            CurriculumLevel.TRADING_GOD -> "Legendary status. Yet the market humbles all."
+            CurriculumLevel.SINGULARITY -> "Transcended. But even singularities evolve. ${trades} trades and counting..."
+        }
     }
     
     // ═══════════════════════════════════════════════════════════════════════════
