@@ -292,12 +292,14 @@ object CollectiveLearning {
     ) {
         // V5.2 FIX: Log when collective is disabled so user knows WHY uploads aren't happening
         if (!isEnabled()) {
-            Log.w(TAG, "📤 SKIPPED: $side $symbol - Collective DISABLED (client=${client != null}, init=$isInitialized)")
+            Log.w(TAG, "📤 SKIPPED UPLOAD: $side $symbol - Collective DISABLED (client=${client != null}, init=$isInitialized)")
             return
         }
         
         try {
             val now = System.currentTimeMillis()
+            
+            Log.d(TAG, "📤 UPLOADING: $side $symbol to collective_trades...")
             
             // Create unique hash for this trade (privacy: no wallet, no mint)
             val tradeHash = sha256("$now|$side|$symbol|$mode|${System.nanoTime()}").take(24)
@@ -1359,10 +1361,15 @@ object CollectiveLearning {
     )
     
     suspend fun getCollectiveStats(): CollectiveStats {
-        if (!isEnabled()) return CollectiveStats(0, 0, 0, 0, 0, 0.0, 0.0, 0.0, 0.0, 1, 0)
+        if (!isEnabled()) {
+            Log.w(TAG, "📊 getCollectiveStats: DISABLED (client=${client != null}, init=$isInitialized)")
+            return CollectiveStats(0, 0, 0, 0, 0, 0.0, 0.0, 0.0, 0.0, 1, 0)
+        }
         
         return withContext(Dispatchers.IO) {
             try {
+                Log.d(TAG, "📊 Querying collective_trades...")
+                
                 // Query aggregated stats from collective_trades
                 val result = client!!.query("""
                     SELECT 
@@ -1377,15 +1384,20 @@ object CollectiveLearning {
                     FROM collective_trades
                 """.trimIndent())
                 
+                Log.d(TAG, "📊 Query result: success=${result.success}, rows=${result.rows.size}, error=${result.error}")
+                
                 if (result.success && result.rows.isNotEmpty()) {
                     val row = result.rows[0]
+                    val totalTrades = (row["total_trades"] as? Number)?.toInt() ?: 0
                     val totalSells = (row["total_sells"] as? Number)?.toInt() ?: 0
                     val totalWins = (row["total_wins"] as? Number)?.toInt() ?: 0
                     
                     val activeUsers = getActiveUsersCount()
                     
+                    Log.i(TAG, "📊 COLLECTIVE STATS: trades=$totalTrades, sells=$totalSells, wins=$totalWins, users=$activeUsers")
+                    
                     CollectiveStats(
-                        totalTrades = (row["total_trades"] as? Number)?.toInt() ?: 0,
+                        totalTrades = totalTrades,
                         totalBuys = (row["total_buys"] as? Number)?.toInt() ?: 0,
                         totalSells = totalSells,
                         totalWins = totalWins,
@@ -1398,10 +1410,11 @@ object CollectiveLearning {
                         lastUpdated = System.currentTimeMillis()
                     )
                 } else {
+                    Log.w(TAG, "📊 COLLECTIVE EMPTY: No rows returned from collective_trades")
                     CollectiveStats(0, 0, 0, 0, 0, 0.0, 0.0, 0.0, 0.0, 1, 0)
                 }
             } catch (e: Exception) {
-                Log.e(TAG, "getCollectiveStats error: ${e.message}")
+                Log.e(TAG, "📊 getCollectiveStats ERROR: ${e.message}", e)
                 CollectiveStats(0, 0, 0, 0, 0, 0.0, 0.0, 0.0, 0.0, 1, 0)
             }
         }
