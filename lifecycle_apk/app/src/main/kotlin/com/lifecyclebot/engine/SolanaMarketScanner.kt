@@ -2614,17 +2614,17 @@ class SolanaMarketScanner(
             
             // V5.2 FIX: RC >= 6 should PASS (most good solana tokens score 6-20)
             // RC <= 5 = BLOCK (dangerous/rug territory)
-            // RC <= 3 = HARD BLOCK (catastrophic)
+            // RC <= 2 = HARD BLOCK (catastrophic) - V5.2: Lowered from 3
             
-            if (scoreNormalized <= 3) {
+            if (scoreNormalized <= 2) {
                 onLog("🚫 RC HARD BLOCK: ${mint.take(8)}... score=$scoreNormalized (catastrophic)")
-                ErrorLogger.info("Scanner", "RC HARD_BLOCK: ${mint.take(12)} score=$scoreNormalized <= 3")
+                ErrorLogger.info("Scanner", "RC HARD_BLOCK: ${mint.take(12)} score=$scoreNormalized <= 2")
                 return false
             }
             
-            if (scoreNormalized in 4..5) {
+            if (scoreNormalized in 3..5) {
                 onLog("🚫 RC BLOCK: ${mint.take(8)}... score=$scoreNormalized (dangerous)")
-                ErrorLogger.info("Scanner", "RC BLOCK: ${mint.take(12)} score=$scoreNormalized (4-5)")
+                ErrorLogger.info("Scanner", "RC BLOCK: ${mint.take(12)} score=$scoreNormalized (3-5)")
                 return false
             }
             

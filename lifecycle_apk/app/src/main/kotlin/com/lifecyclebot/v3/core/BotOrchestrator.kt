@@ -181,10 +181,17 @@ class BotOrchestrator(
         // Prevents repeated C-grade + low-conf proposals from clogging pipeline.
         // If a token has been proposed 2+ times recently with C-grade + conf < 35,
         // force it to WATCH instead of EXECUTE.
+        // V5.2: DISABLED during bootstrap to allow more learning opportunities
         // ═══════════════════════════════════════════════════════════════════
         
         // Check for C-grade looper before routing to execute
-        if (decision.band in listOf(DecisionBand.EXECUTE_SMALL, DecisionBand.EXECUTE_STANDARD, DecisionBand.EXECUTE_AGGRESSIVE)) {
+        // V5.2: Skip looper check during bootstrap (progress < 25%)
+        val learningProgress = try { 
+            com.lifecyclebot.v3.scoring.FluidLearningAI.getLearningProgress() 
+        } catch (_: Exception) { 0.0 }
+        val isBootstrap = learningProgress < 0.25
+        
+        if (!isBootstrap && decision.band in listOf(DecisionBand.EXECUTE_SMALL, DecisionBand.EXECUTE_STANDARD, DecisionBand.EXECUTE_AGGRESSIVE)) {
             if (CGradeLooperTracker.shouldBlockCGradeLooper(candidate.mint, setupQuality, decision.effectiveConfidence)) {
                 logger.stage("LOOPER_CHECK", candidate.symbol, "BLOCKED",
                     "C-grade looper: quality=$setupQuality conf=${decision.effectiveConfidence} (repeated proposal)")
