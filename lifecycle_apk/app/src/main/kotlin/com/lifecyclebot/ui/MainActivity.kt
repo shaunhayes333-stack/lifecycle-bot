@@ -391,6 +391,12 @@ class MainActivity : AppCompatActivity() {
                                             .split(",")
                                             .map { it.trim() }
                                             .filter { it.isNotBlank() },
+                // V5.2 FIX: TopUp settings were NOT being saved!
+                topUpEnabled          = switchTopUp.isChecked,
+                topUpMinGainPct       = etTopUpMinGain.text.toString().toDoubleOrNull() ?: state.config.topUpMinGainPct,
+                topUpGainStepPct      = etTopUpGainStep.text.toString().toDoubleOrNull() ?: state.config.topUpGainStepPct,
+                topUpMaxCount         = etTopUpMaxCount.text.toString().toIntOrNull() ?: state.config.topUpMaxCount,
+                topUpMaxTotalSol      = etTopUpMaxSol.text.toString().toDoubleOrNull() ?: state.config.topUpMaxTotalSol,
             )
             vm.saveConfig(cfg)
         } catch (_: Exception) {}
@@ -2733,6 +2739,7 @@ for legal compliance.
             pollSeconds           = etPoll.text.toString().toIntOrNull() ?: 8,
             rpcUrl                = etRpc.text.toString().trim().ifBlank { "https://api.mainnet-beta.solana.com" },
             telegramBotToken      = etTgBotToken.text.toString().trim(),
+            telegramChatId        = etTgChatId.text.toString().trim(),  // V5.2 FIX: Was missing!
             heliusApiKey          = etHeliusKey.text.toString().trim(),
             birdeyeApiKey         = etBirdeyeKey.text.toString().trim(),
             groqApiKey            = etGroqKey.text.toString().trim(),
@@ -2742,6 +2749,12 @@ for legal compliance.
             notificationsEnabled  = switchNotifications.isChecked,
             soundEnabled          = switchSounds.isChecked,
             darkModeEnabled       = switchDarkMode.isChecked,
+            // V5.2 FIX: TopUp settings were NOT being saved!
+            topUpEnabled          = switchTopUp.isChecked,
+            topUpMinGainPct       = etTopUpMinGain.text.toString().toDoubleOrNull() ?: 3.0,
+            topUpGainStepPct      = etTopUpGainStep.text.toString().toDoubleOrNull() ?: 2.0,
+            topUpMaxCount         = etTopUpMaxCount.text.toString().toIntOrNull() ?: 3,
+            topUpMaxTotalSol      = etTopUpMaxSol.text.toString().toDoubleOrNull() ?: 0.5,
         )
         vm.saveConfig(cfg)
         settingsPopulated = false

@@ -156,16 +156,42 @@ object TradeAuthorizer {
         
         // ─────────────────────────────────────────────────────────────────────
         // GATE 2: RUGCHECK HARD BLOCK
+        // V5.2 FIX: Shadow mode should track EVERYTHING above RC 3 for learning!
+        // Only block execution (paper/live) below RC 6
         // ─────────────────────────────────────────────────────────────────────
-        if (rugcheckScore < 10) {
-            ErrorLogger.info(TAG, "❌ REJECT $symbol: RC_SCORE_$rugcheckScore < 10")
+        if (rugcheckScore <= 3) {
+            // RC <= 3 is catastrophic - don't even shadow track
+            ErrorLogger.info(TAG, "❌ REJECT $symbol: RC_SCORE_$rugcheckScore <= 3 (catastrophic)")
             return AuthorizationResult(
                 verdict = ExecutionVerdict.REJECT,
-                reason = "RUGCHECK_FAIL_$rugcheckScore",
+                reason = "RUGCHECK_CATASTROPHIC_$rugcheckScore",
                 blockLevel = BlockLevel.HARD,
                 canRetry = false,
             )
         }
+        
+        // V5.2: RC 4-5 = SHADOW_ONLY (too dangerous for execution, but track for learning)
+        if (rugcheckScore in 4..5) {
+            ErrorLogger.info(TAG, "👁️ SHADOW_ONLY $symbol: RC_SCORE_$rugcheckScore (dangerous, track only)")
+            
+            // Lock as shadow tracking
+            tokenLocks[lockKey(mint, ExecutionBook.SHADOW)] = TokenLock(
+                mint = mint,
+                state = TokenState.SHADOW_TRACKING,
+                book = ExecutionBook.SHADOW,
+                lockedAt = now,
+                lastDecisionEpoch = currentEpoch,
+            )
+            
+            return AuthorizationResult(
+                verdict = ExecutionVerdict.SHADOW_ONLY,
+                reason = "RC_SHADOW_$rugcheckScore",
+                blockLevel = BlockLevel.SOFT,
+                canRetry = true,
+            )
+        }
+        
+        // V5.2: RC >= 6 passes rugcheck gate (continues to other gates)
         
         // ─────────────────────────────────────────────────────────────────────
         // GATE 3: LIQUIDITY FLOOR (Live mode only)
