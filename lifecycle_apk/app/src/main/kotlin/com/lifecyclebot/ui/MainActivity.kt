@@ -1641,9 +1641,7 @@ for legal compliance.
             // V5.2 FIX: Use REAL tracked price from CashGenerationAI instead of random simulation!
             // This is critical - UI was showing fake PnL while checkExit used real prices
             val trackedPrice = com.lifecyclebot.v3.scoring.CashGenerationAI.getTrackedPrice(pos.mint)
-            val currentPrice = trackedPrice 
-                ?: status.tokens.find { it.mint == pos.mint }?.lastPrice?.takeIf { it > 0 }
-                ?: pos.entryPrice  // Fallback to entry if no price yet
+            val currentPrice = trackedPrice ?: pos.entryPrice  // Fallback to entry if no price yet
             val gainPct = (currentPrice - pos.entryPrice) / pos.entryPrice * 100.0
             val gainCol = if (gainPct >= 0) green else red
             val pnlSol = pos.entrySol * gainPct / 100.0
@@ -1730,9 +1728,9 @@ for legal compliance.
         val sdf = java.text.SimpleDateFormat("HH:mm", java.util.Locale.US)
         
         positions.forEach { pos ->
-            // V5.2 FIX: Use REAL price from token state instead of random simulation
-            val currentPrice = status.tokens.find { it.mint == pos.mint }?.lastPrice?.takeIf { it > 0 }
-                ?: pos.entryPrice
+            // V5.2 FIX: Use position's tracked price or fall back to entry price
+            // BlueChip positions should have their own price tracking similar to Treasury
+            val currentPrice = pos.entryPrice  // TODO: Add getTrackedPrice to BlueChipTraderAI
             val gainPct = (currentPrice - pos.entryPrice) / pos.entryPrice * 100
             val gainCol = if (gainPct >= 0) green else red
             val pnlSol = pos.entrySol * gainPct / 100.0

@@ -565,17 +565,10 @@ object CashGenerationAI {
         val targetPrice = entryPrice * (1 + takeProfitPct / 100)
         val stopPrice = entryPrice * (1 + stopLossPct / 100)
         
-<<<<<<< HEAD
-        // V5.2: Log the TP calculation explicitly
-        ErrorLogger.info(TAG, "💰 TREASURY TP CALC: $symbol | entry=$entryPrice | " +
-            "tpPct=$takeProfitPct% | targetPrice=$targetPrice | " +
-            "(entry × ${1 + takeProfitPct/100} = $targetPrice)")
-=======
         // V5.2 FIX: Log the TP calculation explicitly so we can verify it's correct
         ErrorLogger.info(TAG, "💰 TREASURY TP CALC: $symbol | " +
             "entry=$entryPrice | tpPct=${takeProfitPct}% | " +
             "targetPrice=$targetPrice | (entry × ${1 + takeProfitPct/100} = $targetPrice)")
->>>>>>> 5398182 (V5.2 FIX: Treasury UI was showing random fake PnL instead of real prices)
         
         val position = TreasuryPosition(
             mint = mint,
@@ -598,11 +591,7 @@ object CashGenerationAI {
         dailyTradeCount.incrementAndGet()
         
         ErrorLogger.info(TAG, "💰 TREASURY OPENED: $symbol | " +
-<<<<<<< HEAD
-            "entry=$entryPrice | TP=$targetPrice (+$takeProfitPct%) | SL=$stopPrice ($stopLossPct%) | " +
-=======
             "entry=$entryPrice | TP=$targetPrice (+${takeProfitPct}%) | SL=$stopPrice (${stopLossPct}%) | " +
->>>>>>> 5398182 (V5.2 FIX: Treasury UI was showing random fake PnL instead of real prices)
             "size=$positionSol SOL | ${if (isPaperMode) "PAPER" else "LIVE"}")
     }
     
