@@ -522,18 +522,23 @@ object CashGenerationAI {
         }
         
         // ─── DETERMINE EXIT LEVELS (Quick scalps 3-7% for Treasury Mode) ───
-        val takeProfitPct = when (mode) {
-            TreasuryMode.DEFENSIVE -> TAKE_PROFIT_MIN_PCT  // Take quick 3% when protecting
+        // V5.2: Now uses FluidLearningAI for adaptive SL/TP!
+        val baseTakeProfitPct = when (mode) {
+            TreasuryMode.DEFENSIVE -> TAKE_PROFIT_MIN_PCT  // Take quick 2.5% when protecting
             TreasuryMode.CRUISE -> TAKE_PROFIT_PCT         // Standard 3.5%
-            TreasuryMode.AGGRESSIVE -> TAKE_PROFIT_MAX_PCT // Let run to 7% when behind
+            TreasuryMode.AGGRESSIVE -> TAKE_PROFIT_MAX_PCT // Let run to 4% when behind
             else -> TAKE_PROFIT_PCT
         }
-        val stopLossPct = STOP_LOSS_PCT  // V5.2: -4% stop loss (raised from -2%)
+        val baseStopLossPct = kotlin.math.abs(STOP_LOSS_PCT)  // 4%
+        
+        // Apply FluidLearningAI adjustments
+        val takeProfitPct = FluidLearningAI.getFluidTakeProfit(baseTakeProfitPct)
+        val stopLossPct = -FluidLearningAI.getFluidStopLoss(baseStopLossPct)  // Returns positive, we need negative
         
         ErrorLogger.info(TAG, "💰 TREASURY ENTRY: $symbol | " +
             "score=$treasuryScore conf=${treasuryConfidence}% | " +
             "size=${positionSol.fmt(3)} SOL (dailyPnl=${dailyPnl.fmt(2)}◎) | " +
-            "TP=${takeProfitPct}% SL=${stopLossPct}% | mode=$mode | ${if (isPaperMode) "PAPER" else "LIVE"}")
+            "TP=${takeProfitPct.fmt(1)}% SL=${stopLossPct.fmt(1)}% | mode=$mode | ${if (isPaperMode) "PAPER" else "LIVE"}")
         
         return TreasurySignal(
             shouldEnter = true,

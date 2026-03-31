@@ -392,13 +392,17 @@ object MoonshotTraderAI {
             else -> baseSize
         }
         
+        // V5.2: Apply FluidLearningAI adjustments to SL/TP
+        val fluidTp = FluidLearningAI.getFluidTakeProfit(mode.baseTP)
+        val fluidSl = FluidLearningAI.getFluidStopLoss(kotlin.math.abs(mode.baseSL))
+        
         return MoonshotScore(
             eligible = true,
             score = score,
             confidence = confidence,
             suggestedSizeSol = sizeSol,
-            takeProfitPct = mode.baseTP,
-            stopLossPct = mode.baseSL,
+            takeProfitPct = fluidTp,
+            stopLossPct = -fluidSl,  // FluidLearningAI returns positive, we need negative
             spaceMode = mode,
             isCollectiveBoost = isCollective,
         )
@@ -638,8 +642,21 @@ object MoonshotTraderAI {
         val balanceRef = if (pos.isPaperMode) paperBalanceBps else liveBalanceBps
         balanceRef.addAndGet((pnlSol * 10000).toLong())
         
-        // Update learning progress
+        // Update local learning progress
         updateLearning(pnlPct, isWin)
+        
+        // V5.2 FIX: Moonshot trades NOW contribute to FluidLearningAI maturity!
+        // This was MISSING before - Moonshot layer was isolated from central learning
+        try {
+            if (pos.isPaperMode) {
+                FluidLearningAI.recordPaperTrade(isWin)
+            } else {
+                FluidLearningAI.recordLiveTrade(isWin)
+            }
+            ErrorLogger.debug(TAG, "📊 Recorded to FluidLearningAI: ${pos.symbol} ${if (isWin) "WIN" else "LOSS"}")
+        } catch (e: Exception) {
+            ErrorLogger.warn(TAG, "FluidLearningAI record failed: ${e.message}")
+        }
         
         val emoji = when {
             pnlPct >= 900 -> "🌌"
