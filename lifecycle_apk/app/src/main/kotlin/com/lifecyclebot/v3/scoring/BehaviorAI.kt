@@ -682,10 +682,14 @@ object BehaviorAI {
     
     // 0 = Ultra Defensive, 5 = Normal, 11 = Maximum Aggression
     private val aggressionLevel = AtomicInteger(5)
+    private var lastAggressionChangeMs = 0L
+    private const val AGGRESSION_CHANGE_COOLDOWN_MS = 5000L  // 5 second minimum between changes
     
     /**
      * Set the aggression level (0-11).
      * This affects all trading behavior across layers.
+     * 
+     * V5.2: Rate-limited to prevent rapid mid-loop mutations.
      * 
      * 0-2: Defensive (tighter stops, higher quality required, smaller sizes)
      * 3-4: Conservative
@@ -694,9 +698,23 @@ object BehaviorAI {
      * 8-9: Very Aggressive
      * 10-11: Maximum ("Goes to 11" - full degen mode)
      */
-    fun setAggressionLevel(level: Int) {
+    fun setAggressionLevel(level: Int, force: Boolean = false) {
+        val now = System.currentTimeMillis()
         val clamped = level.coerceIn(0, 11)
+        val currentLevel = aggressionLevel.get()
+        
+        // V5.2: Rate limit to prevent rapid mid-loop mutations
+        if (!force && currentLevel == clamped) {
+            return  // No change needed
+        }
+        
+        if (!force && now - lastAggressionChangeMs < AGGRESSION_CHANGE_COOLDOWN_MS) {
+            ErrorLogger.debug(TAG, "⏳ Aggression change blocked (cooldown): $currentLevel → $clamped")
+            return  // Still in cooldown
+        }
+        
         aggressionLevel.set(clamped)
+        lastAggressionChangeMs = now
         
         // Apply fluid strangles based on aggression
         val fluidMod = when (clamped) {
