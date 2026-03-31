@@ -892,16 +892,17 @@ object ShitCoinTraderAI {
     // FLUID THRESHOLDS - ShitCoin specific
     // ═══════════════════════════════════════════════════════════════════════════
     
-    // V5.2: Tightened bootstrap thresholds - stop taking trash entries
-    // Bootstrap: score >= 35, conf >= 25% (was 25/15)
-    // Mature: score >= 40, conf >= 50% (was 35/45)
-    private const val SC_SCORE_BOOTSTRAP = 35         // Tighter bar during learning (was 25)
-    private const val SC_SCORE_MATURE = 40            // Higher bar when mature (was 35)
+    // V5.2 FIX: Lowered bootstrap thresholds - was strangling all trades!
+    // Bootstrap needs MORE trades for learning, not fewer
+    // Bootstrap: score >= 20, conf >= 20% (was 35/25+10 = too high!)
+    // Mature: score >= 40, conf >= 50%
+    private const val SC_SCORE_BOOTSTRAP = 20         // V5.2 FIX: Lowered from 35 (killing trades)
+    private const val SC_SCORE_MATURE = 40            // Higher bar when mature
     
-    // V5.2: Higher confidence required - stop gambling
-    private const val SC_CONF_BOOTSTRAP = 25          // Need some conviction (was 15)
-    private const val SC_CONF_MATURE = 50             // Solid confidence (was 45)
-    private const val SC_CONF_BOOST_MAX = 10.0        // Reduced bootstrap boost (was 15)
+    // V5.2 FIX: Lower confidence required in bootstrap
+    private const val SC_CONF_BOOTSTRAP = 15          // V5.2 FIX: Lowered from 25 (was strangling)
+    private const val SC_CONF_MATURE = 50             // Solid confidence when mature
+    private const val SC_CONF_BOOST_MAX = 15.0        // Boost back to +15 for bootstrap
     
     private fun lerp(bootstrap: Double, mature: Double): Double {
         val progress = FluidLearningAI.getLearningProgress()

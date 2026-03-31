@@ -1,0 +1,985 @@
+<?xml version="1.0" encoding="utf-8"?>
+<androidx.core.widget.NestedScrollView
+    xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:background="#0D0D12"
+    android:fillViewport="true">
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="vertical"
+        android:padding="16dp">
+
+        <!-- Header with close button -->
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal"
+            android:gravity="center_vertical"
+            android:layout_marginBottom="16dp">
+            
+            <TextView
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:text="Settings"
+                android:textColor="#FFFFFF"
+                android:textSize="20sp"
+                android:textStyle="bold"/>
+            
+            <ImageButton
+                android:id="@+id/btnCloseSettings"
+                android:layout_width="36dp"
+                android:layout_height="36dp"
+                android:src="@android:drawable/ic_menu_close_clear_cancel"
+                android:background="?android:attr/selectableItemBackgroundBorderless"
+                android:tint="#6B7280"
+                android:contentDescription="Close"/>
+        </LinearLayout>
+
+        <!-- Drag handle indicator -->
+        <View
+            android:layout_width="40dp"
+            android:layout_height="4dp"
+            android:layout_gravity="center_horizontal"
+            android:layout_marginBottom="16dp"
+            android:background="@drawable/drag_handle_bg"/>
+
+        <!-- ═══════════════════════════════
+             BASIC SETTINGS CARD
+             ═══════════════════════════════ -->
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:background="@drawable/section_card_bg"
+            android:orientation="vertical"
+            android:padding="14dp"
+            android:layout_marginBottom="12dp">
+
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="TRADING"
+                android:textColor="#9945FF"
+                android:textSize="11sp"
+                android:fontFamily="monospace"
+                android:letterSpacing="0.12"
+                android:layout_marginBottom="12dp"/>
+
+            <!-- Active token -->
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="ACTIVE TOKEN"
+                android:textColor="#6B7280"
+                android:textSize="10sp"
+                android:fontFamily="monospace"
+                android:letterSpacing="0.08"
+                android:layout_marginBottom="4dp"/>
+            <EditText
+                android:id="@+id/etActiveToken"
+                android:layout_width="match_parent"
+                android:layout_height="44dp"
+                android:background="@drawable/input_bg"
+                android:textColor="#FFFFFF"
+                android:textColorHint="#374151"
+                android:textSize="12sp"
+                android:fontFamily="monospace"
+                android:hint="Token mint address..."
+                android:paddingStart="12dp"
+                android:paddingEnd="12dp"
+                android:inputType="text"
+                android:maxLines="1"
+                android:layout_marginBottom="10dp"/>
+
+            <!-- Mode row -->
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="horizontal"
+                android:layout_marginBottom="10dp">
+                
+                <LinearLayout
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:orientation="vertical"
+                    android:layout_marginEnd="6dp">
+                    <TextView
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="MODE"
+                        android:textColor="#6B7280"
+                        android:textSize="10sp"
+                        android:fontFamily="monospace"
+                        android:layout_marginBottom="4dp"/>
+                    <Spinner
+                        android:id="@+id/spMode"
+                        android:layout_width="match_parent"
+                        android:layout_height="44dp"
+                        android:background="@drawable/input_bg"
+                        android:paddingStart="12dp"/>
+                </LinearLayout>
+                
+                <LinearLayout
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:orientation="vertical"
+                    android:layout_marginStart="6dp">
+                    <TextView
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="AUTO TRADE"
+                        android:textColor="#6B7280"
+                        android:textSize="10sp"
+                        android:fontFamily="monospace"
+                        android:layout_marginBottom="4dp"/>
+                    <Spinner
+                        android:id="@+id/spAutoTrade"
+                        android:layout_width="match_parent"
+                        android:layout_height="44dp"
+                        android:background="@drawable/input_bg"
+                        android:paddingStart="12dp"/>
+                </LinearLayout>
+            </LinearLayout>
+
+            <!-- Risk row -->
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="horizontal"
+                android:layout_marginBottom="10dp">
+                
+                <LinearLayout
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:orientation="vertical"
+                    android:layout_marginEnd="6dp">
+                    <TextView
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="STOP LOSS %"
+                        android:textColor="#6B7280"
+                        android:textSize="10sp"
+                        android:fontFamily="monospace"
+                        android:layout_marginBottom="4dp"/>
+                    <EditText
+                        android:id="@+id/etStopLoss"
+                        android:layout_width="match_parent"
+                        android:layout_height="44dp"
+                        android:background="@drawable/input_bg"
+                        android:textColor="#FFFFFF"
+                        android:textSize="12sp"
+                        android:fontFamily="monospace"
+                        android:paddingStart="12dp"
+                        android:inputType="numberDecimal"
+                        android:text="10.0"/>
+                </LinearLayout>
+                
+                <LinearLayout
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:orientation="vertical"
+                    android:layout_marginStart="6dp">
+                    <TextView
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="EXIT SCORE"
+                        android:textColor="#6B7280"
+                        android:textSize="10sp"
+                        android:fontFamily="monospace"
+                        android:layout_marginBottom="4dp"/>
+                    <EditText
+                        android:id="@+id/etExitScore"
+                        android:layout_width="match_parent"
+                        android:layout_height="44dp"
+                        android:background="@drawable/input_bg"
+                        android:textColor="#FFFFFF"
+                        android:textSize="12sp"
+                        android:fontFamily="monospace"
+                        android:paddingStart="12dp"
+                        android:inputType="numberDecimal"
+                        android:text="58.0"/>
+                </LinearLayout>
+            </LinearLayout>
+
+            <!-- Buy amounts row -->
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="horizontal"
+                android:layout_marginBottom="10dp">
+                
+                <LinearLayout
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:orientation="vertical"
+                    android:layout_marginEnd="6dp">
+                    <TextView
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="SMALL BUY (SOL)"
+                        android:textColor="#6B7280"
+                        android:textSize="10sp"
+                        android:fontFamily="monospace"
+                        android:layout_marginBottom="4dp"/>
+                    <EditText
+                        android:id="@+id/etSmallBuy"
+                        android:layout_width="match_parent"
+                        android:layout_height="44dp"
+                        android:background="@drawable/input_bg"
+                        android:textColor="#FFFFFF"
+                        android:textSize="12sp"
+                        android:fontFamily="monospace"
+                        android:paddingStart="12dp"
+                        android:inputType="numberDecimal"
+                        android:text="0.05"/>
+                </LinearLayout>
+                
+                <LinearLayout
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:orientation="vertical"
+                    android:layout_marginStart="6dp">
+                    <TextView
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="LARGE BUY (SOL)"
+                        android:textColor="#6B7280"
+                        android:textSize="10sp"
+                        android:fontFamily="monospace"
+                        android:layout_marginBottom="4dp"/>
+                    <EditText
+                        android:id="@+id/etLargeBuy"
+                        android:layout_width="match_parent"
+                        android:layout_height="44dp"
+                        android:background="@drawable/input_bg"
+                        android:textColor="#FFFFFF"
+                        android:textSize="12sp"
+                        android:fontFamily="monospace"
+                        android:paddingStart="12dp"
+                        android:inputType="numberDecimal"
+                        android:text="0.10"/>
+                </LinearLayout>
+            </LinearLayout>
+
+            <!-- Slippage / Poll row -->
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="horizontal">
+                
+                <LinearLayout
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:orientation="vertical"
+                    android:layout_marginEnd="6dp">
+                    <TextView
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="SLIPPAGE BPS"
+                        android:textColor="#6B7280"
+                        android:textSize="10sp"
+                        android:fontFamily="monospace"
+                        android:layout_marginBottom="4dp"/>
+                    <EditText
+                        android:id="@+id/etSlippage"
+                        android:layout_width="match_parent"
+                        android:layout_height="44dp"
+                        android:background="@drawable/input_bg"
+                        android:textColor="#FFFFFF"
+                        android:textSize="12sp"
+                        android:fontFamily="monospace"
+                        android:paddingStart="12dp"
+                        android:inputType="number"
+                        android:text="200"/>
+                </LinearLayout>
+                
+                <LinearLayout
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:orientation="vertical"
+                    android:layout_marginStart="6dp">
+                    <TextView
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="POLL SECONDS"
+                        android:textColor="#6B7280"
+                        android:textSize="10sp"
+                        android:fontFamily="monospace"
+                        android:layout_marginBottom="4dp"/>
+                    <EditText
+                        android:id="@+id/etPoll"
+                        android:layout_width="match_parent"
+                        android:layout_height="44dp"
+                        android:background="@drawable/input_bg"
+                        android:textColor="#FFFFFF"
+                        android:textSize="12sp"
+                        android:fontFamily="monospace"
+                        android:paddingStart="12dp"
+                        android:inputType="number"
+                        android:text="8"/>
+                </LinearLayout>
+            </LinearLayout>
+        </LinearLayout>
+
+        <!-- ═══════════════════════════════
+             TOP-UP STRATEGY CARD
+             ═══════════════════════════════ -->
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:background="@drawable/section_card_bg"
+            android:orientation="vertical"
+            android:padding="14dp"
+            android:layout_marginBottom="12dp">
+
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="horizontal"
+                android:gravity="center_vertical"
+                android:layout_marginBottom="12dp">
+                <TextView
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:text="TOP-UP STRATEGY"
+                    android:textColor="#9945FF"
+                    android:textSize="11sp"
+                    android:fontFamily="monospace"
+                    android:letterSpacing="0.12"/>
+                <Switch
+                    android:id="@+id/switchTopUp"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:checked="true"
+                    android:thumbTint="#9945FF"
+                    android:trackTint="#1F2937"/>
+            </LinearLayout>
+
+            <TextView
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="Automatically adds to winning positions. Each add is smaller than the last."
+                android:textColor="#6B7280"
+                android:textSize="10sp"
+                android:layout_marginBottom="12dp"/>
+
+            <!-- Top-up settings grid -->
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="horizontal"
+                android:layout_marginBottom="10dp">
+                
+                <LinearLayout
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:orientation="vertical"
+                    android:layout_marginEnd="6dp">
+                    <TextView
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="FIRST TOP-UP %"
+                        android:textColor="#6B7280"
+                        android:textSize="9sp"
+                        android:fontFamily="monospace"
+                        android:layout_marginBottom="4dp"/>
+                    <EditText
+                        android:id="@+id/etTopUpMinGain"
+                        android:layout_width="match_parent"
+                        android:layout_height="44dp"
+                        android:background="@drawable/input_bg"
+                        android:textColor="#FFFFFF"
+                        android:textSize="12sp"
+                        android:fontFamily="monospace"
+                        android:paddingStart="12dp"
+                        android:inputType="numberDecimal"
+                        android:hint="25"/>
+                </LinearLayout>
+                
+                <LinearLayout
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:orientation="vertical"
+                    android:layout_marginStart="6dp">
+                    <TextView
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="STEP %"
+                        android:textColor="#6B7280"
+                        android:textSize="9sp"
+                        android:fontFamily="monospace"
+                        android:layout_marginBottom="4dp"/>
+                    <EditText
+                        android:id="@+id/etTopUpGainStep"
+                        android:layout_width="match_parent"
+                        android:layout_height="44dp"
+                        android:background="@drawable/input_bg"
+                        android:textColor="#FFFFFF"
+                        android:textSize="12sp"
+                        android:fontFamily="monospace"
+                        android:paddingStart="12dp"
+                        android:inputType="numberDecimal"
+                        android:hint="30"/>
+                </LinearLayout>
+            </LinearLayout>
+
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="horizontal">
+                
+                <LinearLayout
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:orientation="vertical"
+                    android:layout_marginEnd="6dp">
+                    <TextView
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="MAX TOP-UPS"
+                        android:textColor="#6B7280"
+                        android:textSize="9sp"
+                        android:fontFamily="monospace"
+                        android:layout_marginBottom="4dp"/>
+                    <EditText
+                        android:id="@+id/etTopUpMaxCount"
+                        android:layout_width="match_parent"
+                        android:layout_height="44dp"
+                        android:background="@drawable/input_bg"
+                        android:textColor="#FFFFFF"
+                        android:textSize="12sp"
+                        android:fontFamily="monospace"
+                        android:paddingStart="12dp"
+                        android:inputType="number"
+                        android:hint="3"/>
+                </LinearLayout>
+                
+                <LinearLayout
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:orientation="vertical"
+                    android:layout_marginStart="6dp">
+                    <TextView
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="MAX SOL"
+                        android:textColor="#6B7280"
+                        android:textSize="9sp"
+                        android:fontFamily="monospace"
+                        android:layout_marginBottom="4dp"/>
+                    <EditText
+                        android:id="@+id/etTopUpMaxSol"
+                        android:layout_width="match_parent"
+                        android:layout_height="44dp"
+                        android:background="@drawable/input_bg"
+                        android:textColor="#FFFFFF"
+                        android:textSize="12sp"
+                        android:fontFamily="monospace"
+                        android:paddingStart="12dp"
+                        android:inputType="numberDecimal"
+                        android:hint="0.50"/>
+                </LinearLayout>
+            </LinearLayout>
+        </LinearLayout>
+
+        <!-- ═══════════════════════════════
+             API KEYS CARD
+             ═══════════════════════════════ -->
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:background="@drawable/section_card_bg"
+            android:orientation="vertical"
+            android:padding="14dp"
+            android:layout_marginBottom="12dp">
+
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="API KEYS"
+                android:textColor="#9945FF"
+                android:textSize="11sp"
+                android:fontFamily="monospace"
+                android:letterSpacing="0.12"
+                android:layout_marginBottom="4dp"/>
+            
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="All keys are FREE. Tap labels for signup links."
+                android:textColor="#4B5563"
+                android:textSize="9sp"
+                android:fontFamily="monospace"
+                android:layout_marginBottom="12dp"/>
+
+            <!-- RPC URL -->
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="RPC URL"
+                android:textColor="#6B7280"
+                android:textSize="10sp"
+                android:fontFamily="monospace"
+                android:layout_marginBottom="4dp"/>
+            <EditText
+                android:id="@+id/etRpc"
+                android:layout_width="match_parent"
+                android:layout_height="44dp"
+                android:background="@drawable/input_bg"
+                android:textColor="#FFFFFF"
+                android:textColorHint="#374151"
+                android:textSize="11sp"
+                android:fontFamily="monospace"
+                android:hint="https://api.mainnet-beta.solana.com"
+                android:paddingStart="12dp"
+                android:inputType="textUri"
+                android:layout_marginBottom="10dp"/>
+
+            <!-- Helius -->
+            <TextView
+                android:id="@+id/tvHeliusHelp"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="HELIUS KEY - helius.dev"
+                android:textColor="#14F195"
+                android:textSize="10sp"
+                android:fontFamily="monospace"
+                android:layout_marginBottom="4dp"/>
+            <EditText
+                android:id="@+id/etHeliusKey"
+                android:layout_width="match_parent"
+                android:layout_height="44dp"
+                android:background="@drawable/input_bg"
+                android:textColor="#FFFFFF"
+                android:textColorHint="#374151"
+                android:textSize="12sp"
+                android:fontFamily="monospace"
+                android:hint="paste helius api key..."
+                android:inputType="textPassword"
+                android:paddingStart="12dp"
+                android:layout_marginBottom="10dp"/>
+
+            <!-- Birdeye -->
+            <TextView
+                android:id="@+id/tvBirdeyeHelp"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="BIRDEYE KEY - birdeye.so"
+                android:textColor="#14F195"
+                android:textSize="10sp"
+                android:fontFamily="monospace"
+                android:layout_marginBottom="4dp"/>
+            <EditText
+                android:id="@+id/etBirdeyeKey"
+                android:layout_width="match_parent"
+                android:layout_height="44dp"
+                android:background="@drawable/input_bg"
+                android:textColor="#FFFFFF"
+                android:textColorHint="#374151"
+                android:textSize="12sp"
+                android:fontFamily="monospace"
+                android:hint="paste birdeye api key..."
+                android:inputType="textPassword"
+                android:paddingStart="12dp"
+                android:layout_marginBottom="10dp"/>
+
+            <!-- Groq -->
+            <TextView
+                android:id="@+id/tvGroqHelp"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="GROQ KEY - console.groq.com"
+                android:textColor="#14F195"
+                android:textSize="10sp"
+                android:fontFamily="monospace"
+                android:layout_marginBottom="4dp"/>
+            <EditText
+                android:id="@+id/etGroqKey"
+                android:layout_width="match_parent"
+                android:layout_height="44dp"
+                android:background="@drawable/input_bg"
+                android:textColor="#FFFFFF"
+                android:textColorHint="#374151"
+                android:textSize="12sp"
+                android:fontFamily="monospace"
+                android:hint="paste groq api key..."
+                android:inputType="textPassword"
+                android:paddingStart="12dp"
+                android:layout_marginBottom="10dp"/>
+
+            <!-- Gemini -->
+            <TextView
+                android:id="@+id/tvGeminiHelp"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="GEMINI KEY - aistudio.google.com"
+                android:textColor="#6B7280"
+                android:textSize="10sp"
+                android:fontFamily="monospace"
+                android:layout_marginBottom="4dp"/>
+            <EditText
+                android:id="@+id/etGeminiKey"
+                android:layout_width="match_parent"
+                android:layout_height="44dp"
+                android:background="@drawable/input_bg"
+                android:textColor="#FFFFFF"
+                android:textColorHint="#374151"
+                android:textSize="12sp"
+                android:fontFamily="monospace"
+                android:hint="paste gemini api key..."
+                android:inputType="textPassword"
+                android:paddingStart="12dp"
+                android:layout_marginBottom="10dp"/>
+
+            <!-- Jupiter -->
+            <TextView
+                android:id="@+id/tvJupiterHelp"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="JUPITER KEY - portal.jup.ag"
+                android:textColor="#6B7280"
+                android:textSize="10sp"
+                android:fontFamily="monospace"
+                android:layout_marginBottom="4dp"/>
+            <EditText
+                android:id="@+id/etJupiterKey"
+                android:layout_width="match_parent"
+                android:layout_height="44dp"
+                android:background="@drawable/input_bg"
+                android:textColor="#FFFFFF"
+                android:textColorHint="#374151"
+                android:textSize="12sp"
+                android:fontFamily="monospace"
+                android:hint="paste jupiter api key..."
+                android:inputType="textPassword"
+                android:paddingStart="12dp"/>
+        </LinearLayout>
+
+        <!-- ═══════════════════════════════
+             TELEGRAM CARD
+             ═══════════════════════════════ -->
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:background="@drawable/section_card_bg"
+            android:orientation="vertical"
+            android:padding="14dp"
+            android:layout_marginBottom="12dp">
+
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="TELEGRAM ALERTS"
+                android:textColor="#9945FF"
+                android:textSize="11sp"
+                android:fontFamily="monospace"
+                android:letterSpacing="0.12"
+                android:layout_marginBottom="4dp"/>
+            
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="Message @BotFather to create bot, then get chat ID"
+                android:textColor="#4B5563"
+                android:textSize="9sp"
+                android:fontFamily="monospace"
+                android:layout_marginBottom="12dp"/>
+
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="BOT TOKEN"
+                android:textColor="#6B7280"
+                android:textSize="10sp"
+                android:fontFamily="monospace"
+                android:layout_marginBottom="4dp"/>
+            <EditText
+                android:id="@+id/etTgBotToken"
+                android:layout_width="match_parent"
+                android:layout_height="44dp"
+                android:background="@drawable/input_bg"
+                android:textColor="#FFFFFF"
+                android:textColorHint="#374151"
+                android:textSize="12sp"
+                android:fontFamily="monospace"
+                android:hint="paste bot token..."
+                android:inputType="textPassword"
+                android:paddingStart="12dp"
+                android:layout_marginBottom="10dp"/>
+
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="CHAT ID"
+                android:textColor="#6B7280"
+                android:textSize="10sp"
+                android:fontFamily="monospace"
+                android:layout_marginBottom="4dp"/>
+            <EditText
+                android:id="@+id/etTgChatId"
+                android:layout_width="match_parent"
+                android:layout_height="44dp"
+                android:background="@drawable/input_bg"
+                android:textColor="#FFFFFF"
+                android:textColorHint="#374151"
+                android:textSize="12sp"
+                android:fontFamily="monospace"
+                android:hint="paste chat id..."
+                android:inputType="number"
+                android:paddingStart="12dp"/>
+        </LinearLayout>
+
+        <!-- ═══════════════════════════════
+             NOTIFICATIONS & SOUNDS CARD
+             ═══════════════════════════════ -->
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:background="@drawable/section_card_bg"
+            android:orientation="vertical"
+            android:padding="14dp"
+            android:layout_marginBottom="12dp">
+
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="ALERTS &amp; SOUNDS"
+                android:textColor="#9945FF"
+                android:textSize="11sp"
+                android:fontFamily="monospace"
+                android:letterSpacing="0.12"
+                android:layout_marginBottom="12dp"/>
+
+            <!-- Notifications Toggle -->
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="horizontal"
+                android:gravity="center_vertical"
+                android:layout_marginBottom="12dp">
+                <LinearLayout
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:orientation="vertical">
+                    <TextView
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="Push Notifications"
+                        android:textColor="#FFFFFF"
+                        android:textSize="13sp"/>
+                    <TextView
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="Trade alerts, signals, updates"
+                        android:textColor="#6B7280"
+                        android:textSize="10sp"/>
+                </LinearLayout>
+                <Switch
+                    android:id="@+id/switchNotifications"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:checked="true"
+                    android:thumbTint="#9945FF"
+                    android:trackTint="#374151"/>
+            </LinearLayout>
+
+            <!-- Sounds Toggle -->
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="horizontal"
+                android:gravity="center_vertical"
+                android:layout_marginBottom="12dp">
+                <LinearLayout
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:orientation="vertical">
+                    <TextView
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="Sound Effects"
+                        android:textColor="#FFFFFF"
+                        android:textSize="13sp"/>
+                    <TextView
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="Audio for buy/sell executions"
+                        android:textColor="#6B7280"
+                        android:textSize="10sp"/>
+                </LinearLayout>
+                <Switch
+                    android:id="@+id/switchSounds"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:checked="true"
+                    android:thumbTint="#14F195"
+                    android:trackTint="#374151"/>
+            </LinearLayout>
+
+            <!-- Dark Mode Toggle -->
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="horizontal"
+                android:gravity="center_vertical">
+                <LinearLayout
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:orientation="vertical">
+                    <TextView
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="Dark Mode"
+                        android:textColor="#FFFFFF"
+                        android:textSize="13sp"/>
+                    <TextView
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="Switch to light theme"
+                        android:textColor="#6B7280"
+                        android:textSize="10sp"/>
+                </LinearLayout>
+                <androidx.appcompat.widget.SwitchCompat
+                    android:id="@+id/switchDarkMode"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:checked="true"
+                    android:thumbTint="#14F195"
+                    android:trackTint="#374151"/>
+            </LinearLayout>
+        </LinearLayout>
+
+        <!-- ═══════════════════════════════
+             WATCHLIST CARD
+             ═══════════════════════════════ -->
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:background="@drawable/section_card_bg"
+            android:orientation="vertical"
+            android:padding="14dp"
+            android:layout_marginBottom="12dp">
+
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="WATCHLIST"
+                android:textColor="#9945FF"
+                android:textSize="11sp"
+                android:fontFamily="monospace"
+                android:letterSpacing="0.12"
+                android:layout_marginBottom="4dp"/>
+
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="Comma separated mint addresses"
+                android:textColor="#4B5563"
+                android:textSize="9sp"
+                android:fontFamily="monospace"
+                android:layout_marginBottom="8dp"/>
+
+            <EditText
+                android:id="@+id/etWatchlist"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:background="@drawable/input_bg"
+                android:textColor="#FFFFFF"
+                android:textColorHint="#374151"
+                android:textSize="12sp"
+                android:fontFamily="monospace"
+                android:hint="mint1, mint2..."
+                android:paddingStart="12dp"
+                android:paddingTop="10dp"
+                android:paddingBottom="10dp"
+                android:minLines="2"/>
+        </LinearLayout>
+
+        <!-- ═══════════════════════════════
+             ACTION BUTTONS
+             ═══════════════════════════════ -->
+        <Button
+            android:id="@+id/btnSave"
+            android:layout_width="match_parent"
+            android:layout_height="48dp"
+            android:text="Save Settings"
+            android:textColor="#FFFFFF"
+            android:textStyle="bold"
+            android:textSize="14sp"
+            android:backgroundTint="#9945FF"
+            android:layout_marginBottom="8dp"/>
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal"
+            android:layout_marginBottom="8dp">
+            
+            <Button
+                android:id="@+id/btnExportData"
+                android:layout_width="0dp"
+                android:layout_weight="1"
+                android:layout_height="44dp"
+                android:layout_marginEnd="4dp"
+                android:text="Export"
+                android:textColor="#14F195"
+                android:textStyle="bold"
+                android:textSize="12sp"
+                android:backgroundTint="#1F2937"/>
+                
+            <Button
+                android:id="@+id/btnImportData"
+                android:layout_width="0dp"
+                android:layout_weight="1"
+                android:layout_height="44dp"
+                android:layout_marginStart="4dp"
+                android:text="Import"
+                android:textColor="#3B82F6"
+                android:textStyle="bold"
+                android:textSize="12sp"
+                android:backgroundTint="#1F2937"/>
+        </LinearLayout>
+
+        <Button
+            android:id="@+id/btnClearSettings"
+            android:layout_width="match_parent"
+            android:layout_height="44dp"
+            android:text="Clear All API Keys"
+            android:textColor="#EF4444"
+            android:textStyle="bold"
+            android:textSize="12sp"
+            android:backgroundTint="#1F2937"
+            android:layout_marginBottom="8dp"/>
+
+        <Button
+            android:id="@+id/btnTestToast"
+            android:layout_width="match_parent"
+            android:layout_height="44dp"
+            android:text="Test Toast Notifications"
+            android:textColor="#10B981"
+            android:textStyle="bold"
+            android:textSize="12sp"
+            android:backgroundTint="#1F2937"
+            android:layout_marginBottom="24dp"/>
+
+    </LinearLayout>
+</androidx.core.widget.NestedScrollView>

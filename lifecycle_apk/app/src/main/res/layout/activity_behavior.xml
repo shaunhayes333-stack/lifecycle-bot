@@ -507,15 +507,31 @@
             </LinearLayout>
         </androidx.cardview.widget.CardView>
 
-        <!-- Reset Button -->
-        <Button
-            android:id="@+id/btnResetBehavior"
+        <!-- Reset Buttons -->
+        <LinearLayout
             android:layout_width="match_parent"
-            android:layout_height="48dp"
-            android:text="RESET BEHAVIOR STATE"
-            android:textColor="#FF4444"
-            android:backgroundTint="#2A1A1A"
-            android:layout_marginTop="8dp" />
+            android:layout_height="wrap_content"
+            android:orientation="vertical"
+            android:layout_marginTop="8dp">
+            
+            <Button
+                android:id="@+id/btnResetLearning"
+                android:layout_width="match_parent"
+                android:layout_height="48dp"
+                android:text="RESET ALL LEARNING"
+                android:textColor="#FF8800"
+                android:backgroundTint="#2A2200"
+                android:layout_marginBottom="8dp" />
+
+            <Button
+                android:id="@+id/btnResetBehavior"
+                android:layout_width="match_parent"
+                android:layout_height="48dp"
+                android:text="RESET BEHAVIOR STATE"
+                android:textColor="#FF4444"
+                android:backgroundTint="#2A1A1A" />
+                
+        </LinearLayout>
 
     </LinearLayout>
 </ScrollView>

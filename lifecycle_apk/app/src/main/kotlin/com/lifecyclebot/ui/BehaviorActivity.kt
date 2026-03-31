@@ -104,6 +104,11 @@ class BehaviorActivity : AppCompatActivity() {
         findViewById<Button>(R.id.btnResetBehavior).setOnClickListener {
             resetBehaviorState()
         }
+        
+        // Reset Learning button
+        findViewById<Button>(R.id.btnResetLearning).setOnClickListener {
+            resetAllLearning()
+        }
     }
     
     private fun setupKnob() {
@@ -296,6 +301,41 @@ class BehaviorActivity : AppCompatActivity() {
                 BehaviorAI.reset()
                 Toast.makeText(this, "Behavior state reset", Toast.LENGTH_SHORT).show()
                 refreshStats()
+            }
+            .setNegativeButton("Cancel", null)
+            .show()
+    }
+    
+    private fun resetAllLearning() {
+        android.app.AlertDialog.Builder(this)
+            .setTitle("⚠️ RESET ALL LEARNING")
+            .setMessage(
+                "This will completely reset ALL learning progress!\n\n" +
+                "• Trade history will be cleared\n" +
+                "• Win/loss statistics reset to 0\n" +
+                "• Learning progress back to 0%\n" +
+                "• All threshold adjustments lost\n\n" +
+                "This action CANNOT be undone.\n\n" +
+                "Are you absolutely sure?"
+            )
+            .setPositiveButton("RESET EVERYTHING") { _, _ ->
+                // Second confirmation
+                android.app.AlertDialog.Builder(this)
+                    .setTitle("Final Confirmation")
+                    .setMessage("Last chance! Delete all learning data?")
+                    .setPositiveButton("Yes, Reset") { _, _ ->
+                        try {
+                            com.lifecyclebot.v3.scoring.FluidLearningAI.resetAllLearning(this)
+                            BehaviorAI.reset()
+                            Toast.makeText(this, "All learning has been reset", Toast.LENGTH_LONG).show()
+                            refreshStats()
+                        } catch (e: Exception) {
+                            Toast.makeText(this, "Reset failed: ${e.message}", Toast.LENGTH_SHORT).show()
+                            ErrorLogger.error("BehaviorUI", "Reset failed: ${e.message}")
+                        }
+                    }
+                    .setNegativeButton("Cancel", null)
+                    .show()
             }
             .setNegativeButton("Cancel", null)
             .show()

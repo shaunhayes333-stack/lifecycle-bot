@@ -72,6 +72,38 @@ object FluidLearningAI {
     private const val TRADES_FOR_MATURITY = 1000
     
     /**
+     * V5.2: Reset all learning progress.
+     * WARNING: This clears ALL learned data - use with caution!
+     * Called from BehaviorActivity reset button.
+     */
+    fun resetAllLearning(context: android.content.Context) {
+        // Reset session counters
+        sessionTrades.set(0)
+        sessionWins.set(0)
+        cachedProgress = 0.0
+        lastProgressUpdate.set(0)
+        
+        // Reset behavior modifier
+        behaviorModifier = 0.0
+        aggressionModifier = 0.0
+        
+        // Clear historical trade stats
+        try {
+            TradeHistoryStore.clearAllTrades()
+        } catch (e: Exception) {
+            ErrorLogger.error(TAG, "Failed to clear TradeHistoryStore: ${e.message}")
+        }
+        
+        // Clear any other learning-related storage
+        try {
+            val prefs = context.getSharedPreferences("fluid_learning", android.content.Context.MODE_PRIVATE)
+            prefs.edit().clear().apply()
+        } catch (_: Exception) {}
+        
+        ErrorLogger.warn(TAG, "🔄 ALL LEARNING RESET | Progress now 0%")
+    }
+    
+    /**
      * Get total trade count (historical + session).
      * Used for bootstrap calculations and logging.
      */
@@ -119,9 +151,9 @@ object FluidLearningAI {
     
     // V5.2: Looser bootstrap to generate more trades for learning
     private const val MIN_TOKEN_AGE_BOOTSTRAP = 1.0   // Minutes - quick entry
-    private const val MIN_BUY_PRESSURE_BOOTSTRAP = 45.0  // Reasonable buy pressure
-    private const val MIN_SCORE_BOOTSTRAP = 50  // Allow medium quality setups to learn
-    private const val MIN_LIQUIDITY_BOOTSTRAP = 7500.0  // V5.2: Raised to $7.5K for paper mode to filter junk
+    private const val MIN_BUY_PRESSURE_BOOTSTRAP = 40.0  // V5.2 FIX: Lowered from 45 - was too strict
+    private const val MIN_SCORE_BOOTSTRAP = 45  // V5.2 FIX: Lowered from 50 - allow more learning
+    private const val MIN_LIQUIDITY_BOOTSTRAP = 5000.0  // V5.2 FIX: Lowered from 7500 - was strangling
     
     /**
      * Check if we should force a bootstrap entry to break the cold-start deadlock.
@@ -152,16 +184,16 @@ object FluidLearningAI {
         // Paper mode: MORE LENIENT to generate learning data
         if (isPaper) {
             return score >= MIN_SCORE_BOOTSTRAP && 
-                   liquidityUsd >= MIN_LIQUIDITY_BOOTSTRAP &&  // $7.5K minimum
+                   liquidityUsd >= MIN_LIQUIDITY_BOOTSTRAP &&  // $5K minimum
                    tokenAgeMinutes >= MIN_TOKEN_AGE_BOOTSTRAP &&
                    buyPressurePct >= MIN_BUY_PRESSURE_BOOTSTRAP
         }
         
         // Live mode: slightly stricter but still reasonable
-        return score >= 60 && 
-               liquidityUsd >= MIN_LIQUIDITY_BOOTSTRAP &&  // $7.5K minimum
+        return score >= 55 &&  // V5.2 FIX: Lowered from 60
+               liquidityUsd >= MIN_LIQUIDITY_BOOTSTRAP &&  // $5K minimum
                tokenAgeMinutes >= MIN_TOKEN_AGE_BOOTSTRAP &&
-               buyPressurePct >= 50
+               buyPressurePct >= 45  // V5.2 FIX: Lowered from 50
     }
     
     /**

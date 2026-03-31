@@ -41,10 +41,11 @@ object FinalExecutionPermit {
     private val pendingExecutions = ConcurrentHashMap<String, PendingExecution>()
     
     // Per-token cooldown after rejection (ms)
-    private const val REJECTION_COOLDOWN_MS = 60_000L  // 1 minute cooldown after V3 rejection
+    // V5.2 FIX: Reduced from 60s to 10s - was blocking Treasury/ShitCoin too long!
+    private const val REJECTION_COOLDOWN_MS = 10_000L  // 10 seconds cooldown after V3 rejection
     
     // Per-token cooldown after execution attempt (ms)
-    private const val EXECUTION_COOLDOWN_MS = 30_000L  // 30 seconds between execution attempts
+    private const val EXECUTION_COOLDOWN_MS = 15_000L  // V5.2: Reduced from 30s to 15s
     
     data class RejectionRecord(
         val mint: String,
