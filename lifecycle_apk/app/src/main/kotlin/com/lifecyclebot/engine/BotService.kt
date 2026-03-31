@@ -20,6 +20,7 @@ import com.lifecyclebot.data.*
 import com.lifecyclebot.network.DexscreenerApi
 import com.lifecyclebot.network.SolanaWallet
 import com.lifecyclebot.ui.MainActivity
+import com.lifecyclebot.v3.scoring.BehaviorAI
 import kotlinx.coroutines.*
 
 class BotService : Service() {
@@ -1539,6 +1540,22 @@ class BotService : Service() {
             loopCount++
             
             // ═══════════════════════════════════════════════════════════════════
+            // V5.2: PIPELINE TRACE - Snapshot loop state at start
+            // Freeze aggression for this loop cycle to prevent mid-loop mutations
+            // ═══════════════════════════════════════════════════════════════════
+            val cfg = ConfigStore.load(applicationContext)
+            val loopSnapshot = PipelineTracer.startLoop(
+                loopId = loopCount,
+                aggression = BehaviorAI.getAggressionLevel(),
+                paperMode = cfg.paperMode,
+                liveMode = !cfg.paperMode,
+                walletBalance = walletManager.state.value.balanceSol,
+                openPositions = status.openPositionCount,
+                watchlistSize = GlobalTradeRegistry.size()
+            )
+            val frozenAggression = loopSnapshot.aggression
+            
+            // ═══════════════════════════════════════════════════════════════════
             // V4.0: Clear FinalExecutionPermit state at start of each cycle
             // This allows tokens to be re-evaluated fresh each loop
             // ═══════════════════════════════════════════════════════════════════
@@ -1562,7 +1579,6 @@ class BotService : Service() {
             // ═══════════════════════════════════════════════════════════════════
             TradeAuthorizer.cleanup()
             
-            val cfg       = ConfigStore.load(applicationContext)
             val watchlist = cfg.watchlist.toMutableList()
             if (cfg.activeToken.isNotBlank() && cfg.activeToken !in watchlist)
                 watchlist.add(cfg.activeToken)

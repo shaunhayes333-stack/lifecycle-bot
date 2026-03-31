@@ -270,6 +270,7 @@ object GlobalTradeRegistry {
     ): AddResult {
         // Validate mint
         if (mint.isBlank() || mint.length < 30) {
+            PipelineTracer.registryRejected(symbol, mint, "INVALID_MINT")
             return AddResult(false, "INVALID_MINT")
         }
         
@@ -278,6 +279,7 @@ object GlobalTradeRegistry {
         // Check if already in watchlist
         if (watchlist.containsKey(mint)) {
             duplicatesBlocked.incrementAndGet()
+            PipelineTracer.registryDuplicate(symbol, mint, "WATCHLIST")
             return AddResult(false, "DUPLICATE: already in watchlist")
         }
         
@@ -285,6 +287,7 @@ object GlobalTradeRegistry {
         val existingProbation = probation[mint]
         if (existingProbation != null) {
             existingProbation.additionalScanners.add(addedBy)
+            PipelineTracer.registryDuplicate(symbol, mint, "PROBATION")
             // Check if this promotes it
             if (existingProbation.additionalScanners.size >= 1) {
                 return promoteFromProbation(mint, "MULTI_SCANNER_CONFIRM")
@@ -297,6 +300,7 @@ object GlobalTradeRegistry {
         if (rejection != null) {
             val elapsed = now - rejection.rejectedAt
             if (elapsed < REJECTION_COOLDOWN_MS) {
+                PipelineTracer.registryRejected(symbol, mint, "COOLDOWN: ${rejection.reason}")
                 return AddResult(false, "REJECTED: ${rejection.reason}")
             } else {
                 rejectedTokens.remove(mint)
