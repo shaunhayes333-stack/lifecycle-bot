@@ -705,26 +705,25 @@ object CashGenerationAI {
         
         // V5.2 DEBUG: Always log the check
         ErrorLogger.debug(TAG, "💰 TREASURY CHECK: ${pos.symbol} | price=$currentPrice | entry=${pos.entryPrice} | " +
-            "target=${pos.targetPrice} | pnl=${pnlPct.fmt(1)}% | shouldSell=${currentPrice >= pos.targetPrice}")
+            "target=${pos.targetPrice} | pnl=${pnlPct.fmt(1)}%")
         
         // Update high water mark and trailing stop
         if (currentPrice > pos.highWaterMark) {
             pos.highWaterMark = currentPrice
-            // Tight trailing stop for quick scalps
             pos.trailingStop = currentPrice * (1 - TRAILING_STOP_PCT / 100)
         }
         
         // ─── EXIT CONDITIONS (Priority order) ───
         
-        // 1. V5.2 FIX: HIT TARGET PRICE - Use the POSITION'S target, not hardcoded value!
-        // This is the PRIMARY exit - Treasury is designed for quick scalps
+        // 1. V5.2: HIT OR PASSED TARGET PRICE - SELL and promote to appropriate layer!
+        // Treasury takes quick profits, then hands off to Moonshot/ShitCoin for continued gains
         if (currentPrice >= pos.targetPrice) {
-            val holdSeconds = (System.currentTimeMillis() - pos.entryTime) / 1000
-            ErrorLogger.info(TAG, "💰 TREASURY TP HIT: ${pos.symbol} | +${pnlPct.fmt(1)}% | price=$currentPrice >= target=${pos.targetPrice} | SELLING NOW!")
-            return ExitSignal.TAKE_PROFIT
+            ErrorLogger.info(TAG, "💰 TREASURY TP HIT: ${pos.symbol} | +${pnlPct.fmt(1)}% | " +
+                "price=$currentPrice >= target=${pos.targetPrice} | SELLING & PROMOTING!")
+            return ExitSignal.TAKE_PROFIT  // BotService will handle promotion to next layer
         }
         
-        // 2. BACKUP: PnL percentage check (in case targetPrice wasn't set correctly)
+        // 2. HIT MAX TAKE PROFIT (hard cap)
         if (pnlPct >= TAKE_PROFIT_MAX_PCT) {
             ErrorLogger.info(TAG, "💰 TREASURY MAX TP: ${pos.symbol} | +${pnlPct.fmt(1)}% (hit ${TAKE_PROFIT_MAX_PCT}% cap)")
             return ExitSignal.TAKE_PROFIT
@@ -736,20 +735,19 @@ object CashGenerationAI {
             return ExitSignal.STOP_LOSS
         }
         
-        // 4. HIT TRAILING STOP (only if we were in decent profit > 2%)
+        // 4. HIT TRAILING STOP (if in decent profit > 2%)
         if (pnlPct > 2.0 && currentPrice <= pos.trailingStop) {
             ErrorLogger.info(TAG, "💰 TREASURY TRAIL HIT: ${pos.symbol} | +${pnlPct.fmt(1)}%")
             return ExitSignal.TRAILING_STOP
         }
         
-        // 5. MAX HOLD TIME (30 mins) - extended for better opportunities
-        if (holdMinutes >= MAX_HOLD_MINUTES) {
+        // 5. MAX HOLD TIME (30 mins) - only exit if not profitable
+        if (holdMinutes >= MAX_HOLD_MINUTES && pnlPct < 2.0) {
             ErrorLogger.info(TAG, "💰 TREASURY TIME EXIT: ${pos.symbol} | ${pnlPct.fmt(1)}% after ${holdMinutes}min")
             return ExitSignal.TIME_EXIT
         }
         
-        // 6. EXTENDED HOLD - if close to profit after 10min, give it more time
-        // Only force exit if deeply underwater
+        // 6. Cut loss if underwater after 10min
         if (holdMinutes >= 10 && pnlPct < -1.5) {
             ErrorLogger.info(TAG, "💰 TREASURY CUT LOSS: ${pos.symbol} | ${pnlPct.fmt(1)}% - not recovering")
             return ExitSignal.STOP_LOSS

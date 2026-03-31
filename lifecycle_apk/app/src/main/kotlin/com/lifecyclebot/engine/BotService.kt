@@ -4840,6 +4840,59 @@ class BotService : Service() {
                     ts.mint, currentPrice, exitSignal
                 )
                 
+                // V5.2: PROMOTE to appropriate layer if profitable exit
+                // Treasury takes quick wins, then hands off to Moonshot/ShitCoin for continued gains
+                if (exitSignal == com.lifecyclebot.v3.scoring.CashGenerationAI.ExitSignal.TAKE_PROFIT) {
+                    val pnlPct = if (ts.position.entryPrice > 0) {
+                        ((currentPrice - ts.position.entryPrice) / ts.position.entryPrice) * 100
+                    } else 0.0
+                    
+                    ErrorLogger.info("BotService", "💰 [TREASURY PROMOTION] ${ts.symbol} | " +
+                        "+${pnlPct.toInt()}% | Checking for promotion to Moonshot/ShitCoin...")
+                    
+                    // Promote to ShitCoin layer if still has momentum
+                    // Token already proven itself - let ShitCoin ride the wave
+                    if (ts.lastLiquidityUsd >= 5000 && ts.lastMcap in 20_000.0..5_000_000.0) {
+                        val shitCoinSignal = com.lifecyclebot.v3.scoring.ShitCoinTraderAI.evaluate(
+                            ts = ts,
+                            score = 50,  // Already proven, give it a base score
+                            confidence = 70,
+                            config = cfg,
+                        )
+                        
+                        if (shitCoinSignal.shouldTrade) {
+                            ErrorLogger.info("BotService", "💰→💩 [PROMOTION] ${ts.symbol} | " +
+                                "TREASURY → SHITCOIN | +${pnlPct.toInt()}% profit, now riding with ShitCoin layer!")
+                            
+                            // Mark for ShitCoin tracking (don't actually buy again, just track)
+                            ts.position.isShitCoinPosition = true
+                            ts.position.isTreasuryPosition = false
+                            ts.position.tradingMode = "SHITCOIN"
+                            ts.position.tradingModeEmoji = "💩"
+                            
+                            // Register with ShitCoin tracker at CURRENT price (post-treasury-profit)
+                            com.lifecyclebot.v3.scoring.ShitCoinTraderAI.addPosition(
+                                com.lifecyclebot.v3.scoring.ShitCoinTraderAI.ShitCoinPosition(
+                                    mint = ts.mint,
+                                    symbol = ts.symbol,
+                                    entryPrice = currentPrice,  // New entry at current price
+                                    entrySol = ts.position.positionSol,
+                                    entryTime = System.currentTimeMillis(),
+                                    marketCapUsd = ts.lastMcap,
+                                    liquidityUsd = ts.lastLiquidityUsd,
+                                    isPaper = cfg.paperMode,
+                                    takeProfitPct = shitCoinSignal.takeProfitPct,
+                                    stopLossPct = shitCoinSignal.stopLossPct,
+                                    launchPlatform = shitCoinSignal.launchPlatform,
+                                )
+                            )
+                            
+                            addLog("💰→💩 PROMOTION: ${ts.symbol} | Treasury profit locked, now ShitCoin mode!", ts.mint)
+                            return  // Promotion processed, don't close position
+                        }
+                    }
+                }
+                
                 addLog("💰 TREASURY SELL: ${ts.symbol} | ${exitSignal.name} | " +
                     "${if (cfg.paperMode) "PAPER" else "LIVE"}", ts.mint)
                 
