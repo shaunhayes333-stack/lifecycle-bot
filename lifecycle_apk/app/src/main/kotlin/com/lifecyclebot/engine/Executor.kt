@@ -2902,6 +2902,10 @@ class Executor(
     fun paperBuy(ts: TokenState, sol: Double, score: Double, identity: TradeIdentity? = null, 
                  quality: String = "C", skipGraduated: Boolean = false,
                  wallet: SolanaWallet? = null, walletSol: Double = 0.0) {
+        
+        // V5.2: Pipeline trace - executor received entry
+        PipelineTracer.executorStart(ts.symbol, ts.mint, "PAPER", sol)
+        
         // ═══════════════════════════════════════════════════════════════════════════
         // MOONSHOT OVERRIDE: Don't miss potential moonshots even in paper mode!
         // 
@@ -3526,6 +3530,23 @@ class Executor(
                         identity: TradeIdentity? = null,
                         quality: String = "C",
                         skipGraduated: Boolean = false) {  // skipGraduated for live trades (size already computed)
+        
+        // V5.2: Pipeline trace - executor received LIVE entry
+        PipelineTracer.executorStart(ts.symbol, ts.mint, "LIVE", sol)
+        
+        // Check wallet balance first
+        if (walletSol <= 0) {
+            PipelineTracer.executorFailed(ts.symbol, ts.mint, "LIVE", "WALLET_BALANCE_ZERO")
+            PipelineTracer.noBuy(ts.symbol, ts.mint, PipelineTracer.NoBuyReason.WALLET_BALANCE_ZERO, "bal=${walletSol}SOL")
+            return
+        }
+        
+        if (walletSol < sol) {
+            PipelineTracer.executorFailed(ts.symbol, ts.mint, "LIVE", "INSUFFICIENT_BALANCE")
+            PipelineTracer.noBuy(ts.symbol, ts.mint, PipelineTracer.NoBuyReason.WALLET_BALANCE_ZERO, "need=${sol}SOL have=${walletSol}SOL")
+            return
+        }
+        
         // ═══════════════════════════════════════════════════════════════════════════
         // TRADE IDENTITY: Use canonical identity for consistent tracking
         // ═══════════════════════════════════════════════════════════════════════════
