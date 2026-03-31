@@ -165,7 +165,7 @@ object ShitCoinExpress {
         ErrorLogger.info(TAG, "💩🚂 SHITCOIN EXPRESS initialized (ONE-TIME) | " +
             "mode=${if (paperMode) "PAPER" else "LIVE"} | " +
             "target=+${MIN_TAKE_PROFIT_PCT.toInt()}% | " +
-            "maxHold=${MAX_HOLD_MINUTES}min")
+            "maxHold=UNLIMITED")
     }
     
     fun resetDaily() {
