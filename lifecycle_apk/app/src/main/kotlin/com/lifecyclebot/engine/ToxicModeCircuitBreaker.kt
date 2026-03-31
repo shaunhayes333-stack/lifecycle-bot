@@ -253,10 +253,11 @@ object ToxicModeCircuitBreaker {
         }
         
         // Condition 2: Single severe loss > 25%
+        // V5.2 FIX: Reduced freeze time from 6h to 30min - was too aggressive
         if (pnlPct <= -25) {
-            tripCircuitBreaker(modeUpper, 6 * 60 * 60 * 1000L, 
+            tripCircuitBreaker(modeUpper, 30 * 60 * 1000L,  // Was 6 hours
                 "SEVERE_LOSS_${pnlPct.toInt()}%")
-            Log.e(TAG, "🚨 CIRCUIT BREAKER: $modeUpper frozen 6h after ${pnlPct.toInt()}% loss on $symbol")
+            Log.e(TAG, "🚨 CIRCUIT BREAKER: $modeUpper frozen 30min after ${pnlPct.toInt()}% loss on $symbol")
             return
         }
         
@@ -266,18 +267,20 @@ object ToxicModeCircuitBreaker {
             val recentMediumLosses = losses.count { it.pnlPct <= -15 }
             
             // Condition 3: 2+ losses > 20%
+            // V5.2 FIX: Reduced from 6h to 30min
             if (recentBigLosses >= 2) {
-                tripCircuitBreaker(modeUpper, 6 * 60 * 60 * 1000L, 
+                tripCircuitBreaker(modeUpper, 30 * 60 * 1000L,  // Was 6 hours
                     "MULTIPLE_BIG_LOSSES")
-                Log.e(TAG, "🚨 CIRCUIT BREAKER: $modeUpper frozen 6h after $recentBigLosses big losses")
+                Log.e(TAG, "🚨 CIRCUIT BREAKER: $modeUpper frozen 30min after $recentBigLosses big losses")
                 return
             }
             
             // Condition 4: 3+ losses > 15%
+            // V5.2 FIX: Reduced from 3h to 15min
             if (recentMediumLosses >= 3) {
-                tripCircuitBreaker(modeUpper, 3 * 60 * 60 * 1000L, 
+                tripCircuitBreaker(modeUpper, 15 * 60 * 1000L,  // Was 3 hours
                     "TRIPLE_MEDIUM_LOSSES")
-                Log.e(TAG, "🚨 CIRCUIT BREAKER: $modeUpper frozen 3h after $recentMediumLosses medium losses")
+                Log.e(TAG, "🚨 CIRCUIT BREAKER: $modeUpper frozen 15min after $recentMediumLosses medium losses")
                 return
             }
         }

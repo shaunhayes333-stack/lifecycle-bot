@@ -21,10 +21,11 @@ object PrecisionExitLogic {
     private const val FAST_RUG_DROP_PCT = 8.0
     private const val FAST_RUG_TIME_MS = 10_000L
     
-    // Exit signal thresholds
-    private const val BUY_PRESSURE_DROP_PCT = 10.0  // If buys drop >10%
-    private const val VOLUME_DROP_PCT = 30.0        // Volume drops >30%
-    private const val PRICE_FLAT_THRESHOLD = 1.0    // Price change <1%
+    // V5.2 FIX: LOOSENED exit thresholds - was causing 6% win rate
+    // Previous values were too aggressive for meme coin volatility
+    private const val BUY_PRESSURE_DROP_PCT = 40.0  // Was 10% - way too sensitive
+    private const val VOLUME_DROP_PCT = 60.0        // Was 30% - normal for memecoins
+    private const val PRICE_FLAT_THRESHOLD = 0.5    // Was 1% - tighter flatness check
     
     data class ExitSignal(
         val shouldExit: Boolean,
@@ -110,6 +111,7 @@ object PrecisionExitLogic {
         
         // ════════════════════════════════════════════════════════════════
         // 3. BUY PRESSURE DROP
+        // V5.2 FIX: Raised exitScore threshold from 60 to 80 - was too aggressive
         // ════════════════════════════════════════════════════════════════
         val recentBuys = recentCandles.sumOf { it.buysH1 }
         val olderBuys = olderCandles.sumOf { it.buysH1 }
@@ -118,7 +120,8 @@ object PrecisionExitLogic {
             ((olderBuys - recentBuys).toDouble() / olderBuys) * 100
         } else 0.0
         
-        if (exitScore > 60 && buyDropPct > BUY_PRESSURE_DROP_PCT) {
+        // V5.2: Require exitScore > 80 AND buyDrop > 40% (was 60/10)
+        if (exitScore > 80 && buyDropPct > BUY_PRESSURE_DROP_PCT) {
             return ExitSignal(
                 shouldExit = true,
                 reason = "BUY_PRESSURE_DROP",
