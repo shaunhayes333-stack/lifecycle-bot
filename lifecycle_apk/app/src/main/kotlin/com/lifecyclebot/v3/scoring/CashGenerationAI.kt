@@ -729,6 +729,14 @@ object CashGenerationAI {
         
         // ─── EXIT CONDITIONS (Priority order) ───
         
+        // V5.2 FIX: HARD FLOOR STOP - ABSOLUTE MAXIMUM LOSS (runs first!)
+        // Treasury should NEVER lose more than this, regardless of other conditions
+        val HARD_FLOOR_STOP_PCT = -10.0  // Tighter for Treasury (quick scalps)
+        if (pnlPct <= HARD_FLOOR_STOP_PCT) {
+            ErrorLogger.warn(TAG, "💰🛑 TREASURY HARD FLOOR: ${pos.symbol} | ${pnlPct.toInt()}% - EMERGENCY EXIT!")
+            return ExitSignal.STOP_LOSS
+        }
+        
         // 1. V5.2: HIT OR PASSED TARGET PRICE - SELL and promote to appropriate layer!
         // Treasury takes quick profits, then hands off to Moonshot/ShitCoin for continued gains
         if (isAboveTarget) {

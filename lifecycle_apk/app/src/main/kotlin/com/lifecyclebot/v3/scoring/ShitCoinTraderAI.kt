@@ -836,6 +836,14 @@ object ShitCoinTraderAI {
             ErrorLogger.debug(TAG, "📊 TECHNICALS ${pos.symbol}: $techSummary")
         }
         
+        // V5.2 FIX: HARD FLOOR STOP - ABSOLUTE MAXIMUM LOSS
+        // This should NEVER be exceeded, regardless of other conditions
+        val HARD_FLOOR_STOP_PCT = -20.0  // Absolute max loss for ShitCoin layer
+        if (pnlPct <= HARD_FLOOR_STOP_PCT) {
+            ErrorLogger.warn(TAG, "💩🛑 HARD FLOOR: ${pos.symbol} | ${pnlPct.toInt()}% - EMERGENCY EXIT!")
+            return ExitSignal.STOP_LOSS
+        }
+        
         // 1. RUG DETECTED - Price dropped >50% in <5 mins (backup check)
         if (holdMinutes < 5 && pnlPct < -50) {
             ErrorLogger.warn(TAG, "💩💀 RUG DETECTED: ${pos.symbol} | ${pnlPct.toInt()}% in ${holdMinutes}min")
