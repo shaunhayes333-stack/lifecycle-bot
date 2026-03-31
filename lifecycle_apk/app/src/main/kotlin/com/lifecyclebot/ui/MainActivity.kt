@@ -2428,7 +2428,7 @@ for legal compliance.
     /**
      * Build a probation card with scaled text/elements
      */
-    private fun buildProbationCard(entry: com.lifecyclebot.engine.GlobalTradeRegistry.WatchlistEntry, scale: Float): android.view.View {
+    private fun buildProbationCard(entry: com.lifecyclebot.engine.GlobalTradeRegistry.ProbationEntry, scale: Float): android.view.View {
         val elapsed = (System.currentTimeMillis() - entry.addedAt) / 1000
         val elapsedStr = when {
             elapsed < 60 -> "${elapsed}s"
@@ -2693,7 +2693,7 @@ for legal compliance.
         }
         
         // V3 Score
-        if (v3Score > 0) {
+        if ((v3Score ?: 0) > 0) {
             row2.addView(TextView(this).apply {
                 text = " V3:$v3Score"
                 textSize = 9f * scale
@@ -2702,10 +2702,10 @@ for legal compliance.
         }
         
         // Confidence
-        if (v3Conf > 0) {
+        if ((v3Conf ?: 0) > 0) {
             val confColor = when {
-                v3Conf >= 50 -> green
-                v3Conf >= 25 -> 0xFFFFCC00.toInt()
+                (v3Conf ?: 0) >= 50 -> green
+                (v3Conf ?: 0) >= 25 -> 0xFFFFCC00.toInt()
                 else -> muted
             }
             row2.addView(TextView(this).apply {

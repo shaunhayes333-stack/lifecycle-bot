@@ -24,7 +24,7 @@ class TradeDatabase(ctx: Context) : SQLiteOpenHelper(ctx, DB_NAME, null, DB_VERS
     companion object {
         const val DB_NAME    = "lifecycle_trades.db"
         const val DB_VERSION = 5  // Incremented for is_scratch column
-        const val MIN_EVIDENCE        = 8     // trades before pattern can be CONFIRMED_BAD
+        const val MIN_EVIDENCE        = 15    // V5.2: Raised from 8 - need more evidence before penalizing patterns
         const val SUPPRESS_THRESHOLD  = 38.0  // win rate at or below this = bad pattern
         const val HARD_SUPPRESS_THRESHOLD = 25.0  // this bad = SUPPRESSED (hard block)
     }
