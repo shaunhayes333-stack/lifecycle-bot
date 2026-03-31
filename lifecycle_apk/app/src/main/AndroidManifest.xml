@@ -68,6 +68,7 @@
         <activity android:name=".ui.JournalActivity" android:exported="false"/>
         <activity android:name=".ui.ErrorLogActivity" android:exported="false"/>
         <activity android:name=".ui.CollectiveBrainActivity" android:exported="false"/>
+        <activity android:name=".ui.BehaviorActivity" android:exported="false" android:screenOrientation="portrait"/>
 
         <provider
             android:name="androidx.core.content.FileProvider"

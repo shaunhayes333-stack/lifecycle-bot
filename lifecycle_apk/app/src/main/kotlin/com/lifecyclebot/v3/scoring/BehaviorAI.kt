@@ -92,8 +92,13 @@ object BehaviorAI {
     /**
      * Record a completed trade for behavior analysis.
      * Call this after every SELL execution.
+     * 
+     * V5.2 CHANGES:
+     * - Paper mode has NO behavior penalty (it's not real money, it's killing learning!)
+     * - Live mode has much gentler penalties (we have full sentient learning)
+     * - Only big losses (>30%) apply 0.25 penalty to learning progression
      */
-    fun recordTrade(pnlPct: Double, reason: String, mint: String) {
+    fun recordTrade(pnlPct: Double, reason: String, mint: String, isPaperMode: Boolean = true) {
         val now = System.currentTimeMillis()
         val timeSinceLastTrade = now - lastTradeTime.get()
         lastTradeTime.set(now)
@@ -172,38 +177,61 @@ object BehaviorAI {
             
             // ═══════════════════════════════════════════════════════════════
             // LOSSES
+            // V5.2: Paper mode = NO penalties (killing learning!)
+            // Live mode = Only big losses (>30%) apply 0.25 penalty
             // ═══════════════════════════════════════════════════════════════
             pnlPct <= BIG_LOSS_PCT -> {
                 bigLossCount.incrementAndGet()
                 sessionLosses.incrementAndGet()
                 consecutiveLosses.incrementAndGet()
                 consecutiveWins.set(0)
-                disciplineScore.addAndGet(-15)
-                tiltLevel.addAndGet(25)
                 
-                ErrorLogger.warn(TAG, "💀 BIG LOSS! $mint ${pnlPct.toInt()}% | Loss streak: ${consecutiveLosses.get()}")
-                checkTiltProtection()
-                updateFluidPenalty(0.15)
+                // V5.2: Paper mode - track stats but NO penalties
+                if (isPaperMode) {
+                    disciplineScore.addAndGet(-2)  // Minor tracking only
+                    tiltLevel.addAndGet(3)         // Minor tilt (for stats display)
+                    ErrorLogger.info(TAG, "💀 PAPER BIG LOSS: $mint ${pnlPct.toInt()}% | No penalty (learning mode)")
+                } else {
+                    // Live mode: Still gentler than before
+                    disciplineScore.addAndGet(-10)  // Was -15
+                    tiltLevel.addAndGet(15)          // Was 25
+                    
+                    ErrorLogger.warn(TAG, "💀 LIVE BIG LOSS! $mint ${pnlPct.toInt()}% | Streak: ${consecutiveLosses.get()}")
+                    
+                    // V5.2: Only losses > 30% apply 0.25 penalty to learning
+                    if (pnlPct <= -30.0) {
+                        updateFluidPenalty(0.25)  // User spec: big losses over 30%
+                        ErrorLogger.warn(TAG, "📉 CATASTROPHIC LOSS (${pnlPct.toInt()}%) - 0.25x learning penalty applied")
+                    }
+                }
             }
             
             pnlPct < -2.0 -> {
                 sessionLosses.incrementAndGet()
                 consecutiveLosses.incrementAndGet()
                 consecutiveWins.set(0)
-                disciplineScore.addAndGet(-3)
-                tiltLevel.addAndGet(8)
                 
-                // Check for rapid trading after loss (tilt indicator)
-                if (timeSinceLastTrade < RAPID_TRADE_MS && consecutiveLosses.get() >= 2) {
-                    tiltLevel.addAndGet(10)
-                    ErrorLogger.warn(TAG, "⚠️ RAPID LOSS TRADING detected - potential tilt")
-                }
-                
-                // Loss streak warning
-                if (consecutiveLosses.get() >= LOSS_STREAK_THRESHOLD) {
-                    ErrorLogger.warn(TAG, "🔴 LOSS STREAK: ${consecutiveLosses.get()} consecutive losses")
-                    checkTiltProtection()
-                    updateFluidPenalty(0.1)
+                // V5.2: Paper mode - NO penalties
+                if (isPaperMode) {
+                    disciplineScore.addAndGet(-1)  // Tiny tracking
+                    tiltLevel.addAndGet(1)
+                } else {
+                    // Live mode: Gentler penalties
+                    disciplineScore.addAndGet(-2)  // Was -3
+                    tiltLevel.addAndGet(4)         // Was 8
+                    
+                    // Check for rapid trading after loss (tilt indicator)
+                    if (timeSinceLastTrade < RAPID_TRADE_MS && consecutiveLosses.get() >= 2) {
+                        tiltLevel.addAndGet(5)  // Was 10
+                        ErrorLogger.warn(TAG, "⚠️ RAPID LOSS TRADING detected - potential tilt")
+                    }
+                    
+                    // Loss streak warning - but NO fluid penalty in live (we have full sentient learning)
+                    if (consecutiveLosses.get() >= LOSS_STREAK_THRESHOLD) {
+                        ErrorLogger.warn(TAG, "🔴 LOSS STREAK: ${consecutiveLosses.get()} consecutive losses")
+                        checkTiltProtection()
+                        // V5.2: NO updateFluidPenalty here - let sentient learning handle it
+                    }
                 }
             }
         }
@@ -646,5 +674,173 @@ object BehaviorAI {
         fluidAdjustment.set(0.0)
         
         ErrorLogger.info(TAG, "🔄 Session reset | Tilt decayed to ${tiltLevel.get()}%")
+    }
+    
+    // ═══════════════════════════════════════════════════════════════════════════
+    // V5.2: AGGRESSION TUNING (0-11 scale like a stereo dial)
+    // ═══════════════════════════════════════════════════════════════════════════
+    
+    // 0 = Ultra Defensive, 5 = Normal, 11 = Maximum Aggression
+    private val aggressionLevel = AtomicInteger(5)
+    
+    /**
+     * Set the aggression level (0-11).
+     * This affects all trading behavior across layers.
+     * 
+     * 0-2: Defensive (tighter stops, higher quality required, smaller sizes)
+     * 3-4: Conservative
+     * 5: Normal (balanced)
+     * 6-7: Aggressive (looser criteria, larger sizes)
+     * 8-9: Very Aggressive
+     * 10-11: Maximum ("Goes to 11" - full degen mode)
+     */
+    fun setAggressionLevel(level: Int) {
+        val clamped = level.coerceIn(0, 11)
+        aggressionLevel.set(clamped)
+        
+        // Apply fluid strangles based on aggression
+        val fluidMod = when (clamped) {
+            0 -> -0.4    // Ultra defensive: tighten everything
+            1 -> -0.3
+            2 -> -0.2
+            3 -> -0.1
+            4 -> -0.05
+            5 -> 0.0     // Normal: neutral
+            6 -> 0.05
+            7 -> 0.1
+            8 -> 0.2
+            9 -> 0.3
+            10 -> 0.4    // Degen: loosen everything
+            11 -> 0.5    // Goes to 11: maximum
+            else -> 0.0
+        }
+        
+        // Apply to fluid learning
+        try {
+            FluidLearningAI.setAggressionModifier(fluidMod)
+        } catch (_: Exception) { }
+        
+        ErrorLogger.info(TAG, "🎚️ Aggression set to $clamped (${getAggressionName(clamped)}) | fluidMod=$fluidMod")
+    }
+    
+    fun getAggressionLevel(): Int = aggressionLevel.get()
+    
+    fun getAggressionName(level: Int = aggressionLevel.get()): String = when (level) {
+        0 -> "ULTRA_DEFENSIVE"
+        1 -> "VERY_DEFENSIVE"
+        2 -> "DEFENSIVE"
+        3 -> "CONSERVATIVE"
+        4 -> "SLIGHTLY_CONSERVATIVE"
+        5 -> "NORMAL"
+        6 -> "SLIGHTLY_AGGRESSIVE"
+        7 -> "AGGRESSIVE"
+        8 -> "VERY_AGGRESSIVE"
+        9 -> "HYPER_AGGRESSIVE"
+        10 -> "DEGEN"
+        11 -> "GOES_TO_11"
+        else -> "NORMAL"
+    }
+    
+    /**
+     * Get entry threshold modifier based on aggression.
+     * Lower values = easier to enter trades.
+     */
+    fun getEntryThresholdMod(): Double = when (aggressionLevel.get()) {
+        0 -> 15.0    // +15 to entry threshold (harder)
+        1 -> 10.0
+        2 -> 5.0
+        3 -> 3.0
+        4 -> 1.0
+        5 -> 0.0     // Normal
+        6 -> -2.0
+        7 -> -5.0
+        8 -> -8.0
+        9 -> -12.0
+        10 -> -15.0  // -15 to entry threshold (easier)
+        11 -> -20.0  // Maximum ease
+        else -> 0.0
+    }
+    
+    /**
+     * Get stop loss modifier based on aggression.
+     * Positive = wider stops, Negative = tighter stops.
+     */
+    fun getStopLossModPct(): Double = when (aggressionLevel.get()) {
+        0 -> -3.0    // Tighter stops
+        1 -> -2.0
+        2 -> -1.0
+        3 -> -0.5
+        4 -> 0.0
+        5 -> 0.0     // Normal
+        6 -> 0.5
+        7 -> 1.0
+        8 -> 2.0
+        9 -> 3.0
+        10 -> 4.0    // Wider stops
+        11 -> 5.0
+        else -> 0.0
+    }
+    
+    /**
+     * Get sizing multiplier based on aggression.
+     */
+    fun getSizingMultiplier(): Double = when (aggressionLevel.get()) {
+        0 -> 0.5     // Half size
+        1 -> 0.6
+        2 -> 0.7
+        3 -> 0.8
+        4 -> 0.9
+        5 -> 1.0     // Normal
+        6 -> 1.1
+        7 -> 1.2
+        8 -> 1.3
+        9 -> 1.4
+        10 -> 1.5    // 1.5x size
+        11 -> 1.75   // Maximum size
+        else -> 1.0
+    }
+    
+    /**
+     * Get minimum quality grade required based on aggression.
+     * Returns: A, B, C, D, F
+     */
+    fun getMinQualityGrade(): String = when (aggressionLevel.get()) {
+        0, 1 -> "A"       // Only A grades
+        2, 3 -> "B"       // B or better
+        4, 5, 6 -> "C"    // C or better (normal)
+        7, 8 -> "D"       // D or better
+        9, 10, 11 -> "F"  // Accept everything
+        else -> "C"
+    }
+    
+    // ═══════════════════════════════════════════════════════════════════════════
+    // V5.2: FULL RESET
+    // ═══════════════════════════════════════════════════════════════════════════
+    
+    /**
+     * Full reset of all behavior state (for dashboard reset button).
+     */
+    fun reset() {
+        currentStreak.set(0)
+        consecutiveLosses.set(0)
+        consecutiveWins.set(0)
+        tiltLevel.set(0)
+        disciplineScore.set(50)
+        lastTradeTime.set(0)
+        
+        sessionTrades.set(0)
+        sessionWins.set(0)
+        sessionLosses.set(0)
+        sessionBigWins.set(0)
+        
+        tiltProtectionUntil = 0
+        lastLossStreakEnd = 0
+        
+        fluidAdjustment.set(0.0)
+        
+        // Keep milestones (they're historical achievements)
+        // tenXCount, hundredXCount, megaPumpCount, bigLossCount
+        
+        ErrorLogger.info(TAG, "🔄 Full behavior reset")
     }
 }

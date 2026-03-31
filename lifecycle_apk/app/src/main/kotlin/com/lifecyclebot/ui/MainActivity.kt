@@ -583,6 +583,12 @@ for legal compliance.
         }
         btnOpenAlerts.setOnClickListener  { startActivity(android.content.Intent(this, AlertsActivity::class.java)) }
         
+        // V5.2: Behavior Dashboard button
+        try {
+            findViewById<android.view.View>(R.id.btnOpenBehavior)
+                ?.setOnClickListener { startActivity(android.content.Intent(this, BehaviorActivity::class.java)) }
+        } catch (_: Exception) {}
+        
         // Collective Brain button
         try {
             findViewById<android.widget.TextView>(R.id.btnOpenCollectiveBrain)

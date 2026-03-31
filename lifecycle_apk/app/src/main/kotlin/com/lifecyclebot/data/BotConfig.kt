@@ -104,6 +104,9 @@ data class BotConfig(
     val tradingPauseUtcEnd: Int = 6,        // UTC hour to resume (default 6am - only 2 hours pause)
     val defensiveLossThreshold: Int = 3,    // losses before defensive mode
     val aggressiveWhaleThreshold: Double = 70.0,
+    // V5.2: Behavior Dashboard Aggression Tuning
+    // 0 = Ultra Defensive, 5 = Normal, 11 = Goes to 11 (maximum aggression)
+    val behaviorAggressionLevel: Int = 5,    // Default to NORMAL (middle)
     // copy trading
     val copyTradingEnabled: Boolean = false,
     val copySizeMultiplier: Double = 1.0,   // relative to normal position size
@@ -302,6 +305,7 @@ object ConfigStore {
             putInt("trading_pause_utc_end",           cfg.tradingPauseUtcEnd)
             putInt("defensive_loss_threshold",        cfg.defensiveLossThreshold)
             putFloat("aggressive_whale_threshold",    cfg.aggressiveWhaleThreshold.toFloat())
+            putInt("behavior_aggression_level",       cfg.behaviorAggressionLevel)
             putBoolean("copy_trading_enabled",        cfg.copyTradingEnabled)
             putFloat("copy_size_multiplier",          cfg.copySizeMultiplier.toFloat())
             putBoolean("use_time_filter",             cfg.useTimeFilter)
@@ -433,6 +437,7 @@ object ConfigStore {
             tradingPauseUtcEnd          = p.getInt("trading_pause_utc_end", 6),
             defensiveLossThreshold      = p.getInt("defensive_loss_threshold", 3),
             aggressiveWhaleThreshold    = p.getFloat("aggressive_whale_threshold", 70.0f).toDouble(),
+            behaviorAggressionLevel     = p.getInt("behavior_aggression_level", 5),  // V5.2: Default NORMAL
             copyTradingEnabled          = p.getBoolean("copy_trading_enabled", false),
             copySizeMultiplier          = p.getFloat("copy_size_multiplier", 1.0f).toDouble(),
             useTimeFilter               = p.getBoolean("use_time_filter", true),

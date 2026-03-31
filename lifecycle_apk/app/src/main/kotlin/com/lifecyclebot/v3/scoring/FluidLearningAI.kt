@@ -94,6 +94,9 @@ object FluidLearningAI {
     @Volatile
     private var behaviorModifier = 0.0
     
+    // V5.2: Aggression modifier from BehaviorAI dashboard (0-11 scale → -0.5 to +0.5)
+    private var aggressionModifier = 0.0
+    
     /**
      * Apply a behavior modifier from BehaviorAI.
      * This affects all fluid thresholds.
@@ -294,6 +297,17 @@ object FluidLearningAI {
      * Get the current behavior modifier.
      */
     fun getBehaviorModifier(): Double = behaviorModifier
+    
+    /**
+     * V5.2: Set aggression modifier from BehaviorAI dashboard.
+     * Range: -0.5 (ultra defensive) to +0.5 (goes to 11)
+     */
+    fun setAggressionModifier(modifier: Double) {
+        aggressionModifier = modifier.coerceIn(-0.5, 0.5)
+        ErrorLogger.info(TAG, "🎚️ Aggression modifier: ${if (modifier >= 0) "+" else ""}${(modifier * 100).toInt()}%")
+    }
+    
+    fun getAggressionModifier(): Double = aggressionModifier
     
     /**
      * Get current learning progress (0.0 = brand new, 1.0 = fully mature).
