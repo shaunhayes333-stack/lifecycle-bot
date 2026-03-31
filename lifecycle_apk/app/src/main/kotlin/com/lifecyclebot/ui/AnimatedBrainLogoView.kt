@@ -188,17 +188,14 @@ class AnimatedBrainLogoView @JvmOverloads constructor(
         val centerY = height / 2f
         val maxRadius = minOf(width, height) / 2f * 0.9f
         
-        // Draw pulsing core glow
-        drawCoreGlow(canvas, centerX, centerY, maxRadius)
+        // V5.2: Removed core glow and inner core - actual logo sits on top
+        // Only draw the brain wave rings and orbital particles
         
         // Draw brain wave rings
         drawBrainWaveRings(canvas, centerX, centerY, maxRadius)
         
         // Draw orbital particles
         drawOrbitalParticles(canvas, centerX, centerY, maxRadius)
-        
-        // Draw inner core
-        drawInnerCore(canvas, centerX, centerY, maxRadius)
     }
     
     private fun drawCoreGlow(canvas: Canvas, cx: Float, cy: Float, maxRadius: Float) {
