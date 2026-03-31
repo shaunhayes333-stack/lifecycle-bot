@@ -227,12 +227,18 @@ object ToxicModeCircuitBreaker {
     
     /**
      * Record a trade loss. This may trip the circuit breaker.
+     * V5.2: Added isPaper parameter - paper=1min max, live=5min max
      */
-    fun recordLoss(mode: String, pnlPct: Double, mint: String, symbol: String) {
+    fun recordLoss(mode: String, pnlPct: Double, mint: String, symbol: String, isPaper: Boolean = true) {
         if (pnlPct >= 0) return  // Not a loss
         
         val modeUpper = mode.uppercase()
         val now = System.currentTimeMillis()
+        
+        // V5.2: Different freeze times for paper vs live
+        // Paper: max 1 min (need fast learning iteration)
+        // Live: max 5 min (need some protection but not too long)
+        val freezeMultiplier = if (isPaper) 1L else 5L  // 1 min paper, 5 min live
         
         // Add to recent losses
         val losses = recentLosses.getOrPut(modeUpper) { mutableListOf() }
@@ -245,19 +251,20 @@ object ToxicModeCircuitBreaker {
         // Check circuit breaker conditions
         
         // Condition 1: Single catastrophic loss > 40%
+        // V5.2: Paper=1min, Live=5min (was 12 hours!)
         if (pnlPct <= -40) {
-            tripCircuitBreaker(modeUpper, 12 * 60 * 60 * 1000L, 
+            tripCircuitBreaker(modeUpper, 60 * 1000L * freezeMultiplier, 
                 "CATASTROPHIC_LOSS_${pnlPct.toInt()}%")
-            Log.e(TAG, "🚨 CIRCUIT BREAKER: $modeUpper frozen 12h after ${pnlPct.toInt()}% loss on $symbol")
+            Log.e(TAG, "🚨 CIRCUIT BREAKER: $modeUpper frozen ${freezeMultiplier}min after ${pnlPct.toInt()}% loss on $symbol")
             return
         }
         
         // Condition 2: Single severe loss > 25%
-        // V5.2 FIX: Max 1 min freeze for paper learning - was killing learning cycle
+        // V5.2: Paper=1min, Live=5min
         if (pnlPct <= -25) {
-            tripCircuitBreaker(modeUpper, 60 * 1000L,  // 1 minute max
+            tripCircuitBreaker(modeUpper, 60 * 1000L * freezeMultiplier,
                 "SEVERE_LOSS_${pnlPct.toInt()}%")
-            Log.e(TAG, "🚨 CIRCUIT BREAKER: $modeUpper frozen 1min after ${pnlPct.toInt()}% loss on $symbol")
+            Log.e(TAG, "🚨 CIRCUIT BREAKER: $modeUpper frozen ${freezeMultiplier}min after ${pnlPct.toInt()}% loss on $symbol")
             return
         }
         
@@ -267,20 +274,20 @@ object ToxicModeCircuitBreaker {
             val recentMediumLosses = losses.count { it.pnlPct <= -15 }
             
             // Condition 3: 2+ losses > 20%
-            // V5.2 FIX: 1 min max for paper learning
+            // V5.2: Paper=1min, Live=5min
             if (recentBigLosses >= 2) {
-                tripCircuitBreaker(modeUpper, 60 * 1000L,  // 1 minute max
+                tripCircuitBreaker(modeUpper, 60 * 1000L * freezeMultiplier,
                     "MULTIPLE_BIG_LOSSES")
-                Log.e(TAG, "🚨 CIRCUIT BREAKER: $modeUpper frozen 1min after $recentBigLosses big losses")
+                Log.e(TAG, "🚨 CIRCUIT BREAKER: $modeUpper frozen ${freezeMultiplier}min after $recentBigLosses big losses")
                 return
             }
             
             // Condition 4: 3+ losses > 15%
-            // V5.2 FIX: 1 min max for paper learning
+            // V5.2: Paper=1min, Live=5min
             if (recentMediumLosses >= 3) {
-                tripCircuitBreaker(modeUpper, 60 * 1000L,  // 1 minute max
+                tripCircuitBreaker(modeUpper, 60 * 1000L * freezeMultiplier,
                     "TRIPLE_MEDIUM_LOSSES")
-                Log.e(TAG, "🚨 CIRCUIT BREAKER: $modeUpper frozen 1min after $recentMediumLosses medium losses")
+                Log.e(TAG, "🚨 CIRCUIT BREAKER: $modeUpper frozen ${freezeMultiplier}min after $recentMediumLosses medium losses")
                 return
             }
         }
