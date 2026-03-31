@@ -166,13 +166,15 @@ object PrecisionExitLogic {
                 val high = candles.maxOf { c -> c.priceUsd }
                 val low = candles.minOf { c -> c.priceUsd }
                 val range = if (low > 0) ((high - low) / low) * 100 else 0.0
-                range < 2.0  // TIGHTER: Price must be stuck in very tight range
+                range < 1.0  // V5.2: Even tighter - 1% range required (was 2%)
             } else false
         }
         
-        // LOOSENED: Require much higher whale activity threshold (was 70)
-        // AND must have significant losses to trigger (not just flat)
-        if (whaleActivity > 85 && priceStalling && pnlPct < -2.0) {
+        // V5.2 FIX: WHALE_DISTRIBUTION was causing too many premature exits
+        // Raised thresholds significantly - meme coins naturally have whale activity
+        // - Raised whaleActivity from 85 to 95 (near-certain distribution only)
+        // - Lowered pnlPct trigger from -2% to -5% (only exit if already down big)
+        if (whaleActivity > 95 && priceStalling && pnlPct < -5.0) {
             return ExitSignal(
                 shouldExit = true,
                 reason = "WHALE_DISTRIBUTION",
@@ -183,13 +185,14 @@ object PrecisionExitLogic {
         
         // ════════════════════════════════════════════════════════════════
         // 6. EXIT SCORE THRESHOLD (existing logic)
+        // V5.2: Raised from 75 to 90 - was too aggressive
         // ════════════════════════════════════════════════════════════════
-        if (exitScore > 75) {
+        if (exitScore > 90) {
             return ExitSignal(
                 shouldExit = true,
                 reason = "EXIT_SCORE",
                 urgency = Urgency.MEDIUM,
-                details = "Exit score ${exitScore.toInt()} > 75"
+                details = "Exit score ${exitScore.toInt()} > 90"
             )
         }
         
