@@ -5,6 +5,7 @@ import com.lifecyclebot.engine.NotificationHistory
 import com.lifecyclebot.engine.quant.QuantMetrics
 import com.lifecyclebot.engine.quant.PortfolioAnalytics
 import com.lifecyclebot.v3.scoring.FluidLearningAI
+import com.lifecyclebot.v3.scoring.HoldTimeOptimizerAI
 import kotlin.math.abs
 import kotlin.math.pow
 
@@ -4642,6 +4643,34 @@ class Executor(
                 AICrossTalk.recordOutcome(crossTalkSignal.signalType, pnlP, pnlP > 0)
             }
         } catch (_: Exception) {}
+        
+        // ═══════════════════════════════════════════════════════════════════
+        // V5.2 FIX: HOLD TIME OPTIMIZER AI - Learn optimal hold durations!
+        // This was MISSING before - the AI was predicting but never learning
+        // from actual outcomes. Now it learns which hold times work best for
+        // each setup quality grade.
+        // ═══════════════════════════════════════════════════════════════════
+        try {
+            // Determine setup quality from entry phase and score
+            val setupQuality = when {
+                ts.position.entryScore > 70 -> "A+"
+                ts.position.entryScore > 60 -> "A"
+                ts.position.entryScore > 50 -> "B"
+                else -> "C"
+            }
+            
+            HoldTimeOptimizerAI.recordOutcome(
+                mint = tradeId.mint,
+                actualHoldMinutes = holdMinutes.toInt(),
+                pnlPct = pnlP,
+                setupQuality = setupQuality
+            )
+            
+            ErrorLogger.debug("Executor", "📊 HoldTimeAI learned: ${ts.symbol} " +
+                "${holdMinutes.toInt()}min hold | ${pnlP.toInt()}% PnL | $setupQuality setup")
+        } catch (e: Exception) {
+            ErrorLogger.warn("Executor", "HoldTimeAI recordOutcome failed: ${e.message}")
+        }
         
         // ═══════════════════════════════════════════════════════════════════
         // TOKEN WIN MEMORY: Remember winning tokens and learn patterns

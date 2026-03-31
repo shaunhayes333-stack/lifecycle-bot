@@ -2,22 +2,96 @@ package com.lifecyclebot.engine
 
 import com.lifecyclebot.data.TokenState
 import com.lifecyclebot.data.Position
+import com.lifecyclebot.v3.scoring.HoldTimeOptimizerAI
 
 /**
  * ModeSpecificExits — Intelligent Exit Logic Per Trade Type
  * 
- * Each trade type has different exit characteristics:
- *   - Fresh Launch: Fastest stops, fastest partials, short timeout
- *   - Breakout: Partial into strength, trail below structure
- *   - Reversal: Take first target quicker, breakeven early
- *   - Whale Follow: Exit when whale behavior changes
- *   - Trend Pullback: Widest patience, trail under higher lows
+ * V5.2 UPGRADE: Now integrates with HoldTimeOptimizerAI for ADAPTIVE timeouts!
+ * Instead of hardcoded 15/60/120/240 minute timeouts, we now use AI-learned
+ * optimal hold times based on setup quality, market regime, and historical data.
  * 
- * This replaces one-size-fits-all exit logic with mode-aware decisions.
+ * Each trade type has different exit characteristics:
+ *   - Fresh Launch: Fastest stops, fastest partials, AI-learned short timeout
+ *   - Breakout: Partial into strength, trail below structure, medium AI timeout
+ *   - Reversal: Take first target quicker, breakeven early
+ *   - Whale Follow: Exit when whale behavior changes, patient AI timeout
+ *   - Trend Pullback: Widest patience, trail under higher lows, max AI timeout
+ * 
+ * The AI learns optimal hold times from trade outcomes and dynamically adjusts
+ * timeouts based on setup quality (A+, A, B, C), volatility regime, and
+ * historical performance patterns.
  */
 object ModeSpecificExits {
     
     private const val TAG = "ModeExit"
+    
+    // ═══════════════════════════════════════════════════════════════════
+    // V5.2: AI-POWERED TIMEOUT CONFIGURATION
+    // Maps trade types to HoldTimeOptimizerAI setup quality grades
+    // ═══════════════════════════════════════════════════════════════════
+    
+    private fun getSetupQualityForTradeType(tradeType: ModeRouter.TradeType): String {
+        return when (tradeType) {
+            ModeRouter.TradeType.FRESH_LAUNCH -> "C"       // Scalp/short - lowest quality expectation
+            ModeRouter.TradeType.BREAKOUT_CONTINUATION -> "B"  // Medium hold
+            ModeRouter.TradeType.REVERSAL_RECLAIM -> "B"       // Medium patience
+            ModeRouter.TradeType.WHALE_ACCUMULATION -> "A"     // Patient hold
+            ModeRouter.TradeType.COPY_TRADE -> "B"             // Medium patience
+            ModeRouter.TradeType.GRADUATION -> "B"             // Event-based
+            ModeRouter.TradeType.TREND_PULLBACK -> "A+"        // Maximum patience
+            ModeRouter.TradeType.SENTIMENT_IGNITION -> "C"     // Quick in-out
+            ModeRouter.TradeType.UNKNOWN -> "C"                // Default to short
+        }
+    }
+    
+    /**
+     * V5.2: Get AI-learned optimal timeout for a trade type.
+     * This replaces hardcoded timeout values with adaptive learning.
+     */
+    private fun getAIOptimalTimeout(
+        ts: TokenState,
+        tradeType: ModeRouter.TradeType,
+        fallbackMinutes: Int = 60
+    ): Int {
+        return try {
+            val setupQuality = getSetupQualityForTradeType(tradeType)
+            val recommendation = HoldTimeOptimizerAI.predict(
+                mint = ts.mint,
+                symbol = ts.symbol,
+                setupQuality = setupQuality,
+                liquidityUsd = ts.lastLiquidityUsd,
+                volatilityRegime = ts.meta.volatilityRegime.ifEmpty { "NORMAL" },
+                marketRegime = ts.meta.emafanAlignment.let { ema ->
+                    when {
+                        ema.contains("BULL") -> "BULL"
+                        ema.contains("BEAR") -> "BEAR"
+                        else -> "NEUTRAL"
+                    }
+                },
+                isGoldenHour = false,  // Can be enhanced later
+                entryScore = ts.position.entryScore.toInt()
+            )
+            
+            // Use maxMinutes for timeout (the "exit by" time)
+            recommendation.maxMinutes.coerceIn(5, 480)
+        } catch (e: Exception) {
+            ErrorLogger.warn(TAG, "HoldTimeAI fallback: ${e.message}")
+            fallbackMinutes
+        }
+    }
+    
+    /**
+     * V5.2: Check if position is overheld according to AI.
+     */
+    private fun isAIOverheld(mint: String, holdTimeMins: Double): Boolean {
+        return try {
+            HoldTimeOptimizerAI.isOverheld(mint) || 
+                holdTimeMins > HoldTimeOptimizerAI.getCurrentHoldMinutes(mint) * 2
+        } catch (_: Exception) {
+            false
+        }
+    }
     
     // ═══════════════════════════════════════════════════════════════════
     // EXIT RECOMMENDATION
@@ -69,7 +143,8 @@ object ModeSpecificExits {
     
     // ═══════════════════════════════════════════════════════════════════
     // FRESH LAUNCH EXIT
-    // Fastest stop, fastest partials, short timeout
+    // Fastest stop, fastest partials, AI-learned short timeout
+    // V5.2: Now uses HoldTimeOptimizerAI for adaptive timeout
     // ═══════════════════════════════════════════════════════════════════
     
     private fun evaluateFreshLaunchExit(
@@ -80,6 +155,9 @@ object ModeSpecificExits {
         
         val holdTimeMins = holdTimeMs / 60_000.0
         val hist = ts.history.toList()
+        
+        // V5.2: Get AI-learned timeout (fallback to 15 min for fresh launches)
+        val aiTimeout = getAIOptimalTimeout(ts, ModeRouter.TradeType.FRESH_LAUNCH, fallbackMinutes = 15)
         
         // IMMEDIATE EXIT: Stop loss hit
         if (pnlPct < -25) {
@@ -105,12 +183,12 @@ object ModeSpecificExits {
             )
         }
         
-        // TIMEOUT: Fresh launches should be fast
-        if (holdTimeMins > 15) {
+        // V5.2: AI-ADAPTIVE TIMEOUT - Fresh launches use dynamic learned timeout
+        if (holdTimeMins > aiTimeout || isAIOverheld(ts.mint, holdTimeMins)) {
             return ExitRecommendation(
                 shouldExit = true,
                 exitPct = 100.0,
-                reason = "FRESH_LAUNCH: Timeout ${holdTimeMins.toInt()}min",
+                reason = "FRESH_LAUNCH: AI Timeout ${holdTimeMins.toInt()}min > ${aiTimeout}min optimal",
                 urgency = ExitUrgency.URGENT,
                 adjustedStop = null,
                 adjustedTarget = null,
@@ -155,7 +233,8 @@ object ModeSpecificExits {
     
     // ═══════════════════════════════════════════════════════════════════
     // BREAKOUT EXIT
-    // Partial into strength, trail below structure, allow longer hold
+    // Partial into strength, trail below structure, AI-learned timeout
+    // V5.2: Now uses HoldTimeOptimizerAI for adaptive timeout
     // ═══════════════════════════════════════════════════════════════════
     
     private fun evaluateBreakoutExit(
@@ -166,6 +245,9 @@ object ModeSpecificExits {
         
         val holdTimeMins = holdTimeMs / 60_000.0
         val hist = ts.history.toList()
+        
+        // V5.2: Get AI-learned timeout (fallback to 120 min for breakouts)
+        val aiTimeout = getAIOptimalTimeout(ts, ModeRouter.TradeType.BREAKOUT_CONTINUATION, fallbackMinutes = 120)
         
         // Stop loss (tighter for breakouts - structure should hold)
         if (pnlPct < -12) {
@@ -179,12 +261,12 @@ object ModeSpecificExits {
             )
         }
         
-        // Timeout
-        if (holdTimeMins > 120) {
+        // V5.2: AI-ADAPTIVE TIMEOUT
+        if (holdTimeMins > aiTimeout || isAIOverheld(ts.mint, holdTimeMins)) {
             return ExitRecommendation(
                 shouldExit = true,
                 exitPct = 100.0,
-                reason = "BREAKOUT: Timeout ${holdTimeMins.toInt()}min",
+                reason = "BREAKOUT: AI Timeout ${holdTimeMins.toInt()}min > ${aiTimeout}min optimal",
                 urgency = ExitUrgency.NORMAL,
                 adjustedStop = null,
                 adjustedTarget = null,
@@ -233,6 +315,7 @@ object ModeSpecificExits {
     // ═══════════════════════════════════════════════════════════════════
     // REVERSAL EXIT
     // Take first target quicker, move stop to breakeven early
+    // V5.2: Now uses HoldTimeOptimizerAI for adaptive timeout
     // ═══════════════════════════════════════════════════════════════════
     
     private fun evaluateReversalExit(
@@ -243,6 +326,9 @@ object ModeSpecificExits {
         
         val holdTimeMins = holdTimeMs / 60_000.0
         val hist = ts.history.toList()
+        
+        // V5.2: Get AI-learned timeout (fallback to 60 min for reversals)
+        val aiTimeout = getAIOptimalTimeout(ts, ModeRouter.TradeType.REVERSAL_RECLAIM, fallbackMinutes = 60)
         
         // Stop loss
         if (pnlPct < -15) {
@@ -272,12 +358,12 @@ object ModeSpecificExits {
             }
         }
         
-        // Timeout (don't overstay reversals)
-        if (holdTimeMins > 60) {
+        // V5.2: AI-ADAPTIVE TIMEOUT (don't overstay reversals)
+        if (holdTimeMins > aiTimeout || isAIOverheld(ts.mint, holdTimeMins)) {
             return ExitRecommendation(
                 shouldExit = true,
                 exitPct = 100.0,
-                reason = "REVERSAL: Timeout ${holdTimeMins.toInt()}min",
+                reason = "REVERSAL: AI Timeout ${holdTimeMins.toInt()}min > ${aiTimeout}min optimal",
                 urgency = ExitUrgency.NORMAL,
                 adjustedStop = null,
                 adjustedTarget = null,
@@ -441,6 +527,7 @@ object ModeSpecificExits {
     // COPY TRADE EXIT
     // PRIORITY 5: Isolated exit logic for copy-trade positions
     // Different from WHALE_FOLLOW - we're following a wallet, not accumulation
+    // V5.2: Now uses HoldTimeOptimizerAI for adaptive timeout
     // ═══════════════════════════════════════════════════════════════════
     
     private fun evaluateCopyTradeExit(
@@ -451,6 +538,9 @@ object ModeSpecificExits {
         
         val holdTimeMins = holdTimeMs / 60_000.0
         val hist = ts.history.toList()
+        
+        // V5.2: Get AI-learned timeout (fallback to 120 min for copy trades)
+        val aiTimeout = getAIOptimalTimeout(ts, ModeRouter.TradeType.COPY_TRADE, fallbackMinutes = 120)
         
         // STOP LOSS: Tighter than whale-follow since we're following, not predicting
         if (pnlPct < -15) {
@@ -464,12 +554,12 @@ object ModeSpecificExits {
             )
         }
         
-        // TIMEOUT: Medium patience - if the leader is still holding, we should know
-        if (holdTimeMins > 120) {
+        // V5.2: AI-ADAPTIVE TIMEOUT - Medium patience
+        if (holdTimeMins > aiTimeout || isAIOverheld(ts.mint, holdTimeMins)) {
             return ExitRecommendation(
                 shouldExit = true,
                 exitPct = 100.0,
-                reason = "COPY_TRADE: Timeout ${holdTimeMins.toInt()}min",
+                reason = "COPY_TRADE: AI Timeout ${holdTimeMins.toInt()}min > ${aiTimeout}min optimal",
                 urgency = ExitUrgency.NORMAL,
                 adjustedStop = null,
                 adjustedTarget = null,
@@ -585,6 +675,7 @@ object ModeSpecificExits {
     // ═══════════════════════════════════════════════════════════════════
     // TREND PULLBACK EXIT
     // Widest patience, tightest stop relative to structure
+    // V5.2: Now uses HoldTimeOptimizerAI for adaptive timeout (A+ setups!)
     // ═══════════════════════════════════════════════════════════════════
     
     private fun evaluateTrendPullbackExit(
@@ -595,6 +686,9 @@ object ModeSpecificExits {
         
         val holdTimeMins = holdTimeMs / 60_000.0
         val hist = ts.history.toList()
+        
+        // V5.2: Get AI-learned timeout (fallback to 240 min for trend pullbacks - widest patience)
+        val aiTimeout = getAIOptimalTimeout(ts, ModeRouter.TradeType.TREND_PULLBACK, fallbackMinutes = 240)
         
         // Tightest stop (trend structure should hold)
         if (pnlPct < -10) {
@@ -626,12 +720,12 @@ object ModeSpecificExits {
             }
         }
         
-        // Very patient timeout
-        if (holdTimeMins > 240) {
+        // V5.2: AI-ADAPTIVE TIMEOUT - Very patient but AI-learned limits
+        if (holdTimeMins > aiTimeout || isAIOverheld(ts.mint, holdTimeMins)) {
             return ExitRecommendation(
                 shouldExit = true,
                 exitPct = 100.0,
-                reason = "TREND_PULLBACK: Max hold time",
+                reason = "TREND_PULLBACK: AI Max hold ${holdTimeMins.toInt()}min > ${aiTimeout}min optimal",
                 urgency = ExitUrgency.NORMAL,
                 adjustedStop = null,
                 adjustedTarget = null,
@@ -750,6 +844,7 @@ object ModeSpecificExits {
     
     // ═══════════════════════════════════════════════════════════════════
     // DEFAULT EXIT
+    // V5.2: Now uses HoldTimeOptimizerAI for adaptive timeout
     // ═══════════════════════════════════════════════════════════════════
     
     private fun evaluateDefaultExit(
@@ -759,6 +854,9 @@ object ModeSpecificExits {
     ): ExitRecommendation {
         
         val holdTimeMins = holdTimeMs / 60_000.0
+        
+        // V5.2: Get AI-learned timeout (fallback to 60 min for unknown types)
+        val aiTimeout = getAIOptimalTimeout(ts, ModeRouter.TradeType.UNKNOWN, fallbackMinutes = 60)
         
         if (pnlPct < -15) {
             return ExitRecommendation(
@@ -771,11 +869,12 @@ object ModeSpecificExits {
             )
         }
         
-        if (holdTimeMins > 60) {
+        // V5.2: AI-ADAPTIVE TIMEOUT
+        if (holdTimeMins > aiTimeout || isAIOverheld(ts.mint, holdTimeMins)) {
             return ExitRecommendation(
                 shouldExit = true,
                 exitPct = 100.0,
-                reason = "DEFAULT: Timeout",
+                reason = "DEFAULT: AI Timeout ${holdTimeMins.toInt()}min > ${aiTimeout}min optimal",
                 urgency = ExitUrgency.NORMAL,
                 adjustedStop = null,
                 adjustedTarget = null,
