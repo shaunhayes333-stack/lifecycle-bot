@@ -3990,6 +3990,35 @@ class Executor(
             }
         }
 
+        // ═══════════════════════════════════════════════════════════════════════════
+        // V5.2 FIX: Close ALL layer-specific positions when ANY sell happens
+        // This fixes the bug where ShitCoin positions remained after v8 exits
+        // ═══════════════════════════════════════════════════════════════════════════
+        try {
+            // Convert reason to ExitSignal for layer closePosition methods
+            val exitSignal = when {
+                reason.contains("whale", ignoreCase = true) -> com.lifecyclebot.v3.scoring.CashGenerationAI.ExitSignal.STOP_LOSS
+                reason.contains("distribution", ignoreCase = true) -> com.lifecyclebot.v3.scoring.CashGenerationAI.ExitSignal.STOP_LOSS
+                reason.contains("v8", ignoreCase = true) -> com.lifecyclebot.v3.scoring.CashGenerationAI.ExitSignal.STOP_LOSS
+                reason.contains("stop", ignoreCase = true) -> com.lifecyclebot.v3.scoring.CashGenerationAI.ExitSignal.STOP_LOSS
+                pnl > 0 -> com.lifecyclebot.v3.scoring.CashGenerationAI.ExitSignal.TAKE_PROFIT
+                else -> com.lifecyclebot.v3.scoring.CashGenerationAI.ExitSignal.STOP_LOSS
+            }
+            
+            // Close Treasury position if exists
+            com.lifecyclebot.v3.scoring.CashGenerationAI.closePosition(ts.mint, price, exitSignal)
+            
+            // Close ShitCoin position if exists - CRITICAL FIX!
+            com.lifecyclebot.v3.scoring.ShitCoinTraderAI.closePosition(ts.mint, price, exitSignal)
+            
+            // Close BlueChip position if exists
+            com.lifecyclebot.v3.scoring.BlueChipTraderAI.closePosition(ts.mint, price, exitSignal)
+            
+            ErrorLogger.debug("Executor", "✅ Closed all layer positions for ${ts.symbol}")
+        } catch (e: Exception) {
+            ErrorLogger.error("Executor", "Error closing layer positions: ${e.message}")
+        }
+
         // ═══════════════════════════════════════════════════════════════════
         // TRADE OUTCOME CLASSIFICATION (TIGHTENED)
         // 
