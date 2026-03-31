@@ -528,8 +528,8 @@
                  ═══════════════════════════════ -->
             
             <!-- ═══════════════════════════════
-                 TRADING MODES ROW 1 (V3 + Treasury + BlueChip)
-                 V5.2: Added V3 tile with stats
+                 TRADING LAYERS - ALL 5 SIDE-BY-SIDE
+                 V5.2: Consolidated into single row
                  ═══════════════════════════════ -->
             <LinearLayout
                 android:layout_width="match_parent"
@@ -538,7 +538,7 @@
                 android:gravity="center"
                 android:paddingStart="@dimen/screen_padding"
                 android:paddingEnd="@dimen/screen_padding"
-                android:layout_marginBottom="4dp">
+                android:layout_marginBottom="8dp">
 
                 <!-- V3 Core Mode -->
                 <LinearLayout
@@ -548,19 +548,19 @@
                     android:layout_weight="1"
                     android:orientation="vertical"
                     android:gravity="center"
-                    android:padding="8dp"
+                    android:padding="6dp"
                     android:background="@drawable/section_card_bg"
-                    android:layout_marginEnd="4dp"
+                    android:layout_marginEnd="3dp"
                     android:clickable="true"
                     android:focusable="true">
                     <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
-                        android:text="🎯" android:textSize="18sp"/>
+                        android:text="🎯" android:textSize="16sp"/>
                     <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
-                        android:text="V3 Core" android:textColor="#9945FF" android:textSize="9sp"
-                        android:layout_marginTop="2dp"/>
+                        android:text="V3" android:textColor="#9945FF" android:textSize="8sp"
+                        android:layout_marginTop="1dp"/>
                     <TextView android:id="@+id/tvV3Stats"
                         android:layout_width="wrap_content" android:layout_height="wrap_content"
-                        android:text="0W/0L" android:textColor="#6B7280" android:textSize="7sp"
+                        android:text="0/0" android:textColor="#6B7280" android:textSize="6sp"
                         android:fontFamily="monospace"/>
                 </LinearLayout>
 
@@ -572,19 +572,19 @@
                     android:layout_weight="1"
                     android:orientation="vertical"
                     android:gravity="center"
-                    android:padding="8dp"
+                    android:padding="6dp"
                     android:background="@drawable/section_card_bg"
-                    android:layout_marginEnd="4dp"
+                    android:layout_marginEnd="3dp"
                     android:clickable="true"
                     android:focusable="true">
                     <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
-                        android:text="💰" android:textSize="18sp"/>
+                        android:text="💰" android:textSize="16sp"/>
                     <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
-                        android:text="Treasury" android:textColor="#22C55E" android:textSize="9sp"
-                        android:layout_marginTop="2dp"/>
+                        android:text="Treasury" android:textColor="#22C55E" android:textSize="8sp"
+                        android:layout_marginTop="1dp"/>
                     <TextView android:id="@+id/tvTreasuryStats"
                         android:layout_width="wrap_content" android:layout_height="wrap_content"
-                        android:text="0W/0L" android:textColor="#6B7280" android:textSize="7sp"
+                        android:text="0/0" android:textColor="#6B7280" android:textSize="6sp"
                         android:fontFamily="monospace"/>
                 </LinearLayout>
                 
@@ -596,34 +596,21 @@
                     android:layout_weight="1"
                     android:orientation="vertical"
                     android:gravity="center"
-                    android:padding="8dp"
+                    android:padding="6dp"
                     android:background="@drawable/section_card_bg"
+                    android:layout_marginEnd="3dp"
                     android:clickable="true"
                     android:focusable="true">
                     <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
-                        android:text="🔵" android:textSize="18sp"/>
+                        android:text="🔵" android:textSize="16sp"/>
                     <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
-                        android:text="BlueChip" android:textColor="#3B82F6" android:textSize="9sp"
-                        android:layout_marginTop="2dp"/>
+                        android:text="Blue" android:textColor="#3B82F6" android:textSize="8sp"
+                        android:layout_marginTop="1dp"/>
                     <TextView android:id="@+id/tvBlueChipStats"
                         android:layout_width="wrap_content" android:layout_height="wrap_content"
-                        android:text="0W/0L" android:textColor="#6B7280" android:textSize="7sp"
+                        android:text="0/0" android:textColor="#6B7280" android:textSize="6sp"
                         android:fontFamily="monospace"/>
                 </LinearLayout>
-            </LinearLayout>
-            
-            <!-- ═══════════════════════════════
-                 TRADING MODES ROW 2 (ShitCoin + Moonshot)
-                 V5.2: Side-by-side with stats
-                 ═══════════════════════════════ -->
-            <LinearLayout
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:orientation="horizontal"
-                android:gravity="center"
-                android:paddingStart="@dimen/screen_padding"
-                android:paddingEnd="@dimen/screen_padding"
-                android:layout_marginBottom="8dp">
                 
                 <!-- ShitCoin Mode -->
                 <LinearLayout
@@ -633,23 +620,23 @@
                     android:layout_weight="1"
                     android:orientation="vertical"
                     android:gravity="center"
-                    android:padding="8dp"
+                    android:padding="6dp"
                     android:background="@drawable/section_card_bg"
-                    android:layout_marginEnd="4dp"
+                    android:layout_marginEnd="3dp"
                     android:clickable="true"
                     android:focusable="true">
                     <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
-                        android:text="💩" android:textSize="18sp"/>
+                        android:text="💩" android:textSize="16sp"/>
                     <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
-                        android:text="ShitCoin" android:textColor="#F97316" android:textSize="9sp"
-                        android:layout_marginTop="2dp"/>
+                        android:text="Shit" android:textColor="#F97316" android:textSize="8sp"
+                        android:layout_marginTop="1dp"/>
                     <TextView android:id="@+id/tvShitCoinStats"
                         android:layout_width="wrap_content" android:layout_height="wrap_content"
-                        android:text="0W/0L" android:textColor="#6B7280" android:textSize="7sp"
+                        android:text="0/0" android:textColor="#6B7280" android:textSize="6sp"
                         android:fontFamily="monospace"/>
                 </LinearLayout>
                 
-                <!-- Moonshot Mode - NEW V5.2 -->
+                <!-- Moonshot Mode -->
                 <LinearLayout
                     android:id="@+id/btnQuickMoonshot"
                     android:layout_width="0dp"
@@ -657,18 +644,18 @@
                     android:layout_weight="1"
                     android:orientation="vertical"
                     android:gravity="center"
-                    android:padding="8dp"
+                    android:padding="6dp"
                     android:background="@drawable/section_card_bg"
                     android:clickable="true"
                     android:focusable="true">
                     <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
-                        android:text="🚀" android:textSize="18sp"/>
+                        android:text="🚀" android:textSize="16sp"/>
                     <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
-                        android:text="Moonshot" android:textColor="#A855F7" android:textSize="9sp"
-                        android:layout_marginTop="2dp"/>
+                        android:text="Moon" android:textColor="#A855F7" android:textSize="8sp"
+                        android:layout_marginTop="1dp"/>
                     <TextView android:id="@+id/tvMoonshotStats"
                         android:layout_width="wrap_content" android:layout_height="wrap_content"
-                        android:text="🛸0 🌙0 🔴0" android:textColor="#6B7280" android:textSize="7sp"
+                        android:text="0/0" android:textColor="#6B7280" android:textSize="6sp"
                         android:fontFamily="monospace"/>
                 </LinearLayout>
             </LinearLayout>
