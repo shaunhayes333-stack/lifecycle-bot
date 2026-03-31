@@ -642,22 +642,20 @@ object CashGenerationAI {
         val pnlPct = (currentPrice - pos.entryPrice) / pos.entryPrice * 100
         val holdMinutes = (System.currentTimeMillis() - pos.entryTime) / 60000
         
-        val targetProfitPct = TAKE_PROFIT_PCT  // 3.5%
-        
         // Update high water mark and trailing stop
         if (currentPrice > pos.highWaterMark) {
             pos.highWaterMark = currentPrice
             pos.trailingStop = currentPrice * (1 - TRAILING_STOP_PCT / 100)
         }
         
-        // 1. HIT TARGET PROFIT (3.5%+) - EXIT IMMEDIATELY!
-        if (pnlPct >= targetProfitPct) {
+        // 1. V5.2 FIX: HIT TARGET PRICE - Use the POSITION'S target, not hardcoded value!
+        if (currentPrice >= pos.targetPrice) {
             val holdSeconds = (System.currentTimeMillis() - pos.entryTime) / 1000
             ErrorLogger.info(TAG, "💰 TREASURY TP HIT: ${pos.symbol} | +${pnlPct.toInt()}% in ${holdSeconds}s | SELLING!")
             return ExitSignal.TAKE_PROFIT
         }
         
-        // 2. HIT MAX TAKE PROFIT (4%)
+        // 2. BACKUP: HIT MAX TAKE PROFIT (4%)
         if (pnlPct >= TAKE_PROFIT_MAX_PCT) {
             return ExitSignal.TAKE_PROFIT
         }
@@ -698,10 +696,6 @@ object CashGenerationAI {
         val pnlPct = (currentPrice - pos.entryPrice) / pos.entryPrice * 100
         val holdMinutes = (System.currentTimeMillis() - pos.entryTime) / 60000
         
-        // V5.2: Treasury takes profit IMMEDIATELY at 3.5%+ - no waiting!
-        // If we're up 3.5% in 5 seconds, SELL. Don't wait for anything.
-        val targetProfitPct = TAKE_PROFIT_PCT  // 3.5%
-        
         // Update high water mark and trailing stop
         if (currentPrice > pos.highWaterMark) {
             pos.highWaterMark = currentPrice
@@ -711,23 +705,23 @@ object CashGenerationAI {
         
         // ─── EXIT CONDITIONS (Priority order) ───
         
-        // 1. V5.2: HIT TARGET PROFIT (3.5%+) - EXIT IMMEDIATELY, NO DELAY!
+        // 1. V5.2 FIX: HIT TARGET PRICE - Use the POSITION'S target, not hardcoded value!
         // This is the PRIMARY exit - Treasury is designed for quick scalps
-        if (pnlPct >= targetProfitPct) {
+        if (currentPrice >= pos.targetPrice) {
             val holdSeconds = (System.currentTimeMillis() - pos.entryTime) / 1000
-            ErrorLogger.info(TAG, "💰 TREASURY TP HIT: ${pos.symbol} | +${pnlPct.fmt(1)}% in ${holdSeconds}s | SELLING NOW!")
+            ErrorLogger.info(TAG, "💰 TREASURY TP HIT: ${pos.symbol} | +${pnlPct.fmt(1)}% | price=$currentPrice >= target=${pos.targetPrice} | SELLING NOW!")
             return ExitSignal.TAKE_PROFIT
         }
         
-        // 2. HIT MAX TAKE PROFIT (4%) - bonus if it runs past target
+        // 2. BACKUP: PnL percentage check (in case targetPrice wasn't set correctly)
         if (pnlPct >= TAKE_PROFIT_MAX_PCT) {
             ErrorLogger.info(TAG, "💰 TREASURY MAX TP: ${pos.symbol} | +${pnlPct.fmt(1)}% (hit ${TAKE_PROFIT_MAX_PCT}% cap)")
             return ExitSignal.TAKE_PROFIT
         }
         
-        // 3. HIT STOP LOSS (HARD -2%)
+        // 3. HIT STOP LOSS
         if (currentPrice <= pos.stopPrice) {
-            ErrorLogger.info(TAG, "💰 TREASURY SL HIT: ${pos.symbol} | ${pnlPct.fmt(1)}%")
+            ErrorLogger.info(TAG, "💰 TREASURY SL HIT: ${pos.symbol} | ${pnlPct.fmt(1)}% | price=$currentPrice <= stop=${pos.stopPrice}")
             return ExitSignal.STOP_LOSS
         }
         
