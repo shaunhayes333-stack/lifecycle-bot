@@ -2135,42 +2135,8 @@ class BotService : Service() {
 
             var lastSuccessfulPollMs = System.currentTimeMillis()
 
-            // ═══════════════════════════════════════════════════════════════════
-            // V3.2 WATCHLIST PRIORITIZATION
-            // 
-            // Sort watchlist so stronger candidates get processed first.
-            // This ensures compute goes to highest-quality tokens when
-            // processing time is limited.
-            //
-            // Priority factors:
-            //   1. Has open position (highest priority - needs monitoring)
-            //   2. Higher liquidity (tradeable)
-            //   3. Higher entry score (better setup)
-            //   4. Lower fatal risk (safer)
-            // ═══════════════════════════════════════════════════════════════════
-            val prioritizedWatchlist = if (cfg.v3EngineEnabled) {
-                watchlist.sortedByDescending { mint ->
-                    val ts = status.tokens[mint]
-                    if (ts == null) {
-                        0.0  // Unknown tokens get lowest priority
-                    } else {
-                        var priority = 0.0
-                        // Open positions get highest priority (need exit monitoring)
-                        if (ts.position.isOpen) priority += 1000.0
-                        // Liquidity score (capped at 100k for normalization)
-                        priority += (ts.lastLiquidityUsd / 1000.0).coerceAtMost(100.0)
-                        // Entry score contribution
-                        priority += ts.entryScore
-                        // Momentum score boost
-                        priority += ts.meta.momScore * 0.5
-                        // Volume score boost
-                        priority += ts.meta.volScore * 0.3
-                        priority
-                    }
-                }
-            } else {
-                watchlist  // Legacy: process in order
-            }
+            // V5.2: Prioritization moved AFTER TokenMergeQueue.processQueue()
+            // See the prioritizedWatchlist definition after MergeQueue processing
 
             // Process all tokens in parallel — each gets its own coroutine.
             // This reduces per-cycle latency from (N×50ms + pollSeconds) to just pollSeconds.
@@ -2302,8 +2268,10 @@ class BotService : Service() {
             }
             
             // ═══════════════════════════════════════════════════════════════════
-            // V4.0: USE GLOBALTRADEREGISTRY WATCHLIST
-            // Instead of cfg.watchlist which can reset, use the thread-safe registry
+            // V5.2 FIX: GET EFFECTIVE WATCHLIST FROM GLOBALTRADEREGISTRY
+            // This MUST happen AFTER TokenMergeQueue.processQueue() which adds tokens!
+            // Previously this was done BEFORE merge queue, causing newly added tokens
+            // to be skipped until the next loop iteration.
             // ═══════════════════════════════════════════════════════════════════
             val registryWatchlist = GlobalTradeRegistry.getWatchlist()
             val effectiveWatchlist = if (registryWatchlist.isNotEmpty()) {
@@ -2311,6 +2279,26 @@ class BotService : Service() {
             } else {
                 // Fallback to config watchlist if registry is empty
                 watchlist
+            }
+            
+            // V5.2: Prioritize tokens for processing
+            val prioritizedWatchlist = if (cfg.v3EngineEnabled) {
+                effectiveWatchlist.sortedByDescending { mint ->
+                    val ts = status.tokens[mint]
+                    if (ts == null) {
+                        0.0  // Unknown tokens get lowest priority
+                    } else {
+                        var priority = 0.0
+                        if (ts.position.isOpen) priority += 1000.0  // Open positions first
+                        priority += (ts.lastLiquidityUsd / 1000.0).coerceAtMost(100.0)  // Liquidity
+                        priority += ts.entryScore  // Entry score
+                        priority += ts.meta.momScore * 0.5  // Momentum
+                        priority += ts.meta.volScore * 0.3  // Volume
+                        priority
+                    }
+                }
+            } else {
+                effectiveWatchlist
             }
             
             val tokenJobs = prioritizedWatchlist.map { mint ->
