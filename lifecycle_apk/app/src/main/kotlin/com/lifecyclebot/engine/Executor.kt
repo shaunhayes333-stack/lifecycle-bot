@@ -4,6 +4,7 @@ import android.content.Context
 import com.lifecyclebot.engine.NotificationHistory
 import com.lifecyclebot.engine.quant.QuantMetrics
 import com.lifecyclebot.engine.quant.PortfolioAnalytics
+import com.lifecyclebot.v3.scoring.FluidLearningAI
 import kotlin.math.abs
 import kotlin.math.pow
 

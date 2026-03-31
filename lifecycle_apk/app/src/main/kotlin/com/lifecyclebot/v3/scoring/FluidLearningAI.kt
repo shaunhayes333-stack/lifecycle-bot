@@ -913,4 +913,264 @@ object FluidLearningAI {
     fun getMaturityPercent(): Double {
         return getLearningProgress() * 100.0
     }
+    
+    // ═══════════════════════════════════════════════════════════════════════════
+    // V5.2: FLUID HOLDING TIMES (Per Layer)
+    // 
+    // Each trading layer has optimal hold times that FLUID learns over time:
+    // 
+    // LAYER          BOOTSTRAP       MATURE          RATIONALE
+    // ─────────────────────────────────────────────────────────────────────────
+    // Treasury       3-8 min         1-5 min         Quick scalps, tighten with experience
+    // ShitCoin       5-15 min        3-10 min        Fast plays, learn optimal timing
+    // V3 Quality     15-60 min       10-45 min       Quality setups need time
+    // Blue Chip      30-120 min      20-90 min       Let winners ride longer
+    // Moonshot       30-180 min      45-240 min      Big moves need patience
+    // 
+    // Bootstrap: WIDER hold windows (learning what works)
+    // Mature: TIGHTER windows (optimized from data)
+    // ═══════════════════════════════════════════════════════════════════════════
+    
+    // Treasury Layer - Quick scalps
+    private const val TREASURY_MIN_HOLD_BOOTSTRAP = 3.0     // 3 min minimum
+    private const val TREASURY_MIN_HOLD_MATURE = 1.0        // 1 min minimum (fast exits OK)
+    private const val TREASURY_MAX_HOLD_BOOTSTRAP = 12.0    // 12 min max during learning
+    private const val TREASURY_MAX_HOLD_MATURE = 8.0        // 8 min max when optimized
+    
+    // ShitCoin Layer - Fast meme plays
+    private const val SHITCOIN_MIN_HOLD_BOOTSTRAP = 3.0     // 3 min minimum
+    private const val SHITCOIN_MIN_HOLD_MATURE = 2.0        // 2 min minimum
+    private const val SHITCOIN_MAX_HOLD_BOOTSTRAP = 20.0    // 20 min max during learning
+    private const val SHITCOIN_MAX_HOLD_MATURE = 15.0       // 15 min max when optimized
+    
+    // V3 Quality Layer - Solid setups
+    private const val V3_MIN_HOLD_BOOTSTRAP = 5.0           // 5 min minimum
+    private const val V3_MIN_HOLD_MATURE = 3.0              // 3 min minimum
+    private const val V3_MAX_HOLD_BOOTSTRAP = 90.0          // 90 min max during learning
+    private const val V3_MAX_HOLD_MATURE = 60.0             // 60 min max when optimized
+    
+    // Blue Chip Layer - Quality holds
+    private const val BLUECHIP_MIN_HOLD_BOOTSTRAP = 10.0    // 10 min minimum
+    private const val BLUECHIP_MIN_HOLD_MATURE = 5.0        // 5 min minimum
+    private const val BLUECHIP_MAX_HOLD_BOOTSTRAP = 180.0   // 3 hours max during learning
+    private const val BLUECHIP_MAX_HOLD_MATURE = 120.0      // 2 hours max when optimized
+    
+    // Moonshot Layer - Let big plays ride
+    private const val MOONSHOT_MIN_HOLD_BOOTSTRAP = 15.0    // 15 min minimum
+    private const val MOONSHOT_MIN_HOLD_MATURE = 10.0       // 10 min minimum
+    private const val MOONSHOT_MAX_HOLD_BOOTSTRAP = 300.0   // 5 hours max during learning
+    private const val MOONSHOT_MAX_HOLD_MATURE = 240.0      // 4 hours max when optimized
+    
+    /**
+     * Get fluid minimum hold time for a layer (in minutes).
+     * Bootstrap: More patient (avoid early exits while learning)
+     * Mature: Tighter (optimized from experience)
+     */
+    fun getFluidMinHoldMinutes(layer: String): Double {
+        return when (layer.uppercase()) {
+            "TREASURY" -> lerp(TREASURY_MIN_HOLD_BOOTSTRAP, TREASURY_MIN_HOLD_MATURE)
+            "SHITCOIN", "SHITCOIN_EXPRESS", "EXPRESS" -> lerp(SHITCOIN_MIN_HOLD_BOOTSTRAP, SHITCOIN_MIN_HOLD_MATURE)
+            "V3", "V3_QUALITY", "QUALITY" -> lerp(V3_MIN_HOLD_BOOTSTRAP, V3_MIN_HOLD_MATURE)
+            "BLUECHIP", "BLUE_CHIP" -> lerp(BLUECHIP_MIN_HOLD_BOOTSTRAP, BLUECHIP_MIN_HOLD_MATURE)
+            "MOONSHOT", "MOONSHOT_ORBITAL", "MOONSHOT_LUNAR", "MOONSHOT_MARS", "MOONSHOT_JUPITER" -> 
+                lerp(MOONSHOT_MIN_HOLD_BOOTSTRAP, MOONSHOT_MIN_HOLD_MATURE)
+            else -> lerp(V3_MIN_HOLD_BOOTSTRAP, V3_MIN_HOLD_MATURE)  // Default to V3
+        }
+    }
+    
+    /**
+     * Get fluid maximum hold time for a layer (in minutes).
+     * Bootstrap: Wider windows (learning optimal timing)
+     * Mature: Tighter windows (exit before profits decay)
+     */
+    fun getFluidMaxHoldMinutes(layer: String): Double {
+        return when (layer.uppercase()) {
+            "TREASURY" -> lerp(TREASURY_MAX_HOLD_BOOTSTRAP, TREASURY_MAX_HOLD_MATURE)
+            "SHITCOIN", "SHITCOIN_EXPRESS", "EXPRESS" -> lerp(SHITCOIN_MAX_HOLD_BOOTSTRAP, SHITCOIN_MAX_HOLD_MATURE)
+            "V3", "V3_QUALITY", "QUALITY" -> lerp(V3_MAX_HOLD_BOOTSTRAP, V3_MAX_HOLD_MATURE)
+            "BLUECHIP", "BLUE_CHIP" -> lerp(BLUECHIP_MAX_HOLD_BOOTSTRAP, BLUECHIP_MAX_HOLD_MATURE)
+            "MOONSHOT", "MOONSHOT_ORBITAL", "MOONSHOT_LUNAR", "MOONSHOT_MARS", "MOONSHOT_JUPITER" -> 
+                lerp(MOONSHOT_MAX_HOLD_BOOTSTRAP, MOONSHOT_MAX_HOLD_MATURE)
+            else -> lerp(V3_MAX_HOLD_BOOTSTRAP, V3_MAX_HOLD_MATURE)  // Default to V3
+        }
+    }
+    
+    /**
+     * Check if a position has exceeded its optimal hold time.
+     * Returns true if position should be considered for exit due to time.
+     */
+    fun isHoldTimeExceeded(layer: String, holdTimeMinutes: Double): Boolean {
+        val maxHold = getFluidMaxHoldMinutes(layer)
+        return holdTimeMinutes > maxHold
+    }
+    
+    /**
+     * Check if a position is being exited too early.
+     * Returns true if we should wait longer before exiting (unless in profit).
+     */
+    fun isHoldTimeTooShort(layer: String, holdTimeMinutes: Double, pnlPct: Double): Boolean {
+        // If in significant profit (>5%), allow early exit
+        if (pnlPct >= 5.0) return false
+        
+        val minHold = getFluidMinHoldMinutes(layer)
+        return holdTimeMinutes < minHold
+    }
+    
+    /**
+     * Get hold time exit urgency (0.0 = no urgency, 1.0 = exit now).
+     * Starts ramping up urgency as hold time approaches max.
+     */
+    fun getHoldTimeUrgency(layer: String, holdTimeMinutes: Double): Double {
+        val maxHold = getFluidMaxHoldMinutes(layer)
+        
+        // No urgency until 80% of max hold time
+        if (holdTimeMinutes < maxHold * 0.8) return 0.0
+        
+        // Linear ramp from 80% to 100% of max hold
+        val urgencyStart = maxHold * 0.8
+        val progress = (holdTimeMinutes - urgencyStart) / (maxHold - urgencyStart)
+        return progress.coerceIn(0.0, 1.0)
+    }
+    
+    /**
+     * Get fluid hold time parameters for a layer.
+     */
+    data class FluidHoldParams(
+        val layer: String,
+        val minHoldMinutes: Double,
+        val maxHoldMinutes: Double,
+        val learningProgress: Double,
+    ) {
+        fun summary(): String = "Hold: ${minHoldMinutes.toInt()}-${maxHoldMinutes.toInt()}min " +
+            "[${(learningProgress * 100).toInt()}% learned]"
+    }
+    
+    fun getLayerHoldParams(layer: String): FluidHoldParams {
+        return FluidHoldParams(
+            layer = layer,
+            minHoldMinutes = getFluidMinHoldMinutes(layer),
+            maxHoldMinutes = getFluidMaxHoldMinutes(layer),
+            learningProgress = getLearningProgress(),
+        )
+    }
+    
+    // ═══════════════════════════════════════════════════════════════════════════
+    // V5.2: FEE-AWARE PROFIT CALCULATIONS
+    // 
+    // CRITICAL: Every trade incurs Solana + Jupiter fees. The bot MUST account
+    // for these when calculating REAL P&L and making exit decisions.
+    // 
+    // Fee breakdown per round-trip (buy + sell):
+    //   Solana network fee:  ~0.00001 SOL (2 transactions)
+    //   Jupiter protocol:    0.3% per swap × 2 = 0.6% total
+    //   Price impact:        Variable (higher for thin liquidity)
+    // 
+    // TOTAL ROUND-TRIP COST: ~0.6% + price impact
+    // 
+    // This means:
+    // - A 1% gross profit could be a 0.4% NET profit (or even negative!)
+    // - Minimum viable profit target should be >1% to cover fees
+    // - Larger positions = more fees in absolute terms
+    // ═══════════════════════════════════════════════════════════════════════════
+    
+    // Fee constants (mirrored from SlippageGuard for consistency)
+    private const val SOLANA_TX_FEE_SOL = 0.000005          // Per transaction
+    private const val JUPITER_FEE_PCT = 0.003               // 0.3% per swap
+    private const val ROUND_TRIP_FEE_PCT = 0.006            // 0.6% total (buy + sell)
+    
+    /**
+     * Calculate net P&L after deducting estimated fees.
+     * 
+     * @param grossPnlSol Gross profit/loss in SOL
+     * @param positionSizeSol Total position size in SOL
+     * @return Pair of (netPnlSol, totalFeesSol)
+     */
+    fun calculateNetPnl(grossPnlSol: Double, positionSizeSol: Double): Pair<Double, Double> {
+        val jupiterFees = positionSizeSol * ROUND_TRIP_FEE_PCT
+        val networkFees = SOLANA_TX_FEE_SOL * 2  // Buy + Sell
+        val totalFees = jupiterFees + networkFees
+        val netPnl = grossPnlSol - totalFees
+        return netPnl to totalFees
+    }
+    
+    /**
+     * Calculate minimum profitable exit percentage for a given position.
+     * This accounts for fees to ensure we don't exit at a NET LOSS.
+     * 
+     * @param positionSizeSol Position size in SOL
+     * @param liquidityUsd Pool liquidity (affects price impact)
+     * @return Minimum % gain needed to break even after fees
+     */
+    fun getMinProfitableExitPct(positionSizeSol: Double, liquidityUsd: Double): Double {
+        // Base fee cost as percentage
+        var minPct = ROUND_TRIP_FEE_PCT * 100  // 0.6%
+        
+        // Add estimated price impact based on liquidity
+        val solPrice = 150.0  // Approximate - could be passed in
+        val positionUsd = positionSizeSol * solPrice
+        
+        val priceImpactPct = when {
+            liquidityUsd < 5000 -> (positionUsd / liquidityUsd) * 5.0   // Very thin liquidity
+            liquidityUsd < 20000 -> (positionUsd / liquidityUsd) * 2.5  // Thin liquidity
+            liquidityUsd < 50000 -> (positionUsd / liquidityUsd) * 1.5  // Medium liquidity
+            else -> (positionUsd / liquidityUsd) * 0.5                   // Good liquidity
+        }.coerceAtMost(5.0)  // Cap at 5% impact
+        
+        minPct += priceImpactPct * 2  // Impact on both buy and sell
+        
+        // Add safety buffer (20%)
+        minPct *= 1.2
+        
+        return minPct.coerceAtLeast(1.0)  // Minimum 1% to be worth trading
+    }
+    
+    /**
+     * Check if a trade would be profitable after fees.
+     * 
+     * @param grossPnlPct Gross P&L percentage
+     * @param positionSizeSol Position size
+     * @param liquidityUsd Pool liquidity
+     * @return True if trade is net profitable, false if fees would eat the profit
+     */
+    fun isNetProfitable(grossPnlPct: Double, positionSizeSol: Double, liquidityUsd: Double): Boolean {
+        val minRequired = getMinProfitableExitPct(positionSizeSol, liquidityUsd)
+        return grossPnlPct >= minRequired
+    }
+    
+    /**
+     * Get fee-adjusted take profit target.
+     * Ensures TP target accounts for fees to deliver REAL profit.
+     * 
+     * @param rawTpPct Raw take profit percentage from mode
+     * @param positionSizeSol Position size
+     * @param liquidityUsd Pool liquidity
+     * @return Adjusted TP that ensures net profit after fees
+     */
+    fun getFeeAdjustedTakeProfit(rawTpPct: Double, positionSizeSol: Double, liquidityUsd: Double): Double {
+        val minRequired = getMinProfitableExitPct(positionSizeSol, liquidityUsd)
+        
+        // TP should be at least minRequired + 50% buffer for actual profit
+        val minTp = minRequired * 1.5
+        
+        return maxOf(rawTpPct, minTp)
+    }
+    
+    /**
+     * Log fee analysis for a potential trade.
+     */
+    fun logFeeAnalysis(
+        symbol: String,
+        positionSizeSol: Double,
+        liquidityUsd: Double,
+        targetTpPct: Double,
+    ) {
+        val minProfitable = getMinProfitableExitPct(positionSizeSol, liquidityUsd)
+        val adjustedTp = getFeeAdjustedTakeProfit(targetTpPct, positionSizeSol, liquidityUsd)
+        val (_, fees) = calculateNetPnl(positionSizeSol * targetTpPct / 100, positionSizeSol)
+        
+        ErrorLogger.debug(TAG, "💰 FEE ANALYSIS: $symbol | " +
+            "size=${positionSizeSol}SOL | liq=\$${liquidityUsd.toInt()} | " +
+            "minProfit=${minProfitable.toInt()}% | rawTP=${targetTpPct.toInt()}% | " +
+            "adjTP=${adjustedTp.toInt()}% | fees=${fees}SOL")
+    }
 }

@@ -4,6 +4,7 @@ import android.content.Context
 import android.content.SharedPreferences
 import com.lifecyclebot.data.Position
 import com.lifecyclebot.data.TokenState
+import com.lifecyclebot.v3.scoring.FluidLearningAI
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlin.math.abs
@@ -147,6 +148,15 @@ object HoldingLogicLayer {
             val holdTimeMinutes = holdTimeMs / (60 * 1000)
             
             // ─────────────────────────────────────────────────────────────────
+            // V5.2: Get fluid hold time parameters from FluidLearningAI
+            // These adapt based on learning progress and layer type
+            // ─────────────────────────────────────────────────────────────────
+            val layer = getLayerFromMode(mode)
+            val fluidMinHold = FluidLearningAI.getFluidMinHoldMinutes(layer)
+            val fluidMaxHold = FluidLearningAI.getFluidMaxHoldMinutes(layer)
+            val holdTimeUrgency = FluidLearningAI.getHoldTimeUrgency(layer, holdTimeMinutes.toDouble())
+            
+            // ─────────────────────────────────────────────────────────────────
             // 1. CHECK FOR CRITICAL CONDITIONS (exit immediately)
             // ─────────────────────────────────────────────────────────────────
             
@@ -173,7 +183,17 @@ object HoldingLogicLayer {
                 }
             }
             
-            // Max hold time exceeded
+            // V5.2: Fluid max hold time exceeded (layer-specific, learning-aware)
+            if (holdTimeMinutes > fluidMaxHold) {
+                return@withLock HoldEvaluation(
+                    action = HoldAction.EXIT_NOW,
+                    reason = "Fluid hold time exceeded: ${holdTimeMinutes}min > ${fluidMaxHold.toInt()}min [$layer]",
+                    confidence = 75.0 + (holdTimeUrgency * 20.0),
+                    urgency = Urgency.HIGH,
+                )
+            }
+            
+            // Legacy max hold time fallback
             if (holdTimeMs > params.maxHoldTimeMs) {
                 return@withLock HoldEvaluation(
                     action = HoldAction.EXIT_NOW,
@@ -182,6 +202,9 @@ object HoldingLogicLayer {
                     urgency = Urgency.HIGH,
                 )
             }
+            
+            // V5.2: Check for premature exit (hold too short unless in good profit)
+            val isTooEarly = FluidLearningAI.isHoldTimeTooShort(layer, holdTimeMinutes.toDouble(), currentPnlPct)
             
             // ─────────────────────────────────────────────────────────────────
             // 2. CHECK FOR MODE SWITCH OPPORTUNITY
@@ -203,16 +226,19 @@ object HoldingLogicLayer {
             
             // ─────────────────────────────────────────────────────────────────
             // 3. CHECK FOR SCALE-OUT OPPORTUNITY
+            // V5.2: Skip early scale-out if hold time too short (let it run)
             // ─────────────────────────────────────────────────────────────────
             
-            for (scaleOutLevel in params.scaleOutAt) {
-                if (currentPnlPct >= scaleOutLevel && position.partialSoldPct < scaleOutLevel) {
-                    return@withLock HoldEvaluation(
-                        action = HoldAction.SCALE_OUT,
-                        reason = "Scale-out target hit: ${currentPnlPct.toInt()}% >= ${scaleOutLevel.toInt()}%",
-                        confidence = 80.0,
-                        urgency = Urgency.NORMAL,
-                    )
+            if (!isTooEarly) {
+                for (scaleOutLevel in params.scaleOutAt) {
+                    if (currentPnlPct >= scaleOutLevel && position.partialSoldPct < scaleOutLevel) {
+                        return@withLock HoldEvaluation(
+                            action = HoldAction.SCALE_OUT,
+                            reason = "Scale-out target hit: ${currentPnlPct.toInt()}% >= ${scaleOutLevel.toInt()}%",
+                            confidence = 80.0,
+                            urgency = Urgency.NORMAL,
+                        )
+                    }
                 }
             }
             
@@ -483,6 +509,34 @@ object HoldingLogicLayer {
             "MARKET_MAKER" -> "🏛️"
             "LIQUIDATION_HUNTER" -> "🦅"
             else -> "📈"
+        }
+    }
+    
+    /**
+     * V5.2: Map trading mode to layer name for FluidLearningAI hold times.
+     * This ensures fluid hold parameters are correctly applied per layer type.
+     */
+    private fun getLayerFromMode(mode: String): String {
+        return when (mode.uppercase()) {
+            // Treasury layer modes
+            "TREASURY", "SCALP", "MARKET_MAKER", "ARBITRAGE" -> "TREASURY"
+            
+            // ShitCoin layer modes
+            "MICRO_CAP", "PUMP_SNIPER", "PUMP_DUMP", "PRESALE_SNIPE" -> "SHITCOIN"
+            
+            // V3/Quality layer modes
+            "STANDARD", "MOMENTUM_SWING", "REVIVAL", "CYCLIC", "NICHE", 
+            "COPY_TRADE", "WHALE_FOLLOW", "LIQUIDATION_HUNTER" -> "V3"
+            
+            // Blue Chip layer modes  
+            "BLUE_CHIP", "LONG_HOLD", "SLEEPER" -> "BLUECHIP"
+            
+            // Moonshot layer modes
+            "MOONSHOT", "MOONSHOT_ORBITAL", "MOONSHOT_LUNAR", 
+            "MOONSHOT_MARS", "MOONSHOT_JUPITER" -> "MOONSHOT"
+            
+            // Default to V3 for unknown modes
+            else -> "V3"
         }
     }
 }
