@@ -4720,10 +4720,23 @@ class BotService : Service() {
                 ?: ts.history.lastOrNull()?.priceUsd 
                 ?: ts.position.entryPrice
             
+            // V5.2: Debug - verify checkExit is being called
+            val treasuryPos = com.lifecyclebot.v3.scoring.CashGenerationAI.getActivePosition(ts.mint)
+            if (treasuryPos == null) {
+                ErrorLogger.debug("BotService", "💰 [TREASURY] ${ts.symbol} | NO_ACTIVE_POS - checkExit will return HOLD!")
+            }
+            
             // V5.2: Calculate current P&L for potential Moonshot promotion
             val currentPnlPct = if (ts.position.entryPrice > 0) {
                 ((currentPrice - ts.position.entryPrice) / ts.position.entryPrice) * 100
             } else 0.0
+            
+            // V5.2: Debug - log the PnL being calculated
+            if (treasuryPos != null) {
+                val treasuryPnl = (currentPrice - treasuryPos.entryPrice) / treasuryPos.entryPrice * 100
+                ErrorLogger.debug("BotService", "💰 [TREASURY CHECK] ${ts.symbol} | " +
+                    "price=$currentPrice | treasuryEntry=${treasuryPos.entryPrice} | pnl=${treasuryPnl.fmt(1)}%")
+            }
             
             // V5.2: Check for cross-trade promotion to Moonshot (200%+ gains)
             if (currentPnlPct >= 200.0 && ts.lastMcap in 100_000.0..50_000_000.0) {

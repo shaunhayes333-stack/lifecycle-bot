@@ -585,6 +585,13 @@ object CashGenerationAI {
     }
     
     /**
+     * V5.2: Get active position for debugging
+     */
+    fun getActivePosition(mint: String): TreasuryPosition? {
+        return synchronized(activePositions) { activePositions[mint] }
+    }
+    
+    /**
      * Check if position should exit (called on each price update).
      * V4.20: Aggressive scalping - exit as soon as profitable (covers fees in live)
      */
