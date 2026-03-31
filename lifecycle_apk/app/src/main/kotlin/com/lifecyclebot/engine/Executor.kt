@@ -3995,24 +3995,36 @@ class Executor(
         // This fixes the bug where ShitCoin positions remained after v8 exits
         // ═══════════════════════════════════════════════════════════════════════════
         try {
-            // Convert reason to ExitSignal for layer closePosition methods
-            val exitSignal = when {
-                reason.contains("whale", ignoreCase = true) -> com.lifecyclebot.v3.scoring.CashGenerationAI.ExitSignal.STOP_LOSS
-                reason.contains("distribution", ignoreCase = true) -> com.lifecyclebot.v3.scoring.CashGenerationAI.ExitSignal.STOP_LOSS
-                reason.contains("v8", ignoreCase = true) -> com.lifecyclebot.v3.scoring.CashGenerationAI.ExitSignal.STOP_LOSS
-                reason.contains("stop", ignoreCase = true) -> com.lifecyclebot.v3.scoring.CashGenerationAI.ExitSignal.STOP_LOSS
-                pnl > 0 -> com.lifecyclebot.v3.scoring.CashGenerationAI.ExitSignal.TAKE_PROFIT
-                else -> com.lifecyclebot.v3.scoring.CashGenerationAI.ExitSignal.STOP_LOSS
+            // Determine if this was a win or loss for signal conversion
+            val isWin = pnl > 0
+            val isStopLoss = reason.contains("stop", ignoreCase = true) || 
+                             reason.contains("whale", ignoreCase = true) ||
+                             reason.contains("distribution", ignoreCase = true) ||
+                             reason.contains("v8", ignoreCase = true)
+            
+            // Close Treasury position if exists - use CashGenerationAI.ExitSignal
+            val treasurySignal = if (isWin) {
+                com.lifecyclebot.v3.scoring.CashGenerationAI.ExitSignal.TAKE_PROFIT
+            } else {
+                com.lifecyclebot.v3.scoring.CashGenerationAI.ExitSignal.STOP_LOSS
             }
+            com.lifecyclebot.v3.scoring.CashGenerationAI.closePosition(ts.mint, price, treasurySignal)
             
-            // Close Treasury position if exists
-            com.lifecyclebot.v3.scoring.CashGenerationAI.closePosition(ts.mint, price, exitSignal)
+            // Close ShitCoin position if exists - use ShitCoinTraderAI.ExitSignal
+            val shitcoinSignal = if (isWin) {
+                com.lifecyclebot.v3.scoring.ShitCoinTraderAI.ExitSignal.TAKE_PROFIT
+            } else {
+                com.lifecyclebot.v3.scoring.ShitCoinTraderAI.ExitSignal.STOP_LOSS
+            }
+            com.lifecyclebot.v3.scoring.ShitCoinTraderAI.closePosition(ts.mint, price, shitcoinSignal)
             
-            // Close ShitCoin position if exists - CRITICAL FIX!
-            com.lifecyclebot.v3.scoring.ShitCoinTraderAI.closePosition(ts.mint, price, exitSignal)
-            
-            // Close BlueChip position if exists
-            com.lifecyclebot.v3.scoring.BlueChipTraderAI.closePosition(ts.mint, price, exitSignal)
+            // Close BlueChip position if exists - use BlueChipTraderAI.ExitSignal
+            val bluechipSignal = if (isWin) {
+                com.lifecyclebot.v3.scoring.BlueChipTraderAI.ExitSignal.TAKE_PROFIT
+            } else {
+                com.lifecyclebot.v3.scoring.BlueChipTraderAI.ExitSignal.STOP_LOSS
+            }
+            com.lifecyclebot.v3.scoring.BlueChipTraderAI.closePosition(ts.mint, price, bluechipSignal)
             
             ErrorLogger.debug("Executor", "✅ Closed all layer positions for ${ts.symbol}")
         } catch (e: Exception) {
