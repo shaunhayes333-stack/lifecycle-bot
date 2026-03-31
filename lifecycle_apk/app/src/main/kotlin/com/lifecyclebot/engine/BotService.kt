@@ -3220,12 +3220,20 @@ class BotService : Service() {
                                 
                                 if (canExecute) {
                                 val bootstrapTag = if (forceBootstrapEntry) " [BOOTSTRAP OVERRIDE]" else ""
+                                
+                                // V5.2 FIX: Capture Treasury's OWN entry price BEFORE paperBuy applies slippage!
+                                // Treasury is a separate trading layer - it tracks its own entry independent of the position
+                                val treasuryEntryPrice = ts.lastPrice.takeIf { it > 0 } 
+                                    ?: ts.history.lastOrNull()?.priceUsd 
+                                    ?: ts.ref
+                                
                                 ErrorLogger.info("BotService", "💰 [TREASURY] ${ts.symbol} | ENTER$bootstrapTag | " +
                                     "size=${adjustedSize.fmt(3)} SOL (${(bootstrapMultiplier*100).toInt()}%) | " +
                                     "TP=${treasurySignal.takeProfitPct}% | " +
+                                    "treasuryEntry=$treasuryEntryPrice | " +
                                     "mode=${treasurySignal.mode}")
                                 
-                                // Execute treasury buy
+                                // Execute treasury buy (this calls paperBuy which applies slippage to ts.position)
                                 executor.treasuryBuy(
                                     ts = ts,
                                     sizeSol = adjustedSize,
@@ -3241,13 +3249,13 @@ class BotService : Service() {
                                 ts.position.tradingMode = "TREASURY"
                                 ts.position.tradingModeEmoji = "💰"
                                 
-                                // Record treasury position
-                                // V5.2 FIX: Use actual position entry price, not ts.ref
-                                val actualEntryPrice = ts.position.entryPrice.takeIf { it > 0 } ?: ts.ref
+                                // V5.2 FIX: Record treasury position with Treasury's OWN entry price!
+                                // Do NOT use ts.position.entryPrice - that has paperBuy slippage applied
+                                // Treasury layer tracks separately from the core position layer
                                 com.lifecyclebot.v3.scoring.CashGenerationAI.openPosition(
                                     mint = ts.mint,
                                     symbol = ts.symbol,
-                                    entryPrice = actualEntryPrice,
+                                    entryPrice = treasuryEntryPrice,  // Treasury's own raw price
                                     positionSol = adjustedSize,
                                     takeProfitPct = treasurySignal.takeProfitPct,
                                     stopLossPct = treasurySignal.stopLossPct
