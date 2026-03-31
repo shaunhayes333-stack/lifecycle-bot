@@ -8,17 +8,17 @@ import org.json.JSONObject
 import java.util.concurrent.ConcurrentHashMap
 
 /**
- * V3.2 Hold Time Optimizer AI
+ * V5.2 Hold Time Optimizer AI - SECONDS PRECISION
  * ═══════════════════════════════════════════════════════════════════════════════
  * 
- * Predicts optimal hold duration based on setup quality and market conditions:
+ * Predicts optimal hold duration in SECONDS for fast crypto trading:
  * 
- * HOLD TIME CATEGORIES:
- * - SCALP:    1-5 minutes   → Quick flip, tight stops
- * - SHORT:    5-30 minutes  → Standard short-term trade
- * - MEDIUM:   30-120 min    → Let the trade develop
- * - EXTENDED: 2-8 hours     → Runner potential, loose trailing
- * - SWING:    8+ hours      → Multi-session hold (rare)
+ * HOLD TIME CATEGORIES (in seconds):
+ * - SCALP:    10-60 seconds   → Quick flip, tight stops
+ * - SHORT:    60-300 seconds  → Standard short-term trade (1-5 min)
+ * - MEDIUM:   300-1800 sec    → Let the trade develop (5-30 min)
+ * - EXTENDED: 1800-14400 sec  → Runner potential (30min-4hr)
+ * - SWING:    14400+ seconds  → Multi-hour hold (4hr+, rare)
  * 
  * FACTORS CONSIDERED:
  * - Setup quality (A+, A, B, C)
@@ -29,14 +29,11 @@ import java.util.concurrent.ConcurrentHashMap
  * - Market regime
  * 
  * ADAPTIVE LEARNING:
- * - Tracks actual hold times vs predicted
+ * - Tracks actual hold times vs predicted (in seconds)
  * - Learns which setups perform best with which hold durations
  * - Adjusts trailing stop tightness based on expected hold
  * 
- * CROSS-TALK INTEGRATION:
- * - VolatilityRegimeAI: High vol = shorter holds, low vol = can extend
- * - BehaviorLearning: Historical hold time vs P&L correlation
- * - TimeOptimizationAI: Golden hours may warrant longer holds
+ * V5.2: Changed from minutes to SECONDS for faster, more precise timing!
  */
 object HoldTimeOptimizerAI {
     
@@ -47,31 +44,35 @@ object HoldTimeOptimizerAI {
     // ═══════════════════════════════════════════════════════════════════════════
     
     enum class HoldCategory {
-        SCALP,     // 1-5 min
-        SHORT,     // 5-30 min
-        MEDIUM,    // 30-120 min
-        EXTENDED,  // 2-8 hours
-        SWING      // 8+ hours
+        SCALP,     // 10-60 sec
+        SHORT,     // 60-300 sec (1-5 min)
+        MEDIUM,    // 300-1800 sec (5-30 min)
+        EXTENDED,  // 1800-14400 sec (30min-4hr)
+        SWING      // 14400+ sec (4hr+)
     }
     
     data class HoldTimeRecommendation(
         val category: HoldCategory,
-        val optimalMinutes: Int,           // Recommended hold duration
-        val minMinutes: Int,               // Don't exit before this
-        val maxMinutes: Int,               // Consider exit after this
-        val trailTightness: Double,        // 0.5 = tight, 2.0 = loose
-        val runnerProbability: Double,     // 0-100, chance this runs big
-        val confidence: Double,            // 0-100, confidence in prediction
-        val entryBoost: Int,               // Score adjustment
-        val reason: String
+        val optimalSeconds: Int,            // Recommended hold duration in SECONDS
+        val minSeconds: Int,                // Don't exit before this
+        val maxSeconds: Int,                // Consider exit after this
+        val trailTightness: Double,         // 0.5 = tight, 2.0 = loose
+        val runnerProbability: Double,      // 0-100, chance this runs big
+        val confidence: Double,             // 0-100, confidence in prediction
+        val entryBoost: Int,                // Score adjustment
+        val reason: String,
+        // Legacy compatibility - convert to minutes for old code
+        val optimalMinutes: Int get() = (optimalSeconds / 60).coerceAtLeast(1),
+        val minMinutes: Int get() = (minSeconds / 60).coerceAtLeast(1),
+        val maxMinutes: Int get() = (maxSeconds / 60).coerceAtLeast(1)
     )
     
-    // Learned hold time patterns
+    // Learned hold time patterns (in seconds now)
     data class HoldPattern(
         var totalTrades: Int = 0,
-        var avgHoldMinutes: Double = 0.0,
+        var avgHoldSeconds: Double = 0.0,
         var avgPnl: Double = 0.0,
-        var bestHoldMinutes: Int = 0,      // Hold time with best avg PnL
+        var bestHoldSeconds: Int = 0,       // Hold time with best avg PnL
         var winRateByHold: MutableMap<HoldCategory, Double> = mutableMapOf()
     )
     
@@ -83,7 +84,7 @@ object HoldTimeOptimizerAI {
         val entryTime: Long,
         val setupQuality: String,
         val predictedCategory: HoldCategory,
-        val predictedMinutes: Int
+        val predictedSeconds: Int
     )
     private val activePositions = ConcurrentHashMap<String, PositionHoldData>()
     
@@ -92,11 +93,12 @@ object HoldTimeOptimizerAI {
     private var accuratePredictions = 0  // Within 50% of predicted time
     
     // ═══════════════════════════════════════════════════════════════════════════
-    // MAIN PREDICTION
+    // MAIN PREDICTION (All times in SECONDS)
     // ═══════════════════════════════════════════════════════════════════════════
     
     /**
      * Get optimal hold time recommendation for a trade.
+     * All times are in SECONDS for fast crypto trading precision.
      */
     fun predict(
         mint: String,
@@ -113,16 +115,16 @@ object HoldTimeOptimizerAI {
         // Get learned pattern for this setup quality
         val pattern = patternsBySetup[setupQuality]
         
-        // Base recommendation from setup quality
+        // Base recommendation from setup quality (returns seconds)
         val baseCategory = getBaseCategory(setupQuality, entryScore)
-        val baseTimes = getCategoryTimes(baseCategory)
+        val baseTimes = getCategoryTimesInSeconds(baseCategory)
         
         // Adjust for volatility
         val volMultiplier = when (volatilityRegime.uppercase()) {
-            "CALM" -> 1.5       // Can hold longer in calm markets
+            "CALM", "LOW" -> 1.5       // Can hold longer in calm markets
             "NORMAL" -> 1.0
-            "ELEVATED" -> 0.7   // Shorter holds in volatile markets
-            "EXTREME" -> 0.4   // Very short holds
+            "ELEVATED", "HIGH" -> 0.7  // Shorter holds in volatile markets
+            "EXTREME" -> 0.4           // Very short holds
             else -> 1.0
         }
         
@@ -146,14 +148,14 @@ object HoldTimeOptimizerAI {
         // Adjust for golden hour
         val goldenMultiplier = if (isGoldenHour) 1.2 else 1.0
         
-        // Calculate final times
+        // Calculate final times IN SECONDS
         val combinedMultiplier = volMultiplier * liqMultiplier * regimeMultiplier * goldenMultiplier
-        val optimalMinutes = (baseTimes.second * combinedMultiplier).toInt().coerceIn(1, 480)
-        val minMinutes = (baseTimes.first * combinedMultiplier).toInt().coerceIn(1, optimalMinutes)
-        val maxMinutes = (baseTimes.third * combinedMultiplier).toInt().coerceIn(optimalMinutes, 960)
+        val optimalSeconds = (baseTimes.second * combinedMultiplier).toInt().coerceIn(10, 28800)  // 10sec to 8hr
+        val minSeconds = (baseTimes.first * combinedMultiplier).toInt().coerceIn(5, optimalSeconds)
+        val maxSeconds = (baseTimes.third * combinedMultiplier).toInt().coerceIn(optimalSeconds, 57600)  // max 16hr
         
         // Determine final category
-        val finalCategory = categorizeHoldTime(optimalMinutes)
+        val finalCategory = categorizeHoldTimeSeconds(optimalSeconds)
         
         // Calculate trailing stop tightness
         val trailTightness = calculateTrailTightness(finalCategory, volatilityRegime, setupQuality)
@@ -167,25 +169,25 @@ object HoldTimeOptimizerAI {
         // Entry boost based on expected hold quality
         val entryBoost = calculateEntryBoost(finalCategory, runnerProbability, confidence)
         
-        val reason = buildReason(finalCategory, optimalMinutes, runnerProbability, setupQuality)
+        val reason = buildReasonSeconds(finalCategory, optimalSeconds, runnerProbability, setupQuality)
         
         // Track active position
         activePositions[mint] = PositionHoldData(
             entryTime = System.currentTimeMillis(),
             setupQuality = setupQuality,
             predictedCategory = finalCategory,
-            predictedMinutes = optimalMinutes
+            predictedSeconds = optimalSeconds
         )
         
         if (runnerProbability > 60) {
-            ErrorLogger.info(TAG, "🏃 RUNNER POTENTIAL: $symbol | ${finalCategory.name} ${optimalMinutes}min | runner=${runnerProbability.toInt()}%")
+            ErrorLogger.info(TAG, "🏃 RUNNER POTENTIAL: $symbol | ${finalCategory.name} ${optimalSeconds}sec | runner=${runnerProbability.toInt()}%")
         }
         
         return HoldTimeRecommendation(
             category = finalCategory,
-            optimalMinutes = optimalMinutes,
-            minMinutes = minMinutes,
-            maxMinutes = maxMinutes,
+            optimalSeconds = optimalSeconds,
+            minSeconds = minSeconds,
+            maxSeconds = maxSeconds,
             trailTightness = trailTightness,
             runnerProbability = runnerProbability,
             confidence = confidence,
@@ -199,8 +201,8 @@ object HoldTimeOptimizerAI {
      */
     fun isHoldTimeOptimal(mint: String): Boolean {
         val data = activePositions[mint] ?: return true
-        val heldMinutes = (System.currentTimeMillis() - data.entryTime) / 60_000
-        return heldMinutes >= data.predictedMinutes * 0.5 && heldMinutes <= data.predictedMinutes * 1.5
+        val heldSeconds = (System.currentTimeMillis() - data.entryTime) / 1000
+        return heldSeconds >= data.predictedSeconds * 0.5 && heldSeconds <= data.predictedSeconds * 1.5
     }
     
     /**
@@ -208,24 +210,44 @@ object HoldTimeOptimizerAI {
      */
     fun isOverheld(mint: String): Boolean {
         val data = activePositions[mint] ?: return false
-        val heldMinutes = (System.currentTimeMillis() - data.entryTime) / 60_000
-        return heldMinutes > data.predictedMinutes * 2
+        val heldSeconds = (System.currentTimeMillis() - data.entryTime) / 1000
+        return heldSeconds > data.predictedSeconds * 2
     }
     
     /**
-     * Get current hold time for a position.
+     * Get current hold time for a position in SECONDS.
+     */
+    fun getCurrentHoldSeconds(mint: String): Long {
+        val data = activePositions[mint] ?: return 0
+        return (System.currentTimeMillis() - data.entryTime) / 1000
+    }
+    
+    /**
+     * Legacy: Get current hold time in minutes (for backwards compatibility)
      */
     fun getCurrentHoldMinutes(mint: String): Long {
-        val data = activePositions[mint] ?: return 0
-        return (System.currentTimeMillis() - data.entryTime) / 60_000
+        return getCurrentHoldSeconds(mint) / 60
     }
     
     /**
-     * Record trade outcome for learning.
+     * Record trade outcome for learning. Accepts seconds OR minutes.
      */
     fun recordOutcome(
         mint: String,
-        actualHoldMinutes: Int,
+        actualHoldMinutes: Int,  // Legacy parameter name, but we convert
+        pnlPct: Double,
+        setupQuality: String
+    ) {
+        // Convert minutes to seconds for internal storage
+        recordOutcomeSeconds(mint, actualHoldMinutes * 60, pnlPct, setupQuality)
+    }
+    
+    /**
+     * Record trade outcome with seconds precision.
+     */
+    fun recordOutcomeSeconds(
+        mint: String,
+        actualHoldSeconds: Int,
         pnlPct: Double,
         setupQuality: String
     ) {
@@ -236,37 +258,38 @@ object HoldTimeOptimizerAI {
         
         pattern.totalTrades++
         
-        // Running average of hold time
-        pattern.avgHoldMinutes = (pattern.avgHoldMinutes * (pattern.totalTrades - 1) + actualHoldMinutes) / pattern.totalTrades
+        // Running average of hold time in seconds
+        pattern.avgHoldSeconds = (pattern.avgHoldSeconds * (pattern.totalTrades - 1) + actualHoldSeconds) / pattern.totalTrades
         
         // Running average of P&L
         pattern.avgPnl = (pattern.avgPnl * (pattern.totalTrades - 1) + pnlPct) / pattern.totalTrades
         
         // Track best hold time
         if (pnlPct > pattern.avgPnl) {
-            pattern.bestHoldMinutes = actualHoldMinutes
+            pattern.bestHoldSeconds = actualHoldSeconds
         }
         
         // Track win rate by hold category
-        val category = categorizeHoldTime(actualHoldMinutes)
+        val category = categorizeHoldTimeSeconds(actualHoldSeconds)
         val isWin = pnlPct > 0
         val currentRate = pattern.winRateByHold[category] ?: 50.0
         val trades = pattern.totalTrades
         pattern.winRateByHold[category] = currentRate + (if (isWin) 100.0 - currentRate else -currentRate) / trades
         
         // Track prediction accuracy
+        // Check prediction accuracy
         if (data != null) {
-            val predictedMinutes = data.predictedMinutes
-            if (actualHoldMinutes >= predictedMinutes * 0.5 && actualHoldMinutes <= predictedMinutes * 1.5) {
+            val predictedSeconds = data.predictedSeconds
+            if (actualHoldSeconds >= predictedSeconds * 0.5 && actualHoldSeconds <= predictedSeconds * 1.5) {
                 accuratePredictions++
             }
         }
         
-        ErrorLogger.debug(TAG, "Recorded: $setupQuality ${actualHoldMinutes}min pnl=${pnlPct.toInt()}% | patterns=${pattern.totalTrades}")
+        ErrorLogger.debug(TAG, "Recorded: $setupQuality ${actualHoldSeconds}sec pnl=${pnlPct.toInt()}% | patterns=${pattern.totalTrades}")
     }
     
     // ═══════════════════════════════════════════════════════════════════════════
-    // CALCULATIONS
+    // CALCULATIONS (All times in SECONDS)
     // ═══════════════════════════════════════════════════════════════════════════
     
     private fun getBaseCategory(setupQuality: String, entryScore: Int): HoldCategory {
@@ -280,25 +303,41 @@ object HoldTimeOptimizerAI {
         }
     }
     
-    private fun getCategoryTimes(category: HoldCategory): Triple<Int, Int, Int> {
-        // Returns (min, optimal, max) in minutes
+    /**
+     * Get category times in SECONDS.
+     * Returns (min, optimal, max)
+     */
+    private fun getCategoryTimesInSeconds(category: HoldCategory): Triple<Int, Int, Int> {
         return when (category) {
-            HoldCategory.SCALP -> Triple(1, 3, 5)
-            HoldCategory.SHORT -> Triple(5, 15, 30)
-            HoldCategory.MEDIUM -> Triple(30, 60, 120)
-            HoldCategory.EXTENDED -> Triple(120, 240, 480)
-            HoldCategory.SWING -> Triple(480, 720, 1440)
+            HoldCategory.SCALP -> Triple(10, 30, 60)           // 10-60 sec
+            HoldCategory.SHORT -> Triple(60, 180, 300)         // 1-5 min
+            HoldCategory.MEDIUM -> Triple(300, 900, 1800)      // 5-30 min
+            HoldCategory.EXTENDED -> Triple(1800, 3600, 14400) // 30min-4hr
+            HoldCategory.SWING -> Triple(14400, 28800, 57600)  // 4-16 hr
         }
     }
     
-    private fun categorizeHoldTime(minutes: Int): HoldCategory {
+    /**
+     * Categorize hold time based on seconds.
+     */
+    private fun categorizeHoldTimeSeconds(seconds: Int): HoldCategory {
         return when {
-            minutes <= 5 -> HoldCategory.SCALP
-            minutes <= 30 -> HoldCategory.SHORT
-            minutes <= 120 -> HoldCategory.MEDIUM
-            minutes <= 480 -> HoldCategory.EXTENDED
-            else -> HoldCategory.SWING
+            seconds <= 60 -> HoldCategory.SCALP       // <=1 min
+            seconds <= 300 -> HoldCategory.SHORT      // 1-5 min
+            seconds <= 1800 -> HoldCategory.MEDIUM    // 5-30 min
+            seconds <= 14400 -> HoldCategory.EXTENDED // 30min-4hr
+            else -> HoldCategory.SWING                // 4hr+
         }
+    }
+    
+    // Legacy function for backwards compatibility
+    private fun getCategoryTimes(category: HoldCategory): Triple<Int, Int, Int> {
+        val secTimes = getCategoryTimesInSeconds(category)
+        return Triple(secTimes.first / 60, secTimes.second / 60, secTimes.third / 60)
+    }
+    
+    private fun categorizeHoldTime(minutes: Int): HoldCategory {
+        return categorizeHoldTimeSeconds(minutes * 60)
     }
     
     private fun calculateTrailTightness(
@@ -421,6 +460,34 @@ object HoldTimeOptimizerAI {
         val parts = mutableListOf<String>()
         
         parts += "${category.name} ${optimalMinutes}min"
+        parts += "setup=$setupQuality"
+        
+        if (runnerProb > 50) {
+            parts += "runner=${runnerProb.toInt()}%"
+        }
+        
+        return parts.joinToString(" | ")
+    }
+    
+    /**
+     * Build reason string using seconds for display.
+     */
+    private fun buildReasonSeconds(
+        category: HoldCategory,
+        optimalSeconds: Int,
+        runnerProb: Double,
+        setupQuality: String
+    ): String {
+        val parts = mutableListOf<String>()
+        
+        // Display in appropriate units
+        val timeStr = when {
+            optimalSeconds < 60 -> "${optimalSeconds}sec"
+            optimalSeconds < 3600 -> "${optimalSeconds / 60}min"
+            else -> "${optimalSeconds / 3600}hr"
+        }
+        
+        parts += "${category.name} $timeStr"
         parts += "setup=$setupQuality"
         
         if (runnerProb > 50) {
