@@ -61,7 +61,11 @@ object ModeSpecificExits {
                 symbol = ts.symbol,
                 setupQuality = setupQuality,
                 liquidityUsd = ts.lastLiquidityUsd,
-                volatilityRegime = ts.meta.volatilityRegime.ifEmpty { "NORMAL" },
+                volatilityRegime = when {
+                    ts.meta.avgAtr > 15 -> "HIGH"
+                    ts.meta.avgAtr > 8 -> "NORMAL"
+                    else -> "LOW"
+                },
                 marketRegime = ts.meta.emafanAlignment.let { ema ->
                     when {
                         ema.contains("BULL") -> "BULL"

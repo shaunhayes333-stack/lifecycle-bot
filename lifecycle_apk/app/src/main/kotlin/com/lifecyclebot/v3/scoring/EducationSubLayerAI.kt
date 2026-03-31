@@ -409,7 +409,7 @@ object EducationSubLayerAI {
                 entryMcap = outcome.entryMcapUsd,
                 exitMcap = outcome.exitMcapUsd,
                 entryLiquidity = outcome.liquidityUsd,
-                holdTimeMinutes = outcome.holdTimeMinutes,
+                holdTimeMinutes = outcome.holdTimeMinutes.toInt(),
                 buyPercent = outcome.buyRatioPct,
                 source = outcome.discoverySource,
                 phase = outcome.entryPhase,
