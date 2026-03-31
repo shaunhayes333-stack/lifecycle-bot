@@ -319,6 +319,8 @@ object CollectiveLearning {
                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """.trimIndent()
             
+            Log.d(TAG, "📤 INSERTING: $side $symbol | hash=${tradeHash.take(8)}... | instance=${instanceId.take(8)}...")
+            
             val result = client!!.execute(sql, listOf(
                 tradeHash, instanceId, now, side, symbol, mode, source, liquidityBucket,
                 marketSentiment, entryScore, confidence, pnlPct, holdMins,
@@ -326,16 +328,16 @@ object CollectiveLearning {
             ))
             
             if (result.success) {
-                Log.i(TAG, "📤 TRADE → COLLECTIVE: $side $symbol ($mode) ${if (side == "SELL") "${pnlPct.toInt()}%" else ""}")
+                Log.i(TAG, "📤 TRADE → COLLECTIVE: $side $symbol ($mode) ${if (side == "SELL") "${pnlPct.toInt()}%" else ""} ✅")
                 totalUploadsThisSession++
                 
                 // V3.3: Update instance registry trade count
                 updateInstanceTradeCount()
             } else {
-                Log.w(TAG, "Failed to upload trade: ${result.error}")
+                Log.e(TAG, "❌ UPLOAD FAILED: $side $symbol | error=${result.error} | affected=${result.rowsAffected}")
             }
         } catch (e: Exception) {
-            Log.e(TAG, "Upload trade error: ${e.message}")
+            Log.e(TAG, "❌ UPLOAD EXCEPTION: $side $symbol | ${e.message}", e)
         }
     }
     
