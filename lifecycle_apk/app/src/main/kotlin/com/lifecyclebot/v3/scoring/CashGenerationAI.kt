@@ -565,6 +565,11 @@ object CashGenerationAI {
         val targetPrice = entryPrice * (1 + takeProfitPct / 100)
         val stopPrice = entryPrice * (1 + stopLossPct / 100)
         
+        // V5.2: Log the TP calculation explicitly
+        ErrorLogger.info(TAG, "💰 TREASURY TP CALC: $symbol | entry=$entryPrice | " +
+            "tpPct=$takeProfitPct% | targetPrice=$targetPrice | " +
+            "(entry × ${1 + takeProfitPct/100} = $targetPrice)")
+        
         val position = TreasuryPosition(
             mint = mint,
             symbol = symbol,
@@ -586,7 +591,7 @@ object CashGenerationAI {
         dailyTradeCount.incrementAndGet()
         
         ErrorLogger.info(TAG, "💰 TREASURY OPENED: $symbol | " +
-            "entry=$entryPrice | TP=$targetPrice | SL=$stopPrice | " +
+            "entry=$entryPrice | TP=$targetPrice (+$takeProfitPct%) | SL=$stopPrice ($stopLossPct%) | " +
             "size=$positionSol SOL | ${if (isPaperMode) "PAPER" else "LIVE"}")
     }
     
@@ -710,9 +715,11 @@ object CashGenerationAI {
         val pnlPct = (currentPrice - pos.entryPrice) / pos.entryPrice * 100
         val holdMinutes = (System.currentTimeMillis() - pos.entryTime) / 60000
         
-        // V5.2 DEBUG: Always log the check
-        ErrorLogger.debug(TAG, "💰 TREASURY CHECK: ${pos.symbol} | price=$currentPrice | entry=${pos.entryPrice} | " +
-            "target=${pos.targetPrice} | pnl=${pnlPct.fmt(1)}%")
+        // V5.2 DEBUG: ALWAYS log the TP check with more detail
+        ErrorLogger.info(TAG, "💰 TREASURY TP CHECK: ${pos.symbol} | " +
+            "price=$currentPrice | entry=${pos.entryPrice} | " +
+            "target=${pos.targetPrice} | pnl=${pnlPct.fmt(1)}% | " +
+            "isAboveTarget=${currentPrice >= pos.targetPrice}")
         
         // Update high water mark and trailing stop
         if (currentPrice > pos.highWaterMark) {
