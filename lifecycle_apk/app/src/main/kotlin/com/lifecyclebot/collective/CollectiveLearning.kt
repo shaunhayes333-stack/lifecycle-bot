@@ -95,8 +95,11 @@ object CollectiveLearning {
             val dbUrl = config.tursoDbUrl
             val authToken = config.tursoAuthToken
             
+            // V5.2: Better logging for debugging connection issues
+            Log.i(TAG, "🔧 INIT: dbUrl=${dbUrl.take(50)}... authToken=${authToken.take(20)}...")
+            
             if (dbUrl.isBlank() || authToken.isBlank()) {
-                Log.w(TAG, "Turso credentials not configured - using LOCAL CACHE ONLY")
+                Log.w(TAG, "❌ Turso credentials not configured - using LOCAL CACHE ONLY")
                 // V3.3: Even without Turso, we have local cache!
                 if (cachedBlacklist.isNotEmpty() || cachedPatterns.isNotEmpty()) {
                     Log.i(TAG, "✅ Local collective cache available (${cachedBlacklist.size} blacklist, ${cachedPatterns.size} patterns)")
@@ -105,23 +108,27 @@ object CollectiveLearning {
             }
             
             client = TursoClient(dbUrl, authToken)
+            Log.i(TAG, "🔧 TursoClient created, testing connection...")
             
             // Test connection
             if (!client!!.testConnection()) {
-                Log.e(TAG, "Failed to connect to Turso database - using LOCAL CACHE")
+                Log.e(TAG, "❌ TURSO CONNECTION FAILED - using LOCAL CACHE")
                 client = null
                 return false
             }
+            Log.i(TAG, "✅ Turso connection successful!")
             
             // Initialize schema
+            Log.i(TAG, "🔧 Initializing schema...")
             if (!client!!.initSchema()) {
-                Log.e(TAG, "Failed to initialize schema")
+                Log.e(TAG, "❌ Failed to initialize schema")
                 client = null
                 return false
             }
+            Log.i(TAG, "✅ Schema initialized!")
             
             isInitialized = true
-            Log.i(TAG, "✅ Collective learning initialized successfully")
+            Log.i(TAG, "✅ COLLECTIVE LEARNING ONLINE - HIVE MIND ACTIVE")
             
             // Initial sync - download collective data (and SAVE to local cache)
             downloadAll()
@@ -283,7 +290,11 @@ object CollectiveLearning {
         isWin: Boolean = false, // Only relevant for SELL
         paperMode: Boolean = true,
     ) {
-        if (!isEnabled()) return
+        // V5.2 FIX: Log when collective is disabled so user knows WHY uploads aren't happening
+        if (!isEnabled()) {
+            Log.w(TAG, "📤 SKIPPED: $side $symbol - Collective DISABLED (client=${client != null}, init=$isInitialized)")
+            return
+        }
         
         try {
             val now = System.currentTimeMillis()
