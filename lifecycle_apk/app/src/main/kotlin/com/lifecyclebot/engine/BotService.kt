@@ -3746,6 +3746,24 @@ class BotService : Service() {
                                 ts.position.tradingMode = "SHITCOIN"
                                 ts.position.tradingModeEmoji = "💩"
                                 
+                                // V5.2 FIX: Register position with ShitCoinTraderAI so checkExit can find it!
+                                val actualEntryPrice = ts.position.entryPrice.takeIf { it > 0 } ?: ts.ref
+                                com.lifecyclebot.v3.scoring.ShitCoinTraderAI.addPosition(
+                                    com.lifecyclebot.v3.scoring.ShitCoinTraderAI.ShitCoinPosition(
+                                        mint = ts.mint,
+                                        symbol = ts.symbol,
+                                        entryPrice = actualEntryPrice,
+                                        entrySol = adjustedSize,
+                                        entryTime = System.currentTimeMillis(),
+                                        marketCapUsd = ts.lastMcap,
+                                        liquidityUsd = ts.lastLiquidityUsd,
+                                        isPaper = cfg.paperMode,
+                                        takeProfitPct = shitCoinSignal.takeProfitPct,
+                                        stopLossPct = shitCoinSignal.stopLossPct,
+                                        launchPlatform = shitCoinSignal.launchPlatform,
+                                    )
+                                )
+                                
                                 // Release permit
                                 FinalExecutionPermit.releaseExecution(ts.mint)
                                 

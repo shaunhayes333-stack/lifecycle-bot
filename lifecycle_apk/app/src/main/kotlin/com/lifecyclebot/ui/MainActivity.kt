@@ -592,6 +592,12 @@ for legal compliance.
                 ?.setOnClickListener { startActivity(android.content.Intent(this, BehaviorActivity::class.java)) }
         } catch (_: Exception) {}
         
+        // V5.2: Quick Behavior Tile
+        try {
+            findViewById<android.view.View>(R.id.btnQuickBehavior)
+                ?.setOnClickListener { startActivity(android.content.Intent(this, BehaviorActivity::class.java)) }
+        } catch (_: Exception) {}
+        
         // Collective Brain button
         try {
             findViewById<android.widget.TextView>(R.id.btnOpenCollectiveBrain)
