@@ -4879,7 +4879,7 @@ class BotService : Service() {
                                 mint = ts.mint,
                                 symbol = ts.symbol,
                                 entryPrice = currentPrice,  // New entry at current price
-                                entrySol = ts.position.positionSol,
+                                entrySol = ts.position.costSol,
                                 entryTime = System.currentTimeMillis(),
                                 marketCapUsd = ts.lastMcap,
                                 liquidityUsd = ts.lastLiquidityUsd,
