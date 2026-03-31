@@ -29,10 +29,12 @@ import kotlin.random.Random
 /**
  * SplashActivity — Premium launch experience with neural pathway animation
  * 
- * V4.20: Enhanced with twinkling particles flowing into the center
- *        like data flowing into the hivemind collective intelligence.
+ * V5.2: Enhanced with pulsing cyan brain wave rings around the logo
+ *       Neural pathway particles twinkling from edges to center
+ *       Logo with pulsing glow effect and brain wave synchronization
  * 
  * Features:
+ *   - Animated brain wave rings pulsing continuously
  *   - Neural pathway particles twinkling from edges to center
  *   - Logo with pulsing glow effect
  *   - Smooth version and tagline fade-ins
@@ -49,6 +51,7 @@ class SplashActivity : AppCompatActivity() {
     
     private val particles = mutableListOf<View>()
     private val particleAnimators = mutableListOf<AnimatorSet>()
+    private var brainWaveView: AnimatedBrainLogoView? = null
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -69,6 +72,7 @@ class SplashActivity : AppCompatActivity() {
         val version = findViewById<TextView>(R.id.tvSplashVersion)
         val glow = findViewById<View>(R.id.viewGlow)
         val particleContainer = findViewById<FrameLayout>(R.id.layoutParticles)
+        brainWaveView = findViewById(R.id.viewBrainWaves)
 
         // Ensure logo is visible
         logo.alpha = 1f
@@ -79,25 +83,44 @@ class SplashActivity : AppCompatActivity() {
         // Start neural pathway particle animation
         startParticleAnimation(particleContainer)
         
-        // Animate glow pulsing
+        // V5.2: Animate brain wave view entrance with scale
+        brainWaveView?.let { bw ->
+            bw.scaleX = 0.5f
+            bw.scaleY = 0.5f
+            bw.alpha = 0f
+            
+            val brainScaleX = ObjectAnimator.ofFloat(bw, "scaleX", 0.5f, 1f)
+            val brainScaleY = ObjectAnimator.ofFloat(bw, "scaleY", 0.5f, 1f)
+            val brainAlpha = ObjectAnimator.ofFloat(bw, "alpha", 0f, 1f)
+            
+            AnimatorSet().apply {
+                playTogether(brainScaleX, brainScaleY, brainAlpha)
+                duration = 1500L
+                interpolator = AccelerateDecelerateInterpolator()
+                start()
+            }
+        }
+        
+        // Animate glow pulsing - synchronized with brain waves
         val glowPulse = ObjectAnimator.ofFloat(glow, "alpha", 0.2f, 0.5f, 0.2f).apply {
-            duration = 2000L
+            duration = 1500L  // Matches brain wave pulse
             repeatCount = ValueAnimator.INFINITE
             interpolator = AccelerateDecelerateInterpolator()
         }
         glowPulse.start()
 
-        // Animate logo: subtle scale pulse
-        val scaleUp = ScaleAnimation(
-            0.85f, 1.05f, 0.85f, 1.05f,
-            Animation.RELATIVE_TO_SELF, 0.5f,
-            Animation.RELATIVE_TO_SELF, 0.5f
-        ).apply {
-            duration = SCALE_DURATION
-            fillAfter = true
+        // Animate logo: subtle scale pulse synchronized with brain waves
+        val logoPulse = ValueAnimator.ofFloat(0f, 1f).apply {
+            duration = 1500L  // Matches brain wave pulse
+            repeatCount = ValueAnimator.INFINITE
+            addUpdateListener { animator ->
+                val value = animator.animatedValue as Float
+                val scale = 0.95f + 0.05f * kotlin.math.sin(value * 2 * Math.PI).toFloat()
+                logo.scaleX = scale
+                logo.scaleY = scale
+            }
         }
-
-        logo.startAnimation(scaleUp)
+        logoPulse.start()
 
         // Delayed fade-in for tagline
         Handler(Looper.getMainLooper()).postDelayed({
@@ -122,6 +145,7 @@ class SplashActivity : AppCompatActivity() {
         // Navigate to MainActivity after splash duration
         Handler(Looper.getMainLooper()).postDelayed({
             stopParticleAnimation()
+            brainWaveView?.stopAnimations()
             startActivity(Intent(this, MainActivity::class.java))
             overridePendingTransition(android.R.anim.fade_in, android.R.anim.fade_out)
             finish()
