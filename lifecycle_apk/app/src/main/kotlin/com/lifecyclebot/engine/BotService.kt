@@ -3173,13 +3173,18 @@ class BotService : Service() {
                             // V5.0: TRADE AUTHORIZER - MUST pass before ANY execution
                             // This is the SINGLE source of truth for execution permission
                             // Prevents post-execution gating drift (inokumi bug)
+                            // 
+                            // V5.2 FIX: Use Treasury's own score/confidence, NOT V3's!
+                            // V3 rejects treasury candidates with low scores (20-30)
+                            // Treasury has its own scoring criteria - use those instead
                             // ═══════════════════════════════════════════════════════════════════
+                            val treasuryScore = rawSignalScore.coerceAtLeast(treasurySignal.confidence)  // Use better of two
                             val authResult = TradeAuthorizer.authorize(
                                 mint = ts.mint,
                                 symbol = ts.symbol,
-                                score = ts.lastV3Score ?: 0,
-                                confidence = (ts.lastV3Confidence ?: 0).toDouble(),
-                                quality = "C",  // Treasury doesn't have grade, use default
+                                score = treasuryScore,  // V5.2: Use Treasury's score
+                                confidence = treasurySignal.confidence.toDouble(),  // V5.2: Use Treasury's confidence
+                                quality = if (treasurySignal.confidence >= 70) "B" else "C",  // V5.2: Derive quality from confidence
                                 isPaperMode = cfg.paperMode,
                                 requestedBook = TradeAuthorizer.ExecutionBook.TREASURY,
                                 rugcheckScore = ts.safety.rugcheckScore.takeIf { it >= 0 } ?: 100,
