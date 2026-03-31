@@ -3199,15 +3199,15 @@ class BotService : Service() {
                             } else {
                                 // AUTHORIZED - proceed with execution
                             
-                            // Try to acquire execution permit
-                            val canExecute = FinalExecutionPermit.tryAcquireExecution(
-                                mint = ts.mint,
-                                symbol = ts.symbol,
-                                layer = "TREASURY",
-                                sizeSol = adjustedSize
-                            )
-                            
-                            if (canExecute) {
+                                // Try to acquire execution permit
+                                val canExecute = FinalExecutionPermit.tryAcquireExecution(
+                                    mint = ts.mint,
+                                    symbol = ts.symbol,
+                                    layer = "TREASURY",
+                                    sizeSol = adjustedSize
+                                )
+                                
+                                if (canExecute) {
                                 val bootstrapTag = if (forceBootstrapEntry) " [BOOTSTRAP OVERRIDE]" else ""
                                 ErrorLogger.info("BotService", "💰 [TREASURY] ${ts.symbol} | ENTER$bootstrapTag | " +
                                     "size=${adjustedSize.fmt(3)} SOL (${(bootstrapMultiplier*100).toInt()}%) | " +
@@ -3652,17 +3652,17 @@ class BotService : Service() {
                                     ErrorLogger.debug("BotService", "💩 [SHITCOIN] ${ts.symbol} | REJECTED | ${authResult.reason}")
                                 }
                             } else {
-                            // AUTHORIZED - proceed with execution
+                                // AUTHORIZED - proceed with execution
                             
-                            // V4.0: Try to acquire execution permit
-                            val canExecute = FinalExecutionPermit.tryAcquireExecution(
-                                mint = ts.mint,
-                                symbol = ts.symbol,
-                                layer = "SHITCOIN",
-                                sizeSol = adjustedSize
-                            )
-                            
-                            if (canExecute) {
+                                // V4.0: Try to acquire execution permit
+                                val canExecute = FinalExecutionPermit.tryAcquireExecution(
+                                    mint = ts.mint,
+                                    symbol = ts.symbol,
+                                    layer = "SHITCOIN",
+                                    sizeSol = adjustedSize
+                                )
+                                
+                                if (canExecute) {
                                 val gradLabel = if (shitCoinSignal.graduationImminent) " [GRAD IMMINENT!]" else ""
                                 val bundleLabel = if (shitCoinSignal.bundleWarning) " [BUNDLE!]" else ""
                                 val bootstrapTag = if (forceBootstrapEntry) " [BOOTSTRAP]" else ""
@@ -3790,39 +3790,57 @@ class BotService : Service() {
                         )
                         
                         if (expressSignal.shouldRide) {
-                            ErrorLogger.info("BotService", "💩🚂 [EXPRESS] ${ts.symbol} | RIDE | " +
-                                "${expressSignal.rideType.emoji} ${expressSignal.rideType.name} | " +
-                                "mom=${(ts.momentum ?: 0.0).fmt(1)}% | " +
-                                "size=${expressSignal.positionSizeSol.fmt(3)} SOL | " +
-                                "target=${expressSignal.estimatedGainPct.toInt()}%")
-                            
-                            // Board the express ride
-                            com.lifecyclebot.v3.scoring.ShitCoinExpress.boardRide(
+                            // V5.2: MUST check TradeAuthorizer BEFORE any execution
+                            val authResult = TradeAuthorizer.authorize(
                                 mint = ts.mint,
                                 symbol = ts.symbol,
-                                entryPrice = ts.ref,
-                                entrySol = expressSignal.positionSizeSol,
-                                momentum = ts.momentum ?: 0.0,
-                                buyPressure = ts.lastBuyPressurePct,
-                                isPaper = cfg.paperMode,
+                                score = expressSignal.estimatedGainPct.toInt(),
+                                confidence = 60.0,  // Express rides are momentum plays
+                                quality = "EXPRESS",
+                                isPaperMode = cfg.paperMode,
+                                requestedBook = TradeAuthorizer.ExecutionBook.SHITCOIN,
+                                rugcheckScore = ts.safety.rugcheckScore.takeIf { it >= 0 } ?: 100,
+                                liquidity = ts.lastLiquidityUsd,
+                                isBanned = BannedTokens.isBanned(ts.mint),
                             )
                             
-                            // Execute buy via Executor
-                            executor.shitCoinBuy(
-                                ts = ts,
-                                sizeSol = expressSignal.positionSizeSol,
-                                walletSol = effectiveBalance,
-                                takeProfitPct = expressSignal.estimatedGainPct,
-                                stopLossPct = -8.0,
-                                wallet = wallet,
-                                isPaper = cfg.paperMode,
-                                launchPlatform = com.lifecyclebot.v3.scoring.ShitCoinTraderAI.detectPlatform(ts.source),
-                                riskLevel = com.lifecyclebot.v3.scoring.ShitCoinTraderAI.RiskLevel.EXTREME,
-                            )
-                            
-                            addLog("💩🚂 EXPRESS: ${ts.symbol} | ${expressSignal.rideType.emoji} | " +
-                                "target +${expressSignal.estimatedGainPct.toInt()}% | " +
-                                "${if (cfg.paperMode) "PAPER" else "LIVE"}", ts.mint)
+                            if (!authResult.isExecutable()) {
+                                ErrorLogger.info("BotService", "💩🚂 [EXPRESS] ${ts.symbol} | ${if (authResult.isShadowOnly()) "SHADOW_ONLY" else "REJECTED"} | ${authResult.reason}")
+                            } else {
+                                ErrorLogger.info("BotService", "💩🚂 [EXPRESS] ${ts.symbol} | RIDE | " +
+                                    "${expressSignal.rideType.emoji} ${expressSignal.rideType.name} | " +
+                                    "mom=${(ts.momentum ?: 0.0).fmt(1)}% | " +
+                                    "size=${expressSignal.positionSizeSol.fmt(3)} SOL | " +
+                                    "target=${expressSignal.estimatedGainPct.toInt()}%")
+                                
+                                // Board the express ride
+                                com.lifecyclebot.v3.scoring.ShitCoinExpress.boardRide(
+                                    mint = ts.mint,
+                                    symbol = ts.symbol,
+                                    entryPrice = ts.ref,
+                                    entrySol = expressSignal.positionSizeSol,
+                                    momentum = ts.momentum ?: 0.0,
+                                    buyPressure = ts.lastBuyPressurePct,
+                                    isPaper = cfg.paperMode,
+                                )
+                                
+                                // Execute buy via Executor
+                                executor.shitCoinBuy(
+                                    ts = ts,
+                                    sizeSol = expressSignal.positionSizeSol,
+                                    walletSol = effectiveBalance,
+                                    takeProfitPct = expressSignal.estimatedGainPct,
+                                    stopLossPct = -8.0,
+                                    wallet = wallet,
+                                    isPaper = cfg.paperMode,
+                                    launchPlatform = com.lifecyclebot.v3.scoring.ShitCoinTraderAI.detectPlatform(ts.source),
+                                    riskLevel = com.lifecyclebot.v3.scoring.ShitCoinTraderAI.RiskLevel.EXTREME,
+                                )
+                                
+                                addLog("💩🚂 EXPRESS: ${ts.symbol} | ${expressSignal.rideType.emoji} | " +
+                                    "target +${expressSignal.estimatedGainPct.toInt()}% | " +
+                                    "${if (cfg.paperMode) "PAPER" else "LIVE"}", ts.mint)
+                            }
                         }
                     }
                 } catch (expEx: Exception) {
@@ -3865,43 +3883,61 @@ class BotService : Service() {
                         )
                         
                         if (dipSignal.shouldBuy) {
-                            ErrorLogger.info("BotService", "📉🎯 [DIP] ${ts.symbol} | BUY | " +
-                                "${dipSignal.dipQuality.emoji} ${dipSignal.dipQuality.name} | " +
-                                "dip=${dipSignal.dipDepthPct.fmt(1)}% | " +
-                                "size=${dipSignal.positionSizeSol.fmt(3)} SOL | " +
-                                "target=+${dipSignal.expectedRecoveryPct.toInt()}%")
-                            
-                            // Open dip position
-                            com.lifecyclebot.v3.scoring.DipHunterAI.openDip(
+                            // V5.2: MUST check TradeAuthorizer BEFORE any execution
+                            val authResult = TradeAuthorizer.authorize(
                                 mint = ts.mint,
                                 symbol = ts.symbol,
-                                entryPrice = ts.ref,
-                                entrySol = dipSignal.positionSizeSol,
-                                highPrice = recentHigh,
-                                dipDepthPct = dipSignal.dipDepthPct,
-                                marketCapUsd = ts.lastMcap,
-                                liquidityUsd = ts.lastLiquidityUsd,
-                                isPaper = cfg.paperMode,
+                                score = dipSignal.confidence,
+                                confidence = dipSignal.confidence.toDouble(),
+                                quality = "DIP",
+                                isPaperMode = cfg.paperMode,
+                                requestedBook = TradeAuthorizer.ExecutionBook.CORE,
+                                rugcheckScore = ts.safety.rugcheckScore.takeIf { it >= 0 } ?: 100,
+                                liquidity = ts.lastLiquidityUsd,
+                                isBanned = BannedTokens.isBanned(ts.mint),
                             )
                             
-                            // Execute buy
-                            executor.paperBuy(
-                                ts = ts,
-                                sol = dipSignal.positionSizeSol,
-                                score = dipSignal.confidence.toDouble(),
-                                identity = identity,
-                                quality = "DIP_HUNTER",
-                                skipGraduated = true,
-                                wallet = wallet,
-                                walletSol = effectiveBalance
-                            )
-                            
-                            ts.position.tradingMode = "DIP_HUNTER"
-                            ts.position.tradingModeEmoji = "📉"
-                            
-                            addLog("📉🎯 DIP BUY: ${ts.symbol} | ${dipSignal.dipQuality.emoji} | " +
-                                "dip ${dipSignal.dipDepthPct.toInt()}% | " +
-                                "${if (cfg.paperMode) "PAPER" else "LIVE"}", ts.mint)
+                            if (!authResult.isExecutable()) {
+                                ErrorLogger.info("BotService", "📉🎯 [DIP] ${ts.symbol} | ${if (authResult.isShadowOnly()) "SHADOW_ONLY" else "REJECTED"} | ${authResult.reason}")
+                            } else {
+                                ErrorLogger.info("BotService", "📉🎯 [DIP] ${ts.symbol} | BUY | " +
+                                    "${dipSignal.dipQuality.emoji} ${dipSignal.dipQuality.name} | " +
+                                    "dip=${dipSignal.dipDepthPct.fmt(1)}% | " +
+                                    "size=${dipSignal.positionSizeSol.fmt(3)} SOL | " +
+                                    "target=+${dipSignal.expectedRecoveryPct.toInt()}%")
+                                
+                                // Open dip position
+                                com.lifecyclebot.v3.scoring.DipHunterAI.openDip(
+                                    mint = ts.mint,
+                                    symbol = ts.symbol,
+                                    entryPrice = ts.ref,
+                                    entrySol = dipSignal.positionSizeSol,
+                                    highPrice = recentHigh,
+                                    dipDepthPct = dipSignal.dipDepthPct,
+                                    marketCapUsd = ts.lastMcap,
+                                    liquidityUsd = ts.lastLiquidityUsd,
+                                    isPaper = cfg.paperMode,
+                                )
+                                
+                                // Execute buy
+                                executor.paperBuy(
+                                    ts = ts,
+                                    sol = dipSignal.positionSizeSol,
+                                    score = dipSignal.confidence.toDouble(),
+                                    identity = identity,
+                                    quality = "DIP_HUNTER",
+                                    skipGraduated = true,
+                                    wallet = wallet,
+                                    walletSol = effectiveBalance
+                                )
+                                
+                                ts.position.tradingMode = "DIP_HUNTER"
+                                ts.position.tradingModeEmoji = "📉"
+                                
+                                addLog("📉🎯 DIP BUY: ${ts.symbol} | ${dipSignal.dipQuality.emoji} | " +
+                                    "dip ${dipSignal.dipDepthPct.toInt()}% | " +
+                                    "${if (cfg.paperMode) "PAPER" else "LIVE"}", ts.mint)
+                            }
                         }
                     }
                 } catch (dipEx: Exception) {
@@ -3939,27 +3975,62 @@ class BotService : Service() {
                     }
                     
                     if (!cfg.v3ShadowMode) {
-                        // V3 CONTROLS EXECUTION
-                        val v3SizeSol = result.sizeSol
-                        val v3Thesis = "V3 score=${result.score} band=${result.band}"
+                        // V5.2: MUST check TradeAuthorizer BEFORE any execution
+                        val authResult = TradeAuthorizer.authorize(
+                            mint = ts.mint,
+                            symbol = identity.symbol,
+                            score = result.score,
+                            confidence = result.confidence.toDouble(),
+                            quality = decision.finalQuality,
+                            isPaperMode = cfg.paperMode,
+                            requestedBook = TradeAuthorizer.ExecutionBook.CORE,
+                            rugcheckScore = ts.safety.rugcheckScore.takeIf { it >= 0 } ?: 100,
+                            liquidity = ts.lastLiquidityUsd,
+                            isBanned = BannedTokens.isBanned(ts.mint),
+                        )
                         
-                        // Update lifecycle to V3 states
-                        identity.v3Execute(result.score, result.band, result.sizeSol)
-                        
-                        // Execute the trade
-                        val proposedSize = result.sizeSol
-                        val modeTag = try {
-                            modeConf?.mode?.let { ModeSpecificGates.fromBotMode(it) }
-                        } catch (e: Exception) { null }
-                        
-                        ErrorLogger.info("BotService", "[EXECUTION] ${identity.symbol} | ${if (cfg.paperMode) "PAPER" else "LIVE"}_BUY | ${proposedSize.fmt(4)} SOL")
-                        
-                        // Record proposal for dedupe
-                        TradeLifecycle.recordProposal(identity.mint)
-                        
-                        // Execute buy through unified executor
-                        executor.v3Buy(
-                            ts = ts,
+                        if (!authResult.isExecutable()) {
+                            // NOT AUTHORIZED - log and skip execution
+                            if (authResult.isShadowOnly()) {
+                                ErrorLogger.info("BotService", "[V3|AUTH] ${identity.symbol} | SHADOW_ONLY | ${authResult.reason}")
+                                // Track for shadow learning
+                                ShadowLearningEngine.onFdgBlockedTrade(
+                                    mint = ts.mint,
+                                    symbol = identity.symbol,
+                                    blockReason = "V3_AUTH_SHADOW_${authResult.reason}",
+                                    blockLevel = "TRADE_AUTHORIZER",
+                                    currentPrice = ts.ref,
+                                    proposedSizeSol = result.sizeSol,
+                                    quality = decision.finalQuality,
+                                    confidence = result.confidence.toDouble(),
+                                    phase = decision.phase,
+                                )
+                            } else {
+                                ErrorLogger.info("BotService", "[V3|AUTH] ${identity.symbol} | REJECTED | ${authResult.reason}")
+                            }
+                        } else {
+                            // AUTHORIZED - proceed with execution
+                            // V3 CONTROLS EXECUTION
+                            val v3SizeSol = result.sizeSol
+                            val v3Thesis = "V3 score=${result.score} band=${result.band}"
+                            
+                            // Update lifecycle to V3 states
+                            identity.v3Execute(result.score, result.band, result.sizeSol)
+                            
+                            // Execute the trade
+                            val proposedSize = result.sizeSol
+                            val modeTag = try {
+                                modeConf?.mode?.let { ModeSpecificGates.fromBotMode(it) }
+                            } catch (e: Exception) { null }
+                            
+                            ErrorLogger.info("BotService", "[EXECUTION] ${identity.symbol} | ${if (cfg.paperMode) "PAPER" else "LIVE"}_BUY | ${proposedSize.fmt(4)} SOL")
+                            
+                            // Record proposal for dedupe
+                            TradeLifecycle.recordProposal(identity.mint)
+                            
+                            // Execute buy through unified executor
+                            executor.v3Buy(
+                                ts = ts,
                             sizeSol = proposedSize,
                             walletSol = effectiveBalance,
                             v3Score = result.score,
@@ -3972,6 +4043,7 @@ class BotService : Service() {
                         )
                         
                         addLog("⚡ V3 EXECUTE: ${identity.symbol} | ${result.band} | ${proposedSize.fmt(4)} SOL", ts.mint)
+                        } // end authResult.isExecutable() else block
                     } else {
                         // Shadow mode - log only
                         ErrorLogger.info("BotService", "[SHADOW] ${identity.symbol} | WOULD_EXECUTE | ${result.band} | ${result.sizeSol.fmt(4)} SOL")

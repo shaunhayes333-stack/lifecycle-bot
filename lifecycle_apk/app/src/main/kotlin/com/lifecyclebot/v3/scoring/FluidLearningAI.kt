@@ -107,22 +107,22 @@ object FluidLearningAI {
     // This is a classic cold-start deadlock.
     //
     // Solution: Force controlled entries during bootstrap to break the deadlock:
-    // V5.2: STRICTER CONDITIONS for 30-50% win rate
-    // 1. Minimum age 2 minutes (price discovery)
-    // 2. Buy pressure >= 50% (strong demand)
-    // 3. Score >= 75 (quality setup)
-    // 4. Liquidity >= $5K (reduces rug risk)
+    // V5.2: MORE LENIENT conditions during learning - we NEED trades to learn!
+    // 1. Minimum age 1 minute (quick price discovery)
+    // 2. Buy pressure >= 45% (decent demand)
+    // 3. Score >= 50 (reasonable setup - not too strict!)
+    // 4. Liquidity >= $2K (basic safety)
     // ═══════════════════════════════════════════════════════════════════════════
     
-    // V5.2: Minimum token age before entry (wait for price discovery)
-    private const val MIN_TOKEN_AGE_BOOTSTRAP = 2.0  // Minutes - don't enter at age=0
-    private const val MIN_BUY_PRESSURE_BOOTSTRAP = 50.0  // Require strong buy pressure
-    private const val MIN_SCORE_BOOTSTRAP = 70  // Quality threshold
-    private const val MIN_LIQUIDITY_BOOTSTRAP = 5000.0  // Reduce rug risk
+    // V5.2: Looser bootstrap to generate more trades for learning
+    private const val MIN_TOKEN_AGE_BOOTSTRAP = 1.0   // Minutes - quick entry
+    private const val MIN_BUY_PRESSURE_BOOTSTRAP = 45.0  // Reasonable buy pressure
+    private const val MIN_SCORE_BOOTSTRAP = 50  // Allow medium quality setups to learn
+    private const val MIN_LIQUIDITY_BOOTSTRAP = 2000.0  // Basic safety only
     
     /**
      * Check if we should force a bootstrap entry to break the cold-start deadlock.
-     * V5.2: STRICTER to improve win rate to 30-50%
+     * V5.2: MORE LENIENT to get more trades for learning
      */
     fun shouldForceBootstrapEntry(
         score: Int,
@@ -131,34 +131,34 @@ object FluidLearningAI {
         buyPressurePct: Double,
         isPaper: Boolean
     ): Boolean {
-        // Only apply during true bootstrap (learning < 5%)
-        if (getLearningProgress() >= 0.05) return false
+        // V5.2: Apply during bootstrap (learning < 15%, was 5%)
+        if (getLearningProgress() >= 0.15) return false
         
-        // V5.2: Don't enter at age=0, wait for price discovery
+        // V5.2: Quick age check - only wait 1 minute
         if (tokenAgeMinutes < MIN_TOKEN_AGE_BOOTSTRAP) {
             ErrorLogger.debug(TAG, "⏳ Bootstrap skip: age=${tokenAgeMinutes}m < ${MIN_TOKEN_AGE_BOOTSTRAP}m min")
             return false
         }
         
-        // V5.2: Require strong buy pressure
+        // V5.2: Looser buy pressure threshold
         if (buyPressurePct < MIN_BUY_PRESSURE_BOOTSTRAP) {
             ErrorLogger.debug(TAG, "📉 Bootstrap skip: buy%=$buyPressurePct < $MIN_BUY_PRESSURE_BOOTSTRAP min")
             return false
         }
         
-        // Paper mode: still somewhat aggressive to learn, but stricter
+        // Paper mode: MORE LENIENT to generate learning data
         if (isPaper) {
             return score >= MIN_SCORE_BOOTSTRAP && 
-                   liquidityUsd >= 3000 && 
+                   liquidityUsd >= MIN_LIQUIDITY_BOOTSTRAP && 
                    tokenAgeMinutes >= MIN_TOKEN_AGE_BOOTSTRAP &&
                    buyPressurePct >= MIN_BUY_PRESSURE_BOOTSTRAP
         }
         
-        // Live mode: very strict conditions
-        return score >= 80 && 
-               liquidityUsd >= MIN_LIQUIDITY_BOOTSTRAP && 
+        // Live mode: slightly stricter but still reasonable
+        return score >= 60 && 
+               liquidityUsd >= 3000 && 
                tokenAgeMinutes >= MIN_TOKEN_AGE_BOOTSTRAP &&
-               buyPressurePct >= 55
+               buyPressurePct >= 50
     }
     
     /**
