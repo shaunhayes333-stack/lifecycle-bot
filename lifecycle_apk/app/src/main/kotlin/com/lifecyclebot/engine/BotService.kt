@@ -4888,9 +4888,13 @@ class BotService : Service() {
                             else -> com.lifecyclebot.v3.scoring.ShitCoinTraderAI.LaunchPlatform.UNKNOWN
                         }
                         
-                        // Get ShitCoin TP/SL thresholds
+                        // V5.2: Promoted trades get TIGHTER stop loss since profit is already locked
+                        // Normal ShitCoin trades use fluid SL, but promotions need protection
                         val scTp = com.lifecyclebot.v3.scoring.ShitCoinTraderAI.getFluidTakeProfit()
-                        val scSl = com.lifecyclebot.v3.scoring.ShitCoinTraderAI.getFluidStopLoss()
+                        val scSl = -2.5  // TIGHT SL: Only allow 2.5% drawdown from promotion price
+                        
+                        ErrorLogger.info("BotService", "💰→💩 [PROMOTION] ${ts.symbol} | " +
+                            "TIGHT SL=$scSl% (protecting Treasury profits) | TP=$scTp%")
                         
                         // Register with ShitCoin tracker at CURRENT price (post-treasury-profit)
                         com.lifecyclebot.v3.scoring.ShitCoinTraderAI.addPosition(

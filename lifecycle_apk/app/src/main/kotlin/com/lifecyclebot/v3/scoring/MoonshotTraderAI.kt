@@ -471,6 +471,10 @@ object MoonshotTraderAI {
         
         val mode = detectSpaceMode(marketCapUsd)
         
+        // V5.2: Promoted trades get TIGHTER stop loss since profit is already locked
+        // Normal Moonshot uses mode.baseSL, but promotions need protection
+        val tightSL = -5.0  // Only allow 5% drawdown from promotion price
+        
         val position = MoonshotPosition(
             mint = mint,
             symbol = symbol,
@@ -478,7 +482,7 @@ object MoonshotTraderAI {
             entrySol = positionSol,
             entryTime = System.currentTimeMillis(),
             takeProfitPct = mode.baseTP,
-            stopLossPct = mode.baseSL,
+            stopLossPct = tightSL,  // V5.2: Tight SL for promotions
             marketCapUsd = marketCapUsd,
             liquidityUsd = liquidityUsd,
             entryScore = 100.0,  // Already proven winner
@@ -487,6 +491,8 @@ object MoonshotTraderAI {
             promotedFrom = fromLayer,
             peakPnlPct = currentPnlPct,
         )
+        
+        ErrorLogger.info(TAG, "🚀✨ PROMOTION: $symbol | TIGHT SL=$tightSL% (protecting $fromLayer profits)")
         
         addPosition(position)
         
