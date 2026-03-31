@@ -68,9 +68,8 @@ object ShitCoinExpress {
     private const val STOP_LOSS_PCT = -8.0            // Very tight 8%
     private const val TRAILING_STOP_PCT = 5.0         // Super tight trailing
     
-    // Time limits - EXPRESS means FAST
-    private const val MAX_HOLD_MINUTES = 10           // 10 minutes max!
-    private const val IDEAL_HOLD_MINUTES = 5          // Ideally in and out in 5 mins
+    // V5.2: Removed max hold time - let runners run!
+    private const val IDEAL_HOLD_MINUTES = 8          // V5.2: Increased from 5 to 8 mins
     
     // Daily limits
     private const val DAILY_MAX_LOSS_SOL = 0.25       // Small daily cap
@@ -503,13 +502,10 @@ object ShitCoinExpress {
             return ExitSignal.MOMENTUM_DEATH
         }
         
-        // 7. TIME EXIT - Max hold time
-        if (holdMinutes >= MAX_HOLD_MINUTES) {
-            ErrorLogger.info(TAG, "💩⏱ TIME OUT! $mint | ${pnlPct.fmt(1)}% @ ${holdMinutes}min")
-            return ExitSignal.TIME_EXIT
-        }
+        // V5.2: REMOVED max hold time - ShitCoins can moon anytime!
+        // Only exit on: stop loss, trailing stop, take profit, or momentum death
         
-        // 8. QUICK EXIT if losing momentum and not profitable
+        // 7. QUICK EXIT if losing momentum and not profitable
         if (holdMinutes >= IDEAL_HOLD_MINUTES && pnlPct < 10 && currentMomentum < ride.entryMomentum * 0.5) {
             ErrorLogger.info(TAG, "💩📉 FADING! $mint | ${pnlPct.fmt(1)}%")
             return ExitSignal.MOMENTUM_DEATH

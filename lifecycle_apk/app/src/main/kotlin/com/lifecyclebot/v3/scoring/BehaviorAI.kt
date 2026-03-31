@@ -342,17 +342,23 @@ object BehaviorAI {
     fun getScoreAdjustment(): Int {
         var score = 0
         
-        // V3.3: Scale penalties by learning progress
-        // At bootstrap (0-20% learning), behavior penalties are reduced
-        // This prevents no-data penalties from crushing early trades
+        // V5.2: Heavily reduced penalties during bootstrap/learning phase
+        // Learning is about experimentation - don't crush confidence too early
         val learningProgress = try {
             FluidLearningAI.getLearningProgress()
         } catch (e: Exception) { 0.0 }
         
-        // Penalty multiplier: 0.3 at bootstrap → 1.0 at mature
-        val penaltyMult = (0.3 + (learningProgress * 0.7)).coerceIn(0.3, 1.0)
+        // V5.2: Much lower penalty multiplier during bootstrap
+        // 0.1 at 0% learning → 0.5 at 50% → 1.0 at 100%
+        val penaltyMult = when {
+            learningProgress < 0.2 -> 0.1   // V5.2: Almost no penalty at bootstrap
+            learningProgress < 0.4 -> 0.25  // Light penalty as we learn
+            learningProgress < 0.6 -> 0.5   // Half penalty mid-learning
+            learningProgress < 0.8 -> 0.75  // Moderate penalty
+            else -> 1.0                      // Full penalty when mature
+        }
         
-        // Tilt penalty (reduced during bootstrap)
+        // Tilt penalty (heavily reduced during bootstrap)
         val tilt = tiltLevel.get()
         if (tilt >= 80) score -= (15 * penaltyMult).toInt()
         else if (tilt >= 60) score -= (10 * penaltyMult).toInt()
@@ -363,23 +369,24 @@ object BehaviorAI {
         if (discipline >= 80) score += 10  // Bonuses stay full
         else if (discipline >= 60) score += 5
         else if (discipline <= 20) {
-            // V3.3: Reduced penalty during bootstrap (no trade history = low discipline score)
-            score -= (5 * penaltyMult).toInt()
+            // V5.2: Minimal penalty during bootstrap (no trade history = low discipline score)
+            score -= (3 * penaltyMult).toInt()  // Was 5
         }
         
-        // Current streak effect (bonuses full, penalties scaled)
+        // Current streak effect (bonuses full, penalties heavily scaled during bootstrap)
         val streak = currentStreak.get()
         when {
             streak >= 5 -> score += 8   // 5+ win streak = confidence
             streak >= 3 -> score += 4   // 3+ win streak = momentum
-            streak <= -5 -> score -= (10 * penaltyMult).toInt() // 5+ loss streak = caution
-            streak <= -3 -> score -= (5 * penaltyMult).toInt()  // 3+ loss streak = warning
+            streak <= -10 -> score -= (8 * penaltyMult).toInt()  // V5.2: Only penalize massive streaks
+            streak <= -5 -> score -= (4 * penaltyMult).toInt()   // V5.2: Reduced (was 10)
+            streak <= -3 -> score -= (2 * penaltyMult).toInt()   // V5.2: Minimal (was 5)
         }
         
         // Recent big wins boost confidence
         if (sessionBigWins.get() >= 2) score += 5
         
-        return score.coerceIn(-20, 20)
+        return score.coerceIn(-15, 20)  // V5.2: Cap negative impact at -15 (was -20)
     }
     
     /**

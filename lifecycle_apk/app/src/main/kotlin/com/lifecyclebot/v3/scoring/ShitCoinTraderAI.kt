@@ -84,8 +84,8 @@ object ShitCoinTraderAI {
     private const val STOP_LOSS_BOOTSTRAP = -8.0      // 8% stop at start (tight protection)
     private const val STOP_LOSS_MATURE = -12.0        // 12% stop when mature (learned volatility)
     private const val TRAILING_STOP_PCT = 8.0         // Tighter trailing for volatile moves
-    private const val MAX_HOLD_MINUTES = 10           // V5.0: Reduced from 15 to 10 mins max
-    private const val FLAT_EXIT_MINUTES = 5           // V5.0: Exit if flat after 5 mins
+    // V5.2: REMOVED max hold time - ShitCoins can moon anytime, let them run!
+    private const val FLAT_EXIT_MINUTES = 8           // V5.2: Increased to 8 mins (was 5)
     
     // Compounding - Conservative for shitcoins
     private const val COMPOUNDING_ENABLED = true
@@ -854,28 +854,25 @@ object ShitCoinTraderAI {
             return ExitSignal.TRAILING_STOP
         }
         
-        // 5. V5.0: FLAT EXIT - If nothing happening after 5 mins, get out
+        // 5. V5.2: FLAT EXIT - If nothing happening after 8 mins, get out
         if (holdMinutes >= FLAT_EXIT_MINUTES && pnlPct > -5.0 && pnlPct < 10.0) {
             // Token is just sitting flat - wasting time and opportunity cost
             ErrorLogger.info(TAG, "💩😴 FLAT EXIT: ${pos.symbol} | ${pnlPct.fmt(1)}% after ${holdMinutes}min (stagnant)")
             return ExitSignal.TIME_EXIT
         }
         
-        // 6. MAX HOLD TIME (10 mins for shitcoins) - but NOT if we're mooning!
-        if (holdMinutes >= MAX_HOLD_MINUTES && pnlPct < 100.0) {
-            // Only time exit if NOT in moonshot territory
-            ErrorLogger.info(TAG, "💩⏱ TIME EXIT: ${pos.symbol} | ${pnlPct.fmt(1)}% after ${holdMinutes}min")
-            return ExitSignal.TIME_EXIT
-        }
+        // V5.2: REMOVED max hold time check - ShitCoins can moon anytime!
+        // Old code forced exits at 10 mins even for promising plays
+        // Now only exit on: stop loss, trailing stop, take profit, flat, or rug
         
-        // 7. Early exit if profitable after 3 mins (but not if running hot)
-        if (holdMinutes >= 3 && pnlPct >= 15.0 && pnlPct < 50.0) {
-            // V5.0: Quick 15%+ profit - take it and move on
+        // 6. Early exit if profitable after 5 mins (but not if running hot)
+        if (holdMinutes >= 5 && pnlPct >= 20.0 && pnlPct < 50.0) {
+            // V5.2: Quick 20%+ profit after 5 mins - take it (was 15% after 3 mins)
             ErrorLogger.info(TAG, "💩💰 EARLY TP: ${pos.symbol} | +${pnlPct.fmt(1)}% @ ${holdMinutes}min")
             return ExitSignal.TAKE_PROFIT
         }
         
-        // 8. HOLD - Let it ride! No hard caps.
+        // 7. HOLD - Let it ride! No time caps.
         return ExitSignal.HOLD
     }
     
@@ -883,16 +880,16 @@ object ShitCoinTraderAI {
     // FLUID THRESHOLDS - ShitCoin specific
     // ═══════════════════════════════════════════════════════════════════════════
     
-    // V4.20: Lowered bootstrap thresholds to allow more learning
-    // Bootstrap: score >= 25, conf >= 15%
-    // Mature: score >= 35, conf >= 45%
-    private const val SC_SCORE_BOOTSTRAP = 25         // Low bar to learn (was 45)
-    private const val SC_SCORE_MATURE = 35            // Tighten as we learn (was 30)
+    // V5.2: Tightened bootstrap thresholds - stop taking trash entries
+    // Bootstrap: score >= 35, conf >= 25% (was 25/15)
+    // Mature: score >= 40, conf >= 50% (was 35/45)
+    private const val SC_SCORE_BOOTSTRAP = 35         // Tighter bar during learning (was 25)
+    private const val SC_SCORE_MATURE = 40            // Higher bar when mature (was 35)
     
-    // V4.20: Further lowered bootstrap conf for degen learning
-    private const val SC_CONF_BOOTSTRAP = 15          // Start very low (was 25)
-    private const val SC_CONF_MATURE = 45             // Build up (was 50)
-    private const val SC_CONF_BOOST_MAX = 15.0        // 15% bootstrap boost (was 10)
+    // V5.2: Higher confidence required - stop gambling
+    private const val SC_CONF_BOOTSTRAP = 25          // Need some conviction (was 15)
+    private const val SC_CONF_MATURE = 50             // Solid confidence (was 45)
+    private const val SC_CONF_BOOST_MAX = 10.0        // Reduced bootstrap boost (was 15)
     
     private fun lerp(bootstrap: Double, mature: Double): Double {
         val progress = FluidLearningAI.getLearningProgress()

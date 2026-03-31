@@ -937,11 +937,12 @@ object FluidLearningAI {
     private const val TREASURY_MAX_HOLD_BOOTSTRAP = 12.0    // 12 min max during learning
     private const val TREASURY_MAX_HOLD_MATURE = 8.0        // 8 min max when optimized
     
-    // ShitCoin Layer - Fast meme plays
+    // ShitCoin Layer - V5.2: NO MAX HOLD TIME - let them moon!
     private const val SHITCOIN_MIN_HOLD_BOOTSTRAP = 3.0     // 3 min minimum
     private const val SHITCOIN_MIN_HOLD_MATURE = 2.0        // 2 min minimum
-    private const val SHITCOIN_MAX_HOLD_BOOTSTRAP = 20.0    // 20 min max during learning
-    private const val SHITCOIN_MAX_HOLD_MATURE = 15.0       // 15 min max when optimized
+    // V5.2: Max hold times removed - ShitCoins exit on SL/TP/trailing, not time
+    private const val SHITCOIN_MAX_HOLD_BOOTSTRAP = 999.0   // Effectively no limit
+    private const val SHITCOIN_MAX_HOLD_MATURE = 999.0      // Effectively no limit
     
     // V3 Quality Layer - Solid setups
     private const val V3_MIN_HOLD_BOOTSTRAP = 5.0           // 5 min minimum
