@@ -627,6 +627,20 @@ object CashGenerationAI {
     }
     
     /**
+     * V5.2: Force clear all positions on bot stop
+     * This ensures UI updates correctly even if individual closes fail
+     */
+    fun clearAllPositions() {
+        synchronized(activePositions) {
+            val count = activePositions.size
+            activePositions.clear()
+            currentPrices.clear()
+            lastPriceUpdate.clear()
+            ErrorLogger.info(TAG, "💰 CLEARED $count Treasury positions on shutdown")
+        }
+    }
+    
+    /**
      * V5.2: Check ALL treasury positions for exits using tracked prices
      * Returns list of (mint, exitSignal) pairs that need to be acted on
      */

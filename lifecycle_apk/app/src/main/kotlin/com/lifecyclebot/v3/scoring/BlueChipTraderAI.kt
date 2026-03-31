@@ -209,6 +209,20 @@ object BlueChipTraderAI {
         }
     }
     
+    /**
+     * V5.2: Force clear all positions on bot stop
+     * This ensures UI updates correctly even if individual closes fail
+     */
+    fun clearAllPositions() {
+        synchronized(activePositions) {
+            val count = activePositions.size
+            activePositions.clear()
+            paperPositions.clear()
+            livePositions.clear()
+            ErrorLogger.info(TAG, "🔵 CLEARED $count BlueChip positions on shutdown")
+        }
+    }
+    
     fun getActivePositionsForMode(isPaper: Boolean): List<BlueChipPosition> {
         val positions = if (isPaper) paperPositions else livePositions
         return synchronized(positions) {

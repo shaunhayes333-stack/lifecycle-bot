@@ -1293,6 +1293,18 @@ class BotService : Service() {
             ErrorLogger.error("BotService", "Error closing positions on shutdown: ${e.message}", e)
         }
         
+        // V5.2 FIX: ALWAYS clear all layer positions when bot stops, regardless of closePositionsOnStop setting
+        // This ensures the UI doesn't show stale positions after a bot stop/crash
+        try {
+            com.lifecyclebot.v3.scoring.CashGenerationAI.clearAllPositions()
+            com.lifecyclebot.v3.scoring.BlueChipTraderAI.clearAllPositions()
+            com.lifecyclebot.v3.scoring.ShitCoinTraderAI.clearAllPositions()
+            com.lifecyclebot.v3.scoring.ShitCoinExpress.clearAllRides()
+            addLog("✅ Cleared all layer position tracking")
+        } catch (clearEx: Exception) {
+            ErrorLogger.error("BotService", "Error clearing layer positions: ${clearEx.message}", clearEx)
+        }
+        
         status.running = false
         loopJob?.cancel()
         orchestrator?.stop()
