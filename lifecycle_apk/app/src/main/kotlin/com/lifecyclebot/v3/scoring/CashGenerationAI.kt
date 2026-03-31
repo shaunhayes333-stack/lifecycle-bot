@@ -591,6 +591,13 @@ object CashGenerationAI {
     }
     
     /**
+     * V5.2: Check if Treasury has an open position on this mint
+     */
+    fun hasPosition(mint: String): Boolean {
+        return synchronized(activePositions) { activePositions.containsKey(mint) }
+    }
+    
+    /**
      * V5.2: Get active position for debugging
      */
     fun getActivePosition(mint: String): TreasuryPosition? {

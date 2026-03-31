@@ -3280,8 +3280,15 @@ class BotService : Service() {
             // BLUE CHIP TRADER - Quality plays for >$1M market cap tokens
             // Runs CONCURRENTLY with V3 and Treasury
             // V4.0 FIX: Must check FinalExecutionPermit before executing
+            // V5.2 FIX: Must check if Treasury already has a position!
+            //          Treasury must hit TP and sell BEFORE other layers can enter
             // ═══════════════════════════════════════════════════════════════════
             if (!ts.position.isOpen && ts.lastMcap >= 1_000_000) {
+                // V5.2: Check if Treasury already has a position on this token
+                // Treasury trades must complete (hit TP/SL) before other layers can enter
+                if (com.lifecyclebot.v3.scoring.CashGenerationAI.hasPosition(ts.mint)) {
+                    ErrorLogger.debug("BotService", "🔵 [BLUE CHIP] ${ts.symbol} | BLOCKED | Treasury has open position - wait for TP/SL")
+                } else {
                 try {
                     // V4.0 FIX: Check execution permit first
                     val permitResult = FinalExecutionPermit.canExecute(
@@ -3381,6 +3388,7 @@ class BotService : Service() {
                     ErrorLogger.debug("BotService", "🔵 [BLUE CHIP] ${ts.symbol} | ERROR | ${bcEx.message}")
                     FinalExecutionPermit.releaseExecution(ts.mint)
                 }
+                } // end else (Treasury doesn't have position)
             }
             // ═══════════════════════════════════════════════════════════════════
             // END Blue Chip evaluation
@@ -3393,6 +3401,10 @@ class BotService : Service() {
             // Cross-trade promotions: 200%+ gains from other layers graduate here
             // ═══════════════════════════════════════════════════════════════════
             if (!ts.position.isOpen && com.lifecyclebot.v3.scoring.MoonshotTraderAI.isEnabled()) {
+                // V5.2: Check if Treasury already has a position on this token
+                if (com.lifecyclebot.v3.scoring.CashGenerationAI.hasPosition(ts.mint)) {
+                    ErrorLogger.debug("BotService", "🚀 [MOONSHOT] ${ts.symbol} | BLOCKED | Treasury has open position - wait for TP/SL")
+                } else {
                 try {
                     // Check if mcap is in moonshot zone ($100K-$50M)
                     if (ts.lastMcap in 100_000.0..50_000_000.0) {
@@ -3525,6 +3537,7 @@ class BotService : Service() {
                     ErrorLogger.debug("BotService", "🚀 [MOONSHOT] ${ts.symbol} | ERROR | ${moonEx.message}")
                     FinalExecutionPermit.releaseExecution(ts.mint)
                 }
+                } // end else (Treasury doesn't have position)
             }
             // ═══════════════════════════════════════════════════════════════════
             // END Moonshot evaluation
@@ -3536,8 +3549,13 @@ class BotService : Service() {
             // Runs CONCURRENTLY with V3, Treasury, and Blue Chip
             // Targets pump.fun, raydium, moonshot fresh launches
             // V4.0 FIX: Must check FinalExecutionPermit before executing
+            // V5.2 FIX: Must check if Treasury already has a position!
             // ═══════════════════════════════════════════════════════════════════
             if (!ts.position.isOpen && com.lifecyclebot.v3.scoring.ShitCoinTraderAI.isEnabled()) {
+                // V5.2: Check if Treasury already has a position on this token
+                if (com.lifecyclebot.v3.scoring.CashGenerationAI.hasPosition(ts.mint)) {
+                    ErrorLogger.debug("BotService", "💩 [SHITCOIN] ${ts.symbol} | BLOCKED | Treasury has open position - wait for TP/SL")
+                } else {
                 try {
                     // V4.0 FIX: Check execution permit first
                     val permitResult = FinalExecutionPermit.canExecute(
@@ -3777,6 +3795,7 @@ class BotService : Service() {
                     ErrorLogger.debug("BotService", "💩 [SHITCOIN] ${ts.symbol} | ERROR | ${scEx.message}")
                     FinalExecutionPermit.releaseExecution(ts.mint)
                 }
+                } // end else (Treasury doesn't have position)
             }
             // ═══════════════════════════════════════════════════════════════════
             // END ShitCoin evaluation
@@ -3785,8 +3804,13 @@ class BotService : Service() {
             // ═══════════════════════════════════════════════════════════════════
             // 💩🚂 SHITCOIN EXPRESS - Quick momentum rides for 30%+ profits
             // Only evaluates tokens that are ALREADY pumping hard
+            // V5.2 FIX: Must check if Treasury already has a position!
             // ═══════════════════════════════════════════════════════════════════
             if (!ts.position.isOpen && com.lifecyclebot.v3.scoring.ShitCoinExpress.isEnabled()) {
+                // V5.2: Check if Treasury already has a position on this token
+                if (com.lifecyclebot.v3.scoring.CashGenerationAI.hasPosition(ts.mint)) {
+                    ErrorLogger.debug("BotService", "💩🚂 [EXPRESS] ${ts.symbol} | BLOCKED | Treasury has open position - wait for TP/SL")
+                } else {
                 try {
                     val tokenAgeMinutes = if (ts.addedToWatchlistAt > 0) {
                         (System.currentTimeMillis() - ts.addedToWatchlistAt) / 60_000.0
@@ -3877,6 +3901,7 @@ class BotService : Service() {
                 } catch (expEx: Exception) {
                     ErrorLogger.debug("BotService", "💩🚂 [EXPRESS] ${ts.symbol} | ERROR | ${expEx.message}")
                 }
+                } // end else (Treasury doesn't have position)
             }
             // ═══════════════════════════════════════════════════════════════════
             // END ShitCoin Express evaluation
@@ -3884,8 +3909,13 @@ class BotService : Service() {
             
             // ═══════════════════════════════════════════════════════════════════
             // 📉🎯 DIP HUNTER - Buy quality dips on established tokens
+            // V5.2 FIX: Must check if Treasury already has a position!
             // ═══════════════════════════════════════════════════════════════════
             if (!ts.position.isOpen && com.lifecyclebot.v3.scoring.DipHunterAI.isEnabled()) {
+                // V5.2: Check if Treasury already has a position on this token
+                if (com.lifecyclebot.v3.scoring.CashGenerationAI.hasPosition(ts.mint)) {
+                    ErrorLogger.debug("BotService", "📉🎯 [DIP] ${ts.symbol} | BLOCKED | Treasury has open position - wait for TP/SL")
+                } else {
                 try {
                     val tokenAgeHours = if (ts.addedToWatchlistAt > 0) {
                         (System.currentTimeMillis() - ts.addedToWatchlistAt) / (60 * 60 * 1000.0)
@@ -3974,6 +4004,7 @@ class BotService : Service() {
                 } catch (dipEx: Exception) {
                     ErrorLogger.debug("BotService", "📉🎯 [DIP] ${ts.symbol} | ERROR | ${dipEx.message}")
                 }
+                } // end else (Treasury doesn't have position)
             }
             // ═══════════════════════════════════════════════════════════════════
             // END Dip Hunter evaluation
