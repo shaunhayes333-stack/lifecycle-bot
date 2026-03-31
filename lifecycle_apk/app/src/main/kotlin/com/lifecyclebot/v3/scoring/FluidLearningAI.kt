@@ -596,7 +596,7 @@ object FluidLearningAI {
     // SCORE THRESHOLDS (Used by V3 Scoring, CashGenerationAI)
     // ═══════════════════════════════════════════════════════════════════════════
     
-    private const val SCORE_BOOTSTRAP = 10     // Very low score threshold at start
+    private const val SCORE_BOOTSTRAP = 20     // V5.2 FIX: Raised from 10 - don't go AGGRESSIVE on weak setups
     private const val SCORE_MATURE = 30        // Higher threshold when mature
     
     fun getMinScoreThreshold(): Int = lerp(SCORE_BOOTSTRAP.toDouble(), SCORE_MATURE.toDouble()).toInt()

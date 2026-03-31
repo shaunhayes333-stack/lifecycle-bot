@@ -73,7 +73,7 @@ object CashGenerationAI {
     private const val TAKE_PROFIT_MIN_PCT = 2.5       // V5.0: Quick 2.5% for DEFENSIVE mode
     private const val TAKE_PROFIT_PCT = 3.5           // Standard TP for CRUISE mode
     private const val TAKE_PROFIT_MAX_PCT = 4.0       // V5.0: Cap at 4% for AGGRESSIVE (was 8%)
-    private const val STOP_LOSS_PCT = -2.0            // Cut at -2%, no exceptions
+    private const val STOP_LOSS_PCT = -4.0            // V5.2 FIX: Raised from -2% - give trades room to breathe
     private const val TRAILING_STOP_PCT = 1.5         // Tighter 1.5% trail after profit
     private const val MAX_HOLD_MINUTES = 30           // Extended to 30min - let positions breathe
     private const val REENTRY_COOLDOWN_MS = 5000L     // 5 second cooldown between same-token trades
@@ -528,7 +528,7 @@ object CashGenerationAI {
             TreasuryMode.AGGRESSIVE -> TAKE_PROFIT_MAX_PCT // Let run to 7% when behind
             else -> TAKE_PROFIT_PCT
         }
-        val stopLossPct = STOP_LOSS_PCT  // Never compromise on stop loss (-2%)
+        val stopLossPct = STOP_LOSS_PCT  // V5.2: -4% stop loss (raised from -2%)
         
         ErrorLogger.info(TAG, "💰 TREASURY ENTRY: $symbol | " +
             "score=$treasuryScore conf=${treasuryConfidence}% | " +
