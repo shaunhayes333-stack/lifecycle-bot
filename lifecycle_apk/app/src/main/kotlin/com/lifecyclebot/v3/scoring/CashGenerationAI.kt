@@ -594,8 +594,9 @@ object CashGenerationAI {
         val pnlPct = (currentPrice - pos.entryPrice) / pos.entryPrice * 100
         val holdMinutes = (System.currentTimeMillis() - pos.entryTime) / 60000
         
-        // Determine min profit based on mode
-        val minProfitPct = if (isPaperMode) TAKE_PROFIT_PCT_PAPER else TAKE_PROFIT_PCT_LIVE
+        // V5.2: Treasury takes profit IMMEDIATELY at 3.5%+ - no waiting!
+        // If we're up 3.5% in 5 seconds, SELL. Don't wait for anything.
+        val targetProfitPct = TAKE_PROFIT_PCT  // 3.5%
         
         // Update high water mark and trailing stop
         if (currentPrice > pos.highWaterMark) {
@@ -606,24 +607,24 @@ object CashGenerationAI {
         
         // ─── EXIT CONDITIONS (Priority order) ───
         
-        // 1. HIT MAX TAKE PROFIT (8%) - always exit, let winners run but cap
+        // 1. V5.2: HIT TARGET PROFIT (3.5%+) - EXIT IMMEDIATELY, NO DELAY!
+        // This is the PRIMARY exit - Treasury is designed for quick scalps
+        if (pnlPct >= targetProfitPct) {
+            val holdSeconds = (System.currentTimeMillis() - pos.entryTime) / 1000
+            ErrorLogger.info(TAG, "💰 TREASURY TP HIT: ${pos.symbol} | +${pnlPct.fmt(1)}% in ${holdSeconds}s | SELLING NOW!")
+            return ExitSignal.TAKE_PROFIT
+        }
+        
+        // 2. HIT MAX TAKE PROFIT (4%) - bonus if it runs past target
         if (pnlPct >= TAKE_PROFIT_MAX_PCT) {
             ErrorLogger.info(TAG, "💰 TREASURY MAX TP: ${pos.symbol} | +${pnlPct.fmt(1)}% (hit ${TAKE_PROFIT_MAX_PCT}% cap)")
             return ExitSignal.TAKE_PROFIT
         }
         
-        // 2. HIT STOP LOSS (HARD -2%)
+        // 3. HIT STOP LOSS (HARD -2%)
         if (currentPrice <= pos.stopPrice) {
             ErrorLogger.info(TAG, "💰 TREASURY SL HIT: ${pos.symbol} | ${pnlPct.fmt(1)}%")
             return ExitSignal.STOP_LOSS
-        }
-        
-        // 3. V4.20: AGGRESSIVE TP - Exit as soon as we clear min profit
-        // Paper: 0.5%+, Live: 1.5%+ (covers fees)
-        if (pnlPct >= minProfitPct) {
-            val modeLabel = if (isPaperMode) "PAPER" else "LIVE"
-            ErrorLogger.info(TAG, "💰 TREASURY SCALP [$modeLabel]: ${pos.symbol} | +${pnlPct.fmt(1)}% (min=${minProfitPct}%)")
-            return ExitSignal.TAKE_PROFIT
         }
         
         // 4. HIT TRAILING STOP (only if we were in decent profit > 2%)
