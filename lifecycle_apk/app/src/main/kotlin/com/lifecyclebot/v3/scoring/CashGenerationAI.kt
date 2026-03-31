@@ -67,7 +67,7 @@ object CashGenerationAI {
     // Exit strategy (AGGRESSIVE SCALPING - V4.20)
     // Chip away at profits constantly - no hold time limit
     // Can cycle same coin repeatedly if green
-    private const val TAKE_PROFIT_PCT_PAPER = 0.5     // Paper: Exit at 0.5%+ (learn fast)
+    private const val TAKE_PROFIT_PCT_PAPER = 3.5     // V5.2: Paper same as live (was 0.5%)
     private const val TAKE_PROFIT_PCT_LIVE = 2.5      // Live: 2.5% minimum (covers fees + profit)
     private const val TAKE_PROFIT_MIN_PCT = 2.5       // V5.0: Quick 2.5% for DEFENSIVE mode
     private const val TAKE_PROFIT_PCT = 3.5           // Standard TP for CRUISE mode
