@@ -451,12 +451,12 @@ object GlobalTradeRegistry {
         val entry = probation[mint] ?: return false
         entry.rcScore = rcScore
         
-        // Good RC score can promote
-        if (rcScore >= 30) {
+        // V5.2: Good RC score can promote (RC >= 20 is great)
+        if (rcScore >= 20) {
             promoteFromProbation(mint, "GOOD_RC:$rcScore")
             return true
         }
-        // Bad RC score = instant reject
+        // V5.2: Bad RC score = instant reject (RC <= 5 is dangerous)
         if (rcScore <= 5) {
             rejectFromProbation(mint, "BAD_RC:$rcScore")
             return true
@@ -517,8 +517,8 @@ object GlobalTradeRegistry {
                 continue
             }
             
-            // Check if RC confirmed
-            if (entry.rcScore >= 30) {
+            // V5.2: Check if RC confirmed (RC >= 20 is great for promotion)
+            if (entry.rcScore >= 20) {
                 promoteFromProbation(mint, "RC_OK:${entry.rcScore}")
                 results.add(ProbationResult(mint, entry.symbol, "PROMOTED", "RC_OK"))
                 continue

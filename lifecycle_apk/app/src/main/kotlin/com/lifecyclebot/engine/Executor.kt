@@ -3259,15 +3259,6 @@ class Executor(
         // Mark as executed with TREASURY trading mode
         identity.executed(getActualPrice(ts), sizeSol, isPaper)
         
-        // Set trading mode to TREASURY for tracking
-        ts.position.tradingMode = "TREASURY"
-        ts.position.tradingModeEmoji = "💰"
-        ts.position.isTreasuryPosition = true
-        
-        // Store exit targets on position for monitoring
-        ts.position.treasuryTakeProfit = takeProfitPct
-        ts.position.treasuryStopLoss = stopLossPct
-        
         ErrorLogger.info("Executor", "💰 [TREASURY] ${ts.symbol} | " +
             "${if (isPaper) "PAPER" else "LIVE"}_BUY | " +
             "${sizeSol.fmt(3)} SOL | TP=${takeProfitPct}% SL=${stopLossPct}%")
@@ -3299,6 +3290,17 @@ class Executor(
                 skipGraduated = true
             )
         }
+        
+        // V5.2 CRITICAL FIX: Set Treasury flags AFTER paperBuy/liveBuy completes!
+        // paperBuy creates a NEW Position object which overwrites ts.position
+        // So we must set these flags AFTER the position is created, not before!
+        ts.position.tradingMode = "TREASURY"
+        ts.position.tradingModeEmoji = "💰"
+        ts.position.isTreasuryPosition = true
+        
+        // Store exit targets on position for monitoring
+        ts.position.treasuryTakeProfit = takeProfitPct
+        ts.position.treasuryStopLoss = stopLossPct
         
         // ═══════════════════════════════════════════════════════════════════
         // V3.3: Upload TREASURY BUY to collective knowledge base IMMEDIATELY
@@ -3343,15 +3345,6 @@ class Executor(
         // Mark as executed with BLUE_CHIP trading mode
         identity.executed(getActualPrice(ts), sizeSol, isPaper)
         
-        // Set trading mode to BLUE_CHIP for tracking
-        ts.position.tradingMode = "BLUE_CHIP"
-        ts.position.tradingModeEmoji = "🔵"
-        ts.position.isBlueChipPosition = true
-        
-        // Store exit targets on position for monitoring
-        ts.position.blueChipTakeProfit = takeProfitPct
-        ts.position.blueChipStopLoss = stopLossPct
-        
         ErrorLogger.info("Executor", "🔵 [BLUE CHIP] ${ts.symbol} | " +
             "${if (isPaper) "PAPER" else "LIVE"}_BUY | " +
             "mcap=\$${(ts.lastMcap/1_000_000).fmt(2)}M | " +
@@ -3384,6 +3377,17 @@ class Executor(
                 skipGraduated = true
             )
         }
+        
+        // V5.2 CRITICAL FIX: Set BlueChip flags AFTER paperBuy/liveBuy completes!
+        // paperBuy creates a NEW Position object which overwrites ts.position
+        // So we must set these flags AFTER the position is created, not before!
+        ts.position.tradingMode = "BLUE_CHIP"
+        ts.position.tradingModeEmoji = "🔵"
+        ts.position.isBlueChipPosition = true
+        
+        // Store exit targets on position for monitoring
+        ts.position.blueChipTakeProfit = takeProfitPct
+        ts.position.blueChipStopLoss = stopLossPct
         
         // Upload BLUE CHIP BUY to collective knowledge base
         try {
@@ -3428,15 +3432,6 @@ class Executor(
         
         // Mark as executed with SHITCOIN trading mode
         identity.executed(getActualPrice(ts), sizeSol, isPaper)
-        
-        // Set trading mode to SHITCOIN for tracking
-        ts.position.tradingMode = "SHITCOIN"
-        ts.position.tradingModeEmoji = "💩"
-        ts.position.isShitCoinPosition = true
-        
-        // Store exit targets on position for monitoring
-        ts.position.shitCoinTakeProfit = takeProfitPct
-        ts.position.shitCoinStopLoss = stopLossPct
         
         // V5.2 FIX: Register position with ShitCoinTraderAI so checkExit can find it!
         com.lifecyclebot.v3.scoring.ShitCoinTraderAI.addPosition(
@@ -3489,6 +3484,17 @@ class Executor(
                 skipGraduated = true
             )
         }
+        
+        // V5.2 CRITICAL FIX: Set ShitCoin flags AFTER paperBuy/liveBuy completes!
+        // paperBuy creates a NEW Position object which overwrites ts.position
+        // So we must set these flags AFTER the position is created, not before!
+        ts.position.tradingMode = "SHITCOIN"
+        ts.position.tradingModeEmoji = "💩"
+        ts.position.isShitCoinPosition = true
+        
+        // Store exit targets on position for monitoring
+        ts.position.shitCoinTakeProfit = takeProfitPct
+        ts.position.shitCoinStopLoss = stopLossPct
         
         // Upload SHITCOIN BUY to collective knowledge base
         try {

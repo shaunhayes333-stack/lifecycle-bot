@@ -1783,16 +1783,14 @@ object FinalDecisionGate {
         }
         
         // Use auto-adjusted thresholds for live mode
-        // FIX: Paper mode was too lenient (rugcheck=5, buyPressure=10)
-        // This caused 82 trades with only 8% win rate - learning garbage
-        // Paper mode should still have reasonable thresholds to learn from quality trades
-        // Apply mode multipliers to thresholds
+        // V5.2 FIX: RC threshold was 15 - way too strict! Most good tokens don't score above 7
+        // RC >= 6 should PASS, RC <= 5 should BLOCK
         val rugcheckThreshold = if (config.paperMode) {
-            15  // Paper: Still require decent rugcheck (was 5 - way too lenient!)
+            5  // V5.2: Paper mode - RC >= 6 passes, RC <= 5 blocked (realistic for solana tokens)
         } else {
-            // Use auto-adjusted OR brain-learned, apply mode multiplier
-            val baseThreshold = (brain?.learnedRugcheckThreshold ?: adjusted.rugcheckMin).coerceIn(5, 25)
-            (baseThreshold * modeMultipliers.rugcheckMultiplier).toInt().coerceIn(3, 30)
+            // Live mode: same threshold, but can be adjusted by brain learning
+            val baseThreshold = (brain?.learnedRugcheckThreshold ?: 5).coerceIn(3, 10)
+            (baseThreshold * modeMultipliers.rugcheckMultiplier).toInt().coerceIn(3, 15)
         }
         val buyPressureThreshold = if (config.paperMode) 25.0 else adjusted.buyPressureMin * modeMultipliers.entryScoreMultiplier  // was 10.0
         val topHolderThreshold = if (config.paperMode) 70.0 else adjusted.topHolderMax / modeMultipliers.rugcheckMultiplier  // was 90.0

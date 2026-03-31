@@ -2612,26 +2612,29 @@ class SolanaMarketScanner(
                 return false
             }
             
-            // V5.2: RC <= 3 = HARD BLOCK (no exceptions!)
+            // V5.2 FIX: RC >= 6 should PASS (most good solana tokens score 6-20)
+            // RC <= 5 = BLOCK (dangerous/rug territory)
+            // RC <= 3 = HARD BLOCK (catastrophic)
+            
             if (scoreNormalized <= 3) {
                 onLog("🚫 RC HARD BLOCK: ${mint.take(8)}... score=$scoreNormalized (catastrophic)")
                 ErrorLogger.info("Scanner", "RC HARD_BLOCK: ${mint.take(12)} score=$scoreNormalized <= 3")
                 return false
             }
             
-            // V5.2: RC 4-6 = BLOCK (dangerous) - lowered from 4-10
-            if (scoreNormalized in 4..6) {
+            if (scoreNormalized in 4..5) {
                 onLog("🚫 RC BLOCK: ${mint.take(8)}... score=$scoreNormalized (dangerous)")
-                ErrorLogger.info("Scanner", "RC BLOCK: ${mint.take(12)} score=$scoreNormalized (4-6)")
+                ErrorLogger.info("Scanner", "RC BLOCK: ${mint.take(12)} score=$scoreNormalized (4-5)")
                 return false
             }
             
-            // V5.2: RC 7-15: Log warning but pass - many good tokens here
-            if (scoreNormalized in 7..15) {
-                ErrorLogger.debug("Scanner", "RC ${mint.take(8)}: score=$scoreNormalized (low - V3 caution)")
+            // V5.2: RC >= 6 = PASS - this is realistic for solana tokens
+            // Most good tokens score 6-20, blocking above 6 kills all trading
+            if (scoreNormalized in 6..15) {
+                ErrorLogger.debug("Scanner", "RC ${mint.take(8)}: score=$scoreNormalized (OK - normal range)")
             }
             
-            return true  // Pass - V3 handles risk scoring
+            return true  // Pass - RC >= 6
             
         } catch (e: kotlinx.coroutines.CancellationException) { throw e } catch (e: Exception) {
             // Timeout or error - pass through (don't block on API issues)
