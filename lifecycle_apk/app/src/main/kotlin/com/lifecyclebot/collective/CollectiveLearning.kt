@@ -1994,5 +1994,118 @@ Mode Stats: ${cachedModeStats.size}
             "❌ Sync failed: ${e.message}"
         }
     }
+    
+    /**
+     * V5.2 DEBUG: Direct database diagnostic query.
+     * Returns detailed info about what's actually in Turso.
+     */
+    suspend fun runDiagnostics(): String {
+        if (!isEnabled()) {
+            return """
+❌ COLLECTIVE DIAGNOSTICS FAILED
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+Turso NOT CONFIGURED
+Client: ${client != null}
+Initialized: $isInitialized
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+To fix: Configure Turso DB URL and Auth Token in Settings
+            """.trimIndent()
+        }
+        
+        return withContext(Dispatchers.IO) {
+            try {
+                val diagnostics = StringBuilder()
+                diagnostics.appendLine("═══════════════════════════════════════")
+                diagnostics.appendLine("🔬 V5.2 COLLECTIVE DIAGNOSTICS")
+                diagnostics.appendLine("═══════════════════════════════════════")
+                diagnostics.appendLine("Instance ID: $instanceId")
+                diagnostics.appendLine("")
+                
+                // 1. Count total trades (ALL users)
+                val totalResult = client!!.query("SELECT COUNT(*) as cnt FROM collective_trades")
+                val totalTrades = if (totalResult.success && totalResult.rows.isNotEmpty()) {
+                    (totalResult.rows[0]["cnt"] as? Number)?.toInt() ?: 0
+                } else 0
+                diagnostics.appendLine("📊 TOTAL TRADES IN DATABASE: $totalTrades")
+                
+                // 2. Count MY trades
+                val myResult = client!!.query(
+                    "SELECT COUNT(*) as cnt FROM collective_trades WHERE instance_id = ?",
+                    listOf(instanceId)
+                )
+                val myTrades = if (myResult.success && myResult.rows.isNotEmpty()) {
+                    (myResult.rows[0]["cnt"] as? Number)?.toInt() ?: 0
+                } else 0
+                diagnostics.appendLine("📊 MY TRADES: $myTrades")
+                
+                // 3. Count OTHER users' trades
+                val othersResult = client!!.query(
+                    "SELECT COUNT(*) as cnt FROM collective_trades WHERE instance_id != ?",
+                    listOf(instanceId)
+                )
+                val othersTrades = if (othersResult.success && othersResult.rows.isNotEmpty()) {
+                    (othersResult.rows[0]["cnt"] as? Number)?.toInt() ?: 0
+                } else 0
+                diagnostics.appendLine("📊 OTHER USERS' TRADES: $othersTrades")
+                
+                // 4. Count distinct users
+                val usersResult = client!!.query("SELECT COUNT(DISTINCT instance_id) as cnt FROM collective_trades")
+                val distinctUsers = if (usersResult.success && usersResult.rows.isNotEmpty()) {
+                    (usersResult.rows[0]["cnt"] as? Number)?.toInt() ?: 0
+                } else 0
+                diagnostics.appendLine("👥 DISTINCT USERS: $distinctUsers")
+                
+                // 5. Show last 5 trades (all users, anonymized)
+                diagnostics.appendLine("")
+                diagnostics.appendLine("📝 LAST 5 COLLECTIVE TRADES:")
+                val recentResult = client!!.query("""
+                    SELECT timestamp, side, symbol, mode, pnl_pct, instance_id
+                    FROM collective_trades 
+                    ORDER BY timestamp DESC 
+                    LIMIT 5
+                """.trimIndent())
+                
+                if (recentResult.success && recentResult.rows.isNotEmpty()) {
+                    for (row in recentResult.rows) {
+                        val ts = row["timestamp"] as? Number ?: 0
+                        val side = row["side"] as? String ?: "?"
+                        val symbol = row["symbol"] as? String ?: "?"
+                        val mode = row["mode"] as? String ?: "?"
+                        val pnl = (row["pnl_pct"] as? Number)?.toDouble() ?: 0.0
+                        val inst = (row["instance_id"] as? String)?.take(8) ?: "?"
+                        
+                        val isMe = inst == instanceId.take(8)
+                        val marker = if (isMe) "👤" else "🌐"
+                        val ago = (System.currentTimeMillis() - ts.toLong()) / 60000
+                        
+                        diagnostics.appendLine("  $marker $side $symbol ($mode) ${if (side == "SELL") "${pnl.toInt()}%" else ""} | ${ago}m ago")
+                    }
+                } else {
+                    diagnostics.appendLine("  (no trades found)")
+                }
+                
+                // 6. Check table existence
+                diagnostics.appendLine("")
+                diagnostics.appendLine("🔧 TABLE CHECK:")
+                val tablesResult = client!!.query("SELECT name FROM sqlite_master WHERE type='table'")
+                if (tablesResult.success) {
+                    val tables = tablesResult.rows.mapNotNull { it["name"] as? String }
+                    diagnostics.appendLine("  Tables: ${tables.joinToString(", ")}")
+                }
+                
+                diagnostics.appendLine("")
+                diagnostics.appendLine("═══════════════════════════════════════")
+                
+                diagnostics.toString()
+            } catch (e: Exception) {
+                """
+❌ DIAGNOSTICS ERROR
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+Error: ${e.message}
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+                """.trimIndent()
+            }
+        }
+    }
 }
 
