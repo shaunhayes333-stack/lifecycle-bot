@@ -580,6 +580,7 @@ object CashGenerationAI {
         
         synchronized(activePositions) {
             activePositions[mint] = position
+            ErrorLogger.info(TAG, "💰 TREASURY MAP: Added ${symbol} | activePositions.size=${activePositions.size} | mints=${activePositions.keys.map { it.take(8) }}")
         }
         
         dailyTradeCount.incrementAndGet()
@@ -691,10 +692,20 @@ object CashGenerationAI {
         // V5.2: Also update our tracked price
         updatePrice(mint, currentPrice)
         
-        val pos = synchronized(activePositions) { activePositions[mint] } ?: return ExitSignal.HOLD
+        val pos = synchronized(activePositions) { activePositions[mint] }
+        
+        // V5.2 DEBUG: Log if position not found - this would explain why sells aren't happening!
+        if (pos == null) {
+            ErrorLogger.warn(TAG, "💰 TREASURY CHECK: Position NOT FOUND for ${mint.take(8)}... | activePositions.size=${activePositions.size}")
+            return ExitSignal.HOLD
+        }
         
         val pnlPct = (currentPrice - pos.entryPrice) / pos.entryPrice * 100
         val holdMinutes = (System.currentTimeMillis() - pos.entryTime) / 60000
+        
+        // V5.2 DEBUG: Always log the check
+        ErrorLogger.debug(TAG, "💰 TREASURY CHECK: ${pos.symbol} | price=$currentPrice | entry=${pos.entryPrice} | " +
+            "target=${pos.targetPrice} | pnl=${pnlPct.fmt(1)}% | shouldSell=${currentPrice >= pos.targetPrice}")
         
         // Update high water mark and trailing stop
         if (currentPrice > pos.highWaterMark) {
