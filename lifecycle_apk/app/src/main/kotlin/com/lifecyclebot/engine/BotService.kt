@@ -1254,8 +1254,20 @@ class BotService : Service() {
                             }
                         }
                     }
+                    // V5.2: Force clear all ShitCoin positions to ensure UI updates
+                    com.lifecyclebot.v3.scoring.ShitCoinTraderAI.clearAllPositions()
                 } catch (scEx: Exception) {
                     ErrorLogger.error("BotService", "Error closing ShitCoin positions: ${scEx.message}", scEx)
+                }
+                
+                // ═══════════════════════════════════════════════════════════════════
+                // V5.2: Also close ShitCoinExpress positions
+                // ═══════════════════════════════════════════════════════════════════
+                try {
+                    com.lifecyclebot.v3.scoring.ShitCoinExpress.clearAllRides()
+                    addLog("💩🚂 Cleared ShitCoin Express rides")
+                } catch (scEx: Exception) {
+                    ErrorLogger.error("BotService", "Error clearing ShitCoin Express: ${scEx.message}", scEx)
                 }
                 
                 // Also purge any orphaned tokens (live mode only)

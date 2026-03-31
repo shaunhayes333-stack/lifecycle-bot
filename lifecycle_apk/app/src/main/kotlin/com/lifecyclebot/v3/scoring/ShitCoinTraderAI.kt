@@ -302,6 +302,18 @@ object ShitCoinTraderAI {
     
     fun hasPosition(mint: String): Boolean = activePositions.containsKey(mint)
     
+    /**
+     * V5.2: Force clear all positions on bot stop
+     * This ensures UI updates correctly even if individual closes fail
+     */
+    fun clearAllPositions() {
+        synchronized(activePositions) {
+            val count = activePositions.size
+            activePositions.clear()
+            ErrorLogger.info(TAG, "💩 CLEARED $count ShitCoin positions on shutdown")
+        }
+    }
+    
     fun addPosition(position: ShitCoinPosition) {
         synchronized(activePositions) {
             activePositions[position.mint] = position

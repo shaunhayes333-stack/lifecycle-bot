@@ -582,6 +582,17 @@ object ShitCoinExpress {
     
     fun hasRide(mint: String): Boolean = activeRides.containsKey(mint)
     
+    /**
+     * V5.2: Force clear all rides on bot stop
+     */
+    fun clearAllRides() {
+        synchronized(activeRides) {
+            val count = activeRides.size
+            activeRides.clear()
+            ErrorLogger.info(TAG, "💩🚂 CLEARED $count Express rides on shutdown")
+        }
+    }
+    
     fun getDailyPnlSol(): Double = dailyPnlSolBps.get() / 100.0
     
     data class ExpressStats(
