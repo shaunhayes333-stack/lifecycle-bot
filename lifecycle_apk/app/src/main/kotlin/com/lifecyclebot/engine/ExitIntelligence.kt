@@ -198,11 +198,13 @@ object ExitIntelligence {
         // EXIT CHECKS (Priority Order)
         // ═══════════════════════════════════════════════════════════════════
         
-        // 1. EMERGENCY: Distribution detected while holding
-        if (state.isDistribution && state.buyPressure < 40) {
+        // 1. EMERGENCY: Distribution detected while holding - V5.2: Much more lenient
+        // Only trigger if BOTH conditions met: explicit distribution phase AND very low buy pressure
+        // Buy pressure < 25% is severe; 25-40% is just normal fluctuation
+        if (state.isDistribution && state.buyPressure < 25 && state.pnlPercent < -3) {
             action = ExitAction.EMERGENCY_EXIT
             urgency = Urgency.CRITICAL
-            reasons.add("Distribution detected (buy%=${state.buyPressure.toInt()})")
+            reasons.add("Distribution detected (buy%=${state.buyPressure.toInt()}, pnl=${state.pnlPercent.toInt()}%)")
         }
         
         // 2. EMERGENCY: Severe loss

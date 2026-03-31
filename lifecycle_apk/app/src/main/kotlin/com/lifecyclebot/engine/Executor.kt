@@ -1481,7 +1481,7 @@ class Executor(
             entryBuyPressure = ts.meta.pressScore,  // Will be tracked by ExitIntelligence
             volume = ts.meta.volScore,
             volatility = ts.meta.avgAtr,
-            isDistribution = ts.phase == "distribution" || ts.meta.pressScore < 35,
+            isDistribution = ts.phase == "distribution" && ts.meta.pressScore < 30,  // V5.2: Both conditions required, lower threshold
             rsi = ts.meta.rsi,
             momentum = ts.entryScore,
             qualityGrade = ts.meta.setupQuality,
