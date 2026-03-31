@@ -4848,48 +4848,50 @@ class BotService : Service() {
                     } else 0.0
                     
                     ErrorLogger.info("BotService", "💰 [TREASURY PROMOTION] ${ts.symbol} | " +
-                        "+${pnlPct.toInt()}% | Checking for promotion to Moonshot/ShitCoin...")
+                        "+${pnlPct.toInt()}% | Checking for promotion to ShitCoin...")
                     
-                    // Promote to ShitCoin layer if still has momentum
+                    // Promote to ShitCoin layer if still has good liquidity
                     // Token already proven itself - let ShitCoin ride the wave
                     if (ts.lastLiquidityUsd >= 5000 && ts.lastMcap in 20_000.0..5_000_000.0) {
-                        val shitCoinSignal = com.lifecyclebot.v3.scoring.ShitCoinTraderAI.evaluate(
-                            ts = ts,
-                            score = 50,  // Already proven, give it a base score
-                            confidence = 70,
-                            config = cfg,
+                        ErrorLogger.info("BotService", "💰→💩 [PROMOTION] ${ts.symbol} | " +
+                            "TREASURY → SHITCOIN | +${pnlPct.toInt()}% profit, now riding with ShitCoin layer!")
+                        
+                        // Mark for ShitCoin tracking (don't actually buy again, just track)
+                        ts.position.isShitCoinPosition = true
+                        ts.position.isTreasuryPosition = false
+                        ts.position.tradingMode = "SHITCOIN"
+                        ts.position.tradingModeEmoji = "💩"
+                        
+                        // Determine launch platform
+                        val platform = when {
+                            ts.mint.endsWith("pump") -> com.lifecyclebot.v3.scoring.ShitCoinTraderAI.LaunchPlatform.PUMP_FUN
+                            ts.source?.contains("raydium", ignoreCase = true) == true -> com.lifecyclebot.v3.scoring.ShitCoinTraderAI.LaunchPlatform.RAYDIUM
+                            else -> com.lifecyclebot.v3.scoring.ShitCoinTraderAI.LaunchPlatform.UNKNOWN
+                        }
+                        
+                        // Get ShitCoin TP/SL thresholds
+                        val scTp = com.lifecyclebot.v3.scoring.ShitCoinTraderAI.getFluidTakeProfit()
+                        val scSl = com.lifecyclebot.v3.scoring.ShitCoinTraderAI.getFluidStopLoss()
+                        
+                        // Register with ShitCoin tracker at CURRENT price (post-treasury-profit)
+                        com.lifecyclebot.v3.scoring.ShitCoinTraderAI.addPosition(
+                            com.lifecyclebot.v3.scoring.ShitCoinTraderAI.ShitCoinPosition(
+                                mint = ts.mint,
+                                symbol = ts.symbol,
+                                entryPrice = currentPrice,  // New entry at current price
+                                entrySol = ts.position.positionSol,
+                                entryTime = System.currentTimeMillis(),
+                                marketCapUsd = ts.lastMcap,
+                                liquidityUsd = ts.lastLiquidityUsd,
+                                isPaper = cfg.paperMode,
+                                takeProfitPct = scTp,
+                                stopLossPct = scSl,
+                                launchPlatform = platform,
+                            )
                         )
                         
-                        if (shitCoinSignal.shouldTrade) {
-                            ErrorLogger.info("BotService", "💰→💩 [PROMOTION] ${ts.symbol} | " +
-                                "TREASURY → SHITCOIN | +${pnlPct.toInt()}% profit, now riding with ShitCoin layer!")
-                            
-                            // Mark for ShitCoin tracking (don't actually buy again, just track)
-                            ts.position.isShitCoinPosition = true
-                            ts.position.isTreasuryPosition = false
-                            ts.position.tradingMode = "SHITCOIN"
-                            ts.position.tradingModeEmoji = "💩"
-                            
-                            // Register with ShitCoin tracker at CURRENT price (post-treasury-profit)
-                            com.lifecyclebot.v3.scoring.ShitCoinTraderAI.addPosition(
-                                com.lifecyclebot.v3.scoring.ShitCoinTraderAI.ShitCoinPosition(
-                                    mint = ts.mint,
-                                    symbol = ts.symbol,
-                                    entryPrice = currentPrice,  // New entry at current price
-                                    entrySol = ts.position.positionSol,
-                                    entryTime = System.currentTimeMillis(),
-                                    marketCapUsd = ts.lastMcap,
-                                    liquidityUsd = ts.lastLiquidityUsd,
-                                    isPaper = cfg.paperMode,
-                                    takeProfitPct = shitCoinSignal.takeProfitPct,
-                                    stopLossPct = shitCoinSignal.stopLossPct,
-                                    launchPlatform = shitCoinSignal.launchPlatform,
-                                )
-                            )
-                            
-                            addLog("💰→💩 PROMOTION: ${ts.symbol} | Treasury profit locked, now ShitCoin mode!", ts.mint)
-                            return  // Promotion processed, don't close position
-                        }
+                        addLog("💰→💩 PROMOTION: ${ts.symbol} | Treasury profit locked, now ShitCoin mode!", ts.mint)
+                        return  // Promotion processed, don't close position
                     }
                 }
                 
