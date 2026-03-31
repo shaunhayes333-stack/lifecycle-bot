@@ -51,7 +51,6 @@ class SplashActivity : AppCompatActivity() {
     
     private val particles = mutableListOf<View>()
     private val particleAnimators = mutableListOf<AnimatorSet>()
-    private var brainWaveView: AnimatedBrainLogoView? = null
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -72,7 +71,6 @@ class SplashActivity : AppCompatActivity() {
         val version = findViewById<TextView>(R.id.tvSplashVersion)
         val glow = findViewById<View>(R.id.viewGlow)
         val particleContainer = findViewById<FrameLayout>(R.id.layoutParticles)
-        brainWaveView = findViewById(R.id.viewBrainWaves)
 
         // Ensure logo is visible
         logo.alpha = 1f
@@ -83,35 +81,17 @@ class SplashActivity : AppCompatActivity() {
         // Start neural pathway particle animation
         startParticleAnimation(particleContainer)
         
-        // V5.2: Animate brain wave view entrance with scale
-        brainWaveView?.let { bw ->
-            bw.scaleX = 0.5f
-            bw.scaleY = 0.5f
-            bw.alpha = 0f
-            
-            val brainScaleX = ObjectAnimator.ofFloat(bw, "scaleX", 0.5f, 1f)
-            val brainScaleY = ObjectAnimator.ofFloat(bw, "scaleY", 0.5f, 1f)
-            val brainAlpha = ObjectAnimator.ofFloat(bw, "alpha", 0f, 1f)
-            
-            AnimatorSet().apply {
-                playTogether(brainScaleX, brainScaleY, brainAlpha)
-                duration = 1500L
-                interpolator = AccelerateDecelerateInterpolator()
-                start()
-            }
-        }
-        
-        // Animate glow pulsing - synchronized with brain waves
+        // Animate glow pulsing
         val glowPulse = ObjectAnimator.ofFloat(glow, "alpha", 0.2f, 0.5f, 0.2f).apply {
-            duration = 1500L  // Matches brain wave pulse
+            duration = 2000L
             repeatCount = ValueAnimator.INFINITE
             interpolator = AccelerateDecelerateInterpolator()
         }
         glowPulse.start()
 
-        // Animate logo: subtle scale pulse synchronized with brain waves
+        // Animate logo: subtle scale pulse
         val logoPulse = ValueAnimator.ofFloat(0f, 1f).apply {
-            duration = 1500L  // Matches brain wave pulse
+            duration = 2000L
             repeatCount = ValueAnimator.INFINITE
             addUpdateListener { animator ->
                 val value = animator.animatedValue as Float
@@ -145,7 +125,6 @@ class SplashActivity : AppCompatActivity() {
         // Navigate to MainActivity after splash duration
         Handler(Looper.getMainLooper()).postDelayed({
             stopParticleAnimation()
-            brainWaveView?.stopAnimations()
             startActivity(Intent(this, MainActivity::class.java))
             overridePendingTransition(android.R.anim.fade_in, android.R.anim.fade_out)
             finish()
