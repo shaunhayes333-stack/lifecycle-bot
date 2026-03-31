@@ -1638,7 +1638,12 @@ for legal compliance.
         val solPrice = com.lifecyclebot.engine.WalletManager.lastKnownSolPrice
         
         positions.forEach { pos ->
-            val currentPrice = pos.entryPrice * (1 + (Math.random() * 0.1 - 0.05)) // Simulated - use real price when available
+            // V5.2 FIX: Use REAL tracked price from CashGenerationAI instead of random simulation!
+            // This is critical - UI was showing fake PnL while checkExit used real prices
+            val trackedPrice = com.lifecyclebot.v3.scoring.CashGenerationAI.getTrackedPrice(pos.mint)
+            val currentPrice = trackedPrice 
+                ?: status.tokens.find { it.mint == pos.mint }?.lastPrice?.takeIf { it > 0 }
+                ?: pos.entryPrice  // Fallback to entry if no price yet
             val gainPct = (currentPrice - pos.entryPrice) / pos.entryPrice * 100.0
             val gainCol = if (gainPct >= 0) green else red
             val pnlSol = pos.entrySol * gainPct / 100.0
@@ -1725,7 +1730,9 @@ for legal compliance.
         val sdf = java.text.SimpleDateFormat("HH:mm", java.util.Locale.US)
         
         positions.forEach { pos ->
-            val currentPrice = pos.entryPrice * (1 + (Math.random() * 0.1 - 0.05)) // Simulated - use real price when available
+            // V5.2 FIX: Use REAL price from token state instead of random simulation
+            val currentPrice = status.tokens.find { it.mint == pos.mint }?.lastPrice?.takeIf { it > 0 }
+                ?: pos.entryPrice
             val gainPct = (currentPrice - pos.entryPrice) / pos.entryPrice * 100
             val gainCol = if (gainPct >= 0) green else red
             val pnlSol = pos.entrySol * gainPct / 100.0

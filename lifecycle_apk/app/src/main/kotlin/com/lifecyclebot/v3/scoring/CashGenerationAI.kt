@@ -565,10 +565,17 @@ object CashGenerationAI {
         val targetPrice = entryPrice * (1 + takeProfitPct / 100)
         val stopPrice = entryPrice * (1 + stopLossPct / 100)
         
+<<<<<<< HEAD
         // V5.2: Log the TP calculation explicitly
         ErrorLogger.info(TAG, "💰 TREASURY TP CALC: $symbol | entry=$entryPrice | " +
             "tpPct=$takeProfitPct% | targetPrice=$targetPrice | " +
             "(entry × ${1 + takeProfitPct/100} = $targetPrice)")
+=======
+        // V5.2 FIX: Log the TP calculation explicitly so we can verify it's correct
+        ErrorLogger.info(TAG, "💰 TREASURY TP CALC: $symbol | " +
+            "entry=$entryPrice | tpPct=${takeProfitPct}% | " +
+            "targetPrice=$targetPrice | (entry × ${1 + takeProfitPct/100} = $targetPrice)")
+>>>>>>> 5398182 (V5.2 FIX: Treasury UI was showing random fake PnL instead of real prices)
         
         val position = TreasuryPosition(
             mint = mint,
@@ -591,7 +598,11 @@ object CashGenerationAI {
         dailyTradeCount.incrementAndGet()
         
         ErrorLogger.info(TAG, "💰 TREASURY OPENED: $symbol | " +
+<<<<<<< HEAD
             "entry=$entryPrice | TP=$targetPrice (+$takeProfitPct%) | SL=$stopPrice ($stopLossPct%) | " +
+=======
+            "entry=$entryPrice | TP=$targetPrice (+${takeProfitPct}%) | SL=$stopPrice (${stopLossPct}%) | " +
+>>>>>>> 5398182 (V5.2 FIX: Treasury UI was showing random fake PnL instead of real prices)
             "size=$positionSol SOL | ${if (isPaperMode) "PAPER" else "LIVE"}")
     }
     
@@ -714,12 +725,12 @@ object CashGenerationAI {
         
         val pnlPct = (currentPrice - pos.entryPrice) / pos.entryPrice * 100
         val holdMinutes = (System.currentTimeMillis() - pos.entryTime) / 60000
+        val isAboveTarget = currentPrice >= pos.targetPrice
         
-        // V5.2 DEBUG: ALWAYS log the TP check with more detail
+        // V5.2 FIX: ALWAYS log the TP check so user can verify the logic is working
         ErrorLogger.info(TAG, "💰 TREASURY TP CHECK: ${pos.symbol} | " +
-            "price=$currentPrice | entry=${pos.entryPrice} | " +
-            "target=${pos.targetPrice} | pnl=${pnlPct.fmt(1)}% | " +
-            "isAboveTarget=${currentPrice >= pos.targetPrice}")
+            "price=$currentPrice | entry=${pos.entryPrice} | target=${pos.targetPrice} | " +
+            "pnl=${pnlPct.fmt(1)}% | isAboveTarget=$isAboveTarget")
         
         // Update high water mark and trailing stop
         if (currentPrice > pos.highWaterMark) {
@@ -731,7 +742,7 @@ object CashGenerationAI {
         
         // 1. V5.2: HIT OR PASSED TARGET PRICE - SELL and promote to appropriate layer!
         // Treasury takes quick profits, then hands off to Moonshot/ShitCoin for continued gains
-        if (currentPrice >= pos.targetPrice) {
+        if (isAboveTarget) {
             ErrorLogger.info(TAG, "💰 TREASURY TP HIT: ${pos.symbol} | +${pnlPct.fmt(1)}% | " +
                 "price=$currentPrice >= target=${pos.targetPrice} | SELLING & PROMOTING!")
             return ExitSignal.TAKE_PROFIT  // BotService will handle promotion to next layer
