@@ -2037,14 +2037,15 @@ object FinalDecisionGate {
                     val isReliable100PctLoss = is100PctLoss && sampleCount >= 5
                     
                     if (config.paperMode) {
-                        // PAPER MODE: Always bypass behavior blocks for exploratory learning
-                        // Paper trades are for learning - don't suffocate exploration
-                        behaviorPenalty = if (is100PctLoss) 10 else 5  // Light penalty for awareness
-                        behaviorSizeMultiplier = if (is100PctLoss) 0.5 else 0.8  // Size reduction
-                        behaviorProbe = true
+                        // PAPER MODE: COMPLETELY BYPASS behavior blocks for exploratory learning
+                        // V5.2 FIX: Paper trades are for learning - NO PENALTIES AT ALL
+                        // The bot needs to explore freely to learn what works
+                        behaviorPenalty = 0  // NO penalty in paper mode
+                        behaviorSizeMultiplier = 1.0  // Full size in paper mode
+                        behaviorProbe = false  // Not a probe, just learning
                         checks.add(GateCheck("behavior_learning", true, 
-                            "PAPER BYPASS: $behaviorBlock (n=$sampleCount, exploring for learning)"))
-                        tags.add("behavior_paper_bypass")
+                            "PAPER BYPASS (V5.2): $behaviorBlock (n=$sampleCount) → NO PENALTY, full size"))
+                        tags.add("behavior_paper_full_bypass")
                     } else if (isReliable100PctLoss && !isBootstrapPhase) {
                         // LIVE + MATURE + reliable 100% loss: Hard block
                         blockReason = "BEHAVIOR_BLOCK_100PCT_LOSS"
@@ -2068,22 +2069,29 @@ object FinalDecisionGate {
                         tags.add("behavior_blocked")
                     }
                 } else {
-                    // Get score adjustment from behavior learning
-                    val behaviorAdj = BehaviorLearning.getScoreAdjustment(
-                        entryPhase = candidate.phase,
-                        setupQuality = setupQuality,
-                        tradingMode = tradingModeTag?.name ?: "STANDARD",
-                        liquidityUsd = ts.lastLiquidityUsd,
-                        volumeSignal = volumeSignal,
-                    )
-                    
-                    if (behaviorAdj != 0) {
+                    // No hard block detected, check for soft score adjustment
+                    // V5.2 FIX: Skip score adjustments in Paper Mode - let it explore freely
+                    if (config.paperMode) {
                         checks.add(GateCheck("behavior_learning", true, 
-                            "Score adj: ${if (behaviorAdj > 0) "+" else ""}$behaviorAdj"))
-                        if (behaviorAdj < -20) tags.add("behavior_warning")
-                        if (behaviorAdj > 15) tags.add("behavior_boost")
+                            "PAPER MODE: No behavior adjustments applied"))
                     } else {
-                        checks.add(GateCheck("behavior_learning", true, null))
+                        // Get score adjustment from behavior learning (LIVE MODE ONLY)
+                        val behaviorAdj = BehaviorLearning.getScoreAdjustment(
+                            entryPhase = candidate.phase,
+                            setupQuality = setupQuality,
+                            tradingMode = tradingModeTag?.name ?: "STANDARD",
+                            liquidityUsd = ts.lastLiquidityUsd,
+                            volumeSignal = volumeSignal,
+                        )
+                        
+                        if (behaviorAdj != 0) {
+                            checks.add(GateCheck("behavior_learning", true, 
+                                "Score adj: ${if (behaviorAdj > 0) "+" else ""}$behaviorAdj"))
+                            if (behaviorAdj < -20) tags.add("behavior_warning")
+                            if (behaviorAdj > 15) tags.add("behavior_boost")
+                        } else {
+                            checks.add(GateCheck("behavior_learning", true, null))
+                        }
                     }
                 }
             } catch (e: Exception) {
