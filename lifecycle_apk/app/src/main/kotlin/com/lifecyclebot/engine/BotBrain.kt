@@ -464,12 +464,13 @@ class BotBrain(
                         behaviourType = "ENTRY_SIGNAL",
                         description   = "Entering $phase with ${t.emaFan} EMA — consistently losing",
                         lossPct       = t.pnlPct,
+                        isPaperMode   = cfg().paperMode,
                     )
                 }
             }
             // Also record wins to allow recovery
             if (wr >= 60.0) phaseTrades.filter { it.isWin == true }.forEach { t ->
-                db.recordGoodObservation("phase=${phase}+ema=${t.emaFan}")
+                db.recordGoodObservation("phase=${phase}+ema=${t.emaFan}", cfg().paperMode)
             }
         }
 
@@ -537,6 +538,7 @@ class BotBrain(
                         behaviourType = "SOURCE",
                         description   = "Source $source has ${wr.toInt()}% win rate — poor signal quality",
                         lossPct       = t.pnlPct,
+                        isPaperMode   = cfg().paperMode,
                     )
                 }
             }
@@ -558,6 +560,7 @@ class BotBrain(
                 behaviourType = "EXIT_TIMING",
                 description   = "Holding losers ${avgHoldLoss.toInt()}m vs winners ${avgHoldWins.toInt()}m — exits too slow on bad trades",
                 lossPct       = -avgHoldLoss * 0.5,  // approximate cost
+                isPaperMode   = cfg().paperMode,
             )
         }
 
@@ -582,7 +585,17 @@ class BotBrain(
         report.appendLine("  Overall: ${overallWr.toInt()}% WR  avgWin:+${avgWinPnl.toInt()}%  avgLoss:${avgLossPnl.toInt()}%")
 
         // ── Apply changes with safety bounds ─────────────────────────
-        entryThresholdDelta  = (entryThresholdDelta + entryDelta).coerceIn(-12.0, +15.0)
+        // Reset entry delta from current win rate instead of accumulating indefinitely.
+        // Accumulation caused the threshold to drift to max (+15) over time and
+        // block all entries even when the scanner had plenty of valid tokens.
+        val baseEntryDelta = when {
+            overallWr >= 80 -> -6.0
+            overallWr >= 72 -> -3.0
+            overallWr >= 65 ->  0.0
+            overallWr >= 50 ->  3.0
+            else            ->  8.0
+        }
+        entryThresholdDelta  = (baseEntryDelta + entryDelta).coerceIn(-12.0, +15.0)
         exitThresholdDelta   = (exitThresholdDelta  + exitDelta).coerceIn(-8.0, +10.0)
         phaseBoosts          = newPhaseBoosts
         sourceBoosts         = newSourceBoosts

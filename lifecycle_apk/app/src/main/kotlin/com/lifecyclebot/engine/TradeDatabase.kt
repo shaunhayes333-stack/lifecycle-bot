@@ -371,7 +371,9 @@ class TradeDatabase(ctx: Context) : SQLiteOpenHelper(ctx, DB_NAME, null, DB_VERS
 
     /** Record a loss against a feature key. Called after every losing trade. */
     fun recordBadObservation(featureKey: String, behaviourType: String,
-                             description: String, lossPct: Double) {
+                             description: String, lossPct: Double,
+                             isPaperMode: Boolean = false) {
+        if (isPaperMode) return   // never let paper losses build up real suppressions
         val now = System.currentTimeMillis()
         writableDatabase.execSQL("""
             INSERT INTO bad_behaviour
@@ -388,7 +390,8 @@ class TradeDatabase(ctx: Context) : SQLiteOpenHelper(ctx, DB_NAME, null, DB_VERS
     }
 
     /** Record a win observation — reduces suppression if pattern recovers */
-    fun recordGoodObservation(featureKey: String) {
+    fun recordGoodObservation(featureKey: String, isPaperMode: Boolean = false) {
+        if (isPaperMode) return
         writableDatabase.execSQL("""
             UPDATE bad_behaviour SET trades_seen = trades_seen + 1
             WHERE feature_key = ?
