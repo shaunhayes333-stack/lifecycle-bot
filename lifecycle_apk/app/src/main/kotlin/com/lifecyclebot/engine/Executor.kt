@@ -4893,15 +4893,21 @@ class Executor(
             val currentHolderCount = ts.history.lastOrNull()?.holderCount ?: 0
             // Get volume from most recent candle
             val currentVolume = ts.history.lastOrNull()?.vol ?: 0.0
+            // Calculate hold time as Double for TradeOutcomeData
+            val holdTimeDouble = (System.currentTimeMillis() - ts.position.entryTime) / 60000.0
             // Estimate token age from position entry (since we don't have createdAt)
-            val approxTokenAgeMinutes = holdMinutes + 5.0  // Assume at least 5 min before entry
+            val approxTokenAgeMinutes = holdTimeDouble + 5.0  // Assume at least 5 min before entry
+            // Calculate peak PnL locally
+            val peakPnl = if (ts.position.entryPrice > 0 && ts.position.highestPrice > 0) {
+                ((ts.position.highestPrice - ts.position.entryPrice) / ts.position.entryPrice) * 100.0
+            } else pnlP
             
             val outcomeData = com.lifecyclebot.v3.scoring.EducationSubLayerAI.TradeOutcomeData(
                 mint = tradeId.mint,
                 symbol = ts.symbol,
                 tokenName = ts.name,
                 pnlPct = pnlP,
-                holdTimeMinutes = holdMinutes,
+                holdTimeMinutes = holdTimeDouble,
                 exitReason = reason,
                 entryPhase = ts.position.entryPhase.ifEmpty { "UNKNOWN" },
                 tradingMode = ts.position.tradingMode.ifEmpty { "STANDARD" },
@@ -4922,13 +4928,13 @@ class Executor(
                 emaFanState = ts.meta.emafanAlignment.ifEmpty { "UNKNOWN" },
                 entryScore = ts.entryScore,
                 priceFromAth = 0.0,  // Not tracked on TokenState
-                maxGainPct = peakPnlPct,
+                maxGainPct = peakPnl,
                 maxDrawdownPct = ts.position.lowestPrice.let { low ->
                     if (low > 0 && ts.position.entryPrice > 0) {
-                        ((low - ts.position.entryPrice) / ts.position.entryPrice) * 100
+                        ((low - ts.position.entryPrice) / ts.position.entryPrice) * 100.0
                     } else 0.0
                 },
-                timeToPeakMins = holdMinutes * 0.5,  // Estimate: peak typically at half hold time
+                timeToPeakMins = holdTimeDouble * 0.5,  // Estimate: peak typically at half hold time
             )
             
             com.lifecyclebot.v3.scoring.EducationSubLayerAI.recordTradeOutcomeAcrossAllLayers(outcomeData)
