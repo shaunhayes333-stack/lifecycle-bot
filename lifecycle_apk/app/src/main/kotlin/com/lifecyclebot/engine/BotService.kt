@@ -3261,6 +3261,11 @@ class BotService : Service() {
                             val bootstrapMultiplier = com.lifecyclebot.v3.scoring.FluidLearningAI.getBootstrapSizeMultiplier()
                             val adjustedSize = (treasurySignal.positionSizeSol * bootstrapMultiplier).coerceAtLeast(0.01)
                             
+                            // V5.2.8 FIX: If bootstrap override forced entry, use default TP/SL values
+                            // When Treasury rejects, it returns 0% TP which causes immediate exits!
+                            val effectiveTpPct = if (treasurySignal.takeProfitPct <= 0.0) 3.5 else treasurySignal.takeProfitPct
+                            val effectiveSlPct = if (treasurySignal.stopLossPct >= 0.0) -4.0 else treasurySignal.stopLossPct
+                            
                             // ═══════════════════════════════════════════════════════════════════
                             // V5.0: TRADE AUTHORIZER - MUST pass before ANY execution
                             // This is the SINGLE source of truth for execution permission
@@ -3320,12 +3325,13 @@ class BotService : Service() {
                                     "mode=${treasurySignal.mode}")
                                 
                                 // Execute treasury buy (this calls paperBuy which applies slippage to ts.position)
+                                // V5.2.8 FIX: Use effectiveTpPct/effectiveSlPct to prevent 0% TP instant-exits!
                                 executor.treasuryBuy(
                                     ts = ts,
                                     sizeSol = adjustedSize,
                                     walletSol = effectiveBalance,
-                                    takeProfitPct = treasurySignal.takeProfitPct,
-                                    stopLossPct = treasurySignal.stopLossPct,
+                                    takeProfitPct = effectiveTpPct,   // V5.2.8: Use effective (non-zero) TP
+                                    stopLossPct = effectiveSlPct,     // V5.2.8: Use effective SL
                                     wallet = wallet,
                                     isPaper = cfg.paperMode
                                 )
@@ -3343,8 +3349,8 @@ class BotService : Service() {
                                     symbol = ts.symbol,
                                     entryPrice = treasuryEntryPrice,  // Treasury's own raw price
                                     positionSol = adjustedSize,
-                                    takeProfitPct = treasurySignal.takeProfitPct,
-                                    stopLossPct = treasurySignal.stopLossPct
+                                    takeProfitPct = effectiveTpPct,   // V5.2.8: Use effective (non-zero) TP
+                                    stopLossPct = effectiveSlPct      // V5.2.8: Use effective SL
                                 )
                                 
                                 // Release permit after successful execution
@@ -3535,6 +3541,10 @@ class BotService : Service() {
                             )
                             
                             if (moonshotScore.eligible) {
+                                // V5.2.8 FIX: Ensure Moonshot never uses 0% TP/SL
+                                val moonshotEffectiveTpPct = if (moonshotScore.takeProfitPct <= 0.0) 50.0 else moonshotScore.takeProfitPct
+                                val moonshotEffectiveSlPct = if (moonshotScore.stopLossPct >= 0.0) -20.0 else moonshotScore.stopLossPct
+                                
                                 // V5.2: Authorize through TradeAuthorizer
                                 val authResult = TradeAuthorizer.authorize(
                                     mint = ts.mint,
@@ -3565,7 +3575,7 @@ class BotService : Service() {
                                                 "${moonshotScore.spaceMode.emoji} ${moonshotScore.spaceMode.displayName} | " +
                                                 "score=${moonshotScore.score} conf=${moonshotScore.confidence.toInt()}% | " +
                                                 "mcap=\$${(ts.lastMcap/1000).toInt()}K | " +
-                                                "TP=${moonshotScore.takeProfitPct.toInt()}% SL=${moonshotScore.stopLossPct.toInt()}%")
+                                                "TP=${moonshotEffectiveTpPct.toInt()}% SL=${moonshotEffectiveSlPct.toInt()}%")
                                             
                                             // Execute moonshot entry
                                             executor.paperBuy(
@@ -3587,8 +3597,8 @@ class BotService : Service() {
                                                     entryPrice = ts.ref,
                                                     entrySol = moonshotScore.suggestedSizeSol,
                                                     entryTime = System.currentTimeMillis(),
-                                                    takeProfitPct = moonshotScore.takeProfitPct,
-                                                    stopLossPct = moonshotScore.stopLossPct,
+                                                    takeProfitPct = moonshotEffectiveTpPct,  // V5.2.8: Use effective TP
+                                                    stopLossPct = moonshotEffectiveSlPct,    // V5.2.8: Use effective SL
                                                     marketCapUsd = ts.lastMcap,
                                                     liquidityUsd = ts.lastLiquidityUsd,
                                                     entryScore = moonshotScore.score.toDouble(),
@@ -3753,6 +3763,10 @@ class BotService : Service() {
                             val bootstrapMultiplier = com.lifecyclebot.v3.scoring.FluidLearningAI.getBootstrapSizeMultiplier()
                             val adjustedSize = (shitCoinSignal.positionSizeSol * bootstrapMultiplier).coerceAtLeast(0.01)
                             
+                            // V5.2.8 FIX: If bootstrap override forced entry, use default TP/SL values
+                            val shitcoinEffectiveTpPct = if (shitCoinSignal.takeProfitPct <= 0.0) 5.0 else shitCoinSignal.takeProfitPct
+                            val shitcoinEffectiveSlPct = if (shitCoinSignal.stopLossPct >= 0.0) -8.0 else shitCoinSignal.stopLossPct
+                            
                             // ═══════════════════════════════════════════════════════════════════
                             // V5.0: TRADE AUTHORIZER - MUST pass before ANY execution
                             // Prevents post-execution gating drift
@@ -3804,8 +3818,8 @@ class BotService : Service() {
                                     ts = ts,
                                     sizeSol = adjustedSize,
                                     walletSol = effectiveBalance,
-                                    takeProfitPct = shitCoinSignal.takeProfitPct,
-                                    stopLossPct = shitCoinSignal.stopLossPct,
+                                    takeProfitPct = shitcoinEffectiveTpPct,  // V5.2.8: Use effective TP
+                                    stopLossPct = shitcoinEffectiveSlPct,    // V5.2.8: Use effective SL
                                     wallet = wallet,
                                     isPaper = cfg.paperMode,
                                     launchPlatform = shitCoinSignal.launchPlatform,
@@ -3823,8 +3837,8 @@ class BotService : Service() {
                                         marketCapUsd = ts.lastMcap,
                                         liquidityUsd = ts.lastLiquidityUsd,
                                         isPaper = cfg.paperMode,
-                                        takeProfitPct = shitCoinSignal.takeProfitPct,
-                                        stopLossPct = shitCoinSignal.stopLossPct,
+                                        takeProfitPct = shitcoinEffectiveTpPct,  // V5.2.8: Use effective TP
+                                        stopLossPct = shitcoinEffectiveSlPct,    // V5.2.8: Use effective SL
                                         launchPlatform = shitCoinSignal.launchPlatform,
                                         devWallet = null,  // Dev wallet tracking not yet implemented
                                         bundlePct = bundlePct,
@@ -3858,8 +3872,8 @@ class BotService : Service() {
                                         marketCapUsd = ts.lastMcap,
                                         liquidityUsd = ts.lastLiquidityUsd,
                                         isPaper = cfg.paperMode,
-                                        takeProfitPct = shitCoinSignal.takeProfitPct,
-                                        stopLossPct = shitCoinSignal.stopLossPct,
+                                        takeProfitPct = shitcoinEffectiveTpPct,  // V5.2.8: Use effective TP
+                                        stopLossPct = shitcoinEffectiveSlPct,    // V5.2.8: Use effective SL
                                         launchPlatform = shitCoinSignal.launchPlatform,
                                     )
                                 )
