@@ -745,14 +745,42 @@ object CashGenerationAI {
             pos.trailingStop = currentPrice * (1 - TRAILING_STOP_PCT / 100)
         }
         
+        // ═══════════════════════════════════════════════════════════════════
+        // V5.2 FIX: MINIMUM HOLD TIME PROTECTION FOR TREASURY
+        // Don't exit within first 15 seconds unless it's truly catastrophic
+        // Meme coins often wick down -5% to -10% then recover quickly
+        // Treasury needs time to breathe before stop loss activates
+        // ═══════════════════════════════════════════════════════════════════
+        val holdTimeMs = System.currentTimeMillis() - pos.entryTime
+        val MIN_TREASURY_HOLD_MS = 15_000L  // 15 seconds minimum
+        val isInMinHoldPeriod = holdTimeMs < MIN_TREASURY_HOLD_MS
+        
         // ─── EXIT CONDITIONS (Priority order) ───
         
         // V5.2 FIX: HARD FLOOR STOP - ABSOLUTE MAXIMUM LOSS (runs first!)
         // Treasury should NEVER lose more than this, regardless of other conditions
+        // BUT respect minimum hold time unless truly catastrophic (>15%)
         val HARD_FLOOR_STOP_PCT = -10.0  // Tighter for Treasury (quick scalps)
-        if (pnlPct <= HARD_FLOOR_STOP_PCT) {
-            ErrorLogger.warn(TAG, "💰🛑 TREASURY HARD FLOOR: ${pos.symbol} | ${pnlPct.toInt()}% - EMERGENCY EXIT!")
+        val CATASTROPHIC_LOSS_PCT = -15.0  // True emergency - bypass hold time
+        
+        if (pnlPct <= CATASTROPHIC_LOSS_PCT) {
+            // Truly catastrophic loss - exit immediately
+            ErrorLogger.warn(TAG, "💰🛑 TREASURY CATASTROPHIC: ${pos.symbol} | ${pnlPct.toInt()}% - EMERGENCY EXIT!")
             return ExitSignal.STOP_LOSS
+        }
+        
+        if (pnlPct <= HARD_FLOOR_STOP_PCT && !isInMinHoldPeriod) {
+            // Bad loss but past min hold - exit now
+            ErrorLogger.warn(TAG, "💰🛑 TREASURY HARD FLOOR: ${pos.symbol} | ${pnlPct.toInt()}% - EXIT!")
+            return ExitSignal.STOP_LOSS
+        }
+        
+        // V5.2: During minimum hold period, only exit for catastrophic losses (handled above)
+        // Otherwise, give the trade time to breathe
+        if (isInMinHoldPeriod && pnlPct < 0) {
+            ErrorLogger.debug(TAG, "💰⏳ TREASURY MIN_HOLD: ${pos.symbol} | ${pnlPct.toInt()}% | " +
+                "hold=${holdTimeMs/1000}s/${MIN_TREASURY_HOLD_MS/1000}s - waiting...")
+            return ExitSignal.HOLD
         }
         
         // 1. V5.2: HIT OR PASSED TARGET PRICE - SELL and promote to appropriate layer!

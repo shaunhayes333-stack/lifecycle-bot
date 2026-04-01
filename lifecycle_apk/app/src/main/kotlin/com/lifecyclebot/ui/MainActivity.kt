@@ -3407,7 +3407,9 @@ The AI brain has been updated with new insights from historical data.
      */
     private fun showShadowLearningDialog() {
         try {
-            val engine = com.lifecyclebot.v3.learning.ShadowLearningEngine
+            // V5.2: Use the ENGINE version (com.lifecyclebot.engine.ShadowLearningEngine)
+            // which is the one actually tracking blocked trades, NOT the v3.learning one
+            val engine = com.lifecyclebot.engine.ShadowLearningEngine
             val stats = engine.getStats()
             val statusText = engine.getStatus()
             
