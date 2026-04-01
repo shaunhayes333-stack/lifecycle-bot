@@ -4889,6 +4889,13 @@ class Executor(
                 else -> "NEUTRAL"
             }
             
+            // Get holder count from most recent candle (Candle has holderCount)
+            val currentHolderCount = ts.history.lastOrNull()?.holderCount ?: 0
+            // Get volume from most recent candle
+            val currentVolume = ts.history.lastOrNull()?.vol ?: 0.0
+            // Estimate token age from position entry (since we don't have createdAt)
+            val approxTokenAgeMinutes = holdMinutes + 5.0  // Assume at least 5 min before entry
+            
             val outcomeData = com.lifecyclebot.v3.scoring.EducationSubLayerAI.TradeOutcomeData(
                 mint = tradeId.mint,
                 symbol = ts.symbol,
@@ -4900,24 +4907,28 @@ class Executor(
                 tradingMode = ts.position.tradingMode.ifEmpty { "STANDARD" },
                 discoverySource = ts.source.ifEmpty { "UNKNOWN" },
                 setupQuality = setupQualityStr,
-                entryMcapUsd = ts.position.entryLiquidityUsd * 2, // Approx mcap
+                entryMcapUsd = ts.position.entryMcap.takeIf { it > 0 } ?: (ts.position.entryLiquidityUsd * 2),
                 exitMcapUsd = ts.lastMcap,
-                tokenAgeMinutes = ((System.currentTimeMillis() - ts.createdAt) / 60000.0),
+                tokenAgeMinutes = approxTokenAgeMinutes,
                 buyRatioPct = ts.history.lastOrNull()?.buyRatio?.times(100) ?: 50.0,
-                volumeUsd = ts.lastVolume24H,
+                volumeUsd = currentVolume,
                 liquidityUsd = ts.lastLiquidityUsd,
-                holderCount = ts.holderCount,
-                topHolderPct = ts.topHolderPct,
+                holderCount = currentHolderCount,
+                topHolderPct = ts.topHolderPct ?: 0.0,
                 holderGrowthRate = ts.holderGrowthRate,
-                devWalletPct = ts.devWalletPct,
-                bondingCurveProgress = ts.bondingCurve,
-                rugcheckScore = ts.rugcheckScore,
+                devWalletPct = 0.0,  // Not tracked on TokenState
+                bondingCurveProgress = 0.0,  // Not tracked on TokenState
+                rugcheckScore = ts.safety.rugcheckScore.toDouble().coerceAtLeast(0.0),  // Use rugcheck score from safety
                 emaFanState = ts.meta.emafanAlignment.ifEmpty { "UNKNOWN" },
                 entryScore = ts.entryScore,
-                priceFromAth = if (ts.athPrice > 0) ((ts.lastPrice - ts.athPrice) / ts.athPrice * 100) else 0.0,
+                priceFromAth = 0.0,  // Not tracked on TokenState
                 maxGainPct = peakPnlPct,
-                maxDrawdownPct = ts.position.maxDrawdown,
-                timeToPeakMins = ts.position.timeToPeakMs / 60000.0,
+                maxDrawdownPct = ts.position.lowestPrice.let { low ->
+                    if (low > 0 && ts.position.entryPrice > 0) {
+                        ((low - ts.position.entryPrice) / ts.position.entryPrice) * 100
+                    } else 0.0
+                },
+                timeToPeakMins = holdMinutes * 0.5,  // Estimate: peak typically at half hold time
             )
             
             com.lifecyclebot.v3.scoring.EducationSubLayerAI.recordTradeOutcomeAcrossAllLayers(outcomeData)
@@ -5787,6 +5798,13 @@ class Executor(
                 ((pos.highestPrice - pos.entryPrice) / pos.entryPrice) * 100
             } else pnlP
             
+            // Get holder count from most recent candle (Candle has holderCount)
+            val currentHolderCount = ts.history.lastOrNull()?.holderCount ?: 0
+            // Get volume from most recent candle
+            val currentVolume = ts.history.lastOrNull()?.vol ?: 0.0
+            // Estimate token age from position entry (since we don't have createdAt)
+            val approxTokenAgeMinutes = holdMinutes + 5.0
+            
             val outcomeData = com.lifecyclebot.v3.scoring.EducationSubLayerAI.TradeOutcomeData(
                 mint = tradeId.mint,
                 symbol = ts.symbol,
@@ -5798,24 +5816,28 @@ class Executor(
                 tradingMode = pos.tradingMode.ifEmpty { "LIVE" },
                 discoverySource = ts.source.ifEmpty { "UNKNOWN" },
                 setupQuality = setupQualityStr,
-                entryMcapUsd = pos.entryLiquidityUsd * 2,
+                entryMcapUsd = pos.entryMcap.takeIf { it > 0 } ?: (pos.entryLiquidityUsd * 2),
                 exitMcapUsd = ts.lastMcap,
-                tokenAgeMinutes = ((System.currentTimeMillis() - ts.createdAt) / 60000.0),
+                tokenAgeMinutes = approxTokenAgeMinutes,
                 buyRatioPct = ts.history.lastOrNull()?.buyRatio?.times(100) ?: 50.0,
-                volumeUsd = ts.lastVolume24H,
+                volumeUsd = currentVolume,
                 liquidityUsd = ts.lastLiquidityUsd,
-                holderCount = ts.holderCount,
-                topHolderPct = ts.topHolderPct,
+                holderCount = currentHolderCount,
+                topHolderPct = ts.topHolderPct ?: 0.0,
                 holderGrowthRate = ts.holderGrowthRate,
-                devWalletPct = ts.devWalletPct,
-                bondingCurveProgress = ts.bondingCurve,
-                rugcheckScore = ts.rugcheckScore,
+                devWalletPct = 0.0,  // Not tracked on TokenState
+                bondingCurveProgress = 0.0,  // Not tracked on TokenState
+                rugcheckScore = ts.safety.rugcheckScore.toDouble().coerceAtLeast(0.0),  // Use rugcheck score from safety
                 emaFanState = ts.meta.emafanAlignment.ifEmpty { "UNKNOWN" },
                 entryScore = ts.entryScore,
-                priceFromAth = if (ts.athPrice > 0) ((ts.lastPrice - ts.athPrice) / ts.athPrice * 100) else 0.0,
+                priceFromAth = 0.0,  // Not tracked on TokenState
                 maxGainPct = peakPnlPct,
-                maxDrawdownPct = pos.maxDrawdown,
-                timeToPeakMins = pos.timeToPeakMs / 60000.0,
+                maxDrawdownPct = pos.lowestPrice.let { low ->
+                    if (low > 0 && pos.entryPrice > 0) {
+                        ((low - pos.entryPrice) / pos.entryPrice) * 100
+                    } else 0.0
+                },
+                timeToPeakMins = holdMinutes * 0.5,  // Estimate: peak typically at half hold time
             )
             
             com.lifecyclebot.v3.scoring.EducationSubLayerAI.recordTradeOutcomeAcrossAllLayers(outcomeData)
