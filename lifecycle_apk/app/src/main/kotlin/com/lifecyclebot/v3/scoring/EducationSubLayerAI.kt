@@ -519,6 +519,9 @@ object EducationSubLayerAI {
         val newAccuracy = metrics.accuracy
         metrics.learningVelocity = metrics.learningVelocity * 0.9 + 
             (if (wasSuccess) 0.1 else -0.1)
+        
+        // V5.2: Persist after each update
+        save()
     }
     
     // ═══════════════════════════════════════════════════════════════════════════
@@ -701,5 +704,100 @@ object EducationSubLayerAI {
             metrics.accuracy >= 40 -> 0.85  // Below average - reduce
             else -> 0.7                      // Poor - significantly reduce
         }
+    }
+    
+    // ═══════════════════════════════════════════════════════════════════════════
+    // PERSISTENCE - Save/Load layer performance metrics
+    // ═══════════════════════════════════════════════════════════════════════════
+    
+    private var ctx: android.content.Context? = null
+    private const val PREFS_NAME = "education_sublayer_ai"
+    
+    /**
+     * Initialize with context for persistence.
+     */
+    fun init(context: android.content.Context) {
+        ctx = context.applicationContext
+        load()
+        ErrorLogger.info(TAG, "📚 EducationSubLayerAI initialized | Layers: ${layerPerformance.size} | Total trades: ${getTotalTradesAcrossAllLayers()}")
+    }
+    
+    /**
+     * Save layer performance to SharedPreferences.
+     */
+    fun save() {
+        val c = ctx ?: return
+        try {
+            val prefs = c.getSharedPreferences(PREFS_NAME, android.content.Context.MODE_PRIVATE)
+            val editor = prefs.edit()
+            
+            // Save each layer's metrics as JSON strings
+            layerPerformance.forEach { (name, metrics) ->
+                val json = org.json.JSONObject().apply {
+                    put("totalOutcomesRecorded", metrics.totalOutcomesRecorded)
+                    put("successfulPredictions", metrics.successfulPredictions)
+                    put("lastRecordedTimestamp", metrics.lastRecordedTimestamp)
+                    put("avgConfidenceOnWins", metrics.avgConfidenceOnWins)
+                    put("avgConfidenceOnLosses", metrics.avgConfidenceOnLosses)
+                    put("learningVelocity", metrics.learningVelocity)
+                    put("trustMultiplier", metrics.trustMultiplier)
+                }
+                editor.putString("layer_$name", json.toString())
+            }
+            
+            // Save layer names list
+            editor.putStringSet("layer_names", layerPerformance.keys.toSet())
+            editor.apply()
+            
+            ErrorLogger.debug(TAG, "💾 Saved ${layerPerformance.size} layers to prefs")
+        } catch (e: Exception) {
+            ErrorLogger.debug(TAG, "Save error: ${e.message}")
+        }
+    }
+    
+    /**
+     * Load layer performance from SharedPreferences.
+     */
+    private fun load() {
+        val c = ctx ?: return
+        try {
+            val prefs = c.getSharedPreferences(PREFS_NAME, android.content.Context.MODE_PRIVATE)
+            
+            // Get saved layer names
+            val layerNames = prefs.getStringSet("layer_names", emptySet()) ?: emptySet()
+            
+            layerNames.forEach { name ->
+                val jsonStr = prefs.getString("layer_$name", null) ?: return@forEach
+                try {
+                    val json = org.json.JSONObject(jsonStr)
+                    val metrics = LayerPerformanceMetrics(
+                        layerName = name,
+                        totalOutcomesRecorded = json.optInt("totalOutcomesRecorded", 0),
+                        successfulPredictions = json.optInt("successfulPredictions", 0),
+                        lastRecordedTimestamp = json.optLong("lastRecordedTimestamp", 0L),
+                        avgConfidenceOnWins = json.optDouble("avgConfidenceOnWins", 50.0),
+                        avgConfidenceOnLosses = json.optDouble("avgConfidenceOnLosses", 50.0),
+                        learningVelocity = json.optDouble("learningVelocity", 1.0),
+                        trustMultiplier = json.optDouble("trustMultiplier", 1.0),
+                    )
+                    layerPerformance[name] = metrics
+                } catch (e: Exception) {
+                    ErrorLogger.debug(TAG, "Load layer $name error: ${e.message}")
+                }
+            }
+            
+            ErrorLogger.info(TAG, "📂 Loaded ${layerPerformance.size} layers from prefs | Total trades: ${getTotalTradesAcrossAllLayers()}")
+        } catch (e: Exception) {
+            ErrorLogger.debug(TAG, "Load error: ${e.message}")
+        }
+    }
+    
+    /**
+     * Reset all learned data (for testing).
+     */
+    fun reset() {
+        layerPerformance.clear()
+        save()
+        ErrorLogger.info(TAG, "🧹 EducationSubLayerAI reset")
     }
 }

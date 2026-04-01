@@ -435,9 +435,9 @@ class Executor(
                     RunTracker30D.recordTrade(
                         symbol = ts.symbol,
                         mint = ts.mint,
-                        entryPrice = ts.position.avgPrice,
+                        entryPrice = ts.position.entryPrice,
                         exitPrice = trade.price,
-                        sizeSol = trade.size,
+                        sizeSol = trade.sol,
                         pnlPct = trade.pnlPct ?: 0.0,
                         holdTimeSec = holdTimeSec,
                         mode = mode,
@@ -3001,7 +3001,7 @@ class Executor(
         
         // V5.2 FIX_3: MULTI-LAYER LOCK CHECK
         // Block entry if another layer already has this token open
-        val currentLayer = identity?.layer ?: "PAPER"
+        val currentLayer = "PAPER"  // Paper mode uses single layer
         if (EmergentGuardrails.shouldBlockMultiLayerEntry(tradeId.mint, currentLayer)) {
             onLog("⚠ Buy skipped: ${tradeId.symbol} already open in different layer", tradeId.mint)
             return
@@ -3609,10 +3609,10 @@ class Executor(
         
         // V5.2 FIX_3: MULTI-LAYER LOCK CHECK
         // Block entry if another layer already has this token open
-        val currentLayer = identity?.layer ?: "LIVE"
+        val currentLayer = "LIVE"  // Live mode uses single layer
         if (EmergentGuardrails.shouldBlockMultiLayerEntry(tradeId.mint, currentLayer)) {
             onLog("⚠ Buy skipped: ${tradeId.symbol} already open in different layer", tradeId.mint)
-            PipelineTracer.noBuy(ts.symbol, ts.mint, PipelineTracer.NoBuyReason.ALREADY_OPEN, "layer_conflict")
+            PipelineTracer.noBuy(ts.symbol, ts.mint, PipelineTracer.NoBuyReason.ALREADY_IN_POSITION, "layer_conflict")
             return
         }
         
@@ -4044,6 +4044,8 @@ class Executor(
             // Clear cumulative impact when position fully closed
             FluidLearning.clearPriceImpact(tradeId.mint)
         }
+        
+        // Note: FluidLearningAI.recordPaperTrade is already called via recordTrade() above
         
         // Use identity for consistent logging
         onLog("PAPER SELL @ ${price.fmt()} | $reason | pnl ${pnl.fmt(4)} SOL (${pnlP.fmtPct()})", tradeId.mint)

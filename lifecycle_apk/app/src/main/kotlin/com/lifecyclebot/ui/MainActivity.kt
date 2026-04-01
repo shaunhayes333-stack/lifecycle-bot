@@ -135,10 +135,11 @@ class MainActivity : AppCompatActivity() {
     private lateinit var tvBlueChipStats: TextView
     private lateinit var tvShitCoinStats: TextView
     private lateinit var tvMoonshotStats: TextView
-    private lateinit var tvAiBrainStats: TextView
-    private lateinit var tvShadowStats: TextView
-    private lateinit var tvRegimesStats: TextView
-    private lateinit var tv25AIsStats: TextView
+    // Note: Below 4 tiles don't have stats TextViews in XML yet
+    private var tvAiBrainStats: TextView? = null
+    private var tvShadowStats: TextView? = null
+    private var tvRegimesStats: TextView? = null
+    private var tv25AIsStats: TextView? = null
     
     // V5.2: Side-by-side Treasury + Moonshot row
     private lateinit var rowTreasuryMoonshot: android.view.View
@@ -663,10 +664,7 @@ for legal compliance.
         tvBlueChipStats = try { findViewById(R.id.tvBlueChipStats) } catch (_: Exception) { TextView(this) }
         tvShitCoinStats = try { findViewById(R.id.tvShitCoinStats) } catch (_: Exception) { TextView(this) }
         tvMoonshotStats = try { findViewById(R.id.tvMoonshotStats) } catch (_: Exception) { TextView(this) }
-        tvAiBrainStats = try { findViewById(R.id.tvAiBrainStats) } catch (_: Exception) { TextView(this) }
-        tvShadowStats = try { findViewById(R.id.tvShadowStats) } catch (_: Exception) { TextView(this) }
-        tvRegimesStats = try { findViewById(R.id.tvRegimesStats) } catch (_: Exception) { TextView(this) }
-        tv25AIsStats = try { findViewById(R.id.tv25AIsStats) } catch (_: Exception) { TextView(this) }
+        // Note: tvAiBrainStats, tvShadowStats, tvRegimesStats, tv25AIsStats not in XML - skip init
         
         // V5.2: Side-by-side Treasury + Moonshot
         rowTreasuryMoonshot = try { findViewById(R.id.rowTreasuryMoonshot) } catch (_: Exception) { android.view.View(this) }
@@ -2218,7 +2216,7 @@ for legal compliance.
             val stats = com.lifecyclebot.v3.scoring.ShitCoinTraderAI.getStats()
             val posCount = stats.activePositions
             val winRate = stats.winRate.toInt()
-            if (posCount > 0 || stats.totalTrades > 0) {
+            if (posCount > 0 || stats.dailyTradeCount > 0) {
                 tvShitCoinStats.text = "$posCount | $winRate%"
                 tvShitCoinStats.setTextColor(when {
                     winRate >= 60 -> green
@@ -2255,22 +2253,22 @@ for legal compliance.
             val diagnostics = com.lifecyclebot.v3.scoring.EducationSubLayerAI.runDiagnostics()
             val activeLayers = diagnostics.count { it.value }
             val totalLayers = diagnostics.size
-            tvAiBrainStats.text = "$activeLayers/$totalLayers"
-            tvAiBrainStats.setTextColor(when {
+            tvAiBrainStats?.text = "$activeLayers/$totalLayers"
+            tvAiBrainStats?.setTextColor(when {
                 activeLayers >= 20 -> green
                 activeLayers >= 10 -> amber
                 else -> muted
             })
-        } catch (_: Exception) { tvAiBrainStats.text = "—" }
+        } catch (_: Exception) { tvAiBrainStats?.text = "—" }
         
         // Shadow - show shadow trades count
         try {
             val stats = com.lifecyclebot.engine.ShadowLearningEngine.getStats()
             val openTrades = stats.openTrades
             val totalTrades = stats.totalTrades
-            tvShadowStats.text = "$openTrades/$totalTrades"
-            tvShadowStats.setTextColor(if (totalTrades > 0) green else muted)
-        } catch (_: Exception) { tvShadowStats.text = "—" }
+            tvShadowStats?.text = "$openTrades/$totalTrades"
+            tvShadowStats?.setTextColor(if (totalTrades > 0) green else muted)
+        } catch (_: Exception) { tvShadowStats?.text = "—" }
         
         // Regimes - show current regime
         try {
@@ -2285,24 +2283,24 @@ for legal compliance.
                 regimeLabel.contains("NEUTRAL", ignoreCase = true) -> "NEU"
                 else -> regimeLabel.take(4)
             }
-            tvRegimesStats.text = regimeShort
-            tvRegimesStats.setTextColor(when {
+            tvRegimesStats?.text = regimeShort
+            tvRegimesStats?.setTextColor(when {
                 regimeLabel.contains("BULL", ignoreCase = true) -> green
                 regimeLabel.contains("BEAR", ignoreCase = true) -> red
                 else -> amber
             })
-        } catch (_: Exception) { tvRegimesStats.text = "—" }
+        } catch (_: Exception) { tvRegimesStats?.text = "—" }
         
         // 25 AIs - show learning progress percentage
         try {
             val learningPct = com.lifecyclebot.v3.scoring.FluidLearningAI.getMaturityPercent()
-            tv25AIsStats.text = "${learningPct.toInt()}%"
-            tv25AIsStats.setTextColor(when {
+            tv25AIsStats?.text = "${learningPct.toInt()}%"
+            tv25AIsStats?.setTextColor(when {
                 learningPct >= 50.0 -> green
                 learningPct >= 20.0 -> amber
                 else -> 0xFF3B82F6.toInt() // blue
             })
-        } catch (_: Exception) { tv25AIsStats.text = "—" }
+        } catch (_: Exception) { tv25AIsStats?.text = "—" }
     }
 
     private fun renderTrades(trades: List<Trade>) {

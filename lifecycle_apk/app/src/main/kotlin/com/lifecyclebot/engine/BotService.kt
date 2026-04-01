@@ -1145,6 +1145,16 @@ class BotService : Service() {
             ErrorLogger.error("BotService", "RunTracker30D init failed: ${e.message}", e)
         }
         
+        // ═══════════════════════════════════════════════════════════════════
+        // V5.2.5: Initialize EducationSubLayerAI (Harvard Brain) with persistence
+        // ═══════════════════════════════════════════════════════════════════
+        try {
+            com.lifecyclebot.v3.scoring.EducationSubLayerAI.init(applicationContext)
+            addLog("🎓 Harvard Brain initialized | Layers=${com.lifecyclebot.v3.scoring.EducationSubLayerAI.runDiagnostics().count { it.value }} active")
+        } catch (e: Exception) {
+            ErrorLogger.error("BotService", "EducationSubLayerAI init failed: ${e.message}", e)
+        }
+        
         addLog("Bot started — paper=${cfg.paperMode} auto=${cfg.autoTrade} sounds=${cfg.soundEnabled}")
         ErrorLogger.info("BotService", "Bot started successfully")
         
