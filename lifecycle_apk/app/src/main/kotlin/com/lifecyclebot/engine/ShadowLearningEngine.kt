@@ -65,6 +65,8 @@ object ShadowLearningEngine {
         var pnlPct: Double = 0.0,
         var exitReason: String = "",
         var isOpen: Boolean = true,
+        // V5.2: Prevent duplicate FluidLearning dispatch
+        var dispatchedToFluidLearning: Boolean = false,
     )
 
     data class VariantPerformance(
@@ -758,14 +760,18 @@ object ShadowLearningEngine {
         // Shadow trades contribute to overall bot maturity progression.
         // Uses 0.025 weight (2.5%) vs 1.0 for live trades.
         // This makes the bot "smarter" without overly inflating maturity!
+        // V5.2 FIX: Prevent duplicate dispatch - only dispatch once per trade
         // ═══════════════════════════════════════════════════════════════════
-        try {
-            val isWin = trade.pnlSol > 0
-            // V4.0: Use discounted shadow learning weight (0.025 per trade)
-            com.lifecyclebot.v3.scoring.FluidLearningAI.recordShadowTrade(isWin)
-            ErrorLogger.debug("ShadowLearning", "🧠 Shadow trade → FluidLearning (0.025x): ${trade.symbol} ${if (isWin) "WIN" else "LOSS"} (${trade.pnlPct.toInt()}%)")
-        } catch (e: Exception) {
-            ErrorLogger.debug("ShadowLearning", "FluidLearning integration error: ${e.message}")
+        if (!trade.dispatchedToFluidLearning) {
+            try {
+                val isWin = trade.pnlSol > 0
+                // V4.0: Use discounted shadow learning weight (0.025 per trade)
+                com.lifecyclebot.v3.scoring.FluidLearningAI.recordShadowTrade(isWin)
+                trade.dispatchedToFluidLearning = true  // Mark as dispatched
+                ErrorLogger.debug("ShadowLearning", "🧠 Shadow trade → FluidLearning (0.025x): ${trade.symbol} ${if (isWin) "WIN" else "LOSS"} (${trade.pnlPct.toInt()}%)")
+            } catch (e: Exception) {
+                ErrorLogger.debug("ShadowLearning", "FluidLearning integration error: ${e.message}")
+            }
         }
         
         // Update performance

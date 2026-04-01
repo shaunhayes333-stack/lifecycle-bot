@@ -164,6 +164,31 @@ class CollectiveBrainActivity : AppCompatActivity() {
             }
         }
         
+        // V5.2: Long-press for diagnostics
+        btnForceSync.setOnLongClickListener {
+            lifecycleScope.launch {
+                tvSyncStatus.text = "🔬 Running diagnostics..."
+                
+                try {
+                    val result = withContext(Dispatchers.IO) {
+                        CollectiveLearning.runDiagnostics()
+                    }
+                    
+                    // Show diagnostics in a dialog
+                    android.app.AlertDialog.Builder(this@CollectiveBrainActivity, R.style.Theme_AATE_Dialog)
+                        .setTitle("🔬 Collective Diagnostics")
+                        .setMessage(result)
+                        .setPositiveButton("Close") { d, _ -> d.dismiss() }
+                        .show()
+                        
+                    updateSyncStatus()
+                } catch (e: Exception) {
+                    android.widget.Toast.makeText(this@CollectiveBrainActivity, "Diagnostics failed: ${e.message}", android.widget.Toast.LENGTH_LONG).show()
+                }
+            }
+            true
+        }
+        
         // Initial sync status
         updateSyncStatus()
     }

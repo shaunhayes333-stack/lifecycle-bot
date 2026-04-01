@@ -1545,14 +1545,25 @@ class BotService : Service() {
             // ═══════════════════════════════════════════════════════════════════
             // V5.2: PIPELINE TRACE - Snapshot loop state at start
             // Freeze aggression for this loop cycle to prevent mid-loop mutations
+            // V5.2 FIX: Use correct balance based on paper/live mode
             // ═══════════════════════════════════════════════════════════════════
             val cfg = ConfigStore.load(applicationContext)
+            
+            // V5.2 FIX: Completely isolate paper vs live wallet for balance display
+            val displayBalance = if (cfg.paperMode) {
+                // In paper mode, show paper wallet balance from FluidLearning
+                FluidLearning.getPaperBalance()
+            } else {
+                // In live mode, show real wallet balance
+                walletManager.state.value.solBalance
+            }
+            
             val loopSnapshot = PipelineTracer.startLoop(
                 loopId = loopCount,
                 aggression = BehaviorAI.getAggressionLevel(),
                 paperMode = cfg.paperMode,
                 liveMode = !cfg.paperMode,
-                walletBalance = walletManager.state.value.solBalance,
+                walletBalance = displayBalance,
                 openPositions = status.openPositionCount,
                 watchlistSize = GlobalTradeRegistry.size()
             )

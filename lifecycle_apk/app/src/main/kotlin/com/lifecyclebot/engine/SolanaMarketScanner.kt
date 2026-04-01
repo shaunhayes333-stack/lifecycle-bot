@@ -853,6 +853,61 @@ class SolanaMarketScanner(
     private val rejectedMints = ConcurrentHashMap<String, Long>()
     private val REJECTED_TTL = 30_000L        // forget rejected tokens after 30 sec
     
+    // ═══════════════════════════════════════════════════════════════════════
+    // V5.2 FIX: SATURATION SUPPRESSION - Stop processing same tokens 60-90x
+    // Tracks how many times we've seen a token in cooldown state
+    // After MAX_COOLDOWN_HITS, we suppress it for a longer period
+    // ═══════════════════════════════════════════════════════════════════════
+    private val cooldownHitCount = ConcurrentHashMap<String, Int>()
+    private val saturatedMints = ConcurrentHashMap<String, Long>()
+    private const val MAX_COOLDOWN_HITS = 5       // After 5 cooldown hits, suppress
+    private const val SATURATION_TTL = 120_000L   // Suppress for 2 minutes
+    
+    // ═══════════════════════════════════════════════════════════════════════
+    // V5.2 FIX: THROUGHPUT TELEMETRY - Track pipeline health metrics
+    // ═══════════════════════════════════════════════════════════════════════
+    @Volatile private var telemetryRawScanned = 0
+    @Volatile private var telemetryCooldownHits = 0
+    @Volatile private var telemetryRugRejects = 0
+    @Volatile private var telemetryLiqRejects = 0
+    @Volatile private var telemetryEnqueued = 0
+    @Volatile private var telemetryStaleDrops = 0
+    @Volatile private var telemetrySaturatedDrops = 0
+    private var lastTelemetryLogMs = 0L
+    
+    fun getThroughputTelemetry(): String {
+        return "RAW=$telemetryRawScanned CD=$telemetryCooldownHits RUG=$telemetryRugRejects " +
+               "LIQ=$telemetryLiqRejects ENQ=$telemetryEnqueued STALE=$telemetryStaleDrops SAT=$telemetrySaturatedDrops"
+    }
+    
+    fun resetTelemetry() {
+        telemetryRawScanned = 0
+        telemetryCooldownHits = 0
+        telemetryRugRejects = 0
+        telemetryLiqRejects = 0
+        telemetryEnqueued = 0
+        telemetryStaleDrops = 0
+        telemetrySaturatedDrops = 0
+    }
+    
+    // Check if a token is saturated (seen too many times in cooldown)
+    private fun isSaturated(mint: String): Boolean {
+        val saturatedAt = saturatedMints[mint] ?: return false
+        return System.currentTimeMillis() - saturatedAt < SATURATION_TTL
+    }
+    
+    // Record a cooldown hit and potentially saturate the token
+    private fun recordCooldownHit(mint: String) {
+        telemetryCooldownHits++
+        val hits = cooldownHitCount.merge(mint, 1) { a, b -> a + b } ?: 1
+        if (hits >= MAX_COOLDOWN_HITS) {
+            saturatedMints[mint] = System.currentTimeMillis()
+            cooldownHitCount.remove(mint)  // Reset counter
+            telemetrySaturatedDrops++
+            ErrorLogger.debug("Scanner", "🔇 SATURATED: $mint (hit ${MAX_COOLDOWN_HITS}x in cooldown)")
+        }
+    }
+    
     // Memory protection: limit concurrent operations
     private val semaphore = kotlinx.coroutines.sync.Semaphore(3)  // max 3 concurrent scans
     
@@ -911,6 +966,9 @@ class SolanaMarketScanner(
     fun forceReset() {
         seenMints.clear()
         rejectedMints.clear()
+        cooldownHitCount.clear()
+        saturatedMints.clear()
+        resetTelemetry()
         scanRotation = 0
         ErrorLogger.info("Scanner", "Force reset - cleared all maps")
         onLog("🔄 Scanner reset - maps cleared")
@@ -2432,15 +2490,23 @@ class SolanaMarketScanner(
     private fun isSeen(mint: String): Boolean {
         val now = System.currentTimeMillis()
         
+        // V5.2 FIX: Check if saturated FIRST (most aggressive filter)
+        if (isSaturated(mint)) {
+            telemetrySaturatedDrops++
+            return true  // Suppressed due to excessive cooldown churn
+        }
+        
         // Check if rejected (1 hour cooldown)
         val rejectedAt = rejectedMints[mint]
         if (rejectedAt != null && now - rejectedAt < REJECTED_TTL) {
+            recordCooldownHit(mint)  // Track for saturation
             return true  // Still in cooldown from rejection
         }
         
         // Check if recently seen (30 min cooldown)
         val seenAt = seenMints[mint]
         if (seenAt != null && now - seenAt < SEEN_TTL) {
+            recordCooldownHit(mint)  // Track for saturation
             return true
         }
         
@@ -2477,12 +2543,31 @@ class SolanaMarketScanner(
         val rejectedToRemove = rejectedMints.entries.filter { now - it.value > REJECTED_TTL }.map { it.key }
         rejectedToRemove.forEach { rejectedMints.remove(it) }
         
+        // V5.2: Also cleanup saturated mints
+        val saturatedToRemove = saturatedMints.entries.filter { now - it.value > SATURATION_TTL }.map { it.key }
+        saturatedToRemove.forEach { saturatedMints.remove(it) }
+        
+        // Clear old cooldown hit counts (if token hasn't been seen in a while)
+        val hitCountsToRemove = cooldownHitCount.keys.filter { mint ->
+            !seenMints.containsKey(mint) && !rejectedMints.containsKey(mint)
+        }
+        hitCountsToRemove.forEach { cooldownHitCount.remove(it) }
+        
         val seenRemoved = seenBefore - seenMints.size
         val rejectedRemoved = rejectedBefore - rejectedMints.size
         
+        // Log telemetry periodically (every 60 seconds)
+        if (now - lastTelemetryLogMs > 60_000L) {
+            ErrorLogger.info("Scanner", "📊 TELEMETRY: ${getThroughputTelemetry()}")
+            onLog("📊 ${getThroughputTelemetry()}")
+            lastTelemetryLogMs = now
+        }
+        
         if (seenRemoved > 0 || rejectedRemoved > 0) {
             ErrorLogger.info("Scanner", "Cleanup: removed $seenRemoved seen, $rejectedRemoved rejected. " +
-                "Remaining: ${seenMints.size} seen, ${rejectedMints.size} rejected")
+                "Remaining: ${seenMints.size} seen, ${rejectedMints.size} rejected, ${saturatedMints.size} saturated")
+            onLog("🧹 Map cleanup: seen=${seenMints.size} rejected=${rejectedMints.size} sat=${saturatedMints.size}")
+        }
             onLog("🧹 Map cleanup: seen=${seenMints.size} rejected=${rejectedMints.size}")
         }
         
