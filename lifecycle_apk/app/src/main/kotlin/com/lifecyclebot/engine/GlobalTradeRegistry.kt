@@ -78,11 +78,17 @@ object GlobalTradeRegistry {
     private const val PROBATION_MIN_TIME_MS = 60_000L       // 1 minute minimum probation
     private const val PROBATION_MAX_TIME_MS = 300_000L      // 5 minutes max probation before auto-reject
     private const val PROBATION_CONF_THRESHOLD = 50         // Confidence below this = probation
+    private const val PROBATION_CONF_THRESHOLD_PAPER = 30   // V5.2: Lower threshold for paper mode learning
     private const val PROBATION_MULTI_SOURCE_EXEMPT = true  // Multi-source tokens skip probation
     
+    // V5.2: Paper mode flag for more aggressive token acceptance
+    @Volatile
+    var isPaperMode: Boolean = false
+    
     // Maximum watchlist size to prevent memory issues
-    private const val MAX_WATCHLIST_SIZE = 100
-    private const val MAX_PROBATION_SIZE = 30
+    // V5.2: Increased for paper mode learning - need more exposure
+    private const val MAX_WATCHLIST_SIZE = 150
+    private const val MAX_PROBATION_SIZE = 50
     
     data class WatchlistEntry(
         val mint: String,
@@ -309,18 +315,25 @@ object GlobalTradeRegistry {
         
         // ═══════════════════════════════════════════════════════════════════
         // PROBATION ROUTING DECISION
+        // V5.2: Paper mode is MUCH more lenient for maximum learning exposure
         // ═══════════════════════════════════════════════════════════════════
+        val confThreshold = if (isPaperMode) PROBATION_CONF_THRESHOLD_PAPER else PROBATION_CONF_THRESHOLD
+        
         val needsProbation = when {
             // USER_ADDED always bypasses probation
             addedBy == "USER_ADDED" || addedBy == "USER" || addedBy == "CONFIG" -> false
+            // V5.2: Paper mode - bypass probation entirely for faster learning
+            // In paper mode, we WANT to trade more tokens to gather data
+            isPaperMode && confidence >= confThreshold -> false
             // Multi-source tokens with sufficient confidence bypass
-            isMultiSource && confidence >= PROBATION_CONF_THRESHOLD -> false
+            isMultiSource && confidence >= confThreshold -> false
             // Low confidence = probation
-            confidence < PROBATION_CONF_THRESHOLD -> true
-            // Estimated liquidity = probation
-            isEstimatedLiquidity -> true
-            // Single source with borderline confidence = probation
-            !isMultiSource && confidence < 60 -> true
+            confidence < confThreshold -> true
+            // Estimated liquidity = probation (live mode only)
+            isEstimatedLiquidity && !isPaperMode -> true
+            // Single source with borderline confidence = probation (live mode)
+            // V5.2: Paper mode allows single source tokens for learning
+            !isMultiSource && confidence < 60 && !isPaperMode -> true
             // Otherwise, allow
             else -> false
         }

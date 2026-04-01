@@ -144,16 +144,19 @@ object HardRugPreFilter {
         }
         
         // ─────────────────────────────────────────────────────────────────
-        // CHECK 6: Zero holder count (suspicious)
+        // CHECK 6: Zero holder count (suspicious) - DISABLED for Paper Mode learning
+        // DexScreener often returns 0 holders for new tokens due to API lag
+        // This was blocking too many legitimate tokens from being evaluated
         // ─────────────────────────────────────────────────────────────────
-        val lastCandle = hist.lastOrNull()
-        if (lastCandle != null && lastCandle.holderCount == 0 && tokenAgeMins > 5) {
-            return PreFilterResult(
-                pass = false,
-                reason = "ZERO_HOLDERS",
-                severity = FilterSeverity.SOFT_FAIL,
-            )
-        }
+        // val lastCandle = hist.lastOrNull()
+        // if (lastCandle != null && lastCandle.holderCount == 0 && tokenAgeMins > 5) {
+        //     return PreFilterResult(
+        //         pass = false,
+        //         reason = "ZERO_HOLDERS",
+        //         severity = FilterSeverity.SOFT_FAIL,
+        //     )
+        // }
+        // NOTE: Holder count check disabled - was causing excessive blocks due to API data lag
         
         // ─────────────────────────────────────────────────────────────────
         // CHECK 7: Price crashed to near-zero

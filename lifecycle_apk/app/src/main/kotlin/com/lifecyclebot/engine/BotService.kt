@@ -568,7 +568,10 @@ class BotService : Service() {
         // ═══════════════════════════════════════════════════════════════════
         val preScanCfg = ConfigStore.load(applicationContext)
         GlobalTradeRegistry.init(preScanCfg.watchlist, "CONFIG_PRESCAN")
-        addLog("📋 GlobalTradeRegistry initialized with ${GlobalTradeRegistry.size()} tokens")
+        // V5.2: Set paper mode flags for more aggressive learning
+        GlobalTradeRegistry.isPaperMode = preScanCfg.paperMode
+        UnifiedModeOrchestrator.isPaperMode = preScanCfg.paperMode
+        addLog("📋 GlobalTradeRegistry initialized with ${GlobalTradeRegistry.size()} tokens (paperMode=${preScanCfg.paperMode})")
 
         // Start full Solana market scanner
         val scanCfg = ConfigStore.load(applicationContext)
@@ -1549,7 +1552,7 @@ class BotService : Service() {
                 aggression = BehaviorAI.getAggressionLevel(),
                 paperMode = cfg.paperMode,
                 liveMode = !cfg.paperMode,
-                walletBalance = walletManager.state.value.balanceSol,
+                walletBalance = walletManager.state.value.solBalance,
                 openPositions = status.openPositionCount,
                 watchlistSize = GlobalTradeRegistry.size()
             )
@@ -2404,10 +2407,11 @@ class BotService : Service() {
         val now = System.currentTimeMillis()
         val isPaperMode = cfg.paperMode
         
-        // MUCH LESS AGGRESSIVE - give tokens time to develop and generate signals
-        val staleThresholdMs = if (isPaperMode) 120_000L else 180_000L   // 2 min in paper, 3 min in real
-        val idleThresholdMs = if (isPaperMode) 180_000L else 300_000L    // 3 min idle in paper, 5 min in real
-        val maxWatchlistAge = if (isPaperMode) 600_000L else 900_000L    // 10 min max in paper, 15 min in real
+        // V5.2: PAPER MODE - Much longer thresholds for maximum learning exposure
+        // Tokens need time to develop patterns and generate trade signals
+        val staleThresholdMs = if (isPaperMode) 300_000L else 180_000L   // 5 min in paper, 3 min in real
+        val idleThresholdMs = if (isPaperMode) 600_000L else 300_000L    // 10 min idle in paper, 5 min in real
+        val maxWatchlistAge = if (isPaperMode) 1_800_000L else 900_000L  // 30 min max in paper, 15 min in real
         
         for (mint in registryWatchlist) {
             val ts = status.tokens[mint]

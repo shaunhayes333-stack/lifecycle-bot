@@ -142,7 +142,12 @@ class BotOrchestrator(
         }
         
         // ─── FINAL DECISION ───
-        val decision = finalDecisionEngine.decide(scoreCard, confidence, fatal)
+        val decision = finalDecisionEngine.decide(
+            scoreCard, 
+            confidence, 
+            fatal,
+            isPaperMode = com.lifecyclebot.engine.GlobalTradeRegistry.isPaperMode  // V5.2
+        )
         logger.stage("DECISION", candidate.symbol, decision.band.name,
             "score=${decision.finalScore} conf=${decision.effectiveConfidence}")
         
@@ -160,18 +165,27 @@ class BotOrchestrator(
             else -> "C"                       // C grade
         }
         
-        val liquidityFloor = when (setupQuality) {
-            "B" -> 7500.0
+        // V5.2: Paper mode uses MUCH lower floors for maximum learning
+        val isPaperMode = com.lifecyclebot.engine.GlobalTradeRegistry.isPaperMode
+        val liquidityFloor = when {
+            isPaperMode -> 3000.0  // Paper mode: $3K floor for all grades
+            setupQuality == "B" -> 7500.0
             else -> 10000.0  // C-grade needs higher liquidity
         }
         
         if (decision.band in listOf(DecisionBand.EXECUTE_SMALL, DecisionBand.EXECUTE_STANDARD, DecisionBand.EXECUTE_AGGRESSIVE)) {
             if (candidate.liquidityUsd < liquidityFloor) {
-                logger.stage("LIQUIDITY_CHECK", candidate.symbol, "BLOCKED",
-                    "liq=$${candidate.liquidityUsd.toInt()} < $${liquidityFloor.toInt()} floor for $setupQuality-grade → WATCH ONLY")
-                lifecycle.mark(candidate.mint, LifecycleState.WATCH)
-                shadowTracker.track(candidate, scoreCard, confidence.effective.toInt(), "LOW_LIQUIDITY_${candidate.liquidityUsd.toInt()}")
-                return ProcessResult.Watch(decision.finalScore.toDouble(), confidence.effective.toDouble())
+                // V5.2: In paper mode, log but still execute for learning
+                if (isPaperMode && candidate.liquidityUsd >= 3000.0) {
+                    logger.stage("LIQUIDITY_CHECK", candidate.symbol, "PAPER_BYPASS",
+                        "liq=$${candidate.liquidityUsd.toInt()} < $${liquidityFloor.toInt()} → PAPER MODE: proceeding anyway")
+                } else {
+                    logger.stage("LIQUIDITY_CHECK", candidate.symbol, "BLOCKED",
+                        "liq=$${candidate.liquidityUsd.toInt()} < $${liquidityFloor.toInt()} floor for $setupQuality-grade → WATCH ONLY")
+                    lifecycle.mark(candidate.mint, LifecycleState.WATCH)
+                    shadowTracker.track(candidate, scoreCard, confidence.effective.toInt(), "LOW_LIQUIDITY_${candidate.liquidityUsd.toInt()}")
+                    return ProcessResult.Watch(decision.finalScore.toDouble(), confidence.effective.toDouble())
+                }
             }
         }
         

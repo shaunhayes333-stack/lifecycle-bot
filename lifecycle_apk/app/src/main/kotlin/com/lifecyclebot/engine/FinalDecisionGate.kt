@@ -1687,6 +1687,7 @@ object FinalDecisionGate {
         // 
         // Check ToxicModeCircuitBreaker for any mode-specific blocks.
         // This catches frozen modes, banned source+mode combos, etc.
+        // V5.2: Paper mode bypasses liquidity floors for maximum learning
         // ─────────────────────────────────────────────────────────────────────
         if (tradingModeStr.isNotBlank()) {
             val circuitBlockReason = ToxicModeCircuitBreaker.checkEntryAllowed(
@@ -1696,7 +1697,8 @@ object FinalDecisionGate {
                 phase = ts.phase,
                 memoryScore = earlyMemoryScore,
                 isAIDegraded = earlyAIDegraded,
-                confidence = confidence.toInt()
+                confidence = confidence.toInt(),
+                isPaperMode = config.paperMode  // V5.2: Pass paper mode flag
             )
             
             if (circuitBlockReason != null) {
@@ -2034,28 +2036,32 @@ object FinalDecisionGate {
                     // Minimum 5 samples for 100% loss to be considered reliable
                     val isReliable100PctLoss = is100PctLoss && sampleCount >= 5
                     
-                    if (isReliable100PctLoss && !isBootstrapPhase) {
-                        // MATURE + reliable 100% loss: Hard block
+                    if (config.paperMode) {
+                        // PAPER MODE: Always bypass behavior blocks for exploratory learning
+                        // Paper trades are for learning - don't suffocate exploration
+                        behaviorPenalty = if (is100PctLoss) 10 else 5  // Light penalty for awareness
+                        behaviorSizeMultiplier = if (is100PctLoss) 0.5 else 0.8  // Size reduction
+                        behaviorProbe = true
+                        checks.add(GateCheck("behavior_learning", true, 
+                            "PAPER BYPASS: $behaviorBlock (n=$sampleCount, exploring for learning)"))
+                        tags.add("behavior_paper_bypass")
+                    } else if (isReliable100PctLoss && !isBootstrapPhase) {
+                        // LIVE + MATURE + reliable 100% loss: Hard block
                         blockReason = "BEHAVIOR_BLOCK_100PCT_LOSS"
                         blockLevel = BlockLevel.HARD
                         checks.add(GateCheck("behavior_learning", false, 
                             "$behaviorBlock (reliable: $sampleCount samples)"))
                         tags.add("behavior_100pct_loss_blocked")
                     } else if (is100PctLoss && isBootstrapPhase) {
-                        // BOOTSTRAP + 100% loss (even low sample): Penalty, not block
+                        // LIVE BOOTSTRAP + 100% loss (even low sample): Penalty, not block
                         behaviorPenalty = if (sampleCount >= 3) 15 else 8
                         behaviorSizeMultiplier = 0.3  // Heavy size cut for these
                         behaviorProbe = true
                         checks.add(GateCheck("behavior_learning", true, 
                             "BEHAVIOR 100% LOSS → PENALTY (bootstrap: -${behaviorPenalty}pts, n=$sampleCount)"))
                         tags.add("behavior_penalized")
-                    } else if (config.paperMode) {
-                        // Paper mode with <100% loss: Log but don't block
-                        checks.add(GateCheck("behavior_learning", true, 
-                            "PAPER: $behaviorBlock (bypassed for learning)"))
-                        tags.add("behavior_warning_bypassed")
                     } else {
-                        // Live mode: Respect the learned behavior block
+                        // LIVE mode with other blocks: Respect the learned behavior block
                         blockReason = behaviorBlock
                         blockLevel = BlockLevel.HARD
                         checks.add(GateCheck("behavior_learning", false, behaviorBlock))

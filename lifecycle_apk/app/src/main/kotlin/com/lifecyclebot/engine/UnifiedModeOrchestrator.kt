@@ -24,6 +24,10 @@ object UnifiedModeOrchestrator {
     
     private const val TAG = "ModeOrchestrator"
     
+    // V5.2: Paper mode flag - set by BotService
+    @Volatile
+    var isPaperMode: Boolean = false
+    
     // ═══════════════════════════════════════════════════════════════════
     // EXTENDED TRADING MODES
     // ═══════════════════════════════════════════════════════════════════
@@ -235,9 +239,13 @@ object UnifiedModeOrchestrator {
             }
             
             // Auto-deactivate poorly performing modes
-            if (stats.trades >= 10 && stats.winRate < 30.0) {
+            // V5.2: Paper mode is MUCH more lenient - we need all modes active for learning
+            val minTrades = if (isPaperMode) 50 else 10          // More trades before judging
+            val minWinRate = if (isPaperMode) 10.0 else 30.0     // Lower threshold for paper
+            
+            if (stats.trades >= minTrades && stats.winRate < minWinRate) {
                 stats.isActive = false
-                stats.deactivationReason = "Win rate ${stats.winRate.toInt()}% < 30% after ${stats.trades} trades"
+                stats.deactivationReason = "Win rate ${stats.winRate.toInt()}% < ${minWinRate.toInt()}% after ${stats.trades} trades"
                 ErrorLogger.warn(TAG, "Deactivated ${mode.label}: ${stats.deactivationReason}")
             }
             

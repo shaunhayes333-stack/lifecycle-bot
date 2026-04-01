@@ -156,7 +156,8 @@ class FinalDecisionEngine(
         tradingMode: String = "",
         source: String = "",
         phase: String = "",
-        isAIDegraded: Boolean = false
+        isAIDegraded: Boolean = false,
+        isPaperMode: Boolean = false  // V5.2: Paper mode bypasses liquidity floors
     ): DecisionResult {
         // Fatal block overrides everything
         if (fatal.blocked) {
@@ -223,7 +224,8 @@ class FinalDecisionEngine(
                 phase = effectivePhase,
                 memoryScore = memoryScore,
                 isAIDegraded = effectiveAIDegraded,
-                confidence = conf
+                confidence = conf,
+                isPaperMode = isPaperMode  // V5.2: Paper mode bypasses liquidity floors
             )
             
             if (circuitBlockReason != null) {

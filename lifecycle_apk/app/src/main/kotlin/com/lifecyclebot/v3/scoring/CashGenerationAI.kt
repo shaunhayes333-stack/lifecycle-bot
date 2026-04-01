@@ -448,10 +448,9 @@ object CashGenerationAI {
         }
         
         if (rejectionReasons.isNotEmpty()) {
-            // Log rejection for debugging (only first few to avoid spam)
-            if (rejectionReasons.size <= 2) {
-                ErrorLogger.debug(TAG, "💰 TREASURY SKIP: $symbol | ${rejectionReasons.joinToString(", ")}")
-            }
+            // V5.2: ALWAYS log Treasury rejections at INFO level for debugging
+            // This helps diagnose why Treasury isn't trading
+            ErrorLogger.info(TAG, "💰 TREASURY SKIP: $symbol | ${rejectionReasons.joinToString(", ")}")
             return TreasurySignal(
                 shouldEnter = false,
                 positionSizeSol = 0.0,

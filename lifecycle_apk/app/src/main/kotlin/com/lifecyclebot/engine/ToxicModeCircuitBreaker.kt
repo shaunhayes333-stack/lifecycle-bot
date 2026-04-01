@@ -121,7 +121,8 @@ object ToxicModeCircuitBreaker {
         phase: String,
         memoryScore: Int,
         isAIDegraded: Boolean,
-        confidence: Int
+        confidence: Int,
+        isPaperMode: Boolean = false  // V5.2: Paper mode bypasses liquidity floors
     ): String? {
         
         // 1. Emergency stop
@@ -148,7 +149,13 @@ object ToxicModeCircuitBreaker {
         }
         
         // 4. Liquidity floor check
-        val floor = LIQUIDITY_FLOORS[modeUpper] ?: LIQUIDITY_FLOORS["DEFAULT"]!!
+        // V5.2: Paper mode uses much lower floor for learning
+        val floor = if (isPaperMode) {
+            // Paper mode: $3K floor (same as Treasury minimum)
+            3_000.0
+        } else {
+            LIQUIDITY_FLOORS[modeUpper] ?: LIQUIDITY_FLOORS["DEFAULT"]!!
+        }
         if (liquidityUsd < floor) {
             blockedEntries++
             Log.w(TAG, "🚫 BLOCKED: $mode requires \$${floor.toInt()} liq, got \$${liquidityUsd.toInt()}")
@@ -208,8 +215,9 @@ object ToxicModeCircuitBreaker {
     
     /**
      * Simplified check - just mode and liquidity.
+     * V5.2: Added isPaperMode parameter
      */
-    fun checkEntryAllowed(mode: String, liquidityUsd: Double): String? {
+    fun checkEntryAllowed(mode: String, liquidityUsd: Double, isPaperMode: Boolean = false): String? {
         return checkEntryAllowed(
             mode = mode,
             source = "",
@@ -217,7 +225,8 @@ object ToxicModeCircuitBreaker {
             phase = "",
             memoryScore = 0,
             isAIDegraded = false,
-            confidence = 100
+            confidence = 100,
+            isPaperMode = isPaperMode
         )
     }
     
