@@ -110,9 +110,25 @@ object CollectiveLearning {
             client = TursoClient(dbUrl, authToken)
             Log.i(TAG, "🔧 TursoClient created, testing connection...")
             
-            // Test connection
-            if (!client!!.testConnection()) {
-                Log.e(TAG, "❌ TURSO CONNECTION FAILED - using LOCAL CACHE")
+            // V5.2: Retry connection up to 3 times with exponential backoff
+            var connectionSuccess = false
+            for (attempt in 1..3) {
+                try {
+                    if (client!!.testConnection()) {
+                        connectionSuccess = true
+                        break
+                    }
+                    Log.w(TAG, "⚠️ Connection attempt $attempt/3 failed, retrying...")
+                    if (attempt < 3) {
+                        kotlinx.coroutines.delay(attempt * 1000L)  // 1s, 2s backoff
+                    }
+                } catch (e: Exception) {
+                    Log.e(TAG, "⚠️ Connection attempt $attempt error: ${e.message}")
+                }
+            }
+            
+            if (!connectionSuccess) {
+                Log.e(TAG, "❌ TURSO CONNECTION FAILED after 3 attempts - using LOCAL CACHE")
                 client = null
                 return false
             }
