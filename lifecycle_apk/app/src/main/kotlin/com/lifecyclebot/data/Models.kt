@@ -107,6 +107,20 @@ data class Position(
     val isFullyBuilt get() = buildPhase >= 3 || targetBuildSol <= 0 || costSol >= targetBuildSol * 0.95
     // After capital is recovered, we're playing with house money
     val effectiveRisk get() = if (isHouseMoney) 0.0 else costSol
+
+    /**
+     * Hold time in milliseconds, safe against two failure modes:
+     *   1. entryTime == 0L (default) → would produce ~56-year hold time
+     *   2. clock skew / bad restore → cap at 24 hours (86 400 000 ms)
+     * Returns 0 for both cases so downstream code never records garbage.
+     */
+    val safeHeldMs: Long get() {
+        if (entryTime <= 0L) return 0L
+        val raw = System.currentTimeMillis() - entryTime
+        return if (raw > 86_400_000L) 0L else raw.coerceAtLeast(0L)
+    }
+    val safeHeldSecs: Double  get() = safeHeldMs / 1_000.0
+    val safeHeldMins: Double  get() = safeHeldMs / 60_000.0
 }
 
 data class Trade(

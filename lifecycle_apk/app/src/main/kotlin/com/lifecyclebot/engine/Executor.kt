@@ -1476,7 +1476,7 @@ class Executor(
             pos.lowestPrice = price
         }
         val gainPct  = pct(pos.entryPrice, price)
-        val heldSecs = (System.currentTimeMillis() - pos.entryTime) / 1000.0
+        val heldSecs = pos.safeHeldSecs
 
         // Milestone sounds while holding (50%, 100%, 200%)
         val hitMilestones = milestonesHit.getOrPut(ts.mint) { mutableSetOf() }
@@ -4413,9 +4413,9 @@ class Executor(
             holderCount=ts.history.lastOrNull()?.holderCount?:0,
             holderGrowth=ts.holderGrowthRate, liquidityUsd=ts.lastLiquidityUsd, mcapUsd=ts.lastMcap,
             exitPrice=price, exitPhase=ts.phase, exitReason=reason,
-            heldMins=(System.currentTimeMillis()-ts.position.entryTime)/60_000.0,
+            heldMins=ts.position.safeHeldMins,
             topUpCount=ts.position.topUpCount, partialSold=ts.position.partialSoldPct,
-            solIn=ts.position.costSol, solOut=value, pnlSol=pnl, pnlPct=pnlP, 
+            solIn=ts.position.costSol, solOut=value, pnlSol=pnl, pnlPct=pnlP,
             isWin=dbIsWin,  // null for scratch, true for win, false for loss
             isScratch=isScratchTrade,  // Flag for UI filtering
         ))
@@ -5539,9 +5539,9 @@ class Executor(
             holderCount=ts.history.lastOrNull()?.holderCount?:0,
             holderGrowth=ts.holderGrowthRate, liquidityUsd=ts.lastLiquidityUsd, mcapUsd=ts.lastMcap,
             exitPrice=exitPrice, exitPhase=ts.phase, exitReason=reason,
-            heldMins=(System.currentTimeMillis()-pos.entryTime)/60_000.0,
+            heldMins=pos.safeHeldMins,
             topUpCount=pos.topUpCount, partialSold=pos.partialSoldPct,
-            solIn=pos.costSol, solOut=pnl + pos.costSol, pnlSol=pnl, pnlPct=pnlP, 
+            solIn=pos.costSol, solOut=pnl + pos.costSol, pnlSol=pnl, pnlPct=pnlP,
             isWin=dbIsWinLive,
             isScratch=isScratchTradeLive,
         ))
