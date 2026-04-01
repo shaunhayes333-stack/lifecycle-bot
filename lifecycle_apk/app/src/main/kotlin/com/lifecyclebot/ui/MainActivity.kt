@@ -201,6 +201,20 @@ class MainActivity : AppCompatActivity() {
     private lateinit var tvIdleHeader: TextView         // V5.2: Idle header
     private lateinit var etAddMint: EditText
     private lateinit var btnAddToken: Button
+    
+    // V5.2.8: 30-Day Run Stats views
+    private lateinit var card30DayRun: View
+    private lateinit var tv30DayCounter: TextView
+    private lateinit var tv30DayBalance: TextView
+    private lateinit var tv30DayReturn: TextView
+    private lateinit var tv30DayDrawdown: TextView
+    private lateinit var tv30DayTrades: TextView
+    private lateinit var tv30DayWLS: TextView
+    private lateinit var tv30DayWinRate: TextView
+    private lateinit var tv30DayLearning: TextView
+    private lateinit var tv30DayAccuracy: TextView
+    private lateinit var tv30DayIntegrity: TextView
+    private lateinit var btn30DayExport: TextView
 
     // settings
     private lateinit var etActiveToken: EditText
@@ -694,6 +708,30 @@ for legal compliance.
         tvAiShitCoin = try { findViewById(R.id.tvAiShitCoin) } catch (_: Exception) { TextView(this) }
         tvAiLearning = try { findViewById(R.id.tvAiLearning) } catch (_: Exception) { TextView(this) }
         tvAiLayers = try { findViewById(R.id.tvAiLayers) } catch (_: Exception) { TextView(this) }
+        
+        // V5.2.8: 30-Day Run Stats bindings
+        card30DayRun = try { findViewById(R.id.card30DayRun) } catch (_: Exception) { View(this) }
+        tv30DayCounter = try { findViewById(R.id.tv30DayCounter) } catch (_: Exception) { TextView(this) }
+        tv30DayBalance = try { findViewById(R.id.tv30DayBalance) } catch (_: Exception) { TextView(this) }
+        tv30DayReturn = try { findViewById(R.id.tv30DayReturn) } catch (_: Exception) { TextView(this) }
+        tv30DayDrawdown = try { findViewById(R.id.tv30DayDrawdown) } catch (_: Exception) { TextView(this) }
+        tv30DayTrades = try { findViewById(R.id.tv30DayTrades) } catch (_: Exception) { TextView(this) }
+        tv30DayWLS = try { findViewById(R.id.tv30DayWLS) } catch (_: Exception) { TextView(this) }
+        tv30DayWinRate = try { findViewById(R.id.tv30DayWinRate) } catch (_: Exception) { TextView(this) }
+        tv30DayLearning = try { findViewById(R.id.tv30DayLearning) } catch (_: Exception) { TextView(this) }
+        tv30DayAccuracy = try { findViewById(R.id.tv30DayAccuracy) } catch (_: Exception) { TextView(this) }
+        tv30DayIntegrity = try { findViewById(R.id.tv30DayIntegrity) } catch (_: Exception) { TextView(this) }
+        btn30DayExport = try { findViewById(R.id.btn30DayExport) } catch (_: Exception) { TextView(this) }
+        
+        // V5.2.8: Export button click listener
+        btn30DayExport.setOnClickListener {
+            try {
+                com.lifecyclebot.engine.RunTracker30D.exportAllReports()
+                Toast.makeText(this, "📥 Reports exported to /reports/", Toast.LENGTH_SHORT).show()
+            } catch (e: Exception) {
+                Toast.makeText(this, "Export failed: ${e.message}", Toast.LENGTH_SHORT).show()
+            }
+        }
         
         llTokenList     = findViewById(R.id.llTokenList)
         llProbationList = findViewById(R.id.llProbationList)  // V5.0
@@ -1367,6 +1405,11 @@ for legal compliance.
         // ── V5.2: Tile Stats ─────────────────────────────────
         try {
             updateTileStats()
+        } catch (_: Exception) {}
+        
+        // ── V5.2.8: 30-Day Run Stats ─────────────────────────────────
+        try {
+            update30DayRunStats()
         } catch (_: Exception) {}
 
         // ── safety ────────────────────────────────────────────────────
@@ -2304,6 +2347,77 @@ for legal compliance.
                 else -> 0xFF3B82F6.toInt() // blue
             })
         } catch (_: Exception) { tv25AIsStats?.text = "—" }
+    }
+    
+    /**
+     * V5.2.8: Update 30-Day Run Stats Card
+     * Shows balance, return, drawdown, trades, W/L/S, win rate, learning metrics, and integrity
+     */
+    private fun update30DayRunStats() {
+        val tracker = com.lifecyclebot.engine.RunTracker30D
+        
+        // Show/hide card based on whether run is active
+        if (!tracker.isRunActive()) {
+            card30DayRun.visibility = View.GONE
+            return
+        }
+        card30DayRun.visibility = View.VISIBLE
+        
+        // Day counter
+        val currentDay = tracker.getCurrentDay()
+        tv30DayCounter.text = "Day $currentDay/30"
+        
+        // Balance
+        tv30DayBalance.text = String.format("%.4f SOL", tracker.currentBalance)
+        
+        // Return percentage
+        val returnPct = if (tracker.startBalance > 0) {
+            ((tracker.currentBalance - tracker.startBalance) / tracker.startBalance) * 100
+        } else 0.0
+        val returnSign = if (returnPct >= 0) "+" else ""
+        tv30DayReturn.text = "$returnSign${String.format("%.2f", returnPct)}%"
+        tv30DayReturn.setTextColor(if (returnPct >= 0) green else red)
+        
+        // Max Drawdown
+        val drawdownPct = tracker.maxDrawdown * 100
+        tv30DayDrawdown.text = String.format("%.2f", drawdownPct) + "%"
+        tv30DayDrawdown.setTextColor(if (drawdownPct > -10) amber else red)
+        
+        // Trades count
+        tv30DayTrades.text = tracker.totalTrades.toString()
+        
+        // W/L/S
+        tv30DayWLS.text = "${tracker.wins} / ${tracker.losses} / ${tracker.scratches}"
+        
+        // Win rate
+        val winRate = if (tracker.totalTrades > 0) {
+            (tracker.wins * 100 / tracker.totalTrades)
+        } else 0
+        tv30DayWinRate.text = "$winRate%"
+        tv30DayWinRate.setTextColor(when {
+            winRate >= 60 -> green
+            winRate >= 45 -> amber
+            else -> red
+        })
+        
+        // Intelligence metrics
+        val metrics = tracker.metrics
+        tv30DayLearning.text = String.format("%.1f", metrics.learning) + "%"
+        tv30DayAccuracy.text = String.format("%.1f", metrics.decisionAccuracy) + "%"
+        tv30DayAccuracy.setTextColor(when {
+            metrics.decisionAccuracy >= 60 -> green
+            metrics.decisionAccuracy >= 45 -> amber
+            else -> red
+        })
+        
+        // Integrity score
+        val integrity = tracker.integrityScore()
+        tv30DayIntegrity.text = integrity.toString()
+        tv30DayIntegrity.setTextColor(when {
+            integrity >= 80 -> green
+            integrity >= 60 -> amber
+            else -> red
+        })
     }
 
     private fun renderTrades(trades: List<Trade>) {
