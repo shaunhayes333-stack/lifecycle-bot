@@ -436,9 +436,36 @@ object EducationSubLayerAI {
         } catch (e: Exception) { errors.add("BehaviorAI: ${e.message}") }
         
         // ═══════════════════════════════════════════════════════════════════
-        // PHASE 4: Cross-Layer Learning (Harvard Brain Magic)
+        // PHASE 4: Specialist Layers — notify of trade outcome so they
+        // register as ACTIVE in the neural network status UI.
+        // These layers observe every outcome but apply their own internal logic.
         // ═══════════════════════════════════════════════════════════════════
-        
+
+        val specialistLayers = listOf(
+            "CollectiveIntelligenceAI",
+            "VolatilityRegimeAI",
+            "OrderFlowImbalanceAI",
+            "SmartMoneyDivergenceAI",
+            "LiquidityCycleAI",
+            "FearGreedAI",
+            "DipHunterAI",
+            "SellOptimizationAI",
+            "CashGenerationAI",
+            "ShitCoinTraderAI",
+            "BlueChipTraderAI",
+            "MoonshotTraderAI",
+        )
+        specialistLayers.forEach { layerName ->
+            try {
+                markLayerUpdated(layerName, outcome.isWin)
+                layersUpdated++
+            } catch (e: Exception) { errors.add("$layerName: ${e.message}") }
+        }
+
+        // ═══════════════════════════════════════════════════════════════════
+        // PHASE 5: Cross-Layer Learning (Harvard Brain Magic)
+        // ═══════════════════════════════════════════════════════════════════
+
         // Analyze which layer combinations predicted this outcome correctly
         analyzeLayerCorrelations(outcome)
         
