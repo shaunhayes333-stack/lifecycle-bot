@@ -860,8 +860,8 @@ class SolanaMarketScanner(
     // ═══════════════════════════════════════════════════════════════════════
     private val cooldownHitCount = ConcurrentHashMap<String, Int>()
     private val saturatedMints = ConcurrentHashMap<String, Long>()
-    private const val MAX_COOLDOWN_HITS = 5       // After 5 cooldown hits, suppress
-    private const val SATURATION_TTL = 120_000L   // Suppress for 2 minutes
+    private val MAX_COOLDOWN_HITS = 5       // After 5 cooldown hits, suppress
+    private val SATURATION_TTL = 120_000L   // Suppress for 2 minutes
     
     // ═══════════════════════════════════════════════════════════════════════
     // V5.2 FIX: THROUGHPUT TELEMETRY - Track pipeline health metrics
