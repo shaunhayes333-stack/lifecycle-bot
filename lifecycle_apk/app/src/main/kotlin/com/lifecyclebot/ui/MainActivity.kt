@@ -1986,7 +1986,7 @@ for legal compliance.
             } catch (_: Exception) { pos.entryPrice }
             
             val pnlPct = if (pos.entryPrice > 0) ((currentPrice - pos.entryPrice) / pos.entryPrice * 100) else 0.0
-            val holdMins = (System.currentTimeMillis() - pos.entryTime) / 60000
+            val holdMins = pos.safeHeldMins.toLong()
             
             val row = LinearLayout(this).apply {
                 orientation = LinearLayout.HORIZONTAL
@@ -2033,7 +2033,7 @@ for legal compliance.
             
             // Hold time
             val tvHold = TextView(this).apply {
-                text = "${holdMins}m"
+                text = if (holdMins >= 60) "${holdMins / 60}h ${holdMins % 60}m" else "${holdMins}m"
                 setTextColor(0xFF6B7280.toInt())
                 textSize = 10f
                 typeface = android.graphics.Typeface.create("monospace", android.graphics.Typeface.NORMAL)

@@ -2716,12 +2716,14 @@ class BotService : Service() {
             val recentPrice = recentCandles.lastOrNull()?.priceUsd ?: 0.0
             val olderPrice = olderCandles.firstOrNull()?.priceUsd ?: recentPrice
             
-            // Detect potential rug: >50% price drop or liquidity collapse
+            // Detect potential rug: >50% price drop (liqDropPct kept for logging only;
+            // olderLiq is estimated from marketCap*0.1 which is not comparable to real
+            // pool liquidity, so using it as a trigger causes false-positive blacklists)
             if (olderPrice > 0 && recentPrice > 0) {
                 val priceDropPct = ((olderPrice - recentPrice) / olderPrice) * 100
                 val liqDropPct = if (olderLiq > 0) ((olderLiq - recentLiq) / olderLiq) * 100 else 0.0
-                
-                if (priceDropPct >= 50 || liqDropPct >= 70) {
+
+                if (priceDropPct >= 50) {
                     val ageHours = (System.currentTimeMillis() - (ts.addedToWatchlistAt)) / 3_600_000.0
                     val volumeSpike = recentCandles.sumOf { it.vol } > olderCandles.sumOf { it.vol } * 2
                     

@@ -365,7 +365,7 @@ class WalletActivity : AppCompatActivity() {
         // Withdraw card — always updated regardless of connection state
         val treasury  = com.lifecyclebot.engine.TreasuryManager.treasurySol
         val solPx     = com.lifecyclebot.engine.WalletManager.lastKnownSolPrice
-        val tradeable = (ws.solBalance - 0.05 - treasury).coerceAtLeast(0.0)
+        val tradeable = (ws.solBalance - 0.05 - treasury).let { if (it.isFinite()) it.coerceAtLeast(0.0) else 0.0 }
         tvWithdrawTreasuryBal.text = "${"%.4f".format(treasury)}◎"
         tvWithdrawTradeable.text   = "${"%.4f".format(tradeable)}◎"
         // Refresh SOL amount label when balance updates

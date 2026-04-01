@@ -360,9 +360,9 @@ class BehaviorActivity : AppCompatActivity() {
             val diagnostics = EducationSubLayerAI.runDiagnostics()
             val activeLayers = diagnostics.count { it.value }
             val dormantLayers = diagnostics.count { !it.value }
-            
-            tvActiveLayers.text = "$activeLayers"
-            tvDormantLayers.text = "$dormantLayers"
+
+            tvActiveLayers.text = if (diagnostics.isEmpty()) "--" else "$activeLayers"
+            tvDormantLayers.text = if (diagnostics.isEmpty()) "--" else "$dormantLayers"
             
             // Update brain network view with Mega Brain data
             brainNetworkView.updateLayerStatus(diagnostics)

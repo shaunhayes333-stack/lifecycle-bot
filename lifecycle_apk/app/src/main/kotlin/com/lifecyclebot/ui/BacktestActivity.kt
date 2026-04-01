@@ -244,7 +244,7 @@ class BacktestActivity : AppCompatActivity() {
 
     private fun displayResults(r: BacktestResult, symbol: String,
                                 candleCount: Int, tf: String, posSol: Double) {
-        val solPrice = 130.0  // approximate
+        val solPrice = com.lifecyclebot.engine.WalletManager.lastKnownSolPrice.takeIf { it > 0 } ?: 130.0
 
         cardBtSummary.visibility = View.VISIBLE
         tvSummary.text = buildString {
