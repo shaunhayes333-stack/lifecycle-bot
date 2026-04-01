@@ -712,6 +712,10 @@
                     <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
                         android:text="AI Brain" android:textColor="#9945FF" android:textSize="9sp"
                         android:layout_marginTop="2dp"/>
+                    <TextView android:id="@+id/tvAiBrainStats"
+                        android:layout_width="wrap_content" android:layout_height="wrap_content"
+                        android:text="0/0" android:textColor="#888888" android:textSize="8sp"
+                        android:layout_marginTop="1dp"/>
                 </LinearLayout>
 
                 <!-- Shadow Learning -->
@@ -732,6 +736,10 @@
                     <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
                         android:text="Shadow" android:textColor="#6366F1" android:textSize="9sp"
                         android:layout_marginTop="2dp"/>
+                    <TextView android:id="@+id/tvShadowStats"
+                        android:layout_width="wrap_content" android:layout_height="wrap_content"
+                        android:text="0/0" android:textColor="#888888" android:textSize="8sp"
+                        android:layout_marginTop="1dp"/>
                 </LinearLayout>
 
                 <!-- Market Regimes -->
@@ -752,6 +760,10 @@
                     <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
                         android:text="Regimes" android:textColor="#10B981" android:textSize="9sp"
                         android:layout_marginTop="2dp"/>
+                    <TextView android:id="@+id/tvRegimesStats"
+                        android:layout_width="wrap_content" android:layout_height="wrap_content"
+                        android:text="—" android:textColor="#888888" android:textSize="8sp"
+                        android:layout_marginTop="1dp"/>
                 </LinearLayout>
 
                 <!-- AI Layers -->
@@ -771,6 +783,10 @@
                     <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
                         android:text="25 AIs" android:textColor="#F59E0B" android:textSize="9sp"
                         android:layout_marginTop="2dp"/>
+                    <TextView android:id="@+id/tv25AIsStats"
+                        android:layout_width="wrap_content" android:layout_height="wrap_content"
+                        android:text="0%" android:textColor="#888888" android:textSize="8sp"
+                        android:layout_marginTop="1dp"/>
                 </LinearLayout>
             </LinearLayout>
 

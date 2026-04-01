@@ -664,7 +664,10 @@ for legal compliance.
         tvBlueChipStats = try { findViewById(R.id.tvBlueChipStats) } catch (_: Exception) { TextView(this) }
         tvShitCoinStats = try { findViewById(R.id.tvShitCoinStats) } catch (_: Exception) { TextView(this) }
         tvMoonshotStats = try { findViewById(R.id.tvMoonshotStats) } catch (_: Exception) { TextView(this) }
-        // Note: tvAiBrainStats, tvShadowStats, tvRegimesStats, tv25AIsStats not in XML - skip init
+        tvAiBrainStats = try { findViewById(R.id.tvAiBrainStats) } catch (_: Exception) { null }
+        tvShadowStats = try { findViewById(R.id.tvShadowStats) } catch (_: Exception) { null }
+        tvRegimesStats = try { findViewById(R.id.tvRegimesStats) } catch (_: Exception) { null }
+        tv25AIsStats = try { findViewById(R.id.tv25AIsStats) } catch (_: Exception) { null }
         
         // V5.2: Side-by-side Treasury + Moonshot
         rowTreasuryMoonshot = try { findViewById(R.id.rowTreasuryMoonshot) } catch (_: Exception) { android.view.View(this) }
