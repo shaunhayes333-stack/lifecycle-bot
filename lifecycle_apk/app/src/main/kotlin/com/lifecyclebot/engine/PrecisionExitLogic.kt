@@ -42,6 +42,12 @@ object PrecisionExitLogic {
         CRITICAL,   // INSTANT exit (rug detected)
     }
     
+    // V5.2 FIX: MINIMUM HOLD TIME PROTECTION
+    // Prevents instant scratching of trades - gives HoldTimeAI time to learn
+    // Only FAST_RUG can bypass this (truly catastrophic - >8% in <10s)
+    private const val MIN_HOLD_TIME_MS = 30_000L  // 30 seconds minimum
+    private const val MIN_HOLD_TIME_FOR_STOP_LOSS_MS = 60_000L  // 60s before stop loss active
+    
     /**
      * Evaluate all exit conditions and return recommendation
      */
@@ -57,7 +63,19 @@ object PrecisionExitLogic {
         val pnlPct = if (entryPrice > 0) ((currentPrice - entryPrice) / entryPrice) * 100 else 0.0
         
         // ════════════════════════════════════════════════════════════════
-        // 1. FAST RUG DETECTION (CRITICAL)
+        // V5.2 FIX: MINIMUM HOLD TIME - Calculate early for all checks
+        // ════════════════════════════════════════════════════════════════
+        val holdTimeMs = if (ts.position.entryTime > 0) {
+            System.currentTimeMillis() - ts.position.entryTime
+        } else {
+            0L
+        }
+        val isInMinHoldPeriod = holdTimeMs < MIN_HOLD_TIME_MS
+        val isInStopLossProtectionPeriod = holdTimeMs < MIN_HOLD_TIME_FOR_STOP_LOSS_MS
+        
+        // ════════════════════════════════════════════════════════════════
+        // 1. FAST RUG DETECTION (CRITICAL) - ONLY exit that bypasses hold time
+        // This is a true emergency - token is rugging hard and fast
         // ════════════════════════════════════════════════════════════════
         if (TradeStateMachine.checkFastRug(ts.mint, currentPrice)) {
             return ExitSignal(
@@ -69,15 +87,42 @@ object PrecisionExitLogic {
         }
         
         // ════════════════════════════════════════════════════════════════
-        // 2. STOP LOSS CHECK
+        // V5.2 FIX: MINIMUM HOLD TIME PROTECTION
+        // Don't exit within first 30s unless it's a rug (handled above)
+        // This gives HoldTimeAI time to actually test strategies
+        // ════════════════════════════════════════════════════════════════
+        if (isInMinHoldPeriod) {
+            // During min hold period, only exit for CATASTROPHIC losses (>10%)
+            if (pnlPct <= -10.0) {
+                return ExitSignal(
+                    shouldExit = true,
+                    reason = "CATASTROPHIC_LOSS",
+                    urgency = Urgency.CRITICAL,
+                    details = "PnL ${pnlPct.toInt()}% - emergency exit (min hold bypass)"
+                )
+            }
+            // Otherwise, HOLD during minimum period - give trade time to breathe
+            return ExitSignal(false, "MIN_HOLD", Urgency.NONE, "Hold period: ${holdTimeMs/1000}s/${MIN_HOLD_TIME_MS/1000}s")
+        }
+        
+        // ════════════════════════════════════════════════════════════════
+        // 2. STOP LOSS CHECK (with protection period)
+        // V5.2 FIX: Require 60s before stop loss activates
+        // Meme coins often wick down -3% to -5% then recover
         // ════════════════════════════════════════════════════════════════
         if (pnlPct <= -stopLossPct) {
-            return ExitSignal(
-                shouldExit = true,
-                reason = "STOP_LOSS",
-                urgency = Urgency.HIGH,
-                details = "PnL ${pnlPct.toInt()}% hit stop loss -${stopLossPct.toInt()}%"
-            )
+            // Before 60s, only trigger stop loss on severe losses (>8%)
+            if (isInStopLossProtectionPeriod && pnlPct > -8.0) {
+                // Skip regular stop loss - still in protection period
+                // Will continue to other checks, but likely return HOLD
+            } else {
+                return ExitSignal(
+                    shouldExit = true,
+                    reason = "STOP_LOSS",
+                    urgency = Urgency.HIGH,
+                    details = "PnL ${pnlPct.toInt()}% hit stop loss -${stopLossPct.toInt()}%"
+                )
+            }
         }
         
         // Need history for remaining checks

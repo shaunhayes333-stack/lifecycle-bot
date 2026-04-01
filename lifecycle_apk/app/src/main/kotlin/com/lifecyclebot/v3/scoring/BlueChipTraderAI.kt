@@ -248,6 +248,20 @@ object BlueChipTraderAI {
     fun closePosition(mint: String, exitPrice: Double, exitReason: ExitSignal) {
         val pos = synchronized(activePositions) { activePositions.remove(mint) } ?: return
         
+        // ═══════════════════════════════════════════════════════════════════
+        // V5.2 FIX: RELEASE TRADE AUTHORIZER LOCK
+        // This allows the token to be re-entered or graduated to another layer
+        // ═══════════════════════════════════════════════════════════════════
+        try {
+            com.lifecyclebot.engine.TradeAuthorizer.releasePosition(
+                mint = mint,
+                reason = "BLUECHIP_${exitReason.name}",
+                book = com.lifecyclebot.engine.TradeAuthorizer.ExecutionBook.BLUECHIP
+            )
+        } catch (e: Exception) {
+            com.lifecyclebot.engine.ErrorLogger.debug(TAG, "Failed to release BlueChip lock: ${e.message}")
+        }
+        
         val pnlPct = (exitPrice - pos.entryPrice) / pos.entryPrice * 100
         val pnlSol = pos.entrySol * pnlPct / 100
         

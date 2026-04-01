@@ -4052,6 +4052,22 @@ class Executor(
         } catch (e: Exception) {
             ErrorLogger.error("Executor", "Error closing layer positions: ${e.message}")
         }
+        
+        // ═══════════════════════════════════════════════════════════════════
+        // V5.2 FIX: RELEASE CORE BOOK LOCK
+        // This allows the token to be re-entered or graduated to another layer
+        // The CORE book is for main V3 execution
+        // ═══════════════════════════════════════════════════════════════════
+        try {
+            TradeAuthorizer.releasePosition(
+                mint = ts.mint,
+                reason = "SELL_$reason",
+                book = TradeAuthorizer.ExecutionBook.CORE
+            )
+            ErrorLogger.debug("Executor", "🔓 CORE LOCK RELEASED: ${ts.symbol}")
+        } catch (e: Exception) {
+            ErrorLogger.debug("Executor", "Failed to release CORE lock: ${e.message}")
+        }
 
         // ═══════════════════════════════════════════════════════════════════
         // TRADE OUTCOME CLASSIFICATION (TIGHTENED)
@@ -5645,6 +5661,49 @@ class Executor(
         ts.lastExitPrice    = exitPrice
         ts.lastExitPnlPct   = pnlP
         ts.lastExitWasWin   = pnl > 0
+        
+        // ═══════════════════════════════════════════════════════════════════
+        // V5.2 FIX: Close ALL layer-specific positions and release locks (LIVE)
+        // Same cleanup as paperSell to ensure consistent state
+        // ═══════════════════════════════════════════════════════════════════
+        try {
+            val isWin = pnl > 0
+            
+            // Close Treasury position if exists
+            val treasurySignal = if (isWin) {
+                com.lifecyclebot.v3.scoring.CashGenerationAI.ExitSignal.TAKE_PROFIT
+            } else {
+                com.lifecyclebot.v3.scoring.CashGenerationAI.ExitSignal.STOP_LOSS
+            }
+            com.lifecyclebot.v3.scoring.CashGenerationAI.closePosition(tradeId.mint, exitPrice, treasurySignal)
+            
+            // Close ShitCoin position if exists
+            val shitcoinSignal = if (isWin) {
+                com.lifecyclebot.v3.scoring.ShitCoinTraderAI.ExitSignal.TAKE_PROFIT
+            } else {
+                com.lifecyclebot.v3.scoring.ShitCoinTraderAI.ExitSignal.STOP_LOSS
+            }
+            com.lifecyclebot.v3.scoring.ShitCoinTraderAI.closePosition(tradeId.mint, exitPrice, shitcoinSignal)
+            
+            // Close BlueChip position if exists
+            val bluechipSignal = if (isWin) {
+                com.lifecyclebot.v3.scoring.BlueChipTraderAI.ExitSignal.TAKE_PROFIT
+            } else {
+                com.lifecyclebot.v3.scoring.BlueChipTraderAI.ExitSignal.STOP_LOSS
+            }
+            com.lifecyclebot.v3.scoring.BlueChipTraderAI.closePosition(tradeId.mint, exitPrice, bluechipSignal)
+            
+            // Release CORE book lock
+            TradeAuthorizer.releasePosition(
+                mint = tradeId.mint,
+                reason = "SELL_$reason",
+                book = TradeAuthorizer.ExecutionBook.CORE
+            )
+            
+            ErrorLogger.debug("Executor", "🔓 LIVE SELL: Released all locks for ${ts.symbol}")
+        } catch (e: Exception) {
+            ErrorLogger.debug("Executor", "Error releasing locks in liveSell: ${e.message}")
+        }
     }
 
     // ── Close all positions (for bot shutdown) ────────────────────────

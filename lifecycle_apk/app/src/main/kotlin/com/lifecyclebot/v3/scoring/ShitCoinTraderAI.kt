@@ -343,6 +343,20 @@ object ShitCoinTraderAI {
         // V4.1.3: Stop rug monitoring
         UltraFastRugDetectorAI.stopMonitoring(mint)
         
+        // ═══════════════════════════════════════════════════════════════════
+        // V5.2 FIX: RELEASE TRADE AUTHORIZER LOCK
+        // This allows the token to be re-entered or promoted to another layer
+        // ═══════════════════════════════════════════════════════════════════
+        try {
+            com.lifecyclebot.engine.TradeAuthorizer.releasePosition(
+                mint = mint,
+                reason = "SHITCOIN_${exitReason.name}",
+                book = com.lifecyclebot.engine.TradeAuthorizer.ExecutionBook.SHITCOIN
+            )
+        } catch (e: Exception) {
+            com.lifecyclebot.engine.ErrorLogger.debug(TAG, "Failed to release ShitCoin lock: ${e.message}")
+        }
+        
         val pnlPct = (exitPrice - pos.entryPrice) / pos.entryPrice * 100
         val pnlSol = pos.entrySol * pnlPct / 100
         

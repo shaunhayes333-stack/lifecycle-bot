@@ -808,9 +808,27 @@ object CashGenerationAI {
      * Close a treasury position and record P&L.
      * Profits are added to the mode-specific treasury balance.
      * V4.0: Treasury trades now contribute to FluidLearningAI maturity!
+     * V5.2: Now releases TradeAuthorizer lock to allow promotions/re-entries
      */
     fun closePosition(mint: String, exitPrice: Double, exitReason: ExitSignal) {
         val pos = synchronized(activePositions) { activePositions.remove(mint) } ?: return
+        
+        // ═══════════════════════════════════════════════════════════════════
+        // V5.2 FIX: RELEASE TRADE AUTHORIZER LOCK
+        // This is CRITICAL for promotions - Treasury → Moonshot/ShitCoin
+        // Without this, token gets "ALREADY_OPEN_IN_TREASURY" when trying to
+        // enter the promoted layer, even though Treasury just closed it
+        // ═══════════════════════════════════════════════════════════════════
+        try {
+            com.lifecyclebot.engine.TradeAuthorizer.releasePosition(
+                mint = mint,
+                reason = "TREASURY_${exitReason.name}",
+                book = com.lifecyclebot.engine.TradeAuthorizer.ExecutionBook.TREASURY
+            )
+            ErrorLogger.debug(TAG, "💰🔓 TREASURY LOCK RELEASED: ${pos.symbol} | reason=$exitReason")
+        } catch (e: Exception) {
+            ErrorLogger.warn(TAG, "💰⚠️ Failed to release Treasury lock for ${pos.symbol}: ${e.message}")
+        }
         
         val pnlPct = (exitPrice - pos.entryPrice) / pos.entryPrice * 100
         val pnlSol = pos.entrySol * pnlPct / 100

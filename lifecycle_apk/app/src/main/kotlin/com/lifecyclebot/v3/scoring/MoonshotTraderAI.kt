@@ -609,6 +609,20 @@ object MoonshotTraderAI {
             targetMap.remove(mint)
         }
         
+        // ═══════════════════════════════════════════════════════════════════
+        // V5.2 FIX: RELEASE TRADE AUTHORIZER LOCK
+        // This allows the token to be re-entered or promoted to another layer
+        // ═══════════════════════════════════════════════════════════════════
+        try {
+            com.lifecyclebot.engine.TradeAuthorizer.releasePosition(
+                mint = mint,
+                reason = "MOONSHOT_${exitReason.name}",
+                book = com.lifecyclebot.engine.TradeAuthorizer.ExecutionBook.MOONSHOT
+            )
+        } catch (e: Exception) {
+            com.lifecyclebot.engine.ErrorLogger.debug(TAG, "Failed to release Moonshot lock: ${e.message}")
+        }
+        
         val pnlPct = (exitPrice - pos.entryPrice) / pos.entryPrice * 100
         val pnlSol = pos.entrySol * (pnlPct / 100)
         val isWin = pnlPct > 0
