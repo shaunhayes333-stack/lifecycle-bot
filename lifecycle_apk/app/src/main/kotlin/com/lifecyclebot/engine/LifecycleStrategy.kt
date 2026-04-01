@@ -2951,65 +2951,52 @@ class LifecycleStrategy(
 
         // ═══════════════════════════════════════════════════════════════════
         // TradingMemory - Apply learned pattern penalties
-        // PAPER MODE: Minimal penalties - learn from everything
+        // V5.2 FIX: PAPER MODE: NO PENALTIES - learn from everything freely
         // REAL MODE: Apply learned penalties to minimize risk
         // ═══════════════════════════════════════════════════════════════════
         val isPaperMode = cfg().paperMode
         
-        val memoryPatternPenalty = TradingMemory.getPatternPenalty(
-            phase = phase,
-            emaFan = emafan.alignment.name,
-            source = ts.source.ifBlank { "UNKNOWN" },
-        )
-        if (memoryPatternPenalty > 0) {
-            val actualPenalty = if (isPaperMode) {
-                // PAPER MODE: Minimal penalty - we want to trade to learn
-                (memoryPatternPenalty / 4.0).coerceAtMost(5.0)
-            } else {
-                // REAL MODE: Apply learned penalty
-                (memoryPatternPenalty / 2.0).coerceAtMost(15.0)
+        // V5.2: Skip ALL TradingMemory penalties in Paper Mode
+        // Paper trading is for exploration - let it trade without restrictions
+        if (!isPaperMode) {
+            val memoryPatternPenalty = TradingMemory.getPatternPenalty(
+                phase = phase,
+                emaFan = emafan.alignment.name,
+                source = ts.source.ifBlank { "UNKNOWN" },
+            )
+            if (memoryPatternPenalty > 0) {
+                val actualPenalty = (memoryPatternPenalty / 2.0).coerceAtMost(15.0)
+                adjustedEntryScore -= actualPenalty
+                ErrorLogger.debug("AI", "🤖 PENALTY: ${ts.symbol} -${actualPenalty.toInt()} pts (real)")
             }
-            adjustedEntryScore -= actualPenalty
-            ErrorLogger.debug("AI", "🤖 PENALTY: ${ts.symbol} -${actualPenalty.toInt()} pts (${if (isPaperMode) "paper" else "real"})")
-        }
-        
-        // Check if this token was a loser before
-        val tokenHistory = TradingMemory.getTokenLossHistory(ts.mint)
-        val lossBlockThreshold = if (isPaperMode) 5 else 3  // Paper mode: more tolerance
-        if (tokenHistory != null && tokenHistory.lossCount >= lossBlockThreshold) {
-            // In paper mode, still log but don't block as aggressively
-            if (!isPaperMode) {
+            
+            // Check if this token was a loser before (LIVE ONLY)
+            val tokenHistory = TradingMemory.getTokenLossHistory(ts.mint)
+            if (tokenHistory != null && tokenHistory.lossCount >= 3) {
                 ErrorLogger.info("AI", "🤖 BLOCK: ${ts.symbol} - ${tokenHistory.lossCount} prior losses")
                 return "WAIT"
-            } else {
-                ErrorLogger.debug("AI", "🤖 PAPER NOTE: ${ts.symbol} - ${tokenHistory.lossCount} losses (would block in real)")
             }
-        }
-        
-        // Check token risk score
-        val riskScore = TradingMemory.getTokenRiskScore(
-            liquidity = ts.lastLiquidityUsd,
-            mcap = ts.lastMcap,
-            holderConcentration = 0.0,
-            devHoldingPct = 0.0,
-            ageHours = tokenAgeMins / 60.0,
-            hadSocials = false,
-            isPumpFun = ts.source.contains("pump", ignoreCase = true),
-            volumeToLiqRatio = if (ts.lastLiquidityUsd > 0) hist.lastOrNull()?.vol?.div(ts.lastLiquidityUsd) ?: 0.0 else 0.0,
-        )
-        
-        val riskThreshold = if (isPaperMode) 90 else 80  // Paper: more risk tolerance
-        if (riskScore >= riskThreshold) {
-            val penalty = if (isPaperMode) {
-                (riskScore - 80) / 5  // Smaller penalty in paper mode
-            } else {
-                (riskScore - 70) / 3
+            
+            // Check token risk score (LIVE ONLY)
+            val riskScore = TradingMemory.getTokenRiskScore(
+                liquidity = ts.lastLiquidityUsd,
+                mcap = ts.lastMcap,
+                holderConcentration = 0.0,
+                devHoldingPct = 0.0,
+                ageHours = tokenAgeMins / 60.0,
+                hadSocials = false,
+                isPumpFun = ts.source.contains("pump", ignoreCase = true),
+                volumeToLiqRatio = if (ts.lastLiquidityUsd > 0) hist.lastOrNull()?.vol?.div(ts.lastLiquidityUsd) ?: 0.0 else 0.0,
+            )
+            
+            if (riskScore >= 80) {
+                val penalty = (riskScore - 70) / 3
+                adjustedEntryScore -= penalty
+                ErrorLogger.debug("AI", "🤖 RISK: ${ts.symbol} score=$riskScore -$penalty pts")
             }
-            adjustedEntryScore -= penalty
-            ErrorLogger.debug("AI", "🤖 RISK: ${ts.symbol} score=$riskScore -$penalty pts")
         }
 
-        // Phase blocks - PAPER MODE blocks less
+        // Phase blocks - PAPER MODE blocks NOTHING except rugs
         val phaseBlockList = if (isPaperMode) {
             listOf("rug_likely")  // Only block obvious rugs in paper mode
         } else {
