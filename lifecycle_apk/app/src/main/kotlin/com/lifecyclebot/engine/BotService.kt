@@ -1611,7 +1611,9 @@ class BotService : Service() {
             // ═══════════════════════════════════════════════════════════════════
             // V4.0: Clear FinalExecutionPermit state at start of each cycle
             // This allows tokens to be re-evaluated fresh each loop
+            // V5.2.6: Set paper mode flag for bypass logic
             // ═══════════════════════════════════════════════════════════════════
+            FinalExecutionPermit.isPaperMode = cfg.paperMode
             FinalExecutionPermit.clearCycleState()
             
             // ═══════════════════════════════════════════════════════════════════
@@ -4377,14 +4379,15 @@ class BotService : Service() {
     // HARD GATE 2: Block C-grade + low confidence
     // V4.20: Lowered all floors by 8 points
     // V4.0: Use FLUID threshold instead of hardcoded 35%
-    // At 12% learning, floor should be ~10% not 18%
+    // V5.2.6: LOWERED to allow C-grade trades through for learning
     // ───────────────────────────────────────────────────────────────────
     val isCGrade = decision.setupQuality == "C" || decision.setupQuality == "D"
     val fluidCGradeConfFloor = try {
         val learningProgress = com.lifecyclebot.v3.scoring.FluidLearningAI.getLearningProgress()
-        // V5.2: 5% at bootstrap → 12.5% at mature (lowered from 7→20 to allow more C-grade trades)
-        (5 + (learningProgress * 7.5)).toInt().coerceIn(5, 12)
-    } catch (_: Exception) { 8 }
+        // V5.2.6: 0% at bootstrap → 5% at mature (dramatically lowered to let C-grades through)
+        // Paper mode needs to see C-grade outcomes to learn what works
+        (0 + (learningProgress * 5.0)).toInt().coerceIn(0, 5)
+    } catch (_: Exception) { 0 }
     
     if (isCGrade && confValue < fluidCGradeConfFloor) {
         ErrorLogger.info("BotService", "[V3|PROMOTION_GATE] ${identity.symbol} | allow=false | " +
@@ -5507,6 +5510,15 @@ class BotService : Service() {
         } catch (e: Exception) {
             failCount++
             ErrorLogger.error("BotService", "BlueChipTraderAI init FAILED: ${e.message}", e)
+        }
+        
+        // V5.2.6: Moonshot Trader - was missing!
+        try {
+            com.lifecyclebot.v3.scoring.MoonshotTraderAI.initialize(cfg.paperMode)
+            initCount++
+        } catch (e: Exception) {
+            failCount++
+            ErrorLogger.error("BotService", "MoonshotTraderAI init FAILED: ${e.message}", e)
         }
         
         // Fluid Learning AI

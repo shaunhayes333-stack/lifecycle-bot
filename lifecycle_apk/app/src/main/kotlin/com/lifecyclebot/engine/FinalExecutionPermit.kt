@@ -47,6 +47,9 @@ object FinalExecutionPermit {
     // Per-token cooldown after execution attempt (ms)
     private const val EXECUTION_COOLDOWN_MS = 15_000L  // V5.2: Reduced from 30s to 15s
     
+    // V5.2.6: Paper mode flag - when true, bypass V3 rejection blocks for learning
+    @Volatile var isPaperMode: Boolean = true
+    
     data class RejectionRecord(
         val mint: String,
         val symbol: String,
@@ -169,6 +172,25 @@ object FinalExecutionPermit {
         hasOpenPosition: Boolean,
     ): PermitResult {
         val now = System.currentTimeMillis()
+        
+        // V5.2.6: PAPER MODE BYPASS - Allow all layers to trade independently
+        // This is critical for learning - each layer needs its own trade data
+        if (isPaperMode) {
+            // In paper mode, only block if position is already open
+            if (hasOpenPosition) {
+                return PermitResult(
+                    allowed = false,
+                    reason = "POSITION_OPEN: Already have open position",
+                    blockingLayer = "POSITION",
+                )
+            }
+            // Allow all other trades for learning
+            return PermitResult(
+                allowed = true,
+                reason = "PAPER_MODE_BYPASS",
+                blockingLayer = null,
+            )
+        }
         
         // Rule 1: Check V3 rejection
         val rejection = v3Rejections[mint]
