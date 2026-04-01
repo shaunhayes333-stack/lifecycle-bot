@@ -4872,6 +4872,59 @@ class Executor(
                 isWin = pnlP > 2.0,
             )
         }
+        
+        // ═══════════════════════════════════════════════════════════════════
+        // V5.2 FIX: HARVARD BRAIN EDUCATION - Dispatch outcome to ALL AI layers
+        // This activates the 25+ AI layers and tracks their learning progress
+        // Without this call, AI Brain shows 0 ACTIVE / 25 DORMANT
+        // ═══════════════════════════════════════════════════════════════════
+        try {
+            val setupQualityStr = when (tradeClassification) {
+                "RUNNER" -> "EXCELLENT"
+                "BIG_WIN" -> "EXCELLENT"
+                "WIN" -> "GOOD"
+                "SCRATCH" -> "NEUTRAL"
+                "LOSS" -> "POOR"
+                "BAD" -> "BAD"
+                else -> "NEUTRAL"
+            }
+            
+            val outcomeData = com.lifecyclebot.v3.scoring.EducationSubLayerAI.TradeOutcomeData(
+                mint = tradeId.mint,
+                symbol = ts.symbol,
+                tokenName = ts.name,
+                pnlPct = pnlP,
+                holdTimeMinutes = holdMinutes,
+                exitReason = reason,
+                entryPhase = ts.position.entryPhase.ifEmpty { "UNKNOWN" },
+                tradingMode = ts.position.tradingMode.ifEmpty { "STANDARD" },
+                discoverySource = ts.source.ifEmpty { "UNKNOWN" },
+                setupQuality = setupQualityStr,
+                entryMcapUsd = ts.position.entryLiquidityUsd * 2, // Approx mcap
+                exitMcapUsd = ts.lastMcap,
+                tokenAgeMinutes = ((System.currentTimeMillis() - ts.createdAt) / 60000.0),
+                buyRatioPct = ts.history.lastOrNull()?.buyRatio?.times(100) ?: 50.0,
+                volumeUsd = ts.lastVolume24H,
+                liquidityUsd = ts.lastLiquidityUsd,
+                holderCount = ts.holderCount,
+                topHolderPct = ts.topHolderPct,
+                holderGrowthRate = ts.holderGrowthRate,
+                devWalletPct = ts.devWalletPct,
+                bondingCurveProgress = ts.bondingCurve,
+                rugcheckScore = ts.rugcheckScore,
+                emaFanState = ts.meta.emafanAlignment.ifEmpty { "UNKNOWN" },
+                entryScore = ts.entryScore,
+                priceFromAth = if (ts.athPrice > 0) ((ts.lastPrice - ts.athPrice) / ts.athPrice * 100) else 0.0,
+                maxGainPct = peakPnlPct,
+                maxDrawdownPct = ts.position.maxDrawdown,
+                timeToPeakMins = ts.position.timeToPeakMs / 60000.0,
+            )
+            
+            com.lifecyclebot.v3.scoring.EducationSubLayerAI.recordTradeOutcomeAcrossAllLayers(outcomeData)
+            ErrorLogger.info("Executor", "🎓 HARVARD BRAIN: Recorded outcome for ${ts.symbol} | PnL=${pnlP.toInt()}% | Active layers will increase")
+        } catch (e: Exception) {
+            ErrorLogger.warn("Executor", "🎓 Harvard Brain recording failed: ${e.message}")
+        }
     }
 
     private fun liveSell(ts: TokenState, reason: String,
@@ -5703,6 +5756,72 @@ class Executor(
             ErrorLogger.debug("Executor", "🔓 LIVE SELL: Released all locks for ${ts.symbol}")
         } catch (e: Exception) {
             ErrorLogger.debug("Executor", "Error releasing locks in liveSell: ${e.message}")
+        }
+        
+        // ═══════════════════════════════════════════════════════════════════
+        // V5.2 FIX: HARVARD BRAIN EDUCATION - Dispatch outcome to ALL AI layers
+        // This activates the 25+ AI layers and tracks their learning progress
+        // ═══════════════════════════════════════════════════════════════════
+        try {
+            val tradeClassification = when {
+                pnlP >= 50.0 -> "RUNNER"
+                pnlP >= 15.0 -> "BIG_WIN"
+                pnlP >= 2.0 -> "WIN"
+                pnlP >= -2.0 -> "SCRATCH"
+                pnlP >= -10.0 -> "LOSS"
+                else -> "BAD"
+            }
+            
+            val setupQualityStr = when (tradeClassification) {
+                "RUNNER" -> "EXCELLENT"
+                "BIG_WIN" -> "EXCELLENT"
+                "WIN" -> "GOOD"
+                "SCRATCH" -> "NEUTRAL"
+                "LOSS" -> "POOR"
+                "BAD" -> "BAD"
+                else -> "NEUTRAL"
+            }
+            
+            val holdMinutes = (System.currentTimeMillis() - pos.entryTime) / 60000.0
+            val peakPnlPct = if (pos.entryPrice > 0 && pos.highestPrice > 0) {
+                ((pos.highestPrice - pos.entryPrice) / pos.entryPrice) * 100
+            } else pnlP
+            
+            val outcomeData = com.lifecyclebot.v3.scoring.EducationSubLayerAI.TradeOutcomeData(
+                mint = tradeId.mint,
+                symbol = ts.symbol,
+                tokenName = ts.name,
+                pnlPct = pnlP,
+                holdTimeMinutes = holdMinutes,
+                exitReason = reason,
+                entryPhase = pos.entryPhase.ifEmpty { "UNKNOWN" },
+                tradingMode = pos.tradingMode.ifEmpty { "LIVE" },
+                discoverySource = ts.source.ifEmpty { "UNKNOWN" },
+                setupQuality = setupQualityStr,
+                entryMcapUsd = pos.entryLiquidityUsd * 2,
+                exitMcapUsd = ts.lastMcap,
+                tokenAgeMinutes = ((System.currentTimeMillis() - ts.createdAt) / 60000.0),
+                buyRatioPct = ts.history.lastOrNull()?.buyRatio?.times(100) ?: 50.0,
+                volumeUsd = ts.lastVolume24H,
+                liquidityUsd = ts.lastLiquidityUsd,
+                holderCount = ts.holderCount,
+                topHolderPct = ts.topHolderPct,
+                holderGrowthRate = ts.holderGrowthRate,
+                devWalletPct = ts.devWalletPct,
+                bondingCurveProgress = ts.bondingCurve,
+                rugcheckScore = ts.rugcheckScore,
+                emaFanState = ts.meta.emafanAlignment.ifEmpty { "UNKNOWN" },
+                entryScore = ts.entryScore,
+                priceFromAth = if (ts.athPrice > 0) ((ts.lastPrice - ts.athPrice) / ts.athPrice * 100) else 0.0,
+                maxGainPct = peakPnlPct,
+                maxDrawdownPct = pos.maxDrawdown,
+                timeToPeakMins = pos.timeToPeakMs / 60000.0,
+            )
+            
+            com.lifecyclebot.v3.scoring.EducationSubLayerAI.recordTradeOutcomeAcrossAllLayers(outcomeData)
+            ErrorLogger.info("Executor", "🎓 HARVARD BRAIN (LIVE): Recorded outcome for ${ts.symbol} | PnL=${pnlP.toInt()}%")
+        } catch (e: Exception) {
+            ErrorLogger.warn("Executor", "🎓 Harvard Brain recording failed: ${e.message}")
         }
     }
 
