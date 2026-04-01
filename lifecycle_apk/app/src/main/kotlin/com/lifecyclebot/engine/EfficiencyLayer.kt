@@ -45,10 +45,17 @@ object EfficiencyLayer {
     
     private val seenTokens = ConcurrentHashMap<String, SeenTokenMeta>()
     
-    // Cooldowns
-    private const val DISCOVERY_COOLDOWN_MS = 90_000L      // 90 sec before full reprocess
-    private const val LIQ_CHANGE_THRESHOLD = 0.20          // 20% liquidity change triggers reprocess
-    private const val SCORE_CHANGE_THRESHOLD = 15          // 15 point score change triggers reprocess
+    // V5.2.8: Paper mode flag for aggressive learning
+    @Volatile var isPaperMode = false
+    
+    // Cooldowns - V5.2.8: Separate values for Paper vs Live mode
+    private const val DISCOVERY_COOLDOWN_MS_LIVE = 90_000L   // 90 sec for live (capital protection)
+    private const val DISCOVERY_COOLDOWN_MS_PAPER = 30_000L  // 30 sec for paper (faster learning)
+    private const val LIQ_CHANGE_THRESHOLD = 0.20            // 20% liquidity change triggers reprocess
+    private const val SCORE_CHANGE_THRESHOLD = 15            // 15 point score change triggers reprocess
+    
+    // V5.2.8: Get effective cooldown based on mode
+    private fun getDiscoveryCooldown(): Long = if (isPaperMode) DISCOVERY_COOLDOWN_MS_PAPER else DISCOVERY_COOLDOWN_MS_LIVE
     
     // Stats
     private val discoverySkipped = AtomicLong(0)
@@ -100,7 +107,7 @@ object EfficiencyLayer {
         val sourceUpgrade = isSourceUpgrade(existing.lastSource, source)
         
         val shouldReprocess = when {
-            timeSinceLastProcess >= DISCOVERY_COOLDOWN_MS -> true
+            timeSinceLastProcess >= getDiscoveryCooldown() -> true
             liqChange >= LIQ_CHANGE_THRESHOLD -> true
             scoreChange >= SCORE_CHANGE_THRESHOLD -> true
             sourceUpgrade -> true
@@ -116,7 +123,7 @@ object EfficiencyLayer {
             discoveryProcessed.incrementAndGet()
             
             val reason = when {
-                timeSinceLastProcess >= DISCOVERY_COOLDOWN_MS -> "COOLDOWN_EXPIRED"
+                timeSinceLastProcess >= getDiscoveryCooldown() -> "COOLDOWN_EXPIRED"
                 liqChange >= LIQ_CHANGE_THRESHOLD -> "LIQ_CHANGE_${(liqChange*100).toInt()}%"
                 scoreChange >= SCORE_CHANGE_THRESHOLD -> "SCORE_CHANGE_$scoreChange"
                 sourceUpgrade -> "SOURCE_UPGRADE"

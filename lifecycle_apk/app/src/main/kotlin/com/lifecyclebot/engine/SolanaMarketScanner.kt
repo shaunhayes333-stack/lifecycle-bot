@@ -847,21 +847,24 @@ class SolanaMarketScanner(
 
     // Track which mints we've already surfaced to avoid duplicates
     private val seenMints  = ConcurrentHashMap<String, Long>()
-    private val SEEN_TTL   = 15_000L          // forget after 15 sec — ULTRA fast refresh
+    // V5.2.8: Dynamic TTL based on mode - faster refresh in paper mode
+    private fun getSeenTtl(): Long = if (cfg().paperMode) 10_000L else 15_000L  // 10s paper, 15s live
     
     // Track rejected tokens separately - very short cooldown for paper mode learning
     private val rejectedMints = ConcurrentHashMap<String, Long>()
-    private val REJECTED_TTL = 30_000L        // forget rejected tokens after 30 sec
+    // V5.2.8: Dynamic rejected TTL - faster retry in paper mode
+    private fun getRejectedTtl(): Long = if (cfg().paperMode) 15_000L else 30_000L  // 15s paper, 30s live
     
     // ═══════════════════════════════════════════════════════════════════════
     // V5.2 FIX: SATURATION SUPPRESSION - Stop processing same tokens 60-90x
     // Tracks how many times we've seen a token in cooldown state
     // After MAX_COOLDOWN_HITS, we suppress it for a longer period
+    // V5.2.8: More lenient in paper mode for learning
     // ═══════════════════════════════════════════════════════════════════════
     private val cooldownHitCount = ConcurrentHashMap<String, Int>()
     private val saturatedMints = ConcurrentHashMap<String, Long>()
-    private val MAX_COOLDOWN_HITS = 5       // After 5 cooldown hits, suppress
-    private val SATURATION_TTL = 120_000L   // Suppress for 2 minutes
+    private fun getMaxCooldownHits(): Int = if (cfg().paperMode) 10 else 5  // 10 hits paper, 5 live
+    private fun getSaturationTtl(): Long = if (cfg().paperMode) 60_000L else 120_000L  // 1min paper, 2min live
     
     // ═══════════════════════════════════════════════════════════════════════
     // V5.2 FIX: THROUGHPUT TELEMETRY - Track pipeline health metrics
@@ -893,18 +896,18 @@ class SolanaMarketScanner(
     // Check if a token is saturated (seen too many times in cooldown)
     private fun isSaturated(mint: String): Boolean {
         val saturatedAt = saturatedMints[mint] ?: return false
-        return System.currentTimeMillis() - saturatedAt < SATURATION_TTL
+        return System.currentTimeMillis() - saturatedAt < getSaturationTtl()
     }
     
     // Record a cooldown hit and potentially saturate the token
     private fun recordCooldownHit(mint: String) {
         telemetryCooldownHits++
         val hits = cooldownHitCount.merge(mint, 1) { a, b -> a + b } ?: 1
-        if (hits >= MAX_COOLDOWN_HITS) {
+        if (hits >= getMaxCooldownHits()) {
             saturatedMints[mint] = System.currentTimeMillis()
             cooldownHitCount.remove(mint)  // Reset counter
             telemetrySaturatedDrops++
-            ErrorLogger.debug("Scanner", "🔇 SATURATED: $mint (hit ${MAX_COOLDOWN_HITS}x in cooldown)")
+            ErrorLogger.debug("Scanner", "🔇 SATURATED: $mint (hit ${getMaxCooldownHits()}x in cooldown)")
         }
     }
     
@@ -1146,7 +1149,7 @@ class SolanaMarketScanner(
                 // Clean expired seen entries - use safe iteration
                 val now = System.currentTimeMillis()
                 val expiredKeys = seenMints.entries
-                    .filter { now - it.value > SEEN_TTL }
+                    .filter { now - it.value > getSeenTtl() }
                     .map { it.key }
                 expiredKeys.forEach { seenMints.remove(it) }
 
@@ -2498,14 +2501,14 @@ class SolanaMarketScanner(
         
         // Check if rejected (1 hour cooldown)
         val rejectedAt = rejectedMints[mint]
-        if (rejectedAt != null && now - rejectedAt < REJECTED_TTL) {
+        if (rejectedAt != null && now - rejectedAt < getRejectedTtl()) {
             recordCooldownHit(mint)  // Track for saturation
             return true  // Still in cooldown from rejection
         }
         
         // Check if recently seen (30 min cooldown)
         val seenAt = seenMints[mint]
-        if (seenAt != null && now - seenAt < SEEN_TTL) {
+        if (seenAt != null && now - seenAt < getSeenTtl()) {
             recordCooldownHit(mint)  // Track for saturation
             return true
         }
@@ -2527,7 +2530,7 @@ class SolanaMarketScanner(
     // Public function for BotService to mark tokens as rejected
     fun markTokenRejected(mint: String) {
         rejectedMints[mint] = System.currentTimeMillis()
-        ErrorLogger.info("Scanner", "Token ${mint.take(12)} marked as rejected for ${REJECTED_TTL/60000}min")
+        ErrorLogger.info("Scanner", "Token ${mint.take(12)} marked as rejected for ${getRejectedTtl()/1000}s")
     }
     
     // Clean up old entries from seen/rejected maps periodically
@@ -2537,14 +2540,14 @@ class SolanaMarketScanner(
         val rejectedBefore = rejectedMints.size
         
         // Use safer cleanup - iterate and remove explicitly
-        val seenToRemove = seenMints.entries.filter { now - it.value > SEEN_TTL }.map { it.key }
+        val seenToRemove = seenMints.entries.filter { now - it.value > getSeenTtl() }.map { it.key }
         seenToRemove.forEach { seenMints.remove(it) }
         
-        val rejectedToRemove = rejectedMints.entries.filter { now - it.value > REJECTED_TTL }.map { it.key }
+        val rejectedToRemove = rejectedMints.entries.filter { now - it.value > getRejectedTtl() }.map { it.key }
         rejectedToRemove.forEach { rejectedMints.remove(it) }
         
         // V5.2: Also cleanup saturated mints
-        val saturatedToRemove = saturatedMints.entries.filter { now - it.value > SATURATION_TTL }.map { it.key }
+        val saturatedToRemove = saturatedMints.entries.filter { now - it.value > getSaturationTtl() }.map { it.key }
         saturatedToRemove.forEach { saturatedMints.remove(it) }
         
         // Clear old cooldown hit counts (if token hasn't been seen in a while)
@@ -2698,6 +2701,10 @@ class SolanaMarketScanner(
             // V5.2 FIX: RC >= 6 should PASS (most good solana tokens score 6-20)
             // RC <= 5 = BLOCK (dangerous/rug territory)
             // RC <= 2 = HARD BLOCK (catastrophic) - V5.2: Lowered from 3
+            // V5.2.8: Paper mode allows RC 4-5 for learning
+            
+            val c = cfg()
+            val isPaper = c.paperMode
             
             if (scoreNormalized <= 2) {
                 onLog("🚫 RC HARD BLOCK: ${mint.take(8)}... score=$scoreNormalized (catastrophic)")
@@ -2705,10 +2712,25 @@ class SolanaMarketScanner(
                 return false
             }
             
+            // V5.2.8: Only block RC 3-5 in LIVE mode - Paper mode allows for learning
             if (scoreNormalized in 3..5) {
-                onLog("🚫 RC BLOCK: ${mint.take(8)}... score=$scoreNormalized (dangerous)")
-                ErrorLogger.info("Scanner", "RC BLOCK: ${mint.take(12)} score=$scoreNormalized (3-5)")
-                return false
+                if (isPaper) {
+                    // Paper mode: Allow RC 4-5 for learning, still block RC 3
+                    if (scoreNormalized <= 3) {
+                        onLog("🚫 RC BLOCK [PAPER]: ${mint.take(8)}... score=$scoreNormalized (too risky even for paper)")
+                        ErrorLogger.info("Scanner", "RC BLOCK [PAPER]: ${mint.take(12)} score=$scoreNormalized <= 3")
+                        return false
+                    }
+                    // RC 4-5 in Paper mode: PASS for learning
+                    onLog("⚠️ RC WARN [PAPER]: ${mint.take(8)}... score=$scoreNormalized (allowed for learning)")
+                    ErrorLogger.info("Scanner", "RC PASS [PAPER]: ${mint.take(12)} score=$scoreNormalized (learning mode)")
+                    return true
+                } else {
+                    // Live mode: Block RC 3-5
+                    onLog("🚫 RC BLOCK: ${mint.take(8)}... score=$scoreNormalized (dangerous)")
+                    ErrorLogger.info("Scanner", "RC BLOCK: ${mint.take(12)} score=$scoreNormalized (3-5)")
+                    return false
+                }
             }
             
             // V5.2: RC >= 6 = PASS - this is realistic for solana tokens

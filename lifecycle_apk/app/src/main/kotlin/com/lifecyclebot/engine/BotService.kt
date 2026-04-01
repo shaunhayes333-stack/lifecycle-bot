@@ -571,6 +571,8 @@ class BotService : Service() {
         // V5.2: Set paper mode flags for more aggressive learning
         GlobalTradeRegistry.isPaperMode = preScanCfg.paperMode
         UnifiedModeOrchestrator.isPaperMode = preScanCfg.paperMode
+        // V5.2.8: Set EfficiencyLayer paper mode for reduced cooldowns
+        EfficiencyLayer.isPaperMode = preScanCfg.paperMode
         addLog("📋 GlobalTradeRegistry initialized with ${GlobalTradeRegistry.size()} tokens (paperMode=${preScanCfg.paperMode})")
 
         // Start full Solana market scanner
