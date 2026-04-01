@@ -1116,6 +1116,35 @@ class BotService : Service() {
             ErrorLogger.error("BotService", "ShadowLearning start failed: ${e.message}", e)
         }
         
+        // ═══════════════════════════════════════════════════════════════════
+        // V5.2 EMERGENT PATCH: Initialize RunTracker30D for proof tracking
+        // ═══════════════════════════════════════════════════════════════════
+        try {
+            RunTracker30D.init(applicationContext)
+            
+            // If run is active, apply guardrails
+            if (RunTracker30D.isRunActive()) {
+                // Lock config changes during proof run
+                EmergentGuardrails.disableConfigChanges()
+                
+                addLog("📊 RunTracker30D: Day ${RunTracker30D.getCurrentDay()} | " +
+                    "Trades=${RunTracker30D.totalTrades} W=${RunTracker30D.wins} L=${RunTracker30D.losses}")
+            } else {
+                // No active run - prompt to start one for proof tracking
+                addLog("📊 RunTracker30D: No active run (use long-press to start 30-day proof)")
+            }
+            
+            // Start a run automatically if not started and we have an initial balance
+            val effectiveBalance = status.getEffectiveBalance(cfg.paperMode)
+            if (!RunTracker30D.isRunActive() && effectiveBalance > 0) {
+                RunTracker30D.startRun(effectiveBalance)
+                EmergentGuardrails.disableConfigChanges()
+                addLog("🚀 RunTracker30D: 30-Day Run STARTED | Balance=${effectiveBalance.toInt()} SOL")
+            }
+        } catch (e: Exception) {
+            ErrorLogger.error("BotService", "RunTracker30D init failed: ${e.message}", e)
+        }
+        
         addLog("Bot started — paper=${cfg.paperMode} auto=${cfg.autoTrade} sounds=${cfg.soundEnabled}")
         ErrorLogger.info("BotService", "Bot started successfully")
         
@@ -2750,10 +2779,11 @@ class BotService : Service() {
     // ═══════════════════════════════════════════════════════════════════
     // STEP 1: HARD RUG PRE-FILTER
     // Kill obvious garbage BEFORE consuming strategy/FDG cycles
+    // V5.2 FIX: Pass paperMode to allow learning from all tokens
     // ═══════════════════════════════════════════════════════════════════
     if (!ts.position.isOpen) {
         val preFilterResult = try {
-            HardRugPreFilter.filter(ts)
+            HardRugPreFilter.filter(ts, cfg.paperMode)
         } catch (e: Exception) {
             ErrorLogger.debug("BotService", "PreFilter error: ${e.message}")
             HardRugPreFilter.PreFilterResult(true, null, HardRugPreFilter.FilterSeverity.PASS)
@@ -2770,9 +2800,10 @@ class BotService : Service() {
     // Check if token is in distribution/dead-bounce state
     // Note: edgePhase comes from ScoreResult later, so we pass null here
     // and rely on price/volume pattern detection instead
+    // V5.2 FIX: Pass paperMode to allow learning from distribution trades
     // ═══════════════════════════════════════════════════════════════════
     val distributionCheck = try {
-        DistributionFadeAvoider.evaluate(ts, null)
+        DistributionFadeAvoider.evaluate(ts, null, cfg.paperMode)
     } catch (e: Exception) {
         ErrorLogger.debug("BotService", "DistFade error: ${e.message}")
         DistributionFadeAvoider.FadeResult(false, null, 1.0, 0L)

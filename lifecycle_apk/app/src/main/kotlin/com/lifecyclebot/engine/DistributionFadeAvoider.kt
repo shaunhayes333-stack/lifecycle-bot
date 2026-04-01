@@ -52,8 +52,22 @@ object DistributionFadeAvoider {
     /**
      * Evaluate if a token is in distribution fade state.
      * Call this BEFORE strategy scoring to potentially block or penalize.
+     * 
+     * V5.2 FIX: Paper Mode bypass - allow all tokens through for maximum learning.
      */
-    fun evaluate(ts: TokenState, currentEdge: String? = null): FadeResult {
+    fun evaluate(ts: TokenState, currentEdge: String? = null, isPaperMode: Boolean = false): FadeResult {
+        // V5.2 FIX: PAPER MODE BYPASS - Skip distribution fade check for learning
+        // Paper mode learns from distribution trades too - valuable data
+        if (isPaperMode) {
+            ErrorLogger.debug(TAG, "✅ PAPER BYPASS: ${ts.symbol} distribution fade skipped for learning")
+            return FadeResult(
+                shouldBlock = false,
+                reason = "PAPER_MODE_BYPASS",
+                scoreMultiplier = 1.0,
+                cooldownRemainingMs = 0L,
+            )
+        }
+        
         val mint = ts.mint
         val now = System.currentTimeMillis()
         val hist = ts.history.toList()

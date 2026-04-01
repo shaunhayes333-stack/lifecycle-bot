@@ -415,6 +415,43 @@ class Executor(
             } catch (e: Exception) {
                 // Silently ignore - behavior tracking is secondary
             }
+            
+            // ═══════════════════════════════════════════════════════════════
+            // V5.2: EMERGENT PATCH - Record trade to RunTracker30D
+            // Tracks 30-day proof run with equity curve and investor metrics
+            // ═══════════════════════════════════════════════════════════════
+            try {
+                if (RunTracker30D.isRunActive()) {
+                    val holdTimeSec = if (ts.position.entryTime > 0) {
+                        (System.currentTimeMillis() - ts.position.entryTime) / 1000
+                    } else 0L
+                    
+                    val mode = try { ModeRouter.classify(ts).tradeType.name } catch (_: Exception) { "UNKNOWN" }
+                    val score = ts.trades.lastOrNull { it.side == "BUY" }?.let { 
+                        (it.price * 100).toInt().coerceIn(0, 100) 
+                    } ?: 50
+                    val confidence = (trade.pnlPct ?: 0.0).toInt().coerceIn(0, 100)
+                    
+                    RunTracker30D.recordTrade(
+                        symbol = ts.symbol,
+                        mint = ts.mint,
+                        entryPrice = ts.position.avgPrice,
+                        exitPrice = trade.price,
+                        sizeSol = trade.size,
+                        pnlPct = trade.pnlPct ?: 0.0,
+                        holdTimeSec = holdTimeSec,
+                        mode = mode,
+                        score = score,
+                        confidence = confidence,
+                        decision = trade.reason.ifBlank { "AUTO" }
+                    )
+                    
+                    // Record rate limit
+                    EmergentGuardrails.recordTradeExecution()
+                }
+            } catch (e: Exception) {
+                ErrorLogger.debug("Executor", "RunTracker30D record error: ${e.message}")
+            }
         }
     }
 
@@ -1870,30 +1907,37 @@ class Executor(
         // ── Long-hold promotion ──────────────────────────────────────────
         // Every tick: check if this open position now qualifies for long-hold.
         // One-way ratchet — promoted positions stay long-hold until closed.
+        // V5.2 FIX_2: GHOST PROMOTION CHECK - Block promotions on invalid positions
         if (ts.position.isOpen && !ts.position.isLongHold && cfg().longHoldEnabled) {
-            val gainPct   = pct(ts.position.entryPrice, getActualPrice(ts))  // CRITICAL FIX: Use actual price
-            val c         = cfg()
-            val holders   = ts.history.lastOrNull()?.holderCount ?: 0
-            // Compute existing long-hold exposure locally — no BotService.instance needed
-            // (we already have walletSol and totalExposureSol from maybeAct params)
-            val existingLH = 0.0  // conservative default — full check done in strategy
+            // FIX_2: Check for ghost promotion (invalid size or closed position)
+            val promotionSize = ts.position.costSol
+            if (!ts.position.isOpen || promotionSize <= 0.0) {
+                ErrorLogger.info("Executor", "[PROMOTION_BLOCKED] ${ts.symbol} | invalid_size_or_closed")
+            } else {
+                val gainPct   = pct(ts.position.entryPrice, getActualPrice(ts))  // CRITICAL FIX: Use actual price
+                val c         = cfg()
+                val holders   = ts.history.lastOrNull()?.holderCount ?: 0
+                // Compute existing long-hold exposure locally — no BotService.instance needed
+                // (we already have walletSol and totalExposureSol from maybeAct params)
+                val existingLH = 0.0  // conservative default — full check done in strategy
 
-            val meetsConviction = ts.meta.emafanAlignment == "BULL_FAN"
-                && gainPct >= c.longHoldMinGainPct
-                && ts.lastLiquidityUsd >= c.longHoldMinLiquidityUsd
-                && holders >= c.longHoldMinHolders
-                && ts.holderGrowthRate >= c.longHoldHolderGrowthMin
-                && (!c.longHoldTreasuryGate || TreasuryManager.treasurySol >= 0.01)
-                && ts.position.costSol <= walletSol * c.longHoldWalletPct
+                val meetsConviction = ts.meta.emafanAlignment == "BULL_FAN"
+                    && gainPct >= c.longHoldMinGainPct
+                    && ts.lastLiquidityUsd >= c.longHoldMinLiquidityUsd
+                    && holders >= c.longHoldMinHolders
+                    && ts.holderGrowthRate >= c.longHoldHolderGrowthMin
+                    && (!c.longHoldTreasuryGate || TreasuryManager.treasurySol >= 0.01)
+                    && ts.position.costSol <= walletSol * c.longHoldWalletPct
 
-            if (meetsConviction) {
-                ts.position = ts.position.copy(isLongHold = true)
-                onLog("🔒 LONG HOLD: ${ts.symbol} promoted — " +
-                    "BULL_FAN | ${holders} holders (+${ts.holderGrowthRate.toInt()}%) | " +
-                    "$${(ts.lastLiquidityUsd/1000).toInt()}K liq | +${gainPct.toInt()}%", ts.mint)
-                onNotify("🔒 Long Hold: ${ts.symbol}",
-                    "+${gainPct.toInt()}% | riding trend | max ${c.longHoldMaxDays.toInt()}d",
-                    com.lifecyclebot.engine.NotificationHistory.NotifEntry.NotifType.INFO)
+                if (meetsConviction) {
+                    ts.position = ts.position.copy(isLongHold = true)
+                    onLog("🔒 LONG HOLD: ${ts.symbol} promoted — " +
+                        "BULL_FAN | ${holders} holders (+${ts.holderGrowthRate.toInt()}%) | " +
+                        "$${(ts.lastLiquidityUsd/1000).toInt()}K liq | +${gainPct.toInt()}%", ts.mint)
+                    onNotify("🔒 Long Hold: ${ts.symbol}",
+                        "+${gainPct.toInt()}% | riding trend | max ${c.longHoldMaxDays.toInt()}d",
+                        com.lifecyclebot.engine.NotificationHistory.NotifEntry.NotifType.INFO)
+                }
             }
         }
 
@@ -2955,6 +2999,14 @@ class Executor(
             onLog("⚠ Buy skipped: position already open", tradeId.mint); return
         }
         
+        // V5.2 FIX_3: MULTI-LAYER LOCK CHECK
+        // Block entry if another layer already has this token open
+        val currentLayer = identity?.layer ?: "PAPER"
+        if (EmergentGuardrails.shouldBlockMultiLayerEntry(tradeId.mint, currentLayer)) {
+            onLog("⚠ Buy skipped: ${tradeId.symbol} already open in different layer", tradeId.mint)
+            return
+        }
+        
         // GRADUATED BUILDING: start with partial size for B+ setups
         // Skip if already applied by BotService (skipGraduated = true)
         val actualSol: Double
@@ -3048,6 +3100,9 @@ class Executor(
         )
         recordTrade(ts, trade)
         security.recordTrade(trade)
+        
+        // V5.2: Register position in EmergentGuardrails for multi-layer tracking
+        EmergentGuardrails.registerPosition(tradeId.mint, tradeId.symbol, currentLayer, actualSol)
         
         // V8: Transition to MONITOR state (use identity.mint)
         TradeStateMachine.setState(tradeId.mint, TradeState.MONITOR, "position opened")
@@ -3552,6 +3607,15 @@ class Executor(
         // ═══════════════════════════════════════════════════════════════════════════
         val tradeId = identity ?: TradeIdentityManager.getOrCreate(ts.mint, ts.symbol, ts.source)
         
+        // V5.2 FIX_3: MULTI-LAYER LOCK CHECK
+        // Block entry if another layer already has this token open
+        val currentLayer = identity?.layer ?: "LIVE"
+        if (EmergentGuardrails.shouldBlockMultiLayerEntry(tradeId.mint, currentLayer)) {
+            onLog("⚠ Buy skipped: ${tradeId.symbol} already open in different layer", tradeId.mint)
+            PipelineTracer.noBuy(ts.symbol, ts.mint, PipelineTracer.NoBuyReason.ALREADY_OPEN, "layer_conflict")
+            return
+        }
+        
         val c = cfg()
 
         // Keypair integrity check
@@ -3662,6 +3726,9 @@ class Executor(
             )
             recordTrade(ts, trade)
             security.recordTrade(trade)
+            
+            // V5.2: Register position in EmergentGuardrails for multi-layer tracking
+            EmergentGuardrails.registerPosition(tradeId.mint, tradeId.symbol, currentLayer, sol)
             
             // 🎵 Homer Simpson "Woohoo!"
             sounds?.playBuySound()
@@ -3960,6 +4027,9 @@ class Executor(
         )
         recordTrade(ts, trade)
         security.recordTrade(trade)
+        
+        // V5.2: Unregister position from EmergentGuardrails
+        EmergentGuardrails.unregisterPosition(tradeId.mint)
         
         // Update paper wallet balance (add sale proceeds)
         onPaperBalanceChange?.invoke(value)
@@ -5240,6 +5310,9 @@ class Executor(
             )
             recordTrade(ts, trade)
             security.recordTrade(trade)
+            
+            // V5.2: Unregister position from EmergentGuardrails
+            EmergentGuardrails.unregisterPosition(tradeId.mint)
 
             SmartSizer.recordTrade(pnl > 0, isPaperMode = false)  // Live trade
             

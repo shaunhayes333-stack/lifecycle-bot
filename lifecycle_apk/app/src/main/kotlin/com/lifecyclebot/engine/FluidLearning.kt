@@ -141,6 +141,11 @@ object FluidLearning {
     fun getSimulatedBalance(): Double = simulatedBalanceSol
     
     /**
+     * Alias for getSimulatedBalance() for backward compatibility
+     */
+    fun getPaperBalance(): Double = simulatedBalanceSol
+    
+    /**
      * Get simulated peak (for drawdown calculations)
      */
     fun getSimulatedPeak(): Double = simulatedPeakSol

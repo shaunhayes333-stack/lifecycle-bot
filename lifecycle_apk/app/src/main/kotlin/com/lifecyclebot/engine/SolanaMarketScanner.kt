@@ -2568,8 +2568,6 @@ class SolanaMarketScanner(
                 "Remaining: ${seenMints.size} seen, ${rejectedMints.size} rejected, ${saturatedMints.size} saturated")
             onLog("🧹 Map cleanup: seen=${seenMints.size} rejected=${rejectedMints.size} sat=${saturatedMints.size}")
         }
-            onLog("🧹 Map cleanup: seen=${seenMints.size} rejected=${rejectedMints.size}")
-        }
         
         // AGGRESSIVE cleanup if maps are getting large - keep fewer entries
         if (seenMints.size > 100) {

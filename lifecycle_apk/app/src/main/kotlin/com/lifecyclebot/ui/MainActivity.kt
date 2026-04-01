@@ -2029,9 +2029,28 @@ for legal compliance.
     // V4.0: Update AI Status Panel with live data
     private fun updateAiStatusPanel(ts: TokenState?) {
         try {
-            // AI Health - show 25 active layers
-            tvAiHealth.text = "25 layers"
-            tvAiHealth.setTextColor(green)
+            // ═══════════════════════════════════════════════════════════════
+            // V5.2: EMERGENT PATCH - Add RunTracker30D metrics to AI panel
+            // ═══════════════════════════════════════════════════════════════
+            
+            // AI Health - show system integrity score if run active
+            val integrityScore = try {
+                if (com.lifecyclebot.engine.RunTracker30D.isRunActive()) {
+                    com.lifecyclebot.engine.RunTracker30D.integrityScore()
+                } else null
+            } catch (_: Exception) { null }
+            
+            if (integrityScore != null) {
+                tvAiHealth.text = "Integrity: $integrityScore/100"
+                tvAiHealth.setTextColor(when {
+                    integrityScore >= 80 -> green
+                    integrityScore >= 50 -> amber
+                    else -> red
+                })
+            } else {
+                tvAiHealth.text = "25 layers"
+                tvAiHealth.setTextColor(green)
+            }
             
             // Trading Mode - from current token or default
             val tradingMode = ts?.position?.tradingMode?.ifEmpty { "SCANNING" } ?: "SCANNING"
@@ -2082,11 +2101,23 @@ for legal compliance.
             tvAiShitCoin.text = shitCoinStatus
             tvAiShitCoin.setTextColor(0xFFF97316.toInt()) // Orange
             
-            // Learning Progress - from FluidLearningAI
+            // V5.2: Learning Progress - use RunTracker30D if active, else FluidLearningAI
             val learningPct = try {
-                com.lifecyclebot.v3.scoring.FluidLearningAI.getMaturityPercent()
+                if (com.lifecyclebot.engine.RunTracker30D.isRunActive()) {
+                    com.lifecyclebot.engine.RunTracker30D.metrics.learning
+                } else {
+                    com.lifecyclebot.v3.scoring.FluidLearningAI.getMaturityPercent()
+                }
             } catch (_: Exception) { 0.0 }
-            tvAiLearning.text = "%.1f%% maturity".format(learningPct)
+            
+            // V5.2: Show run day if active
+            val runInfo = try {
+                if (com.lifecyclebot.engine.RunTracker30D.isRunActive()) {
+                    " (Day ${com.lifecyclebot.engine.RunTracker30D.getCurrentDay()})"
+                } else ""
+            } catch (_: Exception) { "" }
+            
+            tvAiLearning.text = "%.1f%% learning$runInfo".format(learningPct)
             tvAiLearning.setTextColor(when {
                 learningPct >= 50.0 -> green
                 learningPct >= 20.0 -> amber

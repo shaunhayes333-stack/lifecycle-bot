@@ -982,4 +982,43 @@ object ShadowLearningEngine {
     }
 
     private fun Double.fmt(d: Int) = "%.${d}f".format(this)
+    
+    /**
+     * Stats data class for UI display
+     */
+    data class ShadowStats(
+        val totalTrades: Int,
+        val openTrades: Int,
+        val wins: Int,
+        val losses: Int,
+        val winRate: Double,
+        val avgPnlPct: Double,
+    )
+    
+    /**
+     * Get shadow trading stats for UI
+     */
+    fun getStats(): ShadowStats {
+        val totalTrades = liveTrades
+        val wins = liveWins
+        val losses = totalTrades - wins
+        val winRate = if (totalTrades > 0) (wins.toDouble() / totalTrades) * 100.0 else 0.0
+        val avgPnl = if (totalTrades > 0) liveTotalPnl / totalTrades else 0.0
+        
+        return ShadowStats(
+            totalTrades = totalTrades,
+            openTrades = 0,  // Shadow trades are always immediately resolved
+            wins = wins,
+            losses = losses,
+            winRate = winRate,
+            avgPnlPct = avgPnl * 100.0,  // Convert to percentage
+        )
+    }
+    
+    /**
+     * Get status string for UI
+     */
+    fun getStatus(): String {
+        return if (isEnabled) "🟢 Active" else "❌ Disabled"
+    }
 }

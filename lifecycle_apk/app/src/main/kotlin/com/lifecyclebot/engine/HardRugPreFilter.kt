@@ -44,8 +44,31 @@ object HardRugPreFilter {
     /**
      * Run pre-filter on token before full evaluation.
      * This is a fast check that should kill obvious garbage early.
+     * 
+     * V5.2 FIX: Paper Mode bypass - allow all tokens through for maximum learning.
+     * The AI needs to see good AND bad trades to learn patterns.
      */
-    fun filter(ts: TokenState): PreFilterResult {
+    fun filter(ts: TokenState, isPaperMode: Boolean = false): PreFilterResult {
+        // V5.2 FIX: PAPER MODE BYPASS - Skip pre-filter to maximize learning
+        // Only block truly dangerous tokens (zero liquidity) in paper mode
+        if (isPaperMode) {
+            // Even in paper mode, block tokens with literally zero liquidity (can't trade)
+            if (ts.lastLiquidityUsd <= 0) {
+                return PreFilterResult(
+                    pass = false,
+                    reason = "ZERO_LIQUIDITY (paper)",
+                    severity = FilterSeverity.HARD_FAIL,
+                )
+            }
+            // Allow everything else through for learning
+            ErrorLogger.debug(TAG, "✅ PAPER BYPASS: ${ts.symbol} pre-filter skipped for learning")
+            return PreFilterResult(
+                pass = true,
+                reason = "PAPER_MODE_BYPASS",
+                severity = FilterSeverity.PASS,
+            )
+        }
+        
         val hist = ts.history.toList()
         val now = System.currentTimeMillis()
         
@@ -188,9 +211,10 @@ object HardRugPreFilter {
     /**
      * Quick check if token passes basic viability thresholds.
      * Returns true if token should proceed to full evaluation.
+     * V5.2 FIX: Added paperMode parameter for Paper Mode bypass.
      */
-    fun isViable(ts: TokenState): Boolean {
-        return filter(ts).pass
+    fun isViable(ts: TokenState, isPaperMode: Boolean = false): Boolean {
+        return filter(ts, isPaperMode).pass
     }
     
     /**
