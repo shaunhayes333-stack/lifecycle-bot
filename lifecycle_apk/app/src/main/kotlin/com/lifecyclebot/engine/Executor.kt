@@ -338,6 +338,40 @@ class Executor(
     }
     
     /**
+     * Compute an AI-estimated take profit % target before entry.
+     * Uses the token's recent price swing history to set a realistic, achievable target.
+     * This is stored on the Position so the UI can display it and exit logic can reference it.
+     */
+    private fun computeEntryTpPct(ts: com.lifecyclebot.data.TokenState, modeName: String): Double {
+        // Mode-specific defaults
+        val defaultTp = when {
+            modeName.contains("TREASURY", ignoreCase = true) -> 8.0
+            modeName.contains("BLUECHIP", ignoreCase = true) -> 18.0
+            modeName.contains("SHITCOIN", ignoreCase = true) -> 60.0
+            modeName.contains("MOONSHOT", ignoreCase = true) -> 100.0
+            modeName.contains("SNIPER",   ignoreCase = true) -> 40.0
+            else -> 30.0
+        }
+        val history = synchronized(ts.history) { ts.history.takeLast(20) }
+        if (history.size < 5) return defaultTp
+        val prices = history.mapNotNull { it.priceUsd.takeIf { p -> p > 0 } }
+        if (prices.size < 3) return defaultTp
+        val minP = prices.minOrNull() ?: return defaultTp
+        val maxP = prices.maxOrNull() ?: return defaultTp
+        val recentSwingPct = if (minP > 0) ((maxP - minP) / minP * 100.0) else 0.0
+        // Target = blend of mode default and 55% of observed swing
+        val swingBased = recentSwingPct * 0.55
+        val blended = (defaultTp * 0.5 + swingBased * 0.5)
+        return when {
+            modeName.contains("TREASURY", ignoreCase = true) -> blended.coerceIn(4.0, 15.0)
+            modeName.contains("BLUECHIP", ignoreCase = true) -> blended.coerceIn(8.0, 35.0)
+            modeName.contains("SHITCOIN", ignoreCase = true) -> blended.coerceIn(20.0, 250.0)
+            modeName.contains("MOONSHOT", ignoreCase = true) -> blended.coerceIn(50.0, 1000.0)
+            else -> blended.coerceIn(10.0, 150.0)
+        }
+    }
+
+    /**
      * Record a trade to both TokenState and persistent TradeHistoryStore
      */
     private fun recordTrade(ts: TokenState, trade: Trade) {
@@ -3073,6 +3107,7 @@ class Executor(
             }
         }
         
+        val paperTp = computeEntryTpPct(ts, currentMode.name)
         ts.position = Position(
             qtyToken     = effectiveSol / maxOf(effectivePrice, 1e-12),  // Get fewer tokens due to slippage
             entryPrice   = effectivePrice,  // Record slipped price
@@ -3087,6 +3122,7 @@ class Executor(
             tradingModeEmoji = currentMode.emoji,
             buildPhase   = buildPhase,
             targetBuildSol = targetBuild,
+            targetTakeProfitPct = paperTp,
         )
         val trade = Trade(
             side = "BUY", 
@@ -3700,6 +3736,7 @@ class Executor(
                 catch (_: Exception) { UnifiedModeOrchestrator.ExtendedMode.STANDARD }
             }
 
+            val liveTp = computeEntryTpPct(ts, currentMode.name)
             ts.position = Position(
                 qtyToken     = qty,
                 entryPrice   = price,
@@ -3712,6 +3749,7 @@ class Executor(
                 entryMcap    = ts.lastMcap,  // V4.20: Track entry mcap for graduation detection
                 tradingMode  = currentMode.name,
                 tradingModeEmoji = currentMode.emoji,
+                targetTakeProfitPct = liveTp,
             )
             val trade = Trade(
                 side = "BUY", 
