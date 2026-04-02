@@ -37,8 +37,8 @@ object ModeSpecificScanners {
     private const val SCORE_MATURE = 55.0         // Higher bar when experienced
     
     // Liquidity thresholds
-    private const val LIQ_BOOTSTRAP = 1500.0      // $1.5K minimum at start
-    private const val LIQ_MATURE = 5000.0         // $5K minimum when mature
+    private const val LIQ_BOOTSTRAP = 2000.0      // $2.0K minimum at start
+    private const val LIQ_MATURE = 2000.0         // $2K minimum when mature
     
     // Buy pressure thresholds  
     private const val BUY_PRESS_BOOTSTRAP = 0.45  // 45% buy ratio at start
