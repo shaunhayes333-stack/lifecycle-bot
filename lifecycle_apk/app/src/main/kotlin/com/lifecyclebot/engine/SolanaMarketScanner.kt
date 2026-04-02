@@ -34,7 +34,7 @@ object ScannerLearning {
     private val sourceWins = ConcurrentHashMap<String, Int>()
     private val sourceLosses = ConcurrentHashMap<String, Int>()
     
-    // Track by liquidity bucket (0-5k, 5k-20k, 20k-100k, 100k+)
+    // Track by liquidity bucket (0-2k, 2k-20k, 20k-100k, 100k+)
     private val liqBucketWins = ConcurrentHashMap<String, Int>()
     private val liqBucketLosses = ConcurrentHashMap<String, Int>()
     
@@ -56,8 +56,8 @@ object ScannerLearning {
         
         // Liquidity bucket tracking
         val liqBucket = when {
-            liqUsd < 5_000 -> "liq_0_5k"
-            liqUsd < 20_000 -> "liq_5k_20k"
+            liqUsd < 2_000 -> "liq_0_2k"
+            liqUsd < 20_000 -> "liq_2k_20k"
             liqUsd < 100_000 -> "liq_20k_100k"
             else -> "liq_100k_plus"
         }
@@ -98,8 +98,8 @@ object ScannerLearning {
         
         // Liquidity-based bonus
         val liqBucket = when {
-            liqUsd < 5_000 -> "liq_0_5k"
-            liqUsd < 20_000 -> "liq_5k_20k"
+            liqUsd < 2_000 -> "liq_0_2k"
+            liqUsd < 20_000 -> "liq_2k_20k"
             liqUsd < 100_000 -> "liq_20k_100k"
             else -> "liq_100k_plus"
         }
@@ -420,8 +420,8 @@ object ModeLearning {
         }?.key
         
         val (liqMin, liqMax) = when (bestLiqBucket) {
-            "0-5k" -> 0.0 to 5_000.0
-            "5k-20k" -> 5_000.0 to 20_000.0
+            "0-2k" -> 0.0 to 2_000.0
+            "2k-20k" -> 2_000.0 to 20_000.0
             "20k-100k" -> 20_000.0 to 100_000.0
             "100k+" -> 100_000.0 to Double.MAX_VALUE
             else -> getDefaultLiqRange(mode)
@@ -625,8 +625,8 @@ object ModeLearning {
     
     private fun getLiquidityBucket(liqUsd: Double): String {
         return when {
-            liqUsd < 5_000 -> "0-5k"
-            liqUsd < 20_000 -> "5k-20k"
+            liqUsd < 2_000 -> "0-2k"
+            liqUsd < 20_000 -> "2k-20k"
             liqUsd < 100_000 -> "20k-100k"
             else -> "100k+"
         }
@@ -657,11 +657,11 @@ object ModeLearning {
     
     private fun getDefaultLiqRange(mode: String): Pair<Double, Double> {
         return when (mode) {
-            "MICRO_CAP" -> 1_000.0 to 10_000.0
+            "MICRO_CAP" -> 2_000.0 to 20_000.0
             "MOONSHOT", "PUMP_SNIPER" -> 5_000.0 to 50_000.0
             "LONG_HOLD", "WHALE_FOLLOW" -> 50_000.0 to Double.MAX_VALUE
             "REVIVAL" -> 10_000.0 to 100_000.0
-            else -> 5_000.0 to 100_000.0
+            else -> 2_000.0 to 100_000.0
         }
     }
     
@@ -772,7 +772,7 @@ object ModeLearning {
  *
  * FILTERING (before adding to watchlist):
  * ─────────────────────────────────────────
- *  • Liquidity ≥ minLiquidityUsd (default $8K)
+ *  • Liquidity ≥ minLiquidityUsd (default $2K)
  *  • Volume/liquidity ratio ≥ 0.3 (active market)
  *  • Not already in watchlist or blacklist
  *  • Not a known scam pattern (name/symbol checks)
@@ -825,7 +825,7 @@ class SolanaMarketScanner(
         .connectionPool(okhttp3.ConnectionPool(0, 1, TimeUnit.SECONDS))
         .cache(null)
         .dispatcher(okhttp3.Dispatcher().apply {
-            maxRequests = 2  // Only 2 concurrent requests max
+            maxRequests = 6  // Only 6 concurrent requests max
             maxRequestsPerHost = 1
         })
         .build()
@@ -863,8 +863,8 @@ class SolanaMarketScanner(
     // ═══════════════════════════════════════════════════════════════════════
     private val cooldownHitCount = ConcurrentHashMap<String, Int>()
     private val saturatedMints = ConcurrentHashMap<String, Long>()
-    private fun getMaxCooldownHits(): Int = if (cfg().paperMode) 10 else 5  // 10 hits paper, 5 live
-    private fun getSaturationTtl(): Long = if (cfg().paperMode) 60_000L else 120_000L  // 1min paper, 2min live
+    private fun getMaxCooldownHits(): Int = if (cfg().paperMode) 20 else 10  // 20 hits paper, 10 live
+    private fun getSaturationTtl(): Long = if (cfg().paperMode) 30_000L else 60_000L  // 0.5min paper, 1min live
     
     // ═══════════════════════════════════════════════════════════════════════
     // V5.2 FIX: THROUGHPUT TELEMETRY - Track pipeline health metrics
@@ -912,7 +912,7 @@ class SolanaMarketScanner(
     }
     
     // Memory protection: limit concurrent operations
-    private val semaphore = kotlinx.coroutines.sync.Semaphore(3)  // max 3 concurrent scans
+    private val semaphore = kotlinx.coroutines.sync.Semaphore(6)  // max 6 concurrent scans
     
     // Memory-safe mode - enables when OOM detected
     @Volatile private var memorySafeMode = false
@@ -933,7 +933,7 @@ class SolanaMarketScanner(
     // Staleness detection - track last time we found a new token
     @Volatile private var lastNewTokenFoundMs = System.currentTimeMillis()
     @Volatile private var lastStalenessCheckMs = System.currentTimeMillis()
-    private val STALENESS_THRESHOLD_MS = 120_000L  // 2 minutes without new tokens = stale
+    private val STALENESS_THRESHOLD_MS = 30_00L  // 0.5 minutes without new tokens = stale
     
     // Public status for debugging
     fun getStatus(): String {
@@ -950,8 +950,8 @@ class SolanaMarketScanner(
     fun checkAndResetIfStale(): Boolean {
         val now = System.currentTimeMillis()
         
-        // Only check staleness every 30 seconds to avoid spam
-        if (now - lastStalenessCheckMs < 30_000L) return false
+        // Only check staleness every 10 seconds to avoid spam
+        if (now - lastStalenessCheckMs < 10_000L) return false
         lastStalenessCheckMs = now
         
         val staleDuration = now - lastNewTokenFoundMs
@@ -1095,7 +1095,7 @@ class SolanaMarketScanner(
                     dexId = "solana",
                     priceChangeH1 = 0.0,
                     txCountH1 = pair.candle.buysH1 + pair.candle.sellsH1,
-                    score = 60.0
+                    score = 20.0
                 )
                 
                 if (!passesFilter(token)) {
@@ -1162,7 +1162,7 @@ class SolanaMarketScanner(
                 // PUMP.FUN PRIORITY: Scan pump.fun EVERY cycle, plus rotate secondary sources
                 scanRotation = (scanRotation + 1) % 4  // 4 rotations for more variety
                 
-                // FORCE RESET every 20 cycles to prevent scanner staleness
+                // FORCE RESET every 10 cycles to prevent scanner staleness
                 if (scanRotation == 0 && seenMints.size > 50) {
                     val resetCount = seenMints.size
                     seenMints.clear()
@@ -1236,7 +1236,7 @@ class SolanaMarketScanner(
                 ErrorLogger.crash("Scanner", "OutOfMemoryError #$oomCount", Exception(e.message))
                 onLog("⚠️ Memory critical #$oomCount - pausing 30s")
                 System.gc()
-                delay(30_000)  // 30 second pause
+                delay(10_000)  // 10 second pause
                 if (oomCount >= 5) {
                     onLog("⛔ Too many OOM errors - scanner pausing. Restart to retry.")
                     ErrorLogger.error("Scanner", "Scanner paused after $oomCount OOM errors")
@@ -1297,7 +1297,7 @@ class SolanaMarketScanner(
                 if (pair.baseSymbol.uppercase() in listOf("SOL", "WSOL", "USDC", "USDT", "RAY")) continue
                 
                 val liq = pair.liquidity
-                if (liq < 1000) continue
+                if (liq < 2000) continue
                 
                 val vol = pair.candle.volumeH1
                 val mcap = pair.candle.marketCap
@@ -1596,8 +1596,8 @@ class SolanaMarketScanner(
                 val ageHours = (now - pair.pairCreatedAtMs) / 3_600_000.0
                 val ageMinutes = ageHours * 60.0
                 
-                // Focus on fresh tokens (< 2 hours for more results)
-                if (ageHours > 2) continue
+                // Focus on fresh tokens (< 4 hours for more results)
+                if (ageHours > 8) continue
                 
                 // If DexScreener returned $0 liquidity, try Birdeye then estimate from mcap
                 var liq = pair.liquidity
@@ -1786,7 +1786,7 @@ class SolanaMarketScanner(
                     }
                 }
                 
-                if (liq < 1000) continue  // Min $1K liquidity
+                if (liq < 2000) continue  // Min $2K liquidity
                 
                 val vol = pair.candle.volumeH1
                 val mcap = pair.candle.marketCap
@@ -1935,7 +1935,7 @@ class SolanaMarketScanner(
                     }
                 }
                 
-                if (liq < 1500) continue  // Graduates should have decent liquidity
+                if (liq < 2500) continue  // Graduates should have decent liquidity
                 
                 val vol = pair.candle.volumeH1
                 val mcap = pair.candle.marketCap
@@ -2177,7 +2177,7 @@ class SolanaMarketScanner(
             liqUsd >   100_000 -> 35.0   // ideal range
             liqUsd >    25_000 -> 45.0   // sweet spot
             liqUsd >    10_000 -> 35.0
-            liqUsd >     5_000 -> 20.0
+            liqUsd >     2_000 -> 20.0
             else               -> 5.0
         }
 
@@ -2338,9 +2338,9 @@ class SolanaMarketScanner(
         // V5.0: PAPER MODE still needs minimum liquidity to be tradeable
         // Without liquidity, we can't learn anything meaningful
         if (isPaperMode) {
-            // Paper mode floor: $5000 liquidity minimum
+            // Paper mode floor: $2000 liquidity minimum
             // This filters out truly untradeable tokens while still allowing learning
-            val PAPER_LIQ_FLOOR = 5000.0
+            val PAPER_LIQ_FLOOR = 2000.0
             if (token.liquidityUsd > 0 && token.liquidityUsd < PAPER_LIQ_FLOOR) {
                 ErrorLogger.debug("Scanner", "FILTER REJECT ${token.symbol}: paper liq \$${token.liquidityUsd.toInt()} < \$$PAPER_LIQ_FLOOR")
                 return false
@@ -2435,13 +2435,6 @@ class SolanaMarketScanner(
             }
         }
         
-        // Block tokens with suspicious market caps (over $500M is likely fake data)
-        if (token.mcapUsd > 500_000_000) {
-            onLog("🚫 BLOCK: ${token.symbol} - fake mcap \$${(token.mcapUsd/1_000_000).toInt()}M")
-            ErrorLogger.info("Scanner", "FILTER REJECT ${token.symbol}: suspicious mcap $${(token.mcapUsd/1_000_000).toInt()}M")
-            return false
-        }
-        
         // Token passed all filters!
         ErrorLogger.info("Scanner", "FILTER PASS ${token.symbol}: liq=$${token.liquidityUsd.toInt()} score=${token.score.toInt()}")
         return true
@@ -2499,14 +2492,14 @@ class SolanaMarketScanner(
             return true  // Suppressed due to excessive cooldown churn
         }
         
-        // Check if rejected (0.5 hour cooldown)
+        // Check if rejected (0.025 hour cooldown)
         val rejectedAt = rejectedMints[mint]
         if (rejectedAt != null && now - rejectedAt < getRejectedTtl()) {
             recordCooldownHit(mint)  // Track for saturation
             return true  // Still in cooldown from rejection
         }
         
-        // Check if recently seen (5 min cooldown)
+        // Check if recently seen (2 min cooldown)
         val seenAt = seenMints[mint]
         if (seenAt != null && now - seenAt < getSeenTtl()) {
             recordCooldownHit(mint)  // Track for saturation
@@ -2573,14 +2566,14 @@ class SolanaMarketScanner(
         }
         
         // AGGRESSIVE cleanup if maps are getting large - keep fewer entries
-        if (seenMints.size > 100) {
+        if (seenMints.size > 10000) {
             val toKeep = seenMints.entries.sortedByDescending { it.value }.take(50).map { it.key }
             seenMints.keys.retainAll(toKeep.toSet())
             ErrorLogger.warn("Scanner", "Aggressive seen cleanup: reduced to ${seenMints.size}")
             onLog("⚠️ Seen map trimmed to ${seenMints.size}")
         }
         
-        if (rejectedMints.size > 200) {
+        if (rejectedMints.size > 2000) {
             val toKeep = rejectedMints.entries.sortedByDescending { it.value }.take(100).map { it.key }
             rejectedMints.keys.retainAll(toKeep.toSet())
             ErrorLogger.warn("Scanner", "Aggressive rejected cleanup: reduced to ${rejectedMints.size}")
@@ -2652,7 +2645,7 @@ class SolanaMarketScanner(
     /**
      * V3 MIGRATION: Quick rugcheck is now MUCH more lenient
      * 
-     * Old behavior: Block tokens with score < 10 (paper) or score < 5 (live)
+     * Old behavior: Block tokens with score < 02 (paper) or score < 5 (live)
      * New behavior: Only block CONFIRMED rugs. Everything else passes through.
      * 
      * Why? Most meme coins have low rugcheck scores but are still tradeable.
@@ -2686,9 +2679,9 @@ class SolanaMarketScanner(
             // V5.0 MIGRATION: RC IS NOW A HARD GATE, not advisory!
             // 
             // - rugged=true → FATAL BLOCK (confirmed rug pull)
-            // - RC <= 3 → HARD BLOCK (catastrophic safety)
-            // - RC 4-10 → BLOCK (dangerous) - let FDG handle as shadow
-            // - RC > 10 → PASS (V3 will score it)
+            // - RC <= 1 → HARD BLOCK (catastrophic safety)
+            // - RC 1 → BLOCK (dangerous) - let FDG handle as shadow
+            // - RC > 2 → PASS (V3 will score it)
             // ═══════════════════════════════════════════════════════════════════
             
             // CONFIRMED RUG = always block (token is worthless)
@@ -2698,8 +2691,8 @@ class SolanaMarketScanner(
                 return false
             }
             
-            // V5.2 FIX: RC >= 3 should PASS (most good solana tokens score 2-20)
-            // RC <= 2 = BLOCK (dangerous/rug territory)
+            // V5.2 FIX: RC >= 2 should PASS (most good solana tokens score 2-20)
+            // RC <= 1 = BLOCK (dangerous/rug territory)
             // RC <= 1 = HARD BLOCK (catastrophic) - V5.2: Lowered from 3
             // V5.2.8: Paper mode allows RC 2-5 for learning
             
@@ -2709,9 +2702,9 @@ class SolanaMarketScanner(
             val isPaper = c.paperMode
             
             // V5.2.10: Paper Mode - Block RC ≤ 1 (rug pulls), allow RC 2-5 for learning
-            // RC 1-3 caused massive losses overnight (-36%, -20%) from rug pulls
+            // RC 1-2 caused massive losses overnight (-36%, -20%) from rug pulls
             if (isPaper) {
-                if (scoreNormalized <= 2) {
+                if (scoreNormalized <= 1) {
                     onLog("🚫 RC BLOCK [PAPER]: ${mint.take(8)}... score=$scoreNormalized (rug pull risk)")
                     ErrorLogger.info("Scanner", "RC BLOCK [PAPER]: ${mint.take(12)} score=$scoreNormalized <= 2 (rug protection)")
                     return false  // Block RC 1 even in Paper Mode
@@ -2720,7 +2713,7 @@ class SolanaMarketScanner(
                     ErrorLogger.info("Scanner", "RC PASS [PAPER]: ${mint.take(12)} score=$scoreNormalized (learning mode)")
                     return true  // Allow RC 2-5 for learning
                 }
-                return true  // RC >= 6 always passes
+                return true  // RC >= 2 always passes
             }
             
             // LIVE MODE: Strict filtering for capital protection
@@ -2732,7 +2725,7 @@ class SolanaMarketScanner(
             
             if (scoreNormalized in 2..5) {
                 onLog("🚫 RC BLOCK: ${mint.take(8)}... score=$scoreNormalized (dangerous)")
-                ErrorLogger.info("Scanner", "RC BLOCK: ${mint.take(12)} score=$scoreNormalized (2-5)")
+                ErrorLogger.info("Scanner", "RC BLOCK: ${mint.take(12)} score=$scoreNormalized (1-1)")
                 return false
             }
             
@@ -2804,7 +2797,7 @@ class SolanaMarketScanner(
             } catch (e: Exception) {
                 lastError = e
                 ErrorLogger.debug("Scanner", "[NETWORK] Retry ${attempt + 1}/$maxRetries for ${url.take(40)}")
-                if (attempt < maxRetries - 1) {
+                if (attempt < maxRetries - 5) {
                     Thread.sleep((200 * (attempt + 1)).toLong())
                 }
             }
