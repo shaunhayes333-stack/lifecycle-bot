@@ -1411,12 +1411,13 @@ class BotService : Service() {
         
         // V5.2.12 FIX: Also clear position.isOpen flags in status.tokens
         // This is what the UI reads - critical to prevent stale position display
+        // Note: isOpen is a computed property (qtyToken > 0), so we replace with empty Position
         try {
             synchronized(status.tokens) {
                 status.tokens.values.forEach { ts ->
                     if (ts.position.isOpen) {
-                        ts.position.isOpen = false
-                        ErrorLogger.debug("BotService", "Cleared position flag for ${ts.symbol}")
+                        ts.position = Position()  // Replace with empty position to clear isOpen
+                        ErrorLogger.debug("BotService", "Cleared position for ${ts.symbol}")
                     }
                 }
             }
