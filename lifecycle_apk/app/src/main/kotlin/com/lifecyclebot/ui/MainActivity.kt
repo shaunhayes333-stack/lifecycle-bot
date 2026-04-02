@@ -2210,16 +2210,23 @@ for legal compliance.
      * Shows wins/trades, win rate, or other relevant stats on each tile
      */
     private fun updateTileStats() {
-        // V3 Core - show total trades and win rate
+        // V3 Core - show total open positions across ALL layers and overall learning progress
         try {
-            val v3State = com.lifecyclebot.v3.scoring.FluidLearningAI.getState()
-            val totalTrades = v3State.totalTrades
-            val winRate = v3State.sessionWinRate.toInt()
-            tvV3Stats.text = "$winRate%"
+            // V5.2.11: V3 represents the CORE ENGINE, show aggregate stats
+            val treasuryPos = com.lifecyclebot.v3.scoring.CashGenerationAI.getActivePositions().size
+            val shitCoinPos = com.lifecyclebot.v3.scoring.ShitCoinTraderAI.getActivePositions().size
+            val moonshotPos = com.lifecyclebot.v3.scoring.MoonshotTraderAI.getActivePositions().size
+            val blueChipPos = com.lifecyclebot.v3.scoring.BlueChipTraderAI.getActivePositions().size
+            val totalOpenPos = treasuryPos + shitCoinPos + moonshotPos + blueChipPos
+            
+            val learningPct = com.lifecyclebot.v3.scoring.FluidLearningAI.getLearningProgress() * 100
+            
+            // Show: total positions | learning%
+            tvV3Stats.text = "$totalOpenPos | ${learningPct.toInt()}%"
             tvV3Stats.setTextColor(when {
-                winRate >= 60 -> green
-                winRate >= 45 -> amber
-                else -> red
+                learningPct >= 50 -> green
+                learningPct >= 20 -> amber
+                else -> 0xFF3B82F6.toInt() // blue (learning)
             })
         } catch (_: Exception) { tvV3Stats.text = "—" }
         
@@ -4106,16 +4113,20 @@ Use with caution - moon or zero!
             
             val currentModeLabel = if (cfg.paperMode) "📝 PAPER MODE" else "💰 LIVE MODE"
             
-            // Get stats from trade history using existing methods
-            val v3Trades = tradeStore.getTrades24h().filter { 
-                it.tradingMode.contains("V3", ignoreCase = true) || 
-                it.tradingMode == "CORE" || 
-                it.tradingMode == "STANDARD" 
-            }
-            val wins = v3Trades.count { it.pnlPct > 0 }
-            val losses = v3Trades.count { it.pnlPct <= 0 }
-            val totalPnl = v3Trades.sumOf { it.pnlSol }
-            val winRate = if (v3Trades.isNotEmpty()) (wins.toDouble() / v3Trades.size * 100) else 0.0
+            // V5.2.11: Get positions from ALL layers
+            val treasuryPos = com.lifecyclebot.v3.scoring.CashGenerationAI.getActivePositions()
+            val shitCoinPos = com.lifecyclebot.v3.scoring.ShitCoinTraderAI.getActivePositions()
+            val moonshotPos = com.lifecyclebot.v3.scoring.MoonshotTraderAI.getActivePositions()
+            val blueChipPos = com.lifecyclebot.v3.scoring.BlueChipTraderAI.getActivePositions()
+            val totalOpenPos = treasuryPos.size + shitCoinPos.size + moonshotPos.size + blueChipPos.size
+            
+            // Get ALL trades from 24h (not filtered by mode)
+            val allTrades = tradeStore.getTrades24h()
+            val wins = allTrades.count { it.pnlPct > 0 }
+            val losses = allTrades.count { it.pnlPct < 0 }
+            val scratches = allTrades.count { it.pnlPct == 0.0 }
+            val totalPnl = allTrades.sumOf { it.pnlSol }
+            val winRate = if (allTrades.isNotEmpty()) (wins.toDouble() / allTrades.size * 100) else 0.0
             
             val pnlSign = if (totalPnl >= 0) "+" else ""
             val totalPnlUsd = totalPnl * solPrice
@@ -4125,6 +4136,16 @@ Use with caution - moon or zero!
                 com.lifecyclebot.v3.scoring.FluidLearningAI.getLearningProgress()
             } catch (_: Exception) { 0.0 }
             
+            // Get 30-day run stats if active
+            val runStats = try {
+                val tracker = com.lifecyclebot.engine.RunTracker30D
+                if (tracker.isRunActive()) {
+                    "Day ${tracker.getCurrentDay()}/30 | W=${tracker.wins} L=${tracker.losses} S=${tracker.scratches}"
+                } else {
+                    "Not started"
+                }
+            } catch (_: Exception) { "N/A" }
+            
             val message = """
 🎯 V3 CORE ENGINE
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -4133,33 +4154,37 @@ $currentModeLabel
 🧠 Learning: ${"%.0f".format(learningProgress * 100)}%
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-📊 24H PERFORMANCE
+📊 OPEN POSITIONS (All Layers)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+💰 Treasury: ${treasuryPos.size}
+💩 ShitCoin: ${shitCoinPos.size}
+🚀 Moonshot: ${moonshotPos.size}
+💎 BlueChip: ${blueChipPos.size}
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+Total Open: $totalOpenPos
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+📊 24H PERFORMANCE (All Layers)
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 Daily P&L: $pnlSign${"%.4f".format(totalPnl)} SOL (~$${"%.2f".format(totalPnlUsd)})
-Trades: ${v3Trades.size} | W/L: $wins/$losses
+Trades: ${allTrades.size} | W/L/S: $wins/$losses/$scratches
 Win Rate: ${"%.1f".format(winRate)}%
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-🎯 V3 SCORING LAYERS
+📅 30-DAY RUN
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-• Entry AI: Buy pressure, RSI, hour
-• Momentum AI: Pump detection  
-• Liquidity AI: Pool health
-• Volume Profile: VAL/VAH zones
-• Behavior AI: Tilt protection
-• Edge AI: Threshold learning
-• Exit AI: Optimal sell timing
-• +18 more AI components
+$runStats
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-🎯 TARGET TOKENS
+🧠 V3 AI COMPONENTS (25)
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-Market Cap: $30K - $1M
-Quality Grade: B+ or better
-Confidence: >25%
+Entry, Exit, Edge, Momentum,
+Liquidity, Volume, Behavior,
+HoldTime, Whale, Regime + 15 more
             """.trimIndent()
             
             AlertDialog.Builder(this, R.style.Theme_AATE_Dialog)
