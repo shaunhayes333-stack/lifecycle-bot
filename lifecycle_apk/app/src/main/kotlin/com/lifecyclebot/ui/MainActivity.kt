@@ -272,6 +272,7 @@ class MainActivity : AppCompatActivity() {
     private val chartEntries = mutableListOf<Entry>()
     private var chartIdx = 0f
     private var lastChartTokenMint: String? = null  // Track which token's chart is displayed
+    private var chartActiveTs: com.lifecyclebot.data.TokenState? = null  // Current ts for time-range rebuilds
     private var advancedExpanded = false
     private var settingsPopulated = false
 
@@ -934,6 +935,45 @@ for legal compliance.
         priceChart.invalidate()
     }
 
+    /**
+     * Rebuild the line chart using the correct history array for the selected time range.
+     * Called on token switch AND when the user taps a time-range button.
+     */
+    private fun rebuildChartFromHistory(ts: com.lifecyclebot.data.TokenState) {
+        chartEntries.clear()
+        chartIdx = 0f
+
+        // Select history based on current time range setting
+        val candles: List<com.lifecyclebot.data.Candle> = when (chartTimeRange) {
+            "15m" -> synchronized(ts.history15m) { ts.history15m.takeLast(80).toList() }
+            "5m"  -> synchronized(ts.history5m)  { ts.history5m.takeLast(96).toList() }
+            "1h"  -> synchronized(ts.history15m) {
+                // Derive 1h view from 15m candles — take every 4th to approximate 1h spacing
+                ts.history15m.takeLast(24 * 4).filterIndexed { i, _ -> i % 4 == 0 }.toList()
+            }
+            else  -> synchronized(ts.history)    { ts.history.takeLast(120).toList() }  // "1m"
+        }
+
+        for (candle in candles) {
+            if (candle.priceUsd > 0) chartEntries.add(Entry(chartIdx++, candle.priceUsd.toFloat()))
+        }
+
+        if (chartEntries.isEmpty()) return
+
+        val ds = LineDataSet(chartEntries, "").apply {
+            color     = purple
+            lineWidth = 1.8f
+            setDrawCircles(false)
+            setDrawValues(false)
+            setDrawFilled(true)
+            fillColor = purple
+            fillAlpha = 30
+            mode      = LineDataSet.Mode.CUBIC_BEZIER
+        }
+        priceChart.data = LineData(ds)
+        priceChart.invalidate()
+    }
+
     // ── update UI ─────────────────────────────────────────────────────
 
     private fun updateUi(state: UiState) {
@@ -1116,40 +1156,13 @@ for legal compliance.
         tvPressVal.text   = "${ts?.meta?.pressScore?.toInt() ?: 0}"
 
         // ── chart ─────────────────────────────────────────────────────
-        // Build chart from token history when switching tokens
+        if (ts != null) chartActiveTs = ts   // keep reference for time-range button rebuilds
         if (ts != null && ts.mint != lastChartTokenMint) {
-            // Clear and rebuild chart from history for new token
-            chartEntries.clear()
-            chartIdx = 0f
+            // Switching to a new token — full rebuild
             lastChartTokenMint = ts.mint
-            
-            // Build chart from historical candles
-            synchronized(ts.history) {
-                val historyList = ts.history.takeLast(100)
-                for (candle in historyList) {
-                    if (candle.priceUsd > 0) {
-                        chartEntries.add(Entry(chartIdx++, candle.priceUsd.toFloat()))
-                    }
-                }
-            }
-            
-            // Update chart display
-            if (chartEntries.isNotEmpty()) {
-                val ds = LineDataSet(chartEntries, "").apply {
-                    color           = purple
-                    lineWidth       = 1.8f
-                    setDrawCircles(false)
-                    setDrawValues(false)
-                    setDrawFilled(true)
-                    fillColor       = purple
-                    fillAlpha       = 30
-                    mode            = LineDataSet.Mode.CUBIC_BEZIER
-                }
-                priceChart.data = LineData(ds)
-                priceChart.invalidate()
-            }
+            rebuildChartFromHistory(ts)
         } else if (ts?.lastPrice != null && ts.lastPrice > 0) {
-            // Append new price point
+            // Same token — append live price point
             appendChart(ts.lastPrice)
         }
 
@@ -1690,6 +1703,17 @@ for legal compliance.
                 typeface = android.graphics.Typeface.MONOSPACE
                 gravity = android.view.Gravity.END
             })
+            // TP target (pre-computed before entry)
+            val tpTarget = pos.position.targetTakeProfitPct
+            if (tpTarget > 0) {
+                right.addView(TextView(this).apply {
+                    text = "TP +${tpTarget.toInt()}%"
+                    textSize = 9f
+                    setTextColor(if (gainPct >= tpTarget) green else 0xFF6B7280.toInt())
+                    typeface = android.graphics.Typeface.MONOSPACE
+                    gravity = android.view.Gravity.END
+                })
+            }
             row.addView(right)
 
             val div = View(this).apply {
@@ -1801,8 +1825,11 @@ for legal compliance.
         positions.forEach { pos ->
             // V5.2 FIX: Use position's tracked price or fall back to entry price
             // BlueChip positions should have their own price tracking similar to Treasury
-            val currentPrice = pos.entryPrice  // TODO: Add getTrackedPrice to BlueChipTraderAI
-            val gainPct = (currentPrice - pos.entryPrice) / pos.entryPrice * 100
+            val currentPrice = try {
+                com.lifecyclebot.engine.BotService.status.tokens[pos.mint]?.ref?.takeIf { it > 0 }
+                    ?: pos.entryPrice
+            } catch (_: Exception) { pos.entryPrice }
+            val gainPct = if (pos.entryPrice > 0) (currentPrice - pos.entryPrice) / pos.entryPrice * 100 else 0.0
             val gainCol = if (gainPct >= 0) green else red
             val pnlSol = pos.entrySol * gainPct / 100.0
 
@@ -1986,7 +2013,10 @@ for legal compliance.
             } catch (_: Exception) { pos.entryPrice }
             
             val pnlPct = if (pos.entryPrice > 0) ((currentPrice - pos.entryPrice) / pos.entryPrice * 100) else 0.0
-            val holdMins = pos.safeHeldMins.toLong()
+            val holdMins = if (pos.entryTime > 0) {
+                val raw = (System.currentTimeMillis() - pos.entryTime) / 60000
+                if (raw > 1440) 0L else raw
+            } else 0L
             
             val row = LinearLayout(this).apply {
                 orientation = LinearLayout.HORIZONTAL
@@ -2069,7 +2099,7 @@ for legal compliance.
             "candle" to try { findViewById<TextView>(R.id.btnChartCandle) } catch (_: Exception) { null },
         )
         
-        // Time range buttons
+        // Time range buttons — change range AND immediately reload chart data
         for ((range, btn) in timeButtons) {
             btn?.setOnClickListener {
                 chartTimeRange = range
@@ -2078,6 +2108,8 @@ for legal compliance.
                     b?.setTextColor(if (r == range) 0xFFFFFFFF.toInt() else 0xFF6B7280.toInt())
                     b?.setBackgroundColor(if (r == range) 0xFF3B82F6.toInt() else 0xFF2A2A2A.toInt())
                 }
+                // Rebuild chart using the correct history for this time frame
+                chartActiveTs?.let { rebuildChartFromHistory(it) }
             }
         }
         
