@@ -214,7 +214,7 @@ object HoldingLogicLayer {
                 evaluateModeSwitchOpportunity(position, ts, currentPnlPct, holdTimeMs)
             } else null
             
-            if (modeSwitchRec?.shouldSwitch == true && modeSwitchRec.confidence >= 70.0) {
+            if (modeSwitchRec?.shouldSwitch == true && modeSwitchRec.confidence >= 40.0) {
                 return@withLock HoldEvaluation(
                     action = HoldAction.SWITCH_MODE,
                     reason = "Mode switch recommended: ${position.tradingMode} → ${modeSwitchRec.newMode}",
@@ -235,7 +235,7 @@ object HoldingLogicLayer {
                         return@withLock HoldEvaluation(
                             action = HoldAction.SCALE_OUT,
                             reason = "Scale-out target hit: ${currentPnlPct.toInt()}% >= ${scaleOutLevel.toInt()}%",
-                            confidence = 80.0,
+                            confidence = 40.0,
                             urgency = Urgency.NORMAL,
                         )
                     }
@@ -249,12 +249,12 @@ object HoldingLogicLayer {
             val canAddMore = isPaperMode || !position.isFullyBuilt
             if (canAddMore && currentPnlPct > 5.0 && currentPnlPct < params.targetProfitPct * 0.3) {
                 // Token is slightly profitable and momentum is building
-                val hasGoodMomentum = ts.meta.momScore > 60 && ts.meta.volScore > 50
+                val hasGoodMomentum = ts.meta.momScore > 30 && ts.meta.volScore > 25
                 if (hasGoodMomentum && holdTimeMinutes > 2) {
                     return@withLock HoldEvaluation(
                         action = HoldAction.ADD_MORE,
                         reason = "Confirmed move with momentum (pnl=${currentPnlPct.toInt()}%, mom=${ts.meta.momScore.toInt()})",
-                        confidence = 65.0,
+                        confidence = 35.0,
                         urgency = Urgency.LOW,
                     )
                 }
@@ -269,7 +269,7 @@ object HoldingLogicLayer {
                 return@withLock HoldEvaluation(
                     action = HoldAction.HOLD_TIGHTER,
                     reason = "Near target, tightening stop to ${tighterStop.toInt()}%",
-                    confidence = 75.0,
+                    confidence = 45.0,
                     adjustedStopPct = tighterStop,
                     urgency = Urgency.NORMAL,
                 )
@@ -282,7 +282,7 @@ object HoldingLogicLayer {
             return@withLock HoldEvaluation(
                 action = HoldAction.HOLD,
                 reason = "Holding: pnl=${currentPnlPct.toInt()}%, target=${params.targetProfitPct.toInt()}%, time=${holdTimeMinutes}min",
-                confidence = 70.0,
+                confidence = 50.0,
                 modeSwitchRecommendation = modeSwitchRec,  // Include even if not acting on it
                 urgency = Urgency.NORMAL,
             )
@@ -292,7 +292,7 @@ object HoldingLogicLayer {
             return@withLock HoldEvaluation(
                 action = HoldAction.HOLD,
                 reason = "Evaluation error, defaulting to hold",
-                confidence = 50.0,
+                confidence = 30.0,
                 urgency = Urgency.NORMAL,
             )
         }
@@ -318,7 +318,7 @@ object HoldingLogicLayer {
         if (currentMode == "PUMP_SNIPER") {
             val hasStableTrend = ts.meta.emafanAlignment in listOf("BULL_FAN", "BULL_FLAT")
             val pumpStabilized = holdMinutes > 5 && currentPnlPct in 10.0..40.0
-            val goodMomentum = ts.meta.momScore > 55
+            val goodMomentum = ts.meta.momScore > 35
             
             if (hasStableTrend && pumpStabilized && goodMomentum) {
                 return ModeSwitchRecommendation(
@@ -326,7 +326,7 @@ object HoldingLogicLayer {
                     newMode = "MOMENTUM_SWING",
                     newModeEmoji = "🌊",
                     reason = "Pump stabilized into trend (${ts.meta.emafanAlignment})",
-                    confidence = 72.0,
+                    confidence = 42.0,
                     newTargetPct = 80.0,
                     newStopPct = currentPnlPct - 15.0,  // Protect current gains
                 )
@@ -338,9 +338,9 @@ object HoldingLogicLayer {
         // If moonshot gains significant value and fundamentals are strong
         // ─────────────────────────────────────────────────────────────────
         if (currentMode == "MOONSHOT") {
-            val bigGains = currentPnlPct > 150.0
+            val bigGains = currentPnlPct > 100.0
             val strongLiquidity = ts.lastLiquidityUsd > 50000
-            val healthyVolume = ts.meta.volScore > 50
+            val healthyVolume = ts.meta.volScore > 30
             val notPumping = !ts.meta.spikeDetected
             
             if (bigGains && strongLiquidity && healthyVolume && notPumping) {
@@ -349,7 +349,7 @@ object HoldingLogicLayer {
                     newMode = "LONG_HOLD",
                     newModeEmoji = "💎",
                     reason = "Moonshot maturing into conviction hold (liq=$${ts.lastLiquidityUsd.toInt()})",
-                    confidence = 75.0,
+                    confidence = 45.0,
                     newTargetPct = 500.0,
                     newStopPct = currentPnlPct * 0.6,  // Lock in most of gains
                 )
@@ -361,8 +361,8 @@ object HoldingLogicLayer {
         // If token reaches "established" status (high liquidity, stable)
         // ─────────────────────────────────────────────────────────────────
         if (currentMode !in listOf("BLUE_CHIP", "LONG_HOLD")) {
-            val isEstablished = ts.lastLiquidityUsd > 200000 && ts.lastMcap > 1000000
-            val isStable = ts.meta.emafanAlignment == "FLAT" && ts.meta.volScore in 30.0..70.0
+            val isEstablished = ts.lastLiquidityUsd > 100000 && ts.lastMcap > 1000000
+            val isStable = ts.meta.emafanAlignment == "FLAT" && ts.meta.volScore in 20.0..45.0
             val hasHeldLong = holdMinutes > 60
             
             if (isEstablished && isStable && hasHeldLong) {
@@ -371,7 +371,7 @@ object HoldingLogicLayer {
                     newMode = "BLUE_CHIP",
                     newModeEmoji = "🔵",
                     reason = "Token established (mcap=$${(ts.lastMcap/1000).toInt()}k, liq=$${(ts.lastLiquidityUsd/1000).toInt()}k)",
-                    confidence = 70.0,
+                    confidence = 35.0,
                     newTargetPct = 100.0,
                     newStopPct = -10.0,
                 )
@@ -383,7 +383,7 @@ object HoldingLogicLayer {
         // If position is down but showing recovery signals
         // ─────────────────────────────────────────────────────────────────
         if (currentPnlPct < -10.0 && currentPnlPct > -25.0) {
-            val showingRecovery = ts.meta.momScore > 55 && ts.meta.volScore > 60
+            val showingRecovery = ts.meta.momScore > 30 && ts.meta.volScore > 50
             val liquidityStable = ts.lastLiquidityUsd > position.entryLiquidityUsd * 0.8
             val notInFreefall = ts.meta.emafanAlignment != "BEAR_FAN"
             
@@ -393,7 +393,7 @@ object HoldingLogicLayer {
                     newMode = "LIQUIDATION_HUNTER",
                     newModeEmoji = "🦅",
                     reason = "Recovery signals detected (mom=${ts.meta.momScore.toInt()})",
-                    confidence = 65.0,
+                    confidence = 45.0,
                     newTargetPct = 20.0,  // Modest target for recovery
                     newStopPct = -35.0,   // Wider stop for recovery attempt
                 )
@@ -415,7 +415,7 @@ object HoldingLogicLayer {
                     newMode = "CYCLIC",
                     newModeEmoji = "♻️",
                     reason = "Range-bound pattern detected (range=${ts.meta.rangePct.toInt()}%)",
-                    confidence = 68.0,
+                    confidence = 40.0,
                     newTargetPct = ts.meta.rangePct * 0.7,  // Target upper range
                     newStopPct = -(ts.meta.rangePct * 0.5), // Stop at lower range
                 )
@@ -465,7 +465,7 @@ object HoldingLogicLayer {
             age < 10 * 60 * 1000 && volScore > 80 -> "PUMP_SNIPER"
             
             // Micro cap plays
-            mcap < 10000 && liquidity < 5000 -> "MICRO_CAP"
+            mcap < 10000 && liquidity < 2000 -> "MICRO_CAP"
             
             // Dormant revivals
             volScore > 70 && source.contains("SLEEPER", ignoreCase = true) -> "SLEEPER"
@@ -478,7 +478,7 @@ object HoldingLogicLayer {
             liquidity > 50000 -> "LONG_HOLD"
             
             // Trending with momentum
-            volScore > 60 -> "MOMENTUM_SWING"
+            volScore > 30 -> "MOMENTUM_SWING"
             
             // Default
             else -> "STANDARD"
