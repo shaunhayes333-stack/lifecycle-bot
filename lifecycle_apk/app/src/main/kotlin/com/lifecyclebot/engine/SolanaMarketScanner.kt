@@ -26,14 +26,6 @@ import java.util.concurrent.TimeUnit
 
 /**
  * ScannerLearning — Tracks which sources/characteristics produce winners
- * ═══════════════════════════════════════════════════════════════════════
- *
- * Learns over time:
- *  - Which TokenSource produces most winners
- *  - Which liquidity ranges perform best
- *  - Which age profiles (fresh vs established) win more
- *
- * Used to boost/penalize discovery scores based on historical performance.
  */
 object ScannerLearning {
     private const val PREFS_NAME = "scanner_learning"
