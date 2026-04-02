@@ -33,11 +33,11 @@ object TreasuryOpportunityEngine {
         val maxDeployPct: Double = 20.0,           // Max % of treasury to deploy at once
         val maxConcurrentDeploys: Int = 3,         // Max simultaneous treasury positions
         val minTreasuryToStart: Double = 0.5,      // Min treasury SOL before deploying
-        val minConfidenceScore: Double = 75.0,     // Min confidence to deploy
+        val minConfidenceScore: Double = 35.0,     // Min confidence to deploy
         val targetModes: Set<String> = setOf(      // Preferred modes for treasury
             "MOONSHOT", "PUMP_SNIPER", "MICRO_CAP", "REVIVAL"
         ),
-        val cooldownMs: Long = 300_000,            // 5 min cooldown between deploys
+        val cooldownMs: Long = 60_000,            // 1 min cooldown between deploys
     )
     
     /**
@@ -149,7 +149,7 @@ object TreasuryOpportunityEngine {
             if (confidence < config.minConfidenceScore) return null
             
             // Check entry score
-            if (entryScore < 70) return null
+            if (entryScore < 35) return null
             
             // Check liquidity (need at least $5k)
             if (liquidityUsd < 5000) return null
@@ -410,7 +410,7 @@ object TreasuryOpportunityEngine {
             
             // Lower mcap = higher potential
             val mcapMultiplier = when {
-                mcapUsd < 50_000 -> 1.5
+                mcapUsd < 20_000 -> 1.5
                 mcapUsd < 100_000 -> 1.2
                 mcapUsd < 500_000 -> 1.0
                 else -> 0.8
