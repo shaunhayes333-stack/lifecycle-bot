@@ -68,11 +68,13 @@ object CashGenerationAI {
     // Exit strategy (AGGRESSIVE SCALPING - V4.20)
     // Chip away at profits constantly - no hold time limit
     // Can cycle same coin repeatedly if green
-    private const val TAKE_PROFIT_PCT_PAPER = 3.5     // V5.2: Paper same as live (was 0.5%)
-    private const val TAKE_PROFIT_PCT_LIVE = 2.5      // Live: 2.5% minimum (covers fees + profit)
-    private const val TAKE_PROFIT_MIN_PCT = 2.5       // V5.0: Quick 2.5% for DEFENSIVE mode
-    private const val TAKE_PROFIT_PCT = 3.5           // Standard TP for CRUISE mode
-    private const val TAKE_PROFIT_MAX_PCT = 4.0       // V5.0: Cap at 4% for AGGRESSIVE (was 8%)
+    // V5.3: Raised TP targets — round-trip fees ~2% (Jupiter + slippage) were eating thin margins.
+    // Old targets (2.5-4%) left near-zero NET profit. New targets ensure 2.5-6% NET after fees.
+    private const val TAKE_PROFIT_PCT_PAPER = 5.0     // Paper: 5% gross = ~3% NET after fees
+    private const val TAKE_PROFIT_PCT_LIVE = 4.5      // Live minimum: clears fees + meaningful profit
+    private const val TAKE_PROFIT_MIN_PCT = 4.0       // DEFENSIVE mode: quick but still fee-positive
+    private const val TAKE_PROFIT_PCT = 6.0           // CRUISE mode: standard quality target
+    private const val TAKE_PROFIT_MAX_PCT = 8.0       // AGGRESSIVE mode: let winners run
     private const val STOP_LOSS_PCT = -4.0            // V5.2 FIX: Raised from -2% - give trades room to breathe
     private const val TRAILING_STOP_PCT = 1.5         // Tighter 1.5% trail after profit
     private const val MAX_HOLD_MINUTES = 30           // Extended to 30min - let positions breathe
