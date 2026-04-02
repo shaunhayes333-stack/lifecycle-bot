@@ -2702,35 +2702,34 @@ class SolanaMarketScanner(
             // RC <= 5 = BLOCK (dangerous/rug territory)
             // RC <= 2 = HARD BLOCK (catastrophic) - V5.2: Lowered from 3
             // V5.2.8: Paper mode allows RC 4-5 for learning
+            // V5.2.9: Paper mode allows ALL RC scores for maximum learning
             
             val c = cfg()
             val isPaper = c.paperMode
             
+            // V5.2.9: In Paper Mode, allow EVERYTHING for learning (it's fake money!)
+            if (isPaper) {
+                if (scoreNormalized <= 2) {
+                    onLog("⚠️ RC DANGER [PAPER]: ${mint.take(8)}... score=$scoreNormalized (allowed for learning)")
+                    ErrorLogger.info("Scanner", "RC PASS [PAPER]: ${mint.take(12)} score=$scoreNormalized (DANGER - learning mode)")
+                } else if (scoreNormalized in 3..5) {
+                    onLog("⚠️ RC WARN [PAPER]: ${mint.take(8)}... score=$scoreNormalized (allowed for learning)")
+                    ErrorLogger.info("Scanner", "RC PASS [PAPER]: ${mint.take(12)} score=$scoreNormalized (learning mode)")
+                }
+                return true  // Paper mode: PASS everything for learning
+            }
+            
+            // LIVE MODE: Strict filtering for capital protection
             if (scoreNormalized <= 2) {
                 onLog("🚫 RC HARD BLOCK: ${mint.take(8)}... score=$scoreNormalized (catastrophic)")
                 ErrorLogger.info("Scanner", "RC HARD_BLOCK: ${mint.take(12)} score=$scoreNormalized <= 2")
                 return false
             }
             
-            // V5.2.8: Only block RC 3-5 in LIVE mode - Paper mode allows for learning
             if (scoreNormalized in 3..5) {
-                if (isPaper) {
-                    // Paper mode: Allow RC 4-5 for learning, still block RC 3
-                    if (scoreNormalized <= 3) {
-                        onLog("🚫 RC BLOCK [PAPER]: ${mint.take(8)}... score=$scoreNormalized (too risky even for paper)")
-                        ErrorLogger.info("Scanner", "RC BLOCK [PAPER]: ${mint.take(12)} score=$scoreNormalized <= 3")
-                        return false
-                    }
-                    // RC 4-5 in Paper mode: PASS for learning
-                    onLog("⚠️ RC WARN [PAPER]: ${mint.take(8)}... score=$scoreNormalized (allowed for learning)")
-                    ErrorLogger.info("Scanner", "RC PASS [PAPER]: ${mint.take(12)} score=$scoreNormalized (learning mode)")
-                    return true
-                } else {
-                    // Live mode: Block RC 3-5
-                    onLog("🚫 RC BLOCK: ${mint.take(8)}... score=$scoreNormalized (dangerous)")
-                    ErrorLogger.info("Scanner", "RC BLOCK: ${mint.take(12)} score=$scoreNormalized (3-5)")
-                    return false
-                }
+                onLog("🚫 RC BLOCK: ${mint.take(8)}... score=$scoreNormalized (dangerous)")
+                ErrorLogger.info("Scanner", "RC BLOCK: ${mint.take(12)} score=$scoreNormalized (3-5)")
+                return false
             }
             
             // V5.2: RC >= 6 = PASS - this is realistic for solana tokens
