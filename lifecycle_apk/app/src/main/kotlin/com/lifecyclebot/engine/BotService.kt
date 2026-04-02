@@ -3411,18 +3411,26 @@ class BotService : Service() {
                             else -> 15 to 25
                         }
                         
+                        // Calculate token age from history (first candle timestamp)
+                        val qualityTokenAgeMinutes = if (ts.history.isNotEmpty()) {
+                            (System.currentTimeMillis() - ts.history.first().ts) / 60_000.0
+                        } else 0.0
+                        
+                        // Get holder count from last candle
+                        val qualityHolderCount = ts.history.lastOrNull()?.holderCount ?: 0
+                        
                         val qualitySignal = com.lifecyclebot.v3.scoring.QualityTraderAI.evaluate(
                             mint = ts.mint,
                             symbol = ts.symbol,
                             currentPrice = ts.ref,
                             marketCapUsd = ts.lastMcap,
                             liquidityUsd = ts.lastLiquidityUsd,
-                            buyPressure = ts.lastBuyPressurePct,
-                            tokenAgeMinutes = ts.tokenAgeMinutes ?: 0.0,
-                            holderCount = ts.holderCount ?: 0,
+                            buyPressure = ts.lastBuyPressurePct.toInt(),
+                            tokenAgeMinutes = qualityTokenAgeMinutes,
+                            holderCount = qualityHolderCount,
                             topHolderPct = ts.topHolderPct ?: 20.0,
                             v3Score = v3Score,
-                            isMeme = ts.isMeme ?: false,
+                            isMeme = false,
                         )
                         
                         if (qualitySignal.shouldEnter) {
