@@ -1205,7 +1205,10 @@ class SolanaMarketScanner(
                 runScan("scanPumpFunVolume") { scanPumpFunVolume() }
                 delay(100)
                 runScan("scanRaydiumNewPools") { scanRaydiumNewPools() }
-                
+                delay(100)
+                // Collective hive mind: pull hot tokens winning on other bots' instances
+                runScan("scanCollectiveHotTokens") { scanCollectiveHotTokens() }
+
                 // GC after scan
                 System.gc()
                 onLog("✅ Scan cycle #$scanRotation complete")
@@ -2779,6 +2782,56 @@ class SolanaMarketScanner(
         }
         
         emit(token)
+    }
+
+    // ── Collective hive mind hot tokens ──────────────────────────────
+    /**
+     * Pull tokens that are winning on OTHER instances via Turso collective DB.
+     * When any bot in the network records a 20%+ win, it broadcasts the token.
+     * This scan fetches those signals and adds them to our watchlist so we can
+     * also trade the same runners.
+     */
+    private suspend fun scanCollectiveHotTokens() {
+        if (!com.lifecyclebot.collective.CollectiveLearning.isEnabled()) return
+        try {
+            val hotTokens = com.lifecyclebot.collective.CollectiveLearning.getHotTokens(hoursBack = 4, limit = 15)
+            if (hotTokens.isEmpty()) {
+                ErrorLogger.debug("Scanner", "scanCollectiveHotTokens: no hot tokens from network")
+                return
+            }
+            ErrorLogger.info("Scanner", "🌐 COLLECTIVE: ${hotTokens.size} hot tokens from hive mind")
+            var emitted = 0
+            for (hot in hotTokens) {
+                if (hot.symbol.isBlank()) continue
+                // Look up the token on DexScreener to get current data
+                val pairs = withContext(Dispatchers.IO) {
+                    try { dex.search(hot.symbol).take(3) } catch (_: Exception) { emptyList() }
+                }
+                val best = pairs.firstOrNull { it.chainId == "solana" } ?: continue
+                val mint = best.pairAddress.ifBlank { continue }
+                if (isSeen(mint)) continue
+                val token = ScannedToken(
+                    mint               = mint,
+                    symbol             = best.baseSymbol.ifBlank { hot.symbol },
+                    name               = best.baseName,
+                    source             = TokenSource.NARRATIVE_SCAN,  // reuse; displayed as "NT"
+                    liquidityUsd       = best.liquidity,
+                    volumeH1           = best.candle.volumeH1,
+                    mcapUsd            = best.candle.marketCap,
+                    pairCreatedHoursAgo = 0.0,
+                    dexId              = "raydium",
+                    priceChangeH1      = hot.avgPnlPct,
+                    txCountH1          = hot.trades,
+                    score              = (hot.winRate * 1.2).coerceIn(50.0, 120.0),
+                )
+                seenMints[mint] = System.currentTimeMillis()
+                emitWithRugcheck(token)
+                emitted++
+            }
+            if (emitted > 0) onLog("🌐 Hive mind: $emitted hot tokens added from collective network")
+        } catch (e: Exception) {
+            ErrorLogger.debug("Scanner", "scanCollectiveHotTokens error: ${e.message}")
+        }
     }
 
     private fun get(url: String, apiKey: String = ""): String? = try {
