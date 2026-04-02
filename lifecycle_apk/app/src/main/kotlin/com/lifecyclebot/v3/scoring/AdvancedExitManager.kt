@@ -446,6 +446,7 @@ object AdvancedExitManager {
     
     /**
      * Quick check if we should cut loss (for rapid stop loss monitoring)
+     * V5.2.11: Fixed time multipliers - was TIGHTER in first 2 mins (0.7), now LOOSER (1.4)
      */
     fun shouldCutLoss(
         pnlPct: Double,
@@ -453,19 +454,20 @@ object AdvancedExitManager {
         momentum: Double,
         holdMinutes: Int,
     ): Boolean {
-        // Dynamic stop based on time held
+        // V5.2.11: Dynamic stop based on time held - LOOSER early, tighter later
+        // Meme coins wick down in first few minutes before pumping
         val timeMultiplier = when {
-            holdMinutes < 2 -> 0.7    // Very tight in first 2 mins
-            holdMinutes < 5 -> 0.85
-            holdMinutes < 10 -> 1.0
-            else -> 1.1               // Slightly wider after 10 mins
+            holdMinutes < 2 -> 1.4     // V5.2.11: WIDER in first 2 mins (was 0.7!)
+            holdMinutes < 5 -> 1.2     // V5.2.11: Still wider (was 0.85)
+            holdMinutes < 10 -> 1.0    // Normal
+            else -> 0.9                // Slightly tighter after 10 mins (if not recovering, cut)
         }
         
         // Momentum adjustment
         val momentumMultiplier = when {
-            momentum < -15 -> 0.6     // Crashing - cut fast
-            momentum < -5 -> 0.8
-            momentum > 10 -> 1.2      // Strong momentum - give room
+            momentum < -15 -> 0.7      // V5.2.11: 0.6→0.7 (less aggressive on crashes)
+            momentum < -5 -> 0.85
+            momentum > 10 -> 1.2       // Strong momentum - give room
             else -> 1.0
         }
         
