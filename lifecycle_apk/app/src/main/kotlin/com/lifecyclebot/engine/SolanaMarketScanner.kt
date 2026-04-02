@@ -2789,30 +2789,46 @@ if (scanRotation == 0 && seenMints.size > 200) {
     // - Retry logic with exponential backoff
     // - DNS fallback handling
     // - Graceful degradation on failures
-    // ═══════════════════════════════════════════════════════════════════════
-    
+    // ══════════════════════════
+
     private fun getWithRetry(url: String, apiKey: String = "", maxRetries: Int = 2): String? {
-        var lastError: Exception? = null
-        repeat(maxRetries) { attempt ->
-            try {
-                val result = get(url, apiKey)
-                if (result != null) return result
-                // Non-null but empty = API issue, retry
-                if (attempt < maxRetries - 1) {
-                    Thread.sleep((100 * (attempt + 1)).toLong())  // Simple backoff
-                }
-            } catch (e: Exception) {
-                lastError = e
-                ErrorLogger.debug("Scanner", "[NETWORK] Retry ${attempt + 1}/$maxRetries for ${url.take(40)}")
-                if (attempt < maxRetries - 5) {
-                    Thread.sleep((200 * (attempt + 1)).toLong())
-                }
+    var lastError: Exception? = null
+
+    repeat(maxRetries.coerceAtLeast(1)) { attempt ->
+        try {
+            val result = get(url, apiKey)
+            if (result != null) return result
+
+            // API returned no usable body, retry with small backoff
+            if (attempt < maxRetries - 1) {
+                Thread.sleep((150L * (attempt + 1)))
+            }
+        } catch (e: Exception) {
+            lastError = e
+            ErrorLogger.debug(
+                "Scanner",
+                "[NETWORK] Retry ${attempt + 1}/$maxRetries failed for ${url.take(40)}: ${e.message?.take(40)}"
+            )
+
+            if (attempt < maxRetries - 1) {
+                Thread.sleep((250L * (attempt + 1)))
             }
         }
-        if (lastError != null) {
-            ErrorLogger.warn("Scanner", "[NETWORK] All retries failed for ${url.take(50)}: ${lastError?.message?.take(30)}")
-        }
-        return null
+    }
+
+    if (lastError != null) {
+        ErrorLogger.warn(
+            "Scanner",
+            "[NETWORK] All retries failed for ${url.take(50)}: ${lastError?.message?.take(30)}"
+        )
+    } else {
+        ErrorLogger.warn(
+            "Scanner",
+            "[NETWORK] All retries returned null for ${url.take(50)}"
+        )
+    }
+
+    return null
     }
 
     private fun get(url: String, apiKey: String = ""): String? = try {
