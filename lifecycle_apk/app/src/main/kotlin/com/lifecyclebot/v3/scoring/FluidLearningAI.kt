@@ -54,7 +54,7 @@ object FluidLearningAI {
         }
         isInitialized = true
         ErrorLogger.info(TAG, "🧠 FluidLearningAI initialized (ONE-TIME) | " +
-            "maturityTarget=$TRADES_FOR_MATURITY trades | " +
+            "bootstrap=0-$BOOTSTRAP_PHASE_END | mature=$BOOTSTRAP_PHASE_END-$MATURE_PHASE_END | continuous=$MATURE_PHASE_END+ | " +
             "currentProgress=${(getLearningProgress() * 100).toInt()}%")
     }
     
@@ -67,9 +67,12 @@ object FluidLearningAI {
     private val lastProgressUpdate = AtomicLong(0)
     private var cachedProgress = 0.0
     
-    // Trades needed to reach full maturity
-    // V4.0: Increased from 500 to 1000 for better sample size and slower, quality learning
-    private const val TRADES_FOR_MATURITY = 1000
+    // V5.3: 3-Phase learning curve
+    //   Phase 1 Bootstrap (0-500 trades):   progress 0.0→0.5 (permissive thresholds, learning mode)
+    //   Phase 2 Mature   (500-1000 trades): progress 0.5→1.0 (tightening thresholds)
+    //   Phase 3 Continuous (1000+ trades):  progress 1.0 ± win-rate adjustment (adaptive)
+    private const val BOOTSTRAP_PHASE_END = 500
+    private const val MATURE_PHASE_END = 1000
     
     /**
      * V5.2: Reset all learning progress.
@@ -166,8 +169,8 @@ object FluidLearningAI {
         buyPressurePct: Double,
         isPaper: Boolean
     ): Boolean {
-        // V5.2: Apply during bootstrap (learning < 15%, was 5%)
-        if (getLearningProgress() >= 0.15) return false
+        // V5.3: Apply throughout entire bootstrap phase (learning < 50% = first 500 trades)
+        if (getLearningProgress() >= 0.50) return false
         
         // V5.2: Quick age check - only wait 1 minute
         if (tokenAgeMinutes < MIN_TOKEN_AGE_BOOTSTRAP) {
@@ -374,15 +377,41 @@ object FluidLearningAI {
             sessionWinRate
         }
         
-        // Base progress from trade count
-        var progress = (totalTrades.toDouble() / TRADES_FOR_MATURITY).coerceIn(0.0, 1.0)
-        
-        // Win rate bonus/penalty
-        when {
-            blendedWinRate > 60 -> progress = (progress * 1.1).coerceAtMost(1.0)  // +10% faster
-            blendedWinRate < 40 -> progress = (progress * 0.9)                     // -10% slower
+        // V5.3: 3-Phase learning curve
+        val baseProgress = when {
+            totalTrades <= BOOTSTRAP_PHASE_END ->
+                // Phase 1 Bootstrap (0-500 trades): 0.0 → 0.5
+                (totalTrades.toDouble() / BOOTSTRAP_PHASE_END) * 0.5
+            totalTrades <= MATURE_PHASE_END ->
+                // Phase 2 Mature (500-1000 trades): 0.5 → 1.0
+                0.5 + ((totalTrades - BOOTSTRAP_PHASE_END).toDouble() / BOOTSTRAP_PHASE_END) * 0.5
+            else ->
+                // Phase 3 Continuous (1000+ trades): full maturity baseline
+                1.0
         }
-        
+
+        val progress = when {
+            totalTrades > MATURE_PHASE_END -> {
+                // Phase 3: Continuous adaptive adjustment based on recent performance
+                // Poor performance loosens thresholds slightly so bot can learn from more trades
+                // Strong performance keeps thresholds tight (quality over quantity)
+                when {
+                    blendedWinRate > 60 -> baseProgress                              // Performing well: stay strict
+                    blendedWinRate < 30 -> (baseProgress - 0.25).coerceAtLeast(0.6) // Very poor: loosen significantly
+                    blendedWinRate < 40 -> (baseProgress - 0.15).coerceAtLeast(0.7) // Poor: loosen a bit
+                    else -> baseProgress
+                }
+            }
+            else -> {
+                // Phase 1-2: Win rate speeds/slows learning progression
+                when {
+                    blendedWinRate > 60 -> (baseProgress * 1.1).coerceAtMost(1.0)  // +10% faster
+                    blendedWinRate < 40 -> baseProgress * 0.9                        // -10% slower
+                    else -> baseProgress
+                }
+            }
+        }
+
         cachedProgress = progress
         lastProgressUpdate.set(now)
         
@@ -936,7 +965,7 @@ object FluidLearningAI {
             totalTrades = totalTrades,
             sessionTrades = sessionTrades.get(),
             sessionWinRate = sessionWinRate,
-            isBootstrap = progress < 0.1,
+            isBootstrap = progress < 0.5,  // V5.3: Bootstrap = first 500 trades (progress < 0.5)
             watchlistFloor = getWatchlistFloor().toInt(),
             executionFloor = getExecutionFloor().toInt(),
             scannerMinLiq = getScannerMinLiquidity().toInt(),

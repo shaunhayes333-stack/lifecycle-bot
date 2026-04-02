@@ -564,8 +564,10 @@ object ShitCoinExpress {
     // FLUID THRESHOLDS
     // ═══════════════════════════════════════════════════════════════════════════
     
-    private const val EXPRESS_SCORE_BOOTSTRAP = 60  // Need good setup at start
-    private const val EXPRESS_SCORE_MATURE = 45     // Can take riskier rides when experienced
+    // V5.3: FIXED - was inverted (60 bootstrap → 45 mature = HARDER during learning!)
+    // Now correctly starts permissive in bootstrap and tightens as bot learns
+    private const val EXPRESS_SCORE_BOOTSTRAP = 45  // Permissive during bootstrap (learning phase)
+    private const val EXPRESS_SCORE_MATURE = 60     // Stricter when experienced (mature phase)
     
     private fun getFluidScoreThreshold(): Int {
         val progress = FluidLearningAI.getLearningProgress()
