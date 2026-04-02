@@ -46,7 +46,7 @@ object ArbScannerAI {
     
     // Rejection tracking (avoid repeated evaluations of bad candidates)
     private val recentRejections = ConcurrentHashMap<String, Long>()
-    private const val REJECTION_COOLDOWN_MS = 30_000L  // 30 second cooldown after rejection
+    private const val REJECTION_COOLDOWN_MS = 5_000L  // 5 second cooldown after rejection
     
     // ═══════════════════════════════════════════════════════════════════════════
     // SOURCE TIMING INTEGRATION
@@ -172,7 +172,7 @@ object ArbScannerAI {
         }
         
         // 2. Liquidity floor check (absolute minimum)
-        if (candidate.liquidityUsd < 5_000) {
+        if (candidate.liquidityUsd < 2_000) {
             return "LIQUIDITY_BELOW_FLOOR"
         }
         
