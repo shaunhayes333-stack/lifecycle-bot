@@ -57,7 +57,7 @@ object BehaviorLearning {
         val volumeSignal: String,     // SURGE, INCREASING, NORMAL, etc.
         
         // Token characteristics
-        val liquidityBucket: String,  // <5k, 5-20k, 20-50k, 50-100k, 100k+
+        val liquidityBucket: String,  // <2k, 2-20k, 20-50k, 50-100k, 100k+
         val mcapBucket: String,       // <50k, 50-100k, 100-500k, 500k-1m, 1m+
         val holderConcentration: String,  // HIGH, MEDIUM, LOW
         val rugcheckScore: Int,
@@ -154,8 +154,8 @@ object BehaviorLearning {
             
             val outcomeCategory = when {
                 pnlPct > 30.0 -> "BIG_WIN"
-                pnlPct > 5.0 -> "SMALL_WIN"
-                pnlPct > -5.0 -> "SCRATCH"
+                pnlPct > 3.0 -> "SMALL_WIN"
+                pnlPct > -2.0 -> "SCRATCH"
                 pnlPct > -15.0 -> "SMALL_LOSS"
                 else -> "BIG_LOSS"
             }
@@ -199,7 +199,7 @@ object BehaviorLearning {
                     ErrorLogger.info(TAG, "❌ BIG LOSS pattern recorded: $signature | ${pnlPct.toInt()}%")
                 }
             }
-            // Scratches (-5% to +5%) are not recorded - they're noise
+            // Scratches (-2% to +2%) are not recorded - they're noise
             
         } catch (e: Exception) {
             ErrorLogger.debug(TAG, "recordTrade error: ${e.message}")
@@ -212,7 +212,7 @@ object BehaviorLearning {
         synchronized(list) {
             list.add(pattern)
             // Keep only recent patterns
-            while (list.size > 50) list.removeAt(0)
+            while (list.size > 100) list.removeAt(0)
         }
         
         // Update stats
@@ -230,7 +230,7 @@ object BehaviorLearning {
         synchronized(list) {
             list.add(pattern)
             // Keep only recent patterns
-            while (list.size > 50) list.removeAt(0)
+            while (list.size > 100) list.removeAt(0)
         }
         
         // Update stats
@@ -417,7 +417,7 @@ object BehaviorLearning {
     
     private fun getLiquidityBucket(liquidityUsd: Double): String {
         return when {
-            liquidityUsd < 5000 -> "LIQ_TINY"
+            liquidityUsd < 2000 -> "LIQ_TINY"
             liquidityUsd < 20000 -> "LIQ_LOW"
             liquidityUsd < 50000 -> "LIQ_MED"
             liquidityUsd < 100000 -> "LIQ_GOOD"
@@ -427,10 +427,10 @@ object BehaviorLearning {
     
     private fun getMcapBucket(mcapUsd: Double): String {
         return when {
-            mcapUsd < 50000 -> "MCAP_MICRO"
-            mcapUsd < 100000 -> "MCAP_TINY"
-            mcapUsd < 500000 -> "MCAP_SMALL"
-            mcapUsd < 1000000 -> "MCAP_MED"
+            mcapUsd < 20000 -> "MCAP_MICRO"
+            mcapUsd < 50000 -> "MCAP_TINY"
+            mcapUsd < 100000 -> "MCAP_SMALL"
+            mcapUsd < 500000 -> "MCAP_MED"
             else -> "MCAP_LARGE"
         }
     }
@@ -564,7 +564,7 @@ object BehaviorLearning {
     // ═══════════════════════════════════════════════════════════════════
     
     private const val HEALTH_CHECK_INTERVAL_MS = 30 * 60 * 1000L  // 30 minutes
-    private const val MIN_TRADES_FOR_HEALTH = 10
+    private const val MIN_TRADES_FOR_HEALTH = 100
     private const val CRITICAL_BAD_RATIO = 3.0  // 3x more bad than good = poisoned
     private const val WARNING_BAD_RATIO = 2.0   // 2x more bad = concerning
     
@@ -654,8 +654,8 @@ object BehaviorLearning {
             total < MIN_TRADES_FOR_HEALTH -> "BOOTSTRAP"
             badRatio >= CRITICAL_BAD_RATIO -> "CRITICAL"
             badRatio >= WARNING_BAD_RATIO -> "WARNING"
-            winRate >= 60.0 -> "EXCELLENT"
-            winRate >= 45.0 -> "HEALTHY"
+            winRate >= 40.0 -> "EXCELLENT"
+            winRate >= 30.0 -> "HEALTHY"
             else -> "LEARNING"
         }
         
@@ -711,8 +711,8 @@ object BehaviorLearning {
             if (badMatch != null && badMatch.isReliable && badMatch.confidence >= 0.8) {
                 val lossRate = 100.0 - badMatch.winRate
                 
-                // HARD BLOCK: 80%+ loss rate with 80%+ confidence
-                if (lossRate >= 80.0) {
+                // HARD BLOCK: 90%+ loss rate with 90%+ confidence
+                if (lossRate >= 90.0) {
                     return "BEHAVIOR_HARD_BLOCK: Pattern has ${lossRate.toInt()}% loss rate (${badMatch.occurrences} trades)"
                 }
                 
@@ -731,7 +731,7 @@ object BehaviorLearning {
     
     /**
      * Get confidence-weighted score adjustment for FDG.
-     * Returns adjustment in range -6 to +30.
+     * Returns adjustment in range -2 to +30.
      */
     fun getScoreAdjustment(
         entryPhase: String,
@@ -744,8 +744,8 @@ object BehaviorLearning {
             val eval = evaluate(entryPhase, setupQuality, tradingMode, liquidityUsd, volumeSignal)
             
             // Weight by confidence - fluid penalty: -6 bootstrap → -15 mature
-            val maxPenalty = -6 - (9 * FluidLearningAI.getLearningProgress()).toInt()  // -6 to -15
-            (eval.scoreAdjustment * eval.confidence).toInt().coerceIn(maxPenalty, 30)
+            val maxPenalty = -2 - (9 * FluidLearningAI.getLearningProgress()).toInt()  // -2 to -8
+            (eval.scoreAdjustment * eval.confidence).toInt().coerceIn(maxPenalty, 10)
         } catch (e: Exception) {
             0
         }
