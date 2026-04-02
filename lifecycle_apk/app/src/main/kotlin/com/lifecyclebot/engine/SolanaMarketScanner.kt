@@ -933,7 +933,7 @@ class SolanaMarketScanner(
     // Staleness detection - track last time we found a new token
     @Volatile private var lastNewTokenFoundMs = System.currentTimeMillis()
     @Volatile private var lastStalenessCheckMs = System.currentTimeMillis()
-    private val STALENESS_THRESHOLD_MS = 30_00L  // 0.5 minutes without new tokens = stale
+    private val STALENESS_THRESHOLD_MS = 60_00L  // 1 Minute without new tokens = stale
     
     // Public status for debugging
     fun getStatus(): String {
@@ -1280,7 +1280,7 @@ class SolanaMarketScanner(
             var checked = 0
             
             for (i in 0 until minOf(profiles.length(), 100)) {
-                if (found >= 40) break  // INCREASED from 15 to 40
+                if (found >= 25) break  // INCREASED from 15 to 40
                 
                 val profile = profiles.optJSONObject(i) ?: continue
                 if (profile.optString("chainId", "") != "solana") continue
@@ -1522,7 +1522,7 @@ class SolanaMarketScanner(
                     }
                 }
                 
-                if (liq < 1000) continue  // Boosted tokens should have some liquidity
+                if (liq < 2000) continue  // Boosted tokens should have some liquidity
                 
                 val vol = pair.candle.volumeH1
                 val mcap = pair.candle.marketCap
@@ -1706,7 +1706,7 @@ class SolanaMarketScanner(
                         // Estimate liquidity as ~10% of FDV/mcap (conservative estimate)
                         val mcap = if (pair.fdv > 0) pair.fdv else pair.candle.marketCap
                         fallbackLiq = mcap * 0.10
-                        if (fallbackLiq > 1000) {  // Only use if meaningful
+                        if (fallbackLiq > 2000) {  // Only use if meaningful
                             ErrorLogger.info("Scanner", "scanDexTrending: ${pair.baseSymbol} estimated liq=\$${fallbackLiq.toInt()} from mcap=\$${mcap.toInt()}")
                         } else {
                             fallbackLiq = 0.0  // Too small, skip
@@ -2492,7 +2492,7 @@ class SolanaMarketScanner(
             return true  // Suppressed due to excessive cooldown churn
         }
         
-        // Check if rejected (0.025 hour cooldown)
+        // Check if rejected (5 minute cooldown)
         val rejectedAt = rejectedMints[mint]
         if (rejectedAt != null && now - rejectedAt < getRejectedTtl()) {
             recordCooldownHit(mint)  // Track for saturation
