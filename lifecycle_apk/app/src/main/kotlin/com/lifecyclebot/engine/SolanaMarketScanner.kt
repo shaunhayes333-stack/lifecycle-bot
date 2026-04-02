@@ -2707,16 +2707,19 @@ class SolanaMarketScanner(
             val c = cfg()
             val isPaper = c.paperMode
             
-            // V5.2.9: In Paper Mode, allow EVERYTHING for learning (it's fake money!)
+            // V5.2.10: Paper Mode - Block RC ≤ 3 (rug pulls), allow RC 4-5 for learning
+            // RC 1-3 caused massive losses overnight (-36%, -20%) from rug pulls
             if (isPaper) {
-                if (scoreNormalized <= 2) {
-                    onLog("⚠️ RC DANGER [PAPER]: ${mint.take(8)}... score=$scoreNormalized (allowed for learning)")
-                    ErrorLogger.info("Scanner", "RC PASS [PAPER]: ${mint.take(12)} score=$scoreNormalized (DANGER - learning mode)")
-                } else if (scoreNormalized in 3..5) {
+                if (scoreNormalized <= 3) {
+                    onLog("🚫 RC BLOCK [PAPER]: ${mint.take(8)}... score=$scoreNormalized (rug pull risk)")
+                    ErrorLogger.info("Scanner", "RC BLOCK [PAPER]: ${mint.take(12)} score=$scoreNormalized <= 3 (rug protection)")
+                    return false  // Block RC 1-3 even in Paper Mode
+                } else if (scoreNormalized in 4..5) {
                     onLog("⚠️ RC WARN [PAPER]: ${mint.take(8)}... score=$scoreNormalized (allowed for learning)")
                     ErrorLogger.info("Scanner", "RC PASS [PAPER]: ${mint.take(12)} score=$scoreNormalized (learning mode)")
+                    return true  // Allow RC 4-5 for learning
                 }
-                return true  // Paper mode: PASS everything for learning
+                return true  // RC >= 6 always passes
             }
             
             // LIVE MODE: Strict filtering for capital protection

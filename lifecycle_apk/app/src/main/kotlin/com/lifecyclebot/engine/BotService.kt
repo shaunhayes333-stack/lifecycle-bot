@@ -621,10 +621,10 @@ class BotService : Service() {
                             // ═══════════════════════════════════════════════════════════════════
                             
                             // Define dual eligibility thresholds
-                            // V5.2.9: Paper mode ultra-low thresholds for maximum learning
-                            val paperMinLiquidity = 500.0    // $500 for paper exploration (was $3K)
+                            // V5.2.10: Paper mode score raised to 28 (was 20 - too aggressive)
+                            val paperMinLiquidity = 500.0    // $500 for paper exploration
                             val liveMinLiquidity = 8000.0    // $8K for live capital protection
-                            val paperMinScore = 20.0          // Ultra-low bar for learning (was 35)
+                            val paperMinScore = 28.0          // Raised from 20 - filter low quality
                             val liveMinScore = 65.0           // Higher bar for live execution
                             
                             // Check 2a: MINIMUM LIQUIDITY (mode-dependent)

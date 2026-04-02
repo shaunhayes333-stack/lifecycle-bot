@@ -165,8 +165,9 @@ object PrecisionExitLogic {
             ((olderBuys - recentBuys).toDouble() / olderBuys) * 100
         } else 0.0
         
-        // V5.2: Require exitScore > 80 AND buyDrop > 40% (was 60/10)
-        if (exitScore > 80 && buyDropPct > BUY_PRESSURE_DROP_PCT) {
+        // V5.2.10: Require exitScore > 85 AND buyDrop > 50% (was 80/40)
+        // Still too aggressive for meme coin volatility
+        if (exitScore > 85 && buyDropPct > 50) {
             return ExitSignal(
                 shouldExit = true,
                 reason = "BUY_PRESSURE_DROP",
@@ -230,14 +231,15 @@ object PrecisionExitLogic {
         
         // ════════════════════════════════════════════════════════════════
         // 6. EXIT SCORE THRESHOLD (existing logic)
-        // V5.2: Raised from 75 to 90 - was too aggressive
+        // V5.2.10: Raised from 90 to 95 - still causing premature exits
+        // Meme coins naturally have high exit scores due to volatility
         // ════════════════════════════════════════════════════════════════
-        if (exitScore > 90) {
+        if (exitScore > 95) {
             return ExitSignal(
                 shouldExit = true,
                 reason = "EXIT_SCORE",
                 urgency = Urgency.MEDIUM,
-                details = "Exit score ${exitScore.toInt()} > 90"
+                details = "Exit score ${exitScore.toInt()} > 95"
             )
         }
         
