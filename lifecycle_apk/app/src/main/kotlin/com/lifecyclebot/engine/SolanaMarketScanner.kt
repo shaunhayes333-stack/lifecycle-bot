@@ -2175,7 +2175,7 @@ class SolanaMarketScanner(
             liqUsd > 1_000_000 -> 10.0   // large — stable but slower
             liqUsd >   500_000 -> 20.0
             liqUsd >   100_000 -> 35.0   // ideal range
-            liqUsd >    50_000 -> 45.0   // sweet spot
+            liqUsd >    25_000 -> 45.0   // sweet spot
             liqUsd >    10_000 -> 35.0
             liqUsd >     5_000 -> 20.0
             else               -> 5.0
@@ -2338,9 +2338,9 @@ class SolanaMarketScanner(
         // V5.0: PAPER MODE still needs minimum liquidity to be tradeable
         // Without liquidity, we can't learn anything meaningful
         if (isPaperMode) {
-            // Paper mode floor: $1000 liquidity minimum
+            // Paper mode floor: $5000 liquidity minimum
             // This filters out truly untradeable tokens while still allowing learning
-            val PAPER_LIQ_FLOOR = 1000.0
+            val PAPER_LIQ_FLOOR = 5000.0
             if (token.liquidityUsd > 0 && token.liquidityUsd < PAPER_LIQ_FLOOR) {
                 ErrorLogger.debug("Scanner", "FILTER REJECT ${token.symbol}: paper liq \$${token.liquidityUsd.toInt()} < \$$PAPER_LIQ_FLOOR")
                 return false
@@ -2353,7 +2353,7 @@ class SolanaMarketScanner(
         
         // REAL MODE: Apply filters as normal
         // HARD MINIMUM MCAP - LOWER for pump.fun tokens
-        val HARD_MIN_MCAP = if (isPumpFunToken) 500.0 else 2_000.0
+        val HARD_MIN_MCAP = if (isPumpFunToken) 5000.0 else 5_000.0
         if (token.mcapUsd > 0 && token.mcapUsd < HARD_MIN_MCAP) {
             ErrorLogger.debug("Scanner", "FILTER REJECT ${token.symbol}: mcap $${token.mcapUsd.toInt()} < hard min $${HARD_MIN_MCAP.toInt()}")
             return false
@@ -2499,14 +2499,14 @@ class SolanaMarketScanner(
             return true  // Suppressed due to excessive cooldown churn
         }
         
-        // Check if rejected (1 hour cooldown)
+        // Check if rejected (0.5 hour cooldown)
         val rejectedAt = rejectedMints[mint]
         if (rejectedAt != null && now - rejectedAt < getRejectedTtl()) {
             recordCooldownHit(mint)  // Track for saturation
             return true  // Still in cooldown from rejection
         }
         
-        // Check if recently seen (30 min cooldown)
+        // Check if recently seen (5 min cooldown)
         val seenAt = seenMints[mint]
         if (seenAt != null && now - seenAt < getSeenTtl()) {
             recordCooldownHit(mint)  // Track for saturation
@@ -2698,50 +2698,51 @@ class SolanaMarketScanner(
                 return false
             }
             
-            // V5.2 FIX: RC >= 6 should PASS (most good solana tokens score 6-20)
-            // RC <= 5 = BLOCK (dangerous/rug territory)
-            // RC <= 2 = HARD BLOCK (catastrophic) - V5.2: Lowered from 3
-            // V5.2.8: Paper mode allows RC 4-5 for learning
-            // V5.2.9: Paper mode allows ALL RC scores for maximum learning
+            // V5.2 FIX: RC >= 3 should PASS (most good solana tokens score 2-20)
+            // RC <= 2 = BLOCK (dangerous/rug territory)
+            // RC <= 1 = HARD BLOCK (catastrophic) - V5.2: Lowered from 3
+            // V5.2.8: Paper mode allows RC 2-5 for learning
+            
+
             
             val c = cfg()
             val isPaper = c.paperMode
             
-            // V5.2.10: Paper Mode - Block RC ≤ 3 (rug pulls), allow RC 4-5 for learning
+            // V5.2.10: Paper Mode - Block RC ≤ 1 (rug pulls), allow RC 2-5 for learning
             // RC 1-3 caused massive losses overnight (-36%, -20%) from rug pulls
             if (isPaper) {
-                if (scoreNormalized <= 3) {
+                if (scoreNormalized <= 2) {
                     onLog("🚫 RC BLOCK [PAPER]: ${mint.take(8)}... score=$scoreNormalized (rug pull risk)")
-                    ErrorLogger.info("Scanner", "RC BLOCK [PAPER]: ${mint.take(12)} score=$scoreNormalized <= 3 (rug protection)")
-                    return false  // Block RC 1-3 even in Paper Mode
-                } else if (scoreNormalized in 4..5) {
+                    ErrorLogger.info("Scanner", "RC BLOCK [PAPER]: ${mint.take(12)} score=$scoreNormalized <= 2 (rug protection)")
+                    return false  // Block RC 1 even in Paper Mode
+                } else if (scoreNormalized in 2..5) {
                     onLog("⚠️ RC WARN [PAPER]: ${mint.take(8)}... score=$scoreNormalized (allowed for learning)")
                     ErrorLogger.info("Scanner", "RC PASS [PAPER]: ${mint.take(12)} score=$scoreNormalized (learning mode)")
-                    return true  // Allow RC 4-5 for learning
+                    return true  // Allow RC 2-5 for learning
                 }
                 return true  // RC >= 6 always passes
             }
             
             // LIVE MODE: Strict filtering for capital protection
-            if (scoreNormalized <= 2) {
+            if (scoreNormalized <= 1) {
                 onLog("🚫 RC HARD BLOCK: ${mint.take(8)}... score=$scoreNormalized (catastrophic)")
-                ErrorLogger.info("Scanner", "RC HARD_BLOCK: ${mint.take(12)} score=$scoreNormalized <= 2")
+                ErrorLogger.info("Scanner", "RC HARD_BLOCK: ${mint.take(12)} score=$scoreNormalized <= 1")
                 return false
             }
             
-            if (scoreNormalized in 3..5) {
+            if (scoreNormalized in 2..5) {
                 onLog("🚫 RC BLOCK: ${mint.take(8)}... score=$scoreNormalized (dangerous)")
-                ErrorLogger.info("Scanner", "RC BLOCK: ${mint.take(12)} score=$scoreNormalized (3-5)")
+                ErrorLogger.info("Scanner", "RC BLOCK: ${mint.take(12)} score=$scoreNormalized (2-5)")
                 return false
             }
             
-            // V5.2: RC >= 6 = PASS - this is realistic for solana tokens
-            // Most good tokens score 6-20, blocking above 6 kills all trading
-            if (scoreNormalized in 6..15) {
+            // V5.2: RC >= 2 = PASS - this is realistic for solana tokens
+            // Most good tokens score 2-20, blocking above 6 kills all trading
+            if (scoreNormalized in 2..15) {
                 ErrorLogger.debug("Scanner", "RC ${mint.take(8)}: score=$scoreNormalized (OK - normal range)")
             }
             
-            return true  // Pass - RC >= 6
+            return true  // Pass - RC >= 2
             
         } catch (e: kotlinx.coroutines.CancellationException) { throw e } catch (e: Exception) {
             // Timeout or error - pass through (don't block on API issues)
