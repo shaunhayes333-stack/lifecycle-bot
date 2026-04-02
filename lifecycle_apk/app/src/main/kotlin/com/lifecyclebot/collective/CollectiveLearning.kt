@@ -381,7 +381,16 @@ object CollectiveLearning {
         return try {
             val result = client?.execute("SELECT COUNT(*) as cnt FROM collective_trades")
             if (result?.success == true && result.rows.isNotEmpty()) {
-                (result.rows[0]["cnt"] as? Long)?.toInt() ?: 0
+                // V5.2.10: Handle multiple data types from Turso
+                val cnt = result.rows[0]["cnt"]
+                when (cnt) {
+                    is Number -> cnt.toInt()
+                    is String -> cnt.toIntOrNull() ?: 0
+                    else -> {
+                        Log.w(TAG, "getCollectiveTotalTradeCount: unexpected type ${cnt?.javaClass?.simpleName}")
+                        0
+                    }
+                }
             } else 0
         } catch (e: Exception) {
             Log.w(TAG, "Failed to get trade count: ${e.message}")
@@ -1404,26 +1413,57 @@ object CollectiveLearning {
                 
                 Log.d(TAG, "📊 Query result: success=${result.success}, rows=${result.rows.size}, error=${result.error}")
                 
+                // V5.2.10: Debug log raw row data
+                if (result.rows.isNotEmpty()) {
+                    Log.d(TAG, "📊 RAW ROW DATA: ${result.rows[0]}")
+                }
+                
                 if (result.success && result.rows.isNotEmpty()) {
                     val row = result.rows[0]
-                    val totalTrades = (row["total_trades"] as? Number)?.toInt() ?: 0
-                    val totalSells = (row["total_sells"] as? Number)?.toInt() ?: 0
-                    val totalWins = (row["total_wins"] as? Number)?.toInt() ?: 0
+                    // V5.2.10: Try multiple casting approaches for Turso data
+                    val totalTrades = row["total_trades"]?.let {
+                        when (it) {
+                            is Number -> it.toInt()
+                            is String -> it.toIntOrNull() ?: 0
+                            else -> {
+                                Log.w(TAG, "📊 total_trades unexpected type: ${it::class.simpleName}")
+                                0
+                            }
+                        }
+                    } ?: 0
+                    val totalSells = (row["total_sells"] as? Number)?.toInt() 
+                        ?: (row["total_sells"] as? String)?.toIntOrNull() ?: 0
+                    val totalWins = (row["total_wins"] as? Number)?.toInt()
+                        ?: (row["total_wins"] as? String)?.toIntOrNull() ?: 0
                     
                     val activeUsers = getActiveUsersCount()
                     
                     Log.i(TAG, "📊 COLLECTIVE STATS: trades=$totalTrades, sells=$totalSells, wins=$totalWins, users=$activeUsers")
                     
+                    // V5.2.10: Safe parsing helper for all field types
+                    fun parseIntField(value: Any?): Int = when (value) {
+                        is Number -> value.toInt()
+                        is String -> value.toIntOrNull() ?: 0
+                        null -> 0
+                        else -> 0
+                    }
+                    fun parseDoubleField(value: Any?): Double = when (value) {
+                        is Number -> value.toDouble()
+                        is String -> value.toDoubleOrNull() ?: 0.0
+                        null -> 0.0
+                        else -> 0.0
+                    }
+                    
                     CollectiveStats(
                         totalTrades = totalTrades,
-                        totalBuys = (row["total_buys"] as? Number)?.toInt() ?: 0,
+                        totalBuys = parseIntField(row["total_buys"]),
                         totalSells = totalSells,
                         totalWins = totalWins,
-                        totalLosses = (row["total_losses"] as? Number)?.toInt() ?: 0,
+                        totalLosses = parseIntField(row["total_losses"]),
                         winRate = if (totalSells > 0) (totalWins.toDouble() / totalSells * 100) else 0.0,
-                        avgPnlPct = (row["avg_pnl"] as? Number)?.toDouble() ?: 0.0,
-                        totalProfitPct = (row["total_profit"] as? Number)?.toDouble() ?: 0.0,
-                        totalLossPct = (row["total_loss"] as? Number)?.toDouble() ?: 0.0,
+                        avgPnlPct = parseDoubleField(row["avg_pnl"]),
+                        totalProfitPct = parseDoubleField(row["total_profit"]),
+                        totalLossPct = parseDoubleField(row["total_loss"]),
                         activeUsers24h = activeUsers,
                         lastUpdated = System.currentTimeMillis()
                     )
