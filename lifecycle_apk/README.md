@@ -1,362 +1,346 @@
-# AATE™ V4.0 — Autonomous Algorithmic Trading Engine
+# AATE - Autonomous AI Trading Engine
 
-> **The World's First Sentient Solana Trading Bot** — Native Android with 25 AI Layers, Fluid Learning, Auto-Compounding, and Collective Swarm Intelligence
+<div align="center">
+
+```
+    ╔═══════════════════════════════════════════════════════════════════╗
+    ║                                                                   ║
+    ║     █████╗  █████╗ ████████╗███████╗    ██╗   ██╗███████╗        ║
+    ║    ██╔══██╗██╔══██╗╚══██╔══╝██╔════╝    ██║   ██║██╔════╝        ║
+    ║    ███████║███████║   ██║   █████╗      ██║   ██║███████╗        ║
+    ║    ██╔══██║██╔══██║   ██║   ██╔══╝      ╚██╗ ██╔╝╚════██║        ║
+    ║    ██║  ██║██║  ██║   ██║   ███████╗     ╚████╔╝ ███████║        ║
+    ║    ╚═╝  ╚═╝╚═╝  ╚═╝   ╚═╝   ╚══════╝      ╚═══╝  ╚══════╝        ║
+    ║                                                                   ║
+    ║          AUTONOMOUS AI TRADING ENGINE FOR SOLANA                  ║
+    ║                                                                   ║
+    ╚═══════════════════════════════════════════════════════════════════╝
+```
+
+### **110,000+ Lines of Kotlin. 914+ Commits. 28 AI Layers. 1 Guy. 10 Days. 1 Phone.**
 
 [![Build Status](https://github.com/shaunhayes333-stack/lifecycle-bot/actions/workflows/build.yml/badge.svg)](https://github.com/shaunhayes333-stack/lifecycle-bot/actions)
-[![License](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
-[![Version](https://img.shields.io/badge/Version-4.0.0-green.svg)](CHANGELOG.md)
+[![Version](https://img.shields.io/badge/version-5.2.11-blue.svg)]()
+[![Platform](https://img.shields.io/badge/platform-Android-green.svg)]()
+[![Kotlin](https://img.shields.io/badge/kotlin-1.9.0-purple.svg)]()
+
+</div>
 
 ---
 
-⚠️ **RISK WARNING:** Cryptocurrency trading involves substantial risk of loss. This software is NOT financial advice. See [LEGAL.md](LEGAL.md) for full disclaimers.
+## The Story
+
+**Built entirely on a mobile phone.** No laptop. No desktop. No IDE. Just a phone, GitHub Actions for compilation, and an unholy amount of caffeine.
+
+What started as a simple trading bot evolved into a **self-learning, multi-layered AI trading system** that watches, learns, and executes trades on the Solana blockchain with institutional-grade precision.
 
 ---
 
-## Executive Summary
+## What Is AATE?
 
-AATE V4.0 is a native Android trading bot featuring a **25-layer AI neural network** that autonomously trades Solana tokens. It learns from every trade, adapts to market conditions in real-time, and shares learnings across all instances via **Turso Collective Swarm Intelligence**.
+AATE is a **native Android application** that runs a sophisticated autonomous trading engine directly on your phone. It's not a toy. It's not a prototype. It's a production-grade trading system with:
 
-**Built in 8 days. By one person. On a phone.**
-
-**Key Stats:**
-- 182+ Kotlin source files (50,000+ lines of production code)
-- **25 AI layers** working in parallel neural network
-- **19 specialized market regime modes** + Treasury Mode
-- **Fluid Learning** - thresholds adapt as bot gains experience
-- **Auto-Compounding** - profits automatically reinvested
-- **Shadow Learning** - learns from trades it DOESN'T take
-- **Collective Intelligence** - swarm learning from ALL users
-
----
-
-## What's New in V4.0 (Complete Neural Network)
-
-### BehaviorAI (Layer 25) - Trading Psychology
-Tracks streaks, tilt levels, and discipline. Prevents overtrading after losses. Scales penalties by learning progress — more forgiving during bootstrap.
-
-### Auto-Compound Profit System
-Every winning trade automatically splits:
-- 20% → Treasury (locked, protected)
-- 40% → Compound Pool (position size scaling)
-- 40% → Wallet (liquid for trading)
-
-### Dynamic Fluid Stop Losses
-Stops that MOVE with your position:
-- Entry Protection (0-60s): Wide stops for entry volatility
-- Profit Trailing: Locks in gains as price rises
-- Retrace Allowance: Room for normal pullbacks before pump
-
-### Instance Registry (Legal Compliance)
-- Per-installation audit trail with timestamps
-- All trades linked to instance_id
-- Active Users tracking (24h traders)
-
-### Shadow Learning → Maturity
-Shadow trades and blocked trade outcomes now feed FluidLearningAI, accelerating bot intelligence without risking capital.
+- **28 Specialized AI Layers** working in concert
+- **4-Tier Trading Architecture** (Treasury → ShitCoin → Quality → BlueChip/Moonshot)
+- **Fluid Learning System** that adapts in real-time
+- **Paper Mode** for risk-free strategy development
+- **Collective Intelligence** sync across devices
+- **SAFE MODE** for capital protection
 
 ---
 
 ## Architecture Overview
 
-### The 25-Layer AI Neural Network
-
 ```
-┌─────────────────────────────────────────────────────────────────────┐
-│                     SENTIENT TRADING ARCHITECTURE                    │
-├─────────────────────────────────────────────────────────────────────┤
-│ Layer 24: SellOptimizationAI   │ Intelligent exit strategies        │
-│ Layer 23: FluidLearningAI      │ Adaptive threshold controller      │
-│ Layer 22: MetaCognitionAI      │ Self-aware executive function      │
-│ Layer 21: CollectiveIntelAI    │ Hive mind synthesis                │
-│ Layer 20: LiquidityCycleAI     │ Market-wide liquidity tracking     │
-│ Layer 19: HoldTimeOptimizerAI  │ Optimal hold duration              │
-│ Layer 18: SmartMoneyDivergence │ Whale behavior vs price            │
-│ Layer 17: OrderFlowImbalanceAI │ Buy/sell pressure detection        │
-│ Layer 16: VolatilityRegimeAI   │ Volatility & squeeze detection     │
-│ Layer 15: SocialVelocityAI     │ Social momentum tracking           │
-│ Layer 14: FearGreedAI          │ Market sentiment analysis          │
-│ Layer 13: SuppressionAI        │ Manipulation detection             │
-│ Layer 12: CopyTradeAI          │ Whale signal processing            │
-│ Layer 11: TimeOptimizationAI   │ Best trading hours                 │
-│ Layer 10: MarketRegimeAI       │ Bull/Bear/Crab detection           │
-│ Layer  9: TokenWinMemoryAI     │ Historical performance             │
-│ Layer  8: NarrativeDetectorAI  │ Trending theme detection           │
-│ Layer  7: HolderSafetyAI       │ Rug pull detection (6 checks)      │
-│ Layer  6: VolumeProfileAI      │ Volume pattern analysis            │
-│ Layer  5: LiquidityDepthAI     │ Real-time LP monitoring            │
-│ Layer  4: MomentumPredictorAI  │ Price trajectory analysis          │
-│ Layer  3: EntryTimingAI        │ Perfect entry detection            │
-│ Layer  2: SourceReliabilityAI  │ Signal source quality              │
-│ Layer  1: StatisticalBase      │ EMA · Volume · RSI · MACD          │
-└─────────────────────────────────────────────────────────────────────┘
-```
-
-### 19 Trading Modes + Treasury
-
-| Mode | Strategy | Best For |
-|------|----------|----------|
-| STANDARD | Balanced quality gates | Default trading |
-| MOONSHOT | Early high-potential detection | Fresh launches |
-| PUMP_SNIPER | Ultra-fast entry on viral pumps | pump.fun tokens |
-| MOMENTUM_SWING | Strong trend following | Confirmed pumps |
-| WHALE_FOLLOW | Copy smart money movements | Whale-detected tokens |
-| COPY_TRADE | Mirror tracked wallets | Following alpha |
-| LONG_HOLD | Diamond hands - extended holds | High conviction |
-| BLUE_CHIP | Conservative, larger caps | Lower-risk tokens |
-| CYCLIC | Pattern-based trading | Repeating patterns |
-| SLEEPER | Dormant token revivals | Sleeping giants |
-| NICHE | Low supply opportunities | Micro-cap gems |
-| PRESALE_SNIPE | First-block entry | Token launches |
-| ARBITRAGE | Cross-DEX spreads | Price discrepancies |
-| MICRO_CAP | Ultra-small mcap plays | High risk/reward |
-| REVIVAL | Phoenix - crashed recovery | Oversold bounces |
-| PUMP_DUMP | Aggressive accumulation | Pump detection |
-| MARKET_MAKER | Spread profit capture | Ranging markets |
-| LIQUIDATION_HUNTER | Distressed selling | Panic sells |
-| **TREASURY** | Conservative cash generation | Daily income |
-
----
-
-### 7. Fluid Stop Loss & Take Profit (Layer 23 Extension)
-All trading modes now use adaptive SL/TP based on learning progress:
-
-| Stage | Stop Loss | Take Profit | Trailing |
-|-------|-----------|-------------|----------|
-| Bootstrap (0-50 trades) | Wide (-10% max) | Tight (+5-8%) | Disabled |
-| Learning (50-200 trades) | Scaling | Scaling | Scaling |
-| Mature (200+ trades) | Mode default | Mode default | Mode default |
-
-**Philosophy:**
-- **During bootstrap**: Wide stops prevent getting shaken out while learning. Tight TPs secure quick wins for fast feedback.
-- **When mature**: Tight stops protect capital. Wide TPs let winners run.
-
-**Implementation:**
-```kotlin
-// In FluidLearningAI.kt
-fun getFluidStopLoss(modeDefaultStop: Double): Double
-fun getFluidTakeProfit(modeDefaultTp: Double): Double  
-fun getFluidTrailingStop(modeDefaultTrailing: Double): Double
+┌─────────────────────────────────────────────────────────────────────────┐
+│                         AATE V5.2 ARCHITECTURE                          │
+├─────────────────────────────────────────────────────────────────────────┤
+│                                                                         │
+│  ┌─────────────────────────────────────────────────────────────────┐   │
+│  │                     MARKET SCANNERS                              │   │
+│  │  ┌──────────┐ ┌──────────┐ ┌──────────┐ ┌──────────┐           │   │
+│  │  │ PumpFun  │ │ Raydium  │ │DexScreener│ │ Birdeye  │           │   │
+│  │  │ Scanner  │ │ Scanner  │ │  Scanner  │ │  Charts  │           │   │
+│  │  └────┬─────┘ └────┬─────┘ └────┬─────┘ └────┬─────┘           │   │
+│  └───────┼────────────┼────────────┼────────────┼──────────────────┘   │
+│          └────────────┴─────┬──────┴────────────┘                      │
+│                             ▼                                          │
+│  ┌─────────────────────────────────────────────────────────────────┐   │
+│  │                   V3 DECISION ENGINE                             │   │
+│  │  ┌────────────────────────────────────────────────────────────┐ │   │
+│  │  │              28 AI SCORING LAYERS                          │ │   │
+│  │  │  ┌─────────────┐ ┌─────────────┐ ┌─────────────┐          │ │   │
+│  │  │  │ FluidLearn  │ │ BehaviorAI  │ │ MetaCognit  │          │ │   │
+│  │  │  │ 1,224 lines │ │  864 lines  │ │  739 lines  │          │ │   │
+│  │  │  └─────────────┘ └─────────────┘ └─────────────┘          │ │   │
+│  │  │  ┌─────────────┐ ┌─────────────┐ ┌─────────────┐          │ │   │
+│  │  │  │ CashGenAI   │ │ ShitCoinAI  │ │ QualityAI   │          │ │   │
+│  │  │  │ 1,067 lines │ │ 1,058 lines │ │  417 lines  │ [NEW]    │ │   │
+│  │  │  └─────────────┘ └─────────────┘ └─────────────┘          │ │   │
+│  │  │  ┌─────────────┐ ┌─────────────┐ ┌─────────────┐          │ │   │
+│  │  │  │ BlueChipAI  │ │ MoonshotAI  │ │ RugDetector │          │ │   │
+│  │  │  │  674 lines  │ │  829 lines  │ │  614 lines  │          │ │   │
+│  │  │  └─────────────┘ └─────────────┘ └─────────────┘          │ │   │
+│  │  │  + 19 more specialized AI layers...                        │ │   │
+│  │  └────────────────────────────────────────────────────────────┘ │   │
+│  └─────────────────────────────────────────────────────────────────┘   │
+│                             │                                          │
+│                             ▼                                          │
+│  ┌─────────────────────────────────────────────────────────────────┐   │
+│  │                 4-TIER TRADING LAYERS                            │   │
+│  │                                                                  │   │
+│  │  ┌──────────┐    ┌──────────┐    ┌──────────┐    ┌──────────┐  │   │
+│  │  │ TREASURY │───▶│ SHITCOIN │───▶│ QUALITY  │───▶│BLUECHIP/ │  │   │
+│  │  │  Layer   │    │  Layer   │    │  Layer   │    │ MOONSHOT │  │   │
+│  │  │ Scalping │    │  Degen   │    │   Pro    │    │  Layer   │  │   │
+│  │  │ 0.01 SOL │    │ 0.05 SOL │    │ 0.08 SOL │    │ 0.15 SOL │  │   │
+│  │  │ TP: 3-8% │    │TP: 8-25% │    │TP: 15-50%│    │TP: 25%+  │  │   │
+│  │  └──────────┘    └──────────┘    └──────────┘    └──────────┘  │   │
+│  │       │               │               │               │         │   │
+│  │       └───────────────┴───────────────┴───────────────┘         │   │
+│  │                       PROMOTION SYSTEM                           │   │
+│  │              (Tokens graduate up as they prove themselves)       │   │
+│  └─────────────────────────────────────────────────────────────────┘   │
+│                             │                                          │
+│                             ▼                                          │
+│  ┌─────────────────────────────────────────────────────────────────┐   │
+│  │                    EXECUTION LAYER                               │   │
+│  │  ┌──────────┐ ┌──────────┐ ┌──────────┐ ┌──────────┐           │   │
+│  │  │ Position │ │ Exit     │ │ Risk     │ │ Trailing │           │   │
+│  │  │  Sizing  │ │ Manager  │ │ Guards   │ │  Stops   │           │   │
+│  │  └──────────┘ └──────────┘ └──────────┘ └──────────┘           │   │
+│  └─────────────────────────────────────────────────────────────────┘   │
+│                             │                                          │
+│                             ▼                                          │
+│  ┌─────────────────────────────────────────────────────────────────┐   │
+│  │                    SOLANA BLOCKCHAIN                             │   │
+│  │              Jupiter Aggregator / Direct Swaps                   │   │
+│  └─────────────────────────────────────────────────────────────────┘   │
+│                                                                         │
+└─────────────────────────────────────────────────────────────────────────┘
 ```
 
 ---
 
-## Self-Learning Systems
+## The 28 AI Layers
 
-### 1. FluidLearningAI (Layer 23) - NEW
-Centralized adaptive threshold controller. Day 1 installs start at 30% confidence thresholds; as the bot learns from trades, thresholds tighten to 75-80%. Eliminates the "cold start" problem.
+AATE doesn't use one AI model. It orchestrates **28 specialized AI layers**, each with a specific responsibility:
 
-### 2. SellOptimizationAI (Layer 24) - NEW
-Intelligent exit strategy layer. Calculates chunk sell milestones (25%/50%/75%), trailing stop locks, and exit urgency. Turns profit-taking from guesswork into science.
+### Scoring & Analysis
+| Layer | Lines | Purpose |
+|-------|-------|---------|
+| `FluidLearningAI` | 1,224 | Adaptive thresholds that evolve with experience |
+| `CashGenerationAI` | 1,067 | Treasury scalping for self-funding operations |
+| `ShitCoinTraderAI` | 1,058 | Meme/degen token specialist |
+| `CollectiveIntelligenceAI` | 914 | Cross-device learning sync |
+| `EducationSubLayerAI` | 885 | Feeds trade outcomes to Harvard Brain |
+| `BehaviorAI` | 864 | Tracks and corrects "bad behavior" patterns |
+| `MoonshotTraderAI` | 829 | 100%+ gain hunter |
+| `MetaCognitionAI` | 739 | AI that watches the other AIs |
+| `RegimeTransitionAI` | 686 | Market regime detection |
+| `BlueChipTraderAI` | 674 | $1M+ mcap professional trading |
+| `DipHunterAI` | 673 | Oversold bounce detector |
+| `ShitCoinExpress` | 627 | Fast-track meme entries |
+| `UltraFastRugDetectorAI` | 614 | Sub-second rug pull detection |
+| `HoldTimeOptimizerAI` | 582 | Dynamic hold duration |
+| `SellOptimizationAI` | 540 | Exit timing optimization |
+| `SolanaArbAI` | 533 | Cross-venue arbitrage |
+| `LiquidityCycleAI` | 485 | Liquidity pattern recognition |
+| `AdvancedExitManager` | 478 | Multi-factor exit decisions |
+| `OrderFlowImbalanceAI` | 472 | Buy/sell pressure analysis |
+| `QualityTraderAI` | 417 | Professional mid-cap trading |
+| `SmartMoneyDivergenceAI` | - | Whale movement tracking |
+| `FearGreedAI` | - | Market sentiment gauge |
+| `SocialVelocityAI` | - | Social momentum detection |
+| `LayerTransitionManager` | - | Token promotion/demotion |
+| `CrossTalkAI` | 924 | Inter-layer communication |
+| `UnifiedScorer` | - | Final score aggregation |
+| `ScoreCard` | - | Trade grading system |
+| `NarrativeDetectorAI` | - | Trending narrative identification |
 
-### 3. EdgeLearning
-Dynamically adjusts entry/exit thresholds based on win rate. If the bot is winning 70%+, it loosens thresholds to take more trades. If dropping below 40%, it tightens to protect capital.
-
-### 4. BehaviorLearning
-Remembers every pattern that led to a win or loss. Patterns include EMA alignment, volume profile, liquidity depth, and time of day. Over time, builds a statistical edge.
-
-### 5. MetaCognitionAI (Layer 22)
-Self-aware "prefrontal cortex" that monitors all other AI layers. Tracks accuracy of each layer, adjusts trust dynamically, and can veto trades when reliable AIs disagree.
-
-### 6. CollectiveLearning (Layer 21)
-**Turso-powered shared knowledge base.** All AATE instances anonymously share:
-- Pattern outcomes (win/loss aggregates)
-- Token blacklist (confirmed rugs, honeypots)
-- Mode performance by market condition
-- Whale wallet effectiveness ratings
-
-Privacy-preserving: No wallet addresses, trade sizes, or personal data is shared.
-
----
-
-## Security Features
-
-| Layer | Protection |
-|-------|------------|
-| Wallet Keys | AES-256 in Android EncryptedSharedPreferences |
-| API Keys | Hardware-backed Keystore |
-| Network | DNS-over-HTTPS for Jupiter APIs |
-| Transactions | Jito MEV bundle protection |
-| Runtime | Circuit breakers, kill switches |
-
-### Anti-Rug Protection
-- RugCheck.xyz integration (score-based blocking)
-- Dev wallet sell detection (auto-exit on dev dumps)
-- Liquidity depth monitoring (LP removal alerts)
-- Top holder concentration analysis
-- Freeze authority detection
-
-### Risk Management
-- **Circuit Breaker**: Pauses after X consecutive losses
-- **Kill Switch**: Emergency halt on catastrophic drawdown
-- **Wallet Reserve**: Never trades below minimum balance
-- **Position Limits**: Max exposure as % of wallet
-- **Daily Loss Cap**: Hard stop on daily losses
+### Total AI Scoring Code: **16,766 lines** (just the scoring layers!)
 
 ---
 
-## Quick Start
+## The 4-Tier Trading System
 
-### 1. Clone & Build
+AATE doesn't treat all tokens the same. It operates a sophisticated **promotion/demotion system**:
+
+### Tier 1: Treasury (CashGenerationAI)
+- **Purpose**: Self-funding scalping machine
+- **Position Size**: 0.01 SOL
+- **Targets**: 3-8% quick profits
+- **Hold Time**: 1-15 minutes
+- **Philosophy**: "Pay for the bot's operations"
+
+### Tier 2: ShitCoin (ShitCoinTraderAI)
+- **Purpose**: Degen meme coin plays
+- **Position Size**: 0.05 SOL
+- **Targets**: 8-25% gains
+- **Hold Time**: 5-30 minutes
+- **Philosophy**: "High risk, high reward memes"
+
+### Tier 3: Quality (QualityTraderAI) [NEW in V5.2]
+- **Purpose**: Professional Solana trading
+- **Position Size**: 0.08 SOL
+- **Targets**: 15-50% gains
+- **Hold Time**: 15-60 minutes
+- **Philosophy**: "Not memes - real projects"
+- **Market Cap**: $100K - $1M
+
+### Tier 4: BlueChip / Moonshot
+- **Purpose**: Large cap / moon shot plays
+- **Position Size**: 0.15 SOL
+- **Targets**: 25-200%+ gains
+- **Hold Time**: Hours to days
+- **Philosophy**: "Let winners run"
+
+**Tokens promote upward** as they prove themselves. A ShitCoin that hits $1M mcap becomes a BlueChip. A Quality trade that gains 100%+ becomes a Moonshot.
+
+---
+
+## Key Features
+
+### Fluid Learning System
+The bot doesn't use fixed thresholds. **Everything adapts:**
+- Take profit targets start conservative, expand with experience
+- Stop losses start tight, loosen as the bot learns what works
+- Position sizes scale with confidence
+- The bot literally gets better every day
+
+### Paper Mode
+**Risk-free learning** with a virtual wallet:
+- Same market data, same AI decisions
+- Perfect for testing strategies
+- Tracks virtual P&L accurately
+- All learning transfers to live mode
+
+### SAFE MODE
+When things go wrong:
+- Automatic position reduction
+- Tighter risk controls
+- Reduced position sizing
+- "Live to trade another day"
+
+### Collective Intelligence
+Multiple AATE instances **share learning**:
+- Trade outcomes sync to cloud
+- Bad patterns identified across fleet
+- Good setups propagate automatically
+- Distributed intelligence network
+
+### Harvard Brain Education
+Every trade teaches:
+- Win patterns get reinforced
+- Loss patterns get flagged
+- The system builds a "trading memory"
+- Bad behaviors get tracked and corrected
+
+---
+
+## Technical Stats
+
+```
+┌────────────────────────────────────────┐
+│          AATE BY THE NUMBERS           │
+├────────────────────────────────────────┤
+│  Total Kotlin Files:       209         │
+│  Total Lines of Code:      110,444     │
+│  Git Commits:              914+        │
+│  AI Scoring Layers:        28          │
+│  Engine Files:             50+         │
+│  V3 Module Files:          40+         │
+│  Development Time:         ~10 days    │
+│  Development Device:       1 Phone     │
+│  Developers:               1           │
+├────────────────────────────────────────┤
+│  Largest Files:                        │
+│  ├─ Executor.kt            6,197 lines │
+│  ├─ BotService.kt          6,089 lines │
+│  ├─ LifecycleStrategy.kt   3,601 lines │
+│  ├─ FinalDecisionGate.kt   3,377 lines │
+│  └─ SolanaMarketScanner.kt 2,860 lines │
+└────────────────────────────────────────┘
+```
+
+---
+
+## Installation
+
+### From GitHub Releases
+1. Download the latest APK from [Releases](https://github.com/shaunhayes333-stack/lifecycle-bot/releases)
+2. Enable "Install from Unknown Sources" on your Android device
+3. Install the APK
+4. Configure your wallet and start trading
+
+### Build from Source
 ```bash
+# Clone the repository
 git clone https://github.com/shaunhayes333-stack/lifecycle-bot.git
-cd lifecycle-bot
-./gradlew assembleDebug
-```
+cd lifecycle-bot/lifecycle_apk
 
-### 2. Install APK
-```bash
-adb install app/build/outputs/apk/debug/app-debug.apk
-```
+# Build with Gradle
+./gradlew assembleRelease
 
-### 3. Configure (In App)
-1. **Connect Wallet** — Import your Solana private key (stored encrypted)
-2. **Add API Keys** — Jupiter, Helius (optional), Birdeye (optional)
-3. **Enable Paper Mode** — Always start in paper mode!
-4. **Let It Learn** — Run 24-48 hours before going live
+# APK will be in app/build/outputs/apk/release/
+```
 
 ---
 
 ## Configuration
 
-### Required
-- **Wallet Private Key** — Solana wallet with SOL for trading
+AATE is designed to work out of the box, but power users can configure:
 
-### Recommended
-- **Jupiter API Key** — Required for Ultra API (fast swaps)
-- **Helius API Key** — Faster RPC, better reliability
-
-### Optional
-- **Telegram Bot** — Trade alerts and remote commands
-- **Birdeye API** — Enhanced chart data
-- **Turso DB** — Collective learning sync
-
-### Telegram Commands
-| Command | Action |
-|---------|--------|
-| `/status` | Current positions and P&L |
-| `/pause` | Pause auto-trading |
-| `/resume` | Resume auto-trading |
-| `/kill` | Emergency stop |
-| `/pnl` | Today's P&L summary |
-| `/positions` | List open positions |
-| `/treasury` | Treasury status |
+- **Mode Selection**: Paper / Live / SAFE MODE
+- **Position Sizes**: Per-layer customization
+- **Risk Limits**: Max exposure, max positions
+- **Layer Enables**: Turn individual AI layers on/off
+- **Notification Settings**: Telegram alerts, sounds
+- **Scanner Filters**: Market cap, liquidity, age
 
 ---
 
-## Technical Specifications
+## Safety Features
 
-### Performance
-- **Latency**: Sub-100ms decision loop
-- **Memory**: ~80MB typical usage
-- **Battery**: Optimized with partial wake locks
-- **Reliability**: WorkManager + AlarmManager failsafes
-
-### APIs Used
-- Jupiter Ultra API (swaps)
-- DexScreener API (price data)
-- Birdeye API (OHLCV candles)
-- Helius RPC (transactions)
-- Rugcheck.xyz (safety scores)
-- Turso/LibSQL (collective sync)
-
-### Data Storage
-- **Local**: SharedPreferences (encrypted)
-- **Persistent**: External storage (survives reinstall)
-- **Remote**: Turso edge database (collective learning)
+- **Rug Detection**: Sub-second rug pull identification
+- **Liquidity Checks**: Won't enter illiquid tokens
+- **Position Limits**: Hard caps on exposure
+- **Stop Losses**: Adaptive protective stops
+- **Rate Limiting**: API protection
+- **Error Recovery**: Automatic restart on failures
 
 ---
 
-## File Structure
+## Roadmap
 
-```
-app/src/main/kotlin/com/lifecyclebot/
-├── collective/          # Turso collective learning
-│   ├── CollectiveLearning.kt
-│   ├── CollectiveSchema.kt
-│   └── TursoClient.kt
-├── data/                # Data models & config
-│   ├── BotConfig.kt     # All configuration
-│   ├── Models.kt        # Trade, Position, TokenState
-│   └── BotStatus.kt     # Runtime state
-├── engine/              # Core trading engine
-│   ├── BotService.kt    # Main service (2700+ lines)
-│   ├── Executor.kt      # Trade execution
-│   ├── ModeRouter.kt    # 18-mode orchestration
-│   ├── FinalDecisionGate.kt  # 12-layer consensus
-│   ├── EntryIntelligence.kt  # Entry AI
-│   ├── ExitIntelligence.kt   # Exit AI
-│   └── [60+ more files]
-├── network/             # External APIs
-│   ├── JupiterApi.kt
-│   ├── SolanaWallet.kt
-│   └── DexscreenerApi.kt
-└── ui/                  # Android UI
-    ├── MainActivity.kt
-    ├── WalletActivity.kt
-    └── [8 more activities]
-```
+- [ ] GitHub Releases automation for APK distribution
+- [ ] UI improvements for SHADOW_ONLY tokens
+- [ ] iOS port (maybe)
+- [ ] Web dashboard for monitoring
+- [ ] Advanced analytics export
 
 ---
 
 ## Disclaimer
 
-**CRYPTOCURRENCY TRADING INVOLVES SUBSTANTIAL RISK OF LOSS.**
+**AATE is experimental software for educational purposes.**
 
-- Past performance is NOT indicative of future results
-- You may lose some or ALL of your invested capital
-- Never trade with money you cannot afford to lose
-- This software is provided "AS IS" without warranty
-- The developers are NOT responsible for any financial losses
-- This is NOT financial advice
+Trading cryptocurrencies involves significant risk. You can lose all your money. Past performance does not guarantee future results. Only trade with funds you can afford to lose.
 
-**ALWAYS START IN PAPER MODE.** Let the bot learn for 24-48 hours before enabling live trading.
+The developers are not responsible for any financial losses incurred while using this software.
 
 ---
 
 ## License
 
-MIT License — See [LICENSE](LICENSE) for details.
+Proprietary. All rights reserved.
 
 ---
 
-## Contributing
+<div align="center">
 
-1. Fork the repository
-2. Create a feature branch
-3. Submit a pull request
+### Built with obsession by one developer, one phone, ten days of madness.
 
-All contributions welcome!
+**AATE V5.2.11** | March 2026
 
----
-
-## Support
-
-- **Issues**: GitHub Issues
-- **Discord**: Coming soon
-- **Email**: Contact via GitHub
-
----
-
-## Legal
-
-**AATE™** is a trademark. The source code is MIT licensed, but the AATE name, logo, and branding are protected. See [LEGAL.md](LEGAL.md) for details.
-
-### Risk Disclaimer
-
-```
-⚠️ CRYPTOCURRENCY TRADING INVOLVES SUBSTANTIAL RISK OF LOSS ⚠️
-
-- This software is NOT financial advice
-- Past performance is NOT indicative of future results  
-- You may lose some or ALL of your invested capital
-- The developers are NOT responsible for any financial losses
-- ALWAYS use paper/demo mode before live trading
-
-TRADE AT YOUR OWN RISK.
-```
-
----
-
-© 2025 AATE Project. All rights reserved.
-
-*Built with obsessive attention to detail. Every line of code reviewed. Every edge case considered. This is what trading automation should look like.*
+</div>

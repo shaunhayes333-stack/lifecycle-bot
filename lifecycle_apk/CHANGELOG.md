@@ -1,197 +1,148 @@
 # AATE Changelog
 
-All notable changes to the Autonomous Algorithmic Trading Engine.
+All notable changes to the Autonomous AI Trading Engine.
 
-## [v3.3.0] - 2026-03-29
+---
 
-### Added - Sentient Trading Architecture
-
-- **BehaviorAI (Layer 25)**: Trading behavior pattern recognition (NEW)
-  - Tracks loss streaks, win streaks, tilt level, discipline score
-  - Detects mega pumps (50%+), 10x runs, 100x moonshots
-  - Tilt protection: Auto-blocks trading after 5+ consecutive losses
-  - Feeds behavior modifier to FluidLearningAI (-1.0 to +1.0)
-  - Internal sentiment (0-100) integrates with FearGreedAI
-  - Session tracking: trades, wins, losses, big wins
-
-- **FluidLearningAI (Layer 23)**: Centralized fluidity controller
-  - All thresholds now scale from loose (30%) to strict (75-80%) as bot learns
-  - Fresh installs get relaxed liquidity barriers to enable trading from Day 1
-  - Automatically tightens as trade count increases ("training wheels" concept)
-  - Unified lerp() function for all adaptive thresholds
-  - **NEW**: Behavior modifier integration from BehaviorAI (±15% shift)
-
-- **Fluid Stop Loss & Take Profit** (NEW in this version)
-  - Bootstrap: Wide SL (-10% max), tight TP (+5-8%) - learn safely, secure wins
-  - Mature: Mode-specific SL/TP - protect capital, let winners run
-  - Each trading mode (SNIPE, RANGE, AGGRESSIVE, etc.) gets fluid parameters
-  - AutoModeEngine now uses FluidLearningAI for all stop/trailing calculations
-  - Behavior modifier affects all fluid thresholds
-
-- **SellOptimizationAI (Layer 24)**: Intelligent exit strategy layer
-  - Chunk selling: 25%/50%/75% partial exits at profit milestones
-  - Trailing stop locks that follow price upward
-  - Exit urgency classification: NONE, LOW, MEDIUM, HIGH, CRITICAL
-  - Tracks position state for coordinated multi-leg exits
-
-- **FearGreedAI + BehaviorAI Integration**
-  - Composite sentiment: 70% external market F&G + 30% internal behavior
-  - Detects dangerous divergence: euphoria during market fear
-  - Internal sentiment classification: EXTREME_FEAR → EUPHORIA
-
-- **Treasury Mode Compounding**: CashGenerationAI now compounds buys
-  - Profits from winning trades feed back into position sizing
-  - Immediate trading triggers on startup (no warm-up delay)
-  - Aggressive mode kicks in after first win streak
-
-- **Journal Data Persistence**: TradeHistoryStore improvements
-  - Removed automatic 7-day cleanup (data persists until manual clear)
-  - Win rate on MainActivity now calculated from persisted trades only
-  - Added "Clear All" manual button in JournalActivity
-  - StatsSnapshot includes totalTrades, winRate, avgWinPct
+## [5.2.11] - 2026-04-02
 
 ### Fixed
-- **UI Trading Mode Labels**: MainActivity now shows actual MarketStructureRouter mode (e.g., "🚀 Fresh Launch") instead of hardcoded age-based labels
-- **Collective Brain Instance Count**: Immediate heartbeats on init and screen open for accurate "Active Instances" display
-- **JournalActivity refreshTrades()**: Added missing method that was breaking CI builds
-- **Collective Learning for New Users**: CollectiveIntelligenceAI.refresh() now triggered on init so new users see shared data immediately
-
-### Changed
-- Total AI layers increased from 22 to **25**
-- All modes (Paper/Live/Treasury) use fluid thresholds from FluidLearningAI
-- UnifiedScorer.moduleNames() updated to include all 25 layers
-- AutoModeEngine: All 6 bot modes (SNIPE, RANGE, AGGRESSIVE, DEFENSIVE, COPY, PAUSED) use fluid SL/TP
-- Executor.recordTrade() now feeds BehaviorAI and FluidLearningAI
-- BotService.onCreate() initializes BehaviorAI from trade history
-
-### Technical Notes
-- 182 Kotlin source files
-- All builds verified via GitHub Actions CI
-- Fluid scaling uses sigmoid-like progression tied to lifetime trade count
-- Behavior modifier can shift fluid thresholds up to ±15%
-
----
-
-## [v1.2.0] - 2025-03-27
+- **QualityTraderAI Wiring**: Fixed compilation error in BotService.kt caused by non-existent TokenState properties
+  - `tokenAgeMinutes`: Now calculated from history candles
+  - `holderCount`: Retrieved from last candle in history
+  - `buyPressure`: Fixed type conversion (Double to Int)
 
 ### Added
-- **Turso Collective Learning Integration**
-  - Shared knowledge base across all AATE instances
-  - Privacy-preserving pattern outcome sharing
-  - Token blacklist synchronization (rugs, honeypots)
-  - Mode performance stats by market condition
-  - Whale wallet effectiveness ratings
-  - New `TursoClient.kt` for HTTP REST API communication
-  - New `CollectiveLearning.kt` orchestrator
-  - New `CollectiveSchema.kt` with SQLite tables
+- **QualityTraderAI**: New professional Solana trading layer for $100K-$1M mcap tokens
+  - 417 lines of specialized quality trading logic
+  - Targets 15-50% gains with 15-60 minute holds
+  - Bridges gap between ShitCoin and BlueChip tiers
+- **Quality Positions Dialog**: UI dialog showing open Quality layer positions
 
 ### Changed
-- `BotConfig.kt`: Added `tursoDbUrl`, `tursoAuthToken`, `collectiveLearningEnabled`
-- `BotService.kt`: Added CollectiveLearning lifecycle management (init/shutdown)
-- `TursoClient.kt`: Auto-converts `libsql://` URLs to `https://` for HTTP API
-
-### Technical Details
-- Uses Turso/LibSQL HTTP pipeline API (`/v2/pipeline`)
-- Background sync every 15 minutes
-- Local caching of collective data
-- Privacy: No wallet addresses, trade sizes, or personal data shared
+- **V3 Tile**: Now shows aggregate system stats instead of 0%
+- **AdvancedExitManager**: Time multipliers now looser at entry (not tighter)
+- **FluidLearningAI**: Bootstrap thresholds adjusted for better learning
 
 ---
 
-## [v1.1.0] - 2025-03-27
+## [5.2.10] - 2026-04-01
 
 ### Fixed
-- **5 Critical Architecture Flaws**
-  - Race condition bypassing Final Decision Gate in `Executor.kt`
-  - WHALE_FOLLOW mode entering prematurely without confirmation
-  - COPY_TRADE exit mapping logic
-  - Entry score calculation with proper conviction weighting
-  - Mode router priority ordering
+- **Harvard Brain Education**: All 25 AI layers now properly wired to education system
+- **Collective Hivemind**: Fixed data parsing issues
+- **Overnight Trading**: Performance improvements for extended sessions
 
-- **4 Critical On-Chain Sell Execution Bugs**
-  - Null wallet reconnects via `WalletManager`
-  - Softened keypair integrity checks for sells (was blocking exits)
-  - Jupiter Ultra v6 fallback when Ultra API fails
-  - Fresh blockhash before signing transactions
+---
+
+## [5.2.9] - 2026-03-31
 
 ### Added
-- `PendingSellQueue.kt` for exit retry management
-- VC pitch materials (Pitch Deck, One-Pager, Technical Deep Dive)
-- Social media valuation posts
-- "Built in under a week" narrative documentation
+- **Ultra-Aggressive Paper Mode**: Maximum learning velocity in paper trading
 
 ### Changed
-- Release APK packaging for Play Protect compatibility
-- GitHub Actions CI workflow improvements
+- **Stability & Reliability Pass**: General hardening across all systems
 
 ---
 
-## [v1.0.0] - 2025-03-25
+## [5.2.8] - 2026-03-30
 
-### Initial Release
+### Added
+- **30-Day Run Stats**: UI card showing 30-day performance metrics
+- **Export Button**: Export trading data for analysis
 
-#### Core Features
-- **12-Layer AI Consensus System**
-  - EdgeLearning: Dynamic threshold adjustment
-  - BehaviorLearning: Pattern outcome memory
-  - EntryIntelligence: Entry pattern recognition
-  - ExitIntelligence: Optimal exit timing
-  - WhaleTrackerAI: Smart money flow analysis
-  - MarketRegimeAI: Bull/Bear/Crab detection
-  - MomentumPredictorAI: Pump probability scoring
-  - NarrativeDetectorAI: Trending theme detection
-  - TimeOptimizationAI: Optimal trading hours
-  - LiquidityDepthAI: Real-time LP monitoring
-  - AICrossTalk: Inter-layer signal arbitration
-  - FinalDecisionGate: Trade approval checkpoint
-
-- **18 Trading Modes**
-  - PUMP_SNIPER, MOMENTUM_RIDE, WHALE_FOLLOW
-  - SCALP_QUICK, RANGE_BOUND, RECOVERY_MODE
-  - COPY_TRADE, DIAMOND_HANDS, SNIPE_GRADUATE
-  - NARRATIVE_PLAY, BLUE_CHIP, SCALP_MICRO
-  - DIP_HUNTER, BREAKOUT, MEAN_REVERT
-  - NEWS_TRADE, GRID_TRADE, DEFENSIVE
-
-- **Self-Learning Systems**
-  - EdgeLearning: Adaptive thresholds
-  - BehaviorLearning: Pattern memory
-  - ModeLearning: Mode performance tracking
-  - ScannerLearning: Source effectiveness
-
-- **Security**
-  - AES-256 encryption via Android EncryptedSharedPreferences
-  - Hardware-backed Keystore
-  - Jito MEV bundle protection
-  - Circuit breakers and kill switches
-  - Anti-rug protection (RugCheck.xyz integration)
-
-- **UI**
-  - Real-time price chart
-  - Position PnL tracking
-  - Trade history
-  - Brain learning indicator
-  - Open positions panel
-  - Quick stats bar
-
-#### Technical Stats
-- 63,000+ lines of production Kotlin code
-- 80+ source files
-- Native Android (no web wrapper)
-- Built from scratch in 7 days
+### Fixed
+- **0% TP Instant-Exit Bug**: Complete fix for premature exits
+- **Paper Mode Scanning**: Faster learning with more aggressive scanning
 
 ---
 
-## Development Notes
+## [5.2.7] - 2026-03-29
 
-### Testing Protocol
-- All changes verified via GitHub Actions CI
-- No local Kotlin compiler available in development environment
-- Push to GitHub → Check CI → Fix errors → Repeat
+### Changed
+- **All Trading Layers**: Enabled in Paper Mode for comprehensive testing
 
-### Privacy Commitment
-- No telemetry or analytics
-- All learning data stored locally by default
-- Collective Learning is opt-in only
-- No wallet addresses shared (only hashed)
-- No trade sizes or personal data transmitted
+---
+
+## [5.2.6] - 2026-03-28
+
+### Fixed
+- **UI Tile Stats**: Added missing XML TextViews for complete data display
+
+---
+
+## [5.2.5] - 2026-03-27
+
+### Fixed
+- **Safe Build Fix**: Compilation errors resolved
+
+---
+
+## [5.2.4] - 2026-03-26
+
+### Added
+- **UI Tile Stats**: Learning progress visualization
+- **Learning Progress Fixes**: Improved accuracy of progress tracking
+
+---
+
+## [5.2.3] - 2026-03-25
+
+### Fixed
+- **Build Errors**: Various compilation fixes
+- **EMERGENT PATCH PACKAGE**: Critical patches applied
+
+---
+
+## [5.2.2] - 2026-03-24
+
+### Added
+- **Treasury Min Hold Time**: Prevents premature treasury exits
+
+### Fixed
+- **Shadow Learning UI**: Display corrections
+- **CollectiveLearning**: Connection reliability improvements
+- **Paper Mode**: Complete behavior penalty bypass
+- **Throughput Pipeline**: Performance improvements
+
+---
+
+## [5.2.1] - 2026-03-23
+
+### Fixed
+- **Trailing Stop Exits**: Fixed premature trailing stops causing 5-6% win rate
+- **Hold Time Protection**: Hardened across all exit triggers
+- **Treasury Aggressive Exits**: Loosened overly tight exit conditions
+- **Treasury→ShitCoin Promotion**: Fixed overly tight -2.5% stop loss
+
+---
+
+## [5.2.0] - 2026-03-22
+
+### Added
+- **Education Sub-Layer AI**: Every trade now teaches the system
+- **Harvard Brain Integration**: Centralized learning repository
+
+### Changed
+- **Complete Architecture Review**: Major audit of all exit conditions
+- **4-Tier System Clarification**: Treasury → ShitCoin → Quality → BlueChip
+
+---
+
+## Statistics
+
+- **Total Commits**: 914+
+- **Total Lines**: 110,444
+- **AI Layers**: 28
+- **Development Time**: ~10 days
+- **Development Device**: Mobile phone only
+
+---
+
+## Legend
+
+- **Added**: New features
+- **Changed**: Changes in existing functionality
+- **Fixed**: Bug fixes
+- **Removed**: Removed features
+- **Security**: Security-related changes
