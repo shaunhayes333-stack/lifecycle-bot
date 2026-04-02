@@ -436,7 +436,88 @@ object EducationSubLayerAI {
         } catch (e: Exception) { errors.add("BehaviorAI: ${e.message}") }
         
         // ═══════════════════════════════════════════════════════════════════
-        // PHASE 4: Cross-Layer Learning (Harvard Brain Magic)
+        // PHASE 4: Trading Mode Layers (V5.2.10 - Previously Missing!)
+        // ═══════════════════════════════════════════════════════════════════
+        
+        // MoonshotTraderAI
+        try {
+            // MoonshotTraderAI tracks via its own position management
+            markLayerUpdated("MoonshotTraderAI", outcome.isWin)
+            layersUpdated++
+        } catch (e: Exception) { errors.add("MoonshotAI: ${e.message}") }
+        
+        // ShitCoinTraderAI
+        try {
+            markLayerUpdated("ShitCoinTraderAI", outcome.isWin)
+            layersUpdated++
+        } catch (e: Exception) { errors.add("ShitCoinAI: ${e.message}") }
+        
+        // CashGenerationAI (Treasury)
+        try {
+            markLayerUpdated("CashGenerationAI", outcome.isWin)
+            layersUpdated++
+        } catch (e: Exception) { errors.add("CashGenAI: ${e.message}") }
+        
+        // BlueChipTraderAI
+        try {
+            markLayerUpdated("BlueChipTraderAI", outcome.isWin)
+            layersUpdated++
+        } catch (e: Exception) { errors.add("BlueChipAI: ${e.message}") }
+        
+        // ═══════════════════════════════════════════════════════════════════
+        // PHASE 5: Advanced Analytics Layers (V5.2.10 - Previously Missing!)
+        // ═══════════════════════════════════════════════════════════════════
+        
+        // VolatilityRegimeAI
+        try {
+            markLayerUpdated("VolatilityRegimeAI", outcome.isWin)
+            layersUpdated++
+        } catch (e: Exception) { errors.add("VolatilityAI: ${e.message}") }
+        
+        // OrderFlowImbalanceAI
+        try {
+            markLayerUpdated("OrderFlowImbalanceAI", outcome.isWin)
+            layersUpdated++
+        } catch (e: Exception) { errors.add("OrderFlowAI: ${e.message}") }
+        
+        // SmartMoneyDivergenceAI
+        try {
+            markLayerUpdated("SmartMoneyDivergenceAI", outcome.isWin)
+            layersUpdated++
+        } catch (e: Exception) { errors.add("SmartMoneyAI: ${e.message}") }
+        
+        // LiquidityCycleAI
+        try {
+            markLayerUpdated("LiquidityCycleAI", outcome.isWin)
+            layersUpdated++
+        } catch (e: Exception) { errors.add("LiqCycleAI: ${e.message}") }
+        
+        // FearGreedAI
+        try {
+            markLayerUpdated("FearGreedAI", outcome.isWin)
+            layersUpdated++
+        } catch (e: Exception) { errors.add("FearGreedAI: ${e.message}") }
+        
+        // DipHunterAI
+        try {
+            markLayerUpdated("DipHunterAI", outcome.isWin)
+            layersUpdated++
+        } catch (e: Exception) { errors.add("DipHunterAI: ${e.message}") }
+        
+        // SellOptimizationAI
+        try {
+            markLayerUpdated("SellOptimizationAI", outcome.isWin)
+            layersUpdated++
+        } catch (e: Exception) { errors.add("SellOptAI: ${e.message}") }
+        
+        // CollectiveIntelligenceAI
+        try {
+            markLayerUpdated("CollectiveIntelligenceAI", outcome.isWin)
+            layersUpdated++
+        } catch (e: Exception) { errors.add("CollectiveAI: ${e.message}") }
+        
+        // ═══════════════════════════════════════════════════════════════════
+        // PHASE 6: Cross-Layer Learning (Harvard Brain Magic)
         // ═══════════════════════════════════════════════════════════════════
         
         // Analyze which layer combinations predicted this outcome correctly
