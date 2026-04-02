@@ -5,7 +5,7 @@ import java.util.concurrent.ConcurrentHashMap
 import kotlin.math.abs
 import kotlin.math.min
 import kotlin.math.max
-
+private const val MIN_AGE_MINUTES = 5
 /**
  * ═══════════════════════════════════════════════════════════════════════════════
  * QUALITY TRADER AI - "PROFESSIONAL SOLANA TRADING" v1.0
