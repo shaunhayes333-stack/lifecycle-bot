@@ -3332,7 +3332,10 @@ class BotService : Service() {
                         )
                         
                         // V4.1: Enter if Treasury says yes OR bootstrap override triggered
-                        val shouldEnter = treasurySignal.shouldEnter || forceBootstrapEntry
+                        // V5.2.13: Block bootstrap override when V3 hard-rejects OR dump signals active
+                        val v3HardReject = v3Decision is com.lifecyclebot.v3.V3Decision.Rejected
+                        val hasDumpSignal = try { AICrossTalk.isCoordinatedDump(ts.mint, ts.symbol) } catch (_: Exception) { false }
+                        val shouldEnter = treasurySignal.shouldEnter || (forceBootstrapEntry && !v3HardReject && !hasDumpSignal)
                         
                         if (shouldEnter) {
                             // V4.1: Apply bootstrap size multiplier for micro-positions
@@ -3946,7 +3949,10 @@ class BotService : Service() {
                         )
                         
                         // V4.1: Enter if ShitCoin says yes OR bootstrap override triggered
-                        val shouldEnter = shitCoinSignal.shouldEnter || forceBootstrapEntry
+                        // V5.2.13: Block bootstrap override on V3 hard-reject or active dump signals
+                        val shitCoinV3HardReject = v3Decision is com.lifecyclebot.v3.V3Decision.Rejected
+                        val shitCoinHasDump = try { AICrossTalk.isCoordinatedDump(ts.mint, ts.symbol) } catch (_: Exception) { false }
+                        val shouldEnter = shitCoinSignal.shouldEnter || (forceBootstrapEntry && !shitCoinV3HardReject && !shitCoinHasDump)
                         
                         if (shouldEnter) {
                             // V4.1: Apply bootstrap size multiplier for micro-positions

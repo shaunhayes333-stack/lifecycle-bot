@@ -700,9 +700,10 @@ object FluidLearningAI {
     fun getFluidStopLoss(modeDefaultStop: Double): Double {
         val progress = getLearningProgress()
         
-        // V5.2.11: Widened bootstrap stops - was 6%, now 10%
-        // Meme coins wick down -8% regularly before pumping
-        val bootstrapStop = maxOf(modeDefaultStop, 10.0)  // At least -10% during bootstrap
+        // V5.2.13: Reduced bootstrap SL from 10% back to 6%
+        // 10% SL vs 3.5% Treasury TP required 74% WR just to break even → guaranteed losses
+        // 6% SL vs 3.5% TP requires ~63% WR - still tight but viable
+        val bootstrapStop = maxOf(modeDefaultStop, 6.0)  // Cap at -6% during bootstrap
         val matureStop = modeDefaultStop                   // Use mode's intended stop when mature
         
         return lerp(bootstrapStop, matureStop)
