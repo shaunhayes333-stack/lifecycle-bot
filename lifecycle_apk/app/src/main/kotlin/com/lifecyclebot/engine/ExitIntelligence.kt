@@ -422,7 +422,7 @@ object ExitIntelligence {
             "B" -> params.qualityStopAdjust / 2
             else -> 0.0
         }
-        return (params.baseStopLoss - volatilityAdjust + qualityAdjust).coerceIn(-20.0, -3.0)
+        return (params.baseStopLoss - volatilityAdjust + qualityAdjust).coerceIn(-20.0, -6.0)  // V5.2.11: Floor widened from -3% to -6%
     }
     
     /**
