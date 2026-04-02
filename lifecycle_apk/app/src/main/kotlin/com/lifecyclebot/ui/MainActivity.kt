@@ -3973,16 +3973,44 @@ Last Check: ${java.text.SimpleDateFormat("HH:mm:ss", java.util.Locale.US).format
      */
     private fun showBlueChipModeDialog() {
         try {
+            val qualityAI = com.lifecyclebot.v3.scoring.QualityTraderAI
             val blueChipAI = com.lifecyclebot.v3.scoring.BlueChipTraderAI
-            val stats = blueChipAI.getStats()
+            val blueChipStats = blueChipAI.getStats()
             val cfg = com.lifecyclebot.data.ConfigStore.load(applicationContext)
             val solPrice = com.lifecyclebot.engine.WalletManager.lastKnownSolPrice
             
             val currentModeLabel = if (cfg.paperMode) "📝 PAPER MODE" else "💰 LIVE MODE"
-            val pnlSign = if (stats.dailyPnlSol >= 0) "+" else ""
-            val dailyPnlUsd = stats.dailyPnlSol * solPrice
             
-            val modeEmoji = when (stats.mode) {
+            // Get Quality positions
+            val qualityPositions = qualityAI.getActivePositions()
+            val qualityWR = qualityAI.getWinRate()
+            val qualityPnl = qualityAI.getDailyPnl()
+            
+            // Get BlueChip positions  
+            val blueChipPositions = blueChipAI.getActivePositions()
+            
+            // Build Quality positions list
+            val qualityPosList = if (qualityPositions.isEmpty()) {
+                "   (none)"
+            } else {
+                qualityPositions.joinToString("\n") { pos ->
+                    val pnl = ((solPrice * pos.entryPrice) - (solPrice * pos.entryPrice)) / (solPrice * pos.entryPrice) * 100
+                    val holdMins = (System.currentTimeMillis() - pos.entryTime) / 60000
+                    "   • ${pos.symbol} | \$${(pos.entryMcap/1000).toInt()}K | ${holdMins}min"
+                }
+            }
+            
+            // Build BlueChip positions list
+            val blueChipPosList = if (blueChipPositions.isEmpty()) {
+                "   (none)"
+            } else {
+                blueChipPositions.joinToString("\n") { pos ->
+                    val holdMins = (System.currentTimeMillis() - pos.entryTime) / 60000
+                    "   • ${pos.symbol} | \$${(pos.marketCapUsd/1_000_000).toInt()}M | ${holdMins}min"
+                }
+            }
+            
+            val modeEmoji = when (blueChipStats.mode) {
                 com.lifecyclebot.v3.scoring.BlueChipTraderAI.BlueChipMode.HUNTING -> "🎯"
                 com.lifecyclebot.v3.scoring.BlueChipTraderAI.BlueChipMode.POSITIONED -> "📊"
                 com.lifecyclebot.v3.scoring.BlueChipTraderAI.BlueChipMode.CAUTIOUS -> "⚠️"
@@ -3990,49 +4018,61 @@ Last Check: ${java.text.SimpleDateFormat("HH:mm:ss", java.util.Locale.US).format
             }
             
             val message = """
-🔵 BLUE CHIP AI (Quality Plays)
+⭐ QUALITY + 🔵 BLUECHIP LAYERS
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 $currentModeLabel
-$modeEmoji Mode: ${stats.mode.name}
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-📊 DAILY PERFORMANCE
+⭐ QUALITY LAYER ($100K-$1M)
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-Daily P&L: $pnlSign${"%.4f".format(stats.dailyPnlSol)} SOL (~$${"%.2f".format(dailyPnlUsd)})
-Trades: ${stats.dailyTradeCount} | W/L: ${stats.dailyWins}/${stats.dailyLosses}
-Win Rate: ${"%.1f".format(stats.winRate)}%
-Active Positions: ${stats.activePositions}
+Professional Solana trading
+(NOT meme-specific)
+
+Positions: ${qualityPositions.size}
+$qualityPosList
+
+Win Rate: ${"%.0f".format(qualityWR)}%
+Daily P&L: ${if(qualityPnl>=0)"+" else ""}${"%.4f".format(qualityPnl)} SOL
+
+Entry Criteria:
+• MCap: $100K - $1M
+• Age: 30+ minutes
+• Holders: 50+
+• TP: 15-50% | SL: -8%
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-📈 ENTRY CRITERIA
+🔵 BLUECHIP LAYER ($1M+)
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-Min Market Cap: $1M+
-Min Liquidity: $200K+
-Target: 10-20% gains
-Stop Loss: 8%
+$modeEmoji Mode: ${blueChipStats.mode.name}
 
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+Positions: ${blueChipPositions.size}
+$blueChipPosList
 
-ℹ️ BlueChip AI targets established
-tokens with strong fundamentals
-for safer, steady returns.
+Win Rate: ${"%.0f".format(blueChipStats.winRate)}%
+Daily P&L: ${if(blueChipStats.dailyPnlSol>=0)"+" else ""}${"%.4f".format(blueChipStats.dailyPnlSol)} SOL
+
+Entry Criteria:
+• MCap: $1M+
+• Liquidity: $200K+
+• TP: 10-20% | SL: -8%
             """.trimIndent()
             
             AlertDialog.Builder(this, R.style.Theme_AATE_Dialog)
-                .setTitle("🔵 BlueChip Mode")
+                .setTitle("⭐ Quality + 🔵 BlueChip")
                 .setMessage(message)
                 .setPositiveButton("Close") { d, _ -> d.dismiss() }
                 .setNeutralButton("Reset Daily") { d, _ ->
+                    qualityAI.resetDaily()
                     blueChipAI.resetDaily()
-                    Toast.makeText(this, "BlueChip daily stats reset", Toast.LENGTH_SHORT).show()
+                    Toast.makeText(this, "Quality & BlueChip daily stats reset", Toast.LENGTH_SHORT).show()
                     d.dismiss()
                 }
                 .show()
         } catch (e: Exception) {
-            Toast.makeText(this, "BlueChip Mode: ${e.message ?: "Not available"}", Toast.LENGTH_SHORT).show()
+            Toast.makeText(this, "Quality/BlueChip: ${e.message ?: "Not available"}", Toast.LENGTH_SHORT).show()
         }
     }
     
