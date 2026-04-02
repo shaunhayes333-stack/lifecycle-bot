@@ -2441,51 +2441,109 @@ class BotService : Service() {
                 // Fallback to config watchlist if registry is empty
                 watchlist
             }
-            
+    
+
             // V5.2: Prioritize tokens for processing
-            val prioritizedWatchlist = if (cfg.v3EngineEnabled) {
-                effectiveWatchlist.sortedByDescending { mint ->
-                    val ts = status.tokens[mint]
-                    if (ts == null) {
-                        0.0  // Unknown tokens get lowest priority
-                    } else {
-                        var priority = 0.0
-                        if (ts.position.isOpen) priority += 1000.0  // Open positions first
-                        priority += (ts.lastLiquidityUsd / 1000.0).coerceAtMost(100.0)  // Liquidity
-                        priority += ts.entryScore  // Entry score
-                        priority += ts.meta.momScore * 0.5  // Momentum
-                        priority += ts.meta.volScore * 0.3  // Volume
-                        priority
-                    }
+val prioritizedWatchlist = if (cfg.v3EngineEnabled) {
+    effectiveWatchlist.sortedByDescending { mint ->
+        val ts = status.tokens[mint]
+        if (ts == null) {
+            0.0 // Unknown tokens get lowest priority
+        } else {
+            var priority = 0.0
+            if (ts.position.isOpen) priority += 1000.0 // Open positions first
+            priority += (ts.lastLiquidityUsd / 1000.0).coerceAtMost(100.0) // Liquidity priority
+            priority += ts.entryScore // Entry score
+            priority += ts.meta.momScore * 0.5 // Momentum priority
+            priority += ts.meta.volScore * 0.3 // Volume priority
+            priority
+        }
+    }
+} else {
+    effectiveWatchlist
+}
+
+// ───────────────────────────────────────────────────────────────
+// PATCH: chunked watchlist processing with per-token timeout
+// Prevent one overloaded loop from timing out the entire batch.
+// Keeps open positions first, then processes the rest in small waves.
+// ───────────────────────────────────────────────────────────────
+val openPositionMints = prioritizedWatchlist.filter { mint ->
+    val ts = status.tokens[mint]
+    ts?.position?.isOpen == true || GlobalTradeRegistry.hasOpenPosition(mint)
+}
+
+val otherMints = prioritizedWatchlist.filterNot { mint ->
+    mint in openPositionMints
+}
+
+val orderedMints = (openPositionMints + otherMints).distinct()
+
+val maxBatchMillis = 15_000L
+val perTokenTimeoutMs = 2_500L
+val maxParallel = when {
+    orderedMints.size >= 12 -> 4
+    orderedMints.size >= 6 -> 3
+    else -> 2
+}
+
+val batchDeadline = System.currentTimeMillis() + maxBatchMillis
+var processedCount = 0
+var deferredCount = 0
+
+supervisorScope {
+    orderedMints.chunked(maxParallel).forEach { chunk ->
+        if (!status.running) return@supervisorScope
+
+        val timeLeft = batchDeadline - System.currentTimeMillis()
+        if (timeLeft <= 250L) {
+            deferredCount += (orderedMints.size - processedCount - deferredCount).coerceAtLeast(0)
+            return@supervisorScope
+        }
+
+        val jobs = chunk.map { mint ->
+            async {
+                if (!status.running) return@async false
+                if (orchestrator?.shouldPoll(mint) == false) return@async false
+
+                val tokenBudget = minOf(
+                    perTokenTimeoutMs,
+                    (batchDeadline - System.currentTimeMillis()).coerceAtLeast(500L)
+                )
+
+                val completed = withTimeoutOrNull(tokenBudget) {
+                    processTokenCycle(mint, cfg, wallet, lastSuccessfulPollMs)
+                    true
+                } ?: false
+
+                if (!completed) {
+                    ErrorLogger.debug(
+                        "BotService",
+                        "Deferred token due to per-token timeout: $mint"
+                    )
                 }
+
+                completed
+            }
+        }
+
+        jobs.awaitAll().forEach { completed ->
+            if (completed) {
+                processedCount++
             } else {
-                effectiveWatchlist
+                deferredCount++
             }
-            
-            val tokenJobs = prioritizedWatchlist.map { mint ->
-              scope.launch {
-                if (!status.running) return@launch
-                if (orchestrator?.shouldPoll(mint) == false) return@launch
-                processTokenCycle(mint, cfg, wallet, lastSuccessfulPollMs)
-              } // end scope.launch
-            } // end map
+        }
+    }
+}
 
-            
-            // Wait for all tokens with a maximum timeout of 15 seconds total
-            // Increased from 8s to process more tokens per cycle
-            try {
-                kotlinx.coroutines.withTimeout(15000L) {
-                    tokenJobs.forEach { it.join() }
-                }
-            } catch (e: kotlinx.coroutines.TimeoutCancellationException) {
-                addLog("⏰ Watchlist scan timeout - moving to next cycle")
-                ErrorLogger.warn("BotService", "Token processing batch timeout - some tokens skipped")
-                // Cancel any still-running jobs
-                tokenJobs.forEach { if (it.isActive) it.cancel() }
-            }
-
-            // ═══════════════════════════════════════════════════════════════════
-            // SHADOW PAPER TRADING - Check shadow positions for exits
+if (deferredCount > 0) {
+    addLog("⏰ Watchlist load high - deferred $deferredCount token(s) to next cycle")
+    ErrorLogger.warn(
+        "BotService",
+        "Watchlist processing deferred $deferredCount token(s); processed=$processedCount total=${orderedMints.size}"
+    )
+}
             // This runs during LIVE mode to learn from background paper trades
             // ═══════════════════════════════════════════════════════════════════
             if (cfg.shadowPaperEnabled && !cfg.paperMode) {
