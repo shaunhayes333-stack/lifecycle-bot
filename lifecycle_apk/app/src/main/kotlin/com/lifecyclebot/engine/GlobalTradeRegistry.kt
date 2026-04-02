@@ -70,9 +70,9 @@ object GlobalTradeRegistry {
     private val probationRejections = AtomicLong(0)
     
     // Timing constants
-    private const val DUPLICATE_COOLDOWN_MS = 300_000L  // 5 minutes - don't re-add same token
-    private const val REJECTION_COOLDOWN_MS = 600_000L  // 10 minutes - rejected tokens can't be re-added
-    private const val PROCESS_COOLDOWN_MS = 10_000L     // 10 seconds - between processing same token
+    private const val DUPLICATE_COOLDOWN_MS = 20_000L  // 2 minutes - don't re-add same token
+    private const val REJECTION_COOLDOWN_MS = 20_000L  // 2 minutes - rejected tokens can't be re-added
+    private const val PROCESS_COOLDOWN_MS = 5_000L     // 5 seconds - between processing same token
     
     // V5.0 Probation constants
     private const val PROBATION_MIN_TIME_MS = 60_000L       // 1 minute minimum probation
@@ -88,7 +88,7 @@ object GlobalTradeRegistry {
     // Maximum watchlist size to prevent memory issues
     // V5.2: Increased for paper mode learning - need more exposure
     private const val MAX_WATCHLIST_SIZE = 150
-    private const val MAX_PROBATION_SIZE = 50
+    private const val MAX_PROBATION_SIZE = 500
     
     data class WatchlistEntry(
         val mint: String,
@@ -468,13 +468,13 @@ object GlobalTradeRegistry {
         val entry = probation[mint] ?: return false
         entry.rcScore = rcScore
         
-        // V5.2: Good RC score can promote (RC >= 20 is great)
-        if (rcScore >= 20) {
+        // V5.2: Good RC score can promote (RC >= 2 is great)
+        if (rcScore >= 2) {
             promoteFromProbation(mint, "GOOD_RC:$rcScore")
             return true
         }
-        // V5.2: Bad RC score = instant reject (RC <= 5 is dangerous)
-        if (rcScore <= 5) {
+        // V5.2: Bad RC score = instant reject (RC <= 1 is dangerous)
+        if (rcScore <= 1) {
             rejectFromProbation(mint, "BAD_RC:$rcScore")
             return true
         }
@@ -534,8 +534,8 @@ object GlobalTradeRegistry {
                 continue
             }
             
-            // V5.2: Check if RC confirmed (RC >= 20 is great for promotion)
-            if (entry.rcScore >= 20) {
+            // V5.2: Check if RC confirmed (RC >= 2 is great for promotion)
+            if (entry.rcScore >= 2) {
                 promoteFromProbation(mint, "RC_OK:${entry.rcScore}")
                 results.add(ProbationResult(mint, entry.symbol, "PROMOTED", "RC_OK"))
                 continue
