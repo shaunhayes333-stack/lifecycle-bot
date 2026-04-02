@@ -3607,7 +3607,7 @@ class BotService : Service() {
                         
                         // V5.2.12: Log BlueChip evaluations for debugging
                         if (blueChipSignal.shouldEnter) {
-                            ErrorLogger.info("BotService", "🔵 [BLUECHIP EVAL] ${ts.symbol} | SHOULD_ENTER | score=${blueChipSignal.qualityScore}")
+                            ErrorLogger.info("BotService", "🔵 [BLUECHIP EVAL] ${ts.symbol} | SHOULD_ENTER | confidence=${blueChipSignal.confidence}")
                         } else {
                             ErrorLogger.debug("BotService", "🔵 [BLUECHIP EVAL] ${ts.symbol} | SKIP | ${blueChipSignal.reason} | mcap=$${(ts.lastMcap/1_000_000).toInt()}M liq=$${ts.lastLiquidityUsd.toInt()}")
                         }
