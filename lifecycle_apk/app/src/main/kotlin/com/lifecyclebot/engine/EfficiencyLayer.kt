@@ -49,8 +49,8 @@ object EfficiencyLayer {
     @Volatile var isPaperMode = false
     
     // Cooldowns - V5.2.8: Separate values for Paper vs Live mode
-    private const val DISCOVERY_COOLDOWN_MS_LIVE = 90_000L   // 90 sec for live (capital protection)
-    private const val DISCOVERY_COOLDOWN_MS_PAPER = 30_000L  // 30 sec for paper (faster learning)
+    private const val DISCOVERY_COOLDOWN_MS_LIVE = 30_000L   // 30 sec for live (capital protection)
+    private const val DISCOVERY_COOLDOWN_MS_PAPER = 10_000L  // 10 sec for paper (faster learning)
     private const val LIQ_CHANGE_THRESHOLD = 0.20            // 20% liquidity change triggers reprocess
     private const val SCORE_CHANGE_THRESHOLD = 15            // 15 point score change triggers reprocess
     
@@ -284,7 +284,7 @@ object EfficiencyLayer {
         
         // Suppress longer for very low liquidity
         val suppressMs = when {
-            liquidity < liquidityFloor * 0.3 -> 120_000L   // < 30% of floor = 2 min suppress
+            liquidity < liquidityFloor * 0.3 -> 60_000L   // < 30% of floor = 1 min suppress
             liquidity < liquidityFloor * 0.5 -> 90_000L   // < 50% of floor = 90 sec suppress
             liquidity < liquidityFloor * 0.7 -> 60_000L   // < 70% of floor = 60 sec suppress
             else -> 30_000L                                // Just under floor = 30 sec suppress
@@ -437,9 +437,9 @@ object EfficiencyLayer {
     
     private val candidateQueue = ConcurrentHashMap<String, RankedCandidate>()
     
-    private const val MAX_ACTIVE_REVIEW = 3
-    private const val MAX_STANDBY = 7
-    private const val MAX_SEEN = 20
+    private const val MAX_ACTIVE_REVIEW = 30
+    private const val MAX_STANDBY = 50
+    private const val MAX_SEEN = 100
     
     /**
      * Add or update a candidate in the ranking queue.
@@ -516,7 +516,7 @@ object EfficiencyLayer {
      */
     fun cleanup() {
         val now = System.currentTimeMillis()
-        val staleThreshold = 30 * 60 * 1000L  // 30 minutes
+        val staleThreshold = 10 * 6 * 10000L  // 1 minutes
         
         // Clean stale seen tokens
         seenTokens.entries.removeIf { now - it.value.lastSeenAt > staleThreshold }
