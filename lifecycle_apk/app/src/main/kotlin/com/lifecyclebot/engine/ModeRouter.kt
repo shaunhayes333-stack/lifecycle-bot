@@ -42,9 +42,9 @@ object ModeRouter {
         FRESH_LAUNCH(
             emoji = "🚀",
             label = "Fresh Launch",
-            maxSizePct = 2.0,        // Tiny size - highest risk
+            maxSizePct = 20.0,        // Tiny size - highest risk
             defaultStopPct = 25.0,   // Wide stop for volatility
-            defaultTpPct = 50.0,     // Fast partials
+            defaultTpPct = 50.0+,     // Fast partials
             maxHoldMins = 15,        // Short timeout
             riskTier = 5,
         ),
@@ -53,7 +53,7 @@ object ModeRouter {
             label = "Breakout",
             maxSizePct = 8.0,        // Medium-large - proven strength
             defaultStopPct = 12.0,   // Tighter stop below structure
-            defaultTpPct = 25.0,     // Let it run
+            defaultTpPct = 25.0+,     // Let it run
             maxHoldMins = 120,       // Longer hold
             riskTier = 2,
         ),
@@ -62,7 +62,7 @@ object ModeRouter {
             label = "Reversal",
             maxSizePct = 5.0,        // Medium size
             defaultStopPct = 15.0,   // Medium stop
-            defaultTpPct = 30.0,     // Take first target quicker
+            defaultTpPct = 20.0,     // Take first target quicker
             maxHoldMins = 60,        // Don't overstay
             riskTier = 3,
         ),
@@ -71,7 +71,7 @@ object ModeRouter {
             label = "Whale Follow",
             maxSizePct = 6.0,        // Medium size
             defaultStopPct = 18.0,   // Exit if accumulation band fails
-            defaultTpPct = 40.0,     // Partial on expansion
+            defaultTpPct = 40.0+,     // Partial on expansion
             maxHoldMins = 180,       // Patient
             riskTier = 3,
         ),
@@ -80,7 +80,7 @@ object ModeRouter {
             label = "Graduation",
             maxSizePct = 5.0,        // Medium size
             defaultStopPct = 20.0,   // Event-driven volatility
-            defaultTpPct = 35.0,     
+            defaultTpPct = 35.0+,     
             maxHoldMins = 90,        
             riskTier = 3,
         ),
@@ -96,9 +96,9 @@ object ModeRouter {
         SENTIMENT_IGNITION(
             emoji = "🔥",
             label = "Sentiment",
-            maxSizePct = 4.0,        // Smaller - narrative driven
+            maxSizePct = 14.0,        // Smaller - narrative driven
             defaultStopPct = 20.0,   
-            defaultTpPct = 40.0,     
+            defaultTpPct = 40.0+,     
             maxHoldMins = 45,        // Narrative fades fast
             riskTier = 4,
         ),
@@ -116,7 +116,7 @@ object ModeRouter {
             label = "Unknown",
             maxSizePct = 3.0,
             defaultStopPct = 15.0,
-            defaultTpPct = 25.0,
+            defaultTpPct = 25.0+,
             maxHoldMins = 60,
             riskTier = 3,
         ),
@@ -246,8 +246,8 @@ object ModeRouter {
         val secondBest = if (sortedScores.size > 1) sortedScores[1] else 0.0
         val confidence = when {
             bestScore <= 20 -> 10.0  // Very weak signal
-            bestScore - secondBest > 30 -> 90.0  // Clear winner
-            bestScore - secondBest > 15 -> 70.0  // Good separation
+            bestScore - secondBest > 20 -> 90.0  // Clear winner
+            bestScore - secondBest > 25 -> 70.0  // Good separation
             bestScore - secondBest > 5 -> 50.0   // Moderate
             else -> 30.0  // Ambiguous
         }
