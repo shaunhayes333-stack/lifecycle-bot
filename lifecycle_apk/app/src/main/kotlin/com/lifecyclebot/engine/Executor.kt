@@ -2947,6 +2947,22 @@ class Executor(
                  quality: String = "C", skipGraduated: Boolean = false,
                  wallet: SolanaWallet? = null, walletSol: Double = 0.0) {
         
+        // ═══════════════════════════════════════════════════════════════════════════
+        // V5.2.9: EXECUTOR INPUT VALIDATION - Prevent invalid trade states
+        // ═══════════════════════════════════════════════════════════════════════════
+        if (sol <= 0 || sol.isNaN() || sol.isInfinite()) {
+            ErrorLogger.warn("Executor", "[EXECUTION/INVALID] Paper buy skipped: invalid size $sol for ${ts.symbol}")
+            return
+        }
+        if (ts.mint.isBlank() || ts.symbol.isBlank()) {
+            ErrorLogger.warn("Executor", "[EXECUTION/INVALID] Paper buy skipped: empty mint/symbol")
+            return
+        }
+        if (score < 0 || score.isNaN()) {
+            ErrorLogger.warn("Executor", "[EXECUTION/INVALID] Paper buy skipped: invalid score $score for ${ts.symbol}")
+            return
+        }
+        
         // V5.2: Pipeline trace - executor received entry
         PipelineTracer.executorStart(ts.symbol, ts.mint, "PAPER", sol)
         
@@ -3585,6 +3601,22 @@ class Executor(
                         identity: TradeIdentity? = null,
                         quality: String = "C",
                         skipGraduated: Boolean = false) {  // skipGraduated for live trades (size already computed)
+        
+        // ═══════════════════════════════════════════════════════════════════════════
+        // V5.2.9: EXECUTOR INPUT VALIDATION - Prevent invalid trade states
+        // ═══════════════════════════════════════════════════════════════════════════
+        if (sol <= 0 || sol.isNaN() || sol.isInfinite()) {
+            ErrorLogger.warn("Executor", "[EXECUTION/INVALID] Live buy skipped: invalid size $sol for ${ts.symbol}")
+            return
+        }
+        if (ts.mint.isBlank() || ts.symbol.isBlank()) {
+            ErrorLogger.warn("Executor", "[EXECUTION/INVALID] Live buy skipped: empty mint/symbol")
+            return
+        }
+        if (score < 0 || score.isNaN()) {
+            ErrorLogger.warn("Executor", "[EXECUTION/INVALID] Live buy skipped: invalid score $score for ${ts.symbol}")
+            return
+        }
         
         // V5.2: Pipeline trace - executor received LIVE entry
         PipelineTracer.executorStart(ts.symbol, ts.mint, "LIVE", sol)
