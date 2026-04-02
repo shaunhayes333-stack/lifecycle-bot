@@ -225,6 +225,9 @@ object QualityTraderAI {
         qualityScore += liqScore
         
         // Age score (prefer established)
+
+        require(MIN_AGE_MINUTES > 0) { "Invalid MIN_AGE_MINUTES" }
+        
         val ageScore = when {
             tokenAgeMinutes >= IDEAL_AGE_MINUTES -> 15
             tokenAgeMinutes >= 60 -> 10
