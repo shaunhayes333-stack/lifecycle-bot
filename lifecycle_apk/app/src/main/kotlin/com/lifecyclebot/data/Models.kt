@@ -81,6 +81,10 @@ data class Position(
     var shitCoinTakeProfit: Double = 0.0,  // Target profit % for shitcoin trades
     var shitCoinStopLoss: Double = 0.0,    // Stop loss % for shitcoin trades
     var isShitCoinPosition: Boolean = false, // True if this is a shitcoin position
+    // ═══════════════════════════════════════════════════════════════════
+    // PRE-COMPUTED TAKE PROFIT TARGET (set at entry, based on volatility)
+    // ═══════════════════════════════════════════════════════════════════
+    var targetTakeProfitPct: Double = 0.0,  // AI-computed TP% target before entry
     // Top-up tracking
     val topUpCount: Int = 0,
     val topUpCostSol: Double = 0.0,
