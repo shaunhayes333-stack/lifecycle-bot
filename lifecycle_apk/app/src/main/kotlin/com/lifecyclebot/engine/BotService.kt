@@ -5437,6 +5437,44 @@ class BotService : Service() {
         }
         
         // ═══════════════════════════════════════════════════════════════════
+        // 🔵 BLUE CHIP EXIT CHECK
+        // V5.2.12: Professional large-cap trading layer ($1M+ mcap)
+        // ═══════════════════════════════════════════════════════════════════
+        if (com.lifecyclebot.v3.scoring.BlueChipTraderAI.hasPosition(ts.mint) || 
+            ts.position.tradingMode == "BLUE_CHIP") {
+            val currentPrice = ts.lastPrice.takeIf { it > 0 } 
+                ?: ts.history.lastOrNull()?.priceUsd 
+                ?: ts.position.entryPrice
+            
+            val exitSignal = com.lifecyclebot.v3.scoring.BlueChipTraderAI.checkExit(ts.mint, currentPrice)
+            
+            if (exitSignal != com.lifecyclebot.v3.scoring.BlueChipTraderAI.ExitSignal.HOLD) {
+                val exitEmoji = when (exitSignal) {
+                    com.lifecyclebot.v3.scoring.BlueChipTraderAI.ExitSignal.TAKE_PROFIT -> "✅"
+                    com.lifecyclebot.v3.scoring.BlueChipTraderAI.ExitSignal.TRAILING_STOP -> "🎯"
+                    com.lifecyclebot.v3.scoring.BlueChipTraderAI.ExitSignal.STOP_LOSS -> "🛑"
+                    else -> "⏱"
+                }
+                
+                ErrorLogger.info("BotService", "🔵 [BLUECHIP EXIT] ${ts.symbol} | signal=$exitSignal | price=$currentPrice")
+                
+                executor.requestSell(
+                    ts = ts,
+                    reason = "BLUECHIP_${exitSignal.name}",
+                    wallet = wallet,
+                    walletSol = effectiveBalance
+                )
+                
+                com.lifecyclebot.v3.scoring.BlueChipTraderAI.closePosition(ts.mint, currentPrice, exitSignal)
+                
+                addLog("$exitEmoji BLUECHIP SELL: ${ts.symbol} | ${exitSignal.name} | " +
+                    "${if (cfg.paperMode) "PAPER" else "LIVE"}", ts.mint)
+                
+                return
+            }
+        }
+        
+        // ═══════════════════════════════════════════════════════════════════
         // 📉🎯 DIP HUNTER EXIT CHECK
         // ═══════════════════════════════════════════════════════════════════
         if (com.lifecyclebot.v3.scoring.DipHunterAI.hasDip(ts.mint) || ts.position.tradingMode == "DIP_HUNTER") {

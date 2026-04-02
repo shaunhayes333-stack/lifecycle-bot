@@ -1301,14 +1301,19 @@ for legal compliance.
         // ── V4.0: ShitCoin positions panel ─────────────────────────────────
         try {
             val shitCoinPositions = com.lifecyclebot.v3.scoring.ShitCoinTraderAI.getActivePositions()
+            val expressRides = com.lifecyclebot.v3.scoring.ShitCoinExpress.getActiveRides()
             val shitCoinStats = com.lifecyclebot.v3.scoring.ShitCoinTraderAI.getStats()
             
+            // V5.2.12: Include Express rides in the count
+            val totalDegenPositions = shitCoinPositions.size + expressRides.size
+            
             // Always show if we have positions OR if mode is active (not PAUSED)
-            val showShitCoin = shitCoinPositions.isNotEmpty() || shitCoinStats.dailyTradeCount > 0
+            val showShitCoin = totalDegenPositions > 0 || shitCoinStats.dailyTradeCount > 0
             cardShitCoinPositions.visibility = if (showShitCoin) android.view.View.VISIBLE else android.view.View.GONE
             
             if (showShitCoin) {
-                val shitCoinExposure = shitCoinPositions.sumOf { it.entrySol }
+                // V5.2.12: Include Express exposure
+                val shitCoinExposure = shitCoinPositions.sumOf { it.entrySol } + expressRides.sumOf { it.entrySol }
                 tvShitCoinExposure.text = "%.3f◎".format(shitCoinExposure)
                 
                 val shitCoinDailyPnl = shitCoinStats.dailyPnlSol
@@ -2215,9 +2220,11 @@ for legal compliance.
             // V5.2.11: V3 represents the CORE ENGINE, show aggregate stats
             val treasuryPos = com.lifecyclebot.v3.scoring.CashGenerationAI.getActivePositions().size
             val shitCoinPos = com.lifecyclebot.v3.scoring.ShitCoinTraderAI.getActivePositions().size
+            val expressPos = com.lifecyclebot.v3.scoring.ShitCoinExpress.getActiveRides().size
+            val qualityPos = com.lifecyclebot.v3.scoring.QualityTraderAI.getActivePositions().size
             val moonshotPos = com.lifecyclebot.v3.scoring.MoonshotTraderAI.getActivePositions().size
             val blueChipPos = com.lifecyclebot.v3.scoring.BlueChipTraderAI.getActivePositions().size
-            val totalOpenPos = treasuryPos + shitCoinPos + moonshotPos + blueChipPos
+            val totalOpenPos = treasuryPos + shitCoinPos + expressPos + qualityPos + moonshotPos + blueChipPos
             
             val learningPct = com.lifecyclebot.v3.scoring.FluidLearningAI.getLearningProgress() * 100
             

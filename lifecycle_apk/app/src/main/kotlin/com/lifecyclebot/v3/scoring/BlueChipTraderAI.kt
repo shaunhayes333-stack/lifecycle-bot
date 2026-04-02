@@ -298,6 +298,51 @@ object BlueChipTraderAI {
     }
     
     // ═══════════════════════════════════════════════════════════════════════════
+    // EXIT CHECKING - V5.2.12: Added proper exit logic for BlueChip layer
+    // ═══════════════════════════════════════════════════════════════════════════
+    
+    fun checkExit(mint: String, currentPrice: Double): ExitSignal {
+        val pos = synchronized(activePositions) { activePositions[mint] } ?: return ExitSignal.HOLD
+        
+        val pnlPct = (currentPrice - pos.entryPrice) / pos.entryPrice * 100
+        val holdMinutes = (System.currentTimeMillis() - pos.entryTime) / 60000
+        
+        // ═══════════════════════════════════════════════════════════════════
+        // EXIT CONDITIONS
+        // ═══════════════════════════════════════════════════════════════════
+        
+        // 1. TAKE PROFIT - hit target
+        if (pnlPct >= pos.takeProfitPct) {
+            ErrorLogger.info(TAG, "🔵 TP HIT: ${pos.symbol} | +${pnlPct.toInt()}%")
+            return ExitSignal.TAKE_PROFIT
+        }
+        
+        // 2. STOP LOSS - hit limit
+        if (pnlPct <= pos.stopLossPct) {
+            ErrorLogger.info(TAG, "🔵 SL HIT: ${pos.symbol} | ${pnlPct.toInt()}%")
+            return ExitSignal.STOP_LOSS
+        }
+        
+        // 3. TRAILING STOP - protect gains above 10%
+        if (pnlPct > 10.0) {
+            // Trail at 60% of peak gains (lock in 60% of profit)
+            val trailStop = pos.entryPrice * (1 + (pnlPct * 0.6) / 100)
+            if (currentPrice <= trailStop) {
+                ErrorLogger.info(TAG, "🔵 TRAIL: ${pos.symbol} | +${pnlPct.toInt()}%")
+                return ExitSignal.TRAILING_STOP
+            }
+        }
+        
+        // 4. TIME EXIT - max hold exceeded and not significantly profitable
+        if (holdMinutes >= MAX_HOLD_MINUTES && pnlPct < 8.0) {
+            ErrorLogger.info(TAG, "🔵 TIME: ${pos.symbol} | ${pnlPct.toInt()}% after ${holdMinutes}min")
+            return ExitSignal.TIME_EXIT
+        }
+        
+        return ExitSignal.HOLD
+    }
+    
+    // ═══════════════════════════════════════════════════════════════════════════
     // CORE EVALUATION - Blue Chip specific scoring
     // ═══════════════════════════════════════════════════════════════════════════
     
