@@ -1740,6 +1740,24 @@ class Executor(
             return "stop_loss"
         }
         
+        // ════════════════════════════════════════════════════════════════
+        // V5.2.11 FIX: TRAILING STOP HOLD TIME PROTECTION
+        // 
+        // THE BUG: Trailing stop was triggering at -2% within 60 seconds because:
+        // 1. highestPrice ≈ entryPrice (trade never went green)
+        // 2. smartFloor = highestPrice * (1 - 6.8%) = entryPrice * 0.932
+        // 3. A -2% dip (price = 0.98) should NOT trigger, but the trail was
+        //    calculated from a peak that was barely above entry.
+        //
+        // THE FIX: Don't activate trailing stops until:
+        // - Trade is at least 60 seconds old, OR
+        // - Trade has achieved at least +5% gain (has something to protect)
+        //
+        // This lets meme coins "breathe" through normal volatility while still
+        // protecting actual gains when they occur.
+        // ════════════════════════════════════════════════════════════════
+        val trailingStopActive = heldSecs >= 60 || gainPct >= 5.0
+        
         // V5: Smart trailing with trend health signals
         val smartFloor = trailingFloor(
             pos = pos,
@@ -1751,7 +1769,11 @@ class Executor(
             pressScore = ts.meta.pressScore,
             exhaust = ts.meta.exhaustion,
         )
-        if (price < smartFloor) return "trailing_stop"
+        
+        // V5.2.11: Only trigger trailing stop if protection period is over
+        if (trailingStopActive && price < smartFloor) {
+            return "trailing_stop"
+        }
         return null
     }
 
@@ -1779,6 +1801,7 @@ class Executor(
                 currentPrice = getActualPrice(ts),  // CRITICAL FIX: Use actual price
                 entryPrice = ts.position.entryPrice,
                 stopLossPct = cfg().stopLossPct,
+                entryTimeMs = ts.position.entryTime,  // V5.2.11: Pass entry time for hold protection
             )?.shouldExit == true)
         
         // Halt check - blocks new buys but NOT sells
@@ -1804,12 +1827,14 @@ class Executor(
             
             // ════════════════════════════════════════════════════════════════
             // V8: Precision Exit Logic - Quick check for urgent exits
+            // V5.2.11: Now respects hold time protection (was causing 5-6% win rate)
             // ════════════════════════════════════════════════════════════════
             val quickExit = PrecisionExitLogic.quickCheck(
                 mint = ts.mint,
                 currentPrice = getActualPrice(ts),  // CRITICAL FIX: Use actual price
                 entryPrice = ts.position.entryPrice,
                 stopLossPct = cfg().stopLossPct,
+                entryTimeMs = ts.position.entryTime,  // V5.2.11: Pass entry time for hold protection
             )
             if (quickExit != null && quickExit.shouldExit) {
                 onLog("🚨 V8 QUICK EXIT: ${ts.symbol} | ${quickExit.reason} | ${quickExit.details}", ts.mint)
@@ -2397,11 +2422,13 @@ class Executor(
             }
             
             // V8 quick exit check
+            // V5.2.11: Now respects hold time protection
             val quickExit = PrecisionExitLogic.quickCheck(
                 mint = identity.mint,
                 currentPrice = getActualPrice(ts),  // CRITICAL FIX: Use actual price
                 entryPrice = ts.position.entryPrice,
                 stopLossPct = cfg().stopLossPct,
+                entryTimeMs = ts.position.entryTime,  // V5.2.11: Pass entry time for hold protection
             )
             if (quickExit != null && quickExit.shouldExit) {
                 onLog("🚨 V8 QUICK EXIT: ${identity.symbol} | ${quickExit.reason} | ${quickExit.details}", identity.mint)

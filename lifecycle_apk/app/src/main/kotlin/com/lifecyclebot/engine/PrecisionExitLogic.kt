@@ -274,21 +274,66 @@ object PrecisionExitLogic {
     /**
      * Quick check for instant exit conditions only
      * Called more frequently than full evaluate()
+     * 
+     * V5.2.11 FIX: Added hold time protection to prevent instant stop-loss exits
+     * that were causing 5-6% win rate. Trades need time to breathe before
+     * standard stop-loss kicks in. Only FAST_RUG bypasses hold protection.
      */
     fun quickCheck(
         mint: String,
         currentPrice: Double,
         entryPrice: Double,
         stopLossPct: Double = DEFAULT_STOP_LOSS_PCT,
+        entryTimeMs: Long = 0L,  // V5.2.11: Pass entry time for hold protection
     ): ExitSignal? {
         
-        // Fast rug check
+        // Fast rug check - ALWAYS bypasses hold protection (true emergency)
         if (TradeStateMachine.checkFastRug(mint, currentPrice)) {
             return ExitSignal(true, "FAST_RUG", Urgency.CRITICAL, ">8% drop in <10s")
         }
         
-        // Stop loss
         val pnlPct = if (entryPrice > 0) ((currentPrice - entryPrice) / entryPrice) * 100 else 0.0
+        
+        // ════════════════════════════════════════════════════════════════
+        // V5.2.11 FIX: HOLD TIME PROTECTION IN QUICK CHECK
+        // 
+        // THE BUG: quickCheck() was triggering STOP_LOSS within 60 seconds,
+        // causing 5-6% win rate because meme coins naturally wick -2% to -5%
+        // before pumping. The main evaluate() had protection, but quickCheck
+        // was bypassing it entirely.
+        //
+        // THE FIX: Apply the same hold time logic here:
+        // - First 30s: Only exit for CATASTROPHIC loss (>10%)
+        // - First 60s: Only exit for SEVERE loss (>8%)
+        // - After 60s: Normal stop loss applies
+        // ════════════════════════════════════════════════════════════════
+        val holdTimeMs = if (entryTimeMs > 0) {
+            System.currentTimeMillis() - entryTimeMs
+        } else {
+            // If no entry time provided, assume we're past protection
+            // This maintains backward compatibility but shouldn't happen
+            MIN_HOLD_TIME_FOR_STOP_LOSS_MS + 1
+        }
+        
+        // During first 30s: Only exit for CATASTROPHIC losses (>10%)
+        if (holdTimeMs < MIN_HOLD_TIME_MS) {
+            if (pnlPct <= -10.0) {
+                return ExitSignal(true, "CATASTROPHIC_LOSS", Urgency.CRITICAL, "PnL ${pnlPct.toInt()}% (min hold bypass)")
+            }
+            // Don't trigger regular stop loss - give trade time to breathe
+            return null
+        }
+        
+        // During 30-60s: Only exit for SEVERE losses (>8%)
+        if (holdTimeMs < MIN_HOLD_TIME_FOR_STOP_LOSS_MS) {
+            if (pnlPct <= -8.0) {
+                return ExitSignal(true, "SEVERE_LOSS", Urgency.HIGH, "PnL ${pnlPct.toInt()}% (protection period)")
+            }
+            // Don't trigger regular stop loss yet
+            return null
+        }
+        
+        // After 60s: Normal stop loss applies
         if (pnlPct <= -stopLossPct) {
             return ExitSignal(true, "STOP_LOSS", Urgency.HIGH, "PnL ${pnlPct.toInt()}%")
         }
