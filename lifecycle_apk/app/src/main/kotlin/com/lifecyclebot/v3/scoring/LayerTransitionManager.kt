@@ -76,7 +76,9 @@ object LayerTransitionManager {
     ) {
         SHITCOIN("💩", "ShitCoin", 0.0, 30_000.0, 25.0, 10.0, 15),
         EXPRESS("💩🚂", "Express", 0.0, 30_000.0, 30.0, 8.0, 10),
-        V3_QUALITY("🎯", "V3 Quality", 30_000.0, 1_000_000.0, 35.0, 12.0, 60),
+        // V5.2.11: Quality layer for professional Solana trading ($100K-$1M)
+        QUALITY("⭐", "Quality", 100_000.0, 1_000_000.0, 35.0, 12.0, 60),
+        V3_QUALITY("🎯", "V3 Quality", 30_000.0, 1_000_000.0, 35.0, 12.0, 60),  // Legacy alias
         DIP_HUNTER("📉", "DipHunter", 50_000.0, 5_000_000.0, 20.0, 15.0, 360),
         BLUE_CHIP("🔵", "BlueChip", 1_000_000.0, Double.MAX_VALUE, 40.0, 15.0, 120),
         TREASURY("💰", "Treasury", 0.0, Double.MAX_VALUE, 15.0, 8.0, 30),

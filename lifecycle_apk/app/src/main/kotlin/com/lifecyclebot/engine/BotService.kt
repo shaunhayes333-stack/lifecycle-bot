@@ -3393,6 +3393,96 @@ class BotService : Service() {
                     ErrorLogger.debug("BotService", "🔵 [BLUE CHIP] ${ts.symbol} | BLOCKED | Treasury has open position - wait for TP/SL")
                 } else {
                 try {
+                    // ═══════════════════════════════════════════════════════════════
+                    // V5.2.11: QUALITY TRADER AI - Professional Solana Trading
+                    // For $100K-$1M mcap tokens that aren't pure meme coins
+                    // ═══════════════════════════════════════════════════════════════
+                    val qualityPermit = FinalExecutionPermit.canExecute(
+                        mint = ts.mint,
+                        symbol = ts.symbol,
+                        requestingLayer = "QUALITY",
+                        hasOpenPosition = ts.position.isOpen
+                    )
+                    
+                    if (qualityPermit.allowed && ts.lastMcap in 100_000.0..1_000_000.0) {
+                        val (v3Score, _) = when (val result = v3Decision) {
+                            is com.lifecyclebot.v3.V3Decision.Execute -> result.score to result.confidence.toInt()
+                            is com.lifecyclebot.v3.V3Decision.Watch -> result.score to result.confidence
+                            else -> 15 to 25
+                        }
+                        
+                        val qualitySignal = com.lifecyclebot.v3.scoring.QualityTraderAI.evaluate(
+                            mint = ts.mint,
+                            symbol = ts.symbol,
+                            currentPrice = ts.ref,
+                            marketCapUsd = ts.lastMcap,
+                            liquidityUsd = ts.lastLiquidityUsd,
+                            buyPressure = ts.lastBuyPressurePct,
+                            tokenAgeMinutes = ts.tokenAgeMinutes ?: 0.0,
+                            holderCount = ts.holderCount ?: 0,
+                            topHolderPct = ts.topHolderPct ?: 20.0,
+                            v3Score = v3Score,
+                            isMeme = ts.isMeme ?: false,
+                        )
+                        
+                        if (qualitySignal.shouldEnter) {
+                            val canExecute = FinalExecutionPermit.tryAcquireExecution(
+                                mint = ts.mint,
+                                symbol = ts.symbol,
+                                layer = "QUALITY",
+                                sizeSol = qualitySignal.positionSizeSol
+                            )
+                            
+                            if (canExecute) {
+                                ErrorLogger.info("BotService", "⭐ [QUALITY] ${ts.symbol} | ENTER | " +
+                                    "mcap=\$${(ts.lastMcap/1000).toInt()}K | " +
+                                    "score=${qualitySignal.qualityScore} | " +
+                                    "size=${qualitySignal.positionSizeSol.fmt(3)} SOL")
+                                
+                                // Execute Quality buy (reuse BlueChip executor pattern)
+                                executor.blueChipBuy(
+                                    ts = ts,
+                                    sizeSol = qualitySignal.positionSizeSol,
+                                    walletSol = effectiveBalance,
+                                    takeProfitPct = qualitySignal.takeProfitPct,
+                                    stopLossPct = qualitySignal.stopLossPct,
+                                    wallet = wallet,
+                                    isPaper = cfg.paperMode
+                                )
+                                
+                                // Record Quality position
+                                com.lifecyclebot.v3.scoring.QualityTraderAI.addPosition(
+                                    com.lifecyclebot.v3.scoring.QualityTraderAI.QualityPosition(
+                                        mint = ts.mint,
+                                        symbol = ts.symbol,
+                                        entryPrice = ts.ref,
+                                        entrySol = qualitySignal.positionSizeSol,
+                                        entryTime = System.currentTimeMillis(),
+                                        entryMcap = ts.lastMcap,
+                                        takeProfitPct = qualitySignal.takeProfitPct,
+                                        stopLossPct = qualitySignal.stopLossPct
+                                    )
+                                )
+                                
+                                // Register with Layer Transition Manager
+                                com.lifecyclebot.v3.scoring.LayerTransitionManager.registerPosition(
+                                    mint = ts.mint,
+                                    symbol = ts.symbol,
+                                    layer = com.lifecyclebot.v3.scoring.LayerTransitionManager.TradingLayer.QUALITY,
+                                    entryMcap = ts.lastMcap,
+                                    entryPrice = ts.ref,
+                                )
+                                
+                                FinalExecutionPermit.releaseExecution(ts.mint)
+                                addLog("⭐ QUALITY: ${ts.symbol} | \$${(ts.lastMcap/1000).toInt()}K mcap", ts.mint)
+                            }
+                        }
+                    }
+                    
+                    // ═══════════════════════════════════════════════════════════════
+                    // BLUE CHIP TRADER AI - For $1M+ mcap tokens
+                    // ═══════════════════════════════════════════════════════════════
+                    
                     // V4.0 FIX: Check execution permit first
                     val permitResult = FinalExecutionPermit.canExecute(
                         mint = ts.mint,

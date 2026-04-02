@@ -2246,17 +2246,21 @@ for legal compliance.
         } catch (_: Exception) { tvTreasuryStats.text = "—" }
         
         // BlueChip - show active positions and win rate
+        // V5.2.11: Blue tile shows Quality ($100K-$1M) + BlueChip ($1M+) combined
         try {
-            val positions = com.lifecyclebot.v3.scoring.BlueChipTraderAI.getActivePositions()
-            val stats = com.lifecyclebot.v3.scoring.BlueChipTraderAI.getStats()
-            val posCount = positions.size
-            val winRate = stats.winRate.toInt()
-            if (posCount > 0 || stats.dailyTradeCount > 0) {
-                tvBlueChipStats.text = "$posCount | $winRate%"
+            val qualityPos = com.lifecyclebot.v3.scoring.QualityTraderAI.getActivePositions()
+            val blueChipPos = com.lifecyclebot.v3.scoring.BlueChipTraderAI.getActivePositions()
+            val qualityWR = com.lifecyclebot.v3.scoring.QualityTraderAI.getWinRate().toInt()
+            val blueChipStats = com.lifecyclebot.v3.scoring.BlueChipTraderAI.getStats()
+            
+            val totalPos = qualityPos.size + blueChipPos.size
+            // Show combined stats: Quality | BlueChip
+            if (totalPos > 0 || qualityWR > 0 || blueChipStats.dailyTradeCount > 0) {
+                // Format: "Q:2 B:1" or "Q:0 B:3"
+                tvBlueChipStats.text = "${qualityPos.size}/${blueChipPos.size}"
                 tvBlueChipStats.setTextColor(when {
-                    winRate >= 60 -> green
-                    winRate >= 45 -> amber
-                    else -> red
+                    totalPos > 0 -> green
+                    else -> amber
                 })
             } else {
                 tvBlueChipStats.text = "0/0"
