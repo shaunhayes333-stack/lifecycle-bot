@@ -700,10 +700,10 @@ object FluidLearningAI {
     fun getFluidStopLoss(modeDefaultStop: Double): Double {
         val progress = getLearningProgress()
         
-        // V5.1: Tighter bootstrap stops - was maxOf(10%), now maxOf(6%)
-        // This prevents letting losses run too much while learning
-        val bootstrapStop = maxOf(modeDefaultStop, 6.0)  // At least -6% during bootstrap (was -10%)
-        val matureStop = modeDefaultStop                  // Use mode's intended stop when mature
+        // V5.2.11: Widened bootstrap stops - was 6%, now 10%
+        // Meme coins wick down -8% regularly before pumping
+        val bootstrapStop = maxOf(modeDefaultStop, 10.0)  // At least -10% during bootstrap
+        val matureStop = modeDefaultStop                   // Use mode's intended stop when mature
         
         return lerp(bootstrapStop, matureStop)
     }
@@ -716,10 +716,10 @@ object FluidLearningAI {
     fun getFluidTakeProfit(modeDefaultTp: Double): Double {
         val progress = getLearningProgress()
         
-        // Bootstrap: Take quick 5-8% profits (learn from small wins)
-        // Mature: Use mode's full TP target
-        val bootstrapTp = minOf(modeDefaultTp, 8.0)  // Max +8% TP during bootstrap
-        val matureTp = modeDefaultTp                  // Use mode's intended TP when mature
+        // V5.2.11: Raised bootstrap TP from 8% to 15%
+        // 8% was selling winners too early before they could run
+        val bootstrapTp = minOf(modeDefaultTp, 15.0)  // Max +15% TP during bootstrap
+        val matureTp = modeDefaultTp                   // Use mode's intended TP when mature
         
         return lerp(bootstrapTp, matureTp)
     }
