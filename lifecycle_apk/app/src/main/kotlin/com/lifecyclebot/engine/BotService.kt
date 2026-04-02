@@ -575,6 +575,11 @@ class BotService : Service() {
         EfficiencyLayer.isPaperMode = preScanCfg.paperMode
         addLog("📋 GlobalTradeRegistry initialized with ${GlobalTradeRegistry.size()} tokens (paperMode=${preScanCfg.paperMode})")
 
+        // V5.3: Clear false-positive rug entries from previous sessions.
+        // Old bug caused "Rug detected: price -0%" blocks — clear them so tokens
+        // like STC/WTF aren't permanently stuck in cooldown.
+        TokenBlacklist.clearFalsePositiveRugs()
+
         // Start full Solana market scanner
         val scanCfg = ConfigStore.load(applicationContext)
         ErrorLogger.info("BotService", "fullMarketScanEnabled = ${scanCfg.fullMarketScanEnabled}")
