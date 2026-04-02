@@ -845,10 +845,13 @@ class SolanaMarketScanner(
     private val birdeye: BirdeyeApi
         get() = BirdeyeApi(cfg().birdeyeApiKey)
 
-    // Track which mints we've already surfaced to avoid duplicates
-    private val seenMints  = ConcurrentHashMap<String, Long>()
-    // V5.2.8: Dynamic TTL based on mode - faster refresh in paper mode
-    private fun getSeenTtl(): Long = if (cfg().paperMode) 10_000L else 15_000L  // 10s paper, 15s live
+    // // Track which mints we've already surfaced to avoid duplicates
+private val seenMints = ConcurrentHashMap<String, Long>()
+private fun getSeenTtl(): Long = if (cfg().paperMode) 20_000L else 30_000L  // 20s paper, 30s live
+
+// Track rejected tokens separately - shorter retry than seen
+private val rejectedMints = ConcurrentHashMap<String, Long>()
+private fun getRejectedTtl(): Long = if (cfg().paperMode) 8_000L else 15_000L  // 8s paper, 15s live
     
     // Track rejected tokens separately - very short cooldown for paper mode learning
     private val rejectedMints = ConcurrentHashMap<String, Long>()
@@ -946,36 +949,35 @@ class SolanaMarketScanner(
         lastNewTokenFoundMs = System.currentTimeMillis()
     }
     
-    // Check if scanner is stuck and needs reset
-    fun checkAndResetIfStale(): Boolean {
-        val now = System.currentTimeMillis()
-        
-        // Only check staleness every 10 seconds to avoid spam
-        if (now - lastStalenessCheckMs < 10_000L) return false
-        lastStalenessCheckMs = now
-        
-        val staleDuration = now - lastNewTokenFoundMs
-        if (staleDuration > STALENESS_THRESHOLD_MS) {
-            ErrorLogger.warn("Scanner", "⚠️ Scanner STALE for ${staleDuration/1000}s - forcing reset")
-            onLog("⚠️ Scanner stuck for ${staleDuration/1000}s - resetting...")
-            forceReset()
-            lastNewTokenFoundMs = now  // Reset timer after clearing
-            return true
-        }
-        return false
+    // // Check if scanner is stuck and needs reset
+fun checkAndResetIfStale(): Boolean {
+    val now = System.currentTimeMillis()
+
+    // Only check staleness every 10 seconds to avoid spam
+    if (now - lastStalenessCheckMs < 10_000L) return false
+    lastStalenessCheckMs = now
+
+    val staleDuration = now - lastNewTokenFoundMs
+    if (staleDuration > STALENESS_THRESHOLD_MS) {
+        telemetryStaleDrops++
+        ErrorLogger.warn("Scanner", "⚠️ Scanner STALE for ${staleDuration / 1000}s - forcing soft reset")
+        onLog("⚠️ Scanner stale for ${staleDuration / 1000}s - soft reset")
+        forceReset()
+        lastNewTokenFoundMs = now
+        return true
     }
-    
-    // Force clear all maps (emergency reset)
-    fun forceReset() {
-        seenMints.clear()
-        rejectedMints.clear()
-        cooldownHitCount.clear()
-        saturatedMints.clear()
-        resetTelemetry()
-        scanRotation = 0
-        ErrorLogger.info("Scanner", "Force reset - cleared all maps")
-        onLog("🔄 Scanner reset - maps cleared")
-    }
+    return false
+}
+
+// Soft reset only transient state. Preserve seen/rejected cooldown memory.
+fun forceReset() {
+    cooldownHitCount.clear()
+    saturatedMints.clear()
+    resetTelemetry()
+    scanRotation = 0
+    ErrorLogger.info("Scanner", "Force reset - cleared transient state only")
+    onLog("🔄 Scanner soft reset - preserved seen/rejected cooldowns")
+}
     
     // Coroutine exception handler for scanner - logs errors without crashing
     private val scannerExceptionHandler = CoroutineExceptionHandler { _, throwable ->
@@ -1162,14 +1164,12 @@ class SolanaMarketScanner(
                 // PUMP.FUN PRIORITY: Scan pump.fun EVERY cycle, plus rotate secondary sources
                 scanRotation = (scanRotation + 1) % 4  // 4 rotations for more variety
                 
-                // FORCE RESET every 10 cycles to prevent scanner staleness
-                if (scanRotation == 0 && seenMints.size > 50) {
-                    val resetCount = seenMints.size
-                    seenMints.clear()
-                    rejectedMints.entries.removeIf { System.currentTimeMillis() - it.value > 60_000 }  // Keep only recent rejects
-                    onLog("🔄 Scanner refresh: cleared $resetCount seen tokens")
-                    ErrorLogger.info("Scanner", "Forced refresh: cleared $resetCount seen mints")
-                }
+                // Recycle only expired cooldown entries - do NOT wipe seen history
+if (scanRotation == 0 && seenMints.size > 200) {
+    cleanupSeenMaps()
+    onLog("🔄 Scanner refresh: recycled expired cooldown entries")
+    ErrorLogger.info("Scanner", "Forced refresh: recycled expired cooldown entries only")
+}
                 
                 onLog("🌐 Scan #$scanRotation${_tn} - Starting scan cycle")
                 ErrorLogger.info("Scanner", "Scan cycle #$scanRotation starting")
@@ -2484,36 +2484,43 @@ class SolanaMarketScanner(
     }
 
     private fun isSeen(mint: String): Boolean {
-        val now = System.currentTimeMillis()
-        
-        // V5.2 FIX: Check if saturated FIRST (most aggressive filter)
-        if (isSaturated(mint)) {
-            telemetrySaturatedDrops++
-            return true  // Suppressed due to excessive cooldown churn
-        }
-        
-        // Check if rejected (5 minute cooldown)
-        val rejectedAt = rejectedMints[mint]
-        if (rejectedAt != null && now - rejectedAt < getRejectedTtl()) {
-            recordCooldownHit(mint)  // Track for saturation
-            return true  // Still in cooldown from rejection
-        }
-        
-        // Check if recently seen (2 min cooldown)
-        val seenAt = seenMints[mint]
-        if (seenAt != null && now - seenAt < getSeenTtl()) {
-            recordCooldownHit(mint)  // Track for saturation
-            return true
-        }
-        
-        // Check if already in watchlist (via config)
-        val watchlist = cfg().watchlist
-        if (mint in watchlist) {
-            return true  // Already being tracked
-        }
-        
-        return false
+    val now = System.currentTimeMillis()
+
+    // Check if saturated first
+    if (isSaturated(mint)) {
+        telemetrySaturatedDrops++
+        return true
     }
+
+    // Rejected cooldown
+    rejectedMints[mint]?.let { rejectedAt ->
+        val age = now - rejectedAt
+        if (age < getRejectedTtl()) {
+            recordCooldownHit(mint)
+            return true
+        } else {
+            rejectedMints.remove(mint)
+        }
+    }
+
+    // Seen cooldown
+    seenMints[mint]?.let { seenAt ->
+        val age = now - seenAt
+        if (age < getSeenTtl()) {
+            recordCooldownHit(mint)
+            return true
+        } else {
+            seenMints.remove(mint)
+        }
+    }
+
+    // Already in active watchlist
+    if (mint in cfg().watchlist) {
+        return true
+    }
+
+    return false
+}
     
     // Mark a token as rejected (longer cooldown than just "seen")
     private fun markRejected(mint: String) {
