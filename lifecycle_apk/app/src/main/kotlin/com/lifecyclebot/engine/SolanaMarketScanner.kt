@@ -658,7 +658,7 @@ object ModeLearning {
     private fun getDefaultLiqRange(mode: String): Pair<Double, Double> {
         return when (mode) {
             "MICRO_CAP" -> 2_000.0 to 20_000.0
-            "MOONSHOT", "PUMP_SNIPER" -> 5_000.0 to 50_000.0
+            "MOONSHOT", "PUMP_SNIPER" -> 10_000.0 to 50_000.0
             "LONG_HOLD", "WHALE_FOLLOW" -> 50_000.0 to Double.MAX_VALUE
             "REVIVAL" -> 10_000.0 to 100_000.0
             else -> 2_000.0 to 100_000.0
@@ -1079,7 +1079,7 @@ class SolanaMarketScanner(
                 if (pair.baseSymbol.uppercase() in listOf("SOL", "WSOL", "USDC", "USDT", "RAY")) continue
                 
                 val liq = pair.liquidity
-                if (liq < 1000) continue
+                if (liq < 2000) continue
                 
                 val ageHours = (System.currentTimeMillis() - pair.pairCreatedAtMs) / 3_600_000.0
                 
