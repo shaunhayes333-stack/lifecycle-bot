@@ -8,7 +8,7 @@ import java.util.concurrent.ConcurrentHashMap
  * 
  * V4.1 CRITICAL CHANGES - USER FEEDBACK:
  *   - "Quick fire re-entry metrics to recover loss are dumb - re-enters too quickly"
- *   - Increased base cooldown from 2 min to 10 min
+ *   - Increased base cooldown from 2 min to 5 min
  *   - Require 80% score threshold (up from 60%)
  *   - Require SUSTAINED buy pressure for 3+ candles, not just current
  *   - Block reentry entirely if token lost >20% since failure
@@ -117,7 +117,7 @@ object ReentryRecoveryMode {
         
         if (timeSinceFailure < minCooldownMs) {
             val remainingSec = (minCooldownMs - timeSinceFailure) / 1000
-            required.add("Cooldown: ${remainingSec}s remaining (${minCooldownMs/60000}min required)")
+            required.add("Cooldown: ${remainingSec}s remaining (${minCooldownMs/6000}min required)")
             return RecoveryEvaluation(
                 canReenter = false,
                 recoveryScore = 0.0,
@@ -213,7 +213,7 @@ object ReentryRecoveryMode {
         // CHECK 6: Better liquidity (V4.1: Increased to $5000)
         // ─────────────────────────────────────────────────────────────────
         val currentLiq = ts.lastLiquidityUsd
-        if (currentLiq > 5000) {
+        if (currentLiq > 2000) {
             met.add("✅ Liquidity: \$${currentLiq.toInt()}")
             score += 15.0
         } else {
