@@ -696,20 +696,19 @@ object CashGenerationAI {
             return ExitSignal.STOP_LOSS
         }
         
-        // 4. HIT TRAILING STOP (if in profit > 2%)
-        if (pnlPct > 2.0 && currentPrice <= pos.trailingStop) {
+        // 4. HIT TRAILING STOP (if in profit > 5%)
+        // V5.2.11: Raised from 2% to 5%
+        if (pnlPct > 5.0 && currentPrice <= pos.trailingStop) {
             return ExitSignal.TRAILING_STOP
         }
         
-        // 5. MAX HOLD TIME (30 mins)
-        if (holdMinutes >= MAX_HOLD_MINUTES) {
+        // 5. MAX HOLD TIME (30 mins) - only if losing
+        // V5.2.11: Added pnlPct < 0 check
+        if (holdMinutes >= MAX_HOLD_MINUTES && pnlPct < 0) {
             return ExitSignal.TIME_EXIT
         }
         
-        // 6. Cut loss if underwater after 10 min
-        if (holdMinutes >= 10 && pnlPct < -1.5) {
-            return ExitSignal.STOP_LOSS
-        }
+        // 6. REMOVED: Cut loss at -1.5% after 10min was too aggressive
         
         return ExitSignal.HOLD
     }
@@ -748,11 +747,10 @@ object CashGenerationAI {
         // ═══════════════════════════════════════════════════════════════════
         // V5.2 FIX: MINIMUM HOLD TIME PROTECTION FOR TREASURY
         // Don't exit within first 15 seconds unless it's truly catastrophic
-        // Meme coins often wick down -5% to -10% then recover quickly
-        // Treasury needs time to breathe before stop loss activates
+        // V5.2.11: Keep 15s for fast Treasury scalps, but fix the CUT LOSS logic
         // ═══════════════════════════════════════════════════════════════════
         val holdTimeMs = System.currentTimeMillis() - pos.entryTime
-        val MIN_TREASURY_HOLD_MS = 15_000L  // 15 seconds minimum
+        val MIN_TREASURY_HOLD_MS = 15_000L  // 15 seconds minimum - Treasury is fast
         val isInMinHoldPeriod = holdTimeMs < MIN_TREASURY_HOLD_MS
         
         // ─── EXIT CONDITIONS (Priority order) ───
@@ -803,23 +801,22 @@ object CashGenerationAI {
             return ExitSignal.STOP_LOSS
         }
         
-        // 4. HIT TRAILING STOP (if in decent profit > 2%)
-        if (pnlPct > 2.0 && currentPrice <= pos.trailingStop) {
+        // 4. HIT TRAILING STOP (if in decent profit > 5%)
+        // V5.2.11: Raised from 2% to 5% - don't trail until we have real gains
+        if (pnlPct > 5.0 && currentPrice <= pos.trailingStop) {
             ErrorLogger.info(TAG, "💰 TREASURY TRAIL HIT: ${pos.symbol} | +${pnlPct.fmt(1)}%")
             return ExitSignal.TRAILING_STOP
         }
         
-        // 5. MAX HOLD TIME (30 mins) - only exit if not profitable
-        if (holdMinutes >= MAX_HOLD_MINUTES && pnlPct < 2.0) {
+        // 5. MAX HOLD TIME (30 mins) - only exit if actually losing
+        // V5.2.11: Changed from pnlPct < 2.0 to pnlPct < 0 - let small profits ride
+        if (holdMinutes >= MAX_HOLD_MINUTES && pnlPct < 0) {
             ErrorLogger.info(TAG, "💰 TREASURY TIME EXIT: ${pos.symbol} | ${pnlPct.fmt(1)}% after ${holdMinutes}min")
             return ExitSignal.TIME_EXIT
         }
         
-        // 6. Cut loss if underwater after 10min
-        if (holdMinutes >= 10 && pnlPct < -1.5) {
-            ErrorLogger.info(TAG, "💰 TREASURY CUT LOSS: ${pos.symbol} | ${pnlPct.fmt(1)}% - not recovering")
-            return ExitSignal.STOP_LOSS
-        }
+        // 6. REMOVED: Was cutting at -1.5% after 10min - WAY too aggressive for meme coins!
+        // V5.2.11: Let the stop loss handle actual losses, not arbitrary time-based cuts
         
         return ExitSignal.HOLD
     }
