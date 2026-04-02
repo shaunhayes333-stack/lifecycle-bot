@@ -274,15 +274,15 @@ object FinalDecisionGate {
     // ═══════════════════════════════════════════════════════════════════════════
     
     enum class LearningPhase {
-        BOOTSTRAP,  // 0-10 trades - very loose
-        LEARNING,   // 11-50 trades - gradually tightening  
-        MATURE      // 50+ trades - use learned thresholds
+        BOOTSTRAP,  // 0-50 trades - very loose
+        LEARNING,   // 50-500 trades - gradually tightening  
+        MATURE      // 1000+ trades - use learned thresholds
     }
     
     fun getLearningPhase(tradeCount: Int): LearningPhase = when {
         tradeCount <= 50 -> LearningPhase.BOOTSTRAP   // 0-50: Very loose
         tradeCount <= 500 -> LearningPhase.LEARNING   // 51-500: Gradually tightening
-        else -> LearningPhase.MATURE                   // 500+: Full strictness
+        else -> LearningPhase.MATURE                   // 1000+: Full strictness
     }
     
     /**
@@ -311,9 +311,9 @@ object FinalDecisionGate {
     // ═══════════════════════════════════════════════════════════════════════════
     
     // Hard block thresholds - LOOSE defaults (tighten as we learn)
-    var hardBlockRugcheckMin = 5            // Bootstrap: 5, Mature: 10
+    var hardBlockRugcheckMin = 3           // Bootstrap: 3, Mature: 5
     var hardBlockBuyPressureMin = 10.0      // Bootstrap: 10%, Mature: 18%
-    var hardBlockTopHolderMax = 85.0        // Bootstrap: 85%, Mature: 65%
+    var hardBlockTopHolderMax = 80.0        // Bootstrap: 80%, Mature: 65%
     
     // ═══════════════════════════════════════════════════════════════════════════
     // PER-MODE KILL SWITCH (NEW)
@@ -331,7 +331,7 @@ object FinalDecisionGate {
     
     private val recentModeLosses = mutableListOf<ModeLossRecord>()
     private const val MODE_LOSS_WINDOW_MS = 60 * 60 * 1000L  // 1 hour
-    private const val MODE_FREEZE_THRESHOLD = 20  // 20 losses = freeze
+    private const val MODE_FREEZE_THRESHOLD = 60  // 60 losses = freeze
     
     /**
      * Record a loss for a specific mode (called by TradeHistoryStore on loss)
@@ -381,7 +381,7 @@ object FinalDecisionGate {
     //
     // Criteria for EARLY SNIPE:
     //   - Token age < 15 min (fresh discovery)
-    //   - Initial score >= 60 (quality filter pass)
+    //   - Initial score >= 30 (quality filter pass)
     //   - Liquidity >= $10000 (minimum tradeable)
     //   - NOT in banned list / rugcheck pass
     //
@@ -391,9 +391,9 @@ object FinalDecisionGate {
     //   - Use small position size (risk management)
     // ═══════════════════════════════════════════════════════════════════════════
     var earlySnipeEnabled = true           // Enable aggressive early entries
-    var earlySnipeMaxAgeMinutes = 20       // INCREASED - wider time window
-    var earlySnipeMinScore = 45.0          // LOWERED from 60 - more aggressive
-    var earlySnipeMinLiquidity = 1500.0    // LOWERED from $2000 - more aggressive
+    var earlySnipeMaxAgeMinutes = 15       // INCREASED - wider time window
+    var earlySnipeMinScore = 30.0          // LOWERED from 60 - more aggressive
+    var earlySnipeMinLiquidity = 10000.0    // LOWERED from $20000 - more aggressive
     
     // ═══════════════════════════════════════════════════════════════════════════
     // EXPECTED VALUE (EV) GATING
@@ -423,14 +423,14 @@ object FinalDecisionGate {
     //
     // V4.20: Lowered all floors by 8 points - too many quality trades blocked
     // Bootstrap (0 trades):   22% confidence floor (was 30%)
-    // Mature (500+ trades):   67% confidence (was 75%)
+    // Mature (500+ trades):   50% confidence (was 75%)
     //
     // This allows the bot to learn from a wide variety of trades initially,
     // then naturally becomes more selective as it understands what works.
     // ═══════════════════════════════════════════════════════════════════════════
     
     private const val CONF_FLOOR_BOOTSTRAP = 10.0    // V5.0: Dramatically lowered for paper bootstrap
-    private const val CONF_FLOOR_MATURE = 67.0       // V4.20: Lowered by 8 points
+    private const val CONF_FLOOR_MATURE = 50.0       // V4.20: Lowered by 8 points
     
     // Base confidence thresholds (LEGACY - now uses fluid scaling)
     var paperConfidenceBase = 7.0           // V4.20: Lowered from 15%
@@ -445,7 +445,7 @@ object FinalDecisionGate {
     //   3. Complete trading freeze (useless bot)
     //
     // Solution: After N consecutive blocks, temporarily loosen soft restrictions:
-    //   - DANGER_ZONE_TIME: Bypass after 8 consecutive blocks
+    //   - DANGER_ZONE_TIME: Bypass after 5 consecutive blocks
     //   - MEMORY_NEGATIVE: Bypass after 10 consecutive blocks
     //   - 100% Loss patterns: NEVER bypass (truly toxic)
     //   - HARD blocks (rugcheck, etc): NEVER bypass
@@ -551,8 +551,8 @@ object FinalDecisionGate {
     /**
      * Get auto-adjusted thresholds based on learning progress.
      * 
-     * Bootstrap (0-50 trades): Very loose - maximum exploration
-     * Learning (50-1000 trades): Gradually tightening
+     * Bootstrap (0-500 trades): Very loose - maximum exploration
+     * Learning (500-1000 trades): Gradually tightening
      * Mature (1000+ trades): Strict - use learned optimal values
      */
     fun getAdjustedThresholds(tradeCount: Int, winRate: Double): AdjustedThresholds {
@@ -995,7 +995,7 @@ object FinalDecisionGate {
         // ─────────────────────────────────────────────────────────────────
         // CALCULATE FINAL ADAPTIVE CONFIDENCE
         // 
-        // FLUID SCALING: The base confidence (30% → 75%) already incorporates
+        // FLUID SCALING: The base confidence (25% → 75%) already incorporates
         // learning progress. During early bootstrap, adjustments are capped
         // to prevent blocking trades from unreliable early data.
         //
@@ -1014,7 +1014,7 @@ object FinalDecisionGate {
         
         // Fluid minimum: scales with learning progress
         val fluidMinimum = lerp(CONF_FLOOR_BOOTSTRAP, CONF_FLOOR_MATURE * 0.5, learningProgress)
-            .coerceIn(CONF_FLOOR_BOOTSTRAP, 50.0)  // 30% → 37.5% as AI matures
+            .coerceIn(CONF_FLOOR_BOOTSTRAP, 50.0)  // 25% → 37.5% as AI matures
         
         val adaptive = (baseConfidence + cappedAdjustment).coerceIn(
             fluidMinimum,   // Fluid minimum based on learning
@@ -1416,8 +1416,8 @@ object FinalDecisionGate {
         // HARD KILL 2: ABSOLUTE CONFIDENCE FLOORS (NON-NEGOTIABLE IN LIVE MODE)
         // These are HARD limits for live trading. Paper can bypass during bootstrap.
         // 
-        // conf < 30 → NO EXECUTION (garbage)
-        // conf < 35 AND quality C → NO EXECUTION (Kris pattern)
+        // conf < 25 → NO EXECUTION (garbage)
+        // conf < 30 AND quality C → NO EXECUTION (Kris pattern)
         // conf < 40 AND AI degraded → NO EXECUTION (blind trading)
         // 
         // V4.1.1 BOOTSTRAP OVERRIDE:
@@ -1983,7 +1983,7 @@ object FinalDecisionGate {
                 val setupQuality = when {
                     candidate.entryScore >= 90 -> "A+"
                     candidate.entryScore >= 80 -> "A"
-                    candidate.entryScore >= 70 -> "B"
+                    candidate.entryScore >= 50 -> "B"
                     else -> "C"
                 }
                 
@@ -2000,12 +2000,12 @@ object FinalDecisionGate {
                     // A "100% loss" from 1-2 trades is NOT strong evidence
                     val is100PctLoss = behaviorBlock.contains("100%")
                     
-                    // Extract sample count from pattern like "Pattern has 100% loss rate (3 trades)"
+                    // Extract sample count from pattern like "Pattern has 100% loss rate (10 trades)"
                     val sampleCountMatch = Regex("\\((\\d+) trades?\\)").find(behaviorBlock)
                     val sampleCount = sampleCountMatch?.groupValues?.get(1)?.toIntOrNull() ?: 0
                     
                     // Only hard-block 100% loss if we have ENOUGH evidence
-                    // Minimum 5 samples for 100% loss to be considered reliable
+                    // Minimum 10 samples for 100% loss to be considered reliable
                     val isReliable100PctLoss = is100PctLoss && sampleCount >= 5
                     
                     if (config.paperMode) {
@@ -2279,8 +2279,8 @@ object FinalDecisionGate {
         // 
         // EARLY SNIPE CRITERIA:
         //   - Token recently discovered (first candle < 10 min ago)
-        //   - High initial score (>= 70) from Scanner
-        //   - Decent liquidity (>= $7000)
+        //   - High initial score (>= 50) from Scanner
+        //   - Decent liquidity (>= $10000)
         //   - Passed all hard blocks above (rugcheck, freeze, etc.)
         //   - Buy pressure positive (>= 50%)
         // 
@@ -2337,7 +2337,7 @@ object FinalDecisionGate {
                     approvalReason = "EARLY_SNIPE: age=${tokenAgeMinutes.toInt()}min score=${initialScore.toInt()} liq=\$${liquidity.toInt()}",
                     gateChecks = checks
                 )
-            } else if (isYoungToken && initialScore >= 60.0) {
+            } else if (isYoungToken && initialScore >= 50.0) {
                 // Almost qualified - log for debugging
                 val reasons = mutableListOf<String>()
                 if (!hasHighScore) reasons.add("score=${initialScore.toInt()}<$earlySnipeMinScore")
@@ -2402,7 +2402,7 @@ object FinalDecisionGate {
         // 
         // MINIMUM QUALITY THRESHOLDS (Paper Mode):
         //   - Buy pressure >= 50% (just above distribution zone)
-        //   - Liquidity >= $3000 (actually tradeable)
+        //   - Liquidity >= $10000 (actually tradeable)
         // 
         // Distribution triggers at ~48%. 50% gives 2% buffer - tight but workable.
         // ═══════════════════════════════════════════════════════════════════════
