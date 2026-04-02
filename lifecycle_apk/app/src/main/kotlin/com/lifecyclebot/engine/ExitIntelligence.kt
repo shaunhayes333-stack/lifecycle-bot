@@ -164,8 +164,9 @@ object ExitIntelligence {
         }
         
         // Dynamic stop loss
+        // V5.2.11: Widened floor from -3% to -6% - meme coins regularly wick -5%
         val dynamicStopLoss = (params.baseStopLoss - volatilityAdjust + qualityAdjust)
-            .coerceIn(-20.0, -3.0)
+            .coerceIn(-20.0, -6.0)
         
         // ═══════════════════════════════════════════════════════════════════
         // DYNAMIC TAKE PROFIT CALCULATION
@@ -196,26 +197,36 @@ object ExitIntelligence {
         
         // ═══════════════════════════════════════════════════════════════════
         // EXIT CHECKS (Priority Order)
+        // 
+        // V5.2.11: Added minimum hold time protection throughout.
+        // Meme coins need 60+ seconds to settle after entry before
+        // aggressive exit triggers should activate.
         // ═══════════════════════════════════════════════════════════════════
         
-        // 1. EMERGENCY: Distribution detected while holding - V5.2: Much more lenient
-        // Only trigger if BOTH conditions met: explicit distribution phase AND very low buy pressure
-        // Buy pressure < 25% is severe; 25-40% is just normal fluctuation
-        if (state.isDistribution && state.buyPressure < 25 && state.pnlPercent < -3) {
+        // Calculate hold time for protection checks
+        val holdTimeSecs = state.holdTimeMinutes * 60
+        val isInEarlyPhase = holdTimeSecs < 60  // First 60 seconds
+        
+        // 1. EMERGENCY: Distribution detected while holding
+        // V5.2.11: Only trigger after 60s hold time to avoid scratching on entry volatility
+        // Meme coins naturally fluctuate in buy pressure right after buys
+        if (!isInEarlyPhase && state.isDistribution && state.buyPressure < 20 && state.pnlPercent < -5) {
             action = ExitAction.EMERGENCY_EXIT
             urgency = Urgency.CRITICAL
             reasons.add("Distribution detected (buy%=${state.buyPressure.toInt()}, pnl=${state.pnlPercent.toInt()}%)")
         }
         
-        // 2. EMERGENCY: Severe loss
-        else if (state.pnlPercent <= -15) {
+        // 2. EMERGENCY: Severe loss - Only truly catastrophic losses
+        // V5.2.11: Raised from -15% to -20% and requires 30s minimum hold
+        else if (state.pnlPercent <= -20 && holdTimeSecs >= 30) {
             action = ExitAction.EMERGENCY_EXIT
             urgency = Urgency.CRITICAL
             reasons.add("Severe loss (${state.pnlPercent.toInt()}%)")
         }
         
         // 3. Stop loss hit
-        else if (state.pnlPercent <= dynamicStopLoss) {
+        // V5.2.11: Only after 60s hold time to let trade breathe
+        else if (!isInEarlyPhase && state.pnlPercent <= dynamicStopLoss) {
             action = ExitAction.FULL_EXIT
             urgency = Urgency.HIGH
             reasons.add("Stop loss hit (${state.pnlPercent.toInt()}% <= ${dynamicStopLoss.toInt()}%)")
@@ -252,22 +263,24 @@ object ExitIntelligence {
         }
         
         // 7. Time-based review
-        else if (state.holdTimeMinutes >= params.maxHoldMinutes) {
+        // V5.2.11: Don't force exit on losses - let other logic handle it
+        // Max hold time should only trigger profit-taking, not loss-cutting
+        // Increased to 60 minutes and ONLY tightens stop, never forces exit
+        else if (state.holdTimeMinutes >= 60) {
             if (state.pnlPercent > 0) {
                 action = ExitAction.TIGHTEN_STOP
                 urgency = Urgency.MEDIUM
                 reasons.add("Long hold time (${state.holdTimeMinutes}min) - tighten stop")
-            } else {
-                action = ExitAction.FULL_EXIT
-                urgency = Urgency.MEDIUM
-                reasons.add("Max hold time reached with loss")
             }
+            // V5.2.11: REMOVED forced exit on loss at max hold time
+            // Let the trade recover or hit actual stop loss
         }
         
         // 8. Buy pressure collapse
-        else if (state.entryBuyPressure - state.buyPressure >= 20) {
+        // V5.2.11: Only tighten stop, don't exit, and require larger drop
+        else if (state.entryBuyPressure - state.buyPressure >= 30 && !isInEarlyPhase) {
             action = ExitAction.TIGHTEN_STOP
-            urgency = Urgency.MEDIUM
+            urgency = Urgency.LOW  // Reduced from MEDIUM
             reasons.add("Buy pressure dropped ${(state.entryBuyPressure - state.buyPressure).toInt()}%")
         }
         

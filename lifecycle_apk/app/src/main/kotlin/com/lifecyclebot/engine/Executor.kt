@@ -1493,9 +1493,12 @@ class Executor(
         // ════════════════════════════════════════════════════════════════
         // AI CROSS-TALK: Check for coordinated dump signal
         // Multiple AIs detecting dump = EMERGENCY EXIT
+        // 
+        // V5.2.11: Only trigger after 45s hold time. AI signals can be
+        // volatile immediately after entry due to slippage and spread effects.
         // ════════════════════════════════════════════════════════════════
         try {
-            if (AICrossTalk.isCoordinatedDump(ts.mint, ts.symbol)) {
+            if (heldSecs >= 45 && AICrossTalk.isCoordinatedDump(ts.mint, ts.symbol)) {
                 val crossTalkSignal = AICrossTalk.analyzeCrossTalk(ts.mint, ts.symbol, isOpenPosition = true)
                 onLog("🔗🚨 CROSSTALK: ${ts.symbol} COORDINATED DUMP | ${crossTalkSignal.participatingAIs.joinToString("+")} | ${crossTalkSignal.reason}", ts.mint)
                 TradeStateMachine.startCooldown(ts.mint)
@@ -1685,7 +1688,8 @@ class Executor(
         }
         
         // WHALE/DEV DUMP DETECTION: Exit if seeing heavy sell pressure
-        if (ts.history.size >= 3) {
+        // V5.2.11: Require 30s minimum hold time - signals can be noisy at entry
+        if (ts.history.size >= 3 && heldSecs >= 30) {
             val recentCandles = ts.history.takeLast(3)
             val totalSells = recentCandles.sumOf { it.sellsH1 }
             val totalBuys = recentCandles.sumOf { it.buysH1 }
@@ -1698,33 +1702,33 @@ class Executor(
             }
             
             // Large volume spike with mostly sells = likely dev dump
+            // V5.2.11: Also require gainPct < -5% (not just < 0) to avoid false positives
             val avgVol = recentCandles.map { it.volumeH1 }.average()
             val lastVol = recentCandles.last().volumeH1
-            if (lastVol > avgVol * 3 && sellRatio > 0.70 && gainPct < 0) {
+            if (lastVol > avgVol * 3 && sellRatio > 0.70 && gainPct < -5) {
                 onLog("🚨 DEV DUMP: ${ts.symbol} volume spike ${(lastVol/avgVol).toInt()}x with heavy sells", ts.mint)
                 return "dev_dump"
             }
             
             // ══════════════════════════════════════════════════════════════
             // V4.1: PRICE VELOCITY DETECTION - Catch rapid dumps BEFORE -30%
-            // If price dropped >10% in last 3 candles AND we're losing, EXIT NOW
-            // This catches rapid dumps that might gap past our normal stops
+            // V5.2.11: Tightened thresholds to avoid premature exits on normal volatility
             // ══════════════════════════════════════════════════════════════
-            if (recentCandles.size >= 2) {
+            if (recentCandles.size >= 2 && heldSecs >= 45) {
                 val priceStart = recentCandles.first().priceUsd
                 val priceEnd = recentCandles.last().priceUsd
                 if (priceStart > 0 && priceEnd > 0) {
                     val velocityPct = ((priceEnd - priceStart) / priceStart) * 100
                     
-                    // Price dropping >10% in 3 candles = rapid dump, exit NOW
-                    if (velocityPct < -10.0 && gainPct < 0) {
+                    // Price dropping >15% in 3 candles = rapid dump, exit NOW (was 10%)
+                    if (velocityPct < -15.0 && gainPct < -5) {
                         onLog("⚡ VELOCITY EXIT: ${ts.symbol} price dropping ${velocityPct.toInt()}% rapidly | exit before worse", ts.mint)
                         markForRecoveryScan(ts, gainPct, "velocity_dump")
                         return "velocity_dump"
                     }
                     
-                    // Price dropping >5% AND we're already at -10% = exit immediately  
-                    if (velocityPct < -5.0 && gainPct < -10.0) {
+                    // Price dropping >8% AND we're already at -12% = exit immediately (was 5%/-10%)
+                    if (velocityPct < -8.0 && gainPct < -12.0) {
                         onLog("⚡ ACCELERATING LOSS: ${ts.symbol} at ${gainPct.toInt()}% and dropping ${velocityPct.toInt()}%/candle", ts.mint)
                         markForRecoveryScan(ts, gainPct, "accelerating_loss")
                         return "accelerating_loss"
