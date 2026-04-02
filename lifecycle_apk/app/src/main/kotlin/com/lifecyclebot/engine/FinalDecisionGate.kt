@@ -382,7 +382,7 @@ object FinalDecisionGate {
     // Criteria for EARLY SNIPE:
     //   - Token age < 15 min (fresh discovery)
     //   - Initial score >= 60 (quality filter pass)
-    //   - Liquidity >= $2000 (minimum tradeable)
+    //   - Liquidity >= $10000 (minimum tradeable)
     //   - NOT in banned list / rugcheck pass
     //
     // When EARLY SNIPE triggers:
@@ -551,9 +551,9 @@ object FinalDecisionGate {
     /**
      * Get auto-adjusted thresholds based on learning progress.
      * 
-     * Bootstrap (0-10 trades): Very loose - maximum exploration
-     * Learning (11-50 trades): Gradually tightening
-     * Mature (50+ trades): Strict - use learned optimal values
+     * Bootstrap (0-50 trades): Very loose - maximum exploration
+     * Learning (50-1000 trades): Gradually tightening
+     * Mature (1000+ trades): Strict - use learned optimal values
      */
     fun getAdjustedThresholds(tradeCount: Int, winRate: Double): AdjustedThresholds {
         val phase = getLearningPhase(tradeCount)
@@ -565,7 +565,7 @@ object FinalDecisionGate {
             tradeCount = tradeCount,
             winRate = winRate,
             // Hard blocks: loose → strict
-            rugcheckMin = lerp(5.0, 12.0, progress).toInt(),
+            rugcheckMin = lerp(2.0, 12.0, progress).toInt(),
             buyPressureMin = lerp(10.0, 20.0, progress),
             topHolderMax = lerp(85.0, 60.0, progress),
             // Confidence: 0% → 15%
@@ -1179,9 +1179,9 @@ object FinalDecisionGate {
     private val edgeVetoes = java.util.concurrent.ConcurrentHashMap<String, EdgeVeto>()
     
     // Edge veto cooldown - MODE AWARE
-    // Paper mode: 20 seconds (fast learning)
+    // Paper mode: 5 seconds (fast learning)
     // Live mode: 30 seconds (reduced for more opportunities)
-    private const val EDGE_VETO_COOLDOWN_PAPER_MS = 20 * 1000L  // 20 seconds for paper
+    private const val EDGE_VETO_COOLDOWN_PAPER_MS = 5 * 1000L  // 5 seconds for paper
     private const val EDGE_VETO_COOLDOWN_LIVE_MS = 30 * 1000L   // 30 seconds for live
     
     // Track current mode for veto cooldown
@@ -1322,7 +1322,7 @@ object FinalDecisionGate {
         // 
         // HARD KILLS:
         // 1. COPY_TRADE mode - completely disabled as execution mode
-        // 2. Hard confidence floors (conf < 30 = no execution EVER)
+        // 2. Hard confidence floors (conf <30 = no execution EVER)
         // 3. C-grade + low conf + negative memory + AI degraded = REJECT
         // 4. Liquidity floors: Watch=$2k, Execute=$10k+
         // ═══════════════════════════════════════════════════════════════════════
@@ -1409,34 +1409,6 @@ object FinalDecisionGate {
                 symbol = ts.symbol,
                 approvalReason = "WHALE_FOLLOW restricted to PAPER + MICRO after repeated losses",
                 gateChecks = listOf(GateCheck("whale_follow_restriction", mode == TradeMode.PAPER, "WHALE_FOLLOW restricted"))
-            )
-        }
-        
-        // ─────────────────────────────────────────────────────────────────────
-        // HARD KILL 1.6: PER-MODE KILL SWITCH
-        // If a mode has 3+ recent losses (within last hour), freeze it.
-        // Prevents bleeding from modes that are currently not working.
-        // ─────────────────────────────────────────────────────────────────────
-        val modeRecentLosses = getModeRecentLosses(tradingModeStr)
-        if (modeRecentLosses >= 3) {
-            ErrorLogger.warn("FDG", "🚫 MODE_FROZEN: ${ts.symbol} | mode=$tradingModeStr | " +
-                "$modeRecentLosses recent losses → FROZEN FOR 30 MINS")
-            
-            return FinalDecision(
-                shouldTrade = false,
-                mode = mode,
-                approvalClass = ApprovalClass.BLOCKED,
-                quality = candidate.setupQuality,
-                confidence = candidate.aiConfidence,
-                edge = EdgeVerdict.SKIP,
-                blockReason = "MODE_FROZEN_${modeRecentLosses}_LOSSES",
-                blockLevel = BlockLevel.HARD,
-                sizeSol = 0.0,
-                tags = listOf("mode_frozen", "repeated_losses"),
-                mint = ts.mint,
-                symbol = ts.symbol,
-                approvalReason = "Mode $tradingModeStr frozen after $modeRecentLosses recent losses",
-                gateChecks = listOf(GateCheck("mode_freeze_check", false, "$modeRecentLosses losses in last hour"))
             )
         }
         
@@ -2115,7 +2087,7 @@ object FinalDecisionGate {
                 if (isDanger) {
                     if (isBootstrapPhase) {
                         // BOOTSTRAP: Penalty + size cut, NOT hard block
-                        dangerZonePenalty = 12  // Reduce confidence by 12%
+                        dangerZonePenalty = 5  // Reduce confidence by 12%
                         sizeMultiplier *= 0.4   // Cut size by 60%
                         softPenaltyScore += dangerZonePenalty
                         isProbeCandidate = true
@@ -2308,7 +2280,7 @@ object FinalDecisionGate {
         // EARLY SNIPE CRITERIA:
         //   - Token recently discovered (first candle < 10 min ago)
         //   - High initial score (>= 70) from Scanner
-        //   - Decent liquidity (>= $3000)
+        //   - Decent liquidity (>= $7000)
         //   - Passed all hard blocks above (rugcheck, freeze, etc.)
         //   - Buy pressure positive (>= 50%)
         // 
