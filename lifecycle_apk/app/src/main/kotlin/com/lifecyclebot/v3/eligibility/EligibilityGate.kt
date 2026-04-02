@@ -42,13 +42,13 @@ class CooldownManager {
  * Prevents repeated C-grade proposals from clogging the pipeline.
  * Tracks tokens that have been proposed with:
  *   - quality = C
- *   - confidence < 35
+ *   - confidence < 25
  * 
- * If a token has been proposed 2+ times in the last 5 minutes with these
+ * If a token has been proposed 2+ times in the last 2 minutes with these
  * characteristics, it gets blocked from re-proposal until it either:
- *   - Improves to B+ quality
- *   - Confidence rises to 35+
- *   - 5 minutes pass since last proposal
+ *   - Improves to c+ quality
+ *   - Confidence rises to 30+
+ *   - 2 minutes pass since last proposal
  */
 object CGradeLooperTracker {
     private data class ProposalRecord(
@@ -58,9 +58,9 @@ object CGradeLooperTracker {
     )
     
     private val recentProposals = mutableMapOf<String, MutableList<ProposalRecord>>()
-    private const val WINDOW_MS = 5 * 60 * 1000L  // 5 minute window
-    private const val MAX_C_GRADE_PROPOSALS = 2   // Max 2 C-grade proposals per window
-    private const val C_GRADE_CONF_THRESHOLD = 35 // Minimum confidence for C-grade
+    private const val WINDOW_MS = 2 * 60 * 1000L  // 2 minute window
+    private const val MAX_C_GRADE_PROPOSALS = 3  // Max 3 C-grade proposals per window
+    private const val C_GRADE_CONF_THRESHOLD = 25 // Minimum confidence for C-grade
     
     /**
      * Record a proposal for a token
