@@ -156,12 +156,12 @@ object TradeAuthorizer {
         
         // ─────────────────────────────────────────────────────────────────────
         // GATE 2: RUGCHECK HARD BLOCK
-        // V5.2 FIX: Shadow mode should track EVERYTHING above RC 2 for learning!
-        // Only block execution (paper/live) below RC 6
+        // V5.2 FIX: Shadow mode should track EVERYTHING above RC 1 for learning!
+        // Only block execution (paper/live) below RC 2
         // ─────────────────────────────────────────────────────────────────────
         if (rugcheckScore <= 2) {
-            // RC <= 2 is catastrophic - don't even shadow track (lowered from 3)
-            ErrorLogger.info(TAG, "❌ REJECT $symbol: RC_SCORE_$rugcheckScore <= 2 (catastrophic)")
+            // RC <= 1 is catastrophic - don't even shadow track (lowered from 3)
+            ErrorLogger.info(TAG, "❌ REJECT $symbol: RC_SCORE_$rugcheckScore <= 1 (catastrophic)")
             return AuthorizationResult(
                 verdict = ExecutionVerdict.REJECT,
                 reason = "RUGCHECK_CATASTROPHIC_$rugcheckScore",
@@ -170,8 +170,8 @@ object TradeAuthorizer {
             )
         }
         
-        // V5.2: RC 3-5 = SHADOW_ONLY (dangerous, but track for learning)
-        if (rugcheckScore in 3..5) {
+        // V5.2: RC 1-5 = SHADOW_ONLY (dangerous, but track for learning)
+        if (rugcheckScore in 1..5) {
             ErrorLogger.info(TAG, "👁️ SHADOW_ONLY $symbol: RC_SCORE_$rugcheckScore (dangerous, track only)")
             
             // Lock as shadow tracking
@@ -191,13 +191,13 @@ object TradeAuthorizer {
             )
         }
         
-        // V5.2: RC >= 6 passes rugcheck gate (continues to other gates)
+        // V5.2: RC >= 2 passes rugcheck gate (continues to other gates)
         
         // ─────────────────────────────────────────────────────────────────────
         // GATE 3: LIQUIDITY FLOOR (Live mode only)
         // ─────────────────────────────────────────────────────────────────────
-        if (!isPaperMode && liquidity < 3000.0 && liquidity > 0) {
-            ErrorLogger.info(TAG, "❌ REJECT $symbol: LIQUIDITY_${"%.0f".format(liquidity)} < 3000")
+        if (!isPaperMode && liquidity < 2000.0 && liquidity > 0) {
+            ErrorLogger.info(TAG, "❌ REJECT $symbol: LIQUIDITY_${"%.0f".format(liquidity)} < 2000")
             return AuthorizationResult(
                 verdict = ExecutionVerdict.REJECT,
                 reason = "LOW_LIQUIDITY",
@@ -326,21 +326,21 @@ object TradeAuthorizer {
             return PromotionResult(true, "LIVE_PASS_${quality}")
         }
         
-        // B grade: Needs confidence >= 50%
+        // B grade: Needs confidence >= 40%
         if (quality == "B") {
-            return if (confidence >= 50.0) {
+            return if (confidence >= 40.0) {
                 PromotionResult(true, "LIVE_PASS_B_conf_${confidence.toInt()}")
             } else {
-                PromotionResult(false, "B_grade_conf_${confidence.toInt()}_below_50")
+                PromotionResult(false, "B_grade_conf_${confidence.toInt()}_below_40")
             }
         }
         
-        // C grade: Needs confidence >= 65%
+        // C grade: Needs confidence >= 25%
         if (quality == "C") {
-            return if (confidence >= 65.0) {
+            return if (confidence >= 25.0) {
                 PromotionResult(true, "LIVE_PASS_C_conf_${confidence.toInt()}")
             } else {
-                PromotionResult(false, "C_grade_conf_${confidence.toInt()}_below_65")
+                PromotionResult(false, "C_grade_conf_${confidence.toInt()}_below_25")
             }
         }
         
