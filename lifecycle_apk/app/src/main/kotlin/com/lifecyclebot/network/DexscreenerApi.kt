@@ -17,6 +17,7 @@ data class PairInfo(
     val pairCreatedAtMs: Long = 0L,   // epoch ms when pair was created
     val liquidity: Double = 0.0,       // USD liquidity
     val fdv: Double = 0.0,             // fully diluted valuation
+    val chainId: String = "solana",    // Chain ID (default solana)
 )
 
 class DexscreenerApi {
@@ -140,6 +141,7 @@ class DexscreenerApi {
             pairCreatedAtMs = p.optLong("pairCreatedAt", 0L),
             liquidity       = (p.optJSONObject("liquidity")?.optDouble("usd", 0.0) ?: 0.0),
             fdv             = p.optDouble("fdv", 0.0),
+            chainId         = p.optString("chainId", "solana"),  // Extract chain ID from API response
         )
     }
 

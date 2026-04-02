@@ -1704,12 +1704,12 @@ for legal compliance.
                 gravity = android.view.Gravity.END
             })
             // TP target (pre-computed before entry)
-            val tpTarget = pos.position.targetTakeProfitPct
+            val tpTarget = pos.targetTakeProfitPct
             if (tpTarget > 0) {
                 right.addView(TextView(this).apply {
                     text = "TP +${tpTarget.toInt()}%"
                     textSize = 9f
-                    setTextColor(if (gainPct >= tpTarget) green else 0xFF6B7280.toInt())
+                    setTextColor(if (gainPct >= tpTarget.toDouble()) green else 0xFF6B7280.toInt())
                     typeface = android.graphics.Typeface.MONOSPACE
                     gravity = android.view.Gravity.END
                 })

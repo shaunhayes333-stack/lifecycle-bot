@@ -2808,7 +2808,8 @@ class SolanaMarketScanner(
                     try { dex.search(hot.symbol).take(3) } catch (_: Exception) { emptyList() }
                 }
                 val best = pairs.firstOrNull { it.chainId == "solana" } ?: continue
-                val mint = best.pairAddress.ifBlank { continue }
+                val mint = best.pairAddress
+                if (mint.isBlank()) continue
                 if (isSeen(mint)) continue
                 val token = ScannedToken(
                     mint               = mint,
