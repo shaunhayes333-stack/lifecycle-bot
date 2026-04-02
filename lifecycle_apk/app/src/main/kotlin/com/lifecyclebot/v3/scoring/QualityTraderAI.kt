@@ -60,8 +60,10 @@ object QualityTraderAI {
     private const val MIN_LIQUIDITY_USD = 20_000.0
     
     // Token age - prefer established tokens
-    private const val MIN_AGE_MINUTES = 30              // At least 30 mins old
-    private const val IDEAL_AGE_MINUTES = 120           // 2+ hours is ideal
+    // V5.2.12: Made fluid - lower during learning to gather data
+    private const val MIN_AGE_MINUTES_BOOTSTRAP = 10     // 10 mins during learning
+    private const val MIN_AGE_MINUTES_MATURE = 30        // 30 mins when experienced
+    private const val IDEAL_AGE_MINUTES = 120            // 2+ hours is ideal
     
     // Position sizing
     private const val BASE_POSITION_SOL = 0.08          // Between Treasury (0.01) and BlueChip (0.15)
@@ -171,9 +173,12 @@ object QualityTraderAI {
             return QualitySignal(false, reason = "Liquidity too low: $${liquidityUsd.toInt()} < $${MIN_LIQUIDITY_USD.toInt()}")
         }
         
-        // Age filter - prefer established tokens
-        if (tokenAgeMinutes < MIN_AGE_MINUTES) {
-            return QualitySignal(false, reason = "Too new: ${tokenAgeMinutes.toInt()}min < ${MIN_AGE_MINUTES}min")
+        // Age filter - FLUID: Lower during learning to gather data
+        val learningProgress = FluidLearningAI.getLearningProgress()
+        val minAgeRequired = if (learningProgress < 0.5) MIN_AGE_MINUTES_BOOTSTRAP else MIN_AGE_MINUTES_MATURE
+        
+        if (tokenAgeMinutes < minAgeRequired) {
+            return QualitySignal(false, reason = "Too new: ${tokenAgeMinutes.toInt()}min < ${minAgeRequired.toInt()}min (learning=${(learningProgress*100).toInt()}%)")
         }
         
         // Buy pressure filter

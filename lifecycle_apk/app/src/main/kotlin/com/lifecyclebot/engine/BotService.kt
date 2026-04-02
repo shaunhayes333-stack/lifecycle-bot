@@ -3508,6 +3508,13 @@ class BotService : Service() {
                             isMeme = false,
                         )
                         
+                        // V5.2.12: Log Quality evaluations for debugging
+                        if (qualitySignal.shouldEnter) {
+                            ErrorLogger.info("BotService", "⭐ [QUALITY EVAL] ${ts.symbol} | SHOULD_ENTER | score=${qualitySignal.qualityScore}")
+                        } else {
+                            ErrorLogger.debug("BotService", "⭐ [QUALITY EVAL] ${ts.symbol} | SKIP | ${qualitySignal.reason} | mcap=$${ts.lastMcap.toInt()} liq=$${ts.lastLiquidityUsd.toInt()} age=${qualityTokenAgeMinutes.toInt()}min")
+                        }
+                        
                         if (qualitySignal.shouldEnter) {
                             val canExecute = FinalExecutionPermit.tryAcquireExecution(
                                 mint = ts.mint,
@@ -3597,6 +3604,13 @@ class BotService : Service() {
                             momentum = ts.momentum ?: 0.0,
                             volatility = ts.volatility ?: 0.0
                         )
+                        
+                        // V5.2.12: Log BlueChip evaluations for debugging
+                        if (blueChipSignal.shouldEnter) {
+                            ErrorLogger.info("BotService", "🔵 [BLUECHIP EVAL] ${ts.symbol} | SHOULD_ENTER | score=${blueChipSignal.qualityScore}")
+                        } else {
+                            ErrorLogger.debug("BotService", "🔵 [BLUECHIP EVAL] ${ts.symbol} | SKIP | ${blueChipSignal.reason} | mcap=$${(ts.lastMcap/1_000_000).toInt()}M liq=$${ts.lastLiquidityUsd.toInt()}")
+                        }
                         
                         if (blueChipSignal.shouldEnter) {
                             // V4.0: Try to acquire execution permit
