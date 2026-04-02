@@ -293,18 +293,22 @@ class SecurityGuard(
                     val newDaily   = cbState.dailyLossSol + (-pnl)
                     val shouldPause = newLosses >= MAX_CONSECUTIVE_LOSSES
 
+                    // Paper mode: never pause — keep learning without interruption
+                    val applyPause = shouldPause && !cfg().paperMode
                     cbState = cbState.copy(
                         consecutiveLosses = newLosses,
                         dailyLossSol      = newDaily,
-                        pausedUntilMs     = if (shouldPause)
+                        pausedUntilMs     = if (applyPause)
                             System.currentTimeMillis() + PAUSE_DURATION_MS else cbState.pausedUntilMs,
                     )
 
-                    if (shouldPause) {
+                    if (applyPause) {
                         val msg = "Circuit breaker: $newLosses consecutive losses — pausing ${PAUSE_DURATION_MS / 60_000} min"
                         audit("CIRCUIT_BREAKER_PAUSE", msg)
                         onLog("⚠️ $msg")
                         onAlert("Circuit Breaker", msg)
+                    } else if (shouldPause && cfg().paperMode) {
+                        onLog("📝 PAPER: $newLosses consecutive losses — continuing (no pause in paper mode)")
                     }
 
                     audit("LOSS_RECORDED", "pnl=${pnl.fmt(4)} SOL consecutive=$newLosses daily=${newDaily.fmt(4)}")
