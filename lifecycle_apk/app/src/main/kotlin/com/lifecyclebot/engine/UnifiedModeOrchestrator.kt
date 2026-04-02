@@ -154,7 +154,7 @@ object UnifiedModeOrchestrator {
                     primary = ExtendedMode.PUMP_SNIPER
                     secondary.addAll(listOf(ExtendedMode.MOONSHOT, ExtendedMode.MOMENTUM_SWING))
                     reason = "High volatility bull market - aggressive entries"
-                    confidence = 75.0
+                    confidence = 55.0
                 }
                 
                 // Low volatility + bull = steady growth
@@ -162,7 +162,7 @@ object UnifiedModeOrchestrator {
                     primary = ExtendedMode.BLUE_CHIP
                     secondary.addAll(listOf(ExtendedMode.LONG_HOLD, ExtendedMode.STANDARD))
                     reason = "Low volatility bull - steady accumulation"
-                    confidence = 80.0
+                    confidence = 70.0
                 }
                 
                 // Bear market = defensive
@@ -572,7 +572,7 @@ object UnifiedModeOrchestrator {
                 // ═══════════════════════════════════════════════════════════════
                 // BLUE_CHIP: Established high-liquidity tokens
                 // ═══════════════════════════════════════════════════════════════
-                liquidity > 200000 && mcap > 1000000 -> {
+                liquidity > 10000 && mcap > 100000 -> {
                     if (isActive(ExtendedMode.BLUE_CHIP)) ExtendedMode.BLUE_CHIP
                     else ExtendedMode.LONG_HOLD
                 }
