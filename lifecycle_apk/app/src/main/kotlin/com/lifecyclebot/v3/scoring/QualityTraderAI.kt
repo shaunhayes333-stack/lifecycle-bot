@@ -365,10 +365,20 @@ object QualityTraderAI {
         
         val pnlPct = (exitPrice - pos.entryPrice) / pos.entryPrice * 100
         val pnlSol = pos.entrySol * pnlPct / 100
+        val isWin = pnlPct > 0
         
         dailyPnlSol += pnlSol
         totalTrades++
-        if (pnlPct > 0) wins++ else losses++
+        if (isWin) wins++ else losses++
+        
+        // V5.2.12: Record to FluidLearningAI for central maturity tracking
+        // This ensures Quality trades contribute to system-wide learning
+        try {
+            FluidLearningAI.recordPaperTrade(isWin)  // Quality trades in paper mode for now
+            ErrorLogger.debug(TAG, "📊 Recorded to FluidLearningAI: ${pos.symbol} ${if (isWin) "WIN" else "LOSS"}")
+        } catch (e: Exception) {
+            ErrorLogger.warn(TAG, "FluidLearningAI record failed: ${e.message}")
+        }
         
         ErrorLogger.info(TAG, "📊 QUALITY CLOSED: ${pos.symbol} | " +
             "${if (pnlPct >= 0) "+" else ""}${pnlPct.toInt()}% | reason=$exitSignal | " +

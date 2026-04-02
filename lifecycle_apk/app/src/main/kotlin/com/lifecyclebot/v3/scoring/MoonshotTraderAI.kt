@@ -820,6 +820,23 @@ object MoonshotTraderAI {
     fun getCurrentTakeProfit(): Double = SpaceMode.LUNAR.baseTP
     fun getCurrentStopLoss(): Double = SpaceMode.LUNAR.baseSL
     
+    /**
+     * V5.2: Force clear all positions on bot stop
+     * Ensures UI doesn't show stale positions after shutdown
+     */
+    fun clearAllPositions() {
+        synchronized(activePositions) {
+            activePositions.clear()
+        }
+        synchronized(paperPositions) {
+            paperPositions.clear()
+        }
+        synchronized(livePositions) {
+            livePositions.clear()
+        }
+        ErrorLogger.info(TAG, "🚀 MOONSHOT: Cleared all positions")
+    }
+    
     fun getSpaceModeStats(): Map<SpaceMode, Int> {
         return activePositions.values.groupingBy { it.spaceMode }.eachCount()
     }

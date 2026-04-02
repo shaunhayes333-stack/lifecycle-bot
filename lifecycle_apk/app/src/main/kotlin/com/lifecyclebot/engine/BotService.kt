@@ -1316,6 +1316,60 @@ class BotService : Service() {
                     ErrorLogger.error("BotService", "Error clearing ShitCoin Express: ${scEx.message}", scEx)
                 }
                 
+                // ═══════════════════════════════════════════════════════════════════
+                // V5.2.12: Also close Quality positions
+                // ═══════════════════════════════════════════════════════════════════
+                try {
+                    val qualityPositions = com.lifecyclebot.v3.scoring.QualityTraderAI.getActivePositions()
+                    if (qualityPositions.isNotEmpty()) {
+                        addLog("⭐ Closing ${qualityPositions.size} Quality position(s)...")
+                        for (qPos in qualityPositions) {
+                            try {
+                                val ts = tokensCopy[qPos.mint]
+                                val currentPrice = ts?.lastPrice ?: ts?.ref ?: qPos.entryPrice
+                                
+                                com.lifecyclebot.v3.scoring.QualityTraderAI.closePosition(
+                                    mint = qPos.mint,
+                                    exitPrice = currentPrice,
+                                    exitSignal = com.lifecyclebot.v3.scoring.QualityTraderAI.ExitSignal.TIME_EXIT
+                                )
+                                addLog("⭐ Closed Quality position: ${qPos.symbol}", qPos.mint)
+                            } catch (qEx: Exception) {
+                                addLog("⚠️ Failed to close Quality ${qPos.symbol}: ${qEx.message}", qPos.mint)
+                            }
+                        }
+                    }
+                } catch (qEx: Exception) {
+                    ErrorLogger.error("BotService", "Error closing Quality positions: ${qEx.message}", qEx)
+                }
+                
+                // ═══════════════════════════════════════════════════════════════════
+                // V5.2.12: Also close Moonshot positions
+                // ═══════════════════════════════════════════════════════════════════
+                try {
+                    val moonshotPositions = com.lifecyclebot.v3.scoring.MoonshotTraderAI.getActivePositions()
+                    if (moonshotPositions.isNotEmpty()) {
+                        addLog("🚀 Closing ${moonshotPositions.size} Moonshot position(s)...")
+                        for (mPos in moonshotPositions) {
+                            try {
+                                val ts = tokensCopy[mPos.mint]
+                                val currentPrice = ts?.lastPrice ?: ts?.ref ?: mPos.entryPrice
+                                
+                                com.lifecyclebot.v3.scoring.MoonshotTraderAI.closePosition(
+                                    mint = mPos.mint,
+                                    exitPrice = currentPrice,
+                                    exitReason = com.lifecyclebot.v3.scoring.MoonshotTraderAI.ExitSignal.TIMEOUT
+                                )
+                                addLog("🚀 Closed Moonshot position: ${mPos.symbol}", mPos.mint)
+                            } catch (mEx: Exception) {
+                                addLog("⚠️ Failed to close Moonshot ${mPos.symbol}: ${mEx.message}", mPos.mint)
+                            }
+                        }
+                    }
+                } catch (mEx: Exception) {
+                    ErrorLogger.error("BotService", "Error closing Moonshot positions: ${mEx.message}", mEx)
+                }
+                
                 // Also purge any orphaned tokens (live mode only)
                 if (!cfg.paperMode && wallet != null) {
                     purgeOrphanedTokensOnStop(cfg)
@@ -1327,11 +1381,13 @@ class BotService : Service() {
                 val treasuryCount = com.lifecyclebot.v3.scoring.CashGenerationAI.getActivePositions().size
                 val blueChipCount = com.lifecyclebot.v3.scoring.BlueChipTraderAI.getActivePositions().size
                 val shitCoinCount = com.lifecyclebot.v3.scoring.ShitCoinTraderAI.getActivePositions().size
-                val totalOpen = openCount + treasuryCount + blueChipCount + shitCoinCount
+                val qualityCount = com.lifecyclebot.v3.scoring.QualityTraderAI.getActivePositions().size
+                val moonshotCount = com.lifecyclebot.v3.scoring.MoonshotTraderAI.getActivePositions().size
+                val totalOpen = openCount + treasuryCount + blueChipCount + shitCoinCount + qualityCount + moonshotCount
                 
                 if (totalOpen > 0) {
                     addLog("⚠️ $totalOpen position(s) left open (closePositionsOnStop=false) | " +
-                        "main=$openCount treasury=$treasuryCount bluechip=$blueChipCount shitcoin=$shitCoinCount")
+                        "main=$openCount treasury=$treasuryCount bluechip=$blueChipCount shitcoin=$shitCoinCount quality=$qualityCount moonshot=$moonshotCount")
                 }
             }
         } catch (e: Exception) {
@@ -1346,9 +1402,27 @@ class BotService : Service() {
             com.lifecyclebot.v3.scoring.BlueChipTraderAI.clearAllPositions()
             com.lifecyclebot.v3.scoring.ShitCoinTraderAI.clearAllPositions()
             com.lifecyclebot.v3.scoring.ShitCoinExpress.clearAllRides()
+            com.lifecyclebot.v3.scoring.QualityTraderAI.clearAllPositions()
+            com.lifecyclebot.v3.scoring.MoonshotTraderAI.clearAllPositions()
             addLog("✅ Cleared all layer position tracking")
         } catch (clearEx: Exception) {
             ErrorLogger.error("BotService", "Error clearing layer positions: ${clearEx.message}", clearEx)
+        }
+        
+        // V5.2.12 FIX: Also clear position.isOpen flags in status.tokens
+        // This is what the UI reads - critical to prevent stale position display
+        try {
+            synchronized(status.tokens) {
+                status.tokens.values.forEach { ts ->
+                    if (ts.position.isOpen) {
+                        ts.position.isOpen = false
+                        ErrorLogger.debug("BotService", "Cleared position flag for ${ts.symbol}")
+                    }
+                }
+            }
+            addLog("✅ Cleared all token position flags")
+        } catch (tokensEx: Exception) {
+            ErrorLogger.error("BotService", "Error clearing token positions: ${tokensEx.message}", tokensEx)
         }
         
         status.running = false
@@ -5301,6 +5375,61 @@ class BotService : Service() {
                 com.lifecyclebot.v3.scoring.MoonshotTraderAI.closePosition(ts.mint, currentPrice, exitSignal)
                 
                 addLog("$exitEmoji MOONSHOT SELL: ${ts.symbol} | ${exitSignal.name} | " +
+                    "${if (cfg.paperMode) "PAPER" else "LIVE"}", ts.mint)
+                
+                return
+            }
+        }
+        
+        // ═══════════════════════════════════════════════════════════════════
+        // ⭐ QUALITY TRADER EXIT CHECK
+        // V5.2.12: Professional mid-cap trading layer ($100K - $1M mcap)
+        // ═══════════════════════════════════════════════════════════════════
+        if (com.lifecyclebot.v3.scoring.QualityTraderAI.hasPosition(ts.mint) || 
+            ts.position.tradingMode == "QUALITY") {
+            val currentPrice = ts.lastPrice.takeIf { it > 0 } 
+                ?: ts.history.lastOrNull()?.priceUsd 
+                ?: ts.position.entryPrice
+            val currentMcap = ts.lastMcap.takeIf { it > 0 } ?: 0.0
+            
+            val exitSignal = com.lifecyclebot.v3.scoring.QualityTraderAI.checkExit(
+                ts.mint, currentPrice, currentMcap
+            )
+            
+            if (exitSignal != com.lifecyclebot.v3.scoring.QualityTraderAI.ExitSignal.HOLD) {
+                val exitEmoji = when (exitSignal) {
+                    com.lifecyclebot.v3.scoring.QualityTraderAI.ExitSignal.TAKE_PROFIT -> "✅"
+                    com.lifecyclebot.v3.scoring.QualityTraderAI.ExitSignal.TRAILING_STOP -> "🎯"
+                    com.lifecyclebot.v3.scoring.QualityTraderAI.ExitSignal.STOP_LOSS -> "🛑"
+                    com.lifecyclebot.v3.scoring.QualityTraderAI.ExitSignal.PROMOTE_BLUECHIP -> "🔵"
+                    com.lifecyclebot.v3.scoring.QualityTraderAI.ExitSignal.PROMOTE_MOONSHOT -> "🚀"
+                    else -> "⏱"
+                }
+                
+                // Check for promotions - don't sell, just change tracking
+                if (exitSignal == com.lifecyclebot.v3.scoring.QualityTraderAI.ExitSignal.PROMOTE_BLUECHIP ||
+                    exitSignal == com.lifecyclebot.v3.scoring.QualityTraderAI.ExitSignal.PROMOTE_MOONSHOT) {
+                    // Close Quality position tracking (promotion will be handled by respective layer)
+                    com.lifecyclebot.v3.scoring.QualityTraderAI.closePosition(ts.mint, currentPrice, exitSignal)
+                    
+                    addLog("$exitEmoji QUALITY PROMOTE: ${ts.symbol} | ${exitSignal.name} | " +
+                        "mcap=\$${(currentMcap/1000).toInt()}K", ts.mint)
+                    
+                    return  // Promotion processed
+                }
+                
+                ErrorLogger.info("BotService", "⭐ [QUALITY EXIT] ${ts.symbol} | signal=$exitSignal | price=$currentPrice")
+                
+                executor.requestSell(
+                    ts = ts,
+                    reason = "QUALITY_${exitSignal.name}",
+                    wallet = wallet,
+                    walletSol = effectiveBalance
+                )
+                
+                com.lifecyclebot.v3.scoring.QualityTraderAI.closePosition(ts.mint, currentPrice, exitSignal)
+                
+                addLog("$exitEmoji QUALITY SELL: ${ts.symbol} | ${exitSignal.name} | " +
                     "${if (cfg.paperMode) "PAPER" else "LIVE"}", ts.mint)
                 
                 return
