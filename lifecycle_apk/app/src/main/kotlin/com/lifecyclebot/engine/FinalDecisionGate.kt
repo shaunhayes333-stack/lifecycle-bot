@@ -331,7 +331,7 @@ object FinalDecisionGate {
     
     private val recentModeLosses = mutableListOf<ModeLossRecord>()
     private const val MODE_LOSS_WINDOW_MS = 60 * 60 * 1000L  // 1 hour
-    private const val MODE_FREEZE_THRESHOLD = 3  // 3 losses = freeze
+    private const val MODE_FREEZE_THRESHOLD = 20  // 20 losses = freeze
     
     /**
      * Record a loss for a specific mode (called by TradeHistoryStore on loss)
