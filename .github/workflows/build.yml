@@ -29,9 +29,7 @@ jobs:
 
       - name: Build Release APK
         run: |
-          chmod +x gradlew || true
-          mkdir -p gradle/wrapper
-          curl -sL -o gradle/wrapper/gradle-wrapper.jar "https://raw.githubusercontent.com/gradle/gradle/v8.7.0/gradle/wrapper/gradle-wrapper.jar"
+          chmod +x gradlew
           echo "========================================"
           echo "Building AATE v5.0.${{ github.run_number }}"
           echo "versionCode = $((500 + ${{ github.run_number }}))"
