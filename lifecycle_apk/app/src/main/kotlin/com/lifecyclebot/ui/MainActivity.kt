@@ -4301,7 +4301,7 @@ Active Positions: $positionCount
 🛸 SPACE MODES (Active)
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-🛸 Orbital ($100K-$500K): $orbitalCount
+🛸 Orbital ($50K-$500K): $orbitalCount
 🌙 Lunar ($500K-$2M): $lunarCount
 🔴 Mars ($2M-$5M): $marsCount
 🪐 Jupiter ($5M-$50M): $jupiterCount
