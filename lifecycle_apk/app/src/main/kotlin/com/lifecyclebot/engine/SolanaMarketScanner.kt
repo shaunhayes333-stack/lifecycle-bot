@@ -1342,7 +1342,7 @@ class SolanaMarketScanner(
                     }
                 }
 
-                if (liq < 2000) continue
+                if (liq < 500) continue
 
                 val vol = pair.candle.volumeH1
                 val mcap = pair.candle.marketCap
@@ -2020,7 +2020,7 @@ class SolanaMarketScanner(
             return true
         }
 
-        val hardMinMcap = if (isPumpFunToken) 2000.0 else 2_000.0
+        val hardMinMcap = if (isPumpFunToken) 5000.0 else 5_000.0
         if (token.mcapUsd > 0 && token.mcapUsd < hardMinMcap) {
             ErrorLogger.debug("Scanner", "FILTER REJECT ${token.symbol}: mcap \$${token.mcapUsd.toInt()} < hard min \$${hardMinMcap.toInt()}")
             return false
@@ -2289,6 +2289,8 @@ class SolanaMarketScanner(
         .writeTimeout(2, TimeUnit.SECONDS)
         .build()
 
+    // RC == 1 now PASSES
+    // Only confirmed rugged=true or RC < 1 is blocked
     private fun quickRugcheck(mint: String): Boolean {
         try {
             val url = "https://api.rugcheck.xyz/v1/tokens/$mint/report/summary"
@@ -2320,34 +2322,34 @@ class SolanaMarketScanner(
             val isPaper = cfg().paperMode
 
             if (isPaper) {
-                if (scoreNormalized <= 1) {
+                if (scoreNormalized < 1) {
                     telemetryRugRejects++
-                    onLog("🚫 RC BLOCK [PAPER]: ${mint.take(8)}... score=$scoreNormalized (rug pull risk)")
-                    ErrorLogger.info("Scanner", "RC BLOCK [PAPER]: ${mint.take(12)} score=$scoreNormalized <= 1")
+                    onLog("🚫 RC BLOCK [PAPER]: ${mint.take(8)}... score=$scoreNormalized (< 1)")
+                    ErrorLogger.info("Scanner", "RC BLOCK [PAPER]: ${mint.take(12)} score=$scoreNormalized < 1")
                     return false
-                } else if (scoreNormalized in 1..5) {
-                    onLog("⚠️ RC WARN [PAPER]: ${mint.take(8)}... score=$scoreNormalized (allowed for learning)")
-                    ErrorLogger.info("Scanner", "RC PASS [PAPER]: ${mint.take(12)} score=$scoreNormalized (learning mode)")
-                    return true
                 }
+
+                if (scoreNormalized == 1) {
+                    onLog("⚠️ RC WARN [PAPER]: ${mint.take(8)}... score=1 (allowed)")
+                    ErrorLogger.info("Scanner", "RC PASS [PAPER]: ${mint.take(12)} score=1 allowed")
+                }
+
                 return true
             }
 
-            if (scoreNormalized <= 1) {
+            if (scoreNormalized < 1) {
                 telemetryRugRejects++
-                onLog("🚫 RC HARD BLOCK: ${mint.take(8)}... score=$scoreNormalized (catastrophic)")
-                ErrorLogger.info("Scanner", "RC HARD_BLOCK: ${mint.take(12)} score=$scoreNormalized <= 1")
+                onLog("🚫 RC HARD BLOCK: ${mint.take(8)}... score=$scoreNormalized (< 1)")
+                ErrorLogger.info("Scanner", "RC HARD_BLOCK: ${mint.take(12)} score=$scoreNormalized < 1")
                 return false
             }
 
-            if (scoreNormalized in 1..5) {
-                telemetryRugRejects++
-                onLog("🚫 RC BLOCK: ${mint.take(8)}... score=$scoreNormalized (dangerous)")
-                ErrorLogger.info("Scanner", "RC BLOCK: ${mint.take(12)} score=$scoreNormalized (1-5)")
-                return false
+            if (scoreNormalized == 1) {
+                onLog("⚠️ RC WARN: ${mint.take(8)}... score=1 (allowed to watchlist)")
+                ErrorLogger.info("Scanner", "RC PASS: ${mint.take(12)} score=1 allowed")
             }
 
-            if (scoreNormalized in 1..15) {
+            if (scoreNormalized in 2..15) {
                 ErrorLogger.debug("Scanner", "RC ${mint.take(8)}: score=$scoreNormalized (OK - normal range)")
             }
 
@@ -2365,6 +2367,8 @@ class SolanaMarketScanner(
             withContext(Dispatchers.IO) {
                 try {
                     withTimeout(2000L) { quickRugcheck(token.mint) }
+                } catch (e: CancellationException) {
+                    throw e
                 } catch (e: Exception) {
                     ErrorLogger.debug("Scanner", "RC error for ${token.symbol}: ${e.message}, passing through")
                     true
