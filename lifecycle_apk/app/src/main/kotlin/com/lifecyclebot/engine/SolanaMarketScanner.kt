@@ -2289,6 +2289,8 @@ class SolanaMarketScanner(
         .writeTimeout(2, TimeUnit.SECONDS)
         .build()
 
+    // RC == 1 now PASSES
+    // Only confirmed rugged=true or RC < 1 is blocked
     private fun quickRugcheck(mint: String): Boolean {
         try {
             val url = "https://api.rugcheck.xyz/v1/tokens/$mint/report/summary"
@@ -2332,20 +2334,14 @@ class SolanaMarketScanner(
                     onLog("⚠️ RC WARN [PAPER]: ${mint.take(8)}... score=$scoreNormalized (risky but learning)")
                     ErrorLogger.info("Scanner", "RC PASS [PAPER]: ${mint.take(12)} score=$scoreNormalized (min=2 met)")
                 }
+
                 return true
             }
 
-            if (scoreNormalized <= 1) {
+            if (scoreNormalized < 2) {
                 telemetryRugRejects++
-                onLog("🚫 RC HARD BLOCK: ${mint.take(8)}... score=$scoreNormalized (catastrophic)")
-                ErrorLogger.info("Scanner", "RC HARD_BLOCK: ${mint.take(12)} score=$scoreNormalized <= 1")
-                return false
-            }
-
-            if (scoreNormalized in 2..5) {
-                telemetryRugRejects++
-                onLog("🚫 RC BLOCK: ${mint.take(8)}... score=$scoreNormalized (dangerous)")
-                ErrorLogger.info("Scanner", "RC BLOCK: ${mint.take(12)} score=$scoreNormalized (2-5)")
+                onLog("🚫 RC HARD BLOCK: ${mint.take(8)}... score=$scoreNormalized (< 2, catastrophic)")
+                ErrorLogger.info("Scanner", "RC HARD_BLOCK: ${mint.take(12)} score=$scoreNormalized < 2")
                 return false
             }
 
@@ -2367,6 +2363,8 @@ class SolanaMarketScanner(
             withContext(Dispatchers.IO) {
                 try {
                     withTimeout(2000L) { quickRugcheck(token.mint) }
+                } catch (e: CancellationException) {
+                    throw e
                 } catch (e: Exception) {
                     ErrorLogger.debug("Scanner", "RC error for ${token.symbol}: ${e.message}, passing through")
                     true
