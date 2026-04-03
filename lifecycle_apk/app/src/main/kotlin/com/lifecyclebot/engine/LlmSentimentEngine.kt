@@ -90,10 +90,9 @@ class LlmSentimentEngine(
             val cacheKey = buildCacheKey(symbol, mintAddress, sanitizedEvents)
             val now = System.currentTimeMillis()
 
-            cache[cacheKey]?.let { cached ->
-                if (now - cached.timestampMs < cacheTtlMs) {
-                    return cached.result
-                }
+            val cached = cache[cacheKey]
+            if (cached != null && now - cached.timestampMs < cacheTtlMs) {
+                return cached.result
             }
 
             val textBundle = buildTextBundle(sanitizedEvents)
@@ -119,10 +118,24 @@ class LlmSentimentEngine(
         mintAddress: String,
         events: List<MentionEvent>,
     ): String {
-        val lastTs = events.maxOfOrNull { it.ts } ?: 0L
-        val firstTs = events.minOfOrNull { it.ts } ?: 0L
-        val count = events.size
-        return "${symbol.uppercase()}_${mintAddress}_$count_$firstTs_$lastTs"
+        var firstTs = Long.MAX_VALUE
+        var lastTs = Long.MIN_VALUE
+        var count = 0
+
+        for (event in events) {
+            val ts = event.ts
+            if (ts < firstTs) firstTs = ts
+            if (ts > lastTs) lastTs = ts
+            count++
+        }
+
+        if (count == 0) {
+            firstTs = 0L
+            lastTs = 0L
+        }
+
+        val upperSymbol = symbol.uppercase()
+        return upperSymbol + "_" + mintAddress + "_" + count + "_" + firstTs + "_" + lastTs
     }
 
     private fun buildTextBundle(events: List<MentionEvent>): String {
@@ -261,8 +274,8 @@ class LlmSentimentEngine(
     private fun JSONArray?.toSafeStringList(limit: Int): List<String> {
         if (this == null || this.length() == 0) return emptyList()
 
-        val out = ArrayList<String>(minOf(this.length(), limit))
-        val capped = minOf(this.length(), limit)
+        val out = ArrayList<String>()
+        val capped = if (this.length() < limit) this.length() else limit
 
         for (i in 0 until capped) {
             val value = this.optString(i).trim()
@@ -277,12 +290,14 @@ class LlmSentimentEngine(
     private fun throttle() {
         val now = System.currentTimeMillis()
         val waitMs = minCallIntervalMs - (now - lastCallMs)
+
         if (waitMs > 0L) {
             try {
                 Thread.sleep(waitMs)
             } catch (_: InterruptedException) {
             }
         }
+
         lastCallMs = System.currentTimeMillis()
     }
 
