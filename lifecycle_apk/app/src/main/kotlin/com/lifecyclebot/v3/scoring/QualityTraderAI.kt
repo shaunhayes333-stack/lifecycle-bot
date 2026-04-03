@@ -23,14 +23,14 @@ private const val MIN_AGE_MINUTES = 5
  * 
  * KEY CHARACTERISTICS:
  * ─────────────────────────────────────────────────────────────────────────────
- * 1. Market Cap: $100K - $1M (quality range, below BlueChip)
+ * 1. Market Cap: $50K - $250k (quality range, below BlueChip)
  * 2. NOT meme-focused: Looks for utility, real projects, good fundamentals
  * 3. Hold Times: 15-60 minutes (professional swing trading)
  * 4. Profit Targets: 15-50% (quality setups deserve patience)
  * 5. Risk: Moderate stops, quality over quantity
  * 
  * FILTERS (Distinguishes from ShitCoin):
- * - Higher liquidity requirements ($20K+)
+ * - Higher liquidity requirements ($10K+)
  * - Token age preferences (not just fresh launches)
  * - Better holder distribution
  * - Lower volatility tolerance
@@ -53,8 +53,8 @@ object QualityTraderAI {
     // ═══════════════════════════════════════════════════════════════════════════
     
     // Market cap filter - Quality range (between ShitCoin and BlueChip)
-    private const val MIN_MARKET_CAP_USD = 50_000.0    // $50K minimum
-    private const val MAX_MARKET_CAP_USD = 500_000.0  // $500,000 max (above this = BlueChip)
+    private const val MIN_MARKET_CAP_USD = 20_000.0    // $50K minimum
+    private const val MAX_MARKET_CAP_USD = 250_000.0  // $250,000 max (above this = BlueChip)
     
     // Liquidity requirements - higher than ShitCoin
     private const val MIN_LIQUIDITY_USD = 5000.0
@@ -124,7 +124,7 @@ object QualityTraderAI {
         STOP_LOSS,
         TRAILING_STOP,
         TIME_EXIT,
-        PROMOTE_BLUECHIP,   // Promote to BlueChip if mcap crosses $1M
+        PROMOTE_BLUECHIP,   // Promote to BlueChip if mcap crosses $250k
         PROMOTE_MOONSHOT,   // Promote to Moonshot if gains > 100%
     }
     
@@ -215,8 +215,8 @@ object QualityTraderAI {
         // Market cap in sweet spot
         val mcapScore = when {
             marketCapUsd in 50_000.0..100_000.0 -> 20  // Sweet spot
-            marketCapUsd in 20_000.0..50_000.0 -> 10
-            marketCapUsd in 100_000.0..500_000.0 -> 15
+            marketCapUsd in 10_000.0..50_000.0 -> 10
+            marketCapUsd in 100_000.0..250_000.0 -> 15
             else -> 0
         }
         qualityScore += mcapScore
@@ -323,9 +323,9 @@ object QualityTraderAI {
         // PROMOTION CHECKS - Quality → BlueChip/Moonshot
         // ═══════════════════════════════════════════════════════════════════
         
-        // If mcap crossed $1M, promote to BlueChip
+        // If mcap crossed $250k, promote to BlueChip
         if (currentMcap > 100_000 && pnlPct > 0) {
-            ErrorLogger.info(TAG, "🔵 QUALITY → BLUECHIP: ${pos.symbol} | mcap crossed $1M!")
+            ErrorLogger.info(TAG, "🔵 QUALITY → BLUECHIP: ${pos.symbol} | mcap crossed $250k!")
             return ExitSignal.PROMOTE_BLUECHIP
         }
         
