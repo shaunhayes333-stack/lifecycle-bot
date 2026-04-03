@@ -152,7 +152,7 @@ object FinalDecisionGate {
     }
 
     fun getLearningPhase(tradeCount: Int): LearningPhase = when {
-        tradeCount <= 500 -> LearningPhase.BOOTSTRAP
+        tradeCount <= 50 -> LearningPhase.BOOTSTRAP
         tradeCount <= 500 -> LearningPhase.LEARNING
         else -> LearningPhase.MATURE
     }
@@ -903,11 +903,11 @@ object FinalDecisionGate {
                 blockReason = "BOOTSTRAP_MIN_CONFIDENCE_3%",
                 blockLevel = BlockLevel.CONFIDENCE,
                 sizeSol = 0.0,
-                tags = listOf("bootstrap_floor_7", "too_low_to_learn"),
+                tags = listOf("bootstrap_floor_3", "too_low_to_learn"),
                 mint = ts.mint,
                 symbol = ts.symbol,
-                approvalReason = "BOOTSTRAP_MIN: conf=${confidence.toInt()}% < 7% (even learning has standards)",
-                gateChecks = listOf(GateCheck("bootstrap_min_conf", false, "conf < 7% is garbage even for learning"))
+                approvalReason = "BOOTSTRAP_MIN: conf=${confidence.toInt()}% < 3% (even learning has standards)",
+                gateChecks = listOf(GateCheck("bootstrap_min_conf", false, "conf < 3% is garbage even for learning"))
             )
         }
 
@@ -1013,8 +1013,8 @@ object FinalDecisionGate {
             tags.add("bootstrap_toxic_bypass")
         }
 
-        val WATCHLIST_FLOOR = com.lifecyclebot.v3.scoring.FluidLearningAI.getWatchlistFloor()
-        val EXECUTION_FLOOR = com.lifecyclebot.v3.scoring.FluidLearningAI.getExecutionFloor()
+        val WATCHLIST_FLOOR = FluidLearningAI.getWatchlistFloor()
+        val EXECUTION_FLOOR = FluidLearningAI.getExecutionFloor()
 
         if (ts.lastLiquidityUsd < WATCHLIST_FLOOR) {
             ErrorLogger.debug("FDG", "🚫 LIQ_FLOOR: ${ts.symbol} | liq=\$${ts.lastLiquidityUsd.toInt()} < \$${WATCHLIST_FLOOR.toInt()} | TOO_LOW_FOR_WATCHLIST")
@@ -1130,11 +1130,8 @@ object FinalDecisionGate {
             )
         }
 
-        // =========================
-        // RUGCHECK THRESHOLD FIX
-        // =========================
         val rugcheckThreshold = if (config.paperMode) {
-            0  // PAPER: RC=1 passes. Only RC<=0 blocks.
+            0
         } else {
             val baseThreshold = (brain?.learnedRugcheckThreshold ?: 5).coerceIn(3, 10)
             (baseThreshold * modeMultipliers.rugcheckMultiplier).toInt().coerceIn(3, 15)
@@ -1178,7 +1175,7 @@ object FinalDecisionGate {
             (rugcheckStatus == "TIMEOUT" || rugcheckStatus == "PENDING_REVIEW") && !config.paperMode -> {
                 val hasStrongBuyers = ts.meta.pressScore >= 60.0
                 val hasGoodLiquidity = ts.lastLiquidityUsd >= 8000.0
-                val hasGoodVolume = ts.history.lastOrNull()?.volumeH1 ?: 0.0 >= 2000.0
+                val hasGoodVolume = (ts.history.lastOrNull()?.volumeH1 ?: 0.0) >= 2000.0
                 val shouldBlock = !(hasStrongBuyers && hasGoodLiquidity && hasGoodVolume)
 
                 if (!shouldBlock) {
@@ -1439,14 +1436,14 @@ object FinalDecisionGate {
                         } else {
                             blockReason = "MEMORY_NEGATIVE_BLOCK"
                             blockLevel = BlockLevel.MODE
-                            checks.add(GateCheck("memory_negative", false, "Memory strongly negative (mult=${memoryMult})"))
+                            checks.add(GateCheck("memory_negative", false, "Memory strongly negative (mult=$memoryMult)"))
                             tags.add("memory_blocked")
                         }
                     }
                 } else if (memoryMult < 0.90) {
                     memoryPenalty = 5
                     softPenaltyScore += memoryPenalty
-                    checks.add(GateCheck("memory_negative", true, "Memory warning (mult=${memoryMult}, -${memoryPenalty}pts)"))
+                    checks.add(GateCheck("memory_negative", true, "Memory warning (mult=$memoryMult, -${memoryPenalty}pts)"))
                     tags.add("memory_warning")
                 } else {
                     checks.add(GateCheck("memory_negative", true, null))
@@ -1752,7 +1749,7 @@ object FinalDecisionGate {
                 } else {
                     checks.add(GateCheck("narrative", true, "risk=${narrativeResult.riskLevel} adj=$narrativeAdjustment"))
                 }
-            } catch (e: Exception) {
+            } catch (_: Exception) {
                 checks.add(GateCheck("narrative", true, "skipped (error)"))
             }
         } else if (blockReason == null) {
@@ -1867,7 +1864,7 @@ object FinalDecisionGate {
         val confidenceThreshold = getAdaptiveConfidence(config.paperMode, ts)
         val isBootstrap = currentConditions.totalSessionTrades < 30
         val bootstrapTag = if (isBootstrap) " [BOOTSTRAP]" else ""
-        val adjustedConfidence = (candidate.aiConfidence + narrativeAdjustment + orthogonalBonus).coerceIn(0.0, 100.0)
+        val adjustedConfidence = (confidence + narrativeAdjustment + orthogonalBonus).coerceIn(0.0, 100.0)
         val narrativeTag = if (narrativeAdjustment != 0) " [NAR:$narrativeAdjustment]" else ""
         val orthoTag = if (orthogonalBonus != 0) " [ORTHO:$orthogonalBonus]" else ""
 
@@ -1897,7 +1894,7 @@ object FinalDecisionGate {
                 false
             }
             val hasNoHardBlocks = blockReason == null
-            val hasMinLiquidity = ts.lastLiquidityUsd >= 3000
+            val hasMinLiquidity = ts.lastLiquidityUsd >= 3000.0
 
             if (isBootstrap && config.paperMode && hasNoHardBlocks && hasMinLiquidity && (isRepeatWinner || hasPositiveMemory)) {
                 confidenceProbe = true
@@ -1916,13 +1913,13 @@ object FinalDecisionGate {
                     GateCheck(
                         "confidence",
                         true,
-                        "BOOTSTRAP PROBE: conf=${adjustedConfidence.toInt()}% < ${confidenceThreshold.toInt()}% BUT $probeReason → size×${confidenceProbeSizeMultiplier}"
+                        "BOOTSTRAP PROBE: conf=${adjustedConfidence.toInt()}% < ${confidenceThreshold.toInt()}% BUT $probeReason → size×${confidenceProbeSizeMultiplier.format(2)}"
                     )
                 )
                 tags.add("bootstrap_confidence_probe")
                 tags.add("probe_reason:$probeReason")
 
-                ErrorLogger.info("FDG", "🔬 BOOTSTRAP PROBE: ${ts.symbol} | conf=${adjustedConfidence.toInt()}% | $probeReason | size×${confidenceProbeSizeMultiplier}")
+                ErrorLogger.info("FDG", "🔬 BOOTSTRAP PROBE: ${ts.symbol} | conf=${adjustedConfidence.toInt()}% | $probeReason | size×${confidenceProbeSizeMultiplier.format(2)}")
             } else {
                 blockReason = "LOW_CONFIDENCE_${adjustedConfidence.toInt()}%$bootstrapTag$narrativeTag$orthoTag"
                 blockLevel = BlockLevel.CONFIDENCE
@@ -1930,7 +1927,7 @@ object FinalDecisionGate {
                     GateCheck(
                         "confidence",
                         false,
-                        "conf=${candidate.aiConfidence.toInt()}%+nar=$narrativeAdjustment+ortho=$orthogonalBonus=${adjustedConfidence.toInt()}% < ${confidenceThreshold.toInt()}%$bootstrapTag (adaptive)"
+                        "conf=${confidence.toInt()}%+nar=$narrativeAdjustment+ortho=$orthogonalBonus=${adjustedConfidence.toInt()}% < ${confidenceThreshold.toInt()}%$bootstrapTag (adaptive)"
                     )
                 )
                 tags.add("low_confidence")
@@ -1942,7 +1939,7 @@ object FinalDecisionGate {
                 GateCheck(
                     "confidence",
                     true,
-                    "conf=${candidate.aiConfidence.toInt()}%+nar=$narrativeAdjustment+ortho=$orthogonalBonus=${adjustedConfidence.toInt()}% >= ${confidenceThreshold.toInt()}%$bootstrapTag (adaptive)"
+                    "conf=${confidence.toInt()}%+nar=$narrativeAdjustment+ortho=$orthogonalBonus=${adjustedConfidence.toInt()}% >= ${confidenceThreshold.toInt()}%$bootstrapTag (adaptive)"
                 )
             )
             if (isBootstrap) tags.add("bootstrap_phase")
@@ -2232,12 +2229,12 @@ object FinalDecisionGate {
         val liveAdaptiveConf = getAdaptiveConfidence(isPaperMode = false, ts)
 
         val (approvalClass, approvalReason) = when {
-            !shouldTrade -> ApprovalClass.BLOCKED to "blocked: ${blockReason ?: "unknown"}"
+            !shouldTrade -> ApprovalClass.BLOCKED to "blocked: ${blockReason ?: "candidate_shouldTrade_false"}"
             !config.paperMode -> ApprovalClass.LIVE to "live mode approval (adaptive conf: ${liveAdaptiveConf.toInt()}%)"
             else -> {
                 val wouldPassLiveEdge = edgeVerdict != EdgeVerdict.SKIP
                 val wouldPassLiveQuality = candidate.setupQuality in listOf("A+", "A", "B")
-                val wouldPassLiveConfidence = candidate.aiConfidence >= liveAdaptiveConf
+                val wouldPassLiveConfidence = adjustedConfidence >= liveAdaptiveConf
 
                 when {
                     isAnyProbe -> {
@@ -2249,13 +2246,13 @@ object FinalDecisionGate {
                         ApprovalClass.PAPER_PROBE to "probe: soft blocks→penalties (${probeReasons.joinToString(",")}), size×${combinedSizeMultiplier.format(2)}"
                     }
                     wouldPassLiveEdge && wouldPassLiveQuality && wouldPassLiveConfidence -> {
-                        ApprovalClass.PAPER_BENCHMARK to "benchmark: passes live rules (edge=$wouldPassLiveEdge quality=${candidate.setupQuality} conf=${candidate.aiConfidence.toInt()}%>=${liveAdaptiveConf.toInt()}%)"
+                        ApprovalClass.PAPER_BENCHMARK to "benchmark: passes live rules (edge=$wouldPassLiveEdge quality=${candidate.setupQuality} conf=${adjustedConfidence.toInt()}%>=${liveAdaptiveConf.toInt()}%)"
                     }
                     else -> {
                         val relaxedReasons = mutableListOf<String>()
                         if (!wouldPassLiveEdge) relaxedReasons.add("edge=${edgeVerdict.name}")
                         if (!wouldPassLiveQuality) relaxedReasons.add("quality=${candidate.setupQuality}")
-                        if (!wouldPassLiveConfidence) relaxedReasons.add("conf=${candidate.aiConfidence.toInt()}%<${liveAdaptiveConf.toInt()}%")
+                        if (!wouldPassLiveConfidence) relaxedReasons.add("conf=${adjustedConfidence.toInt()}%<${liveAdaptiveConf.toInt()}%")
                         ApprovalClass.PAPER_EXPLORATION to "exploration: relaxed ${relaxedReasons.joinToString(", ")}"
                     }
                 }
@@ -2269,7 +2266,7 @@ object FinalDecisionGate {
             mode = mode,
             approvalClass = approvalClass,
             quality = candidate.finalQuality,
-            confidence = candidate.aiConfidence,
+            confidence = adjustedConfidence,
             edge = edgeVerdict,
             blockReason = blockReason,
             blockLevel = blockLevel,
