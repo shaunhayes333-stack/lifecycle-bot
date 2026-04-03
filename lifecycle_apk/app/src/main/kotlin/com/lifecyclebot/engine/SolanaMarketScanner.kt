@@ -2180,7 +2180,7 @@ class SolanaMarketScanner(
                     if (passesFilter(token)) {
                         emitWithRugcheck(token)
                         found++
-                        onLog("🔵 BlueChip candidate: ${token.symbol} | mcap=\$${(mcap/1_000_000.0).fmt(1)}M | liq=\$${liq.toInt()}")
+                        onLog("🔵 BlueChip candidate: ${token.symbol} | mcap=\$${String.format("%.1f", mcap/1_000_000.0)}M | liq=\$${liq.toInt()}")
                     }
                 }
             } catch (e: kotlinx.coroutines.CancellationException) { throw e } catch (e: Exception) {
