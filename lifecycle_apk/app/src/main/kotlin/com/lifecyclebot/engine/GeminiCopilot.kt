@@ -1,178 +1,171 @@
 package com.lifecyclebot.engine
 
 import com.lifecyclebot.data.TokenState
-import com.lifecyclebot.data.Trade
-import com.lifecyclebot.data.Candle
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.RequestBody.Companion.toRequestBody
 import org.json.JSONArray
 import org.json.JSONObject
-import java.util.concurrent.TimeUnit
 import java.util.concurrent.ConcurrentHashMap
+import java.util.concurrent.TimeUnit
+import kotlin.math.max
+import kotlin.math.min
 
 /**
  * GeminiCopilot — Full AI Co-pilot Layer powered by Google Gemini
- * 
- * Features:
- *   1. Narrative/Scam Detection - Analyze token names and social signals for pump & dump
- *   2. Trade Reasoning - Generate human-readable trade explanations
- *   3. Market Sentiment Analysis - Broader market context analysis
- *   4. Smart Exit Advisor - AI-suggested optimal exit timing
- *   5. Risk Assessment - Multi-factor risk scoring
- * 
- * Uses Gemini 2.0 Flash for fast, cost-effective inference.
- * Rate limited to avoid quota issues.
+ *
+ * Safer rewrite:
+ * - fixes dead/null checks
+ * - closes HTTP resources correctly
+ * - handles markdown/code-fenced JSON responses
+ * - strengthens rate limiting/backoff behavior
+ * - clamps parsed values to safe ranges
+ * - keeps same public API surface
  */
 object GeminiCopilot {
-    
-    // API key loaded from user config - no hardcoded keys!
+
+    private const val TAG = "GeminiCopilot"
+    private const val GEMINI_URL =
+        "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent"
+
+    @Volatile
     private var apiKey: String = ""
-    private const val GEMINI_URL = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent"
-    
-    /**
-     * Initialize with API key from config
-     */
+
     fun init(geminiApiKey: String) {
-        apiKey = geminiApiKey
+        apiKey = geminiApiKey.trim()
     }
-    
-    /**
-     * Check if API key is configured
-     */
+
     fun isConfigured(): Boolean = apiKey.isNotBlank()
-    
+
     private val http = OkHttpClient.Builder()
         .connectTimeout(15, TimeUnit.SECONDS)
         .readTimeout(30, TimeUnit.SECONDS)
+        .callTimeout(35, TimeUnit.SECONDS)
         .build()
-    
+
     private val JSON_MT = "application/json".toMediaType()
-    
-    // Cache to avoid redundant API calls
-    private val narrativeCache = ConcurrentHashMap<String, Pair<NarrativeAnalysis, Long>>()
-    private val exitAdviceCache = ConcurrentHashMap<String, Pair<ExitAdvice, Long>>()
-    private val CACHE_TTL_MS = 3 * 60_000L  // 3 minutes
-    
-    // Rate limiting - enhanced with 429 tracking
+
+    private data class TimedCache<T>(val value: T, val timestamp: Long)
+
+    private val narrativeCache = ConcurrentHashMap<String, TimedCache<NarrativeAnalysis>>()
+    private val exitAdviceCache = ConcurrentHashMap<String, TimedCache<ExitAdvice>>()
+    private const val CACHE_TTL_MS = 3 * 60_000L
+
+    @Volatile
     private var lastCallTime = 0L
-    private const val MIN_CALL_INTERVAL_MS = 1000L  // 1 second between calls
-    
-    // ════════════════════════════════════════════════════════════════════════════
-    // 429 RATE LIMIT HANDLING
-    // 
-    // When we get a 429, implement exponential backoff to avoid hammering the API.
-    // This ensures we degrade gracefully instead of blocking decisions.
-    // ════════════════════════════════════════════════════════════════════════════
-    @Volatile private var rateLimitedUntil = 0L
-    @Volatile private var consecutive429Count = 0
-    private const val INITIAL_BACKOFF_MS = 60_000L  // 1 minute initial backoff
-    private const val MAX_BACKOFF_MS = 600_000L     // 10 minute max backoff
-    
-    /**
-     * Check if we're currently rate limited
-     */
+
+    private const val MIN_CALL_INTERVAL_MS = 1000L
+
+    @Volatile
+    private var rateLimitedUntil = 0L
+
+    @Volatile
+    private var consecutive429Count = 0
+
+    private const val INITIAL_BACKOFF_MS = 60_000L
+    private const val MAX_BACKOFF_MS = 600_000L
+
+    @Synchronized
+    private fun enforceCallSpacing() {
+        val now = System.currentTimeMillis()
+        val elapsed = now - lastCallTime
+        if (elapsed < MIN_CALL_INTERVAL_MS) {
+            Thread.sleep(MIN_CALL_INTERVAL_MS - elapsed)
+        }
+        lastCallTime = System.currentTimeMillis()
+    }
+
     private fun isRateLimited(): Boolean {
         return System.currentTimeMillis() < rateLimitedUntil
     }
-    
-    /**
-     * Get remaining rate limit cooldown in minutes for logging
-     */
+
     fun getRateLimitRemainingMinutes(): Int {
         val remaining = rateLimitedUntil - System.currentTimeMillis()
-        return if (remaining > 0) (remaining / 60_000).toInt() else 0
+        return if (remaining > 0) {
+            ((remaining + 59_999L) / 60_000L).toInt()
+        } else {
+            0
+        }
     }
-    
-    /**
-     * Record a 429 error and calculate backoff
-     */
+
     private fun recordRateLimit() {
         consecutive429Count++
         val backoffMs = (INITIAL_BACKOFF_MS * consecutive429Count).coerceAtMost(MAX_BACKOFF_MS)
         rateLimitedUntil = System.currentTimeMillis() + backoffMs
-        ErrorLogger.warn("GeminiCopilot", "⚠️ Rate limited (429 #$consecutive429Count) - backing off for ${backoffMs / 1000}s")
+        ErrorLogger.warn(
+            TAG,
+            "⚠️ Rate limited (429 #$consecutive429Count) - backing off for ${backoffMs / 1000}s"
+        )
     }
-    
-    /**
-     * Reset rate limit tracking on successful call
-     */
+
     private fun resetRateLimit() {
-        if (consecutive429Count > 0) {
-            ErrorLogger.info("GeminiCopilot", "✅ Rate limit cleared after $consecutive429Count 429s")
+        if (consecutive429Count > 0 || rateLimitedUntil > 0L) {
+            ErrorLogger.info(TAG, "✅ Rate limit cleared")
         }
         consecutive429Count = 0
         rateLimitedUntil = 0L
     }
-    
-    /**
-     * Get rate limit status for UI/logging
-     */
+
     fun getRateLimitStatus(): String {
         return when {
-            consecutive429Count == 0 -> "OK"
+            consecutive429Count == 0 && !isRateLimited() -> "OK"
             isRateLimited() -> "RATE_LIMITED (${getRateLimitRemainingMinutes()}min remaining)"
-            else -> "RECOVERING (${consecutive429Count} recent 429s)"
+            else -> "RECOVERING ($consecutive429Count recent 429s)"
         }
     }
-    
+
     /**
-     * V3 SELECTIVITY: Check if AI is degraded (rate limited or unavailable)
-     * Used by DecisionEngine to apply compound weakness veto
+     * V3 selectivity helper.
      */
     fun isAIDegraded(): Boolean {
-        return isRateLimited() || consecutive429Count >= 2 || apiKey == null
+        return !isConfigured() || isRateLimited() || consecutive429Count >= 2
     }
-    
-    // ════════════════════════════════════════════════════════════════════════════
-    // DATA CLASSES
-    // ════════════════════════════════════════════════════════════════════════════
-    
+
     data class NarrativeAnalysis(
         val isScam: Boolean,
-        val scamConfidence: Double,        // 0-100
-        val scamType: String,              // "rug_pull", "honeypot", "pump_dump", "none"
-        val narrativeType: String,         // "meme", "utility", "ai", "gaming", "defi", "unknown"
-        val viralPotential: Double,        // 0-100
+        val scamConfidence: Double,
+        val scamType: String,
+        val narrativeType: String,
+        val viralPotential: Double,
         val redFlags: List<String>,
         val greenFlags: List<String>,
         val reasoning: String,
-        val recommendation: String,        // "BUY", "AVOID", "WATCH"
+        val recommendation: String,
     )
-    
+
     data class TradeReasoning(
-        val action: String,                // "BUY", "SELL", "HOLD", "SKIP"
-        val confidence: Double,            // 0-100
+        val action: String,
+        val confidence: Double,
         val primaryReason: String,
         val supportingFactors: List<String>,
         val riskFactors: List<String>,
-        val humanSummary: String,          // Natural language explanation
+        val humanSummary: String,
     )
-    
+
     data class MarketSentiment(
-        val overallSentiment: String,      // "BULLISH", "BEARISH", "NEUTRAL", "FEAR", "GREED"
-        val sentimentScore: Double,        // -100 to +100
+        val overallSentiment: String,
+        val sentimentScore: Double,
         val memeSeasonActive: Boolean,
         val topNarratives: List<String>,
         val marketRisks: List<String>,
         val reasoning: String,
     )
-    
+
     data class ExitAdvice(
         val shouldExit: Boolean,
-        val exitUrgency: String,           // "IMMEDIATE", "SOON", "HOLD", "RIDE"
-        val suggestedExitPct: Double,      // What % to exit (0-100)
-        val targetPrice: Double,           // Suggested target if holding
-        val stopLossPrice: Double,         // Suggested stop loss
+        val exitUrgency: String,
+        val suggestedExitPct: Double,
+        val targetPrice: Double,
+        val stopLossPrice: Double,
         val reasoning: String,
-        val timeHorizon: String,           // "minutes", "hours", "days"
-        val confidenceScore: Double,       // 0-100
+        val timeHorizon: String,
+        val confidenceScore: Double,
     )
-    
+
     data class RiskAssessment(
-        val overallRisk: String,           // "LOW", "MEDIUM", "HIGH", "EXTREME"
-        val riskScore: Double,             // 0-100
+        val overallRisk: String,
+        val riskScore: Double,
         val liquidityRisk: String,
         val volatilityRisk: String,
         val rugPullRisk: String,
@@ -180,54 +173,49 @@ object GeminiCopilot {
         val topRisks: List<String>,
         val mitigationSuggestions: List<String>,
     )
-    
-    // ════════════════════════════════════════════════════════════════════════════
-    // PUBLIC API
-    // ════════════════════════════════════════════════════════════════════════════
-    
-    /**
-     * Analyze token name, symbol, and description for scam/narrative signals.
-     * Returns cached result if available.
-     */
+
     fun analyzeNarrative(
         symbol: String,
         name: String,
         description: String = "",
         socialMentions: List<String> = emptyList(),
     ): NarrativeAnalysis? {
-        val cacheKey = "${symbol}_${name.hashCode()}"
-        val cached = narrativeCache[cacheKey]
-        if (cached != null && System.currentTimeMillis() - cached.second < CACHE_TTL_MS) {
-            return cached.first
+        val cacheKey = buildString {
+            append(symbol.trim())
+            append("|")
+            append(name.trim())
+            append("|")
+            append(description.take(120))
+            append("|")
+            append(socialMentions.take(3).joinToString("|"))
         }
-        
+
+        getCachedNarrative(cacheKey)?.let { return it }
+
         val prompt = buildNarrativePrompt(symbol, name, description, socialMentions)
         val response = callGemini(prompt, NARRATIVE_SYSTEM_PROMPT) ?: return null
         val result = parseNarrativeResponse(response) ?: return null
-        
-        narrativeCache[cacheKey] = result to System.currentTimeMillis()
-        ErrorLogger.info("GeminiCopilot", "🤖 Narrative: $symbol → ${result.recommendation} (scam=${result.scamConfidence.toInt()}%)")
+
+        narrativeCache[cacheKey] = TimedCache(result, System.currentTimeMillis())
+        ErrorLogger.info(
+            TAG,
+            "🤖 Narrative: $symbol → ${result.recommendation} (scam=${result.scamConfidence.toInt()}%)"
+        )
         return result
     }
-    
-    /**
-     * Generate human-readable reasoning for a trade decision.
-     */
+
     fun explainTrade(
         ts: TokenState,
         action: String,
         entryScore: Double,
         exitScore: Double,
-        aiLayers: Map<String, String>,  // layer name → verdict
+        aiLayers: Map<String, String>,
     ): TradeReasoning? {
         val prompt = buildTradeReasoningPrompt(ts, action, entryScore, exitScore, aiLayers)
         val response = callGemini(prompt, TRADE_REASONING_SYSTEM_PROMPT) ?: return null
         return parseTradeReasoningResponse(response)
     }
-    
-    /**
-     * Analyze broader market sentiment from recent token activity.
-     */
+
     fun analyzeMarketSentiment(
         recentWinRate: Double,
         recentTokens: List<String>,
@@ -238,35 +226,38 @@ object GeminiCopilot {
         val response = callGemini(prompt, MARKET_SENTIMENT_SYSTEM_PROMPT) ?: return null
         return parseMarketSentimentResponse(response)
     }
-    
-    /**
-     * Get AI advice on whether to exit a position and how.
-     */
+
     fun getExitAdvice(
         ts: TokenState,
         currentPnlPct: Double,
         holdTimeMinutes: Double,
         peakPnlPct: Double,
-        recentPriceAction: List<Double>,  // last 10 prices
+        recentPriceAction: List<Double>,
     ): ExitAdvice? {
-        val cacheKey = "${ts.mint}_${currentPnlPct.toInt()}_${holdTimeMinutes.toInt()}"
-        val cached = exitAdviceCache[cacheKey]
-        if (cached != null && System.currentTimeMillis() - cached.second < CACHE_TTL_MS) {
-            return cached.first
+        val cacheKey = buildString {
+            append(ts.mint)
+            append("|")
+            append(currentPnlPct.toInt())
+            append("|")
+            append(holdTimeMinutes.toInt())
+            append("|")
+            append(peakPnlPct.toInt())
         }
-        
+
+        getCachedExitAdvice(cacheKey)?.let { return it }
+
         val prompt = buildExitAdvicePrompt(ts, currentPnlPct, holdTimeMinutes, peakPnlPct, recentPriceAction)
         val response = callGemini(prompt, EXIT_ADVISOR_SYSTEM_PROMPT) ?: return null
         val result = parseExitAdviceResponse(response) ?: return null
-        
-        exitAdviceCache[cacheKey] = result to System.currentTimeMillis()
-        ErrorLogger.info("GeminiCopilot", "🤖 Exit: ${ts.symbol} → ${result.exitUrgency} (conf=${result.confidenceScore.toInt()}%)")
+
+        exitAdviceCache[cacheKey] = TimedCache(result, System.currentTimeMillis())
+        ErrorLogger.info(
+            TAG,
+            "🤖 Exit: ${ts.symbol} → ${result.exitUrgency} (conf=${result.confidenceScore.toInt()}%)"
+        )
         return result
     }
-    
-    /**
-     * Comprehensive risk assessment for a token.
-     */
+
     fun assessRisk(
         ts: TokenState,
         rugcheckScore: Int,
@@ -278,241 +269,219 @@ object GeminiCopilot {
         val response = callGemini(prompt, RISK_ASSESSMENT_SYSTEM_PROMPT) ?: return null
         return parseRiskAssessmentResponse(response)
     }
-    
+
     /**
-     * Quick scam check - fast path for obvious scams.
-     * Returns true if likely scam, false if probably safe, null if uncertain.
+     * Fast local scam heuristics without API.
      */
     fun quickScamCheck(symbol: String, name: String): Boolean? {
-        // Check for obvious scam patterns first (no API call needed)
+        val lowerName = name.lowercase()
+        val lowerSymbol = symbol.lowercase()
+
         val scamPatterns = listOf(
             "airdrop", "presale", "guaranteed", "1000x", "free money",
             "elon", "musk", "doge killer", "shiba killer", "moon guaranteed",
             "get rich", "millionaire", "lambo", "next bitcoin"
         )
-        val lowerName = name.lowercase()
-        val lowerSymbol = symbol.lowercase()
-        
-        for (pattern in scamPatterns) {
-            if (lowerName.contains(pattern) || lowerSymbol.contains(pattern)) {
-                ErrorLogger.info("GeminiCopilot", "🚨 Quick scam pattern: $symbol contains '$pattern'")
-                return true
-            }
+
+        if (scamPatterns.any { lowerName.contains(it) || lowerSymbol.contains(it) }) {
+            ErrorLogger.info(TAG, "🚨 Quick scam pattern: $symbol")
+            return true
         }
-        
-        // Check for copy-cat tokens
+
         val copyCatPatterns = listOf(
             Regex("(?i)(pepe|doge|shib|bonk|wif).*2"),
-            Regex("(?i)real.*(pepe|doge|shib)"),
-            Regex("(?i)(pepe|doge|shib).*real"),
-            Regex("(?i)official.*(pepe|doge|shib)"),
+            Regex("(?i)real.*(pepe|doge|shib|bonk|wif)"),
+            Regex("(?i)(pepe|doge|shib|bonk|wif).*real"),
+            Regex("(?i)official.*(pepe|doge|shib|bonk|wif)")
         )
-        for (pattern in copyCatPatterns) {
-            if (pattern.containsMatchIn(name) || pattern.containsMatchIn(symbol)) {
-                ErrorLogger.info("GeminiCopilot", "🚨 Copy-cat pattern: $symbol")
-                return true
-            }
+
+        if (copyCatPatterns.any { it.containsMatchIn(name) || it.containsMatchIn(symbol) }) {
+            ErrorLogger.info(TAG, "🚨 Copy-cat pattern: $symbol")
+            return true
         }
-        
-        return null  // Need deeper analysis
+
+        return null
     }
-    
-    // ════════════════════════════════════════════════════════════════════════════
-    // GEMINI API CALL
-    // ════════════════════════════════════════════════════════════════════════════
-    
+
     private fun callGemini(userPrompt: String, systemPrompt: String): String? {
-        // Rate limiting
-        val now = System.currentTimeMillis()
-        val elapsed = now - lastCallTime
-        if (elapsed < MIN_CALL_INTERVAL_MS) {
-            Thread.sleep(MIN_CALL_INTERVAL_MS - elapsed)
+        if (!isConfigured()) {
+            ErrorLogger.debug(TAG, "API key not configured, skipping")
+            return null
         }
-        lastCallTime = System.currentTimeMillis()
-        
-        val payload = JSONObject().apply {
-            put("contents", JSONArray().apply {
-                put(JSONObject().apply {
-                    put("role", "user")
-                    put("parts", JSONArray().apply {
-                        put(JSONObject().put("text", "$systemPrompt\n\n$userPrompt"))
+
+        if (isRateLimited()) {
+            ErrorLogger.debug(TAG, "⏳ Rate limited, ${getRateLimitRemainingMinutes()}min remaining")
+            return null
+        }
+
+        return try {
+            enforceCallSpacing()
+
+            val payload = JSONObject().apply {
+                put("contents", JSONArray().apply {
+                    put(JSONObject().apply {
+                        put("role", "user")
+                        put("parts", JSONArray().apply {
+                            put(JSONObject().put("text", "$systemPrompt\n\n$userPrompt"))
+                        })
                     })
                 })
-            })
-            put("generationConfig", JSONObject().apply {
-                put("temperature", 0.2)  // Low for consistent structured output
-                put("maxOutputTokens", 1024)
-                put("responseMimeType", "application/json")
-            })
-        }
-        
-        return try {
-            if (!isConfigured()) {
-                ErrorLogger.debug("GeminiCopilot", "API key not configured, skipping")
-                return null
+                put("generationConfig", JSONObject().apply {
+                    put("temperature", 0.2)
+                    put("maxOutputTokens", 1024)
+                    put("responseMimeType", "application/json")
+                })
             }
-            
-            // ════════════════════════════════════════════════════════════════════
-            // 429 RATE LIMIT CHECK
-            // Skip API call if we're in backoff period - return null gracefully
-            // This prevents hammering the API and lets the bot continue without AI
-            // ════════════════════════════════════════════════════════════════════
-            if (isRateLimited()) {
-                ErrorLogger.debug("GeminiCopilot", "⏳ Rate limited, ${getRateLimitRemainingMinutes()}min remaining")
-                return null
-            }
-            
-            val url = "$GEMINI_URL?key=$apiKey"
+
             val req = Request.Builder()
-                .url(url)
+                .url("$GEMINI_URL?key=$apiKey")
                 .post(payload.toString().toRequestBody(JSON_MT))
                 .header("Content-Type", "application/json")
                 .build()
-            
-            val resp = http.newCall(req).execute()
-            if (!resp.isSuccessful) {
-                // ════════════════════════════════════════════════════════════════
-                // HANDLE 429 SPECIFICALLY
-                // ════════════════════════════════════════════════════════════════
-                if (resp.code == 429) {
-                    recordRateLimit()
-                    // Don't log every 429 as error - just track and backoff
-                } else {
-                    ErrorLogger.warn("GeminiCopilot", "API error: ${resp.code}")
+
+            http.newCall(req).execute().use { resp ->
+                if (!resp.isSuccessful) {
+                    when (resp.code) {
+                        429 -> recordRateLimit()
+                        500, 502, 503, 504 -> ErrorLogger.warn(TAG, "Temporary API error: ${resp.code}")
+                        else -> ErrorLogger.warn(TAG, "API error: ${resp.code}")
+                    }
+                    return null
                 }
-                return null
+
+                resetRateLimit()
+
+                val body = resp.body?.string()?.trim().orEmpty()
+                if (body.isBlank()) return null
+
+                val json = JSONObject(body)
+                val rawText = json.optJSONArray("candidates")
+                    ?.optJSONObject(0)
+                    ?.optJSONObject("content")
+                    ?.optJSONArray("parts")
+                    ?.optJSONObject(0)
+                    ?.optString("text", null)
+
+                rawText?.let { sanitizeJsonText(it) }
             }
-            
-            // Successful call - reset rate limit tracking
-            resetRateLimit()
-            
-            val body = resp.body?.string() ?: return null
-            val json = JSONObject(body)
-            
-            // Extract text from Gemini response structure
-            json.optJSONArray("candidates")
-                ?.optJSONObject(0)
-                ?.optJSONObject("content")
-                ?.optJSONArray("parts")
-                ?.optJSONObject(0)
-                ?.optString("text")
         } catch (e: Exception) {
-            ErrorLogger.warn("GeminiCopilot", "Call failed: ${e.message}")
+            ErrorLogger.warn(TAG, "Call failed: ${e.message}")
             null
         }
     }
-    
-    // ════════════════════════════════════════════════════════════════════════════
-    // PROMPTS
-    // ════════════════════════════════════════════════════════════════════════════
-    
+
     private val NARRATIVE_SYSTEM_PROMPT = """
 You are a Solana meme coin analyst specializing in detecting scams and evaluating token narratives.
 Respond ONLY with valid JSON matching this exact structure:
 {
   "is_scam": boolean,
-  "scam_confidence": number (0-100),
+  "scam_confidence": number,
   "scam_type": "rug_pull" | "honeypot" | "pump_dump" | "none",
   "narrative_type": "meme" | "utility" | "ai" | "gaming" | "defi" | "unknown",
-  "viral_potential": number (0-100),
-  "red_flags": ["string", ...],
-  "green_flags": ["string", ...],
-  "reasoning": "string (1-2 sentences)",
+  "viral_potential": number,
+  "red_flags": ["string"],
+  "green_flags": ["string"],
+  "reasoning": "string",
   "recommendation": "BUY" | "AVOID" | "WATCH"
 }
 
-Scam indicators: copied names, fake utility claims, honeypot patterns, unrealistic promises, 
+Scam indicators: copied names, fake utility claims, honeypot patterns, unrealistic promises,
 anonymous teams with no history, locked liquidity claims without proof.
 Viral indicators: strong meme appeal, community engagement, trending narrative, good ticker.
 """.trimIndent()
-    
+
     private val TRADE_REASONING_SYSTEM_PROMPT = """
 You are a trading analyst explaining trade decisions in plain English.
 Respond ONLY with valid JSON:
 {
   "action": "BUY" | "SELL" | "HOLD" | "SKIP",
-  "confidence": number (0-100),
+  "confidence": number,
   "primary_reason": "string",
-  "supporting_factors": ["string", ...],
-  "risk_factors": ["string", ...],
-  "human_summary": "string (2-3 sentences explaining the trade to a human)"
+  "supporting_factors": ["string"],
+  "risk_factors": ["string"],
+  "human_summary": "string"
 }
 Be concise and actionable. Focus on key factors that drove the decision.
 """.trimIndent()
-    
+
     private val MARKET_SENTIMENT_SYSTEM_PROMPT = """
 You are a crypto market analyst assessing overall meme coin market conditions.
 Respond ONLY with valid JSON:
 {
   "overall_sentiment": "BULLISH" | "BEARISH" | "NEUTRAL" | "FEAR" | "GREED",
-  "sentiment_score": number (-100 to +100),
+  "sentiment_score": number,
   "meme_season_active": boolean,
-  "top_narratives": ["string", ...],
-  "market_risks": ["string", ...],
-  "reasoning": "string (1-2 sentences)"
+  "top_narratives": ["string"],
+  "market_risks": ["string"],
+  "reasoning": "string"
 }
-Consider: recent win rates, token activity levels, market trends.
+Consider recent win rates, token activity levels, and market trends.
 """.trimIndent()
-    
+
     private val EXIT_ADVISOR_SYSTEM_PROMPT = """
-You are a trading exit specialist for meme coins. Your job is to advise when and how to exit positions.
+You are a trading exit specialist for meme coins.
 Respond ONLY with valid JSON:
 {
   "should_exit": boolean,
   "exit_urgency": "IMMEDIATE" | "SOON" | "HOLD" | "RIDE",
-  "suggested_exit_pct": number (0-100, how much of position to exit),
-  "target_price": number (if holding, what price to target),
-  "stop_loss_price": number (suggested stop loss),
-  "reasoning": "string (1-2 sentences)",
+  "suggested_exit_pct": number,
+  "target_price": number,
+  "stop_loss_price": number,
+  "reasoning": "string",
   "time_horizon": "minutes" | "hours" | "days",
-  "confidence_score": number (0-100)
+  "confidence_score": number
 }
-Consider: current P&L, peak P&L (round-trip risk), hold time, recent price action (momentum).
-Meme coins move fast - be decisive. Lock profits, don't be greedy.
+Consider current P&L, peak P&L, hold time, and recent price action.
 """.trimIndent()
-    
+
     private val RISK_ASSESSMENT_SYSTEM_PROMPT = """
 You are a risk analyst for meme coin trading.
 Respond ONLY with valid JSON:
 {
   "overall_risk": "LOW" | "MEDIUM" | "HIGH" | "EXTREME",
-  "risk_score": number (0-100),
+  "risk_score": number,
   "liquidity_risk": "LOW" | "MEDIUM" | "HIGH",
   "volatility_risk": "LOW" | "MEDIUM" | "HIGH",
   "rug_pull_risk": "LOW" | "MEDIUM" | "HIGH",
   "market_risk": "LOW" | "MEDIUM" | "HIGH",
-  "top_risks": ["string", ...],
-  "mitigation_suggestions": ["string", ...]
+  "top_risks": ["string"],
+  "mitigation_suggestions": ["string"]
 }
-Consider: rugcheck score, holder concentration, liquidity depth, token age.
+Consider rugcheck score, holder concentration, liquidity depth, and token age.
 """.trimIndent()
-    
-    // ════════════════════════════════════════════════════════════════════════════
-    // PROMPT BUILDERS
-    // ════════════════════════════════════════════════════════════════════════════
-    
+
     private fun buildNarrativePrompt(
-        symbol: String, name: String, description: String, socialMentions: List<String>
+        symbol: String,
+        name: String,
+        description: String,
+        socialMentions: List<String>,
     ): String {
         val social = if (socialMentions.isNotEmpty()) {
             "\nRecent social mentions:\n${socialMentions.take(5).joinToString("\n") { "- $it" }}"
-        } else ""
-        
+        } else {
+            ""
+        }
+
         return """
 Analyze this Solana meme coin:
 Symbol: $symbol
 Name: $name
-Description: ${description.take(200).ifEmpty { "None provided" }}
+Description: ${description.take(200).ifBlank { "None provided" }}
 $social
 
 Evaluate for scam signals and viral potential.
 """.trimIndent()
     }
-    
+
     private fun buildTradeReasoningPrompt(
-        ts: TokenState, action: String, entryScore: Double, exitScore: Double, aiLayers: Map<String, String>
+        ts: TokenState,
+        action: String,
+        entryScore: Double,
+        exitScore: Double,
+        aiLayers: Map<String, String>,
     ): String {
         val layers = aiLayers.entries.joinToString("\n") { "- ${it.key}: ${it.value}" }
+
         return """
 Trade Decision Analysis:
 Token: ${ts.symbol}
@@ -528,10 +497,14 @@ $layers
 Explain why this trade decision was made.
 """.trimIndent()
     }
-    
+
     private fun buildMarketSentimentPrompt(
-        winRate: Double, tokens: List<String>, avgHold: Double, trend: String
-    ): String = """
+        winRate: Double,
+        tokens: List<String>,
+        avgHold: Double,
+        trend: String,
+    ): String {
+        return """
 Market Conditions Analysis:
 Recent Win Rate: ${winRate.toInt()}%
 Recent Tokens Traded: ${tokens.take(10).joinToString(", ")}
@@ -540,11 +513,17 @@ Market Trend: $trend
 
 Assess overall meme coin market sentiment.
 """.trimIndent()
-    
+    }
+
     private fun buildExitAdvicePrompt(
-        ts: TokenState, pnl: Double, holdTime: Double, peak: Double, prices: List<Double>
+        ts: TokenState,
+        pnl: Double,
+        holdTime: Double,
+        peak: Double,
+        prices: List<Double>,
     ): String {
-        val priceStr = prices.takeLast(10).joinToString(" → ") { it.toString().take(8) }
+        val priceStr = prices.takeLast(10).joinToString(" → ") { "%.8f".format(it) }
+
         return """
 Exit Decision for: ${ts.symbol}
 Current P&L: ${pnl.toInt()}%
@@ -558,10 +537,15 @@ Phase: ${ts.phase}
 Should I exit? If so, how much and how urgently?
 """.trimIndent()
     }
-    
+
     private fun buildRiskAssessmentPrompt(
-        ts: TokenState, rugcheck: Int, topHolder: Double, liquidity: Double, age: Int
-    ): String = """
+        ts: TokenState,
+        rugcheck: Int,
+        topHolder: Double,
+        liquidity: Double,
+        age: Int,
+    ): String {
+        return """
 Risk Assessment for: ${ts.symbol}
 RugCheck Score: $rugcheck/100
 Top Holder %: ${topHolder.toInt()}%
@@ -572,93 +556,178 @@ Current Price: ${ts.lastPrice}
 
 Assess all risk factors.
 """.trimIndent()
-    
-    // ════════════════════════════════════════════════════════════════════════════
-    // RESPONSE PARSERS
-    // ════════════════════════════════════════════════════════════════════════════
-    
+    }
+
     private fun parseNarrativeResponse(json: String): NarrativeAnalysis? {
         return try {
-            val j = JSONObject(json.trim())
+            val j = JSONObject(sanitizeJsonText(json))
             NarrativeAnalysis(
                 isScam = j.optBoolean("is_scam", false),
-                scamConfidence = j.optDouble("scam_confidence", 0.0),
-                scamType = j.optString("scam_type", "none"),
-                narrativeType = j.optString("narrative_type", "unknown"),
-                viralPotential = j.optDouble("viral_potential", 50.0),
-                redFlags = j.optJSONArray("red_flags")?.toStringList() ?: emptyList(),
-                greenFlags = j.optJSONArray("green_flags")?.toStringList() ?: emptyList(),
-                reasoning = j.optString("reasoning", ""),
-                recommendation = j.optString("recommendation", "WATCH"),
+                scamConfidence = j.optDouble("scam_confidence", 0.0).coercePercent(),
+                scamType = j.optString("scam_type", "none").normalizeEnum("none"),
+                narrativeType = j.optString("narrative_type", "unknown").normalizeEnum("unknown"),
+                viralPotential = j.optDouble("viral_potential", 50.0).coercePercent(),
+                redFlags = j.optJSONArray("red_flags").toStringList(),
+                greenFlags = j.optJSONArray("green_flags").toStringList(),
+                reasoning = j.optString("reasoning", "").trim(),
+                recommendation = j.optString("recommendation", "WATCH").uppercase()
+                    .takeIf { it in setOf("BUY", "AVOID", "WATCH") } ?: "WATCH",
             )
         } catch (e: Exception) {
-            ErrorLogger.debug("GeminiCopilot", "Parse narrative failed: ${e.message}")
+            ErrorLogger.debug(TAG, "Parse narrative failed: ${e.message}")
             null
         }
     }
-    
+
     private fun parseTradeReasoningResponse(json: String): TradeReasoning? {
         return try {
-            val j = JSONObject(json.trim())
+            val j = JSONObject(sanitizeJsonText(json))
             TradeReasoning(
-                action = j.optString("action", "HOLD"),
-                confidence = j.optDouble("confidence", 50.0),
-                primaryReason = j.optString("primary_reason", ""),
-                supportingFactors = j.optJSONArray("supporting_factors")?.toStringList() ?: emptyList(),
-                riskFactors = j.optJSONArray("risk_factors")?.toStringList() ?: emptyList(),
-                humanSummary = j.optString("human_summary", ""),
+                action = j.optString("action", "HOLD").uppercase()
+                    .takeIf { it in setOf("BUY", "SELL", "HOLD", "SKIP") } ?: "HOLD",
+                confidence = j.optDouble("confidence", 50.0).coercePercent(),
+                primaryReason = j.optString("primary_reason", "").trim(),
+                supportingFactors = j.optJSONArray("supporting_factors").toStringList(),
+                riskFactors = j.optJSONArray("risk_factors").toStringList(),
+                humanSummary = j.optString("human_summary", "").trim(),
             )
-        } catch (_: Exception) { null }
+        } catch (e: Exception) {
+            ErrorLogger.debug(TAG, "Parse trade reasoning failed: ${e.message}")
+            null
+        }
     }
-    
+
     private fun parseMarketSentimentResponse(json: String): MarketSentiment? {
         return try {
-            val j = JSONObject(json.trim())
+            val j = JSONObject(sanitizeJsonText(json))
             MarketSentiment(
-                overallSentiment = j.optString("overall_sentiment", "NEUTRAL"),
-                sentimentScore = j.optDouble("sentiment_score", 0.0),
+                overallSentiment = j.optString("overall_sentiment", "NEUTRAL").uppercase()
+                    .takeIf { it in setOf("BULLISH", "BEARISH", "NEUTRAL", "FEAR", "GREED") }
+                    ?: "NEUTRAL",
+                sentimentScore = j.optDouble("sentiment_score", 0.0).coerceIn(-100.0, 100.0),
                 memeSeasonActive = j.optBoolean("meme_season_active", false),
-                topNarratives = j.optJSONArray("top_narratives")?.toStringList() ?: emptyList(),
-                marketRisks = j.optJSONArray("market_risks")?.toStringList() ?: emptyList(),
-                reasoning = j.optString("reasoning", ""),
+                topNarratives = j.optJSONArray("top_narratives").toStringList(),
+                marketRisks = j.optJSONArray("market_risks").toStringList(),
+                reasoning = j.optString("reasoning", "").trim(),
             )
-        } catch (_: Exception) { null }
+        } catch (e: Exception) {
+            ErrorLogger.debug(TAG, "Parse market sentiment failed: ${e.message}")
+            null
+        }
     }
-    
+
     private fun parseExitAdviceResponse(json: String): ExitAdvice? {
         return try {
-            val j = JSONObject(json.trim())
+            val j = JSONObject(sanitizeJsonText(json))
             ExitAdvice(
                 shouldExit = j.optBoolean("should_exit", false),
-                exitUrgency = j.optString("exit_urgency", "HOLD"),
-                suggestedExitPct = j.optDouble("suggested_exit_pct", 0.0),
-                targetPrice = j.optDouble("target_price", 0.0),
-                stopLossPrice = j.optDouble("stop_loss_price", 0.0),
-                reasoning = j.optString("reasoning", ""),
-                timeHorizon = j.optString("time_horizon", "hours"),
-                confidenceScore = j.optDouble("confidence_score", 50.0),
+                exitUrgency = j.optString("exit_urgency", "HOLD").uppercase()
+                    .takeIf { it in setOf("IMMEDIATE", "SOON", "HOLD", "RIDE") } ?: "HOLD",
+                suggestedExitPct = j.optDouble("suggested_exit_pct", 0.0).coercePercent(),
+                targetPrice = max(0.0, j.optDouble("target_price", 0.0)),
+                stopLossPrice = max(0.0, j.optDouble("stop_loss_price", 0.0)),
+                reasoning = j.optString("reasoning", "").trim(),
+                timeHorizon = j.optString("time_horizon", "hours").lowercase()
+                    .takeIf { it in setOf("minutes", "hours", "days") } ?: "hours",
+                confidenceScore = j.optDouble("confidence_score", 50.0).coercePercent(),
             )
-        } catch (_: Exception) { null }
+        } catch (e: Exception) {
+            ErrorLogger.debug(TAG, "Parse exit advice failed: ${e.message}")
+            null
+        }
     }
-    
+
     private fun parseRiskAssessmentResponse(json: String): RiskAssessment? {
         return try {
-            val j = JSONObject(json.trim())
+            val j = JSONObject(sanitizeJsonText(json))
             RiskAssessment(
-                overallRisk = j.optString("overall_risk", "MEDIUM"),
-                riskScore = j.optDouble("risk_score", 50.0),
-                liquidityRisk = j.optString("liquidity_risk", "MEDIUM"),
-                volatilityRisk = j.optString("volatility_risk", "MEDIUM"),
-                rugPullRisk = j.optString("rug_pull_risk", "MEDIUM"),
-                marketRisk = j.optString("market_risk", "MEDIUM"),
-                topRisks = j.optJSONArray("top_risks")?.toStringList() ?: emptyList(),
-                mitigationSuggestions = j.optJSONArray("mitigation_suggestions")?.toStringList() ?: emptyList(),
+                overallRisk = j.optString("overall_risk", "MEDIUM").uppercase()
+                    .takeIf { it in setOf("LOW", "MEDIUM", "HIGH", "EXTREME") } ?: "MEDIUM",
+                riskScore = j.optDouble("risk_score", 50.0).coercePercent(),
+                liquidityRisk = j.optString("liquidity_risk", "MEDIUM").uppercase()
+                    .takeIf { it in setOf("LOW", "MEDIUM", "HIGH") } ?: "MEDIUM",
+                volatilityRisk = j.optString("volatility_risk", "MEDIUM").uppercase()
+                    .takeIf { it in setOf("LOW", "MEDIUM", "HIGH") } ?: "MEDIUM",
+                rugPullRisk = j.optString("rug_pull_risk", "MEDIUM").uppercase()
+                    .takeIf { it in setOf("LOW", "MEDIUM", "HIGH") } ?: "MEDIUM",
+                marketRisk = j.optString("market_risk", "MEDIUM").uppercase()
+                    .takeIf { it in setOf("LOW", "MEDIUM", "HIGH") } ?: "MEDIUM",
+                topRisks = j.optJSONArray("top_risks").toStringList(),
+                mitigationSuggestions = j.optJSONArray("mitigation_suggestions").toStringList(),
             )
-        } catch (_: Exception) { null }
+        } catch (e: Exception) {
+            ErrorLogger.debug(TAG, "Parse risk assessment failed: ${e.message}")
+            null
+        }
     }
-    
-    // Helper extension
-    private fun JSONArray.toStringList(): List<String> {
-        return (0 until length()).mapNotNull { optString(it) }
+
+    private fun getCachedNarrative(key: String): NarrativeAnalysis? {
+        val cached = narrativeCache[key] ?: return null
+        return if (System.currentTimeMillis() - cached.timestamp < CACHE_TTL_MS) {
+            cached.value
+        } else {
+            narrativeCache.remove(key)
+            null
+        }
+    }
+
+    private fun getCachedExitAdvice(key: String): ExitAdvice? {
+        val cached = exitAdviceCache[key] ?: return null
+        return if (System.currentTimeMillis() - cached.timestamp < CACHE_TTL_MS) {
+            cached.value
+        } else {
+            exitAdviceCache.remove(key)
+            null
+        }
+    }
+
+    private fun sanitizeJsonText(raw: String): String {
+        var text = raw.trim()
+
+        if (text.startsWith("```")) {
+            text = text
+                .removePrefix("```json")
+                .removePrefix("```JSON")
+                .removePrefix("```")
+                .removeSuffix("```")
+                .trim()
+        }
+
+        val firstBrace = text.indexOf('{')
+        val lastBrace = text.lastIndexOf('}')
+        if (firstBrace >= 0 && lastBrace > firstBrace) {
+            text = text.substring(firstBrace, lastBrace + 1)
+        }
+
+        return text
+    }
+
+    private fun JSONArray?.toStringList(): List<String> {
+        if (this == null) return emptyList()
+
+        val out = ArrayList<String>(length())
+        for (i in 0 until length()) {
+            val value = optString(i, "").trim()
+            if (value.isNotEmpty()) out.add(value)
+        }
+        return out
+    }
+
+    private fun Double.coercePercent(): Double = coerceIn(0.0, 100.0)
+
+    private fun String.normalizeEnum(defaultValue: String): String {
+        val v = trim().lowercase()
+        return if (v.isBlank()) defaultValue else v
+    }
+
+    fun clearCaches() {
+        narrativeCache.clear()
+        exitAdviceCache.clear()
+    }
+
+    fun cleanup() {
+        val now = System.currentTimeMillis()
+        narrativeCache.entries.removeIf { now - it.value.timestamp > CACHE_TTL_MS }
+        exitAdviceCache.entries.removeIf { now - it.value.timestamp > CACHE_TTL_MS }
     }
 }
