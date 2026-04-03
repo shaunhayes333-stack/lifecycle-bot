@@ -18,7 +18,7 @@ import kotlin.math.max
  * 
  * KEY DIFFERENCES FROM TREASURY:
  * ─────────────────────────────────────────────────────────────────────────────
- * 1. Market Cap Filter: MINIMUM $1M (vs Treasury's no minimum)
+ * 1. Market Cap Filter: MINIMUM $50k (vs Treasury's no minimum)
  * 2. Hold Times: LONGER (up to 30 mins vs Treasury's 8 mins)
  * 3. Profit Targets: HIGHER (10-25% vs Treasury's 5-10%)
  * 4. Trade Frequency: LOWER but HIGHER QUALITY
@@ -47,10 +47,10 @@ object BlueChipTraderAI {
     // ═══════════════════════════════════════════════════════════════════════════
     
     // Market cap filter - MINIMUM $1M
-    private const val MIN_MARKET_CAP_USD = 1_000_000.0
+    private const val MIN_MARKET_CAP_USD = 50_000.0
     
     // Liquidity requirements - higher than Treasury
-    private const val MIN_LIQUIDITY_USD = 50_000.0
+    private const val MIN_LIQUIDITY_USD = 20_000.0
     
     // Position sizing
     private const val BASE_POSITION_SOL = 0.15         // Larger than Treasury (0.05)
@@ -381,7 +381,7 @@ object BlueChipTraderAI {
         // BLUE CHIP FILTERS - Quality gates
         // ═══════════════════════════════════════════════════════════════════
         
-        // 1. MARKET CAP FILTER - Must be >$1M
+        // 1. MARKET CAP FILTER - Must be >$50k
         if (marketCapUsd < MIN_MARKET_CAP_USD) {
             return BlueChipSignal(
                 shouldEnter = false,
@@ -389,7 +389,7 @@ object BlueChipTraderAI {
                 takeProfitPct = 0.0,
                 stopLossPct = 0.0,
                 confidence = 0,
-                reason = "MCAP_TOO_LOW: \$${(marketCapUsd/1000).toInt()}K < \$1M",
+                reason = "MCAP_TOO_LOW: \$${(marketCapUsd/1000).toInt()}K < \$50k",
                 mode = mode,
                 isPaperMode = isPaperMode
             )
@@ -517,8 +517,8 @@ object BlueChipTraderAI {
         
         // Calculate confidence
         blueChipConfidence = (
-            (if (marketCapUsd > 2_000_000) 25 else 15) +
-            (if (liquidityUsd > 75_000) 25 else 15) +
+            (if (marketCapUsd > 100_000) 25 else 15) +
+            (if (liquidityUsd > 15_000) 25 else 15) +
             (if (buyPressurePct > 50) 25 else 15) +
             (if (v3Confidence > 50) 25 else 15)
         ).coerceIn(0, 100)
@@ -580,7 +580,7 @@ object BlueChipTraderAI {
         
         ErrorLogger.info(TAG, "🔵 BLUE CHIP QUALIFIED: $symbol | " +
             "score=$blueChipScore conf=$blueChipConfidence% | " +
-            "mcap=\$${(marketCapUsd/1_000_000).fmt(2)}M | " +
+            "mcap=\$${(marketCapUsd/50_000).fmt(2)}M | " +
             "size=${positionSol.fmt(4)} SOL | " +
             "TP=${takeProfitPct.fmt(0)}% SL=${stopLossPct.toInt()}%")
         
@@ -612,8 +612,8 @@ object BlueChipTraderAI {
 
     // V5.4: Liq floor at bootstrap dropped from $75K → $20K
     // Most Solana paper tokens have $5K-$40K liquidity. $75K excluded everything.
-    private const val BC_LIQ_BOOTSTRAP = 20_000.0   // V5.4: was 75_000
-    private const val BC_LIQ_MATURE = 50_000.0      // Tighten at maturity (experienced = selective)
+    private const val BC_LIQ_BOOTSTRAP = 5_000.0   // V5.4: was 75_000
+    private const val BC_LIQ_MATURE = 8_000.0      // Tighten at maturity (experienced = selective)
     
     private fun lerp(bootstrap: Double, mature: Double): Double {
         val progress = FluidLearningAI.getLearningProgress()
