@@ -1,8 +1,10 @@
 package com.lifecyclebot.v3.core
 
 import com.lifecyclebot.v3.decision.ConfidenceEngine
-import com.lifecyclebot.v3.decision.OpsMetrics
+import com.lifecyclebot.v3.decision.DecisionBand
+import com.lifecyclebot.v3.decision.DecisionResult
 import com.lifecyclebot.v3.decision.FinalDecisionEngine
+import com.lifecyclebot.v3.decision.OpsMetrics
 import com.lifecyclebot.v3.eligibility.CGradeLooperTracker
 import com.lifecyclebot.v3.eligibility.EligibilityGate
 import com.lifecyclebot.v3.execution.BotLogger
@@ -41,7 +43,7 @@ class BotOrchestrator(
     private val finalDecisionEngine: FinalDecisionEngine,
     private val smartSizer: SmartSizerV3,
     private val tradeExecutor: TradeExecutor = TradeExecutor(),
-    private val shadowTracker: ShadowTracker = ShadowTracker(),
+    private val shadowTracker: ShadowTracker = ShadowTracker()
 ) {
 
     fun processCandidate(
@@ -49,7 +51,7 @@ class BotOrchestrator(
         wallet: WalletSnapshot,
         risk: PortfolioRiskState,
         learningMetrics: LearningMetrics,
-        opsMetrics: OpsMetrics,
+        opsMetrics: OpsMetrics
     ): ProcessResult {
         lifecycle.mark(candidate.mint, LifecycleState.DISCOVERED)
         logger.stage(
@@ -116,7 +118,7 @@ class BotOrchestrator(
             return ProcessResult.ShadowOnly(
                 score = scoreCard.total.toDouble(),
                 confidence = confidence.effective.toDouble(),
-                reason = earlyKill.reason,
+                reason = earlyKill.reason
             )
         }
 
@@ -126,7 +128,7 @@ class BotOrchestrator(
             scoreCard = scoreCard,
             confidence = confidence,
             fatal = fatal,
-            isPaperMode = isPaperMode,
+            isPaperMode = isPaperMode
         )
 
         logger.stage(
@@ -138,7 +140,14 @@ class BotOrchestrator(
 
         val setupQuality = deriveSetupQuality(decision.finalScore)
 
-        val liqResult = checkLiquidityFloor(candidate, decision.band, setupQuality, isPaperMode, confidence.effective)
+        val liqResult = checkLiquidityFloor(
+            candidate = candidate,
+            scoreCard = scoreCard,
+            band = decision.band,
+            setupQuality = setupQuality,
+            isPaperMode = isPaperMode,
+            effectiveConfidence = confidence.effective
+        )
         if (liqResult != null) {
             return liqResult
         }
@@ -156,7 +165,7 @@ class BotOrchestrator(
             setupQuality = setupQuality,
             confidence = confidence.effective,
             isBootstrap = isBootstrap,
-            scoreCard = scoreCard,
+            scoreCard = scoreCard
         )
         if (looperResult != null) {
             return looperResult
@@ -174,14 +183,14 @@ class BotOrchestrator(
                 risk = risk,
                 confidenceEffective = confidence.effective,
                 decision = decision,
-                scoreCard = scoreCard,
+                scoreCard = scoreCard
             )
         }
     }
 
     private data class PreScoreKill(
         val memoryScore: Int,
-        val reason: String,
+        val reason: String
     )
 
     private fun checkPreScoreMemoryKill(candidate: CandidateSnapshot): PreScoreKill? {
@@ -196,7 +205,7 @@ class BotOrchestrator(
                 )
                 PreScoreKill(
                     memoryScore = memoryScore,
-                    reason = "MEMORY_VERY_NEGATIVE_$memoryScore",
+                    reason = "MEMORY_VERY_NEGATIVE_$memoryScore"
                 )
             } else {
                 null
@@ -209,13 +218,13 @@ class BotOrchestrator(
     private data class PreProposalKill(
         val setupQuality: String,
         val memoryScore: Int,
-        val reason: String,
+        val reason: String
     )
 
     private fun checkPreProposalKill(
         candidate: CandidateSnapshot,
         scoreCard: ScoreCard,
-        effectiveConfidence: Int,
+        effectiveConfidence: Int
     ): PreProposalKill? {
         val earlyQuality = deriveSetupQuality(scoreCard.total)
         val memoryScore = scoreCard.byName("memory")?.value ?: 0
@@ -228,10 +237,8 @@ class BotOrchestrator(
         val reason = when {
             effectiveConfidence < 28 && memoryScore <= -10 ->
                 "C_GRADE_LOW_CONF_${effectiveConfidence}_BAD_MEMORY_$memoryScore"
-
             effectiveConfidence < 28 ->
                 "C_GRADE_CONF_FLOOR_$effectiveConfidence"
-
             else ->
                 "C_GRADE_BAD_MEMORY_$memoryScore"
         }
@@ -239,7 +246,7 @@ class BotOrchestrator(
         return PreProposalKill(
             setupQuality = earlyQuality,
             memoryScore = memoryScore,
-            reason = reason,
+            reason = reason
         )
     }
 
@@ -253,15 +260,16 @@ class BotOrchestrator(
 
     private fun checkLiquidityFloor(
         candidate: CandidateSnapshot,
+        scoreCard: ScoreCard,
         band: DecisionBand,
         setupQuality: String,
         isPaperMode: Boolean,
-        effectiveConfidence: Int,
+        effectiveConfidence: Int
     ): ProcessResult? {
         val executionBands = setOf(
             DecisionBand.EXECUTE_SMALL,
             DecisionBand.EXECUTE_STANDARD,
-            DecisionBand.EXECUTE_AGGRESSIVE,
+            DecisionBand.EXECUTE_AGGRESSIVE
         )
 
         if (band !in executionBands) return null
@@ -291,10 +299,15 @@ class BotOrchestrator(
             "liq=$${candidate.liquidityUsd.toInt()} < $${liquidityFloor.toInt()} floor for $setupQuality-grade -> WATCH ONLY"
         )
         lifecycle.mark(candidate.mint, LifecycleState.WATCH)
-        shadowTracker.track(candidate, dummyScoreCard(candidate), effectiveConfidence, "LOW_LIQUIDITY_${candidate.liquidityUsd.toInt()}")
+        shadowTracker.track(
+            candidate,
+            scoreCard,
+            effectiveConfidence,
+            "LOW_LIQUIDITY_${candidate.liquidityUsd.toInt()}"
+        )
         return ProcessResult.Watch(
             score = 0.0,
-            confidence = effectiveConfidence.toDouble(),
+            confidence = effectiveConfidence.toDouble()
         )
     }
 
@@ -304,12 +317,12 @@ class BotOrchestrator(
         setupQuality: String,
         confidence: Int,
         isBootstrap: Boolean,
-        scoreCard: ScoreCard,
+        scoreCard: ScoreCard
     ): ProcessResult? {
         val executionBands = setOf(
             DecisionBand.EXECUTE_SMALL,
             DecisionBand.EXECUTE_STANDARD,
-            DecisionBand.EXECUTE_AGGRESSIVE,
+            DecisionBand.EXECUTE_AGGRESSIVE
         )
 
         if (isBootstrap || decision.band !in executionBands) return null
@@ -325,7 +338,7 @@ class BotOrchestrator(
             shadowTracker.track(candidate, scoreCard, confidence, "C_GRADE_LOOPER_BLOCKED")
             return ProcessResult.Watch(
                 score = decision.finalScore.toDouble(),
-                confidence = confidence.toDouble(),
+                confidence = confidence.toDouble()
             )
         }
 
@@ -337,7 +350,7 @@ class BotOrchestrator(
         candidate: CandidateSnapshot,
         scoreCard: ScoreCard,
         effectiveConfidence: Int,
-        decision: DecisionResult,
+        decision: DecisionResult
     ): ProcessResult {
         lifecycle.mark(candidate.mint, LifecycleState.BLOCKED_FATAL)
         shadowTracker.track(candidate, scoreCard, effectiveConfidence, decision.fatalReason ?: "FATAL")
@@ -348,7 +361,7 @@ class BotOrchestrator(
             scoreCard = scoreCard,
             effectiveConfidence = effectiveConfidence,
             decision = decision,
-            reason = "BLOCKED_FATAL",
+            reason = "BLOCKED_FATAL"
         )
 
         return ProcessResult.BlockFatal(decision.fatalReason ?: "FATAL")
@@ -358,7 +371,7 @@ class BotOrchestrator(
         candidate: CandidateSnapshot,
         scoreCard: ScoreCard,
         effectiveConfidence: Int,
-        decision: DecisionResult,
+        decision: DecisionResult
     ): ProcessResult {
         lifecycle.mark(candidate.mint, LifecycleState.WATCH)
         shadowTracker.track(candidate, scoreCard, effectiveConfidence, "WATCH")
@@ -369,12 +382,12 @@ class BotOrchestrator(
             scoreCard = scoreCard,
             effectiveConfidence = effectiveConfidence,
             decision = decision,
-            reason = "WATCH",
+            reason = "WATCH"
         )
 
         return ProcessResult.Watch(
             score = decision.finalScore.toDouble(),
-            confidence = effectiveConfidence.toDouble(),
+            confidence = effectiveConfidence.toDouble()
         )
     }
 
@@ -382,7 +395,7 @@ class BotOrchestrator(
         candidate: CandidateSnapshot,
         scoreCard: ScoreCard,
         effectiveConfidence: Int,
-        decision: DecisionResult,
+        decision: DecisionResult
     ): ProcessResult {
         lifecycle.mark(candidate.mint, LifecycleState.REJECTED)
 
@@ -395,7 +408,7 @@ class BotOrchestrator(
                 scoreCard = scoreCard,
                 effectiveConfidence = effectiveConfidence,
                 decision = decision,
-                reason = "NEAR_MISS",
+                reason = "NEAR_MISS"
             )
         }
 
@@ -408,7 +421,7 @@ class BotOrchestrator(
         risk: PortfolioRiskState,
         confidenceEffective: Int,
         decision: DecisionResult,
-        scoreCard: ScoreCard,
+        scoreCard: ScoreCard
     ): ProcessResult {
         lifecycle.mark(candidate.mint, LifecycleState.EXECUTE_READY)
 
@@ -418,7 +431,7 @@ class BotOrchestrator(
             confidence = confidenceEffective,
             candidate = candidate,
             risk = risk,
-            mode = ctx.mode,
+            mode = ctx.mode
         )
 
         logger.stage("SIZING", candidate.symbol, "OK", "size=${"%.4f".format(size.sizeSol)} SOL")
@@ -441,18 +454,7 @@ class BotOrchestrator(
             score = decision.finalScore,
             confidence = confidenceEffective,
             txSignature = execResult.txSignature,
-            breakdown = breakdown,
-        )
-    }
-
-    /**
-     * Fallback only for one very narrow path where shadowTracker still needs a scoreCard.
-     * Prefer passing the real scoreCard everywhere else.
-     */
-    private fun dummyScoreCard(candidate: CandidateSnapshot): ScoreCard {
-        return ScoreCard(
-            total = 0,
-            components = emptyList(),
+            breakdown = breakdown
         )
     }
 }
@@ -464,18 +466,18 @@ sealed class ProcessResult {
         val score: Int,
         val confidence: Int,
         val txSignature: String?,
-        val breakdown: String = "",
+        val breakdown: String = ""
     ) : ProcessResult()
 
     data class Watch(
         val score: Double,
-        val confidence: Double,
+        val confidence: Double
     ) : ProcessResult()
 
     data class ShadowOnly(
         val score: Double,
         val confidence: Double,
-        val reason: String,
+        val reason: String
     ) : ProcessResult()
 
     data class Rejected(val reason: String) : ProcessResult()
@@ -495,7 +497,7 @@ private fun openShadowTradeForLearning(
     scoreCard: ScoreCard,
     effectiveConfidence: Int,
     decision: DecisionResult,
-    reason: String,
+    reason: String
 ) {
     try {
         val entryPrice = candidate.extraDouble("price").takeIf { it > 0.0 }
@@ -529,7 +531,7 @@ private fun openShadowTradeForLearning(
             setupQuality = setupQuality,
             regime = regime,
             mode = mode,
-            aiPredictions = aiPredictions,
+            aiPredictions = aiPredictions
         )
     } catch (e: Exception) {
         com.lifecyclebot.engine.ErrorLogger.debug(
