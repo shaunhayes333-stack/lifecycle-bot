@@ -1,7 +1,6 @@
 package com.lifecyclebot.v3.core
 
 import com.lifecyclebot.v3.decision.ConfidenceEngine
-import com.lifecyclebot.v3.decision.DecisionBand
 import com.lifecyclebot.v3.decision.DecisionResult
 import com.lifecyclebot.v3.decision.FinalDecisionEngine
 import com.lifecyclebot.v3.decision.OpsMetrics
