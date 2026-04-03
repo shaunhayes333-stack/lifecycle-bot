@@ -37,17 +37,17 @@ class CooldownManager {
 }
 
 /**
- * V3 C-Grade Looper Tracker
+ * V3 D-Grade Looper Tracker
  * 
- * Prevents repeated C-grade proposals from clogging the pipeline.
+ * Prevents repeated D-grade proposals from clogging the pipeline.
  * Tracks tokens that have been proposed with:
- *   - quality = C
- *   - confidence < 25
+ *   - quality = D
+ *   - confidence < 15
  * 
  * If a token has been proposed 2+ times in the last 2 minutes with these
  * characteristics, it gets blocked from re-proposal until it either:
- *   - Improves to c+ quality
- *   - Confidence rises to 30+
+ *   - Improves to c quality
+ *   - Confidence rises to 20+
  *   - 2 minutes pass since last proposal
  */
 object CGradeLooperTracker {
@@ -59,8 +59,8 @@ object CGradeLooperTracker {
     
     private val recentProposals = mutableMapOf<String, MutableList<ProposalRecord>>()
     private const val WINDOW_MS = 2 * 60 * 1000L  // 2 minute window
-    private const val MAX_C_GRADE_PROPOSALS = 3  // Max 3 C-grade proposals per window
-    private const val C_GRADE_CONF_THRESHOLD = 25 // Minimum confidence for C-grade
+    private const val MAX_D_GRADE_PROPOSALS = 10  // Max 10 D-grade proposals per window
+    private const val D_GRADE_CONF_THRESHOLD = 15 // Minimum confidence for D-grade
     
     /**
      * Record a proposal for a token
@@ -74,11 +74,11 @@ object CGradeLooperTracker {
     }
     
     /**
-     * Check if a C-grade token should be blocked from re-proposal
+     * Check if a D-grade token should be blocked from re-proposal
      */
     fun shouldBlockCGradeLooper(mint: String, quality: String, confidence: Int): Boolean {
-        // Only applies to C-grade with low confidence
-        if (quality != "C" || confidence >= C_GRADE_CONF_THRESHOLD) {
+        // Only applies to D-grade with low confidence
+        if (quality != "D" || confidence >= C_GRADE_CONF_THRESHOLD) {
             return false
         }
         
@@ -87,12 +87,12 @@ object CGradeLooperTracker {
         
         val records = recentProposals[mint] ?: return false
         
-        // Count recent C-grade low-conf proposals
+        // Count recent D-grade low-conf proposals
         val recentCGradeCount = records.count { 
-            it.quality == "C" && it.confidence < C_GRADE_CONF_THRESHOLD 
+            it.quality == "D" && it.confidence < C_GRADE_CONF_THRESHOLD 
         }
         
-        return recentCGradeCount >= MAX_C_GRADE_PROPOSALS
+        return recentCGradeCount >= MAX_D_GRADE_PROPOSALS
     }
     
     private fun cleanOldRecords(now: Long) {
