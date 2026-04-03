@@ -19,7 +19,7 @@ import kotlin.math.max
  * 
  * SPACE-THEMED TRADING MODES:
  * ─────────────────────────────────────────────────────────────────────────────
- *   🛸 ORBITAL   - Early moonshots ($100K-$500K) - Catch them before liftoff
+ *   🛸 ORBITAL   - Early moonshots ($500K-$500K) - Catch them before liftoff
  *   🌙 LUNAR     - Mid moonshots ($500K-$2M) - Building momentum
  *   🔴 MARS      - High conviction ($2M-$5M) - Strong fundamentals + hype
  *   🪐 JUPITER   - Mega plays ($5M-$50M) - Collective winners promoted here
@@ -57,18 +57,18 @@ object MoonshotTraderAI {
         val maxHold: Int,
         val description: String,
     ) {
-        ORBITAL("🛸", "Orbital", 100_000.0, 500_000.0, 100.0, -10.0, 45, "Early launch detection"),
+        ORBITAL("🛸", "Orbital", 50_000.0, 500_000.0, 50.0, -10.0, 45, "Early launch detection"),
         LUNAR("🌙", "Lunar", 500_000.0, 2_000_000.0, 200.0, -12.0, 60, "Building momentum"),
         MARS("🔴", "Mars", 2_000_000.0, 5_000_000.0, 500.0, -15.0, 120, "High conviction plays"),
         JUPITER("🪐", "Jupiter", 5_000_000.0, 50_000_000.0, 1000.0, -20.0, 240, "Mega collective winners"),
     }
     
     // Market cap boundaries
-    private const val MIN_MARKET_CAP_USD = 100_000.0     // $100K minimum
+    private const val MIN_MARKET_CAP_USD = 50_000.0     // $100K minimum
     private const val MAX_MARKET_CAP_USD = 50_000_000.0  // $50M maximum (Jupiter mode)
     
     // Liquidity requirements
-    private const val MIN_LIQUIDITY_USD_BOOTSTRAP = 15_000.0
+    private const val MIN_LIQUIDITY_USD_BOOTSTRAP = 5_000.0
     private const val MIN_LIQUIDITY_USD_MATURE = 10_000.0
     
     // Position sizing - moderate but aggressive
