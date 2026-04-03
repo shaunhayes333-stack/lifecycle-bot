@@ -36,6 +36,30 @@ class BotService : Service() {
         const val CHANNEL_TRADE = "trade_signals"
         const val NOTIF_ID      = 1
 
+        // ═══════════════════════════════════════════════════════════════
+        // PIPELINE DEBUG HELPERS - trace exactly why tokens don't buy
+        // ═══════════════════════════════════════════════════════════════
+        const val DEBUG_PIPELINE = true
+
+        fun logPipeline(symbol: String, stage: String, msg: String) {
+            if (!DEBUG_PIPELINE) return
+            ErrorLogger.info("BotService", "[PIPELINE/$stage] $symbol | $msg")
+        }
+
+        fun logNoBuy(symbol: String, stage: String, reason: String, mint: String = "", extra: String = "") {
+            if (!DEBUG_PIPELINE) return
+            val mintTag = if (mint.isNotBlank()) " | mint=${mint.take(12)}" else ""
+            val extraTag = if (extra.isNotBlank()) " | $extra" else ""
+            ErrorLogger.warn("BotService", "[NO_BUY/$stage] $symbol | $reason$mintTag$extraTag")
+        }
+
+        fun logBuyHandoff(symbol: String, mint: String, sizeSol: Double, source: String = "", score: Double = 0.0) {
+            if (!DEBUG_PIPELINE) return
+            val srcTag = if (source.isNotBlank()) " | src=$source" else ""
+            val scoreTag = if (score > 0.0) " | score=${score.toInt()}" else ""
+            ErrorLogger.info("BotService", "[BUY_HANDOFF] $symbol | mint=${mint.take(12)} | size=${"%.4f".format(sizeSol)}$srcTag$scoreTag")
+        }
+
         // Shared live state — observed by UI via polling or flow
         val status = BotStatus()
         lateinit var walletManager: WalletManager
@@ -3526,7 +3550,7 @@ if (deferredCount > 0) {
             // V5.2 FIX: Must check if Treasury already has a position!
             //          Treasury must hit TP and sell BEFORE other layers can enter
             // ═══════════════════════════════════════════════════════════════════
-            if (!ts.position.isOpen && ts.lastMcap >= 1_000_000) {
+            if (!ts.position.isOpen && ts.lastMcap >= 100_000) {  // V5.4 FIX: was 1_000_000 (blocked Quality 100K-1M layer)
                 // V5.2: Check if Treasury already has a position on this token
                 // Treasury trades must complete (hit TP/SL) before other layers can enter
                 if (com.lifecyclebot.v3.scoring.CashGenerationAI.hasPosition(ts.mint)) {
@@ -4658,10 +4682,10 @@ if (deferredCount > 0) {
     val isCGrade = decision.setupQuality == "C" || decision.setupQuality == "D"
     val fluidCGradeConfFloor = try {
         val learningProgress = com.lifecyclebot.v3.scoring.FluidLearningAI.getLearningProgress()
-        // V5.2.6: 0% at bootstrap → 5% at mature (dramatically lowered to let C-grades through)
-        // Paper mode needs to see C-grade outcomes to learn what works
-        (0 + (learningProgress * 5.0)).toInt().coerceIn(0, 5)
-    } catch (_: Exception) { 0 }
+        // V5.4: Raised from (0+progress*5) to (12+progress*13) — same direction as DecisionEngine
+        // Stops near-zero confidence meme coins from flooding the legacy path
+        (12 + (learningProgress * 13.0)).toInt().coerceIn(12, 25)
+    } catch (_: Exception) { 12 }
     
     if (isCGrade && confValue < fluidCGradeConfFloor) {
         ErrorLogger.info("BotService", "[V3|PROMOTION_GATE] ${identity.symbol} | allow=false | " +
