@@ -7,47 +7,43 @@ import okhttp3.Request
 import okhttp3.RequestBody.Companion.toRequestBody
 import org.json.JSONArray
 import org.json.JSONObject
+import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.TimeUnit
+import kotlin.math.abs
 
 /**
- * LLM Sentiment Engine — free via Groq API.
+ * LlmSentimentEngine — Groq-backed social sentiment layer with safe fallback.
  *
- * Groq free tier:
- *   Model:  llama-3.1-8b-instant
- *   Limit:  30 requests/min, 14,400 req/day — more than enough
- *   Speed:  ~200 tokens/sec (extremely fast)
- *   Cost:   $0
- *
- * Get a free key at: https://console.groq.com (no credit card needed)
- *
- * How it works:
- *   1. Batch recent tweets + Telegram messages into chunks of ~800 chars
- *   2. Send to Groq with a structured prompt asking for JSON sentiment
- *   3. Parse the JSON response: score, reasoning, key signals, risk flags
- *   4. Cache result for 5 minutes to avoid hammering the API
- *
- * Falls back to keyword scoring (SentimentAnalyzer) if no key configured
- * or if Groq is unavailable.
- *
- * Why Groq over Claude API here:
- *   - Claude API costs money per token
- *   - Groq llama-3.1-8b is genuinely free at this volume
- *   - For structured sentiment on short crypto texts it's more than adequate
+ * Notes:
+ * - Thread-safe cache
+ * - Proper HTTP resource closing
+ * - JSON sanitization for code-fenced responses
+ * - Internal keyword fallback available through scoreWithFallback()
+ * - Conservative hard-block behavior
  */
-class LlmSentimentEngine(private val groqApiKey: String = "") {
+class LlmSentimentEngine(
+    groqApiKey: String = "",
+) {
+
+    private val apiKey = groqApiKey.trim()
 
     private val http = OkHttpClient.Builder()
         .connectTimeout(10, TimeUnit.SECONDS)
         .readTimeout(20, TimeUnit.SECONDS)
+        .callTimeout(25, TimeUnit.SECONDS)
         .build()
 
-    private val JSON_MT = "application/json".toMediaType()
-    private val GROQ_URL = "https://api.groq.com/openai/v1/chat/completions"
-    private val MODEL    = "llama-3.1-8b-instant"
+    private val jsonMediaType = "application/json".toMediaType()
+    private val groqUrl = "https://api.groq.com/openai/v1/chat/completions"
+    private val model = "llama-3.1-8b-instant"
 
-    // Cache: cacheKey → (result, timestamp)
-    private val cache = mutableMapOf<String, Pair<LlmSentiment, Long>>()
-    private val CACHE_TTL_MS = 5 * 60_000L
+    private data class CachedSentiment(
+        val result: LlmSentiment,
+        val timestamp: Long,
+    )
+
+    private val cache = ConcurrentHashMap<String, CachedSentiment>()
+    private val cacheTtlMs = 5 * 60_000L
 
     data class LlmSentiment(
         val score: Double,              // -100 to +100
@@ -55,58 +51,102 @@ class LlmSentimentEngine(private val groqApiKey: String = "") {
         val reasoning: String,
         val bullishSignals: List<String>,
         val bearishSignals: List<String>,
-        val riskFlags: List<String>,    // e.g. "coordinated pump", "fake volume"
+        val riskFlags: List<String>,
         val hardBlock: Boolean,
         val blockReason: String,
         val source: String,             // "llm" | "keyword_fallback"
     )
 
-    // ── public interface ──────────────────────────────────────────────
-
     /**
-     * Score a batch of mention events using the LLM.
-     * Returns null if key not configured — caller should fall back to keyword scoring.
+     * Original interface:
+     * Returns null if API key is missing or LLM call fails.
      */
     fun score(
         symbol: String,
         mintAddress: String,
         events: List<MentionEvent>,
     ): LlmSentiment? {
-        if (groqApiKey.isBlank()) return null
+        if (apiKey.isBlank()) return null
         if (events.isEmpty()) return null
 
-        val cacheKey = "${mintAddress}_${events.size}_${events.lastOrNull()?.ts}"
-        val cached   = cache[cacheKey]
-        if (cached != null && System.currentTimeMillis() - cached.second < CACHE_TTL_MS) {
-            return cached.first
+        val normalizedSymbol = symbol.trim().ifBlank { "UNKNOWN" }
+        val cacheKey = buildCacheKey(normalizedSymbol, mintAddress, events)
+
+        cache[cacheKey]?.let { cached ->
+            if (System.currentTimeMillis() - cached.timestamp < cacheTtlMs) {
+                return cached.result
+            } else {
+                cache.remove(cacheKey)
+            }
         }
 
-        // Build text bundle — take most recent 20 events, max 800 chars total
-        val textBundle = events
-            .sortedByDescending { it.ts }
-            .take(20)
-            .joinToString("\n") { "[${it.source.uppercase()}] ${it.text.take(120)}" }
-            .take(800)
+        val textBundle = buildTextBundle(events)
+        if (textBundle.isBlank()) return null
 
-        val result = callGroq(symbol, mintAddress, textBundle) ?: return null
-        cache[cacheKey] = result to System.currentTimeMillis()
+        val result = callGroq(normalizedSymbol, mintAddress, textBundle) ?: return null
+        cache[cacheKey] = CachedSentiment(result, System.currentTimeMillis())
         return result
     }
 
-    // ── Groq API call ─────────────────────────────────────────────────
+    /**
+     * Safer interface for callers that always want a usable signal.
+     * Uses keyword fallback if Groq is unavailable.
+     */
+    fun scoreWithFallback(
+        symbol: String,
+        mintAddress: String,
+        events: List<MentionEvent>,
+    ): LlmSentiment {
+        return score(symbol, mintAddress, events)
+            ?: keywordFallback(symbol, mintAddress, events)
+    }
 
-    private fun callGroq(symbol: String, mint: String, textBundle: String): LlmSentiment? {
+    fun isConfigured(): Boolean = apiKey.isNotBlank()
+
+    private fun buildCacheKey(
+        symbol: String,
+        mintAddress: String,
+        events: List<MentionEvent>,
+    ): String {
+        val newestTs = events.maxOfOrNull { it.ts } ?: 0L
+        val oldestTs = events.minOfOrNull { it.ts } ?: 0L
+        val textFingerprint = events
+            .sortedByDescending { it.ts }
+            .take(10)
+            .joinToString("|") { "${it.source}:${it.text.take(40)}" }
+            .hashCode()
+
+        return "$symbol|$mintAddress|${events.size}|$oldestTs|$newestTs|$textFingerprint"
+    }
+
+    private fun buildTextBundle(events: List<MentionEvent>): String {
+        val builder = StringBuilder()
+        for (event in events.sortedByDescending { it.ts }.take(20)) {
+            val line = "[${event.source.uppercase()}] ${event.text.replace('\n', ' ').trim().take(120)}"
+            if (line.isBlank()) continue
+            if (builder.isNotEmpty()) builder.append('\n')
+            builder.append(line)
+            if (builder.length >= 800) break
+        }
+        return builder.toString().take(800).trim()
+    }
+
+    private fun callGroq(
+        symbol: String,
+        mint: String,
+        textBundle: String,
+    ): LlmSentiment? {
         val prompt = buildPrompt(symbol, mint, textBundle)
 
         val payload = JSONObject().apply {
-            put("model", MODEL)
-            put("temperature", 0.1)    // low temp = consistent structured output
+            put("model", model)
+            put("temperature", 0.1)
             put("max_tokens", 400)
             put("response_format", JSONObject().put("type", "json_object"))
             put("messages", JSONArray().apply {
                 put(JSONObject().apply {
                     put("role", "system")
-                    put("content", SYSTEM_PROMPT)
+                    put("content", systemPrompt)
                 })
                 put(JSONObject().apply {
                     put("role", "user")
@@ -116,58 +156,204 @@ class LlmSentimentEngine(private val groqApiKey: String = "") {
         }
 
         return try {
-            val req = Request.Builder()
-                .url(GROQ_URL)
-                .post(payload.toString().toRequestBody(JSON_MT))
-                .header("Authorization", "Bearer $groqApiKey")
+            val request = Request.Builder()
+                .url(groqUrl)
+                .post(payload.toString().toRequestBody(jsonMediaType))
+                .header("Authorization", "Bearer $apiKey")
                 .header("Content-Type", "application/json")
                 .build()
 
-            val resp = http.newCall(req).execute()
-            if (!resp.isSuccessful) return null
+            http.newCall(request).execute().use { response ->
+                if (!response.isSuccessful) {
+                    ErrorLogger.warn("LlmSentiment", "Groq HTTP ${response.code} for $symbol")
+                    return null
+                }
 
-            val body    = resp.body?.string() ?: return null
-            val content = JSONObject(body)
-                .optJSONArray("choices")
-                ?.optJSONObject(0)
-                ?.optJSONObject("message")
-                ?.optString("content", "") ?: return null
+                val body = response.body?.string()?.trim().orEmpty()
+                if (body.isBlank()) {
+                    ErrorLogger.warn("LlmSentiment", "Empty Groq response for $symbol")
+                    return null
+                }
 
-            parseLlmResponse(content)
-        } catch (_: Exception) { null }
+                val content = JSONObject(body)
+                    .optJSONArray("choices")
+                    ?.optJSONObject(0)
+                    ?.optJSONObject("message")
+                    ?.optString("content", "")
+                    ?.trim()
+                    .orEmpty()
+
+                if (content.isBlank()) {
+                    ErrorLogger.warn("LlmSentiment", "Missing Groq message content for $symbol")
+                    return null
+                }
+
+                parseLlmResponse(content)
+            }
+        } catch (e: Exception) {
+            ErrorLogger.warn("LlmSentiment", "Groq call failed for $symbol: ${e.message}")
+            null
+        }
     }
 
-    private fun parseLlmResponse(json: String): LlmSentiment? {
+    private fun parseLlmResponse(rawJson: String): LlmSentiment? {
         return try {
-            val j = JSONObject(json.trim())
+            val json = sanitizeJson(rawJson)
+            val j = JSONObject(json)
 
-            val bullish = j.optJSONArray("bullish_signals")
-                ?.let { arr -> (0 until arr.length()).map { arr.optString(it) } } ?: emptyList()
-            val bearish = j.optJSONArray("bearish_signals")
-                ?.let { arr -> (0 until arr.length()).map { arr.optString(it) } } ?: emptyList()
-            val risks   = j.optJSONArray("risk_flags")
-                ?.let { arr -> (0 until arr.length()).map { arr.optString(it) } } ?: emptyList()
+            val bullish = j.optJSONArray("bullish_signals").toStringList()
+            val bearish = j.optJSONArray("bearish_signals").toStringList()
+            val risks = j.optJSONArray("risk_flags").toStringList()
 
-            val hardBlock   = j.optBoolean("hard_block", false)
-            val blockReason = j.optString("block_reason", "")
+            val score = j.optDouble("score", 0.0).coerceIn(-100.0, 100.0)
+            val confidence = j.optDouble("confidence", 50.0).coerceIn(0.0, 100.0)
+            val hardBlock = j.optBoolean("hard_block", false)
+            val blockReason = j.optString("block_reason", "").trim().take(120)
 
             LlmSentiment(
-                score          = j.optDouble("score", 0.0).coerceIn(-100.0, 100.0),
-                confidence     = j.optDouble("confidence", 50.0).coerceIn(0.0, 100.0),
-                reasoning      = j.optString("reasoning", "").take(200),
+                score = score,
+                confidence = confidence,
+                reasoning = j.optString("reasoning", "").trim().take(220),
                 bullishSignals = bullish,
                 bearishSignals = bearish,
-                riskFlags      = risks,
-                hardBlock      = hardBlock,
-                blockReason    = blockReason,
-                source         = "llm",
+                riskFlags = risks,
+                hardBlock = hardBlock,
+                blockReason = if (hardBlock) blockReason else "",
+                source = "llm",
             )
-        } catch (_: Exception) { null }
+        } catch (e: Exception) {
+            ErrorLogger.warn("LlmSentiment", "Parse failed: ${e.message}")
+            null
+        }
     }
 
-    // ── prompts ───────────────────────────────────────────────────────
+    private fun sanitizeJson(input: String): String {
+        var text = input.trim()
 
-    private val SYSTEM_PROMPT = """
+        if (text.startsWith("```")) {
+            text = text
+                .removePrefix("```json")
+                .removePrefix("```JSON")
+                .removePrefix("```")
+                .removeSuffix("```")
+                .trim()
+        }
+
+        val firstBrace = text.indexOf('{')
+        val lastBrace = text.lastIndexOf('}')
+        if (firstBrace >= 0 && lastBrace > firstBrace) {
+            text = text.substring(firstBrace, lastBrace + 1)
+        }
+
+        return text
+    }
+
+    private fun JSONArray?.toStringList(): List<String> {
+        if (this == null) return emptyList()
+        val out = ArrayList<String>(length())
+        for (i in 0 until length()) {
+            val value = optString(i, "").trim()
+            if (value.isNotEmpty()) out.add(value.take(60))
+        }
+        return out
+    }
+
+    /**
+     * Simple internal fallback.
+     * Conservative and intentionally dumb, but stable.
+     */
+    private fun keywordFallback(
+        symbol: String,
+        mintAddress: String,
+        events: List<MentionEvent>,
+    ): LlmSentiment {
+        if (events.isEmpty()) {
+            return LlmSentiment(
+                score = 0.0,
+                confidence = 15.0,
+                reasoning = "No social data available.",
+                bullishSignals = emptyList(),
+                bearishSignals = emptyList(),
+                riskFlags = emptyList(),
+                hardBlock = false,
+                blockReason = "",
+                source = "keyword_fallback",
+            )
+        }
+
+        val positiveWords = listOf(
+            "send", "moon", "bullish", "breakout", "runner", "gem", "accumulation",
+            "strong", "buying", "support", "squeeze", "uptrend", "hold"
+        )
+        val negativeWords = listOf(
+            "dump", "rug", "honeypot", "scam", "sell", "distribution", "draining",
+            "fake", "washed", "dead", "exit", "insiders", "bundled"
+        )
+        val hardBlockWords = listOf(
+            "honeypot confirmed", "cant sell", "can't sell", "dev dumped", "rug confirmed"
+        )
+
+        var pos = 0
+        var neg = 0
+        val bullishSignals = mutableListOf<String>()
+        val bearishSignals = mutableListOf<String>()
+        val riskFlags = mutableListOf<String>()
+        var hardBlock = false
+        var blockReason = ""
+
+        val sample = events.sortedByDescending { it.ts }.take(20)
+
+        for (event in sample) {
+            val text = event.text.lowercase()
+
+            positiveWords.forEach { word ->
+                if (text.contains(word)) {
+                    pos++
+                    if (bullishSignals.size < 5) bullishSignals.add(word)
+                }
+            }
+
+            negativeWords.forEach { word ->
+                if (text.contains(word)) {
+                    neg++
+                    if (bearishSignals.size < 5) bearishSignals.add(word)
+                    if (word in listOf("rug", "honeypot", "fake", "bundled", "insiders") && riskFlags.size < 5) {
+                        riskFlags.add(word)
+                    }
+                }
+            }
+
+            val matchedBlock = hardBlockWords.firstOrNull { text.contains(it) }
+            if (matchedBlock != null) {
+                hardBlock = true
+                blockReason = matchedBlock
+            }
+        }
+
+        val raw = (pos - neg) * 8.0
+        val score = raw.coerceIn(-100.0, 100.0)
+        val density = min(1.0, (pos + neg).toDouble() / maxOf(sample.size, 1).toDouble())
+        val confidence = (25.0 + density * 35.0 + min(20.0, abs(score) * 0.2)).coerceIn(15.0, 80.0)
+
+        return LlmSentiment(
+            score = score,
+            confidence = confidence,
+            reasoning = when {
+                hardBlock -> "Keyword fallback detected a hard scam/rug indicator in recent mentions."
+                score > 20 -> "Keyword fallback sees more bullish than bearish social language."
+                score < -20 -> "Keyword fallback sees more bearish than bullish social language."
+                else -> "Keyword fallback sees mixed or weak social sentiment."
+            },
+            bullishSignals = bullishSignals.distinct(),
+            bearishSignals = bearishSignals.distinct(),
+            riskFlags = riskFlags.distinct(),
+            hardBlock = hardBlock,
+            blockReason = blockReason,
+            source = "keyword_fallback",
+        )
+    }
+
+    private val systemPrompt = """
 You are a Solana meme coin trading analyst. Analyse social media text about tokens and return ONLY valid JSON with this exact structure:
 {
   "score": <number -100 to 100, positive=bullish>,
@@ -192,4 +378,13 @@ $text
 
 Analyse the sentiment and risk level of this token based on the above social posts.
 """.trimIndent()
+
+    fun cleanup() {
+        val now = System.currentTimeMillis()
+        cache.entries.removeIf { now - it.value.timestamp > cacheTtlMs }
+    }
+
+    fun clearCache() {
+        cache.clear()
+    }
 }
