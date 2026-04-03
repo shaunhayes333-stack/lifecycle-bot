@@ -284,9 +284,11 @@ object MoonshotTraderAI {
             return MoonshotScore(false, 0, 0.0, "already_have_position")
         }
         
-        // 5. Safety check - slightly relaxed for moonshots but still filter rugs
-        if (rugcheckScore < 20) {
-            return MoonshotScore(false, 0, 0.0, "rugcheck_${rugcheckScore}_dangerous")
+        // 5. Safety check - fluid RC threshold
+        // Paper mode: match unified RC min pass = 2 (live keeps strict 20 for safety)
+        val minRcScore = if (isPaper) 2 else 20
+        if (rugcheckScore < minRcScore) {
+            return MoonshotScore(false, 0, 0.0, "rugcheck_${rugcheckScore}_below_min_${minRcScore}")
         }
         
         // ─── DETECT IF COLLECTIVE WINNER ───
@@ -362,12 +364,13 @@ object MoonshotTraderAI {
         // Collective intelligence bonus
         score += collectiveBonus
         
-        // Minimum threshold (lower during bootstrap)
+        // Minimum threshold — fluid by learning + paper mode
+        // Paper mode has lower floors during bootstrap to generate trades and learning data
         val minScore = when {
-            learningProgress < 0.1 -> 50   // Very permissive at start
-            learningProgress < 0.3 -> 55
-            learningProgress < 0.5 -> 60
-            else -> 65
+            learningProgress < 0.1 -> if (isPaper) 28 else 50
+            learningProgress < 0.3 -> if (isPaper) 35 else 55
+            learningProgress < 0.5 -> if (isPaper) 43 else 60
+            else -> if (isPaper) 52 else 65
         }
         
         if (score < minScore) {

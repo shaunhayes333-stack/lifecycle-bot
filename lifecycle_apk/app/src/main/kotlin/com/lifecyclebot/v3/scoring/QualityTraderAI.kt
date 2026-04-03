@@ -168,9 +168,11 @@ object QualityTraderAI {
             return QualitySignal(false, reason = "MCAP too high for Quality (use BlueChip): $${marketCapUsd.toInt()}")
         }
         
-        // Liquidity filter
-        if (liquidityUsd < MIN_LIQUIDITY_USD) {
-            return QualitySignal(false, reason = "Liquidity too low: $${liquidityUsd.toInt()} < $${MIN_LIQUIDITY_USD.toInt()}")
+        // Liquidity filter — FLUID: lower during bootstrap for data gathering
+        // V5.4: was hard $20K floor; now $8K bootstrap → $20K mature
+        val minLiqUsd = (8_000 + learningProgress * 12_000).coerceIn(8_000.0, MIN_LIQUIDITY_USD)
+        if (liquidityUsd < minLiqUsd) {
+            return QualitySignal(false, reason = "Liquidity too low: $${liquidityUsd.toInt()} < $${minLiqUsd.toInt()} (learning=${(learningProgress*100).toInt()}%)")
         }
         
         // Age filter - FLUID: Lower during learning to gather data
@@ -181,14 +183,18 @@ object QualityTraderAI {
             return QualitySignal(false, reason = "Too new: ${tokenAgeMinutes.toInt()}min < ${minAgeRequired.toInt()}min (learning=${(learningProgress*100).toInt()}%)")
         }
         
-        // Buy pressure filter
-        if (buyPressure < MIN_BUY_PRESSURE) {
-            return QualitySignal(false, reason = "Buy pressure low: $buyPressure% < $MIN_BUY_PRESSURE%")
+        // Buy pressure filter — FLUID: lower during bootstrap so paper mode gets data
+        // V5.4: was hard 40%, now 25% bootstrap → 40% mature
+        val minBuyPressure = (25 + learningProgress * 15).toInt().coerceIn(25, 40)
+        if (buyPressure < minBuyPressure) {
+            return QualitySignal(false, reason = "Buy pressure low: $buyPressure% < $minBuyPressure% (learning=${(learningProgress*100).toInt()}%)")
         }
-        
-        // Holder distribution (if available)
-        if (holderCount > 0 && holderCount < MIN_HOLDER_COUNT) {
-            return QualitySignal(false, reason = "Too few holders: $holderCount < $MIN_HOLDER_COUNT")
+
+        // Holder distribution (if available) — FLUID: lower during bootstrap
+        // V5.4: was hard 50, now 10 bootstrap → 50 mature
+        val minHolderCount = (10 + learningProgress * 40).toInt().coerceIn(10, 50)
+        if (holderCount > 0 && holderCount < minHolderCount) {
+            return QualitySignal(false, reason = "Too few holders: $holderCount < $minHolderCount (learning=${(learningProgress*100).toInt()}%)")
         }
         if (topHolderPct > MAX_TOP_HOLDER_PCT) {
             return QualitySignal(false, reason = "Top holder too dominant: ${topHolderPct.toInt()}% > ${MAX_TOP_HOLDER_PCT.toInt()}%")
@@ -257,10 +263,12 @@ object QualityTraderAI {
         // DECISION
         // ═══════════════════════════════════════════════════════════════════
         
-        val minScore = 40  // Require 40+ quality score
-        
+        // FLUID min quality score: 24 at bootstrap → 40 at mature
+        // V5.4: was hard 40 — unreachable when V3 bonus is 0 (low v3 scores in early learning)
+        val minScore = (24 + learningProgress * 16).toInt().coerceIn(24, 40)
+
         if (qualityScore < minScore) {
-            return QualitySignal(false, reason = "Quality score too low: $qualityScore < $minScore", qualityScore = qualityScore)
+            return QualitySignal(false, reason = "Quality score too low: $qualityScore < $minScore (learning=${(learningProgress*100).toInt()}%)", qualityScore = qualityScore)
         }
         
         // Calculate position size based on quality

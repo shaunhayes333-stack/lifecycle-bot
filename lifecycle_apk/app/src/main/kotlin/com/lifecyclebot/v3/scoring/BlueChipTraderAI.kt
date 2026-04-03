@@ -600,20 +600,20 @@ object BlueChipTraderAI {
     // FLUID THRESHOLDS - Blue Chip specific
     // ═══════════════════════════════════════════════════════════════════════════
     
-    // V4.20: BlueChip gets slightly higher thresholds than other layers
-    // but still lowered by 5 points (not 8) to allow quality paper trades
-    // Bootstrap thresholds - STRICT (Blue Chip is quality-focused)
-    private const val BC_SCORE_BOOTSTRAP = 40       // Lowered from 50 to find quality trades
-    private const val BC_SCORE_MATURE = 30          // Loosen as we learn
-    
-    // V4.20: Lowered bootstrap conf from 25% to 20% (only 5 points)
-    // BlueChip should be pickier but still able to learn
-    private const val BC_CONF_BOOTSTRAP = 20        // Lowered by 5 points
-    private const val BC_CONF_MATURE = 45           // Lowered from 50%
+    // V5.4: Fluid thresholds - much lower at bootstrap to allow paper mode to trade
+    // Blue Chip tokens are $1M+ mcap so high liq floor was blocking most paper candidates
+    private const val BC_SCORE_BOOTSTRAP = 22       // V5.4: was 40 — too high when V3 scores 14-20
+    private const val BC_SCORE_MATURE = 35          // Tighten as we gain experience
+
+    // V5.4: Conf floor dropped — with bootstrap boost below, effective = 10+10 = 20%
+    private const val BC_CONF_BOOTSTRAP = 10        // V5.4: was 20 — too strict for bootstrap
+    private const val BC_CONF_MATURE = 45           // Unchanged
     private const val BC_CONF_BOOST_MAX = 12.0      // 12% bootstrap boost
-    
-    private const val BC_LIQ_BOOTSTRAP = 75_000.0   // Higher than Treasury
-    private const val BC_LIQ_MATURE = 50_000.0      // Can take lower liq when experienced
+
+    // V5.4: Liq floor at bootstrap dropped from $75K → $20K
+    // Most Solana paper tokens have $5K-$40K liquidity. $75K excluded everything.
+    private const val BC_LIQ_BOOTSTRAP = 20_000.0   // V5.4: was 75_000
+    private const val BC_LIQ_MATURE = 50_000.0      // Tighten at maturity (experienced = selective)
     
     private fun lerp(bootstrap: Double, mature: Double): Double {
         val progress = FluidLearningAI.getLearningProgress()
