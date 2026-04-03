@@ -1,99 +1,67 @@
 package com.lifecyclebot.engine
 
+import org.json.JSONArray
 import org.json.JSONObject
 
 /**
  * DashboardDataProvider — Centralized data provider for UI dashboards.
- * 
- * Aggregates data from:
- * - UnifiedModeOrchestrator (trading modes)
- * - SuperBrainEnhancements (market intelligence)
- * - BotBrain (learning metrics)
- * - TreasuryManager (profit tracking)
- * 
- * DEFENSIVE DESIGN:
- * - All methods return safe defaults on error
- * - No initialization required
- * - Thread-safe reads
+ *
+ * Aggregates safe read-only dashboard data from:
+ * - UnifiedModeOrchestrator
+ * - SuperBrainEnhancements
+ * - BotBrain
+ * - TreasuryManager
+ *
+ * Defensive goals:
+ * - Never throw to caller
+ * - Safe defaults everywhere
+ * - Isolate failures by subsystem
  */
 object DashboardDataProvider {
-    
+
     private const val TAG = "DashboardData"
-    
+
     // ═══════════════════════════════════════════════════════════════════
     // UNIFIED DASHBOARD DATA
     // ═══════════════════════════════════════════════════════════════════
-    
-    /**
-     * Complete dashboard data for the main intelligence view.
-     */
+
     data class IntelligenceDashboard(
-        // Mode Orchestrator
         val currentMode: String = "Standard",
         val activeModes: Int = 0,
-        val totalModes: Int = 18,
+        val totalModes: Int = 0,
         val topPerformingMode: String = "N/A",
         val topModeWinRate: Double = 0.0,
-        
-        // SuperBrain
+
         val marketSentiment: String = "UNKNOWN",
         val breadthTrend: String = "UNKNOWN",
         val totalInsights: Int = 0,
         val activeSignals: Int = 0,
-        
-        // Pattern Stats
+
         val topPatterns: List<PatternDisplay> = emptyList(),
-        
-        // Brain Learning
+
         val totalTradesAnalyzed: Int = 0,
         val currentRegime: String = "UNKNOWN",
         val entryThresholdDelta: Double = 0.0,
-        
-        // Treasury
+
         val treasuryBalance: Double = 0.0,
         val treasuryPnl: Double = 0.0,
-        
-        // Timestamps
-        val lastUpdateMs: Long = 0,
+
+        val lastUpdateMs: Long = 0L,
     )
-    
+
     data class PatternDisplay(
         val name: String,
         val emoji: String,
         val winRate: Double,
         val trades: Int,
     )
-    
-    /**
-     * Get complete intelligence dashboard data.
-     */
-    fun getIntelligenceDashboard(
-        brain: BotBrain? = null,
-    ): IntelligenceDashboard {
+
+    fun getIntelligenceDashboard(brain: BotBrain? = null): IntelligenceDashboard {
         return try {
-            // Mode Orchestrator data
-            val modeData = try {
-                UnifiedModeOrchestrator.ensureInitialized()
-                val stats = UnifiedModeOrchestrator.getAllStatsSorted()
-                val topMode = stats.firstOrNull { it.trades >= 5 }
-                
-                Triple(
-                    UnifiedModeOrchestrator.getModeDisplay(UnifiedModeOrchestrator.getCurrentPrimaryMode()),
-                    stats.count { it.isActive },
-                    topMode
-                )
-            } catch (e: Exception) {
-                Triple("Standard", 0, null)
-            }
-            
-            // SuperBrain data
-            val brainData = try {
-                SuperBrainEnhancements.getDashboardData()
-            } catch (e: Exception) {
-                SuperBrainEnhancements.SuperBrainDashboard()
-            }
-            
-            // Pattern displays
+            val modeSummary = getSafeModeSummary()
+            val brainData = getSafeSuperBrainDashboard()
+            val treasuryData = getSafeTreasuryPair()
+
             val patterns = brainData.topPatterns.map { stat ->
                 PatternDisplay(
                     name = stat.pattern,
@@ -102,40 +70,28 @@ object DashboardDataProvider {
                     trades = stat.trades,
                 )
             }
-            
-            // Treasury data
-            val treasuryData = try {
-                Pair(
-                    TreasuryManager.treasurySol,
-                    TreasuryManager.lifetimeLocked
-                )
-            } catch (e: Exception) {
-                Pair(0.0, 0.0)
-            }
-            
+
             IntelligenceDashboard(
-                currentMode = modeData.first,
-                activeModes = modeData.second,
-                totalModes = UnifiedModeOrchestrator.ExtendedMode.values().size,
-                topPerformingMode = modeData.third?.let { 
-                    UnifiedModeOrchestrator.getModeDisplay(it.mode) 
-                } ?: "N/A",
-                topModeWinRate = modeData.third?.winRate ?: 0.0,
-                
+                currentMode = modeSummary.currentMode,
+                activeModes = modeSummary.activeModes,
+                totalModes = modeSummary.totalModes,
+                topPerformingMode = modeSummary.topModeName,
+                topModeWinRate = modeSummary.topModeWinRate,
+
                 marketSentiment = brainData.marketSentiment,
                 breadthTrend = brainData.breadthTrend,
                 totalInsights = brainData.totalInsights,
                 activeSignals = brainData.activeSignals,
-                
+
                 topPatterns = patterns,
-                
+
                 totalTradesAnalyzed = brain?.totalTradesAnalysed ?: 0,
                 currentRegime = brain?.currentRegime ?: "UNKNOWN",
                 entryThresholdDelta = brain?.entryThresholdDelta ?: 0.0,
-                
+
                 treasuryBalance = treasuryData.first,
                 treasuryPnl = treasuryData.second,
-                
+
                 lastUpdateMs = System.currentTimeMillis(),
             )
         } catch (e: Exception) {
@@ -143,11 +99,11 @@ object DashboardDataProvider {
             IntelligenceDashboard()
         }
     }
-    
+
     // ═══════════════════════════════════════════════════════════════════
     // MODE PERFORMANCE CARD
     // ═══════════════════════════════════════════════════════════════════
-    
+
     data class ModePerformanceCard(
         val emoji: String,
         val name: String,
@@ -157,10 +113,7 @@ object DashboardDataProvider {
         val isActive: Boolean,
         val riskLevel: Int,
     )
-    
-    /**
-     * Get mode performance cards for display.
-     */
+
     fun getModePerformanceCards(): List<ModePerformanceCard> {
         return try {
             UnifiedModeOrchestrator.ensureInitialized()
@@ -176,45 +129,44 @@ object DashboardDataProvider {
                 )
             }
         } catch (e: Exception) {
+            ErrorLogger.debug(TAG, "getModePerformanceCards error: ${e.message}")
             emptyList()
         }
     }
-    
+
     // ═══════════════════════════════════════════════════════════════════
     // TREASURY DASHBOARD
     // ═══════════════════════════════════════════════════════════════════
-    
+
     data class TreasuryDashboard(
         val currentBalance: Double = 0.0,
         val lifetimePnl: Double = 0.0,
         val totalWithdrawn: Double = 0.0,
-        val lastDepositMs: Long = 0,
+        val lastDepositMs: Long = 0L,
         val isLocked: Boolean = false,
         val lockReason: String = "",
     )
-    
-    /**
-     * Get treasury dashboard data.
-     */
+
     fun getTreasuryDashboard(): TreasuryDashboard {
         return try {
             TreasuryDashboard(
                 currentBalance = TreasuryManager.treasurySol,
                 lifetimePnl = TreasuryManager.lifetimeLocked,
                 totalWithdrawn = TreasuryManager.lifetimeWithdrawn,
-                lastDepositMs = 0,  // Not tracked separately
-                isLocked = false,   // Treasury is always accessible
+                lastDepositMs = 0L,
+                isLocked = false,
                 lockReason = "",
             )
         } catch (e: Exception) {
+            ErrorLogger.debug(TAG, "getTreasuryDashboard error: ${e.message}")
             TreasuryDashboard()
         }
     }
-    
+
     // ═══════════════════════════════════════════════════════════════════
     // QUICK STATS
     // ═══════════════════════════════════════════════════════════════════
-    
+
     data class QuickStats(
         val sentiment: String,
         val sentimentEmoji: String,
@@ -223,24 +175,44 @@ object DashboardDataProvider {
         val treasurySol: Double,
         val insightCount: Int,
     )
-    
-    /**
-     * Get quick stats for status bar display.
-     */
+
     fun getQuickStats(): QuickStats {
         return try {
-            val sentiment = SuperBrainEnhancements.getCurrentSentiment()
-            val mode = UnifiedModeOrchestrator.getCurrentPrimaryMode()
-            
+            val sentiment = try {
+                SuperBrainEnhancements.getCurrentSentiment()
+            } catch (_: Exception) {
+                "UNKNOWN"
+            }
+
+            val mode = try {
+                UnifiedModeOrchestrator.ensureInitialized()
+                UnifiedModeOrchestrator.getCurrentPrimaryMode()
+            } catch (_: Exception) {
+                null
+            }
+
+            val insights = try {
+                SuperBrainEnhancements.getDashboardData().totalInsights
+            } catch (_: Exception) {
+                0
+            }
+
+            val treasury = try {
+                TreasuryManager.treasurySol
+            } catch (_: Exception) {
+                0.0
+            }
+
             QuickStats(
                 sentiment = sentiment,
                 sentimentEmoji = getSentimentEmoji(sentiment),
-                activeMode = mode.label,
-                modeEmoji = mode.emoji,
-                treasurySol = TreasuryManager.treasurySol,
-                insightCount = SuperBrainEnhancements.getDashboardData().totalInsights,
+                activeMode = mode?.label ?: "Standard",
+                modeEmoji = mode?.emoji ?: "📈",
+                treasurySol = treasury,
+                insightCount = insights,
             )
         } catch (e: Exception) {
+            ErrorLogger.debug(TAG, "getQuickStats error: ${e.message}")
             QuickStats(
                 sentiment = "UNKNOWN",
                 sentimentEmoji = "❓",
@@ -251,63 +223,151 @@ object DashboardDataProvider {
             )
         }
     }
-    
+
     // ═══════════════════════════════════════════════════════════════════
     // SERIALIZATION
     // ═══════════════════════════════════════════════════════════════════
-    
-    /**
-     * Export all dashboard data to JSON.
-     */
+
     fun toJson(brain: BotBrain? = null): JSONObject {
-        return try {
-            val dashboard = getIntelligenceDashboard(brain)
-            
-            JSONObject().apply {
-                put("currentMode", dashboard.currentMode)
-                put("activeModes", dashboard.activeModes)
-                put("marketSentiment", dashboard.marketSentiment)
-                put("breadthTrend", dashboard.breadthTrend)
-                put("totalInsights", dashboard.totalInsights)
-                put("treasuryBalance", dashboard.treasuryBalance)
-                put("lastUpdate", dashboard.lastUpdateMs)
-                
-                // Include mode orchestrator state
-                put("modeOrchestrator", UnifiedModeOrchestrator.toJson())
-                
-                // Include superbrain state
-                put("superBrain", SuperBrainEnhancements.toJson())
-            }
+        val dashboard = getIntelligenceDashboard(brain)
+
+        val root = JSONObject()
+        root.put("currentMode", dashboard.currentMode)
+        root.put("activeModes", dashboard.activeModes)
+        root.put("totalModes", dashboard.totalModes)
+        root.put("topPerformingMode", dashboard.topPerformingMode)
+        root.put("topModeWinRate", dashboard.topModeWinRate)
+
+        root.put("marketSentiment", dashboard.marketSentiment)
+        root.put("breadthTrend", dashboard.breadthTrend)
+        root.put("totalInsights", dashboard.totalInsights)
+        root.put("activeSignals", dashboard.activeSignals)
+
+        root.put("totalTradesAnalyzed", dashboard.totalTradesAnalyzed)
+        root.put("currentRegime", dashboard.currentRegime)
+        root.put("entryThresholdDelta", dashboard.entryThresholdDelta)
+
+        root.put("treasuryBalance", dashboard.treasuryBalance)
+        root.put("treasuryPnl", dashboard.treasuryPnl)
+        root.put("lastUpdate", dashboard.lastUpdateMs)
+
+        val patternArray = JSONArray()
+        dashboard.topPatterns.forEach { p ->
+            patternArray.put(
+                JSONObject().apply {
+                    put("name", p.name)
+                    put("emoji", p.emoji)
+                    put("winRate", p.winRate)
+                    put("trades", p.trades)
+                }
+            )
+        }
+        root.put("topPatterns", patternArray)
+
+        try {
+            root.put("modeOrchestrator", UnifiedModeOrchestrator.toJson())
         } catch (e: Exception) {
-            JSONObject()
+            ErrorLogger.debug(TAG, "modeOrchestrator toJson error: ${e.message}")
+            root.put("modeOrchestrator", JSONObject())
+        }
+
+        try {
+            root.put("superBrain", SuperBrainEnhancements.toJson())
+        } catch (e: Exception) {
+            ErrorLogger.debug(TAG, "superBrain toJson error: ${e.message}")
+            root.put("superBrain", JSONObject())
+        }
+
+        return root
+    }
+
+    // ═══════════════════════════════════════════════════════════════════
+    // INTERNAL SAFE HELPERS
+    // ═══════════════════════════════════════════════════════════════════
+
+    private data class SafeModeSummary(
+        val currentMode: String = "Standard",
+        val activeModes: Int = 0,
+        val totalModes: Int = 0,
+        val topModeName: String = "N/A",
+        val topModeWinRate: Double = 0.0,
+    )
+
+    private fun getSafeModeSummary(): SafeModeSummary {
+        return try {
+            UnifiedModeOrchestrator.ensureInitialized()
+            val stats = UnifiedModeOrchestrator.getAllStatsSorted()
+            val topMode = stats.firstOrNull { it.trades >= 5 }
+
+            val totalModes = try {
+                UnifiedModeOrchestrator.ExtendedMode.values().size
+            } catch (_: Exception) {
+                stats.size
+            }
+
+            SafeModeSummary(
+                currentMode = UnifiedModeOrchestrator.getModeDisplay(
+                    UnifiedModeOrchestrator.getCurrentPrimaryMode()
+                ),
+                activeModes = stats.count { it.isActive },
+                totalModes = totalModes,
+                topModeName = topMode?.let { UnifiedModeOrchestrator.getModeDisplay(it.mode) } ?: "N/A",
+                topModeWinRate = topMode?.winRate ?: 0.0,
+            )
+        } catch (e: Exception) {
+            ErrorLogger.debug(TAG, "getSafeModeSummary error: ${e.message}")
+            SafeModeSummary()
         }
     }
-    
+
+    private fun getSafeSuperBrainDashboard(): SuperBrainEnhancements.SuperBrainDashboard {
+        return try {
+            SuperBrainEnhancements.getDashboardData()
+        } catch (e: Exception) {
+            ErrorLogger.debug(TAG, "getSafeSuperBrainDashboard error: ${e.message}")
+            SuperBrainEnhancements.SuperBrainDashboard()
+        }
+    }
+
+    private fun getSafeTreasuryPair(): Pair<Double, Double> {
+        return try {
+            Pair(
+                TreasuryManager.treasurySol,
+                TreasuryManager.lifetimeLocked,
+            )
+        } catch (e: Exception) {
+            ErrorLogger.debug(TAG, "getSafeTreasuryPair error: ${e.message}")
+            Pair(0.0, 0.0)
+        }
+    }
+
     // ═══════════════════════════════════════════════════════════════════
     // HELPERS
     // ═══════════════════════════════════════════════════════════════════
-    
+
     private fun getPatternEmoji(pattern: String): String {
-        return when (pattern.uppercase()) {
-            "HAMMER" -> "🔨"
-            "DOJI" -> "✝️"
-            "ENGULFING" -> "🌊"
-            "DOUBLE_BOTTOM" -> "W"
-            "DOUBLE_TOP" -> "M"
-            "BREAKOUT" -> "🚀"
-            "BREAKDOWN" -> "📉"
-            "MORNING_STAR" -> "⭐"
-            "EVENING_STAR" -> "🌙"
-            "BULLISH_FLAG" -> "🏁"
-            "BEARISH_FLAG" -> "🚩"
-            "CUP_HANDLE" -> "☕"
-            "HEAD_SHOULDERS" -> "👤"
-            "TRIANGLE" -> "△"
-            "WEDGE" -> "◢"
+        val p = pattern.uppercase()
+
+        return when {
+            "HAMMER" in p -> "🔨"
+            "DOJI" in p -> "✝️"
+            "ENGULF" in p -> "🌊"
+            "DOUBLE_BOTTOM" in p -> "W"
+            "DOUBLE_TOP" in p -> "M"
+            "BREAKOUT" in p -> "🚀"
+            "BREAKDOWN" in p -> "📉"
+            "MORNING_STAR" in p -> "⭐"
+            "EVENING_STAR" in p -> "🌙"
+            "BULLISH_FLAG" in p || "BULL_FLAG" in p -> "🏁"
+            "BEARISH_FLAG" in p || "BEAR_FLAG" in p -> "🚩"
+            "CUP_HANDLE" in p || "CUP" in p -> "☕"
+            "HEAD_SHOULDERS" in p -> "👤"
+            "TRIANGLE" in p -> "△"
+            "WEDGE" in p -> "◢"
             else -> "📊"
         }
     }
-    
+
     private fun getSentimentEmoji(sentiment: String): String {
         return when (sentiment.uppercase()) {
             "STRONG_BULL" -> "🟢🟢"
