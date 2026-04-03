@@ -2850,15 +2850,19 @@ if (deferredCount > 0) {
             val recentPrice = recentCandles.lastOrNull()?.priceUsd ?: 0.0
             val olderPrice = olderCandles.firstOrNull()?.priceUsd ?: recentPrice
             
-            // Detect potential rug: >50% price drop or liquidity collapse
+            // Detect potential rug: BOTH price drop AND liquidity collapse required.
+            // Using OR was causing false rug learning: olderLiq is estimated from mcap×0.1
+            // when real data is missing, producing fake 100% liq drops on tokens with $0
+            // reported liquidity — poisoning TradingMemory with fabricated rug patterns.
+            // Requiring BOTH conditions means only genuine multi-signal events are learned.
             if (olderPrice > 0 && recentPrice > 0) {
                 val priceDropPct = ((olderPrice - recentPrice) / olderPrice) * 100
                 val liqDropPct = if (olderLiq > 0) ((olderLiq - recentLiq) / olderLiq) * 100 else 0.0
-                
-                if (priceDropPct >= 50 || liqDropPct >= 70) {
+
+                if (priceDropPct >= 50 && liqDropPct >= 70) {  // AND not OR — both required
                     val ageHours = (System.currentTimeMillis() - (ts.addedToWatchlistAt)) / 3_600_000.0
                     val volumeSpike = recentCandles.sumOf { it.vol } > olderCandles.sumOf { it.vol } * 2
-                    
+
                     TradingMemory.learnFromRug(
                         mint = mint,
                         symbol = ts.symbol,
@@ -4608,12 +4612,14 @@ if (deferredCount > 0) {
     val edgeVerdictStr = decision.edgeQuality  // "A", "B", "C", or "SKIP"
     val confValue = decision.aiConfidence
     
-    // V5.2: Check if we're in bootstrap mode - allow SKIP trades for learning
+    // Check if we're in bootstrap phase — allow SKIP trades through for V3 learning.
+    // Threshold aligned with V5.3 3-phase curve: bootstrap runs 0→0.5 (first 500 trades).
+    // Was 0.20 which was cutting off bootstrap learning at only ~100 trades.
     val learningProgress = try {
         com.lifecyclebot.v3.scoring.FluidLearningAI.getLearningProgress()
     } catch (_: Exception) { 0.0 }
-    val isBootstrap = learningProgress < 0.20  // Under 20% = bootstrap mode
-    
+    val isBootstrap = learningProgress < 0.50  // Bootstrap phase ends at 0.5 (500 trades)
+
     // During bootstrap: Allow SKIP trades through for V3 learning (paper mode only)
     val allowSkipForLearning = isBootstrap && cfg.paperMode && edgeVerdictStr == "SKIP"
     

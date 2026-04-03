@@ -273,13 +273,17 @@ class FinalDecisionEngine(
         } catch (e: Exception) { 0.0 }
         
         // Fluid thresholds for C-grade
-        // V5.0: Dramatically lowered for bootstrap - bot MUST trade to learn
-        val cGradeConfFloor = (8 + (cGradeProgress * 12)).toInt().coerceIn(8, 20)
+        // V5.4: Raised floors to reduce junk trades (was 8-20, now 15-30)
+        val cGradeConfFloor = (15 + (cGradeProgress * 15)).toInt().coerceIn(15, 30)
         val cGradeMemoryFloor = (-25 + (cGradeProgress * 10)).toInt().coerceIn(-25, -15)
-        
+
+        // Extract momentum and volume for weak-signal veto
+        val momentumScoreV = scoreCard.components.find { it.name == "momentum" }?.value ?: 0
+        val volumeScoreV   = scoreCard.components.find { it.name == "volume" }?.value ?: 0
+
         if (isCGrade) {
             val cGradeBlockReasons = mutableListOf<String>()
-            
+
             if (conf < cGradeConfFloor) {
                 cGradeBlockReasons.add("conf=$conf<$cGradeConfFloor")
             }
@@ -293,6 +297,11 @@ class FinalDecisionEngine(
             // During bootstrap, allow early_unknown to let bot learn
             if (effectivePhase == "early_unknown" && cGradeProgress > 0.3) {
                 cGradeBlockReasons.add("phase=early_unknown")
+            }
+            // V5.4: Weak-signal veto — if score < 20 AND both momentum AND volume are flat/negative,
+            // there is no directional edge. Block regardless of learning phase.
+            if (score < 20 && momentumScoreV <= 0 && volumeScoreV <= 0) {
+                cGradeBlockReasons.add("no_momentum_no_volume_score=$score")
             }
             
             if (cGradeBlockReasons.isNotEmpty()) {
@@ -335,10 +344,10 @@ class FinalDecisionEngine(
             com.lifecyclebot.v3.scoring.FluidLearningAI.getLearningProgress()
         } catch (e: Exception) { 0.0 }
         
-        // Fluid confidence threshold: 10% at bootstrap → 30% at mature
-        // V5.0: Much lower to allow paper mode learning
-        val fluidMinConfForExecute = (10 + (learningProgress * 20)).toInt().coerceIn(10, 30)
-        
+        // Fluid confidence threshold: 18% at bootstrap → 40% at mature
+        // V5.4: Raised from (10+progress*20) to reduce low-conviction junk trades
+        val fluidMinConfForExecute = (18 + (learningProgress * 22)).toInt().coerceIn(18, 40)
+
         val minConfForExecute = try {
             val configMinConf = com.lifecyclebot.engine.V3ConfidenceConfig.getMinConfidenceForExecute(35)
             // Use fluid (lower) threshold during bootstrap
@@ -346,10 +355,10 @@ class FinalDecisionEngine(
         } catch (e: Exception) {
             fluidMinConfForExecute
         }
-        
-        // C-grade confidence floor: 8% at bootstrap → 20% at mature
-        // V5.0: Ultra low bootstrap to break learning deadlock
-        val cGradeMinConf = (8 + (learningProgress * 12)).toInt().coerceIn(8, 20)
+
+        // C-grade confidence floor for EXECUTE_SMALL: 15% at bootstrap → 30% at mature
+        // V5.4: Raised from (8+progress*12) so weak-conf meme coins stop bleeding
+        val cGradeMinConf = (15 + (learningProgress * 15)).toInt().coerceIn(15, 30)
         
         val band = when {
             score >= (minScoreForExecute * 1.3).toInt() && effectiveConf >= minConfForExecute + 10 -> DecisionBand.EXECUTE_AGGRESSIVE

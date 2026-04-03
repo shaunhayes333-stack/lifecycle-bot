@@ -156,11 +156,11 @@ object TradeAuthorizer {
         
         // ─────────────────────────────────────────────────────────────────────
         // GATE 2: RUGCHECK HARD BLOCK
-        // V5.2 FIX: Shadow mode should track EVERYTHING above RC 1 for learning!
-        // Only block execution (paper/live) below RC 2
+        // Minimum RC score to pass = 2 (user-confirmed).
+        // Score 0,1 = catastrophic reject. Score 2-5 = shadow only. Score 6+ = pass.
         // ─────────────────────────────────────────────────────────────────────
-        if (rugcheckScore <= 2) {
-            // RC <= 1 is catastrophic - don't even shadow track (lowered from 3)
+        if (rugcheckScore <= 1) {
+            // RC 0,1 = catastrophic - don't even shadow track
             ErrorLogger.info(TAG, "❌ REJECT $symbol: RC_SCORE_$rugcheckScore <= 1 (catastrophic)")
             return AuthorizationResult(
                 verdict = ExecutionVerdict.REJECT,
@@ -169,9 +169,9 @@ object TradeAuthorizer {
                 canRetry = false,
             )
         }
-        
-        // V5.2: RC 1-5 = SHADOW_ONLY (dangerous, but track for learning)
-        if (rugcheckScore in 1..5) {
+
+        // RC 2-5 = SHADOW_ONLY (dangerous, but track for learning)
+        if (rugcheckScore in 2..5) {
             ErrorLogger.info(TAG, "👁️ SHADOW_ONLY $symbol: RC_SCORE_$rugcheckScore (dangerous, track only)")
             
             // Lock as shadow tracking

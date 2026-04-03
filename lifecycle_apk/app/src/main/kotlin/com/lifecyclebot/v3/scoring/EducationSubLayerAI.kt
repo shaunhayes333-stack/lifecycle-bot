@@ -794,7 +794,12 @@ object EducationSubLayerAI {
     
     private var ctx: android.content.Context? = null
     private const val PREFS_NAME = "education_sublayer_ai"
-    
+
+    // Debounce: only persist to SharedPreferences once every 30s to prevent
+    // I/O storms when 25 layers all call save() during one trade outcome.
+    private const val SAVE_DEBOUNCE_MS = 30_000L
+    @Volatile private var lastSaveMs = 0L
+
     /**
      * Initialize with context for persistence.
      */
@@ -805,10 +810,21 @@ object EducationSubLayerAI {
     }
     
     /**
-     * Save layer performance to SharedPreferences.
+     * Save layer performance to SharedPreferences (debounced: max once per 30s).
+     * Call saveForced() to bypass debounce (e.g. on reset or shutdown).
      */
     fun save() {
+        val now = System.currentTimeMillis()
+        if (now - lastSaveMs < SAVE_DEBOUNCE_MS) return
+        saveForced()
+    }
+
+    /**
+     * Immediately persist regardless of debounce timer.
+     */
+    fun saveForced() {
         val c = ctx ?: return
+        lastSaveMs = System.currentTimeMillis()
         try {
             val prefs = c.getSharedPreferences(PREFS_NAME, android.content.Context.MODE_PRIVATE)
             val editor = prefs.edit()
@@ -879,7 +895,7 @@ object EducationSubLayerAI {
      */
     fun reset() {
         layerPerformance.clear()
-        save()
+        saveForced()  // Bypass debounce on explicit reset
         ErrorLogger.info(TAG, "🧹 EducationSubLayerAI reset")
     }
 }

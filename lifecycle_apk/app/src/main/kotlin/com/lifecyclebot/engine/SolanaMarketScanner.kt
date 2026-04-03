@@ -2319,16 +2319,18 @@ class SolanaMarketScanner(
 
             val isPaper = cfg().paperMode
 
+            // Minimum RC score to pass = 2 (user-confirmed).
+            // Score 0,1 = blocked. Score 2+ = allowed (with warning for 2-5).
             if (isPaper) {
-                if (scoreNormalized <= 1) {
+                if (scoreNormalized < 2) {
                     telemetryRugRejects++
-                    onLog("🚫 RC BLOCK [PAPER]: ${mint.take(8)}... score=$scoreNormalized (rug pull risk)")
-                    ErrorLogger.info("Scanner", "RC BLOCK [PAPER]: ${mint.take(12)} score=$scoreNormalized <= 1")
+                    onLog("🚫 RC BLOCK [PAPER]: ${mint.take(8)}... score=$scoreNormalized (below min=2)")
+                    ErrorLogger.info("Scanner", "RC BLOCK [PAPER]: ${mint.take(12)} score=$scoreNormalized < 2")
                     return false
-                } else if (scoreNormalized in 2..5) {
-                    onLog("⚠️ RC WARN [PAPER]: ${mint.take(8)}... score=$scoreNormalized (allowed for learning)")
-                    ErrorLogger.info("Scanner", "RC PASS [PAPER]: ${mint.take(12)} score=$scoreNormalized (learning mode)")
-                    return true
+                }
+                if (scoreNormalized in 2..5) {
+                    onLog("⚠️ RC WARN [PAPER]: ${mint.take(8)}... score=$scoreNormalized (risky but learning)")
+                    ErrorLogger.info("Scanner", "RC PASS [PAPER]: ${mint.take(12)} score=$scoreNormalized (min=2 met)")
                 }
                 return true
             }
