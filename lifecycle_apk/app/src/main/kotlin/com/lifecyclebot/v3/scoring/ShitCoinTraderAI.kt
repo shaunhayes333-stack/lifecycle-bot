@@ -18,7 +18,7 @@ import kotlin.math.max
  * - Pump.fun launches
  * - Raydium new pools
  * - Moonshot/Bonk-style micro caps
- * - Tokens with <$500K market cap
+ * - Tokens with <$50K market cap
  * 
  * This layer is ISOLATED from the main V3 engine to protect the portfolio
  * from the high-risk/high-reward nature of shitcoins while still capturing
@@ -26,7 +26,7 @@ import kotlin.math.max
  * 
  * KEY DIFFERENCES FROM OTHER LAYERS:
  * ─────────────────────────────────────────────────────────────────────────────
- * 1. Market Cap: MAXIMUM $500K (opposite of Blue Chip's $1M minimum)
+ * 1. Market Cap: MAXIMUM $50K (opposite of Blue Chip's $250k minimum)
  * 2. Execution Speed: ULTRA-FAST (avoid MEV/rugs)
  * 3. Risk Management: TIGHT stops, QUICK exits
  * 4. Evaluation Focus: Dev history, bundle detection, social signals, rug indicators
@@ -58,10 +58,10 @@ object ShitCoinTraderAI {
     // CONFIGURATION - Tailored for micro-cap memecoins
     // ═══════════════════════════════════════════════════════════════════════════
     
-    // Market cap filter - V4.20: Raised to $500K for realistic shitcoin range
-    // Tokens under $500K mcap are true degen plays
-    private const val MAX_MARKET_CAP_USD = 500_000.0
-    private const val MIN_MARKET_CAP_USD = 1_000.0  // Must have SOME value
+    // Market cap filter - V4.20: Raised to $50K for realistic shitcoin range
+    // Tokens under $50K mcap are true degen plays
+    private const val MAX_MARKET_CAP_USD = 50_000.0
+    private const val MIN_MARKET_CAP_USD = 2_000.0  // Must have SOME value
     
     // Liquidity requirements - LOWER than other layers (micro-caps have less)
     private const val MIN_LIQUIDITY_USD_BOOTSTRAP = 3_000.0   // $3K minimum at start
@@ -107,7 +107,7 @@ object ShitCoinTraderAI {
     private const val OPTIMAL_AGE_MINUTES = 30.0      // Sweet spot: 30 mins - 2 hours
     
     // Graduation detection (pump.fun specific)
-    private const val GRADUATION_MCAP_THRESHOLD = 69_000.0  // Pump.fun graduation at ~$69K
+    private const val GRADUATION_MCAP_THRESHOLD = 30_000.0  // Pump.fun graduation at ~$30K
     
     // ═══════════════════════════════════════════════════════════════════════════
     // STATE
@@ -464,7 +464,7 @@ object ShitCoinTraderAI {
         // SHITCOIN FILTERS - Quality gates
         // ═══════════════════════════════════════════════════════════════════
         
-        // 1. MARKET CAP FILTER - Must be <$500K (this is the shitcoin zone)
+        // 1. MARKET CAP FILTER - Must be <$5K (this is the shitcoin zone)
         if (marketCapUsd > MAX_MARKET_CAP_USD) {
             return rejectSignal("MCAP_TOO_HIGH: \$${(marketCapUsd/1000).toInt()}K > \$${(MAX_MARKET_CAP_USD/1000).toInt()}K", mode, launchPlatform)
         }

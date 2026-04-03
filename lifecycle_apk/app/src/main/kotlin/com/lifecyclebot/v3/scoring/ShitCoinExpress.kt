@@ -47,8 +47,8 @@ object ShitCoinExpress {
     // ═══════════════════════════════════════════════════════════════════════════
     
     // Market cap limits - Even lower than ShitCoinTraderAI
-    private const val MAX_MARKET_CAP_USD = 30_000.0   // Only <$30K tokens (V4.1: was $300K)
-    private const val MIN_MARKET_CAP_USD = 5_000.0    // At least $5K
+    private const val MAX_MARKET_CAP_USD = 20_000.0   // Only <$30K tokens (V4.1: was $300K)
+    private const val MIN_MARKET_CAP_USD = 2_000.0    // At least $5K
     
     // AGGRESSIVE momentum requirements
     private const val MIN_MOMENTUM_PCT = 5.0          // Must be pumping already
@@ -73,7 +73,7 @@ object ShitCoinExpress {
     
     // Daily limits
     private const val DAILY_MAX_LOSS_SOL = 0.25       // Small daily cap
-    private const val DAILY_MAX_RIDES = 20            // Max 20 express rides/day
+    private const val DAILY_MAX_RIDES = 500           // Max 500 express rides/day
     
     // ═══════════════════════════════════════════════════════════════════════════
     // STATE
