@@ -912,7 +912,9 @@ class SolanaMarketScanner(
     }
     
     // Memory protection: limit concurrent operations
-    private val semaphore = kotlinx.coroutines.sync.Semaphore(3)  // max 3 concurrent scans
+    // Raised to 9 to match the parallel secondary scan count - each secondary scan runs
+    // independently so we need sufficient permits to avoid blocking the parallel launch.
+    private val semaphore = kotlinx.coroutines.sync.Semaphore(9)  // max 9 concurrent scans
     
     // Memory-safe mode - enables when OOM detected
     @Volatile private var memorySafeMode = false
@@ -1141,8 +1143,9 @@ class SolanaMarketScanner(
         ErrorLogger.info("Scanner", "scanLoop() entered")
         while (isRunning) {
             val c = cfg()
-            // Use configured interval, minimum 10 seconds for fast scanning
-            val scanIntervalMs = maxOf((c.scanIntervalSecs * 1000L).toLong(), 10_000L)
+            // Use configured interval, minimum 3 seconds between cycles.
+            // Parallel secondary scans now complete much faster, so we can cycle more frequently.
+            val scanIntervalMs = maxOf((c.scanIntervalSecs * 1000L).toLong(), 3_000L)
             ErrorLogger.debug("Scanner", "Scan interval: ${scanIntervalMs}ms")
 
             try {
@@ -1182,29 +1185,31 @@ class SolanaMarketScanner(
                 // ALWAYS scan pump.fun first (priority) - BOTH direct API and profiles
                 onLog("🚀 Scanning: Pump.fun tokens (PRIORITY)...")
                 runScan("scanPumpFunDirect") { scanPumpFunDirect() }  // Direct pump.fun API
-                delay(200)
                 runScan("scanPumpFunActive") { scanPumpFunActive() }  // DexScreener profiles
-                delay(200)
-                
-                // SCAN ALL SOURCES - Same coverage for both paper and live modes
-                onLog("🔍 Scanning ALL sources (DEEP SCAN)...")
-                runScan("scanPumpGraduates") { scanPumpGraduates() }
-                delay(100)
-                runScan("scanDexBoosted") { scanDexBoosted() }
-                delay(100)
-                runScan("scanFreshLaunches") { scanFreshLaunches() }
-                delay(100)
-                runScan("scanDexTrending") { scanDexTrending() }
-                delay(100)
-                runScan("scanDexGainers") { scanDexGainers() }
-                delay(100)
-                runScan("scanBirdeyeTrending") { scanBirdeyeTrending() }
-                delay(100)
-                runScan("scanTopVolumeTokens") { scanTopVolumeTokens() }
-                delay(100)
-                runScan("scanPumpFunVolume") { scanPumpFunVolume() }
-                delay(100)
-                runScan("scanRaydiumNewPools") { scanRaydiumNewPools() }
+
+                // PARALLEL SCAN: Fire all secondary sources concurrently for maximum throughput.
+                // Each source is independent so parallel execution is safe and dramatically
+                // reduces scan cycle time from ~20s sequential → ~3-5s parallel.
+                onLog("🔍 Scanning ALL sources in parallel (DEEP SCAN)...")
+                try {
+                    kotlinx.coroutines.withTimeout(25_000L) {
+                        kotlinx.coroutines.coroutineScope {
+                            listOf(
+                                launch { runScan("scanPumpGraduates")  { scanPumpGraduates() } },
+                                launch { runScan("scanDexBoosted")     { scanDexBoosted() } },
+                                launch { runScan("scanFreshLaunches")  { scanFreshLaunches() } },
+                                launch { runScan("scanDexTrending")    { scanDexTrending() } },
+                                launch { runScan("scanDexGainers")     { scanDexGainers() } },
+                                launch { runScan("scanBirdeyeTrending"){ scanBirdeyeTrending() } },
+                                launch { runScan("scanTopVolumeTokens"){ scanTopVolumeTokens() } },
+                                launch { runScan("scanPumpFunVolume")  { scanPumpFunVolume() } },
+                                launch { runScan("scanRaydiumNewPools"){ scanRaydiumNewPools() } }
+                            ).forEach { it.join() }
+                        }
+                    }
+                } catch (e: kotlinx.coroutines.TimeoutCancellationException) {
+                    onLog("⏱️ Parallel scan timeout - some sources may not have completed")
+                }
                 
                 // GC after scan
                 System.gc()
@@ -2109,20 +2114,82 @@ class SolanaMarketScanner(
     }
 
 
-    // ── Source 6: CoinGecko trending ─────────────────────────────────
+    // ── Source 6: Quality Layer scanner ($100K-$1M mcap) ────────────────
 
+    /**
+     * Dedicated Quality layer scanner: finds established Solana tokens in the
+     * $100K–$1M mcap range. Uses DexScreener search terms that typically surface
+     * mid-cap Solana tokens rather than brand-new micro-caps.
+     */
     private suspend fun scanCoinGeckoTrending() {
-        // Skip CoinGecko - it requires extra API calls to resolve tokens
-        ErrorLogger.debug("Scanner", "Skipping CoinGecko scan (memory optimization)")
-        return
+        val searchTerms = listOf("sol", "pump", "pepe", "dog", "ai")
+        var found = 0
+        for (term in searchTerms) {
+            if (found >= 12) break
+            try {
+                val results = withContext(Dispatchers.IO) { dex.search(term) }
+                for (pair in results.take(8)) {
+                    if (found >= 12) break
+                    val mint = pair.baseTokenAddress.ifBlank { pair.pairAddress }
+                    if (mint.isBlank() || isSeen(mint)) continue
+                    val mcap = pair.candle.marketCap
+                    if (mcap < 100_000 || mcap > 2_000_000) continue  // Quality range
+                    val liq = pair.liquidity.takeIf { it > 0 }
+                        ?: (mcap * 0.08).coerceAtLeast(1.0)
+                    if (pair.baseSymbol.uppercase() in listOf("SOL", "WSOL", "USDC", "USDT")) continue
+                    val token = buildScannedToken(mint, pair, TokenSource.DEX_TRENDING, liq) ?: continue
+                    if (passesFilter(token)) {
+                        emitWithRugcheck(token)
+                        found++
+                        onLog("⭐ Quality candidate: ${token.symbol} | mcap=\$${(mcap/1000).toInt()}K | liq=\$${liq.toInt()}")
+                    }
+                }
+            } catch (e: kotlinx.coroutines.CancellationException) { throw e } catch (e: Exception) {
+                ErrorLogger.debug("Scanner", "scanQualityLayer[$term] error: ${e.message}")
+            }
+            delay(150)
+        }
+        if (found > 0) ErrorLogger.info("Scanner", "scanQualityLayer: found $found quality candidates")
+        System.gc()
     }
 
-    // ── Source 7: Raydium new pools ───────────────────────────────────
+    // ── Source 7: BlueChip Layer scanner ($1M+ mcap) ─────────────────────
 
+    /**
+     * Dedicated BlueChip layer scanner: finds established Solana tokens with
+     * $1M+ mcap. Uses DexScreener search for well-known token categories and
+     * filters to the BlueChip range.
+     */
     private suspend fun scanRaydiumNewPools() {
-        // Skip Raydium pools scan - returns huge JSON responses
-        ErrorLogger.debug("Scanner", "Skipping Raydium scan (memory optimization)")
-        return
+        val searchTerms = listOf("bonk", "jup", "wif", "wen", "mew")
+        var found = 0
+        for (term in searchTerms) {
+            if (found >= 8) break
+            try {
+                val results = withContext(Dispatchers.IO) { dex.search(term) }
+                for (pair in results.take(5)) {
+                    if (found >= 8) break
+                    val mint = pair.baseTokenAddress.ifBlank { pair.pairAddress }
+                    if (mint.isBlank() || isSeen(mint)) continue
+                    val mcap = pair.candle.marketCap
+                    if (mcap < 1_000_000) continue  // BlueChip minimum
+                    val liq = pair.liquidity.takeIf { it > 0 }
+                        ?: (mcap * 0.05).coerceAtLeast(1.0)
+                    if (pair.baseSymbol.uppercase() in listOf("SOL", "WSOL", "USDC", "USDT")) continue
+                    val token = buildScannedToken(mint, pair, TokenSource.DEX_TRENDING, liq) ?: continue
+                    if (passesFilter(token)) {
+                        emitWithRugcheck(token)
+                        found++
+                        onLog("🔵 BlueChip candidate: ${token.symbol} | mcap=\$${(mcap/1_000_000.0).fmt(1)}M | liq=\$${liq.toInt()}")
+                    }
+                }
+            } catch (e: kotlinx.coroutines.CancellationException) { throw e } catch (e: Exception) {
+                ErrorLogger.debug("Scanner", "scanBlueChipLayer[$term] error: ${e.message}")
+            }
+            delay(150)
+        }
+        if (found > 0) ErrorLogger.info("Scanner", "scanBlueChipLayer: found $found BlueChip candidates")
+        System.gc()
     }
 
     // ── Source 8: Narrative scanning ─────────────────────────────────

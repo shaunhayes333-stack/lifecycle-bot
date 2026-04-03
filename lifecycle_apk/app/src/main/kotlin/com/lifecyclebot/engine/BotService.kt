@@ -1878,9 +1878,17 @@ class BotService : Service() {
             
             // ═══════════════════════════════════════════════════════════════════
             // BEHAVIOR LEARNING MAINTENANCE - every 60 loops (~5 minutes)
-            // Self-healing check and pattern pruning
+            // Self-healing check, pattern pruning, and Education flush
             // ═══════════════════════════════════════════════════════════════════
             if (loopCount % 60 == 0) {
+                scope.launch {
+                    try {
+                        // Flush any debounced EducationSubLayerAI saves off the hot loop
+                        com.lifecyclebot.v3.scoring.EducationSubLayerAI.flushIfPending()
+                    } catch (e: Exception) {
+                        ErrorLogger.debug("BotService", "EducationAI flush error: ${e.message}")
+                    }
+                }
                 scope.launch {
                     try {
                         // Self-healing check (clears data if poisoned)
@@ -3135,6 +3143,16 @@ class BotService : Service() {
     // Strategy output (phase, entry/exit scores, quality) feeds into V3
     // V3 is the ONLY thing that decides EXECUTE/WATCH/REJECT
     // ═══════════════════════════════════════════════════════════════════
+
+    // POSITION-CAP GATE: Skip expensive V3 scoring when already at max positions.
+    // This is the primary pipeline starvation fix — avoids running full V3/EducationAI
+    // on every watchlist token when no new entry is possible anyway.
+    if (!ts.position.isOpen && cfg.maxConcurrentPositions != Int.MAX_VALUE &&
+        status.openPositionCount >= cfg.maxConcurrentPositions) {
+        ErrorLogger.debug("BotService", "⏭️ CAP GATE: ${identity.symbol} | positions full (${status.openPositionCount}/${cfg.maxConcurrentPositions})")
+        return
+    }
+
     if (!ts.position.isOpen && cfg.v3EngineEnabled && com.lifecyclebot.v3.V3EngineManager.isReady()) {
         
         // ═══════════════════════════════════════════════════════════════════
@@ -3461,7 +3479,9 @@ class BotService : Service() {
             // V5.2 FIX: Must check if Treasury already has a position!
             //          Treasury must hit TP and sell BEFORE other layers can enter
             // ═══════════════════════════════════════════════════════════════════
-            if (!ts.position.isOpen && ts.lastMcap >= 1_000_000) {
+            // FIX: Gate lowered to $100K to include Quality ($100K-$1M) range.
+            // Previously set to $1M which silently excluded Quality forever.
+            if (!ts.position.isOpen && ts.lastMcap >= 100_000) {
                 // V5.2: Check if Treasury already has a position on this token
                 // Treasury trades must complete (hit TP/SL) before other layers can enter
                 if (com.lifecyclebot.v3.scoring.CashGenerationAI.hasPosition(ts.mint)) {

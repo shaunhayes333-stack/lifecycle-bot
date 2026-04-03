@@ -1652,18 +1652,33 @@ for legal compliance.
                 setTextColor(muted)
                 typeface = android.graphics.Typeface.MONOSPACE
             })
-            // Entry size and token amount
+            // Entry size and token balance
             info.addView(TextView(this).apply {
                 val tokenAmtStr = when {
                     tokenAmount >= 1_000_000 -> "%.2fM".format(tokenAmount / 1_000_000)
                     tokenAmount >= 1_000     -> "%.2fK".format(tokenAmount / 1_000)
-                    else                     -> "%.2f".format(tokenAmount)
+                    else                     -> "%.4f".format(tokenAmount)
                 }
-                text = "Size: %.4f◎  ·  %s tokens".format(pos.costSol, tokenAmtStr)
+                text = "Size: %.4f◎  ·  Bal: %s".format(pos.costSol, tokenAmtStr)
                 textSize = resources.getDimension(R.dimen.trade_sub_text) / resources.displayMetrics.scaledDensity
                 setTextColor(muted)
                 typeface = android.graphics.Typeface.MONOSPACE
             })
+            // Profit target %
+            val tpPct = when {
+                pos.isTreasuryPosition && pos.treasuryTakeProfit > 0 -> pos.treasuryTakeProfit
+                pos.isBlueChipPosition && pos.blueChipTakeProfit > 0 -> pos.blueChipTakeProfit
+                pos.isShitCoinPosition && pos.shitCoinTakeProfit > 0 -> pos.shitCoinTakeProfit
+                else -> 0.0
+            }
+            if (tpPct > 0) {
+                info.addView(TextView(this).apply {
+                    text = "Target: +%.0f%%".format(tpPct)
+                    textSize = resources.getDimension(R.dimen.trade_sub_text) / resources.displayMetrics.scaledDensity
+                    setTextColor(0xFF22C55E.toInt())  // green
+                    typeface = android.graphics.Typeface.MONOSPACE
+                })
+            }
             row.addView(info)
 
             // P&L (right column)
@@ -1753,16 +1768,30 @@ for legal compliance.
                 setTextColor(muted)
                 typeface = android.graphics.Typeface.MONOSPACE
             })
+            val tpPct = if (pos.entryPrice > 0 && pos.targetPrice > 0) {
+                ((pos.targetPrice - pos.entryPrice) / pos.entryPrice) * 100
+            } else {
+                3.5  // Default to 3.5% if data missing
+            }
             info.addView(TextView(this).apply {
-                // V4.0: Calculate actual TP% from position data instead of hardcoded 7%
-                val tpPct = if (pos.entryPrice > 0 && pos.targetPrice > 0) {
-                    ((pos.targetPrice - pos.entryPrice) / pos.entryPrice) * 100
-                } else {
-                    3.5  // Default to 3.5% if data missing
-                }
                 text = "Size: %.4f◎  ·  Target: +%.1f%%".format(pos.entrySol, tpPct)
                 textSize = resources.getDimension(R.dimen.trade_sub_text) / resources.displayMetrics.scaledDensity
                 setTextColor(muted)
+                typeface = android.graphics.Typeface.MONOSPACE
+            })
+            // Token balance
+            val tSolPrice = solPrice
+            val tTokenBal = if (pos.entryPrice > 0 && tSolPrice > 0)
+                (pos.entrySol * tSolPrice) / pos.entryPrice else 0.0
+            val tTokenStr = when {
+                tTokenBal >= 1_000_000 -> "%.2fM".format(tTokenBal / 1_000_000)
+                tTokenBal >= 1_000     -> "%.2fK".format(tTokenBal / 1_000)
+                else                   -> "%.0f".format(tTokenBal)
+            }
+            info.addView(TextView(this).apply {
+                text = "Bal: $tTokenStr tokens"
+                textSize = resources.getDimension(R.dimen.trade_sub_text) / resources.displayMetrics.scaledDensity
+                setTextColor(0xFFFFD700.toInt())  // gold
                 typeface = android.graphics.Typeface.MONOSPACE
             })
             row.addView(info)
@@ -1842,10 +1871,25 @@ for legal compliance.
                 setTextColor(muted)
                 typeface = android.graphics.Typeface.MONOSPACE
             })
+            // Token balance + profit target
+            val bcSolPrice = com.lifecyclebot.engine.WalletManager.lastKnownSolPrice
+            val bcTokenBal = if (pos.entryPrice > 0 && bcSolPrice > 0)
+                (pos.entrySol * bcSolPrice) / pos.entryPrice else 0.0
+            val bcTokenStr = when {
+                bcTokenBal >= 1_000_000 -> "%.2fM".format(bcTokenBal / 1_000_000)
+                bcTokenBal >= 1_000     -> "%.2fK".format(bcTokenBal / 1_000)
+                else                    -> "%.4f".format(bcTokenBal)
+            }
             info.addView(TextView(this).apply {
                 text = "MCap: \$${String.format("%.2f", pos.marketCapUsd/1_000_000)}M  ·  Size: ${String.format("%.3f", pos.entrySol)}◎"
                 textSize = resources.getDimension(R.dimen.trade_sub_text) / resources.displayMetrics.scaledDensity
                 setTextColor(muted)
+                typeface = android.graphics.Typeface.MONOSPACE
+            })
+            info.addView(TextView(this).apply {
+                text = "Bal: $bcTokenStr  ·  Target: +${pos.takeProfitPct.toInt()}%"
+                textSize = resources.getDimension(R.dimen.trade_sub_text) / resources.displayMetrics.scaledDensity
+                setTextColor(0xFF22C55E.toInt())  // green
                 typeface = android.graphics.Typeface.MONOSPACE
             })
             row.addView(info)
@@ -1941,6 +1985,23 @@ for legal compliance.
                 setTextColor(muted)
                 typeface = android.graphics.Typeface.MONOSPACE
             })
+            // Token balance + profit target
+            val scSolPrice = com.lifecyclebot.engine.WalletManager.lastKnownSolPrice
+            val scTokenBal = if (pos.entryPrice > 0 && scSolPrice > 0)
+                (pos.entrySol * scSolPrice) / pos.entryPrice else 0.0
+            val scTokenStr = when {
+                scTokenBal >= 1_000_000 -> "%.2fM".format(scTokenBal / 1_000_000)
+                scTokenBal >= 1_000     -> "%.2fK".format(scTokenBal / 1_000)
+                else                    -> "%.0f".format(scTokenBal)
+            }
+            if (pos.takeProfitPct > 0 || scTokenBal > 0) {
+                info.addView(TextView(this).apply {
+                    text = "Bal: $scTokenStr  ·  Target: +${pos.takeProfitPct.toInt()}%"
+                    textSize = resources.getDimension(R.dimen.trade_sub_text) / resources.displayMetrics.scaledDensity
+                    setTextColor(0xFF22C55E.toInt())
+                    typeface = android.graphics.Typeface.MONOSPACE
+                })
+            }
             row.addView(info)
 
             // P&L (right column)
@@ -2009,24 +2070,45 @@ for legal compliance.
                 }
             }
             
-            // Symbol
+            // Token balance
+            val msSolPrice = com.lifecyclebot.engine.WalletManager.lastKnownSolPrice
+            val msTokenBal = if (pos.entryPrice > 0 && msSolPrice > 0)
+                (pos.entrySol * msSolPrice) / pos.entryPrice else 0.0
+            val msTokenStr = when {
+                msTokenBal >= 1_000_000 -> "%.2fM".format(msTokenBal / 1_000_000)
+                msTokenBal >= 1_000     -> "%.2fK".format(msTokenBal / 1_000)
+                else                    -> "%.4f".format(msTokenBal)
+            }
+
+            // Left column - symbol + details
+            val msInfo = LinearLayout(this).apply {
+                orientation = LinearLayout.VERTICAL
+                layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1.5f)
+            }
+
             val tvSymbol = TextView(this).apply {
-                text = pos.symbol
+                text = "${pos.spaceMode.emoji} ${pos.symbol}"
                 setTextColor(0xFFA855F7.toInt())  // Purple for moonshots
                 textSize = 12f
                 typeface = android.graphics.Typeface.create("monospace", android.graphics.Typeface.BOLD)
-                layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
             }
-            
-            // Entry / Current
+            msInfo.addView(tvSymbol)
+
             val tvEntry = TextView(this).apply {
                 text = "${String.format("%.6f", pos.entryPrice)} → ${String.format("%.6f", currentPrice)}"
                 setTextColor(0xFF6B7280.toInt())
                 textSize = 10f
                 typeface = android.graphics.Typeface.create("monospace", android.graphics.Typeface.NORMAL)
-                layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1.2f)
             }
-            
+            msInfo.addView(tvEntry)
+
+            msInfo.addView(TextView(this).apply {
+                text = "Bal: $msTokenStr  ·  Target: +${pos.takeProfitPct.toInt()}%"
+                setTextColor(0xFF22C55E.toInt())
+                textSize = 10f
+                typeface = android.graphics.Typeface.create("monospace", android.graphics.Typeface.NORMAL)
+            })
+
             // P&L
             val tvPnl = TextView(this).apply {
                 text = "${if (pnlPct >= 0) "+" else ""}${String.format("%.1f", pnlPct)}%"
@@ -2034,8 +2116,9 @@ for legal compliance.
                 textSize = 12f
                 typeface = android.graphics.Typeface.create("monospace", android.graphics.Typeface.BOLD)
                 layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 0.5f)
+                gravity = android.view.Gravity.END or android.view.Gravity.CENTER_VERTICAL
             }
-            
+
             // Hold time
             val tvHold = TextView(this).apply {
                 text = "${holdMins}m"
@@ -2043,10 +2126,10 @@ for legal compliance.
                 textSize = 10f
                 typeface = android.graphics.Typeface.create("monospace", android.graphics.Typeface.NORMAL)
                 layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 0.3f)
+                gravity = android.view.Gravity.END or android.view.Gravity.CENTER_VERTICAL
             }
-            
-            row.addView(tvSymbol)
-            row.addView(tvEntry)
+
+            row.addView(msInfo)
             row.addView(tvPnl)
             row.addView(tvHold)
             
@@ -4001,19 +4084,32 @@ Last Check: ${java.text.SimpleDateFormat("HH:mm:ss", java.util.Locale.US).format
                 "   (none)"
             } else {
                 qualityPositions.joinToString("\n") { pos ->
-                    val pnl = ((solPrice * pos.entryPrice) - (solPrice * pos.entryPrice)) / (solPrice * pos.entryPrice) * 100
                     val holdMins = (System.currentTimeMillis() - pos.entryTime) / 60000
-                    "   • ${pos.symbol} | \$${(pos.entryMcap/1000).toInt()}K | ${holdMins}min"
+                    val qTokenBal = if (pos.entryPrice > 0 && solPrice > 0)
+                        (pos.entrySol * solPrice) / pos.entryPrice else 0.0
+                    val qBal = when {
+                        qTokenBal >= 1_000_000 -> "%.2fM".format(qTokenBal / 1_000_000)
+                        qTokenBal >= 1_000     -> "%.1fK".format(qTokenBal / 1_000)
+                        else                   -> "%.0f".format(qTokenBal)
+                    }
+                    "   • ${pos.symbol} | \$${(pos.entryMcap/1000).toInt()}K | bal:$qBal | tp:+${pos.takeProfitPct.toInt()}% | ${holdMins}m"
                 }
             }
-            
+
             // Build BlueChip positions list
             val blueChipPosList = if (blueChipPositions.isEmpty()) {
                 "   (none)"
             } else {
                 blueChipPositions.joinToString("\n") { pos ->
                     val holdMins = (System.currentTimeMillis() - pos.entryTime) / 60000
-                    "   • ${pos.symbol} | \$${(pos.marketCapUsd/1_000_000).toInt()}M | ${holdMins}min"
+                    val bcTokenBal = if (pos.entryPrice > 0 && solPrice > 0)
+                        (pos.entrySol * solPrice) / pos.entryPrice else 0.0
+                    val bcBal = when {
+                        bcTokenBal >= 1_000_000 -> "%.2fM".format(bcTokenBal / 1_000_000)
+                        bcTokenBal >= 1_000     -> "%.1fK".format(bcTokenBal / 1_000)
+                        else                   -> "%.0f".format(bcTokenBal)
+                    }
+                    "   • ${pos.symbol} | \$${(pos.marketCapUsd/1_000_000).toInt()}M | bal:$bcBal | tp:+${pos.takeProfitPct.toInt()}% | ${holdMins}m"
                 }
             }
             
