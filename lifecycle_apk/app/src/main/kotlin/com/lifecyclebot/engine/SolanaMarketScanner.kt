@@ -1007,11 +1007,13 @@ class SolanaMarketScanner(
                     onLog("📊 Discovery: seen=${seenMints.size} rejected=${rejectedMints.size} watchlist=$watchlistSize")
                 }
 
-                if (watchlistSize <= 2 && seenMints.size > 30) {
-                    onLog("⚠️ Watchlist depleted - forcing scanner soft refresh")
+                // Auto-recovery: if watchlist is thin, clear churn state so tokens can re-enter
+                // V5.4: Raised threshold from ≤2 to ≤10 — 2 tokens wasn't catching pipeline drains early enough
+                if (watchlistSize <= 10 && seenMints.size > 20) {
+                    onLog("⚠️ Watchlist thin ($watchlistSize tokens) - clearing churn state to refill")
                     ErrorLogger.warn(
                         "Scanner",
-                        "Auto-recovery: watchlist=$watchlistSize, preserving seen/rejected maps and clearing transient churn state"
+                        "Auto-recovery: watchlist=$watchlistSize (<=10), clearing cooldown/saturation maps"
                     )
                     cooldownHitCount.clear()
                     saturatedMints.clear()

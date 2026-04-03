@@ -301,7 +301,12 @@ object ShitCoinTraderAI {
     }
     
     fun hasPosition(mint: String): Boolean = activePositions.containsKey(mint)
-    
+
+    // Called by BotService after executing a PARTIAL_TAKE sell to confirm the flag is set
+    fun markFirstTakeDone(mint: String) {
+        synchronized(activePositions) { activePositions[mint] }?.firstTakeDone = true
+    }
+
     /**
      * V5.2: Force clear all positions on bot stop
      * This ensures UI updates correctly even if individual closes fail

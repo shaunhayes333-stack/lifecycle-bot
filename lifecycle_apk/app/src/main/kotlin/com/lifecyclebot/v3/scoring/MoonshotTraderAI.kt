@@ -569,6 +569,12 @@ object MoonshotTraderAI {
     // ═══════════════════════════════════════════════════════════════════════════
     
     fun hasPosition(mint: String): Boolean = activePositions.containsKey(mint)
+
+    // Returns the partial sell % for a PARTIAL_TAKE exit (default 50% — sell half, ride half)
+    fun getPartialSellPct(mint: String): Double {
+        val pos = synchronized(activePositions) { activePositions[mint] }
+        return if (pos != null && pos.partialSellPct > 0) pos.partialSellPct else 0.50
+    }
     
     fun getActivePositions(): List<MoonshotPosition> {
         return synchronized(activePositions) {

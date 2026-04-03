@@ -5380,34 +5380,48 @@ if (deferredCount > 0) {
             }
             
             val exitSignal = com.lifecyclebot.v3.scoring.ShitCoinTraderAI.checkExit(ts.mint, currentPrice)
-            
+
             if (exitSignal != com.lifecyclebot.v3.scoring.ShitCoinTraderAI.ExitSignal.HOLD) {
                 val exitEmoji = when (exitSignal) {
                     com.lifecyclebot.v3.scoring.ShitCoinTraderAI.ExitSignal.RUG_DETECTED -> "💀"
                     com.lifecyclebot.v3.scoring.ShitCoinTraderAI.ExitSignal.DEV_SELL -> "🚨"
                     com.lifecyclebot.v3.scoring.ShitCoinTraderAI.ExitSignal.TAKE_PROFIT -> "🎯"
+                    com.lifecyclebot.v3.scoring.ShitCoinTraderAI.ExitSignal.PARTIAL_TAKE -> "💰"
                     else -> "📉"
                 }
-                
+
                 ErrorLogger.info("BotService", "💩 [SHITCOIN EXIT] ${ts.symbol} | " +
                     "signal=$exitSignal | price=$currentPrice")
-                
-                // Execute shitcoin sell
+
+                if (exitSignal == com.lifecyclebot.v3.scoring.ShitCoinTraderAI.ExitSignal.PARTIAL_TAKE) {
+                    // Sell 25%, let 75% ride
+                    executor.requestPartialSell(
+                        ts = ts,
+                        sellPercentage = 0.25,
+                        reason = "SHITCOIN_PARTIAL_TAKE_25PCT",
+                        wallet = wallet,
+                        walletBalance = effectiveBalance,
+                    )
+                    com.lifecyclebot.v3.scoring.ShitCoinTraderAI.markFirstTakeDone(ts.mint)
+                    addLog("💰 SHITCOIN PARTIAL: ${ts.symbol} | sold 25%, riding 75%", ts.mint)
+                    return
+                }
+
+                // Full exit for all other signals
                 executor.requestSell(
                     ts = ts,
                     reason = "SHITCOIN_${exitSignal.name}",
                     wallet = wallet,
                     walletSol = effectiveBalance
                 )
-                
-                // Close shitcoin position tracking
+
                 com.lifecyclebot.v3.scoring.ShitCoinTraderAI.closePosition(
                     ts.mint, currentPrice, exitSignal
                 )
-                
+
                 addLog("$exitEmoji SHITCOIN SELL: ${ts.symbol} | ${exitSignal.name} | " +
                     "${if (cfg.paperMode) "PAPER" else "LIVE"}", ts.mint)
-                
+
                 return  // Exit processed
             }
         }
@@ -5473,19 +5487,34 @@ if (deferredCount > 0) {
                 }
                 
                 ErrorLogger.info("BotService", "🌙 [MOONSHOT EXIT] ${identity.symbol} | signal=$exitSignal | price=$currentPrice")
-                
+
+                if (exitSignal == com.lifecyclebot.v3.scoring.MoonshotTraderAI.ExitSignal.PARTIAL_TAKE) {
+                    // Sell 50%, let 50% ride to the moon
+                    val partialPct = com.lifecyclebot.v3.scoring.MoonshotTraderAI.getPartialSellPct(ts.mint)
+                    executor.requestPartialSell(
+                        ts = ts,
+                        sellPercentage = partialPct,
+                        reason = "MOONSHOT_PARTIAL_TAKE_${(partialPct * 100).toInt()}PCT",
+                        wallet = wallet,
+                        walletBalance = effectiveBalance,
+                    )
+                    com.lifecyclebot.v3.scoring.MoonshotTraderAI.markPartialTakeDone(ts.mint, currentPrice)
+                    addLog("💰 MOONSHOT PARTIAL: ${ts.symbol} | sold ${(partialPct*100).toInt()}%, riding rest", ts.mint)
+                    return
+                }
+
                 executor.requestSell(
                     ts = ts,
                     reason = "MOONSHOT_${exitSignal.name}",
                     wallet = wallet,
                     walletSol = effectiveBalance
                 )
-                
+
                 com.lifecyclebot.v3.scoring.MoonshotTraderAI.closePosition(ts.mint, currentPrice, exitSignal)
-                
+
                 addLog("$exitEmoji MOONSHOT SELL: ${ts.symbol} | ${exitSignal.name} | " +
                     "${if (cfg.paperMode) "PAPER" else "LIVE"}", ts.mint)
-                
+
                 return
             }
         }
@@ -5515,16 +5544,54 @@ if (deferredCount > 0) {
                     else -> "⏱"
                 }
                 
-                // Check for promotions - don't sell, just change tracking
-                if (exitSignal == com.lifecyclebot.v3.scoring.QualityTraderAI.ExitSignal.PROMOTE_BLUECHIP ||
-                    exitSignal == com.lifecyclebot.v3.scoring.QualityTraderAI.ExitSignal.PROMOTE_MOONSHOT) {
-                    // Close Quality position tracking (promotion will be handled by respective layer)
+                // Check for promotions - don't sell, just hand off to higher layer
+                if (exitSignal == com.lifecyclebot.v3.scoring.QualityTraderAI.ExitSignal.PROMOTE_BLUECHIP) {
                     com.lifecyclebot.v3.scoring.QualityTraderAI.closePosition(ts.mint, currentPrice, exitSignal)
-                    
-                    addLog("$exitEmoji QUALITY PROMOTE: ${ts.symbol} | ${exitSignal.name} | " +
-                        "mcap=\$${(currentMcap/1000).toInt()}K", ts.mint)
-                    
-                    return  // Promotion processed
+                    // Register with BlueChip layer so the position continues tracking
+                    if (!com.lifecyclebot.v3.scoring.BlueChipTraderAI.hasPosition(ts.mint)) {
+                        val bcTp = com.lifecyclebot.v3.scoring.BlueChipTraderAI.getFluidTakeProfit()
+                        val bcSl = com.lifecyclebot.v3.scoring.BlueChipTraderAI.getFluidStopLoss()
+                        com.lifecyclebot.v3.scoring.BlueChipTraderAI.addPosition(
+                            com.lifecyclebot.v3.scoring.BlueChipTraderAI.BlueChipPosition(
+                                mint = ts.mint,
+                                symbol = ts.symbol,
+                                entryPrice = currentPrice,
+                                entrySol = ts.position.costSol,
+                                entryTime = System.currentTimeMillis(),
+                                marketCapUsd = currentMcap,
+                                liquidityUsd = ts.lastLiquidityUsd,
+                                isPaper = cfg.paperMode,
+                                takeProfitPct = bcTp,
+                                stopLossPct = bcSl
+                            )
+                        )
+                        ts.position.tradingMode = "BLUE_CHIP"
+                        ts.position.tradingModeEmoji = "🔵"
+                    }
+                    addLog("$exitEmoji QUALITY→BLUECHIP: ${ts.symbol} | mcap=\$${(currentMcap/1000).toInt()}K | TP=${"%.0f".format(com.lifecyclebot.v3.scoring.BlueChipTraderAI.getFluidTakeProfit())}%", ts.mint)
+                    return
+                }
+
+                if (exitSignal == com.lifecyclebot.v3.scoring.QualityTraderAI.ExitSignal.PROMOTE_MOONSHOT) {
+                    com.lifecyclebot.v3.scoring.QualityTraderAI.closePosition(ts.mint, currentPrice, exitSignal)
+                    val promoted = com.lifecyclebot.v3.scoring.MoonshotTraderAI.shouldPromoteToMoonshot(
+                        mint = ts.mint, symbol = ts.symbol, fromLayer = "QUALITY",
+                        currentPnlPct = if (ts.position.entryPrice > 0) (currentPrice - ts.position.entryPrice) / ts.position.entryPrice * 100 else 0.0,
+                        currentPrice = currentPrice, marketCapUsd = currentMcap,
+                    )
+                    if (promoted) {
+                        com.lifecyclebot.v3.scoring.MoonshotTraderAI.executePromotion(
+                            mint = ts.mint, symbol = ts.symbol, fromLayer = "QUALITY",
+                            entryPrice = currentPrice, positionSol = ts.position.costSol,
+                            currentPnlPct = if (ts.position.entryPrice > 0) (currentPrice - ts.position.entryPrice) / ts.position.entryPrice * 100 else 0.0,
+                            marketCapUsd = currentMcap, liquidityUsd = ts.lastLiquidityUsd,
+                            isPaper = cfg.paperMode,
+                        )
+                        ts.position.tradingMode = "MOONSHOT_ORBITAL"
+                        ts.position.tradingModeEmoji = "🚀"
+                    }
+                    addLog("$exitEmoji QUALITY→MOONSHOT: ${ts.symbol} | mcap=\$${(currentMcap/1000).toInt()}K", ts.mint)
+                    return
                 }
                 
                 ErrorLogger.info("BotService", "⭐ [QUALITY EXIT] ${ts.symbol} | signal=$exitSignal | price=$currentPrice")

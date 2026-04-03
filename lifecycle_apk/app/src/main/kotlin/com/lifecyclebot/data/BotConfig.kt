@@ -465,7 +465,7 @@ object ConfigStore {
             crossTokenGuardEnabled      = p.getBoolean("cross_token_guard", true),
             crossTokenWindowMins        = p.getFloat("cross_token_window", 15.0f).toDouble(),
             fullMarketScanEnabled       = p.getBoolean("full_market_scan", true),
-            scanIntervalSecs            = p.getInt("scan_interval_secs", 15),  // 15 sec scan (was 5 - too fast)
+            scanIntervalSecs            = p.getInt("scan_interval_secs", 8),   // 8 sec scan — matches default in BotConfig
             maxWatchlistSize            = p.getInt("max_watchlist_size", 50),  // INCREASED to 50
             minDiscoveryScore           = p.getFloat("min_discovery_score", 10.0f).toDouble(), // LOWERED
             scanMinMcapUsd              = p.getFloat("scan_min_mcap", 0.0f).toDouble(),
