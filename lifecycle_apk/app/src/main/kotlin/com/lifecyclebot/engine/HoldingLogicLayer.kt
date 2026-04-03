@@ -361,7 +361,7 @@ object HoldingLogicLayer {
         // If token reaches "established" status (high liquidity, stable)
         // ─────────────────────────────────────────────────────────────────
         if (currentMode !in listOf("BLUE_CHIP", "LONG_HOLD")) {
-            val isEstablished = ts.lastLiquidityUsd > 100000 && ts.lastMcap > 1000000
+            val isEstablished = ts.lastLiquidityUsd > 10000 && ts.lastMcap > 100000
             val isStable = ts.meta.emafanAlignment == "FLAT" && ts.meta.volScore in 20.0..45.0
             val hasHeldLong = holdMinutes > 60
             
@@ -465,7 +465,7 @@ object HoldingLogicLayer {
             age < 10 * 60 * 1000 && volScore > 80 -> "PUMP_SNIPER"
             
             // Micro cap plays
-            mcap < 10000 && liquidity < 2000 -> "MICRO_CAP"
+            mcap < 5000 && liquidity < 2000 -> "MICRO_CAP"
             
             // Dormant revivals
             volScore > 70 && source.contains("SLEEPER", ignoreCase = true) -> "SLEEPER"
@@ -474,8 +474,8 @@ object HoldingLogicLayer {
             source.contains("REVIVAL", ignoreCase = true) -> "REVIVAL"
             
             // Established tokens
-            liquidity > 200000 && mcap > 1000000 -> "BLUE_CHIP"
-            liquidity > 50000 -> "LONG_HOLD"
+            liquidity > 5000 && mcap > 50000 -> "BLUE_CHIP"
+            liquidity > 10000 -> "LONG_HOLD"
             
             // Trending with momentum
             volScore > 30 -> "MOMENTUM_SWING"
