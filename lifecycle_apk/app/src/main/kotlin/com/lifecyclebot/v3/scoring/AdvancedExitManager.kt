@@ -1,36 +1,33 @@
 package com.lifecyclebot.v3.scoring
 
 import com.lifecyclebot.engine.ErrorLogger
-import kotlin.math.abs
-import kotlin.math.max
-import kotlin.math.min
 
 /**
  * ═══════════════════════════════════════════════════════════════════════════════
  * ADVANCED EXIT MANAGER - Universal Exit Strategies v1.0
  * ═══════════════════════════════════════════════════════════════════════════════
- * 
+ *
  * This module provides sophisticated exit strategies that can be used by ANY
  * trading mode. It implements:
- * 
+ *
  * 1. PROGRESSIVE TRAILING STOPS - Gets tighter as profit increases
  * 2. TIME-BASED EXIT SCALING - Adjusts targets based on hold time
  * 3. MOMENTUM-AWARE EXITS - Considers current market conditions
  * 4. PARTIAL PROFIT TAKING - Chunk sells at milestones
  * 5. LOSS CUTTING - Smart stop loss management
- * 
+ *
  * KEY PRINCIPLE: "Let winners run, cut losers fast"
- * 
+ *
  * ═══════════════════════════════════════════════════════════════════════════════
  */
 object AdvancedExitManager {
-    
+
     private const val TAG = "ExitMgr"
-    
+
     // ═══════════════════════════════════════════════════════════════════════════
     // EXIT STRATEGY PROFILES
     // ═══════════════════════════════════════════════════════════════════════════
-    
+
     /**
      * Predefined exit profiles for different trading modes
      */
@@ -42,7 +39,6 @@ object AdvancedExitManager {
         val chunkSellEnabled: Boolean,
         val progressiveTrailing: Boolean,
     ) {
-        // ShitCoin - Tight stops, quick exits
         SHITCOIN(
             baseTakeProfitPct = 25.0,
             baseStopLossPct = 10.0,
@@ -51,8 +47,7 @@ object AdvancedExitManager {
             chunkSellEnabled = false,
             progressiveTrailing = true,
         ),
-        
-        // Express - Ultra tight for momentum trades
+
         EXPRESS(
             baseTakeProfitPct = 30.0,
             baseStopLossPct = 8.0,
@@ -61,8 +56,7 @@ object AdvancedExitManager {
             chunkSellEnabled = false,
             progressiveTrailing = true,
         ),
-        
-        // Blue Chip - Wider stops, longer holds
+
         BLUE_CHIP(
             baseTakeProfitPct = 40.0,
             baseStopLossPct = 15.0,
@@ -71,8 +65,7 @@ object AdvancedExitManager {
             chunkSellEnabled = true,
             progressiveTrailing = true,
         ),
-        
-        // Dip Hunter - Recovery focused
+
         DIP_HUNTER(
             baseTakeProfitPct = 20.0,
             baseStopLossPct = 15.0,
@@ -81,8 +74,7 @@ object AdvancedExitManager {
             chunkSellEnabled = true,
             progressiveTrailing = false,
         ),
-        
-        // Treasury - Quick scalps
+
         TREASURY(
             baseTakeProfitPct = 15.0,
             baseStopLossPct = 8.0,
@@ -91,8 +83,7 @@ object AdvancedExitManager {
             chunkSellEnabled = false,
             progressiveTrailing = true,
         ),
-        
-        // V3 Standard - Balanced
+
         V3_STANDARD(
             baseTakeProfitPct = 35.0,
             baseStopLossPct = 12.0,
@@ -102,102 +93,76 @@ object AdvancedExitManager {
             progressiveTrailing = true,
         ),
     }
-    
+
     // ═══════════════════════════════════════════════════════════════════════════
     // EXIT CALCULATION
     // ═══════════════════════════════════════════════════════════════════════════
-    
+
     data class ExitTargets(
         val takeProfitPct: Double,
         val stopLossPct: Double,
         val trailingStopPct: Double,
-        val chunk1Pct: Double,      // First partial sell target (if enabled)
-        val chunk1SellPct: Int,     // % of position to sell at chunk1
-        val chunk2Pct: Double,      // Second partial sell target
+        val chunk1Pct: Double,
+        val chunk1SellPct: Int,
+        val chunk2Pct: Double,
         val chunk2SellPct: Int,
         val timeExitMinutes: Int,
     )
-    
+
     /**
      * Calculate fluid exit targets based on profile and market conditions
      */
     fun calculateExitTargets(
         profile: ExitProfile,
-        entryScore: Int,          // How confident was the entry (0-100)
-        momentum: Double,         // Current momentum
-        volatility: Double,       // Current volatility
-        marketRegime: String,     // BULL, BEAR, RANGE
+        entryScore: Int,
+        momentum: Double,
+        volatility: Double,
+        marketRegime: String,
     ): ExitTargets {
-        
-        // Get learning progress for fluid adjustments
-        val learningProgress = FluidLearningAI.getLearningProgress()
-        
-        // Base targets from profile
+
+        val learningProgress = FluidLearningAI.getLearningProgress().coerceIn(0.0, 1.0)
+
         var takeProfitPct = profile.baseTakeProfitPct
         var stopLossPct = profile.baseStopLossPct
         var trailingPct = profile.baseTrailingPct
         var maxHold = profile.maxHoldMinutes
-        
-        // ═══════════════════════════════════════════════════════════════════
-        // FLUID ADJUSTMENTS BASED ON LEARNING
-        // ═══════════════════════════════════════════════════════════════════
-        
-        // As we mature, we can take more risk but also expect more reward
-        val fluidMultiplier = 0.8 + learningProgress * 0.4  // 0.8 to 1.2
-        
+
+        // As learning matures, aim a bit bigger and tighten discipline
+        val fluidMultiplier = 0.8 + learningProgress * 0.4 // 0.8 → 1.2
         takeProfitPct *= fluidMultiplier
-        // Stop loss gets TIGHTER as we mature (more discipline)
-        stopLossPct *= (1.2 - learningProgress * 0.3)  // 1.2 to 0.9
-        
-        // ═══════════════════════════════════════════════════════════════════
-        // ENTRY SCORE ADJUSTMENTS
-        // ═══════════════════════════════════════════════════════════════════
-        
-        // High confidence entries get wider stops (more room to work)
+        stopLossPct *= (1.2 - learningProgress * 0.3) // 1.2 → 0.9
+
+        // Entry quality adjustments
         if (entryScore >= 80) {
             stopLossPct *= 1.2
             takeProfitPct *= 1.3
             maxHold = (maxHold * 1.5).toInt()
         } else if (entryScore <= 50) {
-            // Low confidence = tight stops
             stopLossPct *= 0.8
             takeProfitPct *= 0.8
             maxHold = (maxHold * 0.7).toInt()
         }
-        
-        // ═══════════════════════════════════════════════════════════════════
-        // MOMENTUM ADJUSTMENTS
-        // ═══════════════════════════════════════════════════════════════════
-        
+
+        // Momentum adjustments
         if (momentum > 10) {
-            // Strong momentum = let winners run
             takeProfitPct *= 1.3
-            trailingPct *= 1.2  // Wider trailing to not get stopped out
+            trailingPct *= 1.2
         } else if (momentum < -5) {
-            // Negative momentum = tighten everything
             stopLossPct *= 0.8
             takeProfitPct *= 0.7
             trailingPct *= 0.7
         }
-        
-        // ═══════════════════════════════════════════════════════════════════
-        // VOLATILITY ADJUSTMENTS
-        // ═══════════════════════════════════════════════════════════════════
-        
+
+        // Volatility adjustments
         if (volatility > 50) {
-            // High volatility = wider stops to avoid noise
             stopLossPct *= 1.3
             trailingPct *= 1.4
         } else if (volatility < 10) {
-            // Low volatility = tighter stops
             stopLossPct *= 0.8
             trailingPct *= 0.8
         }
-        
-        // ═══════════════════════════════════════════════════════════════════
-        // MARKET REGIME ADJUSTMENTS
-        // ═══════════════════════════════════════════════════════════════════
-        
+
+        // Market regime adjustments
         when (marketRegime.uppercase()) {
             "BULL", "TRENDING_UP" -> {
                 takeProfitPct *= 1.2
@@ -213,25 +178,19 @@ object AdvancedExitManager {
                 trailingPct *= 1.2
             }
         }
-        
-        // ═══════════════════════════════════════════════════════════════════
-        // CHUNK SELL TARGETS
-        // ═══════════════════════════════════════════════════════════════════
-        
-        val chunk1Pct = if (profile.chunkSellEnabled) takeProfitPct * 0.5 else 0.0
-        val chunk1Sell = if (profile.chunkSellEnabled) 25 else 0
-        val chunk2Pct = if (profile.chunkSellEnabled) takeProfitPct * 0.75 else 0.0
-        val chunk2Sell = if (profile.chunkSellEnabled) 25 else 0
-        
-        // ═══════════════════════════════════════════════════════════════════
-        // APPLY HARD LIMITS
-        // ═══════════════════════════════════════════════════════════════════
-        
+
+        // Hard limits first so all downstream levels match final values
         takeProfitPct = takeProfitPct.coerceIn(10.0, 200.0)
         stopLossPct = stopLossPct.coerceIn(5.0, 25.0)
         trailingPct = trailingPct.coerceIn(3.0, 20.0)
         maxHold = maxHold.coerceIn(5, 480)
-        
+
+        // Chunk targets derived from final clamped TP
+        val chunk1Pct = if (profile.chunkSellEnabled) takeProfitPct * 0.5 else 0.0
+        val chunk1Sell = if (profile.chunkSellEnabled) 25 else 0
+        val chunk2Pct = if (profile.chunkSellEnabled) takeProfitPct * 0.75 else 0.0
+        val chunk2Sell = if (profile.chunkSellEnabled) 25 else 0
+
         return ExitTargets(
             takeProfitPct = takeProfitPct,
             stopLossPct = stopLossPct,
@@ -243,32 +202,26 @@ object AdvancedExitManager {
             timeExitMinutes = maxHold,
         )
     }
-    
+
     // ═══════════════════════════════════════════════════════════════════════════
     // PROGRESSIVE TRAILING STOP
     // ═══════════════════════════════════════════════════════════════════════════
-    
+
     /**
-     * Calculate trailing stop that gets TIGHTER as profit increases
-     * 
-     * The idea: When you're up 10%, you can afford a 10% trailing.
-     * When you're up 50%, you want to protect more - use 5% trailing.
-     * When you're up 100%, use very tight 3% trailing.
+     * Returns a trailing STOP PRICE, not a percentage.
      */
     fun calculateProgressiveTrailingStop(
         currentPnlPct: Double,
         baseTrailingPct: Double,
         highWaterMarkPrice: Double,
     ): Double {
-        
-        if (currentPnlPct <= 0) {
-            // Not profitable, no trailing (use regular stop loss)
+
+        if (currentPnlPct <= 0 || highWaterMarkPrice <= 0.0) {
             return 0.0
         }
-        
-        // Progressive trailing: tighter as profit grows
-        val effectiveTrailing = when {
-            currentPnlPct >= 100 -> baseTrailingPct * 0.4   // 40% of base when up 100%+
+
+        val effectiveTrailingPct = when {
+            currentPnlPct >= 100 -> baseTrailingPct * 0.4
             currentPnlPct >= 75 -> baseTrailingPct * 0.5
             currentPnlPct >= 50 -> baseTrailingPct * 0.6
             currentPnlPct >= 30 -> baseTrailingPct * 0.75
@@ -276,65 +229,51 @@ object AdvancedExitManager {
             currentPnlPct >= 10 -> baseTrailingPct * 0.95
             else -> baseTrailingPct
         }.coerceIn(2.0, 20.0)
-        
-        // Calculate stop price
-        val trailingStopPrice = highWaterMarkPrice * (1 - effectiveTrailing / 100)
-        
-        return trailingStopPrice
+
+        return highWaterMarkPrice * (1 - effectiveTrailingPct / 100.0)
     }
-    
+
     // ═══════════════════════════════════════════════════════════════════════════
     // TIME-BASED EXIT PRESSURE
     // ═══════════════════════════════════════════════════════════════════════════
-    
-    /**
-     * Calculate time pressure - as hold time increases, exits get more aggressive
-     */
+
     fun calculateTimePressure(
         holdMinutes: Int,
         maxHoldMinutes: Int,
         currentPnlPct: Double,
     ): TimePressure {
-        
-        val holdRatio = holdMinutes.toDouble() / maxHoldMinutes
-        
+
+        val safeMaxHold = maxHoldMinutes.coerceAtLeast(1)
+        val holdRatio = holdMinutes.toDouble() / safeMaxHold.toDouble()
+
         return when {
-            // Near time limit and losing - URGENT exit
             holdRatio >= 0.9 && currentPnlPct < 0 -> TimePressure.URGENT_EXIT
-            
-            // Near time limit and profitable - Take what we have
             holdRatio >= 0.9 && currentPnlPct > 0 -> TimePressure.TAKE_PROFIT
-            
-            // Past 75% time, pressure builds
             holdRatio >= 0.75 -> TimePressure.HIGH_PRESSURE
-            
-            // Past 50% time, moderate pressure
             holdRatio >= 0.5 -> TimePressure.MODERATE_PRESSURE
-            
-            // Still have time
             else -> TimePressure.NO_PRESSURE
         }
     }
-    
+
     enum class TimePressure(val takeProfitMultiplier: Double, val stopMultiplier: Double) {
         NO_PRESSURE(1.0, 1.0),
         MODERATE_PRESSURE(0.9, 0.9),
         HIGH_PRESSURE(0.75, 0.8),
         TAKE_PROFIT(0.5, 0.7),
-        URGENT_EXIT(0.0, 0.5),  // Exit at any profit, tightest stop
+        URGENT_EXIT(0.0, 0.5),
     }
-    
+
     // ═══════════════════════════════════════════════════════════════════════════
     // MASTER EXIT CHECK
     // ═══════════════════════════════════════════════════════════════════════════
-    
+
     data class ExitDecision(
         val shouldExit: Boolean,
-        val sellPct: Int,           // How much to sell (0-100)
+        val sellPct: Int,
         val exitReason: ExitReason,
         val urgency: ExitUrgency,
     )
-    
+
     enum class ExitReason {
         HOLD,
         TAKE_PROFIT_FULL,
@@ -344,8 +283,9 @@ object AdvancedExitManager {
         TIME_EXIT,
         MOMENTUM_EXIT,
         LIQUIDITY_EXIT,
+        INVALID_INPUT,
     }
-    
+
     enum class ExitUrgency {
         NONE,
         LOW,
@@ -353,7 +293,7 @@ object AdvancedExitManager {
         HIGH,
         CRITICAL,
     }
-    
+
     /**
      * Master exit evaluation - use this from any trading mode
      */
@@ -371,82 +311,84 @@ object AdvancedExitManager {
         volatility: Double,
         alreadySoldPct: Int,
     ): ExitDecision {
-        
-        val pnlPct = (currentPrice - entryPrice) / entryPrice * 100
-        
-        // Get fluid exit targets
+
+        if (entryPrice <= 0.0 || currentPrice <= 0.0) {
+            ErrorLogger.warn(TAG, "Invalid price input: entry=$entryPrice current=$currentPrice")
+            return ExitDecision(true, 100, ExitReason.INVALID_INPUT, ExitUrgency.CRITICAL)
+        }
+
+        val pnlPct = (currentPrice - entryPrice) / entryPrice * 100.0
         val targets = calculateExitTargets(profile, entryScore, currentMomentum, volatility, marketRegime)
-        
-        // Get time pressure
         val timePressure = calculateTimePressure(holdMinutes, targets.timeExitMinutes, pnlPct)
-        
-        // Adjust targets for time pressure
+
         val effectiveTakeProfit = targets.takeProfitPct * timePressure.takeProfitMultiplier
         val effectiveStopLoss = targets.stopLossPct * timePressure.stopMultiplier
-        
-        // ─── EXIT CHECKS (Priority Order) ───
-        
-        // 1. LIQUIDITY COLLAPSE - Emergency exit
-        if (currentLiquidity < entryLiquidity * 0.5) {
+
+        // 1. Liquidity collapse
+        if (entryLiquidity > 0.0 && currentLiquidity < entryLiquidity * 0.5) {
             return ExitDecision(true, 100, ExitReason.LIQUIDITY_EXIT, ExitUrgency.CRITICAL)
         }
-        
-        // 2. HARD STOP LOSS
+
+        // 2. Hard stop loss
         if (pnlPct <= -effectiveStopLoss) {
             return ExitDecision(true, 100, ExitReason.STOP_LOSS, ExitUrgency.HIGH)
         }
-        
-        // 3. FULL TAKE PROFIT
-        if (pnlPct >= effectiveTakeProfit) {
+
+        // 3. Full take profit
+        if (effectiveTakeProfit > 0.0 && pnlPct >= effectiveTakeProfit) {
             return ExitDecision(true, 100, ExitReason.TAKE_PROFIT_FULL, ExitUrgency.MEDIUM)
         }
-        
-        // 4. PROGRESSIVE TRAILING STOP (if in profit)
-        if (profile.progressiveTrailing && pnlPct > 10) {
+
+        // 4. Progressive trailing stop
+        if (profile.progressiveTrailing && pnlPct > 10.0) {
             val trailingStopPrice = calculateProgressiveTrailingStop(
-                pnlPct, targets.trailingStopPct, highWaterMarkPrice
+                currentPnlPct = pnlPct,
+                baseTrailingPct = targets.trailingStopPct,
+                highWaterMarkPrice = highWaterMarkPrice
             )
-            if (currentPrice <= trailingStopPrice) {
+            if (trailingStopPrice > 0.0 && currentPrice <= trailingStopPrice) {
                 return ExitDecision(true, 100, ExitReason.TRAILING_STOP, ExitUrgency.MEDIUM)
             }
         }
-        
-        // 5. CHUNK SELLS
+
+        // 5. Chunk sells
         if (profile.chunkSellEnabled) {
-            // First chunk
             if (alreadySoldPct < targets.chunk1SellPct && pnlPct >= targets.chunk1Pct) {
                 return ExitDecision(true, targets.chunk1SellPct, ExitReason.TAKE_PROFIT_CHUNK, ExitUrgency.LOW)
             }
-            // Second chunk
-            if (alreadySoldPct < targets.chunk1SellPct + targets.chunk2SellPct && pnlPct >= targets.chunk2Pct) {
+
+            if (
+                alreadySoldPct < (targets.chunk1SellPct + targets.chunk2SellPct) &&
+                pnlPct >= targets.chunk2Pct
+            ) {
                 return ExitDecision(true, targets.chunk2SellPct, ExitReason.TAKE_PROFIT_CHUNK, ExitUrgency.LOW)
             }
         }
-        
-        // 6. TIME PRESSURE EXIT
+
+        // 6. Time pressure exits
         if (timePressure == TimePressure.URGENT_EXIT) {
             return ExitDecision(true, 100, ExitReason.TIME_EXIT, ExitUrgency.HIGH)
         }
-        if (timePressure == TimePressure.TAKE_PROFIT && pnlPct > 0) {
+
+        if (timePressure == TimePressure.TAKE_PROFIT && pnlPct > 0.0) {
             return ExitDecision(true, 100, ExitReason.TIME_EXIT, ExitUrgency.MEDIUM)
         }
-        
-        // 7. MOMENTUM DEATH (if profitable)
-        if (pnlPct > 5 && currentMomentum < -10) {
+
+        // 7. Momentum death
+        if (pnlPct > 5.0 && currentMomentum < -10.0) {
             return ExitDecision(true, 100, ExitReason.MOMENTUM_EXIT, ExitUrgency.MEDIUM)
         }
-        
-        // 8. HOLD
+
         return ExitDecision(false, 0, ExitReason.HOLD, ExitUrgency.NONE)
     }
-    
+
     // ═══════════════════════════════════════════════════════════════════════════
     // QUICK HELPERS
     // ═══════════════════════════════════════════════════════════════════════════
-    
+
     /**
-     * Quick check if we should cut loss (for rapid stop loss monitoring)
-     * V5.2.11: Fixed time multipliers - was TIGHTER in first 2 mins (0.7), now LOOSER (1.4)
+     * Quick check if we should cut loss.
+     * V5.2.11: Looser in first few minutes to survive meme-coin wicks.
      */
     fun shouldCutLoss(
         pnlPct: Double,
@@ -454,25 +396,21 @@ object AdvancedExitManager {
         momentum: Double,
         holdMinutes: Int,
     ): Boolean {
-        // V5.2.11: Dynamic stop based on time held - LOOSER early, tighter later
-        // Meme coins wick down in first few minutes before pumping
         val timeMultiplier = when {
-            holdMinutes < 2 -> 1.4     // V5.2.11: WIDER in first 2 mins (was 0.7!)
-            holdMinutes < 5 -> 1.2     // V5.2.11: Still wider (was 0.85)
-            holdMinutes < 10 -> 1.0    // Normal
-            else -> 0.9                // Slightly tighter after 10 mins (if not recovering, cut)
+            holdMinutes < 2 -> 1.4
+            holdMinutes < 5 -> 1.2
+            holdMinutes < 10 -> 1.0
+            else -> 0.9
         }
-        
-        // Momentum adjustment
+
         val momentumMultiplier = when {
-            momentum < -15 -> 0.7      // V5.2.11: 0.6→0.7 (less aggressive on crashes)
+            momentum < -15 -> 0.7
             momentum < -5 -> 0.85
-            momentum > 10 -> 1.2       // Strong momentum - give room
+            momentum > 10 -> 1.2
             else -> 1.0
         }
-        
+
         val effectiveStop = baseStopPct * timeMultiplier * momentumMultiplier
-        
         return pnlPct <= -effectiveStop
     }
 }
