@@ -15,9 +15,9 @@ import java.util.concurrent.ConcurrentHashMap
  * 
  * Example journey:
  * - Token launches at $5K mcap → ShitCoin Layer catches it
- * - Grows to $500K → Transitions to V3 Quality Layer  
- * - Hits $1M → Transitions to Blue Chip Layer
- * - Hits $10M+ → Continue riding in Blue Chip with wider targets
+ * - Grows to $50K → Transitions to V3 Quality Layer  
+ * - Hits $500 → Transitions to Blue Chip Layer
+ * - Hits $1M+ → Continue riding in Blue Chip with wider targets
  * 
  * KEY RULES:
  * 1. Transitions only happen on the WAY UP (not down)
@@ -26,11 +26,11 @@ import java.util.concurrent.ConcurrentHashMap
  * 4. Original entry price is maintained for P&L tracking
  * 
  * LAYER BOUNDARIES:
- * - ShitCoin: <$500K mcap, <6h age
- * - ShitCoin Express: <$300K mcap, momentum >5%
- * - V3 Quality: $20K - $5M mcap (quality setups)
+ * - ShitCoin: <$50K mcap, <6h age
+ * - ShitCoin Express: <$30K mcap, momentum >5%
+ * - V3 Quality: $50K - $250k mcap (quality setups)
  * - Dip Hunter: $50K - $5M mcap (dipped tokens)
- * - Blue Chip: >$1M mcap (established tokens)
+ * - Blue Chip: >$100k mcap (established tokens)
  * 
  * ═══════════════════════════════════════════════════════════════════════════════
  */
@@ -44,19 +44,19 @@ object LayerTransitionManager {
     // ═══════════════════════════════════════════════════════════════════════════
     
     // ShitCoin Layer - true micro caps (new launches, pump.fun, etc.)
-    const val SHITCOIN_MAX_MCAP = 30_000.0    // V4.1: Was $500K - way too high!
+    const val SHITCOIN_MAX_MCAP = 5_000.0    // V4.1: Was $500K - way too high!
     const val SHITCOIN_MAX_AGE_HOURS = 6.0
     
     // Express Layer - momentum plays on micro caps
-    const val EXPRESS_MAX_MCAP = 30_000.0     // V4.1: Was $300K
+    const val EXPRESS_MAX_MCAP = 5_000.0     // V4.1: Was $300K
     const val EXPRESS_MIN_MOMENTUM = 5.0
     
-    // V3 Quality Layer - established low caps ($30K - $1M)
-    const val V3_MIN_MCAP = 30_000.0          // V4.1: Was $20K
-    const val V3_MAX_MCAP = 5_000_000.0
+    // V3 Quality Layer - established low caps ($50K - $250k)
+    const val V3_MIN_MCAP = 5_000.0          // V4.1: Was $20K
+    const val V3_MAX_MCAP = 50_000.0
     
     // Blue Chip Layer - established tokens (>$1M)
-    const val BLUECHIP_MIN_MCAP = 1_000_000.0
+    const val BLUECHIP_MIN_MCAP = 50_000.0
     
     // Transition thresholds (with buffer to prevent oscillation)
     const val TRANSITION_BUFFER_PCT = 10.0  // 10% buffer before transitioning
@@ -74,21 +74,21 @@ object LayerTransitionManager {
         val defaultSL: Double,
         val maxHoldMins: Int,
     ) {
-        SHITCOIN("💩", "ShitCoin", 0.0, 30_000.0, 25.0, 10.0, 15),
-        EXPRESS("💩🚂", "Express", 0.0, 30_000.0, 30.0, 8.0, 10),
-        // V5.2.11: Quality layer for professional Solana trading ($100K-$1M)
-        QUALITY("⭐", "Quality", 100_000.0, 1_000_000.0, 35.0, 12.0, 60),
-        V3_QUALITY("🎯", "V3 Quality", 30_000.0, 1_000_000.0, 35.0, 12.0, 60),  // Legacy alias
+        SHITCOIN("💩", "ShitCoin", 0.0, 5_000.0, 25.0, 10.0, 15),
+        EXPRESS("💩🚂", "Express", 0.0, 50_000.0, 30.0, 8.0, 10),
+        // V5.2.11: Quality layer for professional Solana trading ($50K-$250k)
+        QUALITY("⭐", "Quality", 50_000.0, 1_000_000.0, 35.0, 12.0, 60),
+        V3_QUALITY("🎯", "V3 Quality", 10_000.0, 500_000.0, 35.0, 12.0, 60),  // Legacy alias
         DIP_HUNTER("📉", "DipHunter", 50_000.0, 5_000_000.0, 20.0, 15.0, 360),
-        BLUE_CHIP("🔵", "BlueChip", 1_000_000.0, Double.MAX_VALUE, 40.0, 15.0, 120),
+        BLUE_CHIP("🔵", "BlueChip", 50_000.0, Double.MAX_VALUE, 40.0, 15.0, 120),
         TREASURY("💰", "Treasury", 0.0, Double.MAX_VALUE, 15.0, 8.0, 30),
         // V5.2: Moonshot Layer - 10x to 1000x hunter
-        MOONSHOT("🚀", "Moonshot", 100_000.0, 5_000_000.0, 200.0, 12.0, 60),
+        MOONSHOT("🚀", "Moonshot", 5000.0, 5_000_000.0, 200.0, 12.0, 60),
         // V5.2: Space-themed sub-modes for Moonshot
-        ORBITAL("🛸", "Orbital", 100_000.0, 500_000.0, 100.0, 10.0, 45),     // Early moonshots
-        LUNAR("🌙", "Lunar", 500_000.0, 2_000_000.0, 200.0, 12.0, 60),       // Mid moonshots  
-        MARS("🔴", "Mars", 2_000_000.0, 5_000_000.0, 500.0, 15.0, 120),      // High conviction plays
-        JUPITER("🪐", "Jupiter", 5_000_000.0, 50_000_000.0, 1000.0, 20.0, 240), // Mega moonshots promoted from collective
+        ORBITAL("🛸", "Orbital", 50_000.0, 100_000.0, 100.0, 10.0, 45),     // Early moonshots
+        LUNAR("🌙", "Lunar", 100_000.0, 500_000.0, 200.0, 12.0, 60),       // Mid moonshots  
+        MARS("🔴", "Mars", 500_000.0, 1_000_000.0, 500.0, 15.0, 120),      // High conviction plays
+        JUPITER("🪐", "Jupiter", 1_000_000.0, 50_000_000.0, 1000.0, 20.0, 240), // Mega moonshots promoted from collective
     }
     
     // ═══════════════════════════════════════════════════════════════════════════
@@ -158,13 +158,13 @@ object LayerTransitionManager {
             // Express: Super hot momentum plays <$300K
             marketCapUsd <= EXPRESS_MAX_MCAP && momentum >= EXPRESS_MIN_MOMENTUM -> TradingLayer.EXPRESS
             
-            // ShitCoin: Fresh micro caps <$500K, <6h
+            // ShitCoin: Fresh micro caps <$5K, <6h
             marketCapUsd <= SHITCOIN_MAX_MCAP && tokenAgeHours <= SHITCOIN_MAX_AGE_HOURS -> TradingLayer.SHITCOIN
             
-            // Blue Chip: Established tokens >$1M
+            // Blue Chip: Established tokens >$50k
             marketCapUsd >= BLUECHIP_MIN_MCAP -> TradingLayer.BLUE_CHIP
             
-            // V3 Quality: $20K-$5M with quality setups
+            // V3 Quality: $50K-$250k with quality setups
             marketCapUsd in V3_MIN_MCAP..V3_MAX_MCAP -> TradingLayer.V3_QUALITY
             
             // Fallback to V3 Quality
