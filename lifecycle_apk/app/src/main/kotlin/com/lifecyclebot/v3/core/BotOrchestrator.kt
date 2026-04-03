@@ -104,37 +104,44 @@ class BotOrchestrator(
         
         // ═══════════════════════════════════════════════════════════════════
         // V3.2 PRE-PROPOSAL KILL: C-GRADE GARBAGE DETECTION
-        // 
-        // For quality=C setups, if:
-        //   - confidence < 35% OR
-        //   - memory score <= -8 (negative win history)
-        // 
-        // Then: Skip CANDIDATE/PROPOSED/SIZING entirely → straight to SHADOW_TRACK
-        // 
-        // This reduces wasted cycles on obvious garbage that FDG would kill anyway.
+        //
+        // V5.4 FLUID: Both the B-grade threshold and the conf kill floor are
+        // now fluid so bootstrap tokens (low scores, low conf) can get through
+        // for learning, while mature operation stays selective.
+        //
+        // Bootstrap (0%):  B-threshold=20, conf kill floor=10%
+        // Mature   (100%): B-threshold=30, conf kill floor=28%
         // ═══════════════════════════════════════════════════════════════════
+        val fluidBThreshold = try {
+            com.lifecyclebot.v3.scoring.FluidLearningAI.getMinScoreThreshold()  // 20 bootstrap → 30 mature
+        } catch (_: Exception) { 30 }
+
         val earlyQuality = when {
-            scoreCard.total >= 55 -> "B"  // B+ grade
-            scoreCard.total >= 45 -> "B"  // B grade
-            else -> "C"                   // C grade
+            scoreCard.total >= (fluidBThreshold * 2) -> "B"  // 40 bootstrap → 60 mature
+            scoreCard.total >= fluidBThreshold        -> "B"  // 20 bootstrap → 30 mature
+            else -> "C"
         }
         val memoryScore = scoreCard.byName("memory")?.value ?: 0
-        
-        // V3.2: Pre-proposal kill for absolute garbage only
-        // LOOSENED: Conf floor 35% -> 28% (was blocking too much at 34%)
-        // Only kill C-grade with VERY low confidence OR terrible memory
+
+        // Fluid conf kill floor: 10% at bootstrap → 28% at mature
+        // Prevents blocking valid learning trades during bootstrap phase
+        val fluidKillFloor = try {
+            val p = com.lifecyclebot.v3.scoring.FluidLearningAI.getLearningProgress()
+            (10 + (p * 18)).toInt().coerceIn(10, 28)
+        } catch (_: Exception) { 28 }
+
         if (earlyQuality == "C") {
             val effConf = confidence.effective
-            val shouldKillEarly = (effConf < 28) || (memoryScore <= -10)
-            
+            val shouldKillEarly = (effConf < fluidKillFloor) || (memoryScore <= -10)
+
             if (shouldKillEarly) {
                 val reason = when {
-                    effConf < 28 && memoryScore <= -10 -> "C_GRADE_LOW_CONF_${effConf.toInt()}_BAD_MEMORY_${memoryScore}"
-                    effConf < 28 -> "C_GRADE_CONF_FLOOR_${effConf.toInt()}"
+                    effConf < fluidKillFloor && memoryScore <= -10 -> "C_GRADE_LOW_CONF_${effConf.toInt()}_BAD_MEMORY_${memoryScore}"
+                    effConf < fluidKillFloor -> "C_GRADE_CONF_FLOOR_${effConf.toInt()}"
                     else -> "C_GRADE_BAD_MEMORY_${memoryScore}"
                 }
                 logger.stage("PRE_PROPOSAL_KILL", candidate.symbol, "SHADOW_ONLY",
-                    "quality=$earlyQuality conf=${effConf.toInt()}% memory=$memoryScore → SHADOW_TRACK (no CANDIDATE/PROPOSED/SIZING)")
+                    "quality=$earlyQuality conf=${effConf.toInt()}% floor=$fluidKillFloor memory=$memoryScore → SHADOW_TRACK")
                 lifecycle.mark(candidate.mint, LifecycleState.SHADOW_TRACKED)
                 shadowTracker.track(candidate, scoreCard, effConf.toInt(), reason)
                 return ProcessResult.ShadowOnly(scoreCard.total.toDouble(), effConf.toDouble(), reason)
