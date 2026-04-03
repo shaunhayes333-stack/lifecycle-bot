@@ -4,82 +4,96 @@ import java.util.concurrent.ConcurrentHashMap
 
 /**
  * ═══════════════════════════════════════════════════════════════════════════════
- * V4.5 TRADE AUTHORIZER - SINGLE SOURCE OF EXECUTION TRUTH
+ * V4.6 TRADE AUTHORIZER - SINGLE SOURCE OF EXECUTION TRUTH
  * ═══════════════════════════════════════════════════════════════════════════════
- * 
- * PROBLEM SOLVED:
- * Post-execution gating drift - tokens were being bought BEFORE promotion gate
- * resolved. This caused:
- *   - inokumi bought, THEN blocked by promotion gate (wrong order)
- *   - Same tokens appearing in Open Positions AND Treasury Scalps
- *   - Shadow-only tokens rendered as real positions
- *   - Multiple execution lanes operating on same token
- * 
- * SOLUTION:
- * Single authoritative checkpoint that ALL execution paths MUST pass through
- * BEFORE any PAPER_BUY, LIVE_BUY, ledger insert, or UI position creation.
- * 
- * REQUIRED ORDER:
+ *
+ * PURPOSE:
+ * All execution paths must pass through this gate BEFORE any paper/live buy,
+ * ledger insert, or UI position creation.
+ *
+ * ORDER:
  *   DISCOVERED -> SCORED -> PRE_FILTER -> TRADE_AUTHORIZER -> SIZE -> EXECUTE
- * 
- * NOT:
- *   DISCOVERED -> SCORED -> SIZE -> EXECUTE -> (promotion gate too late)
- * 
+ *
+ * NEVER:
+ *   DISCOVERED -> SCORED -> SIZE -> EXECUTE -> late block
+ *
+ * V5.1:
+ * Supports multi-book execution. Same token may exist in different books
+ * (CORE, TREASURY, SHITCOIN, BLUECHIP, MOONSHOT), but not twice in the SAME book.
+ *
+ * V5.2:
+ * Rugcheck policy:
+ *   RC 0-1  = REJECT
+ *   RC 2-5  = SHADOW_ONLY
+ *   RC 6+   = continue through normal gates
+ *
  * ═══════════════════════════════════════════════════════════════════════════════
  */
 object TradeAuthorizer {
-    
+
     private const val TAG = "TradeAuth"
-    
-    // ═══════════════════════════════════════════════════════════════════════════
-    // TOKEN STATE - Strict enum, no conflicting states allowed
-    // ═══════════════════════════════════════════════════════════════════════════
-    
+
+    // ───────────────────────────────────────────────────────────────────────────
+    // TOKEN STATE
+    // ───────────────────────────────────────────────────────────────────────────
+
     enum class TokenState {
-        DISCOVERED,         // Just found by scanner
-        WATCHLISTED,        // Added to watchlist for monitoring
-        SCORED,             // V3 scoring complete
-        BLOCKED,            // Failed pre-trade checks (hard block)
-        SHADOW_TRACKING,    // Track for learning only, NO execution
-        PAPER_OPEN,         // Paper position open
-        LIVE_OPEN,          // Live position open
-        CLOSED,             // Position closed
-        BANNED,             // Permanently banned (rug, scam, etc.)
+        DISCOVERED,
+        WATCHLISTED,
+        SCORED,
+        BLOCKED,
+        SHADOW_TRACKING,
+        PAPER_OPEN,
+        LIVE_OPEN,
+        CLOSED,
+        BANNED,
     }
-    
-    // ═══════════════════════════════════════════════════════════════════════════
-    // EXECUTION VERDICT - The ONLY valid outputs from authorization
-    // ═══════════════════════════════════════════════════════════════════════════
-    
+
+    // ───────────────────────────────────────────────────────────────────────────
+    // EXECUTION VERDICT
+    // ───────────────────────────────────────────────────────────────────────────
+
     enum class ExecutionVerdict {
-        REJECT,             // Do not execute, do not track
-        SHADOW_ONLY,        // Track for learning, NO execution, NO position record
-        PAPER_EXECUTE,      // Execute paper trade
-        LIVE_EXECUTE,       // Execute live trade
+        REJECT,
+        SHADOW_ONLY,
+        PAPER_EXECUTE,
+        LIVE_EXECUTE,
     }
-    
+
+    enum class BlockLevel {
+        SOFT,
+        HARD,
+        PERMANENT,
+    }
+
     data class AuthorizationResult(
         val verdict: ExecutionVerdict,
         val reason: String,
         val blockLevel: BlockLevel? = null,
         val canRetry: Boolean = false,
     ) {
-        fun isExecutable(): Boolean = verdict == ExecutionVerdict.PAPER_EXECUTE || 
-                                       verdict == ExecutionVerdict.LIVE_EXECUTE
-        
-        fun isShadowOnly(): Boolean = verdict == ExecutionVerdict.SHADOW_ONLY
+        fun isExecutable(): Boolean {
+            return verdict == ExecutionVerdict.PAPER_EXECUTE || verdict == ExecutionVerdict.LIVE_EXECUTE
+        }
+
+        fun isShadowOnly(): Boolean {
+            return verdict == ExecutionVerdict.SHADOW_ONLY
+        }
     }
-    
-    enum class BlockLevel {
-        SOFT,       // Can retry later
-        HARD,       // Blocked for this session
-        PERMANENT,  // Banned forever
+
+    // ───────────────────────────────────────────────────────────────────────────
+    // BOOKS / LOCKS
+    // ───────────────────────────────────────────────────────────────────────────
+
+    enum class ExecutionBook {
+        CORE,
+        TREASURY,
+        SHITCOIN,
+        BLUECHIP,
+        MOONSHOT,
+        SHADOW,
     }
-    
-    // ═══════════════════════════════════════════════════════════════════════════
-    // TOKEN BOOK LOCKS - V5.1: Allow same token in MULTIPLE books
-    // ═══════════════════════════════════════════════════════════════════════════
-    
+
     data class TokenLock(
         val mint: String,
         val state: TokenState,
@@ -87,45 +101,16 @@ object TradeAuthorizer {
         val lockedAt: Long,
         val lastDecisionEpoch: Long,
     )
-    
-    enum class ExecutionBook {
-        CORE,           // Main V3 execution
-        TREASURY,       // Treasury scalping
-        SHITCOIN,       // ShitCoin layer
-        BLUECHIP,       // BlueChip layer
-        MOONSHOT,       // Moonshot 10x-1000x hunter layer ($100K-$5M)
-        SHADOW,         // Shadow tracking only (NOT a real position)
-    }
-    
-    // V5.1: Active locks per token PER BOOK (allows multi-mode trading)
-    // Key: "mint:book" (e.g., "abc123:TREASURY")
+
     private val tokenLocks = ConcurrentHashMap<String, TokenLock>()
-    
-    // Helper to create lock key
-    private fun lockKey(mint: String, book: ExecutionBook): String = "$mint:${book.name}"
-    
-    // Decision epoch to prevent stale re-authorization
     private var currentEpoch = 0L
-    
-    // ═══════════════════════════════════════════════════════════════════════════
-    // MAIN AUTHORIZATION - MUST BE CALLED BEFORE ANY EXECUTION
-    // ═══════════════════════════════════════════════════════════════════════════
-    
-    /**
-     * THE SINGLE AUTHORIZATION CHECKPOINT.
-     * 
-     * Call this BEFORE:
-     *   - Any PAPER_BUY
-     *   - Any LIVE_BUY
-     *   - Any ledger insert
-     *   - Any UI position creation
-     * 
-     * This function checks ALL gates in the correct order:
-     *   1. Ban check
-     *   2. Book lock check (is token already in another book?)
-     *   3. Promotion gate check
-     *   4. Final verdict
-     */
+
+    private fun lockKey(mint: String, book: ExecutionBook): String = "$mint:${book.name}"
+
+    // ───────────────────────────────────────────────────────────────────────────
+    // MAIN AUTHORIZATION
+    // ───────────────────────────────────────────────────────────────────────────
+
     fun authorize(
         mint: String,
         symbol: String,
@@ -138,12 +123,11 @@ object TradeAuthorizer {
         liquidity: Double = 0.0,
         isBanned: Boolean = false,
     ): AuthorizationResult {
-        
         val now = System.currentTimeMillis()
-        
-        // ─────────────────────────────────────────────────────────────────────
-        // GATE 1: PERMANENT BAN CHECK
-        // ─────────────────────────────────────────────────────────────────────
+        val normalizedQuality = quality.trim().uppercase()
+        val safeConfidence = confidence.coerceIn(0.0, 100.0)
+
+        // GATE 1: permanent ban
         if (isBanned || BannedTokens.isBanned(mint)) {
             ErrorLogger.info(TAG, "❌ REJECT $symbol: BANNED")
             return AuthorizationResult(
@@ -153,50 +137,41 @@ object TradeAuthorizer {
                 canRetry = false,
             )
         }
-        
-        // ─────────────────────────────────────────────────────────────────────
-        // GATE 2: RUGCHECK HARD BLOCK
-        // Minimum RC score to pass = 2 (user-confirmed).
-        // Score 0,1 = catastrophic reject. Score 2-5 = shadow only. Score 6+ = pass.
-        // ─────────────────────────────────────────────────────────────────────
-        if (rugcheckScore <= 1) {
-            // RC 0,1 = catastrophic - don't even shadow track
-            ErrorLogger.info(TAG, "❌ REJECT $symbol: RC_SCORE_$rugcheckScore <= 1 (catastrophic)")
-            return AuthorizationResult(
-                verdict = ExecutionVerdict.REJECT,
-                reason = "RUGCHECK_CATASTROPHIC_$rugcheckScore",
-                blockLevel = BlockLevel.HARD,
-                canRetry = false,
-            )
+
+        // GATE 2: rugcheck hard policy
+        when {
+            rugcheckScore <= 1 -> {
+                ErrorLogger.info(TAG, "❌ REJECT $symbol: RC_SCORE_$rugcheckScore <= 1")
+                return AuthorizationResult(
+                    verdict = ExecutionVerdict.REJECT,
+                    reason = "RUGCHECK_CATASTROPHIC_$rugcheckScore",
+                    blockLevel = BlockLevel.HARD,
+                    canRetry = false,
+                )
+            }
+
+            rugcheckScore in 2..5 -> {
+                ErrorLogger.info(TAG, "👁️ SHADOW_ONLY $symbol: RC_SCORE_$rugcheckScore")
+
+                tokenLocks[lockKey(mint, ExecutionBook.SHADOW)] = TokenLock(
+                    mint = mint,
+                    state = TokenState.SHADOW_TRACKING,
+                    book = ExecutionBook.SHADOW,
+                    lockedAt = now,
+                    lastDecisionEpoch = currentEpoch,
+                )
+
+                return AuthorizationResult(
+                    verdict = ExecutionVerdict.SHADOW_ONLY,
+                    reason = "RC_SHADOW_$rugcheckScore",
+                    blockLevel = BlockLevel.SOFT,
+                    canRetry = true,
+                )
+            }
         }
 
-        // RC 2-5 = SHADOW_ONLY (dangerous, but track for learning)
-        if (rugcheckScore in 2..5) {
-            ErrorLogger.info(TAG, "👁️ SHADOW_ONLY $symbol: RC_SCORE_$rugcheckScore (dangerous, track only)")
-            
-            // Lock as shadow tracking
-            tokenLocks[lockKey(mint, ExecutionBook.SHADOW)] = TokenLock(
-                mint = mint,
-                state = TokenState.SHADOW_TRACKING,
-                book = ExecutionBook.SHADOW,
-                lockedAt = now,
-                lastDecisionEpoch = currentEpoch,
-            )
-            
-            return AuthorizationResult(
-                verdict = ExecutionVerdict.SHADOW_ONLY,
-                reason = "RC_SHADOW_$rugcheckScore",
-                blockLevel = BlockLevel.SOFT,
-                canRetry = true,
-            )
-        }
-        
-        // V5.2: RC >= 2 passes rugcheck gate (continues to other gates)
-        
-        // ─────────────────────────────────────────────────────────────────────
-        // GATE 3: LIQUIDITY FLOOR (Live mode only)
-        // ─────────────────────────────────────────────────────────────────────
-        if (!isPaperMode && liquidity < 2000.0 && liquidity > 0) {
+        // GATE 3: live liquidity floor
+        if (!isPaperMode && liquidity in 0.0001..1999.9999) {
             ErrorLogger.info(TAG, "❌ REJECT $symbol: LIQUIDITY_${"%.0f".format(liquidity)} < 2000")
             return AuthorizationResult(
                 verdict = ExecutionVerdict.REJECT,
@@ -205,52 +180,56 @@ object TradeAuthorizer {
                 canRetry = true,
             )
         }
-        
-        // ─────────────────────────────────────────────────────────────────────
-        // GATE 4: BOOK LOCK CHECK - V5.1: ALLOW multi-mode trading
-        // Different modes (V3, TREASURY, SHITCOIN, BLUECHIP) can trade the same token
-        // Only block duplicate trades in the SAME book
-        // ─────────────────────────────────────────────────────────────────────
-        val existingLock = tokenLocks[lockKey(mint, requestedBook)]
-        if (existingLock != null) {
-            // V5.1: Only check if this SPECIFIC book already has a position
-            
-            // If in shadow, can upgrade to real execution
-            if (existingLock.state == TokenState.SHADOW_TRACKING) {
-                // Allow upgrade from shadow to real position
-                ErrorLogger.debug(TAG, "⬆️ $symbol: Upgrading from SHADOW to $requestedBook")
-            }
-            
-            // Reject if this book already has an open position
-            if (existingLock.state == TokenState.PAPER_OPEN || existingLock.state == TokenState.LIVE_OPEN) {
-                ErrorLogger.info(TAG, "❌ REJECT $symbol: ALREADY_OPEN_IN_$requestedBook")
-                return AuthorizationResult(
-                    verdict = ExecutionVerdict.REJECT,
-                    reason = "ALREADY_OPEN",
-                    blockLevel = BlockLevel.SOFT,
-                    canRetry = false,
-                )
+
+        // GATE 4: same-book lock
+        val sameBookLock = tokenLocks[lockKey(mint, requestedBook)]
+        if (sameBookLock != null) {
+            when (sameBookLock.state) {
+                TokenState.PAPER_OPEN, TokenState.LIVE_OPEN -> {
+                    ErrorLogger.info(TAG, "❌ REJECT $symbol: ALREADY_OPEN_IN_${requestedBook.name}")
+                    return AuthorizationResult(
+                        verdict = ExecutionVerdict.REJECT,
+                        reason = "ALREADY_OPEN",
+                        blockLevel = BlockLevel.SOFT,
+                        canRetry = false,
+                    )
+                }
+
+                TokenState.SHADOW_TRACKING -> {
+                    ErrorLogger.debug(TAG, "⬆️ $symbol: Upgrading SHADOW -> ${requestedBook.name}")
+                }
+
+                else -> {
+                    // allow overwrite of stale/non-open states
+                }
             }
         }
-        
-        // V5.1: Log if other books have this token (for visibility)
+
         val otherBooks = ExecutionBook.values()
             .filter { it != requestedBook && it != ExecutionBook.SHADOW }
-            .filter { tokenLocks[lockKey(mint, it)]?.state in listOf(TokenState.PAPER_OPEN, TokenState.LIVE_OPEN) }
+            .filter { book ->
+                val state = tokenLocks[lockKey(mint, book)]?.state
+                state == TokenState.PAPER_OPEN || state == TokenState.LIVE_OPEN
+            }
+
         if (otherBooks.isNotEmpty()) {
-            ErrorLogger.debug(TAG, "✅ $symbol: Multi-mode trade - also in: ${otherBooks.joinToString()}")
+            ErrorLogger.debug(
+                TAG,
+                "✅ $symbol: Multi-book authorization | existing=${otherBooks.joinToString { it.name }}"
+            )
         }
-        
-        // ─────────────────────────────────────────────────────────────────────
-        // GATE 5: PROMOTION GATE - Grade and confidence check
-        // ─────────────────────────────────────────────────────────────────────
-        val promotionResult = checkPromotionGate(symbol, quality, confidence, isPaperMode)
-        
-        if (!promotionResult.allow) {
-            // SHADOW ONLY - track but do NOT execute
-            ErrorLogger.info(TAG, "👁️ SHADOW_ONLY $symbol: ${promotionResult.reason}")
-            
-            // Lock as shadow tracking (use SHADOW key, not book-specific)
+
+        // GATE 5: promotion gate
+        val promotion = checkPromotionGate(
+            symbol = symbol,
+            quality = normalizedQuality,
+            confidence = safeConfidence,
+            isPaperMode = isPaperMode,
+        )
+
+        if (!promotion.allow) {
+            ErrorLogger.info(TAG, "👁️ SHADOW_ONLY $symbol: ${promotion.reason}")
+
             tokenLocks[lockKey(mint, ExecutionBook.SHADOW)] = TokenLock(
                 mint = mint,
                 state = TokenState.SHADOW_TRACKING,
@@ -258,22 +237,19 @@ object TradeAuthorizer {
                 lockedAt = now,
                 lastDecisionEpoch = currentEpoch,
             )
-            
+
             return AuthorizationResult(
                 verdict = ExecutionVerdict.SHADOW_ONLY,
-                reason = promotionResult.reason,
+                reason = promotion.reason,
                 blockLevel = BlockLevel.SOFT,
                 canRetry = true,
             )
         }
-        
-        // ─────────────────────────────────────────────────────────────────────
-        // ALL GATES PASSED - AUTHORIZE EXECUTION
-        // ─────────────────────────────────────────────────────────────────────
+
+        // PASS: authorize execution
         val verdict = if (isPaperMode) ExecutionVerdict.PAPER_EXECUTE else ExecutionVerdict.LIVE_EXECUTE
         val newState = if (isPaperMode) TokenState.PAPER_OPEN else TokenState.LIVE_OPEN
-        
-        // V5.1: Lock the token to this SPECIFIC book (allows multi-mode)
+
         tokenLocks[lockKey(mint, requestedBook)] = TokenLock(
             mint = mint,
             state = newState,
@@ -281,9 +257,15 @@ object TradeAuthorizer {
             lockedAt = now,
             lastDecisionEpoch = currentEpoch,
         )
-        
-        ErrorLogger.info(TAG, "✅ AUTHORIZED $symbol: $verdict in $requestedBook | score=$score conf=${confidence.toInt()}% quality=$quality")
-        
+
+        // Clear shadow lock on successful real execution
+        tokenLocks.remove(lockKey(mint, ExecutionBook.SHADOW))
+
+        ErrorLogger.info(
+            TAG,
+            "✅ AUTHORIZED $symbol: ${verdict.name} in ${requestedBook.name} | score=$score conf=${safeConfidence.toInt()}% quality=$normalizedQuality"
+        )
+
         return AuthorizationResult(
             verdict = verdict,
             reason = "AUTHORIZED",
@@ -291,199 +273,176 @@ object TradeAuthorizer {
             canRetry = false,
         )
     }
-    
-    // ═══════════════════════════════════════════════════════════════════════════
-    // PROMOTION GATE - Moved here to ensure it runs BEFORE execution
-    // ═══════════════════════════════════════════════════════════════════════════
-    
+
+    // ───────────────────────────────────────────────────────────────────────────
+    // PROMOTION GATE
+    // ───────────────────────────────────────────────────────────────────────────
+
     data class PromotionResult(
         val allow: Boolean,
         val reason: String,
     )
-    
+
     private fun checkPromotionGate(
         symbol: String,
         quality: String,
         confidence: Double,
         isPaperMode: Boolean,
     ): PromotionResult {
-        
-        // Paper mode: ULTRA LENIENT for bootstrap learning
-        // The bot MUST trade to learn. No trades = no learning = permanent deadlock
         if (isPaperMode) {
-            // V5.0 FIX: Only block absolute garbage (F grade with zero confidence)
-            // Everything else should execute to build learning data
             if (quality == "F" && confidence < 5.0) {
-                return PromotionResult(false, "F_grade_zero_conf_shadow_only")
+                return PromotionResult(
+                    allow = false,
+                    reason = "F_grade_zero_conf_shadow_only",
+                )
             }
-            // ALL other paper trades pass - we need data!
-            return PromotionResult(true, "PAPER_BOOTSTRAP_PASS")
+
+            return PromotionResult(
+                allow = true,
+                reason = "PAPER_BOOTSTRAP_PASS",
+            )
         }
-        
-        // Live mode: Stricter requirements
-        // A/A+ grades: Always pass
-        if (quality in listOf("A+", "A")) {
-            return PromotionResult(true, "LIVE_PASS_${quality}")
-        }
-        
-        // B grade: Needs confidence >= 40%
-        if (quality == "B") {
-            return if (confidence >= 40.0) {
-                PromotionResult(true, "LIVE_PASS_B_conf_${confidence.toInt()}")
-            } else {
-                PromotionResult(false, "B_grade_conf_${confidence.toInt()}_below_40")
+
+        return when (quality) {
+            "A+", "A" -> {
+                PromotionResult(true, "LIVE_PASS_$quality")
             }
-        }
-        
-        // C grade: Needs confidence >= 25%
-        if (quality == "C") {
-            return if (confidence >= 25.0) {
-                PromotionResult(true, "LIVE_PASS_C_conf_${confidence.toInt()}")
-            } else {
-                PromotionResult(false, "C_grade_conf_${confidence.toInt()}_below_25")
-            }
-        }
-        
-        // D/F grades: Never execute live
-        return PromotionResult(false, "${quality}_grade_no_live_execution")
-    }
-    
-    // ═══════════════════════════════════════════════════════════════════════════
-    // POSITION LIFECYCLE MANAGEMENT
-    // ═══════════════════════════════════════════════════════════════════════════
-    
-    /**
-     * V5.1: Releases the book lock for a specific book.
-     */
-    fun releasePosition(mint: String, reason: String = "CLOSED", book: ExecutionBook? = null) {
-        if (book != null) {
-            // Release specific book
-            val lock = tokenLocks.remove(lockKey(mint, book))
-            if (lock != null) {
-                ErrorLogger.debug(TAG, "🔓 Released $mint from ${lock.book}: $reason")
-            }
-        } else {
-            // Release ALL books for this mint (legacy compatibility)
-            ExecutionBook.values().forEach { b ->
-                val lock = tokenLocks.remove(lockKey(mint, b))
-                if (lock != null) {
-                    ErrorLogger.debug(TAG, "🔓 Released $mint from ${lock.book}: $reason")
+
+            "B" -> {
+                if (confidence >= 40.0) {
+                    PromotionResult(true, "LIVE_PASS_B_conf_${confidence.toInt()}")
+                } else {
+                    PromotionResult(false, "B_grade_conf_${confidence.toInt()}_below_40")
                 }
             }
+
+            "C" -> {
+                if (confidence >= 25.0) {
+                    PromotionResult(true, "LIVE_PASS_C_conf_${confidence.toInt()}")
+                } else {
+                    PromotionResult(false, "C_grade_conf_${confidence.toInt()}_below_25")
+                }
+            }
+
+            "D", "F" -> {
+                PromotionResult(false, "${quality}_grade_no_live_execution")
+            }
+
+            else -> {
+                PromotionResult(false, "UNKNOWN_QUALITY_${quality.ifBlank { "BLANK" }}")
+            }
         }
     }
-    
-    /**
-     * V5.1: Get current state of a token in a specific book.
-     */
+
+    // ───────────────────────────────────────────────────────────────────────────
+    // POSITION / LOCK LIFECYCLE
+    // ───────────────────────────────────────────────────────────────────────────
+
+    fun releasePosition(
+        mint: String,
+        reason: String = "CLOSED",
+        book: ExecutionBook? = null,
+    ) {
+        if (book != null) {
+            val removed = tokenLocks.remove(lockKey(mint, book))
+            if (removed != null) {
+                ErrorLogger.debug(TAG, "🔓 Released $mint from ${removed.book.name}: $reason")
+            }
+            return
+        }
+
+        ExecutionBook.values().forEach { b ->
+            val removed = tokenLocks.remove(lockKey(mint, b))
+            if (removed != null) {
+                ErrorLogger.debug(TAG, "🔓 Released $mint from ${removed.book.name}: $reason")
+            }
+        }
+    }
+
     fun getTokenState(mint: String, book: ExecutionBook? = null): TokenState? {
         if (book != null) {
             return tokenLocks[lockKey(mint, book)]?.state
         }
-        // Return first found state (legacy compatibility)
-        return ExecutionBook.values().firstNotNullOfOrNull { tokenLocks[lockKey(mint, it)]?.state }
+
+        return ExecutionBook.values()
+            .firstNotNullOfOrNull { b -> tokenLocks[lockKey(mint, b)]?.state }
     }
-    
-    /**
-     * V5.1: Get all books a token is locked to.
-     */
+
     fun getTokenBooks(mint: String): List<ExecutionBook> {
-        return ExecutionBook.values().filter { tokenLocks[lockKey(mint, it)] != null }
+        return ExecutionBook.values().filter { b ->
+            tokenLocks[lockKey(mint, b)] != null
+        }
     }
-    
-    /**
-     * V5.1: Check if a token is in shadow tracking (NOT a real position).
-     */
+
     fun isShadowOnly(mint: String): Boolean {
         return tokenLocks[lockKey(mint, ExecutionBook.SHADOW)]?.state == TokenState.SHADOW_TRACKING
     }
-    
-    /**
-     * V5.1: Check if a token has a real open position in ANY book.
-     */
+
     fun hasOpenPosition(mint: String): Boolean {
         return ExecutionBook.values().any { b ->
             val state = tokenLocks[lockKey(mint, b)]?.state
             state == TokenState.PAPER_OPEN || state == TokenState.LIVE_OPEN
         }
     }
-    
-    /**
-     * V5.1: Check if a token has a position in a specific book.
-     */
+
     fun hasOpenPositionInBook(mint: String, book: ExecutionBook): Boolean {
         val state = tokenLocks[lockKey(mint, book)]?.state
         return state == TokenState.PAPER_OPEN || state == TokenState.LIVE_OPEN
     }
-    
-    /**
-     * V5.1: Get all tokens in a specific book.
-     */
+
     fun getTokensInBook(book: ExecutionBook): List<String> {
-        return tokenLocks.filter { it.key.endsWith(":${book.name}") }
-            .values.map { it.mint }.distinct()
+        return tokenLocks
+            .filter { it.key.endsWith(":${book.name}") }
+            .values
+            .map { it.mint }
+            .distinct()
     }
-    
-    /**
-     * V5.1: Get all real open positions (excludes shadow tracking).
-     */
+
     fun getOpenPositions(): List<String> {
-        return tokenLocks.filter { 
-            it.value.state == TokenState.PAPER_OPEN || 
-            it.value.state == TokenState.LIVE_OPEN 
-        }.values.map { it.mint }.distinct()
+        return tokenLocks.values
+            .filter { it.state == TokenState.PAPER_OPEN || it.state == TokenState.LIVE_OPEN }
+            .map { it.mint }
+            .distinct()
     }
-    
-    /**
-     * Get all shadow tracking tokens.
-     */
+
     fun getShadowTracking(): List<String> {
-        return tokenLocks.filter { it.value.state == TokenState.SHADOW_TRACKING }
-            .values.map { it.mint }.distinct()
+        return tokenLocks.values
+            .filter { it.state == TokenState.SHADOW_TRACKING }
+            .map { it.mint }
+            .distinct()
     }
-    
-    // ═══════════════════════════════════════════════════════════════════════════
-    // EPOCH MANAGEMENT
-    // ═══════════════════════════════════════════════════════════════════════════
-    
-    /**
-     * Advance the decision epoch.
-     * Call this at the start of each main loop iteration.
-     */
+
+    // ───────────────────────────────────────────────────────────────────────────
+    // EPOCH
+    // ───────────────────────────────────────────────────────────────────────────
+
     fun advanceEpoch() {
         currentEpoch = System.currentTimeMillis()
     }
-    
-    // ═══════════════════════════════════════════════════════════════════════════
-    // STATS & CLEANUP
-    // ═══════════════════════════════════════════════════════════════════════════
-    
-    fun getStats(): String {
-        val byState = tokenLocks.values.groupBy { it.state }
-        val paperOpen = byState[TokenState.PAPER_OPEN]?.size ?: 0
-        val liveOpen = byState[TokenState.LIVE_OPEN]?.size ?: 0
-        val shadow = byState[TokenState.SHADOW_TRACKING]?.size ?: 0
-        
-        return "TradeAuth: paper_open=$paperOpen live_open=$liveOpen shadow=$shadow total=${tokenLocks.size}"
-    }
-    
-    /**
-     * Cleanup stale locks.
-     */
+
+    // ───────────────────────────────────────────────────────────────────────────
+    // MAINTENANCE / STATS
+    // ───────────────────────────────────────────────────────────────────────────
+
     fun cleanup() {
         val now = System.currentTimeMillis()
-        val staleThreshold = 30 * 60 * 1000L  // 30 minutes
-        
-        // Remove stale shadow tracking
-        tokenLocks.entries.removeIf { 
-            it.value.state == TokenState.SHADOW_TRACKING && 
-            now - it.value.lockedAt > staleThreshold 
+        val staleShadowMs = 30 * 60 * 1000L
+
+        tokenLocks.entries.removeIf { entry ->
+            entry.value.state == TokenState.SHADOW_TRACKING &&
+                now - entry.value.lockedAt > staleShadowMs
         }
     }
-    
-    /**
-     * Reset all state (for testing or restart).
-     */
+
+    fun getStats(): String {
+        val values = tokenLocks.values
+        val paperOpen = values.count { it.state == TokenState.PAPER_OPEN }
+        val liveOpen = values.count { it.state == TokenState.LIVE_OPEN }
+        val shadow = values.count { it.state == TokenState.SHADOW_TRACKING }
+
+        return "TradeAuth: paper_open=$paperOpen live_open=$liveOpen shadow=$shadow total=${tokenLocks.size}"
+    }
+
     fun reset() {
         tokenLocks.clear()
         currentEpoch = 0L
