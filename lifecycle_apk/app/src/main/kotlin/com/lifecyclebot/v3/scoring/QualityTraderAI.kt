@@ -53,11 +53,11 @@ object QualityTraderAI {
     // ═══════════════════════════════════════════════════════════════════════════
     
     // Market cap filter - Quality range (between ShitCoin and BlueChip)
-    private const val MIN_MARKET_CAP_USD = 100_000.0    // $100K minimum
-    private const val MAX_MARKET_CAP_USD = 1_000_000.0  // $1M max (above this = BlueChip)
+    private const val MIN_MARKET_CAP_USD = 50_000.0    // $50K minimum
+    private const val MAX_MARKET_CAP_USD = 500_000.0  // $500,000 max (above this = BlueChip)
     
     // Liquidity requirements - higher than ShitCoin
-    private const val MIN_LIQUIDITY_USD = 20_000.0
+    private const val MIN_LIQUIDITY_USD = 5000.0
     
     // Token age - prefer established tokens
     // V5.2.12: Made fluid - lower during learning to gather data
@@ -169,9 +169,9 @@ object QualityTraderAI {
         }
         
         // Liquidity filter — FLUID: lower during bootstrap for data gathering
-        // V5.4: was hard $20K floor; now $8K bootstrap → $20K mature
+        // V5.4: was hard $20K floor; now $5K bootstrap → $20K mature
         val learningProgress = FluidLearningAI.getLearningProgress()
-        val minLiqUsd = (8_000 + learningProgress * 12_000).coerceIn(8_000.0, MIN_LIQUIDITY_USD)
+        val minLiqUsd = (5_000 + learningProgress * 12_000).coerceIn(5_000.0, MIN_LIQUIDITY_USD)
         if (liquidityUsd < minLiqUsd) {
             return QualitySignal(false, reason = "Liquidity too low: $${liquidityUsd.toInt()} < $${minLiqUsd.toInt()} (learning=${(learningProgress*100).toInt()}%)")
         }
@@ -214,18 +214,18 @@ object QualityTraderAI {
         
         // Market cap in sweet spot
         val mcapScore = when {
-            marketCapUsd in 200_000.0..500_000.0 -> 20  // Sweet spot
-            marketCapUsd in 100_000.0..200_000.0 -> 10
-            marketCapUsd in 500_000.0..1_000_000.0 -> 15
+            marketCapUsd in 50_000.0..100_000.0 -> 20  // Sweet spot
+            marketCapUsd in 20_000.0..50_000.0 -> 10
+            marketCapUsd in 100_000.0..500_000.0 -> 15
             else -> 0
         }
         qualityScore += mcapScore
         
         // Liquidity score
         val liqScore = when {
-            liquidityUsd >= 100_000 -> 20
-            liquidityUsd >= 50_000 -> 15
-            liquidityUsd >= 30_000 -> 10
+            liquidityUsd >= 50_000 -> 20
+            liquidityUsd >= 25_000 -> 15
+            liquidityUsd >= 10_000 -> 10
             else -> 5
         }
         qualityScore += liqScore
@@ -324,7 +324,7 @@ object QualityTraderAI {
         // ═══════════════════════════════════════════════════════════════════
         
         // If mcap crossed $1M, promote to BlueChip
-        if (currentMcap > 1_000_000 && pnlPct > 0) {
+        if (currentMcap > 100_000 && pnlPct > 0) {
             ErrorLogger.info(TAG, "🔵 QUALITY → BLUECHIP: ${pos.symbol} | mcap crossed $1M!")
             return ExitSignal.PROMOTE_BLUECHIP
         }
