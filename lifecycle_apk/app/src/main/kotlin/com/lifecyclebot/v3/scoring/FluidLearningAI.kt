@@ -166,7 +166,9 @@ object FluidLearningAI {
         buyPressurePct: Double,
         isPaper: Boolean
     ): Boolean {
-        // V5.2: Apply during bootstrap (learning < 15%, was 5%)
+        // V5.3: Cold-start override covers only the VERY early phase (first ~75 trades)
+        // The 3-phase learning curve already keeps thresholds loose for all 500 bootstrap trades.
+        // This override is purely for breaking the cold-start deadlock, not for bulk-entry.
         if (getLearningProgress() >= 0.15) return false
         
         // V5.2: Quick age check - only wait 1 minute
