@@ -581,9 +581,14 @@ object CashGenerationAI {
             pos.trailingStop = currentPrice * (1 - TRAILING_STOP_PCT / 100)
         }
 
-        if (currentPrice >= pos.targetPrice) {
+        // Paper/live TP floor: live exits at 2.5% (lock real profit sooner),
+        // paper at 3.5% (let paper trades breathe for learning data).
+        // These constants were defined but previously unused — now applied.
+        val tpFloor = if (pos.isPaper) TAKE_PROFIT_PCT_PAPER else TAKE_PROFIT_PCT_LIVE
+        if (pnlPct >= tpFloor) {
             val holdSeconds = (System.currentTimeMillis() - pos.entryTime) / 1000
-            ErrorLogger.info(TAG, "💰 TREASURY TP HIT: ${pos.symbol} | +${pnlPct.toInt()}% in ${holdSeconds}s | SELLING!")
+            val modeLabel = if (pos.isPaper) "PAPER" else "LIVE"
+            ErrorLogger.info(TAG, "💰 TREASURY TP HIT [$modeLabel]: ${pos.symbol} | +${pnlPct.fmt(1)}% >= $tpFloor% in ${holdSeconds}s | SELLING!")
             return ExitSignal.TAKE_PROFIT
         }
 

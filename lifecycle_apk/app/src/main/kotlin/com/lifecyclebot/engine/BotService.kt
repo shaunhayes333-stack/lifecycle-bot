@@ -5498,7 +5498,7 @@ if (deferredCount > 0) {
                         wallet = wallet,
                         walletBalance = effectiveBalance,
                     )
-                    com.lifecyclebot.v3.scoring.MoonshotTraderAI.markPartialTakeDone(ts.mint, currentPrice)
+                    // firstTakeDone flag is already set inside MoonshotTraderAI.checkExit()
                     addLog("💰 MOONSHOT PARTIAL: ${ts.symbol} | sold ${(partialPct*100).toInt()}%, riding rest", ts.mint)
                     return
                 }
