@@ -1342,7 +1342,7 @@ class SolanaMarketScanner(
                     }
                 }
 
-                if (liq < 500) continue
+                if (liq < 2000) continue
 
                 val vol = pair.candle.volumeH1
                 val mcap = pair.candle.marketCap
@@ -2020,7 +2020,7 @@ class SolanaMarketScanner(
             return true
         }
 
-        val hardMinMcap = if (isPumpFunToken) 5000.0 else 5_000.0
+        val hardMinMcap = if (isPumpFunToken) 2000.0 else 2_000.0
         if (token.mcapUsd > 0 && token.mcapUsd < hardMinMcap) {
             ErrorLogger.debug("Scanner", "FILTER REJECT ${token.symbol}: mcap \$${token.mcapUsd.toInt()} < hard min \$${hardMinMcap.toInt()}")
             return false
@@ -2325,7 +2325,7 @@ class SolanaMarketScanner(
                     onLog("🚫 RC BLOCK [PAPER]: ${mint.take(8)}... score=$scoreNormalized (rug pull risk)")
                     ErrorLogger.info("Scanner", "RC BLOCK [PAPER]: ${mint.take(12)} score=$scoreNormalized <= 1")
                     return false
-                } else if (scoreNormalized in 2..5) {
+                } else if (scoreNormalized in 1..5) {
                     onLog("⚠️ RC WARN [PAPER]: ${mint.take(8)}... score=$scoreNormalized (allowed for learning)")
                     ErrorLogger.info("Scanner", "RC PASS [PAPER]: ${mint.take(12)} score=$scoreNormalized (learning mode)")
                     return true
@@ -2340,14 +2340,14 @@ class SolanaMarketScanner(
                 return false
             }
 
-            if (scoreNormalized in 2..5) {
+            if (scoreNormalized in 1..5) {
                 telemetryRugRejects++
                 onLog("🚫 RC BLOCK: ${mint.take(8)}... score=$scoreNormalized (dangerous)")
-                ErrorLogger.info("Scanner", "RC BLOCK: ${mint.take(12)} score=$scoreNormalized (2-5)")
+                ErrorLogger.info("Scanner", "RC BLOCK: ${mint.take(12)} score=$scoreNormalized (1-5)")
                 return false
             }
 
-            if (scoreNormalized in 2..15) {
+            if (scoreNormalized in 1..15) {
                 ErrorLogger.debug("Scanner", "RC ${mint.take(8)}: score=$scoreNormalized (OK - normal range)")
             }
 
