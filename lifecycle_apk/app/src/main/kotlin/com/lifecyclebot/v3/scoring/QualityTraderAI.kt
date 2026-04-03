@@ -170,13 +170,13 @@ object QualityTraderAI {
         
         // Liquidity filter — FLUID: lower during bootstrap for data gathering
         // V5.4: was hard $20K floor; now $8K bootstrap → $20K mature
+        val learningProgress = FluidLearningAI.getLearningProgress()
         val minLiqUsd = (8_000 + learningProgress * 12_000).coerceIn(8_000.0, MIN_LIQUIDITY_USD)
         if (liquidityUsd < minLiqUsd) {
             return QualitySignal(false, reason = "Liquidity too low: $${liquidityUsd.toInt()} < $${minLiqUsd.toInt()} (learning=${(learningProgress*100).toInt()}%)")
         }
-        
+
         // Age filter - FLUID: Lower during learning to gather data
-        val learningProgress = FluidLearningAI.getLearningProgress()
         val minAgeRequired = if (learningProgress < 0.5) MIN_AGE_MINUTES_BOOTSTRAP else MIN_AGE_MINUTES_MATURE
         
         if (tokenAgeMinutes < minAgeRequired) {
