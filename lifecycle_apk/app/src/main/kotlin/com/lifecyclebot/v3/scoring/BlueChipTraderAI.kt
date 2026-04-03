@@ -46,7 +46,7 @@ object BlueChipTraderAI {
     // CONFIGURATION
     // ═══════════════════════════════════════════════════════════════════════════
     
-    // Market cap filter - MINIMUM $1M
+    // Market cap filter - MINIMUM $50k
     private const val MIN_MARKET_CAP_USD = 50_000.0
     
     // Liquidity requirements - higher than Treasury
