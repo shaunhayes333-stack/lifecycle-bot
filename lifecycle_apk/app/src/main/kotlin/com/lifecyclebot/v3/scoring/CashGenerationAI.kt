@@ -19,24 +19,24 @@ import kotlin.math.max
  * 
  * USER REQUIREMENTS (Dec 2024):
  * ─────────────────────────────────────────────────────────────────────────────
- * 1. Daily Loss Limit: $50 (ULTRA-CONSERVATIVE) - pause after hitting
+ * 1. Daily Loss Limit: $100 (ULTRA-CONSERVATIVE) - pause after hitting
  * 2. Position Sizing: DYNAMIC - shrinks as daily target approaches
- * 3. Trade Frequency: ACTIVE (10+ trades/day, quick scalps)
+ * 3. Trade Frequency: ACTIVE (100+ trades/day, quick scalps)
  * 4. Profit Taking: QUICK SCALPS (5-10% profit, fast exit)
  * 5. SEPARATE Paper/Live Treasury Balances - switch display with mode
  * 
  * PHILOSOPHY:
  * - Many small wins (5-10%) through quick scalping
  * - Cut losses IMMEDIATELY (max -2% per trade, $50/day total)
- * - Only A-grade confidence (80%+) setups
+ * - Only C+grade confidence (80%+) setups
  * - Feed the treasury, never drain it
  * - "2nd shadow mode" that runs CONCURRENTLY with other trading
  * 
  * GOALS:
  * - Target: $500-$1000 daily profit
- * - Max drawdown: $50/day (ULTRA-CONSERVATIVE - then pause)
+ * - Max drawdown: $100/day (ULTRA-CONSERVATIVE - then pause)
  * - Win rate target: 70%+ (many small wins)
- * - Trade count: 10+ per day (active scalping)
+ * - Trade count: 100+ per day (active scalping)
  * 
  * ═══════════════════════════════════════════════════════════════════════════════
  */
@@ -50,7 +50,7 @@ object CashGenerationAI {
     
     // V4.0 UPDATE: REMOVED daily profit targets - Treasury runs unlimited!
     // Old caps were: $500-$1000/day. Now: UNLIMITED - let it make as much as possible!
-    private const val DAILY_MAX_LOSS_SOL = 0.33       // ~$50 ULTRA-CONSERVATIVE (user choice 1a) - KEEP THIS
+    private const val DAILY_MAX_LOSS_SOL = 1.0       // ~$100 ULTRA-CONSERVATIVE (user choice 1a) - KEEP THIS
     
     // ═══════════════════════════════════════════════════════════════════════════
     // FLUID THRESHOLDS - Now centralized in FluidLearningAI (Layer 23)
@@ -70,7 +70,7 @@ object CashGenerationAI {
     // Can cycle same coin repeatedly if green
     private const val TAKE_PROFIT_PCT_PAPER = 3.5     // V5.2: Paper same as live (was 0.5%)
     private const val TAKE_PROFIT_PCT_LIVE = 2.5      // Live: 2.5% minimum (covers fees + profit)
-    private const val TAKE_PROFIT_MIN_PCT = 2.5       // V5.0: Quick 2.5% for DEFENSIVE mode
+    private const val TAKE_PROFIT_MIN_PCT = 3.0       // V5.0: Quick 2.5% for DEFENSIVE mode
     private const val TAKE_PROFIT_PCT = 3.5           // Standard TP for CRUISE mode
     private const val TAKE_PROFIT_MAX_PCT = 4.0       // V5.0: Cap at 4% for AGGRESSIVE (was 8%)
     private const val STOP_LOSS_PCT = -4.0            // V5.2 FIX: Raised from -2% - give trades room to breathe
@@ -85,8 +85,9 @@ object CashGenerationAI {
     private const val MIN_PROFIT_FOR_LIVE = 2.5       // Must clear 2.5% to cover fees + profit
     
     // Trade frequency (ACTIVE - user choice 3c: 10+ trades/day)
-    private const val MIN_TRADES_PER_DAY = 10
-    private const val MAX_CONCURRENT_POSITIONS = 4   // Allow more concurrent for active scalping
+    private const val MIN_TRADES_PER_DAY = 100
+    private const val MAX_CONCURRENT_POSITIONS = 
+   // Allow more concurrent for active scalping
     
     // ═══════════════════════════════════════════════════════════════════════════
     // COMPOUNDING & IMMEDIATE TRADING
@@ -112,8 +113,8 @@ object CashGenerationAI {
     private val paperDailyWins = AtomicInteger(0)
     private val paperDailyLosses = AtomicInteger(0)
     private val paperDailyTradeCount = AtomicInteger(0)
-    // V3.3: Paper Treasury starts with $500 (~6 SOL at $83/SOL) = 600 basis points
-    private val paperTreasuryBalanceBps = AtomicLong(600)  // Starting balance: 6.0 SOL (~$500)
+    // V3.3: Paper Treasury starts with $1,000 (~12.64 SOL at $83.65/SOL) = 600 basis points
+    private val paperTreasuryBalanceBps = AtomicLong(600)  // Starting balance: 12.64 SOL (~$1,000)
     
     // LIVE MODE stats (separate tracking)
     private val liveDailyPnlSolBps = AtomicLong(0)
@@ -686,7 +687,7 @@ object CashGenerationAI {
             return ExitSignal.TAKE_PROFIT
         }
         
-        // 2. BACKUP: HIT MAX TAKE PROFIT (4%)
+        // 2. BACKUP: HIT MAX TAKE PROFIT (3.5%)
         if (pnlPct >= TAKE_PROFIT_MAX_PCT) {
             return ExitSignal.TAKE_PROFIT
         }
@@ -702,7 +703,7 @@ object CashGenerationAI {
             return ExitSignal.TRAILING_STOP
         }
         
-        // 5. MAX HOLD TIME (30 mins) - only if losing
+        // 5. MAX HOLD TIME (5 mins) - only if losing
         // V5.2.11: Added pnlPct < 0 check
         if (holdMinutes >= MAX_HOLD_MINUTES && pnlPct < 0) {
             return ExitSignal.TIME_EXIT
@@ -925,7 +926,7 @@ object CashGenerationAI {
         val dailyPnl = dailyPnlSolBps.get() / 100.0
         
         return when {
-            // Hit max loss ($50) → PAUSE until reset
+            // Hit max loss ($100) → PAUSE until reset
             dailyPnl <= -DAILY_MAX_LOSS_SOL -> TreasuryMode.PAUSED
             
             // V4.0: Simplified modes - no target-based switching
