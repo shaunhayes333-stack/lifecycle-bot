@@ -63,13 +63,15 @@ object MoonshotTraderAI {
         JUPITER("🪐", "Jupiter", 2_000_000.0, 50_000_000.0, 1000.0, -20.0, 240, "Mega collective winners"),
     }
     
-    // Market cap boundaries
-    private const val MIN_MARKET_CAP_USD = 5_000.0     // $100K minimum
-    private const val MAX_MARKET_CAP_USD = 50_000_000.0  // $50M maximum (Jupiter mode)
+    // V5.2.12: Moonshot is a CROSS-LAYER promotion for massive gains
+    // Any token from any layer can promote to Moonshot when gains hit threshold
+    // Market cap boundaries are wide to accept promotions from all layers
+    private const val MIN_MARKET_CAP_USD = 10_000.0      // $10K minimum (can come from ShitCoin)
+    private const val MAX_MARKET_CAP_USD = 100_000_000.0 // $100M maximum (allow Jupiter plays)
     
-    // Liquidity requirements
-    private const val MIN_LIQUIDITY_USD_BOOTSTRAP = 5_000.0
-    private const val MIN_LIQUIDITY_USD_MATURE = 10_000.0
+    // Liquidity requirements - flexible since these are promoted positions
+    private const val MIN_LIQUIDITY_USD_BOOTSTRAP = 5_000.0   // Lower in learning
+    private const val MIN_LIQUIDITY_USD_MATURE = 15_000.0     // Higher when mature
     
     // Position sizing - moderate but aggressive
     private const val BASE_POSITION_SOL = 0.08

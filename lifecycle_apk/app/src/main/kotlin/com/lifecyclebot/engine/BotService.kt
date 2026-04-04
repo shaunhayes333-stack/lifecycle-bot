@@ -3808,8 +3808,9 @@ if (deferredCount > 0) {
                     ErrorLogger.debug("BotService", "🚀 [MOONSHOT] ${ts.symbol} | BLOCKED | Treasury has open position - wait for TP/SL")
                 } else {
                 try {
-                    // Check if mcap is in moonshot zone ($100K-$50M)
-                    if (ts.lastMcap in 100_000.0..50_000_000.0) {
+                    // V5.2.12: Check if mcap is in moonshot zone ($10K-$100M)
+                    // Moonshot accepts promotions from any layer
+                    if (ts.lastMcap in 10_000.0..100_000_000.0) {
                         
                         // V5.2: Check execution permit for MOONSHOT book
                         val moonshotPermit = FinalExecutionPermit.canExecute(
@@ -4229,8 +4230,8 @@ if (deferredCount > 0) {
                         (System.currentTimeMillis() - ts.addedToWatchlistAt) / 60_000.0
                     } else 60.0
                     
-                    // Express only for micro caps <$300K that are pumping
-                    if (ts.lastMcap <= 300_000 && ts.lastMcap >= 5_000 &&
+                    // V5.2.12: Express only for ShitCoin range (<$100K) that are pumping
+                    if (ts.lastMcap <= 100_000 && ts.lastMcap >= 1_000 &&
                         (ts.momentum ?: 0.0) >= 5.0 && ts.lastBuyPressurePct >= 60) {
                         
                         val isTrending = ts.source.contains("TRENDING", ignoreCase = true)
@@ -5237,8 +5238,9 @@ if (deferredCount > 0) {
                     "price=$currentPrice | treasuryEntry=${treasuryPos.entryPrice} | pnl=${treasuryPnl.fmt(1)}%")
             }
             
-            // V5.2: Check for cross-trade promotion to Moonshot (200%+ gains)
-            if (currentPnlPct >= 200.0 && ts.lastMcap in 100_000.0..50_000_000.0) {
+            // V5.2.12: Check for cross-trade promotion to Moonshot (200%+ gains)
+            // Moonshot accepts promotions from any mcap range ($10K-$100M)
+            if (currentPnlPct >= 200.0 && ts.lastMcap in 10_000.0..100_000_000.0) {
                 val shouldPromote = com.lifecyclebot.v3.scoring.MoonshotTraderAI.shouldPromoteToMoonshot(
                     mint = ts.mint,
                     symbol = ts.symbol,
@@ -5311,9 +5313,9 @@ if (deferredCount > 0) {
                     ErrorLogger.info("BotService", "💰 [TREASURY PROMOTION] ${ts.symbol} | " +
                         "+${pnlPct.toInt()}% | Checking for promotion to ShitCoin...")
                     
-                    // Promote to ShitCoin layer if still has good liquidity
+                    // V5.2.12: Promote to ShitCoin layer if still in ShitCoin mcap range
                     // Token already proven itself - let ShitCoin ride the wave
-                    if (ts.lastLiquidityUsd >= 5000 && ts.lastMcap in 20_000.0..5_000_000.0) {
+                    if (ts.lastLiquidityUsd >= 3000 && ts.lastMcap in 1_000.0..100_000.0) {
                         ErrorLogger.info("BotService", "💰→💩 [PROMOTION] ${ts.symbol} | " +
                             "TREASURY → SHITCOIN | +${pnlPct.toInt()}% profit, now riding with ShitCoin layer!")
                         
@@ -5382,9 +5384,9 @@ if (deferredCount > 0) {
                 ((currentPrice - ts.position.entryPrice) / ts.position.entryPrice) * 100
             } else 0.0
             
-            // V5.2: Check for cross-trade promotion to Moonshot (200%+ gains)
+            // V5.2.12: Check for cross-trade promotion to Moonshot (200%+ gains)
             // ShitCoin → Moonshot: The degen play turned into a moonshot!
-            if (currentPnlPct >= 200.0 && ts.lastMcap in 100_000.0..50_000_000.0) {
+            if (currentPnlPct >= 200.0 && ts.lastMcap in 10_000.0..100_000_000.0) {
                 val shouldPromote = com.lifecyclebot.v3.scoring.MoonshotTraderAI.shouldPromoteToMoonshot(
                     mint = ts.mint,
                     symbol = ts.symbol,
@@ -5979,6 +5981,15 @@ if (deferredCount > 0) {
         } catch (e: Exception) {
             failCount++
             ErrorLogger.error("BotService", "ShitCoinExpress init FAILED: ${e.message}", e)
+        }
+        
+        // V5.2.12: Quality Trader - professional mid-cap layer
+        try {
+            com.lifecyclebot.v3.scoring.QualityTraderAI.init(cfg.paperMode)
+            initCount++
+        } catch (e: Exception) {
+            failCount++
+            ErrorLogger.error("BotService", "QualityTraderAI init FAILED: ${e.message}", e)
         }
         
         // Dip Hunter

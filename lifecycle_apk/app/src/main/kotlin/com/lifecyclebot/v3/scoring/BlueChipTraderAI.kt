@@ -46,11 +46,12 @@ object BlueChipTraderAI {
     // CONFIGURATION
     // ═══════════════════════════════════════════════════════════════════════════
     
-    // Market cap filter - MINIMUM $50k
-    private const val MIN_MARKET_CAP_USD = 50_000.0
+    // V5.2.12: BlueChip handles large-cap professional trading
+    // Market cap: $1M+ (flows from Quality at $1M)
+    private const val MIN_MARKET_CAP_USD = 1_000_000.0  // $1M minimum (flows from Quality max)
     
-    // Liquidity requirements - higher than Treasury
-    private const val MIN_LIQUIDITY_USD = 20_000.0
+    // Liquidity requirements - institutional standards
+    private const val MIN_LIQUIDITY_USD = 50_000.0      // V5.2.12: $50K minimum for large caps
     
     // Position sizing
     private const val BASE_POSITION_SOL = 0.15         // Larger than Treasury (0.05)
@@ -381,7 +382,7 @@ object BlueChipTraderAI {
         // BLUE CHIP FILTERS - Quality gates
         // ═══════════════════════════════════════════════════════════════════
         
-        // 1. MARKET CAP FILTER - Must be >$50k
+        // 1. MARKET CAP FILTER - Must be >$1M
         if (marketCapUsd < MIN_MARKET_CAP_USD) {
             return BlueChipSignal(
                 shouldEnter = false,
@@ -389,7 +390,7 @@ object BlueChipTraderAI {
                 takeProfitPct = 0.0,
                 stopLossPct = 0.0,
                 confidence = 0,
-                reason = "MCAP_TOO_LOW: \$${(marketCapUsd/1000).toInt()}K < \$50k",
+                reason = "MCAP_TOO_LOW: \$${(marketCapUsd/1000).toInt()}K < \$1M",
                 mode = mode,
                 isPaperMode = isPaperMode
             )
