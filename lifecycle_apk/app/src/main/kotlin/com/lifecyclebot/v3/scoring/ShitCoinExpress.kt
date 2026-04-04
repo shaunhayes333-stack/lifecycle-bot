@@ -47,17 +47,17 @@ object ShitCoinExpress {
     // ═══════════════════════════════════════════════════════════════════════════
     
     // Market cap limits - Even lower than ShitCoinTraderAI
-    private const val MAX_MARKET_CAP_USD = 20_000.0   // Only <$30K tokens (V4.1: was $300K)
-    private const val MIN_MARKET_CAP_USD = 2_000.0    // At least $5K
+    private const val MAX_MARKET_CAP_USD = 30_000.0   // Only <$30K tokens (V4.1: was $300K)
+    private const val MIN_MARKET_CAP_USD = 1_000.0    // At least $5K
     
     // AGGRESSIVE momentum requirements
     private const val MIN_MOMENTUM_PCT = 5.0          // Must be pumping already
     private const val MIN_BUY_PRESSURE_PCT = 60.0     // Strong buy dominance
     
     // Position sizing - SMALL but FAST
-    private const val BASE_POSITION_SOL = 0.03        // Tiny base
-    private const val MAX_POSITION_SOL = 0.10         // Never exceed 0.1 SOL
-    private const val MAX_CONCURRENT_RIDES = 3        // Only 3 rides at once
+    private const val BASE_POSITION_SOL = 0.05        // Tiny base
+    private const val MAX_POSITION_SOL = 2.0          // Never exceed 0.1 SOL
+    private const val MAX_CONCURRENT_RIDES = 20       // Only 3 rides at once
     
     // AGGRESSIVE take profits
     private const val MIN_TAKE_PROFIT_PCT = 30.0      // Minimum 30% or don't bother
@@ -69,10 +69,10 @@ object ShitCoinExpress {
     private const val TRAILING_STOP_PCT = 5.0         // Super tight trailing
     
     // V5.2: Removed max hold time - let runners run!
-    private const val IDEAL_HOLD_MINUTES = 8          // V5.2: Increased from 5 to 8 mins
+    private const val IDEAL_HOLD_MINUTES = 10-20          // V5.2: Increased from 5 to 8 mins
     
     // Daily limits
-    private const val DAILY_MAX_LOSS_SOL = 0.25       // Small daily cap
+    private const val DAILY_MAX_LOSS_SOL = 1.0       // Small daily cap
     private const val DAILY_MAX_RIDES = 500           // Max 500 express rides/day
     
     // ═══════════════════════════════════════════════════════════════════════════
@@ -237,7 +237,7 @@ object ShitCoinExpress {
         }
         
         // Minimum liquidity
-        if (liquidityUsd < 2_000) {
+        if (liquidityUsd < 1_000) {
             return noRide("LIQ_TOO_LOW: \$${liquidityUsd.toInt()}")
         }
         
@@ -376,7 +376,7 @@ object ShitCoinExpress {
         }
         
         // Cap at max
-        positionSol = positionSol.coerceIn(0.02, MAX_POSITION_SOL)
+        positionSol = positionSol.coerceIn(2.0, MAX_POSITION_SOL)
         
         ErrorLogger.info(TAG, "💩🚂 EXPRESS QUALIFIED: $symbol | " +
             "${rideType.emoji} ${rideType.name} | " +
