@@ -32,9 +32,11 @@ object ModeSpecificScanners {
     // Mature: Higher bars to focus on quality setups
     // ═══════════════════════════════════════════════════════════════════
     
-    // Minimum score thresholds
-    private const val SCORE_BOOTSTRAP = 30.0      // Lower bar at start
-    private const val SCORE_MATURE = 55.0         // Higher bar when experienced
+    // Minimum score thresholds — kept very low intentionally.
+    // Scanner is a discovery pass only; DecisionEngine + watchlist scoring
+    // handle quality gating. D-grade and above should reach the watchlist.
+    private const val SCORE_BOOTSTRAP = 5.0       // Match watchScoreMin — let everything through
+    private const val SCORE_MATURE = 10.0         // Still very loose — watchlist scores will filter
     
     // Liquidity thresholds
     private const val LIQ_BOOTSTRAP = 2000.0      // $2.0K minimum at start
