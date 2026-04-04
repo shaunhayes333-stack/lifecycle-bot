@@ -625,8 +625,8 @@ object FluidLearningAI {
     // SCORE THRESHOLDS (Used by V3 Scoring, CashGenerationAI)
     // ═══════════════════════════════════════════════════════════════════════════
     
-    private const val SCORE_BOOTSTRAP = 30     // V5.5: Raised from 20 — 13% WR shows bootstrap was too loose
-    private const val SCORE_MATURE = 50        // V5.5: Raised from 30 — force selectivity at maturity
+    private const val SCORE_BOOTSTRAP = 20     // V5.5b: Reverted — raising to 30 blocked all early_unknown tokens
+    private const val SCORE_MATURE = 35        // V5.5b: Modest raise from 30; at 63% lerp → ~29 (allows score-21 EXECUTE_SMALL)
     
     fun getMinScoreThreshold(): Int = lerp(SCORE_BOOTSTRAP.toDouble(), SCORE_MATURE.toDouble()).toInt()
     
@@ -679,8 +679,8 @@ object FluidLearningAI {
     private const val TREASURY_BUY_PRESSURE_BOOTSTRAP = 35.0  // V5.1: Lowered from 40 - allow more
     private const val TREASURY_BUY_PRESSURE_MATURE = 50.0     // Raise as we learn
     
-    private const val TREASURY_SCORE_BOOTSTRAP = 25    // V5.5: Raised from 15 — tighter entry quality
-    private const val TREASURY_SCORE_MATURE = 40       // V5.5: Raised from 30 — mature mode is selective
+    private const val TREASURY_SCORE_BOOTSTRAP = 15    // V5.5b: Reverted — Treasury has own scoring system, don't over-gate
+    private const val TREASURY_SCORE_MATURE = 32       // V5.5b: Modest raise from 30
     
     fun getTreasuryConfidenceThreshold(): Int = lerp(TREASURY_CONF_BOOTSTRAP.toDouble(), TREASURY_CONF_MATURE.toDouble()).toInt()
     fun getTreasuryMinLiquidity(): Double = lerp(TREASURY_LIQ_BOOTSTRAP, TREASURY_LIQ_MATURE)

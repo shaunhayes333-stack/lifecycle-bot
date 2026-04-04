@@ -293,9 +293,11 @@ class FinalDecisionEngine(
             if (effectiveAIDegraded) {
                 cGradeBlockReasons.add("AI_DEGRADED")
             }
-            // V3.3: Only block early_unknown phase when mature (>30% learning)
-            // During bootstrap, allow early_unknown to let bot learn
-            if (effectivePhase == "early_unknown" && cGradeProgress > 0.3) {
+            // V5.5b: Only block early_unknown phase when very mature (>70% learning)
+            // Meme coins are almost always "early_unknown" — blocking at 30% silently
+            // killed all scanner entries. 70% threshold means bot must see 700+ trades
+            // with decent WR before it stops trading fresh launches.
+            if (effectivePhase == "early_unknown" && cGradeProgress > 0.70) {
                 cGradeBlockReasons.add("phase=early_unknown")
             }
             // V5.4: Weak-signal veto — if score < 20 AND both momentum AND volume are flat/negative,
