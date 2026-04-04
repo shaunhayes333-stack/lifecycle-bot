@@ -361,13 +361,12 @@ class FinalDecisionEngine(
         val cGradeMinConf = (15 + (learningProgress * 15)).toInt().coerceIn(15, 30)
 
         // ═══════════════════════════════════════════════════════════════════
-        // V5.5: DIRECTIONAL GATE — require at least one positive signal
-        // (momentum OR volume) for ANY execution band, regardless of grade.
-        // Flat/declining momentum + flat/declining volume = no directional edge.
-        // Tokens that lack both are pushed to WATCH until a signal appears.
-        // Only affects tokens missing BOTH signals (momentum<=0 AND volume<=0).
+        // V5.5: DIRECTIONAL GATE — block only when BOTH signals are actively
+        // negative (< 0). A score of 0 means "no data / neutral" for new tokens
+        // and should not block execution. Only a confirmed declining momentum
+        // AND declining volume means no directional edge.
         // ═══════════════════════════════════════════════════════════════════
-        val hasMomentumOrVolume = momentumScoreV > 0 || volumeScoreV > 0
+        val hasMomentumOrVolume = !(momentumScoreV < 0 && volumeScoreV < 0)
 
         val band = when {
             hasMomentumOrVolume && score >= (minScoreForExecute * 1.3).toInt() && effectiveConf >= minConfForExecute + 10 -> DecisionBand.EXECUTE_AGGRESSIVE

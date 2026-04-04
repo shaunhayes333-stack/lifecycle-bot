@@ -5187,9 +5187,24 @@ if (deferredCount > 0) {
                 ?: ts.position.entryPrice
             
             // V5.2: Debug - verify checkExit is being called
-            val treasuryPos = com.lifecyclebot.v3.scoring.CashGenerationAI.getActivePosition(ts.mint)
-            if (treasuryPos == null) {
-                ErrorLogger.debug("BotService", "💰 [TREASURY] ${ts.symbol} | NO_ACTIVE_POS - checkExit will return HOLD!")
+            var treasuryPos = com.lifecyclebot.v3.scoring.CashGenerationAI.getActivePosition(ts.mint)
+            if (treasuryPos == null && ts.position.isOpen) {
+                // V5.5 RECOVERY: CashGenerationAI's in-memory map is empty after restart.
+                // Re-register the position from persisted ts.position data so checkExit works.
+                val recTpPct = if (ts.position.treasuryTakeProfit > 0) ts.position.treasuryTakeProfit else 3.5
+                val recSlPct = if (ts.position.treasuryStopLoss < 0) ts.position.treasuryStopLoss else -4.0
+                com.lifecyclebot.v3.scoring.CashGenerationAI.openPosition(
+                    mint = ts.mint,
+                    symbol = ts.symbol,
+                    entryPrice = ts.position.entryPrice,
+                    positionSol = ts.position.costSol,
+                    takeProfitPct = recTpPct,
+                    stopLossPct = recSlPct
+                )
+                treasuryPos = com.lifecyclebot.v3.scoring.CashGenerationAI.getActivePosition(ts.mint)
+                ErrorLogger.warn("BotService",
+                    "💰 [TREASURY RECOVERY] ${ts.symbol} | Re-registered in CashGenerationAI | " +
+                    "entry=${ts.position.entryPrice} tp=$recTpPct% sl=$recSlPct%")
             }
             
             // V5.2: Calculate current P&L for potential Moonshot promotion
