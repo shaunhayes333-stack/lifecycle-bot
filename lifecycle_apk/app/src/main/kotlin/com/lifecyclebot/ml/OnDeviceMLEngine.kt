@@ -182,13 +182,19 @@ object OnDeviceMLEngine {
         wasRug: Boolean,
     ) {
         try {
+            // Trade class uses 'ts' for timestamp (exit time)
+            // We approximate entry time as exit time minus some hold duration
+            // For more accurate training, the caller should track entry time separately
+            val exitTime = trade.ts
+            val estimatedEntryTime = exitTime - (30 * 60 * 1000L)  // Assume ~30 min hold if unknown
+            
             val features = extractFeatures(
                 candlesAtEntry, candlesAtExit,
                 liquidityAtEntry, liquidityAtExit,
                 holdersAtEntry, holdersAtExit,
                 rugcheckScore, mintRevoked, freezeRevoked,
                 topHolderPct, rsi, emaAlignment,
-                trade.entryTime, trade.exitTime ?: System.currentTimeMillis(),
+                estimatedEntryTime, exitTime,
             ).copy(
                 wasWin = if (trade.pnlPct > 0) 1f else 0f,
                 pnlPct = trade.pnlPct.toFloat(),

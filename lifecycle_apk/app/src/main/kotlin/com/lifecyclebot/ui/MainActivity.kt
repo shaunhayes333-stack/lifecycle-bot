@@ -2505,8 +2505,13 @@ for legal compliance.
                 else -> 0xFF3B82F6.toInt() // blue
             })
             
-            // Active AI Layers - concise list
-            tvAiLayers.text = "Entry · Exit · Volume · Momentum · Liquidity · Behavior · Regime · Treasury · ShitCoin · Express · DipHunter · SolArb · Social · Whale · Narrative"
+            // V5.6: ML Engine Status - show training progress
+            val mlStatus = try {
+                com.lifecyclebot.ml.OnDeviceMLEngine.getStatus()
+            } catch (_: Exception) { "Not initialized" }
+            
+            // Active AI Layers - concise list with ML
+            tvAiLayers.text = "Entry · Exit · Volume · Momentum · Liquidity · Behavior · Regime · Treasury · ShitCoin · Express · Quality · BlueChip · Moonshot · ML($mlStatus)"
             tvAiLayers.setTextColor(muted)
             
         } catch (e: Exception) {

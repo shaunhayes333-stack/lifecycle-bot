@@ -881,6 +881,78 @@ object FinalDecisionGate {
         val isPaperMode = mode == TradeMode.PAPER
         val canBypassConfidenceFloors = isBootstrapPhase && isPaperMode
 
+        // ══════════════════════════════════════════════════════════════════════
+        // V5.6: ML Engine Prediction Check
+        // Uses on-device TensorFlow Lite to predict rug probability
+        // Only blocks if ML has enough training data AND high rug confidence
+        // ══════════════════════════════════════════════════════════════════════
+        val mlPrediction = try {
+            com.lifecyclebot.ml.OnDeviceMLEngine.predict(
+                recentCandles = ts.history.takeLast(30),
+                liquidityUsd = ts.lastLiquidityUsd,
+                mcap = ts.lastMcap,
+                holderCount = ts.history.lastOrNull()?.holderCount ?: 0,
+                holderGrowthPct = 0.0,  // TODO: calculate from history
+                rugcheckScore = ts.rugcheckScore,
+                mintRevoked = ts.meta.mintAuthRevoked,
+                freezeRevoked = ts.meta.freezeAuthRevoked,
+                topHolderPct = ts.meta.topHolderPct,
+                rsi = ts.meta.rsi,
+                emaAlignment = ts.meta.emaAlignment,
+                tokenAgeMinutes = (System.currentTimeMillis() - ts.createdAt) / 60000L,
+            )
+        } catch (_: Exception) {
+            null
+        }
+        
+        // Only use ML veto if we have enough training data (confidence > 50%)
+        if (mlPrediction != null && mlPrediction.confidence > 0.5) {
+            // High rug probability = block the trade
+            if (mlPrediction.rugProbability > 0.75) {
+                ErrorLogger.warn("FDG", "🧠 ML_RUG_BLOCK: ${ts.symbol} | rug=${(mlPrediction.rugProbability * 100).toInt()}% | " +
+                    "trajectory=${mlPrediction.trajectoryClass} | dataPoints=${mlPrediction.dataPoints}")
+                
+                return FinalDecision(
+                    shouldTrade = false,
+                    mode = mode,
+                    approvalClass = ApprovalClass.BLOCKED,
+                    quality = candidate.setupQuality,
+                    confidence = candidate.aiConfidence,
+                    edge = EdgeVerdict.SKIP,
+                    blockReason = "ML_RUG_PROBABILITY_${(mlPrediction.rugProbability * 100).toInt()}%",
+                    blockLevel = BlockLevel.HARD,
+                    sizeSol = 0.0,
+                    tags = listOf("ml_rug_block", "trajectory:${mlPrediction.trajectoryClass}"),
+                    mint = ts.mint,
+                    symbol = ts.symbol,
+                    approvalReason = "ML Engine predicts ${(mlPrediction.rugProbability * 100).toInt()}% rug probability",
+                    gateChecks = listOf(GateCheck("ml_rug_check", false, "rug=${(mlPrediction.rugProbability * 100).toInt()}% > 75% threshold"))
+                )
+            }
+            
+            // ML entry confidence can boost or reduce overall confidence
+            val mlConfidenceAdjust = when {
+                mlPrediction.entryConfidence > 0.75 -> 1.15  // Boost 15%
+                mlPrediction.entryConfidence > 0.6 -> 1.05   // Boost 5%
+                mlPrediction.entryConfidence < 0.3 -> 0.85   // Reduce 15%
+                mlPrediction.entryConfidence < 0.4 -> 0.95   // Reduce 5%
+                else -> 1.0
+            }
+            
+            if (mlConfidenceAdjust != 1.0) {
+                tags.add("ml_adj:${((mlConfidenceAdjust - 1) * 100).toInt()}%")
+            }
+            
+            // Log ML insights
+            if (mlPrediction.trajectoryClass == "MOON") {
+                tags.add("ml:MOON")
+                ErrorLogger.info("FDG", "🧠 ML_INSIGHT: ${ts.symbol} | MOON trajectory | entry=${(mlPrediction.entryConfidence * 100).toInt()}%")
+            } else if (mlPrediction.trajectoryClass == "DUMP") {
+                tags.add("ml:DUMP")
+                ErrorLogger.info("FDG", "🧠 ML_INSIGHT: ${ts.symbol} | DUMP trajectory | rug=${(mlPrediction.rugProbability * 100).toInt()}%")
+            }
+        }
+
         val isCGrade = candidate.setupQuality == "C" || candidate.setupQuality == "D"
         val rawConfidence = candidate.aiConfidence
         val confidence = if (canBypassConfidenceFloors) {

@@ -182,6 +182,14 @@ class BotService : Service() {
             ErrorLogger.info("BotService", "GeminiCopilot initialized with API key")
         }
         
+        // V5.6: Initialize On-Device ML Engine for trade predictions
+        try {
+            com.lifecyclebot.ml.OnDeviceMLEngine.initialize(applicationContext)
+            ErrorLogger.info("BotService", "🧠 ML Engine initialized | ${com.lifecyclebot.ml.OnDeviceMLEngine.getStatus()}")
+        } catch (e: Exception) {
+            ErrorLogger.debug("BotService", "ML Engine init error: ${e.message}")
+        }
+        
         } catch (e: Exception) {
             ErrorLogger.crash("BotService", "onCreate CRASH: ${e.javaClass.simpleName}: ${e.message}", e)
             android.util.Log.e("BotService", "onCreate CRASH: ${e.javaClass.simpleName}: ${e.message}", e)

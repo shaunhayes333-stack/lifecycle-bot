@@ -103,6 +103,50 @@ object TradeHistoryStore {
     }
     
     /**
+     * V5.6: Record completed trade for ML training.
+     * Called when a position is fully closed (SELL side).
+     * Feeds the OnDeviceMLEngine with training data.
+     */
+    fun recordTradeForML(
+        trade: Trade,
+        candlesAtEntry: List<com.lifecyclebot.data.Candle>,
+        candlesAtExit: List<com.lifecyclebot.data.Candle>,
+        liquidityAtEntry: Double,
+        liquidityAtExit: Double,
+        holdersAtEntry: Int,
+        holdersAtExit: Int,
+        rugcheckScore: Int,
+        mintRevoked: Boolean,
+        freezeRevoked: Boolean,
+        topHolderPct: Double,
+        rsi: Double,
+        emaAlignment: String,
+        wasRug: Boolean,
+    ) {
+        try {
+            com.lifecyclebot.ml.OnDeviceMLEngine.recordTrade(
+                trade = trade,
+                candlesAtEntry = candlesAtEntry,
+                candlesAtExit = candlesAtExit,
+                liquidityAtEntry = liquidityAtEntry,
+                liquidityAtExit = liquidityAtExit,
+                holdersAtEntry = holdersAtEntry,
+                holdersAtExit = holdersAtExit,
+                rugcheckScore = rugcheckScore,
+                mintRevoked = mintRevoked,
+                freezeRevoked = freezeRevoked,
+                topHolderPct = topHolderPct,
+                rsi = rsi,
+                emaAlignment = emaAlignment,
+                wasRug = wasRug,
+            )
+            ErrorLogger.debug("TradeHistoryStore", "🧠 ML TRAINING: Recorded trade for ${trade.mint.take(8)}... | pnl=${trade.pnlPct.toInt()}%")
+        } catch (e: Exception) {
+            ErrorLogger.debug("TradeHistoryStore", "ML record error: ${e.message}")
+        }
+    }
+    
+    /**
      * Get trades from last 24 hours
      */
     fun getTrades24h(): List<Trade> {
