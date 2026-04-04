@@ -645,10 +645,11 @@ class BotService : Service() {
                             // ═══════════════════════════════════════════════════════════════════
                             
                             // Define dual eligibility thresholds
-                            // V5.2.10: Paper mode score raised to 28 (was 20 - too aggressive)
+                            // V5.2.12: Paper mode score LOWERED to 5 to match scanner D-grade threshold
+                            // Scanner lets D-grade and above through - watchlist handles quality scoring
                             val paperMinLiquidity = 500.0    // $500 for paper exploration
                             val liveMinLiquidity = 8000.0    // $8K for live capital protection
-                            val paperMinScore = 28.0          // Raised from 20 - filter low quality
+                            val paperMinScore = 5.0           // V5.2.12: Match scanner D-grade threshold (was 28)
                             val liveMinScore = 65.0           // Higher bar for live execution
                             
                             // Check 2a: MINIMUM LIQUIDITY (mode-dependent)
@@ -667,12 +668,16 @@ class BotService : Service() {
                             }
                             
                             // Check 2c: Minimum score threshold (mode-dependent)
+                            // V5.2.12: Paper mode uses D-grade threshold (5) to let scanner results through
                             val minScore = if (c.paperMode) paperMinScore else liveMinScore
                             if (score < minScore) {
                                 TradeLifecycle.ineligible(identity.mint, "Score too low: $score < $minScore")
-                                ErrorLogger.debug("BotService", "INELIGIBLE: ${identity.symbol} - score $score < $minScore")
+                                ErrorLogger.debug("BotService", "INELIGIBLE: ${identity.symbol} - score $score < $minScore (${if (c.paperMode) "PAPER" else "LIVE"} mode)")
                                 return@SolanaMarketScanner
                             }
+                            
+                            // V5.2.12: Log successful score admission for debugging
+                            ErrorLogger.debug("BotService", "✅ SCORE OK: ${identity.symbol} | score=$score >= minScore=$minScore (${if (c.paperMode) "PAPER" else "LIVE"} mode)")
                             
                             // V4.20: Additional live-mode strictness
                             // In live mode, also require stronger fundamentals
