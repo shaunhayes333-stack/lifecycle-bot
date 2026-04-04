@@ -332,10 +332,10 @@ class FinalDecisionEngine(
         
         // ═══════════════════════════════════════════════════════════════════
         // V3 BAND SELECTION
-        // 
+        //
         // At this point, C-grade trash has been filtered by C_GRADE_BAN above.
         // Only legitimate setups reach here.
-        // 
+        //
         // V3.3: FLUID THRESHOLDS based on learning progress
         // Bootstrap (0-20% learning): Much looser - take more shots to learn
         // Mature (50%+ learning): Tighter - only high-conviction trades
@@ -343,7 +343,7 @@ class FinalDecisionEngine(
         val learningProgress = try {
             com.lifecyclebot.v3.scoring.FluidLearningAI.getLearningProgress()
         } catch (e: Exception) { 0.0 }
-        
+
         // Fluid confidence threshold: 18% at bootstrap → 40% at mature
         // V5.4: Raised from (10+progress*20) to reduce low-conviction junk trades
         val fluidMinConfForExecute = (18 + (learningProgress * 22)).toInt().coerceIn(18, 40)
@@ -359,11 +359,20 @@ class FinalDecisionEngine(
         // C-grade confidence floor for EXECUTE_SMALL: 15% at bootstrap → 30% at mature
         // V5.4: Raised from (8+progress*12) so weak-conf meme coins stop bleeding
         val cGradeMinConf = (15 + (learningProgress * 15)).toInt().coerceIn(15, 30)
-        
+
+        // ═══════════════════════════════════════════════════════════════════
+        // V5.5: DIRECTIONAL GATE — require at least one positive signal
+        // (momentum OR volume) for ANY execution band, regardless of grade.
+        // Flat/declining momentum + flat/declining volume = no directional edge.
+        // Tokens that lack both are pushed to WATCH until a signal appears.
+        // Only affects tokens missing BOTH signals (momentum<=0 AND volume<=0).
+        // ═══════════════════════════════════════════════════════════════════
+        val hasMomentumOrVolume = momentumScoreV > 0 || volumeScoreV > 0
+
         val band = when {
-            score >= (minScoreForExecute * 1.3).toInt() && effectiveConf >= minConfForExecute + 10 -> DecisionBand.EXECUTE_AGGRESSIVE
-            score >= minScoreForExecute && effectiveConf >= minConfForExecute -> DecisionBand.EXECUTE_STANDARD
-            score >= (minScoreForExecute * 0.7).toInt() && effectiveConf >= cGradeMinConf -> DecisionBand.EXECUTE_SMALL
+            hasMomentumOrVolume && score >= (minScoreForExecute * 1.3).toInt() && effectiveConf >= minConfForExecute + 10 -> DecisionBand.EXECUTE_AGGRESSIVE
+            hasMomentumOrVolume && score >= minScoreForExecute && effectiveConf >= minConfForExecute -> DecisionBand.EXECUTE_STANDARD
+            hasMomentumOrVolume && score >= (minScoreForExecute * 0.7).toInt() && effectiveConf >= cGradeMinConf -> DecisionBand.EXECUTE_SMALL
             score >= config.watchScoreMin -> DecisionBand.WATCH
             else -> DecisionBand.REJECT
         }
