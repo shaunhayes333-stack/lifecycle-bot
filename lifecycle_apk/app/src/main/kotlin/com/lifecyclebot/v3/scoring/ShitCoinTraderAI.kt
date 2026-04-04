@@ -63,9 +63,9 @@ object ShitCoinTraderAI {
     private const val MAX_MARKET_CAP_USD = 50_000.0
     private const val MIN_MARKET_CAP_USD = 2_000.0  // Must have SOME value
     
-    // Liquidity requirements - LOWER than other layers (micro-caps have less)
-    private const val MIN_LIQUIDITY_USD_BOOTSTRAP = 3_000.0   // $3K minimum at start
-    private const val MIN_LIQUIDITY_USD_MATURE = 1_500.0      // Can take lower once experienced
+    // Liquidity requirements — V5.5: Hard $5K minimum across all phases
+    private const val MIN_LIQUIDITY_USD_BOOTSTRAP = 5_000.0   // V5.5: Raised from $3K — $5K hard floor
+    private const val MIN_LIQUIDITY_USD_MATURE = 5_000.0      // V5.5: Raised from $1.5K — $5K hard floor
     
     // Position sizing - SMALL to limit risk
     private const val BASE_POSITION_SOL = 0.05        // Very small base (0.05 SOL ~ $7.50)
@@ -81,8 +81,8 @@ object ShitCoinTraderAI {
     // Mature: Wider targets (let winners run, learned patterns)
     private const val TAKE_PROFIT_BOOTSTRAP = 25.0    // 25% at start (quick wins)
     private const val TAKE_PROFIT_MATURE = 100.0      // 100% when experienced (let runners run)
-    private const val STOP_LOSS_BOOTSTRAP = -8.0      // 8% stop at start (tight protection)
-    private const val STOP_LOSS_MATURE = -12.0        // 12% stop when mature (learned volatility)
+    private const val STOP_LOSS_BOOTSTRAP = -4.0      // V5.5: 4% stop at start (tighter — inside wick noise is ok)
+    private const val STOP_LOSS_MATURE = -8.0         // V5.5: 8% stop when mature (was -12, tighter discipline)
     private const val TRAILING_STOP_PCT = 8.0         // Tighter trailing for volatile moves
     // V5.2: REMOVED max hold time - ShitCoins can moon anytime, let them run!
     private const val FLAT_EXIT_MINUTES = 8           // V5.2: Increased to 8 mins (was 5)
@@ -885,8 +885,10 @@ object ShitCoinTraderAI {
         }
         
         // 4. TRAILING STOP - The moonshot catcher!
-        // Once in profit, trailing stop locks in gains while letting it run
-        if (pnlPct > 15.0 && currentPrice <= pos.trailingStop) {
+        // V5.5: Activate from entry (not after 15% profit) — stop trails from open price.
+        // Prevents giving back gains that were never locked. Fires any time price
+        // falls below the trailing level, which starts at the SL and rises with HWM.
+        if (currentPrice <= pos.trailingStop) {
             val fromPeak = ((pos.highWaterMark - currentPrice) / pos.highWaterMark * 100)
             val totalGain = pnlPct
             ErrorLogger.info(TAG, "💩🚀 TRAIL EXIT: ${pos.symbol} | +${totalGain.fmt(1)}% (peak was +${((pos.highWaterMark - pos.entryPrice) / pos.entryPrice * 100).fmt(1)}%)")

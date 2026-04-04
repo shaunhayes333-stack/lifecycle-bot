@@ -273,8 +273,8 @@ class FinalDecisionEngine(
         } catch (e: Exception) { 0.0 }
         
         // Fluid thresholds for C-grade
-        // V5.4: Raised floors to reduce junk trades (was 8-20, now 15-30)
-        val cGradeConfFloor = (15 + (cGradeProgress * 15)).toInt().coerceIn(15, 30)
+        // V5.5: Hard min 25 confidence — no C-grade token enters below 25% confidence
+        val cGradeConfFloor = (15 + (cGradeProgress * 15)).toInt().coerceIn(25, 30)
         val cGradeMemoryFloor = (-25 + (cGradeProgress * 10)).toInt().coerceIn(-25, -15)
 
         // Extract momentum and volume for weak-signal veto

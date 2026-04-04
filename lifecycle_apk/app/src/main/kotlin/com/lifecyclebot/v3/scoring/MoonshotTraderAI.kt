@@ -285,8 +285,8 @@ object MoonshotTraderAI {
         }
         
         // 5. Safety check - fluid RC threshold
-        // Paper mode: match unified RC min pass = 2 (live keeps strict 20 for safety)
-        val minRcScore = if (isPaper) 2 else 20
+        // V5.5: Raised paper RC floor from 2 → 10 (still lenient vs live's 20, but filters obvious rugs)
+        val minRcScore = if (isPaper) 10 else 20
         if (rugcheckScore < minRcScore) {
             return MoonshotScore(false, 0, 0.0, "rugcheck_${rugcheckScore}_below_min_${minRcScore}")
         }
