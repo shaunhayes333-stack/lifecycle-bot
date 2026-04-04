@@ -273,11 +273,12 @@ class FinalDecisionEngine(
         } catch (e: Exception) { 0.0 }
         
         // Fluid thresholds for C-grade
-        // V5.6: Raised — at 75% learning, C-grade conf floor was 26% (too low, losses bleed through)
-        // New formula: 20% at bootstrap → 45% at mature (38% at 75% learning)
-        val cGradeConfFloor = (20 + (cGradeProgress * 25)).toInt().coerceIn(30, 45)
-        // Memory floor: tighter — don't trade tokens with recent bad history
-        val cGradeMemoryFloor = (-20 + (cGradeProgress * 10)).toInt().coerceIn(-20, -10)
+        // V5.7: Fixed — minimum floor was 30% even at 1% learning (too tight at bootstrap, slowed trading)
+        // Genuine bootstrap uses lower floors; only mature (50%+ learning) triggers strict thresholds.
+        // At 1% learning: floor=20. At 75% learning: floor=39. At 100% learning: floor=45.
+        val cGradeConfFloor = (20 + (cGradeProgress * 25)).toInt().coerceIn(20, 45)
+        // Memory floor: tighter at maturity, permissive at bootstrap
+        val cGradeMemoryFloor = (-20 + (cGradeProgress * 10)).toInt().coerceIn(-20, -12)
 
         // Extract momentum and volume for weak-signal veto
         val momentumScoreV = scoreCard.components.find { it.name == "momentum" }?.value ?: 0
