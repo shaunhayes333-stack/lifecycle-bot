@@ -46,13 +46,13 @@ object ShitCoinExpress {
     // CONFIGURATION - Aggressive for quick rides
     // ═══════════════════════════════════════════════════════════════════════════
     
-    // Market cap limits - Even lower than ShitCoinTraderAI
-    private const val MAX_MARKET_CAP_USD = 30_000.0   // Only <$30K tokens (V4.1: was $300K)
-    private const val MIN_MARKET_CAP_USD = 5_000.0    // At least $5K
-    
+    // Market cap limits - Match BotService pre-gate ($300K)
+    private const val MAX_MARKET_CAP_USD = 300_000.0  // V5.5: Was $30K — blocked all tokens; now matches BotService gate
+    private const val MIN_MARKET_CAP_USD = 2_000.0    // V5.5: Was $5K — lowered
+
     // AGGRESSIVE momentum requirements
     private const val MIN_MOMENTUM_PCT = 5.0          // Must be pumping already
-    private const val MIN_BUY_PRESSURE_PCT = 60.0     // Strong buy dominance
+    private const val MIN_BUY_PRESSURE_PCT = 55.0     // V5.5: Lowered from 60% — still strong buy dominance
     
     // Position sizing - SMALL but FAST
     private const val BASE_POSITION_SOL = 0.03        // Tiny base
@@ -564,8 +564,10 @@ object ShitCoinExpress {
     // FLUID THRESHOLDS
     // ═══════════════════════════════════════════════════════════════════════════
     
-    private const val EXPRESS_SCORE_BOOTSTRAP = 60  // Need good setup at start
-    private const val EXPRESS_SCORE_MATURE = 45     // Can take riskier rides when experienced
+    // V5.5: Fix inverted thresholds + lower to achievable levels
+    // At 63% learning old threshold was ~51/110 which blocked most pumping tokens
+    private const val EXPRESS_SCORE_BOOTSTRAP = 30  // Permissive during bootstrap (learning phase)
+    private const val EXPRESS_SCORE_MATURE = 50     // Stricter when experienced (mature phase)
     
     private fun getFluidScoreThreshold(): Int {
         val progress = FluidLearningAI.getLearningProgress()

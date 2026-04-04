@@ -1336,9 +1336,13 @@ for legal compliance.
                 if (shitCoinPositions.isNotEmpty()) {
                     renderShitCoinPositions(shitCoinPositions)
                 }
+                // V5.5: Render Express rides (were fetched but never displayed)
+                if (expressRides.isNotEmpty()) {
+                    renderExpressRides(expressRides)
+                }
             }
         } catch (_: Exception) {}
-        
+
         // ── V5.2: Moonshot positions panel ────────────────────────────
         try {
             val moonshotPositions = com.lifecyclebot.v3.scoring.MoonshotTraderAI.getActivePositions()
@@ -1609,10 +1613,9 @@ for legal compliance.
             val gainCol = if (gainPct >= 0) green else red
             val pnlSol  = pos.costSol * gainPct / 100.0
             
-            // Calculate token amount using USD value and current token price
-            // costSol is in SOL, so convert to USD first, then divide by token price (USD)
+            // Token amount at entry: use entry price not current price
             val costUsd = pos.costSol * solPrice
-            val tokenAmount = if (ts.lastPrice > 0) costUsd / ts.lastPrice else 0.0
+            val tokenAmount = if (pos.entryPrice > 0) costUsd / pos.entryPrice else 0.0
             val currentValue = pos.costSol + pnlSol  // Current value in SOL
             val valueUsd = currentValue * solPrice
 
@@ -1643,11 +1646,9 @@ for legal compliance.
                 setTextColor(white)
                 typeface = android.graphics.Typeface.DEFAULT_BOLD
             })
-            // Entry price per token and time
-            // Calculate actual entry price per token = cost USD / token amount
-            val entryPricePerToken = if (tokenAmount > 0) costUsd / tokenAmount else 0.0
+            // Entry price per token — use pos.entryPrice directly
             info.addView(TextView(this).apply {
-                text = "Entry: ${entryPricePerToken.fmtPrice()}  ·  ${sdf.format(java.util.Date(pos.entryTime))}"
+                text = "Entry: ${pos.entryPrice.fmtPrice()}  ·  ${sdf.format(java.util.Date(pos.entryTime))}"
                 textSize = resources.getDimension(R.dimen.trade_sub_text) / resources.displayMetrics.scaledDensity
                 setTextColor(muted)
                 typeface = android.graphics.Typeface.MONOSPACE
@@ -2042,6 +2043,88 @@ for legal compliance.
         }
     }
     
+    // V5.5: Render ShitCoinExpress active rides (appended to llShitCoinPositions)
+    private fun renderExpressRides(rides: List<com.lifecyclebot.v3.scoring.ShitCoinExpress.ExpressRide>) {
+        val sdf = java.text.SimpleDateFormat("HH:mm", java.util.Locale.US)
+        rides.forEach { ride ->
+            val currentPrice = try {
+                com.lifecyclebot.engine.BotService.status.tokens[ride.mint]?.ref ?: ride.entryPrice
+            } catch (_: Exception) { ride.entryPrice }
+            val gainPct = if (ride.entryPrice > 0) (currentPrice - ride.entryPrice) / ride.entryPrice * 100 else 0.0
+            val gainCol = if (gainPct >= 0) green else red
+            val pnlSol = ride.entrySol * gainPct / 100.0
+            val holdMins = (System.currentTimeMillis() - ride.entryTime) / 60_000
+
+            val row = LinearLayout(this).apply {
+                orientation = LinearLayout.HORIZONTAL
+                setPadding(0, 12, 0, 12)
+            }
+            val bar = View(this).apply {
+                layoutParams = LinearLayout.LayoutParams(4, LinearLayout.LayoutParams.MATCH_PARENT).also { it.marginEnd = 12 }
+                setBackgroundColor(0xFFFF4500.toInt()) // Deep orange for express
+            }
+            row.addView(bar)
+
+            val info = LinearLayout(this).apply {
+                orientation = LinearLayout.VERTICAL
+                layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
+            }
+            info.addView(TextView(this).apply {
+                text = "🚂 ${ride.symbol}  ${ride.ridePhase.emoji}"
+                textSize = resources.getDimension(R.dimen.trade_row_text) / resources.displayMetrics.scaledDensity
+                setTextColor(0xFFFF4500.toInt())
+                typeface = android.graphics.Typeface.DEFAULT_BOLD
+            })
+            info.addView(TextView(this).apply {
+                text = "Entry: ${ride.entryPrice.fmtPrice()}  ·  ${sdf.format(java.util.Date(ride.entryTime))}"
+                textSize = resources.getDimension(R.dimen.trade_sub_text) / resources.displayMetrics.scaledDensity
+                setTextColor(muted)
+                typeface = android.graphics.Typeface.MONOSPACE
+            })
+            info.addView(TextView(this).apply {
+                text = "Size: %.4f◎  mom=${ride.entryMomentum.toInt()}%  ${holdMins}m hold".format(ride.entrySol)
+                textSize = resources.getDimension(R.dimen.trade_sub_text) / resources.displayMetrics.scaledDensity
+                setTextColor(muted)
+                typeface = android.graphics.Typeface.MONOSPACE
+            })
+            row.addView(info)
+
+            val right = LinearLayout(this).apply {
+                orientation = LinearLayout.VERTICAL
+                gravity = android.view.Gravity.END
+            }
+            right.addView(TextView(this).apply {
+                text = "%+.1f%%".format(gainPct)
+                textSize = resources.getDimension(R.dimen.token_name_size) / resources.displayMetrics.scaledDensity
+                setTextColor(gainCol)
+                typeface = android.graphics.Typeface.DEFAULT_BOLD
+                gravity = android.view.Gravity.END
+            })
+            right.addView(TextView(this).apply {
+                text = "%+.4f◎".format(pnlSol)
+                textSize = resources.getDimension(R.dimen.trade_sub_text) / resources.displayMetrics.scaledDensity
+                setTextColor(gainCol)
+                typeface = android.graphics.Typeface.MONOSPACE
+                gravity = android.view.Gravity.END
+            })
+            right.addView(TextView(this).apply {
+                text = "TP 30/50/100%  SL -8%"
+                textSize = 8f
+                setTextColor(muted)
+                typeface = android.graphics.Typeface.MONOSPACE
+                gravity = android.view.Gravity.END
+            })
+            row.addView(right)
+
+            val div = View(this).apply {
+                layoutParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, 1).also { it.topMargin = 10 }
+                setBackgroundColor(0xFF1F2937.toInt())
+            }
+            llShitCoinPositions.addView(row)
+            llShitCoinPositions.addView(div)
+        }
+    }
+
     // V5.2: Render Moonshot positions
     private fun renderMoonshotPositions(positions: List<com.lifecyclebot.v3.scoring.MoonshotTraderAI.MoonshotPosition>) {
         llMoonshotPositions.removeAllViews()
