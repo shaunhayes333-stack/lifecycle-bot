@@ -164,6 +164,13 @@ class MainActivity : AppCompatActivity() {
     private var chartTimeRange: String = "5m"
     private var chartType: String = "line"
     
+    // V5.6: DexScreener-style chart metrics
+    private var tvChartMcap: TextView? = null
+    private var tvChart5mVol: TextView? = null
+    private var tvChartLiq: TextView? = null
+    private var tvChartHolders: TextView? = null
+    private var tvChartBuyPressure: TextView? = null
+    
     // V4.0: AI Status panel
     private lateinit var tvAiHealth: TextView
     private lateinit var tvAiTradingMode: TextView
@@ -709,6 +716,13 @@ for legal compliance.
         tvChartPrice = try { findViewById(R.id.tvChartPrice) } catch (_: Exception) { TextView(this) }
         candleChart = try { findViewById(R.id.candleChart) } catch (_: Exception) { com.github.mikephil.charting.charts.CandleStickChart(this) }
         
+        // V5.6: DexScreener-style chart metrics
+        tvChartMcap = try { findViewById(R.id.tvChartMcap) } catch (_: Exception) { null }
+        tvChart5mVol = try { findViewById(R.id.tvChart5mVol) } catch (_: Exception) { null }
+        tvChartLiq = try { findViewById(R.id.tvChartLiq) } catch (_: Exception) { null }
+        tvChartHolders = try { findViewById(R.id.tvChartHolders) } catch (_: Exception) { null }
+        tvChartBuyPressure = try { findViewById(R.id.tvChartBuyPressure) } catch (_: Exception) { null }
+        
         // V5.2: Chart time range button listeners
         setupChartControls()
         
@@ -1160,9 +1174,15 @@ for legal compliance.
                 priceChart.data = LineData(ds)
                 priceChart.invalidate()
             }
+            
+            // V5.6: Update DexScreener-style chart metrics
+            updateChartMetrics(ts)
         } else if (ts?.lastPrice != null && ts.lastPrice > 0) {
             // Append new price point
             appendChart(ts.lastPrice)
+            
+            // V5.6: Update metrics on each tick
+            updateChartMetrics(ts)
         }
 
         // ── Quick Stats Bar ─────────────────────────────────────────
@@ -2323,6 +2343,68 @@ for legal compliance.
                 candleChart.visibility = if (type == "candle") android.view.View.VISIBLE else android.view.View.GONE
             }
         }
+    }
+    
+    // V5.6: Update DexScreener-style chart metrics
+    private fun updateChartMetrics(ts: TokenState?) {
+        if (ts == null) return
+        
+        // Market Cap
+        tvChartMcap?.text = when {
+            ts.lastMcap >= 1_000_000 -> "$${(ts.lastMcap / 1_000_000).toInt()}M"
+            ts.lastMcap >= 1_000 -> "$${(ts.lastMcap / 1_000).toInt()}K"
+            else -> "$${ts.lastMcap.toInt()}"
+        }
+        
+        // 5m Volume (use recent history to calculate)
+        val vol5m = try {
+            synchronized(ts.history) {
+                val now = System.currentTimeMillis()
+                val fiveMinAgo = now - (5 * 60 * 1000L)
+                ts.history.filter { it.openTime > fiveMinAgo }
+                    .sumOf { it.volumeUsd }
+            }
+        } catch (_: Exception) { 0.0 }
+        
+        tvChart5mVol?.text = when {
+            vol5m >= 1_000_000 -> "$${(vol5m / 1_000_000).toInt()}M"
+            vol5m >= 1_000 -> "$${(vol5m / 1_000).toInt()}K"
+            vol5m > 0 -> "$${vol5m.toInt()}"
+            else -> "$0"
+        }
+        tvChart5mVol?.setTextColor(if (vol5m > 10000) green else if (vol5m > 1000) 0xFF10B981.toInt() else 0xFF6B7280.toInt())
+        
+        // Liquidity
+        tvChartLiq?.text = when {
+            ts.lastLiquidityUsd >= 1_000_000 -> "$${(ts.lastLiquidityUsd / 1_000_000).toInt()}M"
+            ts.lastLiquidityUsd >= 1_000 -> "$${(ts.lastLiquidityUsd / 1_000).toInt()}K"
+            else -> "$${ts.lastLiquidityUsd.toInt()}"
+        }
+        tvChartLiq?.setTextColor(when {
+            ts.lastLiquidityUsd >= 50000 -> green
+            ts.lastLiquidityUsd >= 10000 -> 0xFF3B82F6.toInt()
+            else -> amber
+        })
+        
+        // Holders (from last candle if available)
+        val holders = try {
+            ts.history.lastOrNull()?.holderCount?.toInt() ?: 0
+        } catch (_: Exception) { 0 }
+        tvChartHolders?.text = when {
+            holders >= 1000 -> "${holders / 1000}K"
+            holders > 0 -> "$holders"
+            else -> "—"
+        }
+        
+        // Buy Pressure
+        val buyPressure = ts.lastBuyPressurePct
+        tvChartBuyPressure?.text = "${buyPressure.toInt()}%"
+        tvChartBuyPressure?.setTextColor(when {
+            buyPressure >= 65 -> green
+            buyPressure >= 50 -> 0xFF10B981.toInt()
+            buyPressure >= 35 -> amber
+            else -> red
+        })
     }
     
     // V4.0: Update AI Status Panel with live data

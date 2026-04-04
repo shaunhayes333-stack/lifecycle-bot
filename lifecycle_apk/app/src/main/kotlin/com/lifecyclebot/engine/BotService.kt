@@ -5322,36 +5322,28 @@ if (deferredCount > 0) {
                 ErrorLogger.info("BotService", "💰 [TREASURY EXIT] ${ts.symbol} | " +
                     "signal=$exitSignal | price=$currentPrice")
                 
-                // Execute treasury sell
-                executor.requestSell(
-                    ts = ts,
-                    reason = "TREASURY_${exitSignal.name}",
-                    wallet = wallet,
-                    walletSol = effectiveBalance
-                )
-                
-                // Close treasury position tracking
-                com.lifecyclebot.v3.scoring.CashGenerationAI.closePosition(
-                    ts.mint, currentPrice, exitSignal
-                )
-                
-                // V5.2: PROMOTE to appropriate layer if profitable exit
+                // V5.6 FIX: Check for promotion BEFORE selling!
                 // Treasury takes quick wins, then hands off to Moonshot/ShitCoin for continued gains
+                // Don't sell if we're going to promote - just transfer tracking
                 if (exitSignal == com.lifecyclebot.v3.scoring.CashGenerationAI.ExitSignal.TAKE_PROFIT) {
                     val pnlPct = if (ts.position.entryPrice > 0) {
                         ((currentPrice - ts.position.entryPrice) / ts.position.entryPrice) * 100
                     } else 0.0
                     
-                    ErrorLogger.info("BotService", "💰 [TREASURY PROMOTION] ${ts.symbol} | " +
-                        "+${pnlPct.toInt()}% | Checking for promotion to ShitCoin...")
+                    ErrorLogger.info("BotService", "💰 [TREASURY PROMOTION CHECK] ${ts.symbol} | " +
+                        "+${pnlPct.toInt()}% | mcap=\$${(ts.lastMcap/1000).toInt()}K liq=\$${ts.lastLiquidityUsd.toInt()}")
                     
-                    // V5.2.12: Promote to ShitCoin layer if still in ShitCoin mcap range
-                    // Token already proven itself - let ShitCoin ride the wave
+                    // V5.6: Check for promotion to ShitCoin layer (keep position open, transfer tracking)
                     if (ts.lastLiquidityUsd >= 3000 && ts.lastMcap in 1_000.0..100_000.0) {
                         ErrorLogger.info("BotService", "💰→💩 [PROMOTION] ${ts.symbol} | " +
                             "TREASURY → SHITCOIN | +${pnlPct.toInt()}% profit, now riding with ShitCoin layer!")
                         
-                        // Mark for ShitCoin tracking (don't actually buy again, just track)
+                        // Close Treasury tracking (but DON'T sell the position!)
+                        com.lifecyclebot.v3.scoring.CashGenerationAI.closePosition(
+                            ts.mint, currentPrice, exitSignal
+                        )
+                        
+                        // Mark for ShitCoin tracking (position stays open)
                         ts.position.isShitCoinPosition = true
                         ts.position.isTreasuryPosition = false
                         ts.position.tradingMode = "SHITCOIN"
@@ -5364,16 +5356,10 @@ if (deferredCount > 0) {
                             else -> com.lifecyclebot.v3.scoring.ShitCoinTraderAI.LaunchPlatform.UNKNOWN
                         }
                         
-                        // V5.2.11: Promoted trades need reasonable breathing room
-                        // The -2.5% was too tight - meme coins wick -5% to -8% regularly
-                        // Use -8% to allow normal volatility while still protecting gains
                         val scTp = com.lifecyclebot.v3.scoring.ShitCoinTraderAI.getFluidTakeProfit()
-                        val scSl = -8.0  // V5.2.11: Widened from -2.5% to -8% - let promoted trades breathe
+                        val scSl = -8.0  // Wide SL for promoted trades
                         
-                        ErrorLogger.info("BotService", "💰→💩 [PROMOTION] ${ts.symbol} | " +
-                            "SL=$scSl% (allowing volatility) | TP=$scTp%")
-                        
-                        // Register with ShitCoin tracker at CURRENT price (post-treasury-profit)
+                        // Register with ShitCoin tracker at CURRENT price
                         com.lifecyclebot.v3.scoring.ShitCoinTraderAI.addPosition(
                             com.lifecyclebot.v3.scoring.ShitCoinTraderAI.ShitCoinPosition(
                                 mint = ts.mint,
@@ -5390,10 +5376,60 @@ if (deferredCount > 0) {
                             )
                         )
                         
-                        addLog("💰→💩 PROMOTION: ${ts.symbol} | Treasury profit locked, now ShitCoin mode!", ts.mint)
-                        return  // Promotion processed, don't close position
+                        addLog("💰→💩 PROMOTION: ${ts.symbol} | +${pnlPct.toInt()}% Treasury profit, now ShitCoin mode!", ts.mint)
+                        return  // Promotion processed - position stays open under ShitCoin
+                    }
+                    
+                    // V5.6: Check for promotion to Quality layer ($100K-$1M mcap)
+                    if (ts.lastLiquidityUsd >= 10000 && ts.lastMcap in 100_000.0..1_000_000.0) {
+                        ErrorLogger.info("BotService", "💰→⭐ [PROMOTION] ${ts.symbol} | " +
+                            "TREASURY → QUALITY | +${pnlPct.toInt()}% profit, now Quality layer!")
+                        
+                        // Close Treasury tracking (but DON'T sell!)
+                        com.lifecyclebot.v3.scoring.CashGenerationAI.closePosition(
+                            ts.mint, currentPrice, exitSignal
+                        )
+                        
+                        // Mark for Quality tracking
+                        ts.position.isShitCoinPosition = false
+                        ts.position.isTreasuryPosition = false
+                        ts.position.tradingMode = "QUALITY"
+                        ts.position.tradingModeEmoji = "⭐"
+                        
+                        val qualityTp = com.lifecyclebot.v3.scoring.QualityTraderAI.getFluidTakeProfit()
+                        val qualitySl = com.lifecyclebot.v3.scoring.QualityTraderAI.getFluidStopLoss()
+                        
+                        // Register with Quality tracker
+                        com.lifecyclebot.v3.scoring.QualityTraderAI.addPosition(
+                            com.lifecyclebot.v3.scoring.QualityTraderAI.QualityPosition(
+                                mint = ts.mint,
+                                symbol = ts.symbol,
+                                entryPrice = currentPrice,
+                                entryTime = System.currentTimeMillis(),
+                                entrySol = ts.position.costSol,
+                                entryMcap = ts.lastMcap,
+                                takeProfitPct = qualityTp,
+                                stopLossPct = qualitySl,
+                            )
+                        )
+                        
+                        addLog("💰→⭐ PROMOTION: ${ts.symbol} | +${pnlPct.toInt()}% Treasury profit, now Quality mode!", ts.mint)
+                        return  // Promotion processed
                     }
                 }
+                
+                // No promotion possible - execute the sell
+                executor.requestSell(
+                    ts = ts,
+                    reason = "TREASURY_${exitSignal.name}",
+                    wallet = wallet,
+                    walletSol = effectiveBalance
+                )
+                
+                // Close treasury position tracking
+                com.lifecyclebot.v3.scoring.CashGenerationAI.closePosition(
+                    ts.mint, currentPrice, exitSignal
+                )
                 
                 addLog("💰 TREASURY SELL: ${ts.symbol} | ${exitSignal.name} | " +
                     "${if (cfg.paperMode) "PAPER" else "LIVE"}", ts.mint)
