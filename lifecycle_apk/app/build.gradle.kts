@@ -146,4 +146,8 @@ dependencies {
     
     // Coil for image loading (token logos)
     implementation("io.coil-kt:coil:2.6.0")
+    
+    // V5.6: TensorFlow Lite for on-device ML predictions
+    implementation("org.tensorflow:tensorflow-lite:2.14.0")
+    implementation("org.tensorflow:tensorflow-lite-support:0.4.4")
 }
