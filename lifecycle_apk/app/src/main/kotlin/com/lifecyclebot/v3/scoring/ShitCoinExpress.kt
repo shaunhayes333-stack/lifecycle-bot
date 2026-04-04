@@ -46,13 +46,13 @@ object ShitCoinExpress {
     // CONFIGURATION - Aggressive for quick rides
     // ═══════════════════════════════════════════════════════════════════════════
     
-    // Market cap limits - Even lower than ShitCoinTraderAI
-    private const val MAX_MARKET_CAP_USD = 20_000.0   // Only <$30K tokens (V4.1: was $300K)
-    private const val MIN_MARKET_CAP_USD = 2_000.0    // At least $5K
-    
+    // Market cap limits - Match BotService gate ($300K)
+    private const val MAX_MARKET_CAP_USD = 300_000.0  // V5.5: Was $20K — too restrictive, now matches BotService gate
+    private const val MIN_MARKET_CAP_USD = 2_000.0    // At least $2K
+
     // AGGRESSIVE momentum requirements
     private const val MIN_MOMENTUM_PCT = 5.0          // Must be pumping already
-    private const val MIN_BUY_PRESSURE_PCT = 60.0     // Strong buy dominance
+    private const val MIN_BUY_PRESSURE_PCT = 55.0     // V5.5: Lowered from 60% — still strong buy dominance
     
     // Position sizing - SMALL but FAST
     private const val BASE_POSITION_SOL = 0.03        // Tiny base
@@ -564,10 +564,10 @@ object ShitCoinExpress {
     // FLUID THRESHOLDS
     // ═══════════════════════════════════════════════════════════════════════════
     
-    // V5.3: FIXED - was inverted (60 bootstrap → 45 mature = HARDER during learning!)
-    // Now correctly starts permissive in bootstrap and tightens as bot learns
-    private const val EXPRESS_SCORE_BOOTSTRAP = 45  // Permissive during bootstrap (learning phase)
-    private const val EXPRESS_SCORE_MATURE = 60     // Stricter when experienced (mature phase)
+    // V5.5: Lowered — at 63% learning, was requiring ~54/110 which blocks most tokens
+    // Max achievable score for a pumping token is ~50-60; need bootstrap floor lower
+    private const val EXPRESS_SCORE_BOOTSTRAP = 30  // Permissive during bootstrap (learning phase)
+    private const val EXPRESS_SCORE_MATURE = 50     // Stricter when experienced (mature phase)
     
     private fun getFluidScoreThreshold(): Int {
         val progress = FluidLearningAI.getLearningProgress()
