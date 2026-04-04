@@ -1798,6 +1798,10 @@ class BotService : Service() {
             // Update FinalDecisionGate mode for veto cooldown timing
             FinalDecisionGate.setModeForVeto(cfg.paperMode)
             
+            // V5.6 FIX: Sync CashGenerationAI mode so checkExit finds positions in correct map!
+            // Without this, positions entered in paper mode won't be found when checking exits
+            com.lifecyclebot.v3.scoring.CashGenerationAI.setMode(cfg.paperMode)
+            
             // V5.0: Advance TradeAuthorizer epoch for decision tracking
             TradeAuthorizer.advanceEpoch()
             
