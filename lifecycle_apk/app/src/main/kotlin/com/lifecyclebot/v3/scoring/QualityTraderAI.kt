@@ -52,12 +52,13 @@ object QualityTraderAI {
     // CONFIGURATION
     // ═══════════════════════════════════════════════════════════════════════════
     
-    // Market cap filter - Quality range (between ShitCoin and BlueChip)
-    private const val MIN_MARKET_CAP_USD = 20_000.0    // $50K minimum
-    private const val MAX_MARKET_CAP_USD = 250_000.0  // $250,000 max (above this = BlueChip)
+    // V5.2.12: Quality layer handles professional mid-cap trading
+    // Market cap: $100K - $1M (flows from ShitCoin at $100K, promotes to BlueChip at $1M)
+    private const val MIN_MARKET_CAP_USD = 100_000.0   // $100K minimum (flows from ShitCoin max)
+    private const val MAX_MARKET_CAP_USD = 1_000_000.0 // $1M max (above this = BlueChip)
     
-    // Liquidity requirements - higher than ShitCoin
-    private const val MIN_LIQUIDITY_USD = 5000.0
+    // Liquidity requirements - higher standard than ShitCoin
+    private const val MIN_LIQUIDITY_USD = 10_000.0     // $10K minimum for professional layer
     
     // Token age - prefer established tokens
     // V5.2.12: Made fluid - lower during learning to gather data
@@ -68,7 +69,7 @@ object QualityTraderAI {
     // Position sizing
     private const val BASE_POSITION_SOL = 0.08          // Between Treasury (0.01) and BlueChip (0.15)
     private const val MAX_POSITION_SOL = 0.25           // Up to 0.25 SOL per trade
-    private const val MAX_CONCURRENT_POSITIONS = 4      // Max 4 Quality positions at once
+    private const val MAX_CONCURRENT_POSITIONS = 10     // V5.2.12: Raised from 4 for paper learning
     
     // Take profit / Stop loss - FLUID (adapts as bot learns)
     private const val TAKE_PROFIT_BOOTSTRAP = 15.0      // 15% at start
@@ -83,14 +84,33 @@ object QualityTraderAI {
     private const val MIN_BUY_PRESSURE = 40             // At least 40% buy pressure
     
     // ═══════════════════════════════════════════════════════════════════════════
-    // STATE
+    // STATE - V5.2.12: Added paper/live mode separation
     // ═══════════════════════════════════════════════════════════════════════════
     
-    private val activePositions = ConcurrentHashMap<String, QualityPosition>()
+    // Mode tracking
+    @Volatile private var isPaperMode: Boolean = true
+    
+    // Separate position tracking for paper and live
+    private val paperPositions = ConcurrentHashMap<String, QualityPosition>()
+    private val livePositions = ConcurrentHashMap<String, QualityPosition>()
+    
+    // Get active positions based on current mode
+    private val activePositions: ConcurrentHashMap<String, QualityPosition>
+        get() = if (isPaperMode) paperPositions else livePositions
+    
+    // Stats tracking
     private var dailyPnlSol = 0.0
     private var totalTrades = 0
     private var wins = 0
     private var losses = 0
+    
+    /**
+     * V5.2.12: Initialize with paper/live mode
+     */
+    fun init(paperMode: Boolean) {
+        isPaperMode = paperMode
+        ErrorLogger.info(TAG, "⭐ Quality Trader initialized | mode=${if (paperMode) "PAPER" else "LIVE"}")
+    }
     
     // ═══════════════════════════════════════════════════════════════════════════
     // DATA CLASSES
@@ -390,8 +410,12 @@ object QualityTraderAI {
         // V5.2.12: Record to FluidLearningAI for central maturity tracking
         // This ensures Quality trades contribute to system-wide learning
         try {
-            FluidLearningAI.recordPaperTrade(isWin)  // Quality trades in paper mode for now
-            ErrorLogger.debug(TAG, "📊 Recorded to FluidLearningAI: ${pos.symbol} ${if (isWin) "WIN" else "LOSS"}")
+            if (isPaperMode) {
+                FluidLearningAI.recordPaperTrade(isWin)
+            } else {
+                FluidLearningAI.recordLiveTrade(isWin)
+            }
+            ErrorLogger.debug(TAG, "📊 Recorded to FluidLearningAI [${if (isPaperMode) "PAPER" else "LIVE"}]: ${pos.symbol} ${if (isWin) "WIN" else "LOSS"}")
         } catch (e: Exception) {
             ErrorLogger.warn(TAG, "FluidLearningAI record failed: ${e.message}")
         }
@@ -403,10 +427,22 @@ object QualityTraderAI {
     
     fun getActivePositions(): List<QualityPosition> = activePositions.values.toList()
     
+    /**
+     * V5.2.12: Get positions for specific mode
+     */
+    fun getActivePositionsForMode(isPaper: Boolean): List<QualityPosition> {
+        return if (isPaper) paperPositions.values.toList() else livePositions.values.toList()
+    }
+    
     fun hasPosition(mint: String): Boolean = activePositions.containsKey(mint)
     
+    /**
+     * V5.2.12: Clear all positions (both paper and live)
+     */
     fun clearAllPositions() {
-        activePositions.clear()
+        synchronized(paperPositions) { paperPositions.clear() }
+        synchronized(livePositions) { livePositions.clear() }
+        ErrorLogger.info(TAG, "⭐ QUALITY: Cleared all positions")
     }
     
     // ═══════════════════════════════════════════════════════════════════════════

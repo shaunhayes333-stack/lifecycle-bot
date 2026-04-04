@@ -645,12 +645,11 @@ class BotService : Service() {
                             // ═══════════════════════════════════════════════════════════════════
                             
                             // Define dual eligibility thresholds
-                            // V5.5: Paper mode score lowered to 5 — let D-grade and above through
-                            // Scanner discovery score is raw (liquidity/volume/age only);
-                            // the watchlist scoring system (V3EngineManager) filters quality
+
+                            // V5.5: Paper mode - let everything through; FDG/watchlist scoring decides
                             val paperMinLiquidity = 500.0    // $500 for paper exploration
                             val liveMinLiquidity = 8000.0    // $8K for live capital protection
-                            val paperMinScore = 5.0           // V5.5: Was 28 — too restrictive, blocked all fresh meme coins
+                            val paperMinScore = 1.0           // Let everything through; watchlist scoring filters quality
                             val liveMinScore = 65.0           // Higher bar for live execution
                             
                             // Check 2a: MINIMUM LIQUIDITY (mode-dependent)
@@ -669,12 +668,16 @@ class BotService : Service() {
                             }
                             
                             // Check 2c: Minimum score threshold (mode-dependent)
+                            // V5.2.12: Paper mode uses D-grade threshold (5) to let scanner results through
                             val minScore = if (c.paperMode) paperMinScore else liveMinScore
                             if (score < minScore) {
                                 TradeLifecycle.ineligible(identity.mint, "Score too low: $score < $minScore")
-                                ErrorLogger.debug("BotService", "INELIGIBLE: ${identity.symbol} - score $score < $minScore")
+                                ErrorLogger.debug("BotService", "INELIGIBLE: ${identity.symbol} - score $score < $minScore (${if (c.paperMode) "PAPER" else "LIVE"} mode)")
                                 return@SolanaMarketScanner
                             }
+                            
+                            // V5.2.12: Log successful score admission for debugging
+                            ErrorLogger.debug("BotService", "✅ SCORE OK: ${identity.symbol} | score=$score >= minScore=$minScore (${if (c.paperMode) "PAPER" else "LIVE"} mode)")
                             
                             // V4.20: Additional live-mode strictness
                             // In live mode, also require stronger fundamentals
@@ -3588,6 +3591,11 @@ if (deferredCount > 0) {
                         hasOpenPosition = ts.position.isOpen
                     )
                     
+                    // V5.2.12: Log when Quality is checked but mcap out of range
+                    if (qualityPermit.allowed && ts.lastMcap !in 100_000.0..1_000_000.0) {
+                        ErrorLogger.debug("BotService", "⭐ [QUALITY SKIP] ${ts.symbol} | mcap=\$${(ts.lastMcap/1000).toInt()}K not in \$100K-\$1M range")
+                    }
+                    
                     if (qualityPermit.allowed && ts.lastMcap in 100_000.0..1_000_000.0) {
                         val (v3Score, _) = when (val result = v3Decision) {
                             is com.lifecyclebot.v3.V3Decision.Execute -> result.score to result.confidence.toInt()
@@ -3805,8 +3813,9 @@ if (deferredCount > 0) {
                     ErrorLogger.debug("BotService", "🚀 [MOONSHOT] ${ts.symbol} | BLOCKED | Treasury has open position - wait for TP/SL")
                 } else {
                 try {
-                    // Check if mcap is in moonshot zone ($100K-$50M)
-                    if (ts.lastMcap in 100_000.0..50_000_000.0) {
+                    // V5.2.12: Check if mcap is in moonshot zone ($10K-$100M)
+                    // Moonshot accepts promotions from any layer
+                    if (ts.lastMcap in 10_000.0..100_000_000.0) {
                         
                         // V5.2: Check execution permit for MOONSHOT book
                         val moonshotPermit = FinalExecutionPermit.canExecute(
@@ -4226,8 +4235,8 @@ if (deferredCount > 0) {
                         (System.currentTimeMillis() - ts.addedToWatchlistAt) / 60_000.0
                     } else 60.0
                     
-                    // Express only for micro caps <$300K that are pumping
-                    if (ts.lastMcap <= 300_000 && ts.lastMcap >= 5_000 &&
+                    // V5.2.12: Express only for ShitCoin range (<$100K) that are pumping
+                    if (ts.lastMcap <= 100_000 && ts.lastMcap >= 1_000 &&
                         (ts.momentum ?: 0.0) >= 5.0 && ts.lastBuyPressurePct >= 60) {
                         
                         val isTrending = ts.source.contains("TRENDING", ignoreCase = true)
@@ -4579,24 +4588,36 @@ if (deferredCount > 0) {
                 
                 is com.lifecyclebot.v3.V3Decision.Rejected -> {
                     // ═══════════════════════════════════════════════════════════════════
-                    // V3 REJECT: Poor setup
+                    // V3 REJECT: Poor setup OR routing to another layer
+                    // V5.2.12: SHITCOIN_CANDIDATE rejection means "let ShitCoin layer handle it"
                     // ═══════════════════════════════════════════════════════════════════
-                    ErrorLogger.info("BotService", "[DECISION] ${identity.symbol} | REJECT | ${result.reason}")
                     
-                    // Shadow track
-                    ShadowLearningEngine.onFdgBlockedTrade(
-                        mint = ts.mint,
-                        symbol = ts.symbol,
-                        blockReason = "V3_REJECT_${result.reason}",
-                        blockLevel = "V3",
-                        currentPrice = ts.ref,
-                        proposedSizeSol = 0.1,
-                        quality = decision.finalQuality,
-                        confidence = 0.0,
-                        phase = decision.phase,
-                    )
+                    // Check if this is a routing rejection (ShitCoin candidate)
+                    val isShitCoinRouting = result.reason.contains("SHITCOIN_CANDIDATE")
                     
-                    return
+                    if (isShitCoinRouting) {
+                        // V5.2.12: Don't return! Let the ShitCoin evaluation section handle this
+                        ErrorLogger.debug("BotService", "[V3|ROUTE] ${identity.symbol} | → SHITCOIN | ${result.reason}")
+                        // Fall through to ShitCoin layer evaluation below
+                    } else {
+                        // True rejection - shadow track and return
+                        ErrorLogger.info("BotService", "[DECISION] ${identity.symbol} | REJECT | ${result.reason}")
+                        
+                        // Shadow track
+                        ShadowLearningEngine.onFdgBlockedTrade(
+                            mint = ts.mint,
+                            symbol = ts.symbol,
+                            blockReason = "V3_REJECT_${result.reason}",
+                            blockLevel = "V3",
+                            currentPrice = ts.ref,
+                            proposedSizeSol = 0.1,
+                            quality = decision.finalQuality,
+                            confidence = 0.0,
+                            phase = decision.phase,
+                        )
+                        
+                        return
+                    }
                 }
                 
                 is com.lifecyclebot.v3.V3Decision.BlockFatal -> {
@@ -4695,17 +4716,20 @@ if (deferredCount > 0) {
     
     // ───────────────────────────────────────────────────────────────────
     // HARD GATE 2: Block C-grade + low confidence
-    // V4.20: Lowered all floors by 8 points
-    // V4.0: Use FLUID threshold instead of hardcoded 35%
-    // V5.2.6: LOWERED to allow C-grade trades through for learning
+    // V5.2.12: Paper mode has LOWER floor to allow more learning
     // ───────────────────────────────────────────────────────────────────
     val isCGrade = decision.setupQuality == "C" || decision.setupQuality == "D"
     val fluidCGradeConfFloor = try {
         val learningProgress = com.lifecyclebot.v3.scoring.FluidLearningAI.getLearningProgress()
-        // V5.4: Raised from (0+progress*5) to (12+progress*13) — same direction as DecisionEngine
-        // Stops near-zero confidence meme coins from flooding the legacy path
-        (12 + (learningProgress * 13.0)).toInt().coerceIn(12, 25)
-    } catch (_: Exception) { 12 }
+        if (cfg.paperMode) {
+            // V5.2.12: Paper mode - very low floor to maximize learning volume
+            // Allow C/D grade through if confidence > 0
+            (1 + (learningProgress * 5.0)).toInt().coerceIn(1, 10)
+        } else {
+            // Live mode - higher floor for capital protection
+            (12 + (learningProgress * 13.0)).toInt().coerceIn(12, 25)
+        }
+    } catch (_: Exception) { if (cfg.paperMode) 1 else 12 }
     
     if (isCGrade && confValue < fluidCGradeConfFloor) {
         ErrorLogger.info("BotService", "[V3|PROMOTION_GATE] ${identity.symbol} | allow=false | " +
@@ -5125,6 +5149,9 @@ if (deferredCount > 0) {
         // Position management (exits) - ALWAYS monitor open positions
         // Even when paused, we need to manage risk on existing positions
         
+        // V5.2.12: Debug logging for exit check flow
+        ErrorLogger.debug("BotService", "🔄 [EXIT CHECK] ${ts.symbol} | isOpen=true | entering exit management")
+        
         // ═══════════════════════════════════════════════════════════════════
         // LAYER TRANSITION CHECK - Upgrade positions on the way UP
         // Check if position should transition to a higher layer
@@ -5186,9 +5213,17 @@ if (deferredCount > 0) {
         // Check FIRST before other exit logic since treasury has strict rules
         // ═══════════════════════════════════════════════════════════════════
         if (ts.position.isTreasuryPosition || ts.position.tradingMode == "TREASURY") {
+            // V5.2.12: Debug - entering Treasury exit check
+            ErrorLogger.debug("BotService", "💰 [TREASURY ENTER] ${ts.symbol} | isTreasury=${ts.position.isTreasuryPosition} | mode=${ts.position.tradingMode}")
+            
             val currentPrice = ts.lastPrice.takeIf { it > 0 } 
                 ?: ts.history.lastOrNull()?.priceUsd 
                 ?: ts.position.entryPrice
+            
+            // V5.2.12: Debug - show price being used
+            ErrorLogger.debug("BotService", "💰 [TREASURY PRICE] ${ts.symbol} | " +
+                "lastPrice=${ts.lastPrice} | historyLast=${ts.history.lastOrNull()?.priceUsd} | " +
+                "entryPrice=${ts.position.entryPrice} | USING=$currentPrice")
             
             // V5.2: Debug - verify checkExit is being called
             var treasuryPos = com.lifecyclebot.v3.scoring.CashGenerationAI.getActivePosition(ts.mint)
@@ -5223,8 +5258,9 @@ if (deferredCount > 0) {
                     "price=$currentPrice | treasuryEntry=${treasuryPos.entryPrice} | pnl=${treasuryPnl.fmt(1)}%")
             }
             
-            // V5.2: Check for cross-trade promotion to Moonshot (200%+ gains)
-            if (currentPnlPct >= 200.0 && ts.lastMcap in 100_000.0..50_000_000.0) {
+            // V5.2.12: Check for cross-trade promotion to Moonshot (200%+ gains)
+            // Moonshot accepts promotions from any mcap range ($10K-$100M)
+            if (currentPnlPct >= 200.0 && ts.lastMcap in 10_000.0..100_000_000.0) {
                 val shouldPromote = com.lifecyclebot.v3.scoring.MoonshotTraderAI.shouldPromoteToMoonshot(
                     mint = ts.mint,
                     symbol = ts.symbol,
@@ -5297,9 +5333,9 @@ if (deferredCount > 0) {
                     ErrorLogger.info("BotService", "💰 [TREASURY PROMOTION] ${ts.symbol} | " +
                         "+${pnlPct.toInt()}% | Checking for promotion to ShitCoin...")
                     
-                    // Promote to ShitCoin layer if still has good liquidity
+                    // V5.2.12: Promote to ShitCoin layer if still in ShitCoin mcap range
                     // Token already proven itself - let ShitCoin ride the wave
-                    if (ts.lastLiquidityUsd >= 5000 && ts.lastMcap in 20_000.0..5_000_000.0) {
+                    if (ts.lastLiquidityUsd >= 3000 && ts.lastMcap in 1_000.0..100_000.0) {
                         ErrorLogger.info("BotService", "💰→💩 [PROMOTION] ${ts.symbol} | " +
                             "TREASURY → SHITCOIN | +${pnlPct.toInt()}% profit, now riding with ShitCoin layer!")
                         
@@ -5368,9 +5404,9 @@ if (deferredCount > 0) {
                 ((currentPrice - ts.position.entryPrice) / ts.position.entryPrice) * 100
             } else 0.0
             
-            // V5.2: Check for cross-trade promotion to Moonshot (200%+ gains)
+            // V5.2.12: Check for cross-trade promotion to Moonshot (200%+ gains)
             // ShitCoin → Moonshot: The degen play turned into a moonshot!
-            if (currentPnlPct >= 200.0 && ts.lastMcap in 100_000.0..50_000_000.0) {
+            if (currentPnlPct >= 200.0 && ts.lastMcap in 10_000.0..100_000_000.0) {
                 val shouldPromote = com.lifecyclebot.v3.scoring.MoonshotTraderAI.shouldPromoteToMoonshot(
                     mint = ts.mint,
                     symbol = ts.symbol,
@@ -5965,6 +6001,15 @@ if (deferredCount > 0) {
         } catch (e: Exception) {
             failCount++
             ErrorLogger.error("BotService", "ShitCoinExpress init FAILED: ${e.message}", e)
+        }
+        
+        // V5.2.12: Quality Trader - professional mid-cap layer
+        try {
+            com.lifecyclebot.v3.scoring.QualityTraderAI.init(cfg.paperMode)
+            initCount++
+        } catch (e: Exception) {
+            failCount++
+            ErrorLogger.error("BotService", "QualityTraderAI init FAILED: ${e.message}", e)
         }
         
         // Dip Hunter

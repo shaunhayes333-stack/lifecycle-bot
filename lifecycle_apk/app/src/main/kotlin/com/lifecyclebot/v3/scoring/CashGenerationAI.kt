@@ -66,9 +66,9 @@ object CashGenerationAI {
 
     private const val MIN_PROFIT_FOR_LIVE = 2.5
 
-    // Trade frequency
+    // Trade frequency - V5.2.12: Raised max positions for more learning volume
     private const val MIN_TRADES_PER_DAY = 100
-    private const val MAX_CONCURRENT_POSITIONS = 6
+    private const val MAX_CONCURRENT_POSITIONS = 15  // V5.2.12: Was 6, raised for paper learning
 
     // ═══════════════════════════════════════════════════════════════════════════
     // COMPOUNDING & IMMEDIATE TRADING

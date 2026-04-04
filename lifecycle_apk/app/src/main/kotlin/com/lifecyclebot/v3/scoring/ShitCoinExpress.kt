@@ -55,9 +55,9 @@ object ShitCoinExpress {
     private const val MIN_BUY_PRESSURE_PCT = 55.0     // V5.5: Lowered from 60% — still strong buy dominance
     
     // Position sizing - SMALL but FAST
-    private const val BASE_POSITION_SOL = 0.03        // Tiny base
-    private const val MAX_POSITION_SOL = 0.10         // Never exceed 0.1 SOL
-    private const val MAX_CONCURRENT_RIDES = 3        // Only 3 rides at once
+    private const val BASE_POSITION_SOL = 0.05        // Tiny base
+    private const val MAX_POSITION_SOL = 3.0          // Never exceed 0.1 SOL
+    private const val MAX_CONCURRENT_RIDES = 20       // Only 20 rides at once
     
     // AGGRESSIVE take profits
     private const val MIN_TAKE_PROFIT_PCT = 30.0      // Minimum 30% or don't bother
@@ -69,10 +69,10 @@ object ShitCoinExpress {
     private const val TRAILING_STOP_PCT = 5.0         // Super tight trailing
     
     // V5.2: Removed max hold time - let runners run!
-    private const val IDEAL_HOLD_MINUTES = 8          // V5.2: Increased from 5 to 8 mins
+    private const val IDEAL_HOLD_MINUTES = 10-20          // V5.2: Increased from 5 to 20 mins
     
     // Daily limits
-    private const val DAILY_MAX_LOSS_SOL = 0.25       // Small daily cap
+    private const val DAILY_MAX_LOSS_SOL = 2.0       // Small daily cap
     private const val DAILY_MAX_RIDES = 500           // Max 500 express rides/day
     
     // ═══════════════════════════════════════════════════════════════════════════
@@ -237,7 +237,7 @@ object ShitCoinExpress {
         }
         
         // Minimum liquidity
-        if (liquidityUsd < 2_000) {
+        if (liquidityUsd < 1_000) {
             return noRide("LIQ_TOO_LOW: \$${liquidityUsd.toInt()}")
         }
         
@@ -312,7 +312,7 @@ object ShitCoinExpress {
         if (isBoosted) trendScore += 5
         expressScore += trendScore
         
-        // Age bonus - Sweet spot is 15-60 mins (0-10)
+        // Age bonus - Sweet spot is 5-60 mins (0-60)
         val ageScore = when {
             tokenAgeMinutes < 5 -> 5     // Too fresh, risky
             tokenAgeMinutes < 15 -> 7
@@ -339,11 +339,11 @@ object ShitCoinExpress {
         // ═══════════════════════════════════════════════════════════════════
         
         val rideType = when {
-            expressScore >= 85 && momentum >= 15 && buyPressurePct >= 75 -> {
+            expressScore >= 25 && momentum >= 15 && buyPressurePct >= 70 -> {
                 estimatedGain = 100.0
                 RideType.MOONSHOT_EXPRESS
             }
-            expressScore >= 65 && momentum >= 10 -> {
+            expressScore >= 15 && momentum >= 10 -> {
                 estimatedGain = 50.0
                 RideType.MOMENTUM_RIDE
             }
@@ -376,7 +376,7 @@ object ShitCoinExpress {
         }
         
         // Cap at max
-        positionSol = positionSol.coerceIn(0.02, MAX_POSITION_SOL)
+        positionSol = positionSol.coerceIn(2.0, MAX_POSITION_SOL)
         
         ErrorLogger.info(TAG, "💩🚂 EXPRESS QUALIFIED: $symbol | " +
             "${rideType.emoji} ${rideType.name} | " +
@@ -564,10 +564,10 @@ object ShitCoinExpress {
     // FLUID THRESHOLDS
     // ═══════════════════════════════════════════════════════════════════════════
     
-    // V5.5: Lowered — at 63% learning, was requiring ~54/110 which blocks most tokens
-    // Max achievable score for a pumping token is ~50-60; need bootstrap floor lower
-    private const val EXPRESS_SCORE_BOOTSTRAP = 30  // Permissive during bootstrap (learning phase)
-    private const val EXPRESS_SCORE_MATURE = 50     // Stricter when experienced (mature phase)
+    // V5.3: FIXED - was inverted (60 bootstrap → 45 mature = HARDER during learning!)
+    // Now correctly starts permissive in bootstrap and tightens as bot learns
+    private const val EXPRESS_SCORE_BOOTSTRAP = 20  // Permissive during bootstrap (learning phase)
+    private const val EXPRESS_SCORE_MATURE = 30     // Stricter when experienced (mature phase)
     
     private fun getFluidScoreThreshold(): Int {
         val progress = FluidLearningAI.getLearningProgress()
