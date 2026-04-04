@@ -2361,8 +2361,8 @@ for legal compliance.
             synchronized(ts.history) {
                 val now = System.currentTimeMillis()
                 val fiveMinAgo = now - (5 * 60 * 1000L)
-                ts.history.filter { it.openTime > fiveMinAgo }
-                    .sumOf { it.volumeUsd }
+                ts.history.filter { candle -> candle.ts > fiveMinAgo }
+                    .sumOf { candle -> candle.volumeH1 }
             }
         } catch (_: Exception) { 0.0 }
         
@@ -2388,7 +2388,7 @@ for legal compliance.
         
         // Holders (from last candle if available)
         val holders = try {
-            ts.history.lastOrNull()?.holderCount?.toInt() ?: 0
+            ts.history.lastOrNull()?.holderCount ?: 0
         } catch (_: Exception) { 0 }
         tvChartHolders?.text = when {
             holders >= 1000 -> "${holders / 1000}K"
