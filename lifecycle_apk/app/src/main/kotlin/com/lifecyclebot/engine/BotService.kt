@@ -2269,13 +2269,29 @@ class BotService : Service() {
                     val freshSol = walletManager.state.value.solBalance
                     status.walletSol = freshSol
                     
-                    // Initialize paper wallet with ~$500 worth of SOL for realistic testing
+                    // Initialize paper wallet with $1000 worth of SOL for realistic testing
                     val cfg = ConfigStore.load(applicationContext)
-                    if (cfg.paperMode && !status.paperWalletInitialized) {
-                        status.paperWalletSol = 5.6  // ~$500 at $89/SOL
-                        status.paperWalletInitialized = true
-                        ErrorLogger.info("PaperWallet", "Initialized with 5.6 SOL (~\$500)")
-                        addLog("📝 Paper wallet: 5.6 SOL (~\$500)")
+                    if (cfg.paperMode) {
+                        val solPxPaper = WalletManager.lastKnownSolPrice.takeIf { it > 0 } ?: 150.0
+                        val targetSol = 1000.0 / solPxPaper  // Always $1000 worth
+
+                        if (!status.paperWalletInitialized) {
+                            status.paperWalletSol = targetSol
+                            status.paperWalletInitialized = true
+                            status.paperWalletLastRefreshMs = System.currentTimeMillis()
+                            ErrorLogger.info("PaperWallet", "Initialized with ${"%.2f".format(targetSol)} SOL (~\$1000 @ \$${"%.0f".format(solPxPaper)}/SOL)")
+                            addLog("📝 Paper wallet: ${"%.2f".format(targetSol)} SOL (~\$1,000)")
+                        } else {
+                            // Auto-refresh every 12 hours so paper mode never runs dry
+                            val hoursSinceRefresh = (System.currentTimeMillis() - status.paperWalletLastRefreshMs) / 3_600_000.0
+                            if (hoursSinceRefresh >= 12.0) {
+                                val oldSol = status.paperWalletSol
+                                status.paperWalletSol = targetSol
+                                status.paperWalletLastRefreshMs = System.currentTimeMillis()
+                                ErrorLogger.info("PaperWallet", "12h refresh: reset to ${"%.2f".format(targetSol)} SOL (~\$1000). Was ${"%.2f".format(oldSol)} SOL")
+                                addLog("🔄 Paper wallet refreshed: ${"%.2f".format(targetSol)} SOL (~\$1,000) — 12h top-up")
+                            }
+                        }
                     }
 
                     // Treasury milestone check — ONLY for LIVE mode
