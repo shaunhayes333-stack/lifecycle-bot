@@ -1454,7 +1454,19 @@ class BotService : Service() {
         } catch (tokensEx: Exception) {
             ErrorLogger.error("BotService", "Error clearing token positions: ${tokensEx.message}", tokensEx)
         }
-        
+
+        // V5.6: Clear the watchlist so UI shows clean state after stop
+        // Learning data is persisted in trade DB — status.tokens is just the live runtime cache
+        try {
+            synchronized(status.tokens) {
+                status.tokens.clear()
+            }
+            GlobalTradeRegistry.reset()
+            addLog("✅ Cleared watchlist — UI reset to clean state")
+        } catch (clearEx: Exception) {
+            ErrorLogger.error("BotService", "Error clearing watchlist on stop: ${clearEx.message}", clearEx)
+        }
+
         status.running = false
         loopJob?.cancel()
         orchestrator?.stop()
