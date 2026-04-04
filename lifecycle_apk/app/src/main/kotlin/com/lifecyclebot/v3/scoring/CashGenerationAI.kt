@@ -666,11 +666,19 @@ object CashGenerationAI {
             return ExitSignal.HOLD
         }
 
-        if (isAboveTarget) {
+        // Derive the TP% from the stored target price (matches what UI displays).
+        // Also check pnlPct directly — mathematically equivalent to isAboveTarget
+        // but survives any floating-point or stale-price edge cases.
+        val tpPct = if (pos.entryPrice > 0 && pos.targetPrice > pos.entryPrice) {
+            (pos.targetPrice - pos.entryPrice) / pos.entryPrice * 100.0
+        } else if (pos.isPaper) TAKE_PROFIT_PCT_PAPER.toDouble() else TAKE_PROFIT_PCT_LIVE.toDouble()
+
+        if (isAboveTarget || pnlPct >= tpPct) {
+            val modeLabel = if (pos.isPaper) "PAPER" else "LIVE"
             ErrorLogger.info(
                 TAG,
-                "💰 TREASURY TP HIT: ${pos.symbol} | +${pnlPct.fmt(1)}% | " +
-                    "price=$currentPrice >= target=${pos.targetPrice} | SELLING & PROMOTING!",
+                "💰 TREASURY TP HIT [$modeLabel]: ${pos.symbol} | +${pnlPct.fmt(1)}% >= ${"%.1f".format(tpPct)}% | " +
+                    "price=$currentPrice target=${pos.targetPrice} | SELLING & PROMOTING!",
             )
             return ExitSignal.TAKE_PROFIT
         }
