@@ -621,10 +621,12 @@ class BotService : Service() {
                             // ═══════════════════════════════════════════════════════════════════
                             
                             // Define dual eligibility thresholds
-                            // V5.2.10: Paper mode score raised to 28 (was 20 - too aggressive)
+                            // V5.5: Paper mode score lowered to 5 — let D-grade and above through
+                            // Scanner discovery score is a raw signal (liquidity/volume/age only);
+                            // the watchlist scoring system (V3EngineManager) filters quality
                             val paperMinLiquidity = 500.0    // $500 for paper exploration
                             val liveMinLiquidity = 8000.0    // $8K for live capital protection
-                            val paperMinScore = 28.0          // Raised from 20 - filter low quality
+                            val paperMinScore = 5.0           // V5.5: Was 28 — too restrictive, blocked all fresh meme coins
                             val liveMinScore = 65.0           // Higher bar for live execution
                             
                             // Check 2a: MINIMUM LIQUIDITY (mode-dependent)

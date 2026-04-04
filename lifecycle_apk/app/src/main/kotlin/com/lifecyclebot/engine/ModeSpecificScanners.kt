@@ -33,8 +33,9 @@ object ModeSpecificScanners {
     // ═══════════════════════════════════════════════════════════════════
     
     // Minimum score thresholds
-    private const val SCORE_BOOTSTRAP = 30.0      // Lower bar at start
-    private const val SCORE_MATURE = 55.0         // Higher bar when experienced
+    // V5.5: Lowered — scanAll() is informational; watchlist scoring handles quality filtering
+    private const val SCORE_BOOTSTRAP = 5.0       // Let everything through at bootstrap
+    private const val SCORE_MATURE = 10.0         // Still very loose — watchlist scores will filter
     
     // Liquidity thresholds
     private const val LIQ_BOOTSTRAP = 1500.0      // $1.5K minimum at start
