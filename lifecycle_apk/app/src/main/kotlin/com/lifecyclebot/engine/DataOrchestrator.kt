@@ -41,6 +41,7 @@ class DataOrchestrator(
 
     private var pumpWs: PumpFunWebSocket? = null
     private var heliusWs: HeliusWebSocket? = null
+    private var dexWs: DexScreenerWebSocket? = null  // V5.6: Real-time price feed
     private var creatorChecker: HeliusCreatorHistory? = null
 
     // Last WS event per mint — used to decide if polling is needed

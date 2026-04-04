@@ -893,13 +893,13 @@ object FinalDecisionGate {
                 mcap = ts.lastMcap,
                 holderCount = ts.history.lastOrNull()?.holderCount ?: 0,
                 holderGrowthPct = 0.0,  // TODO: calculate from history
-                rugcheckScore = ts.rugcheckScore,
-                mintRevoked = ts.meta.mintAuthRevoked,
-                freezeRevoked = ts.meta.freezeAuthRevoked,
-                topHolderPct = ts.meta.topHolderPct,
+                rugcheckScore = ts.safety.rugcheckScore.takeIf { it >= 0 } ?: 50,
+                mintRevoked = ts.safety.mintAuthorityDisabled ?: false,
+                freezeRevoked = ts.safety.freezeAuthorityDisabled ?: false,
+                topHolderPct = ts.safety.topHolderPct.takeIf { it >= 0 } ?: (ts.topHolderPct ?: 0.0),
                 rsi = ts.meta.rsi,
-                emaAlignment = ts.meta.emaAlignment,
-                tokenAgeMinutes = (System.currentTimeMillis() - ts.createdAt) / 60000L,
+                emaAlignment = ts.meta.emafanAlignment,
+                tokenAgeMinutes = (System.currentTimeMillis() - ts.addedToWatchlistAt) / 60000L,
             )
         } catch (_: Exception) {
             null
