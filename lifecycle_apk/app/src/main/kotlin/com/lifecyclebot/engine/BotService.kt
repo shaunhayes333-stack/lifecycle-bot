@@ -1805,10 +1805,10 @@ class BotService : Service() {
             // V5.6.6: Update Treasury with actual wallet balance for proper position sizing
             val walletBalanceForTreasury = if (cfg.paperMode) {
                 // Paper mode: use paper wallet balance (starts at 6 SOL, compounds)
-                status.paperWallet?.balance ?: 6.0
+                status.paperWalletSol
             } else {
                 // Live mode: use actual SOL balance
-                effectiveBalance
+                status.getEffectiveBalance(cfg.paperMode)
             }
             com.lifecyclebot.v3.scoring.CashGenerationAI.updateWalletBalance(walletBalanceForTreasury)
             
