@@ -76,7 +76,7 @@ object MoonshotTraderAI {
     // Position sizing - moderate but aggressive
     private const val BASE_POSITION_SOL = 0.08
     private const val MAX_POSITION_SOL = 0.40
-    private const val MAX_CONCURRENT_POSITIONS = 6
+    private const val MAX_CONCURRENT_POSITIONS = 10  // V5.2.12: Raised for paper learning
     
     // Cross-trade promotion threshold
     private const val CROSS_TRADE_PROMOTION_PCT = 200.0  // 200%+ gain = promote to Moonshot

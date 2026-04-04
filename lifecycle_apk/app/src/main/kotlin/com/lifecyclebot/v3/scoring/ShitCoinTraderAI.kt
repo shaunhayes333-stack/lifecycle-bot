@@ -71,7 +71,7 @@ object ShitCoinTraderAI {
     // Position sizing - SMALL to limit risk
     private const val BASE_POSITION_SOL = 0.05        // Very small base (0.05 SOL ~ $7.50)
     private const val MAX_POSITION_SOL = 0.20         // Never exceed 0.2 SOL per shitcoin
-    private const val MAX_CONCURRENT_POSITIONS = 5    // Max 5 shitcoin positions at once
+    private const val MAX_CONCURRENT_POSITIONS = 12    // V5.2.12: Raised from 5 for paper learning
     
     // V4.20: Removed daily loss limit - ShitCoin is now primary layer
     // Loss prevention is handled by global stop-loss and position sizing

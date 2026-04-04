@@ -3591,6 +3591,11 @@ if (deferredCount > 0) {
                         hasOpenPosition = ts.position.isOpen
                     )
                     
+                    // V5.2.12: Log when Quality is checked but mcap out of range
+                    if (qualityPermit.allowed && ts.lastMcap !in 100_000.0..1_000_000.0) {
+                        ErrorLogger.debug("BotService", "⭐ [QUALITY SKIP] ${ts.symbol} | mcap=\$${(ts.lastMcap/1000).toInt()}K not in \$100K-\$1M range")
+                    }
+                    
                     if (qualityPermit.allowed && ts.lastMcap in 100_000.0..1_000_000.0) {
                         val (v3Score, _) = when (val result = v3Decision) {
                             is com.lifecyclebot.v3.V3Decision.Execute -> result.score to result.confidence.toInt()
@@ -4583,24 +4588,36 @@ if (deferredCount > 0) {
                 
                 is com.lifecyclebot.v3.V3Decision.Rejected -> {
                     // ═══════════════════════════════════════════════════════════════════
-                    // V3 REJECT: Poor setup
+                    // V3 REJECT: Poor setup OR routing to another layer
+                    // V5.2.12: SHITCOIN_CANDIDATE rejection means "let ShitCoin layer handle it"
                     // ═══════════════════════════════════════════════════════════════════
-                    ErrorLogger.info("BotService", "[DECISION] ${identity.symbol} | REJECT | ${result.reason}")
                     
-                    // Shadow track
-                    ShadowLearningEngine.onFdgBlockedTrade(
-                        mint = ts.mint,
-                        symbol = ts.symbol,
-                        blockReason = "V3_REJECT_${result.reason}",
-                        blockLevel = "V3",
-                        currentPrice = ts.ref,
-                        proposedSizeSol = 0.1,
-                        quality = decision.finalQuality,
-                        confidence = 0.0,
-                        phase = decision.phase,
-                    )
+                    // Check if this is a routing rejection (ShitCoin candidate)
+                    val isShitCoinRouting = result.reason.contains("SHITCOIN_CANDIDATE")
                     
-                    return
+                    if (isShitCoinRouting) {
+                        // V5.2.12: Don't return! Let the ShitCoin evaluation section handle this
+                        ErrorLogger.debug("BotService", "[V3|ROUTE] ${identity.symbol} | → SHITCOIN | ${result.reason}")
+                        // Fall through to ShitCoin layer evaluation below
+                    } else {
+                        // True rejection - shadow track and return
+                        ErrorLogger.info("BotService", "[DECISION] ${identity.symbol} | REJECT | ${result.reason}")
+                        
+                        // Shadow track
+                        ShadowLearningEngine.onFdgBlockedTrade(
+                            mint = ts.mint,
+                            symbol = ts.symbol,
+                            blockReason = "V3_REJECT_${result.reason}",
+                            blockLevel = "V3",
+                            currentPrice = ts.ref,
+                            proposedSizeSol = 0.1,
+                            quality = decision.finalQuality,
+                            confidence = 0.0,
+                            phase = decision.phase,
+                        )
+                        
+                        return
+                    }
                 }
                 
                 is com.lifecyclebot.v3.V3Decision.BlockFatal -> {
@@ -4699,17 +4716,20 @@ if (deferredCount > 0) {
     
     // ───────────────────────────────────────────────────────────────────
     // HARD GATE 2: Block C-grade + low confidence
-    // V4.20: Lowered all floors by 8 points
-    // V4.0: Use FLUID threshold instead of hardcoded 35%
-    // V5.2.6: LOWERED to allow C-grade trades through for learning
+    // V5.2.12: Paper mode has LOWER floor to allow more learning
     // ───────────────────────────────────────────────────────────────────
     val isCGrade = decision.setupQuality == "C" || decision.setupQuality == "D"
     val fluidCGradeConfFloor = try {
         val learningProgress = com.lifecyclebot.v3.scoring.FluidLearningAI.getLearningProgress()
-        // V5.4: Raised from (0+progress*5) to (12+progress*13) — same direction as DecisionEngine
-        // Stops near-zero confidence meme coins from flooding the legacy path
-        (12 + (learningProgress * 13.0)).toInt().coerceIn(12, 25)
-    } catch (_: Exception) { 12 }
+        if (cfg.paperMode) {
+            // V5.2.12: Paper mode - very low floor to maximize learning volume
+            // Allow C/D grade through if confidence > 0
+            (1 + (learningProgress * 5.0)).toInt().coerceIn(1, 10)
+        } else {
+            // Live mode - higher floor for capital protection
+            (12 + (learningProgress * 13.0)).toInt().coerceIn(12, 25)
+        }
+    } catch (_: Exception) { if (cfg.paperMode) 1 else 12 }
     
     if (isCGrade && confValue < fluidCGradeConfFloor) {
         ErrorLogger.info("BotService", "[V3|PROMOTION_GATE] ${identity.symbol} | allow=false | " +
