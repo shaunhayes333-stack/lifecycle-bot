@@ -1802,6 +1802,16 @@ class BotService : Service() {
             // Without this, positions entered in paper mode won't be found when checking exits
             com.lifecyclebot.v3.scoring.CashGenerationAI.setTradingMode(cfg.paperMode)
             
+            // V5.6.6: Update Treasury with actual wallet balance for proper position sizing
+            val walletBalanceForTreasury = if (cfg.paperMode) {
+                // Paper mode: use paper wallet balance (starts at 6 SOL, compounds)
+                status.paperWallet?.balance ?: 6.0
+            } else {
+                // Live mode: use actual SOL balance
+                effectiveBalance
+            }
+            com.lifecyclebot.v3.scoring.CashGenerationAI.updateWalletBalance(walletBalanceForTreasury)
+            
             // V5.0: Advance TradeAuthorizer epoch for decision tracking
             TradeAuthorizer.advanceEpoch()
             

@@ -47,22 +47,24 @@ object CashGenerationAI {
 
     private const val DAILY_MAX_LOSS_SOL = 1.0
 
-    // Position sizing - V5.6: DYNAMIC scaling based on total wallet balance
-    private const val BASE_POSITION_SOL = 0.10        // Base position (10% of 1 SOL)
-    private const val MAX_POSITION_SOL = 0.50         // V5.6: Raised from 0.25 - allow bigger positions with bigger wallet
-    private const val MIN_POSITION_SOL = 0.03
-    private const val POSITION_SCALE_FACTOR = 1.15
-    private const val WALLET_SCALE_FACTOR = 0.03      // V5.6: 3% of wallet per position (was effectively capped)
+    // Position sizing - V5.6.6: AGGRESSIVE DYNAMIC scaling
+    // Treasury is the money printer - it should scale with success!
+    private const val BASE_POSITION_SOL = 0.15        // V5.6.6: Raised from 0.10 - minimum viable scalp
+    private const val MAX_POSITION_SOL = 2.0          // V5.6.6: Raised from 0.50 - allow real size with big wallet
+    private const val MIN_POSITION_SOL = 0.05         // V5.6.6: Raised from 0.03 - below this isn't worth fees
+    private const val POSITION_SCALE_FACTOR = 1.25    // V5.6.6: Raised from 1.15 - confidence bonus
+    private const val WALLET_SCALE_FACTOR = 0.08      // V5.6.6: Raised from 0.03 - 8% of balance per trade
+    private const val WIN_STREAK_SCALE = 0.15         // V5.6.6: NEW - 15% bonus per consecutive win (up to 5)
 
-    // Exit strategy
-    private const val TAKE_PROFIT_PCT_PAPER = 3.5
-    private const val TAKE_PROFIT_PCT_LIVE = 2.5
-    private const val TAKE_PROFIT_MIN_PCT = 3.0
-    private const val TAKE_PROFIT_PCT = 3.5
-    private const val TAKE_PROFIT_MAX_PCT = 4.0
-    private const val STOP_LOSS_PCT = -4.0
-    private const val TRAILING_STOP_PCT = 1.5
-    private const val MAX_HOLD_MINUTES = 30
+    // Exit strategy - V5.6.6: Dynamic TP/SL that Treasury controls
+    private const val TAKE_PROFIT_PCT_PAPER = 4.0     // V5.6.6: Raised from 3.5 - bigger targets in paper
+    private const val TAKE_PROFIT_PCT_LIVE = 3.0      // V5.6.6: Raised from 2.5
+    private const val TAKE_PROFIT_MIN_PCT = 2.5       // V5.6.6: Floor for defensive mode
+    private const val TAKE_PROFIT_PCT = 4.0           // V5.6.6: Raised from 3.5 - default target
+    private const val TAKE_PROFIT_MAX_PCT = 8.0       // V5.6.6: Raised from 4.0 - aggressive can go higher
+    private const val STOP_LOSS_PCT = -5.0            // V5.6.6: Slightly wider from -4.0
+    private const val TRAILING_STOP_PCT = 2.0         // V5.6.6: Wider trailing from 1.5
+    private const val MAX_HOLD_MINUTES = 45           // V5.6.6: Extended from 30 - let winners run
     private const val REENTRY_COOLDOWN_MS = 5_000L
 
     private const val MIN_PROFIT_FOR_LIVE = 2.5
@@ -101,6 +103,16 @@ object CashGenerationAI {
     private val liveDailyLosses = AtomicInteger(0)
     private val liveDailyTradeCount = AtomicInteger(0)
     private val liveTreasuryBalanceBps = AtomicLong(0)
+    
+    // V5.6.6: Win streak tracking for position scaling
+    private val paperWinStreak = AtomicInteger(0)
+    private val liveWinStreak = AtomicInteger(0)
+    private val winStreak: AtomicInteger
+        get() = if (isPaperMode) paperWinStreak else liveWinStreak
+    
+    // V5.6.6: Track actual wallet balance for proper scaling
+    @Volatile
+    private var lastKnownWalletBalance: Double = 1.0  // SOL
 
     @Volatile
     private var isPaperMode: Boolean = true
@@ -178,6 +190,11 @@ object CashGenerationAI {
             )
         }
         isPaperMode = isPaper
+    }
+    
+    // V5.6.6: Update wallet balance for proper position scaling
+    fun updateWalletBalance(balanceSol: Double) {
+        lastKnownWalletBalance = balanceSol.coerceAtLeast(0.1)
     }
 
     fun getTreasuryBalance(isPaper: Boolean): Double {
@@ -388,24 +405,41 @@ object CashGenerationAI {
         }
 
         // ═══════════════════════════════════════════════════════════════════
-        // V5.6: DYNAMIC POSITION SIZING - Scales with wallet balance
+        // V5.6.6: AGGRESSIVE DYNAMIC POSITION SIZING
         // 
-        // Problem: User reported 12 SOL wallet but tiny entries
-        // Solution: Position size = max(BASE, WALLET_SCALE_FACTOR * walletBalance)
+        // Treasury is the MONEY PRINTER - it needs to scale with success!
         // 
-        // Examples:
-        //   1 SOL wallet  → 0.10 SOL base (10%)
-        //   5 SOL wallet  → 0.15 SOL (3% = 0.15)
-        //   10 SOL wallet → 0.30 SOL (3% = 0.30)
-        //   20 SOL wallet → 0.50 SOL (capped at MAX)
+        // Scaling factors:
+        //   1. Wallet balance (8% of wallet per trade)
+        //   2. Treasury internal balance (compounding profits)
+        //   3. Win streak (15% bonus per consecutive win, up to 5)
+        //   4. Confidence (high confidence = bigger size)
+        //   5. Mode (aggressive = 1.5x, defensive = 0.5x)
+        // 
+        // Examples with 10 SOL wallet:
+        //   Base: 10 × 8% = 0.80 SOL
+        //   + Win streak 3: × 1.45 = 1.16 SOL
+        //   + High confidence: × 1.25 = 1.45 SOL
+        //   + Aggressive mode: × 1.5 = 2.0 SOL (capped)
         // ═══════════════════════════════════════════════════════════════════
         
         val dailyPnl = dailyPnlSolBps.get() / 100.0
-        
-        // V5.6: Get wallet-relative position size
         val treasuryBalance = getTreasuryBalance(isPaperMode)
-        val walletBasedSize = treasuryBalance * WALLET_SCALE_FACTOR
+        
+        // V5.6.6: Use ACTUAL wallet balance, not just treasury internal balance
+        val effectiveBalance = maxOf(lastKnownWalletBalance, treasuryBalance)
+        val walletBasedSize = effectiveBalance * WALLET_SCALE_FACTOR
         var positionSol = maxOf(BASE_POSITION_SOL, walletBasedSize)
+        
+        ErrorLogger.debug(TAG, "💰 SIZE CALC: wallet=${lastKnownWalletBalance.fmt(2)}◎ treasury=${treasuryBalance.fmt(2)}◎ → base=${positionSol.fmt(3)}◎")
+
+        // V5.6.6: WIN STREAK BONUS - hot hand gets bigger size
+        val currentStreak = winStreak.get().coerceIn(0, 5)
+        if (currentStreak > 0) {
+            val streakBonus = 1.0 + (currentStreak * WIN_STREAK_SCALE)
+            positionSol *= streakBonus
+            ErrorLogger.debug(TAG, "💰 WIN STREAK: $currentStreak → ${((streakBonus - 1) * 100).toInt()}% bonus")
+        }
 
         if (COMPOUNDING_ENABLED) {
             if (treasuryBalance > 0) {
@@ -431,19 +465,19 @@ object CashGenerationAI {
             positionSol *= POSITION_SCALE_FACTOR
         }
 
+        // V5.6.6: More aggressive mode multipliers
         positionSol *= when (mode) {
-            TreasuryMode.DEFENSIVE -> 0.4
-            TreasuryMode.CRUISE -> 0.7
-            TreasuryMode.AGGRESSIVE -> 1.15
-            TreasuryMode.HUNT -> 1.0
+            TreasuryMode.DEFENSIVE -> 0.5   // Still trades, just smaller
+            TreasuryMode.CRUISE -> 0.8      // Normal operation
+            TreasuryMode.AGGRESSIVE -> 1.5  // V5.6.6: Raised from 1.15 - GO BIG
+            TreasuryMode.HUNT -> 1.2        // V5.6.6: Raised from 1.0 - hunting = aggressive
             TreasuryMode.PAUSED -> 0.0
         }
 
-        // V5.6: Dynamic position cap — scales with treasury balance so a bigger
-        // treasury actually allows bigger entries (not capped at a fixed 0.375 SOL).
-        // Cap grows with balance: 3x treasury = 3x cap, up to 5x MAX_POSITION_SOL
-        val treasuryScaleFactor = (1 + treasuryBalance * 0.02).coerceIn(1.0, 5.0)
-        val maxWithCompounding = MAX_POSITION_SOL * treasuryScaleFactor
+        // V5.6.6: Dynamic cap scales with WALLET (not just treasury)
+        // Bigger wallet = can afford bigger positions
+        val walletScaleFactor = (1 + effectiveBalance * 0.05).coerceIn(1.0, 10.0)
+        val maxWithCompounding = MAX_POSITION_SOL * walletScaleFactor
         positionSol = positionSol.coerceIn(MIN_POSITION_SOL, maxWithCompounding)
 
         val globalMultiplier = AutoCompoundEngine.getSizeMultiplier()
@@ -455,6 +489,8 @@ object CashGenerationAI {
                 "💰 GLOBAL COMPOUND BOOST: ${globalMultiplier.fmt(2)}x → pos=${positionSol.fmt(3)}SOL",
             )
         }
+        
+        ErrorLogger.info(TAG, "💰 FINAL SIZE: ${positionSol.fmt(3)}◎ | wallet=${effectiveBalance.fmt(2)}◎ streak=$currentStreak mode=$mode")
 
         val baseTakeProfitPct = when (mode) {
             TreasuryMode.DEFENSIVE -> TAKE_PROFIT_MIN_PCT
@@ -764,8 +800,16 @@ object CashGenerationAI {
         if (pnlSol > 0) {
             dailyWins.incrementAndGet()
             addToTreasury(pnlSol, pos.isPaper)
+            // V5.6.6: Increment win streak on profitable exit
+            winStreak.incrementAndGet()
+            ErrorLogger.debug(TAG, "💰🔥 WIN STREAK: ${winStreak.get()} consecutive wins!")
         } else {
             dailyLosses.incrementAndGet()
+            // V5.6.6: Reset win streak on loss
+            val previousStreak = winStreak.getAndSet(0)
+            if (previousStreak > 0) {
+                ErrorLogger.debug(TAG, "💰❄️ WIN STREAK BROKEN: was $previousStreak, now 0")
+            }
         }
 
         try {
