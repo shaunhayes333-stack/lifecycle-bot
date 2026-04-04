@@ -799,7 +799,12 @@ object CashGenerationAI {
 
         if (pnlSol > 0) {
             dailyWins.incrementAndGet()
-            addToTreasury(pnlSol, pos.isPaper)
+            // V5.6.7 FIX: DON'T add to treasury here - Executor.paperSell() handles
+            // profit distribution via AutoCompoundEngine (50/50 split to wallet/treasury)
+            // Adding here caused DOUBLE-COUNTING: treasury got profit twice!
+            // Treasury allocation is now handled in: Executor.kt line ~4137
+            // addToTreasury(pnlSol, pos.isPaper) // REMOVED - caused double counting
+            
             // V5.6.6: Increment win streak on profitable exit
             winStreak.incrementAndGet()
             ErrorLogger.debug(TAG, "💰🔥 WIN STREAK: ${winStreak.get()} consecutive wins!")

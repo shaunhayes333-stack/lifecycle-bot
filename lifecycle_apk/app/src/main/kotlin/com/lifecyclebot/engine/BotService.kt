@@ -5344,103 +5344,16 @@ if (deferredCount > 0) {
                 ErrorLogger.info("BotService", "💰 [TREASURY EXIT] ${ts.symbol} | " +
                     "signal=$exitSignal | price=$currentPrice")
                 
-                // V5.6 FIX: Check for promotion BEFORE selling!
-                // Treasury takes quick wins, then hands off to Moonshot/ShitCoin for continued gains
-                // Don't sell if we're going to promote - just transfer tracking
-                if (exitSignal == com.lifecyclebot.v3.scoring.CashGenerationAI.ExitSignal.TAKE_PROFIT) {
-                    val pnlPct = if (ts.position.entryPrice > 0) {
-                        ((currentPrice - ts.position.entryPrice) / ts.position.entryPrice) * 100
-                    } else 0.0
-                    
-                    ErrorLogger.info("BotService", "💰 [TREASURY PROMOTION CHECK] ${ts.symbol} | " +
-                        "+${pnlPct.toInt()}% | mcap=\$${(ts.lastMcap/1000).toInt()}K liq=\$${ts.lastLiquidityUsd.toInt()}")
-                    
-                    // V5.6: Check for promotion to ShitCoin layer (keep position open, transfer tracking)
-                    if (ts.lastLiquidityUsd >= 3000 && ts.lastMcap in 1_000.0..100_000.0) {
-                        ErrorLogger.info("BotService", "💰→💩 [PROMOTION] ${ts.symbol} | " +
-                            "TREASURY → SHITCOIN | +${pnlPct.toInt()}% profit, now riding with ShitCoin layer!")
-                        
-                        // Close Treasury tracking (but DON'T sell the position!)
-                        com.lifecyclebot.v3.scoring.CashGenerationAI.closePosition(
-                            ts.mint, currentPrice, exitSignal
-                        )
-                        
-                        // Mark for ShitCoin tracking (position stays open)
-                        ts.position.isShitCoinPosition = true
-                        ts.position.isTreasuryPosition = false
-                        ts.position.tradingMode = "SHITCOIN"
-                        ts.position.tradingModeEmoji = "💩"
-                        
-                        // Determine launch platform
-                        val platform = when {
-                            ts.mint.endsWith("pump") -> com.lifecyclebot.v3.scoring.ShitCoinTraderAI.LaunchPlatform.PUMP_FUN
-                            ts.source?.contains("raydium", ignoreCase = true) == true -> com.lifecyclebot.v3.scoring.ShitCoinTraderAI.LaunchPlatform.RAYDIUM
-                            else -> com.lifecyclebot.v3.scoring.ShitCoinTraderAI.LaunchPlatform.UNKNOWN
-                        }
-                        
-                        val scTp = com.lifecyclebot.v3.scoring.ShitCoinTraderAI.getFluidTakeProfit()
-                        val scSl = -8.0  // Wide SL for promoted trades
-                        
-                        // Register with ShitCoin tracker at CURRENT price
-                        com.lifecyclebot.v3.scoring.ShitCoinTraderAI.addPosition(
-                            com.lifecyclebot.v3.scoring.ShitCoinTraderAI.ShitCoinPosition(
-                                mint = ts.mint,
-                                symbol = ts.symbol,
-                                entryPrice = currentPrice,  // New entry at current price
-                                entrySol = ts.position.costSol,
-                                entryTime = System.currentTimeMillis(),
-                                marketCapUsd = ts.lastMcap,
-                                liquidityUsd = ts.lastLiquidityUsd,
-                                isPaper = cfg.paperMode,
-                                takeProfitPct = scTp,
-                                stopLossPct = scSl,
-                                launchPlatform = platform,
-                            )
-                        )
-                        
-                        addLog("💰→💩 PROMOTION: ${ts.symbol} | +${pnlPct.toInt()}% Treasury profit, now ShitCoin mode!", ts.mint)
-                        return  // Promotion processed - position stays open under ShitCoin
-                    }
-                    
-                    // V5.6: Check for promotion to Quality layer ($100K-$1M mcap)
-                    if (ts.lastLiquidityUsd >= 10000 && ts.lastMcap in 100_000.0..1_000_000.0) {
-                        ErrorLogger.info("BotService", "💰→⭐ [PROMOTION] ${ts.symbol} | " +
-                            "TREASURY → QUALITY | +${pnlPct.toInt()}% profit, now Quality layer!")
-                        
-                        // Close Treasury tracking (but DON'T sell!)
-                        com.lifecyclebot.v3.scoring.CashGenerationAI.closePosition(
-                            ts.mint, currentPrice, exitSignal
-                        )
-                        
-                        // Mark for Quality tracking
-                        ts.position.isShitCoinPosition = false
-                        ts.position.isTreasuryPosition = false
-                        ts.position.tradingMode = "QUALITY"
-                        ts.position.tradingModeEmoji = "⭐"
-                        
-                        val qualityTp = com.lifecyclebot.v3.scoring.QualityTraderAI.getFluidTakeProfit()
-                        val qualitySl = com.lifecyclebot.v3.scoring.QualityTraderAI.getFluidStopLoss()
-                        
-                        // Register with Quality tracker
-                        com.lifecyclebot.v3.scoring.QualityTraderAI.addPosition(
-                            com.lifecyclebot.v3.scoring.QualityTraderAI.QualityPosition(
-                                mint = ts.mint,
-                                symbol = ts.symbol,
-                                entryPrice = currentPrice,
-                                entryTime = System.currentTimeMillis(),
-                                entrySol = ts.position.costSol,
-                                entryMcap = ts.lastMcap,
-                                takeProfitPct = qualityTp,
-                                stopLossPct = qualitySl,
-                            )
-                        )
-                        
-                        addLog("💰→⭐ PROMOTION: ${ts.symbol} | +${pnlPct.toInt()}% Treasury profit, now Quality mode!", ts.mint)
-                        return  // Promotion processed
-                    }
-                }
+                // V5.6.7 FIX: ALWAYS SELL ON EXIT - Return capital + profit share to wallet
+                // User requested: "50% to wallet, 50% to treasury" - this requires SELLING
+                // Old behavior: promoted without selling, locking capital forever
+                // New behavior: SELL first, return capital to wallet, then re-enter if qualified
                 
-                // No promotion possible - execute the sell
+                val pnlPct = if (ts.position.entryPrice > 0) {
+                    ((currentPrice - ts.position.entryPrice) / ts.position.entryPrice) * 100
+                } else 0.0
+                
+                // Execute the sell FIRST - this returns capital + profit to wallet
                 executor.requestSell(
                     ts = ts,
                     reason = "TREASURY_${exitSignal.name}",
@@ -5453,8 +5366,15 @@ if (deferredCount > 0) {
                     ts.mint, currentPrice, exitSignal
                 )
                 
-                addLog("💰 TREASURY SELL: ${ts.symbol} | ${exitSignal.name} | " +
-                    "${if (cfg.paperMode) "PAPER" else "LIVE"}", ts.mint)
+                addLog("💰 TREASURY SELL: ${ts.symbol} | ${exitSignal.name} | +${pnlPct.toInt()}% | " +
+                    "${if (cfg.paperMode) "PAPER" else "LIVE"} | Capital returned to wallet!", ts.mint)
+                
+                // V5.6.7: After selling, mark token for potential re-entry by other layers
+                // Other layers can pick it up on next scan if it still qualifies
+                if (exitSignal == com.lifecyclebot.v3.scoring.CashGenerationAI.ExitSignal.TAKE_PROFIT) {
+                    ErrorLogger.info("BotService", "💰 [TREASURY SOLD] ${ts.symbol} | " +
+                        "+${pnlPct.toInt()}% | Capital returned | Token available for other layers to re-enter")
+                }
                 
                 return  // Exit processed
             }
