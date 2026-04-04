@@ -17,6 +17,7 @@ data class PairInfo(
     val pairCreatedAtMs: Long = 0L,   // epoch ms when pair was created
     val liquidity: Double = 0.0,       // USD liquidity
     val fdv: Double = 0.0,             // fully diluted valuation
+    val baseTokenAddress: String = "", // base token mint address (Solana)
 )
 
 class DexscreenerApi {
@@ -132,14 +133,15 @@ class DexscreenerApi {
         )
 
         return PairInfo(
-            pairAddress     = p.optString("pairAddress", ""),
-            baseSymbol      = base?.optString("symbol", "") ?: "",
-            baseName        = base?.optString("name",   "") ?: "",
-            url             = p.optString("url", ""),
-            candle          = candle,
-            pairCreatedAtMs = p.optLong("pairCreatedAt", 0L),
-            liquidity       = (p.optJSONObject("liquidity")?.optDouble("usd", 0.0) ?: 0.0),
-            fdv             = p.optDouble("fdv", 0.0),
+            pairAddress      = p.optString("pairAddress", ""),
+            baseSymbol       = base?.optString("symbol", "") ?: "",
+            baseName         = base?.optString("name",   "") ?: "",
+            url              = p.optString("url", ""),
+            candle           = candle,
+            pairCreatedAtMs  = p.optLong("pairCreatedAt", 0L),
+            liquidity        = (p.optJSONObject("liquidity")?.optDouble("usd", 0.0) ?: 0.0),
+            fdv              = p.optDouble("fdv", 0.0),
+            baseTokenAddress = base?.optString("address", "") ?: "",
         )
     }
 
