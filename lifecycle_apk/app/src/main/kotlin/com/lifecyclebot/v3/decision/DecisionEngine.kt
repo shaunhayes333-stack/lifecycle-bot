@@ -273,9 +273,11 @@ class FinalDecisionEngine(
         } catch (e: Exception) { 0.0 }
         
         // Fluid thresholds for C-grade
-        // V5.5: Hard min 25 confidence — no C-grade token enters below 25% confidence
-        val cGradeConfFloor = (15 + (cGradeProgress * 15)).toInt().coerceIn(25, 30)
-        val cGradeMemoryFloor = (-25 + (cGradeProgress * 10)).toInt().coerceIn(-25, -15)
+        // V5.6: Raised — at 75% learning, C-grade conf floor was 26% (too low, losses bleed through)
+        // New formula: 20% at bootstrap → 45% at mature (38% at 75% learning)
+        val cGradeConfFloor = (20 + (cGradeProgress * 25)).toInt().coerceIn(30, 45)
+        // Memory floor: tighter — don't trade tokens with recent bad history
+        val cGradeMemoryFloor = (-20 + (cGradeProgress * 10)).toInt().coerceIn(-20, -10)
 
         // Extract momentum and volume for weak-signal veto
         val momentumScoreV = scoreCard.components.find { it.name == "momentum" }?.value ?: 0
@@ -346,9 +348,10 @@ class FinalDecisionEngine(
             com.lifecyclebot.v3.scoring.FluidLearningAI.getLearningProgress()
         } catch (e: Exception) { 0.0 }
 
-        // Fluid confidence threshold: 18% at bootstrap → 40% at mature
-        // V5.4: Raised from (10+progress*20) to reduce low-conviction junk trades
-        val fluidMinConfForExecute = (18 + (learningProgress * 22)).toInt().coerceIn(18, 40)
+        // Fluid confidence threshold: 25% at bootstrap → 50% at mature
+        // V5.6: Raised — at 75% learning was requiring 34% which lets too many losers through
+        // At 75% learning: 25 + 0.75 * 25 = 44% confidence required for execution
+        val fluidMinConfForExecute = (25 + (learningProgress * 25)).toInt().coerceIn(25, 50)
 
         val minConfForExecute = try {
             val configMinConf = com.lifecyclebot.engine.V3ConfidenceConfig.getMinConfidenceForExecute(35)
@@ -358,9 +361,9 @@ class FinalDecisionEngine(
             fluidMinConfForExecute
         }
 
-        // C-grade confidence floor for EXECUTE_SMALL: 15% at bootstrap → 30% at mature
-        // V5.4: Raised from (8+progress*12) so weak-conf meme coins stop bleeding
-        val cGradeMinConf = (15 + (learningProgress * 15)).toInt().coerceIn(15, 30)
+        // C-grade confidence floor for EXECUTE_SMALL: 20% at bootstrap → 40% at mature
+        // V5.6: Raised — EXECUTE_SMALL was executing at 26% conf which is too low
+        val cGradeMinConf = (20 + (learningProgress * 20)).toInt().coerceIn(20, 40)
 
         // ═══════════════════════════════════════════════════════════════════
         // V5.5: DIRECTIONAL GATE — block only when BOTH signals are actively

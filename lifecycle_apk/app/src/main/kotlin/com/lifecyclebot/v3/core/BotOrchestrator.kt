@@ -195,12 +195,12 @@ class BotOrchestrator(
     private fun checkPreScoreMemoryKill(candidate: CandidateSnapshot): PreScoreKill? {
         return try {
             val memoryScore = com.lifecyclebot.engine.TokenWinMemory.getMemoryScoreForMint(candidate.mint)
-            if (memoryScore <= -10) {
+            if (memoryScore <= -7) {  // V5.6: Tightened from -10 — kill bad-memory tokens sooner
                 logger.stage(
                     "PRE_SCORE_KILL",
                     candidate.symbol,
                     "BLOCKED",
-                    "memory=$memoryScore <= -10 -> SHADOW (skip scoring)"
+                    "memory=$memoryScore <= -7 -> SHADOW (skip scoring)"
                 )
                 PreScoreKill(
                     memoryScore = memoryScore,
@@ -230,23 +230,23 @@ class BotOrchestrator(
 
         if (earlyQuality != "C") return null
 
-        // V5.4 FLUID: conf kill floor is 10% at bootstrap → 28% at mature
-        // Prevents chocking pipeline during early learning when all tokens score low-conf
+        // V5.6: Raised — at 75% learning was 23.6% which lets weak-conf C-grade through
+        // New: 15% at bootstrap → 40% at mature (35% at 75% learning)
         val fluidKillFloor = try {
             val p = com.lifecyclebot.v3.scoring.FluidLearningAI.getLearningProgress()
-            (10 + (p * 18)).toInt().coerceIn(10, 28)
-        } catch (_: Exception) { 28 }
+            (15 + (p * 25)).toInt().coerceIn(15, 40)
+        } catch (_: Exception) { 35 }
 
-        val shouldKillEarly = effectiveConfidence < fluidKillFloor || memoryScore <= -10
+        val shouldKillEarly = effectiveConfidence < fluidKillFloor || memoryScore <= -7  // V5.6: -10→-7
         if (!shouldKillEarly) return null
 
         val reason = when {
-            effectiveConfidence < fluidKillFloor && memoryScore <= -10 ->
+            effectiveConfidence < fluidKillFloor && memoryScore <= -7 ->
                 "C_GRADE_LOW_CONF_${effectiveConfidence}_BAD_MEMORY_$memoryScore"
             effectiveConfidence < fluidKillFloor ->
                 "C_GRADE_CONF_FLOOR_$effectiveConfidence"
             else ->
-                "C_GRADE_BAD_MEMORY_$memoryScore"
+                "C_GRADE_BAD_MEMORY_$memoryScore"  // memoryScore <= -7
         }
 
         return PreProposalKill(
