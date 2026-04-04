@@ -645,11 +645,11 @@ class BotService : Service() {
                             // ═══════════════════════════════════════════════════════════════════
                             
                             // Define dual eligibility thresholds
-                            // V5.2.12: Paper mode score = 10 (D-grade and above reach watchlist)
-                            // FDG will score and assess quality before any buy decision
+                            // V5.2.12: Paper mode - Let ALL tokens through for assessment!
+                            // FDG will score and filter - we want VOLUME for learning
                             val paperMinLiquidity = 500.0    // $500 for paper exploration
                             val liveMinLiquidity = 8000.0    // $8K for live capital protection
-                            val paperMinScore = 10.0          // V5.2.12: Score 10+ reaches watchlist, FDG decides buy
+                            val paperMinScore = 1.0           // V5.2.12: Let everything through! FDG decides
                             val liveMinScore = 65.0           // Higher bar for live execution
                             
                             // Check 2a: MINIMUM LIQUIDITY (mode-dependent)
