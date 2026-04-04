@@ -2294,15 +2294,17 @@ class BotService : Service() {
                         }
                     }
 
-                    // Treasury milestone check — ONLY for LIVE mode
-                    // FIX #4: Paper and live accounting completely separate
-                    if (!cfg.paperMode) {
-                        val solPx = WalletManager.lastKnownSolPrice
+                    // Treasury milestone check — live mode uses real wallet; paper uses paper balance
+                    // V5.5 FIX: Paper mode now also triggers milestones so scaling tiers work in testing
+                    run {
+                        val solPx = WalletManager.lastKnownSolPrice.takeIf { it > 0 } ?: 150.0
+                        val balanceSol = if (cfg.paperMode) status.paperWalletSol else freshSol
                         TreasuryManager.onWalletUpdate(
-                            walletSol    = freshSol,
+                            walletSol    = balanceSol,
                             solPrice     = solPx,
                             onMilestone  = { milestone, walletUsd ->
-                                addLog("🏦 MILESTONE: ${milestone.label} hit @ \$${walletUsd.toLong()}", "treasury")
+                                val modeTag = if (cfg.paperMode) " [PAPER]" else ""
+                                addLog("🏦 MILESTONE$modeTag: ${milestone.label} hit @ \$${walletUsd.toLong()}", "treasury")
                                 if (milestone.celebrateOnHit) {
                                     sendTradeNotif("🎉 ${milestone.label}!",
                                         "Treasury now locking ${(milestone.lockPct*100).toInt()}% of profits",

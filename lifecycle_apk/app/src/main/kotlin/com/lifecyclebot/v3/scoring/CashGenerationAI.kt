@@ -423,7 +423,12 @@ object CashGenerationAI {
             TreasuryMode.PAUSED -> 0.0
         }
 
-        val maxWithCompounding = MAX_POSITION_SOL * (1 + COMPOUNDING_RATIO)
+        // V5.5: Dynamic position cap — scales with treasury balance so a bigger
+        // treasury actually allows bigger entries (not capped at a fixed 0.375 SOL).
+        // Cap grows at 1% of treasury per SOL, capped at 3x the base maximum.
+        val treasuryBalance = getTreasuryBalance(isPaperMode)
+        val treasuryScaleFactor = (1 + treasuryBalance * 0.01).coerceIn(1.0, 3.0)
+        val maxWithCompounding = MAX_POSITION_SOL * (1 + COMPOUNDING_RATIO) * treasuryScaleFactor
         positionSol = positionSol.coerceIn(MIN_POSITION_SOL, maxWithCompounding)
 
         val globalMultiplier = AutoCompoundEngine.getSizeMultiplier()
