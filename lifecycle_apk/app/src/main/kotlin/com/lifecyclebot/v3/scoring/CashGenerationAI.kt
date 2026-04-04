@@ -47,11 +47,12 @@ object CashGenerationAI {
 
     private const val DAILY_MAX_LOSS_SOL = 1.0
 
-    // Position sizing
-    private const val BASE_POSITION_SOL = 0.10
-    private const val MAX_POSITION_SOL = 0.25
+    // Position sizing - V5.6: DYNAMIC scaling based on total wallet balance
+    private const val BASE_POSITION_SOL = 0.10        // Base position (10% of 1 SOL)
+    private const val MAX_POSITION_SOL = 0.50         // V5.6: Raised from 0.25 - allow bigger positions with bigger wallet
     private const val MIN_POSITION_SOL = 0.03
     private const val POSITION_SCALE_FACTOR = 1.15
+    private const val WALLET_SCALE_FACTOR = 0.03      // V5.6: 3% of wallet per position (was effectively capped)
 
     // Exit strategy
     private const val TAKE_PROFIT_PCT_PAPER = 3.5
@@ -386,12 +387,27 @@ object CashGenerationAI {
             )
         }
 
+        // ═══════════════════════════════════════════════════════════════════
+        // V5.6: DYNAMIC POSITION SIZING - Scales with wallet balance
+        // 
+        // Problem: User reported 12 SOL wallet but tiny entries
+        // Solution: Position size = max(BASE, WALLET_SCALE_FACTOR * walletBalance)
+        // 
+        // Examples:
+        //   1 SOL wallet  → 0.10 SOL base (10%)
+        //   5 SOL wallet  → 0.15 SOL (3% = 0.15)
+        //   10 SOL wallet → 0.30 SOL (3% = 0.30)
+        //   20 SOL wallet → 0.50 SOL (capped at MAX)
+        // ═══════════════════════════════════════════════════════════════════
+        
         val dailyPnl = dailyPnlSolBps.get() / 100.0
-
-        var positionSol = BASE_POSITION_SOL
+        
+        // V5.6: Get wallet-relative position size
+        val treasuryBalance = getTreasuryBalance(isPaperMode)
+        val walletBasedSize = treasuryBalance * WALLET_SCALE_FACTOR
+        var positionSol = maxOf(BASE_POSITION_SOL, walletBasedSize)
 
         if (COMPOUNDING_ENABLED) {
-            val treasuryBalance = getTreasuryBalance(isPaperMode)
             if (treasuryBalance > 0) {
                 val compoundingBonus = treasuryBalance * COMPOUNDING_RATIO
                 val confidenceScale = treasuryConfidence / 100.0
@@ -423,12 +439,11 @@ object CashGenerationAI {
             TreasuryMode.PAUSED -> 0.0
         }
 
-        // V5.5: Dynamic position cap — scales with treasury balance so a bigger
+        // V5.6: Dynamic position cap — scales with treasury balance so a bigger
         // treasury actually allows bigger entries (not capped at a fixed 0.375 SOL).
-        // Cap grows at 1% of treasury per SOL, capped at 3x the base maximum.
-        val treasuryBalance = getTreasuryBalance(isPaperMode)
-        val treasuryScaleFactor = (1 + treasuryBalance * 0.01).coerceIn(1.0, 3.0)
-        val maxWithCompounding = MAX_POSITION_SOL * (1 + COMPOUNDING_RATIO) * treasuryScaleFactor
+        // Cap grows with balance: 3x treasury = 3x cap, up to 5x MAX_POSITION_SOL
+        val treasuryScaleFactor = (1 + treasuryBalance * 0.02).coerceIn(1.0, 5.0)
+        val maxWithCompounding = MAX_POSITION_SOL * treasuryScaleFactor
         positionSol = positionSol.coerceIn(MIN_POSITION_SOL, maxWithCompounding)
 
         val globalMultiplier = AutoCompoundEngine.getSizeMultiplier()

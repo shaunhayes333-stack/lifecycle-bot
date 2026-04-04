@@ -69,7 +69,7 @@ object ShitCoinExpress {
     private const val TRAILING_STOP_PCT = 5.0         // Super tight trailing
     
     // V5.2: Removed max hold time - let runners run!
-    private const val IDEAL_HOLD_MINUTES = 10-20          // V5.2: Increased from 5 to 20 mins
+    private const val IDEAL_HOLD_MINUTES = 20          // V5.2: Increased from 5 to 20 mins
     
     // Daily limits
     private const val DAILY_MAX_LOSS_SOL = 2.0       // Small daily cap
@@ -376,7 +376,7 @@ object ShitCoinExpress {
         }
         
         // Cap at max
-        positionSol = positionSol.coerceIn(2.0, MAX_POSITION_SOL)
+        positionSol = positionSol.coerceIn(0.02, MAX_POSITION_SOL)
         
         ErrorLogger.info(TAG, "💩🚂 EXPRESS QUALIFIED: $symbol | " +
             "${rideType.emoji} ${rideType.name} | " +

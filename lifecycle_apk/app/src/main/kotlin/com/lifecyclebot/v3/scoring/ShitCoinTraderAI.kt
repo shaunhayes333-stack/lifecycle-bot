@@ -68,10 +68,11 @@ object ShitCoinTraderAI {
     private const val MIN_LIQUIDITY_USD_BOOTSTRAP = 3_000.0   // V5.2.12: Paper mode can explore lower liq
     private const val MIN_LIQUIDITY_USD_MATURE = 5_000.0      // V5.5: $5K hard floor when mature
     
-    // Position sizing - SMALL to limit risk
+    // Position sizing - V5.6: DYNAMIC scaling based on wallet balance
     private const val BASE_POSITION_SOL = 0.05        // Very small base (0.05 SOL ~ $7.50)
-    private const val MAX_POSITION_SOL = 0.20         // Never exceed 0.2 SOL per shitcoin
-    private const val MAX_CONCURRENT_POSITIONS = 12    // V5.2.12: Raised from 5 for paper learning
+    private const val MAX_POSITION_SOL = 0.30         // V5.6: Raised from 0.20 - bigger wallet = bigger positions
+    private const val MAX_CONCURRENT_POSITIONS = 12   // V5.2.12: Raised from 5 for paper learning
+    private const val WALLET_SCALE_FACTOR = 0.02      // V5.6: 2% of wallet per shitcoin position
     
     // V4.20: Removed daily loss limit - ShitCoin is now primary layer
     // Loss prevention is handled by global stop-loss and position sizing
@@ -707,17 +708,27 @@ object ShitCoinTraderAI {
         }
         
         // ═══════════════════════════════════════════════════════════════════
-        // POSITION SIZING - Risk-adjusted
+        // POSITION SIZING - V5.6: DYNAMIC scaling with wallet balance
+        // 
+        // Problem: User had 12 SOL but shitcoin was taking tiny 0.05 SOL entries
+        // Solution: Scale position with balance
+        //   1 SOL wallet  → 0.05 SOL base
+        //   5 SOL wallet  → 0.10 SOL (2% = 0.10)
+        //   10 SOL wallet → 0.20 SOL (2% = 0.20)
+        //   20 SOL wallet → 0.30 SOL (capped)
         // ═══════════════════════════════════════════════════════════════════
         
-        var positionSol = BASE_POSITION_SOL
+        val currentBalance = getCurrentBalance()
+        val walletBasedSize = currentBalance * WALLET_SCALE_FACTOR
+        var positionSol = maxOf(BASE_POSITION_SOL, walletBasedSize)
         
         // Scale by confidence
         val confScale = shitConfidence / 100.0
         positionSol *= (0.6 + confScale * 0.8)  // 60-140% of base
         
-        // Risk level caps
-        positionSol = positionSol.coerceAtMost(riskLevel.maxPosition)
+        // Risk level caps (V5.6: scale caps with wallet too)
+        val riskCap = riskLevel.maxPosition * (1 + currentBalance * 0.01).coerceIn(1.0, 2.0)
+        positionSol = positionSol.coerceAtMost(riskCap)
         
         // Compounding bonus (conservative for shitcoins)
         if (COMPOUNDING_ENABLED) {
