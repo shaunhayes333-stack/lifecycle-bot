@@ -5128,6 +5128,9 @@ if (deferredCount > 0) {
         // Position management (exits) - ALWAYS monitor open positions
         // Even when paused, we need to manage risk on existing positions
         
+        // V5.2.12: Debug logging for exit check flow
+        ErrorLogger.debug("BotService", "🔄 [EXIT CHECK] ${ts.symbol} | isOpen=true | entering exit management")
+        
         // ═══════════════════════════════════════════════════════════════════
         // LAYER TRANSITION CHECK - Upgrade positions on the way UP
         // Check if position should transition to a higher layer
@@ -5189,9 +5192,17 @@ if (deferredCount > 0) {
         // Check FIRST before other exit logic since treasury has strict rules
         // ═══════════════════════════════════════════════════════════════════
         if (ts.position.isTreasuryPosition || ts.position.tradingMode == "TREASURY") {
+            // V5.2.12: Debug - entering Treasury exit check
+            ErrorLogger.debug("BotService", "💰 [TREASURY ENTER] ${ts.symbol} | isTreasury=${ts.position.isTreasuryPosition} | mode=${ts.position.tradingMode}")
+            
             val currentPrice = ts.lastPrice.takeIf { it > 0 } 
                 ?: ts.history.lastOrNull()?.priceUsd 
                 ?: ts.position.entryPrice
+            
+            // V5.2.12: Debug - show price being used
+            ErrorLogger.debug("BotService", "💰 [TREASURY PRICE] ${ts.symbol} | " +
+                "lastPrice=${ts.lastPrice} | historyLast=${ts.history.lastOrNull()?.priceUsd} | " +
+                "entryPrice=${ts.position.entryPrice} | USING=$currentPrice")
             
             // V5.2: Debug - verify checkExit is being called
             var treasuryPos = com.lifecyclebot.v3.scoring.CashGenerationAI.getActivePosition(ts.mint)
