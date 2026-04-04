@@ -1,173 +1,214 @@
 package com.lifecyclebot.v3.bridge
 
 import com.lifecyclebot.data.TokenState
-import com.lifecyclebot.v3.core.*
-import com.lifecyclebot.v3.decision.ConfidenceEngine
-import com.lifecyclebot.v3.decision.FinalDecisionEngine
+import com.lifecyclebot.v3.core.BotOrchestrator
+import com.lifecyclebot.v3.core.ProcessResult
+import com.lifecyclebot.v3.core.TradingConfigV3
+import com.lifecyclebot.v3.core.TradingContext
+import com.lifecyclebot.v3.core.V3BotMode
 import com.lifecyclebot.v3.decision.OpsMetrics
 import com.lifecyclebot.v3.eligibility.CooldownManager
-import com.lifecyclebot.v3.eligibility.EligibilityGate
 import com.lifecyclebot.v3.eligibility.ExposureGuard
 import com.lifecyclebot.v3.learning.LearningMetrics
 import com.lifecyclebot.v3.learning.LearningStore
-import com.lifecyclebot.v3.risk.FatalRiskChecker
 import com.lifecyclebot.v3.scanner.CandidateSnapshot
 import com.lifecyclebot.v3.scanner.SourceType
-import com.lifecyclebot.v3.scoring.UnifiedScorer
 import com.lifecyclebot.v3.shadow.ShadowTracker
 import com.lifecyclebot.v3.sizing.PortfolioRiskState
-import com.lifecyclebot.v3.sizing.SmartSizerV3
 import com.lifecyclebot.v3.sizing.WalletSnapshot
 
 /**
- * V3 Adapter
- * 
- * Bridges the existing AATE engine with the V3 scoring-based architecture.
- * Converts TokenState to CandidateSnapshot and coordinates the V3 pipeline.
+ * V3Adapter
+ *
+ * Bridges legacy TokenState objects into the V3 pipeline safely.
+ *
+ * Key fixes:
+ * - Prevents stale config by rebuilding orchestrator when config/mode/regime changes
+ * - Avoids pre-created pipeline fields that would hold old config forever
+ * - Sanitizes token fields to reduce null/negative/garbage propagation
+ * - Keeps helper methods deterministic and safe for live and paper modes
  */
 object V3Adapter {
-    
-    // Configuration
+
+    @Volatile
     private var config = TradingConfigV3()
-    
-    // Shared components
+
     private val cooldownManager = CooldownManager()
     private val exposureGuard = ExposureGuard()
     private val learningStore = LearningStore()
     private val shadowTracker = ShadowTracker()
-    
-    // V3 Pipeline components
-    private val eligibilityGate = EligibilityGate(config, cooldownManager, exposureGuard)
-    private val unifiedScorer = UnifiedScorer()
-    private val fatalRiskChecker = FatalRiskChecker(config)
-    private val confidenceEngine = ConfidenceEngine()
-    private val finalDecisionEngine = FinalDecisionEngine(config)
-    private val smartSizer = SmartSizerV3(config)
-    
-    // Orchestrator (lazy-initialized with context)
+
+    @Volatile
     private var orchestrator: BotOrchestrator? = null
-    
+
+    @Volatile
+    private var lastMode: V3BotMode? = null
+
+    @Volatile
+    private var lastMarketRegime: String? = null
+
+    @Volatile
+    private var configVersion: Long = 0L
+
+    @Volatile
+    private var orchestratorConfigVersion: Long = -1L
+
     /**
-     * Initialize or update V3 configuration
+     * Update V3 configuration.
+     * Forces orchestrator rebuild on next request.
      */
     fun configure(newConfig: TradingConfigV3) {
-        config = newConfig
-    }
-    
-    /**
-     * Get or create the orchestrator with current context
-     */
-    fun getOrchestrator(isPaperMode: Boolean, marketRegime: String = "NEUTRAL"): BotOrchestrator {
-        val mode = if (isPaperMode) V3BotMode.PAPER else V3BotMode.LIVE
-        val ctx = TradingContext(
-            config = config,
-            mode = mode,
-            marketRegime = marketRegime
-        )
-        
-        // Recreate if context changed
-        if (orchestrator == null) {
-            orchestrator = BotOrchestrator(
-                ctx = ctx,
-                eligibilityGate = EligibilityGate(config, cooldownManager, exposureGuard),
-                fatalRiskChecker = FatalRiskChecker(config),
-                finalDecisionEngine = FinalDecisionEngine(config),
-                smartSizer = SmartSizerV3(config)
-            )
+        synchronized(this) {
+            config = newConfig
+            configVersion++
+            orchestrator = null
+            orchestratorConfigVersion = -1L
         }
-        
-        return orchestrator!!
     }
-    
+
     /**
-     * Convert TokenState to V3 CandidateSnapshot
+     * Returns a BotOrchestrator built against the latest config/context.
+     */
+    fun getOrchestrator(
+        isPaperMode: Boolean,
+        marketRegime: String = "NEUTRAL",
+    ): BotOrchestrator {
+        val mode = if (isPaperMode) V3BotMode.PAPER else V3BotMode.LIVE
+        val normalizedRegime = marketRegime.trim().ifBlank { "NEUTRAL" }
+
+        synchronized(this) {
+            val needsRebuild =
+                orchestrator == null ||
+                    lastMode != mode ||
+                    lastMarketRegime != normalizedRegime ||
+                    orchestratorConfigVersion != configVersion
+
+            if (needsRebuild) {
+                val ctx = TradingContext(
+                    config = config,
+                    mode = mode,
+                    marketRegime = normalizedRegime,
+                )
+
+                orchestrator = BotOrchestrator(
+                    ctx = ctx,
+                    eligibilityGate = com.lifecyclebot.v3.eligibility.EligibilityGate(
+                        config,
+                        cooldownManager,
+                        exposureGuard,
+                    ),
+                    fatalRiskChecker = com.lifecyclebot.v3.risk.FatalRiskChecker(config),
+                    finalDecisionEngine = com.lifecyclebot.v3.decision.FinalDecisionEngine(config),
+                    smartSizer = com.lifecyclebot.v3.sizing.SmartSizerV3(config),
+                )
+
+                lastMode = mode
+                lastMarketRegime = normalizedRegime
+                orchestratorConfigVersion = configVersion
+            }
+
+            return requireNotNull(orchestrator)
+        }
+    }
+
+    /**
+     * Convert legacy TokenState into V3 CandidateSnapshot.
      */
     fun toCandidate(ts: TokenState): CandidateSnapshot {
-        // Determine source type from TokenState
-        val source = parseSourceType(ts.source)
-        
-        // Build extra signals map from TokenState metadata
-        val extra = buildExtraMap(ts)
-        
-        // Calculate age from addedToWatchlistAt
-        val ageMinutes = (System.currentTimeMillis() - ts.addedToWatchlistAt) / 60_000.0
-        
-        // Get safety data
+        val now = System.currentTimeMillis()
+        val discoveredAt = ts.addedToWatchlistAt.takeIf { it > 0L } ?: now
+        val ageMinutes = ((now - discoveredAt).coerceAtLeast(0L)) / 60_000.0
+
         val safety = ts.safety
-        val topHolderPct = safety.topHolderPct.takeIf { it > 0 }
-        
+        val meta = ts.meta
+
+        val liquidityUsd = ts.lastLiquidityUsd.coerceAtLeast(0.0)
+        val marketCapUsd = ts.lastMcap.coerceAtLeast(0.0)
+        val buyPressurePct = meta.pressScore.coerceIn(0.0, 100.0)
+        val holders = ts.peakHolderCount.takeIf { it > 0 }
+        val topHolderPct = safety.topHolderPct.takeIf { it > 0.0 }?.coerceIn(0.0, 100.0)
+        val bundledPct = safety.firstBlockSupplyPct.takeIf { it > 0.0 }?.coerceIn(0.0, 100.0)
+
         return CandidateSnapshot(
-            mint = ts.mint,
-            symbol = ts.symbol,
-            source = source,
-            discoveredAtMs = ts.addedToWatchlistAt,
+            mint = ts.mint.orEmpty(),
+            symbol = ts.symbol.orEmpty().ifBlank { "UNKNOWN" },
+            source = parseSourceType(ts.source.orEmpty()),
+            discoveredAtMs = discoveredAt,
             ageMinutes = ageMinutes,
-            liquidityUsd = ts.lastLiquidityUsd,
-            marketCapUsd = ts.lastMcap,
-            buyPressurePct = ts.meta.pressScore,
-            volume1mUsd = 0.0, // Not directly tracked in TokenState
-            volume5mUsd = 0.0, // Not directly tracked in TokenState
-            holders = ts.peakHolderCount.takeIf { it > 0 },
+            liquidityUsd = liquidityUsd,
+            marketCapUsd = marketCapUsd,
+            buyPressurePct = buyPressurePct,
+            volume1mUsd = 0.0,
+            volume5mUsd = 0.0,
+            holders = holders,
             topHolderPct = topHolderPct,
-            bundledPct = safety.firstBlockSupplyPct.takeIf { it > 0 },
+            bundledPct = bundledPct,
             hasIdentitySignals = ts.name.isNotBlank() && ts.name != ts.symbol,
             isSellable = !safety.isBlocked,
             rawRiskScore = safety.entryScorePenalty,
-            extra = extra
+            extra = buildExtraMap(ts),
         )
     }
-    
+
     /**
-     * Build wallet snapshot from current balance
+     * Build wallet snapshot from total SOL.
      */
-    fun toWallet(totalSol: Double, reserveSol: Double = 0.05): WalletSnapshot {
+    fun toWallet(
+        totalSol: Double,
+        reserveSol: Double = 0.05,
+    ): WalletSnapshot {
+        val safeTotal = totalSol.coerceAtLeast(0.0)
+        val safeReserve = reserveSol.coerceAtLeast(0.0)
+
         return WalletSnapshot(
-            totalSol = totalSol,
-            tradeableSol = (totalSol - reserveSol).coerceAtLeast(0.0)
+            totalSol = safeTotal,
+            tradeableSol = (safeTotal - safeReserve).coerceAtLeast(0.0),
         )
     }
-    
+
     /**
-     * Build learning metrics from BotBrain or defaults
+     * Build learning metrics for V3.
      */
     fun toLearningMetrics(
         classifiedTrades: Int = 0,
         winRate: Double = 50.0,
-        payoffRatio: Double = 1.0
+        payoffRatio: Double = 1.0,
     ): LearningMetrics {
         return LearningMetrics(
-            classifiedTrades = classifiedTrades,
-            last20WinRatePct = winRate,
-            payoffRatio = payoffRatio
+            classifiedTrades = classifiedTrades.coerceAtLeast(0),
+            last20WinRatePct = winRate.coerceIn(0.0, 100.0),
+            payoffRatio = payoffRatio.coerceAtLeast(0.0),
         )
     }
-    
+
     /**
-     * Build ops metrics from system health
+     * Build ops metrics for V3.
      */
     fun toOpsMetrics(
         apiHealthy: Boolean = true,
         feedsHealthy: Boolean = true,
         walletHealthy: Boolean = true,
-        latencyMs: Long = 100
+        latencyMs: Long = 100L,
     ): OpsMetrics {
         return OpsMetrics(
             apiHealthy = apiHealthy,
             feedsHealthy = feedsHealthy,
             walletHealthy = walletHealthy,
-            latencyMs = latencyMs
+            latencyMs = latencyMs.coerceAtLeast(0L),
         )
     }
-    
+
     /**
-     * Build portfolio risk state from session stats
+     * Build current portfolio risk state.
      */
     fun toRiskState(recentDrawdownPct: Double = 0.0): PortfolioRiskState {
-        return PortfolioRiskState(recentDrawdownPct = recentDrawdownPct)
+        return PortfolioRiskState(
+            recentDrawdownPct = recentDrawdownPct.coerceAtLeast(0.0),
+        )
     }
-    
+
     /**
-     * Process a token through the V3 pipeline
+     * Process a token through the V3 pipeline.
      */
     fun processV3(
         ts: TokenState,
@@ -177,130 +218,118 @@ object V3Adapter {
         classifiedTrades: Int = 0,
         winRate: Double = 50.0,
         drawdownPct: Double = 0.0,
-        apiHealthy: Boolean = true
+        apiHealthy: Boolean = true,
     ): ProcessResult {
-        val orch = getOrchestrator(isPaperMode, marketRegime)
-        
-        return orch.processCandidate(
+        val orchestrator = getOrchestrator(
+            isPaperMode = isPaperMode,
+            marketRegime = marketRegime,
+        )
+
+        return orchestrator.processCandidate(
             candidate = toCandidate(ts),
             wallet = toWallet(walletSol),
             risk = toRiskState(drawdownPct),
-            learningMetrics = toLearningMetrics(classifiedTrades, winRate),
-            opsMetrics = toOpsMetrics(apiHealthy = apiHealthy)
+            learningMetrics = toLearningMetrics(
+                classifiedTrades = classifiedTrades,
+                winRate = winRate,
+            ),
+            opsMetrics = toOpsMetrics(
+                apiHealthy = apiHealthy,
+            ),
         )
     }
-    
-    /**
-     * Mark position opened (for exposure tracking)
-     */
+
     fun onPositionOpened(mint: String) {
-        exposureGuard.openPosition(mint)
+        if (mint.isNotBlank()) {
+            exposureGuard.openPosition(mint)
+        }
     }
-    
-    /**
-     * Mark position closed (for exposure tracking)
-     */
+
     fun onPositionClosed(mint: String) {
-        exposureGuard.closePosition(mint)
+        if (mint.isNotBlank()) {
+            exposureGuard.closePosition(mint)
+        }
     }
-    
-    /**
-     * Set cooldown for a mint
-     */
-    fun setCooldown(mint: String, durationMs: Long) {
-        cooldownManager.setCooldown(mint, System.currentTimeMillis() + durationMs)
+
+    fun setCooldown(
+        mint: String,
+        durationMs: Long,
+    ) {
+        if (mint.isBlank()) return
+        val safeDurationMs = durationMs.coerceAtLeast(0L)
+        cooldownManager.setCooldown(mint, System.currentTimeMillis() + safeDurationMs)
     }
-    
-    /**
-     * Update exposure percentage
-     */
+
     fun updateExposure(exposurePct: Double) {
-        exposureGuard.currentExposurePct = exposurePct
+        exposureGuard.currentExposurePct = exposurePct.coerceIn(0.0, 100.0)
     }
-    
-    /**
-     * Get shadow tracker for learning
-     */
+
     fun getShadowTracker(): ShadowTracker = shadowTracker
-    
-    /**
-     * Get learning store for metrics
-     */
+
     fun getLearningStore(): LearningStore = learningStore
-    
-    // ════════════════════════════════════════════════════════════════════════
-    // Private helpers
-    // ════════════════════════════════════════════════════════════════════════
-    
+
     private fun parseSourceType(source: String): SourceType {
+        val s = source.trim()
+
         return when {
-            source.contains("BOOSTED", ignoreCase = true) -> SourceType.DEX_BOOSTED
-            source.contains("RAYDIUM", ignoreCase = true) -> SourceType.RAYDIUM_NEW_POOL
-            source.contains("PUMP", ignoreCase = true) -> SourceType.PUMP_FUN_GRADUATE
-            source.contains("TRENDING", ignoreCase = true) -> SourceType.DEX_TRENDING
-            source.contains("GRAD", ignoreCase = true) -> SourceType.PUMP_FUN_GRADUATE
+            s.contains("BOOSTED", ignoreCase = true) -> SourceType.DEX_BOOSTED
+            s.contains("RAYDIUM", ignoreCase = true) -> SourceType.RAYDIUM_NEW_POOL
+            s.contains("PUMP", ignoreCase = true) -> SourceType.PUMP_FUN_GRADUATE
+            s.contains("TRENDING", ignoreCase = true) -> SourceType.DEX_TRENDING
+            s.contains("GRAD", ignoreCase = true) -> SourceType.PUMP_FUN_GRADUATE
             else -> SourceType.DEX_TRENDING
         }
     }
-    
+
     private fun buildExtraMap(ts: TokenState): Map<String, Any?> {
         val meta = ts.meta
         val safety = ts.safety
         val extras = mutableMapOf<String, Any?>()
-        
-        // Technical signals (approximate from available data)
-        extras["rsiOversold"] = meta.rsi < 30
-        extras["momentumUp"] = meta.momScore > 55
-        extras["momentumWeak"] = meta.momScore < 35
+
+        extras["rsiOversold"] = meta.rsi < 30.0
+        extras["momentumUp"] = meta.momScore > 55.0
+        extras["momentumWeak"] = meta.momScore < 35.0
         extras["higherLows"] = !meta.lowerHighs
-        extras["pumpBuilding"] = meta.pressScore > 65 && meta.momScore > 60
-        
-        // Liquidity signals (inferred from breakdown)
+        extras["pumpBuilding"] = meta.pressScore > 65.0 && meta.momScore > 60.0
+
         extras["liquidityDraining"] = meta.breakdown
-        extras["volumeExpanding"] = meta.volScore > 60
-        
-        // Volume signals
+        extras["volumeExpanding"] = meta.volScore > 60.0
+
         extras["accumulationAtVal"] = meta.curveStage.contains("ACCUM", ignoreCase = true)
-        extras["sellCluster"] = meta.pressScore < 30
-        
-        // Phase and lifecycle
+        extras["sellCluster"] = meta.pressScore < 30.0
+
         extras["phase"] = ts.phase
-        extras["price"] = ts.lastPrice
-        
-        // Memory/pattern signals (from TradingMemory if available)
-        extras["memoryScore"] = 0 // TODO: Integrate with TradingMemory
-        
-        // ═══════════════════════════════════════════════════════════════════
-        // V3 MIGRATION: Include suppression data for scoring
-        // SuppressionAI uses this via getSuppressionPenalty(mint)
-        // ═══════════════════════════════════════════════════════════════════
+        extras["price"] = ts.lastPrice.coerceAtLeast(0.0)
+
+        extras["memoryScore"] = 0
+
         try {
-            val suppressionPenalty = com.lifecyclebot.engine.DistributionFadeAvoider.getSuppressionPenalty(ts.mint)
-            val isFatalSuppression = com.lifecyclebot.engine.DistributionFadeAvoider.isFatalSuppression(ts.mint)
-            val suppressionReason = com.lifecyclebot.engine.DistributionFadeAvoider.checkRawStrategySuppression(ts.mint)
-            
+            val suppressionPenalty =
+                com.lifecyclebot.engine.DistributionFadeAvoider.getSuppressionPenalty(ts.mint)
+            val isFatalSuppression =
+                com.lifecyclebot.engine.DistributionFadeAvoider.isFatalSuppression(ts.mint)
+            val suppressionReason =
+                com.lifecyclebot.engine.DistributionFadeAvoider.checkRawStrategySuppression(ts.mint)
+
             extras["suppressionPenalty"] = suppressionPenalty
             extras["isFatalSuppression"] = isFatalSuppression
             extras["suppressionReason"] = suppressionReason
-        } catch (e: Exception) {
+        } catch (_: Exception) {
             extras["suppressionPenalty"] = 0
             extras["isFatalSuppression"] = false
             extras["suppressionReason"] = null
         }
-        
-        // Copy-trade signals
+
         extras["copyTradeStale"] = false
         extras["copyTradeCrowded"] = false
-        
-        // Risk signals
+
         extras["zeroHolders"] = ts.peakHolderCount <= 0
-        extras["pureSellPressure"] = meta.pressScore < 20
+        extras["pureSellPressure"] = meta.pressScore < 20.0
         extras["unsellableSignal"] = safety.isBlocked
-        
-        // Name/identity signals
-        extras["suspiciousName"] = ts.symbol.length <= 1 || 
-            ts.symbol.all { it.isDigit() }
-        
+
+        extras["suspiciousName"] =
+            ts.symbol.length <= 1 || ts.symbol.all { it.isDigit() }
+
         return extras
     }
 }

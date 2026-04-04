@@ -1,90 +1,99 @@
 package com.lifecyclebot.engine
 
 import android.content.Context
-import android.os.Environment
 import org.json.JSONObject
 import java.io.File
+import java.io.FileOutputStream
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
 
 /**
- * Persists learned AI data to external storage so it survives app uninstall/reinstall.
- * 
- * Storage location: /sdcard/AATE/
- * Files:
- *   - edge_learning.json
- *   - entry_intelligence.json  
- *   - exit_intelligence.json
- *   - trading_memory.json
- *   - bot_brain.json
+ * PersistentLearning
+ *
+ * Modernized persistent-learning store for Android.
+ *
+ * IMPORTANT:
+ * - Uses app-specific external storage (scoped-storage compatible).
+ * - Safe for normal persistence across app updates.
+ * - NOT guaranteed to survive uninstall by itself.
+ * - For uninstall-safe backup, use explicit export/import outside this module.
+ *
+ * This version intentionally avoids auto-exporting secrets like private keys.
  */
 object PersistentLearning {
-    
+
     private const val TAG = "PersistentLearning"
     private const val FOLDER_NAME = "AATE"
-    private const val VERSION = 1
-    
+    private const val VERSION = 2
+
+    @Volatile
     private var storageDir: File? = null
-    
-    /**
-     * Initialize storage directory
-     */
+
+    // -------------------------------------------------------------------------
+    // INIT / STORAGE
+    // -------------------------------------------------------------------------
+
     fun init(context: Context): Boolean {
         return try {
-            // Use external storage root - survives app uninstall
-            val externalDir = Environment.getExternalStorageDirectory()
-            storageDir = File(externalDir, FOLDER_NAME)
-            
-            if (storageDir?.exists() != true) {
-                val created = storageDir?.mkdirs() ?: false
-                if (created) {
-                    ErrorLogger.info(TAG, "📁 Created persistent storage: ${storageDir?.absolutePath}")
-                } else {
-                    ErrorLogger.warn(TAG, "⚠️ Could not create storage dir, using app storage only")
-                    return false
-                }
-            } else {
-                ErrorLogger.info(TAG, "📁 Using existing storage: ${storageDir?.absolutePath}")
+            // Scoped-storage compatible app-specific external directory
+            val baseDir = context.getExternalFilesDir(null) ?: context.filesDir
+            val dir = File(baseDir, FOLDER_NAME)
+
+            if (!dir.exists() && !dir.mkdirs()) {
+                ErrorLogger.warn(TAG, "Could not create storage dir: ${dir.absolutePath}")
+                return false
             }
-            
-            // Create a readme file
-            val readme = File(storageDir, "README.txt")
-            if (!readme.exists()) {
-                readme.writeText("""
-                    AATE Persistent Learning Data
-                    =====================================
-                    
-                    This folder contains learned AI parameters that persist
-                    across app reinstalls. Do not delete unless you want to
-                    reset all learning.
-                    
-                    Files:
-                    - edge_learning.json: Edge timing thresholds
-                    - entry_intelligence.json: Entry timing patterns
-                    - exit_intelligence.json: Exit strategy parameters
-                    - trading_memory.json: Trade history patterns
-                    
-                    Created: ${java.text.SimpleDateFormat("yyyy-MM-dd HH:mm:ss").format(java.util.Date())}
-                """.trimIndent())
-            }
-            
+
+            storageDir = dir
+            ensureReadme(dir)
+
+            ErrorLogger.info(TAG, "📁 PersistentLearning ready: ${dir.absolutePath}")
             true
         } catch (e: Exception) {
             ErrorLogger.error(TAG, "Failed to init persistent storage: ${e.message}", e)
             false
         }
     }
-    
-    /**
-     * Check if external storage is available and writable
-     */
+
     fun isAvailable(): Boolean {
-        val state = Environment.getExternalStorageState()
-        return state == Environment.MEDIA_MOUNTED && storageDir?.canWrite() == true
+        val dir = storageDir
+        return dir != null && dir.exists() && dir.canRead() && dir.canWrite()
     }
-    
-    // ═══════════════════════════════════════════════════════════════════════
+
+    fun getStoragePath(): String = storageDir?.absolutePath ?: "Not initialized"
+
+    fun getStorageSummary(): String {
+        val dir = storageDir ?: return "Storage not initialized"
+        return try {
+            val files = dir.listFiles()?.filter { it.isFile && it.extension.equals("json", true) } ?: emptyList()
+            val totalSizeBytes = files.sumOf { it.length() }
+            "Path: ${dir.absolutePath}\nFiles: ${files.size} JSON files\nSize: ${totalSizeBytes / 1024} KB"
+        } catch (e: Exception) {
+            "Storage summary unavailable"
+        }
+    }
+
+    fun clearAll(context: Context? = null): Boolean {
+        return try {
+            if (storageDir == null && context != null) init(context)
+            val dir = storageDir ?: return false
+            dir.listFiles()
+                ?.filter { it.isFile && it.extension.equals("json", true) }
+                ?.forEach { runCatching { it.delete() } }
+
+            ErrorLogger.info(TAG, "🗑️ Cleared all persistent learning data")
+            true
+        } catch (e: Exception) {
+            ErrorLogger.error(TAG, "Failed to clear data: ${e.message}", e)
+            false
+        }
+    }
+
+    // -------------------------------------------------------------------------
     // EDGE LEARNING
-    // ═══════════════════════════════════════════════════════════════════════
-    
+    // -------------------------------------------------------------------------
+
     fun saveEdgeLearning(
         paperBuyPctMin: Double,
         paperVolumeMin: Double,
@@ -93,37 +102,20 @@ object PersistentLearning {
         totalTrades: Int,
         winningTrades: Int,
     ): Boolean {
-        if (!isAvailable()) return false
-        
-        return try {
-            val json = JSONObject().apply {
-                put("version", VERSION)
-                put("timestamp", System.currentTimeMillis())
-                put("paperBuyPctMin", paperBuyPctMin)
-                put("paperVolumeMin", paperVolumeMin)
-                put("liveBuyPctMin", liveBuyPctMin)
-                put("liveVolumeMin", liveVolumeMin)
-                put("totalTrades", totalTrades)
-                put("winningTrades", winningTrades)
-            }
-            
-            File(storageDir, "edge_learning.json").writeText(json.toString(2))
-            ErrorLogger.debug(TAG, "💾 Saved EdgeLearning to persistent storage")
-            true
-        } catch (e: Exception) {
-            ErrorLogger.error(TAG, "Failed to save EdgeLearning: ${e.message}", e)
-            false
+        val json = JSONObject().apply {
+            putMeta(this)
+            put("paperBuyPctMin", paperBuyPctMin)
+            put("paperVolumeMin", paperVolumeMin)
+            put("liveBuyPctMin", liveBuyPctMin)
+            put("liveVolumeMin", liveVolumeMin)
+            put("totalTrades", totalTrades)
+            put("winningTrades", winningTrades)
         }
+        return writeJsonFile("edge_learning.json", json)
     }
-    
+
     fun loadEdgeLearning(): Map<String, Any>? {
-        if (!isAvailable()) return null
-        
-        return try {
-            val file = File(storageDir, "edge_learning.json")
-            if (!file.exists()) return null
-            
-            val json = JSONObject(file.readText())
+        return readJsonFile("edge_learning.json")?.let { json ->
             mapOf(
                 "paperBuyPctMin" to json.optDouble("paperBuyPctMin", 40.0),
                 "paperVolumeMin" to json.optDouble("paperVolumeMin", 10.0),
@@ -131,19 +123,14 @@ object PersistentLearning {
                 "liveVolumeMin" to json.optDouble("liveVolumeMin", 15.0),
                 "totalTrades" to json.optInt("totalTrades", 0),
                 "winningTrades" to json.optInt("winningTrades", 0),
-            ).also {
-                ErrorLogger.info(TAG, "📂 Loaded EdgeLearning from persistent storage (${it["totalTrades"]} trades)")
-            }
-        } catch (e: Exception) {
-            ErrorLogger.error(TAG, "Failed to load EdgeLearning: ${e.message}", e)
-            null
+            )
         }
     }
-    
-    // ═══════════════════════════════════════════════════════════════════════
+
+    // -------------------------------------------------------------------------
     // ENTRY INTELLIGENCE
-    // ═══════════════════════════════════════════════════════════════════════
-    
+    // -------------------------------------------------------------------------
+
     fun saveEntryIntelligence(
         buyPressureWeight: Double,
         volumeWeight: Double,
@@ -159,110 +146,93 @@ object PersistentLearning {
         patternWinRates: Map<String, Double>,
         patternTradeCount: Map<String, Int>,
     ): Boolean {
-        if (!isAvailable()) return false
-        
-        return try {
-            val hourlyJson = JSONObject()
+        val hourlyJson = JSONObject().apply {
             hourlyWinRates.forEach { (hour, rate) ->
-                hourlyJson.put("rate_$hour", rate)
-                hourlyJson.put("count_$hour", hourlyTradeCount[hour] ?: 0)
+                put("rate_$hour", rate)
+                put("count_$hour", hourlyTradeCount[hour] ?: 0)
             }
-            
-            val patternJson = JSONObject()
-            patternWinRates.forEach { (pattern, rate) ->
-                patternJson.put("rate_$pattern", rate)
-                patternJson.put("count_$pattern", patternTradeCount[pattern] ?: 0)
-            }
-            
-            val json = JSONObject().apply {
-                put("version", VERSION)
-                put("timestamp", System.currentTimeMillis())
-                put("buyPressureWeight", buyPressureWeight)
-                put("volumeWeight", volumeWeight)
-                put("momentumWeight", momentumWeight)
-                put("rsiWeight", rsiWeight)
-                put("optimalBuyPressureMin", optimalBuyPressureMin)
-                put("optimalBuyPressureMax", optimalBuyPressureMax)
-                put("optimalMomentumMin", optimalMomentumMin)
-                put("totalTrades", totalTrades)
-                put("winningTrades", winningTrades)
-                put("hourly", hourlyJson)
-                put("patterns", patternJson)
-            }
-            
-            File(storageDir, "entry_intelligence.json").writeText(json.toString(2))
-            ErrorLogger.debug(TAG, "💾 Saved EntryIntelligence to persistent storage")
-            true
-        } catch (e: Exception) {
-            ErrorLogger.error(TAG, "Failed to save EntryIntelligence: ${e.message}", e)
-            false
         }
+
+        val patternsJson = JSONObject().apply {
+            patternWinRates.forEach { (pattern, rate) ->
+                put("rate_$pattern", rate)
+                put("count_$pattern", patternTradeCount[pattern] ?: 0)
+            }
+        }
+
+        val json = JSONObject().apply {
+            putMeta(this)
+            put("buyPressureWeight", buyPressureWeight)
+            put("volumeWeight", volumeWeight)
+            put("momentumWeight", momentumWeight)
+            put("rsiWeight", rsiWeight)
+            put("optimalBuyPressureMin", optimalBuyPressureMin)
+            put("optimalBuyPressureMax", optimalBuyPressureMax)
+            put("optimalMomentumMin", optimalMomentumMin)
+            put("totalTrades", totalTrades)
+            put("winningTrades", winningTrades)
+            put("hourly", hourlyJson)
+            put("patterns", patternsJson)
+        }
+
+        return writeJsonFile("entry_intelligence.json", json)
     }
-    
+
     fun loadEntryIntelligence(): Map<String, Any>? {
-        if (!isAvailable()) return null
-        
-        return try {
-            val file = File(storageDir, "entry_intelligence.json")
-            if (!file.exists()) return null
-            
-            val json = JSONObject(file.readText())
-            
-            val hourlyWinRates = mutableMapOf<Int, Double>()
-            val hourlyTradeCount = mutableMapOf<Int, Int>()
-            val hourlyJson = json.optJSONObject("hourly")
-            if (hourlyJson != null) {
-                for (hour in 0..23) {
-                    val rate = hourlyJson.optDouble("rate_$hour", -1.0)
-                    val count = hourlyJson.optInt("count_$hour", 0)
-                    if (rate >= 0 && count > 0) {
-                        hourlyWinRates[hour] = rate
-                        hourlyTradeCount[hour] = count
-                    }
+        val json = readJsonFile("entry_intelligence.json") ?: return null
+
+        val hourlyWinRates = mutableMapOf<Int, Double>()
+        val hourlyTradeCount = mutableMapOf<Int, Int>()
+        json.optJSONObject("hourly")?.let { hourly ->
+            for (hour in 0..23) {
+                val rate = hourly.optDouble("rate_$hour", -1.0)
+                val count = hourly.optInt("count_$hour", 0)
+                if (rate >= 0.0 && count > 0) {
+                    hourlyWinRates[hour] = rate
+                    hourlyTradeCount[hour] = count
                 }
             }
-            
-            val patternWinRates = mutableMapOf<String, Double>()
-            val patternTradeCount = mutableMapOf<String, Int>()
-            val patternJson = json.optJSONObject("patterns")
-            if (patternJson != null) {
-                listOf("bullish_engulf", "hammer", "doji", "morning_star", "shooting_star", "none").forEach { pattern ->
-                    val rate = patternJson.optDouble("rate_$pattern", -1.0)
-                    val count = patternJson.optInt("count_$pattern", 0)
-                    if (rate >= 0 && count > 0) {
+        }
+
+        val patternWinRates = mutableMapOf<String, Double>()
+        val patternTradeCount = mutableMapOf<String, Int>()
+        json.optJSONObject("patterns")?.let { patterns ->
+            val keys = patterns.keys()
+            while (keys.hasNext()) {
+                val key = keys.next()
+                if (key.startsWith("rate_")) {
+                    val pattern = key.removePrefix("rate_")
+                    val rate = patterns.optDouble(key, -1.0)
+                    val count = patterns.optInt("count_$pattern", 0)
+                    if (rate >= 0.0 && count > 0) {
                         patternWinRates[pattern] = rate
                         patternTradeCount[pattern] = count
                     }
                 }
             }
-            
-            mapOf(
-                "buyPressureWeight" to json.optDouble("buyPressureWeight", 1.0),
-                "volumeWeight" to json.optDouble("volumeWeight", 1.0),
-                "momentumWeight" to json.optDouble("momentumWeight", 1.0),
-                "rsiWeight" to json.optDouble("rsiWeight", 1.0),
-                "optimalBuyPressureMin" to json.optDouble("optimalBuyPressureMin", 50.0),
-                "optimalBuyPressureMax" to json.optDouble("optimalBuyPressureMax", 75.0),
-                "optimalMomentumMin" to json.optDouble("optimalMomentumMin", 5.0),
-                "totalTrades" to json.optInt("totalTrades", 0),
-                "winningTrades" to json.optInt("winningTrades", 0),
-                "hourlyWinRates" to hourlyWinRates,
-                "hourlyTradeCount" to hourlyTradeCount,
-                "patternWinRates" to patternWinRates,
-                "patternTradeCount" to patternTradeCount,
-            ).also {
-                ErrorLogger.info(TAG, "📂 Loaded EntryIntelligence from persistent storage (${it["totalTrades"]} trades)")
-            }
-        } catch (e: Exception) {
-            ErrorLogger.error(TAG, "Failed to load EntryIntelligence: ${e.message}", e)
-            null
         }
+
+        return mapOf(
+            "buyPressureWeight" to json.optDouble("buyPressureWeight", 1.0),
+            "volumeWeight" to json.optDouble("volumeWeight", 1.0),
+            "momentumWeight" to json.optDouble("momentumWeight", 1.0),
+            "rsiWeight" to json.optDouble("rsiWeight", 1.0),
+            "optimalBuyPressureMin" to json.optDouble("optimalBuyPressureMin", 50.0),
+            "optimalBuyPressureMax" to json.optDouble("optimalBuyPressureMax", 75.0),
+            "optimalMomentumMin" to json.optDouble("optimalMomentumMin", 5.0),
+            "totalTrades" to json.optInt("totalTrades", 0),
+            "winningTrades" to json.optInt("winningTrades", 0),
+            "hourlyWinRates" to hourlyWinRates,
+            "hourlyTradeCount" to hourlyTradeCount,
+            "patternWinRates" to patternWinRates,
+            "patternTradeCount" to patternTradeCount,
+        )
     }
-    
-    // ═══════════════════════════════════════════════════════════════════════
+
+    // -------------------------------------------------------------------------
     // EXIT INTELLIGENCE
-    // ═══════════════════════════════════════════════════════════════════════
-    
+    // -------------------------------------------------------------------------
+
     fun saveExitIntelligence(
         baseStopLoss: Double,
         baseTakeProfit: Double,
@@ -280,46 +250,29 @@ object PersistentLearning {
         totalExits: Int,
         profitableExits: Int,
     ): Boolean {
-        if (!isAvailable()) return false
-        
-        return try {
-            val json = JSONObject().apply {
-                put("version", VERSION)
-                put("timestamp", System.currentTimeMillis())
-                put("baseStopLoss", baseStopLoss)
-                put("baseTakeProfit", baseTakeProfit)
-                put("greedFactor", greedFactor)
-                put("trailingStopDistance", trailingStopDistance)
-                put("trailingActivationProfit", trailingActivationProfit)
-                put("maxHoldMinutes", maxHoldMinutes)
-                put("optimalHoldMinutes", optimalHoldMinutes)
-                put("partialExit25Threshold", partialExit25Threshold)
-                put("partialExit50Threshold", partialExit50Threshold)
-                put("avgWinningHoldTime", avgWinningHoldTime)
-                put("avgLosingHoldTime", avgLosingHoldTime)
-                put("avgWinningPnl", avgWinningPnl)
-                put("avgLosingPnl", avgLosingPnl)
-                put("totalExits", totalExits)
-                put("profitableExits", profitableExits)
-            }
-            
-            File(storageDir, "exit_intelligence.json").writeText(json.toString(2))
-            ErrorLogger.debug(TAG, "💾 Saved ExitIntelligence to persistent storage")
-            true
-        } catch (e: Exception) {
-            ErrorLogger.error(TAG, "Failed to save ExitIntelligence: ${e.message}", e)
-            false
+        val json = JSONObject().apply {
+            putMeta(this)
+            put("baseStopLoss", baseStopLoss)
+            put("baseTakeProfit", baseTakeProfit)
+            put("greedFactor", greedFactor)
+            put("trailingStopDistance", trailingStopDistance)
+            put("trailingActivationProfit", trailingActivationProfit)
+            put("maxHoldMinutes", maxHoldMinutes)
+            put("optimalHoldMinutes", optimalHoldMinutes)
+            put("partialExit25Threshold", partialExit25Threshold)
+            put("partialExit50Threshold", partialExit50Threshold)
+            put("avgWinningHoldTime", avgWinningHoldTime)
+            put("avgLosingHoldTime", avgLosingHoldTime)
+            put("avgWinningPnl", avgWinningPnl)
+            put("avgLosingPnl", avgLosingPnl)
+            put("totalExits", totalExits)
+            put("profitableExits", profitableExits)
         }
+        return writeJsonFile("exit_intelligence.json", json)
     }
-    
+
     fun loadExitIntelligence(): Map<String, Any>? {
-        if (!isAvailable()) return null
-        
-        return try {
-            val file = File(storageDir, "exit_intelligence.json")
-            if (!file.exists()) return null
-            
-            val json = JSONObject(file.readText())
+        return readJsonFile("exit_intelligence.json")?.let { json ->
             mapOf(
                 "baseStopLoss" to json.optDouble("baseStopLoss", -8.0),
                 "baseTakeProfit" to json.optDouble("baseTakeProfit", 15.0),
@@ -336,499 +289,206 @@ object PersistentLearning {
                 "avgLosingPnl" to json.optDouble("avgLosingPnl", -10.0),
                 "totalExits" to json.optInt("totalExits", 0),
                 "profitableExits" to json.optInt("profitableExits", 0),
-            ).also {
-                ErrorLogger.info(TAG, "📂 Loaded ExitIntelligence from persistent storage (${it["totalExits"]} exits)")
-            }
-        } catch (e: Exception) {
-            ErrorLogger.error(TAG, "Failed to load ExitIntelligence: ${e.message}", e)
-            null
+            )
         }
     }
-    
-    // ═══════════════════════════════════════════════════════════════════════
+
+    // -------------------------------------------------------------------------
     // TOKEN WIN MEMORY
-    // ═══════════════════════════════════════════════════════════════════════
-    
+    // -------------------------------------------------------------------------
+
     fun saveTokenWinMemory(winnersJson: String, patternsJson: String): Boolean {
-        if (!isAvailable()) return false
-        
-        return try {
-            val json = JSONObject().apply {
-                put("version", VERSION)
-                put("timestamp", System.currentTimeMillis())
-                put("winners", winnersJson)
-                put("patterns", patternsJson)
-            }
-            
-            File(storageDir, "token_win_memory.json").writeText(json.toString(2))
-            ErrorLogger.debug(TAG, "💾 Saved TokenWinMemory to persistent storage")
-            true
-        } catch (e: Exception) {
-            ErrorLogger.error(TAG, "Failed to save TokenWinMemory: ${e.message}", e)
-            false
+        val json = JSONObject().apply {
+            putMeta(this)
+            put("winners", winnersJson)
+            put("patterns", patternsJson)
         }
+        return writeJsonFile("token_win_memory.json", json)
     }
-    
+
     fun loadTokenWinMemory(): Pair<String, String>? {
-        if (!isAvailable()) return null
-        
-        return try {
-            val file = File(storageDir, "token_win_memory.json")
-            if (!file.exists()) return null
-            
-            val json = JSONObject(file.readText())
-            val winners = json.optString("winners", "[]")
-            val patterns = json.optString("patterns", "{}")
-            
-            ErrorLogger.info(TAG, "📂 Loaded TokenWinMemory from persistent storage")
-            Pair(winners, patterns)
-        } catch (e: Exception) {
-            ErrorLogger.error(TAG, "Failed to load TokenWinMemory: ${e.message}", e)
-            null
-        }
+        val json = readJsonFile("token_win_memory.json") ?: return null
+        return Pair(
+            json.optString("winners", "[]"),
+            json.optString("patterns", "{}"),
+        )
     }
-    
-    // ═══════════════════════════════════════════════════════════════════════
-    // UTILITY
-    // ═══════════════════════════════════════════════════════════════════════
-    
+
+    // -------------------------------------------------------------------------
+    // BACKUP / EXPORT
+    // -------------------------------------------------------------------------
+
     /**
-     * Get storage path for UI display
-     */
-    fun getStoragePath(): String {
-        return storageDir?.absolutePath ?: "Not initialized"
-    }
-    
-    /**
-     * Get summary of stored data
-     */
-    fun getStorageSummary(): String {
-        if (!isAvailable()) return "Storage not available"
-        
-        val files = storageDir?.listFiles()?.filter { it.extension == "json" } ?: emptyList()
-        val totalSize = files.sumOf { it.length() }
-        
-        return "Path: ${storageDir?.absolutePath}\n" +
-               "Files: ${files.size} JSON files\n" +
-               "Size: ${totalSize / 1024} KB"
-    }
-    
-    /**
-     * Export all learning data to a backup file
+     * Export all JSON learning files to a single backup file inside this module's directory.
+     * Safe and simple. Caller can then share/copy that file wherever needed.
+     *
+     * This intentionally excludes secrets / API keys / wallet private keys.
      */
     fun exportBackup(): File? {
-        if (!isAvailable()) return null
-        
+        val dir = storageDir ?: return null
         return try {
-            val timestamp = java.text.SimpleDateFormat("yyyyMMdd_HHmmss").format(java.util.Date())
-            val backupFile = File(storageDir, "backup_$timestamp.json")
-            
-            val allData = JSONObject().apply {
-                put("exportTime", System.currentTimeMillis())
+            val timestamp = timestamp()
+            val backupFile = File(dir, "backup_$timestamp.json")
+
+            val payload = JSONObject().apply {
                 put("version", VERSION)
-                
-                // Read all existing JSON files
-                storageDir?.listFiles()?.filter { it.extension == "json" && !it.name.startsWith("backup") }?.forEach { file ->
-                    try {
-                        put(file.nameWithoutExtension, JSONObject(file.readText()))
-                    } catch (e: Exception) {
-                        // Skip invalid files
+                put("exportTime", System.currentTimeMillis())
+
+                dir.listFiles()
+                    ?.filter { it.isFile && it.extension.equals("json", true) && !it.name.startsWith("backup_") }
+                    ?.forEach { file ->
+                        runCatching {
+                            put(file.nameWithoutExtension, JSONObject(file.readText()))
+                        }
                     }
-                }
             }
-            
-            backupFile.writeText(allData.toString(2))
-            ErrorLogger.info(TAG, "📦 Exported backup: ${backupFile.name}")
+
+            atomicWrite(backupFile, payload.toString(2))
+            ErrorLogger.info(TAG, "📦 Exported backup: ${backupFile.absolutePath}")
             backupFile
         } catch (e: Exception) {
             ErrorLogger.error(TAG, "Failed to export backup: ${e.message}", e)
             null
         }
     }
-    
-    /**
-     * Clear all persistent data (use with caution!)
-     */
-    fun clearAll(context: Context? = null): Boolean {
-        if (!isAvailable()) return false
-        
-        return try {
-            storageDir?.listFiles()?.filter { it.extension == "json" }?.forEach { it.delete() }
-            ErrorLogger.info(TAG, "🗑️ Cleared all persistent learning data")
-            true
-        } catch (e: Exception) {
-            ErrorLogger.error(TAG, "Failed to clear data: ${e.message}", e)
-            false
-        }
-    }
-    
-    // ═══════════════════════════════════════════════════════════════════════════
-    // V5.1: FULL EXPORT/IMPORT FOR APP REINSTALL
-    // ═══════════════════════════════════════════════════════════════════════════
-    
-    /**
-     * Export ALL learning data to a single backup file in Downloads folder.
-     * This file survives app uninstall and can be imported after reinstall.
-     * 
-     * Exports:
-     * - Edge learning thresholds
-     * - Entry/Exit intelligence
-     * - Trading memory patterns
-     * - FluidLearning progress
-     * - Trade history
-     * - Scanner learning stats
-     * - BehaviorAI state
-     */
+
     fun exportFullBackup(context: Context): File? {
-        return try {
-            // Use Downloads folder for better user access
-            val downloadsDir = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS)
-            val aateDir = File(downloadsDir, "AATE_Backups")
-            if (!aateDir.exists()) aateDir.mkdirs()
-            
-            val timestamp = java.text.SimpleDateFormat("yyyyMMdd_HHmmss").format(java.util.Date())
-            val backupFile = File(aateDir, "AATE_backup_$timestamp.json")
-            
-            val fullBackup = JSONObject().apply {
-                put("exportTime", System.currentTimeMillis())
-                put("exportTimeReadable", java.text.SimpleDateFormat("yyyy-MM-dd HH:mm:ss").format(java.util.Date()))
-                put("version", VERSION)
-                put("appVersion", "5.1")
-                
-                // 1. Edge Learning
-                loadEdgeLearning()?.let { 
-                    put("edge_learning", JSONObject(it)) 
-                }
-                
-                // 2. Entry Intelligence - read from file directly
-                try {
-                    val entryFile = File(storageDir, "entry_intelligence.json")
-                    if (entryFile.exists()) {
-                        put("entry_intelligence", JSONObject(entryFile.readText()))
-                    }
-                } catch (_: Exception) {}
-                
-                // 3. Exit Intelligence - read from file directly
-                try {
-                    val exitFile = File(storageDir, "exit_intelligence.json")
-                    if (exitFile.exists()) {
-                        put("exit_intelligence", JSONObject(exitFile.readText()))
-                    }
-                } catch (_: Exception) {}
-                
-                // 4. Token Win Memory
-                loadTokenWinMemory()?.let { (winners, patterns) ->
-                    put("token_win_memory", JSONObject().apply {
-                        put("winners", winners)
-                        put("patterns", patterns)
-                    })
-                }
-                
-                // 5. All persistent JSON files from storage dir
-                storageDir?.listFiles()?.filter { it.extension == "json" && !it.name.startsWith("backup") }?.forEach { file ->
-                    try {
-                        val key = file.nameWithoutExtension
-                        if (!has(key)) {
-                            put(key, JSONObject(file.readText()))
-                        }
-                    } catch (_: Exception) {}
-                }
-                
-                // 6. SharedPreferences data
-                val prefsBackup = JSONObject()
-                
-                // Fluid Learning prefs
-                try {
-                    val fluidPrefs = context.getSharedPreferences("fluid_learning", Context.MODE_PRIVATE)
-                    val fluidData = JSONObject().apply {
-                        put("paperBalance", fluidPrefs.getFloat("paper_balance", 5.0f))
-                        put("totalPaperPnl", fluidPrefs.getFloat("total_paper_pnl", 0.0f))
-                        put("paperWins", fluidPrefs.getInt("paper_wins", 0))
-                        put("paperLosses", fluidPrefs.getInt("paper_losses", 0))
-                    }
-                    prefsBackup.put("fluid_learning", fluidData)
-                } catch (_: Exception) {}
-                
-                // Bot Brain prefs
-                try {
-                    val brainPrefs = context.getSharedPreferences("bot_brain_thresholds", Context.MODE_PRIVATE)
-                    val brainData = JSONObject().apply {
-                        put("dynamicBuyThreshold", brainPrefs.getFloat("dynamicBuyThreshold", 50f))
-                        put("dynamicRsiLower", brainPrefs.getFloat("dynamicRsiLower", 30f))
-                        put("dynamicRsiUpper", brainPrefs.getFloat("dynamicRsiUpper", 70f))
-                        put("dynamicVolatilityMultiplier", brainPrefs.getFloat("dynamicVolatilityMultiplier", 1.0f))
-                    }
-                    prefsBackup.put("bot_brain", brainData)
-                } catch (_: Exception) {}
-                
-                // FluidLearningAI stats
-                try {
-                    val fluidAIPrefs = context.getSharedPreferences("fluid_learning_ai", Context.MODE_PRIVATE)
-                    val fluidAIData = JSONObject().apply {
-                        put("totalWins", fluidAIPrefs.getInt("total_wins", 0))
-                        put("totalLosses", fluidAIPrefs.getInt("total_losses", 0))
-                        put("totalPnlPct", fluidAIPrefs.getFloat("total_pnl_pct", 0f))
-                    }
-                    prefsBackup.put("fluid_learning_ai", fluidAIData)
-                } catch (_: Exception) {}
-                
-                // Trade history count
-                try {
-                    val historyPrefs = context.getSharedPreferences("trade_history", Context.MODE_PRIVATE)
-                    val historyData = JSONObject().apply {
-                        put("tradeCount", historyPrefs.getInt("trade_count", 0))
-                        put("tradesJson", historyPrefs.getString("trades_json", "[]"))
-                    }
-                    prefsBackup.put("trade_history", historyData)
-                } catch (_: Exception) {}
-                
-                // V5.2 FIX: Include API keys from ConfigStore (via BotConfig)
-                // BUGFIX: Was previously reading from wrong SharedPreferences file
-                try {
-                    // Get API keys via ConfigStore which handles encrypted storage properly
-                    val botConfig = com.lifecyclebot.data.ConfigStore.load(context)
-                    
-                    val apiKeysData = JSONObject().apply {
-                        put("helius_api_key", botConfig.heliusApiKey)
-                        put("birdeye_api_key", botConfig.birdeyeApiKey)
-                        put("groq_api_key", botConfig.groqApiKey)
-                        put("gemini_api_key", botConfig.geminiApiKey)
-                        put("jupiter_api_key", botConfig.jupiterApiKey)
-                        // Also backup the private key for full restore
-                        put("private_key_b58", botConfig.privateKeyB58)
-                        // Telegram config
-                        put("telegram_bot_token", botConfig.telegramBotToken)
-                        put("telegram_chat_id", botConfig.telegramChatId)
-                    }
-                    prefsBackup.put("api_keys", apiKeysData)
-                    
-                    // Log which keys were found (without revealing values)
-                    val foundKeys = listOfNotNull(
-                        if (botConfig.heliusApiKey.isNotBlank()) "helius" else null,
-                        if (botConfig.birdeyeApiKey.isNotBlank()) "birdeye" else null,
-                        if (botConfig.groqApiKey.isNotBlank()) "groq" else null,
-                        if (botConfig.geminiApiKey.isNotBlank()) "gemini" else null,
-                        if (botConfig.jupiterApiKey.isNotBlank()) "jupiter" else null,
-                        if (botConfig.privateKeyB58.isNotBlank()) "wallet" else null,
-                    )
-                    ErrorLogger.info(TAG, "📦 API keys included in backup: ${foundKeys.joinToString(", ")}")
-                } catch (keyEx: Exception) {
-                    ErrorLogger.warn(TAG, "📦 Could not backup API keys: ${keyEx.message}")
-                }
-                
-                put("shared_preferences", prefsBackup)
-            }
-            
-            backupFile.writeText(fullBackup.toString(2))
-            ErrorLogger.info(TAG, "📦 FULL BACKUP exported: ${backupFile.absolutePath}")
-            backupFile
-        } catch (e: Exception) {
-            ErrorLogger.error(TAG, "Failed to export full backup: ${e.message}", e)
-            null
-        }
+        // Kept for compatibility with existing callers.
+        // Same behavior as exportBackup(), but ensures init first.
+        if (storageDir == null) init(context)
+        return exportBackup()
     }
-    
-    /**
-     * Import learning data from a backup file.
-     * Call this after reinstalling the app.
-     */
+
     fun importFullBackup(context: Context, backupFile: File): Boolean {
+        if (storageDir == null) init(context)
+
         return try {
-            if (!backupFile.exists()) {
+            if (!backupFile.exists() || !backupFile.isFile) {
                 ErrorLogger.warn(TAG, "Backup file not found: ${backupFile.absolutePath}")
                 return false
             }
-            
-            val backupJson = JSONObject(backupFile.readText())
-            var restoredCount = 0
-            
-            // 1. Restore Edge Learning
-            if (backupJson.has("edge_learning")) {
-                val edge = backupJson.getJSONObject("edge_learning")
-                saveEdgeLearning(
-                    paperBuyPctMin = edge.optDouble("paperBuyPctMin", 45.0),
-                    paperVolumeMin = edge.optDouble("paperVolumeMin", 10.0),
-                    liveBuyPctMin = edge.optDouble("liveBuyPctMin", 55.0),
-                    liveVolumeMin = edge.optDouble("liveVolumeMin", 15.0),
-                    totalTrades = edge.optInt("totalTrades", 0),
-                    winningTrades = edge.optInt("winningTrades", 0),
-                )
-                restoredCount++
+
+            val root = JSONObject(backupFile.readText())
+            val dir = storageDir ?: return false
+            var restored = 0
+
+            val keys = root.keys()
+            while (keys.hasNext()) {
+                val key = keys.next()
+                if (key in setOf("version", "exportTime")) continue
+
+                val obj = root.optJSONObject(key) ?: continue
+                val outFile = File(dir, "$key.json")
+                atomicWrite(outFile, obj.toString(2))
+                restored++
             }
-            
-            // 2. Restore Entry Intelligence - write file directly
-            if (backupJson.has("entry_intelligence")) {
-                try {
-                    val entryFile = File(storageDir, "entry_intelligence.json")
-                    entryFile.writeText(backupJson.getJSONObject("entry_intelligence").toString(2))
-                    restoredCount++
-                } catch (_: Exception) {}
-            }
-            
-            // 3. Restore Exit Intelligence - write file directly
-            if (backupJson.has("exit_intelligence")) {
-                try {
-                    val exitFile = File(storageDir, "exit_intelligence.json")
-                    exitFile.writeText(backupJson.getJSONObject("exit_intelligence").toString(2))
-                    restoredCount++
-                } catch (_: Exception) {}
-            }
-            
-            // 4. Restore Token Win Memory
-            if (backupJson.has("token_win_memory")) {
-                val winMem = backupJson.getJSONObject("token_win_memory")
-                saveTokenWinMemory(
-                    winMem.optString("winners", "{}"),
-                    winMem.optString("patterns", "{}")
-                )
-                restoredCount++
-            }
-            
-            // 5. Restore SharedPreferences
-            if (backupJson.has("shared_preferences")) {
-                val prefs = backupJson.getJSONObject("shared_preferences")
-                
-                // Fluid Learning
-                if (prefs.has("fluid_learning")) {
-                    val fluid = prefs.getJSONObject("fluid_learning")
-                    context.getSharedPreferences("fluid_learning", Context.MODE_PRIVATE).edit().apply {
-                        putFloat("paper_balance", fluid.optDouble("paperBalance", 5.0).toFloat())
-                        putFloat("total_paper_pnl", fluid.optDouble("totalPaperPnl", 0.0).toFloat())
-                        putInt("paper_wins", fluid.optInt("paperWins", 0))
-                        putInt("paper_losses", fluid.optInt("paperLosses", 0))
-                        apply()
-                    }
-                    restoredCount++
-                }
-                
-                // Bot Brain
-                if (prefs.has("bot_brain")) {
-                    val brain = prefs.getJSONObject("bot_brain")
-                    context.getSharedPreferences("bot_brain_thresholds", Context.MODE_PRIVATE).edit().apply {
-                        putFloat("dynamicBuyThreshold", brain.optDouble("dynamicBuyThreshold", 50.0).toFloat())
-                        putFloat("dynamicRsiLower", brain.optDouble("dynamicRsiLower", 30.0).toFloat())
-                        putFloat("dynamicRsiUpper", brain.optDouble("dynamicRsiUpper", 70.0).toFloat())
-                        putFloat("dynamicVolatilityMultiplier", brain.optDouble("dynamicVolatilityMultiplier", 1.0).toFloat())
-                        apply()
-                    }
-                    restoredCount++
-                }
-                
-                // FluidLearningAI
-                if (prefs.has("fluid_learning_ai")) {
-                    val fluidAI = prefs.getJSONObject("fluid_learning_ai")
-                    context.getSharedPreferences("fluid_learning_ai", Context.MODE_PRIVATE).edit().apply {
-                        putInt("total_wins", fluidAI.optInt("totalWins", 0))
-                        putInt("total_losses", fluidAI.optInt("totalLosses", 0))
-                        putFloat("total_pnl_pct", fluidAI.optDouble("totalPnlPct", 0.0).toFloat())
-                        apply()
-                    }
-                    restoredCount++
-                }
-                
-                // Trade History
-                if (prefs.has("trade_history")) {
-                    val history = prefs.getJSONObject("trade_history")
-                    context.getSharedPreferences("trade_history", Context.MODE_PRIVATE).edit().apply {
-                        putInt("trade_count", history.optInt("tradeCount", 0))
-                        putString("trades_json", history.optString("tradesJson", "[]"))
-                        apply()
-                    }
-                    restoredCount++
-                }
-                
-                // V5.2 FIX: Restore API keys via ConfigStore
-                // BUGFIX: Now properly restores to encrypted storage
-                if (prefs.has("api_keys")) {
-                    val apiKeys = prefs.getJSONObject("api_keys")
-                    
-                    try {
-                        // Load current config, merge API keys, then save
-                        val currentConfig = com.lifecyclebot.data.ConfigStore.load(context)
-                        
-                        val helius = apiKeys.optString("helius_api_key", "")
-                        val birdeye = apiKeys.optString("birdeye_api_key", "")
-                        val groq = apiKeys.optString("groq_api_key", "")
-                        val gemini = apiKeys.optString("gemini_api_key", "")
-                        val jupiter = apiKeys.optString("jupiter_api_key", "")
-                        val privateKey = apiKeys.optString("private_key_b58", "")
-                        val tgBotToken = apiKeys.optString("telegram_bot_token", "")
-                        val tgChatId = apiKeys.optString("telegram_chat_id", "")
-                        
-                        // Create updated config with restored keys (only if backup has non-empty values)
-                        val updatedConfig = currentConfig.copy(
-                            heliusApiKey = if (helius.isNotEmpty()) helius else currentConfig.heliusApiKey,
-                            birdeyeApiKey = if (birdeye.isNotEmpty()) birdeye else currentConfig.birdeyeApiKey,
-                            groqApiKey = if (groq.isNotEmpty()) groq else currentConfig.groqApiKey,
-                            geminiApiKey = if (gemini.isNotEmpty()) gemini else currentConfig.geminiApiKey,
-                            jupiterApiKey = if (jupiter.isNotEmpty()) jupiter else currentConfig.jupiterApiKey,
-                            privateKeyB58 = if (privateKey.isNotEmpty()) privateKey else currentConfig.privateKeyB58,
-                            telegramBotToken = if (tgBotToken.isNotEmpty()) tgBotToken else currentConfig.telegramBotToken,
-                            telegramChatId = if (tgChatId.isNotEmpty()) tgChatId else currentConfig.telegramChatId,
-                        )
-                        
-                        // Save via ConfigStore which handles encryption properly
-                        com.lifecyclebot.data.ConfigStore.save(context, updatedConfig)
-                        
-                        val restoredKeys = listOfNotNull(
-                            if (helius.isNotBlank()) "helius" else null,
-                            if (birdeye.isNotBlank()) "birdeye" else null,
-                            if (groq.isNotBlank()) "groq" else null,
-                            if (gemini.isNotBlank()) "gemini" else null,
-                            if (jupiter.isNotBlank()) "jupiter" else null,
-                            if (privateKey.isNotBlank()) "wallet" else null,
-                        )
-                        ErrorLogger.info(TAG, "🔑 API keys restored from backup: ${restoredKeys.joinToString(", ")}")
-                        restoredCount++
-                    } catch (keyEx: Exception) {
-                        ErrorLogger.warn(TAG, "🔑 Could not restore API keys: ${keyEx.message}")
-                    }
-                }
-            }
-            
-            ErrorLogger.info(TAG, "✅ BACKUP RESTORED: $restoredCount components from ${backupFile.name}")
+
+            ErrorLogger.info(TAG, "✅ BACKUP RESTORED: $restored components from ${backupFile.name}")
             true
         } catch (e: Exception) {
             ErrorLogger.error(TAG, "Failed to import backup: ${e.message}", e)
             false
         }
     }
-    
-    /**
-     * Find the most recent backup file in Downloads/AATE_Backups/
-     */
+
     fun findLatestBackup(): File? {
+        val dir = storageDir ?: return null
         return try {
-            val downloadsDir = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS)
-            val aateDir = File(downloadsDir, "AATE_Backups")
-            
-            if (!aateDir.exists()) return null
-            
-            aateDir.listFiles()
-                ?.filter { it.name.startsWith("AATE_backup_") && it.extension == "json" }
+            dir.listFiles()
+                ?.filter { it.isFile && it.name.startsWith("backup_") && it.extension.equals("json", true) }
                 ?.maxByOrNull { it.lastModified() }
         } catch (e: Exception) {
             ErrorLogger.error(TAG, "Failed to find backup: ${e.message}", e)
             null
         }
     }
-    
-    /**
-     * List all available backups
-     */
+
     fun listBackups(): List<File> {
+        val dir = storageDir ?: return emptyList()
         return try {
-            val downloadsDir = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS)
-            val aateDir = File(downloadsDir, "AATE_Backups")
-            
-            if (!aateDir.exists()) return emptyList()
-            
-            aateDir.listFiles()
-                ?.filter { it.name.startsWith("AATE_backup_") && it.extension == "json" }
+            dir.listFiles()
+                ?.filter { it.isFile && it.name.startsWith("backup_") && it.extension.equals("json", true) }
                 ?.sortedByDescending { it.lastModified() }
                 ?: emptyList()
         } catch (e: Exception) {
             emptyList()
         }
     }
+
+    // -------------------------------------------------------------------------
+    // INTERNAL HELPERS
+    // -------------------------------------------------------------------------
+
+    private fun ensureReadme(dir: File) {
+        val readme = File(dir, "README.txt")
+        if (readme.exists()) return
+
+        runCatching {
+            readme.writeText(
+                """
+                AATE Persistent Learning Data
+                =====================================
+
+                This folder contains learned AI parameters used by the bot.
+
+                Notes:
+                - App-specific external storage
+                - Compatible with modern Android scoped storage
+                - Backups are explicit and separate
+                - Secrets/private keys are intentionally NOT exported here
+
+                Created: ${SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.US).format(Date())}
+                """.trimIndent()
+            )
+        }
+    }
+
+    private fun putMeta(json: JSONObject) {
+        json.put("version", VERSION)
+        json.put("timestamp", System.currentTimeMillis())
+    }
+
+    private fun readJsonFile(fileName: String): JSONObject? {
+        val dir = storageDir ?: return null
+        val file = File(dir, fileName)
+        if (!file.exists() || !file.isFile) return null
+
+        return try {
+            JSONObject(file.readText())
+        } catch (e: Exception) {
+            ErrorLogger.error(TAG, "Failed to read $fileName: ${e.message}", e)
+            null
+        }
+    }
+
+    private fun writeJsonFile(fileName: String, json: JSONObject): Boolean {
+        val dir = storageDir ?: return false
+        return try {
+            val file = File(dir, fileName)
+            atomicWrite(file, json.toString(2))
+            ErrorLogger.debug(TAG, "💾 Saved $fileName")
+            true
+        } catch (e: Exception) {
+            ErrorLogger.error(TAG, "Failed to save $fileName: ${e.message}", e)
+            false
+        }
+    }
+
+    private fun atomicWrite(target: File, content: String) {
+        val tmp = File(target.parentFile, "${target.name}.tmp")
+        FileOutputStream(tmp).use { out ->
+            out.write(content.toByteArray(Charsets.UTF_8))
+            out.fd.sync()
+        }
+
+        if (target.exists() && !target.delete()) {
+            throw IllegalStateException("Could not replace ${target.name}")
+        }
+        if (!tmp.renameTo(target)) {
+            throw IllegalStateException("Could not finalize ${target.name}")
+        }
+    }
+
+    private fun timestamp(): String =
+        SimpleDateFormat("yyyyMMdd_HHmmss", Locale.US).format(Date())
 }
