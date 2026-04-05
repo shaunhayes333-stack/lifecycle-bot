@@ -1356,6 +1356,14 @@ class BotService : Service() {
                 } catch (scEx: Exception) {
                     ErrorLogger.error("BotService", "Error clearing ShitCoin Express: ${scEx.message}", scEx)
                 }
+
+                // ☠️ Clear Manipulated positions
+                try {
+                    com.lifecyclebot.v3.scoring.ManipulatedTraderAI.clearAll()
+                    addLog("☠️ Cleared Manipulated positions")
+                } catch (mEx: Exception) {
+                    ErrorLogger.error("BotService", "Error clearing Manipulated positions: ${mEx.message}", mEx)
+                }
                 
                 // ═══════════════════════════════════════════════════════════════════
                 // V5.2.12: Also close Quality positions
@@ -1443,6 +1451,7 @@ class BotService : Service() {
             com.lifecyclebot.v3.scoring.BlueChipTraderAI.clearAllPositions()
             com.lifecyclebot.v3.scoring.ShitCoinTraderAI.clearAllPositions()
             com.lifecyclebot.v3.scoring.ShitCoinExpress.clearAllRides()
+            com.lifecyclebot.v3.scoring.ManipulatedTraderAI.clearAll()
             com.lifecyclebot.v3.scoring.QualityTraderAI.clearAllPositions()
             com.lifecyclebot.v3.scoring.MoonshotTraderAI.clearAllPositions()
             addLog("✅ Cleared all layer position tracking")
@@ -4304,6 +4313,110 @@ if (deferredCount > 0) {
             // ═══════════════════════════════════════════════════════════════════
             
             // ═══════════════════════════════════════════════════════════════════
+            // ☠️ THE MANIPULATED - Ride manipulation pumps before the dump
+            // Enters tokens OTHER layers BLOCK: bundles, wash trades, whale pumps
+            // Hard 4-minute time exit — manipulators don't wait
+            // ═══════════════════════════════════════════════════════════════════
+            if (!ts.position.isOpen && com.lifecyclebot.v3.scoring.ManipulatedTraderAI.isEnabled()) {
+                if (com.lifecyclebot.v3.scoring.CashGenerationAI.hasPosition(ts.mint)) {
+                    ErrorLogger.debug("BotService", "☠️ [MANIP] ${ts.symbol} | BLOCKED | Treasury has open position")
+                } else {
+                try {
+                    val manipTokenAgeMinutes = if (ts.addedToWatchlistAt > 0) {
+                        (System.currentTimeMillis() - ts.addedToWatchlistAt) / 60_000.0
+                    } else 60.0
+
+                    val manipBundlePct = if (ts.safety.bundleRisk == "HIGH") 80.0
+                                        else if (ts.safety.bundleRisk == "MEDIUM") 50.0
+                                        else 10.0
+
+                    val manipSignal = com.lifecyclebot.v3.scoring.ManipulatedTraderAI.evaluate(
+                        mint = ts.mint,
+                        symbol = ts.symbol,
+                        currentPrice = ts.ref,
+                        marketCapUsd = ts.lastMcap,
+                        liquidityUsd = ts.lastLiquidityUsd,
+                        momentum = ts.momentum ?: 0.0,
+                        buyPressurePct = ts.lastBuyPressurePct,
+                        bundlePct = manipBundlePct,
+                        source = ts.source,
+                        ageMinutes = manipTokenAgeMinutes,
+                        rugcheckScore = ts.safety.rugcheckScore.takeIf { it >= 0 } ?: 100,
+                        isPaper = cfg.paperMode,
+                    )
+
+                    if (manipSignal.shouldEnter) {
+                        val manipAuthResult = TradeAuthorizer.authorize(
+                            mint = ts.mint,
+                            symbol = ts.symbol,
+                            score = manipSignal.manipScore,
+                            confidence = 55.0,
+                            quality = "SHITCOIN",
+                            isPaperMode = cfg.paperMode,
+                            requestedBook = TradeAuthorizer.ExecutionBook.SHITCOIN,
+                            rugcheckScore = ts.safety.rugcheckScore.takeIf { it >= 0 } ?: 100,
+                            liquidity = ts.lastLiquidityUsd,
+                            isBanned = BannedTokens.isBanned(ts.mint),
+                        )
+
+                        if (!manipAuthResult.isExecutable()) {
+                            ErrorLogger.info("BotService", "☠️ [MANIP] ${ts.symbol} | ${if (manipAuthResult.isShadowOnly()) "SHADOW_ONLY" else "REJECTED"} | ${manipAuthResult.reason}")
+                        } else {
+                            ErrorLogger.info("BotService", "☠️ [MANIP] ${ts.symbol} | ENTER | " +
+                                "score=${manipSignal.manipScore} | " +
+                                "bundle=${manipBundlePct.toInt()}% | " +
+                                "bp=${ts.lastBuyPressurePct.toInt()}% | " +
+                                "mom=${(ts.momentum ?: 0.0).toInt()}% | " +
+                                "size=${String.format("%.4f", manipSignal.positionSizeSol)} SOL | " +
+                                "${if (cfg.paperMode) "PAPER" else "LIVE"}")
+
+                            executor.shitCoinBuy(
+                                ts = ts,
+                                sizeSol = manipSignal.positionSizeSol,
+                                walletSol = effectiveBalance,
+                                takeProfitPct = 25.0,
+                                stopLossPct = -5.0,
+                                wallet = wallet,
+                                isPaper = cfg.paperMode,
+                                launchPlatform = com.lifecyclebot.v3.scoring.ShitCoinTraderAI.detectPlatform(ts.source),
+                                riskLevel = com.lifecyclebot.v3.scoring.ShitCoinTraderAI.RiskLevel.EXTREME,
+                            )
+
+                            val actualManipEntry = ts.position.entryPrice.takeIf { it > 0 } ?: ts.ref
+                            com.lifecyclebot.v3.scoring.ManipulatedTraderAI.addPosition(
+                                com.lifecyclebot.v3.scoring.ManipulatedTraderAI.ManipulatedPosition(
+                                    mint = ts.mint,
+                                    symbol = ts.symbol,
+                                    entryPrice = actualManipEntry,
+                                    entrySol = manipSignal.positionSizeSol,
+                                    entryTime = System.currentTimeMillis(),
+                                    takeProfitPct = 25.0,
+                                    stopLossPct = -5.0,
+                                    manipScore = manipSignal.manipScore,
+                                    bundlePct = manipBundlePct,
+                                    buyPressure = ts.lastBuyPressurePct,
+                                    isPaper = cfg.paperMode,
+                                )
+                            )
+
+                            ts.position.tradingMode = "MANIPULATED"
+                            ts.position.tradingModeEmoji = "☠️"
+
+                            addLog("☠️ MANIP: ${ts.symbol} | score=${manipSignal.manipScore} | " +
+                                "TP+25% SL-5% | 4min max | " +
+                                "${if (cfg.paperMode) "PAPER" else "LIVE"}", ts.mint)
+                        }
+                    }
+                } catch (manipEx: Exception) {
+                    ErrorLogger.debug("BotService", "☠️ [MANIP] ${ts.symbol} | ERROR | ${manipEx.message}")
+                }
+                } // end else (Treasury doesn't have position)
+            }
+            // ═══════════════════════════════════════════════════════════════════
+            // END ManipulatedTraderAI evaluation
+            // ═══════════════════════════════════════════════════════════════════
+
+            // ═══════════════════════════════════════════════════════════════════
             // 💩🚂 SHITCOIN EXPRESS - Quick momentum rides for 30%+ profits
             // Only evaluates tokens that are ALREADY pumping hard
             // V5.2 FIX: Must check if Treasury already has a position!
@@ -5573,11 +5686,32 @@ if (deferredCount > 0) {
                 
                 addLog("$exitEmoji EXPRESS SELL: ${ts.symbol} | ${exitSignal.name} | " +
                     "${if (cfg.paperMode) "PAPER" else "LIVE"}", ts.mint)
-                
+
                 return
             }
         }
-        
+
+        // ═══════════════════════════════════════════════════════════════════
+        // ☠️ MANIPULATED EXIT CHECK
+        // Hard 4-minute time exit — manipulators have already left
+        // ═══════════════════════════════════════════════════════════════════
+        if (com.lifecyclebot.v3.scoring.ManipulatedTraderAI.hasPosition(ts.mint)) {
+            val currentPrice = ts.lastPrice.takeIf { it > 0 } ?: ts.position.entryPrice
+            val exitSignal = com.lifecyclebot.v3.scoring.ManipulatedTraderAI.checkExit(ts.mint, currentPrice)
+            if (exitSignal != com.lifecyclebot.v3.scoring.ManipulatedTraderAI.ManipExitSignal.HOLD) {
+                executor.requestSell(
+                    ts = ts,
+                    reason = "MANIPULATED_${exitSignal.name}",
+                    wallet = wallet,
+                    walletSol = effectiveBalance
+                )
+                com.lifecyclebot.v3.scoring.ManipulatedTraderAI.closePosition(ts.mint, currentPrice, exitSignal)
+                addLog("☠️ MANIP EXIT: ${ts.symbol} | ${exitSignal.name} | " +
+                    "${if (cfg.paperMode) "PAPER" else "LIVE"}", ts.mint)
+                return
+            }
+        }
+
         // ═══════════════════════════════════════════════════════════════════
         // 🌙 MOONSHOT EXIT CHECK
         // V5.2: Check for MOONSHOT prefix since mode includes space mode (MOONSHOT_ORBITAL, etc)
@@ -6044,6 +6178,15 @@ if (deferredCount > 0) {
         } catch (e: Exception) {
             failCount++
             ErrorLogger.error("BotService", "ShitCoinExpress init FAILED: ${e.message}", e)
+        }
+
+        // ☠️ The Manipulated
+        try {
+            com.lifecyclebot.v3.scoring.ManipulatedTraderAI.init(cfg.paperMode)
+            initCount++
+        } catch (e: Exception) {
+            failCount++
+            ErrorLogger.error("BotService", "ManipulatedTraderAI init FAILED: ${e.message}", e)
         }
         
         // V5.2.12: Quality Trader - professional mid-cap layer

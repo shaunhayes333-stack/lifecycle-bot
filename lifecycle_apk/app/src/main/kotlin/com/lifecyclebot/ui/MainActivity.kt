@@ -133,6 +133,15 @@ class MainActivity : AppCompatActivity() {
     private lateinit var tvExpressWinRate: TextView
     private lateinit var tvExpressDailyPnl: TextView
 
+    // ☠️ The Manipulated positions panel
+    private lateinit var cardManipulatedPositions: android.view.View
+    private lateinit var llManipPositions: LinearLayout
+    private lateinit var tvManipExposure: TextView
+    private lateinit var tvManipPnl: TextView
+    private lateinit var tvManipWinRate: TextView
+    private lateinit var tvManipDailyPnl: TextView
+    private lateinit var tvManipCaught: TextView
+
     // V5.2: Moonshot positions panel
     private lateinit var cardMoonshotPositions: android.view.View
     private lateinit var llMoonshotPositions: LinearLayout
@@ -149,6 +158,7 @@ class MainActivity : AppCompatActivity() {
     private lateinit var tvBlueChipStats: TextView
     private lateinit var tvShitCoinStats: TextView
     private lateinit var tvExpressStats: TextView
+    private lateinit var tvManipStats: TextView
     private lateinit var tvMoonshotStats: TextView
     // Note: Below 4 tiles don't have stats TextViews in XML yet
     private var tvAiBrainStats: TextView? = null
@@ -698,6 +708,15 @@ for legal compliance.
         tvExpressWinRate = try { findViewById(R.id.tvExpressWinRate) } catch (_: Exception) { TextView(this) }
         tvExpressDailyPnl = try { findViewById(R.id.tvExpressDailyPnl) } catch (_: Exception) { TextView(this) }
 
+        // ☠️ The Manipulated positions panel bindings
+        cardManipulatedPositions = try { findViewById(R.id.cardManipulatedPositions) } catch (_: Exception) { android.view.View(this) }
+        llManipPositions = try { findViewById(R.id.llManipPositions) } catch (_: Exception) { LinearLayout(this) }
+        tvManipExposure = try { findViewById(R.id.tvManipExposure) } catch (_: Exception) { TextView(this) }
+        tvManipPnl = try { findViewById(R.id.tvManipPnl) } catch (_: Exception) { TextView(this) }
+        tvManipWinRate = try { findViewById(R.id.tvManipWinRate) } catch (_: Exception) { TextView(this) }
+        tvManipDailyPnl = try { findViewById(R.id.tvManipDailyPnl) } catch (_: Exception) { TextView(this) }
+        tvManipCaught = try { findViewById(R.id.tvManipCaught) } catch (_: Exception) { TextView(this) }
+
         // V5.2: Moonshot positions panel bindings
         cardMoonshotPositions = try { findViewById(R.id.cardMoonshotPositions) } catch (_: Exception) { android.view.View(this) }
         llMoonshotPositions = try { findViewById(R.id.llMoonshotPositions) } catch (_: Exception) { LinearLayout(this) }
@@ -714,6 +733,7 @@ for legal compliance.
         tvBlueChipStats = try { findViewById(R.id.tvBlueChipStats) } catch (_: Exception) { TextView(this) }
         tvShitCoinStats = try { findViewById(R.id.tvShitCoinStats) } catch (_: Exception) { TextView(this) }
         tvExpressStats = try { findViewById(R.id.tvExpressStats) } catch (_: Exception) { TextView(this) }
+        tvManipStats = try { findViewById(R.id.tvManipStats) } catch (_: Exception) { TextView(this) }
         tvMoonshotStats = try { findViewById(R.id.tvMoonshotStats) } catch (_: Exception) { TextView(this) }
         tvAiBrainStats = try { findViewById(R.id.tvAiBrainStats) } catch (_: Exception) { null }
         tvShadowStats = try { findViewById(R.id.tvShadowStats) } catch (_: Exception) { null }
@@ -1406,7 +1426,26 @@ for legal compliance.
                 renderExpressRides(expressRides)
             }
         } catch (_: Exception) {}
-        
+
+        // ── ☠️ The Manipulated positions panel ────────────────────────────
+        try {
+            val manipPositions = com.lifecyclebot.v3.scoring.ManipulatedTraderAI.getActivePositions()
+            val manipStats = com.lifecyclebot.v3.scoring.ManipulatedTraderAI.getStats()
+            val showManip = manipPositions.isNotEmpty() || manipStats.dailyWins > 0 || manipStats.dailyLosses > 0
+            cardManipulatedPositions.visibility = if (showManip) android.view.View.VISIBLE else android.view.View.GONE
+            if (showManip) {
+                tvManipExposure.text = "%.3f◎".format(manipPositions.sumOf { it.entrySol })
+                val manipDailyPnl = manipStats.dailyPnlSol
+                tvManipPnl.text = "%+.4f◎".format(manipDailyPnl)
+                tvManipPnl.setTextColor(if (manipDailyPnl >= 0) green else red)
+                tvManipWinRate.text = "${manipStats.dailyWins}W/${manipStats.dailyLosses}L"
+                tvManipDailyPnl.text = "Day: %+.3f◎".format(manipDailyPnl)
+                tvManipDailyPnl.setTextColor(if (manipDailyPnl >= 0) green else red)
+                tvManipCaught.text = "Caught: ${manipStats.totalManipCaught}"
+                renderManipPositions(manipPositions)
+            }
+        } catch (_: Exception) {}
+
         // ── V5.2: Moonshot positions panel ────────────────────────────
         try {
             val moonshotPositions = com.lifecyclebot.v3.scoring.MoonshotTraderAI.getActivePositions()
@@ -2247,6 +2286,89 @@ for legal compliance.
         }
     }
 
+    // ☠️ Render Manipulated positions into the Manip card
+    private fun renderManipPositions(positions: List<com.lifecyclebot.v3.scoring.ManipulatedTraderAI.ManipulatedPosition>) {
+        llManipPositions.removeAllViews()
+        val sdf = java.text.SimpleDateFormat("HH:mm", java.util.Locale.US)
+        positions.forEach { pos ->
+            val currentPrice = try {
+                com.lifecyclebot.engine.BotService.status.tokens[pos.mint]?.ref ?: pos.entryPrice
+            } catch (_: Exception) { pos.entryPrice }
+            val gainPct = if (pos.entryPrice > 0) (currentPrice - pos.entryPrice) / pos.entryPrice * 100 else 0.0
+            val gainCol = if (gainPct >= 0) green else red
+            val pnlSol = pos.entrySol * gainPct / 100.0
+            val holdMins = (System.currentTimeMillis() - pos.entryTime) / 60_000
+
+            val row = LinearLayout(this).apply {
+                orientation = LinearLayout.HORIZONTAL
+                setPadding(0, 12, 0, 12)
+            }
+            val bar = View(this).apply {
+                layoutParams = LinearLayout.LayoutParams(4, LinearLayout.LayoutParams.MATCH_PARENT).also { it.marginEnd = 12 }
+                setBackgroundColor(0xFFB91C1C.toInt()) // Dark red for manipulated
+            }
+            row.addView(bar)
+
+            val info = LinearLayout(this).apply {
+                orientation = LinearLayout.VERTICAL
+                layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
+            }
+            info.addView(TextView(this).apply {
+                text = "☠️ ${pos.symbol}  score=${pos.manipScore}"
+                textSize = resources.getDimension(R.dimen.trade_row_text) / resources.displayMetrics.scaledDensity
+                setTextColor(0xFFB91C1C.toInt())
+                typeface = android.graphics.Typeface.DEFAULT_BOLD
+            })
+            info.addView(TextView(this).apply {
+                text = "Entry: ${pos.entryPrice.fmtPrice()}  ·  ${sdf.format(java.util.Date(pos.entryTime))}"
+                textSize = resources.getDimension(R.dimen.trade_sub_text) / resources.displayMetrics.scaledDensity
+                setTextColor(muted)
+                typeface = android.graphics.Typeface.MONOSPACE
+            })
+            info.addView(TextView(this).apply {
+                text = "Size: %.4f◎  ·  bndl=${pos.bundlePct.toInt()}%  ·  bp=${pos.buyPressure.toInt()}%  ·  ${holdMins}m".format(pos.entrySol)
+                textSize = resources.getDimension(R.dimen.trade_sub_text) / resources.displayMetrics.scaledDensity
+                setTextColor(muted)
+                typeface = android.graphics.Typeface.MONOSPACE
+            })
+            row.addView(info)
+
+            val right = LinearLayout(this).apply {
+                orientation = LinearLayout.VERTICAL
+                gravity = android.view.Gravity.END
+            }
+            right.addView(TextView(this).apply {
+                text = "%+.1f%%".format(gainPct)
+                textSize = resources.getDimension(R.dimen.token_name_size) / resources.displayMetrics.scaledDensity
+                setTextColor(gainCol)
+                typeface = android.graphics.Typeface.DEFAULT_BOLD
+                gravity = android.view.Gravity.END
+            })
+            right.addView(TextView(this).apply {
+                text = "%+.4f◎".format(pnlSol)
+                textSize = resources.getDimension(R.dimen.trade_sub_text) / resources.displayMetrics.scaledDensity
+                setTextColor(gainCol)
+                typeface = android.graphics.Typeface.MONOSPACE
+                gravity = android.view.Gravity.END
+            })
+            right.addView(TextView(this).apply {
+                text = "TP+25% SL-5% 4min"
+                textSize = 8f
+                setTextColor(muted)
+                typeface = android.graphics.Typeface.MONOSPACE
+                gravity = android.view.Gravity.END
+            })
+            row.addView(right)
+
+            val div = View(this).apply {
+                layoutParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, 1).also { it.topMargin = 10 }
+                setBackgroundColor(0xFF1F2937.toInt())
+            }
+            llManipPositions.addView(row)
+            llManipPositions.addView(div)
+        }
+    }
+
     // V5.2: Render Moonshot positions
     private fun renderMoonshotPositions(positions: List<com.lifecyclebot.v3.scoring.MoonshotTraderAI.MoonshotPosition>) {
         llMoonshotPositions.removeAllViews()
@@ -2534,7 +2656,7 @@ for legal compliance.
             } catch (_: Exception) { "Not initialized" }
             
             // Active AI Layers - concise list with ML
-            tvAiLayers.text = "Entry · Exit · Volume · Momentum · Liquidity · Behavior · Regime · Treasury · ShitCoin · Express · Quality · BlueChip · Moonshot · ML($mlStatus)"
+            tvAiLayers.text = "Entry · Exit · Volume · Momentum · Liquidity · Behavior · Regime · Treasury · ShitCoin · Express · Manipulated · Quality · BlueChip · Moonshot · ML($mlStatus)"
             tvAiLayers.setTextColor(muted)
             
         } catch (e: Exception) {
@@ -2554,10 +2676,11 @@ for legal compliance.
             val treasuryPos = com.lifecyclebot.v3.scoring.CashGenerationAI.getActivePositions().size
             val shitCoinPos = com.lifecyclebot.v3.scoring.ShitCoinTraderAI.getActivePositions().size
             val expressPos = com.lifecyclebot.v3.scoring.ShitCoinExpress.getActiveRides().size
+            val manipPos = com.lifecyclebot.v3.scoring.ManipulatedTraderAI.getActivePositions().size
             val qualityPos = com.lifecyclebot.v3.scoring.QualityTraderAI.getActivePositions().size
             val moonshotPos = com.lifecyclebot.v3.scoring.MoonshotTraderAI.getActivePositions().size
             val blueChipPos = com.lifecyclebot.v3.scoring.BlueChipTraderAI.getActivePositions().size
-            val totalOpenPos = treasuryPos + shitCoinPos + expressPos + qualityPos + moonshotPos + blueChipPos
+            val totalOpenPos = treasuryPos + shitCoinPos + expressPos + manipPos + qualityPos + moonshotPos + blueChipPos
             
             val learningPct = com.lifecyclebot.v3.scoring.FluidLearningAI.getLearningProgress() * 100
             
@@ -2643,6 +2766,25 @@ for legal compliance.
                 tvExpressStats.setTextColor(muted)
             }
         } catch (_: Exception) { tvExpressStats.text = "—" }
+
+        // ☠️ The Manipulated - show active positions and win rate
+        try {
+            val manipStats = com.lifecyclebot.v3.scoring.ManipulatedTraderAI.getStats()
+            val posCount = manipStats.activeCount
+            val totalTrades = manipStats.dailyWins + manipStats.dailyLosses
+            val winRate = if (totalTrades > 0) (manipStats.dailyWins * 100 / totalTrades) else 0
+            if (posCount > 0 || totalTrades > 0) {
+                tvManipStats.text = "$posCount | $winRate%"
+                tvManipStats.setTextColor(when {
+                    winRate >= 60 -> green
+                    winRate >= 45 -> amber
+                    else -> red
+                })
+            } else {
+                tvManipStats.text = "0/0"
+                tvManipStats.setTextColor(muted)
+            }
+        } catch (_: Exception) { tvManipStats.text = "—" }
 
         // Moonshot - show active positions and learning progress
         try {
