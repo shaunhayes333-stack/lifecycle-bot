@@ -124,7 +124,15 @@ class MainActivity : AppCompatActivity() {
     private lateinit var tvShitCoinMode: TextView
     private lateinit var tvShitCoinWinRate: TextView
     private lateinit var tvShitCoinDailyPnl: TextView
-    
+
+    // V5.9: ShitCoinExpress positions panel
+    private lateinit var cardExpressPositions: android.view.View
+    private lateinit var llExpressPositions: LinearLayout
+    private lateinit var tvExpressExposure: TextView
+    private lateinit var tvExpressPnl: TextView
+    private lateinit var tvExpressWinRate: TextView
+    private lateinit var tvExpressDailyPnl: TextView
+
     // V5.2: Moonshot positions panel
     private lateinit var cardMoonshotPositions: android.view.View
     private lateinit var llMoonshotPositions: LinearLayout
@@ -681,7 +689,15 @@ for legal compliance.
         tvShitCoinMode = try { findViewById(R.id.tvShitCoinMode) } catch (_: Exception) { TextView(this) }
         tvShitCoinWinRate = try { findViewById(R.id.tvShitCoinWinRate) } catch (_: Exception) { TextView(this) }
         tvShitCoinDailyPnl = try { findViewById(R.id.tvShitCoinDailyPnl) } catch (_: Exception) { TextView(this) }
-        
+
+        // V5.9: ShitCoinExpress positions panel bindings
+        cardExpressPositions = try { findViewById(R.id.cardExpressPositions) } catch (_: Exception) { android.view.View(this) }
+        llExpressPositions = try { findViewById(R.id.llExpressPositions) } catch (_: Exception) { LinearLayout(this) }
+        tvExpressExposure = try { findViewById(R.id.tvExpressExposure) } catch (_: Exception) { TextView(this) }
+        tvExpressPnl = try { findViewById(R.id.tvExpressPnl) } catch (_: Exception) { TextView(this) }
+        tvExpressWinRate = try { findViewById(R.id.tvExpressWinRate) } catch (_: Exception) { TextView(this) }
+        tvExpressDailyPnl = try { findViewById(R.id.tvExpressDailyPnl) } catch (_: Exception) { TextView(this) }
+
         // V5.2: Moonshot positions panel bindings
         cardMoonshotPositions = try { findViewById(R.id.cardMoonshotPositions) } catch (_: Exception) { android.view.View(this) }
         llMoonshotPositions = try { findViewById(R.id.llMoonshotPositions) } catch (_: Exception) { LinearLayout(this) }
@@ -1348,26 +1364,14 @@ for legal compliance.
         // ── V4.0: ShitCoin positions panel ─────────────────────────────────
         try {
             val shitCoinPositions = com.lifecyclebot.v3.scoring.ShitCoinTraderAI.getActivePositions()
-            val expressRides = com.lifecyclebot.v3.scoring.ShitCoinExpress.getActiveRides()
             val shitCoinStats = com.lifecyclebot.v3.scoring.ShitCoinTraderAI.getStats()
-            
-            // V5.2.12: Include Express rides in the count
-            val totalDegenPositions = shitCoinPositions.size + expressRides.size
-            
-            // Always show if we have positions OR if mode is active (not PAUSED)
-            val showShitCoin = totalDegenPositions > 0 || shitCoinStats.dailyTradeCount > 0
+            val showShitCoin = shitCoinPositions.isNotEmpty() || shitCoinStats.dailyTradeCount > 0
             cardShitCoinPositions.visibility = if (showShitCoin) android.view.View.VISIBLE else android.view.View.GONE
-            
             if (showShitCoin) {
-                // V5.2.12: Include Express exposure
-                val shitCoinExposure = shitCoinPositions.sumOf { it.entrySol } + expressRides.sumOf { it.entrySol }
-                tvShitCoinExposure.text = "%.3f◎".format(shitCoinExposure)
-                
+                tvShitCoinExposure.text = "%.3f◎".format(shitCoinPositions.sumOf { it.entrySol })
                 val shitCoinDailyPnl = shitCoinStats.dailyPnlSol
                 tvShitCoinPnl.text = "%+.4f◎".format(shitCoinDailyPnl)
                 tvShitCoinPnl.setTextColor(if (shitCoinDailyPnl >= 0) green else red)
-                
-                // Update stats row
                 val modeEmoji = when (shitCoinStats.mode) {
                     com.lifecyclebot.v3.scoring.ShitCoinTraderAI.ShitCoinMode.HUNTING -> "🎯"
                     com.lifecyclebot.v3.scoring.ShitCoinTraderAI.ShitCoinMode.POSITIONED -> "📊"
@@ -1379,14 +1383,25 @@ for legal compliance.
                 tvShitCoinWinRate.text = "${shitCoinStats.dailyWins}W/${shitCoinStats.dailyLosses}L"
                 tvShitCoinDailyPnl.text = "Day: %+.3f◎".format(shitCoinDailyPnl)
                 tvShitCoinDailyPnl.setTextColor(if (shitCoinDailyPnl >= 0) green else red)
-                
-                if (shitCoinPositions.isNotEmpty()) {
-                    renderShitCoinPositions(shitCoinPositions)
-                }
-                // V5.5: Render Express rides (were fetched but never displayed)
-                if (expressRides.isNotEmpty()) {
-                    renderExpressRides(expressRides)
-                }
+                if (shitCoinPositions.isNotEmpty()) renderShitCoinPositions(shitCoinPositions)
+            }
+        } catch (_: Exception) {}
+
+        // ── V5.9: ShitCoinExpress positions panel (own card, separate from ShitCoin) ──
+        try {
+            val expressRides = com.lifecyclebot.v3.scoring.ShitCoinExpress.getActiveRides()
+            val expressStats = com.lifecyclebot.v3.scoring.ShitCoinExpress.getStats()
+            val showExpress = expressRides.isNotEmpty() || expressStats.dailyRides > 0
+            cardExpressPositions.visibility = if (showExpress) android.view.View.VISIBLE else android.view.View.GONE
+            if (showExpress) {
+                tvExpressExposure.text = "%.3f◎".format(expressRides.sumOf { it.entrySol })
+                val expressDailyPnl = expressStats.dailyPnlSol
+                tvExpressPnl.text = "%+.4f◎".format(expressDailyPnl)
+                tvExpressPnl.setTextColor(if (expressDailyPnl >= 0) green else red)
+                tvExpressWinRate.text = "${expressStats.dailyWins}W/${expressStats.dailyLosses}L"
+                tvExpressDailyPnl.text = "Day: %+.3f◎".format(expressDailyPnl)
+                tvExpressDailyPnl.setTextColor(if (expressDailyPnl >= 0) green else red)
+                if (expressRides.isNotEmpty()) renderExpressRides(expressRides)
             }
         } catch (_: Exception) {}
         
@@ -2147,8 +2162,9 @@ for legal compliance.
         }
     }
     
-    // V5.5: Render ShitCoinExpress active rides
+    // V5.9: Render ShitCoinExpress active rides into dedicated Express card
     private fun renderExpressRides(rides: List<com.lifecyclebot.v3.scoring.ShitCoinExpress.ExpressRide>) {
+        llExpressPositions.removeAllViews()
         val sdf = java.text.SimpleDateFormat("HH:mm", java.util.Locale.US)
         rides.forEach { ride ->
             val currentPrice = try {
@@ -2224,8 +2240,8 @@ for legal compliance.
                 layoutParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, 1).also { it.topMargin = 10 }
                 setBackgroundColor(0xFF1F2937.toInt())
             }
-            llShitCoinPositions.addView(row)
-            llShitCoinPositions.addView(div)
+            llExpressPositions.addView(row)
+            llExpressPositions.addView(div)
         }
     }
 

@@ -1522,6 +1522,62 @@
             </LinearLayout>
 
             <!-- ═══════════════════════════════
+                 SHITCOIN EXPRESS POSITIONS CARD
+                 ═══════════════════════════════ -->
+            <LinearLayout
+                android:id="@+id/cardExpressPositions"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:background="@drawable/section_card_bg"
+                android:layout_marginStart="@dimen/card_margin"
+                android:layout_marginEnd="@dimen/card_margin"
+                android:layout_marginBottom="@dimen/card_margin_bottom"
+                android:orientation="vertical"
+                android:padding="@dimen/card_padding"
+                android:visibility="gone">
+
+                <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content"
+                    android:orientation="horizontal" android:gravity="center_vertical"
+                    android:layout_marginBottom="10dp">
+                    <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+                        android:text="⚡" android:textSize="16sp"
+                        android:layout_marginEnd="8dp"/>
+                    <TextView android:layout_width="0dp" android:layout_height="wrap_content"
+                        android:layout_weight="1"
+                        android:text="ShitCoin Express" android:textColor="#EAB308"
+                        android:textSize="@dimen/section_title_size" android:textStyle="bold"/>
+                    <TextView android:id="@+id/tvExpressExposure"
+                        android:layout_width="wrap_content" android:layout_height="wrap_content"
+                        android:text="" android:textColor="#6B7280"
+                        android:textSize="12sp" android:fontFamily="monospace"/>
+                    <TextView android:id="@+id/tvExpressPnl"
+                        android:layout_width="wrap_content" android:layout_height="wrap_content"
+                        android:text="" android:textColor="#10B981"
+                        android:textSize="12sp" android:fontFamily="monospace"
+                        android:layout_marginStart="8dp"/>
+                </LinearLayout>
+
+                <!-- Express Stats Row -->
+                <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content"
+                    android:orientation="horizontal" android:gravity="center_vertical"
+                    android:layout_marginBottom="8dp">
+                    <TextView android:id="@+id/tvExpressWinRate"
+                        android:layout_width="wrap_content" android:layout_height="wrap_content"
+                        android:text="0W/0L" android:textColor="#6B7280"
+                        android:textSize="10sp" android:fontFamily="monospace"/>
+                    <TextView android:id="@+id/tvExpressDailyPnl"
+                        android:layout_width="wrap_content" android:layout_height="wrap_content"
+                        android:text="Day: +0.00" android:textColor="#10B981"
+                        android:textSize="10sp" android:fontFamily="monospace"
+                        android:layout_marginStart="8dp"/>
+                </LinearLayout>
+
+                <LinearLayout android:id="@+id/llExpressPositions"
+                    android:layout_width="match_parent" android:layout_height="wrap_content"
+                    android:orientation="vertical"/>
+            </LinearLayout>
+
+            <!-- ═══════════════════════════════
                  V5.2: TREASURY + MOONSHOT SIDE-BY-SIDE ROW
                  Both show when they have open positions
                  ═══════════════════════════════ -->
