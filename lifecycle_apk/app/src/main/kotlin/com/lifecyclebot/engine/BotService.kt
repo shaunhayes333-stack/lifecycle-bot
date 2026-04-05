@@ -2876,7 +2876,16 @@ if (deferredCount > 0) {
             ts.lastMcap         = pair.candle.marketCap
             ts.lastLiquidityUsd = pair.liquidity
             ts.lastFdv          = pair.fdv
-            
+
+            // V5.9: Populate lastBuyPressurePct from polling candle data.
+            // Previously only set by DexScreener WebSocket — tokens without an active
+            // WS subscription were stuck at default 50.0, causing ShitCoinExpress (>=55)
+            // and ManipulatedTraderAI to never trigger on polled tokens.
+            val candleTxns = pair.candle.buysH1 + pair.candle.sellsH1
+            if (candleTxns > 0) {
+                ts.lastBuyPressurePct = pair.candle.buysH1.toDouble() / candleTxns * 100.0
+            }
+
             // V3.2: Update shadow learning engine with price
             if (pair.candle.priceUsd > 0) {
                 com.lifecyclebot.v3.learning.ShadowLearningEngine.updatePrice(
