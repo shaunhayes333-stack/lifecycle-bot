@@ -1028,7 +1028,10 @@ object FinalDecisionGate {
             )
         }
 
-        if (confidence < 32.0 && earlyAIDegraded && !canBypassConfidenceFloors) {
+        // V5.8: In paper mode, bypass AI_DEGRADED confidence floor.
+        // Degraded AI means we need MORE learning data, not less. Paper trades with low
+        // confidence when AI is degraded are precisely the training signal needed to recover.
+        if (confidence < 32.0 && earlyAIDegraded && !canBypassConfidenceFloors && !isPaperMode) {
             ErrorLogger.warn("FDG", "🚫 HARD_KILL: ${ts.symbol} | conf=${confidence.toInt()}% + AI_DEGRADED | DEGRADED_AI_CONFIDENCE_FLOOR_VIOLATED")
 
             return FinalDecision(
