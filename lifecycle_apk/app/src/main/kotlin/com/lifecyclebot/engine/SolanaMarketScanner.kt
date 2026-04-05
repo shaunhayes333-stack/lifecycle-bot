@@ -992,6 +992,8 @@ class SolanaMarketScanner(
                 runScan("scanPumpFunVolume") { scanPumpFunVolume() }
                 delay(100)
                 runScan("scanRaydiumNewPools") { scanRaydiumNewPools() }
+                delay(100)
+                runScan("scanCoinGeckoTrending") { scanCoinGeckoTrending() }
 
                 System.gc()
                 onLog("✅ Scan cycle #$scanRotation complete")
@@ -1819,11 +1821,126 @@ class SolanaMarketScanner(
     }
 
     private suspend fun scanCoinGeckoTrending() {
-        ErrorLogger.debug("Scanner", "Skipping CoinGecko scan (memory optimization)")
+        // GeckoTerminal trending Solana pools — free, no API key required
+        try {
+            val url = "https://api.geckoterminal.com/api/v2/networks/solana/trending_pools?page=1"
+            val body = getWithRetry(url) ?: return
+            val pools = JSONObject(body).optJSONArray("data") ?: return
+            var found = 0
+            for (i in 0 until minOf(pools.length(), 30)) {
+                if (found >= 15) break
+                val pool = pools.optJSONObject(i) ?: continue
+                val attrs = pool.optJSONObject("attributes") ?: continue
+                val relationships = pool.optJSONObject("relationships") ?: continue
+                val baseTokenId = relationships.optJSONObject("base_token")
+                    ?.optJSONObject("data")?.optString("id", "") ?: continue
+                // GeckoTerminal token IDs are "solana_<mint>"
+                val mint = baseTokenId.removePrefix("solana_")
+                if (mint.isBlank() || mint == baseTokenId || isSeen(mint)) continue
+                val name = attrs.optString("name", "")
+                if (name.contains("/USDC", ignoreCase = true) || name.contains("/USDT", ignoreCase = true)) continue
+
+                val liqUsd = attrs.optString("reserve_in_usd", "0").toDoubleOrNull() ?: 0.0
+                val volH1 = attrs.optJSONObject("volume_usd")?.optString("h1", "0")?.toDoubleOrNull() ?: 0.0
+                val buysH1 = attrs.optJSONObject("transactions")?.optJSONObject("h1")?.optInt("buys", 0) ?: 0
+                val sellsH1 = attrs.optJSONObject("transactions")?.optJSONObject("h1")?.optInt("sells", 0) ?: 0
+                val mcap = attrs.optString("fdv_usd", "0").toDoubleOrNull() ?: 0.0
+                val createdAt = attrs.optString("pool_created_at", "")
+                val ageHours = if (createdAt.isNotBlank()) {
+                    try {
+                        val ms = java.time.Instant.parse(createdAt).toEpochMilli()
+                        (System.currentTimeMillis() - ms) / 3_600_000.0
+                    } catch (_: Exception) { 24.0 }
+                } else 24.0
+
+                val token = ScannedToken(
+                    mint = mint,
+                    symbol = name.substringBefore("/").trim(),
+                    name = name,
+                    source = TokenSource.COINGECKO_TRENDING,
+                    liquidityUsd = liqUsd,
+                    volumeH1 = volH1,
+                    mcapUsd = mcap,
+                    pairCreatedHoursAgo = ageHours,
+                    dexId = "raydium",
+                    priceChangeH1 = attrs.optJSONObject("price_change_percentage")
+                        ?.optString("h1", "0")?.toDoubleOrNull() ?: 0.0,
+                    txCountH1 = buysH1 + sellsH1,
+                    score = scoreToken(liqUsd, volH1, buysH1 + sellsH1, mcap, 0.0, ageHours),
+                )
+                if (passesFilter(token)) {
+                    emitWithRugcheck(token)
+                    found++
+                    ErrorLogger.info("Scanner", "🦎 GeckoTerminal trending: ${token.symbol} | age=${ageHours.toInt()}h | liq=\$${liqUsd.toInt()}")
+                }
+            }
+            if (found > 0) ErrorLogger.info("Scanner", "scanCoinGeckoTrending: found $found tokens")
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            ErrorLogger.debug("Scanner", "scanCoinGeckoTrending error: ${e.message}")
+        }
     }
 
     private suspend fun scanRaydiumNewPools() {
-        ErrorLogger.debug("Scanner", "Skipping Raydium scan (memory optimization)")
+        // GeckoTerminal NEW Solana pools — free, no API key, catches launches before they trend
+        try {
+            val url = "https://api.geckoterminal.com/api/v2/networks/solana/new_pools?page=1"
+            val body = getWithRetry(url) ?: return
+            val pools = JSONObject(body).optJSONArray("data") ?: return
+            var found = 0
+            for (i in 0 until minOf(pools.length(), 30)) {
+                if (found >= 12) break
+                val pool = pools.optJSONObject(i) ?: continue
+                val attrs = pool.optJSONObject("attributes") ?: continue
+                val relationships = pool.optJSONObject("relationships") ?: continue
+                val baseTokenId = relationships.optJSONObject("base_token")
+                    ?.optJSONObject("data")?.optString("id", "") ?: continue
+                val mint = baseTokenId.removePrefix("solana_")
+                if (mint.isBlank() || mint == baseTokenId || isSeen(mint)) continue
+                val name = attrs.optString("name", "")
+                if (name.contains("/USDC", ignoreCase = true) || name.contains("/USDT", ignoreCase = true)) continue
+
+                val liqUsd = attrs.optString("reserve_in_usd", "0").toDoubleOrNull() ?: 0.0
+                val volH1 = attrs.optJSONObject("volume_usd")?.optString("h1", "0")?.toDoubleOrNull() ?: 0.0
+                val buysH1 = attrs.optJSONObject("transactions")?.optJSONObject("h1")?.optInt("buys", 0) ?: 0
+                val sellsH1 = attrs.optJSONObject("transactions")?.optJSONObject("h1")?.optInt("sells", 0) ?: 0
+                val mcap = attrs.optString("fdv_usd", "0").toDoubleOrNull() ?: 0.0
+                val createdAt = attrs.optString("pool_created_at", "")
+                val ageHours = if (createdAt.isNotBlank()) {
+                    try {
+                        val ms = java.time.Instant.parse(createdAt).toEpochMilli()
+                        (System.currentTimeMillis() - ms) / 3_600_000.0
+                    } catch (_: Exception) { 1.0 }
+                } else 1.0
+
+                val token = ScannedToken(
+                    mint = mint,
+                    symbol = name.substringBefore("/").trim(),
+                    name = name,
+                    source = TokenSource.RAYDIUM_NEW_POOL,
+                    liquidityUsd = liqUsd,
+                    volumeH1 = volH1,
+                    mcapUsd = mcap,
+                    pairCreatedHoursAgo = ageHours,
+                    dexId = "raydium",
+                    priceChangeH1 = attrs.optJSONObject("price_change_percentage")
+                        ?.optString("h1", "0")?.toDoubleOrNull() ?: 0.0,
+                    txCountH1 = buysH1 + sellsH1,
+                    score = scoreToken(liqUsd, volH1, buysH1 + sellsH1, mcap, 0.0, ageHours),
+                )
+                if (passesFilter(token)) {
+                    emitWithRugcheck(token)
+                    found++
+                    ErrorLogger.info("Scanner", "🦎 GeckoTerminal new: ${token.symbol} | age=${(ageHours*60).toInt()}min | liq=\$${liqUsd.toInt()}")
+                }
+            }
+            if (found > 0) ErrorLogger.info("Scanner", "scanRaydiumNewPools (GeckoTerminal): found $found tokens")
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            ErrorLogger.debug("Scanner", "scanRaydiumNewPools error: ${e.message}")
+        }
     }
 
     private suspend fun scanNarratives(keywords: List<String>) {
