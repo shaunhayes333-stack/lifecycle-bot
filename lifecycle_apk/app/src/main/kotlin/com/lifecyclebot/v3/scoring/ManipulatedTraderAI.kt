@@ -46,14 +46,24 @@ object ManipulatedTraderAI {
     private const val TAG = "☠️ManipAI"
 
     // ═══════════════════════════════════════════════════════════════════════════
-    // CONFIGURATION
+    // CONFIGURATION - V5.6.8: Added fluid thresholds for learning progression
     // ═══════════════════════════════════════════════════════════════════════════
 
-    private const val MIN_MANIP_SCORE = 60                     // Entry threshold
-    private const val MIN_MARKET_CAP_USD = 5_000.0             // $5K minimum
-    private const val MAX_MARKET_CAP_USD = 300_000.0           // $300K maximum
-    private const val MIN_LIQUIDITY_USD = 3_000.0              // $3K minimum
-    private const val MAX_TOKEN_AGE_MINUTES = 8.0              // Only <8 min old tokens
+    // Entry score thresholds (fluid - relaxes during bootstrap, tightens when mature)
+    private const val MIN_MANIP_SCORE_BOOTSTRAP = 45        // Lower bar during learning
+    private const val MIN_MANIP_SCORE_MATURE = 65           // Higher bar when experienced
+    
+    // Market cap range
+    private const val MIN_MARKET_CAP_USD = 5_000.0          // $5K minimum
+    private const val MAX_MARKET_CAP_USD = 300_000.0        // $300K maximum
+    
+    // Liquidity thresholds (fluid)
+    private const val MIN_LIQUIDITY_BOOTSTRAP = 2_000.0     // $2K during bootstrap (allow learning)
+    private const val MIN_LIQUIDITY_MATURE = 4_000.0        // $4K when mature
+    
+    // Token age (fluid - tighter when experienced)
+    private const val MAX_AGE_MINUTES_BOOTSTRAP = 10.0      // 10 min during bootstrap
+    private const val MAX_AGE_MINUTES_MATURE = 6.0          // 6 min when mature (faster entries)
 
     // Position sizing — bootstrap→mature via FluidLearningAI
     private const val POSITION_SOL_BOOTSTRAP = 0.015
@@ -228,27 +238,32 @@ object ManipulatedTraderAI {
         if (marketCapUsd < MIN_MARKET_CAP_USD) return noEnter("MCAP_TOO_LOW")
         if (marketCapUsd > MAX_MARKET_CAP_USD) return noEnter("MCAP_TOO_HIGH")
 
-        // Liquidity filter
-        if (liquidityUsd < MIN_LIQUIDITY_USD) return noEnter("LOW_LIQUIDITY")
+        // V5.6.8: Fluid liquidity filter
+        val minLiq = getFluidMinLiquidity()
+        if (liquidityUsd < minLiq) return noEnter("LOW_LIQUIDITY_${liquidityUsd.toInt()}<${minLiq.toInt()}")
 
-        // Age filter — entry is everything on manipulation plays
-        if (ageMinutes > MAX_TOKEN_AGE_MINUTES) return noEnter("TOKEN_TOO_OLD")
+        // V5.6.8: Fluid age filter — entry is everything on manipulation plays
+        val maxAge = getFluidMaxAge()
+        if (ageMinutes > maxAge) return noEnter("TOKEN_TOO_OLD_${ageMinutes.toInt()}m>${maxAge.toInt()}m")
 
-        // Known rug — skip even here
-        if (rugcheckScore in 0..0) return noEnter("KNOWN_RUG")
+        // V5.6.8: REMOVED rugcheck block — Manipulated layer INTENTIONALLY trades risky tokens
+        // The whole point is to ride manipulator pumps that other layers reject
+        // TradeAuthorizer.ExecutionBook.MANIPULATED bypasses rugcheck checks
 
         // Calculate manipulation score
         val score = calcManipScore(bundlePct, buyPressurePct, momentum, source, ageMinutes, rugcheckScore)
 
-        // Score gate
-        if (score < MIN_MANIP_SCORE) return noEnter("SCORE_TOO_LOW")
+        // V5.6.8: Fluid score gate
+        val minScore = getFluidScoreThreshold()
+        if (score < minScore) return noEnter("SCORE_TOO_LOW_${score}<${minScore}")
 
         val positionSizeSol = lerp(POSITION_SOL_BOOTSTRAP, POSITION_SOL_MATURE)
+        val learningPct = (FluidLearningAI.getLearningProgress() * 100).toInt()
 
-        ErrorLogger.info(TAG, "☠️ MANIP SIGNAL: $symbol | score=$score | " +
+        ErrorLogger.info(TAG, "☠️ MANIP SIGNAL: $symbol | score=$score (min=$minScore) | " +
             "bundle=${bundlePct.toInt()}% | bp=${buyPressurePct.toInt()}% | " +
             "mom=${momentum.toInt()}% | age=${ageMinutes.toInt()}min | " +
-            "size=${String.format("%.4f", positionSizeSol)} SOL")
+            "size=${String.format("%.4f", positionSizeSol)} SOL | learning=$learningPct%")
 
         return ManipSignal(
             shouldEnter = true,
@@ -366,4 +381,27 @@ object ManipulatedTraderAI {
         activePositions.clear()
         ErrorLogger.info(TAG, "☠️ ManipulatedTraderAI — all positions cleared")
     }
+    
+    // ═══════════════════════════════════════════════════════════════════════════
+    // V5.6.8: FLUID THRESHOLD FUNCTIONS
+    // Thresholds relax during bootstrap (learning), tighten when mature (experienced)
+    // ═══════════════════════════════════════════════════════════════════════════
+    
+    fun getFluidScoreThreshold(): Int {
+        val progress = FluidLearningAI.getLearningProgress().coerceIn(0.0, 1.0)
+        return (MIN_MANIP_SCORE_BOOTSTRAP + (MIN_MANIP_SCORE_MATURE - MIN_MANIP_SCORE_BOOTSTRAP) * progress).toInt()
+    }
+    
+    fun getFluidMinLiquidity(): Double {
+        val progress = FluidLearningAI.getLearningProgress().coerceIn(0.0, 1.0)
+        return MIN_LIQUIDITY_BOOTSTRAP + (MIN_LIQUIDITY_MATURE - MIN_LIQUIDITY_BOOTSTRAP) * progress
+    }
+    
+    fun getFluidMaxAge(): Double {
+        val progress = FluidLearningAI.getLearningProgress().coerceIn(0.0, 1.0)
+        // Age gets TIGHTER as we mature (faster entries required)
+        return MAX_AGE_MINUTES_BOOTSTRAP + (MAX_AGE_MINUTES_MATURE - MAX_AGE_MINUTES_BOOTSTRAP) * progress
+    }
+    
+    fun getFluidPositionSize(): Double = lerp(POSITION_SOL_BOOTSTRAP, POSITION_SOL_MATURE)
 }

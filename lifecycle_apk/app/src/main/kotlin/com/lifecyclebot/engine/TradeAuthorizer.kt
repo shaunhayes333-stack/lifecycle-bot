@@ -92,6 +92,7 @@ object TradeAuthorizer {
         BLUECHIP,
         MOONSHOT,
         SHADOW,
+        MANIPULATED,  // V5.6.8: Special book that bypasses rugcheck - trades intentionally risky tokens
     }
 
     data class TokenLock(
@@ -142,10 +143,14 @@ object TradeAuthorizer {
         // V5.8: In paper mode, bypass hard rug block — consistent with DistFade and RugPreFilter.
         // Fresh launches often get RC_SCORE=1 before any analysis exists, blocking all learning data.
         // Paper trades with bad rug scores still train the model on outcomes (good learning signal).
+        // V5.6.8: MANIPULATED book ALWAYS bypasses rugcheck — it trades intentionally risky tokens
+        val bypassRugcheck = requestedBook == ExecutionBook.MANIPULATED
+        
         when {
             rugcheckScore <= 1 -> {
-                if (isPaperMode) {
-                    ErrorLogger.info(TAG, "⚠️ PAPER BYPASS: $symbol RC_SCORE_$rugcheckScore — allowing for learning")
+                if (isPaperMode || bypassRugcheck) {
+                    val bypassReason = if (bypassRugcheck) "MANIPULATED LAYER" else "PAPER LEARNING"
+                    ErrorLogger.info(TAG, "⚠️ BYPASS ($bypassReason): $symbol RC_SCORE_$rugcheckScore — allowing entry")
                     // fall through to GATE 3+
                 } else {
                     ErrorLogger.info(TAG, "❌ REJECT $symbol: RC_SCORE_$rugcheckScore <= 1")
@@ -159,8 +164,9 @@ object TradeAuthorizer {
             }
 
             rugcheckScore in 2..5 -> {
-                if (isPaperMode) {
-                    ErrorLogger.info(TAG, "⚠️ PAPER BYPASS: $symbol RC_SCORE_$rugcheckScore (2-5) — allowing for learning")
+                if (isPaperMode || bypassRugcheck) {
+                    val bypassReason = if (bypassRugcheck) "MANIPULATED LAYER" else "PAPER LEARNING"
+                    ErrorLogger.info(TAG, "⚠️ BYPASS ($bypassReason): $symbol RC_SCORE_$rugcheckScore (2-5) — allowing entry")
                     // fall through to GATE 3+
                 } else {
                     ErrorLogger.info(TAG, "👁️ SHADOW_ONLY $symbol: RC_SCORE_$rugcheckScore")

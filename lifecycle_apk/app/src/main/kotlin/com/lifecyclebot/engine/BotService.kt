@@ -4375,9 +4375,9 @@ if (deferredCount > 0) {
                             symbol = ts.symbol,
                             score = manipSignal.manipScore,
                             confidence = 55.0,
-                            quality = "SHITCOIN",
+                            quality = "MANIPULATED",
                             isPaperMode = cfg.paperMode,
-                            requestedBook = TradeAuthorizer.ExecutionBook.SHITCOIN,
+                            requestedBook = TradeAuthorizer.ExecutionBook.MANIPULATED,  // V5.6.8: Use MANIPULATED book to bypass rugcheck
                             rugcheckScore = ts.safety.rugcheckScore.takeIf { it >= 0 } ?: 100,
                             liquidity = ts.lastLiquidityUsd,
                             isBanned = BannedTokens.isBanned(ts.mint),
