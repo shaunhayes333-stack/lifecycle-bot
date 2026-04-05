@@ -87,6 +87,24 @@ class UnifiedScorer(
         )
         
         // ═══════════════════════════════════════════════════════════════════════
+        // V5.8: SOFT PENALTY CAP — cap combined negative from subjective/noisy factors
+        // holders + narrative + social + holdtime uncapped = up to -8, drowning valid entries
+        // Cap their combined negative at -5 so no single noisy signal can kill a trade alone
+        // ═══════════════════════════════════════════════════════════════════════
+        val softPenaltyNames = setOf("holders", "narrative", "social", "holdtime")
+        val softPenaltyTotal = baseComponents
+            .filter { it.name.lowercase() in softPenaltyNames && it.value < 0 }
+            .sumOf { it.value }
+        val cappedBaseComponents = if (softPenaltyTotal < -5) {
+            val scale = -5.0 / softPenaltyTotal
+            baseComponents.map { comp ->
+                if (comp.name.lowercase() in softPenaltyNames && comp.value < 0) {
+                    comp.copy(value = (comp.value * scale).toInt())
+                } else comp
+            }
+        } else baseComponents
+
+        // ═══════════════════════════════════════════════════════════════════════
         // COLLECTIVE INTELLIGENCE AI - Layer 21: Hive Mind Synthesis
         // Aggregates wisdom from all AATE instances via Turso collective learning
         // ═══════════════════════════════════════════════════════════════════════
@@ -96,7 +114,7 @@ class UnifiedScorer(
                 symbol = candidate.symbol,
                 source = candidate.source.name,  // Convert SourceType to String
                 liquidityUsd = candidate.liquidityUsd,
-                v3Score = baseComponents.sumOf { it.value },
+                v3Score = cappedBaseComponents.sumOf { it.value },
                 v3Confidence = 70  // Default, will be refined by MetaCognition
             )
             ScoreComponent(
@@ -113,7 +131,7 @@ class UnifiedScorer(
         }
         
         // Combine base components with collective intelligence
-        val allComponents = baseComponents + collectiveComponent
+        val allComponents = cappedBaseComponents + collectiveComponent
         
         // ═══════════════════════════════════════════════════════════════════════
         // METACOGNITION AI - Layer 22: Self-Aware Executive Function
@@ -209,12 +227,11 @@ class UnifiedScorer(
             }
             
             // Return scorecard with all components including behavior
-            return ScoreCard(baseComponents + metaComponent + behaviorComponent)
-            
+            return ScoreCard(cappedBaseComponents + metaComponent + behaviorComponent)
+
         } catch (e: Exception) {
             Log.w("UnifiedScorer", "MetaCognitionAI error: ${e.message}")
-            // Fall back to base components without meta layer
-            return ScoreCard(baseComponents)
+            return ScoreCard(cappedBaseComponents)
         }
     }
     

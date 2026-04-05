@@ -2740,12 +2740,23 @@ class BotService : Service() {
                 com.lifecyclebot.v3.learning.ShadowLearningEngine.updatePrice(
                     ts.mint, pair.candle.priceUsd
                 )
-                
+
                 // V5.2: Update CashGenerationAI (Treasury) with independent price tracking
                 // This ensures Treasury layer has its OWN price reference for TP calculations
                 com.lifecyclebot.v3.scoring.CashGenerationAI.updatePrice(
                     ts.mint, pair.candle.priceUsd
                 )
+
+                // V5.8: Compute price momentum — ShitCoinExpress pre-filter needs >= 5.0
+                // ts.momentum was NEVER assigned anywhere, blocking all Express entries
+                val histSnap = ts.history
+                val histSize = histSnap.size
+                val refPrice = when {
+                    histSize >= 5 -> histSnap.elementAtOrNull(histSize - 5)?.priceUsd ?: 0.0
+                    histSize >= 2 -> histSnap.firstOrNull()?.priceUsd ?: 0.0
+                    else -> 0.0
+                }
+                ts.momentum = if (refPrice > 0) (pair.candle.priceUsd - refPrice) / refPrice * 100.0 else null
             }
             
             synchronized(ts.history) {
@@ -3502,7 +3513,7 @@ class BotService : Service() {
                     )
                     
                     if (qualityPermit.allowed && ts.lastMcap in 100_000.0..1_000_000.0) {
-                        val (v3Score, _) = when (val result = v3Decision) {
+                        val (v3Score, v3Confidence) = when (val result = v3Decision) {
                             is com.lifecyclebot.v3.V3Decision.Execute -> result.score to result.confidence.toInt()
                             is com.lifecyclebot.v3.V3Decision.Watch -> result.score to result.confidence
                             else -> 15 to 25
@@ -3551,17 +3562,28 @@ class BotService : Service() {
                                     "score=${qualitySignal.qualityScore} | " +
                                     "size=${qualitySignal.positionSizeSol.fmt(3)} SOL")
                                 
+                                // V5.8: Confidence-tiered TP: weak=4%, standard=6%, strong=8%
+                                val qualityTp = when {
+                                    v3Confidence >= 55 -> 8.0
+                                    v3Confidence >= 40 -> 6.0
+                                    else -> 4.0
+                                }
+
                                 // Execute Quality buy (reuse BlueChip executor pattern)
                                 executor.blueChipBuy(
                                     ts = ts,
                                     sizeSol = qualitySignal.positionSizeSol,
                                     walletSol = effectiveBalance,
-                                    takeProfitPct = qualitySignal.takeProfitPct,
+                                    takeProfitPct = qualityTp,
                                     stopLossPct = qualitySignal.stopLossPct,
                                     wallet = wallet,
                                     isPaper = cfg.paperMode
                                 )
-                                
+
+                                // V5.8: Override tradingMode — blueChipBuy() sets "BLUE_CHIP" by default,
+                                // breaking Quality exit routing (SL/TP checks gate on tradingMode == "QUALITY")
+                                ts.position.tradingMode = "QUALITY"
+
                                 // Record Quality position
                                 com.lifecyclebot.v3.scoring.QualityTraderAI.addPosition(
                                     com.lifecyclebot.v3.scoring.QualityTraderAI.QualityPosition(
@@ -3571,7 +3593,7 @@ class BotService : Service() {
                                         entrySol = qualitySignal.positionSizeSol,
                                         entryTime = System.currentTimeMillis(),
                                         entryMcap = ts.lastMcap,
-                                        takeProfitPct = qualitySignal.takeProfitPct,
+                                        takeProfitPct = qualityTp,
                                         stopLossPct = qualitySignal.stopLossPct
                                     )
                                 )
@@ -3644,22 +3666,29 @@ class BotService : Service() {
                             )
                             
                             if (canExecute) {
+                                // V5.8: Confidence-tiered TP: weak=4%, standard=6%, strong=9%
+                                val blueChipTp = when {
+                                    v3Confidence >= 55 -> 9.0
+                                    v3Confidence >= 40 -> 6.0
+                                    else -> 4.0
+                                }
+
                                 ErrorLogger.info("BotService", "🔵 [BLUE CHIP] ${ts.symbol} | ENTER | " +
                                     "mcap=\$${(ts.lastMcap/1_000_000).fmt(2)}M | " +
                                     "size=${blueChipSignal.positionSizeSol.fmt(3)} SOL | " +
-                                    "TP=${blueChipSignal.takeProfitPct}%")
-                                
+                                    "TP=$blueChipTp% (conf=$v3Confidence)")
+
                                 // Execute Blue Chip buy
                                 executor.blueChipBuy(
                                     ts = ts,
                                     sizeSol = blueChipSignal.positionSizeSol,
                                     walletSol = effectiveBalance,
-                                    takeProfitPct = blueChipSignal.takeProfitPct,
+                                    takeProfitPct = blueChipTp,
                                     stopLossPct = blueChipSignal.stopLossPct,
                                     wallet = wallet,
                                     isPaper = cfg.paperMode
                                 )
-                                
+
                                 // Record Blue Chip position
                                 com.lifecyclebot.v3.scoring.BlueChipTraderAI.addPosition(
                                     com.lifecyclebot.v3.scoring.BlueChipTraderAI.BlueChipPosition(
@@ -3671,7 +3700,7 @@ class BotService : Service() {
                                         marketCapUsd = ts.lastMcap,
                                         liquidityUsd = ts.lastLiquidityUsd,
                                         isPaper = cfg.paperMode,
-                                        takeProfitPct = blueChipSignal.takeProfitPct,
+                                        takeProfitPct = blueChipTp,
                                         stopLossPct = blueChipSignal.stopLossPct
                                     )
                                 )
@@ -4136,9 +4165,9 @@ class BotService : Service() {
                         (System.currentTimeMillis() - ts.addedToWatchlistAt) / 60_000.0
                     } else 60.0
                     
-                    // Express only for micro caps <$300K that are pumping
+                    // V5.8: Lowered buy pressure 60→55 to match ShitCoinExpress.kt pre-filter
                     if (ts.lastMcap <= 300_000 && ts.lastMcap >= 5_000 &&
-                        (ts.momentum ?: 0.0) >= 5.0 && ts.lastBuyPressurePct >= 60) {
+                        (ts.momentum ?: 0.0) >= 5.0 && ts.lastBuyPressurePct >= 55) {
                         
                         val isTrending = ts.source.contains("TRENDING", ignoreCase = true)
                         val isBoosted = ts.source.contains("BOOSTED", ignoreCase = true)

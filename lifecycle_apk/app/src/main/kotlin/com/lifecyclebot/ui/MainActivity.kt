@@ -1730,10 +1730,12 @@ for legal compliance.
         val solPrice = com.lifecyclebot.engine.WalletManager.lastKnownSolPrice
         
         positions.forEach { pos ->
-            // V5.2 FIX: Use REAL tracked price from CashGenerationAI instead of random simulation!
-            // This is critical - UI was showing fake PnL while checkExit used real prices
-            val trackedPrice = com.lifecyclebot.v3.scoring.CashGenerationAI.getTrackedPrice(pos.mint)
-            val currentPrice = trackedPrice ?: pos.entryPrice  // Fallback to entry if no price yet
+            // V5.8: Use BotService.status.tokens for consistent live price across ALL windows
+            val currentPrice = try {
+                com.lifecyclebot.engine.BotService.status.tokens[pos.mint]?.ref
+                    ?: com.lifecyclebot.v3.scoring.CashGenerationAI.getTrackedPrice(pos.mint)
+                    ?: pos.entryPrice
+            } catch (_: Exception) { pos.entryPrice }
             val gainPct = (currentPrice - pos.entryPrice) / pos.entryPrice * 100.0
             val gainCol = if (gainPct >= 0) green else red
             val pnlSol = pos.entrySol * gainPct / 100.0
@@ -1834,9 +1836,10 @@ for legal compliance.
         val sdf = java.text.SimpleDateFormat("HH:mm", java.util.Locale.US)
         
         positions.forEach { pos ->
-            // V5.2 FIX: Use position's tracked price or fall back to entry price
-            // BlueChip positions should have their own price tracking similar to Treasury
-            val currentPrice = pos.entryPrice  // TODO: Add getTrackedPrice to BlueChipTraderAI
+            // V5.8: Use live token price from BotService (consistent with other windows)
+            val currentPrice = try {
+                com.lifecyclebot.engine.BotService.status.tokens[pos.mint]?.ref ?: pos.entryPrice
+            } catch (_: Exception) { pos.entryPrice }
             val gainPct = (currentPrice - pos.entryPrice) / pos.entryPrice * 100
             val gainCol = if (gainPct >= 0) green else red
             val pnlSol = pos.entrySol * gainPct / 100.0

@@ -790,7 +790,8 @@ class LifecycleStrategy(
                 // AUTO-TUNE: Apply learned EMA fan and phase multipliers
                 val emaMultiplier = PatternAutoTuner.getEmaMultiplier(emafan.alignment.name)
                 val phaseMultiplier = PatternAutoTuner.getPhaseMultiplier(phase)
-                val combinedMult = ((emaMultiplier + phaseMultiplier) / 2.0).coerceIn(0.7, 1.3)  // Tighter range
+                // V5.8: Raised min floor 0.70→0.82 — 0.70 was over-compressing scores (12→8 seen in logs)
+                val combinedMult = ((emaMultiplier + phaseMultiplier) / 2.0).coerceIn(0.82, 1.3)
                 
                 if (combinedMult != 1.0 && kotlin.math.abs(combinedMult - 1.0) > 0.05) {
                     val oldScore = entryScore

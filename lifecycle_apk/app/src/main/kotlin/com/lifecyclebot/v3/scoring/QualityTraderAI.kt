@@ -312,9 +312,12 @@ object QualityTraderAI {
         // PROMOTION CHECKS - Quality → BlueChip/Moonshot
         // ═══════════════════════════════════════════════════════════════════
         
-        // If mcap crossed $1M, promote to BlueChip
-        if (currentMcap > 1_000_000 && pnlPct > 0) {
-            ErrorLogger.info(TAG, "🔵 QUALITY → BLUECHIP: ${pos.symbol} | mcap crossed $1M!")
+        // V5.8: Require substantial gain before promoting to BlueChip.
+        // Previously promoted at ANY profit once mcap crossed $1M — tokens entering near $800K
+        // could cross $1M at just +3% profit, then QualityTraderAI removes the position and
+        // BlueChip doesn't have it, so SL never fires. Now requires pnlPct >= 15.
+        if (currentMcap > 1_000_000 && pnlPct >= 15) {
+            ErrorLogger.info(TAG, "🔵 QUALITY → BLUECHIP: ${pos.symbol} | mcap=$${(currentMcap/1000).toInt()}K pnl=+${pnlPct.toInt()}%")
             return ExitSignal.PROMOTE_BLUECHIP
         }
         

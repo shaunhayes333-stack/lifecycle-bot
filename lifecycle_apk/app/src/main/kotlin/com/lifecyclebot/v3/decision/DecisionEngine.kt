@@ -143,9 +143,26 @@ data class DecisionResult(
 class FinalDecisionEngine(
     private val config: TradingConfigV3
 ) {
+    // V5.8: Anti-starvation — relax floors by 2-4 pts if no trades execute over a window
+    companion object {
+        @Volatile private var consecutiveNonExecute = 0
+        private const val STARVATION_WINDOW = 50
+        private const val STARVATION_RELIEF_SMALL = 2
+        private const val STARVATION_RELIEF_LARGE = 4
+
+        fun getStarvationRelief(): Int = when {
+            consecutiveNonExecute >= 100 -> STARVATION_RELIEF_LARGE
+            consecutiveNonExecute >= STARVATION_WINDOW -> STARVATION_RELIEF_SMALL
+            else -> 0
+        }
+
+        fun recordExecute() { consecutiveNonExecute = 0 }
+        fun recordNonExecute() { consecutiveNonExecute++ }
+    }
+
     /**
      * Make final decision based on score, confidence, and fatal check
-     * 
+     *
      * V3.2 ADDITION: ToxicModeCircuitBreaker integration
      * Checks for hard-disabled modes and liquidity floors BEFORE scoring
      */
@@ -243,11 +260,11 @@ class FinalDecisionEngine(
         }
         
         val minScoreForExecute = try {
-            // V3.3: Use FLUID thresholds from FluidLearningAI during bootstrap
-            val fluidMinScore = com.lifecyclebot.v3.scoring.FluidLearningAI.getMinScoreThreshold()
+            // V5.8: Use getExecuteFloor() (25→30) instead of watch threshold (20→30)
+            // Hard cap at 40 prevents drift starvation
+            val fluidExecuteFloor = com.lifecyclebot.v3.scoring.FluidLearningAI.getExecuteFloor()
             val configMinScore = com.lifecyclebot.engine.V3ConfidenceConfig.getMinScoreForExecute(config.executeStandardMin)
-            // Use the LOWER of fluid vs config during bootstrap (3% learning = use fluid)
-            minOf(fluidMinScore, configMinScore)
+            minOf(fluidExecuteFloor, configMinScore)
         } catch (e: Exception) {
             config.executeStandardMin
         }
@@ -351,14 +368,26 @@ class FinalDecisionEngine(
         // V5.0: Ultra low bootstrap to break learning deadlock
         val cGradeMinConf = (8 + (learningProgress * 12)).toInt().coerceIn(8, 20)
         
+        // V5.8: Anti-starvation — relax floors if no executes in recent window
+        val starvationRelief = getStarvationRelief()
+        val effectiveMinScore = minScoreForExecute - starvationRelief
+        val effectiveMinConf = minConfForExecute - starvationRelief
+        val effectiveCGradeConf = cGradeMinConf - starvationRelief
+
         val band = when {
-            score >= (minScoreForExecute * 1.3).toInt() && effectiveConf >= minConfForExecute + 10 -> DecisionBand.EXECUTE_AGGRESSIVE
-            score >= minScoreForExecute && effectiveConf >= minConfForExecute -> DecisionBand.EXECUTE_STANDARD
-            score >= (minScoreForExecute * 0.7).toInt() && effectiveConf >= cGradeMinConf -> DecisionBand.EXECUTE_SMALL
+            score >= (effectiveMinScore * 1.3).toInt() && effectiveConf >= effectiveMinConf + 10 -> DecisionBand.EXECUTE_AGGRESSIVE
+            score >= effectiveMinScore && effectiveConf >= effectiveMinConf -> DecisionBand.EXECUTE_STANDARD
+            score >= (effectiveMinScore * 0.7).toInt() && effectiveConf >= effectiveCGradeConf -> DecisionBand.EXECUTE_SMALL
             score >= config.watchScoreMin -> DecisionBand.WATCH
             else -> DecisionBand.REJECT
         }
-        
+
+        if (band == DecisionBand.EXECUTE_AGGRESSIVE || band == DecisionBand.EXECUTE_STANDARD || band == DecisionBand.EXECUTE_SMALL) {
+            recordExecute()
+        } else {
+            recordNonExecute()
+        }
+
         return DecisionResult(
             band = band,
             finalScore = score,

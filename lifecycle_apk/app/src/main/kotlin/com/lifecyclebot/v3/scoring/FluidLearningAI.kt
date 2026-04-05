@@ -602,7 +602,16 @@ object FluidLearningAI {
     private const val SCORE_MATURE = 30        // Higher threshold when mature
     
     fun getMinScoreThreshold(): Int = lerp(SCORE_BOOTSTRAP.toDouble(), SCORE_MATURE.toDouble()).toInt()
-    
+
+    /**
+     * V5.8: Get minimum score required for EXECUTE_STANDARD.
+     * Lerps from 25 (bootstrap) to 30 (mature). Hard cap at 40 prevents drift starvation.
+     */
+    fun getExecuteFloor(): Int {
+        val lerped = lerp(25.0, 30.0).toInt()
+        return lerped.coerceAtMost(40)  // hard cap: bootstrapFloor + 15
+    }
+
     // Score bonuses are HIGHER in bootstrap to encourage more mode diversity
     fun getScoreBonus(baseBonus: Double): Double = lerpInverse(baseBonus * 1.8, baseBonus)
     
