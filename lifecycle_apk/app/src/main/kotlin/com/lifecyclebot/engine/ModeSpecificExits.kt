@@ -480,8 +480,10 @@ object ModeSpecificExits {
         try {
             val whaleSignal = WhaleDetector.evaluate(ts.mint, ts)
             
-            // Whales selling = exit (but only if we're in profit)
-            if (!whaleSignal.hasWhaleActivity && !whaleSignal.smartMoneyPresent && pnlPct > 5) {
+            // V5.9: Whales selling = exit, but give 3 min before firing.
+            // Whales can temporarily pause without meaning they're exiting.
+            // VDOR was exiting after 1 minute due to whale pause — too early.
+            if (!whaleSignal.hasWhaleActivity && !whaleSignal.smartMoneyPresent && pnlPct > 5 && holdTimeMins >= 3.0) {
                 return ExitRecommendation(
                     shouldExit = true,
                     exitPct = 70.0,

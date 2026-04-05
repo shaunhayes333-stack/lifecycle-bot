@@ -140,9 +140,10 @@ object PrecisionExitLogic {
             history = history,
         )
         
-        // LOOSENED: Require higher confidence (was 70, now 80)
-        // Also require position to be at least breakeven or losing to exit
-        if (distribution.isDistributing && distribution.confidence >= 80 && pnlPct < 5.0) {
+        // V5.9: Only exit on distribution when already losing (-3%+).
+        // Old threshold of pnlPct < 5.0 caused distribution exits on +4% positions —
+        // cutting winners before TP could fire. Let TP handle profitable exits.
+        if (distribution.isDistributing && distribution.confidence >= 80 && pnlPct < -3.0) {
             return ExitSignal(
                 shouldExit = true,
                 reason = "DISTRIBUTION",

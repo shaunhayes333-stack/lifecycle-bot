@@ -758,8 +758,11 @@ class Executor(
             healthMultiplier -= 0.30
         }
         
-        // Clamp multiplier to reasonable range
-        healthMultiplier = healthMultiplier.coerceIn(0.5, 1.6)
+        // V5.9: Clamp multiplier — raise floor from 0.5→0.70.
+        // With BEAR_FAN (-0.30) + low vol (-0.20) + low pressure (-0.15) + exhaust (-0.30),
+        // the old 0.5 floor let trails tighten to 4.8% of peak, causing -2% exits
+        // after a 5% pump. 0.70 minimum still tightens bearish trails but not dangerously.
+        healthMultiplier = healthMultiplier.coerceIn(0.70, 1.6)
         
         // ═══════════════════════════════════════════════════════════════════
         // LEARNING LAYER INFLUENCE ON TRAILING STOP
