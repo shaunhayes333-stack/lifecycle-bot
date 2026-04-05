@@ -140,6 +140,7 @@ class MainActivity : AppCompatActivity() {
     private lateinit var tvTreasuryStats: TextView
     private lateinit var tvBlueChipStats: TextView
     private lateinit var tvShitCoinStats: TextView
+    private lateinit var tvExpressStats: TextView
     private lateinit var tvMoonshotStats: TextView
     // Note: Below 4 tiles don't have stats TextViews in XML yet
     private var tvAiBrainStats: TextView? = null
@@ -696,6 +697,7 @@ for legal compliance.
         tvTreasuryStats = try { findViewById(R.id.tvTreasuryStats) } catch (_: Exception) { TextView(this) }
         tvBlueChipStats = try { findViewById(R.id.tvBlueChipStats) } catch (_: Exception) { TextView(this) }
         tvShitCoinStats = try { findViewById(R.id.tvShitCoinStats) } catch (_: Exception) { TextView(this) }
+        tvExpressStats = try { findViewById(R.id.tvExpressStats) } catch (_: Exception) { TextView(this) }
         tvMoonshotStats = try { findViewById(R.id.tvMoonshotStats) } catch (_: Exception) { TextView(this) }
         tvAiBrainStats = try { findViewById(R.id.tvAiBrainStats) } catch (_: Exception) { null }
         tvShadowStats = try { findViewById(R.id.tvShadowStats) } catch (_: Exception) { null }
@@ -2606,6 +2608,24 @@ for legal compliance.
             }
         } catch (_: Exception) { tvShitCoinStats.text = "—" }
         
+        // ShitCoinExpress - show active rides and win rate
+        try {
+            val stats = com.lifecyclebot.v3.scoring.ShitCoinExpress.getStats()
+            val posCount = stats.activeRides
+            val winRate = stats.winRate.toInt()
+            if (posCount > 0 || stats.dailyRides > 0) {
+                tvExpressStats.text = "$posCount | $winRate%"
+                tvExpressStats.setTextColor(when {
+                    winRate >= 60 -> green
+                    winRate >= 45 -> amber
+                    else -> red
+                })
+            } else {
+                tvExpressStats.text = "0/0"
+                tvExpressStats.setTextColor(muted)
+            }
+        } catch (_: Exception) { tvExpressStats.text = "—" }
+
         // Moonshot - show active positions and learning progress
         try {
             val positions = com.lifecyclebot.v3.scoring.MoonshotTraderAI.getActivePositions()

@@ -3491,7 +3491,11 @@ if (deferredCount > 0) {
                         
                         // V4.1: Enter if Treasury says yes OR bootstrap override triggered
                         // V5.2.13: Block bootstrap override when V3 hard-rejects OR dump signals active
+                        // V5.9: All terminal V3 decisions block Treasury — Rejected, BlockFatal, AND Blocked.
+                        // Previously only Rejected was checked, so BLOCK_FATAL (e.g. EXTREME_RUG_RISK) slipped through.
                         val v3HardReject = v3Decision is com.lifecyclebot.v3.V3Decision.Rejected
+                            || v3Decision is com.lifecyclebot.v3.V3Decision.BlockFatal
+                            || v3Decision is com.lifecyclebot.v3.V3Decision.Blocked
                         val hasDumpSignal = try { AICrossTalk.isCoordinatedDump(ts.mint, ts.symbol) } catch (_: Exception) { false }
                         // V5.9: Terminal V3 rejects are globally binding — Treasury cannot override them.
                         // Previously v3HardReject only gated forceBootstrapEntry, not treasurySignal.shouldEnter.
@@ -4143,6 +4147,8 @@ if (deferredCount > 0) {
                         // V4.1: Enter if ShitCoin says yes OR bootstrap override triggered
                         // V5.2.13: Block bootstrap override on V3 hard-reject or active dump signals
                         val shitCoinV3HardReject = v3Decision is com.lifecyclebot.v3.V3Decision.Rejected
+                            || v3Decision is com.lifecyclebot.v3.V3Decision.BlockFatal
+                            || v3Decision is com.lifecyclebot.v3.V3Decision.Blocked
                         val shitCoinHasDump = try { AICrossTalk.isCoordinatedDump(ts.mint, ts.symbol) } catch (_: Exception) { false }
                         val shouldEnter = shitCoinSignal.shouldEnter || (forceBootstrapEntry && !shitCoinV3HardReject && !shitCoinHasDump)
                         
