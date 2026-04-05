@@ -3624,6 +3624,9 @@ if (deferredCount > 0) {
                                     stopLossPct = effectiveSlPct      // V5.2.8: Use effective SL
                                 )
                                 
+                                // V5.6.8 FIX: Notify V3 exposure guards of new position
+                                com.lifecyclebot.v3.V3EngineManager.onPositionOpened(ts.mint)
+                                
                                 // Release permit after successful execution
                                 FinalExecutionPermit.releaseExecution(ts.mint)
                                 
@@ -3763,6 +3766,9 @@ if (deferredCount > 0) {
                                     )
                                 )
                                 
+                                // V5.6.8 FIX: Notify V3 exposure guards
+                                com.lifecyclebot.v3.V3EngineManager.onPositionOpened(ts.mint)
+                                
                                 // Register with Layer Transition Manager
                                 com.lifecyclebot.v3.scoring.LayerTransitionManager.registerPosition(
                                     mint = ts.mint,
@@ -3869,6 +3875,9 @@ if (deferredCount > 0) {
                                         stopLossPct = blueChipSignal.stopLossPct
                                     )
                                 )
+                                
+                                // V5.6.8 FIX: Notify V3 exposure guards
+                                com.lifecyclebot.v3.V3EngineManager.onPositionOpened(ts.mint)
                                 
                                 // Register with Layer Transition Manager
                                 com.lifecyclebot.v3.scoring.LayerTransitionManager.registerPosition(
@@ -4014,6 +4023,9 @@ if (deferredCount > 0) {
                                                     isCollectiveWinner = moonshotScore.isCollectiveBoost,
                                                 )
                                             )
+                                            
+                                            // V5.6.8 FIX: Notify V3 exposure guards
+                                            com.lifecyclebot.v3.V3EngineManager.onPositionOpened(ts.mint)
                                             
                                             // Register with LayerTransitionManager for tracking
                                             com.lifecyclebot.v3.scoring.LayerTransitionManager.registerPosition(
@@ -4258,6 +4270,9 @@ if (deferredCount > 0) {
                                     )
                                 )
                                 
+                                // V5.6.8 FIX: Notify V3 exposure guards
+                                com.lifecyclebot.v3.V3EngineManager.onPositionOpened(ts.mint)
+                                
                                 // Register with Layer Transition Manager
                                 com.lifecyclebot.v3.scoring.LayerTransitionManager.registerPosition(
                                     mint = ts.mint,
@@ -4407,6 +4422,9 @@ if (deferredCount > 0) {
                                     isPaper = cfg.paperMode,
                                 )
                             )
+                            
+                            // V5.6.8 FIX: Notify V3 exposure guards
+                            com.lifecyclebot.v3.V3EngineManager.onPositionOpened(ts.mint)
 
                             ts.position.tradingMode = "MANIPULATED"
                             ts.position.tradingModeEmoji = "☠️"
@@ -4603,6 +4621,9 @@ if (deferredCount > 0) {
                                     liquidityUsd = ts.lastLiquidityUsd,
                                     isPaper = cfg.paperMode,
                                 )
+                                
+                                // V5.6.8 FIX: Notify V3 exposure guards
+                                com.lifecyclebot.v3.V3EngineManager.onPositionOpened(ts.mint)
                                 
                                 // Execute buy
                                 executor.paperBuy(
@@ -5540,6 +5561,9 @@ if (deferredCount > 0) {
                     ts.mint, currentPrice, exitSignal
                 )
                 recentlyClosedMs[ts.mint] = System.currentTimeMillis()
+                
+                // V5.6.8 FIX: Release exposure slot so new tokens can enter
+                com.lifecyclebot.v3.V3EngineManager.onPositionClosed(ts.mint)
 
                 addLog("💰 TREASURY SELL: ${ts.symbol} | ${exitSignal.name} | +${pnlPct.toInt()}% | " +
                     "${if (cfg.paperMode) "PAPER" else "LIVE"} | Capital returned to wallet!", ts.mint)
@@ -5654,6 +5678,9 @@ if (deferredCount > 0) {
                 com.lifecyclebot.v3.scoring.ShitCoinTraderAI.closePosition(
                     ts.mint, currentPrice, exitSignal
                 )
+                
+                // V5.6.8 FIX: Release exposure slot
+                com.lifecyclebot.v3.V3EngineManager.onPositionClosed(ts.mint)
 
                 addLog("$exitEmoji SHITCOIN SELL: ${ts.symbol} | ${exitSignal.name} | " +
                     "${if (cfg.paperMode) "PAPER" else "LIVE"}", ts.mint)
@@ -5693,6 +5720,9 @@ if (deferredCount > 0) {
                 
                 com.lifecyclebot.v3.scoring.ShitCoinExpress.exitRide(ts.mint, currentPrice, exitSignal)
                 
+                // V5.6.8 FIX: Release exposure slot
+                com.lifecyclebot.v3.V3EngineManager.onPositionClosed(ts.mint)
+                
                 addLog("$exitEmoji EXPRESS SELL: ${ts.symbol} | ${exitSignal.name} | " +
                     "${if (cfg.paperMode) "PAPER" else "LIVE"}", ts.mint)
 
@@ -5715,6 +5745,8 @@ if (deferredCount > 0) {
                     walletSol = effectiveBalance
                 )
                 com.lifecyclebot.v3.scoring.ManipulatedTraderAI.closePosition(ts.mint, currentPrice, exitSignal)
+                // V5.6.8 FIX: Release exposure slot
+                com.lifecyclebot.v3.V3EngineManager.onPositionClosed(ts.mint)
                 addLog("☠️ MANIP EXIT: ${ts.symbol} | ${exitSignal.name} | " +
                     "${if (cfg.paperMode) "PAPER" else "LIVE"}", ts.mint)
                 return
@@ -5768,6 +5800,9 @@ if (deferredCount > 0) {
                 )
 
                 com.lifecyclebot.v3.scoring.MoonshotTraderAI.closePosition(ts.mint, currentPrice, exitSignal)
+                
+                // V5.6.8 FIX: Release exposure slot
+                com.lifecyclebot.v3.V3EngineManager.onPositionClosed(ts.mint)
 
                 addLog("$exitEmoji MOONSHOT SELL: ${ts.symbol} | ${exitSignal.name} | " +
                     "${if (cfg.paperMode) "PAPER" else "LIVE"}", ts.mint)
@@ -5862,6 +5897,9 @@ if (deferredCount > 0) {
                 
                 com.lifecyclebot.v3.scoring.QualityTraderAI.closePosition(ts.mint, currentPrice, exitSignal)
                 
+                // V5.6.8 FIX: Release exposure slot
+                com.lifecyclebot.v3.V3EngineManager.onPositionClosed(ts.mint)
+                
                 addLog("$exitEmoji QUALITY SELL: ${ts.symbol} | ${exitSignal.name} | " +
                     "${if (cfg.paperMode) "PAPER" else "LIVE"}", ts.mint)
                 
@@ -5900,6 +5938,9 @@ if (deferredCount > 0) {
                 
                 com.lifecyclebot.v3.scoring.BlueChipTraderAI.closePosition(ts.mint, currentPrice, exitSignal)
                 
+                // V5.6.8 FIX: Release exposure slot
+                com.lifecyclebot.v3.V3EngineManager.onPositionClosed(ts.mint)
+                
                 addLog("$exitEmoji BLUECHIP SELL: ${ts.symbol} | ${exitSignal.name} | " +
                     "${if (cfg.paperMode) "PAPER" else "LIVE"}", ts.mint)
                 
@@ -5936,6 +5977,9 @@ if (deferredCount > 0) {
                 )
                 
                 com.lifecyclebot.v3.scoring.DipHunterAI.closeDip(ts.mint, currentPrice, exitSignal)
+                
+                // V5.6.8 FIX: Release exposure slot
+                com.lifecyclebot.v3.V3EngineManager.onPositionClosed(ts.mint)
                 
                 addLog("$exitEmoji DIP SELL: ${ts.symbol} | ${exitSignal.name} | " +
                     "${if (cfg.paperMode) "PAPER" else "LIVE"}", ts.mint)
@@ -6059,6 +6103,9 @@ if (deferredCount > 0) {
                 
                 // Close position tracking
                 com.lifecyclebot.v3.scoring.SellOptimizationAI.closePosition(ts.mint, pnlPct)
+                
+                // V5.6.8 FIX: Release exposure slot
+                com.lifecyclebot.v3.V3EngineManager.onPositionClosed(ts.mint)
             }
             
             // Update stop loss if suggested (for treasury positions)

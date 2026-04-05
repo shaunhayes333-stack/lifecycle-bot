@@ -478,6 +478,14 @@ object V3EngineManager {
     }
 
     /**
+     * V5.6.8: Mark position opened - notify ExposureGuard of new position
+     * Called by BotService when Treasury/other layers open positions
+     */
+    fun onPositionOpened(mint: String) {
+        exposureGuard?.openPosition(mint)
+    }
+
+    /**
      * Mark position closed.
      */
     fun onPositionClosed(mint: String) {
