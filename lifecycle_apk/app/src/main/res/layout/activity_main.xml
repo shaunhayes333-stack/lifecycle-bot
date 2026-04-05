@@ -1472,7 +1472,7 @@
                             android:textStyle="bold"/>
                     </LinearLayout>
                     
-                    <!-- Volume 5m -->
+                    <!-- 5m Volume -->
                     <LinearLayout
                         android:layout_width="0dp"
                         android:layout_height="wrap_content"
@@ -1482,22 +1482,47 @@
                         <TextView
                             android:layout_width="wrap_content"
                             android:layout_height="wrap_content"
-                            android:text="VOL 5m"
+                            android:text="5m VOL"
                             android:textColor="#6B7280"
                             android:textSize="9sp"
                             android:letterSpacing="0.05"/>
                         <TextView
-                            android:id="@+id/tvChartVol5m"
+                            android:id="@+id/tvChart5mVol"
                             android:layout_width="wrap_content"
                             android:layout_height="wrap_content"
                             android:text="$0"
-                            android:textColor="#F59E0B"
+                            android:textColor="#10B981"
                             android:textSize="11sp"
                             android:fontFamily="monospace"
                             android:textStyle="bold"/>
                     </LinearLayout>
                     
-                    <!-- Buy % -->
+                    <!-- Holders -->
+                    <LinearLayout
+                        android:layout_width="0dp"
+                        android:layout_height="wrap_content"
+                        android:layout_weight="1"
+                        android:orientation="vertical"
+                        android:gravity="center">
+                        <TextView
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:text="HOLD"
+                            android:textColor="#6B7280"
+                            android:textSize="9sp"
+                            android:letterSpacing="0.05"/>
+                        <TextView
+                            android:id="@+id/tvChartHolders"
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:text="0"
+                            android:textColor="#9945FF"
+                            android:textSize="11sp"
+                            android:fontFamily="monospace"
+                            android:textStyle="bold"/>
+                    </LinearLayout>
+                    
+                    <!-- Buy Pressure -->
                     <LinearLayout
                         android:layout_width="0dp"
                         android:layout_height="wrap_content"
@@ -1512,7 +1537,7 @@
                             android:textSize="9sp"
                             android:letterSpacing="0.05"/>
                         <TextView
-                            android:id="@+id/tvChartBuyPct"
+                            android:id="@+id/tvChartBuyPressure"
                             android:layout_width="wrap_content"
                             android:layout_height="wrap_content"
                             android:text="50%"
