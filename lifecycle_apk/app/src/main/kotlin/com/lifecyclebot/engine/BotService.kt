@@ -4768,8 +4768,9 @@ if (deferredCount > 0) {
     } catch (_: Exception) { 0.0 }
     val isBootstrap = learningProgress < 0.50  // Bootstrap phase ends at 0.5 (500 trades)
 
-    // During bootstrap: Allow SKIP trades through for V3 learning (paper mode only)
-    val allowSkipForLearning = isBootstrap && cfg.paperMode && edgeVerdictStr == "SKIP"
+    // V5.9: In bootstrap paper mode, allow ALL low-quality tokens through for learning data.
+    // Previously only edge="SKIP" was allowed — conf=0 C-grade tokens (edge="C") were still blocked.
+    val allowSkipForLearning = isBootstrap && cfg.paperMode
     
     if ((edgeVerdictStr == "SKIP" || confValue <= 0) && !allowSkipForLearning) {
         ErrorLogger.info("BotService", "[V3|PROMOTION_GATE] ${identity.symbol} | allow=false | " +
@@ -4793,8 +4794,8 @@ if (deferredCount > 0) {
     
     // Log when bootstrap override is used
     if (allowSkipForLearning) {
-        ErrorLogger.info("BotService", "[V3|BOOTSTRAP] ${identity.symbol} | SKIP override | " +
-            "learning=${(learningProgress * 100).toInt()}% | Allowing for V3 learning")
+        ErrorLogger.info("BotService", "[V3|BOOTSTRAP] ${identity.symbol} | bootstrap override | " +
+            "edge=$edgeVerdictStr conf=${confValue.toInt()} learning=${(learningProgress * 100).toInt()}% | Allowing for V3 learning")
     }
     
     // ───────────────────────────────────────────────────────────────────
