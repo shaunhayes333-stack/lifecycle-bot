@@ -99,7 +99,10 @@ android {
     }
 
     buildFeatures {
-        viewBinding = true
+        // V5.6.7: Disabled viewBinding - layout has 237 IDs which exceeds
+        // Java's method parameter limit (255) causing ActivityMainBinding
+        // constructor to fail compilation. App uses findViewById() directly.
+        viewBinding = false
         buildConfig = true
     }
 }
