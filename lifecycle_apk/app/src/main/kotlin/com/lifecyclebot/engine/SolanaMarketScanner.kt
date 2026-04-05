@@ -2323,20 +2323,14 @@ class SolanaMarketScanner(
 
             val isPaper = cfg().paperMode
 
-            // Minimum RC score to pass = 2 (user-confirmed).
-            // Score 0,1 = blocked. Score 2+ = allowed (with warning for 2-5).
+            // V5.8: In paper mode, only block confirmed rugs (rugged=true above).
+            // Score < 2 is allowed through for learning — same policy as DistFade/RugPreFilter/TradeAuthorizer.
+            // The score=1 condition often fires on new tokens before rugcheck has full analysis.
             if (isPaper) {
                 if (scoreNormalized < 2) {
-                    telemetryRugRejects++
-                    onLog("🚫 RC BLOCK [PAPER]: ${mint.take(8)}... score=$scoreNormalized (below min=2)")
-                    ErrorLogger.info("Scanner", "RC BLOCK [PAPER]: ${mint.take(12)} score=$scoreNormalized < 2")
-                    return false
+                    onLog("⚠️ RC WARN [PAPER]: ${mint.take(8)}... score=$scoreNormalized — allowing for learning")
+                    ErrorLogger.info("Scanner", "RC PAPER BYPASS: ${mint.take(12)} score=$scoreNormalized < 2 (learning)")
                 }
-                if (scoreNormalized in 2..5) {
-                    onLog("⚠️ RC WARN [PAPER]: ${mint.take(8)}... score=$scoreNormalized (risky but learning)")
-                    ErrorLogger.info("Scanner", "RC PASS [PAPER]: ${mint.take(12)} score=$scoreNormalized (min=2 met)")
-                }
-
                 return true
             }
 
