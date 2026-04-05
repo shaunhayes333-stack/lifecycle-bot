@@ -63,6 +63,9 @@ class BotService : Service() {
         // Shared live state — observed by UI via polling or flow
         val status = BotStatus()
         lateinit var walletManager: WalletManager
+        // V5.9: Track recently closed positions to prevent immediate re-entry (churn prevention)
+        val recentlyClosedMs = java.util.concurrent.ConcurrentHashMap<String, Long>()
+        private const val RE_ENTRY_COOLDOWN_MS = 300_000L  // 5 minutes
     }
 
     // Coroutine exception handler - logs errors without crashing
@@ -1277,6 +1280,7 @@ class BotService : Service() {
                                     exitPrice = currentPrice,
                                     exitReason = com.lifecyclebot.v3.scoring.CashGenerationAI.ExitSignal.TIME_EXIT
                                 )
+                                recentlyClosedMs[tPos.mint] = System.currentTimeMillis()
                                 addLog("💰 Closed Treasury position: ${tPos.symbol}", tPos.mint)
                             } catch (te: Exception) {
                                 addLog("⚠️ Failed to close Treasury ${tPos.symbol}: ${te.message}", tPos.mint)
@@ -3489,8 +3493,18 @@ if (deferredCount > 0) {
                         // V5.2.13: Block bootstrap override when V3 hard-rejects OR dump signals active
                         val v3HardReject = v3Decision is com.lifecyclebot.v3.V3Decision.Rejected
                         val hasDumpSignal = try { AICrossTalk.isCoordinatedDump(ts.mint, ts.symbol) } catch (_: Exception) { false }
-                        val shouldEnter = treasurySignal.shouldEnter || (forceBootstrapEntry && !v3HardReject && !hasDumpSignal)
-                        
+                        // V5.9: Terminal V3 rejects are globally binding — Treasury cannot override them.
+                        // Previously v3HardReject only gated forceBootstrapEntry, not treasurySignal.shouldEnter.
+                        // TOO_OLD / INELIGIBLE / ZERO_LIQUIDITY rejections from V3|ELIGIBILITY must block all layers.
+                        val shouldEnter = !v3HardReject && !hasDumpSignal && (treasurySignal.shouldEnter || forceBootstrapEntry)
+
+                        // V5.9: Post-close cooldown — prevent immediate re-entry after a close
+                        val closedAgoMs = System.currentTimeMillis() - (BotService.recentlyClosedMs[ts.mint] ?: 0L)
+                        if (closedAgoMs < BotService.RE_ENTRY_COOLDOWN_MS) {
+                            ErrorLogger.debug("BotService", "💰 [TREASURY] ${ts.symbol} | COOLDOWN | closed ${closedAgoMs/1000}s ago (min ${BotService.RE_ENTRY_COOLDOWN_MS/1000}s)")
+                            return
+                        }
+
                         if (shouldEnter) {
                             // V4.1: Apply bootstrap size multiplier for micro-positions
                             val bootstrapMultiplier = com.lifecyclebot.v3.scoring.FluidLearningAI.getBootstrapSizeMultiplier()
@@ -5396,7 +5410,8 @@ if (deferredCount > 0) {
                 com.lifecyclebot.v3.scoring.CashGenerationAI.closePosition(
                     ts.mint, currentPrice, exitSignal
                 )
-                
+                recentlyClosedMs[ts.mint] = System.currentTimeMillis()
+
                 addLog("💰 TREASURY SELL: ${ts.symbol} | ${exitSignal.name} | +${pnlPct.toInt()}% | " +
                     "${if (cfg.paperMode) "PAPER" else "LIVE"} | Capital returned to wallet!", ts.mint)
                 
