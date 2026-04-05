@@ -139,34 +139,47 @@ object TradeAuthorizer {
         }
 
         // GATE 2: rugcheck hard policy
+        // V5.8: In paper mode, bypass hard rug block — consistent with DistFade and RugPreFilter.
+        // Fresh launches often get RC_SCORE=1 before any analysis exists, blocking all learning data.
+        // Paper trades with bad rug scores still train the model on outcomes (good learning signal).
         when {
             rugcheckScore <= 1 -> {
-                ErrorLogger.info(TAG, "❌ REJECT $symbol: RC_SCORE_$rugcheckScore <= 1")
-                return AuthorizationResult(
-                    verdict = ExecutionVerdict.REJECT,
-                    reason = "RUGCHECK_CATASTROPHIC_$rugcheckScore",
-                    blockLevel = BlockLevel.HARD,
-                    canRetry = false,
-                )
+                if (isPaperMode) {
+                    ErrorLogger.info(TAG, "⚠️ PAPER BYPASS: $symbol RC_SCORE_$rugcheckScore — allowing for learning")
+                    // fall through to GATE 3+
+                } else {
+                    ErrorLogger.info(TAG, "❌ REJECT $symbol: RC_SCORE_$rugcheckScore <= 1")
+                    return AuthorizationResult(
+                        verdict = ExecutionVerdict.REJECT,
+                        reason = "RUGCHECK_CATASTROPHIC_$rugcheckScore",
+                        blockLevel = BlockLevel.HARD,
+                        canRetry = false,
+                    )
+                }
             }
 
             rugcheckScore in 2..5 -> {
-                ErrorLogger.info(TAG, "👁️ SHADOW_ONLY $symbol: RC_SCORE_$rugcheckScore")
+                if (isPaperMode) {
+                    ErrorLogger.info(TAG, "⚠️ PAPER BYPASS: $symbol RC_SCORE_$rugcheckScore (2-5) — allowing for learning")
+                    // fall through to GATE 3+
+                } else {
+                    ErrorLogger.info(TAG, "👁️ SHADOW_ONLY $symbol: RC_SCORE_$rugcheckScore")
 
-                tokenLocks[lockKey(mint, ExecutionBook.SHADOW)] = TokenLock(
-                    mint = mint,
-                    state = TokenState.SHADOW_TRACKING,
-                    book = ExecutionBook.SHADOW,
-                    lockedAt = now,
-                    lastDecisionEpoch = currentEpoch,
-                )
+                    tokenLocks[lockKey(mint, ExecutionBook.SHADOW)] = TokenLock(
+                        mint = mint,
+                        state = TokenState.SHADOW_TRACKING,
+                        book = ExecutionBook.SHADOW,
+                        lockedAt = now,
+                        lastDecisionEpoch = currentEpoch,
+                    )
 
-                return AuthorizationResult(
-                    verdict = ExecutionVerdict.SHADOW_ONLY,
-                    reason = "RC_SHADOW_$rugcheckScore",
-                    blockLevel = BlockLevel.SOFT,
-                    canRetry = true,
-                )
+                    return AuthorizationResult(
+                        verdict = ExecutionVerdict.SHADOW_ONLY,
+                        reason = "RC_SHADOW_$rugcheckScore",
+                        blockLevel = BlockLevel.SOFT,
+                        canRetry = true,
+                    )
+                }
             }
         }
 
