@@ -141,7 +141,9 @@ object V3EngineManager {
 
                 cooldownManager = CooldownManager()
                 exposureGuard = ExposureGuard(
-                    maxOpenPositions = botCfg.maxConcurrentPositions.coerceAtMost(10),
+                    // Paper mode: 25 slots (no real money at risk, need volume for learning)
+                    // Live mode: respect user's configured limit, max 10
+                    maxOpenPositions = if (botCfg.paperMode) 25 else botCfg.maxConcurrentPositions.coerceAtMost(10),
                     maxExposurePct = (botCfg.v3MaxExposurePct / 100.0).coerceIn(0.0, 1.0)
                 )
                 learningStore = LearningStore()

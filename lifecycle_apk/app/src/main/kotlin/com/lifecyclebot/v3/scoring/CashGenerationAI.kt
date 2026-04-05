@@ -442,18 +442,10 @@ object CashGenerationAI {
         }
 
         if (COMPOUNDING_ENABLED) {
-            if (treasuryBalance > 0) {
-                val compoundingBonus = treasuryBalance * COMPOUNDING_RATIO
-                val confidenceScale = treasuryConfidence / 100.0
-                positionSol += compoundingBonus * confidenceScale
-
-                ErrorLogger.debug(
-                    TAG,
-                    "💰 COMPOUNDING: +${compoundingBonus.fmt(3)}SOL from treasury " +
-                        "(balance=${treasuryBalance.fmt(3)}SOL, conf=${treasuryConfidence}%)",
-                )
-            }
-
+            // V5.9 FIX: Compound TODAY'S PROFITS only — not total treasury balance.
+            // Old code added treasuryBalance * 0.5 * conf per trade: with 6 SOL treasury
+            // this inflated every trade by 2+ SOL (38% of wallet). Runaway sizing.
+            // Now only incremental profits of the day feed back into sizing.
             if (dailyPnl > 0) {
                 val dailyCompound = dailyPnl * COMPOUNDING_RATIO * (treasuryConfidence / 100.0)
                 positionSol += dailyCompound

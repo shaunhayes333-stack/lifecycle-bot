@@ -3841,7 +3841,7 @@ if (deferredCount > 0) {
                                     com.lifecyclebot.v3.scoring.BlueChipTraderAI.BlueChipPosition(
                                         mint = ts.mint,
                                         symbol = ts.symbol,
-                                        entryPrice = ts.ref,
+                                        entryPrice = ts.ref.takeIf { it > 0 } ?: ts.lastPrice.takeIf { it > 0 } ?: ts.position.entryPrice,
                                         entrySol = blueChipSignal.positionSizeSol,
                                         entryTime = System.currentTimeMillis(),
                                         marketCapUsd = ts.lastMcap,

@@ -263,7 +263,10 @@ object BlueChipTraderAI {
             com.lifecyclebot.engine.ErrorLogger.debug(TAG, "Failed to release BlueChip lock: ${e.message}")
         }
         
-        val pnlPct = (exitPrice - pos.entryPrice) / pos.entryPrice * 100
+        // Guard: if entryPrice was zero/near-zero, pnlPct blows up — cap to realistic range
+        val pnlPct = if (pos.entryPrice > 0) {
+            ((exitPrice - pos.entryPrice) / pos.entryPrice * 100).coerceIn(-100.0, 10_000.0)
+        } else 0.0
         val pnlSol = pos.entrySol * pnlPct / 100
         
         // Record to daily P&L
