@@ -1821,10 +1821,13 @@ class SolanaMarketScanner(
     }
 
     private suspend fun scanCoinGeckoTrending() {
-        // GeckoTerminal trending Solana pools — free, no API key required
+        // GeckoTerminal trending Solana pools — completely free, no API key required
         try {
             val url = "https://api.geckoterminal.com/api/v2/networks/solana/trending_pools?page=1"
-            val body = getWithRetry(url) ?: return
+            val body = getWithRetry(url) ?: run {
+                ErrorLogger.debug("Scanner", "scanCoinGeckoTrending: no response")
+                return
+            }
             val pools = JSONObject(body).optJSONArray("data") ?: return
             var found = 0
             for (i in 0 until minOf(pools.length(), 30)) {
