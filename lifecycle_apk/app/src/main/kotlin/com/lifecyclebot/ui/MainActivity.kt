@@ -1099,15 +1099,24 @@ for legal compliance.
             val nextUsd = ws.nextMilestoneUsd
             val modeLabel = if (isPaper) " [PAPER]" else ""
             
-            findViewById<android.widget.TextView?>(R.id.tvTreasuryTier)?.text =
-                if (trs > 0.001) "Tier: $tier$modeLabel" else "Tier: None$modeLabel"
-            findViewById<android.widget.TextView?>(R.id.tvTreasuryAmount)?.text =
-                if (trs > 0.001) "${"%.3f".format(trs)} SOL  ($${"%.0f".format(trsUsd)})" else "—"
-            findViewById<android.widget.TextView?>(R.id.tvTreasuryNext)?.text = when {
+            // Update BOTH old and new treasury views (new views have "2" suffix)
+            val tierText = if (trs > 0.001) "Tier: $tier$modeLabel" else "Tier: None$modeLabel"
+            val amountText = if (trs > 0.001) "${"%.3f".format(trs)} SOL  ($${"%.0f".format(trsUsd)})" else "—"
+            val nextText = when {
                 nextUsd > 0 -> "Next: $${"%,.0f".format(nextUsd)}"
                 trs > 0     -> "Max tier reached"
-                else        -> "First milestone: $500"
+                else        -> "First: $500"
             }
+            
+            // Old views (hidden but keeping for compatibility)
+            findViewById<android.widget.TextView?>(R.id.tvTreasuryTier)?.text = tierText
+            findViewById<android.widget.TextView?>(R.id.tvTreasuryAmount)?.text = amountText
+            findViewById<android.widget.TextView?>(R.id.tvTreasuryNext)?.text = nextText
+            
+            // New visible views (V5.6.8 moved section)
+            findViewById<android.widget.TextView?>(R.id.tvTreasuryTier2)?.text = tierText
+            findViewById<android.widget.TextView?>(R.id.tvTreasuryAmount2)?.text = amountText
+            findViewById<android.widget.TextView?>(R.id.tvTreasuryNext2)?.text = nextText
         } catch (_: Exception) {}
 
         // ── bot status card ───────────────────────────────────────────
