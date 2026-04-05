@@ -1383,7 +1383,8 @@ for legal compliance.
                 tvShitCoinWinRate.text = "${shitCoinStats.dailyWins}W/${shitCoinStats.dailyLosses}L"
                 tvShitCoinDailyPnl.text = "Day: %+.3f◎".format(shitCoinDailyPnl)
                 tvShitCoinDailyPnl.setTextColor(if (shitCoinDailyPnl >= 0) green else red)
-                if (shitCoinPositions.isNotEmpty()) renderShitCoinPositions(shitCoinPositions)
+                // Always re-render (clears stale rows when positions close but dailyTradeCount > 0)
+                renderShitCoinPositions(shitCoinPositions)
             }
         } catch (_: Exception) {}
 
@@ -1401,7 +1402,8 @@ for legal compliance.
                 tvExpressWinRate.text = "${expressStats.dailyWins}W/${expressStats.dailyLosses}L"
                 tvExpressDailyPnl.text = "Day: %+.3f◎".format(expressDailyPnl)
                 tvExpressDailyPnl.setTextColor(if (expressDailyPnl >= 0) green else red)
-                if (expressRides.isNotEmpty()) renderExpressRides(expressRides)
+                // Always re-render (clears stale rows when rides close but dailyRides > 0)
+                renderExpressRides(expressRides)
             }
         } catch (_: Exception) {}
         
