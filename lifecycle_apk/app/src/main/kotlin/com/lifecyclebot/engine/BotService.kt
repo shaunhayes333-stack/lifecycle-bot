@@ -36,6 +36,30 @@ class BotService : Service() {
         const val CHANNEL_TRADE = "trade_signals"
         const val NOTIF_ID      = 1
 
+        // ═══════════════════════════════════════════════════════════════
+        // PIPELINE DEBUG HELPERS - trace exactly why tokens don't buy
+        // ═══════════════════════════════════════════════════════════════
+        const val DEBUG_PIPELINE = true
+
+        fun logPipeline(symbol: String, stage: String, msg: String) {
+            if (!DEBUG_PIPELINE) return
+            ErrorLogger.info("BotService", "[PIPELINE/$stage] $symbol | $msg")
+        }
+
+        fun logNoBuy(symbol: String, stage: String, reason: String, mint: String = "", extra: String = "") {
+            if (!DEBUG_PIPELINE) return
+            val mintTag = if (mint.isNotBlank()) " | mint=${mint.take(12)}" else ""
+            val extraTag = if (extra.isNotBlank()) " | $extra" else ""
+            ErrorLogger.warn("BotService", "[NO_BUY/$stage] $symbol | $reason$mintTag$extraTag")
+        }
+
+        fun logBuyHandoff(symbol: String, mint: String, sizeSol: Double, source: String = "", score: Double = 0.0) {
+            if (!DEBUG_PIPELINE) return
+            val srcTag = if (source.isNotBlank()) " | src=$source" else ""
+            val scoreTag = if (score > 0.0) " | score=${score.toInt()}" else ""
+            ErrorLogger.info("BotService", "[BUY_HANDOFF] $symbol | mint=${mint.take(12)} | size=${"%.4f".format(sizeSol)}$srcTag$scoreTag")
+        }
+
         // Shared live state — observed by UI via polling or flow
         val status = BotStatus()
         lateinit var walletManager: WalletManager
@@ -156,6 +180,14 @@ class BotService : Service() {
         if (cfg.geminiApiKey.isNotBlank()) {
             GeminiCopilot.init(cfg.geminiApiKey)
             ErrorLogger.info("BotService", "GeminiCopilot initialized with API key")
+        }
+        
+        // V5.6: Initialize On-Device ML Engine for trade predictions
+        try {
+            com.lifecyclebot.ml.OnDeviceMLEngine.initialize(applicationContext)
+            ErrorLogger.info("BotService", "🧠 ML Engine initialized | ${com.lifecyclebot.ml.OnDeviceMLEngine.getStatus()}")
+        } catch (e: Exception) {
+            ErrorLogger.debug("BotService", "ML Engine init error: ${e.message}")
         }
         
         } catch (e: Exception) {
@@ -621,12 +653,11 @@ class BotService : Service() {
                             // ═══════════════════════════════════════════════════════════════════
                             
                             // Define dual eligibility thresholds
-                            // V5.5: Paper mode score lowered to 5 — let D-grade and above through
-                            // Scanner discovery score is a raw signal (liquidity/volume/age only);
-                            // the watchlist scoring system (V3EngineManager) filters quality
+
+                            // V5.5: Paper mode - let everything through; FDG/watchlist scoring decides
                             val paperMinLiquidity = 500.0    // $500 for paper exploration
                             val liveMinLiquidity = 8000.0    // $8K for live capital protection
-                            val paperMinScore = 5.0           // V5.5: Was 28 — too restrictive, blocked all fresh meme coins
+                            val paperMinScore = 1.0           // Let everything through; watchlist scoring filters quality
                             val liveMinScore = 65.0           // Higher bar for live execution
                             
                             // Check 2a: MINIMUM LIQUIDITY (mode-dependent)
@@ -645,12 +676,16 @@ class BotService : Service() {
                             }
                             
                             // Check 2c: Minimum score threshold (mode-dependent)
+                            // V5.2.12: Paper mode uses D-grade threshold (5) to let scanner results through
                             val minScore = if (c.paperMode) paperMinScore else liveMinScore
                             if (score < minScore) {
                                 TradeLifecycle.ineligible(identity.mint, "Score too low: $score < $minScore")
-                                ErrorLogger.debug("BotService", "INELIGIBLE: ${identity.symbol} - score $score < $minScore")
+                                ErrorLogger.debug("BotService", "INELIGIBLE: ${identity.symbol} - score $score < $minScore (${if (c.paperMode) "PAPER" else "LIVE"} mode)")
                                 return@SolanaMarketScanner
                             }
+                            
+                            // V5.2.12: Log successful score admission for debugging
+                            ErrorLogger.debug("BotService", "✅ SCORE OK: ${identity.symbol} | score=$score >= minScore=$minScore (${if (c.paperMode) "PAPER" else "LIVE"} mode)")
                             
                             // V4.20: Additional live-mode strictness
                             // In live mode, also require stronger fundamentals
@@ -1427,7 +1462,19 @@ class BotService : Service() {
         } catch (tokensEx: Exception) {
             ErrorLogger.error("BotService", "Error clearing token positions: ${tokensEx.message}", tokensEx)
         }
-        
+
+        // V5.6: Clear the watchlist so UI shows clean state after stop
+        // Learning data is persisted in trade DB — status.tokens is just the live runtime cache
+        try {
+            synchronized(status.tokens) {
+                status.tokens.clear()
+            }
+            GlobalTradeRegistry.reset()
+            addLog("✅ Cleared watchlist — UI reset to clean state")
+        } catch (clearEx: Exception) {
+            ErrorLogger.error("BotService", "Error clearing watchlist on stop: ${clearEx.message}", clearEx)
+        }
+
         status.running = false
         loopJob?.cancel()
         orchestrator?.stop()
@@ -1751,6 +1798,20 @@ class BotService : Service() {
             // Update FinalDecisionGate mode for veto cooldown timing
             FinalDecisionGate.setModeForVeto(cfg.paperMode)
             
+            // V5.6 FIX: Sync CashGenerationAI mode so checkExit finds positions in correct map!
+            // Without this, positions entered in paper mode won't be found when checking exits
+            com.lifecyclebot.v3.scoring.CashGenerationAI.setTradingMode(cfg.paperMode)
+            
+            // V5.6.6: Update Treasury with actual wallet balance for proper position sizing
+            val walletBalanceForTreasury = if (cfg.paperMode) {
+                // Paper mode: use paper wallet balance (starts at 6 SOL, compounds)
+                status.paperWalletSol
+            } else {
+                // Live mode: use actual SOL balance
+                status.getEffectiveBalance(cfg.paperMode)
+            }
+            com.lifecyclebot.v3.scoring.CashGenerationAI.updateWalletBalance(walletBalanceForTreasury)
+            
             // V5.0: Advance TradeAuthorizer epoch for decision tracking
             TradeAuthorizer.advanceEpoch()
             
@@ -1880,17 +1941,9 @@ class BotService : Service() {
             
             // ═══════════════════════════════════════════════════════════════════
             // BEHAVIOR LEARNING MAINTENANCE - every 60 loops (~5 minutes)
-            // Self-healing check, pattern pruning, and Education flush
+            // Self-healing check and pattern pruning
             // ═══════════════════════════════════════════════════════════════════
             if (loopCount % 60 == 0) {
-                scope.launch {
-                    try {
-                        // Flush any debounced EducationSubLayerAI saves off the hot loop
-                        com.lifecyclebot.v3.scoring.EducationSubLayerAI.flushIfPending()
-                    } catch (e: Exception) {
-                        ErrorLogger.debug("BotService", "EducationAI flush error: ${e.message}")
-                    }
-                }
                 scope.launch {
                     try {
                         // Self-healing check (clears data if poisoned)
@@ -2255,24 +2308,42 @@ class BotService : Service() {
                     val freshSol = walletManager.state.value.solBalance
                     status.walletSol = freshSol
                     
-                    // Initialize paper wallet with ~$500 worth of SOL for realistic testing
+                    // Initialize paper wallet with $1000 worth of SOL for realistic testing
                     val cfg = ConfigStore.load(applicationContext)
-                    if (cfg.paperMode && !status.paperWalletInitialized) {
-                        status.paperWalletSol = 5.6  // ~$500 at $89/SOL
-                        status.paperWalletInitialized = true
-                        ErrorLogger.info("PaperWallet", "Initialized with 5.6 SOL (~\$500)")
-                        addLog("📝 Paper wallet: 5.6 SOL (~\$500)")
+                    if (cfg.paperMode) {
+                        val solPxPaper = WalletManager.lastKnownSolPrice.takeIf { it > 0 } ?: 150.0
+                        val targetSol = 1000.0 / solPxPaper  // Always $1000 worth
+
+                        if (!status.paperWalletInitialized) {
+                            status.paperWalletSol = targetSol
+                            status.paperWalletInitialized = true
+                            status.paperWalletLastRefreshMs = System.currentTimeMillis()
+                            ErrorLogger.info("PaperWallet", "Initialized with ${"%.2f".format(targetSol)} SOL (~\$1000 @ \$${"%.0f".format(solPxPaper)}/SOL)")
+                            addLog("📝 Paper wallet: ${"%.2f".format(targetSol)} SOL (~\$1,000)")
+                        } else {
+                            // Auto-refresh every 12 hours so paper mode never runs dry
+                            val hoursSinceRefresh = (System.currentTimeMillis() - status.paperWalletLastRefreshMs) / 3_600_000.0
+                            if (hoursSinceRefresh >= 12.0) {
+                                val oldSol = status.paperWalletSol
+                                status.paperWalletSol = targetSol
+                                status.paperWalletLastRefreshMs = System.currentTimeMillis()
+                                ErrorLogger.info("PaperWallet", "12h refresh: reset to ${"%.2f".format(targetSol)} SOL (~\$1000). Was ${"%.2f".format(oldSol)} SOL")
+                                addLog("🔄 Paper wallet refreshed: ${"%.2f".format(targetSol)} SOL (~\$1,000) — 12h top-up")
+                            }
+                        }
                     }
 
-                    // Treasury milestone check — ONLY for LIVE mode
-                    // FIX #4: Paper and live accounting completely separate
-                    if (!cfg.paperMode) {
-                        val solPx = WalletManager.lastKnownSolPrice
+                    // Treasury milestone check — live mode uses real wallet; paper uses paper balance
+                    // V5.5 FIX: Paper mode now also triggers milestones so scaling tiers work in testing
+                    run {
+                        val solPx = WalletManager.lastKnownSolPrice.takeIf { it > 0 } ?: 150.0
+                        val balanceSol = if (cfg.paperMode) status.paperWalletSol else freshSol
                         TreasuryManager.onWalletUpdate(
-                            walletSol    = freshSol,
+                            walletSol    = balanceSol,
                             solPrice     = solPx,
                             onMilestone  = { milestone, walletUsd ->
-                                addLog("🏦 MILESTONE: ${milestone.label} hit @ \$${walletUsd.toLong()}", "treasury")
+                                val modeTag = if (cfg.paperMode) " [PAPER]" else ""
+                                addLog("🏦 MILESTONE$modeTag: ${milestone.label} hit @ \$${walletUsd.toLong()}", "treasury")
                                 if (milestone.celebrateOnHit) {
                                     sendTradeNotif("🎉 ${milestone.label}!",
                                         "Treasury now locking ${(milestone.lockPct*100).toInt()}% of profits",
@@ -2451,51 +2522,109 @@ class BotService : Service() {
                 // Fallback to config watchlist if registry is empty
                 watchlist
             }
-            
+    
+
             // V5.2: Prioritize tokens for processing
-            val prioritizedWatchlist = if (cfg.v3EngineEnabled) {
-                effectiveWatchlist.sortedByDescending { mint ->
-                    val ts = status.tokens[mint]
-                    if (ts == null) {
-                        0.0  // Unknown tokens get lowest priority
-                    } else {
-                        var priority = 0.0
-                        if (ts.position.isOpen) priority += 1000.0  // Open positions first
-                        priority += (ts.lastLiquidityUsd / 1000.0).coerceAtMost(100.0)  // Liquidity
-                        priority += ts.entryScore  // Entry score
-                        priority += ts.meta.momScore * 0.5  // Momentum
-                        priority += ts.meta.volScore * 0.3  // Volume
-                        priority
-                    }
+val prioritizedWatchlist = if (cfg.v3EngineEnabled) {
+    effectiveWatchlist.sortedByDescending { mint ->
+        val ts = status.tokens[mint]
+        if (ts == null) {
+            0.0 // Unknown tokens get lowest priority
+        } else {
+            var priority = 0.0
+            if (ts.position.isOpen) priority += 1000.0 // Open positions first
+            priority += (ts.lastLiquidityUsd / 1000.0).coerceAtMost(100.0) // Liquidity priority
+            priority += ts.entryScore // Entry score
+            priority += ts.meta.momScore * 0.5 // Momentum priority
+            priority += ts.meta.volScore * 0.3 // Volume priority
+            priority
+        }
+    }
+} else {
+    effectiveWatchlist
+}
+
+// ───────────────────────────────────────────────────────────────
+// PATCH: chunked watchlist processing with per-token timeout
+// Prevent one overloaded loop from timing out the entire batch.
+// Keeps open positions first, then processes the rest in small waves.
+// ───────────────────────────────────────────────────────────────
+val openPositionMints = prioritizedWatchlist.filter { mint ->
+    val ts = status.tokens[mint]
+    ts?.position?.isOpen == true || GlobalTradeRegistry.hasOpenPosition(mint)
+}
+
+val otherMints = prioritizedWatchlist.filterNot { mint ->
+    mint in openPositionMints
+}
+
+val orderedMints = (openPositionMints + otherMints).distinct()
+
+val maxBatchMillis = 15_000L
+val perTokenTimeoutMs = 2_500L
+val maxParallel = when {
+    orderedMints.size >= 12 -> 4
+    orderedMints.size >= 6 -> 3
+    else -> 2
+}
+
+val batchDeadline = System.currentTimeMillis() + maxBatchMillis
+var processedCount = 0
+var deferredCount = 0
+
+supervisorScope {
+    orderedMints.chunked(maxParallel).forEach { chunk ->
+        if (!status.running) return@supervisorScope
+
+        val timeLeft = batchDeadline - System.currentTimeMillis()
+        if (timeLeft <= 250L) {
+            deferredCount += (orderedMints.size - processedCount - deferredCount).coerceAtLeast(0)
+            return@supervisorScope
+        }
+
+        val jobs = chunk.map { mint ->
+            async {
+                if (!status.running) return@async false
+                if (orchestrator?.shouldPoll(mint) == false) return@async false
+
+                val tokenBudget = minOf(
+                    perTokenTimeoutMs,
+                    (batchDeadline - System.currentTimeMillis()).coerceAtLeast(500L)
+                )
+
+                val completed = withTimeoutOrNull(tokenBudget) {
+                    processTokenCycle(mint, cfg, wallet, lastSuccessfulPollMs)
+                    true
+                } ?: false
+
+                if (!completed) {
+                    ErrorLogger.debug(
+                        "BotService",
+                        "Deferred token due to per-token timeout: $mint"
+                    )
                 }
+
+                completed
+            }
+        }
+
+        jobs.awaitAll().forEach { completed ->
+            if (completed) {
+                processedCount++
             } else {
-                effectiveWatchlist
+                deferredCount++
             }
-            
-            val tokenJobs = prioritizedWatchlist.map { mint ->
-              scope.launch {
-                if (!status.running) return@launch
-                if (orchestrator?.shouldPoll(mint) == false) return@launch
-                processTokenCycle(mint, cfg, wallet, lastSuccessfulPollMs)
-              } // end scope.launch
-            } // end map
+        }
+    }
+}
 
-            
-            // Wait for all tokens with a maximum timeout of 15 seconds total
-            // Increased from 8s to process more tokens per cycle
-            try {
-                kotlinx.coroutines.withTimeout(15000L) {
-                    tokenJobs.forEach { it.join() }
-                }
-            } catch (e: kotlinx.coroutines.TimeoutCancellationException) {
-                addLog("⏰ Watchlist scan timeout - moving to next cycle")
-                ErrorLogger.warn("BotService", "Token processing batch timeout - some tokens skipped")
-                // Cancel any still-running jobs
-                tokenJobs.forEach { if (it.isActive) it.cancel() }
-            }
-
-            // ═══════════════════════════════════════════════════════════════════
-            // SHADOW PAPER TRADING - Check shadow positions for exits
+if (deferredCount > 0) {
+    addLog("⏰ Watchlist load high - deferred $deferredCount token(s) to next cycle")
+    ErrorLogger.warn(
+        "BotService",
+        "Watchlist processing deferred $deferredCount token(s); processed=$processedCount total=${orderedMints.size}"
+    )
+}
             // This runs during LIVE mode to learn from background paper trades
             // ═══════════════════════════════════════════════════════════════════
             if (cfg.shadowPaperEnabled && !cfg.paperMode) {
@@ -2813,15 +2942,19 @@ class BotService : Service() {
             val recentPrice = recentCandles.lastOrNull()?.priceUsd ?: 0.0
             val olderPrice = olderCandles.firstOrNull()?.priceUsd ?: recentPrice
             
-            // Detect potential rug: >50% price drop or liquidity collapse
+            // Detect potential rug: BOTH price drop AND liquidity collapse required.
+            // Using OR was causing false rug learning: olderLiq is estimated from mcap×0.1
+            // when real data is missing, producing fake 100% liq drops on tokens with $0
+            // reported liquidity — poisoning TradingMemory with fabricated rug patterns.
+            // Requiring BOTH conditions means only genuine multi-signal events are learned.
             if (olderPrice > 0 && recentPrice > 0) {
                 val priceDropPct = ((olderPrice - recentPrice) / olderPrice) * 100
                 val liqDropPct = if (olderLiq > 0) ((olderLiq - recentLiq) / olderLiq) * 100 else 0.0
-                
-                if (priceDropPct >= 50 || liqDropPct >= 70) {
+
+                if (priceDropPct >= 50 && liqDropPct >= 70) {  // AND not OR — both required
                     val ageHours = (System.currentTimeMillis() - (ts.addedToWatchlistAt)) / 3_600_000.0
                     val volumeSpike = recentCandles.sumOf { it.vol } > olderCandles.sumOf { it.vol } * 2
-                    
+
                     TradingMemory.learnFromRug(
                         mint = mint,
                         symbol = ts.symbol,
@@ -3156,16 +3289,6 @@ class BotService : Service() {
     // Strategy output (phase, entry/exit scores, quality) feeds into V3
     // V3 is the ONLY thing that decides EXECUTE/WATCH/REJECT
     // ═══════════════════════════════════════════════════════════════════
-
-    // POSITION-CAP GATE: Skip expensive V3 scoring when already at max positions.
-    // This is the primary pipeline starvation fix — avoids running full V3/EducationAI
-    // on every watchlist token when no new entry is possible anyway.
-    if (!ts.position.isOpen && cfg.maxConcurrentPositions != Int.MAX_VALUE &&
-        status.openPositionCount >= cfg.maxConcurrentPositions) {
-        ErrorLogger.debug("BotService", "⏭️ CAP GATE: ${identity.symbol} | positions full (${status.openPositionCount}/${cfg.maxConcurrentPositions})")
-        return
-    }
-
     if (!ts.position.isOpen && cfg.v3EngineEnabled && com.lifecyclebot.v3.V3EngineManager.isReady()) {
         
         // ═══════════════════════════════════════════════════════════════════
@@ -3363,7 +3486,10 @@ class BotService : Service() {
                         )
                         
                         // V4.1: Enter if Treasury says yes OR bootstrap override triggered
-                        val shouldEnter = treasurySignal.shouldEnter || forceBootstrapEntry
+                        // V5.2.13: Block bootstrap override when V3 hard-rejects OR dump signals active
+                        val v3HardReject = v3Decision is com.lifecyclebot.v3.V3Decision.Rejected
+                        val hasDumpSignal = try { AICrossTalk.isCoordinatedDump(ts.mint, ts.symbol) } catch (_: Exception) { false }
+                        val shouldEnter = treasurySignal.shouldEnter || (forceBootstrapEntry && !v3HardReject && !hasDumpSignal)
                         
                         if (shouldEnter) {
                             // V4.1: Apply bootstrap size multiplier for micro-positions
@@ -3492,9 +3618,7 @@ class BotService : Service() {
             // V5.2 FIX: Must check if Treasury already has a position!
             //          Treasury must hit TP and sell BEFORE other layers can enter
             // ═══════════════════════════════════════════════════════════════════
-            // FIX: Gate lowered to $100K to include Quality ($100K-$1M) range.
-            // Previously set to $1M which silently excluded Quality forever.
-            if (!ts.position.isOpen && ts.lastMcap >= 100_000) {
+            if (!ts.position.isOpen && ts.lastMcap >= 100_000) {  // V5.4 FIX: was 1_000_000 (blocked Quality 100K-1M layer)
                 // V5.2: Check if Treasury already has a position on this token
                 // Treasury trades must complete (hit TP/SL) before other layers can enter
                 if (com.lifecyclebot.v3.scoring.CashGenerationAI.hasPosition(ts.mint)) {
@@ -3511,6 +3635,11 @@ class BotService : Service() {
                         requestingLayer = "QUALITY",
                         hasOpenPosition = ts.position.isOpen
                     )
+                    
+                    // V5.2.12: Log when Quality is checked but mcap out of range
+                    if (qualityPermit.allowed && ts.lastMcap !in 100_000.0..1_000_000.0) {
+                        ErrorLogger.debug("BotService", "⭐ [QUALITY SKIP] ${ts.symbol} | mcap=\$${(ts.lastMcap/1000).toInt()}K not in \$100K-\$1M range")
+                    }
                     
                     if (qualityPermit.allowed && ts.lastMcap in 100_000.0..1_000_000.0) {
                         val (v3Score, v3Confidence) = when (val result = v3Decision) {
@@ -3747,8 +3876,9 @@ class BotService : Service() {
                     ErrorLogger.debug("BotService", "🚀 [MOONSHOT] ${ts.symbol} | BLOCKED | Treasury has open position - wait for TP/SL")
                 } else {
                 try {
-                    // Check if mcap is in moonshot zone ($100K-$50M)
-                    if (ts.lastMcap in 100_000.0..50_000_000.0) {
+                    // V5.2.12: Check if mcap is in moonshot zone ($10K-$100M)
+                    // Moonshot accepts promotions from any layer
+                    if (ts.lastMcap in 10_000.0..100_000_000.0) {
                         
                         // V5.2: Check execution permit for MOONSHOT book
                         val moonshotPermit = FinalExecutionPermit.canExecute(
@@ -3997,7 +4127,10 @@ class BotService : Service() {
                         )
                         
                         // V4.1: Enter if ShitCoin says yes OR bootstrap override triggered
-                        val shouldEnter = shitCoinSignal.shouldEnter || forceBootstrapEntry
+                        // V5.2.13: Block bootstrap override on V3 hard-reject or active dump signals
+                        val shitCoinV3HardReject = v3Decision is com.lifecyclebot.v3.V3Decision.Rejected
+                        val shitCoinHasDump = try { AICrossTalk.isCoordinatedDump(ts.mint, ts.symbol) } catch (_: Exception) { false }
+                        val shouldEnter = shitCoinSignal.shouldEnter || (forceBootstrapEntry && !shitCoinV3HardReject && !shitCoinHasDump)
                         
                         if (shouldEnter) {
                             // V4.1: Apply bootstrap size multiplier for micro-positions
@@ -4518,24 +4651,36 @@ class BotService : Service() {
                 
                 is com.lifecyclebot.v3.V3Decision.Rejected -> {
                     // ═══════════════════════════════════════════════════════════════════
-                    // V3 REJECT: Poor setup
+                    // V3 REJECT: Poor setup OR routing to another layer
+                    // V5.2.12: SHITCOIN_CANDIDATE rejection means "let ShitCoin layer handle it"
                     // ═══════════════════════════════════════════════════════════════════
-                    ErrorLogger.info("BotService", "[DECISION] ${identity.symbol} | REJECT | ${result.reason}")
                     
-                    // Shadow track
-                    ShadowLearningEngine.onFdgBlockedTrade(
-                        mint = ts.mint,
-                        symbol = ts.symbol,
-                        blockReason = "V3_REJECT_${result.reason}",
-                        blockLevel = "V3",
-                        currentPrice = ts.ref,
-                        proposedSizeSol = 0.1,
-                        quality = decision.finalQuality,
-                        confidence = 0.0,
-                        phase = decision.phase,
-                    )
+                    // Check if this is a routing rejection (ShitCoin candidate)
+                    val isShitCoinRouting = result.reason.contains("SHITCOIN_CANDIDATE")
                     
-                    return
+                    if (isShitCoinRouting) {
+                        // V5.2.12: Don't return! Let the ShitCoin evaluation section handle this
+                        ErrorLogger.debug("BotService", "[V3|ROUTE] ${identity.symbol} | → SHITCOIN | ${result.reason}")
+                        // Fall through to ShitCoin layer evaluation below
+                    } else {
+                        // True rejection - shadow track and return
+                        ErrorLogger.info("BotService", "[DECISION] ${identity.symbol} | REJECT | ${result.reason}")
+                        
+                        // Shadow track
+                        ShadowLearningEngine.onFdgBlockedTrade(
+                            mint = ts.mint,
+                            symbol = ts.symbol,
+                            blockReason = "V3_REJECT_${result.reason}",
+                            blockLevel = "V3",
+                            currentPrice = ts.ref,
+                            proposedSizeSol = 0.1,
+                            quality = decision.finalQuality,
+                            confidence = 0.0,
+                            phase = decision.phase,
+                        )
+                        
+                        return
+                    }
                 }
                 
                 is com.lifecyclebot.v3.V3Decision.BlockFatal -> {
@@ -4595,12 +4740,14 @@ class BotService : Service() {
     val edgeVerdictStr = decision.edgeQuality  // "A", "B", "C", or "SKIP"
     val confValue = decision.aiConfidence
     
-    // V5.2: Check if we're in bootstrap mode - allow SKIP trades for learning
+    // Check if we're in bootstrap phase — allow SKIP trades through for V3 learning.
+    // Threshold aligned with V5.3 3-phase curve: bootstrap runs 0→0.5 (first 500 trades).
+    // Was 0.20 which was cutting off bootstrap learning at only ~100 trades.
     val learningProgress = try {
         com.lifecyclebot.v3.scoring.FluidLearningAI.getLearningProgress()
     } catch (_: Exception) { 0.0 }
-    val isBootstrap = learningProgress < 0.20  // Under 20% = bootstrap mode
-    
+    val isBootstrap = learningProgress < 0.50  // Bootstrap phase ends at 0.5 (500 trades)
+
     // During bootstrap: Allow SKIP trades through for V3 learning (paper mode only)
     val allowSkipForLearning = isBootstrap && cfg.paperMode && edgeVerdictStr == "SKIP"
     
@@ -4632,17 +4779,20 @@ class BotService : Service() {
     
     // ───────────────────────────────────────────────────────────────────
     // HARD GATE 2: Block C-grade + low confidence
-    // V4.20: Lowered all floors by 8 points
-    // V4.0: Use FLUID threshold instead of hardcoded 35%
-    // V5.2.6: LOWERED to allow C-grade trades through for learning
+    // V5.2.12: Paper mode has LOWER floor to allow more learning
     // ───────────────────────────────────────────────────────────────────
     val isCGrade = decision.setupQuality == "C" || decision.setupQuality == "D"
     val fluidCGradeConfFloor = try {
         val learningProgress = com.lifecyclebot.v3.scoring.FluidLearningAI.getLearningProgress()
-        // V5.2.6: 0% at bootstrap → 5% at mature (dramatically lowered to let C-grades through)
-        // Paper mode needs to see C-grade outcomes to learn what works
-        (0 + (learningProgress * 5.0)).toInt().coerceIn(0, 5)
-    } catch (_: Exception) { 0 }
+        if (cfg.paperMode) {
+            // V5.2.12: Paper mode - very low floor to maximize learning volume
+            // Allow C/D grade through if confidence > 0
+            (1 + (learningProgress * 5.0)).toInt().coerceIn(1, 10)
+        } else {
+            // Live mode - higher floor for capital protection
+            (12 + (learningProgress * 13.0)).toInt().coerceIn(12, 25)
+        }
+    } catch (_: Exception) { if (cfg.paperMode) 1 else 12 }
     
     if (isCGrade && confValue < fluidCGradeConfFloor) {
         ErrorLogger.info("BotService", "[V3|PROMOTION_GATE] ${identity.symbol} | allow=false | " +
@@ -5062,6 +5212,9 @@ class BotService : Service() {
         // Position management (exits) - ALWAYS monitor open positions
         // Even when paused, we need to manage risk on existing positions
         
+        // V5.2.12: Debug logging for exit check flow
+        ErrorLogger.debug("BotService", "🔄 [EXIT CHECK] ${ts.symbol} | isOpen=true | entering exit management")
+        
         // ═══════════════════════════════════════════════════════════════════
         // LAYER TRANSITION CHECK - Upgrade positions on the way UP
         // Check if position should transition to a higher layer
@@ -5123,14 +5276,37 @@ class BotService : Service() {
         // Check FIRST before other exit logic since treasury has strict rules
         // ═══════════════════════════════════════════════════════════════════
         if (ts.position.isTreasuryPosition || ts.position.tradingMode == "TREASURY") {
+            // V5.2.12: Debug - entering Treasury exit check
+            ErrorLogger.debug("BotService", "💰 [TREASURY ENTER] ${ts.symbol} | isTreasury=${ts.position.isTreasuryPosition} | mode=${ts.position.tradingMode}")
+            
             val currentPrice = ts.lastPrice.takeIf { it > 0 } 
                 ?: ts.history.lastOrNull()?.priceUsd 
                 ?: ts.position.entryPrice
             
+            // V5.2.12: Debug - show price being used
+            ErrorLogger.debug("BotService", "💰 [TREASURY PRICE] ${ts.symbol} | " +
+                "lastPrice=${ts.lastPrice} | historyLast=${ts.history.lastOrNull()?.priceUsd} | " +
+                "entryPrice=${ts.position.entryPrice} | USING=$currentPrice")
+            
             // V5.2: Debug - verify checkExit is being called
-            val treasuryPos = com.lifecyclebot.v3.scoring.CashGenerationAI.getActivePosition(ts.mint)
-            if (treasuryPos == null) {
-                ErrorLogger.debug("BotService", "💰 [TREASURY] ${ts.symbol} | NO_ACTIVE_POS - checkExit will return HOLD!")
+            var treasuryPos = com.lifecyclebot.v3.scoring.CashGenerationAI.getActivePosition(ts.mint)
+            if (treasuryPos == null && ts.position.isOpen) {
+                // V5.5 RECOVERY: CashGenerationAI's in-memory map is empty after restart.
+                // Re-register the position from persisted ts.position data so checkExit works.
+                val recTpPct = if (ts.position.treasuryTakeProfit > 0) ts.position.treasuryTakeProfit else 3.5
+                val recSlPct = if (ts.position.treasuryStopLoss < 0) ts.position.treasuryStopLoss else -4.0
+                com.lifecyclebot.v3.scoring.CashGenerationAI.openPosition(
+                    mint = ts.mint,
+                    symbol = ts.symbol,
+                    entryPrice = ts.position.entryPrice,
+                    positionSol = ts.position.costSol,
+                    takeProfitPct = recTpPct,
+                    stopLossPct = recSlPct
+                )
+                treasuryPos = com.lifecyclebot.v3.scoring.CashGenerationAI.getActivePosition(ts.mint)
+                ErrorLogger.warn("BotService",
+                    "💰 [TREASURY RECOVERY] ${ts.symbol} | Re-registered in CashGenerationAI | " +
+                    "entry=${ts.position.entryPrice} tp=$recTpPct% sl=$recSlPct%")
             }
             
             // V5.2: Calculate current P&L for potential Moonshot promotion
@@ -5145,8 +5321,9 @@ class BotService : Service() {
                     "price=$currentPrice | treasuryEntry=${treasuryPos.entryPrice} | pnl=${treasuryPnl.fmt(1)}%")
             }
             
-            // V5.2: Check for cross-trade promotion to Moonshot (200%+ gains)
-            if (currentPnlPct >= 200.0 && ts.lastMcap in 100_000.0..50_000_000.0) {
+            // V5.2.12: Check for cross-trade promotion to Moonshot (200%+ gains)
+            // Moonshot accepts promotions from any mcap range ($10K-$100M)
+            if (currentPnlPct >= 200.0 && ts.lastMcap in 10_000.0..100_000_000.0) {
                 val shouldPromote = com.lifecyclebot.v3.scoring.MoonshotTraderAI.shouldPromoteToMoonshot(
                     mint = ts.mint,
                     symbol = ts.symbol,
@@ -5196,7 +5373,16 @@ class BotService : Service() {
                 ErrorLogger.info("BotService", "💰 [TREASURY EXIT] ${ts.symbol} | " +
                     "signal=$exitSignal | price=$currentPrice")
                 
-                // Execute treasury sell
+                // V5.6.7 FIX: ALWAYS SELL ON EXIT - Return capital + profit share to wallet
+                // User requested: "50% to wallet, 50% to treasury" - this requires SELLING
+                // Old behavior: promoted without selling, locking capital forever
+                // New behavior: SELL first, return capital to wallet, then re-enter if qualified
+                
+                val pnlPct = if (ts.position.entryPrice > 0) {
+                    ((currentPrice - ts.position.entryPrice) / ts.position.entryPrice) * 100
+                } else 0.0
+                
+                // Execute the sell FIRST - this returns capital + profit to wallet
                 executor.requestSell(
                     ts = ts,
                     reason = "TREASURY_${exitSignal.name}",
@@ -5209,68 +5395,15 @@ class BotService : Service() {
                     ts.mint, currentPrice, exitSignal
                 )
                 
-                // V5.2: PROMOTE to appropriate layer if profitable exit
-                // Treasury takes quick wins, then hands off to Moonshot/ShitCoin for continued gains
-                if (exitSignal == com.lifecyclebot.v3.scoring.CashGenerationAI.ExitSignal.TAKE_PROFIT) {
-                    val pnlPct = if (ts.position.entryPrice > 0) {
-                        ((currentPrice - ts.position.entryPrice) / ts.position.entryPrice) * 100
-                    } else 0.0
-                    
-                    ErrorLogger.info("BotService", "💰 [TREASURY PROMOTION] ${ts.symbol} | " +
-                        "+${pnlPct.toInt()}% | Checking for promotion to ShitCoin...")
-                    
-                    // Promote to ShitCoin layer if still has good liquidity
-                    // Token already proven itself - let ShitCoin ride the wave
-                    if (ts.lastLiquidityUsd >= 5000 && ts.lastMcap in 20_000.0..5_000_000.0) {
-                        ErrorLogger.info("BotService", "💰→💩 [PROMOTION] ${ts.symbol} | " +
-                            "TREASURY → SHITCOIN | +${pnlPct.toInt()}% profit, now riding with ShitCoin layer!")
-                        
-                        // Mark for ShitCoin tracking (don't actually buy again, just track)
-                        ts.position.isShitCoinPosition = true
-                        ts.position.isTreasuryPosition = false
-                        ts.position.tradingMode = "SHITCOIN"
-                        ts.position.tradingModeEmoji = "💩"
-                        
-                        // Determine launch platform
-                        val platform = when {
-                            ts.mint.endsWith("pump") -> com.lifecyclebot.v3.scoring.ShitCoinTraderAI.LaunchPlatform.PUMP_FUN
-                            ts.source?.contains("raydium", ignoreCase = true) == true -> com.lifecyclebot.v3.scoring.ShitCoinTraderAI.LaunchPlatform.RAYDIUM
-                            else -> com.lifecyclebot.v3.scoring.ShitCoinTraderAI.LaunchPlatform.UNKNOWN
-                        }
-                        
-                        // V5.2.11: Promoted trades need reasonable breathing room
-                        // The -2.5% was too tight - meme coins wick -5% to -8% regularly
-                        // Use -8% to allow normal volatility while still protecting gains
-                        val scTp = com.lifecyclebot.v3.scoring.ShitCoinTraderAI.getFluidTakeProfit()
-                        val scSl = -8.0  // V5.2.11: Widened from -2.5% to -8% - let promoted trades breathe
-                        
-                        ErrorLogger.info("BotService", "💰→💩 [PROMOTION] ${ts.symbol} | " +
-                            "SL=$scSl% (allowing volatility) | TP=$scTp%")
-                        
-                        // Register with ShitCoin tracker at CURRENT price (post-treasury-profit)
-                        com.lifecyclebot.v3.scoring.ShitCoinTraderAI.addPosition(
-                            com.lifecyclebot.v3.scoring.ShitCoinTraderAI.ShitCoinPosition(
-                                mint = ts.mint,
-                                symbol = ts.symbol,
-                                entryPrice = currentPrice,  // New entry at current price
-                                entrySol = ts.position.costSol,
-                                entryTime = System.currentTimeMillis(),
-                                marketCapUsd = ts.lastMcap,
-                                liquidityUsd = ts.lastLiquidityUsd,
-                                isPaper = cfg.paperMode,
-                                takeProfitPct = scTp,
-                                stopLossPct = scSl,
-                                launchPlatform = platform,
-                            )
-                        )
-                        
-                        addLog("💰→💩 PROMOTION: ${ts.symbol} | Treasury profit locked, now ShitCoin mode!", ts.mint)
-                        return  // Promotion processed, don't close position
-                    }
-                }
+                addLog("💰 TREASURY SELL: ${ts.symbol} | ${exitSignal.name} | +${pnlPct.toInt()}% | " +
+                    "${if (cfg.paperMode) "PAPER" else "LIVE"} | Capital returned to wallet!", ts.mint)
                 
-                addLog("💰 TREASURY SELL: ${ts.symbol} | ${exitSignal.name} | " +
-                    "${if (cfg.paperMode) "PAPER" else "LIVE"}", ts.mint)
+                // V5.6.7: After selling, mark token for potential re-entry by other layers
+                // Other layers can pick it up on next scan if it still qualifies
+                if (exitSignal == com.lifecyclebot.v3.scoring.CashGenerationAI.ExitSignal.TAKE_PROFIT) {
+                    ErrorLogger.info("BotService", "💰 [TREASURY SOLD] ${ts.symbol} | " +
+                        "+${pnlPct.toInt()}% | Capital returned | Token available for other layers to re-enter")
+                }
                 
                 return  // Exit processed
             }
@@ -5290,9 +5423,9 @@ class BotService : Service() {
                 ((currentPrice - ts.position.entryPrice) / ts.position.entryPrice) * 100
             } else 0.0
             
-            // V5.2: Check for cross-trade promotion to Moonshot (200%+ gains)
+            // V5.2.12: Check for cross-trade promotion to Moonshot (200%+ gains)
             // ShitCoin → Moonshot: The degen play turned into a moonshot!
-            if (currentPnlPct >= 200.0 && ts.lastMcap in 100_000.0..50_000_000.0) {
+            if (currentPnlPct >= 200.0 && ts.lastMcap in 10_000.0..100_000_000.0) {
                 val shouldPromote = com.lifecyclebot.v3.scoring.MoonshotTraderAI.shouldPromoteToMoonshot(
                     mint = ts.mint,
                     symbol = ts.symbol,
@@ -5337,34 +5470,48 @@ class BotService : Service() {
             }
             
             val exitSignal = com.lifecyclebot.v3.scoring.ShitCoinTraderAI.checkExit(ts.mint, currentPrice)
-            
+
             if (exitSignal != com.lifecyclebot.v3.scoring.ShitCoinTraderAI.ExitSignal.HOLD) {
                 val exitEmoji = when (exitSignal) {
                     com.lifecyclebot.v3.scoring.ShitCoinTraderAI.ExitSignal.RUG_DETECTED -> "💀"
                     com.lifecyclebot.v3.scoring.ShitCoinTraderAI.ExitSignal.DEV_SELL -> "🚨"
                     com.lifecyclebot.v3.scoring.ShitCoinTraderAI.ExitSignal.TAKE_PROFIT -> "🎯"
+                    com.lifecyclebot.v3.scoring.ShitCoinTraderAI.ExitSignal.PARTIAL_TAKE -> "💰"
                     else -> "📉"
                 }
-                
+
                 ErrorLogger.info("BotService", "💩 [SHITCOIN EXIT] ${ts.symbol} | " +
                     "signal=$exitSignal | price=$currentPrice")
-                
-                // Execute shitcoin sell
+
+                if (exitSignal == com.lifecyclebot.v3.scoring.ShitCoinTraderAI.ExitSignal.PARTIAL_TAKE) {
+                    // Sell 25%, let 75% ride
+                    executor.requestPartialSell(
+                        ts = ts,
+                        sellPercentage = 0.25,
+                        reason = "SHITCOIN_PARTIAL_TAKE_25PCT",
+                        wallet = wallet,
+                        walletBalance = effectiveBalance,
+                    )
+                    com.lifecyclebot.v3.scoring.ShitCoinTraderAI.markFirstTakeDone(ts.mint)
+                    addLog("💰 SHITCOIN PARTIAL: ${ts.symbol} | sold 25%, riding 75%", ts.mint)
+                    return
+                }
+
+                // Full exit for all other signals
                 executor.requestSell(
                     ts = ts,
                     reason = "SHITCOIN_${exitSignal.name}",
                     wallet = wallet,
                     walletSol = effectiveBalance
                 )
-                
-                // Close shitcoin position tracking
+
                 com.lifecyclebot.v3.scoring.ShitCoinTraderAI.closePosition(
                     ts.mint, currentPrice, exitSignal
                 )
-                
+
                 addLog("$exitEmoji SHITCOIN SELL: ${ts.symbol} | ${exitSignal.name} | " +
                     "${if (cfg.paperMode) "PAPER" else "LIVE"}", ts.mint)
-                
+
                 return  // Exit processed
             }
         }
@@ -5430,19 +5577,34 @@ class BotService : Service() {
                 }
                 
                 ErrorLogger.info("BotService", "🌙 [MOONSHOT EXIT] ${identity.symbol} | signal=$exitSignal | price=$currentPrice")
-                
+
+                if (exitSignal == com.lifecyclebot.v3.scoring.MoonshotTraderAI.ExitSignal.PARTIAL_TAKE) {
+                    // Sell 50%, let 50% ride to the moon
+                    val partialPct = com.lifecyclebot.v3.scoring.MoonshotTraderAI.getPartialSellPct(ts.mint)
+                    executor.requestPartialSell(
+                        ts = ts,
+                        sellPercentage = partialPct,
+                        reason = "MOONSHOT_PARTIAL_TAKE_${(partialPct * 100).toInt()}PCT",
+                        wallet = wallet,
+                        walletBalance = effectiveBalance,
+                    )
+                    // firstTakeDone flag is already set inside MoonshotTraderAI.checkExit()
+                    addLog("💰 MOONSHOT PARTIAL: ${ts.symbol} | sold ${(partialPct*100).toInt()}%, riding rest", ts.mint)
+                    return
+                }
+
                 executor.requestSell(
                     ts = ts,
                     reason = "MOONSHOT_${exitSignal.name}",
                     wallet = wallet,
                     walletSol = effectiveBalance
                 )
-                
+
                 com.lifecyclebot.v3.scoring.MoonshotTraderAI.closePosition(ts.mint, currentPrice, exitSignal)
-                
+
                 addLog("$exitEmoji MOONSHOT SELL: ${ts.symbol} | ${exitSignal.name} | " +
                     "${if (cfg.paperMode) "PAPER" else "LIVE"}", ts.mint)
-                
+
                 return
             }
         }
@@ -5472,16 +5634,54 @@ class BotService : Service() {
                     else -> "⏱"
                 }
                 
-                // Check for promotions - don't sell, just change tracking
-                if (exitSignal == com.lifecyclebot.v3.scoring.QualityTraderAI.ExitSignal.PROMOTE_BLUECHIP ||
-                    exitSignal == com.lifecyclebot.v3.scoring.QualityTraderAI.ExitSignal.PROMOTE_MOONSHOT) {
-                    // Close Quality position tracking (promotion will be handled by respective layer)
+                // Check for promotions - don't sell, just hand off to higher layer
+                if (exitSignal == com.lifecyclebot.v3.scoring.QualityTraderAI.ExitSignal.PROMOTE_BLUECHIP) {
                     com.lifecyclebot.v3.scoring.QualityTraderAI.closePosition(ts.mint, currentPrice, exitSignal)
-                    
-                    addLog("$exitEmoji QUALITY PROMOTE: ${ts.symbol} | ${exitSignal.name} | " +
-                        "mcap=\$${(currentMcap/1000).toInt()}K", ts.mint)
-                    
-                    return  // Promotion processed
+                    // Register with BlueChip layer so the position continues tracking
+                    if (!com.lifecyclebot.v3.scoring.BlueChipTraderAI.hasPosition(ts.mint)) {
+                        val bcTp = com.lifecyclebot.v3.scoring.BlueChipTraderAI.getFluidTakeProfit()
+                        val bcSl = com.lifecyclebot.v3.scoring.BlueChipTraderAI.getFluidStopLoss()
+                        com.lifecyclebot.v3.scoring.BlueChipTraderAI.addPosition(
+                            com.lifecyclebot.v3.scoring.BlueChipTraderAI.BlueChipPosition(
+                                mint = ts.mint,
+                                symbol = ts.symbol,
+                                entryPrice = currentPrice,
+                                entrySol = ts.position.costSol,
+                                entryTime = System.currentTimeMillis(),
+                                marketCapUsd = currentMcap,
+                                liquidityUsd = ts.lastLiquidityUsd,
+                                isPaper = cfg.paperMode,
+                                takeProfitPct = bcTp,
+                                stopLossPct = bcSl
+                            )
+                        )
+                        ts.position.tradingMode = "BLUE_CHIP"
+                        ts.position.tradingModeEmoji = "🔵"
+                    }
+                    addLog("$exitEmoji QUALITY→BLUECHIP: ${ts.symbol} | mcap=\$${(currentMcap/1000).toInt()}K | TP=${"%.0f".format(com.lifecyclebot.v3.scoring.BlueChipTraderAI.getFluidTakeProfit())}%", ts.mint)
+                    return
+                }
+
+                if (exitSignal == com.lifecyclebot.v3.scoring.QualityTraderAI.ExitSignal.PROMOTE_MOONSHOT) {
+                    com.lifecyclebot.v3.scoring.QualityTraderAI.closePosition(ts.mint, currentPrice, exitSignal)
+                    val promoted = com.lifecyclebot.v3.scoring.MoonshotTraderAI.shouldPromoteToMoonshot(
+                        mint = ts.mint, symbol = ts.symbol, fromLayer = "QUALITY",
+                        currentPnlPct = if (ts.position.entryPrice > 0) (currentPrice - ts.position.entryPrice) / ts.position.entryPrice * 100 else 0.0,
+                        currentPrice = currentPrice, marketCapUsd = currentMcap,
+                    )
+                    if (promoted) {
+                        com.lifecyclebot.v3.scoring.MoonshotTraderAI.executePromotion(
+                            mint = ts.mint, symbol = ts.symbol, fromLayer = "QUALITY",
+                            entryPrice = currentPrice, positionSol = ts.position.costSol,
+                            currentPnlPct = if (ts.position.entryPrice > 0) (currentPrice - ts.position.entryPrice) / ts.position.entryPrice * 100 else 0.0,
+                            marketCapUsd = currentMcap, liquidityUsd = ts.lastLiquidityUsd,
+                            isPaper = cfg.paperMode,
+                        )
+                        ts.position.tradingMode = "MOONSHOT_ORBITAL"
+                        ts.position.tradingModeEmoji = "🚀"
+                    }
+                    addLog("$exitEmoji QUALITY→MOONSHOT: ${ts.symbol} | mcap=\$${(currentMcap/1000).toInt()}K", ts.mint)
+                    return
                 }
                 
                 ErrorLogger.info("BotService", "⭐ [QUALITY EXIT] ${ts.symbol} | signal=$exitSignal | price=$currentPrice")
@@ -5820,6 +6020,15 @@ class BotService : Service() {
         } catch (e: Exception) {
             failCount++
             ErrorLogger.error("BotService", "ShitCoinExpress init FAILED: ${e.message}", e)
+        }
+        
+        // V5.2.12: Quality Trader - professional mid-cap layer
+        try {
+            com.lifecyclebot.v3.scoring.QualityTraderAI.init(cfg.paperMode)
+            initCount++
+        } catch (e: Exception) {
+            failCount++
+            ErrorLogger.error("BotService", "QualityTraderAI init FAILED: ${e.message}", e)
         }
         
         // Dip Hunter

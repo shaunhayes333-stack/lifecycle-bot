@@ -109,7 +109,13 @@ class MainActivity : AppCompatActivity() {
     private lateinit var llBlueChipPositions: LinearLayout
     private lateinit var tvBlueChipExposure: TextView
     private lateinit var tvBlueChipPnl: TextView
-    
+
+    // Quality positions panel ($100K-$1M mcap)
+    private lateinit var cardQualityPositions: android.view.View
+    private lateinit var llQualityPositions: LinearLayout
+    private lateinit var tvQualityExposure: TextView
+    private lateinit var tvQualityPnl: TextView
+
     // V4.0: ShitCoin positions panel
     private lateinit var cardShitCoinPositions: android.view.View
     private lateinit var llShitCoinPositions: LinearLayout
@@ -157,6 +163,13 @@ class MainActivity : AppCompatActivity() {
     private var selectedChartMint: String? = null
     private var chartTimeRange: String = "5m"
     private var chartType: String = "line"
+    
+    // V5.6: DexScreener-style chart metrics
+    private var tvChartMcap: TextView? = null
+    private var tvChart5mVol: TextView? = null
+    private var tvChartLiq: TextView? = null
+    private var tvChartHolders: TextView? = null
+    private var tvChartBuyPressure: TextView? = null
     
     // V4.0: AI Status panel
     private lateinit var tvAiHealth: TextView
@@ -652,7 +665,13 @@ for legal compliance.
         llBlueChipPositions = try { findViewById(R.id.llBlueChipPositions) } catch (_: Exception) { LinearLayout(this) }
         tvBlueChipExposure = try { findViewById(R.id.tvBlueChipExposure) } catch (_: Exception) { TextView(this) }
         tvBlueChipPnl = try { findViewById(R.id.tvBlueChipPnl) } catch (_: Exception) { TextView(this) }
-        
+
+        // Quality positions panel bindings
+        cardQualityPositions = try { findViewById(R.id.cardQualityPositions) } catch (_: Exception) { android.view.View(this) }
+        llQualityPositions = try { findViewById(R.id.llQualityPositions) } catch (_: Exception) { LinearLayout(this) }
+        tvQualityExposure = try { findViewById(R.id.tvQualityExposure) } catch (_: Exception) { TextView(this) }
+        tvQualityPnl = try { findViewById(R.id.tvQualityPnl) } catch (_: Exception) { TextView(this) }
+
         // V4.0: ShitCoin positions panel bindings
         cardShitCoinPositions = try { findViewById(R.id.cardShitCoinPositions) } catch (_: Exception) { android.view.View(this) }
         llShitCoinPositions = try { findViewById(R.id.llShitCoinPositions) } catch (_: Exception) { LinearLayout(this) }
@@ -696,6 +715,13 @@ for legal compliance.
         tvChartSymbol = try { findViewById(R.id.tvChartSymbol) } catch (_: Exception) { TextView(this) }
         tvChartPrice = try { findViewById(R.id.tvChartPrice) } catch (_: Exception) { TextView(this) }
         candleChart = try { findViewById(R.id.candleChart) } catch (_: Exception) { com.github.mikephil.charting.charts.CandleStickChart(this) }
+        
+        // V5.6: DexScreener-style chart metrics
+        tvChartMcap = try { findViewById(R.id.tvChartMcap) } catch (_: Exception) { null }
+        tvChart5mVol = try { findViewById(R.id.tvChart5mVol) } catch (_: Exception) { null }
+        tvChartLiq = try { findViewById(R.id.tvChartLiq) } catch (_: Exception) { null }
+        tvChartHolders = try { findViewById(R.id.tvChartHolders) } catch (_: Exception) { null }
+        tvChartBuyPressure = try { findViewById(R.id.tvChartBuyPressure) } catch (_: Exception) { null }
         
         // V5.2: Chart time range button listeners
         setupChartControls()
@@ -1148,9 +1174,15 @@ for legal compliance.
                 priceChart.data = LineData(ds)
                 priceChart.invalidate()
             }
+            
+            // V5.6: Update DexScreener-style chart metrics
+            updateChartMetrics(ts)
         } else if (ts?.lastPrice != null && ts.lastPrice > 0) {
             // Append new price point
             appendChart(ts.lastPrice)
+            
+            // V5.6: Update metrics on each tick
+            updateChartMetrics(ts)
         }
 
         // ── Quick Stats Bar ─────────────────────────────────────────
@@ -1298,6 +1330,19 @@ for legal compliance.
             }
         } catch (_: Exception) {}
         
+        // ── Quality positions panel ───────────────────────────────────────
+        try {
+            val qualityPositions = com.lifecyclebot.v3.scoring.QualityTraderAI.getActivePositions()
+            cardQualityPositions.visibility = if (qualityPositions.isNotEmpty()) android.view.View.VISIBLE else android.view.View.GONE
+            if (qualityPositions.isNotEmpty()) {
+                tvQualityExposure.text = "%.3f◎".format(qualityPositions.sumOf { it.entrySol })
+                val qualityPnl = com.lifecyclebot.v3.scoring.QualityTraderAI.getDailyPnl()
+                tvQualityPnl.text = "%+.4f◎".format(qualityPnl)
+                tvQualityPnl.setTextColor(if (qualityPnl >= 0) green else red)
+                renderQualityPositions(qualityPositions)
+            }
+        } catch (_: Exception) {}
+
         // ── V4.0: ShitCoin positions panel ─────────────────────────────────
         try {
             val shitCoinPositions = com.lifecyclebot.v3.scoring.ShitCoinTraderAI.getActivePositions()
@@ -1342,7 +1387,7 @@ for legal compliance.
                 }
             }
         } catch (_: Exception) {}
-
+        
         // ── V5.2: Moonshot positions panel ────────────────────────────
         try {
             val moonshotPositions = com.lifecyclebot.v3.scoring.MoonshotTraderAI.getActivePositions()
@@ -1613,7 +1658,7 @@ for legal compliance.
             val gainCol = if (gainPct >= 0) green else red
             val pnlSol  = pos.costSol * gainPct / 100.0
             
-            // Token amount at entry: use entry price not current price
+            // Token amount at entry: cost USD / entry price per token
             val costUsd = pos.costSol * solPrice
             val tokenAmount = if (pos.entryPrice > 0) costUsd / pos.entryPrice else 0.0
             val currentValue = pos.costSol + pnlSol  // Current value in SOL
@@ -1646,40 +1691,25 @@ for legal compliance.
                 setTextColor(white)
                 typeface = android.graphics.Typeface.DEFAULT_BOLD
             })
-            // Entry price per token — use pos.entryPrice directly
+            // Entry price per token and time — use pos.entryPrice directly
             info.addView(TextView(this).apply {
                 text = "Entry: ${pos.entryPrice.fmtPrice()}  ·  ${sdf.format(java.util.Date(pos.entryTime))}"
                 textSize = resources.getDimension(R.dimen.trade_sub_text) / resources.displayMetrics.scaledDensity
                 setTextColor(muted)
                 typeface = android.graphics.Typeface.MONOSPACE
             })
-            // Entry size and token balance
+            // Entry size and token amount
             info.addView(TextView(this).apply {
                 val tokenAmtStr = when {
                     tokenAmount >= 1_000_000 -> "%.2fM".format(tokenAmount / 1_000_000)
                     tokenAmount >= 1_000     -> "%.2fK".format(tokenAmount / 1_000)
-                    else                     -> "%.4f".format(tokenAmount)
+                    else                     -> "%.2f".format(tokenAmount)
                 }
-                text = "Size: %.4f◎  ·  Bal: %s".format(pos.costSol, tokenAmtStr)
+                text = "Size: %.4f◎  ·  %s tokens".format(pos.costSol, tokenAmtStr)
                 textSize = resources.getDimension(R.dimen.trade_sub_text) / resources.displayMetrics.scaledDensity
                 setTextColor(muted)
                 typeface = android.graphics.Typeface.MONOSPACE
             })
-            // Profit target %
-            val tpPct = when {
-                pos.isTreasuryPosition && pos.treasuryTakeProfit > 0 -> pos.treasuryTakeProfit
-                pos.isBlueChipPosition && pos.blueChipTakeProfit > 0 -> pos.blueChipTakeProfit
-                pos.isShitCoinPosition && pos.shitCoinTakeProfit > 0 -> pos.shitCoinTakeProfit
-                else -> 0.0
-            }
-            if (tpPct > 0) {
-                info.addView(TextView(this).apply {
-                    text = "Target: +%.0f%%".format(tpPct)
-                    textSize = resources.getDimension(R.dimen.trade_sub_text) / resources.displayMetrics.scaledDensity
-                    setTextColor(0xFF22C55E.toInt())  // green
-                    typeface = android.graphics.Typeface.MONOSPACE
-                })
-            }
             row.addView(info)
 
             // P&L (right column)
@@ -1711,6 +1741,28 @@ for legal compliance.
                 typeface = android.graphics.Typeface.MONOSPACE
                 gravity = android.view.Gravity.END
             })
+            // TP/SL — pick whichever layer owns this position
+            val tpPct = when {
+                pos.isTreasuryPosition && pos.treasuryTakeProfit > 0 -> pos.treasuryTakeProfit
+                pos.isBlueChipPosition && pos.blueChipTakeProfit > 0 -> pos.blueChipTakeProfit
+                pos.isShitCoinPosition && pos.shitCoinTakeProfit > 0 -> pos.shitCoinTakeProfit
+                else -> 0.0
+            }
+            val slPct = when {
+                pos.isTreasuryPosition && pos.treasuryStopLoss != 0.0 -> pos.treasuryStopLoss
+                pos.isBlueChipPosition && pos.blueChipStopLoss != 0.0 -> pos.blueChipStopLoss
+                pos.isShitCoinPosition && pos.shitCoinStopLoss != 0.0 -> pos.shitCoinStopLoss
+                else -> 0.0
+            }
+            if (tpPct > 0) {
+                right.addView(TextView(this).apply {
+                    text = "TP +${tpPct.toInt()}%  SL ${slPct.toInt()}%"
+                    textSize = 8f
+                    setTextColor(muted)
+                    typeface = android.graphics.Typeface.MONOSPACE
+                    gravity = android.view.Gravity.END
+                })
+            }
             row.addView(right)
 
             val div = View(this).apply {
@@ -1771,30 +1823,16 @@ for legal compliance.
                 setTextColor(muted)
                 typeface = android.graphics.Typeface.MONOSPACE
             })
-            val tpPct = if (pos.entryPrice > 0 && pos.targetPrice > 0) {
-                ((pos.targetPrice - pos.entryPrice) / pos.entryPrice) * 100
-            } else {
-                3.5  // Default to 3.5% if data missing
-            }
             info.addView(TextView(this).apply {
+                // V4.0: Calculate actual TP% from position data instead of hardcoded 7%
+                val tpPct = if (pos.entryPrice > 0 && pos.targetPrice > 0) {
+                    ((pos.targetPrice - pos.entryPrice) / pos.entryPrice) * 100
+                } else {
+                    3.5  // Default to 3.5% if data missing
+                }
                 text = "Size: %.4f◎  ·  Target: +%.1f%%".format(pos.entrySol, tpPct)
                 textSize = resources.getDimension(R.dimen.trade_sub_text) / resources.displayMetrics.scaledDensity
                 setTextColor(muted)
-                typeface = android.graphics.Typeface.MONOSPACE
-            })
-            // Token balance
-            val tSolPrice = solPrice
-            val tTokenBal = if (pos.entryPrice > 0 && tSolPrice > 0)
-                (pos.entrySol * tSolPrice) / pos.entryPrice else 0.0
-            val tTokenStr = when {
-                tTokenBal >= 1_000_000 -> "%.2fM".format(tTokenBal / 1_000_000)
-                tTokenBal >= 1_000     -> "%.2fK".format(tTokenBal / 1_000)
-                else                   -> "%.0f".format(tTokenBal)
-            }
-            info.addView(TextView(this).apply {
-                text = "Bal: $tTokenStr tokens"
-                textSize = resources.getDimension(R.dimen.trade_sub_text) / resources.displayMetrics.scaledDensity
-                setTextColor(0xFFFFD700.toInt())  // gold
                 typeface = android.graphics.Typeface.MONOSPACE
             })
             row.addView(info)
@@ -1840,7 +1878,7 @@ for legal compliance.
             val currentPrice = try {
                 com.lifecyclebot.engine.BotService.status.tokens[pos.mint]?.ref ?: pos.entryPrice
             } catch (_: Exception) { pos.entryPrice }
-            val gainPct = (currentPrice - pos.entryPrice) / pos.entryPrice * 100
+            val gainPct = if (pos.entryPrice > 0) (currentPrice - pos.entryPrice) / pos.entryPrice * 100 else 0.0
             val gainCol = if (gainPct >= 0) green else red
             val pnlSol = pos.entrySol * gainPct / 100.0
 
@@ -1875,30 +1913,18 @@ for legal compliance.
                 setTextColor(muted)
                 typeface = android.graphics.Typeface.MONOSPACE
             })
-            // Token balance + profit target
-            val bcSolPrice = com.lifecyclebot.engine.WalletManager.lastKnownSolPrice
-            val bcTokenBal = if (pos.entryPrice > 0 && bcSolPrice > 0)
-                (pos.entrySol * bcSolPrice) / pos.entryPrice else 0.0
-            val bcTokenStr = when {
-                bcTokenBal >= 1_000_000 -> "%.2fM".format(bcTokenBal / 1_000_000)
-                bcTokenBal >= 1_000     -> "%.2fK".format(bcTokenBal / 1_000)
-                else                    -> "%.4f".format(bcTokenBal)
-            }
+            val mcapM = pos.marketCapUsd / 1_000_000.0
+            val mcapLabel = if (mcapM >= 1.0) "\$${String.format("%.2f", mcapM)}M" else "\$${String.format("%.0f", pos.marketCapUsd/1_000)}K"
             info.addView(TextView(this).apply {
-                text = "MCap: \$${String.format("%.2f", pos.marketCapUsd/1_000_000)}M  ·  Size: ${String.format("%.3f", pos.entrySol)}◎"
+                text = "MCap: $mcapLabel  ·  ${String.format("%.3f", pos.entrySol)}◎  TP:+${pos.takeProfitPct.toInt()}%  SL:${pos.stopLossPct.toInt()}%"
                 textSize = resources.getDimension(R.dimen.trade_sub_text) / resources.displayMetrics.scaledDensity
                 setTextColor(muted)
-                typeface = android.graphics.Typeface.MONOSPACE
-            })
-            info.addView(TextView(this).apply {
-                text = "Bal: $bcTokenStr  ·  Target: +${pos.takeProfitPct.toInt()}%"
-                textSize = resources.getDimension(R.dimen.trade_sub_text) / resources.displayMetrics.scaledDensity
-                setTextColor(0xFF22C55E.toInt())  // green
                 typeface = android.graphics.Typeface.MONOSPACE
             })
             row.addView(info)
 
             // P&L (right column)
+            val holdMins = (System.currentTimeMillis() - pos.entryTime) / 60_000
             val right = LinearLayout(this).apply {
                 orientation = LinearLayout.VERTICAL
                 gravity = android.view.Gravity.END
@@ -1911,7 +1937,7 @@ for legal compliance.
                 gravity = android.view.Gravity.END
             })
             right.addView(TextView(this).apply {
-                text = "%+.4f◎".format(pnlSol)
+                text = "%+.4f◎  ${holdMins}m".format(pnlSol)
                 textSize = resources.getDimension(R.dimen.trade_sub_text) / resources.displayMetrics.scaledDensity
                 setTextColor(gainCol)
                 typeface = android.graphics.Typeface.MONOSPACE
@@ -1929,14 +1955,104 @@ for legal compliance.
         }
     }
     
+    // Render Quality positions ($100K-$1M mcap)
+    private fun renderQualityPositions(positions: List<com.lifecyclebot.v3.scoring.QualityTraderAI.QualityPosition>) {
+        llQualityPositions.removeAllViews()
+        val sdf = java.text.SimpleDateFormat("HH:mm", java.util.Locale.US)
+
+        positions.forEach { pos ->
+            val currentPrice = try {
+                com.lifecyclebot.engine.BotService.status.tokens[pos.mint]?.ref ?: pos.entryPrice
+            } catch (_: Exception) { pos.entryPrice }
+            val gainPct = if (pos.entryPrice > 0) (currentPrice - pos.entryPrice) / pos.entryPrice * 100 else 0.0
+            val gainCol = if (gainPct >= 0) green else red
+            val pnlSol = pos.entrySol * gainPct / 100.0
+            val holdMins = (System.currentTimeMillis() - pos.entryTime) / 60_000
+
+            val row = LinearLayout(this).apply {
+                orientation = LinearLayout.HORIZONTAL
+                setPadding(0, 12, 0, 12)
+            }
+
+            // Amber colour bar for Quality
+            val bar = View(this).apply {
+                layoutParams = LinearLayout.LayoutParams(4, LinearLayout.LayoutParams.MATCH_PARENT).also {
+                    it.marginEnd = 12
+                }
+                setBackgroundColor(0xFFF59E0B.toInt())
+            }
+            row.addView(bar)
+
+            // Token info (left column)
+            val info = LinearLayout(this).apply {
+                orientation = LinearLayout.VERTICAL
+                layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
+            }
+            info.addView(TextView(this).apply {
+                text = "⭐ ${pos.symbol}"
+                textSize = resources.getDimension(R.dimen.trade_row_text) / resources.displayMetrics.scaledDensity
+                setTextColor(0xFFF59E0B.toInt())
+                typeface = android.graphics.Typeface.DEFAULT_BOLD
+            })
+            info.addView(TextView(this).apply {
+                text = "Entry: ${pos.entryPrice.fmtPrice()}  ·  ${sdf.format(java.util.Date(pos.entryTime))}"
+                textSize = resources.getDimension(R.dimen.trade_sub_text) / resources.displayMetrics.scaledDensity
+                setTextColor(muted)
+                typeface = android.graphics.Typeface.MONOSPACE
+            })
+            val mcapK = pos.entryMcap / 1_000.0
+            val mcapLabel = if (mcapK >= 1000) "\$${String.format("%.1f", mcapK/1000)}M" else "\$${String.format("%.0f", mcapK)}K"
+            info.addView(TextView(this).apply {
+                text = "MCap: $mcapLabel  ·  ${String.format("%.3f", pos.entrySol)}◎  TP:+${pos.takeProfitPct.toInt()}%  SL:${pos.stopLossPct.toInt()}%"
+                textSize = resources.getDimension(R.dimen.trade_sub_text) / resources.displayMetrics.scaledDensity
+                setTextColor(muted)
+                typeface = android.graphics.Typeface.MONOSPACE
+            })
+            row.addView(info)
+
+            // P&L (right column)
+            val right = LinearLayout(this).apply {
+                orientation = LinearLayout.VERTICAL
+                gravity = android.view.Gravity.END
+            }
+            right.addView(TextView(this).apply {
+                text = "%+.1f%%".format(gainPct)
+                textSize = resources.getDimension(R.dimen.token_name_size) / resources.displayMetrics.scaledDensity
+                setTextColor(gainCol)
+                typeface = android.graphics.Typeface.DEFAULT_BOLD
+                gravity = android.view.Gravity.END
+            })
+            right.addView(TextView(this).apply {
+                text = "%+.4f◎  ${holdMins}m".format(pnlSol)
+                textSize = resources.getDimension(R.dimen.trade_sub_text) / resources.displayMetrics.scaledDensity
+                setTextColor(gainCol)
+                typeface = android.graphics.Typeface.MONOSPACE
+                gravity = android.view.Gravity.END
+            })
+            row.addView(right)
+
+            val div = View(this).apply {
+                layoutParams = LinearLayout.LayoutParams(
+                    LinearLayout.LayoutParams.MATCH_PARENT, 1).also { it.topMargin = 10 }
+                setBackgroundColor(0xFF1F2937.toInt())
+            }
+            llQualityPositions.addView(row)
+            llQualityPositions.addView(div)
+        }
+    }
+
     // V4.0: Render ShitCoin Positions with platform icons
     private fun renderShitCoinPositions(positions: List<com.lifecyclebot.v3.scoring.ShitCoinTraderAI.ShitCoinPosition>) {
         llShitCoinPositions.removeAllViews()
         val sdf = java.text.SimpleDateFormat("HH:mm", java.util.Locale.US)
         
         positions.forEach { pos ->
-            val currentPrice = pos.highWaterMark * 0.95 // Use actual price from position tracking
-            val gainPct = (currentPrice - pos.entryPrice) / pos.entryPrice * 100
+            val currentPrice = try {
+                com.lifecyclebot.engine.BotService.status.tokens[pos.mint]?.ref
+                    ?: pos.highWaterMark.takeIf { it > pos.entryPrice }
+                    ?: pos.entryPrice
+            } catch (_: Exception) { pos.entryPrice }
+            val gainPct = if (pos.entryPrice > 0) (currentPrice - pos.entryPrice) / pos.entryPrice * 100 else 0.0
             val gainCol = if (gainPct >= 0) green else red
             val pnlSol = pos.entrySol * gainPct / 100.0
 
@@ -1989,23 +2105,6 @@ for legal compliance.
                 setTextColor(muted)
                 typeface = android.graphics.Typeface.MONOSPACE
             })
-            // Token balance + profit target
-            val scSolPrice = com.lifecyclebot.engine.WalletManager.lastKnownSolPrice
-            val scTokenBal = if (pos.entryPrice > 0 && scSolPrice > 0)
-                (pos.entrySol * scSolPrice) / pos.entryPrice else 0.0
-            val scTokenStr = when {
-                scTokenBal >= 1_000_000 -> "%.2fM".format(scTokenBal / 1_000_000)
-                scTokenBal >= 1_000     -> "%.2fK".format(scTokenBal / 1_000)
-                else                    -> "%.0f".format(scTokenBal)
-            }
-            if (pos.takeProfitPct > 0 || scTokenBal > 0) {
-                info.addView(TextView(this).apply {
-                    text = "Bal: $scTokenStr  ·  Target: +${pos.takeProfitPct.toInt()}%"
-                    textSize = resources.getDimension(R.dimen.trade_sub_text) / resources.displayMetrics.scaledDensity
-                    setTextColor(0xFF22C55E.toInt())
-                    typeface = android.graphics.Typeface.MONOSPACE
-                })
-            }
             row.addView(info)
 
             // P&L (right column)
@@ -2046,7 +2145,7 @@ for legal compliance.
         }
     }
     
-    // V5.5: Render ShitCoinExpress active rides (appended to llShitCoinPositions)
+    // V5.5: Render ShitCoinExpress active rides
     private fun renderExpressRides(rides: List<com.lifecyclebot.v3.scoring.ShitCoinExpress.ExpressRide>) {
         val sdf = java.text.SimpleDateFormat("HH:mm", java.util.Locale.US)
         rides.forEach { ride ->
@@ -2085,7 +2184,7 @@ for legal compliance.
                 typeface = android.graphics.Typeface.MONOSPACE
             })
             info.addView(TextView(this).apply {
-                text = "Size: %.4f◎  mom=${ride.entryMomentum.toInt()}%  ${holdMins}m hold".format(ride.entrySol)
+                text = "Size: %.4f◎  ·  mom=${ride.entryMomentum.toInt()}%  ·  ${holdMins}m".format(ride.entrySol)
                 textSize = resources.getDimension(R.dimen.trade_sub_text) / resources.displayMetrics.scaledDensity
                 setTextColor(muted)
                 typeface = android.graphics.Typeface.MONOSPACE
@@ -2111,7 +2210,7 @@ for legal compliance.
                 gravity = android.view.Gravity.END
             })
             right.addView(TextView(this).apply {
-                text = "TP 30/50/100%  SL -8%"
+                text = "TP 30/50/100% SL -8%"
                 textSize = 8f
                 setTextColor(muted)
                 typeface = android.graphics.Typeface.MONOSPACE
@@ -2156,45 +2255,24 @@ for legal compliance.
                 }
             }
             
-            // Token balance
-            val msSolPrice = com.lifecyclebot.engine.WalletManager.lastKnownSolPrice
-            val msTokenBal = if (pos.entryPrice > 0 && msSolPrice > 0)
-                (pos.entrySol * msSolPrice) / pos.entryPrice else 0.0
-            val msTokenStr = when {
-                msTokenBal >= 1_000_000 -> "%.2fM".format(msTokenBal / 1_000_000)
-                msTokenBal >= 1_000     -> "%.2fK".format(msTokenBal / 1_000)
-                else                    -> "%.4f".format(msTokenBal)
-            }
-
-            // Left column - symbol + details
-            val msInfo = LinearLayout(this).apply {
-                orientation = LinearLayout.VERTICAL
-                layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1.5f)
-            }
-
+            // Symbol
             val tvSymbol = TextView(this).apply {
-                text = "${pos.spaceMode.emoji} ${pos.symbol}"
+                text = pos.symbol
                 setTextColor(0xFFA855F7.toInt())  // Purple for moonshots
                 textSize = 12f
                 typeface = android.graphics.Typeface.create("monospace", android.graphics.Typeface.BOLD)
+                layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
             }
-            msInfo.addView(tvSymbol)
-
+            
+            // Entry / Current
             val tvEntry = TextView(this).apply {
                 text = "${String.format("%.6f", pos.entryPrice)} → ${String.format("%.6f", currentPrice)}"
                 setTextColor(0xFF6B7280.toInt())
                 textSize = 10f
                 typeface = android.graphics.Typeface.create("monospace", android.graphics.Typeface.NORMAL)
+                layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1.2f)
             }
-            msInfo.addView(tvEntry)
-
-            msInfo.addView(TextView(this).apply {
-                text = "Bal: $msTokenStr  ·  Target: +${pos.takeProfitPct.toInt()}%"
-                setTextColor(0xFF22C55E.toInt())
-                textSize = 10f
-                typeface = android.graphics.Typeface.create("monospace", android.graphics.Typeface.NORMAL)
-            })
-
+            
             // P&L
             val tvPnl = TextView(this).apply {
                 text = "${if (pnlPct >= 0) "+" else ""}${String.format("%.1f", pnlPct)}%"
@@ -2202,9 +2280,8 @@ for legal compliance.
                 textSize = 12f
                 typeface = android.graphics.Typeface.create("monospace", android.graphics.Typeface.BOLD)
                 layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 0.5f)
-                gravity = android.view.Gravity.END or android.view.Gravity.CENTER_VERTICAL
             }
-
+            
             // Hold time
             val tvHold = TextView(this).apply {
                 text = "${holdMins}m"
@@ -2212,10 +2289,10 @@ for legal compliance.
                 textSize = 10f
                 typeface = android.graphics.Typeface.create("monospace", android.graphics.Typeface.NORMAL)
                 layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 0.3f)
-                gravity = android.view.Gravity.END or android.view.Gravity.CENTER_VERTICAL
             }
-
-            row.addView(msInfo)
+            
+            row.addView(tvSymbol)
+            row.addView(tvEntry)
             row.addView(tvPnl)
             row.addView(tvHold)
             
@@ -2269,6 +2346,68 @@ for legal compliance.
                 candleChart.visibility = if (type == "candle") android.view.View.VISIBLE else android.view.View.GONE
             }
         }
+    }
+    
+    // V5.6: Update DexScreener-style chart metrics
+    private fun updateChartMetrics(ts: TokenState?) {
+        if (ts == null) return
+        
+        // Market Cap
+        tvChartMcap?.text = when {
+            ts.lastMcap >= 1_000_000 -> "$${(ts.lastMcap / 1_000_000).toInt()}M"
+            ts.lastMcap >= 1_000 -> "$${(ts.lastMcap / 1_000).toInt()}K"
+            else -> "$${ts.lastMcap.toInt()}"
+        }
+        
+        // 5m Volume (use recent history to calculate)
+        val vol5m = try {
+            synchronized(ts.history) {
+                val now = System.currentTimeMillis()
+                val fiveMinAgo = now - (5 * 60 * 1000L)
+                ts.history.filter { candle -> candle.ts > fiveMinAgo }
+                    .sumOf { candle -> candle.volumeH1 }
+            }
+        } catch (_: Exception) { 0.0 }
+        
+        tvChart5mVol?.text = when {
+            vol5m >= 1_000_000 -> "$${(vol5m / 1_000_000).toInt()}M"
+            vol5m >= 1_000 -> "$${(vol5m / 1_000).toInt()}K"
+            vol5m > 0 -> "$${vol5m.toInt()}"
+            else -> "$0"
+        }
+        tvChart5mVol?.setTextColor(if (vol5m > 10000) green else if (vol5m > 1000) 0xFF10B981.toInt() else 0xFF6B7280.toInt())
+        
+        // Liquidity
+        tvChartLiq?.text = when {
+            ts.lastLiquidityUsd >= 1_000_000 -> "$${(ts.lastLiquidityUsd / 1_000_000).toInt()}M"
+            ts.lastLiquidityUsd >= 1_000 -> "$${(ts.lastLiquidityUsd / 1_000).toInt()}K"
+            else -> "$${ts.lastLiquidityUsd.toInt()}"
+        }
+        tvChartLiq?.setTextColor(when {
+            ts.lastLiquidityUsd >= 50000 -> green
+            ts.lastLiquidityUsd >= 10000 -> 0xFF3B82F6.toInt()
+            else -> amber
+        })
+        
+        // Holders (from last candle if available)
+        val holders = try {
+            ts.history.lastOrNull()?.holderCount ?: 0
+        } catch (_: Exception) { 0 }
+        tvChartHolders?.text = when {
+            holders >= 1000 -> "${holders / 1000}K"
+            holders > 0 -> "$holders"
+            else -> "—"
+        }
+        
+        // Buy Pressure
+        val buyPressure = ts.lastBuyPressurePct
+        tvChartBuyPressure?.text = "${buyPressure.toInt()}%"
+        tvChartBuyPressure?.setTextColor(when {
+            buyPressure >= 65 -> green
+            buyPressure >= 50 -> 0xFF10B981.toInt()
+            buyPressure >= 35 -> amber
+            else -> red
+        })
     }
     
     // V4.0: Update AI Status Panel with live data
@@ -2369,8 +2508,13 @@ for legal compliance.
                 else -> 0xFF3B82F6.toInt() // blue
             })
             
-            // Active AI Layers - concise list
-            tvAiLayers.text = "Entry · Exit · Volume · Momentum · Liquidity · Behavior · Regime · Treasury · ShitCoin · Express · DipHunter · SolArb · Social · Whale · Narrative"
+            // V5.6: ML Engine Status - show training progress
+            val mlStatus = try {
+                com.lifecyclebot.ml.OnDeviceMLEngine.getStatus()
+            } catch (_: Exception) { "Not initialized" }
+            
+            // Active AI Layers - concise list with ML
+            tvAiLayers.text = "Entry · Exit · Volume · Momentum · Liquidity · Behavior · Regime · Treasury · ShitCoin · Express · Quality · BlueChip · Moonshot · ML($mlStatus)"
             tvAiLayers.setTextColor(muted)
             
         } catch (e: Exception) {
@@ -4170,32 +4314,19 @@ Last Check: ${java.text.SimpleDateFormat("HH:mm:ss", java.util.Locale.US).format
                 "   (none)"
             } else {
                 qualityPositions.joinToString("\n") { pos ->
+                    val pnl = ((solPrice * pos.entryPrice) - (solPrice * pos.entryPrice)) / (solPrice * pos.entryPrice) * 100
                     val holdMins = (System.currentTimeMillis() - pos.entryTime) / 60000
-                    val qTokenBal = if (pos.entryPrice > 0 && solPrice > 0)
-                        (pos.entrySol * solPrice) / pos.entryPrice else 0.0
-                    val qBal = when {
-                        qTokenBal >= 1_000_000 -> "%.2fM".format(qTokenBal / 1_000_000)
-                        qTokenBal >= 1_000     -> "%.1fK".format(qTokenBal / 1_000)
-                        else                   -> "%.0f".format(qTokenBal)
-                    }
-                    "   • ${pos.symbol} | \$${(pos.entryMcap/1000).toInt()}K | bal:$qBal | tp:+${pos.takeProfitPct.toInt()}% | ${holdMins}m"
+                    "   • ${pos.symbol} | \$${(pos.entryMcap/1000).toInt()}K | ${holdMins}min"
                 }
             }
-
+            
             // Build BlueChip positions list
             val blueChipPosList = if (blueChipPositions.isEmpty()) {
                 "   (none)"
             } else {
                 blueChipPositions.joinToString("\n") { pos ->
                     val holdMins = (System.currentTimeMillis() - pos.entryTime) / 60000
-                    val bcTokenBal = if (pos.entryPrice > 0 && solPrice > 0)
-                        (pos.entrySol * solPrice) / pos.entryPrice else 0.0
-                    val bcBal = when {
-                        bcTokenBal >= 1_000_000 -> "%.2fM".format(bcTokenBal / 1_000_000)
-                        bcTokenBal >= 1_000     -> "%.1fK".format(bcTokenBal / 1_000)
-                        else                   -> "%.0f".format(bcTokenBal)
-                    }
-                    "   • ${pos.symbol} | \$${(pos.marketCapUsd/1_000_000).toInt()}M | bal:$bcBal | tp:+${pos.takeProfitPct.toInt()}% | ${holdMins}m"
+                    "   • ${pos.symbol} | \$${(pos.marketCapUsd/1_000_000).toInt()}M | ${holdMins}min"
                 }
             }
             
@@ -4483,7 +4614,7 @@ Active Positions: $positionCount
 🛸 SPACE MODES (Active)
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-🛸 Orbital ($100K-$500K): $orbitalCount
+🛸 Orbital ($50K-$500K): $orbitalCount
 🌙 Lunar ($500K-$2M): $lunarCount
 🔴 Mars ($2M-$5M): $marsCount
 🪐 Jupiter ($5M-$50M): $jupiterCount

@@ -41,6 +41,7 @@ class DataOrchestrator(
 
     private var pumpWs: PumpFunWebSocket? = null
     private var heliusWs: HeliusWebSocket? = null
+    private var dexWs: DexScreenerWebSocket? = null  // V5.6: Real-time price feed
     private var creatorChecker: HeliusCreatorHistory? = null
 
     // Last WS event per mint — used to decide if polling is needed
@@ -55,16 +56,18 @@ class DataOrchestrator(
         val c = cfg()
         startPumpFunWebSocket()
         startHeliusWebSocket(c.heliusApiKey)
+        startDexScreenerWebSocket()  // V5.6: Real-time price feed for all tokens
         if (c.heliusApiKey.isNotBlank()) {
             creatorChecker = HeliusCreatorHistory(c.heliusApiKey)
         }
         startDevWalletMonitor()
-        onLog("DataOrchestrator started", "")
+        onLog("DataOrchestrator started (Pump+Helius+DexScreener WS)", "")
     }
 
     fun stop() {
         pumpWs?.disconnect()
         heliusWs?.disconnect()
+        dexWs?.disconnect()
         scope.cancel()
         onLog("DataOrchestrator stopped", "")
     }
@@ -73,6 +76,7 @@ class DataOrchestrator(
         try {
             heliusWs?.disconnect(); delay(1_000); heliusWs?.connect()
             pumpWs?.disconnect();  delay(500);   pumpWs?.connect()
+            dexWs?.disconnect();   delay(500);   dexWs?.connect()
         } catch (e: Exception) { onLog("Stream reconnect: ${e.message?.take(40)}", "") }
     }
 
@@ -116,14 +120,22 @@ class DataOrchestrator(
             // 2. Subscribe to real-time trades
             pumpWs?.subscribeToken(mint)
             heliusWs?.subscribeToken(mint)
+            
+            // 3. V5.6: Subscribe to DexScreener real-time prices
+            // Get pair address from token state
+            val ts = status.tokens[mint]
+            if (ts != null && ts.pairAddress.isNotBlank()) {
+                dexWs?.subscribeToken(mint, ts.pairAddress)
+            }
 
-            onLog("$symbol: data sources connected", mint)
+            onLog("$symbol: data sources connected (Pump+Helius+Dex WS)", mint)
         }
     }
 
     fun onTokenRemoved(mint: String) {
         pumpWs?.unsubscribeToken(mint)
         heliusWs?.unsubscribeToken(mint)
+        dexWs?.unsubscribeToken(mint)
         tokenDevWallets.remove(mint)
         lastWsEventMs.remove(mint)
     }
@@ -309,6 +321,48 @@ class DataOrchestrator(
             onLog = { msg -> onLog("Helius: $msg", "") },
         )
         heliusWs?.connect()
+    }
+
+    // ── DexScreener WebSocket ─────────────────────────────────────────
+    // V5.6: Real-time price feed for ALL Solana tokens (graduated + Raydium)
+
+    private fun startDexScreenerWebSocket() {
+        dexWs = DexScreenerWebSocket(
+            onPriceUpdate = { mint, priceUsd, priceChange5m, priceChange1h, 
+                             volume5m, volume1h, liquidity, mcap, buys5m, sells5m, txns5m ->
+                lastWsEventMs[mint] = System.currentTimeMillis()
+                
+                val ts = synchronized(status.tokens) {
+                    status.tokens.values.find { it.mint == mint }
+                } ?: return@DexScreenerWebSocket
+                
+                // Update token state with real-time data
+                ts.lastPrice = priceUsd
+                ts.lastMcap = mcap
+                ts.lastLiquidityUsd = liquidity
+                ts.lastBuyPressurePct = if (txns5m > 0) (buys5m.toDouble() / txns5m) * 100 else 50.0
+                
+                // Update volume scores in meta (copy with new values)
+                ts.meta = ts.meta.copy(
+                    volScore = when {
+                        volume5m > 50_000 -> 90.0
+                        volume5m > 20_000 -> 75.0
+                        volume5m > 10_000 -> 60.0
+                        volume5m > 5_000 -> 45.0
+                        else -> 30.0
+                    },
+                    pressScore = if (txns5m > 0) (buys5m.toDouble() / txns5m) * 100 else 50.0
+                )
+                
+                // Log significant price moves
+                if (kotlin.math.abs(priceChange5m) >= 10.0) {
+                    val emoji = if (priceChange5m > 0) "📈" else "📉"
+                    onLog("$emoji ${ts.symbol}: ${priceChange5m.toInt()}% (5m) | \$${(mcap/1000).toInt()}K mcap", mint)
+                }
+            },
+            onLog = { msg -> onLog("DexScreener: $msg", "") },
+        )
+        dexWs?.connect()
     }
 
     // ── Real-time candle builder ──────────────────────────────────────

@@ -15,7 +15,7 @@ import kotlin.math.abs
  * 1. TRADE LABELING: Classifies every trade as GOOD/BAD/MID
  * 2. FEATURE CAPTURE: Records 15+ features per trade for pattern analysis
  * 3. OUTCOME SCORING: Scores trades -2 to +2 based on quality, not just P&L
- * 4. PATTERN EXTRACTION: Identifies winning/losing patterns after 50+ trades
+ * 4. PATTERN EXTRACTION: Identifies winning/losing patterns after 500+ trades
  * 5. ADAPTIVE SCORING: Dynamically adjusts entry weights based on learned patterns
  * 
  * The result: A bot that gets smarter with every trade.
@@ -756,7 +756,7 @@ object AdaptiveLearningEngine {
      * Call this after accumulating 50+ trades.
      */
     fun extractPatterns(trades: List<TradeFeatures>) {
-        if (trades.size < 50) {
+        if (trades.size < 500) {
             ErrorLogger.info("AdaptiveLearning", "Need 50+ trades for pattern extraction (have ${trades.size})")
             return
         }

@@ -5,7 +5,7 @@ import java.util.concurrent.ConcurrentHashMap
 import kotlin.math.abs
 import kotlin.math.min
 import kotlin.math.max
-
+private const val MIN_AGE_MINUTES = 5
 /**
  * ═══════════════════════════════════════════════════════════════════════════════
  * QUALITY TRADER AI - "PROFESSIONAL SOLANA TRADING" v1.0
@@ -23,14 +23,14 @@ import kotlin.math.max
  * 
  * KEY CHARACTERISTICS:
  * ─────────────────────────────────────────────────────────────────────────────
- * 1. Market Cap: $100K - $1M (quality range, below BlueChip)
+ * 1. Market Cap: $50K - $250k (quality range, below BlueChip)
  * 2. NOT meme-focused: Looks for utility, real projects, good fundamentals
  * 3. Hold Times: 15-60 minutes (professional swing trading)
  * 4. Profit Targets: 15-50% (quality setups deserve patience)
  * 5. Risk: Moderate stops, quality over quantity
  * 
  * FILTERS (Distinguishes from ShitCoin):
- * - Higher liquidity requirements ($20K+)
+ * - Higher liquidity requirements ($10K+)
  * - Token age preferences (not just fresh launches)
  * - Better holder distribution
  * - Lower volatility tolerance
@@ -52,12 +52,13 @@ object QualityTraderAI {
     // CONFIGURATION
     // ═══════════════════════════════════════════════════════════════════════════
     
-    // Market cap filter - Quality range (between ShitCoin and BlueChip)
-    private const val MIN_MARKET_CAP_USD = 100_000.0    // $100K minimum
-    private const val MAX_MARKET_CAP_USD = 1_000_000.0  // $1M max (above this = BlueChip)
+    // V5.2.12: Quality layer handles professional mid-cap trading
+    // Market cap: $100K - $1M (flows from ShitCoin at $100K, promotes to BlueChip at $1M)
+    private const val MIN_MARKET_CAP_USD = 100_000.0   // $100K minimum (flows from ShitCoin max)
+    private const val MAX_MARKET_CAP_USD = 1_000_000.0 // $1M max (above this = BlueChip)
     
-    // Liquidity requirements - higher than ShitCoin
-    private const val MIN_LIQUIDITY_USD = 20_000.0
+    // Liquidity requirements - higher standard than ShitCoin
+    private const val MIN_LIQUIDITY_USD = 10_000.0     // $10K minimum for professional layer
     
     // Token age - prefer established tokens
     // V5.2.12: Made fluid - lower during learning to gather data
@@ -68,7 +69,7 @@ object QualityTraderAI {
     // Position sizing
     private const val BASE_POSITION_SOL = 0.08          // Between Treasury (0.01) and BlueChip (0.15)
     private const val MAX_POSITION_SOL = 0.25           // Up to 0.25 SOL per trade
-    private const val MAX_CONCURRENT_POSITIONS = 4      // Max 4 Quality positions at once
+    private const val MAX_CONCURRENT_POSITIONS = 10     // V5.2.12: Raised from 4 for paper learning
     
     // Take profit / Stop loss - FLUID (adapts as bot learns)
     private const val TAKE_PROFIT_BOOTSTRAP = 15.0      // 15% at start
@@ -83,14 +84,33 @@ object QualityTraderAI {
     private const val MIN_BUY_PRESSURE = 40             // At least 40% buy pressure
     
     // ═══════════════════════════════════════════════════════════════════════════
-    // STATE
+    // STATE - V5.2.12: Added paper/live mode separation
     // ═══════════════════════════════════════════════════════════════════════════
     
-    private val activePositions = ConcurrentHashMap<String, QualityPosition>()
+    // Mode tracking
+    @Volatile private var isPaperMode: Boolean = true
+    
+    // Separate position tracking for paper and live
+    private val paperPositions = ConcurrentHashMap<String, QualityPosition>()
+    private val livePositions = ConcurrentHashMap<String, QualityPosition>()
+    
+    // Get active positions based on current mode
+    private val activePositions: ConcurrentHashMap<String, QualityPosition>
+        get() = if (isPaperMode) paperPositions else livePositions
+    
+    // Stats tracking
     private var dailyPnlSol = 0.0
     private var totalTrades = 0
     private var wins = 0
     private var losses = 0
+    
+    /**
+     * V5.2.12: Initialize with paper/live mode
+     */
+    fun init(paperMode: Boolean) {
+        isPaperMode = paperMode
+        ErrorLogger.info(TAG, "⭐ Quality Trader initialized | mode=${if (paperMode) "PAPER" else "LIVE"}")
+    }
     
     // ═══════════════════════════════════════════════════════════════════════════
     // DATA CLASSES
@@ -124,7 +144,7 @@ object QualityTraderAI {
         STOP_LOSS,
         TRAILING_STOP,
         TIME_EXIT,
-        PROMOTE_BLUECHIP,   // Promote to BlueChip if mcap crosses $1M
+        PROMOTE_BLUECHIP,   // Promote to BlueChip if mcap crosses $250k
         PROMOTE_MOONSHOT,   // Promote to Moonshot if gains > 100%
     }
     
@@ -168,27 +188,33 @@ object QualityTraderAI {
             return QualitySignal(false, reason = "MCAP too high for Quality (use BlueChip): $${marketCapUsd.toInt()}")
         }
         
-        // Liquidity filter
-        if (liquidityUsd < MIN_LIQUIDITY_USD) {
-            return QualitySignal(false, reason = "Liquidity too low: $${liquidityUsd.toInt()} < $${MIN_LIQUIDITY_USD.toInt()}")
-        }
-        
-        // Age filter - FLUID: Lower during learning to gather data
+        // Liquidity filter — FLUID: lower during bootstrap for data gathering
+        // V5.4: was hard $20K floor; now $5K bootstrap → $20K mature
         val learningProgress = FluidLearningAI.getLearningProgress()
+        val minLiqUsd = (5_000 + learningProgress * 12_000).coerceIn(5_000.0, MIN_LIQUIDITY_USD)
+        if (liquidityUsd < minLiqUsd) {
+            return QualitySignal(false, reason = "Liquidity too low: $${liquidityUsd.toInt()} < $${minLiqUsd.toInt()} (learning=${(learningProgress*100).toInt()}%)")
+        }
+
+        // Age filter - FLUID: Lower during learning to gather data
         val minAgeRequired = if (learningProgress < 0.5) MIN_AGE_MINUTES_BOOTSTRAP else MIN_AGE_MINUTES_MATURE
         
         if (tokenAgeMinutes < minAgeRequired) {
             return QualitySignal(false, reason = "Too new: ${tokenAgeMinutes.toInt()}min < ${minAgeRequired.toInt()}min (learning=${(learningProgress*100).toInt()}%)")
         }
         
-        // Buy pressure filter
-        if (buyPressure < MIN_BUY_PRESSURE) {
-            return QualitySignal(false, reason = "Buy pressure low: $buyPressure% < $MIN_BUY_PRESSURE%")
+        // Buy pressure filter — FLUID: lower during bootstrap so paper mode gets data
+        // V5.4: was hard 40%, now 25% bootstrap → 40% mature
+        val minBuyPressure = (25 + learningProgress * 15).toInt().coerceIn(25, 40)
+        if (buyPressure < minBuyPressure) {
+            return QualitySignal(false, reason = "Buy pressure low: $buyPressure% < $minBuyPressure% (learning=${(learningProgress*100).toInt()}%)")
         }
-        
-        // Holder distribution (if available)
-        if (holderCount > 0 && holderCount < MIN_HOLDER_COUNT) {
-            return QualitySignal(false, reason = "Too few holders: $holderCount < $MIN_HOLDER_COUNT")
+
+        // Holder distribution (if available) — FLUID: lower during bootstrap
+        // V5.4: was hard 50, now 10 bootstrap → 50 mature
+        val minHolderCount = (10 + learningProgress * 40).toInt().coerceIn(10, 50)
+        if (holderCount > 0 && holderCount < minHolderCount) {
+            return QualitySignal(false, reason = "Too few holders: $holderCount < $minHolderCount (learning=${(learningProgress*100).toInt()}%)")
         }
         if (topHolderPct > MAX_TOP_HOLDER_PCT) {
             return QualitySignal(false, reason = "Top holder too dominant: ${topHolderPct.toInt()}% > ${MAX_TOP_HOLDER_PCT.toInt()}%")
@@ -208,23 +234,26 @@ object QualityTraderAI {
         
         // Market cap in sweet spot
         val mcapScore = when {
-            marketCapUsd in 200_000.0..500_000.0 -> 20  // Sweet spot
-            marketCapUsd in 100_000.0..200_000.0 -> 10
-            marketCapUsd in 500_000.0..1_000_000.0 -> 15
+            marketCapUsd in 50_000.0..100_000.0 -> 20  // Sweet spot
+            marketCapUsd in 10_000.0..50_000.0 -> 10
+            marketCapUsd in 100_000.0..250_000.0 -> 15
             else -> 0
         }
         qualityScore += mcapScore
         
         // Liquidity score
         val liqScore = when {
-            liquidityUsd >= 100_000 -> 20
-            liquidityUsd >= 50_000 -> 15
-            liquidityUsd >= 30_000 -> 10
+            liquidityUsd >= 50_000 -> 20
+            liquidityUsd >= 25_000 -> 15
+            liquidityUsd >= 10_000 -> 10
             else -> 5
         }
         qualityScore += liqScore
         
         // Age score (prefer established)
+
+        require(MIN_AGE_MINUTES > 0) { "Invalid MIN_AGE_MINUTES" }
+        
         val ageScore = when {
             tokenAgeMinutes >= IDEAL_AGE_MINUTES -> 15
             tokenAgeMinutes >= 60 -> 10
@@ -254,10 +283,12 @@ object QualityTraderAI {
         // DECISION
         // ═══════════════════════════════════════════════════════════════════
         
-        val minScore = 40  // Require 40+ quality score
-        
+        // FLUID min quality score: 24 at bootstrap → 40 at mature
+        // V5.4: was hard 40 — unreachable when V3 bonus is 0 (low v3 scores in early learning)
+        val minScore = (24 + learningProgress * 16).toInt().coerceIn(24, 40)
+
         if (qualityScore < minScore) {
-            return QualitySignal(false, reason = "Quality score too low: $qualityScore < $minScore", qualityScore = qualityScore)
+            return QualitySignal(false, reason = "Quality score too low: $qualityScore < $minScore (learning=${(learningProgress*100).toInt()}%)", qualityScore = qualityScore)
         }
         
         // Calculate position size based on quality
@@ -382,8 +413,12 @@ object QualityTraderAI {
         // V5.2.12: Record to FluidLearningAI for central maturity tracking
         // This ensures Quality trades contribute to system-wide learning
         try {
-            FluidLearningAI.recordPaperTrade(isWin)  // Quality trades in paper mode for now
-            ErrorLogger.debug(TAG, "📊 Recorded to FluidLearningAI: ${pos.symbol} ${if (isWin) "WIN" else "LOSS"}")
+            if (isPaperMode) {
+                FluidLearningAI.recordPaperTrade(isWin)
+            } else {
+                FluidLearningAI.recordLiveTrade(isWin)
+            }
+            ErrorLogger.debug(TAG, "📊 Recorded to FluidLearningAI [${if (isPaperMode) "PAPER" else "LIVE"}]: ${pos.symbol} ${if (isWin) "WIN" else "LOSS"}")
         } catch (e: Exception) {
             ErrorLogger.warn(TAG, "FluidLearningAI record failed: ${e.message}")
         }
@@ -395,10 +430,22 @@ object QualityTraderAI {
     
     fun getActivePositions(): List<QualityPosition> = activePositions.values.toList()
     
+    /**
+     * V5.2.12: Get positions for specific mode
+     */
+    fun getActivePositionsForMode(isPaper: Boolean): List<QualityPosition> {
+        return if (isPaper) paperPositions.values.toList() else livePositions.values.toList()
+    }
+    
     fun hasPosition(mint: String): Boolean = activePositions.containsKey(mint)
     
+    /**
+     * V5.2.12: Clear all positions (both paper and live)
+     */
     fun clearAllPositions() {
-        activePositions.clear()
+        synchronized(paperPositions) { paperPositions.clear() }
+        synchronized(livePositions) { livePositions.clear() }
+        ErrorLogger.info(TAG, "⭐ QUALITY: Cleared all positions")
     }
     
     // ═══════════════════════════════════════════════════════════════════════════

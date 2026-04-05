@@ -18,7 +18,7 @@ import kotlin.math.max
  * - Pump.fun launches
  * - Raydium new pools
  * - Moonshot/Bonk-style micro caps
- * - Tokens with <$500K market cap
+ * - Tokens with <$50K market cap
  * 
  * This layer is ISOLATED from the main V3 engine to protect the portfolio
  * from the high-risk/high-reward nature of shitcoins while still capturing
@@ -26,7 +26,7 @@ import kotlin.math.max
  * 
  * KEY DIFFERENCES FROM OTHER LAYERS:
  * ─────────────────────────────────────────────────────────────────────────────
- * 1. Market Cap: MAXIMUM $500K (opposite of Blue Chip's $1M minimum)
+ * 1. Market Cap: MAXIMUM $50K (opposite of Blue Chip's $250k minimum)
  * 2. Execution Speed: ULTRA-FAST (avoid MEV/rugs)
  * 3. Risk Management: TIGHT stops, QUICK exits
  * 4. Evaluation Focus: Dev history, bundle detection, social signals, rug indicators
@@ -58,19 +58,21 @@ object ShitCoinTraderAI {
     // CONFIGURATION - Tailored for micro-cap memecoins
     // ═══════════════════════════════════════════════════════════════════════════
     
-    // Market cap filter - V4.20: Raised to $500K for realistic shitcoin range
-    // Tokens under $500K mcap are true degen plays
-    private const val MAX_MARKET_CAP_USD = 500_000.0
-    private const val MIN_MARKET_CAP_USD = 1_000.0  // Must have SOME value
+    // Market cap filter - V5.2.12: Extended to $100K to flow into Quality layer
+    // ShitCoin: $0 - $100K (degen memes and early plays)
+    // Quality picks up at $100K+
+    private const val MAX_MARKET_CAP_USD = 100_000.0   // V5.2.12: Raised from $50K to flow into Quality
+    private const val MIN_MARKET_CAP_USD = 1_000.0    // V5.2.12: Lowered from $2K for newer tokens
     
-    // Liquidity requirements - LOWER than other layers (micro-caps have less)
-    private const val MIN_LIQUIDITY_USD_BOOTSTRAP = 3_000.0   // $3K minimum at start
-    private const val MIN_LIQUIDITY_USD_MATURE = 1_500.0      // Can take lower once experienced
+    // Liquidity requirements — V5.5: Hard $5K minimum across all phases
+    private const val MIN_LIQUIDITY_USD_BOOTSTRAP = 3_000.0   // V5.2.12: Paper mode can explore lower liq
+    private const val MIN_LIQUIDITY_USD_MATURE = 5_000.0      // V5.5: $5K hard floor when mature
     
-    // Position sizing - SMALL to limit risk
+    // Position sizing - V5.6: DYNAMIC scaling based on wallet balance
     private const val BASE_POSITION_SOL = 0.05        // Very small base (0.05 SOL ~ $7.50)
-    private const val MAX_POSITION_SOL = 0.20         // Never exceed 0.2 SOL per shitcoin
-    private const val MAX_CONCURRENT_POSITIONS = 5    // Max 5 shitcoin positions at once
+    private const val MAX_POSITION_SOL = 0.30         // V5.6: Raised from 0.20 - bigger wallet = bigger positions
+    private const val MAX_CONCURRENT_POSITIONS = 12   // V5.2.12: Raised from 5 for paper learning
+    private const val WALLET_SCALE_FACTOR = 0.02      // V5.6: 2% of wallet per shitcoin position
     
     // V4.20: Removed daily loss limit - ShitCoin is now primary layer
     // Loss prevention is handled by global stop-loss and position sizing
@@ -81,8 +83,8 @@ object ShitCoinTraderAI {
     // Mature: Wider targets (let winners run, learned patterns)
     private const val TAKE_PROFIT_BOOTSTRAP = 25.0    // 25% at start (quick wins)
     private const val TAKE_PROFIT_MATURE = 100.0      // 100% when experienced (let runners run)
-    private const val STOP_LOSS_BOOTSTRAP = -8.0      // 8% stop at start (tight protection)
-    private const val STOP_LOSS_MATURE = -12.0        // 12% stop when mature (learned volatility)
+    private const val STOP_LOSS_BOOTSTRAP = -4.0      // V5.5: 4% stop at start (tighter — inside wick noise is ok)
+    private const val STOP_LOSS_MATURE = -8.0         // V5.5: 8% stop when mature (was -12, tighter discipline)
     private const val TRAILING_STOP_PCT = 8.0         // Tighter trailing for volatile moves
     // V5.2: REMOVED max hold time - ShitCoins can moon anytime, let them run!
     private const val FLAT_EXIT_MINUTES = 8           // V5.2: Increased to 8 mins (was 5)
@@ -107,7 +109,7 @@ object ShitCoinTraderAI {
     private const val OPTIMAL_AGE_MINUTES = 30.0      // Sweet spot: 30 mins - 2 hours
     
     // Graduation detection (pump.fun specific)
-    private const val GRADUATION_MCAP_THRESHOLD = 69_000.0  // Pump.fun graduation at ~$69K
+    private const val GRADUATION_MCAP_THRESHOLD = 30_000.0  // Pump.fun graduation at ~$30K
     
     // ═══════════════════════════════════════════════════════════════════════════
     // STATE
@@ -301,7 +303,12 @@ object ShitCoinTraderAI {
     }
     
     fun hasPosition(mint: String): Boolean = activePositions.containsKey(mint)
-    
+
+    // Called by BotService after executing a PARTIAL_TAKE sell to confirm the flag is set
+    fun markFirstTakeDone(mint: String) {
+        synchronized(activePositions) { activePositions[mint] }?.firstTakeDone = true
+    }
+
     /**
      * V5.2: Force clear all positions on bot stop
      * This ensures UI updates correctly even if individual closes fail
@@ -464,7 +471,7 @@ object ShitCoinTraderAI {
         // SHITCOIN FILTERS - Quality gates
         // ═══════════════════════════════════════════════════════════════════
         
-        // 1. MARKET CAP FILTER - Must be <$500K (this is the shitcoin zone)
+        // 1. MARKET CAP FILTER - Must be <$5K (this is the shitcoin zone)
         if (marketCapUsd > MAX_MARKET_CAP_USD) {
             return rejectSignal("MCAP_TOO_HIGH: \$${(marketCapUsd/1000).toInt()}K > \$${(MAX_MARKET_CAP_USD/1000).toInt()}K", mode, launchPlatform)
         }
@@ -701,17 +708,27 @@ object ShitCoinTraderAI {
         }
         
         // ═══════════════════════════════════════════════════════════════════
-        // POSITION SIZING - Risk-adjusted
+        // POSITION SIZING - V5.6: DYNAMIC scaling with wallet balance
+        // 
+        // Problem: User had 12 SOL but shitcoin was taking tiny 0.05 SOL entries
+        // Solution: Scale position with balance
+        //   1 SOL wallet  → 0.05 SOL base
+        //   5 SOL wallet  → 0.10 SOL (2% = 0.10)
+        //   10 SOL wallet → 0.20 SOL (2% = 0.20)
+        //   20 SOL wallet → 0.30 SOL (capped)
         // ═══════════════════════════════════════════════════════════════════
         
-        var positionSol = BASE_POSITION_SOL
+        val currentBalance = getCurrentBalance()
+        val walletBasedSize = currentBalance * WALLET_SCALE_FACTOR
+        var positionSol = maxOf(BASE_POSITION_SOL, walletBasedSize)
         
         // Scale by confidence
         val confScale = shitConfidence / 100.0
         positionSol *= (0.6 + confScale * 0.8)  // 60-140% of base
         
-        // Risk level caps
-        positionSol = positionSol.coerceAtMost(riskLevel.maxPosition)
+        // Risk level caps (V5.6: scale caps with wallet too)
+        val riskCap = riskLevel.maxPosition * (1 + currentBalance * 0.01).coerceIn(1.0, 2.0)
+        positionSol = positionSol.coerceAtMost(riskCap)
         
         // Compounding bonus (conservative for shitcoins)
         if (COMPOUNDING_ENABLED) {
@@ -880,8 +897,10 @@ object ShitCoinTraderAI {
         }
         
         // 4. TRAILING STOP - The moonshot catcher!
-        // Once in profit, trailing stop locks in gains while letting it run
-        if (pnlPct > 15.0 && currentPrice <= pos.trailingStop) {
+        // V5.5: Activate from entry (not after 15% profit) — stop trails from open price.
+        // Prevents giving back gains that were never locked. Fires any time price
+        // falls below the trailing level, which starts at the SL and rises with HWM.
+        if (currentPrice <= pos.trailingStop) {
             val fromPeak = ((pos.highWaterMark - currentPrice) / pos.highWaterMark * 100)
             val totalGain = pnlPct
             ErrorLogger.info(TAG, "💩🚀 TRAIL EXIT: ${pos.symbol} | +${totalGain.fmt(1)}% (peak was +${((pos.highWaterMark - pos.entryPrice) / pos.entryPrice * 100).fmt(1)}%)")

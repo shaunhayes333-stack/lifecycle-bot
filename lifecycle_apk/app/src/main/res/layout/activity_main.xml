@@ -1393,6 +1393,47 @@
             </LinearLayout>
 
             <!-- ═══════════════════════════════
+                 QUALITY POSITIONS ($100K-$1M mcap quality trades)
+                 ═══════════════════════════════ -->
+            <LinearLayout
+                android:id="@+id/cardQualityPositions"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:background="@drawable/section_card_bg"
+                android:layout_marginStart="@dimen/card_margin"
+                android:layout_marginEnd="@dimen/card_margin"
+                android:layout_marginBottom="@dimen/card_margin_bottom"
+                android:orientation="vertical"
+                android:padding="@dimen/card_padding"
+                android:visibility="gone">
+
+                <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content"
+                    android:orientation="horizontal" android:gravity="center_vertical"
+                    android:layout_marginBottom="10dp">
+                    <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+                        android:text="⭐" android:textSize="16sp"
+                        android:layout_marginEnd="8dp"/>
+                    <TextView android:layout_width="0dp" android:layout_height="wrap_content"
+                        android:layout_weight="1"
+                        android:text="Quality Trades" android:textColor="#F59E0B"
+                        android:textSize="@dimen/section_title_size" android:textStyle="bold"/>
+                    <TextView android:id="@+id/tvQualityExposure"
+                        android:layout_width="wrap_content" android:layout_height="wrap_content"
+                        android:text="" android:textColor="#6B7280"
+                        android:textSize="12sp" android:fontFamily="monospace"/>
+                    <TextView android:id="@+id/tvQualityPnl"
+                        android:layout_width="wrap_content" android:layout_height="wrap_content"
+                        android:text="" android:textColor="#10B981"
+                        android:textSize="12sp" android:fontFamily="monospace"
+                        android:layout_marginStart="8dp"/>
+                </LinearLayout>
+
+                <LinearLayout android:id="@+id/llQualityPositions"
+                    android:layout_width="match_parent" android:layout_height="wrap_content"
+                    android:orientation="vertical"/>
+            </LinearLayout>
+
+            <!-- ═══════════════════════════════
                  V4.0: SHITCOIN POSITIONS (Degen Mode)
                  Separate panel for ShitCoin's micro-cap degen plays <$500K mcap
                  ═══════════════════════════════ -->
@@ -1753,6 +1794,141 @@
                     android:layout_width="match_parent"
                     android:layout_height="@dimen/chart_height"
                     android:visibility="gone"/>
+                    
+                <!-- V5.6: DexScreener-Style Token Metrics Row -->
+                <LinearLayout
+                    android:id="@+id/chartMetricsRow"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="horizontal"
+                    android:layout_marginTop="8dp"
+                    android:gravity="center">
+                    
+                    <!-- Market Cap -->
+                    <LinearLayout
+                        android:layout_width="0dp"
+                        android:layout_height="wrap_content"
+                        android:layout_weight="1"
+                        android:orientation="vertical"
+                        android:gravity="center">
+                        <TextView
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:text="MCAP"
+                            android:textColor="#6B7280"
+                            android:textSize="9sp"
+                            android:letterSpacing="0.05"/>
+                        <TextView
+                            android:id="@+id/tvChartMcap"
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:text="$0"
+                            android:textColor="#FFFFFF"
+                            android:textSize="11sp"
+                            android:fontFamily="monospace"
+                            android:textStyle="bold"/>
+                    </LinearLayout>
+                    
+                    <!-- 5m Volume -->
+                    <LinearLayout
+                        android:layout_width="0dp"
+                        android:layout_height="wrap_content"
+                        android:layout_weight="1"
+                        android:orientation="vertical"
+                        android:gravity="center">
+                        <TextView
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:text="5m VOL"
+                            android:textColor="#6B7280"
+                            android:textSize="9sp"
+                            android:letterSpacing="0.05"/>
+                        <TextView
+                            android:id="@+id/tvChart5mVol"
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:text="$0"
+                            android:textColor="#10B981"
+                            android:textSize="11sp"
+                            android:fontFamily="monospace"
+                            android:textStyle="bold"/>
+                    </LinearLayout>
+                    
+                    <!-- Liquidity -->
+                    <LinearLayout
+                        android:layout_width="0dp"
+                        android:layout_height="wrap_content"
+                        android:layout_weight="1"
+                        android:orientation="vertical"
+                        android:gravity="center">
+                        <TextView
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:text="LIQ"
+                            android:textColor="#6B7280"
+                            android:textSize="9sp"
+                            android:letterSpacing="0.05"/>
+                        <TextView
+                            android:id="@+id/tvChartLiq"
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:text="$0"
+                            android:textColor="#3B82F6"
+                            android:textSize="11sp"
+                            android:fontFamily="monospace"
+                            android:textStyle="bold"/>
+                    </LinearLayout>
+                    
+                    <!-- Holders -->
+                    <LinearLayout
+                        android:layout_width="0dp"
+                        android:layout_height="wrap_content"
+                        android:layout_weight="1"
+                        android:orientation="vertical"
+                        android:gravity="center">
+                        <TextView
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:text="HOLD"
+                            android:textColor="#6B7280"
+                            android:textSize="9sp"
+                            android:letterSpacing="0.05"/>
+                        <TextView
+                            android:id="@+id/tvChartHolders"
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:text="0"
+                            android:textColor="#9945FF"
+                            android:textSize="11sp"
+                            android:fontFamily="monospace"
+                            android:textStyle="bold"/>
+                    </LinearLayout>
+                    
+                    <!-- Buy Pressure -->
+                    <LinearLayout
+                        android:layout_width="0dp"
+                        android:layout_height="wrap_content"
+                        android:layout_weight="1"
+                        android:orientation="vertical"
+                        android:gravity="center">
+                        <TextView
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:text="BUY%"
+                            android:textColor="#6B7280"
+                            android:textSize="9sp"
+                            android:letterSpacing="0.05"/>
+                        <TextView
+                            android:id="@+id/tvChartBuyPressure"
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:text="50%"
+                            android:textColor="#10B981"
+                            android:textSize="11sp"
+                            android:fontFamily="monospace"
+                            android:textStyle="bold"/>
+                    </LinearLayout>
+                </LinearLayout>
             </LinearLayout>
 
             <!-- ═══════════════════════════════

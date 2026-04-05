@@ -1,0 +1,96 @@
+name: Release APK
+
+# Trigger on version tags (v5.6.0, v5.6.1, etc.)
+on:
+  push:
+    tags:
+      - 'v*.*.*'
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version tag (e.g., v5.6.1)'
+        required: true
+        default: 'v5.6.0'
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: lifecycle_apk
+    
+    permissions:
+      contents: write  # Required for creating releases
+    
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          java-version: '17'
+          distribution: 'temurin'
+
+      - uses: android-actions/setup-android@v3
+        with:
+          accept-android-sdk-licenses: true
+
+      - name: Accept SDK Licenses
+        run: |
+          yes | $ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager --licenses || true
+
+      - name: Get Version Info
+        id: version
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            VERSION="${{ github.event.inputs.version }}"
+          else
+            VERSION="${GITHUB_REF#refs/tags/}"
+          fi
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+          echo "Building release: $VERSION"
+
+      - name: Build Release APK
+        run: |
+          chmod +x gradlew || true
+          mkdir -p gradle/wrapper
+          curl -sL -o gradle/wrapper/gradle-wrapper.jar "https://raw.githubusercontent.com/gradle/gradle/v8.7.0/gradle/wrapper/gradle-wrapper.jar"
+          echo "========================================"
+          echo "Building AATE ${{ steps.version.outputs.version }}"
+          echo "========================================"
+          ./gradlew assembleRelease --no-daemon -PbuildNumber=${{ github.run_number }}
+          # Rename APK with version
+          mv app/build/outputs/apk/release/*.apk app/build/outputs/apk/release/AATE_${{ steps.version.outputs.version }}.apk
+          echo "Final APK:"
+          ls -la app/build/outputs/apk/release/
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v1
+        with:
+          name: "AATE ${{ steps.version.outputs.version }}"
+          body: |
+            ## AATE ${{ steps.version.outputs.version }}
+            
+            ### What's New
+            - See commit history for detailed changes
+            
+            ### Download
+            Download the APK below and install on your Android device.
+            
+            ### Requirements
+            - Android 8.0+ (API 26)
+            - Internet connection for trading
+            
+            ---
+            *Built automatically by GitHub Actions*
+          files: lifecycle_apk/app/build/outputs/apk/release/AATE_${{ steps.version.outputs.version }}.apk
+          draft: false
+          prerelease: false
+          generate_release_notes: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Upload Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: AATE_${{ steps.version.outputs.version }}
+          path: lifecycle_apk/app/build/outputs/apk/release/AATE_${{ steps.version.outputs.version }}.apk

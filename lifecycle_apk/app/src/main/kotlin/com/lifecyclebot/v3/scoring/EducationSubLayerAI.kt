@@ -795,11 +795,11 @@ object EducationSubLayerAI {
     private var ctx: android.content.Context? = null
     private const val PREFS_NAME = "education_sublayer_ai"
 
-    // Debounce: prevent saving more than once per 30 seconds to avoid pipeline starvation
+    // Debounce: only persist to SharedPreferences once every 30s to prevent
+    // I/O storms when 25 layers all call save() during one trade outcome.
     private const val SAVE_DEBOUNCE_MS = 30_000L
-    private var lastSaveTimeMs = 0L
-    private var pendingSave = false
-    
+    @Volatile private var lastSaveMs = 0L
+
     /**
      * Initialize with context for persistence.
      */
@@ -810,24 +810,25 @@ object EducationSubLayerAI {
     }
     
     /**
-     * Save layer performance to SharedPreferences.
-     * Debounced: only writes to disk at most once every 30 seconds.
-     * Pass force=true for critical saves (reset, shutdown) that bypass the debounce.
+     * Save layer performance to SharedPreferences (debounced: max once per 30s).
+     * Call saveForced() to bypass debounce (e.g. on reset or shutdown).
      */
-    fun save(force: Boolean = false) {
+    fun save() {
         val now = System.currentTimeMillis()
-        if (!force && (now - lastSaveTimeMs) < SAVE_DEBOUNCE_MS) {
-            // Mark that a save is pending so the next flush picks it up
-            pendingSave = true
-            return
-        }
-        pendingSave = false
-        lastSaveTimeMs = now
+        if (now - lastSaveMs < SAVE_DEBOUNCE_MS) return
+        saveForced()
+    }
+
+    /**
+     * Immediately persist regardless of debounce timer.
+     */
+    fun saveForced() {
         val c = ctx ?: return
+        lastSaveMs = System.currentTimeMillis()
         try {
             val prefs = c.getSharedPreferences(PREFS_NAME, android.content.Context.MODE_PRIVATE)
             val editor = prefs.edit()
-
+            
             // Save each layer's metrics as JSON strings
             layerPerformance.forEach { (name, metrics) ->
                 val json = org.json.JSONObject().apply {
@@ -841,23 +842,15 @@ object EducationSubLayerAI {
                 }
                 editor.putString("layer_$name", json.toString())
             }
-
+            
             // Save layer names list
             editor.putStringSet("layer_names", layerPerformance.keys.toSet())
             editor.apply()
-
+            
             ErrorLogger.debug(TAG, "💾 Saved ${layerPerformance.size} layers to prefs")
         } catch (e: Exception) {
             ErrorLogger.debug(TAG, "Save error: ${e.message}")
         }
-    }
-
-    /**
-     * Flush any pending debounced save immediately.
-     * Called periodically (e.g. every 30s) from BotService background loop.
-     */
-    fun flushIfPending() {
-        if (pendingSave) save(force = true)
     }
     
     /**
@@ -902,7 +895,7 @@ object EducationSubLayerAI {
      */
     fun reset() {
         layerPerformance.clear()
-        save(force = true)
+        saveForced()  // Bypass debounce on explicit reset
         ErrorLogger.info(TAG, "🧹 EducationSubLayerAI reset")
     }
 }

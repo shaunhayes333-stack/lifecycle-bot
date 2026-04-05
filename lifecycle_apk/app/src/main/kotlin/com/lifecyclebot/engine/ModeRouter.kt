@@ -42,7 +42,7 @@ object ModeRouter {
         FRESH_LAUNCH(
             emoji = "🚀",
             label = "Fresh Launch",
-            maxSizePct = 2.0,        // Tiny size - highest risk
+            maxSizePct = 20.0,        // Tiny size - highest risk
             defaultStopPct = 25.0,   // Wide stop for volatility
             defaultTpPct = 50.0,     // Fast partials
             maxHoldMins = 15,        // Short timeout
@@ -62,7 +62,7 @@ object ModeRouter {
             label = "Reversal",
             maxSizePct = 5.0,        // Medium size
             defaultStopPct = 15.0,   // Medium stop
-            defaultTpPct = 30.0,     // Take first target quicker
+            defaultTpPct = 20.0,     // Take first target quicker
             maxHoldMins = 60,        // Don't overstay
             riskTier = 3,
         ),
@@ -96,7 +96,7 @@ object ModeRouter {
         SENTIMENT_IGNITION(
             emoji = "🔥",
             label = "Sentiment",
-            maxSizePct = 4.0,        // Smaller - narrative driven
+            maxSizePct = 14.0,        // Smaller - narrative driven
             defaultStopPct = 20.0,   
             defaultTpPct = 40.0,     
             maxHoldMins = 45,        // Narrative fades fast
@@ -246,8 +246,8 @@ object ModeRouter {
         val secondBest = if (sortedScores.size > 1) sortedScores[1] else 0.0
         val confidence = when {
             bestScore <= 20 -> 10.0  // Very weak signal
-            bestScore - secondBest > 30 -> 90.0  // Clear winner
-            bestScore - secondBest > 15 -> 70.0  // Good separation
+            bestScore - secondBest > 20 -> 90.0  // Clear winner
+            bestScore - secondBest > 25 -> 70.0  // Good separation
             bestScore - secondBest > 5 -> 50.0   // Moderate
             else -> 30.0  // Ambiguous
         }

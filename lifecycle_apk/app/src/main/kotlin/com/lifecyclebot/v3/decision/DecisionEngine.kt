@@ -290,13 +290,20 @@ class FinalDecisionEngine(
         } catch (e: Exception) { 0.0 }
         
         // Fluid thresholds for C-grade
-        // V5.0: Dramatically lowered for bootstrap - bot MUST trade to learn
-        val cGradeConfFloor = (8 + (cGradeProgress * 12)).toInt().coerceIn(8, 20)
-        val cGradeMemoryFloor = (-25 + (cGradeProgress * 10)).toInt().coerceIn(-25, -15)
-        
+        // V5.7: Fixed — minimum floor was 30% even at 1% learning (too tight at bootstrap, slowed trading)
+        // Genuine bootstrap uses lower floors; only mature (50%+ learning) triggers strict thresholds.
+        // At 1% learning: floor=20. At 75% learning: floor=39. At 100% learning: floor=45.
+        val cGradeConfFloor = (20 + (cGradeProgress * 25)).toInt().coerceIn(20, 45)
+        // Memory floor: tighter at maturity, permissive at bootstrap
+        val cGradeMemoryFloor = (-20 + (cGradeProgress * 10)).toInt().coerceIn(-20, -12)
+
+        // Extract momentum and volume for weak-signal veto
+        val momentumScoreV = scoreCard.components.find { it.name == "momentum" }?.value ?: 0
+        val volumeScoreV   = scoreCard.components.find { it.name == "volume" }?.value ?: 0
+
         if (isCGrade) {
             val cGradeBlockReasons = mutableListOf<String>()
-            
+
             if (conf < cGradeConfFloor) {
                 cGradeBlockReasons.add("conf=$conf<$cGradeConfFloor")
             }
@@ -306,10 +313,17 @@ class FinalDecisionEngine(
             if (effectiveAIDegraded) {
                 cGradeBlockReasons.add("AI_DEGRADED")
             }
-            // V3.3: Only block early_unknown phase when mature (>30% learning)
-            // During bootstrap, allow early_unknown to let bot learn
-            if (effectivePhase == "early_unknown" && cGradeProgress > 0.3) {
+            // V5.5b: Only block early_unknown phase when very mature (>70% learning)
+            // Meme coins are almost always "early_unknown" — blocking at 30% silently
+            // killed all scanner entries. 70% threshold means bot must see 700+ trades
+            // with decent WR before it stops trading fresh launches.
+            if (effectivePhase == "early_unknown" && cGradeProgress > 0.70) {
                 cGradeBlockReasons.add("phase=early_unknown")
+            }
+            // V5.4: Weak-signal veto — if score < 20 AND both momentum AND volume are flat/negative,
+            // there is no directional edge. Block regardless of learning phase.
+            if (score < 20 && momentumScoreV <= 0 && volumeScoreV <= 0) {
+                cGradeBlockReasons.add("no_momentum_no_volume_score=$score")
             }
             
             if (cGradeBlockReasons.isNotEmpty()) {
@@ -340,10 +354,10 @@ class FinalDecisionEngine(
         
         // ═══════════════════════════════════════════════════════════════════
         // V3 BAND SELECTION
-        // 
+        //
         // At this point, C-grade trash has been filtered by C_GRADE_BAN above.
         // Only legitimate setups reach here.
-        // 
+        //
         // V3.3: FLUID THRESHOLDS based on learning progress
         // Bootstrap (0-20% learning): Much looser - take more shots to learn
         // Mature (50%+ learning): Tighter - only high-conviction trades
@@ -351,11 +365,12 @@ class FinalDecisionEngine(
         val learningProgress = try {
             com.lifecyclebot.v3.scoring.FluidLearningAI.getLearningProgress()
         } catch (e: Exception) { 0.0 }
-        
-        // Fluid confidence threshold: 10% at bootstrap → 30% at mature
-        // V5.0: Much lower to allow paper mode learning
-        val fluidMinConfForExecute = (10 + (learningProgress * 20)).toInt().coerceIn(10, 30)
-        
+
+        // Fluid confidence threshold: 25% at bootstrap → 50% at mature
+        // V5.6: Raised — at 75% learning was requiring 34% which lets too many losers through
+        // At 75% learning: 25 + 0.75 * 25 = 44% confidence required for execution
+        val fluidMinConfForExecute = (25 + (learningProgress * 25)).toInt().coerceIn(25, 50)
+
         val minConfForExecute = try {
             val configMinConf = com.lifecyclebot.engine.V3ConfidenceConfig.getMinConfidenceForExecute(35)
             // Use fluid (lower) threshold during bootstrap
@@ -363,11 +378,19 @@ class FinalDecisionEngine(
         } catch (e: Exception) {
             fluidMinConfForExecute
         }
-        
-        // C-grade confidence floor: 8% at bootstrap → 20% at mature
-        // V5.0: Ultra low bootstrap to break learning deadlock
-        val cGradeMinConf = (8 + (learningProgress * 12)).toInt().coerceIn(8, 20)
-        
+
+        // C-grade confidence floor for EXECUTE_SMALL: 20% at bootstrap → 40% at mature
+        // V5.6: Raised — EXECUTE_SMALL was executing at 26% conf which is too low
+        val cGradeMinConf = (20 + (learningProgress * 20)).toInt().coerceIn(20, 40)
+
+        // ═══════════════════════════════════════════════════════════════════
+        // V5.5: DIRECTIONAL GATE — block only when BOTH signals are actively
+        // negative (< 0). A score of 0 means "no data / neutral" for new tokens
+        // and should not block execution. Only a confirmed declining momentum
+        // AND declining volume means no directional edge.
+        // ═══════════════════════════════════════════════════════════════════
+        val hasMomentumOrVolume = !(momentumScoreV < 0 && volumeScoreV < 0)
+
         // V5.8: Anti-starvation — relax floors if no executes in recent window
         val starvationRelief = getStarvationRelief()
         val effectiveMinScore = minScoreForExecute - starvationRelief
@@ -375,9 +398,9 @@ class FinalDecisionEngine(
         val effectiveCGradeConf = cGradeMinConf - starvationRelief
 
         val band = when {
-            score >= (effectiveMinScore * 1.3).toInt() && effectiveConf >= effectiveMinConf + 10 -> DecisionBand.EXECUTE_AGGRESSIVE
-            score >= effectiveMinScore && effectiveConf >= effectiveMinConf -> DecisionBand.EXECUTE_STANDARD
-            score >= (effectiveMinScore * 0.7).toInt() && effectiveConf >= effectiveCGradeConf -> DecisionBand.EXECUTE_SMALL
+            hasMomentumOrVolume && score >= (effectiveMinScore * 1.3).toInt() && effectiveConf >= effectiveMinConf + 10 -> DecisionBand.EXECUTE_AGGRESSIVE
+            hasMomentumOrVolume && score >= effectiveMinScore && effectiveConf >= effectiveMinConf -> DecisionBand.EXECUTE_STANDARD
+            hasMomentumOrVolume && score >= (effectiveMinScore * 0.7).toInt() && effectiveConf >= effectiveCGradeConf -> DecisionBand.EXECUTE_SMALL
             score >= config.watchScoreMin -> DecisionBand.WATCH
             else -> DecisionBand.REJECT
         }

@@ -1,81 +1,70 @@
 package com.lifecyclebot.engine
 
 import java.util.concurrent.ConcurrentHashMap
-import java.util.concurrent.ConcurrentLinkedQueue
 import java.util.concurrent.atomic.AtomicInteger
 
 /**
  * ═══════════════════════════════════════════════════════════════════════════════
- * TOKEN MERGE QUEUE - V4.0 DUPLICATE SCANNER DETECTION
+ * TOKEN MERGE QUEUE - V4.2 FLOW + QUALITY PATCH
  * ═══════════════════════════════════════════════════════════════════════════════
- * 
- * PROBLEM SOLVED:
- * Multiple scanners (DEX_BOOSTED, PUMP_FUN_GRADUATE, V3_SCANNER, etc.) find the
- * same token simultaneously. Without coordination:
- * - Same token gets added to watchlist multiple times
- * - Multiple AI layers evaluate it in parallel
- * - Conflicting execution decisions
- * - Duplicate positions opened
- * 
- * SOLUTION:
- * All scanner discoveries go through this merge queue first:
- * 1. Scanner finds token → enqueue(token, scanner)
- * 2. Merge queue batches discoveries within a window
- * 3. If same token found by multiple scanners → merge into single entry
- * 4. Best signal wins (highest confidence scanner)
- * 5. Single merged token goes to watchlist
- * 
- * BENEFITS:
- * - DEX_BOOSTED + PUMP_FUN finding same token = stronger signal
- * - Only ONE watchlist add per token
- * - Scanner attribution for analytics
- * - Confidence boost from multi-scanner detection
- * 
- * ═══════════════════════════════════════════════════════════════════════════════
+ *
+ * Purpose:
+ * - Merge duplicate discoveries from multiple scanners
+ * - Prevent duplicate watchlist adds / duplicate AI evaluation
+ * - Preserve multi-source confirmation advantage
+ * - Let strong single-source setups still get through
+ *
+ * Design:
+ * - Single source starts at its base scanner confidence
+ * - Good single-source setups can receive a controlled fast-track bonus
+ * - Multi-source confirmation remains the strongest signal
+ * - Confidence is always capped for safety
  */
 object TokenMergeQueue {
-    
+
     private const val TAG = "TokenMergeQ"
-    
-    // Merge window - discoveries within this window are considered simultaneous
-    private const val MERGE_WINDOW_MS = 5_000L  // 5 seconds
-    
-    // How often to process the queue
-    private const val PROCESS_INTERVAL_MS = 2_000L  // 2 seconds
-    
-    // Scanner confidence rankings (higher = better)
-    // V5.0: DRASTICALLY lowered single-source confidence
-    // PUMP_FUN_GRADUATE was flooding the registry at conf=80
+
+    // Discoveries inside this window are considered the same opportunity
+    private const val MERGE_WINDOW_MS = 5_000L
+
+    // How often queue processing is allowed to run
+    private const val PROCESS_INTERVAL_MS = 2_000L
+
+    // Scanner confidence rankings
     private val scannerConfidence = mapOf(
-        "DEX_BOOSTED" to 60,           // Was 90 - still needs multi-source
-        "V3_PREMIUM" to 55,            // Was 85
-        "PUMP_FUN_GRADUATE" to 35,     // Was 80 - THIS WAS THE BUG
-        "WHALE_COPY" to 50,            // Was 75
-        "RAYDIUM_NEW_POOL" to 40,      // Was 70
-        "RAYDIUM_NEW" to 40,           // Was 70
-        "MOONSHOT" to 45,              // Was 65
-        "V3_SCANNER" to 40,            // Was 60
-        "SOCIAL_TRENDING" to 35,       // Was 55
-        "DEX_TRENDING" to 45,          // Added
-        "USER_ADDED" to 30,            // Was 50
-        "UNKNOWN" to 20,               // Was 40
+        "DEX_BOOSTED" to 60,
+        "V3_PREMIUM" to 55,
+        "WHALE_COPY" to 50,
+        "DEX_TRENDING" to 45,
+        "MOONSHOT" to 45,
+        "RAYDIUM_NEW_POOL" to 40,
+        "RAYDIUM_NEW" to 40,
+        "V3_SCANNER" to 40,
+        "PUMP_FUN_GRADUATE" to 35,
+        "SOCIAL_TRENDING" to 35,
+        "USER_ADDED" to 30,
+        "UNKNOWN" to 20,
     )
-    
-    // Multi-source boost - only significant conf comes from confirmation
-    private const val MULTI_SOURCE_BOOST = 25  // Bonus for 2+ sources
-    
-    // Pending discoveries queue
+
+    // Multi-source confirmation bonuses
+    private const val MULTI_SOURCE_BOOST = 25
+
+    // Strong single-source fast-track
+    private const val HIGH_QUALITY_SINGLE_LIQUIDITY = 8_000.0
+    private const val HIGH_QUALITY_SINGLE_BONUS = 15
+
+    // Optional tiny nudge so single-source tokens are not artificially too weak
+    private const val SINGLE_SOURCE_BONUS = 5
+
     private val pendingDiscoveries = ConcurrentHashMap<String, MergeEntry>()
-    
-    // Last process time
+
     @Volatile
     private var lastProcessTime = 0L
-    
-    // Stats
+
     private val totalDiscoveries = AtomicInteger(0)
     private val totalMerges = AtomicInteger(0)
     private val totalEmitted = AtomicInteger(0)
-    
+
     data class MergeEntry(
         val mint: String,
         var symbol: String,
@@ -83,12 +72,12 @@ object TokenMergeQueue {
         var liquidityUsd: Double,
         val firstSeenAt: Long,
         var lastSeenAt: Long,
-        val scanners: MutableSet<String>,  // All scanners that found this token
-        var bestScanner: String,           // Highest confidence scanner
-        var confidence: Int,               // Combined confidence score
-        var discoveryCount: Int,           // How many times discovered in window
+        val scanners: MutableSet<String>,
+        var bestScanner: String,
+        var confidence: Int,
+        var discoveryCount: Int,
     )
-    
+
     data class MergedToken(
         val mint: String,
         val symbol: String,
@@ -99,14 +88,9 @@ object TokenMergeQueue {
         val confidence: Int,
         val multiScannerBoost: Boolean,
     )
-    
-    // ═══════════════════════════════════════════════════════════════════════════
-    // QUEUE OPERATIONS
-    // ═══════════════════════════════════════════════════════════════════════════
-    
+
     /**
-     * Enqueue a token discovery from a scanner.
-     * Call this instead of directly adding to watchlist.
+     * Enqueue a scanner discovery.
      */
     fun enqueue(
         mint: String,
@@ -117,40 +101,52 @@ object TokenMergeQueue {
     ) {
         val now = System.currentTimeMillis()
         totalDiscoveries.incrementAndGet()
-        
+
         val existing = pendingDiscoveries[mint]
-        
+
         if (existing != null) {
-            // Token already pending - MERGE
+            // Merge into existing pending entry
             existing.scanners.add(scanner)
             existing.lastSeenAt = now
             existing.discoveryCount++
-            
-            // Update best scanner if this one is better
-            val scannerConf = scannerConfidence[scanner] ?: 40
-            if (scannerConf > (scannerConfidence[existing.bestScanner] ?: 0)) {
+
+            val incomingScannerConf = scannerConfidence[scanner] ?: (scannerConfidence["UNKNOWN"] ?: 20)
+            val currentBestConf = scannerConfidence[existing.bestScanner] ?: (scannerConfidence["UNKNOWN"] ?: 20)
+
+            if (incomingScannerConf > currentBestConf) {
                 existing.bestScanner = scanner
             }
-            
-            // Boost confidence for multi-scanner detection
-            existing.confidence = calculateMergedConfidence(existing.scanners)
-            
-            // Update market data if better
+
             if (marketCapUsd > existing.marketCapUsd) {
                 existing.marketCapUsd = marketCapUsd
             }
+
             if (liquidityUsd > existing.liquidityUsd) {
                 existing.liquidityUsd = liquidityUsd
             }
+
             if (symbol.length > existing.symbol.length) {
                 existing.symbol = symbol
             }
-            
+
+            existing.confidence = calculateMergedConfidence(
+                scanners = existing.scanners,
+                bestScanner = existing.bestScanner,
+                liquidityUsd = existing.liquidityUsd
+            )
+
             totalMerges.incrementAndGet()
-            ErrorLogger.debug(TAG, "🔀 MERGED: $symbol | scanners=${existing.scanners.joinToString(",")} | conf=${existing.confidence}")
-            
+            ErrorLogger.debug(
+                TAG,
+                "🔀 MERGED: ${existing.symbol} | scanners=${existing.scanners.joinToString(",")} | conf=${existing.confidence}"
+            )
         } else {
-            // New token - add to pending
+            val initialConfidence = calculateMergedConfidence(
+                scanners = setOf(scanner),
+                bestScanner = scanner,
+                liquidityUsd = liquidityUsd
+            )
+
             pendingDiscoveries[mint] = MergeEntry(
                 mint = mint,
                 symbol = symbol,
@@ -160,35 +156,34 @@ object TokenMergeQueue {
                 lastSeenAt = now,
                 scanners = mutableSetOf(scanner),
                 bestScanner = scanner,
-                confidence = scannerConfidence[scanner] ?: 40,
+                confidence = initialConfidence,
                 discoveryCount = 1,
             )
-            
-            ErrorLogger.debug(TAG, "➕ QUEUED: $symbol | scanner=$scanner")
+
+            ErrorLogger.debug(
+                TAG,
+                "➕ QUEUED: $symbol | scanner=$scanner | conf=$initialConfidence"
+            )
         }
     }
-    
+
     /**
-     * Process the queue and emit merged tokens.
-     * Returns list of tokens ready to be added to watchlist.
-     * Call this every ~2 seconds from bot loop.
+     * Emit entries whose merge window has expired.
      */
     fun processQueue(): List<MergedToken> {
         val now = System.currentTimeMillis()
-        
-        // Throttle processing
+
         if (now - lastProcessTime < PROCESS_INTERVAL_MS) {
             return emptyList()
         }
         lastProcessTime = now
-        
+
         val readyToEmit = mutableListOf<MergedToken>()
         val toRemove = mutableListOf<String>()
-        
+
         for ((mint, entry) in pendingDiscoveries) {
             val elapsed = now - entry.firstSeenAt
-            
-            // Emit if merge window expired
+
             if (elapsed >= MERGE_WINDOW_MS) {
                 val merged = MergedToken(
                     mint = entry.mint,
@@ -200,73 +195,81 @@ object TokenMergeQueue {
                     confidence = entry.confidence,
                     multiScannerBoost = entry.scanners.size > 1,
                 )
-                
+
                 readyToEmit.add(merged)
                 toRemove.add(mint)
                 totalEmitted.incrementAndGet()
-                
-                val boostLabel = if (merged.multiScannerBoost) " [MULTI-SCANNER BOOST!]" else ""
-                ErrorLogger.debug(TAG, "📤 EMIT: ${entry.symbol} | scanners=${entry.scanners.joinToString(",")} | conf=${entry.confidence}$boostLabel")
+
+                val boostLabel = if (merged.multiScannerBoost) " [MULTI-SCANNER BOOST]" else ""
+                ErrorLogger.debug(
+                    TAG,
+                    "📤 EMIT: ${entry.symbol} | scanners=${entry.scanners.joinToString(",")} | conf=${entry.confidence}$boostLabel"
+                )
             }
         }
-        
-        // Remove emitted entries
+
         for (mint in toRemove) {
             pendingDiscoveries.remove(mint)
         }
-        
+
         return readyToEmit
     }
-    
+
     /**
-     * Calculate combined confidence from multiple scanners.
-     * V5.0: Much more conservative - single source stays LOW
-     * Multi-scanner detection increases confidence significantly.
+     * Confidence model:
+     * - Single source = base scanner confidence + small bonus
+     * - High-quality single source = extra fast-track
+     * - Multi source = strong confirmation boost
      */
-    private fun calculateMergedConfidence(scanners: Set<String>): Int {
-        if (scanners.isEmpty()) return 20
-        
-        // Start with best scanner's confidence (now much lower)
-        val baseConfidence = scanners.maxOfOrNull { scannerConfidence[it] ?: 20 } ?: 20
-        
-        // V5.0: Only boost if MULTIPLE sources confirm
-        // Single source stays at base (which is now 35-60 max)
-        val multiSourceBonus = when (scanners.size) {
-            1 -> 0                        // NO BONUS for single source!
-            2 -> MULTI_SOURCE_BOOST       // +25 for confirmation
-            3 -> MULTI_SOURCE_BOOST + 10  // +35 for triple confirm
-            else -> MULTI_SOURCE_BOOST + 15  // +40 cap
+    private fun calculateMergedConfidence(
+        scanners: Set<String>,
+        bestScanner: String,
+        liquidityUsd: Double,
+    ): Int {
+        if (scanners.isEmpty()) {
+            return scannerConfidence["UNKNOWN"] ?: 20
         }
-        
-        return (baseConfidence + multiSourceBonus).coerceAtMost(95)
+
+        val baseConfidence = scanners.maxOfOrNull {
+            scannerConfidence[it] ?: (scannerConfidence["UNKNOWN"] ?: 20)
+        } ?: (scannerConfidence["UNKNOWN"] ?: 20)
+
+        val singleSourceBonus = if (scanners.size == 1) SINGLE_SOURCE_BONUS else 0
+
+        val multiSourceBonus = when (scanners.size) {
+            1 -> 0
+            2 -> MULTI_SOURCE_BOOST
+            3 -> MULTI_SOURCE_BOOST + 10
+            else -> MULTI_SOURCE_BOOST + 15
+        }
+
+        val fastTrackBonus = if (
+            scanners.size == 1 &&
+            bestScanner in setOf("DEX_BOOSTED", "DEX_TRENDING", "V3_PREMIUM", "WHALE_COPY") &&
+            liquidityUsd >= HIGH_QUALITY_SINGLE_LIQUIDITY
+        ) {
+            HIGH_QUALITY_SINGLE_BONUS
+        } else {
+            0
+        }
+
+        return (baseConfidence + singleSourceBonus + multiSourceBonus + fastTrackBonus)
+            .coerceIn(20, 95)
     }
-    
-    // ═══════════════════════════════════════════════════════════════════════════
-    // QUERIES
-    // ═══════════════════════════════════════════════════════════════════════════
-    
-    /**
-     * Check if a token is pending in the queue.
-     */
+
     fun isPending(mint: String): Boolean = pendingDiscoveries.containsKey(mint)
-    
-    /**
-     * Get pending count.
-     */
+
     fun getPendingCount(): Int = pendingDiscoveries.size
-    
-    /**
-     * Get stats.
-     */
+
     fun getStats(): String {
         return "MergeQ: pending=${pendingDiscoveries.size} " +
             "discoveries=${totalDiscoveries.get()} " +
             "merges=${totalMerges.get()} " +
             "emitted=${totalEmitted.get()}"
     }
-    
+
     /**
-     * Force emit all pending (e.g., on shutdown).
+     * Force-emit everything still pending.
      */
     fun flushAll(): List<MergedToken> {
         val all = pendingDiscoveries.values.map { entry ->
@@ -281,16 +284,12 @@ object TokenMergeQueue {
                 multiScannerBoost = entry.scanners.size > 1,
             )
         }
-        
+
         pendingDiscoveries.clear()
         totalEmitted.addAndGet(all.size)
-        
         return all
     }
-    
-    /**
-     * Reset all state.
-     */
+
     fun reset() {
         pendingDiscoveries.clear()
         totalDiscoveries.set(0)

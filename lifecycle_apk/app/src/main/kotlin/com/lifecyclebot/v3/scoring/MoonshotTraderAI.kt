@@ -19,14 +19,14 @@ import kotlin.math.max
  * 
  * SPACE-THEMED TRADING MODES:
  * ─────────────────────────────────────────────────────────────────────────────
- *   🛸 ORBITAL   - Early moonshots ($100K-$500K) - Catch them before liftoff
- *   🌙 LUNAR     - Mid moonshots ($500K-$2M) - Building momentum
- *   🔴 MARS      - High conviction ($2M-$5M) - Strong fundamentals + hype
- *   🪐 JUPITER   - Mega plays ($5M-$50M) - Collective winners promoted here
+ *   🛸 ORBITAL   - Early moonshots ($5K-$100K) - Catch them before liftoff
+ *   🌙 LUNAR     - Mid moonshots ($100K-$500k) - Building momentum
+ *   🔴 MARS      - High conviction ($500k-$2M) - Strong fundamentals + hype
+ *   🪐 JUPITER   - Mega plays ($2M-$50M) - Collective winners promoted here
  * 
  * CROSS-TRADING PATHWAY:
  * ─────────────────────────────────────────────────────────────────────────────
- * When a position in another layer (Treasury, ShitCoin, BlueChip) hits +200%+,
+ * When a position in another layer (Treasury, ShitCoin, BlueChip) hits +100%+,
  * it can be PROMOTED to Moonshot to let it ride with wider targets!
  * 
  * KEY PHILOSOPHY:
@@ -57,24 +57,26 @@ object MoonshotTraderAI {
         val maxHold: Int,
         val description: String,
     ) {
-        ORBITAL("🛸", "Orbital", 100_000.0, 500_000.0, 100.0, -10.0, 45, "Early launch detection"),
-        LUNAR("🌙", "Lunar", 500_000.0, 2_000_000.0, 200.0, -12.0, 60, "Building momentum"),
-        MARS("🔴", "Mars", 2_000_000.0, 5_000_000.0, 500.0, -15.0, 120, "High conviction plays"),
-        JUPITER("🪐", "Jupiter", 5_000_000.0, 50_000_000.0, 1000.0, -20.0, 240, "Mega collective winners"),
+        ORBITAL("🛸", "Orbital", 50_000.0, 100_000.0, 50.0, -10.0, 45, "Early launch detection"),
+        LUNAR("🌙", "Lunar", 100_000.0, 500_000.0, 200.0, -12.0, 60, "Building momentum"),
+        MARS("🔴", "Mars", 500_000.0, 2_000_000.0, 500.0, -15.0, 120, "High conviction plays"),
+        JUPITER("🪐", "Jupiter", 2_000_000.0, 50_000_000.0, 1000.0, -20.0, 240, "Mega collective winners"),
     }
     
-    // Market cap boundaries
-    private const val MIN_MARKET_CAP_USD = 100_000.0     // $100K minimum
-    private const val MAX_MARKET_CAP_USD = 50_000_000.0  // $50M maximum (Jupiter mode)
+    // V5.2.12: Moonshot is a CROSS-LAYER promotion for massive gains
+    // Any token from any layer can promote to Moonshot when gains hit threshold
+    // Market cap boundaries are wide to accept promotions from all layers
+    private const val MIN_MARKET_CAP_USD = 10_000.0      // $10K minimum (can come from ShitCoin)
+    private const val MAX_MARKET_CAP_USD = 100_000_000.0 // $100M maximum (allow Jupiter plays)
     
-    // Liquidity requirements
-    private const val MIN_LIQUIDITY_USD_BOOTSTRAP = 15_000.0
-    private const val MIN_LIQUIDITY_USD_MATURE = 10_000.0
+    // Liquidity requirements - flexible since these are promoted positions
+    private const val MIN_LIQUIDITY_USD_BOOTSTRAP = 5_000.0   // Lower in learning
+    private const val MIN_LIQUIDITY_USD_MATURE = 15_000.0     // Higher when mature
     
     // Position sizing - moderate but aggressive
     private const val BASE_POSITION_SOL = 0.08
     private const val MAX_POSITION_SOL = 0.40
-    private const val MAX_CONCURRENT_POSITIONS = 6
+    private const val MAX_CONCURRENT_POSITIONS = 10  // V5.2.12: Raised for paper learning
     
     // Cross-trade promotion threshold
     private const val CROSS_TRADE_PROMOTION_PCT = 200.0  // 200%+ gain = promote to Moonshot
@@ -231,9 +233,9 @@ object MoonshotTraderAI {
         }
         
         return when {
-            marketCapUsd >= 5_000_000.0 -> SpaceMode.JUPITER
-            marketCapUsd >= 2_000_000.0 -> SpaceMode.MARS
-            marketCapUsd >= 500_000.0 -> SpaceMode.LUNAR
+            marketCapUsd >= 2_000_000.0 -> SpaceMode.JUPITER
+            marketCapUsd >= 500_000.0 -> SpaceMode.MARS
+            marketCapUsd >= 100_000.0 -> SpaceMode.LUNAR
             else -> SpaceMode.ORBITAL
         }
     }
@@ -284,9 +286,11 @@ object MoonshotTraderAI {
             return MoonshotScore(false, 0, 0.0, "already_have_position")
         }
         
-        // 5. Safety check - slightly relaxed for moonshots but still filter rugs
-        if (rugcheckScore < 20) {
-            return MoonshotScore(false, 0, 0.0, "rugcheck_${rugcheckScore}_dangerous")
+        // 5. Safety check - fluid RC threshold
+        // V5.5: Raised paper RC floor from 2 → 10 (still lenient vs live's 20, but filters obvious rugs)
+        val minRcScore = if (isPaper) 10 else 20
+        if (rugcheckScore < minRcScore) {
+            return MoonshotScore(false, 0, 0.0, "rugcheck_${rugcheckScore}_below_min_${minRcScore}")
         }
         
         // ─── DETECT IF COLLECTIVE WINNER ───
@@ -362,12 +366,13 @@ object MoonshotTraderAI {
         // Collective intelligence bonus
         score += collectiveBonus
         
-        // Minimum threshold (lower during bootstrap)
+        // Minimum threshold — fluid by learning + paper mode
+        // Paper mode has lower floors during bootstrap to generate trades and learning data
         val minScore = when {
-            learningProgress < 0.1 -> 50   // Very permissive at start
-            learningProgress < 0.3 -> 55
-            learningProgress < 0.5 -> 60
-            else -> 65
+            learningProgress < 0.1 -> if (isPaper) 28 else 50
+            learningProgress < 0.3 -> if (isPaper) 35 else 55
+            learningProgress < 0.5 -> if (isPaper) 43 else 60
+            else -> if (isPaper) 52 else 65
         }
         
         if (score < minScore) {
@@ -566,6 +571,12 @@ object MoonshotTraderAI {
     // ═══════════════════════════════════════════════════════════════════════════
     
     fun hasPosition(mint: String): Boolean = activePositions.containsKey(mint)
+
+    // Returns the partial sell % for a PARTIAL_TAKE exit (default 50% — sell half, ride half)
+    fun getPartialSellPct(mint: String): Double {
+        val pos = synchronized(activePositions) { activePositions[mint] }
+        return if (pos != null && pos.partialSellPct > 0) pos.partialSellPct else 0.50
+    }
     
     fun getActivePositions(): List<MoonshotPosition> {
         return synchronized(activePositions) {

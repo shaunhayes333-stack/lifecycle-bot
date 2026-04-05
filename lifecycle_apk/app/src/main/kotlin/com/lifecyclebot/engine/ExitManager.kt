@@ -1,36 +1,38 @@
 package com.lifecyclebot.engine
 
 import com.lifecyclebot.data.BotConfig
+import kotlin.math.max
 
 /**
  * ExitManager — Priority-based exit decision engine.
- * 
+ *
  * Centralizes exit logic with clear priority ordering:
  * 1. CRITICAL: Stop loss, rug detected, liquidity gone
  * 2. HIGH: Trailing stop hit, max hold time
  * 3. NORMAL: Exit score threshold, profit targets
  * 4. LOW: Optimization exits, rebalancing
- * 
+ *
  * DEFENSIVE DESIGN:
- * - All methods are static and stateless
- * - All decisions have safe fallbacks
- * - Try/catch wrapping for ultimate safety
+ * - Stateless
+ * - Safe fallbacks
+ * - Guards against bad inputs
  */
 object ExitManager {
-    
+
     private const val TAG = "ExitManager"
-    
+    private const val MIN_SAFE_LIQUIDITY_USD = 1_000.0
+
     /**
      * Exit priority levels.
      */
     enum class ExitPriority {
-        CRITICAL,  // Must exit immediately (stop loss, rug, etc.)
-        HIGH,      // Should exit soon (trailing stop, max hold)
-        NORMAL,    // Standard exit conditions met
-        LOW,       // Optional/optimization exits
-        HOLD,      // No exit conditions met
+        CRITICAL,
+        HIGH,
+        NORMAL,
+        LOW,
+        HOLD,
     }
-    
+
     /**
      * Exit reason categories.
      */
@@ -40,25 +42,25 @@ object ExitManager {
         RUG_DETECTED,
         LIQUIDITY_DRIED,
         DISTRIBUTION_DETECTED,
-        
+
         // High
         TRAILING_STOP,
         MAX_HOLD_TIME,
         MOMENTUM_COLLAPSE,
-        
+
         // Normal
         EXIT_SCORE_THRESHOLD,
         PROFIT_TARGET,
         PARTIAL_TAKE_PROFIT,
-        
+
         // Low
         REBALANCE,
         OPPORTUNITY_COST,
-        
+
         // Hold
         NONE,
     }
-    
+
     /**
      * Exit decision result.
      */
@@ -67,8 +69,8 @@ object ExitManager {
         val priority: ExitPriority,
         val reason: ExitReason,
         val details: String,
-        val sellFraction: Double = 1.0,  // 1.0 = full sell, 0.5 = half, etc.
-        val urgency: Int = 0,            // Higher = more urgent (for ordering)
+        val sellFraction: Double = 1.0, // 1.0 = full sell, 0.5 = half, etc.
+        val urgency: Int = 0,           // Higher = more urgent
     ) {
         companion object {
             val HOLD = ExitDecision(
@@ -81,22 +83,9 @@ object ExitManager {
             )
         }
     }
-    
+
     /**
      * Evaluate all exit conditions and return highest priority decision.
-     * 
-     * @param currentPriceUsd Current price
-     * @param entryPriceUsd Entry price
-     * @param highPriceUsd Highest price since entry
-     * @param pnlPct Current PnL percentage
-     * @param exitScore Exit score from strategy
-     * @param holdTimeMs Time since entry
-     * @param liquidityUsd Current liquidity
-     * @param isRugDetected Whether rug pull detected
-     * @param isDistributionDetected Whether distribution detected
-     * @param config Bot configuration
-     * @param modeMultipliers Mode-specific multipliers
-     * @return ExitDecision with highest priority exit, or HOLD
      */
     fun evaluate(
         currentPriceUsd: Double,
@@ -112,62 +101,77 @@ object ExitManager {
         modeMultipliers: ModeSpecificGates.ModeMultipliers = ModeSpecificGates.ModeMultipliers.DEFAULT,
     ): ExitDecision {
         return try {
+            if (entryPriceUsd <= 0.0 || currentPriceUsd <= 0.0 || highPriceUsd <= 0.0) {
+                ErrorLogger.warn(
+                    TAG,
+                    "Invalid price input | entry=$entryPriceUsd current=$currentPriceUsd high=$highPriceUsd"
+                )
+                return ExitDecision.HOLD
+            }
+
             val decisions = mutableListOf<ExitDecision>()
-            
+
             // ═══════════════════════════════════════════════════════════════════
-            // CRITICAL EXITS (always check first, cannot be overridden)
+            // CRITICAL EXITS
             // ═══════════════════════════════════════════════════════════════════
-            
-            // Stop loss
-            val stopLossPct = config.stopLossPct * modeMultipliers.stopLossMultiplier
+
+            val stopLossPct = (config.stopLossPct * modeMultipliers.stopLossMultiplier).coerceAtLeast(0.1)
             if (pnlPct <= -stopLossPct) {
-                decisions.add(ExitDecision(
-                    shouldExit = true,
-                    priority = ExitPriority.CRITICAL,
-                    reason = ExitReason.STOP_LOSS,
-                    details = "Stop loss hit at ${pnlPct.toInt()}% (threshold: -${stopLossPct.toInt()}%)",
-                    urgency = 100,
-                ))
+                decisions.add(
+                    ExitDecision(
+                        shouldExit = true,
+                        priority = ExitPriority.CRITICAL,
+                        reason = ExitReason.STOP_LOSS,
+                        details = "Stop loss hit at ${pnlPct.toInt()}% (threshold: -${stopLossPct.toInt()}%)",
+                        sellFraction = 1.0,
+                        urgency = 100,
+                    )
+                )
             }
-            
-            // Rug detected
+
             if (isRugDetected) {
-                decisions.add(ExitDecision(
-                    shouldExit = true,
-                    priority = ExitPriority.CRITICAL,
-                    reason = ExitReason.RUG_DETECTED,
-                    details = "Rug pull detected - emergency exit",
-                    urgency = 99,
-                ))
+                decisions.add(
+                    ExitDecision(
+                        shouldExit = true,
+                        priority = ExitPriority.CRITICAL,
+                        reason = ExitReason.RUG_DETECTED,
+                        details = "Rug pull detected - emergency exit",
+                        sellFraction = 1.0,
+                        urgency = 99,
+                    )
+                )
             }
-            
-            // Liquidity dried up
-            if (liquidityUsd < 1000) {
-                decisions.add(ExitDecision(
-                    shouldExit = true,
-                    priority = ExitPriority.CRITICAL,
-                    reason = ExitReason.LIQUIDITY_DRIED,
-                    details = "Liquidity too low: $${liquidityUsd.toInt()}",
-                    urgency = 98,
-                ))
+
+            if (liquidityUsd in 0.0..<MIN_SAFE_LIQUIDITY_USD) {
+                decisions.add(
+                    ExitDecision(
+                        shouldExit = true,
+                        priority = ExitPriority.CRITICAL,
+                        reason = ExitReason.LIQUIDITY_DRIED,
+                        details = "Liquidity too low: $${liquidityUsd.toInt()}",
+                        sellFraction = 1.0,
+                        urgency = 98,
+                    )
+                )
             }
-            
-            // Distribution detected
-            if (isDistributionDetected && pnlPct > 0) {
-                decisions.add(ExitDecision(
-                    shouldExit = true,
-                    priority = ExitPriority.CRITICAL,
-                    reason = ExitReason.DISTRIBUTION_DETECTED,
-                    details = "Distribution pattern detected - securing gains",
-                    urgency = 97,
-                ))
+
+            if (isDistributionDetected && pnlPct > 0.0) {
+                decisions.add(
+                    ExitDecision(
+                        shouldExit = true,
+                        priority = ExitPriority.CRITICAL,
+                        reason = ExitReason.DISTRIBUTION_DETECTED,
+                        details = "Distribution pattern detected - securing gains",
+                        sellFraction = 1.0,
+                        urgency = 97,
+                    )
+                )
             }
-            
+
             // ═══════════════════════════════════════════════════════════════════
             // HIGH PRIORITY EXITS
             // ═══════════════════════════════════════════════════════════════════
-            
-            // Trailing stop (calculated separately)
+
             val trailingResult = TrailingStopManager.calculateAdaptiveStop(
                 currentPriceUsd = currentPriceUsd,
                 highPriceUsd = highPriceUsd,
@@ -177,90 +181,131 @@ object ExitManager {
                 config = config,
                 modeMultiplier = modeMultipliers.trailingStopMultiplier,
             )
-            
+
             if (TrailingStopManager.isStopHit(currentPriceUsd, trailingResult.stopPriceUsd)) {
-                decisions.add(ExitDecision(
-                    shouldExit = true,
-                    priority = ExitPriority.HIGH,
-                    reason = ExitReason.TRAILING_STOP,
-                    details = TrailingStopManager.getStopHitReason(
-                        currentPriceUsd, trailingResult.stopPriceUsd, highPriceUsd, entryPriceUsd
-                    ),
-                    urgency = 80,
-                ))
+                decisions.add(
+                    ExitDecision(
+                        shouldExit = true,
+                        priority = ExitPriority.HIGH,
+                        reason = ExitReason.TRAILING_STOP,
+                        details = TrailingStopManager.getStopHitReason(
+                            currentPriceUsd = currentPriceUsd,
+                            stopPriceUsd = trailingResult.stopPriceUsd,
+                            highPriceUsd = highPriceUsd,
+                            entryPriceUsd = entryPriceUsd,
+                        ),
+                        sellFraction = 1.0,
+                        urgency = 80,
+                    )
+                )
             }
-            
-            // Max hold time
-            val maxHoldMs = (config.maxHoldMinsHard * 60_000 * modeMultipliers.maxHoldMultiplier).toLong()
-            if (holdTimeMs >= maxHoldMs && pnlPct > -5) {  // Don't force exit at big loss
-                decisions.add(ExitDecision(
-                    shouldExit = true,
-                    priority = ExitPriority.HIGH,
-                    reason = ExitReason.MAX_HOLD_TIME,
-                    details = "Max hold time reached: ${holdTimeMs / 60_000}min",
-                    urgency = 70,
-                ))
+
+            val maxHoldMs = max(
+                60_000L,
+                (config.maxHoldMinsHard * 60_000L * modeMultipliers.maxHoldMultiplier).toLong()
+            )
+            if (holdTimeMs >= maxHoldMs && pnlPct > -5.0) {
+                decisions.add(
+                    ExitDecision(
+                        shouldExit = true,
+                        priority = ExitPriority.HIGH,
+                        reason = ExitReason.MAX_HOLD_TIME,
+                        details = "Max hold time reached: ${holdTimeMs / 60_000}min",
+                        sellFraction = 1.0,
+                        urgency = 70,
+                    )
+                )
             }
-            
+
+            if (pnlPct > 5.0 && exitScore >= 40.0 && liquidityUsd < MIN_SAFE_LIQUIDITY_USD * 2.0) {
+                decisions.add(
+                    ExitDecision(
+                        shouldExit = true,
+                        priority = ExitPriority.HIGH,
+                        reason = ExitReason.MOMENTUM_COLLAPSE,
+                        details = "Momentum/liquidity deterioration while in profit",
+                        sellFraction = 1.0,
+                        urgency = 65,
+                    )
+                )
+            }
+
             // ═══════════════════════════════════════════════════════════════════
             // NORMAL EXITS
             // ═══════════════════════════════════════════════════════════════════
-            
-            // Exit score threshold
+
             val exitThreshold = 60.0 * modeMultipliers.exitScoreMultiplier
-            if (exitScore >= exitThreshold && pnlPct > 0) {
-                decisions.add(ExitDecision(
-                    shouldExit = true,
-                    priority = ExitPriority.NORMAL,
-                    reason = ExitReason.EXIT_SCORE_THRESHOLD,
-                    details = "Exit score ${exitScore.toInt()} >= threshold ${exitThreshold.toInt()}",
-                    urgency = 50,
-                ))
+            if (exitScore >= exitThreshold && pnlPct > 0.0) {
+                decisions.add(
+                    ExitDecision(
+                        shouldExit = true,
+                        priority = ExitPriority.NORMAL,
+                        reason = ExitReason.EXIT_SCORE_THRESHOLD,
+                        details = "Exit score ${exitScore.toInt()} >= threshold ${exitThreshold.toInt()}",
+                        sellFraction = 1.0,
+                        urgency = 50,
+                    )
+                )
             }
-            
-            // Profit target (partial sells)
-            if (pnlPct >= 100 && config.partialSellEnabled) {
-                decisions.add(ExitDecision(
-                    shouldExit = true,
-                    priority = ExitPriority.NORMAL,
-                    reason = ExitReason.PARTIAL_TAKE_PROFIT,
-                    details = "Profit target 100%+ hit - partial sell",
-                    sellFraction = config.partialSellFraction,
-                    urgency = 40,
-                ))
-            } else if (pnlPct >= 50 && config.partialSellEnabled) {
-                decisions.add(ExitDecision(
-                    shouldExit = true,
-                    priority = ExitPriority.NORMAL,
-                    reason = ExitReason.PARTIAL_TAKE_PROFIT,
-                    details = "Profit target 50%+ hit - partial sell",
-                    sellFraction = config.partialSellFraction * 0.5,
-                    urgency = 35,
-                ))
+
+            if (config.partialSellEnabled) {
+                val safePartialFraction = config.partialSellFraction.coerceIn(0.05, 1.0)
+
+                if (pnlPct >= 100.0) {
+                    decisions.add(
+                        ExitDecision(
+                            shouldExit = true,
+                            priority = ExitPriority.NORMAL,
+                            reason = ExitReason.PARTIAL_TAKE_PROFIT,
+                            details = "Profit target 100%+ hit - partial sell",
+                            sellFraction = safePartialFraction,
+                            urgency = 40,
+                        )
+                    )
+                } else if (pnlPct >= 50.0) {
+                    decisions.add(
+                        ExitDecision(
+                            shouldExit = true,
+                            priority = ExitPriority.NORMAL,
+                            reason = ExitReason.PARTIAL_TAKE_PROFIT,
+                            details = "Profit target 50%+ hit - partial sell",
+                            sellFraction = (safePartialFraction * 0.5).coerceIn(0.05, 1.0),
+                            urgency = 35,
+                        )
+                    )
+                }
+            } else if (pnlPct >= 100.0) {
+                decisions.add(
+                    ExitDecision(
+                        shouldExit = true,
+                        priority = ExitPriority.NORMAL,
+                        reason = ExitReason.PROFIT_TARGET,
+                        details = "Profit target 100%+ hit - full exit",
+                        sellFraction = 1.0,
+                        urgency = 38,
+                    )
+                )
             }
-            
-            // ═══════════════════════════════════════════════════════════════════
-            // RETURN HIGHEST PRIORITY DECISION
-            // ═══════════════════════════════════════════════════════════════════
-            
+
             if (decisions.isEmpty()) {
-                return ExitDecision.HOLD
+                ExitDecision.HOLD
+            } else {
+                decisions
+                    .map { it.copy(sellFraction = it.sellFraction.coerceIn(0.0, 1.0)) }
+                    .sortedWith(
+                        compareBy<ExitDecision> { priorityRank(it.priority) }
+                            .thenByDescending { it.urgency }
+                    )
+                    .first()
             }
-            
-            // Sort by priority (CRITICAL first) then urgency
-            decisions.sortedWith(
-                compareBy({ it.priority.ordinal }, { -it.urgency })
-            ).first()
-            
         } catch (e: Exception) {
             ErrorLogger.warn(TAG, "evaluate error: ${e.message}")
             ExitDecision.HOLD
         }
     }
-    
+
     /**
      * Quick check if any critical exit condition exists.
-     * Use this for fast-path checks before full evaluation.
      */
     fun hasCriticalCondition(
         pnlPct: Double,
@@ -269,15 +314,17 @@ object ExitManager {
         liquidityUsd: Double,
     ): Boolean {
         return try {
-            pnlPct <= -stopLossPct || isRugDetected || liquidityUsd < 1000
-        } catch (e: Exception) {
+            pnlPct <= -stopLossPct.coerceAtLeast(0.1) ||
+                isRugDetected ||
+                liquidityUsd < MIN_SAFE_LIQUIDITY_USD
+        } catch (_: Exception) {
             false
         }
     }
-    
+
     /**
      * Check if position should be partially sold.
-     * 
+     *
      * @param pnlPct Current PnL percentage
      * @param partialSellCount How many partial sells already done
      * @param config Bot configuration
@@ -292,28 +339,25 @@ object ExitManager {
             if (!config.partialSellEnabled) {
                 return Pair(false, 0.0)
             }
-            
-            // Milestone-based partial sells
+
             val milestones = listOf(
-                50.0 to 0.15,   // At 50%: sell 15%
-                100.0 to 0.20, // At 100%: sell 20%
-                200.0 to 0.25, // At 200%: sell 25%
-                500.0 to 0.30, // At 500%: sell 30%
+                50.0 to 0.15,
+                100.0 to 0.20,
+                200.0 to 0.25,
+                500.0 to 0.30,
             )
-            
-            // Find highest milestone we've reached but haven't sold yet
+
             val milestone = milestones.getOrNull(partialSellCount)
-            
             if (milestone != null && pnlPct >= milestone.first) {
-                Pair(true, milestone.second)
+                Pair(true, milestone.second.coerceIn(0.05, 1.0))
             } else {
                 Pair(false, 0.0)
             }
-        } catch (e: Exception) {
+        } catch (_: Exception) {
             Pair(false, 0.0)
         }
     }
-    
+
     /**
      * Get exit reason as emoji + text for display.
      */
@@ -332,6 +376,16 @@ object ExitManager {
             ExitReason.REBALANCE -> "⚖️ Rebalance"
             ExitReason.OPPORTUNITY_COST -> "🔄 Opportunity"
             ExitReason.NONE -> "✅ Holding"
+        }
+    }
+
+    private fun priorityRank(priority: ExitPriority): Int {
+        return when (priority) {
+            ExitPriority.CRITICAL -> 0
+            ExitPriority.HIGH -> 1
+            ExitPriority.NORMAL -> 2
+            ExitPriority.LOW -> 3
+            ExitPriority.HOLD -> 4
         }
     }
 }

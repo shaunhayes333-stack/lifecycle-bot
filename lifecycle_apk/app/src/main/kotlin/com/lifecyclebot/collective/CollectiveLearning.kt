@@ -1241,9 +1241,9 @@ object CollectiveLearning {
                 val result = client!!.query(
                     "SELECT pattern_hash as pattern_key, total_trades, wins, avg_pnl_pct, " +
                     "1 as instance_count, last_updated " +
-                    "FROM token_patterns"
+                    "FROM collective_patterns"
                 )
-                
+
                 if (result.success) {
                     result.rows.map { row ->
                         AIPattern(
@@ -1311,7 +1311,7 @@ object CollectiveLearning {
                 // Get signals from last 24 hours
                 val cutoff = System.currentTimeMillis() - 24 * 60 * 60 * 1000
                 val result = client!!.query(
-                    "SELECT mint, signal, instance_id, timestamp FROM trade_signals WHERE timestamp > $cutoff"
+                    "SELECT mint, signal_type as signal, broadcaster_id as instance_id, timestamp FROM network_signals WHERE timestamp > $cutoff AND expires_at > $cutoff"
                 )
                 
                 if (result.success) {
@@ -1342,7 +1342,7 @@ object CollectiveLearning {
         return withContext(Dispatchers.IO) {
             try {
                 val result = client!!.execute(
-                    "DELETE FROM token_patterns WHERE last_updated < $cutoffTime"
+                    "DELETE FROM collective_patterns WHERE last_updated < $cutoffTime"
                 )
                 
                 if (result.success) {

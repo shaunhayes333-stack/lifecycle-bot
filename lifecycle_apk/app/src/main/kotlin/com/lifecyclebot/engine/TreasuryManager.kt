@@ -27,8 +27,8 @@ import org.json.JSONObject
  *
  * MILESTONES (USD):
  * ─────────────────
- *   $500    → lock 20% of further profits  (first safety net)
- *   $1,000  → lock 25% of further profits  (meaningful amount secured)
+ *   $100    → lock 20% of further profits  (first safety net)
+ *   $5000  → lock 25% of further profits  (meaningful amount secured)
  *   $2,500  → lock 30% of further profits
  *   $5,000  → lock 30% of further profits  + alert user
  *   $10,000 → lock 35% of further profits  + strong alert
@@ -67,9 +67,9 @@ object TreasuryManager {
     )
 
     val MILESTONES = listOf(
-        Milestone(    500.0, 0.20, "\$500 milestone",     false),
-        Milestone(  1_000.0, 0.25, "\$1K milestone",      false),
-        Milestone(  2_500.0, 0.30, "\$2.5K milestone",    false),
+        Milestone(    100.0, 0.20, "\$100 milestone",     false),
+        Milestone(  500.0, 0.25, "\$500 milestone",      false),
+        Milestone(  1500.0, 0.30, "\$1.5K milestone",    false),
         Milestone(  5_000.0, 0.30, "\$5K milestone",      true),
         Milestone( 10_000.0, 0.35, "\$10K milestone",     true),
         Milestone( 25_000.0, 0.35, "\$25K milestone",     true),

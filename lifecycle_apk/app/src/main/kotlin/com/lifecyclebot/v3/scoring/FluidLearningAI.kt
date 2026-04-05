@@ -54,7 +54,7 @@ object FluidLearningAI {
         }
         isInitialized = true
         ErrorLogger.info(TAG, "🧠 FluidLearningAI initialized (ONE-TIME) | " +
-            "maturityTarget=$TRADES_FOR_MATURITY trades | " +
+            "bootstrap=0-$BOOTSTRAP_PHASE_END | mature=$BOOTSTRAP_PHASE_END-$MATURE_PHASE_END | continuous=$MATURE_PHASE_END+ | " +
             "currentProgress=${(getLearningProgress() * 100).toInt()}%")
     }
     
@@ -67,9 +67,18 @@ object FluidLearningAI {
     private val lastProgressUpdate = AtomicLong(0)
     private var cachedProgress = 0.0
     
-    // Trades needed to reach full maturity
-    // V4.0: Increased from 500 to 1000 for better sample size and slower, quality learning
-    private const val TRADES_FOR_MATURITY = 1000
+    // V5.6: EXTENDED Learning curve - Never fully closes
+    //   Phase 1 Bootstrap (0-1000 trades):   progress 0.0→0.5 (permissive thresholds, learning mode)
+    //   Phase 2 Mature   (1000-3000 trades): progress 0.5→0.8 (moderately tightening)
+    //   Phase 3 Continuous (3000+ trades):   progress 0.8 MAX (never fully restricts - always trades)
+    // 
+    // V5.6 FIX: Bot was getting too restrictive after 2000 trades because:
+    //   - Old: Matured to 1.0 (100%) at 1000 trades → stopped trading
+    //   - New: Caps at 0.8 (80%) so thresholds never fully close
+    //   - This ensures CONTINUOUS trading even with 10,000+ trades
+    private const val BOOTSTRAP_PHASE_END = 1000   // V5.6: Extended from 500
+    private const val MATURE_PHASE_END = 3000      // V5.6: Extended from 1000
+    private const val MAX_LEARNING_PROGRESS = 0.80 // V5.6: NEVER go above 80% - keeps trading
     
     /**
      * V5.2: Reset all learning progress.
@@ -166,10 +175,8 @@ object FluidLearningAI {
         buyPressurePct: Double,
         isPaper: Boolean
     ): Boolean {
-        // V5.3: Cold-start override covers only the VERY early phase (first ~75 trades)
-        // The 3-phase learning curve already keeps thresholds loose for all 500 bootstrap trades.
-        // This override is purely for breaking the cold-start deadlock, not for bulk-entry.
-        if (getLearningProgress() >= 0.15) return false
+        // V5.3: Apply throughout entire bootstrap phase (learning < 50% = first 500 trades)
+        if (getLearningProgress() >= 0.50) return false
         
         // V5.2: Quick age check - only wait 1 minute
         if (tokenAgeMinutes < MIN_TOKEN_AGE_BOOTSTRAP) {
@@ -376,15 +383,42 @@ object FluidLearningAI {
             sessionWinRate
         }
         
-        // Base progress from trade count
-        var progress = (totalTrades.toDouble() / TRADES_FOR_MATURITY).coerceIn(0.0, 1.0)
-        
-        // Win rate bonus/penalty
-        when {
-            blendedWinRate > 60 -> progress = (progress * 1.1).coerceAtMost(1.0)  // +10% faster
-            blendedWinRate < 40 -> progress = (progress * 0.9)                     // -10% slower
+        // V5.6: Extended 3-Phase learning curve - NEVER FULLY RESTRICTS
+        val baseProgress = when {
+            totalTrades <= BOOTSTRAP_PHASE_END ->
+                // Phase 1 Bootstrap (0-1000 trades): 0.0 → 0.5
+                (totalTrades.toDouble() / BOOTSTRAP_PHASE_END) * 0.5
+            totalTrades <= MATURE_PHASE_END ->
+                // Phase 2 Mature (1000-3000 trades): 0.5 → 0.8 (NOT 1.0!)
+                0.5 + ((totalTrades - BOOTSTRAP_PHASE_END).toDouble() / (MATURE_PHASE_END - BOOTSTRAP_PHASE_END)) * 0.3
+            else ->
+                // Phase 3 Continuous (3000+ trades): CAPPED at 0.8 - never fully restricts!
+                MAX_LEARNING_PROGRESS
         }
-        
+
+        val progress = when {
+            totalTrades > MATURE_PHASE_END -> {
+                // Phase 3: Continuous adaptive adjustment based on recent performance
+                // V5.6 FIX: Poor performance SIGNIFICANTLY loosens thresholds to allow more trades
+                // This prevents the "trade starvation" issue after 2000+ cycles
+                when {
+                    blendedWinRate > 60 -> baseProgress                              // Performing well: stay at 0.8
+                    blendedWinRate < 30 -> (baseProgress - 0.30).coerceAtLeast(0.45) // V5.6: Very poor: loosen to 0.45-0.50
+                    blendedWinRate < 40 -> (baseProgress - 0.20).coerceAtLeast(0.55) // V5.6: Poor: loosen to 0.55-0.60
+                    blendedWinRate < 50 -> (baseProgress - 0.10).coerceAtLeast(0.65) // V5.6: Below average: loosen slightly
+                    else -> baseProgress
+                }
+            }
+            else -> {
+                // Phase 1-2: Win rate speeds/slows learning progression
+                when {
+                    blendedWinRate > 60 -> (baseProgress * 1.1).coerceAtMost(MAX_LEARNING_PROGRESS)  // +10% faster, capped
+                    blendedWinRate < 40 -> baseProgress * 0.85                       // V5.6: Slower learning when struggling
+                    else -> baseProgress
+                }
+            }
+        }.coerceAtMost(MAX_LEARNING_PROGRESS)  // V5.6: HARD CAP - never exceed 0.8
+
         cachedProgress = progress
         lastProgressUpdate.set(now)
         
@@ -598,8 +632,8 @@ object FluidLearningAI {
     // SCORE THRESHOLDS (Used by V3 Scoring, CashGenerationAI)
     // ═══════════════════════════════════════════════════════════════════════════
     
-    private const val SCORE_BOOTSTRAP = 20     // V5.2 FIX: Raised from 10 - don't go AGGRESSIVE on weak setups
-    private const val SCORE_MATURE = 30        // Higher threshold when mature
+    private const val SCORE_BOOTSTRAP = 20     // V5.5b: Reverted — raising to 30 blocked all early_unknown tokens
+    private const val SCORE_MATURE = 35        // V5.5b: Modest raise from 30; at 63% lerp → ~29 (allows score-21 EXECUTE_SMALL)
     
     fun getMinScoreThreshold(): Int = lerp(SCORE_BOOTSTRAP.toDouble(), SCORE_MATURE.toDouble()).toInt()
 
@@ -661,8 +695,8 @@ object FluidLearningAI {
     private const val TREASURY_BUY_PRESSURE_BOOTSTRAP = 35.0  // V5.1: Lowered from 40 - allow more
     private const val TREASURY_BUY_PRESSURE_MATURE = 50.0     // Raise as we learn
     
-    private const val TREASURY_SCORE_BOOTSTRAP = 15    // V5.1: Lowered from 20 - allow more trades
-    private const val TREASURY_SCORE_MATURE = 30       // Raise as we learn
+    private const val TREASURY_SCORE_BOOTSTRAP = 15    // V5.5b: Reverted — Treasury has own scoring system, don't over-gate
+    private const val TREASURY_SCORE_MATURE = 32       // V5.5b: Modest raise from 30
     
     fun getTreasuryConfidenceThreshold(): Int = lerp(TREASURY_CONF_BOOTSTRAP.toDouble(), TREASURY_CONF_MATURE.toDouble()).toInt()
     fun getTreasuryMinLiquidity(): Double = lerp(TREASURY_LIQ_BOOTSTRAP, TREASURY_LIQ_MATURE)
@@ -711,9 +745,10 @@ object FluidLearningAI {
     fun getFluidStopLoss(modeDefaultStop: Double): Double {
         val progress = getLearningProgress()
         
-        // V5.2.11: Widened bootstrap stops - was 6%, now 10%
-        // Meme coins wick down -8% regularly before pumping
-        val bootstrapStop = maxOf(modeDefaultStop, 10.0)  // At least -10% during bootstrap
+        // V5.6: Tightened bootstrap SL cap from 6% to 4%
+        // At 75% learning, losses were running to 9%+ while wins only captured 3-5%
+        // 4% cap forces quicker cuts — better to lose small and reload on a better setup
+        val bootstrapStop = maxOf(modeDefaultStop, 4.0)  // Cap at -4% during bootstrap
         val matureStop = modeDefaultStop                   // Use mode's intended stop when mature
         
         return lerp(bootstrapStop, matureStop)
@@ -946,7 +981,7 @@ object FluidLearningAI {
             totalTrades = totalTrades,
             sessionTrades = sessionTrades.get(),
             sessionWinRate = sessionWinRate,
-            isBootstrap = progress < 0.1,
+            isBootstrap = progress < 0.5,  // V5.6: Bootstrap = first 1000 trades (progress < 0.5)
             watchlistFloor = getWatchlistFloor().toInt(),
             executionFloor = getExecutionFloor().toInt(),
             scannerMinLiq = getScannerMinLiquidity().toInt(),
@@ -1232,4 +1267,230 @@ object FluidLearningAI {
             "minProfit=${minProfitable.toInt()}% | rawTP=${targetTpPct.toInt()}% | " +
             "adjTP=${adjustedTp.toInt()}% | fees=${fees}SOL")
     }
+
+    // ═══════════════════════════════════════════════════════════════════════════
+    // V5.6: DYNAMIC TP/SL BASED ON REAL-TIME METRICS
+    // 
+    // User feedback: "TP/SL should slide dynamically based on volume, holders,
+    // social sentiment, rather than fixed percentages."
+    // 
+    // This system adjusts exit parameters based on:
+    // 1. Volume surge → widen TP (momentum running)
+    // 2. Holder growth → widen TP (organic accumulation)
+    // 3. Social buzz → widen TP (viral potential)
+    // 4. Volume death → tighten SL (exit faster)
+    // 5. Whale dumps → tighten SL (protect capital)
+    // ═══════════════════════════════════════════════════════════════════════════
+    
+    data class DynamicExitParams(
+        val adjustedTpPct: Double,
+        val adjustedSlPct: Double,
+        val reason: String,
+        val shouldExtendHold: Boolean = false,  // True if metrics suggest letting it run
+    )
+    
+    /**
+     * V5.6: Calculate dynamic TP/SL based on real-time market metrics.
+     * 
+     * @param baseTpPct Base take profit % from mode config
+     * @param baseSlPct Base stop loss % from mode config (negative)
+     * @param volumeChangePercent 5-min volume change vs previous 5-min (-100 to +500+)
+     * @param holderGrowthPercent Holder count change % in last hour
+     * @param buyPressurePct Current buy pressure (0-100)
+     * @param socialBuzzScore Social engagement score (0-100)
+     * @param momentum Current price momentum
+     * @param isWhaleAccumulating True if whale wallets are buying
+     * @param isWhaleDumping True if whale wallets are selling
+     * @return Adjusted TP/SL parameters
+     */
+    fun getDynamicExitParams(
+        baseTpPct: Double,
+        baseSlPct: Double,
+        volumeChangePercent: Double = 0.0,
+        holderGrowthPercent: Double = 0.0,
+        buyPressurePct: Double = 50.0,
+        socialBuzzScore: Int = 0,
+        momentum: Double = 0.0,
+        isWhaleAccumulating: Boolean = false,
+        isWhaleDumping: Boolean = false,
+    ): DynamicExitParams {
+        
+        var tpMultiplier = 1.0
+        var slMultiplier = 1.0
+        val reasons = mutableListOf<String>()
+        var extendHold = false
+        
+        // ═══════════════════════════════════════════════════════════════
+        // VOLUME ANALYSIS
+        // ═══════════════════════════════════════════════════════════════
+        when {
+            volumeChangePercent >= 200 -> {
+                // Volume explosion - token is running!
+                tpMultiplier *= 1.5      // 50% higher TP target
+                slMultiplier *= 0.8      // Slightly tighter SL (protect gains)
+                extendHold = true
+                reasons.add("VOL_SURGE+200%")
+            }
+            volumeChangePercent >= 100 -> {
+                tpMultiplier *= 1.3      // 30% higher TP
+                extendHold = true
+                reasons.add("VOL_UP+100%")
+            }
+            volumeChangePercent >= 50 -> {
+                tpMultiplier *= 1.15     // 15% higher TP
+                reasons.add("VOL_UP+50%")
+            }
+            volumeChangePercent <= -50 -> {
+                // Volume dying - exit faster
+                tpMultiplier *= 0.7      // Lower TP target (take what you can)
+                slMultiplier *= 1.3      // Wider SL threshold to avoid panic exit
+                reasons.add("VOL_DEATH")
+            }
+            volumeChangePercent <= -30 -> {
+                tpMultiplier *= 0.85
+                reasons.add("VOL_FADING")
+            }
+        }
+        
+        // ═══════════════════════════════════════════════════════════════
+        // HOLDER GROWTH ANALYSIS
+        // ═══════════════════════════════════════════════════════════════
+        when {
+            holderGrowthPercent >= 50 -> {
+                // Rapid holder accumulation - viral growth!
+                tpMultiplier *= 1.4
+                extendHold = true
+                reasons.add("HOLDER_SURGE+50%")
+            }
+            holderGrowthPercent >= 20 -> {
+                tpMultiplier *= 1.2
+                reasons.add("HOLDER_UP+20%")
+            }
+            holderGrowthPercent <= -20 -> {
+                // Holders exiting - be cautious
+                slMultiplier *= 0.85     // Tighter SL
+                reasons.add("HOLDER_EXIT")
+            }
+        }
+        
+        // ═══════════════════════════════════════════════════════════════
+        // BUY PRESSURE ANALYSIS
+        // ═══════════════════════════════════════════════════════════════
+        when {
+            buyPressurePct >= 75 -> {
+                // Extremely bullish pressure
+                tpMultiplier *= 1.25
+                extendHold = true
+                reasons.add("BUY_PRESSURE_HIGH")
+            }
+            buyPressurePct >= 65 -> {
+                tpMultiplier *= 1.1
+                reasons.add("BUY_PRESSURE_GOOD")
+            }
+            buyPressurePct <= 35 -> {
+                // Sell pressure dominant - protect capital
+                slMultiplier *= 0.8      // Much tighter SL
+                tpMultiplier *= 0.8      // Lower TP expectation
+                reasons.add("SELL_PRESSURE")
+            }
+            buyPressurePct <= 45 -> {
+                slMultiplier *= 0.9
+                reasons.add("WEAK_DEMAND")
+            }
+        }
+        
+        // ═══════════════════════════════════════════════════════════════
+        // SOCIAL BUZZ ANALYSIS
+        // ═══════════════════════════════════════════════════════════════
+        when {
+            socialBuzzScore >= 80 -> {
+                // Viral potential - let it run!
+                tpMultiplier *= 1.5
+                extendHold = true
+                reasons.add("VIRAL_BUZZ")
+            }
+            socialBuzzScore >= 60 -> {
+                tpMultiplier *= 1.2
+                reasons.add("HIGH_BUZZ")
+            }
+            socialBuzzScore >= 40 -> {
+                tpMultiplier *= 1.1
+                reasons.add("GOOD_BUZZ")
+            }
+        }
+        
+        // ═══════════════════════════════════════════════════════════════
+        // WHALE ACTIVITY
+        // ═══════════════════════════════════════════════════════════════
+        if (isWhaleAccumulating) {
+            tpMultiplier *= 1.3
+            extendHold = true
+            reasons.add("WHALE_ACCUM")
+        }
+        
+        if (isWhaleDumping) {
+            slMultiplier *= 0.7  // Much tighter SL - whales know something!
+            tpMultiplier *= 0.6  // Lower expectations
+            extendHold = false
+            reasons.add("WHALE_DUMP⚠️")
+        }
+        
+        // ═══════════════════════════════════════════════════════════════
+        // MOMENTUM BOOST
+        // ═══════════════════════════════════════════════════════════════
+        when {
+            momentum >= 20 -> {
+                tpMultiplier *= 1.3
+                extendHold = true
+                reasons.add("PARABOLIC")
+            }
+            momentum >= 10 -> {
+                tpMultiplier *= 1.15
+                reasons.add("STRONG_MOM")
+            }
+            momentum <= -10 -> {
+                slMultiplier *= 0.8
+                reasons.add("NEG_MOM")
+            }
+        }
+        
+        // Apply multipliers with caps
+        val adjustedTp = (baseTpPct * tpMultiplier).coerceIn(baseTpPct * 0.5, baseTpPct * 3.0)
+        val adjustedSl = (baseSlPct * slMultiplier).coerceIn(baseSlPct * 1.5, baseSlPct * 0.5)  // Note: SL is negative
+        
+        val reasonStr = if (reasons.isEmpty()) "NO_CHANGE" else reasons.joinToString("|")
+        
+        return DynamicExitParams(
+            adjustedTpPct = adjustedTp,
+            adjustedSlPct = adjustedSl,
+            reason = reasonStr,
+            shouldExtendHold = extendHold,
+        )
+    }
+    
+    /**
+     * V5.6: Quick check if current metrics suggest extending hold time.
+     * Called during exit evaluation to potentially override time-based exits.
+     */
+    fun shouldExtendHoldTime(
+        volumeChangePercent: Double,
+        buyPressurePct: Double,
+        momentum: Double,
+        currentPnlPct: Double,
+    ): Boolean {
+        // If already in solid profit AND momentum is strong, extend
+        if (currentPnlPct >= 10.0) {
+            if (volumeChangePercent >= 50 || buyPressurePct >= 65 || momentum >= 10) {
+                return true
+            }
+        }
+        
+        // If metrics are exceptional, extend even without profit
+        if (volumeChangePercent >= 100 && buyPressurePct >= 70 && momentum >= 15) {
+            return true
+        }
+        
+        return false
+    }
+
 }

@@ -222,8 +222,9 @@ data class TokenState(
 data class BotStatus(
     var running: Boolean = false,
     var walletSol: Double = 0.0,
-    var paperWalletSol: Double = 5.6,  // Paper trading balance (~$500 at $89/SOL)
+    var paperWalletSol: Double = 0.0,   // Paper trading balance (initialized to $1000 at bot start)
     var paperWalletInitialized: Boolean = false,  // Track if we've synced with real wallet
+    var paperWalletLastRefreshMs: Long = 0L,      // Timestamp of last 12-hour top-up
     val logs: ArrayDeque<String> = ArrayDeque(600),
     val tokens: MutableMap<String, TokenState> = mutableMapOf(),
 ) {

@@ -7,65 +7,70 @@ import okhttp3.Request
 import okhttp3.RequestBody.Companion.toRequestBody
 import org.json.JSONArray
 import org.json.JSONObject
+import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.TimeUnit
 
 /**
- * LLM Sentiment Engine — free via Groq API.
+ * LLM Sentiment Engine — Groq-backed structured sentiment scoring.
  *
- * Groq free tier:
- *   Model:  llama-3.1-8b-instant
- *   Limit:  30 requests/min, 14,400 req/day — more than enough
- *   Speed:  ~200 tokens/sec (extremely fast)
- *   Cost:   $0
- *
- * Get a free key at: https://console.groq.com (no credit card needed)
- *
- * How it works:
- *   1. Batch recent tweets + Telegram messages into chunks of ~800 chars
- *   2. Send to Groq with a structured prompt asking for JSON sentiment
- *   3. Parse the JSON response: score, reasoning, key signals, risk flags
- *   4. Cache result for 5 minutes to avoid hammering the API
- *
- * Falls back to keyword scoring (SentimentAnalyzer) if no key configured
- * or if Groq is unavailable.
- *
- * Why Groq over Claude API here:
- *   - Claude API costs money per token
- *   - Groq llama-3.1-8b is genuinely free at this volume
- *   - For structured sentiment on short crypto texts it's more than adequate
+ * Safe design goals:
+ * - Never crashes decision flow
+ * - Returns null on API failure so caller can fall back
+ * - Caches results briefly to avoid hammering Groq
+ * - Hard clamps all scores
+ * - Avoids Kotlin stdlib ambiguity issues that can break CI builds
  */
-class LlmSentimentEngine(private val groqApiKey: String = "") {
-
-    private val http = OkHttpClient.Builder()
-        .connectTimeout(10, TimeUnit.SECONDS)
-        .readTimeout(20, TimeUnit.SECONDS)
-        .build()
-
-    private val JSON_MT = "application/json".toMediaType()
-    private val GROQ_URL = "https://api.groq.com/openai/v1/chat/completions"
-    private val MODEL    = "llama-3.1-8b-instant"
-
-    // Cache: cacheKey → (result, timestamp)
-    private val cache = mutableMapOf<String, Pair<LlmSentiment, Long>>()
-    private val CACHE_TTL_MS = 5 * 60_000L
+class LlmSentimentEngine(
+    private val groqApiKey: String = "",
+) {
 
     data class LlmSentiment(
         val score: Double,              // -100 to +100
-        val confidence: Double,         // 0-100
+        val confidence: Double,         // 0 to 100
         val reasoning: String,
         val bullishSignals: List<String>,
         val bearishSignals: List<String>,
-        val riskFlags: List<String>,    // e.g. "coordinated pump", "fake volume"
+        val riskFlags: List<String>,
         val hardBlock: Boolean,
         val blockReason: String,
         val source: String,             // "llm" | "keyword_fallback"
     )
 
-    // ── public interface ──────────────────────────────────────────────
+    private data class CacheEntry(
+        val result: LlmSentiment,
+        val timestampMs: Long,
+    )
+
+    private val http = OkHttpClient.Builder()
+        .connectTimeout(10, TimeUnit.SECONDS)
+        .readTimeout(20, TimeUnit.SECONDS)
+        .writeTimeout(20, TimeUnit.SECONDS)
+        .build()
+
+    private val jsonMediaType = "application/json".toMediaType()
+
+    private val cache = ConcurrentHashMap<String, CacheEntry>()
+    private val cacheTtlMs = 5 * 60_000L
+
+    @Volatile
+    private var lastCallMs: Long = 0L
+
+    private val minCallIntervalMs = 1_200L
+
+    companion object {
+        private const val TAG = "LlmSentiment"
+        private const val GROQ_URL = "https://api.groq.com/openai/v1/chat/completions"
+        private const val MODEL = "llama-3.1-8b-instant"
+        private const val MAX_EVENTS = 20
+        private const val MAX_EVENT_CHARS = 120
+        private const val MAX_BUNDLE_CHARS = 800
+        private const val MAX_REASONING_CHARS = 220
+        private const val DEFAULT_CONFIDENCE = 50.0
+    }
 
     /**
-     * Score a batch of mention events using the LLM.
-     * Returns null if key not configured — caller should fall back to keyword scoring.
+     * Main scoring entrypoint.
+     * Returns null if API key missing, no events, or remote call fails.
      */
     fun score(
         symbol: String,
@@ -75,121 +80,266 @@ class LlmSentimentEngine(private val groqApiKey: String = "") {
         if (groqApiKey.isBlank()) return null
         if (events.isEmpty()) return null
 
-        val cacheKey = "${mintAddress}_${events.size}_${events.lastOrNull()?.ts}"
-        val cached   = cache[cacheKey]
-        if (cached != null && System.currentTimeMillis() - cached.second < CACHE_TTL_MS) {
-            return cached.first
+        return try {
+            val sanitizedEvents = events
+                .sortedByDescending { it.ts }
+                .take(MAX_EVENTS)
+
+            if (sanitizedEvents.isEmpty()) return null
+
+            val cacheKey = buildCacheKey(symbol, mintAddress, sanitizedEvents)
+            val now = System.currentTimeMillis()
+
+            val cached = cache[cacheKey]
+            if (cached != null && now - cached.timestampMs < cacheTtlMs) {
+                return cached.result
+            }
+
+            val textBundle = buildTextBundle(sanitizedEvents)
+            if (textBundle.isBlank()) return null
+
+            val result = callGroq(
+                symbol = symbol,
+                mint = mintAddress,
+                textBundle = textBundle,
+            ) ?: return null
+
+            cache[cacheKey] = CacheEntry(result, now)
+            cleanupCacheIfNeeded(now)
+            result
+        } catch (e: Exception) {
+            ErrorLogger.warn(TAG, "score failed: ${e.message}")
+            null
         }
-
-        // Build text bundle — take most recent 20 events, max 800 chars total
-        val textBundle = events
-            .sortedByDescending { it.ts }
-            .take(20)
-            .joinToString("\n") { "[${it.source.uppercase()}] ${it.text.take(120)}" }
-            .take(800)
-
-        val result = callGroq(symbol, mintAddress, textBundle) ?: return null
-        cache[cacheKey] = result to System.currentTimeMillis()
-        return result
     }
 
-    // ── Groq API call ─────────────────────────────────────────────────
+    private fun buildCacheKey(
+        symbol: String,
+        mintAddress: String,
+        events: List<MentionEvent>,
+    ): String {
+        var firstTs = Long.MAX_VALUE
+        var lastTs = Long.MIN_VALUE
+        var count = 0
 
-    private fun callGroq(symbol: String, mint: String, textBundle: String): LlmSentiment? {
-        val prompt = buildPrompt(symbol, mint, textBundle)
+        for (event in events) {
+            val ts = event.ts
+            if (ts < firstTs) firstTs = ts
+            if (ts > lastTs) lastTs = ts
+            count++
+        }
+
+        if (count == 0) {
+            firstTs = 0L
+            lastTs = 0L
+        }
+
+        val upperSymbol = symbol.uppercase()
+        return upperSymbol + "_" + mintAddress + "_" + count + "_" + firstTs + "_" + lastTs
+    }
+
+    private fun buildTextBundle(events: List<MentionEvent>): String {
+        val sb = StringBuilder()
+
+        for (event in events) {
+            val source = event.source.uppercase()
+            val text = event.text
+                .replace(Regex("\\s+"), " ")
+                .trim()
+                .take(MAX_EVENT_CHARS)
+
+            if (text.isBlank()) continue
+
+            val candidate = "[$source] $text"
+            val projectedLen = if (sb.isEmpty()) {
+                candidate.length
+            } else {
+                sb.length + 1 + candidate.length
+            }
+
+            if (projectedLen > MAX_BUNDLE_CHARS) {
+                break
+            }
+
+            if (sb.isNotEmpty()) sb.append('\n')
+            sb.append(candidate)
+        }
+
+        return sb.toString()
+    }
+
+    private fun callGroq(
+        symbol: String,
+        mint: String,
+        textBundle: String,
+    ): LlmSentiment? {
+        throttle()
 
         val payload = JSONObject().apply {
             put("model", MODEL)
-            put("temperature", 0.1)    // low temp = consistent structured output
+            put("temperature", 0.1)
             put("max_tokens", 400)
             put("response_format", JSONObject().put("type", "json_object"))
-            put("messages", JSONArray().apply {
-                put(JSONObject().apply {
-                    put("role", "system")
-                    put("content", SYSTEM_PROMPT)
-                })
-                put(JSONObject().apply {
-                    put("role", "user")
-                    put("content", prompt)
-                })
-            })
+            put(
+                "messages",
+                JSONArray().apply {
+                    put(
+                        JSONObject().apply {
+                            put("role", "system")
+                            put("content", systemPrompt())
+                        }
+                    )
+                    put(
+                        JSONObject().apply {
+                            put("role", "user")
+                            put("content", buildPrompt(symbol, mint, textBundle))
+                        }
+                    )
+                }
+            )
         }
 
         return try {
-            val req = Request.Builder()
+            val request = Request.Builder()
                 .url(GROQ_URL)
-                .post(payload.toString().toRequestBody(JSON_MT))
+                .post(payload.toString().toRequestBody(jsonMediaType))
                 .header("Authorization", "Bearer $groqApiKey")
                 .header("Content-Type", "application/json")
                 .build()
 
-            val resp = http.newCall(req).execute()
-            if (!resp.isSuccessful) return null
+            http.newCall(request).execute().use { response ->
+                if (!response.isSuccessful) {
+                    ErrorLogger.warn(TAG, "Groq HTTP ${response.code}")
+                    return null
+                }
 
-            val body    = resp.body?.string() ?: return null
-            val content = JSONObject(body)
-                .optJSONArray("choices")
-                ?.optJSONObject(0)
-                ?.optJSONObject("message")
-                ?.optString("content", "") ?: return null
+                val body = response.body?.string().orEmpty()
+                if (body.isBlank()) {
+                    ErrorLogger.warn(TAG, "Groq empty body")
+                    return null
+                }
 
-            parseLlmResponse(content)
-        } catch (_: Exception) { null }
+                val content = JSONObject(body)
+                    .optJSONArray("choices")
+                    ?.optJSONObject(0)
+                    ?.optJSONObject("message")
+                    ?.optString("content")
+                    ?.trim()
+                    .orEmpty()
+
+                if (content.isBlank()) {
+                    ErrorLogger.warn(TAG, "Groq missing content")
+                    return null
+                }
+
+                parseLlmResponse(content)
+            }
+        } catch (e: Exception) {
+            ErrorLogger.warn(TAG, "Groq call failed: ${e.message}")
+            null
+        }
     }
 
-    private fun parseLlmResponse(json: String): LlmSentiment? {
+    private fun parseLlmResponse(jsonText: String): LlmSentiment? {
         return try {
-            val j = JSONObject(json.trim())
+            val j = JSONObject(jsonText)
 
-            val bullish = j.optJSONArray("bullish_signals")
-                ?.let { arr -> (0 until arr.length()).map { arr.optString(it) } } ?: emptyList()
-            val bearish = j.optJSONArray("bearish_signals")
-                ?.let { arr -> (0 until arr.length()).map { arr.optString(it) } } ?: emptyList()
-            val risks   = j.optJSONArray("risk_flags")
-                ?.let { arr -> (0 until arr.length()).map { arr.optString(it) } } ?: emptyList()
+            val bullish = j.optJSONArray("bullish_signals").toSafeStringList(limit = 8)
+            val bearish = j.optJSONArray("bearish_signals").toSafeStringList(limit = 8)
+            val risks = j.optJSONArray("risk_flags").toSafeStringList(limit = 8)
 
-            val hardBlock   = j.optBoolean("hard_block", false)
-            val blockReason = j.optString("block_reason", "")
+            val hardBlock = j.optBoolean("hard_block", false)
+            val rawBlockReason = j.optString("block_reason", "").trim()
 
             LlmSentiment(
-                score          = j.optDouble("score", 0.0).coerceIn(-100.0, 100.0),
-                confidence     = j.optDouble("confidence", 50.0).coerceIn(0.0, 100.0),
-                reasoning      = j.optString("reasoning", "").take(200),
+                score = j.optDouble("score", 0.0).coerceIn(-100.0, 100.0),
+                confidence = j.optDouble("confidence", DEFAULT_CONFIDENCE).coerceIn(0.0, 100.0),
+                reasoning = j.optString("reasoning", "")
+                    .replace(Regex("\\s+"), " ")
+                    .trim()
+                    .take(MAX_REASONING_CHARS),
                 bullishSignals = bullish,
                 bearishSignals = bearish,
-                riskFlags      = risks,
-                hardBlock      = hardBlock,
-                blockReason    = blockReason,
-                source         = "llm",
+                riskFlags = risks,
+                hardBlock = hardBlock,
+                blockReason = if (hardBlock) rawBlockReason.take(160) else "",
+                source = "llm",
             )
-        } catch (_: Exception) { null }
+        } catch (e: Exception) {
+            ErrorLogger.warn(TAG, "parse failed: ${e.message}")
+            null
+        }
     }
 
-    // ── prompts ───────────────────────────────────────────────────────
+    private fun JSONArray?.toSafeStringList(limit: Int): List<String> {
+        if (this == null || this.length() == 0) return emptyList()
 
-    private val SYSTEM_PROMPT = """
-You are a Solana meme coin trading analyst. Analyse social media text about tokens and return ONLY valid JSON with this exact structure:
+        val out = ArrayList<String>()
+        val capped = if (this.length() < limit) this.length() else limit
+
+        for (i in 0 until capped) {
+            val value = this.optString(i).trim()
+            if (value.isNotBlank()) {
+                out.add(value.take(80))
+            }
+        }
+
+        return out
+    }
+
+    private fun throttle() {
+        val now = System.currentTimeMillis()
+        val waitMs = minCallIntervalMs - (now - lastCallMs)
+
+        if (waitMs > 0L) {
+            try {
+                Thread.sleep(waitMs)
+            } catch (_: InterruptedException) {
+            }
+        }
+
+        lastCallMs = System.currentTimeMillis()
+    }
+
+    private fun cleanupCacheIfNeeded(now: Long) {
+        if (cache.size <= 200) return
+        cache.entries.removeIf { now - it.value.timestampMs > cacheTtlMs }
+    }
+
+    private fun systemPrompt(): String = """
+You are a Solana meme coin trading analyst. Analyze recent social chatter and return ONLY valid JSON in this exact structure:
 {
-  "score": <number -100 to 100, positive=bullish>,
-  "confidence": <number 0-100>,
-  "reasoning": "<1-2 sentence summary>",
-  "bullish_signals": ["<signal>", ...],
-  "bearish_signals": ["<signal>", ...],
-  "risk_flags": ["<flag>", ...],
-  "hard_block": <true if rug/scam/honeypot detected, else false>,
-  "block_reason": "<reason if hard_block is true, else empty string>"
+  "score": <number from -100 to 100>,
+  "confidence": <number from 0 to 100>,
+  "reasoning": "<short summary>",
+  "bullish_signals": ["<signal>", "..."],
+  "bearish_signals": ["<signal>", "..."],
+  "risk_flags": ["<flag>", "..."],
+  "hard_block": <true or false>,
+  "block_reason": "<reason if blocked, else empty string>"
 }
 
-Risk flags to watch for: coordinated pump, wash trading, fake volume, honeypot, dev dump warning, insider selling, copied from another token, artificial hype.
-Hard block triggers: explicit rug confirmation, honeypot confirmed, dev dumped, can't sell tokens.
+Interpretation rules:
+- Positive score = bullish sentiment
+- Negative score = bearish sentiment
+- hard_block = true only for very strong scam/rug/honeypot style evidence
+- Keep reasoning concise
+- Do not include markdown
 """.trimIndent()
 
-    private fun buildPrompt(symbol: String, mint: String, text: String): String = """
-Token: $symbol (${mint.take(8)}…)
+    private fun buildPrompt(
+        symbol: String,
+        mint: String,
+        text: String,
+    ): String {
+        val shortMint = if (mint.length > 8) mint.take(8) else mint
+        return """
+Token: $symbol ($shortMint…)
 
-Recent social media activity:
+Recent social activity:
 $text
 
-Analyse the sentiment and risk level of this token based on the above social posts.
+Analyze the sentiment, identify bullish and bearish signals, list risk flags, and decide whether this deserves a hard block.
 """.trimIndent()
+    }
 }
