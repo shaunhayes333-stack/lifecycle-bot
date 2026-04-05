@@ -4794,7 +4794,9 @@ if (deferredCount > 0) {
         }
     } catch (_: Exception) { if (cfg.paperMode) 1 else 12 }
     
-    if (isCGrade && confValue < fluidCGradeConfFloor) {
+    // V5.9: If bootstrap SKIP override was used at gate 1, don't re-block at gate 2.
+    // These tokens are deliberately let through for learning even with conf=0.
+    if (isCGrade && confValue < fluidCGradeConfFloor && !allowSkipForLearning) {
         ErrorLogger.info("BotService", "[V3|PROMOTION_GATE] ${identity.symbol} | allow=false | " +
             "reason=C_grade_conf_${confValue.toInt()}_below_$fluidCGradeConfFloor → SHADOW_ONLY")
         

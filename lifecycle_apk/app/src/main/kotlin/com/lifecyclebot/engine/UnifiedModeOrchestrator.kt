@@ -238,11 +238,21 @@ object UnifiedModeOrchestrator {
                 ((stats.avgHoldTimeMs * (stats.trades - 1)) + holdTimeMs) / stats.trades
             }
             
-            // Auto-deactivate poorly performing modes
-            // V5.2: Paper mode is MUCH more lenient - we need all modes active for learning
-            val minTrades = if (isPaperMode) 50 else 10          // More trades before judging
-            val minWinRate = if (isPaperMode) 10.0 else 30.0     // Lower threshold for paper
-            
+            // Auto-deactivate poorly performing modes.
+            // V5.9: Never deactivate during bootstrap phase — low win rate is expected
+            // while the model is gathering data. Only evaluate after bootstrap ends.
+            val learningProgress = try {
+                com.lifecyclebot.v3.scoring.FluidLearningAI.getLearningProgress()
+            } catch (_: Exception) { 0.0 }
+            val isBootstrapPhase = learningProgress < 0.50
+
+            val minTrades = when {
+                isPaperMode && isBootstrapPhase -> Int.MAX_VALUE  // Never deactivate in bootstrap
+                isPaperMode -> 150                                 // Post-bootstrap paper: need more data
+                else -> 10                                         // Live: judge quickly
+            }
+            val minWinRate = if (isPaperMode) 8.0 else 30.0
+
             if (stats.trades >= minTrades && stats.winRate < minWinRate) {
                 stats.isActive = false
                 stats.deactivationReason = "Win rate ${stats.winRate.toInt()}% < ${minWinRate.toInt()}% after ${stats.trades} trades"
