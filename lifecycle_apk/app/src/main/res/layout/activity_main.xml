@@ -1319,6 +1319,212 @@
             </LinearLayout>
 
             <!-- ═══════════════════════════════
+                 V5.6.8: PRICE CHART - Now directly after Token Viewer
+                 Shows current token's chart with time range selection
+                 ═══════════════════════════════ -->
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:background="@drawable/section_card_bg"
+                android:layout_marginStart="@dimen/card_margin"
+                android:layout_marginEnd="@dimen/card_margin"
+                android:layout_marginBottom="@dimen/card_margin_bottom"
+                android:orientation="vertical"
+                android:padding="@dimen/card_padding">
+
+                <!-- Chart Header with Token Info -->
+                <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content"
+                    android:orientation="horizontal" android:gravity="center_vertical"
+                    android:layout_marginBottom="8dp">
+                    <TextView android:id="@+id/tvChartSymbol"
+                        android:layout_width="0dp" android:layout_height="wrap_content"
+                        android:layout_weight="1"
+                        android:text="Price" android:textColor="#FFFFFF"
+                        android:textSize="@dimen/section_title_size" android:textStyle="bold"/>
+                    <TextView android:id="@+id/tvChartPrice"
+                        android:layout_width="wrap_content" android:layout_height="wrap_content"
+                        android:text="" android:textColor="#10B981"
+                        android:textSize="14sp" android:fontFamily="monospace"
+                        android:layout_marginEnd="8dp"/>
+                    <TextView android:id="@+id/tvSafetyChip"
+                        android:layout_width="wrap_content" android:layout_height="wrap_content"
+                        android:text="—" android:textColor="#6B7280"
+                        android:textSize="10sp" android:fontFamily="monospace"
+                        android:maxLines="1" android:ellipsize="end" android:maxWidth="120dp"/>
+                </LinearLayout>
+                
+                <!-- Time Range Selectors -->
+                <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content"
+                    android:orientation="horizontal" android:gravity="center"
+                    android:layout_marginBottom="8dp">
+                    <TextView android:id="@+id/btnChart1m"
+                        android:layout_width="wrap_content" android:layout_height="wrap_content"
+                        android:text="1m" android:textColor="#6B7280"
+                        android:textSize="11sp" android:fontFamily="monospace"
+                        android:background="#2A2A2A"
+                        android:paddingHorizontal="12dp" android:paddingVertical="4dp"
+                        android:layout_marginEnd="4dp"/>
+                    <TextView android:id="@+id/btnChart5m"
+                        android:layout_width="wrap_content" android:layout_height="wrap_content"
+                        android:text="5m" android:textColor="#FFFFFF"
+                        android:textSize="11sp" android:fontFamily="monospace"
+                        android:background="#3B82F6"
+                        android:paddingHorizontal="12dp" android:paddingVertical="4dp"
+                        android:layout_marginEnd="4dp"/>
+                    <TextView android:id="@+id/btnChart15m"
+                        android:layout_width="wrap_content" android:layout_height="wrap_content"
+                        android:text="15m" android:textColor="#6B7280"
+                        android:textSize="11sp" android:fontFamily="monospace"
+                        android:background="#2A2A2A"
+                        android:paddingHorizontal="12dp" android:paddingVertical="4dp"
+                        android:layout_marginEnd="4dp"/>
+                    <TextView android:id="@+id/btnChart1h"
+                        android:layout_width="wrap_content" android:layout_height="wrap_content"
+                        android:text="1h" android:textColor="#6B7280"
+                        android:textSize="11sp" android:fontFamily="monospace"
+                        android:background="#2A2A2A"
+                        android:paddingHorizontal="12dp" android:paddingVertical="4dp"
+                        android:layout_marginEnd="8dp"/>
+                    <!-- Chart Type Toggle -->
+                    <TextView android:id="@+id/btnChartLine"
+                        android:layout_width="wrap_content" android:layout_height="wrap_content"
+                        android:text="Line" android:textColor="#FFFFFF"
+                        android:textSize="11sp" android:fontFamily="monospace"
+                        android:background="#10B981"
+                        android:paddingHorizontal="10dp" android:paddingVertical="4dp"
+                        android:layout_marginEnd="4dp"/>
+                    <TextView android:id="@+id/btnChartCandle"
+                        android:layout_width="wrap_content" android:layout_height="wrap_content"
+                        android:text="Candle" android:textColor="#6B7280"
+                        android:textSize="11sp" android:fontFamily="monospace"
+                        android:background="#2A2A2A"
+                        android:paddingHorizontal="10dp" android:paddingVertical="4dp"/>
+                </LinearLayout>
+
+                <com.github.mikephil.charting.charts.LineChart
+                    android:id="@+id/priceChart"
+                    android:layout_width="match_parent"
+                    android:layout_height="@dimen/chart_height"/>
+                    
+                <!-- Candlestick Chart (hidden by default) -->
+                <com.github.mikephil.charting.charts.CandleStickChart
+                    android:id="@+id/candleChart"
+                    android:layout_width="match_parent"
+                    android:layout_height="@dimen/chart_height"
+                    android:visibility="gone"/>
+                    
+                <!-- DexScreener-Style Token Metrics Row -->
+                <LinearLayout
+                    android:id="@+id/chartMetricsRow"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="horizontal"
+                    android:gravity="center"
+                    android:layout_marginTop="8dp">
+                    
+                    <!-- Market Cap -->
+                    <LinearLayout
+                        android:layout_width="0dp"
+                        android:layout_height="wrap_content"
+                        android:layout_weight="1"
+                        android:orientation="vertical"
+                        android:gravity="center">
+                        <TextView
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:text="MCAP"
+                            android:textColor="#6B7280"
+                            android:textSize="9sp"
+                            android:letterSpacing="0.05"/>
+                        <TextView
+                            android:id="@+id/tvChartMcap"
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:text="$0"
+                            android:textColor="#10B981"
+                            android:textSize="11sp"
+                            android:fontFamily="monospace"
+                            android:textStyle="bold"/>
+                    </LinearLayout>
+                    
+                    <!-- Liquidity -->
+                    <LinearLayout
+                        android:layout_width="0dp"
+                        android:layout_height="wrap_content"
+                        android:layout_weight="1"
+                        android:orientation="vertical"
+                        android:gravity="center">
+                        <TextView
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:text="LIQ"
+                            android:textColor="#6B7280"
+                            android:textSize="9sp"
+                            android:letterSpacing="0.05"/>
+                        <TextView
+                            android:id="@+id/tvChartLiq"
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:text="$0"
+                            android:textColor="#3B82F6"
+                            android:textSize="11sp"
+                            android:fontFamily="monospace"
+                            android:textStyle="bold"/>
+                    </LinearLayout>
+                    
+                    <!-- Volume 5m -->
+                    <LinearLayout
+                        android:layout_width="0dp"
+                        android:layout_height="wrap_content"
+                        android:layout_weight="1"
+                        android:orientation="vertical"
+                        android:gravity="center">
+                        <TextView
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:text="VOL 5m"
+                            android:textColor="#6B7280"
+                            android:textSize="9sp"
+                            android:letterSpacing="0.05"/>
+                        <TextView
+                            android:id="@+id/tvChartVol5m"
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:text="$0"
+                            android:textColor="#F59E0B"
+                            android:textSize="11sp"
+                            android:fontFamily="monospace"
+                            android:textStyle="bold"/>
+                    </LinearLayout>
+                    
+                    <!-- Buy % -->
+                    <LinearLayout
+                        android:layout_width="0dp"
+                        android:layout_height="wrap_content"
+                        android:layout_weight="1"
+                        android:orientation="vertical"
+                        android:gravity="center">
+                        <TextView
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:text="BUY%"
+                            android:textColor="#6B7280"
+                            android:textSize="9sp"
+                            android:letterSpacing="0.05"/>
+                        <TextView
+                            android:id="@+id/tvChartBuyPct"
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:text="50%"
+                            android:textColor="#10B981"
+                            android:textSize="11sp"
+                            android:fontFamily="monospace"
+                            android:textStyle="bold"/>
+                    </LinearLayout>
+                </LinearLayout>
+            </LinearLayout>
+
+            <!-- ═══════════════════════════════
                  OPEN POSITIONS
                  ═══════════════════════════════ -->
             <LinearLayout
@@ -1968,18 +2174,14 @@
             </LinearLayout>
 
             <!-- ═══════════════════════════════
-                 PRICE CHART - Interactive with time range
-                 Click positions to show that token's chart
+                 PRICE CHART - MOVED TO AFTER BOT STATUS V5.6.8
+                 This section is now hidden, chart is above with token viewer
                  ═══════════════════════════════ -->
             <LinearLayout
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:background="@drawable/section_card_bg"
-                android:layout_marginStart="@dimen/card_margin"
-                android:layout_marginEnd="@dimen/card_margin"
-                android:layout_marginBottom="@dimen/card_margin_bottom"
-                android:orientation="vertical"
-                android:padding="@dimen/card_padding">
+                android:visibility="gone"
+                android:orientation="vertical">
 
                 <!-- Chart Header with Token Info -->
                 <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content"

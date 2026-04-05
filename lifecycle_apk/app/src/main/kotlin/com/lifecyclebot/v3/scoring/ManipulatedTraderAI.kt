@@ -52,8 +52,8 @@ object ManipulatedTraderAI {
     // Entry score thresholds (fluid - VERY permissive for manipulation plays)
     // Realistic scores: bundle 40%=20 + bp 70%=15 + pump.fun=10 = 45 max typical
     // Many tokens will score 20-35, so we need LOW thresholds
-    private const val MIN_MANIP_SCORE_BOOTSTRAP = 20        // V5.6.8: Very low - catch all manipulation signals
-    private const val MIN_MANIP_SCORE_MATURE = 35           // V5.6.8: Still permissive when experienced
+    private const val MIN_MANIP_SCORE_BOOTSTRAP = 15        // V5.6.8: VERY low - catch all manipulation signals
+    private const val MIN_MANIP_SCORE_MATURE = 28           // V5.6.8: Still very permissive when experienced
     
     // Market cap range
     private const val MIN_MARKET_CAP_USD = 5_000.0          // $5K minimum
