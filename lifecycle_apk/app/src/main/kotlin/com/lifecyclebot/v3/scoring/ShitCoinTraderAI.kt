@@ -81,10 +81,14 @@ object ShitCoinTraderAI {
     // Take profit / Stop loss - FLUID (adapts as bot learns)
     // Bootstrap: Tighter exits (quick wins, tight stops)
     // Mature: Wider targets (let winners run, learned patterns)
-    private const val TAKE_PROFIT_BOOTSTRAP = 25.0    // 25% at start (quick wins)
-    private const val TAKE_PROFIT_MATURE = 100.0      // 100% when experienced (let runners run)
-    private const val STOP_LOSS_BOOTSTRAP = -4.0      // V5.5: 4% stop at start (tighter — inside wick noise is ok)
-    private const val STOP_LOSS_MATURE = -8.0         // V5.5: 8% stop when mature (was -12, tighter discipline)
+    // V5.9: Achievable TPs scaled to meme token reality.
+    // Bootstrap TP=8% → at 25% progress lerp gives ~10% TP vs -5% SL.
+    // That's achievable on momentum entries (break-even ~39% win rate, target 45%).
+    // Mature TP=20%: known-good patterns run further. Expert (via FluidLearning 1.0) = 20%.
+    private const val TAKE_PROFIT_BOOTSTRAP = 8.0     // V5.9: 8% — achievable quick win on meme pump
+    private const val TAKE_PROFIT_MATURE = 20.0       // V5.9: 20% — proven patterns can run further
+    private const val STOP_LOSS_BOOTSTRAP = -5.0      // Slightly wider for wick noise at bootstrap
+    private const val STOP_LOSS_MATURE = -6.0         // V5.9: Tighter SL as entries improve with patterns
     private const val TRAILING_STOP_PCT = 8.0         // Tighter trailing for volatile moves
     // V5.2: REMOVED max hold time - ShitCoins can moon anytime, let them run!
     private const val FLAT_EXIT_MINUTES = 8           // V5.2: Increased to 8 mins (was 5)
@@ -911,6 +915,12 @@ object ShitCoinTraderAI {
         if (holdMinutes >= FLAT_EXIT_MINUTES && pnlPct > -5.0 && pnlPct < 10.0) {
             // Token is just sitting flat - wasting time and opportunity cost
             ErrorLogger.info(TAG, "💩😴 FLAT EXIT: ${pos.symbol} | ${pnlPct.fmt(1)}% after ${holdMinutes}min (stagnant)")
+            return ExitSignal.TIME_EXIT
+        }
+        // V5.9: DEAD TOKEN EXIT - Holding underwater for > 20 mins = token is dead, cut it.
+        // Meme tokens either pump within 15-20 mins or they don't pump at all.
+        if (holdMinutes >= 20 && pnlPct < -1.0) {
+            ErrorLogger.info(TAG, "💩⏱️ DEAD EXIT: ${pos.symbol} | ${pnlPct.fmt(1)}% after ${holdMinutes}min (no pump)")
             return ExitSignal.TIME_EXIT
         }
         

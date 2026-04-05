@@ -260,11 +260,13 @@ class FinalDecisionEngine(
         }
         
         val minScoreForExecute = try {
-            // V5.8: Use getExecuteFloor() (25→30) instead of watch threshold (20→30)
-            // Hard cap at 40 prevents drift starvation
             val fluidExecuteFloor = com.lifecyclebot.v3.scoring.FluidLearningAI.getExecuteFloor()
             val configMinScore = com.lifecyclebot.engine.V3ConfidenceConfig.getMinScoreForExecute(config.executeStandardMin)
-            minOf(fluidExecuteFloor, configMinScore)
+            val rawFloor = minOf(fluidExecuteFloor, configMinScore)
+            // V5.9: Live mode always enforces minimum "mature" floor (score >= 34).
+            // Paper mode uses the fluid floor so bootstrap learning can happen freely.
+            val isLive = !isPaperMode
+            if (isLive) rawFloor.coerceAtLeast(34) else rawFloor
         } catch (e: Exception) {
             config.executeStandardMin
         }

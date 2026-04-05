@@ -76,9 +76,10 @@ object FluidLearningAI {
     //   - Old: Matured to 1.0 (100%) at 1000 trades → stopped trading
     //   - New: Caps at 0.8 (80%) so thresholds never fully close
     //   - This ensures CONTINUOUS trading even with 10,000+ trades
-    private const val BOOTSTRAP_PHASE_END = 1000   // V5.6: Extended from 500
-    private const val MATURE_PHASE_END = 3000      // V5.6: Extended from 1000
-    private const val MAX_LEARNING_PROGRESS = 0.80 // V5.6: NEVER go above 80% - keeps trading
+    private const val BOOTSTRAP_PHASE_END = 1000   // Phase 1: 0-1000 trades
+    private const val MATURE_PHASE_END = 3000      // Phase 2: 1000-3000 trades
+    private const val EXPERT_PHASE_END = 5000      // V5.9: Phase 3: 3000-5000 trades
+    private const val MAX_LEARNING_PROGRESS = 1.0  // V5.9: Full expert at 5000+ trades
     
     /**
      * V5.2: Reset all learning progress.
@@ -383,29 +384,33 @@ object FluidLearningAI {
             sessionWinRate
         }
         
-        // V5.6: Extended 3-Phase learning curve - NEVER FULLY RESTRICTS
+        // V5.9: 4-Phase learning curve scaling to 5000 trades
         val baseProgress = when {
             totalTrades <= BOOTSTRAP_PHASE_END ->
-                // Phase 1 Bootstrap (0-1000 trades): 0.0 → 0.5
-                (totalTrades.toDouble() / BOOTSTRAP_PHASE_END) * 0.5
+                // Phase 1 Bootstrap (0-1000 trades): 0.0 → 0.50
+                (totalTrades.toDouble() / BOOTSTRAP_PHASE_END) * 0.50
             totalTrades <= MATURE_PHASE_END ->
-                // Phase 2 Mature (1000-3000 trades): 0.5 → 0.8 (NOT 1.0!)
-                0.5 + ((totalTrades - BOOTSTRAP_PHASE_END).toDouble() / (MATURE_PHASE_END - BOOTSTRAP_PHASE_END)) * 0.3
+                // Phase 2 Mature (1000-3000 trades): 0.50 → 0.80
+                0.50 + ((totalTrades - BOOTSTRAP_PHASE_END).toDouble() / (MATURE_PHASE_END - BOOTSTRAP_PHASE_END)) * 0.30
+            totalTrades <= EXPERT_PHASE_END ->
+                // Phase 3 Expert (3000-5000 trades): 0.80 → 1.0
+                0.80 + ((totalTrades - MATURE_PHASE_END).toDouble() / (EXPERT_PHASE_END - MATURE_PHASE_END)) * 0.20
             else ->
-                // Phase 3 Continuous (3000+ trades): CAPPED at 0.8 - never fully restricts!
+                // Phase 4 Master (5000+ trades): Full 1.0 — maximum selectivity
                 MAX_LEARNING_PROGRESS
         }
 
         val progress = when {
             totalTrades > MATURE_PHASE_END -> {
-                // Phase 3: Continuous adaptive adjustment based on recent performance
-                // V5.6 FIX: Poor performance SIGNIFICANTLY loosens thresholds to allow more trades
-                // This prevents the "trade starvation" issue after 2000+ cycles
+                // Phase 3+: Adaptive adjustment based on recent performance.
+                // Poor performance loosens thresholds to allow more learning trades.
+                // Expert/Master phases (3000-5000+): still adapts but with higher floor.
+                val adaptiveFloor = if (totalTrades > EXPERT_PHASE_END) 0.60 else 0.45
                 when {
-                    blendedWinRate > 60 -> baseProgress                              // Performing well: stay at 0.8
-                    blendedWinRate < 30 -> (baseProgress - 0.30).coerceAtLeast(0.45) // V5.6: Very poor: loosen to 0.45-0.50
-                    blendedWinRate < 40 -> (baseProgress - 0.20).coerceAtLeast(0.55) // V5.6: Poor: loosen to 0.55-0.60
-                    blendedWinRate < 50 -> (baseProgress - 0.10).coerceAtLeast(0.65) // V5.6: Below average: loosen slightly
+                    blendedWinRate > 60 -> baseProgress                                          // Performing well: hold position
+                    blendedWinRate < 30 -> (baseProgress - 0.30).coerceAtLeast(adaptiveFloor)   // Very poor: loosen significantly
+                    blendedWinRate < 40 -> (baseProgress - 0.20).coerceAtLeast(adaptiveFloor + 0.10)
+                    blendedWinRate < 50 -> (baseProgress - 0.10).coerceAtLeast(adaptiveFloor + 0.20)
                     else -> baseProgress
                 }
             }
@@ -417,7 +422,7 @@ object FluidLearningAI {
                     else -> baseProgress
                 }
             }
-        }.coerceAtMost(MAX_LEARNING_PROGRESS)  // V5.6: HARD CAP - never exceed 0.8
+        }.coerceAtMost(MAX_LEARNING_PROGRESS)  // V5.9: Hard cap at 1.0 (full expert)
 
         cachedProgress = progress
         lastProgressUpdate.set(now)
@@ -642,8 +647,12 @@ object FluidLearningAI {
      * Lerps from 25 (bootstrap) to 30 (mature). Hard cap at 40 prevents drift starvation.
      */
     fun getExecuteFloor(): Int {
-        val lerped = lerp(25.0, 30.0).toInt()
-        return lerped.coerceAtMost(40)  // hard cap: bootstrapFloor + 15
+        // V5.9: Score floor scales with learning:
+        //   Bootstrap (0%):  25  — wide open, gather data
+        //   Mature   (80%):  38  — tighter, known patterns only
+        //   Expert  (100%):  45  — expert selectivity
+        val lerped = lerp(25.0, 45.0).toInt()
+        return lerped.coerceIn(25, 45)
     }
 
     // Score bonuses are HIGHER in bootstrap to encourage more mode diversity
