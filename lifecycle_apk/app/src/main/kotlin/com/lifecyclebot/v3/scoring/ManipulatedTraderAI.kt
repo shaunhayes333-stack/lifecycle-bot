@@ -49,21 +49,23 @@ object ManipulatedTraderAI {
     // CONFIGURATION - V5.6.8: Added fluid thresholds for learning progression
     // ═══════════════════════════════════════════════════════════════════════════
 
-    // Entry score thresholds (fluid - relaxes during bootstrap, tightens when mature)
-    private const val MIN_MANIP_SCORE_BOOTSTRAP = 45        // Lower bar during learning
-    private const val MIN_MANIP_SCORE_MATURE = 65           // Higher bar when experienced
+    // Entry score thresholds (fluid - VERY permissive for manipulation plays)
+    // Realistic scores: bundle 40%=20 + bp 70%=15 + pump.fun=10 = 45 max typical
+    // Many tokens will score 20-35, so we need LOW thresholds
+    private const val MIN_MANIP_SCORE_BOOTSTRAP = 20        // V5.6.8: Very low - catch all manipulation signals
+    private const val MIN_MANIP_SCORE_MATURE = 35           // V5.6.8: Still permissive when experienced
     
     // Market cap range
     private const val MIN_MARKET_CAP_USD = 5_000.0          // $5K minimum
     private const val MAX_MARKET_CAP_USD = 300_000.0        // $300K maximum
     
-    // Liquidity thresholds (fluid)
-    private const val MIN_LIQUIDITY_BOOTSTRAP = 2_000.0     // $2K during bootstrap (allow learning)
-    private const val MIN_LIQUIDITY_MATURE = 4_000.0        // $4K when mature
+    // Liquidity thresholds (fluid) - LOW for manipulation plays
+    private const val MIN_LIQUIDITY_BOOTSTRAP = 1_500.0     // V5.6.8: $1.5K during bootstrap
+    private const val MIN_LIQUIDITY_MATURE = 3_000.0        // V5.6.8: $3K when mature
     
     // Token age (fluid - tighter when experienced)
-    private const val MAX_AGE_MINUTES_BOOTSTRAP = 10.0      // 10 min during bootstrap
-    private const val MAX_AGE_MINUTES_MATURE = 6.0          // 6 min when mature (faster entries)
+    private const val MAX_AGE_MINUTES_BOOTSTRAP = 12.0      // V5.6.8: 12 min during bootstrap
+    private const val MAX_AGE_MINUTES_MATURE = 8.0          // V5.6.8: 8 min when mature
 
     // Position sizing — bootstrap→mature via FluidLearningAI
     private const val POSITION_SOL_BOOTSTRAP = 0.015
