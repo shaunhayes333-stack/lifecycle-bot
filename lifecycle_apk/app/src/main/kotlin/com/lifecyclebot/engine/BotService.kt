@@ -410,22 +410,42 @@ class BotService : Service() {
         ErrorLogger.warn("BotService", "onTaskRemoved() called - app swiped from recents, running=${status.running}")
         
         if (status.running) {
-            // Re-schedule start in 2 seconds with exact alarm
+            // V5.6.8: Multiple restart mechanisms for aggressive OEMs
             val restartIntent = Intent(applicationContext, BotService::class.java).apply {
                 action = ACTION_START
             }
-            val pi = android.app.PendingIntent.getService(
+            val am = getSystemService(android.app.AlarmManager::class.java)
+            
+            // Immediate restart (1 second)
+            val pi1 = android.app.PendingIntent.getService(
                 this, 1, restartIntent,
                 android.app.PendingIntent.FLAG_ONE_SHOT or android.app.PendingIntent.FLAG_IMMUTABLE
             )
-            val am = getSystemService(android.app.AlarmManager::class.java)
-            // Use setExactAndAllowWhileIdle for better reliability in Doze mode
             am?.setExactAndAllowWhileIdle(
                 android.app.AlarmManager.RTC_WAKEUP,
-                System.currentTimeMillis() + 2_000,
-                pi
+                System.currentTimeMillis() + 1_000,
+                pi1
             )
-            ErrorLogger.info("BotService", "Scheduled restart alarm for 2 seconds")
+            
+            // Backup restart (5 seconds) with AlarmClock for highest priority
+            try {
+                val pi2 = android.app.PendingIntent.getService(
+                    this, 3, restartIntent,
+                    android.app.PendingIntent.FLAG_ONE_SHOT or android.app.PendingIntent.FLAG_IMMUTABLE
+                )
+                val showPi = android.app.PendingIntent.getActivity(
+                    this, 4, Intent(applicationContext, com.lifecyclebot.ui.MainActivity::class.java),
+                    android.app.PendingIntent.FLAG_UPDATE_CURRENT or android.app.PendingIntent.FLAG_IMMUTABLE
+                )
+                am?.setAlarmClock(
+                    android.app.AlarmManager.AlarmClockInfo(System.currentTimeMillis() + 5_000, showPi),
+                    pi2
+                )
+            } catch (e: Exception) {
+                ErrorLogger.warn("BotService", "onTaskRemoved: AlarmClock fallback: ${e.message}")
+            }
+            
+            ErrorLogger.info("BotService", "Scheduled restart alarms (1s + 5s backup)")
         }
     }
 
@@ -1566,14 +1586,44 @@ class BotService : Service() {
         )
         val am = getSystemService(android.app.AlarmManager::class.java)
         
-        // Use setExactAndAllowWhileIdle for better reliability on all devices
-        // This will fire once, then reschedule itself in onStartCommand
+        // V5.6.8: Use setAlarmClock for MAXIMUM priority - this is treated as user-facing
+        // and survives aggressive OEM battery optimizations (Samsung, Xiaomi, etc.)
+        val triggerTime = System.currentTimeMillis() + 90_000  // 1.5 minutes
+        try {
+            // Create a show intent that opens MainActivity when alarm fires
+            val showIntent = Intent(applicationContext, com.lifecyclebot.ui.MainActivity::class.java)
+            val showPi = android.app.PendingIntent.getActivity(
+                this, 998, showIntent,
+                android.app.PendingIntent.FLAG_UPDATE_CURRENT or android.app.PendingIntent.FLAG_IMMUTABLE
+            )
+            
+            // setAlarmClock is the HIGHEST priority - almost never deferred
+            am?.setAlarmClock(
+                android.app.AlarmManager.AlarmClockInfo(triggerTime, showPi),
+                pi
+            )
+            ErrorLogger.info("BotService", "Keep-alive AlarmClock scheduled for 90 seconds (HIGH PRIORITY)")
+        } catch (e: Exception) {
+            // Fallback to setExactAndAllowWhileIdle if setAlarmClock fails
+            ErrorLogger.warn("BotService", "setAlarmClock failed, using fallback: ${e.message}")
+            am?.setExactAndAllowWhileIdle(
+                android.app.AlarmManager.RTC_WAKEUP,
+                triggerTime,
+                pi
+            )
+            ErrorLogger.info("BotService", "Keep-alive alarm scheduled for 90 seconds (fallback)")
+        }
+        
+        // Also schedule a backup alarm at 3 minutes using setExactAndAllowWhileIdle
+        val backupPi = android.app.PendingIntent.getService(
+            this, 997, restartIntent,
+            android.app.PendingIntent.FLAG_UPDATE_CURRENT or android.app.PendingIntent.FLAG_IMMUTABLE
+        )
         am?.setExactAndAllowWhileIdle(
             android.app.AlarmManager.RTC_WAKEUP,
-            System.currentTimeMillis() + 120_000,  // 2 minutes
-            pi
+            System.currentTimeMillis() + 180_000,  // 3 minutes backup
+            backupPi
         )
-        ErrorLogger.info("BotService", "Keep-alive alarm scheduled for 2 minutes")
         
         // Start self-healing diagnostics (runs every 3 hours)
         try {
