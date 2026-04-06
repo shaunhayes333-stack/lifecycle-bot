@@ -74,6 +74,9 @@ class CollectiveBrainActivity : AppCompatActivity() {
             while (true) {
                 try {
                     refreshStats()
+                } catch (e: kotlinx.coroutines.CancellationException) {
+                    // Expected when user leaves screen - not an error
+                    break
                 } catch (e: Exception) {
                     com.lifecyclebot.engine.ErrorLogger.error("CollectiveBrain", "Refresh error: ${e.message}")
                 }
