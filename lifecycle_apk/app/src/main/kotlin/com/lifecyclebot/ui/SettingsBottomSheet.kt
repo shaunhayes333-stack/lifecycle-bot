@@ -136,8 +136,9 @@ class SettingsBottomSheet : BottomSheetDialogFragment() {
         val modes = arrayOf("PAPER", "LIVE")
         spMode.adapter = ArrayAdapter(ctx, android.R.layout.simple_spinner_dropdown_item, modes)
         
-        // Auto trade spinner  
-        val autoTrades = arrayOf("OFF", "BUY_ONLY", "SELL_ONLY", "FULL_AUTO")
+        // Auto trade spinner - Full auto is the default and only real option
+        // Bot is designed to be fully autonomous - buy AND sell
+        val autoTrades = arrayOf("OFF", "FULL_AUTO")
         spAutoTrade.adapter = ArrayAdapter(ctx, android.R.layout.simple_spinner_dropdown_item, autoTrades)
     }
     
@@ -217,7 +218,7 @@ class SettingsBottomSheet : BottomSheetDialogFragment() {
         // Mode spinner (0=PAPER, 1=LIVE)
         spMode.setSelection(if (cfg.paperMode) 0 else 1)
         
-        // Auto trade spinner (0=OFF, 1=ON)
+        // Auto trade spinner (0=OFF, 1=FULL_AUTO)
         spAutoTrade.setSelection(if (cfg.autoTrade) 1 else 0)
         
         etStopLoss.setText(cfg.stopLossPct.toString())
