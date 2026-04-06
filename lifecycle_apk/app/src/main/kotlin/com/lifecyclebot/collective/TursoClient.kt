@@ -238,6 +238,7 @@ class TursoClient(
     
     private fun httpPost(body: String): String {
         val url = URL("$httpDbUrl$PIPELINE_PATH")
+        Log.d(TAG, "📡 HTTP POST to: $url")
         val conn = url.openConnection() as HttpURLConnection
         
         try {
@@ -253,11 +254,13 @@ class TursoClient(
             }
             
             val responseCode = conn.responseCode
+            Log.d(TAG, "📡 HTTP Response: $responseCode")
             
             val responseBody = if (responseCode in 200..299) {
                 conn.inputStream.bufferedReader().use { it.readText() }
             } else {
                 val error = conn.errorStream?.bufferedReader()?.use { it.readText() } ?: "Unknown error"
+                Log.e(TAG, "📡 HTTP ERROR $responseCode: $error")
                 throw RuntimeException("HTTP $responseCode: $error")
             }
             

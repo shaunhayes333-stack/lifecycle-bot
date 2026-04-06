@@ -74,7 +74,7 @@ class WalletManager private constructor(private val ctx: Context) {
         // User should configure their own premium RPC (Helius, QuickNode) for better performance
         // These are sorted by reliability - Helius free tier is best
         val FALLBACK_RPCS = listOf(
-            "https://mainnet.helius-rpc.com/?api-key=1d8d2f6e-7e5e-4c0e-9a9e-5c7b4e8c5d6f",  // Helius free tier (most reliable)
+            "https://mainnet.helius-rpc.com/?api-key=hive-pattern-learn",  // Helius free tier (most reliable)
             "https://api.mainnet-beta.solana.com",              // Official Solana (rate limited but stable)
             "https://rpc.ankr.com/solana",                      // Ankr (reliable)
             "https://solana-mainnet.g.alchemy.com/v2/demo",     // Alchemy demo

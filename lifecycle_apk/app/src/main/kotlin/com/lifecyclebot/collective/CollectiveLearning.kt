@@ -46,6 +46,11 @@ object CollectiveLearning {
     // Sync interval (15 minutes)
     private const val SYNC_INTERVAL_MS = 15 * 60 * 1000L
     
+    // V5.6.12: Session upload stats for debugging
+    private var totalUploadAttemptsThisSession = 0
+    private var totalUploadSuccessThisSession = 0
+    private var totalUploadSkippedThisSession = 0
+    
     // V3.3: SharedPreferences for PERSISTENT cache across restarts
     private const val PREFS_NAME = "collective_learning_cache"
     private const val KEY_BLACKLIST = "cached_blacklist_json"
@@ -74,6 +79,9 @@ object CollectiveLearning {
      * Call this on app startup.
      */
     suspend fun init(ctx: Context): Boolean {
+        // V5.6.12: Log at very start of init to confirm it's being called
+        Log.i(TAG, "🚀 INIT CALLED | alreadyInit=$isInitialized | clientExists=${client != null}")
+        
         if (isInitialized && client != null) {
             Log.d(TAG, "Already initialized and connected")
             return true
@@ -224,7 +232,14 @@ object CollectiveLearning {
     /**
      * Check if collective learning is enabled and connected.
      */
-    fun isEnabled(): Boolean = isInitialized && client != null
+    fun isEnabled(): Boolean {
+        val enabled = isInitialized && client != null
+        // V5.6.12: Debug logging to track why collective may be disabled
+        if (!enabled) {
+            Log.d(TAG, "🔍 isEnabled=false | init=$isInitialized | client=${client != null}")
+        }
+        return enabled
+    }
     
     /**
      * V5.6.11: Try to reconnect if disconnected.
@@ -394,11 +409,19 @@ object CollectiveLearning {
         isWin: Boolean = false, // Only relevant for SELL
         paperMode: Boolean = true,
     ) {
+        // V5.6.12: Track upload attempts
+        totalUploadAttemptsThisSession++
+        
+        // V5.6.12: ALWAYS log upload attempt for debugging hive mind sync issues
+        Log.i(TAG, "📤 UPLOAD ATTEMPT #$totalUploadAttemptsThisSession: $side $symbol | enabled=${isEnabled()} | init=$isInitialized | client=${client != null}")
+        
         // V5.6.11: Try to reconnect if disconnected
         if (!isEnabled()) {
+            Log.w(TAG, "🔄 Attempting reconnect for $side $symbol...")
             ensureConnected()
             if (!isEnabled()) {
-                Log.w(TAG, "📤 SKIPPED UPLOAD: $side $symbol - Collective DISABLED (client=${client != null}, init=$isInitialized)")
+                totalUploadSkippedThisSession++
+                Log.e(TAG, "❌ SKIPPED UPLOAD #$totalUploadSkippedThisSession: $side $symbol - Collective DISABLED (client=${client != null}, init=$isInitialized)")
                 return
             }
         }
@@ -438,7 +461,8 @@ object CollectiveLearning {
             
             if (result.success) {
                 if (result.rowsAffected > 0 || result.lastInsertId != null) {
-                    Log.i(TAG, "📤 TRADE → COLLECTIVE: $side $symbol ($mode) ${if (side == "SELL") "${pnlPct.toInt()}%" else ""} ✅")
+                    totalUploadSuccessThisSession++
+                    Log.i(TAG, "📤 TRADE → COLLECTIVE: $side $symbol ($mode) ${if (side == "SELL") "${pnlPct.toInt()}%" else ""} ✅ [session: $totalUploadSuccessThisSession/$totalUploadAttemptsThisSession]")
                     totalUploadsThisSession++
                     
                     // V3.3: Update instance registry trade count
@@ -1079,11 +1103,17 @@ object CollectiveLearning {
     fun getStats(): Map<String, Any> {
         return mapOf(
             "enabled" to isEnabled(),
+            "isInitialized" to isInitialized,
+            "clientExists" to (client != null),
             "blacklistedTokens" to cachedBlacklist.size,
             "patterns" to cachedPatterns.size,
             "modeStats" to cachedModeStats.size,
             "whaleStats" to cachedWhaleStats.size,
             "lastSyncTime" to lastSyncTime,
+            // V5.6.12: Debug stats
+            "uploadAttempts" to totalUploadAttemptsThisSession,
+            "uploadSuccess" to totalUploadSuccessThisSession,
+            "uploadSkipped" to totalUploadSkippedThisSession,
         )
     }
     

@@ -3337,22 +3337,28 @@ class Executor(
         // Every trade goes to the hive mind for shared learning
         // ═══════════════════════════════════════════════════════════════════
         try {
+            // V5.6.12: Log before GlobalScope to confirm we reach this code path
+            ErrorLogger.info("Executor", "🌐 [COLLECTIVE] Launching upload for BUY ${ts.symbol}...")
             kotlinx.coroutines.GlobalScope.launch(kotlinx.coroutines.Dispatchers.IO) {
-                val marketSentiment = ts.meta.emafanAlignment.ifBlank { "NEUTRAL" }
-                com.lifecyclebot.collective.CollectiveLearning.uploadTrade(
-                    side = "BUY",
-                    symbol = ts.symbol,
-                    mode = ts.position.tradingMode.ifBlank { v3Band },
-                    source = ts.source.ifBlank { "UNKNOWN" },
-                    liquidityUsd = ts.lastLiquidityUsd,
-                    marketSentiment = marketSentiment,
-                    entryScore = v3Score,
-                    confidence = v3Confidence.toInt(),
-                    pnlPct = 0.0,  // No PnL on entry
-                    holdMins = 0.0,
-                    isWin = false,
-                    paperMode = isPaper
-                )
+                try {
+                    val marketSentiment = ts.meta.emafanAlignment.ifBlank { "NEUTRAL" }
+                    com.lifecyclebot.collective.CollectiveLearning.uploadTrade(
+                        side = "BUY",
+                        symbol = ts.symbol,
+                        mode = ts.position.tradingMode.ifBlank { v3Band },
+                        source = ts.source.ifBlank { "UNKNOWN" },
+                        liquidityUsd = ts.lastLiquidityUsd,
+                        marketSentiment = marketSentiment,
+                        entryScore = v3Score,
+                        confidence = v3Confidence.toInt(),
+                        pnlPct = 0.0,  // No PnL on entry
+                        holdMins = 0.0,
+                        isWin = false,
+                        paperMode = isPaper
+                    )
+                } catch (e: Exception) {
+                    ErrorLogger.error("Executor", "🌐 [COLLECTIVE] Upload coroutine error: ${e.message}", e)
+                }
             }
         } catch (e: Exception) {
             ErrorLogger.debug("Collective", "BUY upload error: ${e.message}")
@@ -3424,22 +3430,27 @@ class Executor(
         // V3.3: Upload TREASURY BUY to collective knowledge base IMMEDIATELY
         // ═══════════════════════════════════════════════════════════════════
         try {
+            ErrorLogger.info("Executor", "🌐 [COLLECTIVE] Launching upload for TREASURY BUY ${ts.symbol}...")
             kotlinx.coroutines.GlobalScope.launch(kotlinx.coroutines.Dispatchers.IO) {
-                val marketSentiment = ts.meta.emafanAlignment.ifBlank { "NEUTRAL" }
-                com.lifecyclebot.collective.CollectiveLearning.uploadTrade(
-                    side = "BUY",
-                    symbol = ts.symbol,
-                    mode = "TREASURY",
-                    source = ts.source.ifBlank { "TREASURY_SCAN" },
-                    liquidityUsd = ts.lastLiquidityUsd,
-                    marketSentiment = marketSentiment,
-                    entryScore = 80,
-                    confidence = 80,
-                    pnlPct = 0.0,
-                    holdMins = 0.0,
-                    isWin = false,
-                    paperMode = isPaper
-                )
+                try {
+                    val marketSentiment = ts.meta.emafanAlignment.ifBlank { "NEUTRAL" }
+                    com.lifecyclebot.collective.CollectiveLearning.uploadTrade(
+                        side = "BUY",
+                        symbol = ts.symbol,
+                        mode = "TREASURY",
+                        source = ts.source.ifBlank { "TREASURY_SCAN" },
+                        liquidityUsd = ts.lastLiquidityUsd,
+                        marketSentiment = marketSentiment,
+                        entryScore = 80,
+                        confidence = 80,
+                        pnlPct = 0.0,
+                        holdMins = 0.0,
+                        isWin = false,
+                        paperMode = isPaper
+                    )
+                } catch (e: Exception) {
+                    ErrorLogger.error("Executor", "🌐 [COLLECTIVE] Treasury upload error: ${e.message}", e)
+                }
             }
         } catch (e: Exception) {
             ErrorLogger.debug("Collective", "TREASURY BUY upload error: ${e.message}")

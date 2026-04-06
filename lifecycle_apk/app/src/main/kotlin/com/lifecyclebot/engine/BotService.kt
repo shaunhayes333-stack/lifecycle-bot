@@ -948,10 +948,15 @@ class BotService : Service() {
         addLog("☁️ ${CloudLearningSync.getStatus()}")
         
         // Initialize CollectiveLearning (Turso shared knowledge base)
+        // V5.6.12: Log config values for debugging collective initialization
+        ErrorLogger.info("BotService", "🔧 COLLECTIVE CONFIG CHECK: enabled=${cfg.collectiveLearningEnabled} | urlLen=${cfg.tursoDbUrl.length} | tokenLen=${cfg.tursoAuthToken.length}")
         if (cfg.collectiveLearningEnabled && cfg.tursoDbUrl.isNotBlank() && cfg.tursoAuthToken.isNotBlank()) {
+            ErrorLogger.info("BotService", "🔧 COLLECTIVE: Starting init coroutine...")
             scope.launch {
                 try {
+                    ErrorLogger.info("BotService", "🔧 COLLECTIVE: Inside coroutine, calling init...")
                     val success = com.lifecyclebot.collective.CollectiveLearning.init(applicationContext)
+                    ErrorLogger.info("BotService", "🔧 COLLECTIVE: init returned success=$success")
                     if (success) {
                         val stats = com.lifecyclebot.collective.CollectiveLearning.getStats()
                         addLog("🌐 CollectiveLearning: ${stats["blacklistedTokens"]} blacklisted, ${stats["patterns"]} patterns")
