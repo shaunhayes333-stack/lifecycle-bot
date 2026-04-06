@@ -274,12 +274,22 @@ class CollectiveBrainActivity : AppCompatActivity() {
             displayAvgPnl = stats.avgPnlPct
             activeUsers = stats.activeUsers24h
         } else if (isActuallyConnected) {
-            // Connected but no trades yet - this is normal for new network
-            dataSourceLabel = "🌐 CONNECTED (No trades yet)"
-            displayTrades = localStats.totalStoredTrades
-            displayWinRate = localWinRate
-            displayAvgPnl = 0.0
-            activeUsers = collectiveStats?.activeUsers24h ?: 1
+            // Connected but collective stats shows 0 trades - could be sync issue
+            // Show local trades but indicate we're connected
+            val localTradeCount = localStats.totalStoredTrades
+            if (localTradeCount > 0) {
+                dataSourceLabel = "🌐 SYNCING..."
+                displayTrades = localTradeCount
+                displayWinRate = localWinRate
+                displayAvgPnl = 0.0
+                activeUsers = collectiveStats?.activeUsers24h ?: 1
+            } else {
+                dataSourceLabel = "🌐 CONNECTED (No trades yet)"
+                displayTrades = 0
+                displayWinRate = 0.0
+                displayAvgPnl = 0.0
+                activeUsers = collectiveStats?.activeUsers24h ?: 1
+            }
         } else if (isTursoEnabled) {
             // Turso enabled but connection may be failing
             dataSourceLabel = "⚠️ CONNECTION ISSUE"
