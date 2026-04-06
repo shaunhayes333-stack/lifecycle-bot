@@ -247,6 +247,16 @@ class MainActivity : AppCompatActivity() {
     private lateinit var tv30DayAccuracy: TextView
     private lateinit var tv30DayIntegrity: TextView
     private lateinit var btn30DayExport: TextView
+    
+    // V5.6.9: Live Readiness Indicator
+    private lateinit var cardLiveReadiness: View
+    private lateinit var tvLiveReadinessBadge: TextView
+    private lateinit var tvReadinessWinRate: TextView
+    private lateinit var tvReadinessTrades: TextView
+    private lateinit var tvReadinessPhase: TextView
+    private lateinit var tvReadinessProgress: TextView
+    private lateinit var viewReadinessProgressBar: View
+    private lateinit var tvReadinessRecommendation: TextView
 
     // settings
     private lateinit var etActiveToken: EditText
@@ -786,6 +796,16 @@ for legal compliance.
         tv30DayAccuracy = try { findViewById(R.id.tv30DayAccuracy) } catch (_: Exception) { TextView(this) }
         tv30DayIntegrity = try { findViewById(R.id.tv30DayIntegrity) } catch (_: Exception) { TextView(this) }
         btn30DayExport = try { findViewById(R.id.btn30DayExport) } catch (_: Exception) { TextView(this) }
+        
+        // V5.6.9: Live Readiness Indicator views
+        cardLiveReadiness = try { findViewById(R.id.cardLiveReadiness) } catch (_: Exception) { View(this) }
+        tvLiveReadinessBadge = try { findViewById(R.id.tvLiveReadinessBadge) } catch (_: Exception) { TextView(this) }
+        tvReadinessWinRate = try { findViewById(R.id.tvReadinessWinRate) } catch (_: Exception) { TextView(this) }
+        tvReadinessTrades = try { findViewById(R.id.tvReadinessTrades) } catch (_: Exception) { TextView(this) }
+        tvReadinessPhase = try { findViewById(R.id.tvReadinessPhase) } catch (_: Exception) { TextView(this) }
+        tvReadinessProgress = try { findViewById(R.id.tvReadinessProgress) } catch (_: Exception) { TextView(this) }
+        viewReadinessProgressBar = try { findViewById(R.id.viewReadinessProgressBar) } catch (_: Exception) { View(this) }
+        tvReadinessRecommendation = try { findViewById(R.id.tvReadinessRecommendation) } catch (_: Exception) { TextView(this) }
         
         // V5.2.8: Export button click listener
         btn30DayExport.setOnClickListener {
@@ -1531,6 +1551,11 @@ for legal compliance.
         // ── V5.2.8: 30-Day Run Stats ─────────────────────────────────
         try {
             update30DayRunStats()
+        } catch (_: Exception) {}
+        
+        // ── V5.6.9: Live Readiness Indicator ─────────────────────────
+        try {
+            updateLiveReadiness()
         } catch (_: Exception) {}
 
         // ── safety ────────────────────────────────────────────────────
@@ -2938,6 +2963,122 @@ for legal compliance.
             integrity >= 60 -> amber
             else -> red
         })
+    }
+    
+    /**
+     * V5.6.9: Update Live Readiness Indicator
+     * Shows when paper trading performance is ready for live mode
+     * 
+     * Criteria for READY status:
+     * - 1000+ trades (enough data)
+     * - 42%+ win rate (profitable with good R:R)
+     * - Mature or Continuous phase
+     */
+    private fun updateLiveReadiness() {
+        try {
+            // Get trade history stats
+            val history = com.lifecyclebot.engine.TradeHistoryStore
+            val totalTrades = history.totalTrades
+            val winRate = if (totalTrades > 0) {
+                (history.wins.toDouble() / totalTrades * 100)
+            } else 0.0
+            
+            // Determine phase based on trade count
+            val phase = when {
+                totalTrades < 1000 -> "Bootstrap"
+                totalTrades < 3000 -> "Mature"
+                else -> "Continuous"
+            }
+            
+            // Calculate readiness score (0-100%)
+            // Trades component: 0-50% (need 1000 trades for full credit)
+            val tradesScore = minOf(totalTrades / 1000.0, 1.0) * 50
+            // Win rate component: 0-50% (need 42% win rate for full credit)
+            val winRateScore = minOf(winRate / 42.0, 1.0) * 50
+            val readinessScore = (tradesScore + winRateScore).toInt()
+            
+            // Determine status
+            val isReady = totalTrades >= 1000 && winRate >= 42.0
+            val isAlmostReady = totalTrades >= 500 && winRate >= 38.0
+            
+            // Update UI
+            tvReadinessWinRate.text = if (totalTrades > 0) "${winRate.toInt()}%" else "--"
+            tvReadinessWinRate.setTextColor(when {
+                winRate >= 42 -> green
+                winRate >= 35 -> amber
+                else -> red
+            })
+            
+            tvReadinessTrades.text = totalTrades.toString()
+            tvReadinessTrades.setTextColor(when {
+                totalTrades >= 1000 -> green
+                totalTrades >= 500 -> amber
+                else -> white
+            })
+            
+            tvReadinessPhase.text = phase
+            tvReadinessPhase.setTextColor(when (phase) {
+                "Bootstrap" -> amber
+                "Mature" -> Color.parseColor("#00BFFF")  // Light blue
+                "Continuous" -> green
+                else -> white
+            })
+            
+            tvReadinessProgress.text = "$readinessScore%"
+            
+            // Update progress bar width
+            val params = viewReadinessProgressBar.layoutParams
+            val parent = viewReadinessProgressBar.parent as? FrameLayout
+            if (parent != null) {
+                val maxWidth = parent.width
+                if (maxWidth > 0) {
+                    params.width = (maxWidth * readinessScore / 100).toInt()
+                    viewReadinessProgressBar.layoutParams = params
+                }
+            }
+            
+            // Update badge and recommendation
+            when {
+                isReady -> {
+                    tvLiveReadinessBadge.text = "READY"
+                    tvLiveReadinessBadge.setTextColor(Color.BLACK)
+                    tvLiveReadinessBadge.setBackgroundResource(R.drawable.pill_bg_green)
+                    tvReadinessRecommendation.text = "✅ Performance looks good! Consider switching to live mode."
+                    tvReadinessRecommendation.setTextColor(green)
+                }
+                isAlmostReady -> {
+                    tvLiveReadinessBadge.text = "ALMOST"
+                    tvLiveReadinessBadge.setTextColor(Color.BLACK)
+                    tvLiveReadinessBadge.setBackgroundResource(R.drawable.pill_bg_yellow)
+                    val needed = mutableListOf<String>()
+                    if (totalTrades < 1000) needed.add("${1000 - totalTrades} more trades")
+                    if (winRate < 42) needed.add("${(42 - winRate).toInt()}% more win rate")
+                    tvReadinessRecommendation.text = "⏳ Almost there! Need: ${needed.joinToString(", ")}"
+                    tvReadinessRecommendation.setTextColor(amber)
+                }
+                else -> {
+                    tvLiveReadinessBadge.text = "LEARNING"
+                    tvLiveReadinessBadge.setTextColor(Color.BLACK)
+                    tvLiveReadinessBadge.setBackgroundResource(R.drawable.pill_bg_yellow)
+                    val needed = mutableListOf<String>()
+                    if (totalTrades < 1000) needed.add("${1000 - totalTrades} more trades")
+                    if (winRate < 42 && totalTrades > 0) needed.add("${(42 - winRate).toInt()}% more win rate")
+                    tvReadinessRecommendation.text = "📚 Keep learning! Need: ${needed.joinToString(", ")}"
+                    tvReadinessRecommendation.setTextColor(Color.parseColor("#9CA3AF"))
+                }
+            }
+            
+            // Hide card if in live mode (already trading live)
+            val cfg = vm.configState.value
+            if (cfg != null && !cfg.paperMode) {
+                cardLiveReadiness.visibility = View.GONE
+            } else {
+                cardLiveReadiness.visibility = View.VISIBLE
+            }
+            
+        } catch (e: Exception) {
+            // Silently fail - non-critical UI
+        }
     }
 
     private fun renderTrades(trades: List<Trade>) {
