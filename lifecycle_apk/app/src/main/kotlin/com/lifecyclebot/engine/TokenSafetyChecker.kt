@@ -278,58 +278,47 @@ class TokenSafetyChecker(private val cfg: () -> BotConfig) {
             }
 
             // ═══════════════════════════════════════════════════════════════════════
-            // V5.6.9 FIX: RELAXED RC SCORING POLICY
+            // V5.6.9c FIX: RC SCORING - SOFT PENALTIES ONLY (no hard blocks except 0)
             // 
-            // PROBLEM: RC score=1 means "unknown/pending" (API hasn't processed yet).
-            // Old policy hard-blocked score < 2, starving the bot of new token entries.
+            // PROBLEM: Scanner lets score >= 1 through to watchlist. TokenSafetyChecker
+            // should NOT hard-block — it should apply penalties and let FDG decide.
             // 
-            // NEW POLICY:
+            // NEW POLICY (all scores >= 1 get SOFT penalties, FDG decides):
             //   score=0: Confirmed dangerous → HARD BLOCK (both modes)
-            //   score=1: Unknown/pending → SOFT PENALTY only (allow evaluation)
-            //   score 2-4: Very dangerous → HARD BLOCK live, heavy penalty paper
-            //   score 5-9: Dangerous → Heavy soft penalty (learn to avoid)
-            //   score 10+: Normal penalty scaling
+            //   score=1: Unknown/pending → +15 soft penalty
+            //   score 2-4: Very risky → +40 soft penalty  
+            //   score 5-9: Risky → +35 soft penalty
+            //   score 10-24: Cautious → +30 soft penalty
+            //   score 25+: Normal scaling
             // 
             // This ensures:
-            // 1. New tokens (score=1) can be evaluated by other safety layers
-            // 2. Paper mode learns realistic danger signals
-            // 3. Live mode still protects real money
+            // 1. Tokens make it to watchlist for full evaluation
+            // 2. FDG can weigh all factors (liquidity, buy pressure, etc.)
+            // 3. Only score=0 (confirmed rug) is auto-rejected
             // ═══════════════════════════════════════════════════════════════════════
             when {
                 rcScore == 0 -> {
                     // Score 0 = CONFIRMED DANGEROUS - hard block in BOTH modes
                     hard.add("Rugcheck score 0/100 (CONFIRMED RUG RISK)")
-                    ErrorLogger.error(TAG, "🚫 RC HARD BLOCK: $symbol score=0 (both paper and live)")
+                    ErrorLogger.error(TAG, "🚫 RC HARD BLOCK: $symbol score=0 (confirmed dangerous)")
                 }
                 rcScore == 1 -> {
-                    // V5.6.9 FIX: Score 1 = UNKNOWN/PENDING - apply soft penalty only
-                    // The token is too new for Rugcheck to analyze. Let other safety
-                    // layers (LP lock, mint auth, etc.) catch truly bad tokens.
+                    // Score 1 = UNKNOWN/PENDING - soft penalty, let system evaluate
                     soft.add("Rugcheck score pending ($rcScore/100 = unknown)" to 15)
                     penalty += 15
-                    ErrorLogger.info(TAG, "⏳ RC PENDING: $symbol score=1 (unknown) → +15 penalty, allowing evaluation")
+                    ErrorLogger.info(TAG, "⏳ RC PENDING: $symbol score=1 → +15 penalty")
                 }
                 rcScore in 2..4 -> {
-                    // Very dangerous - hard block in live, heavy penalty in paper
-                    if (isPaperMode) {
-                        soft.add("Rugcheck score $rcScore/100 (very dangerous)" to 40)
-                        penalty += 40
-                        ErrorLogger.warn(TAG, "RC PAPER PENALTY: $symbol score=$rcScore → +40 penalty (learning danger)")
-                    } else {
-                        hard.add("Rugcheck score $rcScore/100 (CONFIRMED RUG RISK)")
-                        ErrorLogger.error(TAG, "🚫 RC HARD BLOCK: $symbol score=$rcScore (live mode)")
-                    }
+                    // Very risky - heavy soft penalty in both modes
+                    soft.add("Rugcheck score $rcScore/100 (very risky)" to 40)
+                    penalty += 40
+                    ErrorLogger.warn(TAG, "⚠️ RC RISKY: $symbol score=$rcScore → +40 penalty")
                 }
                 rcScore in 5..9 -> {
-                    if (isPaperMode) {
-                        // Paper: Heavy soft penalty to learn avoidance
-                        soft.add("Rugcheck score $rcScore/100 (very dangerous)" to 35)
-                        penalty += 35
-                        ErrorLogger.warn(TAG, "RC PAPER PENALTY: $symbol score=$rcScore → +35 penalty (learning)")
-                    } else {
-                        // Live: Hard block for scores 5-9
-                        hard.add("Rugcheck score $rcScore/100 (EXTREMELY DANGEROUS)")
-                    }
+                    // Risky - soft penalty in both modes
+                    soft.add("Rugcheck score $rcScore/100 (risky)" to 35)
+                    penalty += 35
+                    ErrorLogger.warn(TAG, "⚠️ RC RISKY: $symbol score=$rcScore → +35 penalty")
                 }
                 rcScore in 10..24 -> {
                     soft.add("Rugcheck score risky ($rcScore/100)" to 30)
