@@ -13,25 +13,6 @@ import java.util.UUID
 import kotlin.math.max
 import kotlin.math.min
 
-/**
- * CloudLearningSync — Turso-backed collective learning
- *
- * WHAT THIS FIXES:
- * - Replaces the old Supabase REST path with real Turso SQL-over-HTTP
- * - Stores one snapshot per instance in Turso
- * - Aggregates community feature weights and pattern multipliers from Turso
- * - Keeps a local cached copy in SharedPreferences for resilience
- *
- * SETUP:
- * 1) Replace TURSO_HTTP_URL with your Turso HTTP URL (NOT libsql://)
- * 2) Replace TURSO_AUTH_TOKEN with your Turso DB token
- *
- * Example URL source:
- *   turso db show <db-name> --http-url
- *
- * Example token source:
- *   turso db tokens create <db-name>
- */
 object CloudLearningSync {
 
     private const val PREFS_NAME = "cloud_learning_sync"
@@ -43,22 +24,15 @@ object CloudLearningSync {
     private const val KEY_COMMUNITY_WEIGHTS = "cached_community_weights"
     private const val KEY_SCHEMA_READY = "schema_ready"
 
-    // ─────────────────────────────────────────────────────────────────────────────
-    // TURSO CONFIGURATION
-    // IMPORTANT: use the HTTP URL, not libsql://
-    // Final endpoint used by this file will be "$TURSO_HTTP_URL/v2/pipeline"
-    // ─────────────────────────────────────────────────────────────────────────────
-    private const val TURSO_HTTP_URL = "https://YOUR_DB-YOUR_ORG.turso.io"
-    private const val TURSO_AUTH_TOKEN = "YOUR_TURSO_AUTH_TOKEN"
+    // TURSO CONFIG
+    // NOTE: Converted from libsql:// to https:// for SQL-over-HTTP pipeline usage
+    private const val TURSO_HTTP_URL = "https://superbrain-shaunhayes333-stack.aws-ap-northeast-1.turso.io"
+    private const val TURSO_AUTH_TOKEN = "eyJhbGciOiJFZERTQSIsInR5cCI6IkpXVCJ9.eyJhIjoicnciLCJpYXQiOjE3NzU0OTUwNDMsImlkIjoiMDE5ZDMwNjYtMmUwMS03NzcyLTgyMTYtMDIyYzY1YzRmNmVjIiwicmlkIjoiMGExMzRiY2EtZmY1YS00NmQ2LWI2ZWYtYmU4MjAyYWE1ZWI4In0.Dtq8CaIehB22Taqs8j17F_GY3Gr3fY8xq0vbigQwQ-jIelJiidZ_BU_BPlTztCnEXa2spFBwmxONuJQAZkKmAw"
 
     private const val MIN_TRADES_TO_CONTRIBUTE = 20
     private const val UPLOAD_INTERVAL_MS = 4 * 60 * 60 * 1000L
     private const val DOWNLOAD_INTERVAL_MS = 60 * 60 * 1000L
-
-    // Ignore very stale instances in community aggregation
-    private const val STALE_INSTANCE_MS = 7L * 24L * 60L * 60L * 1000L // 7 days
-
-    // Cap weight contribution so one giant instance cannot dominate everything
+    private const val STALE_INSTANCE_MS = 7L * 24L * 60L * 60L * 1000L
     private const val MAX_EFFECTIVE_TRADE_WEIGHT = 250
 
     private var prefs: SharedPreferences? = null
@@ -165,10 +139,7 @@ object CloudLearningSync {
     }
 
     private fun isConfigured(): Boolean {
-        return TURSO_HTTP_URL.isNotBlank() &&
-            TURSO_AUTH_TOKEN.isNotBlank() &&
-            !TURSO_HTTP_URL.contains("YOUR_DB") &&
-            !TURSO_AUTH_TOKEN.contains("YOUR_TURSO_AUTH_TOKEN")
+        return TURSO_HTTP_URL.isNotBlank() && TURSO_AUTH_TOKEN.isNotBlank()
     }
 
     private suspend fun ensureSchema(): Boolean = withContext(Dispatchers.IO) {
@@ -317,7 +288,6 @@ object CloudLearningSync {
                     )
                 )
 
-                // Remove old snapshot rows for this instance so deletions are reflected
                 requests.put(
                     exec(
                         "DELETE FROM collective_feature_weights WHERE instance_id = ?",
@@ -366,7 +336,6 @@ object CloudLearningSync {
                     )
                 }
 
-                // Optional cleanup of stale contributors
                 val staleBefore = now - STALE_INSTANCE_MS
                 requests.put(
                     exec(
@@ -437,7 +406,6 @@ object CloudLearningSync {
             try {
                 val activeSince = now - STALE_INSTANCE_MS
 
-                // 1) Get global instance stats
                 val statsResp = pipeline(
                     JSONArray().apply {
                         put(
@@ -460,7 +428,6 @@ object CloudLearningSync {
                 val contributorCount = statsRows.firstOrNull()?.optInt("contributor_count", 0) ?: 0
                 val totalTrades = statsRows.firstOrNull()?.optInt("total_trades", 0) ?: 0
 
-                // 2) Aggregate feature weights in SQL
                 val featureResp = pipeline(
                     JSONArray().apply {
                         put(
@@ -501,11 +468,10 @@ object CloudLearningSync {
                     val name = row.optString("feature_name", "")
                     val weight = row.optDouble("blended_weight", 1.0)
                     if (name.isNotBlank()) {
-                        featureWeights[name] = sanitizeDouble(weight, default = 1.0)
+                        featureWeights[name] = sanitizeDouble(weight, 1.0)
                     }
                 }
 
-                // 3) Pull pattern rows and aggregate in Kotlin for more control
                 val patternResp = pipeline(
                     JSONArray().apply {
                         put(
@@ -551,8 +517,6 @@ object CloudLearningSync {
                                 min(it.sampleCount, MAX_EFFECTIVE_TRADE_WEIGHT).toDouble()
                         } / weightedTrades.toDouble()
 
-                        // Convert pattern success into a bounded multiplier.
-                        // Neutral ≈ 1.0, strong patterns >1.0, weak patterns <1.0.
                         val winComponent = ((weightedWinRate - 50.0) / 50.0) * 0.35
                         val pfComponent = ((weightedPf - 1.0) / 1.5) * 0.25
                         val sampleConfidence = clamp(weightedTrades / 100.0, 0.15, 1.0)
@@ -678,10 +642,6 @@ object CloudLearningSync {
         val community = communityWeights ?: return "No community data"
         return "🌐 Community: ${community.totalContributors} bots, ${community.totalTrades} trades learned"
     }
-
-    // ─────────────────────────────────────────────────────────────────────────────
-    // Turso SQL-over-HTTP helpers
-    // ─────────────────────────────────────────────────────────────────────────────
 
     private fun exec(sql: String, vararg args: Any?): JSONObject {
         val stmt = JSONObject().put("sql", sql)
