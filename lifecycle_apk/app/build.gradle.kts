@@ -153,4 +153,7 @@ dependencies {
     // V5.6: TensorFlow Lite for on-device ML predictions
     implementation("org.tensorflow:tensorflow-lite:2.14.0")
     implementation("org.tensorflow:tensorflow-lite-support:0.4.4")
+    
+    // V5.6.10: Turso LibSQL native Android SDK for collective learning
+    implementation("tech.turso.libsql:libsql:0.1.1")
 }
