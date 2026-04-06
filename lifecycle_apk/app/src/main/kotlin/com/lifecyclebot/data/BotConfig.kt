@@ -8,7 +8,7 @@ data class BotConfig(
     // wallet
     val privateKeyB58: String = "",
     val walletAddress: String = "",
-    val rpcUrl: String = "https://newest-neat-friday.solana-mainnet.quiknode.pro/e87dd6004de87171941006f9d3bf235b860b6149/",  // QuickNode - fast & reliable
+    val rpcUrl: String = "",  // User provides their own RPC URL in settings (Helius, QuickNode, etc.)
     // mode
     val paperMode: Boolean = true,
     val shadowPaperEnabled: Boolean = true,  // Run paper trades in background during live mode for learning
@@ -362,7 +362,7 @@ object ConfigStore {
         return BotConfig(
             privateKeyB58               = s.getString("private_key_b58", "") ?: "",
             walletAddress               = p.getString("wallet_address", "") ?: "",
-            rpcUrl                      = p.getString("rpc_url", "https://newest-neat-friday.solana-mainnet.quiknode.pro/e87dd6004de87171941006f9d3bf235b860b6149/") ?: "https://newest-neat-friday.solana-mainnet.quiknode.pro/e87dd6004de87171941006f9d3bf235b860b6149/",
+            rpcUrl                      = p.getString("rpc_url", "") ?: "",
             paperMode                   = p.getBoolean("paper_mode", true),
             shadowPaperEnabled          = p.getBoolean("shadow_paper_enabled", true),
             moonshotOverrideEnabled     = p.getBoolean("moonshot_override_enabled", true),
