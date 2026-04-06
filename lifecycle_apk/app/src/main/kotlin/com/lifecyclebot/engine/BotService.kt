@@ -5668,31 +5668,37 @@ if (deferredCount > 0) {
                     ((currentPrice - ts.position.entryPrice) / ts.position.entryPrice) * 100
                 } else 0.0
                 
-                // Execute the sell FIRST - this returns capital + profit to wallet
-                executor.requestSell(
+                // V5.6.9g: Execute sell and only close strategy if confirmed
+                val sellResult = executor.requestSell(
                     ts = ts,
                     reason = "TREASURY_${exitSignal.name}",
                     wallet = wallet,
                     walletSol = effectiveBalance
                 )
                 
-                // Close treasury position tracking
-                com.lifecyclebot.v3.scoring.CashGenerationAI.closePosition(
-                    ts.mint, currentPrice, exitSignal
-                )
-                recentlyClosedMs[ts.mint] = System.currentTimeMillis()
-                
-                // V5.6.8 FIX: Release exposure slot so new tokens can enter
-                com.lifecyclebot.v3.V3EngineManager.onPositionClosed(ts.mint)
+                if (sellResult == Executor.SellResult.CONFIRMED || 
+                    sellResult == Executor.SellResult.PAPER_CONFIRMED ||
+                    sellResult == Executor.SellResult.FAILED_FATAL) {
+                    // Close treasury position tracking
+                    com.lifecyclebot.v3.scoring.CashGenerationAI.closePosition(
+                        ts.mint, currentPrice, exitSignal
+                    )
+                    recentlyClosedMs[ts.mint] = System.currentTimeMillis()
+                    
+                    // V5.6.8 FIX: Release exposure slot so new tokens can enter
+                    com.lifecyclebot.v3.V3EngineManager.onPositionClosed(ts.mint)
 
-                addLog("💰 TREASURY SELL: ${ts.symbol} | ${exitSignal.name} | +${pnlPct.toInt()}% | " +
-                    "${if (cfg.paperMode) "PAPER" else "LIVE"} | Capital returned to wallet!", ts.mint)
-                
-                // V5.6.7: After selling, mark token for potential re-entry by other layers
-                // Other layers can pick it up on next scan if it still qualifies
-                if (exitSignal == com.lifecyclebot.v3.scoring.CashGenerationAI.ExitSignal.TAKE_PROFIT) {
-                    ErrorLogger.info("BotService", "💰 [TREASURY SOLD] ${ts.symbol} | " +
-                        "+${pnlPct.toInt()}% | Capital returned | Token available for other layers to re-enter")
+                    addLog("💰 TREASURY SELL: ${ts.symbol} | ${exitSignal.name} | +${pnlPct.toInt()}% | " +
+                        "${if (cfg.paperMode) "PAPER" else "LIVE"} | Capital returned to wallet! | result=$sellResult", ts.mint)
+                    
+                    // V5.6.7: After selling, mark token for potential re-entry by other layers
+                    // Other layers can pick it up on next scan if it still qualifies
+                    if (exitSignal == com.lifecyclebot.v3.scoring.CashGenerationAI.ExitSignal.TAKE_PROFIT) {
+                        ErrorLogger.info("BotService", "💰 [TREASURY SOLD] ${ts.symbol} | " +
+                            "+${pnlPct.toInt()}% | Capital returned | Token available for other layers to re-enter")
+                    }
+                } else {
+                    addLog("⚠️ TREASURY SELL PENDING: ${ts.symbol} | ${exitSignal.name} | result=$sellResult", ts.mint)
                 }
                 
                 return  // Exit processed
@@ -5788,22 +5794,31 @@ if (deferredCount > 0) {
                 }
 
                 // Full exit for all other signals
-                executor.requestSell(
+                // V5.6.9g: Only close strategy position if sell was confirmed
+                val sellResult = executor.requestSell(
                     ts = ts,
                     reason = "SHITCOIN_${exitSignal.name}",
                     wallet = wallet,
                     walletSol = effectiveBalance
                 )
 
-                com.lifecyclebot.v3.scoring.ShitCoinTraderAI.closePosition(
-                    ts.mint, currentPrice, exitSignal
-                )
-                
-                // V5.6.8 FIX: Release exposure slot
-                com.lifecyclebot.v3.V3EngineManager.onPositionClosed(ts.mint)
+                // Only clear strategy state if sell was successful
+                if (sellResult == Executor.SellResult.CONFIRMED || 
+                    sellResult == Executor.SellResult.PAPER_CONFIRMED ||
+                    sellResult == Executor.SellResult.FAILED_FATAL) {
+                    com.lifecyclebot.v3.scoring.ShitCoinTraderAI.closePosition(
+                        ts.mint, currentPrice, exitSignal
+                    )
+                    
+                    // V5.6.8 FIX: Release exposure slot
+                    com.lifecyclebot.v3.V3EngineManager.onPositionClosed(ts.mint)
 
-                addLog("$exitEmoji SHITCOIN SELL: ${ts.symbol} | ${exitSignal.name} | " +
-                    "${if (cfg.paperMode) "PAPER" else "LIVE"}", ts.mint)
+                    addLog("$exitEmoji SHITCOIN SELL: ${ts.symbol} | ${exitSignal.name} | " +
+                        "${if (cfg.paperMode) "PAPER" else "LIVE"} | result=$sellResult", ts.mint)
+                } else {
+                    // Sell failed - do NOT close position, will retry next tick
+                    addLog("⚠️ SHITCOIN SELL PENDING: ${ts.symbol} | ${exitSignal.name} | result=$sellResult", ts.mint)
+                }
 
                 return  // Exit processed
             }
@@ -5831,20 +5846,27 @@ if (deferredCount > 0) {
                     else -> "📉"
                 }
                 
-                executor.requestSell(
+                // V5.6.9g: Only close strategy position if sell was confirmed
+                val sellResult = executor.requestSell(
                     ts = ts,
                     reason = "EXPRESS_${exitSignal.name}",
                     wallet = wallet,
                     walletSol = effectiveBalance
                 )
                 
-                com.lifecyclebot.v3.scoring.ShitCoinExpress.exitRide(ts.mint, currentPrice, exitSignal)
-                
-                // V5.6.8 FIX: Release exposure slot
-                com.lifecyclebot.v3.V3EngineManager.onPositionClosed(ts.mint)
-                
-                addLog("$exitEmoji EXPRESS SELL: ${ts.symbol} | ${exitSignal.name} | " +
-                    "${if (cfg.paperMode) "PAPER" else "LIVE"}", ts.mint)
+                if (sellResult == Executor.SellResult.CONFIRMED || 
+                    sellResult == Executor.SellResult.PAPER_CONFIRMED ||
+                    sellResult == Executor.SellResult.FAILED_FATAL) {
+                    com.lifecyclebot.v3.scoring.ShitCoinExpress.exitRide(ts.mint, currentPrice, exitSignal)
+                    
+                    // V5.6.8 FIX: Release exposure slot
+                    com.lifecyclebot.v3.V3EngineManager.onPositionClosed(ts.mint)
+                    
+                    addLog("$exitEmoji EXPRESS SELL: ${ts.symbol} | ${exitSignal.name} | " +
+                        "${if (cfg.paperMode) "PAPER" else "LIVE"} | result=$sellResult", ts.mint)
+                } else {
+                    addLog("⚠️ EXPRESS SELL PENDING: ${ts.symbol} | ${exitSignal.name} | result=$sellResult", ts.mint)
+                }
 
                 return
             }
@@ -5858,17 +5880,25 @@ if (deferredCount > 0) {
             val currentPrice = ts.lastPrice.takeIf { it > 0 } ?: ts.position.entryPrice
             val exitSignal = com.lifecyclebot.v3.scoring.ManipulatedTraderAI.checkExit(ts.mint, currentPrice)
             if (exitSignal != com.lifecyclebot.v3.scoring.ManipulatedTraderAI.ManipExitSignal.HOLD) {
-                executor.requestSell(
+                // V5.6.9g: Only close strategy position if sell was confirmed
+                val sellResult = executor.requestSell(
                     ts = ts,
                     reason = "MANIPULATED_${exitSignal.name}",
                     wallet = wallet,
                     walletSol = effectiveBalance
                 )
-                com.lifecyclebot.v3.scoring.ManipulatedTraderAI.closePosition(ts.mint, currentPrice, exitSignal)
-                // V5.6.8 FIX: Release exposure slot
-                com.lifecyclebot.v3.V3EngineManager.onPositionClosed(ts.mint)
-                addLog("☠️ MANIP EXIT: ${ts.symbol} | ${exitSignal.name} | " +
-                    "${if (cfg.paperMode) "PAPER" else "LIVE"}", ts.mint)
+                
+                if (sellResult == Executor.SellResult.CONFIRMED || 
+                    sellResult == Executor.SellResult.PAPER_CONFIRMED ||
+                    sellResult == Executor.SellResult.FAILED_FATAL) {
+                    com.lifecyclebot.v3.scoring.ManipulatedTraderAI.closePosition(ts.mint, currentPrice, exitSignal)
+                    // V5.6.8 FIX: Release exposure slot
+                    com.lifecyclebot.v3.V3EngineManager.onPositionClosed(ts.mint)
+                    addLog("☠️ MANIP EXIT: ${ts.symbol} | ${exitSignal.name} | " +
+                        "${if (cfg.paperMode) "PAPER" else "LIVE"} | result=$sellResult", ts.mint)
+                } else {
+                    addLog("⚠️ MANIP EXIT PENDING: ${ts.symbol} | ${exitSignal.name} | result=$sellResult", ts.mint)
+                }
                 return
             }
         }

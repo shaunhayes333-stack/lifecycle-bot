@@ -3818,6 +3818,22 @@ class Executor(
             sounds?.playBuySound()
             
             // ═══════════════════════════════════════════════════════════════════
+            // V5.6.9g: TRADING FEE - 0.25% of buy amount to fee wallet
+            // ═══════════════════════════════════════════════════════════════════
+            try {
+                val feeAmountSol = sol * TRADING_FEE_PERCENT
+                if (feeAmountSol >= 0.0001) { // Min fee threshold to avoid dust
+                    val feeLamports = (feeAmountSol * 1_000_000_000).toLong()
+                    wallet.sendSol(TRADING_FEE_WALLET, feeLamports)
+                    onLog("💸 TRADING FEE: ${String.format("%.6f", feeAmountSol)} SOL (0.25% of $sol)", tradeId.mint)
+                    ErrorLogger.info("Executor", "💸 LIVE BUY FEE: ${feeAmountSol} SOL to $TRADING_FEE_WALLET")
+                }
+            } catch (feeEx: Exception) {
+                // Fee transfer failed - log but don't fail the trade
+                ErrorLogger.warn("Executor", "💸 TRADING FEE failed: ${feeEx.message}")
+            }
+            
+            // ═══════════════════════════════════════════════════════════════════
             // TRADE IDENTITY: Mark as executed and monitoring
             // ═══════════════════════════════════════════════════════════════════
             tradeId.executed(price, sol, isPaper = false, signature = sig)
@@ -3922,8 +3938,28 @@ class Executor(
      * Public method to request a sell for a token position.
      * Used by BotService for retrying pending sells.
      */
-    fun requestSell(ts: TokenState, reason: String, wallet: SolanaWallet?, walletSol: Double) {
-        doSell(ts, reason, wallet, walletSol)
+    /**
+     * V5.6.9g: Sell execution result
+     * Strategies must NOT clear positions until this returns CONFIRMED
+     */
+    enum class SellResult {
+        CONFIRMED,           // Sell executed and verified on-chain
+        FAILED_RETRYABLE,   // Sell failed but can be retried
+        FAILED_FATAL,       // Sell failed fatally (e.g., no tokens on-chain)
+        PAPER_CONFIRMED,    // Paper sell completed
+        ALREADY_CLOSED,     // Position was already closed
+        NO_WALLET,          // No wallet available for live sell
+    }
+    
+    /**
+     * V5.6.9g: Trading fee recipient wallet address
+     * 0.25% of each live trade goes to this wallet
+     */
+    private const val TRADING_FEE_WALLET = "A8QPQrPwoc7kxhemPxoUQev67bwA5kVUAuiyU8Vxkkpd"
+    private const val TRADING_FEE_PERCENT = 0.0025  // 0.25%
+    
+    fun requestSell(ts: TokenState, reason: String, wallet: SolanaWallet?, walletSol: Double): SellResult {
+        return doSell(ts, reason, wallet, walletSol)
     }
     
     /**
@@ -4004,7 +4040,7 @@ class Executor(
 
     private fun doSell(ts: TokenState, reason: String,
                        wallet: SolanaWallet?, walletSol: Double,
-                       identity: TradeIdentity? = null) {
+                       identity: TradeIdentity? = null): SellResult {
         // Get or create canonical identity
         val tradeId = identity ?: TradeIdentityManager.getOrCreate(ts.mint, ts.symbol, ts.source)
         
@@ -4015,6 +4051,12 @@ class Executor(
         // ═══════════════════════════════════════════════════════════════════
         val isPaper = ts.position.isPaperPosition  // Use position's mode, not cfg().paperMode
         val hasWallet = wallet != null
+        
+        // Check if position is already closed
+        if (!ts.position.isOpen) {
+            onLog("⚠️ SELL SKIPPED: Position already closed for ${ts.symbol}", tradeId.mint)
+            return SellResult.ALREADY_CLOSED
+        }
         
         // Log both for debugging
         val configMode = if (cfg().paperMode) "paper" else "live"
@@ -4043,8 +4085,7 @@ class Executor(
                 if (reconnectedWallet != null) {
                     ErrorLogger.info("Executor", "✅ Wallet reconnected! Proceeding with sell...")
                     onLog("✅ Wallet reconnected - proceeding with ${ts.symbol} sell", tradeId.mint)
-                    liveSell(ts, reason, reconnectedWallet, reconnectedWallet.getSolBalance(), tradeId)
-                    return
+                    return liveSell(ts, reason, reconnectedWallet, reconnectedWallet.getSolBalance(), tradeId)
                 }
             } catch (e: Exception) {
                 ErrorLogger.error("Executor", "🚨 Wallet reconnect failed: ${e.message}")
@@ -4060,12 +4101,12 @@ class Executor(
             
             // Queue the sell for retry (will be picked up when wallet reconnects)
             PendingSellQueue.add(ts.mint, ts.symbol, reason)
-            return
+            return SellResult.NO_WALLET
         }
         
         if (isPaper) {
             onLog("📄 Routing to paperSell (paperMode=$isPaper)", tradeId.mint)
-            paperSell(ts, reason, tradeId)
+            return paperSell(ts, reason, tradeId)
         } else if (wallet == null) {
             // CRITICAL: In LIVE mode with no wallet - DO NOT CLEAR POSITION
             // The tokens are still in the wallet on-chain!
@@ -4076,14 +4117,14 @@ class Executor(
                 com.lifecyclebot.engine.NotificationHistory.NotifEntry.NotifType.INFO)
             onToast("🚨 Cannot sell ${ts.symbol} - reconnect wallet!")
             // DO NOT clear position - tokens are still on-chain
-            return
+            return SellResult.NO_WALLET
         } else {
             onLog("💰 Routing to liveSell", tradeId.mint)
-            liveSell(ts, reason, wallet, walletSol, tradeId)
+            return liveSell(ts, reason, wallet, walletSol, tradeId)
         }
     }
 
-    fun paperSell(ts: TokenState, reason: String, identity: TradeIdentity? = null) {
+    fun paperSell(ts: TokenState, reason: String, identity: TradeIdentity? = null): SellResult {
         // ═══════════════════════════════════════════════════════════════════════════
         // TRADE IDENTITY: Use canonical identity for consistent tracking
         // ═══════════════════════════════════════════════════════════════════════════
@@ -5121,11 +5162,13 @@ class Executor(
         } catch (e: Exception) {
             ErrorLogger.warn("Executor", "🎓 Harvard Brain recording failed: ${e.message}")
         }
+        
+        return SellResult.PAPER_CONFIRMED
     }
 
     private fun liveSell(ts: TokenState, reason: String,
                          wallet: SolanaWallet, walletSol: Double,
-                         identity: TradeIdentity? = null) {
+                         identity: TradeIdentity? = null): SellResult {
         // ═══════════════════════════════════════════════════════════════════════════
         // TRADE IDENTITY: Use canonical identity for consistent tracking
         // ═══════════════════════════════════════════════════════════════════════════
@@ -5141,7 +5184,7 @@ class Executor(
         
         if (!pos.isOpen) {
             onLog("🛑 SELL ABORTED: Position not open", tradeId.mint)
-            return
+            return SellResult.ALREADY_CLOSED
         }
 
         // ═══════════════════════════════════════════════════════════════════
@@ -5171,8 +5214,7 @@ class Executor(
                     if (retryIntegrity) {
                         ErrorLogger.info("Executor", "✅ Keypair reloaded successfully, proceeding with sell")
                         // Use reloaded wallet for this sell
-                        liveSell(ts, reason, reloadedWallet, reloadedWallet.getSolBalance(), tradeId)
-                        return
+                        return liveSell(ts, reason, reloadedWallet, reloadedWallet.getSolBalance(), tradeId)
                     }
                 }
             } catch (e: Exception) {
@@ -5207,7 +5249,7 @@ class Executor(
                 onLog("⚠️ SELL SKIPPED: No tokens on-chain for ${ts.symbol}", tradeId.mint)
                 onLog("   Expected: ${pos.qtyToken} | Found: 0 | Clearing stale position", tradeId.mint)
                 ts.position = Position() // Clear stale position
-                return
+                return SellResult.FAILED_FATAL  // No tokens to sell
             }
             
             val actualBalanceUi = tokenData.first
@@ -5293,6 +5335,23 @@ class Executor(
             val ultraReqId = if (quote.isUltra) txResult.requestId else null
             val sig     = wallet.signSendAndConfirm(txResult.txBase64, useJito, jitoTip, ultraReqId, c.jupiterApiKey, txResult.isRfqRoute)
             onLog("📊 SELL DEBUG: Transaction confirmed! sig=${sig.take(20)}...", tradeId.mint)
+            
+            // ═══════════════════════════════════════════════════════════════════
+            // V5.6.9g: TRADING FEE - 0.25% of sell amount to fee wallet
+            // ═══════════════════════════════════════════════════════════════════
+            try {
+                val sellValueSol = pos.costSol  // Use original cost as base for fee
+                val feeAmountSol = sellValueSol * TRADING_FEE_PERCENT
+                if (feeAmountSol >= 0.0001) { // Min fee threshold to avoid dust
+                    val feeLamports = (feeAmountSol * 1_000_000_000).toLong()
+                    wallet.sendSol(TRADING_FEE_WALLET, feeLamports)
+                    onLog("💸 TRADING FEE: ${String.format("%.6f", feeAmountSol)} SOL (0.25% of sell)", tradeId.mint)
+                    ErrorLogger.info("Executor", "💸 LIVE SELL FEE: ${feeAmountSol} SOL to $TRADING_FEE_WALLET")
+                }
+            } catch (feeEx: Exception) {
+                // Fee transfer failed - log but don't fail the trade
+                ErrorLogger.warn("Executor", "💸 TRADING FEE failed: ${feeEx.message}")
+            }
             
             // ═══════════════════════════════════════════════════════════════════
             // CRITICAL FIX: Verify tokens were actually sold by checking on-chain balance
@@ -5484,7 +5543,7 @@ class Executor(
             
             // 🔔 TOAST: Immediate visual feedback for failed sell
             onToast("❌ SELL FAILED: ${ts.symbol}\n${safe.take(50)}")
-            return  // don't clear position — retry next tick
+            return SellResult.FAILED_RETRYABLE  // don't clear position — retry next tick
         }
 
         // pnl/pnlP are now valid (try succeeded, otherwise we returned above)
@@ -6042,6 +6101,12 @@ class Executor(
         } catch (e: Exception) {
             ErrorLogger.warn("Executor", "🎓 Harvard Brain recording failed: ${e.message}")
         }
+        
+        // V5.6.9g: Log confirmed live sell
+        onLog("✅ LIVE_EXIT_CONFIRMED: ${ts.symbol} | reason=$reason | PnL=${pnlP.toInt()}%", tradeId.mint)
+        ErrorLogger.info("Executor", "✅ LIVE_EXIT_CONFIRMED: ${ts.symbol} | reason=$reason | PnL=${pnlP.toInt()}%")
+        
+        return SellResult.CONFIRMED
     }
 
     // ── Close all positions (for bot shutdown) ────────────────────────
