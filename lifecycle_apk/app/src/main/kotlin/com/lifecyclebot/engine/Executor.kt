@@ -3404,6 +3404,10 @@ class Executor(
         val price = getActualPrice(ts)
         if (!pos.isOpen || price == 0.0) return SellResult.ALREADY_CLOSED
         
+        // FIX: these were missing and caused your compile failure
+        val holdTimeMins = (System.currentTimeMillis() - pos.entryTime) / 60_000.0
+        val holdMinutes = holdTimeMins
+        
         val simulatedSlippagePct = when {
             ts.lastLiquidityUsd < 5000 -> 4.0
             ts.lastLiquidityUsd < 20000 -> 2.0
@@ -3511,8 +3515,6 @@ class Executor(
             ErrorLogger.debug("Executor", "Failed to release CORE lock: ${e.message}")
         }
 
-        val holdTimeMins = (System.currentTimeMillis() - pos.entryTime) / 60_000.0
-        
         val maxGainPct = if (pos.entryPrice > 0 && pos.highestPrice > 0) {
             ((pos.highestPrice - pos.entryPrice) / pos.entryPrice) * 100.0
         } else 0.0
@@ -3735,7 +3737,7 @@ class Executor(
         ))
         
         try {
-            val holdMins = (System.currentTimeMillis() - ts.position.entryTime) / 60_000.0
+            val holdMins = ((System.currentTimeMillis() - ts.position.entryTime) / 60_000.0)
             val tokenAgeMins = (System.currentTimeMillis() - ts.addedToWatchlistAt) / 60_000.0
             val features = AdaptiveLearningEngine.captureFeatures(
                 entryMcapUsd = ts.position.entryLiquidityUsd * 2,
@@ -4025,7 +4027,7 @@ class Executor(
         }
         
         try {
-            val peakPnl = if (ts.position.entryPrice > 0) {
+            val peakPnlLive = if (ts.position.entryPrice > 0) {
                 com.lifecyclebot.util.pct(ts.position.entryPrice, ts.position.highestPrice)
             } else pnlP
             
@@ -4037,7 +4039,7 @@ class Executor(
                 symbol = ts.symbol,
                 name = ts.name,
                 pnlPercent = pnlP,
-                peakPnl = peakPnl,
+                peakPnl = peakPnlLive,
                 entryMcap = approxEntryMcap,
                 exitMcap = ts.lastMcap,
                 entryLiquidity = ts.position.entryLiquidityUsd,
