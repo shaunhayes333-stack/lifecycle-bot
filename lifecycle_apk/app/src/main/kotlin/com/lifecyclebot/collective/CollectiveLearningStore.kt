@@ -116,16 +116,18 @@ object CollectiveLearningStore {
         val key = listOf(mint, strategy, setupClass ?: "UNK", regime ?: "UNK").joinToString("|")
 
         db!!.connect().use { conn ->
-            val rs = conn.query("""
+            val rows = conn.query("""
                 SELECT samples, wins, avg_pnl
                 FROM collective_memory
                 WHERE key = ?
             """.trimIndent(), key)
 
-            if (rs.next()) {
-                val samples = rs.getInt(0)
-                val wins = rs.getInt(1)
-                val avgPnl = rs.getDouble(2)
+            // Iterate over rows - each row is accessed by index
+            for (row in rows) {
+                // row[0] = samples (Long), row[1] = wins (Long), row[2] = avg_pnl (Double)
+                val samples = (row[0] as? Long)?.toInt() ?: 0
+                val wins = (row[1] as? Long)?.toInt() ?: 0
+                val avgPnl = (row[2] as? Double) ?: 0.0
 
                 val winRate = if (samples > 0) wins.toDouble() / samples else 0.0
                 return (winRate * 20.0) + (avgPnl * 0.5)
@@ -138,18 +140,6 @@ object CollectiveLearningStore {
      * Check if store is initialized.
      */
     fun isReady(): Boolean = db != null
-    
-    /**
-     * Sync local replica with remote Turso.
-     */
-    fun sync() {
-        try {
-            db?.sync()
-            Log.d(TAG, "📥 Synced with remote Turso")
-        } catch (e: Exception) {
-            Log.w(TAG, "Sync warning: ${e.message}")
-        }
-    }
     
     /**
      * Close the database connection.

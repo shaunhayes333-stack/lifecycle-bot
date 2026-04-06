@@ -1562,6 +1562,15 @@ class BotService : Service() {
         } catch (clearEx: Exception) {
             ErrorLogger.error("BotService", "Error clearing watchlist on stop: ${clearEx.message}", clearEx)
         }
+        
+        // V5.6.10 FIX: Also clear PositionPersistence so positions don't restore on restart
+        // Without this, positions reappear after bot stop → start cycle
+        try {
+            PositionPersistence.clear()
+            addLog("✅ Cleared position persistence — positions won't restore on restart")
+        } catch (persistEx: Exception) {
+            ErrorLogger.error("BotService", "Error clearing position persistence: ${persistEx.message}", persistEx)
+        }
 
         status.running = false
         loopJob?.cancel()
