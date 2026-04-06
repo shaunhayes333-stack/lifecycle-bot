@@ -278,15 +278,27 @@ class TokenSafetyChecker(private val cfg: () -> BotConfig) {
             }
 
             // RC scoring policy:
-            // PAPER: RC 1-9 = soft penalty only, NOT hard block
-            // LIVE:  RC 1-9 = hard block
+            // V5.6.8 FIX: Paper mode must learn with REALISTIC rugcheck behavior!
+            // Problem: Paper bypassed RC checks → Live mode blocked everything → User had no valid tokens
+            // 
+            // NEW POLICY:
+            // PAPER: RC 0-4 = HARD BLOCK (learn what's truly dangerous)
+            //        RC 5-9 = soft penalty with heavy weight (learn to avoid)
+            // LIVE:  RC 0-9 = hard block (protect real money)
             when {
-                rcScore in 0..9 -> {
+                rcScore in 0..4 -> {
+                    // EXTREMELY dangerous - hard block in BOTH modes
+                    hard.add("Rugcheck score $rcScore/100 (CONFIRMED RUG RISK)")
+                    ErrorLogger.error(TAG, "🚫 RC HARD BLOCK: $symbol score=$rcScore (both paper and live)")
+                }
+                rcScore in 5..9 -> {
                     if (isPaperMode) {
-                        soft.add("Rugcheck score $rcScore/100 (paper learning override)" to 10)
-                        penalty += 10
-                        ErrorLogger.info(TAG, "RC PAPER OVERRIDE: $symbol score=$rcScore → soft penalty only")
+                        // Paper: Heavy soft penalty to learn avoidance
+                        soft.add("Rugcheck score $rcScore/100 (very dangerous)" to 35)
+                        penalty += 35
+                        ErrorLogger.warn(TAG, "RC PAPER PENALTY: $symbol score=$rcScore → +35 penalty (learning)")
                     } else {
+                        // Live: Hard block
                         hard.add("Rugcheck score $rcScore/100 (EXTREMELY DANGEROUS)")
                     }
                 }
@@ -354,19 +366,39 @@ class TokenSafetyChecker(private val cfg: () -> BotConfig) {
         }
 
         // ── 4. LP lock
+        // V5.6.8 CRITICAL FIX: Unlocked liquidity should be HARD BLOCK in live mode!
+        // User lost $200 to tokens with unlocked LP - they can rug at any time
         when {
-            lpLockPct < 0 -> Unit
+            lpLockPct < 0 -> Unit  // Unknown, can't penalize
+            lpLockPct < 30.0 -> {
+                // EXTREMELY DANGEROUS: Almost no liquidity locked
+                if (isPaperMode) {
+                    // Paper: Learn this is dangerous but don't hard block
+                    soft.add("LP only ${lpLockPct.toInt()}% locked (EXTREME RUG RISK)" to 40)
+                    penalty += 40
+                    ErrorLogger.warn(TAG, "⚠️ LP PAPER WARN: $symbol only ${lpLockPct.toInt()}% locked — high rug risk")
+                } else {
+                    // LIVE: HARD BLOCK - this is how rugs happen
+                    hard.add("LP only ${lpLockPct.toInt()}% locked — EXTREME RUG RISK, devs can pull liquidity")
+                    ErrorLogger.error(TAG, "🚫 LP HARD BLOCK: $symbol only ${lpLockPct.toInt()}% locked — blocking to prevent rug")
+                }
+            }
             lpLockPct < 50.0 -> {
-                soft.add("LP only ${lpLockPct.toInt()}% locked (low)" to 15)
-                penalty += 15
+                if (isPaperMode) {
+                    soft.add("LP only ${lpLockPct.toInt()}% locked (HIGH rug risk)" to 25)
+                    penalty += 25
+                } else {
+                    // LIVE: Block low-lock tokens
+                    hard.add("LP only ${lpLockPct.toInt()}% locked — HIGH RUG RISK")
+                }
             }
             lpLockPct < 70.0 -> {
-                soft.add("LP ${lpLockPct.toInt()}% locked (moderate)" to 8)
-                penalty += 8
+                soft.add("LP ${lpLockPct.toInt()}% locked (moderate)" to 12)
+                penalty += 12
             }
             lpLockPct < 90.0 -> {
-                soft.add("LP ${lpLockPct.toInt()}% locked" to 3)
-                penalty += 3
+                soft.add("LP ${lpLockPct.toInt()}% locked" to 5)
+                penalty += 5
             }
         }
 

@@ -2443,14 +2443,20 @@ class SolanaMarketScanner(
 
             val isPaper = cfg().paperMode
 
-            // V5.8: In paper mode, only block confirmed rugs (rugged=true above).
-            // Score < 2 is allowed through for learning — same policy as DistFade/RugPreFilter/TradeAuthorizer.
-            // The score=1 condition often fires on new tokens before rugcheck has full analysis.
+            // V5.6.8 FIX: Paper mode MUST NOT bypass rugcheck completely!
+            // Problem: Bot learns with no rugcheck → switches to live → gets rugged immediately
+            // because it never learned which tokens are dangerous.
+            // 
+            // NEW BEHAVIOR: Paper mode uses SAME rugcheck logic as live, but logs it as learning.
+            // This ensures the bot learns real-world rugcheck patterns.
             if (isPaper) {
                 if (scoreNormalized < 2) {
-                    onLog("⚠️ RC WARN [PAPER]: ${mint.take(8)}... score=$scoreNormalized — allowing for learning")
-                    ErrorLogger.info("Scanner", "RC PAPER BYPASS: ${mint.take(12)} score=$scoreNormalized < 2 (learning)")
+                    // Log but ALSO track this as a blocked token for learning
+                    ErrorLogger.info("Scanner", "RC PAPER BLOCK: ${mint.take(12)} score=$scoreNormalized < 2 (learning dangerous pattern)")
+                    onLog("🚫 RC PAPER BLOCK: ${mint.take(8)}... score=$scoreNormalized — blocked to learn dangerous patterns")
+                    return false  // BLOCK in paper too - must learn what's dangerous!
                 }
+                // Score >= 2 passes in both paper and live
                 return true
             }
 

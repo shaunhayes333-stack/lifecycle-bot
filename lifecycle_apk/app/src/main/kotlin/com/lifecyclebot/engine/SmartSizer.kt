@@ -416,6 +416,29 @@ object SmartSizer {
         // ── Hard limits ───────────────────────────────────────────────
         var cappedBy = "none"
 
+        // ══════════════════════════════════════════════════════════════
+        // V5.6.8 CRITICAL FIX: HARD POSITION COUNT CAP FOR LIVE MODE
+        // Problem: Bot was opening many positions rapidly, draining $200 in 30 seconds
+        // Solution: Limit concurrent positions in LIVE mode based on wallet size
+        // ══════════════════════════════════════════════════════════════
+        if (!isPaperMode) {
+            val maxLivePositions = when {
+                tradeable >= 50.0 -> 8   // Whale: max 8 positions
+                tradeable >= 20.0 -> 6   // Large: max 6 positions
+                tradeable >= 10.0 -> 5   // Medium: max 5 positions
+                tradeable >= 5.0  -> 4   // Small: max 4 positions
+                tradeable >= 2.0  -> 3   // Micro: max 3 positions
+                else              -> 2   // Very small: max 2 positions
+            }
+            
+            if (openPositionCount >= maxLivePositions) {
+                ErrorLogger.warn("SmartSizer", "⚠️ LIVE POSITION CAP: $openPositionCount >= $maxLivePositions max | Blocking new entry")
+                return SizeResult(0.0, tier, basePct, aiScoreMult, 1.0, 1.0, 1.0, treasuryMult, houseMoneyBonus,
+                    "live_position_cap",
+                    "Live mode: $openPositionCount/$maxLivePositions positions — waiting for exits before new entries")
+            }
+        }
+
         // Max per-trade: 20% of tradeable (same for paper and live)
         val maxPerTrade = tradeable * 0.20
         if (size > maxPerTrade) { size = maxPerTrade; cappedBy = "maxPct_20" }

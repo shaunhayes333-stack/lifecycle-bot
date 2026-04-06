@@ -1206,14 +1206,31 @@ object FinalDecisionGate {
         }
 
         val rugcheckThreshold = if (config.paperMode) {
-            0
+            // V5.6.8 FIX: Paper mode MUST learn with rugcheck enabled!
+            // Using threshold 0 means bot never learns which tokens are dangerous.
+            // When switching to live, it has no idea what to avoid.
+            // Use SAME threshold as live (or slightly lower for more learning data)
+            val baseThreshold = (brain?.learnedRugcheckThreshold ?: 3).coerceIn(2, 10)
+            (baseThreshold * modeMultipliers.rugcheckMultiplier * 0.8).toInt().coerceIn(2, 10)  // 20% looser for more data
         } else {
             val baseThreshold = (brain?.learnedRugcheckThreshold ?: 5).coerceIn(3, 10)
             (baseThreshold * modeMultipliers.rugcheckMultiplier).toInt().coerceIn(3, 15)
         }
 
-        val buyPressureThreshold = if (config.paperMode) 25.0 else adjusted.buyPressureMin * modeMultipliers.entryScoreMultiplier
-        val topHolderThreshold = if (config.paperMode) 70.0 else adjusted.topHolderMax / modeMultipliers.rugcheckMultiplier
+        // V5.6.8 FIX: Paper must learn with realistic thresholds!
+        val buyPressureThreshold = if (config.paperMode) {
+            // Use 80% of live threshold for more learning data, but not wide open
+            (adjusted.buyPressureMin * modeMultipliers.entryScoreMultiplier * 0.8).coerceAtLeast(30.0)
+        } else {
+            adjusted.buyPressureMin * modeMultipliers.entryScoreMultiplier
+        }
+        
+        val topHolderThreshold = if (config.paperMode) {
+            // Paper slightly looser but not wide open
+            (adjusted.topHolderMax / modeMultipliers.rugcheckMultiplier * 1.1).coerceAtMost(55.0)
+        } else {
+            adjusted.topHolderMax / modeMultipliers.rugcheckMultiplier
+        }
 
         val currentAdjusted = adjusted
 
