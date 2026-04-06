@@ -59,4 +59,10 @@
     <!-- Dot indicator -->
     <dimen name="dot_size">7dp</dimen>
     <dimen name="dot_margin">6dp</dimen>
+    
+    <!-- V5.6.10: Probation/watchlist card scaling -->
+    <dimen name="card_logo_size">28dp</dimen>
+    <dimen name="card_symbol_size">10sp</dimen>
+    <dimen name="card_detail_size">8sp</dimen>
+    <dimen name="card_badge_size">8sp</dimen>
 </resources>

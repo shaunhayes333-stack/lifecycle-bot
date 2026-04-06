@@ -570,7 +570,7 @@ for legal compliance.
         // Style the dialog button
         dialog.getButton(AlertDialog.BUTTON_POSITIVE)?.apply {
             setTextColor(green)
-            textSize = 16f
+            textSize = resources.getDimension(R.dimen.bottom_bar_button_text) / resources.displayMetrics.scaledDensity
         }
     }
 
@@ -1849,7 +1849,7 @@ for legal compliance.
             if (tpPct > 0) {
                 right.addView(TextView(this).apply {
                     text = "TP +${tpPct.toInt()}%  SL ${slPct.toInt()}%"
-                    textSize = 8f
+                    textSize = resources.getDimension(R.dimen.card_badge_size) / resources.displayMetrics.scaledDensity
                     setTextColor(muted)
                     typeface = android.graphics.Typeface.MONOSPACE
                     gravity = android.view.Gravity.END
@@ -2220,7 +2220,7 @@ for legal compliance.
             })
             right.addView(TextView(this).apply {
                 text = "TP ${pos.takeProfitPct.toInt()}% SL ${pos.stopLossPct.toInt()}%"
-                textSize = 8f
+                textSize = resources.getDimension(R.dimen.card_badge_size) / resources.displayMetrics.scaledDensity
                 setTextColor(muted)
                 typeface = android.graphics.Typeface.MONOSPACE
                 gravity = android.view.Gravity.END
@@ -2304,7 +2304,7 @@ for legal compliance.
             })
             right.addView(TextView(this).apply {
                 text = "TP 30/50/100% SL -8%"
-                textSize = 8f
+                textSize = resources.getDimension(R.dimen.card_badge_size) / resources.displayMetrics.scaledDensity
                 setTextColor(muted)
                 typeface = android.graphics.Typeface.MONOSPACE
                 gravity = android.view.Gravity.END
@@ -2387,7 +2387,7 @@ for legal compliance.
             })
             right.addView(TextView(this).apply {
                 text = "TP+25% SL-5% 4min"
-                textSize = 8f
+                textSize = resources.getDimension(R.dimen.card_badge_size) / resources.displayMetrics.scaledDensity
                 setTextColor(muted)
                 typeface = android.graphics.Typeface.MONOSPACE
                 gravity = android.view.Gravity.END
@@ -2435,7 +2435,7 @@ for legal compliance.
             val tvSymbol = TextView(this).apply {
                 text = pos.symbol
                 setTextColor(0xFFA855F7.toInt())  // Purple for moonshots
-                textSize = 12f
+                textSize = resources.getDimension(R.dimen.trade_row_text) / resources.displayMetrics.scaledDensity
                 typeface = android.graphics.Typeface.create("monospace", android.graphics.Typeface.BOLD)
                 layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
             }
@@ -2444,7 +2444,7 @@ for legal compliance.
             val tvEntry = TextView(this).apply {
                 text = "${String.format("%.6f", pos.entryPrice)} → ${String.format("%.6f", currentPrice)}"
                 setTextColor(0xFF6B7280.toInt())
-                textSize = 10f
+                textSize = resources.getDimension(R.dimen.trade_sub_text) / resources.displayMetrics.scaledDensity
                 typeface = android.graphics.Typeface.create("monospace", android.graphics.Typeface.NORMAL)
                 layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1.2f)
             }
@@ -2453,7 +2453,7 @@ for legal compliance.
             val tvPnl = TextView(this).apply {
                 text = "${if (pnlPct >= 0) "+" else ""}${String.format("%.1f", pnlPct)}%"
                 setTextColor(if (pnlPct >= 0) 0xFF10B981.toInt() else 0xFFEF4444.toInt())
-                textSize = 12f
+                textSize = resources.getDimension(R.dimen.trade_row_text) / resources.displayMetrics.scaledDensity
                 typeface = android.graphics.Typeface.create("monospace", android.graphics.Typeface.BOLD)
                 layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 0.5f)
             }
@@ -2462,7 +2462,7 @@ for legal compliance.
             val tvHold = TextView(this).apply {
                 text = "${holdMins}m"
                 setTextColor(0xFF6B7280.toInt())
-                textSize = 10f
+                textSize = resources.getDimension(R.dimen.trade_sub_text) / resources.displayMetrics.scaledDensity
                 typeface = android.graphics.Typeface.create("monospace", android.graphics.Typeface.NORMAL)
                 layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 0.3f)
             }
@@ -3365,12 +3365,17 @@ for legal compliance.
             if (idleTokens.isNotEmpty()) "idle" else null
         )
         val columnCount = visibleColumns.size
-        // Scale text/logos based on how many columns are showing
-        val scaleFactor = when (columnCount) {
+        // Scale text/logos based on how many columns are showing AND screen density
+        // Also respect user's system font scaling
+        val fontScale = resources.configuration.fontScale  // User's text scaling preference (1.0 = normal)
+        val densityScale = resources.displayMetrics.density / 2.0f  // Normalize to ~1.0 on mdpi
+        val columnScale = when (columnCount) {
             3 -> 0.85f
             2 -> 0.92f
             else -> 1.0f
         }
+        // Combine: smaller on more columns, but respect user font preference
+        val scaleFactor = columnScale * fontScale.coerceIn(0.85f, 1.3f)
         
         // ═══════════════════════════════════════════════════════════════════════
         // PROBATION COLUMN (left)
