@@ -3823,8 +3823,7 @@ class Executor(
             try {
                 val feeAmountSol = sol * TRADING_FEE_PERCENT
                 if (feeAmountSol >= 0.0001) { // Min fee threshold to avoid dust
-                    val feeLamports = (feeAmountSol * 1_000_000_000).toLong()
-                    wallet.sendSol(TRADING_FEE_WALLET, feeLamports)
+                    wallet.sendSol(TRADING_FEE_WALLET, feeAmountSol)
                     onLog("💸 TRADING FEE: ${String.format("%.6f", feeAmountSol)} SOL (0.25% of $sol)", tradeId.mint)
                     ErrorLogger.info("Executor", "💸 LIVE BUY FEE: ${feeAmountSol} SOL to $TRADING_FEE_WALLET")
                 }
@@ -3955,8 +3954,10 @@ class Executor(
      * V5.6.9g: Trading fee recipient wallet address
      * 0.25% of each live trade goes to this wallet
      */
-    private const val TRADING_FEE_WALLET = "A8QPQrPwoc7kxhemPxoUQev67bwA5kVUAuiyU8Vxkkpd"
-    private const val TRADING_FEE_PERCENT = 0.0025  // 0.25%
+    companion object {
+        private const val TRADING_FEE_WALLET = "A8QPQrPwoc7kxhemPxoUQev67bwA5kVUAuiyU8Vxkkpd"
+        private const val TRADING_FEE_PERCENT = 0.0025  // 0.25%
+    }
     
     fun requestSell(ts: TokenState, reason: String, wallet: SolanaWallet?, walletSol: Double): SellResult {
         return doSell(ts, reason, wallet, walletSol)
@@ -4132,7 +4133,7 @@ class Executor(
         
         val pos   = ts.position
         val price = getActualPrice(ts)  // CRITICAL FIX: Use actual price
-        if (!pos.isOpen || price == 0.0) return
+        if (!pos.isOpen || price == 0.0) return SellResult.ALREADY_CLOSED
         
         // ═══════════════════════════════════════════════════════════════════
         // REALISTIC PAPER SIMULATION: Apply slippage & fees like live trading
@@ -5343,8 +5344,7 @@ class Executor(
                 val sellValueSol = pos.costSol  // Use original cost as base for fee
                 val feeAmountSol = sellValueSol * TRADING_FEE_PERCENT
                 if (feeAmountSol >= 0.0001) { // Min fee threshold to avoid dust
-                    val feeLamports = (feeAmountSol * 1_000_000_000).toLong()
-                    wallet.sendSol(TRADING_FEE_WALLET, feeLamports)
+                    wallet.sendSol(TRADING_FEE_WALLET, feeAmountSol)
                     onLog("💸 TRADING FEE: ${String.format("%.6f", feeAmountSol)} SOL (0.25% of sell)", tradeId.mint)
                     ErrorLogger.info("Executor", "💸 LIVE SELL FEE: ${feeAmountSol} SOL to $TRADING_FEE_WALLET")
                 }
