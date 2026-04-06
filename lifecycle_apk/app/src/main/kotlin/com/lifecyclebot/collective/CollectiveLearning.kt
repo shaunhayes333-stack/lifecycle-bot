@@ -35,6 +35,11 @@ object CollectiveLearning {
     private var isInitialized = false
     private var lastSyncTime = 0L
     
+    // V5.6.11: Store context for reconnection attempts
+    private var appContext: Context? = null
+    private var lastReconnectAttempt = 0L
+    private const val RECONNECT_COOLDOWN_MS = 60_000L  // 1 minute between reconnect attempts
+    
     // V3.3: Instance ID for this app installation (hashed for privacy)
     private var instanceId: String = ""
     
@@ -69,10 +74,13 @@ object CollectiveLearning {
      * Call this on app startup.
      */
     suspend fun init(ctx: Context): Boolean {
-        if (isInitialized) {
-            Log.d(TAG, "Already initialized")
+        if (isInitialized && client != null) {
+            Log.d(TAG, "Already initialized and connected")
             return true
         }
+        
+        // V5.6.11: Store context for potential reinit
+        appContext = ctx.applicationContext
         
         try {
             // V3.3: Initialize SharedPreferences for persistent cache
@@ -219,6 +227,37 @@ object CollectiveLearning {
     fun isEnabled(): Boolean = isInitialized && client != null
     
     /**
+     * V5.6.11: Try to reconnect if disconnected.
+     * Returns true if connected (either was already or reconnected).
+     */
+    suspend fun ensureConnected(): Boolean {
+        // Already connected
+        if (isEnabled()) return true
+        
+        // Check cooldown
+        val now = System.currentTimeMillis()
+        if (now - lastReconnectAttempt < RECONNECT_COOLDOWN_MS) {
+            return false
+        }
+        lastReconnectAttempt = now
+        
+        // Try to reconnect
+        val ctx = appContext ?: return false
+        Log.i(TAG, "🔄 Attempting to reconnect to Turso...")
+        
+        // Reset state for reinit
+        isInitialized = false
+        client = null
+        
+        return try {
+            init(ctx)
+        } catch (e: Exception) {
+            Log.e(TAG, "❌ Reconnect failed: ${e.message}")
+            false
+        }
+    }
+    
+    /**
      * Shutdown and cleanup.
      */
     fun shutdown() {
@@ -306,10 +345,13 @@ object CollectiveLearning {
         isWin: Boolean = false, // Only relevant for SELL
         paperMode: Boolean = true,
     ) {
-        // V5.2 FIX: Log when collective is disabled so user knows WHY uploads aren't happening
+        // V5.6.11: Try to reconnect if disconnected
         if (!isEnabled()) {
-            Log.w(TAG, "📤 SKIPPED UPLOAD: $side $symbol - Collective DISABLED (client=${client != null}, init=$isInitialized)")
-            return
+            ensureConnected()
+            if (!isEnabled()) {
+                Log.w(TAG, "📤 SKIPPED UPLOAD: $side $symbol - Collective DISABLED (client=${client != null}, init=$isInitialized)")
+                return
+            }
         }
         
         try {
