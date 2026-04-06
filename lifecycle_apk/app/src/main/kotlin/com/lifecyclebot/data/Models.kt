@@ -57,6 +57,12 @@ data class Position(
     val entryLiquidityUsd: Double = 0.0,  // liquidity at entry for collapse detection
     val entryMcap: Double = 0.0,          // V4.20: market cap at entry for graduation detection
     // ═══════════════════════════════════════════════════════════════════
+    // V5.6.8 FIX: Track if position was opened in PAPER or LIVE mode
+    // This is CRITICAL - if user switches modes, we must sell in the mode
+    // the position was OPENED in (can't paper-sell a live position!)
+    // ═══════════════════════════════════════════════════════════════════
+    val isPaperPosition: Boolean = true,  // True = paper trade, False = real on-chain trade
+    // ═══════════════════════════════════════════════════════════════════
     // TRADING MODE TRACKING - Which mode was this position opened in?
     // Now MUTABLE for dynamic mode switching by HoldingLogicLayer
     // ═══════════════════════════════════════════════════════════════════

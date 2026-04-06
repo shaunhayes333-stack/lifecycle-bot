@@ -3133,6 +3133,7 @@ class Executor(
             entryScore   = score,
             entryLiquidityUsd = ts.lastLiquidityUsd,
             entryMcap    = ts.lastMcap,  // V4.20: Track entry mcap for graduation detection
+            isPaperPosition = true,  // V5.6.8: PAPER position - can use simulated sell
             tradingMode  = currentMode.name,
             tradingModeEmoji = currentMode.emoji,
             buildPhase   = buildPhase,
@@ -3776,6 +3777,7 @@ class Executor(
                 entryScore   = score,
                 entryLiquidityUsd = ts.lastLiquidityUsd,  // Track liquidity for collapse detection
                 entryMcap    = ts.lastMcap,  // V4.20: Track entry mcap for graduation detection
+                isPaperPosition = false,  // V5.6.8: LIVE position - must be sold LIVE
                 tradingMode  = currentMode.name,
                 tradingModeEmoji = currentMode.emoji,
             )
@@ -3990,9 +3992,24 @@ class Executor(
         // Get or create canonical identity
         val tradeId = identity ?: TradeIdentityManager.getOrCreate(ts.mint, ts.symbol, ts.source)
         
-        val isPaper = cfg().paperMode
+        // ═══════════════════════════════════════════════════════════════════
+        // CRITICAL FIX V5.6.8: Use POSITION's paper mode, NOT config!
+        // If user bought in LIVE mode then switched to paper, we must still
+        // execute a LIVE SELL to actually sell the on-chain tokens!
+        // ═══════════════════════════════════════════════════════════════════
+        val isPaper = ts.position.isPaperPosition  // Use position's mode, not cfg().paperMode
         val hasWallet = wallet != null
-        onLog("📤 doSell: ${ts.symbol} | paperMode=$isPaper | hasWallet=$hasWallet | reason=$reason", tradeId.mint)
+        
+        // Log both for debugging
+        val configMode = if (cfg().paperMode) "paper" else "live"
+        val positionMode = if (isPaper) "paper" else "LIVE"
+        onLog("📤 doSell: ${ts.symbol} | positionMode=$positionMode | configMode=$configMode | hasWallet=$hasWallet | reason=$reason", tradeId.mint)
+        
+        // SAFETY CHECK: If position was LIVE but config is now PAPER, warn loudly
+        if (!isPaper && cfg().paperMode) {
+            ErrorLogger.warn("Executor", "⚠️ LIVE position sell while config is PAPER - executing LIVE sell anyway!")
+            onLog("⚠️ LIVE position ${ts.symbol} must be sold LIVE even though config is paper", tradeId.mint)
+        }
         
         // ═══════════════════════════════════════════════════════════════════
         // CRITICAL FIX #1: WALLET NULL - RETRY/RECONNECT INSTEAD OF ABORTING
