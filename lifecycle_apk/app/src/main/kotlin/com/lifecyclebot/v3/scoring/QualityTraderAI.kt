@@ -112,6 +112,19 @@ object QualityTraderAI {
         ErrorLogger.info(TAG, "⭐ Quality Trader initialized | mode=${if (paperMode) "PAPER" else "LIVE"}")
     }
     
+    /**
+     * V5.6.11: Set trading mode and transfer learning from paper to live
+     */
+    fun setTradingMode(isPaper: Boolean) {
+        val wasInPaper = isPaperMode
+        isPaperMode = isPaper
+        
+        // Transfer wins/losses counts for learning continuity
+        if (!isPaper && wasInPaper) {
+            ErrorLogger.info(TAG, "⭐ TRANSFER: Stats W=$wins L=$losses from PAPER continue in LIVE")
+        }
+    }
+
     // ═══════════════════════════════════════════════════════════════════════════
     // DATA CLASSES
     // ═══════════════════════════════════════════════════════════════════════════

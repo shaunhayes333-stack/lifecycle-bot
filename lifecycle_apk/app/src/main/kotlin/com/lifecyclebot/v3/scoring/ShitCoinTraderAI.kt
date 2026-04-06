@@ -260,6 +260,23 @@ object ShitCoinTraderAI {
         ErrorLogger.info(TAG, "💩 ShitCoin daily stats reset")
     }
     
+    /**
+     * V5.6.11: Set trading mode and transfer learning from paper to live
+     */
+    fun setTradingMode(isPaper: Boolean) {
+        val wasInPaper = isPaperMode
+        isPaperMode = isPaper
+        
+        // Transfer paper balance to live when switching modes
+        if (!isPaper && wasInPaper) {
+            val paperBal = paperBalanceBps.get()
+            if (paperBal > liveBalanceBps.get()) {
+                liveBalanceBps.set(paperBal)
+                ErrorLogger.info(TAG, "💩 TRANSFER: Balance ${paperBal/100.0} SOL from PAPER to LIVE")
+            }
+        }
+    }
+    
     fun isEnabled(): Boolean = true
     
     // ═══════════════════════════════════════════════════════════════════════════
