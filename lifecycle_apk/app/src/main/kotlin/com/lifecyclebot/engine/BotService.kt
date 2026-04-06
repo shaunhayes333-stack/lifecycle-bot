@@ -947,6 +947,20 @@ class BotService : Service() {
         CloudLearningSync.init(applicationContext)
         addLog("☁️ ${CloudLearningSync.getStatus()}")
         
+        // V5.6.12: Download community weights on startup
+        scope.launch {
+            try {
+                val weights = CloudLearningSync.downloadCommunityWeights()
+                if (weights != null && weights.totalContributors > 0) {
+                    addLog("☁️ Downloaded community data: ${weights.totalContributors} contributors, ${weights.totalTrades} trades")
+                    // Apply community weights to local learning engine
+                    AdaptiveLearningEngine.applyCommunityWeights(weights.featureWeights, weights.totalTrades)
+                }
+            } catch (e: Exception) {
+                ErrorLogger.debug("CloudSync", "Initial download error: ${e.message}")
+            }
+        }
+        
         // Initialize CollectiveLearning (Turso shared knowledge base)
         // V5.6.12: Log config values for debugging collective initialization
         ErrorLogger.info("BotService", "🔧 COLLECTIVE CONFIG CHECK: enabled=${cfg.collectiveLearningEnabled} | urlLen=${cfg.tursoDbUrl.length} | tokenLen=${cfg.tursoAuthToken.length}")
@@ -2427,6 +2441,14 @@ class BotService : Service() {
                                     )
                                     if (uploaded) {
                                         addLog("☁️ Shared learnings with community!")
+                                    }
+                                    
+                                    // V5.6.12: Download community weights after upload
+                                    val communityWeights = CloudLearningSync.downloadCommunityWeights()
+                                    if (communityWeights != null && communityWeights.totalContributors > 0) {
+                                        addLog("☁️ Synced: ${communityWeights.totalContributors} contributors, ${communityWeights.totalTrades} collective trades")
+                                        // Apply community weights to local learning engine
+                                        AdaptiveLearningEngine.applyCommunityWeights(communityWeights.featureWeights, communityWeights.totalTrades)
                                     }
                                 } catch (e: Exception) {
                                     ErrorLogger.debug("CloudSync", "Upload error: ${e.message}")

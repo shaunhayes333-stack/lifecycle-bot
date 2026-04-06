@@ -877,6 +877,57 @@ object AdaptiveLearningEngine {
             "volLiqRatio" to featureWeights.volLiqRatioWeight,
         )
     }
+    
+    /**
+     * V5.6.12: Apply community weights to local weights
+     * Uses a blend ratio based on how much local data we have
+     */
+    fun applyCommunityWeights(communityWeights: Map<String, Double>, communityTradeCount: Int) {
+        if (communityWeights.isEmpty()) return
+        
+        // Blend ratio: More local trades = trust local more
+        // <100 trades: 70% community, 30% local
+        // 100-500 trades: 50/50
+        // >500 trades: 30% community, 70% local
+        val localRatio = when {
+            tradeCount < 100 -> 0.3
+            tradeCount < 500 -> 0.5
+            else -> 0.7
+        }
+        val communityRatio = 1.0 - localRatio
+        
+        // Apply blending to each weight
+        communityWeights["mcap"]?.let { 
+            featureWeights.mcapWeight = (featureWeights.mcapWeight * localRatio + it * communityRatio).coerceIn(0.3, 2.5) 
+        }
+        communityWeights["age"]?.let { 
+            featureWeights.ageWeight = (featureWeights.ageWeight * localRatio + it * communityRatio).coerceIn(0.3, 2.5) 
+        }
+        communityWeights["buyRatio"]?.let { 
+            featureWeights.buyRatioWeight = (featureWeights.buyRatioWeight * localRatio + it * communityRatio).coerceIn(0.5, 3.0) 
+        }
+        communityWeights["volume"]?.let { 
+            featureWeights.volumeWeight = (featureWeights.volumeWeight * localRatio + it * communityRatio).coerceIn(0.3, 2.5) 
+        }
+        communityWeights["liquidity"]?.let { 
+            featureWeights.liquidityWeight = (featureWeights.liquidityWeight * localRatio + it * communityRatio).coerceIn(0.3, 2.5) 
+        }
+        communityWeights["holderConc"]?.let { 
+            featureWeights.holderConcWeight = (featureWeights.holderConcWeight * localRatio + it * communityRatio).coerceIn(0.5, 3.0) 
+        }
+        communityWeights["holderGrowth"]?.let { 
+            featureWeights.holderGrowthWeight = (featureWeights.holderGrowthWeight * localRatio + it * communityRatio).coerceIn(0.5, 2.5) 
+        }
+        communityWeights["emaFan"]?.let { 
+            featureWeights.emaFanWeight = (featureWeights.emaFanWeight * localRatio + it * communityRatio).coerceIn(0.5, 3.0) 
+        }
+        communityWeights["volLiqRatio"]?.let { 
+            featureWeights.volLiqRatioWeight = (featureWeights.volLiqRatioWeight * localRatio + it * communityRatio).coerceIn(0.3, 2.5) 
+        }
+        
+        saveState()
+        ErrorLogger.info("AdaptiveLearning", "☁️ Blended community weights (${(communityRatio*100).toInt()}% community from $communityTradeCount trades)")
+    }
 
     fun reset() {
         featureWeights = FeatureWeights()
