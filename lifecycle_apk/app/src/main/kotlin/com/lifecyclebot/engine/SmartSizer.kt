@@ -417,25 +417,39 @@ object SmartSizer {
         var cappedBy = "none"
 
         // ══════════════════════════════════════════════════════════════
-        // V5.6.8 CRITICAL FIX: HARD POSITION COUNT CAP FOR LIVE MODE
-        // Problem: Bot was opening many positions rapidly, draining $200 in 30 seconds
-        // Solution: Limit concurrent positions in LIVE mode based on wallet size
+        // V5.6.8 LIVE POSITION MANAGEMENT
+        // Strategy: Allow up to 25 concurrent positions for diversification,
+        // but scale down position sizes as more positions are opened.
+        // More positions = smaller size each = better risk distribution
         // ══════════════════════════════════════════════════════════════
+        val maxLivePositions = 25  // Allow up to 25 concurrent live positions
+        
         if (!isPaperMode) {
-            val maxLivePositions = when {
-                tradeable >= 50.0 -> 8   // Whale: max 8 positions
-                tradeable >= 20.0 -> 6   // Large: max 6 positions
-                tradeable >= 10.0 -> 5   // Medium: max 5 positions
-                tradeable >= 5.0  -> 4   // Small: max 4 positions
-                tradeable >= 2.0  -> 3   // Micro: max 3 positions
-                else              -> 2   // Very small: max 2 positions
-            }
-            
+            // Hard cap at 25 positions
             if (openPositionCount >= maxLivePositions) {
                 ErrorLogger.warn("SmartSizer", "⚠️ LIVE POSITION CAP: $openPositionCount >= $maxLivePositions max | Blocking new entry")
                 return SizeResult(0.0, tier, basePct, aiScoreMult, 1.0, 1.0, 1.0, treasuryMult, houseMoneyBonus,
                     "live_position_cap",
                     "Live mode: $openPositionCount/$maxLivePositions positions — waiting for exits before new entries")
+            }
+            
+            // Scale down size as positions increase (diversification scaling)
+            // 0-5 positions: 100% size
+            // 6-10 positions: 80% size
+            // 11-15 positions: 60% size
+            // 16-20 positions: 45% size
+            // 21-25 positions: 35% size
+            val positionScaleFactor = when {
+                openPositionCount <= 5  -> 1.00
+                openPositionCount <= 10 -> 0.80
+                openPositionCount <= 15 -> 0.60
+                openPositionCount <= 20 -> 0.45
+                else                    -> 0.35
+            }
+            
+            size *= positionScaleFactor
+            if (positionScaleFactor < 1.0) {
+                ErrorLogger.info("SmartSizer", "📊 DIVERSIFICATION SCALE: $openPositionCount positions → size × $positionScaleFactor")
             }
         }
 
