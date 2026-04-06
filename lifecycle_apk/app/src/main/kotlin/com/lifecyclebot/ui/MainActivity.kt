@@ -2979,9 +2979,7 @@ for legal compliance.
             // Get trade history stats
             val stats = com.lifecyclebot.engine.TradeHistoryStore.getStats()
             val totalTrades = stats.totalTrades
-            val winRate = if (stats.totalTrades > 0) {
-                (stats.wins.toDouble() / stats.totalTrades.toDouble() * 100.0)
-            } else 0.0
+            val winRate = stats.winRate  // Already a percentage 0-100
             
             // Determine phase based on trade count
             val phase = when {
@@ -3069,10 +3067,15 @@ for legal compliance.
             }
             
             // Hide card if in live mode (already trading live)
-            val cfg = com.lifecyclebot.engine.ConfigStore.load(applicationContext)
-            if (!cfg.paperMode) {
-                cardLiveReadiness.visibility = View.GONE
-            } else {
+            try {
+                val prefs = getSharedPreferences("bot_config", MODE_PRIVATE)
+                val isPaperMode = prefs.getBoolean("paperMode", true)
+                if (!isPaperMode) {
+                    cardLiveReadiness.visibility = View.GONE
+                } else {
+                    cardLiveReadiness.visibility = View.VISIBLE
+                }
+            } catch (_: Exception) {
                 cardLiveReadiness.visibility = View.VISIBLE
             }
             
