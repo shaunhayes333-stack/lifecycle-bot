@@ -183,6 +183,10 @@ object CashGenerationAI {
 
     fun setTradingMode(isPaper: Boolean) {
         if (isPaperMode != isPaper) {
+            // V5.6.11: When switching from PAPER to LIVE, transfer learned stats
+            if (!isPaper && isPaperMode) {
+                transferPaperLearningToLive()
+            }
             ErrorLogger.info(
                 TAG,
                 "💰 TREASURY MODE SWITCH: ${if (isPaper) "PAPER" else "LIVE"} | " +
@@ -190,6 +194,48 @@ object CashGenerationAI {
             )
         }
         isPaperMode = isPaper
+    }
+    
+    /**
+     * V5.6.11: Transfer paper learning stats to live mode
+     * This ensures LIVE mode starts with all the patterns learned in PAPER mode
+     */
+    private fun transferPaperLearningToLive() {
+        try {
+            // Transfer win streak if paper had a positive streak
+            val paperStreak = paperWinStreak.get()
+            if (paperStreak > liveWinStreak.get()) {
+                liveWinStreak.set(paperStreak)
+                ErrorLogger.info(TAG, "💰 TRANSFER: Win streak $paperStreak from PAPER to LIVE")
+            }
+            
+            // Transfer daily PnL if paper was profitable today
+            val paperPnl = paperDailyPnlSolBps.get()
+            if (paperPnl > 0 && liveDailyPnlSolBps.get() == 0L) {
+                // Only transfer if live hasn't started trading yet today
+                liveDailyPnlSolBps.set(paperPnl)
+                ErrorLogger.info(TAG, "💰 TRANSFER: Daily PnL ${paperPnl/100.0} SOL from PAPER to LIVE")
+            }
+            
+            // Transfer daily wins/losses counts
+            if (liveDailyWins.get() == 0 && liveDailyLosses.get() == 0) {
+                liveDailyWins.set(paperDailyWins.get())
+                liveDailyLosses.set(paperDailyLosses.get())
+                liveDailyTradeCount.set(paperDailyTradeCount.get())
+                ErrorLogger.info(TAG, "💰 TRANSFER: Daily stats W=${paperDailyWins.get()} L=${paperDailyLosses.get()} from PAPER to LIVE")
+            }
+            
+            // Transfer treasury balance learning (the compounded gains)
+            val paperBalance = paperTreasuryBalanceBps.get()
+            if (paperBalance > liveTreasuryBalanceBps.get()) {
+                liveTreasuryBalanceBps.set(paperBalance)
+                ErrorLogger.info(TAG, "💰 TRANSFER: Treasury balance ${paperBalance/100.0} SOL from PAPER to LIVE")
+            }
+            
+            ErrorLogger.info(TAG, "💰 PAPER→LIVE TRANSFER COMPLETE: All learned patterns will apply to LIVE trades")
+        } catch (e: Exception) {
+            ErrorLogger.error(TAG, "💰 TRANSFER ERROR: ${e.message}")
+        }
     }
     
     // V5.6.6: Update wallet balance for proper position scaling
