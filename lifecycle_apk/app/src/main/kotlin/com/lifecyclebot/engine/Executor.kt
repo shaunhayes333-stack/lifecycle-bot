@@ -3155,6 +3155,13 @@ class Executor(
         // V5.2: Register position in EmergentGuardrails for multi-layer tracking
         EmergentGuardrails.registerPosition(tradeId.mint, tradeId.symbol, currentLayer, actualSol)
         
+        // V5.6.9: Persist position immediately after buy for crash recovery
+        try {
+            PositionPersistence.savePosition(ts)
+        } catch (e: Exception) {
+            ErrorLogger.debug("Executor", "Position persistence save error: ${e.message}")
+        }
+        
         // V8: Transition to MONITOR state (use identity.mint)
         TradeStateMachine.setState(tradeId.mint, TradeState.MONITOR, "position opened")
         
@@ -3797,6 +3804,15 @@ class Executor(
             
             // V5.2: Register position in EmergentGuardrails for multi-layer tracking
             EmergentGuardrails.registerPosition(tradeId.mint, tradeId.symbol, currentLayer, sol)
+            
+            // V5.6.9: Persist position immediately after LIVE buy for crash recovery
+            // CRITICAL: Live positions must be persisted to avoid losing real money
+            try {
+                PositionPersistence.savePosition(ts)
+                ErrorLogger.info("Executor", "💾 LIVE position persisted: ${ts.symbol}")
+            } catch (e: Exception) {
+                ErrorLogger.error("Executor", "💾 CRITICAL: Failed to persist LIVE position: ${e.message}", e)
+            }
             
             // 🎵 Homer Simpson "Woohoo!"
             sounds?.playBuySound()
@@ -5016,6 +5032,14 @@ class Executor(
         ts.lastExitPrice    = price
         ts.lastExitPnlPct   = pnlP
         ts.lastExitWasWin   = pnlP > 2.0  // Only clear wins, not scratch trades
+        
+        // V5.6.9: Remove position from persistence AFTER position is reset
+        // This ensures isOpen=false when we save, so the position is removed
+        try {
+            PositionPersistence.savePosition(ts)  // Will remove since isOpen=false now
+        } catch (e: Exception) {
+            ErrorLogger.debug("Executor", "Position persistence removal error: ${e.message}")
+        }
 
         // Notify shadow learning engine - but skip scratch trades
         if (!isScratchTrade) {
@@ -5889,6 +5913,15 @@ class Executor(
         ts.lastExitPrice    = exitPrice
         ts.lastExitPnlPct   = pnlP
         ts.lastExitWasWin   = pnl > 0
+        
+        // V5.6.9: Remove position from persistence AFTER position is reset
+        // CRITICAL: This ensures isOpen=false when we save, so the position is removed
+        try {
+            PositionPersistence.savePosition(ts)  // Will remove since isOpen=false now
+            ErrorLogger.info("Executor", "💾 LIVE position removed from persistence: ${ts.symbol}")
+        } catch (e: Exception) {
+            ErrorLogger.error("Executor", "💾 Position persistence removal error: ${e.message}", e)
+        }
         
         // ═══════════════════════════════════════════════════════════════════
         // V5.2 FIX: Close ALL layer-specific positions and release locks (LIVE)

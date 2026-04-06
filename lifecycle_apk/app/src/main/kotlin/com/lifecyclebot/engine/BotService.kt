@@ -193,6 +193,19 @@ class BotService : Service() {
             ErrorLogger.debug("BotService", "ML Engine init error: ${e.message}")
         }
         
+        // V5.6.9: Initialize Position Persistence for crash recovery
+        try {
+            PositionPersistence.init(applicationContext)
+            val persistedCount = PositionPersistence.getPersistedCount()
+            if (persistedCount > 0) {
+                ErrorLogger.info("BotService", "💾 Position Persistence initialized | $persistedCount positions saved")
+            } else {
+                ErrorLogger.info("BotService", "💾 Position Persistence initialized | No saved positions")
+            }
+        } catch (e: Exception) {
+            ErrorLogger.error("BotService", "Position Persistence init error: ${e.message}", e)
+        }
+        
         } catch (e: Exception) {
             ErrorLogger.crash("BotService", "onCreate CRASH: ${e.javaClass.simpleName}: ${e.message}", e)
             android.util.Log.e("BotService", "onCreate CRASH: ${e.javaClass.simpleName}: ${e.message}", e)
@@ -286,6 +299,16 @@ class BotService : Service() {
             ErrorLogger.info("BotService", "💾 EdgeLearning saved before destroy")
         } catch (e: Exception) {
             ErrorLogger.error("BotService", "Failed to save EdgeLearning: ${e.message}", e)
+        }
+        
+        // V5.6.9: Save open positions before shutdown for crash recovery
+        try {
+            val tokensCopy = synchronized(status.tokens) { status.tokens.toMap() }
+            PositionPersistence.saveAllPositions(tokensCopy, force = true)
+            val savedCount = PositionPersistence.getPersistedCount()
+            ErrorLogger.info("BotService", "💾 Position Persistence: Saved $savedCount positions before destroy")
+        } catch (e: Exception) {
+            ErrorLogger.error("BotService", "Failed to save positions: ${e.message}", e)
         }
         
         // Save Entry Intelligence AI before shutdown
@@ -557,6 +580,38 @@ class BotService : Service() {
                 }
             } else {
                 addLog("Paper mode — skipping on-chain reconciliation")
+            }
+            
+            // ═══════════════════════════════════════════════════════════════════
+            // V5.6.9: RESTORE PERSISTED POSITIONS ON BOT START
+            // 
+            // This recovers positions that were lost when the app was killed.
+            // CRITICAL: Must happen BEFORE botLoop() starts to avoid duplicate entries.
+            // ═══════════════════════════════════════════════════════════════════
+            try {
+                val tokensCopy = synchronized(status.tokens) { status.tokens.toMutableMap() }
+                val restoredCount = PositionPersistence.restorePositions(tokensCopy)
+                if (restoredCount > 0) {
+                    // Copy restored tokens back to status
+                    synchronized(status.tokens) {
+                        tokensCopy.forEach { (mint, ts) ->
+                            if (!status.tokens.containsKey(mint)) {
+                                status.tokens[mint] = ts
+                            } else if (ts.position.isOpen && !status.tokens[mint]!!.position.isOpen) {
+                                // Restored position for existing token
+                                status.tokens[mint]!!.position = ts.position
+                            }
+                        }
+                    }
+                    addLog("💾 RESTORED $restoredCount position(s) from persistence")
+                    sendTradeNotif("Positions Restored", 
+                        "$restoredCount position(s) recovered after restart",
+                        NotificationHistory.NotifEntry.NotifType.INFO)
+                    ErrorLogger.info("BotService", "💾 Restored $restoredCount positions from persistence")
+                }
+            } catch (e: Exception) {
+                ErrorLogger.error("BotService", "Failed to restore positions: ${e.message}", e)
+                addLog("⚠️ Position restore failed: ${e.message}")
             }
 
         addLog("✓ Starting bot loop...")
@@ -2709,6 +2764,21 @@ if (deferredCount > 0) {
             if (tradeCount % 5 == 0 && status.running) {
                 try { SessionStore.save(applicationContext, cfg.paperMode) } catch (_: Exception) {}
             }
+            
+            // ═══════════════════════════════════════════════════════════════════
+            // V5.6.9: PERIODIC POSITION PERSISTENCE
+            // Save open positions every 6 loops (~30 seconds) for crash recovery
+            // This ensures we don't lose positions if Android kills the app
+            // ═══════════════════════════════════════════════════════════════════
+            if (loopCount % 6 == 0) {
+                try {
+                    val tokensCopy = synchronized(status.tokens) { status.tokens.toMap() }
+                    PositionPersistence.saveAllPositions(tokensCopy)
+                } catch (e: Exception) {
+                    ErrorLogger.debug("BotService", "Position persistence save error: ${e.message}")
+                }
+            }
+            
             delay(cfg.pollSeconds * 1000L)
           } catch (e: Exception) {
             // Catch any crash in the main loop and log it
