@@ -718,13 +718,27 @@ object CollectiveLearning {
         try {
             val oneDayAgo = System.currentTimeMillis() - (24 * 60 * 60 * 1000L)
             
+            // V5.6.11: First try counting all distinct instance_ids (no time filter for debugging)
+            val totalResult = client!!.query(
+                "SELECT COUNT(DISTINCT instance_id) as total, COUNT(*) as trades FROM collective_trades"
+            )
+            
+            if (totalResult.success && totalResult.rows.isNotEmpty()) {
+                val totalUsers = (totalResult.rows[0]["total"] as? Number)?.toInt() ?: 0
+                val totalTrades = (totalResult.rows[0]["trades"] as? Number)?.toInt() ?: 0
+                Log.d(TAG, "📊 TOTAL in collective_trades: $totalUsers users, $totalTrades trades")
+            }
+            
+            // Now try with time filter
             val result = client!!.query(
                 "SELECT COUNT(DISTINCT instance_id) as count FROM collective_trades WHERE timestamp > ?",
                 listOf(oneDayAgo)
             )
             
             if (result.success && result.rows.isNotEmpty()) {
-                return (result.rows[0]["count"] as? Number)?.toInt()?.coerceAtLeast(1) ?: 1
+                val count = (result.rows[0]["count"] as? Number)?.toInt()?.coerceAtLeast(1) ?: 1
+                Log.d(TAG, "📊 Active users (24h): $count")
+                return count
             }
         } catch (e: Exception) {
             Log.w(TAG, "getActiveUsersCount error: ${e.message}")
