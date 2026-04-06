@@ -688,173 +688,103 @@ class Executor(
         // Trail adjustment after partial sells
         // After taking profits, we can be slightly looser (not tighter!) since we've secured gains
         val partialFactor = when {
-            pos.partialSoldPct >= 50.0 -> 0.90   // Sold 50%+ → slightly tighter (was 0.40!)
-            pos.partialSoldPct >= 25.0 -> 0.95   // Sold 25%+ → barely tighter (was 0.55!)
+            pos.partialSoldPct >= 50.0 -> 0.90
+            pos.partialSoldPct >= 25.0 -> 0.95
             else                       -> 1.0
         }
         
         // ═══════════════════════════════════════════════════════════════════
         // HOUSE MONEY MULTIPLIER — After capital recovered, we can be MUCH looser
-        // This is the key insight: if we've already secured our initial investment,
-        // the remaining position is "free" — we can let it ride with very loose stops
         // ═══════════════════════════════════════════════════════════════════
         val houseMoneyMultiplier = when {
-            pos.profitLocked -> 1.8    // Both capital AND profits locked → very loose
-            pos.isHouseMoney -> 1.5    // Capital recovered → looser (playing with house money)
-            pos.capitalRecovered -> 1.4  // Capital partially recovered
-            else -> 1.0                 // Normal — our money is at risk
+            pos.profitLocked -> 1.8
+            pos.isHouseMoney -> 1.5
+            pos.capitalRecovered -> 1.4
+            else -> 1.0
         }
-        
-        // ═══════════════════════════════════════════════════════════════════
-        // V5: SMART TRAIL MULTIPLIER based on trend health
-        // ═══════════════════════════════════════════════════════════════════
-        // 
-        // If the trend is healthy (EMA fan, volume, pressure), we want LOOSER
-        // trails to capture more of the move. If trend is weakening, tighten.
-        //
-        // Multiplier > 1.0 = looser trail (let it run)
-        // Multiplier < 1.0 = tighter trail (protect gains)
         
         var healthMultiplier = 1.0
         
-        // EMA Fan Health - MOST IMPORTANT for runners
-        // Widening bull fan = strong trend, give it room
         when {
             emaFanAlignment == "BULL_FAN" && emaFanWidening -> {
-                healthMultiplier += 0.35  // Very loose - let it RUN
+                healthMultiplier += 0.35
             }
             emaFanAlignment == "BULL_FAN" -> {
-                healthMultiplier += 0.20  // Loose
+                healthMultiplier += 0.20
             }
             emaFanAlignment == "BULL_FLAT" -> {
-                healthMultiplier += 0.10  // Slightly loose
+                healthMultiplier += 0.10
             }
             emaFanAlignment == "BEAR_FLAT" -> {
-                healthMultiplier -= 0.15  // Tighten - trend weakening
+                healthMultiplier -= 0.15
             }
             emaFanAlignment == "BEAR_FAN" -> {
-                healthMultiplier -= 0.30  // Very tight - trend broken
+                healthMultiplier -= 0.30
             }
         }
         
-        // Volume Score - High volume supports the move
         when {
             volScore >= 70 -> healthMultiplier += 0.15
             volScore >= 55 -> healthMultiplier += 0.08
-            volScore < 35  -> healthMultiplier -= 0.12  // Volume dying
-            volScore < 25  -> healthMultiplier -= 0.20  // No volume = exit soon
+            volScore < 35  -> healthMultiplier -= 0.12
+            volScore < 25  -> healthMultiplier -= 0.20
         }
         
-        // Buy Pressure - Strong buyers = trend continuing
         when {
             pressScore >= 65 -> healthMultiplier += 0.12
             pressScore >= 55 -> healthMultiplier += 0.05
-            pressScore < 40  -> healthMultiplier -= 0.15  // Sellers taking over
-            pressScore < 30  -> healthMultiplier -= 0.25  // Heavy selling
+            pressScore < 40  -> healthMultiplier -= 0.15
+            pressScore < 30  -> healthMultiplier -= 0.25
         }
         
-        // Exhaustion = immediate tightening
         if (exhaust) {
             healthMultiplier -= 0.30
         }
         
-        // V5.9: Clamp multiplier — raise floor from 0.5→0.70.
-        // With BEAR_FAN (-0.30) + low vol (-0.20) + low pressure (-0.15) + exhaust (-0.30),
-        // the old 0.5 floor let trails tighten to 4.8% of peak, causing -2% exits
-        // after a 5% pump. 0.70 minimum still tightens bearish trails but not dangerously.
         healthMultiplier = healthMultiplier.coerceIn(0.70, 1.6)
         
-        // ═══════════════════════════════════════════════════════════════════
-        // LEARNING LAYER INFLUENCE ON TRAILING STOP
-        // 
-        // ExitIntelligence learns optimal trailing stop distance.
-        // If we have enough exits (20+), blend learned value with base.
-        // ═══════════════════════════════════════════════════════════════════
         val learnedTrailInfluence = if (ExitIntelligence.getTotalExits() >= 20) {
             val learnedStop = ExitIntelligence.getLearnedTrailingStopDistance()
-            // If learned stop is larger than base, use it (AI learned to hold longer)
-            // Scale: learned 5% default, if AI learned 8% → multiplier = 1.6
             (learnedStop / 5.0).coerceIn(0.8, 2.0)
-        } else 1.0  // Not enough data, use default
-        
-        // ═══════════════════════════════════════════════════════════════════
-        // Base trail calculation with health adjustment
-        // 
-        // MOONSHOT SCALING: Real runners do 10,000,000%+ (SHIB, PEPE, etc.)
-        // We need VERY loose trails to capture these generational moves.
-        // 
-        // The key insight: Once you're up 100x+, a 30% pullback is NOISE.
-        // You don't want to exit a 10,000x winner because of a 20% dip.
-        // 
-        // TRAIL MULTIPLIERS (higher = looser trail = more room to run):
-        // ═══════════════════════════════════════════════════════════════════
+        } else 1.0
         
         val baseTrail = when {
-            // ════════════════════════════════════════════════════════════════
-            // GENERATIONAL WEALTH TERRITORY (1000x+)
-            // A 50% pullback on a 10,000x is still 5,000x profit!
-            // ════════════════════════════════════════════════════════════════
-            gainPct >= 1000000  -> base * 8.0   // 10,000x+ → 8x base (120% trail if base=15%)
-            gainPct >= 100000   -> base * 6.0   // 1,000x+ → 6x base (90% trail)
-            gainPct >= 10000    -> base * 5.0   // 100x+ → 5x base (75% trail)
-            
-            // ════════════════════════════════════════════════════════════════
-            // MOONSHOT TERRITORY (10x-100x)
-            // These are life-changing. Don't exit on minor pullbacks.
-            // ════════════════════════════════════════════════════════════════
-            gainPct >= 5000     -> base * 4.0   // 50x+ → 4x base (60% trail)
-            gainPct >= 2000     -> base * 3.5   // 20x+ → 3.5x base (52.5% trail)
-            gainPct >= 1000     -> base * 3.0   // 10x+ → 3x base (45% trail)
-            
-            // ════════════════════════════════════════════════════════════════
-            // STRONG RUNNER (2x-10x)
-            // Great trades but not yet moonshot. Still give room.
-            // ════════════════════════════════════════════════════════════════
-            gainPct >= 500      -> base * 2.5   // 5x+ → 2.5x base (37.5% trail)
-            gainPct >= 300      -> base * 2.0   // 3x+ → 2x base (30% trail)
-            gainPct >= 200      -> base * 1.7   // 2x+ → 1.7x base (25.5% trail)
-            gainPct >= 100      -> base * 1.5   // 100%+ → 1.5x base (22.5% trail)
-            
-            // ════════════════════════════════════════════════════════════════
-            // NORMAL PROFITS (0-2x)
-            // Standard trailing - protect these gains normally.
-            // ════════════════════════════════════════════════════════════════
-            gainPct >= 50       -> base * 1.2   // 50%+ → 1.2x base (18% trail)
-            gainPct >= 30       -> base * 1.0   // 30%+ → standard base
-            else                -> base * 0.85  // <30% → slightly tighter
+            gainPct >= 1000000  -> base * 8.0
+            gainPct >= 100000   -> base * 6.0
+            gainPct >= 10000    -> base * 5.0
+            gainPct >= 5000     -> base * 4.0
+            gainPct >= 2000     -> base * 3.5
+            gainPct >= 1000     -> base * 3.0
+            gainPct >= 500      -> base * 2.5
+            gainPct >= 300      -> base * 2.0
+            gainPct >= 200      -> base * 1.7
+            gainPct >= 100      -> base * 1.5
+            gainPct >= 50       -> base * 1.2
+            gainPct >= 30       -> base * 1.0
+            else                -> base * 0.85
         }
         
-        // Apply health multiplier - healthy trend = looser trail
-        // Also apply learning influence from ExitIntelligence
-        // House money multiplier allows looser stops when capital is secured
         var smartTrail = baseTrail * healthMultiplier * partialFactor * learnedTrailInfluence * houseMoneyMultiplier
         
-        // ═══════════════════════════════════════════════════════════════════
-        // MARKET REGIME AI INFLUENCE ON TRAILING STOP
-        // 
-        // Bull market = can hold looser (more room for gains)
-        // Bear market = tighter stops (protect gains)
-        // ═══════════════════════════════════════════════════════════════════
         val regimeTrailMult = try {
             val regime = MarketRegimeAI.getCurrentRegime()
             val confidence = MarketRegimeAI.getRegimeConfidence()
             
             if (confidence >= 40.0) {
                 when (regime) {
-                    MarketRegimeAI.Regime.STRONG_BULL -> 1.2    // Very bullish: 20% looser trails
-                    MarketRegimeAI.Regime.BULL -> 1.1           // Bullish: 10% looser
-                    MarketRegimeAI.Regime.NEUTRAL -> 1.0        // Neutral
-                    MarketRegimeAI.Regime.CRAB -> 0.95          // Choppy: 5% tighter
-                    MarketRegimeAI.Regime.BEAR -> 0.85          // Bearish: 15% tighter
-                    MarketRegimeAI.Regime.STRONG_BEAR -> 0.75   // Very bearish: 25% tighter
-                    MarketRegimeAI.Regime.HIGH_VOLATILITY -> 0.9 // Volatile: 10% tighter
+                    MarketRegimeAI.Regime.STRONG_BULL -> 1.2
+                    MarketRegimeAI.Regime.BULL -> 1.1
+                    MarketRegimeAI.Regime.NEUTRAL -> 1.0
+                    MarketRegimeAI.Regime.CRAB -> 0.95
+                    MarketRegimeAI.Regime.BEAR -> 0.85
+                    MarketRegimeAI.Regime.STRONG_BEAR -> 0.75
+                    MarketRegimeAI.Regime.HIGH_VOLATILITY -> 0.9
                 }
             } else 1.0
         } catch (_: Exception) { 1.0 }
         
         smartTrail *= regimeTrailMult
         
-        // Log significant adjustments for runners (>100% gain)
         if (gainPct >= 100.0 && (healthMultiplier != 1.0 || learnedTrailInfluence != 1.0 || regimeTrailMult != 1.0)) {
             val direction = if (healthMultiplier > 1.0) "LOOSE" else "TIGHT"
             val regimeLabel = try { MarketRegimeAI.getCurrentRegime().label } catch (_: Exception) { "?" }
@@ -870,10 +800,6 @@ class Executor(
         return pos.highestPrice * (1.0 - smartTrail / 100.0)
     }
     
-    /**
-     * Backward-compatible version for calls without trend signals.
-     * Uses basic gain-based trailing.
-     */
     fun trailingFloorBasic(pos: Position, current: Double,
                             modeConf: AutoModeEngine.ModeConfig? = null): Double {
         return trailingFloor(pos, current, modeConf)
@@ -881,190 +807,116 @@ class Executor(
 
     // ── profit lock system ─────────────────────────────────────────────
     
-    /**
-     * DYNAMIC PROFIT LOCK SYSTEM — Secure capital first, then let house money ride
-     * ═══════════════════════════════════════════════════════════════════════════
-     * 
-     * The problem with wide trailing stops on moonshots:
-     * - 75% drawdown at 100x means watching $10K drop to $2.5K
-     * - Psychologically devastating, mathematically stupid
-     * 
-     * SOLUTION: Lock profits in stages, then let remainder ride freely
-     * 
-     * DYNAMIC THRESHOLDS based on:
-     * - Liquidity: Low liq = lock earlier (more rug risk)
-     * - Market cap: Low mcap = lock earlier (more volatile)
-     * - Volatility: High vol = lock earlier (faster moves)
-     * - Entry phase: Early entries = lock earlier (riskier)
-     * 
-     * BASE LEVELS:
-     *   Stage 1: CAPITAL RECOVERY at 2x (+100%)
-     *   Stage 2: PROFIT LOCK at 5x (+400%)
-     * 
-     * ADJUSTED LEVELS (example for low-liq early entry):
-     *   Stage 1: CAPITAL RECOVERY at 1.5x (+50%)
-     *   Stage 2: PROFIT LOCK at 3x (+200%)
-     */
-    
-    /**
-     * Calculate dynamic profit lock thresholds based on token characteristics
-     * AND treasury/scaling tier integration
-     */
     private fun calculateProfitLockThresholds(ts: TokenState): Pair<Double, Double> {
         val pos = ts.position
         
-        // Base thresholds
-        var capitalRecoveryMultiple = 2.0  // 2x = +100%
-        var profitLockMultiple = 5.0       // 5x = +400%
+        var capitalRecoveryMultiple = 2.0
+        var profitLockMultiple = 5.0
         
-        // ════════════════════════════════════════════════════════════════
-        // SCALING TIER ADJUSTMENT — Higher tiers = can let positions run longer
-        // Treasury-backed positions have more room to breathe
-        // ════════════════════════════════════════════════════════════════
         val treasuryTierAdjustment = try {
             val solPrice = WalletManager.lastKnownSolPrice
             val treasuryUsd = TreasuryManager.treasurySol * solPrice
             val tier = ScalingMode.activeTier(treasuryUsd)
             
             when (tier) {
-                // Higher treasury = more cushion = can wait longer for moonshots
-                ScalingMode.Tier.INSTITUTIONAL -> 1.40  // Lock at 2.8x, 7x (patient capital)
-                ScalingMode.Tier.SCALED        -> 1.25  // Lock at 2.5x, 6.25x
-                ScalingMode.Tier.GROWTH        -> 1.15  // Lock at 2.3x, 5.75x
-                ScalingMode.Tier.STANDARD      -> 1.05  // Lock at 2.1x, 5.25x
-                ScalingMode.Tier.MICRO         -> 1.00  // Base thresholds (capital preservation critical)
+                ScalingMode.Tier.INSTITUTIONAL -> 1.40
+                ScalingMode.Tier.SCALED        -> 1.25
+                ScalingMode.Tier.GROWTH        -> 1.15
+                ScalingMode.Tier.STANDARD      -> 1.05
+                ScalingMode.Tier.MICRO         -> 1.00
             }
         } catch (_: Exception) { 1.0 }
         
-        // ════════════════════════════════════════════════════════════════
-        // FACTOR 1: LIQUIDITY — Lower liquidity = lock earlier
-        // ════════════════════════════════════════════════════════════════
         val liqUsd = ts.lastLiquidityUsd
         val liqAdjustment = when {
-            liqUsd < 5_000   -> 0.70   // Very low liq: lock at 70% of base (1.4x, 3.5x)
-            liqUsd < 10_000  -> 0.80   // Low liq: lock at 80% of base (1.6x, 4x)
-            liqUsd < 25_000  -> 0.90   // Medium liq: lock at 90% of base
-            liqUsd < 50_000  -> 1.00   // Standard liq: base thresholds
-            liqUsd < 100_000 -> 1.10   // Good liq: can wait a bit longer
-            else             -> 1.20   // High liq: more room to ride (2.4x, 6x)
+            liqUsd < 5_000   -> 0.70
+            liqUsd < 10_000  -> 0.80
+            liqUsd < 25_000  -> 0.90
+            liqUsd < 50_000  -> 1.00
+            liqUsd < 100_000 -> 1.10
+            else             -> 1.20
         }
         
-        // ════════════════════════════════════════════════════════════════
-        // FACTOR 2: MARKET CAP — Lower mcap = lock earlier (more volatile)
-        // ════════════════════════════════════════════════════════════════
         val mcap = ts.lastMcap
         val mcapAdjustment = when {
-            mcap < 50_000    -> 0.75   // Micro cap: very aggressive locking
-            mcap < 100_000   -> 0.85   // Small cap: aggressive locking
-            mcap < 250_000   -> 0.95   // Medium cap: slightly earlier
-            mcap < 500_000   -> 1.00   // Standard: base thresholds
-            mcap < 1_000_000 -> 1.10   // Larger: more room
-            else             -> 1.20   // Big cap: let it ride longer
+            mcap < 50_000    -> 0.75
+            mcap < 100_000   -> 0.85
+            mcap < 250_000   -> 0.95
+            mcap < 500_000   -> 1.00
+            mcap < 1_000_000 -> 1.10
+            else             -> 1.20
         }
         
-        // ════════════════════════════════════════════════════════════════
-        // FACTOR 3: VOLATILITY — Higher volatility = lock earlier
-        // ════════════════════════════════════════════════════════════════
-        val volatility = ts.meta.rangePct  // Recent price range %
+        val volatility = ts.meta.rangePct
         val volAdjustment = when {
-            volatility > 50  -> 0.70   // Extreme volatility: lock fast
-            volatility > 30  -> 0.80   // High volatility
-            volatility > 20  -> 0.90   // Medium volatility
-            volatility > 10  -> 1.00   // Normal volatility
-            else             -> 1.10   // Low volatility: can wait
+            volatility > 50  -> 0.70
+            volatility > 30  -> 0.80
+            volatility > 20  -> 0.90
+            volatility > 10  -> 1.00
+            else             -> 1.10
         }
         
-        // ════════════════════════════════════════════════════════════════
-        // FACTOR 4: ENTRY PHASE — Earlier entries = lock earlier (riskier)
-        // ════════════════════════════════════════════════════════════════
         val entryPhase = pos.entryPhase.lowercase()
         val phaseAdjustment = when {
-            entryPhase.contains("early") || entryPhase.contains("accumulation") -> 0.80  // Early = risky
-            entryPhase.contains("pre_pump") -> 0.85   // Pre-pump = somewhat risky
-            entryPhase.contains("markup") || entryPhase.contains("breakout") -> 1.00  // Breakout = confirmed
-            entryPhase.contains("momentum") -> 1.05   // Momentum = riding trend
-            entryPhase.contains("distribution") -> 0.70  // Distribution = get out fast!
-            else -> 0.90  // Unknown = conservative
+            entryPhase.contains("early") || entryPhase.contains("accumulation") -> 0.80
+            entryPhase.contains("pre_pump") -> 0.85
+            entryPhase.contains("markup") || entryPhase.contains("breakout") -> 1.00
+            entryPhase.contains("momentum") -> 1.05
+            entryPhase.contains("distribution") -> 0.70
+            else -> 0.90
         }
         
-        // ════════════════════════════════════════════════════════════════
-        // FACTOR 5: ENTRY QUALITY — Lower quality = lock earlier
-        // ════════════════════════════════════════════════════════════════
         val qualityAdjustment = when {
-            pos.entryScore >= 80 -> 1.15   // A+ quality: trust the setup
-            pos.entryScore >= 70 -> 1.05   // A quality: good setup
-            pos.entryScore >= 60 -> 1.00   // B quality: standard
-            pos.entryScore >= 50 -> 0.90   // C quality: be careful
-            else -> 0.80                    // D quality: lock fast
+            pos.entryScore >= 80 -> 1.15
+            pos.entryScore >= 70 -> 1.05
+            pos.entryScore >= 60 -> 1.00
+            pos.entryScore >= 50 -> 0.90
+            else -> 0.80
         }
         
-        // ════════════════════════════════════════════════════════════════
-        // FACTOR 6: TOKEN TIER — Match scaling mode for the token
-        // Higher tier tokens have more established liquidity = safer to hold
-        // ════════════════════════════════════════════════════════════════
         val tokenTier = ScalingMode.tierForToken(ts.lastLiquidityUsd, ts.lastMcap)
         val tokenTierAdjustment = when (tokenTier) {
-            ScalingMode.Tier.INSTITUTIONAL -> 1.30  // Blue chips: let them run
-            ScalingMode.Tier.SCALED        -> 1.20  // Mid caps: good room
-            ScalingMode.Tier.GROWTH        -> 1.10  // Growth: some room
-            ScalingMode.Tier.STANDARD      -> 1.00  // Standard: base
-            ScalingMode.Tier.MICRO         -> 0.85  // Micro: lock earlier (rug risk)
+            ScalingMode.Tier.INSTITUTIONAL -> 1.30
+            ScalingMode.Tier.SCALED        -> 1.20
+            ScalingMode.Tier.GROWTH        -> 1.10
+            ScalingMode.Tier.STANDARD      -> 1.00
+            ScalingMode.Tier.MICRO         -> 0.85
         }
         
-        // ════════════════════════════════════════════════════════════════
-        // FACTOR 7: TIME IN TRADE — Critical for distinguishing pumps vs organic
-        // +200% in 30 seconds = pump & dump, lock IMMEDIATELY
-        // +200% in 20 minutes = organic growth, can be patient
-        // ════════════════════════════════════════════════════════════════
         val holdTimeMs = System.currentTimeMillis() - pos.entryTime
         val holdTimeMinutes = holdTimeMs / 60_000.0
         
-        // Calculate gain velocity: how fast did we reach current gain?
-        // CRITICAL FIX: Use actual price, not market cap
         val actualPrice = getActualPrice(ts)
         val currentValue = pos.qtyToken * actualPrice
         val gainMultiple = if (pos.costSol > 0) currentValue / pos.costSol else 1.0
         val gainPctPerMinute = if (holdTimeMinutes > 0) {
             ((gainMultiple - 1.0) * 100.0) / holdTimeMinutes
         } else {
-            100.0  // Instant gain = treat as very fast
+            100.0
         }
         
         val timeAdjustment = when {
-            // ULTRA FAST GAINS — Almost certainly a pump, lock immediately
-            holdTimeMinutes < 0.5 && gainMultiple >= 1.5 -> 0.50   // <30 sec @ 1.5x+ = LOCK NOW
-            holdTimeMinutes < 1.0 && gainMultiple >= 2.0 -> 0.55   // <1 min @ 2x+ = very aggressive
-            holdTimeMinutes < 2.0 && gainMultiple >= 2.0 -> 0.65   // <2 min @ 2x+ = aggressive
-            
-            // FAST GAINS — Suspicious velocity, lock earlier
-            gainPctPerMinute > 50  -> 0.60   // >50% gain per minute = pump territory
-            gainPctPerMinute > 25  -> 0.70   // >25% per minute = fast
-            gainPctPerMinute > 10  -> 0.85   // >10% per minute = somewhat fast
-            
-            // MODERATE PACE — Normal trading
-            holdTimeMinutes < 5    -> 0.90   // <5 min hold, slightly cautious
-            holdTimeMinutes < 10   -> 1.00   // 5-10 min, standard
-            holdTimeMinutes < 30   -> 1.10   // 10-30 min, established position
-            
-            // SLOW & STEADY — Organic growth, patient
-            holdTimeMinutes < 60   -> 1.20   // 30-60 min, very established
-            holdTimeMinutes < 120  -> 1.30   // 1-2 hours, strong conviction
-            else                   -> 1.40   // 2+ hours, maximum patience
+            holdTimeMinutes < 0.5 && gainMultiple >= 1.5 -> 0.50
+            holdTimeMinutes < 1.0 && gainMultiple >= 2.0 -> 0.55
+            holdTimeMinutes < 2.0 && gainMultiple >= 2.0 -> 0.65
+            gainPctPerMinute > 50  -> 0.60
+            gainPctPerMinute > 25  -> 0.70
+            gainPctPerMinute > 10  -> 0.85
+            holdTimeMinutes < 5    -> 0.90
+            holdTimeMinutes < 10   -> 1.00
+            holdTimeMinutes < 30   -> 1.10
+            holdTimeMinutes < 60   -> 1.20
+            holdTimeMinutes < 120  -> 1.30
+            else                   -> 1.40
         }
         
-        // ════════════════════════════════════════════════════════════════
-        // COMBINE ALL FACTORS (now 8 factors)
-        // Use geometric mean for balanced adjustment
-        // Include treasury tier to reward building treasury
-        // ════════════════════════════════════════════════════════════════
         val product = liqAdjustment * mcapAdjustment * volAdjustment * phaseAdjustment * 
             qualityAdjustment * tokenTierAdjustment * treasuryTierAdjustment * timeAdjustment
-        val combinedAdjustment = product.pow(1.0 / 8.0).coerceIn(0.5, 1.8)  // 8th root, capped 50%-180%
+        val combinedAdjustment = product.pow(1.0 / 8.0).coerceIn(0.5, 1.8)
         
         capitalRecoveryMultiple *= combinedAdjustment
         profitLockMultiple *= combinedAdjustment
         
-        // Ensure minimum thresholds (don't lock below 1.3x for capital, 2.5x for profit)
         capitalRecoveryMultiple = capitalRecoveryMultiple.coerceIn(1.3, 4.0)
         profitLockMultiple = profitLockMultiple.coerceIn(2.5, 10.0)
         
@@ -1076,25 +928,17 @@ class Executor(
         val pos = ts.position
         if (!pos.isOpen) return false
         
-        // CRITICAL FIX: Use actual price, not market cap
         val actualPrice = getActualPrice(ts)
         val currentValue = pos.qtyToken * actualPrice
-        val gainMultiple = currentValue / pos.costSol  // 2.0 = 2x, 5.0 = 5x
+        val gainMultiple = currentValue / pos.costSol
         val gainPct = (gainMultiple - 1.0) * 100.0
         
-        // Get dynamic thresholds based on token characteristics
         val (capitalRecoveryThreshold, profitLockThreshold) = calculateProfitLockThresholds(ts)
         
-        // ════════════════════════════════════════════════════════════════
-        // STAGE 1: CAPITAL RECOVERY (dynamic threshold)
-        // Sell enough to get back initial investment
-        // ════════════════════════════════════════════════════════════════
         if (!pos.capitalRecovered && gainMultiple >= capitalRecoveryThreshold) {
-            // Calculate how much to sell to recover initial capital
-            // At 2x: sell 50%. At 1.5x: sell 66%. At 3x: sell 33%
             val sellFraction = (1.0 / gainMultiple).coerceIn(0.25, 0.70)
             val sellQty = pos.qtyToken * sellFraction
-            val sellSol = sellQty * actualPrice  // CRITICAL FIX: Use actual price
+            val sellSol = sellQty * actualPrice
             
             onLog("🔒 CAPITAL RECOVERY: ${ts.symbol} @ ${gainMultiple.fmt(2)}x (threshold: ${capitalRecoveryThreshold.fmt(2)}x) — selling ${(sellFraction*100).toInt()}% to recover initial", ts.mint)
             onNotify("🔒 Capital Recovered!",
@@ -1103,7 +947,6 @@ class Executor(
             sounds?.playMilestone(gainPct)
             
             if (c.paperMode || wallet == null) {
-                // Paper mode
                 val newQty = pos.qtyToken - sellQty
                 val newCost = pos.costSol * (1.0 - sellFraction)
                 val pnlSol = sellSol - pos.costSol * sellFraction
@@ -1114,17 +957,16 @@ class Executor(
                     capitalRecovered = true,
                     capitalRecoveredSol = sellSol,
                     isHouseMoney = true,
-                    lockedProfitFloor = sellSol,  // We've secured this much
+                    lockedProfitFloor = sellSol,
                 )
                 
-                val trade = Trade("SELL", "paper", sellSol, actualPrice,  // CRITICAL FIX
+                val trade = Trade("SELL", "paper", sellSol, actualPrice,
                     System.currentTimeMillis(), "capital_recovery_${gainMultiple.fmt(1)}x",
                     pnlSol, gainPct)
                 recordTrade(ts, trade)
                 security.recordTrade(trade)
                 onPaperBalanceChange?.invoke(sellSol)
                 
-                // Record treasury event for capital recovery
                 val solPrice = WalletManager.lastKnownSolPrice
                 TreasuryManager.recordProfitLockEvent(
                     TreasuryEventType.CAPITAL_RECOVERED,
@@ -1134,28 +976,21 @@ class Executor(
                     solPrice
                 )
                 
-                // Lock realized profit to treasury
                 if (pnlSol > 0) {
                     TreasuryManager.lockRealizedProfit(pnlSol, solPrice)
                 }
                 
                 onLog("📄 PAPER CAPITAL LOCK: Sold ${sellSol.fmt(4)} SOL @ +${gainPct.toInt()}% — now playing with house money!", ts.mint)
             } else {
-                // Live mode
                 executeProfitLockSell(ts, wallet, sellFraction, "capital_recovery_${gainMultiple.fmt(1)}x", walletSol)
             }
             return true
         }
         
-        // ════════════════════════════════════════════════════════════════
-        // STAGE 2: PROFIT LOCK (dynamic threshold)
-        // After capital recovered, lock 50% of remaining at profit threshold
-        // ════════════════════════════════════════════════════════════════
         if (pos.capitalRecovered && !pos.profitLocked && gainMultiple >= profitLockThreshold) {
-            // Sell 50% of remaining position to lock profits
             val sellFraction = 0.50
             val sellQty = pos.qtyToken * sellFraction
-            val sellSol = sellQty * actualPrice  // CRITICAL FIX: Use actual price
+            val sellSol = sellQty * actualPrice
             
             onLog("🔐 PROFIT LOCK: ${ts.symbol} @ ${gainMultiple.fmt(2)}x (threshold: ${profitLockThreshold.fmt(2)}x) — locking 50% of remaining profits", ts.mint)
             onNotify("🔐 Profits Locked!",
@@ -1164,7 +999,6 @@ class Executor(
             sounds?.playMilestone(gainPct)
             
             if (c.paperMode || wallet == null) {
-                // Paper mode
                 val newQty = pos.qtyToken - sellQty
                 val newCost = pos.costSol * (1.0 - sellFraction)
                 val pnlSol = sellSol - pos.costSol * sellFraction
@@ -1177,14 +1011,13 @@ class Executor(
                     lockedProfitFloor = pos.lockedProfitFloor + sellSol,
                 )
                 
-                val trade = Trade("SELL", "paper", sellSol, actualPrice,  // CRITICAL FIX
+                val trade = Trade("SELL", "paper", sellSol, actualPrice,
                     System.currentTimeMillis(), "profit_lock_${gainMultiple.fmt(1)}x",
                     pnlSol, gainPct)
                 recordTrade(ts, trade)
                 security.recordTrade(trade)
                 onPaperBalanceChange?.invoke(sellSol)
                 
-                // Record treasury event for profit lock
                 val solPrice = WalletManager.lastKnownSolPrice
                 TreasuryManager.recordProfitLockEvent(
                     TreasuryEventType.PROFIT_LOCK_SELL,
@@ -1194,14 +1027,12 @@ class Executor(
                     solPrice
                 )
                 
-                // Lock realized profit to treasury
                 if (pnlSol > 0) {
                     TreasuryManager.lockRealizedProfit(pnlSol, solPrice)
                 }
                 
                 onLog("📄 PAPER PROFIT LOCK: Sold ${sellSol.fmt(4)} SOL @ ${gainMultiple.fmt(1)}x — letting rest ride free!", ts.mint)
             } else {
-                // Live mode
                 executeProfitLockSell(ts, wallet, sellFraction, "profit_lock_${gainMultiple.fmt(1)}x", walletSol)
             }
             return true
@@ -1210,9 +1041,6 @@ class Executor(
         return false
     }
     
-    /**
-     * Execute a profit lock sell (live mode)
-     */
     private fun executeProfitLockSell(
         ts: TokenState,
         wallet: SolanaWallet,
@@ -1233,7 +1061,6 @@ class Executor(
         val sellUnits = (sellQty * 1_000_000_000.0).toLong().coerceAtLeast(1L)
         
         try {
-            // Use 2x slippage for sells - meme coins need more room
             val sellSlippage = (c.slippageBps * 2).coerceAtMost(1000)
             val quote = getQuoteWithSlippageGuard(ts.mint, JupiterApi.SOL_MINT, sellUnits, sellSlippage, isBuy = false)
             val txResult = buildTxWithRetry(quote, wallet.publicKeyB58)
@@ -1249,7 +1076,6 @@ class Executor(
             val pnlPct = pct(pos.costSol * sellFraction, solBack)
             val (netPnl, feeSol) = slippageGuard.calcNetPnl(pnlSol, pos.costSol * sellFraction)
             
-            // Update position
             val newQty = pos.qtyToken - sellQty
             val newCost = pos.costSol * (1.0 - sellFraction)
             
@@ -1265,23 +1091,20 @@ class Executor(
                 lockedProfitFloor = pos.lockedProfitFloor + solBack,
             )
             
-            val trade = Trade("SELL", "live", solBack, getActualPrice(ts),  // CRITICAL FIX: Use actual price
+            val trade = Trade("SELL", "live", solBack, getActualPrice(ts),
                 System.currentTimeMillis(), reason,
                 pnlSol, pnlPct, sig = sig, feeSol = feeSol, netPnlSol = netPnl)
             recordTrade(ts, trade)
             security.recordTrade(trade)
             SmartSizer.recordTrade(pnlSol > 0, isPaperMode = false)
             
-            // Record treasury event and lock realized profit
             val solPrice = WalletManager.lastKnownSolPrice
             val gainMultiple = (solBack + pos.lockedProfitFloor) / pos.costSol
             
-            // Record the profit lock event to treasury
             val eventType = if (isCapitalRecovery) TreasuryEventType.CAPITAL_RECOVERED 
                            else TreasuryEventType.PROFIT_LOCK_SELL
             TreasuryManager.recordProfitLockEvent(eventType, solBack, ts.symbol, gainMultiple, solPrice)
             
-            // Lock realized profit to treasury
             if (pnlSol > 0) {
                 TreasuryManager.lockRealizedProfit(pnlSol, solPrice)
             }
@@ -1298,60 +1121,32 @@ class Executor(
 
     // ── partial sell ─────────────────────────────────────────────────
 
-    /**
-     * v5: MOONSHOT-AWARE Partial sell at milestone gains.
-     * 
-     * STRATEGY: Take small amounts at each milestone so MOST rides the moonshot.
-     * 
-     * Default milestones:
-     *   +200%   → sell 25% (first partial)
-     *   +500%   → sell 25% (second partial)
-     *   +2000%  → sell 25% (third partial) - 20x!
-     *   +10000% → sell 25% (fourth partial) - 100x! (NEW)
-     *   +50000% → sell 25% (fifth partial) - 500x! (NEW)
-     * 
-     * After all 5 partials: Still holding 25% of original position for infinity!
-     * That 25% could become 10,000x+ (SHIB, PEPE territory)
-     */
     fun checkPartialSell(ts: TokenState, wallet: SolanaWallet?, walletSol: Double): Boolean {
         val c   = cfg()
         val pos = ts.position
         if (!c.partialSellEnabled || !pos.isOpen) return false
 
-        // CRITICAL FIX: Use actual price, not market cap
         val actualPrice = getActualPrice(ts)
         val gainPct = pct(pos.entryPrice, actualPrice)
         val soldPct = pos.partialSoldPct
 
-        // Calculate which partial level we're at (0-5)
         val partialLevel = (soldPct / (c.partialSellFraction * 100.0)).toInt()
         
-        // Milestones: 200% → 500% → 2000% → 10000% → 50000%
         val milestones = listOf(
-            c.partialSellTriggerPct,          // 200% (configurable)
-            c.partialSellSecondTriggerPct,    // 500% (configurable)
-            c.partialSellThirdTriggerPct,     // 2000% (configurable)
-            10000.0,                           // 100x (hardcoded moonshot)
-            50000.0,                           // 500x (hardcoded mega moonshot)
+            c.partialSellTriggerPct,
+            c.partialSellSecondTriggerPct,
+            c.partialSellThirdTriggerPct,
+            10000.0,
+            50000.0,
         )
         
-        // Check if we've hit the next milestone and haven't taken that partial yet
         val nextMilestone = milestones.getOrNull(partialLevel)
         val shouldPartial = nextMilestone != null && gainPct >= nextMilestone
         
-        // For 4th and 5th partials, always enabled (moonshot territory)
         val isThirdOrLater = partialLevel >= 2
         if (!shouldPartial) return false
         if (partialLevel == 2 && !c.partialSellThirdEnabled) return false
 
-        // ═══════════════════════════════════════════════════════════════════
-        // TREASURY-AWARE PARTIAL SELL FRACTION
-        // 
-        // Higher treasury = take LESS at each partial (let more ride)
-        // Lower treasury = take MORE at each partial (secure profits)
-        // 
-        // This compounds with moonshot scaling for optimal wealth building
-        // ═══════════════════════════════════════════════════════════════════
         val baseFraction = c.partialSellFraction
         val treasuryAdjustedFraction = try {
             val solPrice = WalletManager.lastKnownSolPrice
@@ -1359,26 +1154,23 @@ class Executor(
             val tier = ScalingMode.activeTier(treasuryUsd)
             
             when (tier) {
-                // High treasury = profits secured = let more ride
-                ScalingMode.Tier.INSTITUTIONAL -> baseFraction * 0.6  // Take 60% of normal (15% instead of 25%)
-                ScalingMode.Tier.SCALED        -> baseFraction * 0.7  // Take 70% of normal (17.5% instead of 25%)
-                ScalingMode.Tier.GROWTH        -> baseFraction * 0.8  // Take 80% of normal (20% instead of 25%)
-                ScalingMode.Tier.STANDARD      -> baseFraction * 0.9  // Take 90% of normal
-                ScalingMode.Tier.MICRO         -> baseFraction        // Full amount - need to secure gains
+                ScalingMode.Tier.INSTITUTIONAL -> baseFraction * 0.6
+                ScalingMode.Tier.SCALED        -> baseFraction * 0.7
+                ScalingMode.Tier.GROWTH        -> baseFraction * 0.8
+                ScalingMode.Tier.STANDARD      -> baseFraction * 0.9
+                ScalingMode.Tier.MICRO         -> baseFraction
             }
         } catch (_: Exception) { baseFraction }
         
-        // Compute position update values BEFORE branching on paper/live
         val sellFraction = treasuryAdjustedFraction
         val sellQty      = pos.qtyToken * sellFraction
-        val sellSol      = sellQty * actualPrice  // CRITICAL FIX: Use actual price
+        val sellSol      = sellQty * actualPrice
         val newSoldPct   = soldPct + sellFraction * 100.0
         val newQty       = pos.qtyToken - sellQty
         val newCost      = pos.costSol * (1.0 - sellFraction)
-        val paperPnlSol  = sellQty * actualPrice - pos.costSol * sellFraction  // CRITICAL FIX
+        val paperPnlSol  = sellQty * actualPrice - pos.costSol * sellFraction
         val triggerPct   = nextMilestone ?: 0.0
         
-        // Log with moonshot-aware messaging
         val milestoneLabel = when (partialLevel) {
             0 -> "1st partial"
             1 -> "2nd partial"
@@ -1396,17 +1188,14 @@ class Executor(
         sounds?.playMilestone(gainPct)
 
         if (c.paperMode || wallet == null) {
-            // ── Paper partial sell ─────────────────────────────────────
             ts.position = pos.copy(qtyToken = newQty, costSol = newCost, partialSoldPct = newSoldPct)
-            val trade   = Trade("SELL", "paper", sellSol, actualPrice,  // CRITICAL FIX
+            val trade   = Trade("SELL", "paper", sellSol, actualPrice,
                               System.currentTimeMillis(), "partial_${newSoldPct.toInt()}pct",
-                              paperPnlSol, pct(pos.costSol * sellFraction, sellQty * actualPrice))  // CRITICAL FIX
+                              paperPnlSol, pct(pos.costSol * sellFraction, sellQty * actualPrice))
             recordTrade(ts, trade); security.recordTrade(trade)
             onLog("PAPER PARTIAL SELL ${(sellFraction*100).toInt()}% | " +
                   "${sellSol.fmt(4)} SOL | pnl ${paperPnlSol.fmt(4)} SOL", ts.mint)
         } else {
-            // ── Live partial sell (Jupiter swap) ───────────────────────
-            // Idempotency: skip if we already have a tx in-flight for this mint
             if (ts.mint in partialSellInFlight) {
                 onLog("⏳ Partial sell already in-flight for ${ts.symbol} — skipping duplicate", ts.mint)
                 return true
@@ -1420,14 +1209,12 @@ class Executor(
                     return true
                 }
                 val sellUnits = (sellQty * 1_000_000_000.0).toLong().coerceAtLeast(1L)
-                // Use 2x slippage for sells
                 val sellSlippage = (c.slippageBps * 2).coerceAtMost(1000)
                 val quote     = getQuoteWithSlippageGuard(
                     ts.mint, JupiterApi.SOL_MINT, sellUnits, sellSlippage, isBuy = false)
                 val txResult  = buildTxWithRetry(quote, wallet.publicKeyB58)
                 security.enforceSignDelay()
                 
-                // ⚡ MEV PROTECTION for partial sells (Ultra or Jito)
                 val useJito = c.jitoEnabled && !quote.isUltra
                 val jitoTip = c.jitoTipLamports
                 val ultraReqId = if (quote.isUltra) txResult.requestId else null
@@ -1436,14 +1223,13 @@ class Executor(
                 val livePnl   = solBack - pos.costSol * sellFraction
                 val liveScore = pct(pos.costSol * sellFraction, solBack)
                 val (netPnl, feeSol) = slippageGuard.calcNetPnl(livePnl, pos.costSol * sellFraction)
-                // Update position state after confirmed on-chain execution
                 ts.position = pos.copy(qtyToken = newQty, costSol = newCost, partialSoldPct = newSoldPct)
-                val liveTrade = Trade("SELL", "live", solBack, actualPrice,  // CRITICAL FIX
+                val liveTrade = Trade("SELL", "live", solBack, actualPrice,
                     System.currentTimeMillis(), "partial_${newSoldPct.toInt()}pct",
                     livePnl, liveScore, sig = sig, feeSol = feeSol, netPnlSol = netPnl,
                     mint = ts.mint, tradingMode = pos.tradingMode, tradingModeEmoji = pos.tradingModeEmoji)
                 recordTrade(ts, liveTrade); security.recordTrade(liveTrade)
-                SmartSizer.recordTrade(livePnl > 0, isPaperMode = false)  // Live trade
+                SmartSizer.recordTrade(livePnl > 0, isPaperMode = false)
                 partialSellInFlight.remove(ts.mint)
                 onLog("LIVE PARTIAL SELL ${(sellFraction*100).toInt()}% @ +${gainPct.toInt()}% | " +
                       "${solBack.fmt(4)}◎ | sig=${sig.take(16)}…", ts.mint)
@@ -1459,29 +1245,21 @@ class Executor(
         return true
     }
 
-    // ── risk check ────────────────────────────────────────────────────
-
-    // Track which milestones have already been announced per position
     private val milestonesHit      = mutableMapOf<String, MutableSet<Int>>()
-    // Idempotency guard: mints currently executing a partial sell tx
-    // Prevents the same partial from firing twice if confirmation is slow
     private val partialSellInFlight = mutableSetOf<String>()
 
     fun riskCheck(ts: TokenState, modeConf: AutoModeEngine.ModeConfig? = null): String? {
         val pos   = ts.position
-        // CRITICAL FIX: Use actual price, not market cap
         val price = getActualPrice(ts)
         if (!pos.isOpen || price == 0.0) return null
 
         pos.highestPrice = maxOf(pos.highestPrice, price)
-        // Track lowest price for Exit AI
         if (pos.lowestPrice == 0.0 || price < pos.lowestPrice) {
             pos.lowestPrice = price
         }
         val gainPct  = pct(pos.entryPrice, price)
         val heldSecs = (System.currentTimeMillis() - pos.entryTime) / 1000.0
 
-        // Milestone sounds while holding (50%, 100%, 200%)
         val hitMilestones = milestonesHit.getOrPut(ts.mint) { mutableSetOf() }
         listOf(50, 100, 200).forEach { threshold ->
             if (gainPct >= threshold && !hitMilestones.contains(threshold)) {
@@ -1490,16 +1268,8 @@ class Executor(
                 onLog("+${threshold}% milestone on ${ts.symbol}! 🎯", ts.mint)
             }
         }
-        // Clear milestones when position closes
         if (!pos.isOpen) milestonesHit.remove(ts.mint)
 
-        // ════════════════════════════════════════════════════════════════
-        // AI CROSS-TALK: Check for coordinated dump signal
-        // Multiple AIs detecting dump = EMERGENCY EXIT
-        // 
-        // V5.2.11: Only trigger after 45s hold time. AI signals can be
-        // volatile immediately after entry due to slippage and spread effects.
-        // ════════════════════════════════════════════════════════════════
         try {
             if (heldSecs >= 45 && AICrossTalk.isCoordinatedDump(ts.mint, ts.symbol)) {
                 val crossTalkSignal = AICrossTalk.analyzeCrossTalk(ts.mint, ts.symbol, isOpenPosition = true)
@@ -1509,9 +1279,6 @@ class Executor(
             }
         } catch (_: Exception) {}
         
-        // ════════════════════════════════════════════════════════════════
-        // EXIT INTELLIGENCE AI - Dynamic exit evaluation
-        // ════════════════════════════════════════════════════════════════
         val exitAiState = ExitIntelligence.PositionState(
             mint = ts.mint,
             symbol = ts.symbol,
@@ -1522,17 +1289,16 @@ class Executor(
             pnlPercent = gainPct,
             holdTimeMinutes = (heldSecs / 60.0).toInt(),
             buyPressure = ts.meta.pressScore,
-            entryBuyPressure = ts.meta.pressScore,  // Will be tracked by ExitIntelligence
+            entryBuyPressure = ts.meta.pressScore,
             volume = ts.meta.volScore,
             volatility = ts.meta.avgAtr,
-            isDistribution = ts.phase == "distribution" && ts.meta.pressScore < 30,  // V5.2: Both conditions required, lower threshold
+            isDistribution = ts.phase == "distribution" && ts.meta.pressScore < 30,
             rsi = ts.meta.rsi,
             momentum = ts.entryScore,
             qualityGrade = ts.meta.setupQuality,
         )
         val exitAiDecision = ExitIntelligence.evaluateExit(exitAiState)
         
-        // Act on Exit AI decision with high urgency
         when (exitAiDecision.action) {
             ExitIntelligence.ExitAction.EMERGENCY_EXIT -> {
                 onLog("🤖🚨 EXIT AI: ${ts.symbol} EMERGENCY | ${exitAiDecision.reasons.firstOrNull()}", ts.mint)
@@ -1547,20 +1313,10 @@ class Executor(
                     return "ai_exit_${exitAiDecision.reasons.firstOrNull()?.take(15)?.replace(" ", "_") ?: "signal"}"
                 }
             }
-            else -> {
-                // HOLD, TIGHTEN_STOP, PARTIAL_EXIT - handle below or let other logic run
-            }
+            else -> {}
         }
 
-        // ════════════════════════════════════════════════════════════════
-        // GEMINI AI EXIT ADVISOR (Live Mode Only)
-        // 
-        // Uses Gemini to provide intelligent exit recommendations based on:
-        // - Current P&L vs peak P&L (round-trip risk)
-        // - Hold time and momentum
-        // - Recent price action patterns
-        // ════════════════════════════════════════════════════════════════
-        if (!cfg().paperMode && gainPct >= 15) {  // Only consult Gemini for meaningful gains
+        if (!cfg().paperMode && gainPct >= 15) {
             try {
                 val recentPrices = ts.history.takeLast(10).map { it.priceUsd }
                 val geminiAdvice = GeminiCopilot.getExitAdvice(
@@ -1592,7 +1348,7 @@ class Executor(
                         "RIDE" -> {
                             onLog("🤖✨ GEMINI: ${ts.symbol} ride it! target=${geminiAdvice.targetPrice}", ts.mint)
                         }
-                        else -> {} // HOLD - do nothing
+                        else -> {}
                     }
                 }
             } catch (e: Exception) {
@@ -1600,9 +1356,6 @@ class Executor(
             }
         }
 
-        // ════════════════════════════════════════════════════════════════
-        // V8: Precision Exit Logic - Full evaluation
-        // ════════════════════════════════════════════════════════════════
         val exitSignal = PrecisionExitLogic.evaluate(
             ts = ts,
             currentPrice = price,
@@ -1624,21 +1377,14 @@ class Executor(
             return "v8_${exitSignal.reason.lowercase()}"
         }
 
-        // ════════════════════════════════════════════════════════════════════
-        // V3.3: HARD FLOOR ABSOLUTE STOP LOSS - NEVER EXCEEDED
-        // This is the FIRST check - no trade should EVER lose more than this
-        // ════════════════════════════════════════════════════════════════════
-        val HARD_FLOOR_STOP_PCT = 15.0  // ABSOLUTE MAXIMUM LOSS - NO EXCEPTIONS
+        val HARD_FLOOR_STOP_PCT = 15.0
         if (gainPct <= -HARD_FLOOR_STOP_PCT) {
             onLog("🛑 HARD FLOOR STOP: ${ts.symbol} at ${gainPct.toInt()}% - EMERGENCY EXIT", ts.mint)
-            // V3.3: Don't cooldown - mark for RECOVERY SCAN instead
             markForRecoveryScan(ts, gainPct, "hard_floor")
             return "hard_floor_stop"
         }
         
-        // V3.3: DYNAMIC FLUID STOP LOSS - Moves with position
-        // This stop adapts based on: current P&L, peak P&L, hold time, volatility
-        val peakPnlPct = pos.peakGainPct  // Track highest P&L achieved
+        val peakPnlPct = pos.peakGainPct
         val volatility = ts.volatility ?: 50.0
         
         val dynamicStopPct = try {
@@ -1651,7 +1397,6 @@ class Executor(
                 volatility = volatility
             )
         } catch (_: Exception) {
-            // Fallback to static fluid stop if dynamic fails
             val modeDefault = modeConf?.stopLossPct ?: cfg().stopLossPct
             try {
                 -com.lifecyclebot.v3.scoring.FluidLearningAI.getFluidStopLoss(modeDefault)
@@ -1660,52 +1405,44 @@ class Executor(
             }
         }
         
-        // Dynamic stop is already negative, gainPct is also negative when losing
         if (gainPct <= dynamicStopPct) {
             val stopType = when {
-                peakPnlPct > 5.0 -> "trailing_fluid"  // Was in profit, trail caught it
-                heldSecs < 60 -> "entry_protect"      // Entry phase protection
-                else -> "fluid_stop"                  // Normal fluid stop
+                peakPnlPct > 5.0 -> "trailing_fluid"
+                heldSecs < 60 -> "entry_protect"
+                else -> "fluid_stop"
             }
             onLog("🛑 DYNAMIC STOP ($stopType): ${ts.symbol} at ${gainPct.toInt()}% (dynamic limit=${dynamicStopPct.toInt()}%)", ts.mint)
             markForRecoveryScan(ts, gainPct, stopType)
             return "${stopType}_loss"
         }
 
-        // Wick protection: skip additional checks in first 90s unless already hit hard/fluid stops
         if (heldSecs < 90.0) return null
 
-        // LIQUIDITY COLLAPSE DETECTION: Emergency exit if liquidity drops significantly
         val currentLiq = ts.lastLiquidityUsd
         val entryLiq = pos.entryLiquidityUsd
         if (entryLiq > 0 && currentLiq > 0) {
             val liqDropPct = ((entryLiq - currentLiq) / entryLiq) * 100
-            if (liqDropPct > 50) {  // Liquidity dropped 50%+
+            if (liqDropPct > 50) {
                 onLog("🚨 LIQ COLLAPSE: ${ts.symbol} liq dropped ${liqDropPct.toInt()}% | exit NOW", ts.mint)
                 return "liquidity_collapse"
             }
-            if (liqDropPct > 30 && gainPct < 0) {  // 30% drop AND we're losing
+            if (liqDropPct > 30 && gainPct < 0) {
                 onLog("⚠️ LIQ DRAIN: ${ts.symbol} liq dropped ${liqDropPct.toInt()}% while losing | exit", ts.mint)
                 return "liquidity_drain"
             }
         }
         
-        // WHALE/DEV DUMP DETECTION: Exit if seeing heavy sell pressure
-        // V5.2.11: Require 30s minimum hold time - signals can be noisy at entry
         if (ts.history.size >= 3 && heldSecs >= 30) {
             val recentCandles = ts.history.takeLast(3)
             val totalSells = recentCandles.sumOf { it.sellsH1 }
             val totalBuys = recentCandles.sumOf { it.buysH1 }
             val sellRatio = if (totalBuys + totalSells > 0) totalSells.toDouble() / (totalBuys + totalSells) else 0.0
             
-            // If sells > 80% of activity AND price dropping AND we're in profit, protect gains
             if (sellRatio > 0.80 && gainPct > 10 && ts.meta.pressScore < -30) {
                 onLog("🐋 WHALE DUMP: ${ts.symbol} sell ratio ${(sellRatio*100).toInt()}% | protecting gains", ts.mint)
                 return "whale_dump"
             }
             
-            // Large volume spike with mostly sells = likely dev dump
-            // V5.2.11: Also require gainPct < -5% (not just < 0) to avoid false positives
             val avgVol = recentCandles.map { it.volumeH1 }.average()
             val lastVol = recentCandles.last().volumeH1
             if (lastVol > avgVol * 3 && sellRatio > 0.70 && gainPct < -5) {
@@ -1713,24 +1450,18 @@ class Executor(
                 return "dev_dump"
             }
             
-            // ══════════════════════════════════════════════════════════════
-            // V4.1: PRICE VELOCITY DETECTION - Catch rapid dumps BEFORE -30%
-            // V5.2.11: Tightened thresholds to avoid premature exits on normal volatility
-            // ══════════════════════════════════════════════════════════════
             if (recentCandles.size >= 2 && heldSecs >= 45) {
                 val priceStart = recentCandles.first().priceUsd
                 val priceEnd = recentCandles.last().priceUsd
                 if (priceStart > 0 && priceEnd > 0) {
                     val velocityPct = ((priceEnd - priceStart) / priceStart) * 100
                     
-                    // Price dropping >15% in 3 candles = rapid dump, exit NOW (was 10%)
                     if (velocityPct < -15.0 && gainPct < -5) {
                         onLog("⚡ VELOCITY EXIT: ${ts.symbol} price dropping ${velocityPct.toInt()}% rapidly | exit before worse", ts.mint)
                         markForRecoveryScan(ts, gainPct, "velocity_dump")
                         return "velocity_dump"
                     }
                     
-                    // Price dropping >8% AND we're already at -12% = exit immediately (was 5%/-10%)
                     if (velocityPct < -8.0 && gainPct < -12.0) {
                         onLog("⚡ ACCELERATING LOSS: ${ts.symbol} at ${gainPct.toInt()}% and dropping ${velocityPct.toInt()}%/candle", ts.mint)
                         markForRecoveryScan(ts, gainPct, "accelerating_loss")
@@ -1741,43 +1472,24 @@ class Executor(
         }
 
         val effectiveStopPct = modeConf?.stopLossPct ?: cfg().stopLossPct
-        // Backup stop loss check (should rarely trigger - fluid stop should catch first)
         if (gainPct <= -effectiveStopPct) {
             onLog("🛑 BACKUP STOP: ${ts.symbol} at ${gainPct.toInt()}%", ts.mint)
             return "stop_loss"
         }
         
-        // ════════════════════════════════════════════════════════════════
-        // V5.2.11 FIX: TRAILING STOP HOLD TIME PROTECTION
-        // 
-        // THE BUG: Trailing stop was triggering at -2% within 60 seconds because:
-        // 1. highestPrice ≈ entryPrice (trade never went green)
-        // 2. smartFloor = highestPrice * (1 - 6.8%) = entryPrice * 0.932
-        // 3. A -2% dip (price = 0.98) should NOT trigger, but the trail was
-        //    calculated from a peak that was barely above entry.
-        //
-        // THE FIX: Don't activate trailing stops until:
-        // - Trade is at least 60 seconds old, OR
-        // - Trade has achieved at least +5% gain (has something to protect)
-        //
-        // This lets meme coins "breathe" through normal volatility while still
-        // protecting actual gains when they occur.
-        // ════════════════════════════════════════════════════════════════
         val trailingStopActive = heldSecs >= 60 || gainPct >= 5.0
         
-        // V5: Smart trailing with trend health signals
         val smartFloor = trailingFloor(
             pos = pos,
             current = price,
             modeConf = modeConf,
             emaFanAlignment = ts.meta.emafanAlignment,
-            emaFanWidening = ts.meta.emafanAlignment == "BULL_FAN" && ts.meta.volScore >= 55,  // Proxy for widening
+            emaFanWidening = ts.meta.emafanAlignment == "BULL_FAN" && ts.meta.volScore >= 55,
             volScore = ts.meta.volScore,
             pressScore = ts.meta.pressScore,
             exhaust = ts.meta.exhaustion,
         )
         
-        // V5.2.11: Only trigger trailing stop if protection period is over
         if (trailingStopActive && price < smartFloor) {
             return "trailing_stop"
         }
@@ -1798,50 +1510,38 @@ class Executor(
         modeConfig: AutoModeEngine.ModeConfig? = null,
         walletTotalTrades: Int = 0,
     ) {
-        // ════════════════════════════════════════════════════════════════
-        // CRITICAL: SELLS MUST ALWAYS BE ALLOWED - even when halted!
-        // Check if this is a sell action BEFORE halt check
-        // ════════════════════════════════════════════════════════════════
         val isSellAction = (signal in listOf("SELL", "EXIT")) || 
             (ts.position.isOpen && PrecisionExitLogic.quickCheck(
                 mint = ts.mint,
-                currentPrice = getActualPrice(ts),  // CRITICAL FIX: Use actual price
+                currentPrice = getActualPrice(ts),
                 entryPrice = ts.position.entryPrice,
                 stopLossPct = cfg().stopLossPct,
-                entryTimeMs = ts.position.entryTime,  // V5.2.11: Pass entry time for hold protection
+                entryTimeMs = ts.position.entryTime,
             )?.shouldExit == true)
         
-        // Halt check - blocks new buys but NOT sells
         val cbState = security.getCircuitBreakerState()
         if (cbState.isHalted && !ts.position.isOpen) {
-            // Only block if no position (i.e., this would be a buy)
             onLog("🛑 Halted (no new buys): ${cbState.haltReason}", ts.mint)
             return
         }
         if (cbState.isHalted && ts.position.isOpen) {
             onLog("⚠️ Halted but allowing sell actions for open position", ts.mint)
-            // Continue to sell logic below
         }
 
-        // Update shadow learning engine with current price
         if (ts.position.isOpen) {
             ShadowLearningEngine.onPriceUpdate(
                 mint = ts.mint,
-                currentPrice = getActualPrice(ts),  // CRITICAL FIX: Use actual price
+                currentPrice = getActualPrice(ts),
                 liveStopLossPct = cfg().stopLossPct,
-                liveTakeProfitPct = 200.0,  // Default take profit threshold
+                liveTakeProfitPct = 200.0,
             )
             
-            // ════════════════════════════════════════════════════════════════
-            // V8: Precision Exit Logic - Quick check for urgent exits
-            // V5.2.11: Now respects hold time protection (was causing 5-6% win rate)
-            // ════════════════════════════════════════════════════════════════
             val quickExit = PrecisionExitLogic.quickCheck(
                 mint = ts.mint,
-                currentPrice = getActualPrice(ts),  // CRITICAL FIX: Use actual price
+                currentPrice = getActualPrice(ts),
                 entryPrice = ts.position.entryPrice,
                 stopLossPct = cfg().stopLossPct,
-                entryTimeMs = ts.position.entryTime,  // V5.2.11: Pass entry time for hold protection
+                entryTimeMs = ts.position.entryTime,
             )
             if (quickExit != null && quickExit.shouldExit) {
                 onLog("🚨 V8 QUICK EXIT: ${ts.symbol} | ${quickExit.reason} | ${quickExit.details}", ts.mint)
@@ -1851,39 +1551,23 @@ class Executor(
             }
         }
 
-        // Stale data check
         val freshness = security.checkDataFreshness(lastPollMs)
         if (freshness is GuardResult.Block) {
             onLog("⚠ ${freshness.reason}", ts.mint)
             return
         }
 
-        // ════════════════════════════════════════════════════════════════
-        // PROFIT LOCK SYSTEM — Check BEFORE partial sells and risk checks
-        // This ensures we secure capital and lock profits at key milestones
-        // ════════════════════════════════════════════════════════════════
         if (ts.position.isOpen) {
             if (checkProfitLock(ts, wallet, walletSol)) {
-                // Profit lock was executed, skip other sell logic this tick
                 return
             }
         }
 
-        // v4.4: Partial sell check — runs before full risk check
         if (ts.position.isOpen) checkPartialSell(ts, wallet, walletSol)
 
-        // Risk rules (mode-aware)
         val reason = riskCheck(ts, modeConfig)
         if (reason != null) { doSell(ts, reason, wallet, walletSol); return }
         
-        // ═══════════════════════════════════════════════════════════════════
-        // V3.2: TOXIC MODE CIRCUIT BREAKER - FORCE FULL EXIT
-        // 
-        // When collapse conditions are met, exit IMMEDIATELY and FULLY.
-        // No partial sells, no waiting. Get out now.
-        // 
-        // This catches: liquidity collapse + copy invalidation + whale stopped
-        // ═══════════════════════════════════════════════════════════════════
         if (ts.position.isOpen) {
             val liqSignal = try { LiquidityDepthAI.getSignal(ts.mint, ts.symbol, isOpenPosition = true) } catch (_: Exception) { null }
             val liquidityCollapsing = liqSignal?.signal in listOf(
@@ -1895,8 +1579,6 @@ class Executor(
                 LiquidityDepthAI.DepthQuality.DANGEROUS
             )
             
-            // Check if whales/copy stopped (from meta or signals)
-            // Use velocityScore as proxy for whale activity (high velocity = active whales)
             val whaleActivity = ts.meta.velocityScore
             val whalesStopped = whaleActivity < 20 && ts.meta.whaleSummary.isBlank()
             val classification = ModeRouter.classify(ts)
@@ -1932,26 +1614,15 @@ class Executor(
             }
         }
 
-        // ── Top-up: strategy has already computed all conditions ────
-        // ts.meta.topUpReady is set by LifecycleStrategy every tick using
-        // full signal access: EMA fan, exit score, exhaust, spike, vol, pressure.
-        // We just need to enforce position/wallet caps and cooldown here.
-        // ── Long-hold promotion ──────────────────────────────────────────
-        // Every tick: check if this open position now qualifies for long-hold.
-        // One-way ratchet — promoted positions stay long-hold until closed.
-        // V5.2 FIX_2: GHOST PROMOTION CHECK - Block promotions on invalid positions
         if (ts.position.isOpen && !ts.position.isLongHold && cfg().longHoldEnabled) {
-            // FIX_2: Check for ghost promotion (invalid size or closed position)
             val promotionSize = ts.position.costSol
             if (!ts.position.isOpen || promotionSize <= 0.0) {
                 ErrorLogger.info("Executor", "[PROMOTION_BLOCKED] ${ts.symbol} | invalid_size_or_closed")
             } else {
-                val gainPct   = pct(ts.position.entryPrice, getActualPrice(ts))  // CRITICAL FIX: Use actual price
+                val gainPct   = pct(ts.position.entryPrice, getActualPrice(ts))
                 val c         = cfg()
                 val holders   = ts.history.lastOrNull()?.holderCount ?: 0
-                // Compute existing long-hold exposure locally — no BotService.instance needed
-                // (we already have walletSol and totalExposureSol from maybeAct params)
-                val existingLH = 0.0  // conservative default — full check done in strategy
+                val existingLH = 0.0
 
                 val meetsConviction = ts.meta.emafanAlignment == "BULL_FAN"
                     && gainPct >= c.longHoldMinGainPct
@@ -1978,7 +1649,7 @@ class Executor(
                 ts              = ts,
                 entryScore      = entryScore,
                 exitScore       = ts.exitScore,
-                emafanAlignment = ts.meta.emafanAlignment,  // real value from strategy
+                emafanAlignment = ts.meta.emafanAlignment,
                 volScore        = ts.meta.volScore,
                 exhaust         = ts.meta.exhaustion,
             )
@@ -1987,33 +1658,20 @@ class Executor(
             }
         }
 
-        // GRADUATED BUILDING - check for phase 2/3 adds
         if (cfg().paperMode && ts.position.isOpen && !ts.position.isFullyBuilt) {
-            val result = shouldGraduatedAdd(ts.position, getActualPrice(ts), ts.meta.volScore)  // CRITICAL FIX: Use actual price
+            val result = shouldGraduatedAdd(ts.position, getActualPrice(ts), ts.meta.volScore)
             if (result != null) {
                 val (addSol, newPhase) = result
                 doGraduatedAdd(ts, addSol, newPhase)
             }
         }
 
-        // PAPER MODE: ALWAYS trade regardless of autoTrade setting
-        // We want maximum trading activity for learning
         val shouldActOnBuy = cfg().paperMode || cfg().autoTrade
         
-        // DEBUG: Log why we might not be executing buys
         if (signal == "BUY") {
             ErrorLogger.debug("Executor", "BUY CHECK: ${ts.symbol} | shouldAct=$shouldActOnBuy | posOpen=${ts.position.isOpen} | autoTrade=${cfg().autoTrade} | paper=${cfg().paperMode}")
         }
         
-        // ════════════════════════════════════════════════════════════════════════
-        // CRITICAL FIX: BLOCK ALL BUY SIGNALS IN LEGACY maybeAct() PATH
-        // 
-        // This function is the LEGACY entry path that bypasses FDG.
-        // ALL new entries MUST go through BotService → FDG → maybeActWithDecision().
-        // 
-        // If you see this log, there's a code path calling maybeAct() for buys
-        // that needs to be migrated to the unified FDG flow.
-        // ════════════════════════════════════════════════════════════════════════
         if (signal == "BUY" && !ts.position.isOpen) {
             ErrorLogger.error("Executor", "🚨 LEGACY BUY PATH BLOCKED: ${ts.symbol} | " +
                 "All new entries MUST go through FDG. This is a code architecture bug.")
@@ -2021,97 +1679,74 @@ class Executor(
             return
         }
         
-        // The old buy logic below is now DEAD CODE but kept for reference.
-        // Remove in future cleanup once we verify no callers use this path.
         if (false && shouldActOnBuy && signal == "BUY" && !ts.position.isOpen) {
             val isPaper = cfg().paperMode
             ErrorLogger.info("Executor", "🔔 BUY signal for ${ts.symbol} | paper=$isPaper | wallet=${walletSol.fmt(4)} | autoTrade=${cfg().autoTrade}")
             
-            // ══════════════════════════════════════════════════════════════
-            // FIX #3: SEVERE-LOSS QUARANTINE (by contract address)
-            // No rebuy after -33% rug - check BEFORE any other logic
-            // ══════════════════════════════════════════════════════════════
             val severeLossThreshold = -33.0
             val lastExitPnl = ts.lastExitPnlPct
             if (lastExitPnl < severeLossThreshold) {
                 ErrorLogger.info("Executor", "🚫 ${ts.symbol} QUARANTINED: Previous exit was ${lastExitPnl.toInt()}% (< $severeLossThreshold%)")
                 onLog("💀 ${ts.symbol}: QUARANTINED (rugged ${lastExitPnl.toInt()}%)", ts.mint)
-                // Add to permanent blacklist by contract
                 RuggedContracts.add(ts.mint, ts.symbol, lastExitPnl)
                 return
             }
             
-            // Also check if this contract is already blacklisted
             if (RuggedContracts.isBlacklisted(ts.mint)) {
                 ErrorLogger.info("Executor", "🚫 ${ts.symbol} BLACKLISTED: Previously rugged")
                 onLog("💀 ${ts.symbol}: Blacklisted contract", ts.mint)
                 return
             }
             
-            // ════════════════════════════════════════════════════════════════
-            // V8: State Machine Integration
-            // ════════════════════════════════════════════════════════════════
             val tradeState = TradeStateMachine.getState(ts.mint)
             val isPaperMode = cfg().paperMode
             
-            // Check cooldown - SKIP IN PAPER MODE
-            // DYNAMIC RE-ENTRY: Allow re-entry if last trade was profitable and conditions improved
             if (!isPaperMode && TradeStateMachine.isInCooldown(ts.mint)) {
                 val lastTrade = ts.trades.lastOrNull()
                 val wasProfit = lastTrade?.let { it.side == "SELL" && (it.pnlPct ?: 0.0) > 0 } ?: false
-                val priceDroppedFromExit = lastTrade?.let { getActualPrice(ts) < it.price * 0.85 } ?: false  // 15%+ below exit
-                val scoreImproved = entryScore >= 50  // Good entry score
+                val priceDroppedFromExit = lastTrade?.let { getActualPrice(ts) < it.price * 0.85 } ?: false
+                val scoreImproved = entryScore >= 50
                 
-                // Allow re-entry if: profitable last trade + price dipped + good score
                 if (wasProfit && priceDroppedFromExit && scoreImproved) {
                     onLog("🔄 RE-ENTRY: ${ts.symbol} dipped 15%+ from profitable exit, score=$entryScore", ts.mint)
-                    TradeStateMachine.clearCooldown(ts.mint)  // Clear cooldown for re-entry
+                    TradeStateMachine.clearCooldown(ts.mint)
                 } else {
                     onLog("⏸️ ${ts.symbol}: In cooldown, skipping", ts.mint)
                     return
                 }
             }
             
-            // Transition to WATCH state if not already
             if (tradeState.state == TradeState.SCAN) {
                 TradeStateMachine.setState(ts.mint, TradeState.WATCH, "BUY signal received")
             }
             
-            // Check entry pattern (spike → pullback → re-acceleration)
-            // SKIP PATTERN REQUIREMENT IN PAPER MODE - trade immediately to learn
             val priceHistory = ts.history.map { it.priceUsd }
-            val optimalEntry = if (isPaperMode) true else TradeStateMachine.detectEntryPattern(ts.mint, getActualPrice(ts), priceHistory)  // CRITICAL FIX: Use actual price
+            val optimalEntry = if (isPaperMode) true else TradeStateMachine.detectEntryPattern(ts.mint, getActualPrice(ts), priceHistory)
             
-            // If we have entry pattern requirement enabled, wait for optimal entry
-            // DISABLED IN PAPER MODE
             val c = cfg()
-            val requireOptimalEntry = !isPaperMode && c.smallBuySol < 0.1  // Only for small positions in real mode
+            val requireOptimalEntry = !isPaperMode && c.smallBuySol < 0.1
             
             if (requireOptimalEntry && !optimalEntry && tradeState.entryPattern != EntryPattern.NONE) {
-                // We've seen a spike but waiting for pullback+reaccel
                 if (tradeState.entryPattern == EntryPattern.FIRST_SPIKE) {
                     onLog("📈 ${ts.symbol}: Spike detected, waiting for pullback...", ts.mint)
                 } else if (tradeState.entryPattern == EntryPattern.PULLBACK) {
                     onLog("📉 ${ts.symbol}: Pullback detected, waiting for re-acceleration...", ts.mint)
                 }
-                return  // Wait for optimal entry
+                return
             }
             
             if (optimalEntry && !isPaperMode) {
                 onLog("🎯 ${ts.symbol}: OPTIMAL ENTRY - Spike→Pullback→ReAccel pattern!", ts.mint)
             }
             
-            // Transition to ENTER state
             TradeStateMachine.setState(ts.mint, TradeState.ENTER, "executing buy")
             
             if (ts.position.isOpen) {
                 ErrorLogger.debug("Executor", "Skipping ${ts.symbol} - position already open")
                 return
             }
-            // No concurrent cap — SmartSizer 70% exposure ceiling is the guard
             if (cfg().scalingLogEnabled) { val _spx=WalletManager.lastKnownSolPrice; val (_tier,_)=ScalingMode.maxPositionForToken(ts.lastLiquidityUsd,ts.lastFdv,TreasuryManager.treasurySol*_spx,_spx); if(_tier!=ScalingMode.Tier.MICRO) onLog("${_tier.icon} ${_tier.label}: ${ts.symbol}", ts.mint) }
             
-            // Calculate AI confidence for sizing
             val aiConfidence = try {
                 val hist = ts.history.toList()
                 val prices = hist.map { it.ref }
@@ -2123,12 +1758,10 @@ class Executor(
                 } else 50.0
             } catch (e: Exception) { 50.0 }
             
-            // WALLET INTELLIGENCE: DataPipeline integration
-            // Fetches advanced alpha signals: whale ratio, repeat wallet detection, etc.
             var walletIntelligenceBlocked = false
             val alphaSignals = try {
                 runBlocking {
-                    withTimeoutOrNull(3000L) {  // 3 second timeout
+                    withTimeoutOrNull(3000L) {
                         DataPipeline.getAlphaSignals(ts.mint, cfg()) { msg ->
                             ErrorLogger.debug("DataPipeline", msg)
                         }
@@ -2139,24 +1772,19 @@ class Executor(
                 null
             }
             
-            // Apply wallet intelligence signals to block risky trades
             if (alphaSignals != null && !isPaper) {
-                // Block on bot farm detection (repeat wallets across tokens)
                 if (alphaSignals.repeatWalletScore > 60.0) {
                     onLog("🤖 WALLET INTEL: Bot farm detected (repeat wallets ${alphaSignals.repeatWalletScore.toInt()}%) — blocking", ts.mint)
                     walletIntelligenceBlocked = true
                 }
-                // Block on distribution pattern (volume up, price flat)
                 if (alphaSignals.volumePriceDivergence > 70.0) {
                     onLog("📉 WALLET INTEL: Distribution detected (vol/price div ${alphaSignals.volumePriceDivergence.toInt()}) — blocking", ts.mint)
                     walletIntelligenceBlocked = true
                 }
-                // Block on extreme whale concentration
                 if (alphaSignals.whaleRatio > 0.6) {
                     onLog("🐋 WALLET INTEL: Whale concentration too high (${(alphaSignals.whaleRatio * 100).toInt()}%) — blocking", ts.mint)
                     walletIntelligenceBlocked = true
                 }
-                // Log grade for info
                 if (alphaSignals.overallGrade in listOf("D", "F")) {
                     onLog("⚠️ WALLET INTEL: Low grade (${alphaSignals.overallGrade}) — ${DataPipeline.formatAlphaSignals(ts.mint, alphaSignals)}", ts.mint)
                 }
@@ -2167,31 +1795,24 @@ class Executor(
                 return
             }
             
-            // ══════════════════════════════════════════════════════════════
-            // FIX #2: HARD CONFIDENCE AND QUALITY GATES
-            // No huge buys on C / early_unknown / low confidence
-            // ══════════════════════════════════════════════════════════════
             val setupQuality = ts.meta.setupQuality
             val isLowQuality = setupQuality == "C"
             val isUnknownPhase = ts.phase.contains("unknown", ignoreCase = true)
             val isLowConfidence = aiConfidence < 30.0
             
-            // Block outright if ALL three red flags present
             if (isLowQuality && isUnknownPhase && isLowConfidence) {
                 ErrorLogger.info("Executor", "❌ ${ts.symbol} BLOCKED: C quality + unknown phase + low conf (${aiConfidence.toInt()}%)")
                 onLog("🚫 ${ts.symbol}: Blocked (C + unknown + low conf)", ts.mint)
                 return
             }
             
-            // Severely limit size if any two red flags present
             val redFlagCount = listOf(isLowQuality, isUnknownPhase, isLowConfidence).count { it }
             val qualityPenalty = when (redFlagCount) {
-                2 -> 0.25  // 75% size reduction
-                1 -> 0.60  // 40% size reduction for single red flag
+                2 -> 0.25
+                1 -> 0.60
                 else -> 1.0
             }
             
-            // AI-DRIVEN SIZING: Pass confidence, phase, source, brain, and setup quality to SmartSizer
             ErrorLogger.info("Executor", "📊 ${ts.symbol} SIZING: wallet=$walletSol | liq=${ts.lastLiquidityUsd} | mcap=${ts.lastFdv} | conf=$aiConfidence | entry=$entryScore | quality=$setupQuality | redFlags=$redFlagCount")
             var size = buySizeSol(
                 entryScore = entryScore, 
@@ -2208,17 +1829,12 @@ class Executor(
                 setupQuality = setupQuality,
             )
             
-            // Apply quality penalty from hard gates
             if (qualityPenalty < 1.0) {
                 val oldSize = size
                 size *= qualityPenalty
                 ErrorLogger.info("Executor", "📉 ${ts.symbol} size reduced: ${oldSize.fmt(3)} → ${size.fmt(3)} (penalty=${qualityPenalty}x, redFlags=$redFlagCount)")
             }
 
-            // Cross-token correlation guard (FIX 7: tier-aware)
-            // Penalise clustering only within the same ScalingMode tier.
-            // A MICRO snipe + GROWTH range trade are NOT correlated — different pools,
-            // different buyers. Only cluster MICRO-with-MICRO or GROWTH-with-GROWTH.
             if (c.crossTokenGuardEnabled) {
                 val windowMs = (c.crossTokenWindowMins * 60_000.0).toLong()
                 val cutoff   = System.currentTimeMillis() - windowMs
@@ -2226,7 +1842,6 @@ class Executor(
                 val trsUsdCG = TreasuryManager.treasurySol * solPxCG
                 val thisTier = ScalingMode.tierForToken(ts.lastLiquidityUsd, ts.lastFdv)
                 ts.recentEntryTimes.removeIf { it < cutoff }
-                // Count only same-tier entries in the window
                 val sameTierCount = BotService.status.openPositions.count { other ->
                     other.mint != ts.mint &&
                     ScalingMode.tierForToken(other.lastLiquidityUsd, other.lastFdv) == thisTier &&
@@ -2239,10 +1854,8 @@ class Executor(
                 }
                 ts.recentEntryTimes.add(System.currentTimeMillis())
             }
-            // Apply auto-mode size multiplier
             modeConfig?.let { size = size * it.positionSizeMultiplier }
             
-            // BotBrain skip check - DISABLED IN PAPER MODE
             if (!isPaperMode) {
                 brain?.let { b ->
                     val emaFan = ts.meta.emafanAlignment
@@ -2259,16 +1872,14 @@ class Executor(
                 return
             }
             
-            // Size OK - proceed with buy
             ErrorLogger.info("Executor", "✅ ${ts.symbol} SIZE OK: $size SOL - proceeding to doBuy()")
 
-            // Notify shadow learning engine of trade opportunity
             ShadowLearningEngine.onTradeOpportunity(
                 mint = ts.mint,
                 symbol = ts.symbol,
-                currentPrice = getActualPrice(ts),  // CRITICAL FIX: Use actual price
+                currentPrice = getActualPrice(ts),
                 liveEntryScore = entryScore.toInt(),
-                liveEntryThreshold = 42,  // base entry threshold
+                liveEntryThreshold = 42,
                 liveSizeSol = size,
                 phase = ts.phase,
             )
@@ -2281,24 +1892,6 @@ class Executor(
     // PRIORITY 2: UNIFIED CANDIDATE DECISION SUPPORT
     // ══════════════════════════════════════════════════════════════════
     
-    /**
-     * Execute trade action using the unified CandidateDecision.
-     * 
-     * This method provides a cleaner interface where all scoring and 
-     * quality decisions have already been made by the strategy.
-     * The Executor simply executes based on the final verdict.
-     * 
-     * @param ts Token state
-     * @param decision Unified decision from strategy's evaluateWithDecision()
-     * @param walletSol Available wallet balance
-     * @param wallet Solana wallet for live trading
-     * @param lastPollMs Last successful data poll timestamp
-     * @param openPositionCount Current open position count
-     * @param totalExposureSol Current total exposure in SOL
-     * @param modeConfig Auto-mode configuration
-     * @param fdgApprovedSize Optional FDG-approved size (skips recalculation if provided)
-     * @param walletTotalTrades Total trades for this wallet
-     */
     fun maybeActWithDecision(
         ts: TokenState,
         decision: CandidateDecision,
@@ -2310,32 +1903,22 @@ class Executor(
         modeConfig: AutoModeEngine.ModeConfig? = null,
         fdgApprovedSize: Double? = null,
         walletTotalTrades: Int = 0,
-        tradeIdentity: TradeIdentity? = null,  // Canonical identity for consistent tracking
-        fdgApprovalClass: FinalDecisionGate.ApprovalClass? = null,  // LIVE, PAPER_BENCHMARK, PAPER_EXPLORATION
+        tradeIdentity: TradeIdentity? = null,
+        fdgApprovalClass: FinalDecisionGate.ApprovalClass? = null,
     ) {
-        // ═══════════════════════════════════════════════════════════════════════════
-        // TRADE IDENTITY: Use identity for consistent mint/symbol throughout
-        // ═══════════════════════════════════════════════════════════════════════════
         val identity = tradeIdentity ?: TradeIdentityManager.getOrCreate(ts.mint, ts.symbol, ts.source)
         
-        // Store approval class in identity for later analytics
         fdgApprovalClass?.let { identity.fdgApprovalClass = it.name }
         
-        // Halt check
         val cbState = security.getCircuitBreakerState()
         if (cbState.isHalted) {
             onLog("🛑 Halted: ${cbState.haltReason}", identity.mint)
             return
         }
         
-        // Handle open positions (exits, stop-losses, etc.)
         if (ts.position.isOpen) {
-            // ═══════════════════════════════════════════════════════════════
-            // HOLDING LOGIC LAYER - Dynamic position management
-            // Evaluates position and can recommend mode switches
-            // ═══════════════════════════════════════════════════════════════
             try {
-                val currentPnlPct = ((getActualPrice(ts) - ts.position.entryPrice) / ts.position.entryPrice) * 100  // CRITICAL FIX: Use actual price
+                val currentPnlPct = ((getActualPrice(ts) - ts.position.entryPrice) / ts.position.entryPrice) * 100
                 val holdEval = kotlinx.coroutines.runBlocking {
                     HoldingLogicLayer.evaluatePosition(
                         position = ts.position,
@@ -2345,14 +1928,12 @@ class Executor(
                     )
                 }
                 
-                // Handle mode switch recommendation
                 if (holdEval.action == HoldingLogicLayer.HoldAction.SWITCH_MODE && 
                     holdEval.modeSwitchRecommendation?.shouldSwitch == true) {
                     val rec = holdEval.modeSwitchRecommendation
                     val oldMode = ts.position.tradingMode
                     val oldEmoji = ts.position.tradingModeEmoji
                     
-                    // Apply mode switch
                     ts.position.tradingMode = rec.newMode
                     ts.position.tradingModeEmoji = rec.newModeEmoji
                     ts.position.modeHistory = if (ts.position.modeHistory.isEmpty()) {
@@ -2365,7 +1946,6 @@ class Executor(
                     ErrorLogger.info("HoldingLogic", "Mode switch: ${identity.symbol} $oldMode→${rec.newMode} (conf=${rec.confidence.toInt()}%)")
                 }
                 
-                // Log significant holding evaluations
                 if (holdEval.urgency == HoldingLogicLayer.Urgency.HIGH || 
                     holdEval.urgency == HoldingLogicLayer.Urgency.CRITICAL) {
                     ErrorLogger.debug("HoldingLogic", "${identity.symbol}: ${holdEval.action} - ${holdEval.reason}")
@@ -2374,14 +1954,6 @@ class Executor(
                 ErrorLogger.debug("HoldingLogic", "Evaluation error for ${identity.symbol}: ${e.message}")
             }
             
-            // ═══════════════════════════════════════════════════════════════
-            // V4.20: CROSS-TALK MODE SWITCH EVALUATION
-            // 
-            // When token moves into a different mcap/liquidity range, the
-            // CrossTalk brain coordinates all AI signals to recommend the
-            // best trading mode. This catches graduations (shitcoin→mid-cap)
-            // and defensive switches (healthy→draining liquidity).
-            // ═══════════════════════════════════════════════════════════════
             try {
                 val currentPnl = ((getActualPrice(ts) - ts.position.entryPrice) / ts.position.entryPrice) * 100
                 val mcapChange = if (ts.position.entryMcap > 0) {
@@ -2393,7 +1965,6 @@ class Executor(
                 val holdTimeMs = System.currentTimeMillis() - ts.position.entryTime
                 val tokenAgeMs = System.currentTimeMillis() - ts.addedToWatchlistAt
                 
-                // Check if significant changes warrant mode evaluation
                 if (AICrossTalk.shouldCheckModeSwitch(ts.mint, mcapChange, liquidityChange, currentPnl)) {
                     val modeSwitchSignal = AICrossTalk.evaluateModeSwitchCrossTalk(
                         mint = ts.mint,
@@ -2406,7 +1977,6 @@ class Executor(
                         holdTimeMs = holdTimeMs,
                     )
                     
-                    // Apply mode switch if recommended with high confidence
                     if (modeSwitchSignal.shouldSwitch && modeSwitchSignal.confidence >= 70.0) {
                         val oldMode = ts.position.tradingMode
                         val oldEmoji = ts.position.tradingModeEmoji
@@ -2428,14 +1998,12 @@ class Executor(
                 ErrorLogger.debug("CrossTalk", "Mode switch eval error for ${identity.symbol}: ${e.message}")
             }
             
-            // V8 quick exit check
-            // V5.2.11: Now respects hold time protection
             val quickExit = PrecisionExitLogic.quickCheck(
                 mint = identity.mint,
-                currentPrice = getActualPrice(ts),  // CRITICAL FIX: Use actual price
+                currentPrice = getActualPrice(ts),
                 entryPrice = ts.position.entryPrice,
                 stopLossPct = cfg().stopLossPct,
-                entryTimeMs = ts.position.entryTime,  // V5.2.11: Pass entry time for hold protection
+                entryTimeMs = ts.position.entryTime,
             )
             if (quickExit != null && quickExit.shouldExit) {
                 onLog("🚨 V8 QUICK EXIT: ${identity.symbol} | ${quickExit.reason} | ${quickExit.details}", identity.mint)
@@ -2444,23 +2012,19 @@ class Executor(
                 return
             }
             
-            // Partial sell check
             checkPartialSell(ts, wallet, walletSol)
             
-            // Risk check
             val reason = riskCheck(ts, modeConfig)
             if (reason != null) {
                 doSell(ts, reason, wallet, walletSol, identity)
                 return
             }
             
-            // Explicit sell/exit signal
             if (decision.finalSignal in listOf("SELL", "EXIT")) {
                 doSell(ts, decision.finalSignal.lowercase(), wallet, walletSol, identity)
                 return
             }
             
-            // Mode max hold
             if (modeConfig != null) {
                 val held = (System.currentTimeMillis() - ts.position.entryTime) / 60_000.0
                 val tf = ts.candleTimeframeMinutes.toDouble().coerceAtLeast(1.0)
@@ -2470,7 +2034,6 @@ class Executor(
                 }
             }
             
-            // Top-up and graduated building
             if (cfg().autoTrade && decision.meta.topUpReady) {
                 val topUpReady = shouldTopUp(
                     ts = ts,
@@ -2486,43 +2049,25 @@ class Executor(
             }
             
             if (cfg().paperMode && !ts.position.isFullyBuilt) {
-                val result = shouldGraduatedAdd(ts.position, getActualPrice(ts), decision.meta.volScore)  // CRITICAL FIX: Use actual price
+                val result = shouldGraduatedAdd(ts.position, getActualPrice(ts), decision.meta.volScore)
                 if (result != null) {
                     val (addSol, newPhase) = result
                     doGraduatedAdd(ts, addSol, newPhase)
                 }
             }
             
-            return  // Position already open, no new entry
+            return
         }
         
-        // ══════════════════════════════════════════════════════════════════
-        // NEW ENTRY LOGIC - Using unified CandidateDecision
-        // ══════════════════════════════════════════════════════════════════
-        
-        // Check if we should act on buys
-        // PAPER MODE: ALWAYS trade for learning
-        // LIVE MODE: Requires autoTrade to be enabled
         val shouldActOnBuy = cfg().paperMode || cfg().autoTrade
         if (!shouldActOnBuy) {
             ErrorLogger.debug("Executor", "📊 ${ts.symbol}: Buy skipped - autoTrade disabled")
             return
         }
         
-        // ═══════════════════════════════════════════════════════════════════
-        // V3 MIGRATION: Legacy `shouldTrade` check is now ADVISORY ONLY
-        // 
-        // Old behavior: `if (!decision.shouldTrade) return` → hard block
-        // New behavior: Log for comparison, but don't block
-        // 
-        // WHY: V3 is the single source of truth. If V3 says EXECUTE,
-        // we execute. The legacy `shouldTrade` is for comparison tracking only.
-        // ═══════════════════════════════════════════════════════════════════
         if (!decision.shouldTrade) {
-            // Log for V3 vs Legacy comparison (don't block!)
             val reason = if (decision.blockReason.isNotEmpty()) decision.blockReason else "legacy_shouldTrade=false"
             ErrorLogger.debug("Executor", "📊 ${ts.symbol}: Legacy would block ($reason) - V3 will evaluate")
-            // NOTE: Removed `return` - V3 controls execution now
         }
         
         val isPaper = cfg().paperMode
@@ -2531,11 +2076,6 @@ class Executor(
             "conf=${decision.aiConfidence.toInt()}% | penalty=${decision.qualityPenalty} | " +
             "paper=$isPaper | autoTrade=${cfg().autoTrade}")
         
-        // ═══════════════════════════════════════════════════════════════════
-        // V4.1: VELOCITY CHECK AT ENTRY - Don't enter during rapid dumps
-        // User feedback: "seeing losses over 30% at times"
-        // Prevention: Don't enter tokens that are already dumping rapidly
-        // ═══════════════════════════════════════════════════════════════════
         if (ts.history.size >= 3) {
             val recentCandles = ts.history.takeLast(3)
             val priceStart = recentCandles.first().priceUsd
@@ -2543,7 +2083,6 @@ class Executor(
             if (priceStart > 0 && priceEnd > 0) {
                 val velocityPct = ((priceEnd - priceStart) / priceStart) * 100
                 
-                // Price dropping >5% in 3 candles = don't enter, wait for stabilization
                 if (velocityPct < -5.0) {
                     ErrorLogger.debug("Executor", "⚡ ${ts.symbol} VELOCITY BLOCK: Price dropping ${velocityPct.toInt()}% rapidly")
                     onLog("⚡ ${ts.symbol}: Price dropping ${velocityPct.toInt()}% - waiting for stabilization", ts.mint)
@@ -2552,24 +2091,19 @@ class Executor(
             }
         }
         
-        // Rugged contracts check (by mint address) - FATAL, always block
         if (RuggedContracts.isBlacklisted(ts.mint)) {
             ErrorLogger.info("Executor", "🚫 ${ts.symbol} BLACKLISTED: Previously rugged")
             onLog("💀 ${ts.symbol}: Blacklisted contract", ts.mint)
             return
         }
         
-        // State machine cooldown (skip in paper mode)
         if (!isPaper && TradeStateMachine.isInCooldown(ts.mint)) {
             onLog("⏸️ ${ts.symbol}: In cooldown, skipping", ts.mint)
             return
         }
         
-        // Transition to ENTER state
         TradeStateMachine.setState(ts.mint, TradeState.ENTER, "executing buy via unified decision")
         
-        // Calculate size - use FDG-approved size if available, otherwise calculate
-        // NOTE: If fdgApprovedSize is provided, it ALREADY includes mode multiplier and graduated building
         var size = fdgApprovedSize ?: buySizeSol(
             entryScore = decision.entryScore,
             walletSol = walletSol,
@@ -2585,9 +2119,7 @@ class Executor(
             setupQuality = decision.setupQuality,
         )
         
-        // Only apply these adjustments if we calculated size ourselves (no FDG-approved size)
         if (fdgApprovedSize == null) {
-            // Apply quality penalty from unified decision
             if (decision.qualityPenalty < 1.0 && decision.qualityPenalty > 0.0) {
                 val oldSize = size
                 size *= decision.qualityPenalty
@@ -2595,11 +2127,9 @@ class Executor(
                     "(penalty=${decision.qualityPenalty}x, redFlags=${decision.redFlagCount})")
             }
             
-            // Apply auto-mode size multiplier
             modeConfig?.let { size *= it.positionSizeMultiplier }
         }
         
-        // BotBrain skip check (skip in paper mode)
         if (!isPaper) {
             brain?.let { b ->
                 if (b.shouldSkipTrade(decision.phase, decision.meta.emafanAlignment, ts.source, decision.entryScore)) {
@@ -2615,28 +2145,24 @@ class Executor(
             return
         }
         
-        // Execute buy
         if (isPaper) {
             ErrorLogger.info("Executor", "📄 ${ts.symbol} PAPER BUY: $size SOL - quality=${decision.finalQuality}")
         } else {
-            // LIVE MODE: Explicit logging before real trade
             ErrorLogger.info("Executor", "💰 ${ts.symbol} LIVE BUY ATTEMPT: $size SOL - " +
                 "quality=${decision.finalQuality} | wallet=$walletSol | autoTrade=${cfg().autoTrade}")
             onLog("💰 LIVE BUY: ${ts.symbol} | ${size.fmt(4)} SOL | quality=${decision.finalQuality}", ts.mint)
         }
         
-        // Notify shadow learning
         ShadowLearningEngine.onTradeOpportunity(
             mint = ts.mint,
             symbol = ts.symbol,
-            currentPrice = getActualPrice(ts),  // CRITICAL FIX: Use actual price
+            currentPrice = getActualPrice(ts),
             liveEntryScore = decision.entryScore.toInt(),
             liveEntryThreshold = 42,
             liveSizeSol = size,
             phase = decision.phase,
         )
         
-        // If FDG-approved size was provided, graduated building was already applied
         val skipGraduated = fdgApprovedSize != null
         doBuy(ts, size, decision.entryScore, wallet, walletSol, identity, decision.setupQuality, skipGraduated)
     }
@@ -2658,12 +2184,11 @@ class Executor(
             return
         }
 
-        val gainPct = pct(pos.entryPrice, getActualPrice(ts))  // CRITICAL FIX: Use actual price
+        val gainPct = pct(pos.entryPrice, getActualPrice(ts))
         onLog("🔺 TOP-UP #${pos.topUpCount + 1}: ${ts.symbol} " +
               "+${gainPct.toInt()}% gain | adding ${size.fmt(4)} SOL " +
               "(total will be ${(pos.costSol + size).fmt(4)} SOL)", ts.mint)
 
-        // Execute the buy — reuses the same buy path with security checks
         if (c.paperMode || wallet == null) {
             paperTopUp(ts, size)
         } else {
@@ -2685,7 +2210,7 @@ class Executor(
 
     private fun paperTopUp(ts: TokenState, sol: Double) {
         val pos   = ts.position
-        val price = getActualPrice(ts)  // CRITICAL FIX: Use actual price
+        val price = getActualPrice(ts)
         if (price <= 0) return
 
         val newQty    = sol / maxOf(price, 1e-12)
@@ -2694,7 +2219,7 @@ class Executor(
 
         ts.position = pos.copy(
             qtyToken       = totalQty,
-            entryPrice     = totalCost / totalQty,  // weighted average entry
+            entryPrice     = totalCost / totalQty,
             costSol        = totalCost,
             topUpCount     = pos.topUpCount + 1,
             topUpCostSol   = pos.topUpCostSol + sol,
@@ -2736,7 +2261,6 @@ class Executor(
             val txResult = buildTxWithRetry(quote, wallet.publicKeyB58)
             security.enforceSignDelay()
             
-            // ⚡ MEV PROTECTION for top-ups (Ultra or Jito)
             val useJito = c.jitoEnabled && !quote.isUltra
             val jitoTip = c.jitoTipLamports
             val ultraReqId = if (quote.isUltra) txResult.requestId else null
@@ -2748,7 +2272,7 @@ class Executor(
             }
             val sig    = wallet.signSendAndConfirm(txResult.txBase64, useJito, jitoTip, ultraReqId, c.jupiterApiKey, txResult.isRfqRoute)
             val pos    = ts.position
-            val price  = getActualPrice(ts)  // CRITICAL FIX: Use actual price
+            val price  = getActualPrice(ts)
             val newQty = quote.outAmount.toDouble() / tokenScale(quote.outAmount)
 
             ts.position = pos.copy(
@@ -2784,14 +2308,12 @@ class Executor(
                       wallet: SolanaWallet?, walletSol: Double,
                       identity: TradeIdentity? = null,
                       quality: String = "C",
-                      skipGraduated: Boolean = false) {  // Pass through to paperBuy/liveBuy
-        // Get or create canonical identity
+                      skipGraduated: Boolean = false) {
         val tradeId = identity ?: TradeIdentityManager.getOrCreate(ts.mint, ts.symbol, ts.source)
         
         if (cfg().paperMode || wallet == null) {
             paperBuy(ts, sol, score, tradeId, quality, skipGraduated, wallet, walletSol)
         } else {
-            // Pre-flight security check
             val guard = security.checkBuy(
                 mint         = tradeId.mint,
                 symbol       = tradeId.symbol,
@@ -2804,11 +2326,9 @@ class Executor(
             when (guard) {
                 is GuardResult.Block -> {
                     onLog("🚫 Buy blocked: ${guard.reason}", tradeId.mint)
-                    // 🎵 Peter Griffin "No no no!"
                     sounds?.playBlockSound()
                     if (guard.fatal) onNotify("🛑 Bot Halted", guard.reason, com.lifecyclebot.engine.NotificationHistory.NotifEntry.NotifType.INFO)
                     
-                    // SHADOW PAPER: Run paper trade for learning even when live is blocked
                     if (cfg().shadowPaperEnabled) {
                         runShadowPaperBuy(ts, sol, score, quality, "blocked:${guard.reason.take(20)}", wallet, walletSol)
                     }
@@ -2817,7 +2337,6 @@ class Executor(
                 is GuardResult.Allow -> {
                     liveBuy(ts, sol, score, wallet, walletSol, tradeId, quality, skipGraduated)
                     
-                    // SHADOW PAPER: Also run shadow paper for parallel learning
                     if (cfg().shadowPaperEnabled) {
                         runShadowPaperBuy(ts, sol, score, quality, "parallel", wallet, walletSol)
                     }
@@ -2826,26 +2345,10 @@ class Executor(
         }
     }
     
-    /**
-     * SHADOW PAPER TRADING
-     * 
-     * Runs paper trades in background during live mode for accelerated learning.
-     * Shadow trades:
-     *   - Do NOT affect live balance or positions
-     *   - Do NOT show in main trade journal
-     *   - DO feed learning data to all AI layers
-     *   - Allow brain to learn from more scenarios
-     */
     private fun runShadowPaperBuy(ts: TokenState, sol: Double, score: Double, 
                                    quality: String, reason: String,
                                    wallet: SolanaWallet? = null, walletSol: Double = 0.0) {
         try {
-            // ═══════════════════════════════════════════════════════════════════
-            // MOONSHOT OVERRIDE FOR SHADOW MODE
-            // 
-            // Even in shadow mode, don't miss a moonshot! If this looks like
-            // a massive opportunity, convert to LIVE BUY immediately.
-            // ═══════════════════════════════════════════════════════════════════
             val isMoonshot = cfg().moonshotOverrideEnabled &&
                              score >= 85 && 
                              quality in listOf("A", "B") && 
@@ -2865,21 +2368,16 @@ class Executor(
                 }
             }
             
-            // Limit shadow positions to prevent memory bloat
             if (shadowPositions.size >= MAX_SHADOW_POSITIONS) {
-                // Remove oldest shadow position
                 val oldest = shadowPositions.values.minByOrNull { it.entryTime }
                 oldest?.let { shadowPositions.remove(it.mint) }
             }
             
-            // Skip if we already have a shadow position for this token
             if (shadowPositions.containsKey(ts.mint)) return
             
-            // CRITICAL FIX: Use lastPrice, NOT ref (which can be market cap!)
             val price = ts.lastPrice.takeIf { it > 0 } ?: ts.history.lastOrNull()?.priceUsd ?: 0.0
             if (price <= 0) return
             
-            // Create shadow position
             val shadowPos = ShadowPosition(
                 mint = ts.mint,
                 symbol = ts.symbol,
@@ -2895,35 +2393,29 @@ class Executor(
             onLog("👻 SHADOW BUY: ${ts.symbol} | $reason | ${sol.toString().take(6)} SOL @ ${price.toString().take(8)} | tracking=${shadowPositions.size}", ts.mint)
             
         } catch (e: Exception) {
-            // Shadow trades should never crash the main bot
             ErrorLogger.debug("Executor", "Shadow paper buy failed: ${e.message}")
         }
     }
     
-    /**
-     * Check shadow positions and record exits for learning.
-     * Called periodically during main bot loop.
-     */
     fun checkShadowPositions(tokenStates: Map<String, TokenState>) {
         if (!cfg().shadowPaperEnabled || cfg().paperMode) return
         
         val toRemove = mutableListOf<String>()
         val stopLossPct = cfg().stopLossPct
-        val takeProfitPct = 50.0  // Shadow takes profit at 50% for learning
+        val takeProfitPct = 50.0
         
         for ((mint, shadow) in shadowPositions) {
             val ts = tokenStates[mint] ?: continue
-            val currentPrice = getActualPrice(ts)  // CRITICAL FIX: Use actual price
+            val currentPrice = getActualPrice(ts)
             if (currentPrice <= 0) continue
             
             val pnlPct = ((currentPrice - shadow.entryPrice) / shadow.entryPrice) * 100
             val holdTimeMin = (System.currentTimeMillis() - shadow.entryTime) / 60000
             
-            // Check exit conditions
             val shouldExit = when {
                 pnlPct <= -stopLossPct -> "stop_loss"
                 pnlPct >= takeProfitPct -> "take_profit"
-                holdTimeMin >= 30 -> "timeout_30min"  // Force exit after 30 min for learning
+                holdTimeMin >= 30 -> "timeout_30min"
                 else -> null
             }
             
@@ -2932,34 +2424,28 @@ class Executor(
                 val pnlSol = pnlPct * shadow.entrySol / 100
                 val shadowHoldMins = (System.currentTimeMillis() - shadow.entryTime) / 60_000.0
                 
-                // Record outcome for learning - THIS IS THE KEY PART
-                // Shadow trades are EXPLORATION quality (bypassed live rules)
-                // They get 0.3x weight to avoid polluting learning data
                 brain?.learnFromTrade(
                     isWin = isWin,
-                    phase = "shadow_${shadow.quality}",  // Track quality in phase
-                    emaFan = "FLAT",  // Shadow trades don't track EMA fan
+                    phase = "shadow_${shadow.quality}",
+                    emaFan = "FLAT",
                     source = shadow.source,
                     pnlPct = pnlPct,
                     mint = shadow.mint,
-                    // Default safety metrics for shadow trades
                     rugcheckScore = 50,
                     buyPressure = 50.0,
                     topHolderPct = 10.0,
                     liquidityUsd = 10000.0,
-                    isLiveTrade = false,  // Shadow trades are NOT live
-                    approvalClass = "PAPER_EXPLORATION",  // Shadow = exploration quality (0.3x weight)
-                    // NEW: Execution quality metrics
+                    isLiveTrade = false,
+                    approvalClass = "PAPER_EXPLORATION",
                     holdTimeMinutes = shadowHoldMins,
-                    maxGainPct = pnlPct.coerceAtLeast(0.0),  // Shadow doesn't track peak, use current
+                    maxGainPct = pnlPct.coerceAtLeast(0.0),
                     exitReason = shouldExit,
-                    tokenAgeMinutes = 0.0,  // Shadow doesn't track token age
+                    tokenAgeMinutes = 0.0,
                 )
                 
-                // Update adaptive thresholds based on shadow outcome
                 brain?.learnThreshold(
                     isWin = isWin,
-                    rugcheckScore = 50,  // Default for shadow
+                    rugcheckScore = 50,
                     buyPressure = 50.0,
                     topHolderPct = 10.0,
                     liquidityUsd = 10000.0,
@@ -2973,7 +2459,6 @@ class Executor(
             }
         }
         
-        // Remove exited shadow positions
         toRemove.forEach { shadowPositions.remove(it) }
     }
 
@@ -2981,9 +2466,6 @@ class Executor(
                  quality: String = "C", skipGraduated: Boolean = false,
                  wallet: SolanaWallet? = null, walletSol: Double = 0.0) {
         
-        // ═══════════════════════════════════════════════════════════════════════════
-        // V5.2.9: EXECUTOR INPUT VALIDATION - Prevent invalid trade states
-        // ═══════════════════════════════════════════════════════════════════════════
         if (sol <= 0 || sol.isNaN() || sol.isInfinite()) {
             ErrorLogger.warn("Executor", "[EXECUTION/INVALID] Paper buy skipped: invalid size $sol for ${ts.symbol}")
             return
@@ -2997,20 +2479,8 @@ class Executor(
             return
         }
         
-        // V5.2: Pipeline trace - executor received entry
         PipelineTracer.executorStart(ts.symbol, ts.mint, "PAPER", sol)
         
-        // ═══════════════════════════════════════════════════════════════════════════
-        // MOONSHOT OVERRIDE: Don't miss potential moonshots even in paper mode!
-        // 
-        // If ALL of these conditions are met, execute a LIVE BUY instead:
-        // 1. Score >= 85 (very high confidence)
-        // 2. Quality is A or B (top tier setup)
-        // 3. Liquidity >= $5,000 (enough to exit safely)
-        // 4. Buy pressure >= 70% (strong demand)
-        // 5. We have a connected wallet with balance
-        // 6. Moonshot override is enabled in config
-        // ═══════════════════════════════════════════════════════════════════════════
         val isMoonshot = cfg().moonshotOverrideEnabled &&
                          score >= 85 && 
                          quality in listOf("A", "B") && 
@@ -3018,86 +2488,63 @@ class Executor(
                          ts.meta.pressScore >= 70
         
         if (isMoonshot && wallet != null && walletSol > 0) {
-            if (walletSol >= sol * 1.1) {  // Have enough + 10% buffer
+            if (walletSol >= sol * 1.1) {
                 onLog("🌙🚀 MOONSHOT DETECTED in paper mode! Score=${score.toInt()} Quality=$quality → LIVE BUY OVERRIDE", ts.mint)
                 onNotify("🌙 Moonshot Override!", "${ts.symbol} score=${score.toInt()}% → Going LIVE!", 
                     com.lifecyclebot.engine.NotificationHistory.NotifEntry.NotifType.INFO)
                 sounds?.playMilestone(100.0)
                 
-                // Execute live buy instead of paper
                 val tradeId = identity ?: TradeIdentityManager.getOrCreate(ts.mint, ts.symbol, ts.source)
                 liveBuy(ts, sol, score, wallet, walletSol, tradeId, quality)
                 return
             }
         }
         
-        // ═══════════════════════════════════════════════════════════════════════════
-        // TRADE IDENTITY: Use canonical identity for consistent tracking
-        // ═══════════════════════════════════════════════════════════════════════════
         val tradeId = identity ?: TradeIdentityManager.getOrCreate(ts.mint, ts.symbol, ts.source)
         
-        // CRITICAL FIX: Use lastPrice, NOT ref (which can be market cap!)
-        // ts.ref = if (lastMcap > 0) lastMcap else lastPrice ← WRONG for entry price
-        // ts.lastPrice = actual token price
         val price = ts.lastPrice.takeIf { it > 0 } ?: ts.history.lastOrNull()?.priceUsd ?: 0.0
         if (price <= 0) {
             ErrorLogger.debug("Executor", "Paper buy skipped: no valid price for ${tradeId.symbol}")
             return
         }
-        // Single position enforcement
         if (ts.position.isOpen) {
             onLog("⚠ Buy skipped: position already open", tradeId.mint); return
         }
         
-        // V5.2 FIX_3: MULTI-LAYER LOCK CHECK
-        // Block entry if another layer already has this token open
-        val currentLayer = "PAPER"  // Paper mode uses single layer
+        val currentLayer = "PAPER"
         if (EmergentGuardrails.shouldBlockMultiLayerEntry(tradeId.mint, currentLayer)) {
             onLog("⚠ Buy skipped: ${tradeId.symbol} already open in different layer", tradeId.mint)
             return
         }
         
-        // GRADUATED BUILDING: start with partial size for B+ setups
-        // Skip if already applied by BotService (skipGraduated = true)
         val actualSol: Double
         val buildPhase: Int
         val targetBuild: Double
         
         if (skipGraduated || quality == "C") {
-            // Size is already final (graduated applied by BotService) or C quality (no graduated)
             actualSol = sol
-            buildPhase = if (quality != "C") 1 else 3  // Still track build phase for future adds
+            buildPhase = if (quality != "C") 1 else 3
             targetBuild = if (quality != "C") sol / graduatedInitialPct(quality) else 0.0
         } else {
-            // Apply graduated building here (legacy path without FDG)
             actualSol = graduatedInitialSize(sol, quality)
             buildPhase = 1
             targetBuild = sol
         }
         
-        // ═══════════════════════════════════════════════════════════════════
-        // REALISTIC PAPER SIMULATION: Apply slippage & fees like live trading
-        // This teaches realistic expectations before going live
-        // ═══════════════════════════════════════════════════════════════════
         val simulatedSlippagePct = when {
-            ts.lastLiquidityUsd < 5000 -> 3.0   // Low liquidity = high slippage
-            ts.lastLiquidityUsd < 20000 -> 1.5  // Medium liquidity
-            ts.lastLiquidityUsd < 50000 -> 0.8  // Good liquidity
-            else -> 0.4                          // High liquidity
+            ts.lastLiquidityUsd < 5000 -> 3.0
+            ts.lastLiquidityUsd < 20000 -> 1.5
+            ts.lastLiquidityUsd < 50000 -> 0.8
+            else -> 0.4
         }
         val slippageMultiplier = 1.0 + (simulatedSlippagePct / 100.0)
-        val effectivePrice = price * slippageMultiplier  // You pay MORE due to slippage
+        val effectivePrice = price * slippageMultiplier
         
-        // Simulate transaction fee (~0.5% average for Solana DEX trades)
         val simulatedFeePct = 0.5
-        val effectiveSol = actualSol * (1.0 - simulatedFeePct / 100.0)  // Less SOL after fee
+        val effectiveSol = actualSol * (1.0 - simulatedFeePct / 100.0)
         
-        // Get recommended trading mode for THIS TOKEN based on its characteristics
-        // FIX: Use token-specific mode recommendation, not just global primary mode
         val currentMode = try {
-            // Calculate age from when token was added to watchlist
             val tokenAgeMs = System.currentTimeMillis() - ts.addedToWatchlistAt
-            // Check for whale activity from summary (e.g., "🐋 Large buy detected")
             val hasWhales = ts.meta.whaleSummary.isNotBlank()
             
             val recommendedMode = UnifiedModeOrchestrator.recommendModeForToken(
@@ -3115,7 +2562,6 @@ class Executor(
             ErrorLogger.debug("Executor", "Mode selected for ${ts.symbol}: ${recommendedMode.emoji} ${recommendedMode.name}")
             recommendedMode
         } catch (e: Exception) {
-            // Fallback to global primary mode
             try {
                 UnifiedModeOrchestrator.getCurrentPrimaryMode()
             } catch (_: Exception) {
@@ -3124,16 +2570,16 @@ class Executor(
         }
         
         ts.position = Position(
-            qtyToken     = effectiveSol / maxOf(effectivePrice, 1e-12),  // Get fewer tokens due to slippage
-            entryPrice   = effectivePrice,  // Record slipped price
+            qtyToken     = effectiveSol / maxOf(effectivePrice, 1e-12),
+            entryPrice   = effectivePrice,
             entryTime    = System.currentTimeMillis(),
-            costSol      = actualSol,  // Track original cost
+            costSol      = actualSol,
             highestPrice = effectivePrice,
             entryPhase   = ts.phase,
             entryScore   = score,
             entryLiquidityUsd = ts.lastLiquidityUsd,
-            entryMcap    = ts.lastMcap,  // V4.20: Track entry mcap for graduation detection
-            isPaperPosition = true,  // V5.6.8: PAPER position - can use simulated sell
+            entryMcap    = ts.lastMcap,
+            isPaperPosition = true,
             tradingMode  = currentMode.name,
             tradingModeEmoji = currentMode.emoji,
             buildPhase   = buildPhase,
@@ -3152,66 +2598,46 @@ class Executor(
         recordTrade(ts, trade)
         security.recordTrade(trade)
         
-        // V5.2: Register position in EmergentGuardrails for multi-layer tracking
         EmergentGuardrails.registerPosition(tradeId.mint, tradeId.symbol, currentLayer, actualSol)
         
-        // V5.6.9: Persist position immediately after buy for crash recovery
         try {
             PositionPersistence.savePosition(ts)
         } catch (e: Exception) {
             ErrorLogger.debug("Executor", "Position persistence save error: ${e.message}")
         }
         
-        // V8: Transition to MONITOR state (use identity.mint)
         TradeStateMachine.setState(tradeId.mint, TradeState.MONITOR, "position opened")
         
-        // ═══════════════════════════════════════════════════════════════════
-        // TRADE IDENTITY: Mark as executed and monitoring
-        // ═══════════════════════════════════════════════════════════════════
         tradeId.executed(price, actualSol, isPaper = true)
         tradeId.monitoring()
         
-        // ═══════════════════════════════════════════════════════════════════
-        // LIFECYCLE: EXECUTED → MONITORING (use identity.mint for consistency)
-        // ═══════════════════════════════════════════════════════════════════
         TradeLifecycle.executed(tradeId.mint, price, actualSol)
         TradeLifecycle.monitoring(tradeId.mint, 0.0)
         
-        // Update paper wallet balance (deduct buy amount)
         onPaperBalanceChange?.invoke(-actualSol)
         
-        // ═══════════════════════════════════════════════════════════════════
-        // FLUID LEARNING: Track this paper buy for realistic balance simulation
-        // ═══════════════════════════════════════════════════════════════════
         if (cfg().fluidLearningEnabled) {
             FluidLearning.recordPaperBuy(tradeId.mint, actualSol)
-            // Record price impact - your buy pushes price UP
             FluidLearning.recordPriceImpact(tradeId.mint, actualSol, ts.lastLiquidityUsd, isBuy = true)
         }
         
-        // ═══════════════════════════════════════════════════════════════════
-        // EDGE LEARNING: Record entry state for later learning
-        // ═══════════════════════════════════════════════════════════════════
         EdgeLearning.recordEntry(
             mint = tradeId.mint,
             symbol = tradeId.symbol,
             buyPct = ts.meta.pressScore,
             volumeScore = ts.meta.volScore,
             phase = ts.phase,
-            edgeQuality = quality,  // Use canonical quality from decision
-            wasVetoed = false,  // If we got here, we weren't vetoed
+            edgeQuality = quality,
+            wasVetoed = false,
             vetoReason = null,
             entryPrice = price,
             isPaperMode = true,
         )
         
-        // ═══════════════════════════════════════════════════════════════════
-        // ENTRY INTELLIGENCE: Record entry conditions for learning
-        // ═══════════════════════════════════════════════════════════════════
         val entryConditions = EntryIntelligence.EntryConditions(
             buyPressure = ts.meta.pressScore,
             volumeScore = ts.meta.volScore,
-            priceVsEma = ts.meta.posInRange - 50.0,  // Rough approximation
+            priceVsEma = ts.meta.posInRange - 50.0,
             rsi = ts.meta.rsi,
             momentum = ts.entryScore,
             hourOfDay = java.util.Calendar.getInstance(java.util.TimeZone.getTimeZone("UTC")).get(java.util.Calendar.HOUR_OF_DAY),
@@ -3220,19 +2646,12 @@ class Executor(
             topHolderPct = ts.safety.topHolderPct,
             isNearSupport = ts.meta.posInRange < 25.0,
             isNearResistance = ts.meta.posInRange > 75.0,
-            candlePattern = "none",  // Would need to pass from strategy
+            candlePattern = "none",
         )
         EntryIntelligence.recordEntry(tradeId.mint, entryConditions)
         
-        // ═══════════════════════════════════════════════════════════════════
-        // LIQUIDITY DEPTH AI: Record entry liquidity for change tracking
-        // ═══════════════════════════════════════════════════════════════════
         LiquidityDepthAI.recordEntryLiquidity(tradeId.mint, ts.lastLiquidityUsd)
         
-        // ═══════════════════════════════════════════════════════════════════
-        // PORTFOLIO ANALYTICS: Track position for heat map & correlation
-        // Updated: Use narrative.label from enum
-        // ═══════════════════════════════════════════════════════════════════
         try {
             val narrative = NarrativeDetectorAI.detectNarrative(ts.symbol, ts.name)
             PortfolioAnalytics.updatePosition(
@@ -3240,7 +2659,7 @@ class Executor(
                 symbol = tradeId.symbol,
                 valueSol = actualSol,
                 costSol = actualSol,
-                narrative = narrative.label,  // Use .label from enum
+                narrative = narrative.label,
                 entryTime = System.currentTimeMillis(),
             )
             PortfolioAnalytics.recordPrice(tradeId.mint, price)
@@ -3248,24 +2667,15 @@ class Executor(
             ErrorLogger.debug("PortfolioAnalytics", "Update error: ${e.message}")
         }
         
-        // 🎵 Homer Simpson "Woohoo!" 
         sounds?.playBuySound()
         
         val buildInfo = if (buildPhase == 1) " [BUILD 1/3]" else ""
         onLog("PAPER BUY  @ ${price.fmt()} | ${actualSol.fmt(4)} SOL | score=${score.toInt()}$buildInfo", tradeId.mint)
         onNotify("📈 Paper Buy", "${tradeId.symbol}  ${actualSol.fmt(3)} SOL$buildInfo", com.lifecyclebot.engine.NotificationHistory.NotifEntry.NotifType.INFO)
         
-        // V4.0: Send Telegram/Discord alerts
         TradeAlerts.onBuy(cfg(), tradeId.symbol, actualSol, score, 0.0, ts.position.tradingMode, isPaper = true)
     }
     
-    // ═══════════════════════════════════════════════════════════════════════════
-    // V3 CLEAN RUNTIME: Execute buy through V3 decision
-    // 
-    // This is the V3-native buy path. V3 has already decided to EXECUTE,
-    // provided the size, and we just need to execute the trade.
-    // No legacy quality/edge/shouldTrade checks - V3 already scored everything.
-    // ═══════════════════════════════════════════════════════════════════════════
     fun v3Buy(
         ts: TokenState,
         sizeSol: Double,
@@ -3281,23 +2691,20 @@ class Executor(
         val isPaper = cfg().paperMode
         val identity = TradeIdentityManager.getOrCreate(ts.mint, ts.symbol, ts.source)
         
-        // Mark as executed in identity
-        identity.executed(getActualPrice(ts), sizeSol, isPaper)  // CRITICAL FIX: Use actual price
+        identity.executed(getActualPrice(ts), sizeSol, isPaper)
         
         if (isPaper) {
-            // Paper buy with V3 metadata
             paperBuy(
                 ts = ts,
                 sol = sizeSol,
                 score = v3Score.toDouble(),
                 identity = identity,
-                quality = v3Band,  // Use V3 band as quality
-                skipGraduated = true,  // V3 already sized
+                quality = v3Band,
+                skipGraduated = true,
                 wallet = wallet,
                 walletSol = walletSol
             )
         } else {
-            // Live buy
             if (wallet == null) {
                 ErrorLogger.error("Executor", "[V3] ${ts.symbol} | LIVE_BUY_FAILED | no wallet")
                 return
@@ -3314,12 +2721,11 @@ class Executor(
             )
         }
         
-        // Record V3 entry for learning
         try {
             com.lifecyclebot.v3.V3EngineManager.recordEntry(
                 mint = ts.mint,
                 symbol = ts.symbol,
-                entryPrice = getActualPrice(ts),  // CRITICAL FIX: Use actual price
+                entryPrice = getActualPrice(ts),
                 sizeSol = sizeSol,
                 v3Score = v3Score,
                 v3Band = v3Band,
@@ -3332,12 +2738,7 @@ class Executor(
             ErrorLogger.debug("Executor", "[V3] Learning record error: ${e.message}")
         }
         
-        // ═══════════════════════════════════════════════════════════════════
-        // V3.3: Upload BUY to collective knowledge base IMMEDIATELY
-        // Every trade goes to the hive mind for shared learning
-        // ═══════════════════════════════════════════════════════════════════
         try {
-            // V5.6.12: Log before GlobalScope to confirm we reach this code path
             ErrorLogger.info("Executor", "🌐 [COLLECTIVE] Launching upload for BUY ${ts.symbol}...")
             kotlinx.coroutines.GlobalScope.launch(kotlinx.coroutines.Dispatchers.IO) {
                 try {
@@ -3351,7 +2752,7 @@ class Executor(
                         marketSentiment = marketSentiment,
                         entryScore = v3Score,
                         confidence = v3Confidence.toInt(),
-                        pnlPct = 0.0,  // No PnL on entry
+                        pnlPct = 0.0,
                         holdMins = 0.0,
                         isWin = false,
                         paperMode = isPaper
@@ -3365,10 +2766,6 @@ class Executor(
         }
     }
 
-    /**
-     * Treasury Mode Buy - Quick scalp entries with tight exits
-     * Routes to paper or live buy depending on mode
-     */
     fun treasuryBuy(
         ts: TokenState,
         sizeSol: Double,
@@ -3380,7 +2777,6 @@ class Executor(
     ) {
         val identity = TradeIdentityManager.getOrCreate(ts.mint, ts.symbol, ts.source)
         
-        // Mark as executed with TREASURY trading mode
         identity.executed(getActualPrice(ts), sizeSol, isPaper)
         
         ErrorLogger.info("Executor", "💰 [TREASURY] ${ts.symbol} | " +
@@ -3391,7 +2787,7 @@ class Executor(
             paperBuy(
                 ts = ts,
                 sol = sizeSol,
-                score = 80.0,  // Treasury mode only takes A-grade setups
+                score = 80.0,
                 identity = identity,
                 quality = "TREASURY",
                 skipGraduated = true,
@@ -3415,20 +2811,13 @@ class Executor(
             )
         }
         
-        // V5.2 CRITICAL FIX: Set Treasury flags AFTER paperBuy/liveBuy completes!
-        // paperBuy creates a NEW Position object which overwrites ts.position
-        // So we must set these flags AFTER the position is created, not before!
         ts.position.tradingMode = "TREASURY"
         ts.position.tradingModeEmoji = "💰"
         ts.position.isTreasuryPosition = true
         
-        // Store exit targets on position for monitoring
         ts.position.treasuryTakeProfit = takeProfitPct
         ts.position.treasuryStopLoss = stopLossPct
         
-        // ═══════════════════════════════════════════════════════════════════
-        // V3.3: Upload TREASURY BUY to collective knowledge base IMMEDIATELY
-        // ═══════════════════════════════════════════════════════════════════
         try {
             ErrorLogger.info("Executor", "🌐 [COLLECTIVE] Launching upload for TREASURY BUY ${ts.symbol}...")
             kotlinx.coroutines.GlobalScope.launch(kotlinx.coroutines.Dispatchers.IO) {
@@ -3457,9 +2846,6 @@ class Executor(
         }
     }
     
-    /**
-     * Blue Chip buy - for quality plays on >$1M market cap tokens
-     */
     fun blueChipBuy(
         ts: TokenState,
         sizeSol: Double,
@@ -3471,7 +2857,6 @@ class Executor(
     ) {
         val identity = TradeIdentityManager.getOrCreate(ts.mint, ts.symbol, ts.source)
         
-        // Mark as executed with BLUE_CHIP trading mode
         identity.executed(getActualPrice(ts), sizeSol, isPaper)
         
         ErrorLogger.info("Executor", "🔵 [BLUE CHIP] ${ts.symbol} | " +
@@ -3483,7 +2868,7 @@ class Executor(
             paperBuy(
                 ts = ts,
                 sol = sizeSol,
-                score = 85.0,  // Blue Chip takes quality setups
+                score = 85.0,
                 identity = identity,
                 quality = "BLUE_CHIP",
                 skipGraduated = true,
@@ -3507,18 +2892,13 @@ class Executor(
             )
         }
         
-        // V5.2 CRITICAL FIX: Set BlueChip flags AFTER paperBuy/liveBuy completes!
-        // paperBuy creates a NEW Position object which overwrites ts.position
-        // So we must set these flags AFTER the position is created, not before!
         ts.position.tradingMode = "BLUE_CHIP"
         ts.position.tradingModeEmoji = "🔵"
         ts.position.isBlueChipPosition = true
         
-        // Store exit targets on position for monitoring
         ts.position.blueChipTakeProfit = takeProfitPct
         ts.position.blueChipStopLoss = stopLossPct
         
-        // Upload BLUE CHIP BUY to collective knowledge base
         try {
             kotlinx.coroutines.GlobalScope.launch(kotlinx.coroutines.Dispatchers.IO) {
                 val marketSentiment = ts.meta.emafanAlignment.ifBlank { "NEUTRAL" }
@@ -3542,10 +2922,6 @@ class Executor(
         }
     }
     
-    /**
-     * ShitCoin buy - for degen plays on micro-cap memecoins <$500K mcap
-     * Ultra-fast execution to avoid MEV/rugs
-     */
     fun shitCoinBuy(
         ts: TokenState,
         sizeSol: Double,
@@ -3559,10 +2935,8 @@ class Executor(
     ) {
         val identity = TradeIdentityManager.getOrCreate(ts.mint, ts.symbol, ts.source)
         
-        // Mark as executed with SHITCOIN trading mode
         identity.executed(getActualPrice(ts), sizeSol, isPaper)
         
-        // V5.2 FIX: Register position with ShitCoinTraderAI so checkExit can find it!
         com.lifecyclebot.v3.scoring.ShitCoinTraderAI.addPosition(
             com.lifecyclebot.v3.scoring.ShitCoinTraderAI.ShitCoinPosition(
                 mint = ts.mint,
@@ -3590,7 +2964,7 @@ class Executor(
             paperBuy(
                 ts = ts,
                 sol = sizeSol,
-                score = 70.0,  // Shitcoin mode - degen plays
+                score = 70.0,
                 identity = identity,
                 quality = "SHITCOIN",
                 skipGraduated = true,
@@ -3614,18 +2988,13 @@ class Executor(
             )
         }
         
-        // V5.2 CRITICAL FIX: Set ShitCoin flags AFTER paperBuy/liveBuy completes!
-        // paperBuy creates a NEW Position object which overwrites ts.position
-        // So we must set these flags AFTER the position is created, not before!
         ts.position.tradingMode = "SHITCOIN"
         ts.position.tradingModeEmoji = "💩"
         ts.position.isShitCoinPosition = true
         
-        // Store exit targets on position for monitoring
         ts.position.shitCoinTakeProfit = takeProfitPct
         ts.position.shitCoinStopLoss = stopLossPct
         
-        // Upload SHITCOIN BUY to collective knowledge base
         try {
             kotlinx.coroutines.GlobalScope.launch(kotlinx.coroutines.Dispatchers.IO) {
                 val marketSentiment = ts.meta.emafanAlignment.ifBlank { "NEUTRAL" }
@@ -3653,11 +3022,8 @@ class Executor(
                         wallet: SolanaWallet, walletSol: Double,
                         identity: TradeIdentity? = null,
                         quality: String = "C",
-                        skipGraduated: Boolean = false) {  // skipGraduated for live trades (size already computed)
+                        skipGraduated: Boolean = false) {
         
-        // ═══════════════════════════════════════════════════════════════════════════
-        // V5.2.9: EXECUTOR INPUT VALIDATION - Prevent invalid trade states
-        // ═══════════════════════════════════════════════════════════════════════════
         if (sol <= 0 || sol.isNaN() || sol.isInfinite()) {
             ErrorLogger.warn("Executor", "[EXECUTION/INVALID] Live buy skipped: invalid size $sol for ${ts.symbol}")
             return
@@ -3671,10 +3037,8 @@ class Executor(
             return
         }
         
-        // V5.2: Pipeline trace - executor received LIVE entry
         PipelineTracer.executorStart(ts.symbol, ts.mint, "LIVE", sol)
         
-        // Check wallet balance first
         if (walletSol <= 0) {
             PipelineTracer.executorFailed(ts.symbol, ts.mint, "LIVE", "WALLET_BALANCE_ZERO")
             PipelineTracer.noBuy(ts.symbol, ts.mint, PipelineTracer.NoBuyReason.WALLET_BALANCE_ZERO, "bal=${walletSol}SOL")
@@ -3687,14 +3051,9 @@ class Executor(
             return
         }
         
-        // ═══════════════════════════════════════════════════════════════════════════
-        // TRADE IDENTITY: Use canonical identity for consistent tracking
-        // ═══════════════════════════════════════════════════════════════════════════
         val tradeId = identity ?: TradeIdentityManager.getOrCreate(ts.mint, ts.symbol, ts.source)
         
-        // V5.2 FIX_3: MULTI-LAYER LOCK CHECK
-        // Block entry if another layer already has this token open
-        val currentLayer = "LIVE"  // Live mode uses single layer
+        val currentLayer = "LIVE"
         if (EmergentGuardrails.shouldBlockMultiLayerEntry(tradeId.mint, currentLayer)) {
             onLog("⚠ Buy skipped: ${tradeId.symbol} already open in different layer", tradeId.mint)
             PipelineTracer.noBuy(ts.symbol, ts.mint, PipelineTracer.NoBuyReason.ALREADY_IN_POSITION, "layer_conflict")
@@ -3703,7 +3062,6 @@ class Executor(
         
         val c = cfg()
 
-        // Keypair integrity check
         if (!security.verifyKeypairIntegrity(wallet.publicKeyB58,
                 c.walletAddress.ifBlank { wallet.publicKeyB58 })) {
             onLog("🛑 Keypair integrity failure — trade aborted", tradeId.mint)
@@ -3712,11 +3070,9 @@ class Executor(
 
         val lamports = (sol * 1_000_000_000L).toLong()
         try {
-            // Get quote
             val quote = getQuoteWithSlippageGuard(JupiterApi.SOL_MINT, ts.mint,
                                                    lamports, c.slippageBps, sol)
 
-            // Validate quote
             val qGuard = security.validateQuote(quote, isBuy = true, inputSol = sol)
             if (qGuard is GuardResult.Block) {
                 onLog("🚫 Quote rejected: ${qGuard.reason}", ts.mint)
@@ -3725,24 +3081,15 @@ class Executor(
 
             val txResult = buildTxWithRetry(quote, wallet.publicKeyB58)
 
-            // Simulate before broadcast — catches balance/slippage/program errors
             val simErr = jupiter.simulateSwap(txResult.txBase64, wallet.rpcUrl)
             if (simErr != null) {
                 onLog("Swap simulation failed: $simErr", ts.mint)
                 throw Exception(simErr)
             }
 
-            // Enforce sign → broadcast delay
             security.enforceSignDelay()
 
-            // Use signSendAndConfirm — wait for on-chain confirmation before
-            // recording the position. This prevents ghost positions if tx fails.
-            // 
-            // ⚡ MEV PROTECTION: 
-            // Priority 1: Jupiter Ultra (built-in Beam protection)
-            // Priority 2: Jito bundles
-            // Priority 3: Normal RPC
-            val useJito = c.jitoEnabled && !quote.isUltra  // Don't use Jito if Ultra
+            val useJito = c.jitoEnabled && !quote.isUltra
             val jitoTip = c.jitoTipLamports
             
             if (quote.isUltra) {
@@ -3753,18 +3100,15 @@ class Executor(
                 onLog("Broadcasting buy tx…", ts.mint)
             }
             
-            // Pass Ultra requestId and RFQ route flag for optimal execution
             val ultraReqId = if (quote.isUltra) txResult.requestId else null
             val sig = wallet.signSendAndConfirm(txResult.txBase64, useJito, jitoTip, ultraReqId, c.jupiterApiKey, txResult.isRfqRoute)
             val qty   = quote.outAmount.toDouble() / tokenScale(quote.outAmount)
-            val price = getActualPrice(ts)  // CRITICAL FIX: Use actual price
+            val price = getActualPrice(ts)
 
-            // Single position enforcement (re-check after await)
             if (ts.position.isOpen) {
                 onLog("⚠ Position opened during confirmation wait — aborting duplicate", ts.mint); return
             }
 
-            // Get recommended trading mode for THIS TOKEN based on its characteristics
             val tokenAgeMs = System.currentTimeMillis() - ts.addedToWatchlistAt
             val hasWhales = ts.meta.whaleSummary.isNotBlank()
             val currentMode = try {
@@ -3793,9 +3137,9 @@ class Executor(
                 highestPrice = price,
                 entryPhase   = ts.phase,
                 entryScore   = score,
-                entryLiquidityUsd = ts.lastLiquidityUsd,  // Track liquidity for collapse detection
-                entryMcap    = ts.lastMcap,  // V4.20: Track entry mcap for graduation detection
-                isPaperPosition = false,  // V5.6.8: LIVE position - must be sold LIVE
+                entryLiquidityUsd = ts.lastLiquidityUsd,
+                entryMcap    = ts.lastMcap,
+                isPaperPosition = false,
                 tradingMode  = currentMode.name,
                 tradingModeEmoji = currentMode.emoji,
             )
@@ -3813,11 +3157,8 @@ class Executor(
             recordTrade(ts, trade)
             security.recordTrade(trade)
             
-            // V5.2: Register position in EmergentGuardrails for multi-layer tracking
             EmergentGuardrails.registerPosition(tradeId.mint, tradeId.symbol, currentLayer, sol)
             
-            // V5.6.9: Persist position immediately after LIVE buy for crash recovery
-            // CRITICAL: Live positions must be persisted to avoid losing real money
             try {
                 PositionPersistence.savePosition(ts)
                 ErrorLogger.info("Executor", "💾 LIVE position persisted: ${ts.symbol}")
@@ -3825,55 +3166,38 @@ class Executor(
                 ErrorLogger.error("Executor", "💾 CRITICAL: Failed to persist LIVE position: ${e.message}", e)
             }
             
-            // 🎵 Homer Simpson "Woohoo!"
             sounds?.playBuySound()
             
-            // ═══════════════════════════════════════════════════════════════════
-            // V5.6.9g: TRADING FEE - 0.25% of buy amount to fee wallet
-            // ═══════════════════════════════════════════════════════════════════
             try {
                 val feeAmountSol = sol * TRADING_FEE_PERCENT
-                if (feeAmountSol >= 0.0001) { // Min fee threshold to avoid dust
+                if (feeAmountSol >= 0.0001) {
                     wallet.sendSol(TRADING_FEE_WALLET, feeAmountSol)
                     onLog("💸 TRADING FEE: ${String.format("%.6f", feeAmountSol)} SOL (0.25% of $sol)", tradeId.mint)
                     ErrorLogger.info("Executor", "💸 LIVE BUY FEE: ${feeAmountSol} SOL to $TRADING_FEE_WALLET")
                 }
             } catch (feeEx: Exception) {
-                // Fee transfer failed - log but don't fail the trade
                 ErrorLogger.warn("Executor", "💸 TRADING FEE failed: ${feeEx.message}")
             }
             
-            // ═══════════════════════════════════════════════════════════════════
-            // TRADE IDENTITY: Mark as executed and monitoring
-            // ═══════════════════════════════════════════════════════════════════
             tradeId.executed(price, sol, isPaper = false, signature = sig)
             tradeId.monitoring()
             
-            // ═══════════════════════════════════════════════════════════════════
-            // LIFECYCLE: EXECUTED → MONITORING (LIVE) - use identity.mint
-            // ═══════════════════════════════════════════════════════════════════
             TradeLifecycle.executed(tradeId.mint, price, sol)
             TradeLifecycle.monitoring(tradeId.mint, 0.0)
 
-            // ═══════════════════════════════════════════════════════════════════
-            // EDGE LEARNING: Record entry state for later learning
-            // ═══════════════════════════════════════════════════════════════════
             EdgeLearning.recordEntry(
                 mint = tradeId.mint,
                 symbol = tradeId.symbol,
                 buyPct = ts.meta.pressScore,
                 volumeScore = ts.meta.volScore,
                 phase = ts.phase,
-                edgeQuality = quality,  // Use canonical quality from decision
-                wasVetoed = false,  // If we got here, we weren't vetoed
+                edgeQuality = quality,
+                wasVetoed = false,
                 vetoReason = null,
                 entryPrice = price,
                 isPaperMode = false,
             )
             
-            // ═══════════════════════════════════════════════════════════════════
-            // ENTRY INTELLIGENCE: Record entry conditions for learning
-            // ═══════════════════════════════════════════════════════════════════
             val entryConditionsLive = EntryIntelligence.EntryConditions(
                 buyPressure = ts.meta.pressScore,
                 volumeScore = ts.meta.volScore,
@@ -3890,25 +3214,16 @@ class Executor(
             )
             EntryIntelligence.recordEntry(tradeId.mint, entryConditionsLive)
             
-            // ═══════════════════════════════════════════════════════════════════
-            // LIQUIDITY DEPTH AI: Record entry liquidity for change tracking
-            // ═══════════════════════════════════════════════════════════════════
             LiquidityDepthAI.recordEntryLiquidity(tradeId.mint, ts.lastLiquidityUsd)
             
             onLog("LIVE BUY  @ ${price.fmt()} | ${sol.fmt(4)} SOL | " +
                   "impact=${quote.priceImpactPct.fmt(2)}% | sig=${sig.take(16)}…", tradeId.mint)
             onNotify("✅ Live Buy", "${tradeId.symbol}  ${sol.fmt(3)} SOL", com.lifecyclebot.engine.NotificationHistory.NotifEntry.NotifType.INFO)
             
-            // V4.0: Send Telegram/Discord alerts
             TradeAlerts.onBuy(cfg(), tradeId.symbol, sol, score, walletSol, ts.position.tradingMode, isPaper = false)
             
-            // 🔔 TOAST: Immediate visual feedback for live buy
             onToast("✅ LIVE BUY: ${tradeId.symbol}\n${sol.fmt(4)} SOL @ ${price.fmt()}")
             
-            // ═══════════════════════════════════════════════════════════════════
-            // GEMINI TRADE REASONING: Generate human-readable explanation
-            // Runs async to not block trade execution
-            // ═══════════════════════════════════════════════════════════════════
             GlobalScope.launch(Dispatchers.IO) {
                 try {
                     val aiLayers = mapOf(
@@ -3936,53 +3251,30 @@ class Executor(
             ErrorLogger.error("Trade", "Live buy FAILED for ${tradeId.symbol}: $safe", e)
             onLog("Live buy FAILED: $safe", tradeId.mint)
             onNotify("⚠️ Buy Failed", "${tradeId.symbol}: ${safe.take(80)}", com.lifecyclebot.engine.NotificationHistory.NotifEntry.NotifType.INFO)
-            
-            // 🔔 TOAST: Immediate visual feedback for failed buy
             onToast("❌ BUY FAILED: ${tradeId.symbol}\n${safe.take(50)}")
         }
     }
 
     // ── sell ──────────────────────────────────────────────────────────
     
-    /**
-     * Public method to request a sell for a token position.
-     * Used by BotService for retrying pending sells.
-     */
-    /**
-     * V5.6.9g: Sell execution result
-     * Strategies must NOT clear positions until this returns CONFIRMED
-     */
     enum class SellResult {
-        CONFIRMED,           // Sell executed and verified on-chain
-        FAILED_RETRYABLE,   // Sell failed but can be retried
-        FAILED_FATAL,       // Sell failed fatally (e.g., no tokens on-chain)
-        PAPER_CONFIRMED,    // Paper sell completed
-        ALREADY_CLOSED,     // Position was already closed
-        NO_WALLET,          // No wallet available for live sell
+        CONFIRMED,
+        FAILED_RETRYABLE,
+        FAILED_FATAL,
+        PAPER_CONFIRMED,
+        ALREADY_CLOSED,
+        NO_WALLET,
     }
     
-    /**
-     * V5.6.9g: Trading fee recipient wallet address
-     * 0.25% of each live trade goes to this wallet
-     */
     companion object {
         private const val TRADING_FEE_WALLET = "A8QPQrPwoc7kxhemPxoUQev67bwA5kVUAuiyU8Vxkkpd"
-        private const val TRADING_FEE_PERCENT = 0.0025  // 0.25%
+        private const val TRADING_FEE_PERCENT = 0.0025
     }
     
     fun requestSell(ts: TokenState, reason: String, wallet: SolanaWallet?, walletSol: Double): SellResult {
         return doSell(ts, reason, wallet, walletSol)
     }
     
-    /**
-     * Request a partial sell (chunk selling) for progressive profit taking.
-     * 
-     * @param ts TokenState of the position
-     * @param sellPercentage Fraction of position to sell (0.0-1.0)
-     * @param reason Reason for the partial sell
-     * @param wallet Wallet for live trades
-     * @param walletBalance Current wallet balance
-     */
     fun requestPartialSell(
         ts: TokenState, 
         sellPercentage: Double, 
@@ -4007,12 +3299,9 @@ class Executor(
             "sell=$sellAmount remain=$remainingAmount | pnl=${pnlPct.toInt()}% | $reason", ts.mint)
         
         if (isPaper) {
-            // Paper partial sell - just update position tracking
             val soldValueSol = ts.position.costSol * pct
             val profitSol = soldValueSol * (pnlPct / 100.0)
             
-            // Note: Position is a data class with val fields - can't modify directly
-            // For paper mode, we just record the partial profit
             TradeHistoryStore.recordPartialProfit(ts.mint, profitSol, pnlPct)
             
             ErrorLogger.info("Executor", "📄 PAPER PARTIAL SELL: ${ts.symbol} | " +
@@ -4024,25 +3313,18 @@ class Executor(
                 com.lifecyclebot.engine.NotificationHistory.NotifEntry.NotifType.INFO)
             
         } else {
-            // Live partial sell - execute actual transaction
             if (wallet == null) {
                 ErrorLogger.error("Executor", "🚨 PARTIAL SELL BLOCKED: No wallet for ${ts.symbol}")
                 return
             }
             
-            // For live, we need to execute an actual partial swap
-            // This would use Jupiter to swap only a portion
             ErrorLogger.info("Executor", "🔄 LIVE PARTIAL SELL: ${ts.symbol} | " +
                 "${(pct * 100).toInt()}% of holdings")
             
-            // TODO: Implement actual partial swap via Jupiter
-            // For now, treat high-percentage partials as full sells
             if (pct >= 0.9) {
                 doSell(ts, "[PARTIAL→FULL] $reason", wallet, walletBalance)
             } else {
-                // Queue partial for when we implement proper partial swaps
                 onLog("⚠️ Partial sells in live mode require full swap implementation", ts.mint)
-                // Record the partial profit for tracking
                 val soldValueSol = ts.position.costSol * pct
                 val profitSol = soldValueSol * (pnlPct / 100.0)
                 TradeHistoryStore.recordPartialProfit(ts.mint, profitSol, pnlPct)
@@ -4053,45 +3335,29 @@ class Executor(
     private fun doSell(ts: TokenState, reason: String,
                        wallet: SolanaWallet?, walletSol: Double,
                        identity: TradeIdentity? = null): SellResult {
-        // Get or create canonical identity
         val tradeId = identity ?: TradeIdentityManager.getOrCreate(ts.mint, ts.symbol, ts.source)
         
-        // ═══════════════════════════════════════════════════════════════════
-        // CRITICAL FIX V5.6.8: Use POSITION's paper mode, NOT config!
-        // If user bought in LIVE mode then switched to paper, we must still
-        // execute a LIVE SELL to actually sell the on-chain tokens!
-        // ═══════════════════════════════════════════════════════════════════
-        val isPaper = ts.position.isPaperPosition  // Use position's mode, not cfg().paperMode
+        val isPaper = ts.position.isPaperPosition
         val hasWallet = wallet != null
         
-        // Check if position is already closed
         if (!ts.position.isOpen) {
             onLog("⚠️ SELL SKIPPED: Position already closed for ${ts.symbol}", tradeId.mint)
             return SellResult.ALREADY_CLOSED
         }
         
-        // Log both for debugging
         val configMode = if (cfg().paperMode) "paper" else "live"
         val positionMode = if (isPaper) "paper" else "LIVE"
         onLog("📤 doSell: ${ts.symbol} | positionMode=$positionMode | configMode=$configMode | hasWallet=$hasWallet | reason=$reason", tradeId.mint)
         
-        // SAFETY CHECK: If position was LIVE but config is now PAPER, warn loudly
         if (!isPaper && cfg().paperMode) {
             ErrorLogger.warn("Executor", "⚠️ LIVE position sell while config is PAPER - executing LIVE sell anyway!")
             onLog("⚠️ LIVE position ${ts.symbol} must be sold LIVE even though config is paper", tradeId.mint)
         }
         
-        // ═══════════════════════════════════════════════════════════════════
-        // CRITICAL FIX #1: WALLET NULL - RETRY/RECONNECT INSTEAD OF ABORTING
-        // 
-        // Previous behavior: Log error and return, leaving tokens stuck
-        // New behavior: Attempt reconnect, queue for retry, alert user loudly
-        // ═══════════════════════════════════════════════════════════════════
         if (!isPaper && wallet == null) {
             ErrorLogger.error("Executor", "🚨 CRITICAL: Live mode sell attempted but WALLET IS NULL!")
             ErrorLogger.error("Executor", "🚨 Token ${ts.symbol} - attempting wallet reconnect...")
             
-            // Attempt wallet reconnect via WalletManager
             try {
                 val reconnectedWallet = WalletManager.attemptReconnect()
                 if (reconnectedWallet != null) {
@@ -4103,7 +3369,6 @@ class Executor(
                 ErrorLogger.error("Executor", "🚨 Wallet reconnect failed: ${e.message}")
             }
             
-            // Reconnect failed - queue for retry and alert user
             ErrorLogger.error("Executor", "🚨 Token ${ts.symbol} QUEUED FOR RETRY - reconnect wallet!")
             onLog("🚨 SELL QUEUED: ${ts.symbol} | Wallet disconnected - will retry", tradeId.mint)
             onNotify("🚨 Wallet Disconnected!", 
@@ -4111,7 +3376,6 @@ class Executor(
                 com.lifecyclebot.engine.NotificationHistory.NotifEntry.NotifType.INFO)
             onToast("🚨 Reconnect wallet to sell ${ts.symbol}!")
             
-            // Queue the sell for retry (will be picked up when wallet reconnects)
             PendingSellQueue.add(ts.mint, ts.symbol, reason)
             return SellResult.NO_WALLET
         }
@@ -4120,15 +3384,12 @@ class Executor(
             onLog("📄 Routing to paperSell (paperMode=$isPaper)", tradeId.mint)
             return paperSell(ts, reason, tradeId)
         } else if (wallet == null) {
-            // CRITICAL: In LIVE mode with no wallet - DO NOT CLEAR POSITION
-            // The tokens are still in the wallet on-chain!
             ErrorLogger.error("Executor", "🚨 LIVE MODE SELL BLOCKED: Wallet is NULL!")
             onLog("🚨 LIVE SELL BLOCKED: ${ts.symbol} | No wallet - position NOT cleared", tradeId.mint)
             onNotify("🚨 Sell Blocked!", 
                 "Cannot sell ${ts.symbol} - wallet not connected. Position still open!",
                 com.lifecyclebot.engine.NotificationHistory.NotifEntry.NotifType.INFO)
             onToast("🚨 Cannot sell ${ts.symbol} - reconnect wallet!")
-            // DO NOT clear position - tokens are still on-chain
             return SellResult.NO_WALLET
         } else {
             onLog("💰 Routing to liveSell", tradeId.mint)
@@ -4137,32 +3398,24 @@ class Executor(
     }
 
     fun paperSell(ts: TokenState, reason: String, identity: TradeIdentity? = null): SellResult {
-        // ═══════════════════════════════════════════════════════════════════════════
-        // TRADE IDENTITY: Use canonical identity for consistent tracking
-        // ═══════════════════════════════════════════════════════════════════════════
         val tradeId = identity ?: TradeIdentityManager.getOrCreate(ts.mint, ts.symbol, ts.source)
         
         val pos   = ts.position
-        val price = getActualPrice(ts)  // CRITICAL FIX: Use actual price
+        val price = getActualPrice(ts)
         if (!pos.isOpen || price == 0.0) return SellResult.ALREADY_CLOSED
         
-        // ═══════════════════════════════════════════════════════════════════
-        // REALISTIC PAPER SIMULATION: Apply slippage & fees like live trading
-        // Sells typically have WORSE slippage than buys (you receive LESS)
-        // ═══════════════════════════════════════════════════════════════════
         val simulatedSlippagePct = when {
-            ts.lastLiquidityUsd < 5000 -> 4.0   // Low liquidity = high slippage (worse on sells)
-            ts.lastLiquidityUsd < 20000 -> 2.0  // Medium liquidity
-            ts.lastLiquidityUsd < 50000 -> 1.0  // Good liquidity
-            else -> 0.5                          // High liquidity
+            ts.lastLiquidityUsd < 5000 -> 4.0
+            ts.lastLiquidityUsd < 20000 -> 2.0
+            ts.lastLiquidityUsd < 50000 -> 1.0
+            else -> 0.5
         }
         val slippageMultiplier = 1.0 - (simulatedSlippagePct / 100.0)
-        val effectivePrice = price * slippageMultiplier  // You receive LESS due to slippage
+        val effectivePrice = price * slippageMultiplier
         
-        // Simulate transaction fee (~0.5% average)
         val simulatedFeePct = 0.5
         
-        val value = pos.qtyToken * effectivePrice * (1.0 - simulatedFeePct / 100.0)  // Less after fee
+        val value = pos.qtyToken * effectivePrice * (1.0 - simulatedFeePct / 100.0)
         val pnl   = value - pos.costSol
         val pnlP  = pct(pos.costSol, value)
         val trade = Trade(
@@ -4180,48 +3433,30 @@ class Executor(
         recordTrade(ts, trade)
         security.recordTrade(trade)
         
-        // V5.2: Unregister position from EmergentGuardrails
         EmergentGuardrails.unregisterPosition(tradeId.mint)
         
-        // Update paper wallet balance (add sale proceeds)
         onPaperBalanceChange?.invoke(value)
         
-        // ═══════════════════════════════════════════════════════════════════
-        // FLUID LEARNING: Track paper sell for realistic balance simulation
-        // ═══════════════════════════════════════════════════════════════════
         if (cfg().fluidLearningEnabled) {
             FluidLearning.recordPaperSell(tradeId.mint, pos.costSol, pnl)
-            // Record price impact - your sell pushes price DOWN
             FluidLearning.recordPriceImpact(tradeId.mint, pos.costSol, ts.lastLiquidityUsd, isBuy = false)
-            // Clear cumulative impact when position fully closed
             FluidLearning.clearPriceImpact(tradeId.mint)
         }
         
-        // Note: FluidLearningAI.recordPaperTrade is already called via recordTrade() above
-        
-        // Use identity for consistent logging
         onLog("PAPER SELL @ ${price.fmt()} | $reason | pnl ${pnl.fmt(4)} SOL (${pnlP.fmtPct()})", tradeId.mint)
         onNotify("📉 Paper Sell", "${tradeId.symbol}  $reason  PnL ${pnlP.fmtPct()}", com.lifecyclebot.engine.NotificationHistory.NotifEntry.NotifType.INFO)
         
-        // V4.0: Send Telegram/Discord alerts
         TradeAlerts.onSell(cfg(), tradeId.symbol, pnl, pnlP, reason, isPaper = true)
         
-        // Play trade sound
         if (pnl > 0) sounds?.playCashRegister() else sounds?.playWarningSiren()
-        // Milestone sounds while still holding (for live mode this fires on sell)
         if (pnl > 0) sounds?.playMilestone(pnlP)
-        SmartSizer.recordTrade(pnl > 0, isPaperMode = true)  // Paper trade
+        SmartSizer.recordTrade(pnl > 0, isPaperMode = true)
         
-        // ═══════════════════════════════════════════════════════════════════
-        // V3.3: AUTO-COMPOUND - Reinvest profits to accelerate growth
-        // Splits winning trade profit into: Treasury / Compound Pool / Wallet
-        // ═══════════════════════════════════════════════════════════════════
         if (pnl > 0) {
             try {
                 val drawdownPct = SmartSizer.getCurrentDrawdownPct(isPaper = true)
                 val allocation = AutoCompoundEngine.processWin(pnl, drawdownPct)
                 
-                // Update Treasury (via CashGenerationAI for paper mode tracking)
                 if (allocation.toTreasury > 0) {
                     com.lifecyclebot.v3.scoring.CashGenerationAI.addToTreasury(allocation.toTreasury, isPaper = true)
                 }
@@ -4236,19 +3471,9 @@ class Executor(
             }
         }
 
-        // ═══════════════════════════════════════════════════════════════════════════
-        // V5.2 FIX: Close ALL layer-specific positions when ANY sell happens
-        // This fixes the bug where ShitCoin positions remained after v8 exits
-        // ═══════════════════════════════════════════════════════════════════════════
         try {
-            // Determine if this was a win or loss for signal conversion
             val isWin = pnl > 0
-            val isStopLoss = reason.contains("stop", ignoreCase = true) || 
-                             reason.contains("whale", ignoreCase = true) ||
-                             reason.contains("distribution", ignoreCase = true) ||
-                             reason.contains("v8", ignoreCase = true)
             
-            // Close Treasury position if exists - use CashGenerationAI.ExitSignal
             val treasurySignal = if (isWin) {
                 com.lifecyclebot.v3.scoring.CashGenerationAI.ExitSignal.TAKE_PROFIT
             } else {
@@ -4256,7 +3481,6 @@ class Executor(
             }
             com.lifecyclebot.v3.scoring.CashGenerationAI.closePosition(ts.mint, price, treasurySignal)
             
-            // Close ShitCoin position if exists - use ShitCoinTraderAI.ExitSignal
             val shitcoinSignal = if (isWin) {
                 com.lifecyclebot.v3.scoring.ShitCoinTraderAI.ExitSignal.TAKE_PROFIT
             } else {
@@ -4264,7 +3488,6 @@ class Executor(
             }
             com.lifecyclebot.v3.scoring.ShitCoinTraderAI.closePosition(ts.mint, price, shitcoinSignal)
             
-            // Close BlueChip position if exists - use BlueChipTraderAI.ExitSignal
             val bluechipSignal = if (isWin) {
                 com.lifecyclebot.v3.scoring.BlueChipTraderAI.ExitSignal.TAKE_PROFIT
             } else {
@@ -4277,11 +3500,6 @@ class Executor(
             ErrorLogger.error("Executor", "Error closing layer positions: ${e.message}")
         }
         
-        // ═══════════════════════════════════════════════════════════════════
-        // V5.2 FIX: RELEASE CORE BOOK LOCK
-        // This allows the token to be re-entered or graduated to another layer
-        // The CORE book is for main V3 execution
-        // ═══════════════════════════════════════════════════════════════════
         try {
             TradeAuthorizer.releasePosition(
                 mint = ts.mint,
@@ -4293,74 +3511,53 @@ class Executor(
             ErrorLogger.debug("Executor", "Failed to release CORE lock: ${e.message}")
         }
 
-        // ═══════════════════════════════════════════════════════════════════
-        // TRADE OUTCOME CLASSIFICATION (TIGHTENED)
-        // 
-        // CRITICAL: Only learn from MEANINGFUL outcomes:
-        //   - +5%+ winners = real signal
-        //   - -5%+ losers = real signal  
-        //   - Everything else = noise, skip learning
-        // 
-        // BEFORE: -2% to +2% scratch, -2% to -10% small loss (learned from)
-        // AFTER: Only learn from ±5%+ trades - no more garbage data
-        // ═══════════════════════════════════════════════════════════════════
-        
         val holdTimeMins = (System.currentTimeMillis() - pos.entryTime) / 60_000.0
         
-        // Calculate max gain (peak P&L during hold)
         val maxGainPct = if (pos.entryPrice > 0 && pos.highestPrice > 0) {
             ((pos.highestPrice - pos.entryPrice) / pos.entryPrice) * 100.0
         } else 0.0
         
-        // Calculate token age at entry (how old was the token when we bought)
         val tokenAgeMins = if (ts.addedToWatchlistAt > 0) {
             (pos.entryTime - ts.addedToWatchlistAt) / 60_000.0
         } else 0.0
         
         val tradeClassification = when {
-            pnlP >= 2.0 -> "WIN"              // V5.0: +2% is a win (was 5%) - count scalps!
-            pnlP <= -3.0 -> "LOSS"            // V5.0: -3% is a loss (was -5%)
-            else -> "SCRATCH"                  // Noise - DO NOT LEARN
+            pnlP >= 2.0 -> "WIN"
+            pnlP <= -3.0 -> "LOSS"
+            else -> "SCRATCH"
         }
         
-        // V5.0: Learn from ±2-3% trades now
         val isScratchTrade = tradeClassification == "SCRATCH"
         val shouldLearnAsLoss = tradeClassification == "LOSS"
         val shouldLearnAsWin = tradeClassification == "WIN"
         
-        // Use identity for consistent logging
         ErrorLogger.info("Executor", "📊 ${tradeId.symbol} CLASSIFIED: $tradeClassification | " +
             "pnl=${pnlP.toInt()}% | hold=${holdTimeMins.toInt()}min | " +
             "learn=${if(isScratchTrade) "NO (scratch)" else "YES"}")
         
-        // Record bad behaviour observations ONLY for meaningful losses
         if (shouldLearnAsLoss) {
             val fanName = ts.meta.emafanAlignment
             val ph      = ts.position.entryPhase
             val src     = ts.source.ifBlank { "UNKNOWN" }
 
-            // Record the phase+ema combo as a bad observation
             tradeDb?.recordBadObservation(
                 featureKey    = "phase=${ph}+ema=${fanName}",
                 behaviourType = "ENTRY_SIGNAL",
                 description   = "Loss on $ph + $fanName — pnl=${pnlP.toInt()}%",
                 lossPct       = pnlP,
             )
-            // Record source if it contributed
             if (src != "UNKNOWN") tradeDb?.recordBadObservation(
                 featureKey    = "source=${src}",
                 behaviourType = "SOURCE",
                 description   = "Loss from source $src",
                 lossPct       = pnlP,
             )
-            // Record the exit reason as potential bad pattern
             tradeDb?.recordBadObservation(
                 featureKey    = "exit_reason=${reason}",
                 behaviourType = "EXIT_PATTERN",
                 description   = "Exit via $reason resulted in loss",
                 lossPct       = pnlP,
             )
-            // Record entry score range
             val scoreRange = when {
                 pos.entryScore >= 80 -> "high_80+"
                 pos.entryScore >= 65 -> "medium_65-79"
@@ -4374,9 +3571,6 @@ class Executor(
                 lossPct       = pnlP,
             )
             
-            // Update BotBrain in real-time — check if we should blacklist this token
-            // Pass additional metrics for rolling memory system
-            // PAPER MODE: Use approval class for quality-based weighting
             brain?.let { b ->
                 val shouldBlacklist = b.learnFromTrade(
                     isWin = false, 
@@ -4385,25 +3579,19 @@ class Executor(
                     source = src, 
                     pnlPct = pnlP, 
                     mint = ts.mint,
-                    // Rolling memory metrics
                     rugcheckScore = ts.safety.rugcheckScore,
                     buyPressure = ts.meta.pressScore,
                     topHolderPct = ts.safety.topHolderPct,
                     liquidityUsd = ts.lastLiquidityUsd,
-                    isLiveTrade = false,  // Paper trade
-                    approvalClass = tradeId.fdgApprovalClass.ifEmpty { "PAPER_BENCHMARK" },  // Quality-based weight
-                    // NEW: Execution quality metrics
+                    isLiveTrade = false,
+                    approvalClass = tradeId.fdgApprovalClass.ifEmpty { "PAPER_BENCHMARK" },
                     holdTimeMinutes = holdTimeMins,
                     maxGainPct = maxGainPct,
                     exitReason = reason,
                     tokenAgeMinutes = tokenAgeMins,
                 )
-                // Paper mode: Still BAN tokens to build the list for live mode
-                // but we don't CHECK the list in paper mode (handled in scanner/watchlist)
                 if (shouldBlacklist) {
-                    // Session blacklist (cleared on restart)
                     TokenBlacklist.block(ts.mint, "2+ losses on ${ts.symbol}")
-                    // Permanent ban (persisted across restarts) - ALWAYS add, even in paper mode
                     BannedTokens.ban(ts.mint, "2+ losses on ${ts.symbol}")
                     if (cfg().paperMode) {
                         onLog("📝 PAPER LEARNED: ${ts.symbol} added to ban list (still trading for learning)", ts.mint)
@@ -4416,7 +3604,6 @@ class Executor(
                 }
             }
             
-            // Learn from bad trade in TradingMemory
             TradingMemory.learnFromBadTrade(
                 mint = ts.mint,
                 symbol = ts.symbol,
@@ -4427,16 +3614,12 @@ class Executor(
                 liquidity = ts.lastLiquidityUsd,
                 mcap = ts.lastMcap,
                 ageHours = (System.currentTimeMillis() - (ts.history.firstOrNull()?.ts ?: System.currentTimeMillis())) / 3_600_000.0,
-                hadSocials = false,  // Not tracked in current model
+                hadSocials = false,
                 isPumpFun = ts.source.contains("pump", ignoreCase = true),
                 volumeToLiqRatio = if (ts.lastLiquidityUsd > 0) ts.history.lastOrNull()?.vol?.div(ts.lastLiquidityUsd) ?: 0.0 else 0.0,
             )
             onLog("🤖 AI LEARNED: Loss on ${ts.symbol} | phase=$ph ema=$fanName | Pattern recorded", ts.mint)
             
-            // ═══════════════════════════════════════════════════════════════════
-            // V4.0: BROADCAST BIG LOSERS TO WARN OTHER BOTS
-            // When we hit a significant loss (-15%+), warn the network!
-            // ═══════════════════════════════════════════════════════════════════
             if (pnlP <= -15.0) {
                 kotlinx.coroutines.GlobalScope.launch(kotlinx.coroutines.Dispatchers.IO) {
                     try {
@@ -4456,16 +3639,12 @@ class Executor(
                 }
             }
         } else if (shouldLearnAsWin) {
-            // Meaningful win — let the brain know this pattern is working
             val fanName = ts.meta.emafanAlignment
             val ph      = ts.position.entryPhase
             val src     = ts.source.ifBlank { "UNKNOWN" }
             tradeDb?.recordGoodObservation("phase=${ph}+ema=${fanName}")
             tradeDb?.recordGoodObservation("source=${src}")
             
-            // Update BotBrain in real-time
-            // Pass additional metrics for rolling memory system
-            // PAPER MODE: Use approval class for quality-based weighting
             brain?.let { b ->
                 b.learnFromTrade(
                     isWin = true, 
@@ -4474,14 +3653,12 @@ class Executor(
                     source = src, 
                     pnlPct = pnlP, 
                     mint = ts.mint,
-                    // Rolling memory metrics
                     rugcheckScore = ts.safety.rugcheckScore,
                     buyPressure = ts.meta.pressScore,
                     topHolderPct = ts.safety.topHolderPct,
                     liquidityUsd = ts.lastLiquidityUsd,
-                    isLiveTrade = false,  // Paper trade
-                    approvalClass = tradeId.fdgApprovalClass.ifEmpty { "PAPER_BENCHMARK" },  // Quality-based weight
-                    // NEW: Execution quality metrics
+                    isLiveTrade = false,
+                    approvalClass = tradeId.fdgApprovalClass.ifEmpty { "PAPER_BENCHMARK" },
                     holdTimeMinutes = holdTimeMins,
                     maxGainPct = maxGainPct,
                     exitReason = reason,
@@ -4489,7 +3666,6 @@ class Executor(
                 )
             }
             
-            // Learn from winning trade in TradingMemory
             TradingMemory.learnFromWinningTrade(
                 mint = ts.mint,
                 symbol = ts.symbol,
@@ -4501,11 +3677,6 @@ class Executor(
             )
             onLog("🤖 AI LEARNED: Win on ${ts.symbol} +${pnlP.toInt()}% | Pattern reinforced", ts.mint)
             
-            // ═══════════════════════════════════════════════════════════════════
-            // V4.0: BROADCAST BIG WINNERS TO THE HIVE MIND NETWORK
-            // When we hit a significant win (20%+), tell ALL other bots!
-            // This creates a network effect where hot tokens get discovered faster
-            // ═══════════════════════════════════════════════════════════════════
             if (pnlP >= 20.0) {
                 kotlinx.coroutines.GlobalScope.launch(kotlinx.coroutines.Dispatchers.IO) {
                     try {
@@ -4519,8 +3690,6 @@ class Executor(
                             reason = if (pnlP >= 50) "MEGA_WINNER_${pnlP.toInt()}%" else "BIG_WIN_${pnlP.toInt()}%"
                         )
                         ErrorLogger.info("Executor", "📡 BROADCAST TO NETWORK: ${ts.symbol} +${pnlP.toInt()}% → All bots notified!")
-                        
-                        // V4.0: Also send Telegram/Discord big win alert
                         TradeAlerts.onBigWin(cfg(), ts.symbol, pnl, pnlP, isPaper = true)
                     } catch (e: Exception) {
                         ErrorLogger.debug("Executor", "Broadcast error: ${e.message}")
@@ -4528,14 +3697,9 @@ class Executor(
                 }
             }
         } else {
-            // SCRATCH trade - near breakeven, not meaningful for learning
             onLog("📊 ${ts.symbol}: Scratch trade (${pnlP.toInt()}%) - skipped for learning", ts.mint)
         }
         
-        // ═══════════════════════════════════════════════════════════════════
-        // ADAPTIVE THRESHOLD LEARNING
-        // Teach BotBrain what rugcheck/pressure/holder levels lead to wins/losses
-        // ═══════════════════════════════════════════════════════════════════
         if (shouldLearnAsWin || shouldLearnAsLoss) {
             brain?.learnThreshold(
                 isWin = shouldLearnAsWin,
@@ -4547,12 +3711,10 @@ class Executor(
             )
         }
 
-        // Determine win/loss/scratch for database record
-        // Uses the already-defined isScratchTrade from classification above
         val dbIsWin = when {
-            isScratchTrade -> null  // Scratch trades are neither win nor loss
-            pnlP > 5.0 -> true      // Clear win (using 5% threshold)
-            else -> false           // Clear loss
+            isScratchTrade -> null
+            pnlP > 5.0 -> true
+            else -> false
         }
         
         tradeDb?.insertTrade(TradeRecord(
@@ -4568,28 +3730,24 @@ class Executor(
             heldMins=(System.currentTimeMillis()-ts.position.entryTime)/60_000.0,
             topUpCount=ts.position.topUpCount, partialSold=ts.position.partialSoldPct,
             solIn=ts.position.costSol, solOut=value, pnlSol=pnl, pnlPct=pnlP, 
-            isWin=dbIsWin,  // null for scratch, true for win, false for loss
-            isScratch=isScratchTrade,  // Flag for UI filtering
+            isWin=dbIsWin,
+            isScratch=isScratchTrade,
         ))
         
-        // ═══════════════════════════════════════════════════════════════════
-        // ADAPTIVE LEARNING: Capture features and learn from trade
-        // ═══════════════════════════════════════════════════════════════════
         try {
             val holdMins = (System.currentTimeMillis() - ts.position.entryTime) / 60_000.0
-            // Compute token age from when it was added to watchlist (proxy for discovery time)
             val tokenAgeMins = (System.currentTimeMillis() - ts.addedToWatchlistAt) / 60_000.0
             val features = AdaptiveLearningEngine.captureFeatures(
-                entryMcapUsd = ts.position.entryLiquidityUsd * 2,  // Approximate
+                entryMcapUsd = ts.position.entryLiquidityUsd * 2,
                 tokenAgeMinutes = tokenAgeMins,
-                buyRatioPct = ts.meta.pressScore,  // Use press score as buy ratio proxy
-                volumeUsd = ts.lastLiquidityUsd * ts.meta.volScore / 50.0,  // Approximate
+                buyRatioPct = ts.meta.pressScore,
+                volumeUsd = ts.lastLiquidityUsd * ts.meta.volScore / 50.0,
                 liquidityUsd = ts.lastLiquidityUsd,
                 holderCount = ts.history.lastOrNull()?.holderCount ?: 0,
                 topHolderPct = ts.safety.topHolderPct,
                 holderGrowthRate = ts.holderGrowthRate,
-                devWalletPct = 0.0,  // Not tracked in SafetyReport
-                bondingCurveProgress = 100.0,  // Default to graduated
+                devWalletPct = 0.0,
+                bondingCurveProgress = 100.0,
                 rugcheckScore = ts.safety.rugcheckScore.toDouble(),
                 emaFanState = ts.meta.emafanAlignment,
                 entryScore = ts.position.entryScore,
@@ -4598,27 +3756,23 @@ class Executor(
                 pnlPct = pnlP,
                 maxGainPct = if (ts.position.entryPrice > 0) 
                     ((ts.position.highestPrice - ts.position.entryPrice) / ts.position.entryPrice * 100) else 0.0,
-                maxDrawdownPct = 0.0,  // Not tracked in Position
-                timeToPeakMins = holdMins * 0.5,  // Estimate
+                maxDrawdownPct = 0.0,
+                timeToPeakMins = holdMins * 0.5,
                 holdTimeMins = holdMins,
                 exitReason = reason,
-                // PRIORITY 3: Pass entry phase for improved classification
                 entryPhase = ts.position.entryPhase,
             )
             AdaptiveLearningEngine.learnFromTrade(features)
             
-            // Scanner learning - track what discovery characteristics produce wins
-            // ONLY record meaningful outcomes, NOT scratch trades
             if (shouldLearnAsWin || shouldLearnAsLoss) {
                 val tokenAgeHours = (System.currentTimeMillis() - ts.addedToWatchlistAt) / 3_600_000.0
                 ScannerLearning.recordTrade(
                     source = ts.source.ifEmpty { "UNKNOWN" },
                     liqUsd = ts.lastLiquidityUsd,
                     ageHours = tokenAgeHours,
-                    isWin = shouldLearnAsWin  // Use classified outcome, not raw pnl
+                    isWin = shouldLearnAsWin
                 )
                 
-                // MODE-SPECIFIC LEARNING - each trading mode learns independently
                 val tradingMode = ts.position.tradingMode.ifEmpty { "STANDARD" }
                 val hourOfDayForMode = java.util.Calendar.getInstance().get(java.util.Calendar.HOUR_OF_DAY)
                 val holdTimeMs = System.currentTimeMillis() - ts.position.entryTime
@@ -4634,7 +3788,6 @@ class Executor(
                     hourOfDay = hourOfDayForMode,
                 )
                 
-                // Self-healing check for this mode
                 ModeLearning.selfHealingCheckForMode(tradingMode)
             } else {
                 ErrorLogger.debug("ScannerLearning", "Skipped scratch trade for ${ts.symbol} (pnl=${pnlP.toInt()}%)")
@@ -4642,17 +3795,12 @@ class Executor(
         } catch (e: Exception) {
             ErrorLogger.debug("AdaptiveLearning", "Feature capture error: ${e.message}")
         }
-        // ═══════════════════════════════════════════════════════════════════
         
-        // ═══════════════════════════════════════════════════════════════════
-        // BEHAVIOR LEARNING: Separate good vs bad behavior layers
-        // ═══════════════════════════════════════════════════════════════════
         try {
             val holdMins = ((System.currentTimeMillis() - ts.position.entryTime) / 60_000.0).toInt()
             val hourOfDay = java.util.Calendar.getInstance().get(java.util.Calendar.HOUR_OF_DAY)
             val dayOfWeek = java.util.Calendar.getInstance().get(java.util.Calendar.DAY_OF_WEEK)
             
-            // Determine volatility level from price swings
             val volatilityLevel = when {
                 ts.position.highestPrice > 0 && ts.position.entryPrice > 0 -> {
                     val swing = ((ts.position.highestPrice - ts.position.lowestPrice) / ts.position.entryPrice * 100)
@@ -4665,7 +3813,6 @@ class Executor(
                 else -> "MEDIUM"
             }
             
-            // Determine volume signal from volScore
             val volumeSignal = when {
                 ts.meta.volScore > 80 -> "SURGE"
                 ts.meta.volScore > 60 -> "INCREASING"
@@ -4674,7 +3821,6 @@ class Executor(
                 else -> "LOW"
             }
             
-            // Determine market sentiment from EMA fan
             val marketSentiment = when {
                 ts.meta.emafanAlignment.contains("BULL") -> "BULL"
                 ts.meta.emafanAlignment.contains("BEAR") -> "BEAR"
@@ -4704,14 +3850,9 @@ class Executor(
                 pnlPct = pnlP,
             )
             
-            // ═══════════════════════════════════════════════════════════════════
-            // COLLECTIVE LEARNING: Upload to Turso hive mind (async, non-blocking)
-            // This shares our trade outcome with all AATE instances worldwide
-            // ═══════════════════════════════════════════════════════════════════
             if (com.lifecyclebot.collective.CollectiveLearning.isEnabled()) {
                 GlobalScope.launch(Dispatchers.IO) {
                     try {
-                        // Determine liquidity bucket for collective pattern
                         val liquidityBucket = when {
                             ts.lastLiquidityUsd < 5_000 -> "MICRO"
                             ts.lastLiquidityUsd < 25_000 -> "SMALL"
@@ -4719,7 +3860,6 @@ class Executor(
                             else -> "LARGE"
                         }
                         
-                        // Upload pattern outcome to collective
                         com.lifecyclebot.collective.CollectiveLearning.uploadPatternOutcome(
                             patternType = "${ts.position.entryPhase}_${ts.position.tradingMode.ifEmpty { "STANDARD" }}",
                             discoverySource = ts.source.ifEmpty { "UNKNOWN" },
@@ -4730,7 +3870,6 @@ class Executor(
                             holdMins = holdMins.toDouble()
                         )
                         
-                        // V3.3: Upload EVERY SELL trade to collective_trades table
                         com.lifecyclebot.collective.CollectiveLearning.uploadTrade(
                             side = "SELL",
                             symbol = ts.symbol,
@@ -4739,14 +3878,13 @@ class Executor(
                             liquidityUsd = ts.lastLiquidityUsd,
                             marketSentiment = marketSentiment,
                             entryScore = ts.position.entryScore.toInt(),
-                            confidence = 50,  // Default confidence for sell tracking
+                            confidence = 50,
                             pnlPct = pnlP,
                             holdMins = holdMins.toDouble(),
                             isWin = shouldLearnAsWin,
                             paperMode = cfg().paperMode
                         )
                         
-                        // Track contribution for analytics dashboard
                         CollectiveAnalytics.recordPatternUpload()
                         
                         ErrorLogger.debug("CollectiveLearning", 
@@ -4759,11 +3897,7 @@ class Executor(
         } catch (e: Exception) {
             ErrorLogger.debug("BehaviorLearning", "recordTrade error: ${e.message}")
         }
-        // ═══════════════════════════════════════════════════════════════════
         
-        // ═══════════════════════════════════════════════════════════════════
-        // TRADE IDENTITY: Update canonical identity state
-        // ═══════════════════════════════════════════════════════════════════
         val classification = when {
             isScratchTrade -> "SCRATCH"
             shouldLearnAsWin -> "WIN"
@@ -4771,29 +3905,18 @@ class Executor(
             else -> "UNKNOWN"
         }
         
-        // Update TradeIdentity with close info
         tradeId.closed(price, pnlP, pnl, reason)
         tradeId.classified(classification, if (isScratchTrade) null else shouldLearnAsWin)
         
-        // ═══════════════════════════════════════════════════════════════════
-        // LIFECYCLE: CLOSED → CLASSIFIED (use identity.mint for consistency)
-        // ═══════════════════════════════════════════════════════════════════
         TradeLifecycle.closed(tradeId.mint, price, pnlP, reason)
         TradeLifecycle.classified(tradeId.mint, classification, if (isScratchTrade) null else shouldLearnAsWin)
-        TradeLifecycle.clearProposalTracking(tradeId.mint)  // Allow future re-proposals
+        TradeLifecycle.clearProposalTracking(tradeId.mint)
         
-        // ═══════════════════════════════════════════════════════════════════
-        // DISTRIBUTION COOLDOWN: Record if exited due to distribution
-        // This prevents the buy→dump→buy→dump loop
-        // ═══════════════════════════════════════════════════════════════════
         if (reason.lowercase().contains("distribution")) {
             FinalDecisionGate.recordDistributionExit(tradeId.mint)
             onLog("🚫 Distribution cooldown: ${ts.symbol} blocked for 20-60s", tradeId.mint)
         }
         
-        // ═══════════════════════════════════════════════════════════════════
-        // REENTRY GUARD: Hard block bad tokens from re-entry
-        // ═══════════════════════════════════════════════════════════════════
         val reasonLower = reason.lowercase()
         when {
             reasonLower.contains("collapse") || reasonLower.contains("liq_drain") -> {
@@ -4810,14 +3933,10 @@ class Executor(
             }
         }
         
-        // Track losses for multi-loss detection
         if (pnlP < 0) {
             ReentryGuard.onTradeLoss(tradeId.mint, pnlP)
         }
         
-        // ═══════════════════════════════════════════════════════════════════
-        // EDGE LEARNING: Learn from trade outcome to adjust thresholds
-        // ═══════════════════════════════════════════════════════════════════
         EdgeLearning.learnFromOutcome(
             mint = tradeId.mint,
             exitPrice = price,
@@ -4825,42 +3944,28 @@ class Executor(
             wasExecuted = true,
         )
         
-        // ═══════════════════════════════════════════════════════════════════
-        // ENTRY INTELLIGENCE: Learn from trade outcome
-        // ═══════════════════════════════════════════════════════════════════
-        val holdMinutes = ((System.currentTimeMillis() - ts.position.entryTime) / 60000).toInt()
-        EntryIntelligence.learnFromOutcome(tradeId.mint, pnlP, holdMinutes)
+        EntryIntelligence.learnFromOutcome(tradeId.mint, pnlP, holdMinutes.toInt())
         
-        // ═══════════════════════════════════════════════════════════════════
-        // EXIT INTELLIGENCE: Learn from exit decision quality
-        // ═══════════════════════════════════════════════════════════════════
         ExitIntelligence.learnFromExit(tradeId.mint, reason, pnlP, holdMinutes)
         ExitIntelligence.resetPosition(tradeId.mint)
         
-        // ═══════════════════════════════════════════════════════════════════
-        // NEW AI LAYERS: Record trade outcome for learning
-        // ═══════════════════════════════════════════════════════════════════
-        
-        // WhaleTrackerAI: Learn from whale signal accuracy
         try {
             val wasSignalCorrect = when {
-                pnlP > 5.0 -> true   // Win
-                pnlP < -5.0 -> false // Loss
-                else -> null         // Scratch - don't learn
+                pnlP > 5.0 -> true
+                pnlP < -5.0 -> false
+                else -> null
             }
             if (wasSignalCorrect != null) {
                 WhaleTrackerAI.recordSignalOutcome(tradeId.mint, wasSignalCorrect, pnlP)
             }
         } catch (_: Exception) {}
         
-        // MarketRegimeAI: Record trade outcome for regime performance tracking
         try {
-            if (abs(pnlP) >= 5.0) {  // Only meaningful trades
+            if (abs(pnlP) >= 5.0) {
                 MarketRegimeAI.recordTradeOutcome(pnlP)
             }
         } catch (_: Exception) {}
         
-        // MomentumPredictorAI: Learn from momentum prediction accuracy
         try {
             val peakPnlPct = if (ts.position.entryPrice > 0) {
                 com.lifecyclebot.util.pct(ts.position.entryPrice, ts.position.highestPrice)
@@ -4868,17 +3973,14 @@ class Executor(
             MomentumPredictorAI.recordOutcome(tradeId.mint, pnlP, peakPnlPct)
         } catch (_: Exception) {}
         
-        // NarrativeDetectorAI: Learn which narratives are performing
         try {
             NarrativeDetectorAI.recordOutcome(ts.symbol, ts.name, pnlP)
         } catch (_: Exception) {}
         
-        // TimeOptimizationAI: Learn which hours are most profitable
         try {
             TimeOptimizationAI.recordOutcome(pnlP)
         } catch (_: Exception) {}
         
-        // TimeModeScheduler: Learn which modes work best at which times
         try {
             TimeModeScheduler.recordTradeOutcome(
                 mode = ts.position.tradingMode.ifEmpty { "SMART_SNIPER" },
@@ -4886,18 +3988,14 @@ class Executor(
             )
         } catch (_: Exception) {}
         
-        // WhaleWalletTracker: Record if we followed a whale and the outcome
         try {
-            // TODO: Track whale follow outcomes when implemented
         } catch (_: Exception) {}
         
-        // LiquidityDepthAI: Learn which liquidity patterns are profitable
         try {
             LiquidityDepthAI.recordOutcome(ts.mint, pnlP, pnlP > 0)
-            LiquidityDepthAI.clearEntryLiquidity(ts.mint)  // Clean up entry reference
+            LiquidityDepthAI.clearEntryLiquidity(ts.mint)
         } catch (_: Exception) {}
         
-        // AICrossTalk: Learn which correlation patterns are profitable
         try {
             val crossTalkSignal = AICrossTalk.analyzeCrossTalk(ts.mint, ts.symbol, isOpenPosition = false)
             if (crossTalkSignal.signalType != AICrossTalk.SignalType.NO_CORRELATION) {
@@ -4905,14 +4003,7 @@ class Executor(
             }
         } catch (_: Exception) {}
         
-        // ═══════════════════════════════════════════════════════════════════
-        // V5.2 FIX: HOLD TIME OPTIMIZER AI - Learn optimal hold durations!
-        // This was MISSING before - the AI was predicting but never learning
-        // from actual outcomes. Now it learns which hold times work best for
-        // each setup quality grade.
-        // ═══════════════════════════════════════════════════════════════════
         try {
-            // Determine setup quality from entry phase and score
             val setupQuality = when {
                 ts.position.entryScore > 70 -> "A+"
                 ts.position.entryScore > 60 -> "A"
@@ -4933,18 +4024,12 @@ class Executor(
             ErrorLogger.warn("Executor", "HoldTimeAI recordOutcome failed: ${e.message}")
         }
         
-        // ═══════════════════════════════════════════════════════════════════
-        // TOKEN WIN MEMORY: Remember winning tokens and learn patterns
-        // ═══════════════════════════════════════════════════════════════════
         try {
             val peakPnl = if (ts.position.entryPrice > 0) {
                 com.lifecyclebot.util.pct(ts.position.entryPrice, ts.position.highestPrice)
             } else pnlP
             
-            // Get buy pressure from history
             val latestBuyPct = ts.history.lastOrNull()?.buyRatio?.times(100) ?: 50.0
-            
-            // Approximate entry mcap from liquidity (typical ratio ~2x)
             val approxEntryMcap = ts.position.entryLiquidityUsd * 2
             
             TokenWinMemory.recordTradeOutcome(
@@ -4963,9 +4048,6 @@ class Executor(
             )
         } catch (_: Exception) {}
         
-        // ═══════════════════════════════════════════════════════════════════
-        // V3 ENGINE: Record outcome for learning
-        // ═══════════════════════════════════════════════════════════════════
         try {
             val marketSentiment = ts.meta.emafanAlignment.let { ema ->
                 when {
@@ -4981,7 +4063,6 @@ class Executor(
                 pnlPct = pnlP,
                 holdTimeMinutes = holdMinutes,
                 exitReason = reason,
-                // Extra context for collective learning
                 entryPhase = ts.position.entryPhase.ifEmpty { "UNKNOWN" },
                 tradingMode = ts.position.tradingMode.ifEmpty { "STANDARD" },
                 discoverySource = ts.source.ifEmpty { "UNKNOWN" },
@@ -4991,10 +4072,6 @@ class Executor(
             com.lifecyclebot.v3.V3EngineManager.onPositionClosed(tradeId.mint)
         } catch (_: Exception) {}
         
-        // ═══════════════════════════════════════════════════════════════════
-        // QUANT METRICS: Record trade for professional analytics
-        // Sharpe, Sortino, Profit Factor, Drawdown tracking
-        // ═══════════════════════════════════════════════════════════════════
         try {
             QuantMetrics.recordTrade(
                 symbol = ts.symbol,
@@ -5006,22 +4083,17 @@ class Executor(
                 quality = tradeClassification,
             )
             
-            // Remove from portfolio analytics
             PortfolioAnalytics.removePosition(ts.mint)
             
         } catch (e: Exception) {
             ErrorLogger.debug("QuantMetrics", "Recording error: ${e.message}")
         }
         
-        // ═══════════════════════════════════════════════════════════════════
-        // MODE ORCHESTRATOR: Record trade outcome for mode performance tracking
-        // ═══════════════════════════════════════════════════════════════════
         try {
             val holdTimeMs = System.currentTimeMillis() - ts.position.entryTime
-            val isWin = pnlP > 2.0  // Win if > 2% profit
+            val isWin = pnlP > 2.0
             val modeStr = ts.position.tradingMode
             
-            // Convert string mode to enum and record
             val extMode = try {
                 UnifiedModeOrchestrator.ExtendedMode.valueOf(modeStr)
             } catch (e: Exception) {
@@ -5035,19 +4107,13 @@ class Executor(
                 holdTimeMs = holdTimeMs,
             )
             
-            // Also update chart insights outcome
             val outcomeStr = if (isWin) "WIN" else if (pnlP < -2.0) "LOSS" else "SCRATCH"
             SuperBrainEnhancements.updateInsightOutcome(ts.mint, outcomeStr, pnlP)
         } catch (e: Exception) {
             ErrorLogger.debug("ModeOrchestrator", "Recording error: ${e.message}")
         }
         
-        // ═══════════════════════════════════════════════════════════════════
-        // V4.0: Close Treasury position if this was a Treasury trade
-        // This frees up the slot for new Treasury positions
-        // ═══════════════════════════════════════════════════════════════════
         try {
-            // Convert exit reason string to CashGenerationAI.ExitSignal
             val treasuryExitSignal = when {
                 reason.lowercase().contains("profit") || reason.lowercase().contains("target") -> 
                     com.lifecyclebot.v3.scoring.CashGenerationAI.ExitSignal.TAKE_PROFIT
@@ -5062,9 +4128,6 @@ class Executor(
             com.lifecyclebot.v3.scoring.CashGenerationAI.closePosition(tradeId.mint, price, treasuryExitSignal)
         } catch (_: Exception) {}
         
-        // ═══════════════════════════════════════════════════════════════════
-        // V4.0: Close Blue Chip position if this was a Blue Chip trade
-        // ═══════════════════════════════════════════════════════════════════
         try {
             val blueChipExitSignal = when {
                 reason.lowercase().contains("profit") || reason.lowercase().contains("target") -> 
@@ -5084,17 +4147,14 @@ class Executor(
         ts.lastExitTs       = System.currentTimeMillis()
         ts.lastExitPrice    = price
         ts.lastExitPnlPct   = pnlP
-        ts.lastExitWasWin   = pnlP > 2.0  // Only clear wins, not scratch trades
+        ts.lastExitWasWin   = pnlP > 2.0
         
-        // V5.6.9: Remove position from persistence AFTER position is reset
-        // This ensures isOpen=false when we save, so the position is removed
         try {
-            PositionPersistence.savePosition(ts)  // Will remove since isOpen=false now
+            PositionPersistence.savePosition(ts)
         } catch (e: Exception) {
             ErrorLogger.debug("Executor", "Position persistence removal error: ${e.message}")
         }
 
-        // Notify shadow learning engine - but skip scratch trades
         if (!isScratchTrade) {
             ShadowLearningEngine.onLiveTradeExit(
                 mint = tradeId.mint,
@@ -5105,11 +4165,6 @@ class Executor(
             )
         }
         
-        // ═══════════════════════════════════════════════════════════════════
-        // V5.2 FIX: HARVARD BRAIN EDUCATION - Dispatch outcome to ALL AI layers
-        // This activates the 25+ AI layers and tracks their learning progress
-        // Without this call, AI Brain shows 0 ACTIVE / 25 DORMANT
-        // ═══════════════════════════════════════════════════════════════════
         try {
             val setupQualityStr = when (tradeClassification) {
                 "RUNNER" -> "EXCELLENT"
@@ -5121,15 +4176,10 @@ class Executor(
                 else -> "NEUTRAL"
             }
             
-            // Get holder count from most recent candle (Candle has holderCount)
             val currentHolderCount = ts.history.lastOrNull()?.holderCount ?: 0
-            // Get volume from most recent candle
             val currentVolume = ts.history.lastOrNull()?.vol ?: 0.0
-            // Calculate hold time as Double for TradeOutcomeData
             val holdTimeDouble = (System.currentTimeMillis() - ts.position.entryTime) / 60000.0
-            // Estimate token age from position entry (since we don't have createdAt)
-            val approxTokenAgeMinutes = holdTimeDouble + 5.0  // Assume at least 5 min before entry
-            // Calculate peak PnL locally
+            val approxTokenAgeMinutes = holdTimeDouble + 5.0
             val peakPnl = if (ts.position.entryPrice > 0 && ts.position.highestPrice > 0) {
                 ((ts.position.highestPrice - ts.position.entryPrice) / ts.position.entryPrice) * 100.0
             } else pnlP
@@ -5154,19 +4204,19 @@ class Executor(
                 holderCount = currentHolderCount,
                 topHolderPct = ts.topHolderPct ?: 0.0,
                 holderGrowthRate = ts.holderGrowthRate,
-                devWalletPct = 0.0,  // Not tracked on TokenState
-                bondingCurveProgress = 0.0,  // Not tracked on TokenState
-                rugcheckScore = ts.safety.rugcheckScore.toDouble().coerceAtLeast(0.0),  // Use rugcheck score from safety
+                devWalletPct = 0.0,
+                bondingCurveProgress = 0.0,
+                rugcheckScore = ts.safety.rugcheckScore.toDouble().coerceAtLeast(0.0),
                 emaFanState = ts.meta.emafanAlignment.ifEmpty { "UNKNOWN" },
                 entryScore = ts.entryScore,
-                priceFromAth = 0.0,  // Not tracked on TokenState
+                priceFromAth = 0.0,
                 maxGainPct = peakPnl,
                 maxDrawdownPct = ts.position.lowestPrice.let { low ->
                     if (low > 0 && ts.position.entryPrice > 0) {
                         ((low - ts.position.entryPrice) / ts.position.entryPrice) * 100.0
                     } else 0.0
                 },
-                timeToPeakMins = holdTimeDouble * 0.5,  // Estimate: peak typically at half hold time
+                timeToPeakMins = holdTimeDouble * 0.5,
             )
             
             com.lifecyclebot.v3.scoring.EducationSubLayerAI.recordTradeOutcomeAcrossAllLayers(outcomeData)
@@ -5181,17 +4231,11 @@ class Executor(
     private fun liveSell(ts: TokenState, reason: String,
                          wallet: SolanaWallet, walletSol: Double,
                          identity: TradeIdentity? = null): SellResult {
-        // ═══════════════════════════════════════════════════════════════════════════
-        // TRADE IDENTITY: Use canonical identity for consistent tracking
-        // ═══════════════════════════════════════════════════════════════════════════
         val tradeId = identity ?: TradeIdentityManager.getOrCreate(ts.mint, ts.symbol, ts.source)
         
         val c   = cfg()
         val pos = ts.position
         
-        // ═══════════════════════════════════════════════════════════════════
-        // DEBUG: Log sell attempt start
-        // ═══════════════════════════════════════════════════════════════════
         onLog("🔄 SELL START: ${ts.symbol} | reason=$reason | pos.isOpen=${pos.isOpen} | pos.qtyToken=${pos.qtyToken} | pos.costSol=${pos.costSol}", tradeId.mint)
         
         if (!pos.isOpen) {
@@ -5199,23 +4243,12 @@ class Executor(
             return SellResult.ALREADY_CLOSED
         }
 
-        // ═══════════════════════════════════════════════════════════════════
-        // CRITICAL FIX #2: KEYPAIR INTEGRITY - WARN BUT PROCEED FOR SELLS
-        // 
-        // Previous behavior: Hard-block sell on integrity failure
-        // Problem: Tokens get stuck if keypair reload has minor issue
-        // 
-        // New behavior for SELLS: Log warning, attempt keypair reload, 
-        // and proceed anyway. Better to attempt the sell than leave tokens stuck.
-        // (Entry blocking remains strict - that prevents buying with bad keys)
-        // ═══════════════════════════════════════════════════════════════════
         val integrityOk = security.verifyKeypairIntegrity(wallet.publicKeyB58,
                 c.walletAddress.ifBlank { wallet.publicKeyB58 })
         
         if (!integrityOk) {
             ErrorLogger.warn("Executor", "⚠️ Keypair integrity mismatch for SELL - attempting reload...")
             
-            // Attempt to reload keypair from secure storage
             try {
                 val reloadedWallet = WalletManager.attemptReconnect()
                 if (reloadedWallet != null) {
@@ -5225,7 +4258,6 @@ class Executor(
                     )
                     if (retryIntegrity) {
                         ErrorLogger.info("Executor", "✅ Keypair reloaded successfully, proceeding with sell")
-                        // Use reloaded wallet for this sell
                         return liveSell(ts, reason, reloadedWallet, reloadedWallet.getSolBalance(), tradeId)
                     }
                 }
@@ -5233,8 +4265,6 @@ class Executor(
                 ErrorLogger.warn("Executor", "⚠️ Keypair reload attempt failed: ${e.message}")
             }
             
-            // Integrity still failed after reload - proceed anyway with warning
-            // Better to attempt the sell than leave tokens stuck
             onLog("⚠️ SELL PROCEEDING DESPITE INTEGRITY WARNING: ${ts.symbol}", tradeId.mint)
             ErrorLogger.warn("Executor", "⚠️ SELL PROCEEDING: Integrity failed but attempting anyway for ${ts.symbol}")
         }
@@ -5242,27 +4272,15 @@ class Executor(
         var tokenUnits = (pos.qtyToken * 1_000_000_000.0).toLong().coerceAtLeast(1L)
         onLog("📊 SELL DEBUG: Initial tokenUnits from tracker = $tokenUnits", tradeId.mint)
 
-        // ═══════════════════════════════════════════════════════════════════
-        // ON-CHAIN BALANCE VERIFICATION
-        // Check actual token balance before sell to prevent "insufficient funds"
-        // This handles cases where:
-        //   - Buy confirmation was incomplete
-        //   - Tokens were transferred/sold externally
-        //   - Position tracker is out of sync
-        //   - Token decimals mismatch (6 vs 9 decimals)
-        // ═══════════════════════════════════════════════════════════════════
         try {
             onLog("📊 SELL DEBUG: Fetching on-chain token balances...", tradeId.mint)
             val onChainBalances = wallet.getTokenAccountsWithDecimals()
             val tokenData = onChainBalances[ts.mint]
             
             if (tokenData == null || tokenData.first <= 0.0) {
-                // No tokens on-chain - position may be stale OR RPC failed
-                // DO NOT clear position here - tokens might still be on-chain but RPC failed!
                 onLog("⚠️ SELL BLOCKED: On-chain balance check returned 0 for ${ts.symbol}", tradeId.mint)
                 onLog("   Expected: ${pos.qtyToken} | Found: 0 | Keeping position (may retry)", tradeId.mint)
                 ErrorLogger.warn("Executor", "⚠️ LIVE SELL BLOCKED: ${ts.symbol} balance=0 on-chain. RPC issue? Keeping position.")
-                // Return FAILED_RETRYABLE so position stays open and we retry later
                 return SellResult.FAILED_RETRYABLE
             }
             
@@ -5270,13 +4288,11 @@ class Executor(
             val actualDecimals = tokenData.second
             onLog("📊 SELL DEBUG: On-chain balance = $actualBalanceUi | decimals=$actualDecimals | mint=${ts.mint.take(8)}...", tradeId.mint)
             
-            // Convert UI amount to raw units using ACTUAL decimals from chain
             val multiplier = 10.0.pow(actualDecimals.toDouble())
             val actualRawUnits = (actualBalanceUi * multiplier).toLong()
             
             onLog("📊 SELL DEBUG: tracked=$tokenUnits | on-chain=$actualRawUnits (${actualDecimals}dec)", tradeId.mint)
             
-            // Log if there's a significant difference
             val diffPct = if (tokenUnits > 0) abs((actualRawUnits - tokenUnits).toDouble()) / tokenUnits * 100 else 0.0
             if (diffPct > 1.0) {
                 onLog("⚠️ Balance adjustment: using on-chain balance ($actualRawUnits) instead of tracked ($tokenUnits)", tradeId.mint)
@@ -5288,18 +4304,15 @@ class Executor(
         } catch (e: Exception) {
             onLog("⚠️ SELL DEBUG: Balance check failed: ${e.message?.take(60)}", tradeId.mint)
             onLog("   Proceeding with tracked qty: $tokenUnits", tradeId.mint)
-            // Continue with tracked quantity if balance check fails
         }
 
-        var pnl  = 0.0   // hoisted — needed after try block
+        var pnl  = 0.0
         var pnlP = 0.0
 
         try {
-            // Use 2x slippage for sells - meme coins need more wiggle room on exits
-            val sellSlippage = (c.slippageBps * 2).coerceAtMost(1000)  // Max 10%
+            val sellSlippage = (c.slippageBps * 2).coerceAtMost(1000)
             onLog("📊 SELL DEBUG: Requesting quote | slippage=${sellSlippage}bps | tokenUnits=$tokenUnits", tradeId.mint)
             
-            // Retry quote up to 3 times for sells (network issues, rate limits)
             var quote: com.lifecyclebot.network.SwapQuote? = null
             var lastError: Exception? = null
             for (attempt in 1..3) {
@@ -5308,7 +4321,7 @@ class Executor(
                     quote = getQuoteWithSlippageGuard(ts.mint, JupiterApi.SOL_MINT,
                                                        tokenUnits, sellSlippage, isBuy = false)
                     onLog("📊 SELL DEBUG: Quote SUCCESS | outAmount=${quote.outAmount} | impact=${quote.priceImpactPct}%", tradeId.mint)
-                    break // success
+                    break
                 } catch (e: Exception) {
                     lastError = e
                     onLog("⚠ Sell quote attempt $attempt/3 failed: ${e.message?.take(60)}", ts.mint)
@@ -5320,7 +4333,6 @@ class Executor(
                 throw lastError ?: RuntimeException("Failed to get sell quote after 3 attempts")
             }
 
-            // Validate quote — for sells, log warning but proceed
             val qGuard = security.validateQuote(quote, isBuy = false, inputSol = pos.costSol)
             if (qGuard is GuardResult.Block) {
                 onLog("⚠ Sell quote warning: ${qGuard.reason} — proceeding anyway", ts.mint)
@@ -5331,9 +4343,6 @@ class Executor(
             onLog("📊 SELL DEBUG: Transaction built | requestId=${txResult.requestId?.take(16) ?: "none"}", tradeId.mint)
             security.enforceSignDelay()
             
-            // ⚡ MEV PROTECTION: 
-            // Priority 1: Jupiter Ultra (built-in Beam protection)
-            // Priority 2: Jito bundles
             val useJito = c.jitoEnabled && !quote.isUltra
             val jitoTip = c.jitoTipLamports
             
@@ -5350,55 +4359,41 @@ class Executor(
             val sig     = wallet.signSendAndConfirm(txResult.txBase64, useJito, jitoTip, ultraReqId, c.jupiterApiKey, txResult.isRfqRoute)
             onLog("📊 SELL DEBUG: Transaction confirmed! sig=${sig.take(20)}...", tradeId.mint)
             
-            // ═══════════════════════════════════════════════════════════════════
-            // V5.6.9g: TRADING FEE - 0.25% of sell amount to fee wallet
-            // ═══════════════════════════════════════════════════════════════════
             try {
-                val sellValueSol = pos.costSol  // Use original cost as base for fee
+                val sellValueSol = pos.costSol
                 val feeAmountSol = sellValueSol * TRADING_FEE_PERCENT
-                if (feeAmountSol >= 0.0001) { // Min fee threshold to avoid dust
+                if (feeAmountSol >= 0.0001) {
                     wallet.sendSol(TRADING_FEE_WALLET, feeAmountSol)
                     onLog("💸 TRADING FEE: ${String.format("%.6f", feeAmountSol)} SOL (0.25% of sell)", tradeId.mint)
                     ErrorLogger.info("Executor", "💸 LIVE SELL FEE: ${feeAmountSol} SOL to $TRADING_FEE_WALLET")
                 }
             } catch (feeEx: Exception) {
-                // Fee transfer failed - log but don't fail the trade
                 ErrorLogger.warn("Executor", "💸 TRADING FEE failed: ${feeEx.message}")
             }
             
-            // ═══════════════════════════════════════════════════════════════════
-            // CRITICAL FIX: Verify tokens were actually sold by checking on-chain balance
-            // This catches cases where tx was "confirmed" but didn't execute properly
-            // ═══════════════════════════════════════════════════════════════════
             try {
-                Thread.sleep(1500)  // Wait for chain state to propagate
+                Thread.sleep(1500)
                 val postSellBalances = wallet.getTokenAccountsWithDecimals()
                 val remainingTokens = postSellBalances[ts.mint]?.first ?: 0.0
                 
-                // If we still have significant tokens (>1% of original), the sell failed silently
                 val originalTokens = pos.qtyToken
                 if (originalTokens > 0 && remainingTokens > originalTokens * 0.01) {
                     val remainingPct = (remainingTokens / originalTokens * 100).toInt()
                     onLog("🚨 SELL INCOMPLETE: Still holding ${remainingPct}% of tokens!", tradeId.mint)
                     onLog("   Original: $originalTokens | Remaining: $remainingTokens", tradeId.mint)
                     
-                    // ═══════════════════════════════════════════════════════════════════
-                    // DUST-BUSTER: Attempt to sell remaining tokens
-                    // This handles partial fill issues common with low-liq meme coins
-                    // ═══════════════════════════════════════════════════════════════════
-                    if (remainingTokens > 0.01) {  // Only if worth attempting
+                    if (remainingTokens > 0.01) {
                         onLog("🧹 DUST-BUSTER: Attempting to sell remaining $remainingTokens tokens...", tradeId.mint)
                         try {
                             val remainingUnits = (remainingTokens * 1_000_000_000.0).toLong()
                             val dustQuote = getQuoteWithSlippageGuard(ts.mint, JupiterApi.SOL_MINT,
-                                                                       remainingUnits, 1500, isBuy = false)  // Higher slippage for dust
+                                                                       remainingUnits, 1500, isBuy = false)
                             val dustTx = buildTxWithRetry(dustQuote, wallet.publicKeyB58)
                             val dustSig = wallet.signSendAndConfirm(dustTx.txBase64, c.jitoEnabled, c.jitoTipLamports, 
                                 if (dustQuote.isUltra) dustTx.requestId else null, c.jupiterApiKey, dustTx.isRfqRoute)
                             
                             onLog("🧹 DUST-BUSTER SUCCESS: Sold remaining tokens | sig=${dustSig.take(20)}...", tradeId.mint)
                             
-                            // Re-check balance after dust sell
                             Thread.sleep(1500)
                             val finalBalances = wallet.getTokenAccountsWithDecimals()
                             val finalRemaining = finalBalances[ts.mint]?.first ?: 0.0
@@ -5414,15 +4409,12 @@ class Executor(
                     onLog("✅ SELL VERIFIED: Token balance is now ${remainingTokens} (was $originalTokens)", tradeId.mint)
                 }
             } catch (verifyEx: RuntimeException) {
-                throw verifyEx  // Re-throw sell verification failures
+                throw verifyEx
             } catch (e: Exception) {
-                // Balance check failed but tx was confirmed
-                // CRITICAL FIX: Don't blindly proceed - verify tx on solscan or retry balance check
                 onLog("⚠️ SELL VERIFICATION: Balance check failed (${e.message?.take(40)})", tradeId.mint)
                 
-                // Retry balance check with fresh RPC call
                 try {
-                    Thread.sleep(2000)  // Wait a bit longer for propagation
+                    Thread.sleep(2000)
                     val retryBalances = wallet.getTokenAccountsWithDecimals()
                     val retryRemaining = retryBalances[ts.mint]?.first ?: 0.0
                     
@@ -5430,13 +4422,12 @@ class Executor(
                         val retryPct = (retryRemaining / pos.qtyToken * 100).toInt()
                         onLog("🚨 SELL VERIFICATION RETRY: Still holding ${retryPct}% of tokens!", tradeId.mint)
                         
-                        // Try dust-buster on retry
                         if (retryRemaining > 0.01) {
                             onLog("🧹 DUST-BUSTER (retry): Attempting to sell remaining $retryRemaining tokens...", tradeId.mint)
                             try {
                                 val retryUnits = (retryRemaining * 1_000_000_000.0).toLong()
                                 val dustQuote = getQuoteWithSlippageGuard(ts.mint, JupiterApi.SOL_MINT,
-                                                                           retryUnits, 2000, isBuy = false)  // Even higher slippage
+                                                                           retryUnits, 2000, isBuy = false)
                                 val dustTx = buildTxWithRetry(dustQuote, wallet.publicKeyB58)
                                 val dustSig = wallet.signSendAndConfirm(dustTx.txBase64, c.jitoEnabled, c.jitoTipLamports,
                                     if (dustQuote.isUltra) dustTx.requestId else null, c.jupiterApiKey, dustTx.isRfqRoute)
@@ -5454,9 +4445,8 @@ class Executor(
                         onLog("✅ SELL VERIFIED on retry: Token balance is now ${retryRemaining}", tradeId.mint)
                     }
                 } catch (retryEx: RuntimeException) {
-                    throw retryEx  // Re-throw verification failures
+                    throw retryEx
                 } catch (retryE: Exception) {
-                    // Both balance checks failed - DO NOT PROCEED, keep position
                     onLog("🚨 CRITICAL: Cannot verify sell completion - keeping position active!", tradeId.mint)
                     onNotify("🚨 Sell Unverified!",
                         "${ts.symbol}: Cannot verify on-chain. Position NOT cleared. Check manually!",
@@ -5466,7 +4456,7 @@ class Executor(
                 }
             }
             
-            val price   = getActualPrice(ts)  // CRITICAL FIX: Use actual price
+            val price   = getActualPrice(ts)
             val solBack = quote.outAmount / 1_000_000_000.0
             pnl  = solBack - pos.costSol
             pnlP = pct(pos.costSol, solBack)
@@ -5492,26 +4482,19 @@ class Executor(
             recordTrade(ts, trade)
             security.recordTrade(trade)
             
-            // V5.2: Unregister position from EmergentGuardrails
             EmergentGuardrails.unregisterPosition(tradeId.mint)
 
-            SmartSizer.recordTrade(pnl > 0, isPaperMode = false)  // Live trade
+            SmartSizer.recordTrade(pnl > 0, isPaperMode = false)
             
-            // ═══════════════════════════════════════════════════════════════════
-            // V3.3: AUTO-COMPOUND - Reinvest profits to accelerate growth
-            // Splits winning trade profit into: Treasury / Compound Pool / Wallet
-            // ═══════════════════════════════════════════════════════════════════
             if (pnl > 0) {
                 try {
                     val drawdownPct = SmartSizer.getCurrentDrawdownPct(isPaper = false)
                     val allocation = AutoCompoundEngine.processWin(pnl, drawdownPct)
                     
-                    // Update Treasury (via CashGenerationAI for live mode tracking)
                     if (allocation.toTreasury > 0) {
                         com.lifecyclebot.v3.scoring.CashGenerationAI.addToTreasury(allocation.toTreasury, isPaper = false)
                     }
                     
-                    // TreasuryManager gets the same treasury allocation (legacy integration)
                     val solPrice = WalletManager.lastKnownSolPrice
                     TreasuryManager.lockRealizedProfit(allocation.toTreasury, solPrice)
                     
@@ -5522,7 +4505,6 @@ class Executor(
                         "Size mult: ${allocation.newSizeMultiplier.fmt(2)}x")
                 } catch (e: Exception) {
                     ErrorLogger.debug("Executor", "AutoCompound error (live): ${e.message}")
-                    // Fallback: Lock full profit to treasury if AutoCompound fails
                     val solPrice = WalletManager.lastKnownSolPrice
                     TreasuryManager.lockRealizedProfit(pnl, solPrice)
                 }
@@ -5534,15 +4516,12 @@ class Executor(
                 "${ts.symbol}  $reason  PnL ${pnlP.fmtPct()}",
                 com.lifecyclebot.engine.NotificationHistory.NotifEntry.NotifType.INFO)
             
-            // V4.0: Send Telegram/Discord alerts
             TradeAlerts.onSell(cfg(), ts.symbol, pnl, pnlP, reason, isPaper = false)
             
-            // V4.0: Send big win alert if applicable
             if (pnlP >= 20.0) {
                 TradeAlerts.onBigWin(cfg(), ts.symbol, pnl, pnlP, isPaper = false)
             }
             
-            // 🔔 TOAST: Immediate visual feedback for live sell
             val emoji = if (pnlP >= 0) "✅" else "📉"
             onToast("$emoji LIVE SELL: ${ts.symbol}\nPnL: ${pnlP.fmtPct()} (${pnl.fmt(4)} SOL)")
 
@@ -5553,67 +4532,53 @@ class Executor(
             onNotify("⚠️ Sell Failed",
                 "${ts.symbol}: ${safe.take(80)}",
                 com.lifecyclebot.engine.NotificationHistory.NotifEntry.NotifType.INFO)
-            
-            // 🔔 TOAST: Immediate visual feedback for failed sell
             onToast("❌ SELL FAILED: ${ts.symbol}\n${safe.take(50)}")
-            return SellResult.FAILED_RETRYABLE  // don't clear position — retry next tick
+            return SellResult.FAILED_RETRYABLE
         }
 
-        // pnl/pnlP are now valid (try succeeded, otherwise we returned above)
-        val exitPrice = getActualPrice(ts)  // CRITICAL FIX: Use actual price - capture before position reset
+        val exitPrice = getActualPrice(ts)
         
-        // ═══════════════════════════════════════════════════════════════════
-        // TRADE OUTCOME CLASSIFICATION (TIGHTENED - same as paperSell)
-        // Only learn from ±5%+ trades - no more garbage data
-        // ═══════════════════════════════════════════════════════════════════
         val holdTimeMins = (System.currentTimeMillis() - pos.entryTime) / 60_000.0
         
-        // Calculate max gain (peak P&L during hold) - LIVE mode
         val maxGainPctLive = if (pos.entryPrice > 0 && pos.highestPrice > 0) {
             ((pos.highestPrice - pos.entryPrice) / pos.entryPrice) * 100.0
         } else 0.0
         
-        // Calculate token age at entry (how old was the token when we bought) - LIVE mode
         val tokenAgeMinsLive = if (ts.addedToWatchlistAt > 0) {
             (pos.entryTime - ts.addedToWatchlistAt) / 60_000.0
         } else 0.0
         
         val tradeClassification = when {
-            pnlP >= 2.0 -> "WIN"              // V5.0: +2% is a win (was 5%) - count scalps!
-            pnlP <= -3.0 -> "LOSS"            // V5.0: -3% is a loss (was -5%)
-            else -> "SCRATCH"                  // Noise - DO NOT LEARN
+            pnlP >= 2.0 -> "WIN"
+            pnlP <= -3.0 -> "LOSS"
+            else -> "SCRATCH"
         }
         
         val isScratchTradeLive = tradeClassification == "SCRATCH"
         val shouldLearnAsLoss = tradeClassification == "LOSS"
         val shouldLearnAsWin = tradeClassification == "WIN"
         
-        // Use tradeId for consistent logging
         ErrorLogger.info("Executor", "📊 LIVE ${tradeId.symbol} CLASSIFIED: $tradeClassification | " +
             "pnl=${pnlP.toInt()}% | hold=${holdTimeMins.toInt()}min | " +
             "learn=${if(isScratchTradeLive) "NO (scratch)" else "YES"}")
         
-        // Record bad behaviour observations for MEANINGFUL losing trades only
         if (shouldLearnAsLoss) {
             val fanName = ts.meta.emafanAlignment
             val ph      = pos.entryPhase
             val src     = ts.source.ifBlank { "UNKNOWN" }
 
-            // Record the phase+ema combo as a bad observation
             tradeDb?.recordBadObservation(
                 featureKey    = "phase=${ph}+ema=${fanName}",
                 behaviourType = "ENTRY_SIGNAL",
                 description   = "Loss on $ph + $fanName — pnl=${pnlP.toInt()}%",
                 lossPct       = pnlP,
             )
-            // Record source if it contributed
             if (src != "UNKNOWN") tradeDb?.recordBadObservation(
                 featureKey    = "source=${src}",
                 behaviourType = "SOURCE",
                 description   = "Loss from source $src",
                 lossPct       = pnlP,
             )
-            // Record the exit reason as potential bad pattern
             tradeDb?.recordBadObservation(
                 featureKey    = "exit_reason=${reason}",
                 behaviourType = "EXIT_PATTERN",
@@ -5621,9 +4586,6 @@ class Executor(
                 lossPct       = pnlP,
             )
 
-            // Update BotBrain — check if we should blacklist this token
-            // Pass additional metrics for rolling memory system
-            // LIVE MODE: isLiveTrade = true (3x weight!)
             brain?.let { b ->
                 val shouldBlacklist = b.learnFromTrade(
                     isWin = false, 
@@ -5632,25 +4594,19 @@ class Executor(
                     source = src, 
                     pnlPct = pnlP, 
                     mint = ts.mint,
-                    // Rolling memory metrics
                     rugcheckScore = ts.safety.rugcheckScore,
                     buyPressure = ts.meta.pressScore,
                     topHolderPct = ts.safety.topHolderPct,
                     liquidityUsd = ts.lastLiquidityUsd,
-                    isLiveTrade = true,  // LIVE trade = 3x weight!
-                    approvalClass = tradeId.fdgApprovalClass.ifEmpty { "LIVE" },  // Live mode approval
-                    // NEW: Execution quality metrics
+                    isLiveTrade = true,
+                    approvalClass = tradeId.fdgApprovalClass.ifEmpty { "LIVE" },
                     holdTimeMinutes = holdTimeMins,
                     maxGainPct = maxGainPctLive,
                     exitReason = reason,
                     tokenAgeMinutes = tokenAgeMinsLive,
                 )
-                // Paper mode: Still BAN tokens to build the list for live mode
-                // but we don't CHECK the list in paper mode (handled in scanner/watchlist)
                 if (shouldBlacklist) {
-                    // Session blacklist (cleared on restart)
                     TokenBlacklist.block(ts.mint, "2+ losses on ${ts.symbol}")
-                    // Permanent ban (persisted across restarts) - ALWAYS add, even in paper mode
                     BannedTokens.ban(ts.mint, "2+ losses on ${ts.symbol}")
                     if (cfg().paperMode) {
                         onLog("📝 PAPER LEARNED: ${ts.symbol} added to ban list (still trading for learning)", ts.mint)
@@ -5663,16 +4619,12 @@ class Executor(
                 }
             }
         } else if (shouldLearnAsWin) {
-            // Meaningful win — let the brain know this pattern is working
             val fanName = ts.meta.emafanAlignment
             val ph      = pos.entryPhase
             val src     = ts.source.ifBlank { "UNKNOWN" }
             tradeDb?.recordGoodObservation("phase=${ph}+ema=${fanName}")
             tradeDb?.recordGoodObservation("source=${src}")
             
-            // Update BotBrain for winning trade
-            // Pass additional metrics for rolling memory system
-            // LIVE MODE: isLiveTrade = true (3x weight!)
             brain?.let { b ->
                 b.learnFromTrade(
                     isWin = true, 
@@ -5681,14 +4633,12 @@ class Executor(
                     source = src, 
                     pnlPct = pnlP, 
                     mint = ts.mint,
-                    // Rolling memory metrics
                     rugcheckScore = ts.safety.rugcheckScore,
                     buyPressure = ts.meta.pressScore,
                     topHolderPct = ts.safety.topHolderPct,
                     liquidityUsd = ts.lastLiquidityUsd,
-                    isLiveTrade = true,  // LIVE trade = 3x weight!
-                    approvalClass = tradeId.fdgApprovalClass.ifEmpty { "LIVE" },  // Live mode approval
-                    // NEW: Execution quality metrics
+                    isLiveTrade = true,
+                    approvalClass = tradeId.fdgApprovalClass.ifEmpty { "LIVE" },
                     holdTimeMinutes = holdTimeMins,
                     maxGainPct = maxGainPctLive,
                     exitReason = reason,
@@ -5696,18 +4646,15 @@ class Executor(
                 )
             }
         } else {
-            // SCRATCH trade - not meaningful for learning
             ErrorLogger.debug("Executor", "LIVE ${ts.symbol}: Scratch trade (${pnlP.toInt()}%) - skipped for learning")
         }
 
-        // Determine win/loss/scratch for database record (uses already-defined isScratchTradeLive)
         val dbIsWinLive = when {
-            isScratchTradeLive -> null  // Scratch trades are neither win nor loss
-            pnlP > 5.0 -> true      // Clear win (using 5% threshold)
-            else -> false           // Clear loss
+            isScratchTradeLive -> null
+            pnlP > 5.0 -> true
+            else -> false
         }
         
-        // Record trade to database
         tradeDb?.insertTrade(TradeRecord(
             tsEntry=pos.entryTime, tsExit=System.currentTimeMillis(),
             symbol=ts.symbol, mint=ts.mint,
@@ -5725,9 +4672,6 @@ class Executor(
             isScratch=isScratchTradeLive,
         ))
 
-        // ═══════════════════════════════════════════════════════════════════
-        // ADAPTIVE LEARNING: Capture features and learn from LIVE trade
-        // ═══════════════════════════════════════════════════════════════════
         try {
             val holdMins = (System.currentTimeMillis() - pos.entryTime) / 60_000.0
             val tokenAgeMins = (System.currentTimeMillis() - ts.addedToWatchlistAt) / 60_000.0
@@ -5740,7 +4684,7 @@ class Executor(
                 holderCount = ts.history.lastOrNull()?.holderCount ?: 0,
                 topHolderPct = ts.safety.topHolderPct,
                 holderGrowthRate = ts.holderGrowthRate,
-                devWalletPct = 0.0,  // Not tracked
+                devWalletPct = 0.0,
                 bondingCurveProgress = 100.0,
                 rugcheckScore = ts.safety.rugcheckScore.toDouble(),
                 emaFanState = ts.meta.emafanAlignment,
@@ -5754,28 +4698,23 @@ class Executor(
                 timeToPeakMins = holdMins * 0.5,
                 holdTimeMins = holdMins,
                 exitReason = reason,
-                // PRIORITY 3: Pass entry phase for improved classification
                 entryPhase = pos.entryPhase,
             )
             AdaptiveLearningEngine.learnFromTrade(features)
             
-            // Scanner learning - track what discovery characteristics produce wins
-            // ONLY record meaningful outcomes, NOT scratch trades
             if (shouldLearnAsWin || shouldLearnAsLoss) {
                 val tokenAgeHours2 = (System.currentTimeMillis() - ts.addedToWatchlistAt) / 3_600_000.0
                 ScannerLearning.recordTrade(
                     source = ts.source.ifEmpty { "UNKNOWN" },
                     liqUsd = ts.lastLiquidityUsd,
                     ageHours = tokenAgeHours2,
-                    isWin = shouldLearnAsWin  // Use classified outcome, not raw pnl
+                    isWin = shouldLearnAsWin
                 )
             }
         } catch (e: Exception) {
             ErrorLogger.debug("AdaptiveLearning", "Feature capture error: ${e.message}")
         }
-        // ═══════════════════════════════════════════════════════════════════
 
-        // Notify shadow learning engine - skip scratch trades
         if (!isScratchTradeLive) {
             ShadowLearningEngine.onLiveTradeExit(
                 mint = tradeId.mint,
@@ -5786,9 +4725,6 @@ class Executor(
             )
         }
         
-        // ═══════════════════════════════════════════════════════════════════
-        // TRADE IDENTITY: Update canonical identity state
-        // ═══════════════════════════════════════════════════════════════════
         val classificationLive = when {
             isScratchTradeLive -> "SCRATCH"
             shouldLearnAsWin -> "WIN"
@@ -5796,29 +4732,18 @@ class Executor(
             else -> "UNKNOWN"
         }
         
-        // Update TradeIdentity with close info
         tradeId.closed(exitPrice, pnlP, pnl, reason)
         tradeId.classified(classificationLive, if (isScratchTradeLive) null else shouldLearnAsWin)
         
-        // ═══════════════════════════════════════════════════════════════════
-        // LIFECYCLE: CLOSED → CLASSIFIED (LIVE) - use identity.mint for consistency
-        // ═══════════════════════════════════════════════════════════════════
         TradeLifecycle.closed(tradeId.mint, exitPrice, pnlP, reason)
         TradeLifecycle.classified(tradeId.mint, classificationLive, if (isScratchTradeLive) null else shouldLearnAsWin)
-        TradeLifecycle.clearProposalTracking(tradeId.mint)  // Allow future re-proposals
+        TradeLifecycle.clearProposalTracking(tradeId.mint)
         
-        // ═══════════════════════════════════════════════════════════════════
-        // DISTRIBUTION COOLDOWN: Record if exited due to distribution
-        // This prevents the buy→dump→buy→dump loop
-        // ═══════════════════════════════════════════════════════════════════
         if (reason.lowercase().contains("distribution")) {
             FinalDecisionGate.recordDistributionExit(tradeId.mint)
             onLog("🚫 Distribution cooldown: ${ts.symbol} blocked for 20-60s", tradeId.mint)
         }
         
-        // ═══════════════════════════════════════════════════════════════════
-        // REENTRY GUARD: Hard block bad tokens from re-entry (LIVE)
-        // ═══════════════════════════════════════════════════════════════════
         val reasonLowerLive = reason.lowercase()
         when {
             reasonLowerLive.contains("collapse") || reasonLowerLive.contains("liq_drain") -> {
@@ -5835,43 +4760,32 @@ class Executor(
             }
         }
         
-        // Track losses for multi-loss detection
         if (pnlP < 0) {
             ReentryGuard.onTradeLoss(tradeId.mint, pnlP)
         }
         
-        // ═══════════════════════════════════════════════════════════════════
-        // ENTRY & EXIT INTELLIGENCE: Learn from live trade outcome
-        // ═══════════════════════════════════════════════════════════════════
         val holdMinutesLive = ((System.currentTimeMillis() - ts.position.entryTime) / 60000).toInt()
         EntryIntelligence.learnFromOutcome(tradeId.mint, pnlP, holdMinutesLive)
         ExitIntelligence.learnFromExit(tradeId.mint, reason, pnlP, holdMinutesLive)
         ExitIntelligence.resetPosition(tradeId.mint)
         
-        // ═══════════════════════════════════════════════════════════════════
-        // NEW AI LAYERS: Record trade outcome for learning (LIVE trades - 3x weight!)
-        // ═══════════════════════════════════════════════════════════════════
-        
-        // WhaleTrackerAI: Learn from whale signal accuracy
         try {
             val wasSignalCorrect = when {
-                pnlP > 5.0 -> true   // Win
-                pnlP < -5.0 -> false // Loss
-                else -> null         // Scratch - don't learn
+                pnlP > 5.0 -> true
+                pnlP < -5.0 -> false
+                else -> null
             }
             if (wasSignalCorrect != null) {
                 WhaleTrackerAI.recordSignalOutcome(tradeId.mint, wasSignalCorrect, pnlP)
             }
         } catch (_: Exception) {}
         
-        // MarketRegimeAI: Record trade outcome for regime performance tracking
         try {
-            if (abs(pnlP) >= 5.0) {  // Only meaningful trades
+            if (abs(pnlP) >= 5.0) {
                 MarketRegimeAI.recordTradeOutcome(pnlP)
             }
         } catch (_: Exception) {}
         
-        // MomentumPredictorAI: Learn from momentum prediction accuracy
         try {
             val peakPnlPctLive = if (ts.position.entryPrice > 0) {
                 com.lifecyclebot.util.pct(ts.position.entryPrice, ts.position.highestPrice)
@@ -5879,57 +4793,42 @@ class Executor(
             MomentumPredictorAI.recordOutcome(tradeId.mint, pnlP, peakPnlPctLive)
         } catch (_: Exception) {}
         
-        // NarrativeDetectorAI: Learn which narratives are performing (LIVE trades - 3x weight!)
         try {
-            // Record 3x for live trades since they're more important
             NarrativeDetectorAI.recordOutcome(ts.symbol, ts.name, pnlP)
             NarrativeDetectorAI.recordOutcome(ts.symbol, ts.name, pnlP)
             NarrativeDetectorAI.recordOutcome(ts.symbol, ts.name, pnlP)
         } catch (_: Exception) {}
         
-        // TimeOptimizationAI: Learn which hours are most profitable (LIVE trades - 3x weight!)
         try {
-            // Record 3x for live trades
             TimeOptimizationAI.recordOutcome(pnlP)
             TimeOptimizationAI.recordOutcome(pnlP)
             TimeOptimizationAI.recordOutcome(pnlP)
         } catch (_: Exception) {}
         
-        // LiquidityDepthAI: Learn which liquidity patterns are profitable (LIVE trades - 3x weight!)
         try {
-            // Record 3x for live trades
             LiquidityDepthAI.recordOutcome(ts.mint, pnlP, pnl > 0)
             LiquidityDepthAI.recordOutcome(ts.mint, pnlP, pnl > 0)
             LiquidityDepthAI.recordOutcome(ts.mint, pnlP, pnl > 0)
-            LiquidityDepthAI.clearEntryLiquidity(ts.mint)  // Clean up entry reference
+            LiquidityDepthAI.clearEntryLiquidity(ts.mint)
         } catch (_: Exception) {}
         
-        // AICrossTalk: Learn which correlation patterns are profitable (LIVE trades - 3x weight!)
         try {
             val crossTalkSignal = AICrossTalk.analyzeCrossTalk(ts.mint, ts.symbol, isOpenPosition = false)
             if (crossTalkSignal.signalType != AICrossTalk.SignalType.NO_CORRELATION) {
-                // Record 3x for live trades
                 AICrossTalk.recordOutcome(crossTalkSignal.signalType, pnlP, pnl > 0)
                 AICrossTalk.recordOutcome(crossTalkSignal.signalType, pnlP, pnl > 0)
                 AICrossTalk.recordOutcome(crossTalkSignal.signalType, pnlP, pnl > 0)
             }
         } catch (_: Exception) {}
         
-        // ═══════════════════════════════════════════════════════════════════
-        // TOKEN WIN MEMORY: Remember winning tokens and learn patterns (LIVE - 3x weight!)
-        // ═══════════════════════════════════════════════════════════════════
         try {
             val peakPnlLive = if (ts.position.entryPrice > 0) {
                 com.lifecyclebot.util.pct(ts.position.entryPrice, ts.position.highestPrice)
             } else pnlP
             
-            // Get buy pressure from history
             val latestBuyPctLive = ts.history.lastOrNull()?.buyRatio?.times(100) ?: 50.0
-            
-            // Approximate entry mcap from liquidity (typical ratio ~2x)
             val approxEntryMcapLive = ts.position.entryLiquidityUsd * 2
             
-            // Record 3x for live trades (more valuable data)
             repeat(3) {
                 TokenWinMemory.recordTradeOutcome(
                     mint = tradeId.mint,
@@ -5948,22 +4847,17 @@ class Executor(
             }
         } catch (_: Exception) {}
         
-        // ═══════════════════════════════════════════════════════════════════
-        // MODE ORCHESTRATOR: Record LIVE trade outcome for mode performance tracking
-        // ═══════════════════════════════════════════════════════════════════
         try {
             val holdTimeMs = System.currentTimeMillis() - ts.position.entryTime
-            val isWin = pnlP > 2.0  // Win if > 2% profit
+            val isWin = pnlP > 2.0
             val modeStr = ts.position.tradingMode
             
-            // Convert string mode to enum and record
             val extMode = try {
                 UnifiedModeOrchestrator.ExtendedMode.valueOf(modeStr)
             } catch (e: Exception) {
                 UnifiedModeOrchestrator.ExtendedMode.STANDARD
             }
             
-            // LIVE trades get 3x weight for mode tracking too
             repeat(3) {
                 UnifiedModeOrchestrator.recordTrade(
                     mode = extMode,
@@ -5973,7 +4867,6 @@ class Executor(
                 )
             }
             
-            // Also update chart insights outcome
             val outcomeStr = if (isWin) "WIN" else if (pnlP < -2.0) "LOSS" else "SCRATCH"
             SuperBrainEnhancements.updateInsightOutcome(ts.mint, outcomeStr, pnlP)
         } catch (e: Exception) {
@@ -5986,23 +4879,16 @@ class Executor(
         ts.lastExitPnlPct   = pnlP
         ts.lastExitWasWin   = pnl > 0
         
-        // V5.6.9: Remove position from persistence AFTER position is reset
-        // CRITICAL: This ensures isOpen=false when we save, so the position is removed
         try {
-            PositionPersistence.savePosition(ts)  // Will remove since isOpen=false now
+            PositionPersistence.savePosition(ts)
             ErrorLogger.info("Executor", "💾 LIVE position removed from persistence: ${ts.symbol}")
         } catch (e: Exception) {
             ErrorLogger.error("Executor", "💾 Position persistence removal error: ${e.message}", e)
         }
         
-        // ═══════════════════════════════════════════════════════════════════
-        // V5.2 FIX: Close ALL layer-specific positions and release locks (LIVE)
-        // Same cleanup as paperSell to ensure consistent state
-        // ═══════════════════════════════════════════════════════════════════
         try {
             val isWin = pnl > 0
             
-            // Close Treasury position if exists
             val treasurySignal = if (isWin) {
                 com.lifecyclebot.v3.scoring.CashGenerationAI.ExitSignal.TAKE_PROFIT
             } else {
@@ -6010,7 +4896,6 @@ class Executor(
             }
             com.lifecyclebot.v3.scoring.CashGenerationAI.closePosition(tradeId.mint, exitPrice, treasurySignal)
             
-            // Close ShitCoin position if exists
             val shitcoinSignal = if (isWin) {
                 com.lifecyclebot.v3.scoring.ShitCoinTraderAI.ExitSignal.TAKE_PROFIT
             } else {
@@ -6018,7 +4903,6 @@ class Executor(
             }
             com.lifecyclebot.v3.scoring.ShitCoinTraderAI.closePosition(tradeId.mint, exitPrice, shitcoinSignal)
             
-            // Close BlueChip position if exists
             val bluechipSignal = if (isWin) {
                 com.lifecyclebot.v3.scoring.BlueChipTraderAI.ExitSignal.TAKE_PROFIT
             } else {
@@ -6026,7 +4910,6 @@ class Executor(
             }
             com.lifecyclebot.v3.scoring.BlueChipTraderAI.closePosition(tradeId.mint, exitPrice, bluechipSignal)
             
-            // Release CORE book lock
             TradeAuthorizer.releasePosition(
                 mint = tradeId.mint,
                 reason = "SELL_$reason",
@@ -6038,10 +4921,6 @@ class Executor(
             ErrorLogger.debug("Executor", "Error releasing locks in liveSell: ${e.message}")
         }
         
-        // ═══════════════════════════════════════════════════════════════════
-        // V5.2 FIX: HARVARD BRAIN EDUCATION - Dispatch outcome to ALL AI layers
-        // This activates the 25+ AI layers and tracks their learning progress
-        // ═══════════════════════════════════════════════════════════════════
         try {
             val tradeClassification = when {
                 pnlP >= 50.0 -> "RUNNER"
@@ -6067,11 +4946,8 @@ class Executor(
                 ((pos.highestPrice - pos.entryPrice) / pos.entryPrice) * 100
             } else pnlP
             
-            // Get holder count from most recent candle (Candle has holderCount)
             val currentHolderCount = ts.history.lastOrNull()?.holderCount ?: 0
-            // Get volume from most recent candle
             val currentVolume = ts.history.lastOrNull()?.vol ?: 0.0
-            // Estimate token age from position entry (since we don't have createdAt)
             val approxTokenAgeMinutes = holdMinutes + 5.0
             
             val outcomeData = com.lifecyclebot.v3.scoring.EducationSubLayerAI.TradeOutcomeData(
@@ -6094,19 +4970,19 @@ class Executor(
                 holderCount = currentHolderCount,
                 topHolderPct = ts.topHolderPct ?: 0.0,
                 holderGrowthRate = ts.holderGrowthRate,
-                devWalletPct = 0.0,  // Not tracked on TokenState
-                bondingCurveProgress = 0.0,  // Not tracked on TokenState
-                rugcheckScore = ts.safety.rugcheckScore.toDouble().coerceAtLeast(0.0),  // Use rugcheck score from safety
+                devWalletPct = 0.0,
+                bondingCurveProgress = 0.0,
+                rugcheckScore = ts.safety.rugcheckScore.toDouble().coerceAtLeast(0.0),
                 emaFanState = ts.meta.emafanAlignment.ifEmpty { "UNKNOWN" },
                 entryScore = ts.entryScore,
-                priceFromAth = 0.0,  // Not tracked on TokenState
+                priceFromAth = 0.0,
                 maxGainPct = peakPnlPct,
                 maxDrawdownPct = pos.lowestPrice.let { low ->
                     if (low > 0 && pos.entryPrice > 0) {
                         ((low - pos.entryPrice) / pos.entryPrice) * 100
                     } else 0.0
                 },
-                timeToPeakMins = holdMinutes * 0.5,  // Estimate: peak typically at half hold time
+                timeToPeakMins = holdMinutes * 0.5,
             )
             
             com.lifecyclebot.v3.scoring.EducationSubLayerAI.recordTradeOutcomeAcrossAllLayers(outcomeData)
@@ -6115,7 +4991,6 @@ class Executor(
             ErrorLogger.warn("Executor", "🎓 Harvard Brain recording failed: ${e.message}")
         }
         
-        // V5.6.9g: Log confirmed live sell
         onLog("✅ LIVE_EXIT_CONFIRMED: ${ts.symbol} | reason=$reason | PnL=${pnlP.toInt()}%", tradeId.mint)
         ErrorLogger.info("Executor", "✅ LIVE_EXIT_CONFIRMED: ${ts.symbol} | reason=$reason | PnL=${pnlP.toInt()}%")
         
@@ -6124,17 +4999,6 @@ class Executor(
 
     // ── Close all positions (for bot shutdown) ────────────────────────
 
-    /**
-     * Emergency close all open positions when bot is stopping.
-     * This ensures funds are returned and no positions are left dangling.
-     * Called by BotService.stopBot() before shutting down.
-     *
-     * @param tokens Map of all tracked tokens
-     * @param wallet The wallet to use for live sells (null for paper mode)
-     * @param walletSol Current wallet balance
-     * @param paperMode Whether we're in paper trading mode
-     * @return Number of positions closed
-     */
     fun closeAllPositions(
         tokens: Map<String, com.lifecyclebot.data.TokenState>,
         wallet: SolanaWallet?,
@@ -6160,7 +5024,7 @@ class Executor(
                 if (!pos.isOpen) continue
                 
                 val gainPct = if (pos.entryPrice > 0) {
-                    ((getActualPrice(ts) - pos.entryPrice) / pos.entryPrice * 100)  // CRITICAL FIX: Use actual price
+                    ((getActualPrice(ts) - pos.entryPrice) / pos.entryPrice * 100)
                 } else 0.0
                 
                 onLog("🔴 EMERGENCY CLOSE: ${ts.symbol} @ ${gainPct.toInt()}% gain | reason=bot_shutdown", ts.mint)
@@ -6175,11 +5039,10 @@ class Executor(
                 
             } catch (e: Exception) {
                 onLog("⚠️ Failed to close ${ts.symbol}: ${e.message}", ts.mint)
-                // For paper mode, force close even on error
                 if (paperMode) {
                     try {
                         val pos = ts.position
-                        val value = pos.qtyToken * getActualPrice(ts)  // CRITICAL FIX: Use actual price
+                        val value = pos.qtyToken * getActualPrice(ts)
                         onPaperBalanceChange?.invoke(value)
                         ts.position = com.lifecyclebot.data.Position()
                         onLog("📝 Force-closed paper position: ${ts.symbol}", ts.mint)
@@ -6204,8 +5067,6 @@ class Executor(
         inputSol: Double = 0.0,
         isBuy: Boolean = true,
     ): com.lifecyclebot.network.SwapQuote {
-        // Dual-quote validation only on buys — sells should execute fast
-        // (holding a position while waiting 2s for second quote is risky)
         if (!isBuy) {
             return jupiter.getQuote(inMint, outMint, amount, slippageBps)
         }
@@ -6232,11 +5093,6 @@ class Executor(
 
     // ── Treasury withdrawal ───────────────────────────────────────────
 
-    /**
-     * Execute a treasury withdrawal — transfers SOL from bot wallet to destination.
-     * SmartSizer automatically excludes treasury from tradeable balance so this
-     * just moves the accounting; the SOL was always on-chain.
-     */
     fun executeTreasuryWithdrawal(
         requestedSol: Double,
         destinationAddress: String,
@@ -6281,15 +5137,9 @@ class Executor(
         }
     }
 
-    /**
-     * Sell an orphaned token that the bot doesn't track.
-     * Used by StartupReconciler to clean up tokens from crashed trades.
-     * Returns true if sell succeeded, false otherwise.
-     */
     fun sellOrphanedToken(mint: String, qty: Double, wallet: SolanaWallet): Boolean {
         val c = cfg()
         
-        // Don't sell in paper mode
         if (c.paperMode) {
             onLog("🧹 Orphan sell skipped (paper mode): $mint", mint)
             return false
@@ -6299,7 +5149,7 @@ class Executor(
             onLog("🧹 Attempting orphan sell: $mint ($qty tokens)", mint)
             
             val sellUnits = (qty * 1_000_000_000.0).toLong().coerceAtLeast(1L)
-            val sellSlippage = (c.slippageBps * 3).coerceAtMost(2000)  // Higher slippage for orphans
+            val sellSlippage = (c.slippageBps * 3).coerceAtMost(2000)
             
             val quote = getQuoteWithSlippageGuard(
                 mint, JupiterApi.SOL_MINT, sellUnits, sellSlippage, isBuy = false)
@@ -6323,6 +5173,6 @@ class Executor(
         }
     }
 
-private fun Double.fmt(d: Int = 6) = "%.${d}f".format(this)
+    private fun Double.fmt(d: Int = 6) = "%.${d}f".format(this)
 }
 private fun Double.fmtPct() = "%+.1f%%".format(this)
