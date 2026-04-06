@@ -2977,10 +2977,10 @@ for legal compliance.
     private fun updateLiveReadiness() {
         try {
             // Get trade history stats
-            val history = com.lifecyclebot.engine.TradeHistoryStore
-            val totalTrades = history.totalTrades
-            val winRate = if (totalTrades > 0) {
-                (history.wins.toDouble() / totalTrades * 100)
+            val stats = com.lifecyclebot.engine.TradeHistoryStore.getStats()
+            val totalTrades = stats.totalTrades
+            val winRate = if (stats.totalTrades > 0) {
+                (stats.wins.toDouble() / stats.totalTrades.toDouble() * 100.0)
             } else 0.0
             
             // Determine phase based on trade count
@@ -2992,9 +2992,9 @@ for legal compliance.
             
             // Calculate readiness score (0-100%)
             // Trades component: 0-50% (need 1000 trades for full credit)
-            val tradesScore = minOf(totalTrades / 1000.0, 1.0) * 50
+            val tradesScore = minOf(totalTrades.toDouble() / 1000.0, 1.0) * 50.0
             // Win rate component: 0-50% (need 42% win rate for full credit)
-            val winRateScore = minOf(winRate / 42.0, 1.0) * 50
+            val winRateScore = minOf(winRate / 42.0, 1.0) * 50.0
             val readinessScore = (tradesScore + winRateScore).toInt()
             
             // Determine status
@@ -3004,8 +3004,8 @@ for legal compliance.
             // Update UI
             tvReadinessWinRate.text = if (totalTrades > 0) "${winRate.toInt()}%" else "--"
             tvReadinessWinRate.setTextColor(when {
-                winRate >= 42 -> green
-                winRate >= 35 -> amber
+                winRate >= 42.0 -> green
+                winRate >= 35.0 -> amber
                 else -> red
             })
             
@@ -3032,7 +3032,7 @@ for legal compliance.
             if (parent != null) {
                 val maxWidth = parent.width
                 if (maxWidth > 0) {
-                    params.width = (maxWidth * readinessScore / 100).toInt()
+                    params.width = (maxWidth * readinessScore / 100)
                     viewReadinessProgressBar.layoutParams = params
                 }
             }
@@ -3052,7 +3052,7 @@ for legal compliance.
                     tvLiveReadinessBadge.setBackgroundResource(R.drawable.pill_bg_yellow)
                     val needed = mutableListOf<String>()
                     if (totalTrades < 1000) needed.add("${1000 - totalTrades} more trades")
-                    if (winRate < 42) needed.add("${(42 - winRate).toInt()}% more win rate")
+                    if (winRate < 42.0) needed.add("${(42.0 - winRate).toInt()}% more win rate")
                     tvReadinessRecommendation.text = "⏳ Almost there! Need: ${needed.joinToString(", ")}"
                     tvReadinessRecommendation.setTextColor(amber)
                 }
@@ -3062,15 +3062,15 @@ for legal compliance.
                     tvLiveReadinessBadge.setBackgroundResource(R.drawable.pill_bg_yellow)
                     val needed = mutableListOf<String>()
                     if (totalTrades < 1000) needed.add("${1000 - totalTrades} more trades")
-                    if (winRate < 42 && totalTrades > 0) needed.add("${(42 - winRate).toInt()}% more win rate")
+                    if (winRate < 42.0 && totalTrades > 0) needed.add("${(42.0 - winRate).toInt()}% more win rate")
                     tvReadinessRecommendation.text = "📚 Keep learning! Need: ${needed.joinToString(", ")}"
                     tvReadinessRecommendation.setTextColor(Color.parseColor("#9CA3AF"))
                 }
             }
             
             // Hide card if in live mode (already trading live)
-            val cfg = vm.configState.value
-            if (cfg != null && !cfg.paperMode) {
+            val cfg = com.lifecyclebot.engine.ConfigStore.load(applicationContext)
+            if (!cfg.paperMode) {
                 cardLiveReadiness.visibility = View.GONE
             } else {
                 cardLiveReadiness.visibility = View.VISIBLE
