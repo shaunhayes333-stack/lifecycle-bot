@@ -5246,11 +5246,13 @@ class Executor(
             val tokenData = onChainBalances[ts.mint]
             
             if (tokenData == null || tokenData.first <= 0.0) {
-                // No tokens on-chain - position is stale
-                onLog("⚠️ SELL SKIPPED: No tokens on-chain for ${ts.symbol}", tradeId.mint)
-                onLog("   Expected: ${pos.qtyToken} | Found: 0 | Clearing stale position", tradeId.mint)
-                ts.position = Position() // Clear stale position
-                return SellResult.FAILED_FATAL  // No tokens to sell
+                // No tokens on-chain - position may be stale OR RPC failed
+                // DO NOT clear position here - tokens might still be on-chain but RPC failed!
+                onLog("⚠️ SELL BLOCKED: On-chain balance check returned 0 for ${ts.symbol}", tradeId.mint)
+                onLog("   Expected: ${pos.qtyToken} | Found: 0 | Keeping position (may retry)", tradeId.mint)
+                ErrorLogger.warn("Executor", "⚠️ LIVE SELL BLOCKED: ${ts.symbol} balance=0 on-chain. RPC issue? Keeping position.")
+                // Return FAILED_RETRYABLE so position stays open and we retry later
+                return SellResult.FAILED_RETRYABLE
             }
             
             val actualBalanceUi = tokenData.first

@@ -5686,9 +5686,8 @@ if (deferredCount > 0) {
                 )
                 
                 if (sellResult == Executor.SellResult.CONFIRMED || 
-                    sellResult == Executor.SellResult.PAPER_CONFIRMED ||
-                    sellResult == Executor.SellResult.FAILED_FATAL) {
-                    // Close treasury position tracking
+                    sellResult == Executor.SellResult.PAPER_CONFIRMED) {
+                    // Close treasury position tracking ONLY on confirmed sell
                     com.lifecyclebot.v3.scoring.CashGenerationAI.closePosition(
                         ts.mint, currentPrice, exitSignal
                     )
@@ -5813,8 +5812,7 @@ if (deferredCount > 0) {
 
                 // Only clear strategy state if sell was successful
                 if (sellResult == Executor.SellResult.CONFIRMED || 
-                    sellResult == Executor.SellResult.PAPER_CONFIRMED ||
-                    sellResult == Executor.SellResult.FAILED_FATAL) {
+                    sellResult == Executor.SellResult.PAPER_CONFIRMED) {
                     com.lifecyclebot.v3.scoring.ShitCoinTraderAI.closePosition(
                         ts.mint, currentPrice, exitSignal
                     )
@@ -5864,8 +5862,7 @@ if (deferredCount > 0) {
                 )
                 
                 if (sellResult == Executor.SellResult.CONFIRMED || 
-                    sellResult == Executor.SellResult.PAPER_CONFIRMED ||
-                    sellResult == Executor.SellResult.FAILED_FATAL) {
+                    sellResult == Executor.SellResult.PAPER_CONFIRMED) {
                     com.lifecyclebot.v3.scoring.ShitCoinExpress.exitRide(ts.mint, currentPrice, exitSignal)
                     
                     // V5.6.8 FIX: Release exposure slot
@@ -5898,8 +5895,7 @@ if (deferredCount > 0) {
                 )
                 
                 if (sellResult == Executor.SellResult.CONFIRMED || 
-                    sellResult == Executor.SellResult.PAPER_CONFIRMED ||
-                    sellResult == Executor.SellResult.FAILED_FATAL) {
+                    sellResult == Executor.SellResult.PAPER_CONFIRMED) {
                     com.lifecyclebot.v3.scoring.ManipulatedTraderAI.closePosition(ts.mint, currentPrice, exitSignal)
                     // V5.6.8 FIX: Release exposure slot
                     com.lifecyclebot.v3.V3EngineManager.onPositionClosed(ts.mint)
