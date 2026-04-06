@@ -1363,12 +1363,71 @@ object FinalDecisionGate {
             checks.add(GateCheck("candidate_block", true, null))
         }
 
+        // ═══════════════════════════════════════════════════════════════════════════
+        // V5.6.9 FIX: RSI OVERBOUGHT HARD REJECTION
+        // 
+        // PROBLEM: During bootstrap phase, the bot was trading recklessly on tokens
+        // with RSI 90-100 (extreme overbought territory). These almost always dump.
+        // 
+        // NEW BEHAVIOR:
+        //   RSI > 90: HARD BLOCK in live mode, size reduction + penalty in paper
+        //   RSI > 85: Significant penalty in both modes
+        //   RSI > 80: Moderate penalty (already captured in EntryIntelligence)
+        // 
+        // This prevents chasing pumps at the very top of their run.
+        // ═══════════════════════════════════════════════════════════════════════════
+        val currentRsi = ts.meta.rsi
+        if (blockReason == null && currentRsi > 90.0) {
+            if (!config.paperMode) {
+                // LIVE MODE: Hard block RSI > 90 (extreme overbought = almost certain dump)
+                blockReason = "RSI_OVERBOUGHT_${currentRsi.toInt()}"
+                blockLevel = BlockLevel.HARD
+                checks.add(GateCheck("rsi_overbought", false, "RSI=${currentRsi.toInt()} > 90 (extreme overbought, near-certain dump)"))
+                tags.add("rsi_overbought_block")
+                ErrorLogger.warn("FDG", "🚫 RSI HARD BLOCK: ${ts.symbol} | RSI=${currentRsi.toInt()} > 90 | EXTREME OVERBOUGHT → BLOCK")
+            } else {
+                // PAPER MODE: Allow but with severe penalty and tiny size for learning
+                // This lets the bot learn that RSI > 90 entries are bad
+                checks.add(GateCheck("rsi_overbought", true, "RSI=${currentRsi.toInt()} > 90 → PAPER LEARNING with penalty"))
+                tags.add("rsi_overbought_learn")
+                ErrorLogger.info("FDG", "🎓 RSI PAPER LEARN: ${ts.symbol} | RSI=${currentRsi.toInt()} > 90 | severe penalty for learning")
+            }
+        } else if (blockReason == null && currentRsi > 85.0) {
+            // RSI 85-90: Heavy penalty in both modes
+            checks.add(GateCheck("rsi_overbought", true, "RSI=${currentRsi.toInt()} > 85 → penalty applied"))
+            tags.add("rsi_high_caution")
+            ErrorLogger.debug("FDG", "⚠️ RSI HIGH: ${ts.symbol} | RSI=${currentRsi.toInt()} | applying penalty")
+        } else if (blockReason == null) {
+            checks.add(GateCheck("rsi_overbought", true, null))
+        }
+
         var softPenaltyScore = 0
         var sizeMultiplier = 1.0
         var isProbeCandidate = false
         var behaviorPenalty = 0
         var behaviorSizeMultiplier = 1.0
         var behaviorProbe = false
+
+        // V5.6.9 FIX: Apply RSI penalties to soft score and size
+        val rsiPenalty = when {
+            currentRsi > 90.0 && config.paperMode -> {
+                sizeMultiplier *= 0.15  // Only 15% size for extreme overbought paper trades
+                35  // Heavy penalty
+            }
+            currentRsi > 85.0 -> {
+                sizeMultiplier *= 0.5  // 50% size for high RSI
+                20  // Significant penalty
+            }
+            currentRsi > 80.0 -> {
+                sizeMultiplier *= 0.7  // 70% size for overbought
+                10  // Moderate penalty
+            }
+            else -> 0
+        }
+        if (rsiPenalty > 0) {
+            softPenaltyScore += rsiPenalty
+            tags.add("rsi_penalty_$rsiPenalty")
+        }
 
         if (blockReason == null) {
             try {
@@ -1469,13 +1528,21 @@ object FinalDecisionGate {
                 val isDanger = TimeOptimizationAI.isDangerZone()
                 if (isDanger) {
                     if (isBootstrapPhase) {
-                        dangerZonePenalty = 5
-                        sizeMultiplier *= 0.4
+                        // V5.6.9 FIX: Increased DANGER ZONE penalty during bootstrap
+                        // Old value (5 pts) was too weak — bot was still making bad trades
+                        // during historically losing time periods.
+                        // 
+                        // NEW: 15 pts penalty + 25% size multiplier (was 5 pts + 40% size)
+                        // This makes danger zone entries much less attractive during bootstrap,
+                        // forcing the bot to learn that these time periods are risky.
+                        dangerZonePenalty = 15  // V5.6.9: Increased from 5 to 15
+                        sizeMultiplier *= 0.25  // V5.6.9: Reduced from 0.4 to 0.25
                         softPenaltyScore += dangerZonePenalty
                         isProbeCandidate = true
-                        checks.add(GateCheck("time_danger", true, "DANGER_ZONE → PENALTY (bootstrap: -${dangerZonePenalty}pts, size×0.4)"))
+                        checks.add(GateCheck("time_danger", true, "DANGER_ZONE → PENALTY (bootstrap: -${dangerZonePenalty}pts, size×0.25)"))
                         tags.add("time_danger_penalized")
                         tags.add("bootstrap_probe")
+                        ErrorLogger.info("FDG", "⚠️ DANGER ZONE PENALTY: ${ts.symbol} | -${dangerZonePenalty}pts, size×0.25 (bootstrap learning)")
                     } else {
                         val shouldBypass = shouldBypassSoftBlock("DANGER_ZONE_TIME")
                         if (shouldBypass) {

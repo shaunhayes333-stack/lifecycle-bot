@@ -277,19 +277,48 @@ class TokenSafetyChecker(private val cfg: () -> BotConfig) {
                 if (pct >= 0) topHolderPct = pct
             }
 
-            // RC scoring policy:
-            // V5.6.8 FIX: Paper mode must learn with REALISTIC rugcheck behavior!
-            // Problem: Paper bypassed RC checks → Live mode blocked everything → User had no valid tokens
+            // ═══════════════════════════════════════════════════════════════════════
+            // V5.6.9 FIX: RELAXED RC SCORING POLICY
+            // 
+            // PROBLEM: RC score=1 means "unknown/pending" (API hasn't processed yet).
+            // Old policy hard-blocked score < 2, starving the bot of new token entries.
             // 
             // NEW POLICY:
-            // PAPER: RC 0-4 = HARD BLOCK (learn what's truly dangerous)
-            //        RC 5-9 = soft penalty with heavy weight (learn to avoid)
-            // LIVE:  RC 0-9 = hard block (protect real money)
+            //   score=0: Confirmed dangerous → HARD BLOCK (both modes)
+            //   score=1: Unknown/pending → SOFT PENALTY only (allow evaluation)
+            //   score 2-4: Very dangerous → HARD BLOCK live, heavy penalty paper
+            //   score 5-9: Dangerous → Heavy soft penalty (learn to avoid)
+            //   score 10+: Normal penalty scaling
+            // 
+            // This ensures:
+            // 1. New tokens (score=1) can be evaluated by other safety layers
+            // 2. Paper mode learns realistic danger signals
+            // 3. Live mode still protects real money
+            // ═══════════════════════════════════════════════════════════════════════
             when {
-                rcScore in 0..4 -> {
-                    // EXTREMELY dangerous - hard block in BOTH modes
-                    hard.add("Rugcheck score $rcScore/100 (CONFIRMED RUG RISK)")
-                    ErrorLogger.error(TAG, "🚫 RC HARD BLOCK: $symbol score=$rcScore (both paper and live)")
+                rcScore == 0 -> {
+                    // Score 0 = CONFIRMED DANGEROUS - hard block in BOTH modes
+                    hard.add("Rugcheck score 0/100 (CONFIRMED RUG RISK)")
+                    ErrorLogger.error(TAG, "🚫 RC HARD BLOCK: $symbol score=0 (both paper and live)")
+                }
+                rcScore == 1 -> {
+                    // V5.6.9 FIX: Score 1 = UNKNOWN/PENDING - apply soft penalty only
+                    // The token is too new for Rugcheck to analyze. Let other safety
+                    // layers (LP lock, mint auth, etc.) catch truly bad tokens.
+                    soft.add("Rugcheck score pending ($rcScore/100 = unknown)" to 15)
+                    penalty += 15
+                    ErrorLogger.info(TAG, "⏳ RC PENDING: $symbol score=1 (unknown) → +15 penalty, allowing evaluation")
+                }
+                rcScore in 2..4 -> {
+                    // Very dangerous - hard block in live, heavy penalty in paper
+                    if (isPaperMode) {
+                        soft.add("Rugcheck score $rcScore/100 (very dangerous)" to 40)
+                        penalty += 40
+                        ErrorLogger.warn(TAG, "RC PAPER PENALTY: $symbol score=$rcScore → +40 penalty (learning danger)")
+                    } else {
+                        hard.add("Rugcheck score $rcScore/100 (CONFIRMED RUG RISK)")
+                        ErrorLogger.error(TAG, "🚫 RC HARD BLOCK: $symbol score=$rcScore (live mode)")
+                    }
                 }
                 rcScore in 5..9 -> {
                     if (isPaperMode) {
@@ -298,7 +327,7 @@ class TokenSafetyChecker(private val cfg: () -> BotConfig) {
                         penalty += 35
                         ErrorLogger.warn(TAG, "RC PAPER PENALTY: $symbol score=$rcScore → +35 penalty (learning)")
                     } else {
-                        // Live: Hard block
+                        // Live: Hard block for scores 5-9
                         hard.add("Rugcheck score $rcScore/100 (EXTREMELY DANGEROUS)")
                     }
                 }

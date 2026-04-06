@@ -2411,8 +2411,22 @@ class SolanaMarketScanner(
         .writeTimeout(2, TimeUnit.SECONDS)
         .build()
 
-    // RC == 1 now PASSES
-    // Only confirmed rugged=true or RC < 1 is blocked
+    // ═══════════════════════════════════════════════════════════════════════════
+    // V5.6.9 FIX: RELAXED RC SCORE HANDLING
+    // 
+    // PROBLEM: RC score=1 means "pending/calculating" (unknown), NOT dangerous!
+    // The API returns score=1 when Rugcheck hasn't fully processed the token yet.
+    // Old logic blocked score < 2, which starved the bot of entries on new tokens.
+    // 
+    // NEW BEHAVIOR:
+    //   - score=0: Confirmed dangerous → HARD BLOCK
+    //   - score=1: Unknown/pending → ALLOW with soft penalty (let bot evaluate)
+    //   - score 2-9: Very risky → ALLOW with penalty
+    //   - score >= 10: Normal processing
+    //   - rugged=true: Always HARD BLOCK
+    // 
+    // This ensures the bot can find entries while still learning danger signals.
+    // ═══════════════════════════════════════════════════════════════════════════
     private fun quickRugcheck(mint: String): Boolean {
         try {
             val url = "https://api.rugcheck.xyz/v1/tokens/$mint/report/summary"
@@ -2434,6 +2448,7 @@ class SolanaMarketScanner(
             val rugged = json.optString("rugged", "").lowercase()
             rcScoreCache[mint] = scoreNormalized
 
+            // ABSOLUTE BLOCK: Confirmed rug
             if (rugged == "true" || rugged == "yes") {
                 telemetryRugRejects++
                 onLog("🚫 RUG CONFIRMED: ${mint.take(8)}... (tokens worthless)")
@@ -2443,32 +2458,34 @@ class SolanaMarketScanner(
 
             val isPaper = cfg().paperMode
 
-            // V5.6.8 FIX: Paper mode MUST NOT bypass rugcheck completely!
-            // Problem: Bot learns with no rugcheck → switches to live → gets rugged immediately
-            // because it never learned which tokens are dangerous.
-            // 
-            // NEW BEHAVIOR: Paper mode uses SAME rugcheck logic as live, but logs it as learning.
-            // This ensures the bot learns real-world rugcheck patterns.
-            if (isPaper) {
-                if (scoreNormalized < 2) {
-                    // Log but ALSO track this as a blocked token for learning
-                    ErrorLogger.info("Scanner", "RC PAPER BLOCK: ${mint.take(12)} score=$scoreNormalized < 2 (learning dangerous pattern)")
-                    onLog("🚫 RC PAPER BLOCK: ${mint.take(8)}... score=$scoreNormalized — blocked to learn dangerous patterns")
-                    return false  // BLOCK in paper too - must learn what's dangerous!
-                }
-                // Score >= 2 passes in both paper and live
-                return true
-            }
-
-            if (scoreNormalized < 2) {
+            // V5.6.9 FIX: Only score=0 is a hard block (confirmed dangerous)
+            // Score=1 means "unknown/pending" and should be allowed through for evaluation
+            if (scoreNormalized == 0) {
                 telemetryRugRejects++
-                onLog("🚫 RC HARD BLOCK: ${mint.take(8)}... score=$scoreNormalized (< 2, catastrophic)")
-                ErrorLogger.info("Scanner", "RC HARD_BLOCK: ${mint.take(12)} score=$scoreNormalized < 2")
+                onLog("🚫 RC HARD BLOCK: ${mint.take(8)}... score=0 (confirmed dangerous)")
+                ErrorLogger.info("Scanner", "RC HARD_BLOCK: ${mint.take(12)} score=0 (confirmed dangerous)")
                 return false
             }
 
-            if (scoreNormalized in 2..15) {
-                ErrorLogger.debug("Scanner", "RC ${mint.take(8)}: score=$scoreNormalized (OK - normal range)")
+            // Score=1: Unknown/pending — ALLOW with logging
+            // The token is too new for Rugcheck to fully analyze. Let the bot evaluate
+            // using other signals (liquidity, buy pressure, etc.)
+            if (scoreNormalized == 1) {
+                ErrorLogger.info("Scanner", "RC PENDING: ${mint.take(12)} score=1 (unknown/calculating) — allowing for evaluation")
+                onLog("⏳ RC PENDING: ${mint.take(8)}... score=1 (unknown) — proceeding with other checks")
+                return true  // V5.6.9: Allow through — other safety layers will catch truly bad tokens
+            }
+
+            // Scores 2-9: Very risky but not auto-blocked at scanner level
+            // Let TokenSafetyChecker apply appropriate penalties
+            if (scoreNormalized in 2..9) {
+                ErrorLogger.debug("Scanner", "RC ${mint.take(8)}: score=$scoreNormalized (risky but passing scanner)")
+                return true
+            }
+
+            // Scores >= 10: Normal range
+            if (scoreNormalized in 10..100) {
+                ErrorLogger.debug("Scanner", "RC ${mint.take(8)}: score=$scoreNormalized (OK)")
             }
 
             return true
