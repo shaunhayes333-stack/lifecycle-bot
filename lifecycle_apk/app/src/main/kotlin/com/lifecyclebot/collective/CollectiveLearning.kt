@@ -434,12 +434,18 @@ object CollectiveLearning {
                 if (isWin) 1 else 0, if (paperMode) 1 else 0
             ))
             
+            Log.d(TAG, "📤 INSERT RESULT: success=${result.success} | rows=${result.rowsAffected} | lastId=${result.lastInsertId} | error=${result.error}")
+            
             if (result.success) {
-                Log.i(TAG, "📤 TRADE → COLLECTIVE: $side $symbol ($mode) ${if (side == "SELL") "${pnlPct.toInt()}%" else ""} ✅")
-                totalUploadsThisSession++
-                
-                // V3.3: Update instance registry trade count
-                updateInstanceTradeCount()
+                if (result.rowsAffected > 0 || result.lastInsertId != null) {
+                    Log.i(TAG, "📤 TRADE → COLLECTIVE: $side $symbol ($mode) ${if (side == "SELL") "${pnlPct.toInt()}%" else ""} ✅")
+                    totalUploadsThisSession++
+                    
+                    // V3.3: Update instance registry trade count
+                    updateInstanceTradeCount()
+                } else {
+                    Log.w(TAG, "⚠️ INSERT returned success but 0 rows affected for $side $symbol")
+                }
             } else {
                 Log.e(TAG, "❌ UPLOAD FAILED: $side $symbol | error=${result.error} | affected=${result.rowsAffected}")
             }
