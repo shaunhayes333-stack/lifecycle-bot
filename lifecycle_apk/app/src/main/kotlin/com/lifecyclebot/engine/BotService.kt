@@ -950,14 +950,20 @@ class BotService : Service() {
         // V5.6.12: Download community weights on startup
         scope.launch {
             try {
+                addLog("☁️ Starting community download...")
                 val weights = CloudLearningSync.downloadCommunityWeights()
                 if (weights != null && weights.totalContributors > 0) {
                     addLog("☁️ Downloaded community data: ${weights.totalContributors} contributors, ${weights.totalTrades} trades")
                     // Apply community weights to local learning engine
                     AdaptiveLearningEngine.applyCommunityWeights(weights.featureWeights, weights.totalTrades)
+                } else if (weights != null) {
+                    addLog("☁️ No community data yet (0 contributors)")
+                } else {
+                    addLog("☁️ Download returned null")
                 }
             } catch (e: Exception) {
-                ErrorLogger.debug("CloudSync", "Initial download error: ${e.message}")
+                addLog("☁️ Download error: ${e.message}")
+                ErrorLogger.error("CloudSync", "Initial download error: ${e.message}", e)
             }
         }
         

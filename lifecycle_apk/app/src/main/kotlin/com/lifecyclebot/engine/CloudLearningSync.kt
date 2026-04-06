@@ -380,27 +380,31 @@ object CloudLearningSync {
     }
 
     suspend fun downloadCommunityWeights(): CommunityWeights? {
+        ErrorLogger.info("CloudSync", "☁️ DOWNLOAD: Starting community weights download...")
+        
         if (!isConfigured()) {
-            ErrorLogger.debug("CloudSync", "Download skipped: Turso not configured")
+            ErrorLogger.info("CloudSync", "☁️ DOWNLOAD: Skipped - Turso not configured")
             return communityWeights
         }
 
         if (!useCommunityWeights) {
-            ErrorLogger.debug("CloudSync", "Download skipped: community weights disabled")
+            ErrorLogger.info("CloudSync", "☁️ DOWNLOAD: Skipped - community weights disabled in settings")
             return communityWeights
         }
 
         val now = System.currentTimeMillis()
         if (now - lastDownloadTs < DOWNLOAD_INTERVAL_MS && communityWeights != null) {
-            ErrorLogger.debug("CloudSync", "Using cached community weights")
+            ErrorLogger.info("CloudSync", "☁️ DOWNLOAD: Using cached weights (age=${(now - lastDownloadTs)/1000}s)")
             return communityWeights
         }
 
         val schemaOk = ensureSchema()
         if (!schemaOk) {
-            ErrorLogger.error("CloudSync", "Download skipped: schema not ready")
+            ErrorLogger.info("CloudSync", "☁️ DOWNLOAD: Skipped - schema setup failed")
             return communityWeights
         }
+        
+        ErrorLogger.info("CloudSync", "☁️ DOWNLOAD: Querying Turso for community data...")
 
         return withContext(Dispatchers.IO) {
             try {
