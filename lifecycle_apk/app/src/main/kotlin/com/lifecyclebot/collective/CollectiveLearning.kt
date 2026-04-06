@@ -268,6 +268,55 @@ object CollectiveLearning {
         Log.i(TAG, "Collective learning shutdown")
     }
     
+    /**
+     * V5.6.11: Get diagnostics for debugging collective connection issues.
+     */
+    suspend fun getDiagnostics(): CollectiveDiagnostics {
+        val connected = isEnabled()
+        var canQuery = false
+        var tableCount = 0
+        var tradeCount = 0
+        var errorMessage: String? = null
+        
+        if (connected) {
+            try {
+                // Test basic query
+                val testResult = client?.query("SELECT 1 as test")
+                canQuery = testResult?.success == true
+                
+                // Count tables
+                val tablesResult = client?.query("SELECT name FROM sqlite_master WHERE type='table'")
+                tableCount = tablesResult?.rows?.size ?: 0
+                
+                // Count trades
+                val tradesResult = client?.query("SELECT COUNT(*) as cnt FROM collective_trades")
+                tradeCount = (tradesResult?.rows?.firstOrNull()?.get("cnt") as? Number)?.toInt() ?: 0
+            } catch (e: Exception) {
+                errorMessage = e.message
+            }
+        }
+        
+        return CollectiveDiagnostics(
+            isConnected = connected,
+            canQuery = canQuery,
+            tableCount = tableCount,
+            tradeCount = tradeCount,
+            instanceId = instanceId.take(8) + "...",
+            errorMessage = errorMessage,
+            lastReconnectAttempt = lastReconnectAttempt
+        )
+    }
+    
+    data class CollectiveDiagnostics(
+        val isConnected: Boolean,
+        val canQuery: Boolean,
+        val tableCount: Int,
+        val tradeCount: Int,
+        val instanceId: String,
+        val errorMessage: String?,
+        val lastReconnectAttempt: Long
+    )
+    
     // ═══════════════════════════════════════════════════════════════════════════
     // UPLOAD METHODS (Share local learnings)
     // ═══════════════════════════════════════════════════════════════════════════
