@@ -48,9 +48,10 @@ object RunTracker30D {
     @Volatile var peakBalance: Double = 0.0
     @Volatile var maxDrawdown: Double = 0.0  // Stored as negative percentage
     
-    @Volatile var totalPnlPct: Double = 0.0
-    @Volatile var bestTradePnl: Double = 0.0
-    @Volatile var worstTradePnl: Double = 0.0
+    // V5.6.15: Track actual realized P&L in SOL, not accumulated percentages
+    @Volatile var totalRealizedPnlSol: Double = 0.0
+    @Volatile var bestTradePnlPct: Double = 0.0
+    @Volatile var worstTradePnlPct: Double = 0.0
     
     // Equity curve: List of (timestamp, balance) pairs
     private val equityCurve = mutableListOf<Pair<Long, Double>>()
@@ -154,6 +155,25 @@ object RunTracker30D {
         return getCurrentDay() > 30
     }
     
+    /**
+     * V5.6.15: Sync balance with actual paper wallet balance.
+     * Call this periodically to ensure RunTracker stays in sync.
+     */
+    fun syncBalance(actualBalance: Double) {
+        if (!isRunActive()) return
+        
+        // Only sync if there's a significant difference (>5%)
+        val diff = kotlin.math.abs(currentBalance - actualBalance)
+        val pctDiff = if (currentBalance > 0) diff / currentBalance * 100 else 100.0
+        
+        if (pctDiff > 5.0) {
+            ErrorLogger.info(TAG, "📊 Balance sync: ${formatSol(currentBalance)} → ${formatSol(actualBalance)} (${pctDiff.toInt()}% drift)")
+            currentBalance = actualBalance
+            updateDrawdown(currentBalance)
+            save()
+        }
+    }
+    
     // ═══════════════════════════════════════════════════════════════════════
     // TRADE TRACKING
     // ═══════════════════════════════════════════════════════════════════════
@@ -203,22 +223,36 @@ object RunTracker30D {
             "SCRATCH" -> scratches++
         }
         
-        // Update P&L tracking
-        totalPnlPct += pnlPct
-        if (pnlPct > bestTradePnl) bestTradePnl = pnlPct
-        if (pnlPct < worstTradePnl) worstTradePnl = pnlPct
+        // V5.6.15: Track realized P&L in SOL (not accumulated percentages)
+        val realizedPnlSol = sizeSol * (pnlPct / 100.0)
+        totalRealizedPnlSol += realizedPnlSol
         
-        // Update balance (assuming sizeSol * pnlPct/100 represents SOL gain/loss)
-        val balanceChange = sizeSol * (pnlPct / 100.0)
-        currentBalance += balanceChange
+        // Track best/worst trade percentages (capped for sanity)
+        val cappedPnlPct = pnlPct.coerceIn(-100.0, 10000.0)  // Cap at -100% to +10000%
+        if (cappedPnlPct > bestTradePnlPct) bestTradePnlPct = cappedPnlPct
+        if (cappedPnlPct < worstTradePnlPct) worstTradePnlPct = cappedPnlPct
+        
+        // V5.6.15: Update balance properly - add realized P&L
+        currentBalance += realizedPnlSol
+        
+        // Sanity check: balance should never go negative
+        if (currentBalance < 0) {
+            ErrorLogger.warn(TAG, "Balance went negative ($currentBalance), resetting to 0")
+            currentBalance = 0.0
+        }
         
         // Update peak and drawdown
         updateDrawdown(currentBalance)
         
-        // Record equity point
-        equityCurve.add(System.currentTimeMillis() to currentBalance)
+        // Record equity point (limit to 1000 points to prevent memory bloat)
+        if (equityCurve.size < 1000) {
+            equityCurve.add(System.currentTimeMillis() to currentBalance)
+        } else if (totalTrades % 10 == 0) {
+            // Sample every 10th trade after 1000
+            equityCurve.add(System.currentTimeMillis() to currentBalance)
+        }
         
-        // Log trade
+        // Log trade (limit to last 500 trades to prevent memory bloat)
         val entry = TradeEntry(
             timestamp = System.currentTimeMillis(),
             symbol = symbol,
@@ -226,7 +260,7 @@ object RunTracker30D {
             entryPrice = entryPrice,
             exitPrice = exitPrice,
             sizeSol = sizeSol,
-            pnlPct = pnlPct,
+            pnlPct = cappedPnlPct,
             classification = classification,
             holdTimeSec = sanitizedHoldTime,
             mode = mode,
@@ -235,9 +269,12 @@ object RunTracker30D {
             decision = decision,
         )
         tradeLog.add(entry)
+        if (tradeLog.size > 500) {
+            tradeLog.removeAt(0)  // Remove oldest
+        }
         
         // Update metrics
-        metrics.updateFromTrade(pnlPct, classification, confidence.toDouble())
+        metrics.updateFromTrade(cappedPnlPct, classification, confidence.toDouble())
         
         // Save state
         save()
@@ -247,8 +284,8 @@ object RunTracker30D {
             "LOSS" -> "❌"
             else -> "➖"
         }
-        ErrorLogger.info(TAG, "$emoji Trade #$totalTrades: $symbol ${pnlPct.toInt()}% → $classification | " +
-            "Total: W=$wins L=$losses S=$scratches")
+        ErrorLogger.info(TAG, "$emoji Trade #$totalTrades: $symbol ${cappedPnlPct.toInt()}% → $classification | " +
+            "Total: W=$wins L=$losses S=$scratches | Balance: ${formatSol(currentBalance)}")
     }
     
     /**
@@ -303,8 +340,8 @@ TRADES
 RISK
   Peak Balance:  ${formatSol(peakBalance)}
   Max Drawdown:  ${String.format("%.2f", maxDrawdown * 100)}%
-  Best Trade:    ${if (bestTradePnl >= 0) "+" else ""}${String.format("%.1f", bestTradePnl)}%
-  Worst Trade:   ${String.format("%.1f", worstTradePnl)}%
+  Best Trade:    ${if (bestTradePnlPct >= 0) "+" else ""}${String.format("%.1f", bestTradePnlPct)}%
+  Worst Trade:   ${String.format("%.1f", worstTradePnlPct)}%
 
 INTELLIGENCE
   Learning:    ${String.format("%.1f", metrics.learning)}%
@@ -345,9 +382,10 @@ SYSTEM
             "winRate" to winRate,
             "maxDrawdown" to maxDrawdown,
             "peakBalance" to peakBalance,
-            "bestTradePnl" to bestTradePnl,
-            "worstTradePnl" to worstTradePnl,
-            "avgPnlPerTrade" to (if (totalTrades > 0) totalPnlPct / totalTrades else 0.0),
+            "bestTradePnl" to bestTradePnlPct,
+            "worstTradePnl" to worstTradePnlPct,
+            "totalRealizedPnlSol" to totalRealizedPnlSol,
+            "avgPnlPerTrade" to (if (totalTrades > 0) totalRealizedPnlSol / totalTrades else 0.0),
             "integrityScore" to integrityScore(),
             "learningProgress" to metrics.learning,
             "confidenceLevel" to metrics.confidence,
@@ -591,9 +629,9 @@ SYSTEM
                 putInt("scratches", scratches)
                 putFloat("peakBalance", peakBalance.toFloat())
                 putFloat("maxDrawdown", maxDrawdown.toFloat())
-                putFloat("totalPnlPct", totalPnlPct.toFloat())
-                putFloat("bestTradePnl", bestTradePnl.toFloat())
-                putFloat("worstTradePnl", worstTradePnl.toFloat())
+                putFloat("totalRealizedPnlSol", totalRealizedPnlSol.toFloat())
+                putFloat("bestTradePnlPct", bestTradePnlPct.toFloat())
+                putFloat("worstTradePnlPct", worstTradePnlPct.toFloat())
                 putInt("executionFailures", executionFailures)
                 putInt("missedTrades", missedTrades)
                 putString("equityCurve", equityCurveToJson())
@@ -618,9 +656,9 @@ SYSTEM
             scratches = prefs.getInt("scratches", 0)
             peakBalance = prefs.getFloat("peakBalance", 0f).toDouble()
             maxDrawdown = prefs.getFloat("maxDrawdown", 0f).toDouble()
-            totalPnlPct = prefs.getFloat("totalPnlPct", 0f).toDouble()
-            bestTradePnl = prefs.getFloat("bestTradePnl", 0f).toDouble()
-            worstTradePnl = prefs.getFloat("worstTradePnl", 0f).toDouble()
+            totalRealizedPnlSol = prefs.getFloat("totalRealizedPnlSol", 0f).toDouble()
+            bestTradePnlPct = prefs.getFloat("bestTradePnlPct", 0f).toDouble()
+            worstTradePnlPct = prefs.getFloat("worstTradePnlPct", 0f).toDouble()
             executionFailures = prefs.getInt("executionFailures", 0)
             missedTrades = prefs.getInt("missedTrades", 0)
             
@@ -680,9 +718,9 @@ SYSTEM
         scratches = 0
         peakBalance = 0.0
         maxDrawdown = 0.0
-        totalPnlPct = 0.0
-        bestTradePnl = 0.0
-        worstTradePnl = 0.0
+        totalRealizedPnlSol = 0.0
+        bestTradePnlPct = 0.0
+        worstTradePnlPct = 0.0
         executionFailures = 0
         missedTrades = 0
         equityCurve.clear()

@@ -2518,6 +2518,11 @@ class BotService : Service() {
                                 TreasuryManager.save(applicationContext)
                             }
                         )
+                        
+                        // V5.6.15: Sync RunTracker30D balance with actual paper wallet every 10 loops
+                        if (cfg.paperMode && loopCount % 10 == 0) {
+                            RunTracker30D.syncBalance(balanceSol)
+                        }
                     }
                     // Gather all trades across all tokens for P&L - use synchronized copy
                     val allTrades = synchronized(status.tokens) {
