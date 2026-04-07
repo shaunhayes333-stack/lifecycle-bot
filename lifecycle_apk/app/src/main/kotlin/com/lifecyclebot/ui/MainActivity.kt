@@ -2934,9 +2934,10 @@ for legal compliance.
         // W/L/S
         tv30DayWLS.text = "${tracker.wins} / ${tracker.losses} / ${tracker.scratches}"
         
-        // Win rate
-        val winRate = if (tracker.totalTrades > 0) {
-            (tracker.wins * 100 / tracker.totalTrades)
+        // Win rate - V5.6.16: Exclude scratches from calculation
+        val meaningfulTrades = tracker.wins + tracker.losses
+        val winRate = if (meaningfulTrades > 0) {
+            (tracker.wins * 100 / meaningfulTrades)
         } else 0
         tv30DayWinRate.text = "$winRate%"
         tv30DayWinRate.setTextColor(when {

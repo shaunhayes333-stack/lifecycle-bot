@@ -312,8 +312,10 @@ object RunTracker30D {
      * Generate daily report string.
      */
     fun dailyReport(): String {
-        val winRate = if (totalTrades > 0) {
-            (wins * 100 / totalTrades)
+        // V5.6.16: Win rate excludes scratches (only meaningful trades count)
+        val meaningfulTrades = wins + losses
+        val winRate = if (meaningfulTrades > 0) {
+            (wins * 100 / meaningfulTrades)
         } else 0
         
         val returnPct = if (startBalance > 0) {
@@ -334,8 +336,8 @@ TRADES
   Total:     $totalTrades
   Wins:      $wins
   Losses:    $losses
-  Scratches: $scratches
-  Win Rate:  $winRate%
+  Scratches: $scratches (excluded from win rate)
+  Win Rate:  $winRate% (of ${meaningfulTrades} meaningful trades)
 
 RISK
   Peak Balance:  ${formatSol(peakBalance)}
@@ -364,8 +366,10 @@ SYSTEM
             ((currentBalance - startBalance) / startBalance) * 100
         } else 0.0
         
-        val winRate = if (totalTrades > 0) {
-            wins.toDouble() / totalTrades
+        // V5.6.16: Win rate excludes scratches
+        val meaningfulTrades = wins + losses
+        val winRate = if (meaningfulTrades > 0) {
+            wins.toDouble() / meaningfulTrades
         } else 0.0
         
         return mapOf(
@@ -376,6 +380,7 @@ SYSTEM
             "endBalance" to currentBalance,
             "returnPct" to returnPct,
             "totalTrades" to totalTrades,
+            "meaningfulTrades" to meaningfulTrades,
             "wins" to wins,
             "losses" to losses,
             "scratches" to scratches,
@@ -385,7 +390,7 @@ SYSTEM
             "bestTradePnl" to bestTradePnlPct,
             "worstTradePnl" to worstTradePnlPct,
             "totalRealizedPnlSol" to totalRealizedPnlSol,
-            "avgPnlPerTrade" to (if (totalTrades > 0) totalRealizedPnlSol / totalTrades else 0.0),
+            "avgPnlPerTrade" to (if (meaningfulTrades > 0) totalRealizedPnlSol / meaningfulTrades else 0.0),
             "integrityScore" to integrityScore(),
             "learningProgress" to metrics.learning,
             "confidenceLevel" to metrics.confidence,

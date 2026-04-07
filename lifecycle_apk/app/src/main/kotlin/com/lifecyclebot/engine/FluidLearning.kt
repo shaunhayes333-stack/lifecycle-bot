@@ -219,21 +219,38 @@ object FluidLearning {
         totalPaperPnlSol += pnlSol
         paperTradeCount++
         
-        if (pnlSol > 0) {
-            paperWinCount++
-            // Update peak if new high
+        // V5.6.16: Only count meaningful trades (not scratches)
+        // Scratches are trades between -2% and +2% - they're essentially break-even
+        val pnlPct = if (originalSol > 0) (pnlSol / originalSol) * 100 else 0.0
+        val isScratch = pnlPct >= -2.0 && pnlPct <= 2.0
+        
+        if (!isScratch) {
+            if (pnlSol > 0) {
+                paperWinCount++
+                // Update peak if new high
+                if (simulatedBalanceSol > simulatedPeakSol) {
+                    simulatedPeakSol = simulatedBalanceSol
+                }
+            } else {
+                paperLossCount++
+            }
+        } else {
+            // Update peak for scratches too if positive
             if (simulatedBalanceSol > simulatedPeakSol) {
                 simulatedPeakSol = simulatedBalanceSol
             }
-        } else {
-            paperLossCount++
         }
         
         // Clear exposure for this position
         simulatedExposure.remove(mint)
         
-        val emoji = if (pnlSol > 0) "✅" else "❌"
-        ErrorLogger.info("FluidLearning", "$emoji PAPER SELL: $mint | pnl=${pnlSol.fmt(4)} SOL | balance=${simulatedBalanceSol.fmt(4)} | winRate=${getWinRate().toInt()}%")
+        val emoji = when {
+            isScratch -> "➖"
+            pnlSol > 0 -> "✅"
+            else -> "❌"
+        }
+        val scratchTag = if (isScratch) " [SCRATCH]" else ""
+        ErrorLogger.info("FluidLearning", "$emoji PAPER SELL: $mint | pnl=${pnlSol.fmt(4)} SOL | balance=${simulatedBalanceSol.fmt(4)} | winRate=${getWinRate().toInt()}%$scratchTag")
         
         saveState()
     }
