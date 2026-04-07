@@ -4,6 +4,7 @@ import android.content.Context
 import android.content.SharedPreferences
 import org.json.JSONArray
 import org.json.JSONObject
+import java.util.Locale
 
 /**
  * CollectiveAnalytics — Dashboard data for Collective Learning
@@ -51,7 +52,7 @@ object CollectiveAnalytics {
         val patternType: String,
         val winRate: Double,
         val totalTrades: Int,
-        val avgPnl: Double,
+        val avgPnl: Double
     )
 
     data class AnalyticsSummary(
@@ -65,7 +66,7 @@ object CollectiveAnalytics {
         val estimatedInstances: Int,
         val bestPatterns: List<PatternStat>,
         val worstPatterns: List<PatternStat>,
-        val lastSyncTime: Long,
+        val lastSyncTime: Long
     )
 
     fun init(context: Context) {
@@ -77,10 +78,12 @@ object CollectiveAnalytics {
 
     private fun loadFromPrefsLocked() {
         val p = prefs ?: return
+
         patternsUploaded = p.getInt(KEY_PATTERNS_UPLOADED, 0)
         blacklistReported = p.getInt(KEY_BLACKLIST_REPORTED, 0)
         modeStatsSynced = p.getInt(KEY_MODE_STATS_SYNCED, 0)
         whaleTradesReported = p.getInt(KEY_WHALE_TRADES_REPORTED, 0)
+
         cachedCollectivePatterns = p.getInt(KEY_COLLECTIVE_PATTERNS, 0)
         cachedGlobalBlacklist = p.getInt(KEY_GLOBAL_BLACKLIST, 0)
         cachedActiveInstances = p.getInt(KEY_ACTIVE_INSTANCES, 0)
@@ -119,20 +122,21 @@ object CollectiveAnalytics {
 
     fun recordPatternUpload() {
         synchronized(lock) {
-            patternsUploaded++
+            patternsUploaded += 1
             saveToPrefsLocked()
         }
     }
 
     fun recordBlacklistReport() {
         synchronized(lock) {
-            blacklistReported++
+            blacklistReported += 1
             saveToPrefsLocked()
         }
     }
 
     fun recordModeSyncUpload(count: Int) {
         if (count <= 0) return
+
         synchronized(lock) {
             modeStatsSynced += count
             saveToPrefsLocked()
@@ -141,7 +145,7 @@ object CollectiveAnalytics {
 
     fun recordWhaleTradeReport() {
         synchronized(lock) {
-            whaleTradesReported++
+            whaleTradesReported += 1
             saveToPrefsLocked()
         }
     }
@@ -153,7 +157,7 @@ object CollectiveAnalytics {
     fun updateCollectiveStats(
         totalPatterns: Int,
         blacklistSize: Int,
-        estimatedInstances: Int = 0,
+        estimatedInstances: Int = 0
     ) {
         synchronized(lock) {
             cachedCollectivePatterns = totalPatterns.coerceAtLeast(0)
@@ -169,7 +173,11 @@ object CollectiveAnalytics {
             bestPatterns.clear()
             bestPatterns.addAll(
                 patterns
-                    .sortedWith(compareByDescending<PatternStat> { it.winRate }.thenByDescending { it.totalTrades })
+                    .sortedWith(
+                        compareByDescending<PatternStat> { sanitizeDouble(it.winRate) }
+                            .thenByDescending { it.totalTrades }
+                            .thenByDescending { sanitizeDouble(it.avgPnl) }
+                    )
                     .take(5)
             )
             saveToPrefsLocked()
@@ -181,7 +189,11 @@ object CollectiveAnalytics {
             worstPatterns.clear()
             worstPatterns.addAll(
                 patterns
-                    .sortedWith(compareBy<PatternStat> { it.winRate }.thenByDescending { it.totalTrades })
+                    .sortedWith(
+                        compareBy<PatternStat> { sanitizeDouble(it.winRate) }
+                            .thenByDescending { it.totalTrades }
+                            .thenBy { sanitizeDouble(it.avgPnl) }
+                    )
                     .take(5)
             )
             saveToPrefsLocked()
@@ -203,53 +215,68 @@ object CollectiveAnalytics {
                 collectivePatterns = cachedCollectivePatterns,
                 globalBlacklist = cachedGlobalBlacklist,
                 estimatedInstances = cachedActiveInstances,
-                bestPatterns = bestPatterns.toList(),
-                worstPatterns = worstPatterns.toList(),
-                lastSyncTime = lastSyncTime,
+                bestPatterns = ArrayList(bestPatterns),
+                worstPatterns = ArrayList(worstPatterns),
+                lastSyncTime = lastSyncTime
             )
         }
     }
 
     fun getFormattedSummary(): String {
         val summary = getSummary()
-        return buildString {
-            appendLine("═══ COLLECTIVE HIVE MIND ═══")
-            appendLine()
-            appendLine("YOUR CONTRIBUTIONS:")
-            appendLine("  Patterns uploaded: ${summary.patternsUploaded}")
-            appendLine("  Blacklist reports: ${summary.blacklistReported}")
-            appendLine("  Whale trades: ${summary.whaleTradesReported}")
-            appendLine("  Mode syncs: ${summary.modeStatsSynced}")
-            appendLine("  Total contributions: ${summary.yourContributions}")
-            appendLine()
-            appendLine("COLLECTIVE INTELLIGENCE:")
-            appendLine("  Total patterns: ${summary.collectivePatterns}")
-            appendLine("  Global blacklist: ${summary.globalBlacklist} tokens")
-            if (summary.estimatedInstances > 0) {
-                appendLine("  Active instances: ~${summary.estimatedInstances}")
-            }
-            if (summary.lastSyncTime > 0) {
-                appendLine("  Last sync: ${summary.lastSyncTime}")
-            }
-            if (summary.bestPatterns.isNotEmpty()) {
-                appendLine()
-                appendLine("TOP WINNING PATTERNS:")
-                summary.bestPatterns.forEach { p ->
-                    appendLine(
-                        "  ${p.patternType}: ${p.winRate.toInt()}% WR | ${p.totalTrades} trades | avg ${"%.2f".format(p.avgPnl)}%"
-                    )
-                }
-            }
-            if (summary.worstPatterns.isNotEmpty()) {
-                appendLine()
-                appendLine("AVOID THESE PATTERNS:")
-                summary.worstPatterns.forEach { p ->
-                    appendLine(
-                        "  ${p.patternType}: ${p.winRate.toInt()}% WR | ${p.totalTrades} trades | avg ${"%.2f".format(p.avgPnl)}%"
-                    )
-                }
+        val sb = StringBuilder()
+
+        sb.append("═══ COLLECTIVE HIVE MIND ═══\n\n")
+        sb.append("YOUR CONTRIBUTIONS:\n")
+        sb.append("  Patterns uploaded: ").append(summary.patternsUploaded).append('\n')
+        sb.append("  Blacklist reports: ").append(summary.blacklistReported).append('\n')
+        sb.append("  Whale trades: ").append(summary.whaleTradesReported).append('\n')
+        sb.append("  Mode syncs: ").append(summary.modeStatsSynced).append('\n')
+        sb.append("  Total contributions: ").append(summary.yourContributions).append("\n\n")
+
+        sb.append("COLLECTIVE INTELLIGENCE:\n")
+        sb.append("  Total patterns: ").append(summary.collectivePatterns).append('\n')
+        sb.append("  Global blacklist: ").append(summary.globalBlacklist).append(" tokens\n")
+
+        if (summary.estimatedInstances > 0) {
+            sb.append("  Active instances: ~").append(summary.estimatedInstances).append('\n')
+        }
+
+        if (summary.lastSyncTime > 0L) {
+            sb.append("  Last sync: ").append(summary.lastSyncTime).append('\n')
+        }
+
+        if (summary.bestPatterns.isNotEmpty()) {
+            sb.append("\nTOP WINNING PATTERNS:\n")
+            for (p in summary.bestPatterns) {
+                sb.append("  ")
+                    .append(p.patternType)
+                    .append(": ")
+                    .append(p.winRate.toInt())
+                    .append("% WR | ")
+                    .append(p.totalTrades)
+                    .append(" trades | avg ")
+                    .append(formatDouble(p.avgPnl))
+                    .append("%\n")
             }
         }
+
+        if (summary.worstPatterns.isNotEmpty()) {
+            sb.append("\nAVOID THESE PATTERNS:\n")
+            for (p in summary.worstPatterns) {
+                sb.append("  ")
+                    .append(p.patternType)
+                    .append(": ")
+                    .append(p.winRate.toInt())
+                    .append("% WR | ")
+                    .append(p.totalTrades)
+                    .append(" trades | avg ")
+                    .append(formatDouble(p.avgPnl))
+                    .append("%\n")
+            }
+        }
+
+        return sb.toString()
     }
 
     fun clearForTesting() {
@@ -258,12 +285,15 @@ object CollectiveAnalytics {
             blacklistReported = 0
             modeStatsSynced = 0
             whaleTradesReported = 0
+
             cachedCollectivePatterns = 0
             cachedGlobalBlacklist = 0
             cachedActiveInstances = 0
             lastSyncTime = 0L
+
             bestPatterns.clear()
             worstPatterns.clear()
+
             saveToPrefsLocked()
         }
     }
@@ -274,16 +304,18 @@ object CollectiveAnalytics {
 
     private fun patternListToJson(patterns: List<PatternStat>): String {
         val arr = JSONArray()
-        patterns.forEach { p ->
+
+        for (p in patterns) {
             arr.put(
                 JSONObject().apply {
                     put("patternType", p.patternType)
-                    put("winRate", p.winRate)
-                    put("totalTrades", p.totalTrades)
-                    put("avgPnl", p.avgPnl)
+                    put("winRate", sanitizeDouble(p.winRate))
+                    put("totalTrades", p.totalTrades.coerceAtLeast(0))
+                    put("avgPnl", sanitizeDouble(p.avgPnl))
                 }
             )
         }
+
         return arr.toString()
     }
 
@@ -292,22 +324,33 @@ object CollectiveAnalytics {
 
         return try {
             val arr = JSONArray(json)
-            buildList {
-                for (i in 0 until arr.length()) {
-                    val obj = arr.optJSONObject(i) ?: continue
-                    add(
-                        PatternStat(
-                            patternType = obj.optString("patternType", "UNKNOWN"),
-                            winRate = obj.optDouble("winRate", 0.0),
-                            totalTrades = obj.optInt("totalTrades", 0),
-                            avgPnl = obj.optDouble("avgPnl", 0.0),
-                        )
+            val result = ArrayList<PatternStat>(arr.length())
+
+            for (i in 0 until arr.length()) {
+                val obj = arr.optJSONObject(i) ?: continue
+
+                result.add(
+                    PatternStat(
+                        patternType = obj.optString("patternType", "UNKNOWN"),
+                        winRate = sanitizeDouble(obj.optDouble("winRate", 0.0)),
+                        totalTrades = obj.optInt("totalTrades", 0).coerceAtLeast(0),
+                        avgPnl = sanitizeDouble(obj.optDouble("avgPnl", 0.0))
                     )
-                }
+                )
             }
+
+            result
         } catch (e: Exception) {
             ErrorLogger.warn(TAG, "Failed to parse pattern list: ${e.message}")
             emptyList()
         }
+    }
+
+    private fun sanitizeDouble(value: Double, default: Double = 0.0): Double {
+        return if (value.isNaN() || value.isInfinite()) default else value
+    }
+
+    private fun formatDouble(value: Double): String {
+        return String.format(Locale.US, "%.2f", sanitizeDouble(value))
     }
 }
