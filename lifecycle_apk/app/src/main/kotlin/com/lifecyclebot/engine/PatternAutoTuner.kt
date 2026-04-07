@@ -3,24 +3,16 @@ package com.lifecyclebot.engine
 import android.content.Context
 import android.content.SharedPreferences
 import org.json.JSONObject
+import java.util.Locale
+import kotlin.math.abs
 
 /**
- * PatternAutoTuner — Automatically adjusts pattern confidence weights based on backtest results
- * ════════════════════════════════════════════════════════════════════════════════════════════════
- * 
+ * PatternAutoTuner — Automatically adjusts pattern confidence weights based on backtest results.
+ *
  * This system creates a feedback loop between real trading performance and entry decisions:
- * 
  * 1. PatternBacktester analyzes historical trades
  * 2. PatternAutoTuner stores the recommended adjustments
  * 3. LifecycleStrategy applies these adjustments to pattern entry boosts
- * 
- * The result: The bot learns which patterns work best for YOUR trading style and market conditions.
- * 
- * Adjustments are stored as multipliers:
- * - 1.0 = no change (default)
- * - 1.3 = boost pattern score by 30%
- * - 0.7 = reduce pattern score by 30%
- * - 0.0 = disable pattern entirely
  */
 object PatternAutoTuner {
 
@@ -32,308 +24,313 @@ object PatternAutoTuner {
     private const val KEY_PHASE_ADJUSTMENTS = "phase_adjustments"
 
     private var prefs: SharedPreferences? = null
-    
-    // In-memory cache for fast access during trading
+
     private val patternMultipliers = mutableMapOf<String, Double>()
     private val emaMultipliers = mutableMapOf<String, Double>()
     private val phaseMultipliers = mutableMapOf<String, Double>()
-    private var lastUpdateTs: Long = 0
+
+    private var lastUpdateTs: Long = 0L
     private var tradesAnalyzed: Int = 0
 
-    /**
-     * Initialize the auto-tuner with context.
-     * Call this once at app/service startup.
-     */
     fun init(context: Context) {
-        prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+        prefs = context.applicationContext.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
         loadFromPrefs()
-        ErrorLogger.info("AutoTuner", "Initialized with ${patternMultipliers.size} pattern adjustments")
+        ErrorLogger.info(
+            "AutoTuner",
+            "Initialized with ${patternMultipliers.size} pattern adjustments, ${emaMultipliers.size} EMA adjustments, ${phaseMultipliers.size} phase adjustments"
+        )
     }
 
-    /**
-     * Load saved adjustments from SharedPreferences.
-     */
     private fun loadFromPrefs() {
         val p = prefs ?: return
-        
-        lastUpdateTs = p.getLong(KEY_LAST_UPDATE, 0)
-        tradesAnalyzed = p.getInt(KEY_TRADES_ANALYZED, 0)
-        
-        // Load pattern multipliers
+
+        lastUpdateTs = p.getLong(KEY_LAST_UPDATE, 0L)
+        tradesAnalyzed = p.getInt(KEY_TRADES_ANALYZED, 0).coerceAtLeast(0)
+
+        patternMultipliers.clear()
+        emaMultipliers.clear()
+        phaseMultipliers.clear()
+
         try {
-            val json = p.getString(KEY_ADJUSTMENTS, "{}")
+            val json = p.getString(KEY_ADJUSTMENTS, "{}") ?: "{}"
             val obj = JSONObject(json)
-            obj.keys().forEach { key ->
-                patternMultipliers[key] = obj.getDouble(key)
+            val keys = obj.keys()
+            while (keys.hasNext()) {
+                val key = normalizeKey(keys.next())
+                patternMultipliers[key] = sanitizeMultiplier(obj.optDouble(key, obj.optDouble(key, 1.0)))
             }
         } catch (e: Exception) {
             ErrorLogger.error("AutoTuner", "Failed to load pattern adjustments: ${e.message}")
         }
-        
-        // Load EMA multipliers
+
         try {
-            val json = p.getString(KEY_EMA_ADJUSTMENTS, "{}")
+            val json = p.getString(KEY_EMA_ADJUSTMENTS, "{}") ?: "{}"
             val obj = JSONObject(json)
-            obj.keys().forEach { key ->
-                emaMultipliers[key] = obj.getDouble(key)
+            val keys = obj.keys()
+            while (keys.hasNext()) {
+                val rawKey = keys.next()
+                emaMultipliers[normalizeKey(rawKey)] =
+                    sanitizeMultiplier(obj.optDouble(rawKey, 1.0))
             }
         } catch (e: Exception) {
             ErrorLogger.error("AutoTuner", "Failed to load EMA adjustments: ${e.message}")
         }
-        
-        // Load phase multipliers
+
         try {
-            val json = p.getString(KEY_PHASE_ADJUSTMENTS, "{}")
+            val json = p.getString(KEY_PHASE_ADJUSTMENTS, "{}") ?: "{}"
             val obj = JSONObject(json)
-            obj.keys().forEach { key ->
-                phaseMultipliers[key] = obj.getDouble(key)
+            val keys = obj.keys()
+            while (keys.hasNext()) {
+                val rawKey = keys.next()
+                phaseMultipliers[normalizeKey(rawKey)] =
+                    sanitizeMultiplier(obj.optDouble(rawKey, 1.0))
             }
         } catch (e: Exception) {
             ErrorLogger.error("AutoTuner", "Failed to load phase adjustments: ${e.message}")
         }
     }
 
-    /**
-     * Save adjustments to SharedPreferences.
-     */
     private fun saveToPrefs() {
         val p = prefs ?: return
-        
-        p.edit().apply {
-            putLong(KEY_LAST_UPDATE, lastUpdateTs)
-            putInt(KEY_TRADES_ANALYZED, tradesAnalyzed)
-            
-            // Save pattern multipliers
-            val patternJson = JSONObject()
-            patternMultipliers.forEach { (k, v) -> patternJson.put(k, v) }
-            putString(KEY_ADJUSTMENTS, patternJson.toString())
-            
-            // Save EMA multipliers
-            val emaJson = JSONObject()
-            emaMultipliers.forEach { (k, v) -> emaJson.put(k, v) }
-            putString(KEY_EMA_ADJUSTMENTS, emaJson.toString())
-            
-            // Save phase multipliers
-            val phaseJson = JSONObject()
-            phaseMultipliers.forEach { (k, v) -> phaseJson.put(k, v) }
-            putString(KEY_PHASE_ADJUSTMENTS, phaseJson.toString())
-            
-            apply()
+
+        val patternJson = JSONObject()
+        for ((k, v) in patternMultipliers) {
+            patternJson.put(k, sanitizeMultiplier(v))
         }
+
+        val emaJson = JSONObject()
+        for ((k, v) in emaMultipliers) {
+            emaJson.put(k, sanitizeMultiplier(v))
+        }
+
+        val phaseJson = JSONObject()
+        for ((k, v) in phaseMultipliers) {
+            phaseJson.put(k, sanitizeMultiplier(v))
+        }
+
+        p.edit()
+            .putLong(KEY_LAST_UPDATE, lastUpdateTs)
+            .putInt(KEY_TRADES_ANALYZED, tradesAnalyzed)
+            .putString(KEY_ADJUSTMENTS, patternJson.toString())
+            .putString(KEY_EMA_ADJUSTMENTS, emaJson.toString())
+            .putString(KEY_PHASE_ADJUSTMENTS, phaseJson.toString())
+            .apply()
     }
 
-    /**
-     * Update adjustments from a backtest report.
-     * Called automatically by BotService after running backtest.
-     */
     fun updateFromBacktest(report: PatternBacktester.BacktestReport) {
         if (report.totalTrades < 10) {
-            ErrorLogger.info("AutoTuner", "Skipping update - need at least 10 trades (have ${report.totalTrades})")
+            ErrorLogger.info(
+                "AutoTuner",
+                "Skipping update - need at least 10 trades (have ${report.totalTrades})"
+            )
             return
         }
 
         val changes = mutableListOf<String>()
 
-        // Update pattern multipliers
-        report.patterns.forEach { stat ->
+        for (stat in report.patterns) {
+            val key = normalizeKey(stat.patternName)
             val newMult = calculateMultiplier(stat)
-            val oldMult = patternMultipliers[stat.patternName] ?: 1.0
-            
-            // Only apply if change is significant (>10% difference)
-            if (kotlin.math.abs(newMult - oldMult) > 0.1) {
-                patternMultipliers[stat.patternName] = newMult
+            val oldMult = patternMultipliers[key] ?: 1.0
+
+            if (abs(newMult - oldMult) > 0.1) {
+                patternMultipliers[key] = newMult
                 val direction = if (newMult > oldMult) "↑" else "↓"
-                changes.add("${stat.patternName}: ${oldMult.fmt()}→${newMult.fmt()} $direction")
+                changes.add("PATTERN $key: ${oldMult.fmt()}→${newMult.fmt()} $direction")
             }
         }
 
-        // Update EMA fan multipliers
-        report.emaFanStats.forEach { stat ->
+        for (stat in report.emaFanStats) {
+            val key = normalizeKey(stat.patternName)
             val newMult = calculateMultiplier(stat)
-            val oldMult = emaMultipliers[stat.patternName] ?: 1.0
-            
-            if (kotlin.math.abs(newMult - oldMult) > 0.1) {
-                emaMultipliers[stat.patternName] = newMult
+            val oldMult = emaMultipliers[key] ?: 1.0
+
+            if (abs(newMult - oldMult) > 0.1) {
+                emaMultipliers[key] = newMult
                 val direction = if (newMult > oldMult) "↑" else "↓"
-                changes.add("EMA_${stat.patternName}: ${oldMult.fmt()}→${newMult.fmt()} $direction")
+                changes.add("EMA $key: ${oldMult.fmt()}→${newMult.fmt()} $direction")
             }
         }
 
-        // Update phase multipliers
-        report.phaseStats.forEach { stat ->
+        for (stat in report.phaseStats) {
+            val key = normalizeKey(stat.patternName)
             val newMult = calculateMultiplier(stat)
-            val oldMult = phaseMultipliers[stat.patternName] ?: 1.0
-            
-            if (kotlin.math.abs(newMult - oldMult) > 0.1) {
-                phaseMultipliers[stat.patternName] = newMult
+            val oldMult = phaseMultipliers[key] ?: 1.0
+
+            if (abs(newMult - oldMult) > 0.1) {
+                phaseMultipliers[key] = newMult
+                val direction = if (newMult > oldMult) "↑" else "↓"
+                changes.add("PHASE $key: ${oldMult.fmt()}→${newMult.fmt()} $direction")
             }
         }
 
         lastUpdateTs = System.currentTimeMillis()
-        tradesAnalyzed = report.totalTrades
+        tradesAnalyzed = report.totalTrades.coerceAtLeast(0)
         saveToPrefs()
 
         if (changes.isNotEmpty()) {
             ErrorLogger.info("AutoTuner", "═══ AUTO-TUNE UPDATE ═══")
-            changes.forEach { ErrorLogger.info("AutoTuner", it) }
+            for (change in changes) {
+                ErrorLogger.info("AutoTuner", change)
+            }
             ErrorLogger.info("AutoTuner", "Based on ${report.totalTrades} trades")
         } else {
             ErrorLogger.info("AutoTuner", "No significant changes from backtest")
         }
     }
 
-    /**
-     * Calculate the multiplier for a pattern based on its stats.
-     * Uses a smooth curve to avoid dramatic swings.
-     */
     private fun calculateMultiplier(stat: PatternBacktester.PatternStats): Double {
-        // Need minimum trades for reliability
-        if (stat.totalTrades < 3) return 1.0
-        
-        // Factors that contribute to the multiplier:
-        // 1. Win rate (most important)
-        // 2. Profit factor
-        // 3. Expectancy
-        
+        val totalTrades = stat.totalTrades.coerceAtLeast(0)
+        if (totalTrades < 3) return 1.0
+
+        val safeWinRate = sanitizeDouble(stat.winRate, 50.0)
+        val safeProfitFactor = sanitizeDouble(stat.profitFactor, 1.0)
+
         val winRateFactor = when {
-            stat.winRate >= 70 -> 1.30    // Excellent
-            stat.winRate >= 60 -> 1.15    // Great
-            stat.winRate >= 50 -> 1.0     // Neutral
-            stat.winRate >= 40 -> 0.85    // Below average
-            stat.winRate >= 30 -> 0.65    // Poor
-            else -> 0.40                   // Disable
+            safeWinRate >= 70.0 -> 1.30
+            safeWinRate >= 60.0 -> 1.15
+            safeWinRate >= 50.0 -> 1.00
+            safeWinRate >= 40.0 -> 0.85
+            safeWinRate >= 30.0 -> 0.65
+            else -> 0.40
         }
-        
+
         val profitFactorFactor = when {
-            stat.profitFactor >= 2.5 -> 1.20
-            stat.profitFactor >= 1.8 -> 1.10
-            stat.profitFactor >= 1.2 -> 1.0
-            stat.profitFactor >= 0.8 -> 0.90
+            safeProfitFactor >= 2.5 -> 1.20
+            safeProfitFactor >= 1.8 -> 1.10
+            safeProfitFactor >= 1.2 -> 1.00
+            safeProfitFactor >= 0.8 -> 0.90
             else -> 0.75
         }
-        
-        // Combine factors (weighted average)
+
         val rawMultiplier = (winRateFactor * 0.6) + (profitFactorFactor * 0.4)
-        
-        // Apply confidence scaling based on sample size
+
         val confidenceScale = when {
-            stat.totalTrades >= 30 -> 1.0      // Full confidence
-            stat.totalTrades >= 15 -> 0.7      // Medium confidence
-            stat.totalTrades >= 5 -> 0.4       // Low confidence
-            else -> 0.2                         // Very low confidence
+            totalTrades >= 30 -> 1.0
+            totalTrades >= 15 -> 0.7
+            totalTrades >= 5 -> 0.4
+            else -> 0.2
         }
-        
-        // Blend toward 1.0 based on confidence
-        // Low confidence = stay close to 1.0
+
         val blendedMultiplier = 1.0 + (rawMultiplier - 1.0) * confidenceScale
-        
-        // Clamp to reasonable range
-        return blendedMultiplier.coerceIn(0.3, 1.5)
+        return sanitizeMultiplier(blendedMultiplier)
     }
 
-    // ═══════════════════════════════════════════════════════════════════
-    // PUBLIC API - Used by LifecycleStrategy
-    // ═══════════════════════════════════════════════════════════════════
-
-    /**
-     * Get the multiplier for a chart pattern (DOUBLE_BOTTOM, BULL_FLAG, etc.)
-     */
     fun getPatternMultiplier(patternName: String): Double {
-        return patternMultipliers[patternName] ?: 1.0
+        return patternMultipliers[normalizeKey(patternName)] ?: 1.0
     }
 
-    /**
-     * Get the multiplier for an EMA fan state (BULL_FAN, BEAR_FAN, etc.)
-     */
     fun getEmaMultiplier(emaState: String): Double {
-        return emaMultipliers[emaState] ?: 1.0
+        return emaMultipliers[normalizeKey(emaState)] ?: 1.0
     }
 
-    /**
-     * Get the multiplier for an entry phase (pumping, cooling, reclaim, etc.)
-     */
     fun getPhaseMultiplier(phase: String): Double {
-        return phaseMultipliers[phase] ?: 1.0
+        return phaseMultipliers[normalizeKey(phase)] ?: 1.0
     }
 
-    /**
-     * Apply all relevant multipliers to an entry score.
-     * This is the main entry point for LifecycleStrategy.
-     */
     fun applyAutoTune(
         baseScore: Double,
         chartPattern: String? = null,
         emaState: String? = null,
-        entryPhase: String? = null,
+        entryPhase: String? = null
     ): Double {
         var multiplier = 1.0
-        
-        chartPattern?.let {
-            multiplier *= getPatternMultiplier(it)
+
+        if (!chartPattern.isNullOrBlank()) {
+            multiplier *= getPatternMultiplier(chartPattern)
         }
-        
-        emaState?.let {
-            multiplier *= getEmaMultiplier(it)
+
+        if (!emaState.isNullOrBlank()) {
+            multiplier *= getEmaMultiplier(emaState)
         }
-        
-        entryPhase?.let {
-            multiplier *= getPhaseMultiplier(it)
+
+        if (!entryPhase.isNullOrBlank()) {
+            multiplier *= getPhaseMultiplier(entryPhase)
         }
-        
-        // Apply diminishing returns for stacked multipliers
-        // (prevents runaway score inflation)
+
         val adjustedMultiplier = if (multiplier > 1.0) {
-            1.0 + (multiplier - 1.0) * 0.7  // 70% of boost
+            1.0 + (multiplier - 1.0) * 0.7
         } else {
-            multiplier  // Full penalty
+            multiplier
         }
-        
-        return (baseScore * adjustedMultiplier).coerceIn(0.0, 100.0)
+
+        return (sanitizeDouble(baseScore) * adjustedMultiplier).coerceIn(0.0, 100.0)
     }
 
-    /**
-     * Get current status for logging.
-     */
     fun getStatus(): String {
-        val boosts = patternMultipliers.filter { it.value > 1.1 }
-        val nerfs = patternMultipliers.filter { it.value < 0.9 }
-        
+        val boosts = patternMultipliers.filterValues { it > 1.1 }
+        val nerfs = patternMultipliers.filterValues { it < 0.9 }
+
         return buildString {
             append("AutoTuner: ")
-            append("${patternMultipliers.size} patterns, ")
-            append("${emaMultipliers.size} EMAs | ")
-            
+            append(patternMultipliers.size)
+            append(" patterns, ")
+            append(emaMultipliers.size)
+            append(" EMAs, ")
+            append(phaseMultipliers.size)
+            append(" phases | ")
+
             if (boosts.isNotEmpty()) {
-                append("BOOST: ${boosts.keys.joinToString(",")} | ")
+                append("BOOST: ")
+                append(boosts.keys.joinToString(","))
+                append(" | ")
             }
+
             if (nerfs.isNotEmpty()) {
-                append("NERF: ${nerfs.keys.joinToString(",")}")
+                append("NERF: ")
+                append(nerfs.keys.joinToString(","))
             }
+
             if (boosts.isEmpty() && nerfs.isEmpty()) {
                 append("No adjustments (need more trades)")
             }
         }
     }
 
-    /**
-     * Get detailed adjustments for display.
-     */
     fun getDetailedAdjustments(): Map<String, Double> {
-        return patternMultipliers.toMap()
+        val result = linkedMapOf<String, Double>()
+
+        for ((k, v) in patternMultipliers) {
+            result["pattern:$k"] = v
+        }
+        for ((k, v) in emaMultipliers) {
+            result["ema:$k"] = v
+        }
+        for ((k, v) in phaseMultipliers) {
+            result["phase:$k"] = v
+        }
+
+        return result
     }
 
-    /**
-     * Reset all adjustments to default (1.0).
-     */
+    fun getLastUpdateTs(): Long = lastUpdateTs
+
+    fun getTradesAnalyzed(): Int = tradesAnalyzed
+
     fun reset() {
         patternMultipliers.clear()
         emaMultipliers.clear()
         phaseMultipliers.clear()
-        lastUpdateTs = 0
+        lastUpdateTs = 0L
         tradesAnalyzed = 0
         saveToPrefs()
         ErrorLogger.info("AutoTuner", "All adjustments reset to default")
     }
 
-    private fun Double.fmt() = String.format("%.2f", this)
+    private fun normalizeKey(value: String): String {
+        return value.trim().uppercase(Locale.US)
+    }
+
+    private fun sanitizeMultiplier(value: Double): Double {
+        val safe = sanitizeDouble(value, 1.0)
+        return safe.coerceIn(0.3, 1.5)
+    }
+
+    private fun sanitizeDouble(value: Double, default: Double = 0.0): Double {
+        return if (value.isNaN() || value.isInfinite()) default else value
+    }
+
+    private fun Double.fmt(): String {
+        return String.format(Locale.US, "%.2f", sanitizeDouble(this))
+    }
 }
