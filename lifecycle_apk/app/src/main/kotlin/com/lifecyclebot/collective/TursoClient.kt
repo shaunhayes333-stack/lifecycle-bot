@@ -1,6 +1,7 @@
 package com.lifecyclebot.collective
 
 import android.util.Log
+import com.lifecyclebot.engine.ErrorLogger
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import org.json.JSONArray
