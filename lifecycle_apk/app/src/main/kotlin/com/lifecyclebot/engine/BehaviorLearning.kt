@@ -23,7 +23,7 @@ object BehaviorLearning {
 
     private const val TAG = "BehaviorLearn"
 
-    private const val MAX_PATTERNS_PER_LAYER = 500
+    private const val MAX_PATTERNS_PER_LAYER = 5000
     private const val MIN_OCCURRENCES_RELIABLE = 5
     private const val MIN_CONFIDENCE_TO_USE = 0.60
 
