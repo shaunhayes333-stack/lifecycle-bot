@@ -199,8 +199,8 @@ object TradeHistoryStore {
         
         // Calculate lifetime stats for FluidLearningAI
         val allSells = trades.filter { it.side == "SELL" }
-        val totalWins = allSells.count { it.pnlPct > 0 }
-        val totalLosses = allSells.count { it.pnlPct < 0 }
+        val totalWins = allSells.count { it.pnlPct > 2 }
+        val totalLosses = allSells.count { it.pnlPct < 2 }
         val totalCompleted = totalWins + totalLosses
         val lifetimeWinRate = if (totalCompleted > 0) {
             totalWins.toDouble() / totalCompleted * 100
