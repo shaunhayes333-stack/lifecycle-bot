@@ -3,6 +3,7 @@ package com.lifecyclebot.engine
 import com.lifecyclebot.data.BotConfig
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.withContext
 import okhttp3.OkHttpClient
 import okhttp3.Request
@@ -27,30 +28,43 @@ import kotlin.math.min
  * - stronger null/shape guards
  * - bounded memory growth
  * - more honest confidence calculation
+ * - thread-safe history tracking
  */
 object DataPipeline {
 
     private const val TAG = "DataPipeline"
-
-    private val http = OkHttpClient.Builder()
-        .connectTimeout(5, TimeUnit.SECONDS)
-        .readTimeout(8, TimeUnit.SECONDS)
-        .callTimeout(10, TimeUnit.SECONDS)
-        .build()
-
-    private val cache = ConcurrentHashMap<String, CachedData>()
-    private data class CachedData(val data: Any, val timestamp: Long)
 
     private const val CACHE_TTL_MS = 30_000L
     private const val HOLDER_HISTORY_WINDOW_MS = 10 * 60 * 1000L
     private const val MAX_HOLDER_HISTORY_POINTS = 32
     private const val MAX_TRACKED_WALLETS = 10_000
     private const val MAX_TOKENS_PER_WALLET = 16
+    private const val CACHE_CLEANUP_MULTIPLIER = 10L
 
+    private val http = OkHttpClient.Builder()
+        .connectTimeout(5, TimeUnit.SECONDS)
+        .readTimeout(8, TimeUnit.SECONDS)
+        .callTimeout(10, TimeUnit.SECONDS)
+        .retryOnConnectionFailure(true)
+        .build()
+
+    private data class CachedData(
+        val data: JSONObject,
+        val timestamp: Long,
+    )
+
+    private data class WalletTokenState(
+        val tokens: LinkedHashSet<String> = LinkedHashSet(),
+    )
+
+    private val cache = ConcurrentHashMap<String, CachedData>()
     private val holderHistory = ConcurrentHashMap<String, MutableList<HolderSnapshot>>()
-    data class HolderSnapshot(val count: Int, val timestamp: Long)
+    private val walletTokenMap = ConcurrentHashMap<String, WalletTokenState>()
 
-    private val walletTokenMap = ConcurrentHashMap<String, MutableSet<String>>()
+    data class HolderSnapshot(
+        val count: Int,
+        val timestamp: Long,
+    )
 
     data class AlphaSignals(
         val buyPressure: Double,
@@ -84,125 +98,126 @@ object DataPipeline {
         onLog: (String) -> Unit = {},
     ): AlphaSignals? = withContext(Dispatchers.IO) {
         try {
-            val dexDeferred = async { fetchDexscreener(mint) }
-            val rugDeferred = async { fetchRugcheck(mint) }
-            val holdersDeferred = async { fetchSolscanHolders(mint) }
+            coroutineScope {
+                val dexDeferred = async { fetchDexscreener(mint) }
+                val rugDeferred = async { fetchRugcheck(mint) }
+                val holdersDeferred = async { fetchSolscanHolders(mint) }
 
-            val dexData = dexDeferred.await()
-            val rugData = rugDeferred.await()
-            val holdersData = holdersDeferred.await()
+                val dexData = dexDeferred.await()
+                val rugData = rugDeferred.await()
+                val holdersData = holdersDeferred.await()
 
-            if (dexData == null) {
-                onLog("⚠️ No Dexscreener data for ${mint.take(8)}")
-                return@withContext null
+                if (dexData == null) {
+                    onLog("⚠️ No Dexscreener data for ${mint.take(8)}")
+                    return@coroutineScope null
+                }
+
+                val pair = extractBestPair(dexData, mint)
+                if (pair == null) {
+                    onLog("⚠️ No usable pair in Dexscreener for ${mint.take(8)}")
+                    return@coroutineScope null
+                }
+
+                val liquidityUsd = pair.optJSONObject("liquidity")?.optDouble("usd", 0.0) ?: 0.0
+                val volumeH1 = pair.optJSONObject("volume")?.optDouble("h1", 0.0) ?: 0.0
+
+                val marketCap = safeDouble(pair.opt("marketCap"))
+                val fdv = safeDouble(pair.opt("fdv"))
+                val mcapUsd = when {
+                    marketCap > 0.0 -> marketCap
+                    fdv > 0.0 -> fdv
+                    else -> 0.0
+                }
+
+                val buysH1 = pair.optJSONObject("txns")?.optJSONObject("h1")?.optInt("buys", 0) ?: 0
+                val sellsH1 = pair.optJSONObject("txns")?.optJSONObject("h1")?.optInt("sells", 0) ?: 0
+                val priceChange5m = pair.optJSONObject("priceChange")?.optDouble("m5", 0.0) ?: 0.0
+                val priceChange1h = pair.optJSONObject("priceChange")?.optDouble("h1", 0.0) ?: 0.0
+
+                val now = System.currentTimeMillis()
+                val pairCreatedAt = parseLong(pair.opt("pairCreatedAt"))
+                val pairAgeMinutes = if (pairCreatedAt in 1..now) {
+                    ((now - pairCreatedAt) / 60_000L).toInt().coerceIn(0, 365 * 24 * 60)
+                } else {
+                    0
+                }
+
+                val totalTxns = buysH1 + sellsH1
+                val buyPressure = if (totalTxns > 0) {
+                    buysH1.toDouble() / totalTxns.toDouble()
+                } else {
+                    0.5
+                }
+
+                val txVelocity = totalTxns / 60.0
+
+                val rugScore = parseRugScore(rugData)
+                val mintAuthorityDisabled = parseMintAuthorityDisabled(rugData)
+                val freezeAuthorityDisabled = parseFreezeAuthorityDisabled(rugData)
+
+                val holderCount = parseHolderCount(holdersData)
+                val topHolders = parseHolderArray(holdersData)
+                val topHolderPct = calculateTopHolderPct(topHolders)
+                val whaleRatio = calculateWhaleRatio(topHolders)
+
+                val holderAcceleration = calculateHolderAcceleration(mint, holderCount)
+                val repeatWalletScore = calculateRepeatWalletScore(mint, topHolders)
+                val buyClusteringScore = calculateBuyClusteringScore(buysH1, sellsH1, txVelocity)
+                val volumePriceDivergence = calculateVolumePriceDivergence(
+                    volumeH1 = volumeH1,
+                    liquidityUsd = liquidityUsd,
+                    priceChange5m = priceChange5m,
+                    priceChange1h = priceChange1h,
+                )
+
+                val dataCoverage = calculateDataCoverage(
+                    dexOk = true,
+                    rugOk = rugData != null,
+                    holdersOk = holdersData != null,
+                    totalTxns = totalTxns,
+                    holderCount = holderCount,
+                    liquidityUsd = liquidityUsd,
+                    mcapUsd = mcapUsd,
+                )
+
+                val (grade, confidence) = calculateGrade(
+                    buyPressure = buyPressure,
+                    holderAcceleration = holderAcceleration,
+                    whaleRatio = whaleRatio,
+                    repeatWalletScore = repeatWalletScore,
+                    volumePriceDivergence = volumePriceDivergence,
+                    rugScore = rugScore,
+                    topHolderPct = topHolderPct,
+                    txVelocity = txVelocity,
+                    dataCoverage = dataCoverage,
+                )
+
+                AlphaSignals(
+                    buyPressure = buyPressure,
+                    volumeH1 = volumeH1,
+                    liquidityUsd = liquidityUsd,
+                    mcapUsd = mcapUsd,
+                    pairAgeMinutes = pairAgeMinutes,
+
+                    holderAcceleration = holderAcceleration,
+                    whaleRatio = whaleRatio,
+                    repeatWalletScore = repeatWalletScore,
+                    buyClusteringScore = buyClusteringScore,
+                    volumePriceDivergence = volumePriceDivergence,
+
+                    rugScore = rugScore,
+                    topHolderPct = topHolderPct,
+                    mintAuthorityDisabled = mintAuthorityDisabled,
+                    freezeAuthorityDisabled = freezeAuthorityDisabled,
+
+                    txVelocity = txVelocity,
+                    priceChange5m = priceChange5m,
+                    priceChange1h = priceChange1h,
+
+                    overallGrade = grade,
+                    confidence = confidence,
+                )
             }
-
-            val pair = extractBestPair(dexData, mint)
-            if (pair == null) {
-                onLog("⚠️ No usable pair in Dexscreener for ${mint.take(8)}")
-                return@withContext null
-            }
-
-            val liquidityUsd = pair.optJSONObject("liquidity")?.optDouble("usd", 0.0) ?: 0.0
-            val volumeH1 = pair.optJSONObject("volume")?.optDouble("h1", 0.0) ?: 0.0
-
-            // Prefer real market cap before FDV when available
-            val marketCap = pair.optDouble("marketCap", 0.0)
-            val fdv = pair.optDouble("fdv", 0.0)
-            val mcapUsd = when {
-                marketCap > 0.0 -> marketCap
-                fdv > 0.0 -> fdv
-                else -> 0.0
-            }
-
-            val buysH1 = pair.optJSONObject("txns")?.optJSONObject("h1")?.optInt("buys", 0) ?: 0
-            val sellsH1 = pair.optJSONObject("txns")?.optJSONObject("h1")?.optInt("sells", 0) ?: 0
-            val priceChange5m = pair.optJSONObject("priceChange")?.optDouble("m5", 0.0) ?: 0.0
-            val priceChange1h = pair.optJSONObject("priceChange")?.optDouble("h1", 0.0) ?: 0.0
-
-            val now = System.currentTimeMillis()
-            val pairCreatedAt = pair.optLong("pairCreatedAt", 0L)
-            val pairAgeMinutes = if (pairCreatedAt > 0L && pairCreatedAt <= now) {
-                ((now - pairCreatedAt) / 60_000L).toInt().coerceIn(0, 365 * 24 * 60)
-            } else {
-                0
-            }
-
-            val totalTxns = buysH1 + sellsH1
-            val buyPressure = if (totalTxns > 0) {
-                buysH1.toDouble() / totalTxns.toDouble()
-            } else {
-                0.5
-            }
-
-            val txVelocity = totalTxns / 60.0
-
-            val rugScore = parseRugScore(rugData)
-            val mintAuthorityDisabled = parseMintAuthorityDisabled(rugData)
-            val freezeAuthorityDisabled = parseFreezeAuthorityDisabled(rugData)
-
-            val holderCount = parseHolderCount(holdersData)
-            val topHolders = parseHolderArray(holdersData)
-            val topHolderPct = calculateTopHolderPct(topHolders)
-            val whaleRatio = calculateWhaleRatio(topHolders)
-
-            val holderAcceleration = calculateHolderAcceleration(mint, holderCount)
-            val repeatWalletScore = calculateRepeatWalletScore(mint, topHolders)
-            val buyClusteringScore = calculateBuyClusteringScore(buysH1, sellsH1, txVelocity)
-            val volumePriceDivergence = calculateVolumePriceDivergence(
-                volumeH1 = volumeH1,
-                liquidityUsd = liquidityUsd,
-                priceChange5m = priceChange5m,
-                priceChange1h = priceChange1h,
-            )
-
-            val dataCoverage = calculateDataCoverage(
-                dexOk = true,
-                rugOk = rugData != null,
-                holdersOk = holdersData != null,
-                totalTxns = totalTxns,
-                holderCount = holderCount,
-                liquidityUsd = liquidityUsd,
-                mcapUsd = mcapUsd,
-            )
-
-            val (grade, confidence) = calculateGrade(
-                buyPressure = buyPressure,
-                holderAcceleration = holderAcceleration,
-                whaleRatio = whaleRatio,
-                repeatWalletScore = repeatWalletScore,
-                volumePriceDivergence = volumePriceDivergence,
-                rugScore = rugScore,
-                topHolderPct = topHolderPct,
-                txVelocity = txVelocity,
-                dataCoverage = dataCoverage,
-            )
-
-            AlphaSignals(
-                buyPressure = buyPressure,
-                volumeH1 = volumeH1,
-                liquidityUsd = liquidityUsd,
-                mcapUsd = mcapUsd,
-                pairAgeMinutes = pairAgeMinutes,
-
-                holderAcceleration = holderAcceleration,
-                whaleRatio = whaleRatio,
-                repeatWalletScore = repeatWalletScore,
-                buyClusteringScore = buyClusteringScore,
-                volumePriceDivergence = volumePriceDivergence,
-
-                rugScore = rugScore,
-                topHolderPct = topHolderPct,
-                mintAuthorityDisabled = mintAuthorityDisabled,
-                freezeAuthorityDisabled = freezeAuthorityDisabled,
-
-                txVelocity = txVelocity,
-                priceChange5m = priceChange5m,
-                priceChange1h = priceChange1h,
-
-                overallGrade = grade,
-                confidence = confidence,
-            )
         } catch (e: Exception) {
             onLog("⚠️ DataPipeline error: ${e.message}")
             null
@@ -245,12 +260,11 @@ object DataPipeline {
             val request = Request.Builder()
                 .url(url)
                 .header("Accept", "application/json")
+                .header("User-Agent", "lifecycle-bot-android/1.0")
                 .build()
 
             http.newCall(request).execute().use { response ->
-                if (!response.isSuccessful) {
-                    return null
-                }
+                if (!response.isSuccessful) return null
 
                 val body = response.body?.string()?.trim()
                 if (body.isNullOrEmpty()) return null
@@ -266,8 +280,9 @@ object DataPipeline {
     private fun getCachedJson(key: String, ttlMs: Long): JSONObject? {
         val cached = cache[key] ?: return null
         return if (System.currentTimeMillis() - cached.timestamp < ttlMs) {
-            cached.data as? JSONObject
+            cached.data
         } else {
+            cache.remove(key)
             null
         }
     }
@@ -380,22 +395,24 @@ object DataPipeline {
         val history = holderHistory.getOrPut(mint) { mutableListOf() }
         val now = System.currentTimeMillis()
 
-        history.add(HolderSnapshot(currentCount, now))
-        history.removeIf { now - it.timestamp > HOLDER_HISTORY_WINDOW_MS }
+        synchronized(history) {
+            history.add(HolderSnapshot(currentCount, now))
+            history.removeAll { now - it.timestamp > HOLDER_HISTORY_WINDOW_MS }
 
-        while (history.size > MAX_HOLDER_HISTORY_POINTS) {
-            history.removeAt(0)
+            while (history.size > MAX_HOLDER_HISTORY_POINTS) {
+                history.removeAt(0)
+            }
+
+            if (history.size < 2) return 0.0
+
+            val oldest = history.first()
+            val newest = history.last()
+            val timeDeltaMinutes = (newest.timestamp - oldest.timestamp) / 60_000.0
+            if (timeDeltaMinutes <= 0.0) return 0.0
+
+            val holderDelta = newest.count - oldest.count
+            return (holderDelta / timeDeltaMinutes).coerceIn(-100.0, 100.0)
         }
-
-        if (history.size < 2) return 0.0
-
-        val oldest = history.first()
-        val newest = history.last()
-        val timeDeltaMinutes = (newest.timestamp - oldest.timestamp) / 60_000.0
-        if (timeDeltaMinutes <= 0.0) return 0.0
-
-        val holderDelta = newest.count - oldest.count
-        return (holderDelta / timeDeltaMinutes).coerceIn(-100.0, 100.0)
     }
 
     private fun calculateRepeatWalletScore(mint: String, topHolders: JSONArray?): Double {
@@ -403,24 +420,27 @@ object DataPipeline {
 
         var repeatCount = 0
         val walletsSeenThisToken = mutableSetOf<String>()
-
         val limit = min(topHolders.length(), 10)
+
         for (i in 0 until limit) {
             val holder = topHolders.optJSONObject(i) ?: continue
             val wallet = holder.optString("owner", holder.optString("address", "")).trim()
             if (wallet.isEmpty()) continue
             if (!walletsSeenThisToken.add(wallet)) continue
 
-            val tokensHeld = walletTokenMap.getOrPut(wallet) { mutableSetOf() }
-            if (tokensHeld.any { it != mint }) {
-                repeatCount++
-            }
+            val state = walletTokenMap.getOrPut(wallet) { WalletTokenState() }
+            synchronized(state) {
+                if (state.tokens.any { it != mint }) {
+                    repeatCount++
+                }
 
-            tokensHeld.add(mint)
-
-            while (tokensHeld.size > MAX_TOKENS_PER_WALLET) {
-                val first = tokensHeld.firstOrNull() ?: break
-                tokensHeld.remove(first)
+                if (!state.tokens.contains(mint)) {
+                    state.tokens.add(mint)
+                    while (state.tokens.size > MAX_TOKENS_PER_WALLET) {
+                        val first = state.tokens.firstOrNull() ?: break
+                        state.tokens.remove(first)
+                    }
+                }
             }
         }
 
@@ -471,6 +491,7 @@ object DataPipeline {
 
         var totalPct = 0.0
         val limit = min(topHolders.length(), 10)
+
         for (i in 0 until limit) {
             val holder = topHolders.optJSONObject(i) ?: continue
             totalPct += holder.optDouble("percentage", holder.optDouble("pct", 0.0))
@@ -559,11 +580,13 @@ object DataPipeline {
     fun cleanup() {
         val now = System.currentTimeMillis()
 
-        cache.entries.removeIf { now - it.value.timestamp > CACHE_TTL_MS * 10 }
+        cache.entries.removeIf { now - it.value.timestamp > CACHE_TTL_MS * CACHE_CLEANUP_MULTIPLIER }
 
         holderHistory.entries.removeIf { (_, history) ->
-            history.removeIf { now - it.timestamp > HOLDER_HISTORY_WINDOW_MS }
-            history.isEmpty()
+            synchronized(history) {
+                history.removeAll { now - it.timestamp > HOLDER_HISTORY_WINDOW_MS }
+                history.isEmpty()
+            }
         }
 
         if (walletTokenMap.size > MAX_TRACKED_WALLETS) {
@@ -572,11 +595,42 @@ object DataPipeline {
             keysToRemove.forEach { walletTokenMap.remove(it) }
         }
 
-        walletTokenMap.values.forEach { tokens ->
-            while (tokens.size > MAX_TOKENS_PER_WALLET) {
-                val first = tokens.firstOrNull() ?: break
-                tokens.remove(first)
+        walletTokenMap.values.forEach { state ->
+            synchronized(state) {
+                while (state.tokens.size > MAX_TOKENS_PER_WALLET) {
+                    val first = state.tokens.firstOrNull() ?: break
+                    state.tokens.remove(first)
+                }
             }
+        }
+    }
+
+    private fun parseLong(value: Any?): Long {
+        return when (value) {
+            null -> 0L
+            is Long -> value
+            is Int -> value.toLong()
+            is Double -> value.toLong()
+            is Float -> value.toLong()
+            is Number -> value.toLong()
+            is String -> value.toLongOrNull() ?: value.toDoubleOrNull()?.toLong() ?: 0L
+            else -> 0L
+        }
+    }
+
+    private fun safeDouble(value: Any?): Double {
+        return when (value) {
+            null -> 0.0
+            is Double -> if (value.isFinite()) value else 0.0
+            is Float -> if (value.isFinite()) value.toDouble() else 0.0
+            is Int -> value.toDouble()
+            is Long -> value.toDouble()
+            is Number -> {
+                val d = value.toDouble()
+                if (d.isFinite()) d else 0.0
+            }
+            is String -> value.toDoubleOrNull()?.takeIf { it.isFinite() } ?: 0.0
+            else -> 0.0
         }
     }
 }
