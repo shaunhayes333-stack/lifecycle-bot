@@ -409,34 +409,32 @@ object CollectiveLearning {
         isWin: Boolean = false, // Only relevant for SELL
         paperMode: Boolean = true,
     ) {
-        // V5.6.20: Track upload attempts
+        // V5.6.22: Track upload attempts
         totalUploadAttemptsThisSession++
         
-        // V5.6.20: ALWAYS log upload attempt for debugging hive mind sync issues
-        Log.i(TAG, "📤 UPLOAD ATTEMPT #$totalUploadAttemptsThisSession: $side $symbol | enabled=${isEnabled()} | init=$isInitialized | client=${client != null} | instanceId=${instanceId.take(8)}...")
+        // V5.6.22: Use ErrorLogger so logs appear in the app's Error Log export
+        ErrorLogger.info("CollectiveTrade", "📤 ATTEMPT #$totalUploadAttemptsThisSession: $side $symbol | enabled=${isEnabled()} | init=$isInitialized | client=${client != null} | inst=${instanceId.take(8)}")
         
         // V5.6.20: Validate instanceId BEFORE attempting upload
         if (instanceId.isBlank()) {
             totalUploadSkippedThisSession++
-            Log.e(TAG, "❌ SKIPPED UPLOAD #$totalUploadSkippedThisSession: $side $symbol - instanceId is BLANK! CollectiveLearning.init() may not have completed.")
+            ErrorLogger.error("CollectiveTrade", "❌ SKIPPED: $side $symbol - instanceId BLANK! init() not completed")
             return
         }
         
         // V5.6.11: Try to reconnect if disconnected
         if (!isEnabled()) {
-            Log.w(TAG, "🔄 Attempting reconnect for $side $symbol...")
+            ErrorLogger.warn("CollectiveTrade", "🔄 Reconnecting for $side $symbol...")
             ensureConnected()
             if (!isEnabled()) {
                 totalUploadSkippedThisSession++
-                Log.e(TAG, "❌ SKIPPED UPLOAD #$totalUploadSkippedThisSession: $side $symbol - Collective DISABLED (client=${client != null}, init=$isInitialized)")
+                ErrorLogger.error("CollectiveTrade", "❌ SKIPPED: $side $symbol - DISABLED (client=${client != null}, init=$isInitialized)")
                 return
             }
         }
         
         try {
             val now = System.currentTimeMillis()
-            
-            Log.i(TAG, "📤 UPLOADING: $side $symbol to collective_trades... (instanceId=${instanceId.take(8)})")
             
             // Create unique hash for this trade (privacy: no wallet, no mint)
             val tradeHash = sha256("$now|$side|$symbol|$mode|${System.nanoTime()}").take(24)
@@ -448,8 +446,7 @@ object CollectiveLearning {
                 else -> "LARGE"
             }
             
-            // V5.6.20: Log all parameters for debugging
-            Log.d(TAG, "📤 PARAMS: hash=${tradeHash.take(8)} | inst=${instanceId.take(8)} | ts=$now | $side | $symbol | $mode | $source | $liquidityBucket | $marketSentiment | score=$entryScore | conf=$confidence | pnl=$pnlPct | hold=$holdMins | win=$isWin | paper=$paperMode")
+            ErrorLogger.info("CollectiveTrade", "📤 INSERT: $side $symbol | hash=${tradeHash.take(8)} | inst=${instanceId.take(8)} | liq=$liquidityBucket")
             
             // V3.3: Include instance_id for legal compliance and per-user audit trail
             val sql = """
@@ -459,43 +456,33 @@ object CollectiveLearning {
                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """.trimIndent()
             
-            Log.i(TAG, "📤 INSERTING: $side $symbol | hash=${tradeHash.take(8)}... | instance=${instanceId.take(8)}...")
-            
             val result = client!!.execute(sql, listOf(
                 tradeHash, instanceId, now, side, symbol, mode, source, liquidityBucket,
                 marketSentiment, entryScore, confidence, pnlPct, holdMins,
                 if (isWin) 1 else 0, if (paperMode) 1 else 0
             ))
             
-            Log.i(TAG, "📤 INSERT RESULT: success=${result.success} | rows=${result.rowsAffected} | lastId=${result.lastInsertId} | error=${result.error}")
+            // V5.6.22: Log the actual Turso response for debugging
+            ErrorLogger.info("CollectiveTrade", "📤 RESULT: $side $symbol | success=${result.success} | rows=${result.rowsAffected} | lastId=${result.lastInsertId} | err=${result.error?.take(100)}")
             
             if (result.success) {
                 // V5.6.20: Turso HTTP API may return success=true with no rowsAffected for INSERTs
                 // Treat as success if no error is reported
                 if (result.error.isNullOrBlank()) {
                     totalUploadSuccessThisSession++
-                    Log.i(TAG, "📤 TRADE → COLLECTIVE: $side $symbol ($mode) ${if (side == "SELL") "${pnlPct.toInt()}%" else ""} ✅ [session: $totalUploadSuccessThisSession/$totalUploadAttemptsThisSession]")
+                    ErrorLogger.info("CollectiveTrade", "✅ UPLOADED: $side $symbol ($mode) ${if (side == "SELL") "${pnlPct.toInt()}%" else ""} [${totalUploadSuccessThisSession}/${totalUploadAttemptsThisSession}]")
                     totalUploadsThisSession++
                     
                     // V3.3: Update instance registry trade count
                     updateInstanceTradeCount()
-                    
-                    // V5.6.20: Log specific success info
-                    if (result.rowsAffected > 0) {
-                        Log.d(TAG, "📤 INSERT confirmed: $side $symbol | rowsAffected=${result.rowsAffected}")
-                    } else if (result.lastInsertId != null) {
-                        Log.d(TAG, "📤 INSERT confirmed: $side $symbol | lastInsertId=${result.lastInsertId}")
-                    } else {
-                        Log.d(TAG, "📤 INSERT assumed success (no error): $side $symbol")
-                    }
                 } else {
-                    Log.w(TAG, "⚠️ INSERT returned success but with error message for $side $symbol: ${result.error}")
+                    ErrorLogger.warn("CollectiveTrade", "⚠️ SUCCESS but error msg: $side $symbol | ${result.error}")
                 }
             } else {
-                Log.e(TAG, "❌ UPLOAD FAILED: $side $symbol | error=${result.error} | affected=${result.rowsAffected}")
+                ErrorLogger.error("CollectiveTrade", "❌ FAILED: $side $symbol | err=${result.error} | rows=${result.rowsAffected}")
             }
         } catch (e: Exception) {
-            Log.e(TAG, "❌ UPLOAD EXCEPTION: $side $symbol | ${e.message}", e)
+            ErrorLogger.error("CollectiveTrade", "❌ EXCEPTION: $side $symbol | ${e.message}")
         }
     }
     
