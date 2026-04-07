@@ -1750,9 +1750,8 @@ for legal compliance.
             val gainCol = if (gainPct >= 0) green else red
             val pnlSol  = pos.costSol * gainPct / 100.0
             
-            // Token amount at entry: cost USD / entry price per token
-            val costUsd = pos.costSol * solPrice
-            val tokenAmount = if (pos.entryPrice > 0) costUsd / pos.entryPrice else 0.0
+            // V5.6.18: Use actual token quantity from position, not calculated value
+            val tokenAmount = pos.qtyToken
             val currentValue = pos.costSol + pnlSol  // Current value in SOL
             val valueUsd = currentValue * solPrice
 
