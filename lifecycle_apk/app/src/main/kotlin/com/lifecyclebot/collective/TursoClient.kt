@@ -14,13 +14,10 @@ import java.net.URL
  *
  * HTTP client for Turso / libSQL pipeline API.
  *
- * CRITICAL FIX:
- * Numeric args must be encoded as JSON numbers, not strings.
- * Old broken payload example:
- *   {"type":"float","value":"0.0"}
- *
- * Correct payload:
- *   {"type":"float","value":0.0}
+ * IMPORTANT ENCODING RULES FOR TURSO PIPELINE:
+ * - integer.value must be a STRING
+ * - float.value must be a JSON NUMBER
+ * - text.value must be a STRING
  */
 class TursoClient(
     dbUrl: String,
@@ -61,13 +58,20 @@ class TursoClient(
 
                 requests.put(buildCloseRequest())
 
-                val body = JSONObject().put("requests", requests).toString()
+                val body = JSONObject()
+                    .put("requests", requests)
+                    .toString()
+
                 val responseText = httpPost(body)
                 parseBatchResponse(responseText)
             } catch (e: Exception) {
                 Log.e(TAG, "Batch error: ${e.message}", e)
                 statements.map {
-                    QueryResult(success = false, rows = emptyList(), error = e.message)
+                    QueryResult(
+                        success = false,
+                        rows = emptyList(),
+                        error = e.message
+                    )
                 }
             }
         }
@@ -124,7 +128,9 @@ class TursoClient(
                 requests.put(buildExecuteRequest(sql, args))
                 requests.put(buildCloseRequest())
 
-                val body = JSONObject().put("requests", requests).toString()
+                val body = JSONObject()
+                    .put("requests", requests)
+                    .toString()
 
                 Log.d(TAG, "SQL: ${sql.take(180)}")
                 Log.d(TAG, "ARGS: ${args.joinToString(prefix = "[", postfix = "]") { describeArg(it) }}")
@@ -133,7 +139,11 @@ class TursoClient(
                 parseSingleResponse(responseText, expectRows)
             } catch (e: Exception) {
                 Log.e(TAG, "Execute error: ${e.message}", e)
-                QueryResult(success = false, rows = emptyList(), error = e.message)
+                QueryResult(
+                    success = false,
+                    rows = emptyList(),
+                    error = e.message
+                )
             }
         }
     }
@@ -160,8 +170,10 @@ class TursoClient(
     }
 
     /**
-     * FIXED:
-     * Numeric "value" fields are encoded as JSON numbers, not strings.
+     * Turso pipeline type encoding:
+     * - integer => value must be STRING
+     * - float   => value must be NUMBER
+     * - text    => value must be STRING
      */
     private fun convertArg(arg: Any?): JSONObject {
         val obj = JSONObject()
@@ -173,22 +185,22 @@ class TursoClient(
 
             is Int -> {
                 obj.put("type", "integer")
-                obj.put("value", arg)
+                obj.put("value", arg.toString())
             }
 
             is Long -> {
                 obj.put("type", "integer")
-                obj.put("value", arg)
+                obj.put("value", arg.toString())
             }
 
             is Short -> {
                 obj.put("type", "integer")
-                obj.put("value", arg.toInt())
+                obj.put("value", arg.toString())
             }
 
             is Byte -> {
                 obj.put("type", "integer")
-                obj.put("value", arg.toInt())
+                obj.put("value", arg.toString())
             }
 
             is Float -> {
@@ -203,7 +215,7 @@ class TursoClient(
 
             is Boolean -> {
                 obj.put("type", "integer")
-                obj.put("value", if (arg) 1 else 0)
+                obj.put("value", if (arg) "1" else "0")
             }
 
             is ByteArray -> {
@@ -215,7 +227,7 @@ class TursoClient(
                 val asDouble = arg.toDouble()
                 if (asDouble % 1.0 == 0.0) {
                     obj.put("type", "integer")
-                    obj.put("value", arg.toLong())
+                    obj.put("value", arg.toLong().toString())
                 } else {
                     obj.put("type", "float")
                     obj.put("value", sanitizeDouble(asDouble))
@@ -244,7 +256,7 @@ class TursoClient(
             conn.setRequestProperty("Content-Type", "application/json")
 
             Log.d(TAG, "POST $url")
-            Log.d(TAG, "BODY ${body.take(1000)}")
+            Log.d(TAG, "BODY ${body.take(1500)}")
 
             conn.outputStream.use { os ->
                 os.write(body.toByteArray(Charsets.UTF_8))
@@ -259,7 +271,7 @@ class TursoClient(
             }
 
             Log.d(TAG, "HTTP $responseCode")
-            Log.d(TAG, "RESP ${responseText.take(1000)}")
+            Log.d(TAG, "RESP ${responseText.take(1500)}")
 
             if (responseCode !in 200..299) {
                 throw RuntimeException("HTTP $responseCode: $responseText")
@@ -275,16 +287,28 @@ class TursoClient(
         return try {
             val json = JSONObject(responseJson)
             val results = json.optJSONArray("results")
-                ?: return QueryResult(false, emptyList(), error = "No results in response")
+                ?: return QueryResult(
+                    success = false,
+                    rows = emptyList(),
+                    error = "No results in response"
+                )
 
             if (results.length() == 0) {
-                return QueryResult(false, emptyList(), error = "Empty results array")
+                return QueryResult(
+                    success = false,
+                    rows = emptyList(),
+                    error = "Empty results array"
+                )
             }
 
             parsePipelineResult(results.optJSONObject(0), expectRows)
         } catch (e: Exception) {
             Log.e(TAG, "Parse single response error: ${e.message}", e)
-            QueryResult(false, emptyList(), error = e.message)
+            QueryResult(
+                success = false,
+                rows = emptyList(),
+                error = e.message
+            )
         }
     }
 
@@ -292,7 +316,13 @@ class TursoClient(
         return try {
             val json = JSONObject(responseJson)
             val results = json.optJSONArray("results")
-                ?: return listOf(QueryResult(false, emptyList(), error = "No results in response"))
+                ?: return listOf(
+                    QueryResult(
+                        success = false,
+                        rows = emptyList(),
+                        error = "No results in response"
+                    )
+                )
 
             val parsed = mutableListOf<QueryResult>()
             for (i in 0 until results.length()) {
@@ -304,13 +334,23 @@ class TursoClient(
             parsed
         } catch (e: Exception) {
             Log.e(TAG, "Parse batch response error: ${e.message}", e)
-            listOf(QueryResult(false, emptyList(), error = e.message))
+            listOf(
+                QueryResult(
+                    success = false,
+                    rows = emptyList(),
+                    error = e.message
+                )
+            )
         }
     }
 
     private fun parsePipelineResult(item: JSONObject?, expectRows: Boolean): QueryResult {
         if (item == null) {
-            return QueryResult(false, emptyList(), error = "Null pipeline result")
+            return QueryResult(
+                success = false,
+                rows = emptyList(),
+                error = "Null pipeline result"
+            )
         }
 
         val type = item.optString("type", "")
@@ -319,7 +359,11 @@ class TursoClient(
             val errObj = item.optJSONObject("error")
             val message = errObj?.optString("message")
                 ?: item.optString("error", "Unknown Turso error")
-            return QueryResult(false, emptyList(), error = message)
+            return QueryResult(
+                success = false,
+                rows = emptyList(),
+                error = message
+            )
         }
 
         val responseObj = item.optJSONObject("response")
@@ -366,7 +410,7 @@ class TursoClient(
             val rowArray = rowsArray.optJSONArray(i) ?: continue
             val rowMap = linkedMapOf<String, Any?>()
 
-            for (j in 0 until columnNames.size) {
+            for (j in columnNames.indices) {
                 val colName = columnNames[j]
                 val cell = rowArray.opt(j)
                 rowMap[colName] = parseCellValue(cell)
@@ -386,20 +430,25 @@ class TursoClient(
                 val type = cell.optString("type", "")
                 when (type) {
                     "null" -> null
-                    "integer" -> cell.opt("value")?.let { v ->
+
+                    "integer" -> {
+                        val v = cell.opt("value")
                         when (v) {
                             is Number -> v.toLong()
                             is String -> v.toLongOrNull() ?: 0L
                             else -> 0L
                         }
                     }
-                    "float" -> cell.opt("value")?.let { v ->
+
+                    "float" -> {
+                        val v = cell.opt("value")
                         when (v) {
                             is Number -> sanitizeDouble(v.toDouble())
                             is String -> sanitizeDouble(v.toDoubleOrNull() ?: 0.0)
                             else -> 0.0
                         }
                     }
+
                     "text" -> cell.optString("value", "")
                     "blob" -> cell.optString("base64", "")
                     else -> cell.opt("value") ?: cell.toString()
