@@ -268,17 +268,17 @@ object FluidLearning {
     // ═══════════════════════════════════════════════════════════════════════════
     
     enum class LearningPhase {
-        BOOTSTRAP,    // 0-30 trades: Very loose, maximum exploration
-        DEVELOPING,   // 31-100 trades: Starting to learn patterns
-        REFINING,     // 101-300 trades: Tightening based on data
-        MATURE,       // 300+ trades: Full constraints applied
+        BOOTSTRAP,    // 0-100 trades: Very loose, maximum exploration
+        DEVELOPING,   // 101-500 trades: Starting to learn patterns
+        REFINING,     // 501-1000 trades: Tightening based on data
+        MATURE,       // 1000+ trades: Full constraints applied
     }
     
     fun getLearningPhase(): LearningPhase {
         return when {
-            paperTradeCount < 30 -> LearningPhase.BOOTSTRAP
-            paperTradeCount < 100 -> LearningPhase.DEVELOPING
-            paperTradeCount < 300 -> LearningPhase.REFINING
+            paperTradeCount < 100 -> LearningPhase.BOOTSTRAP
+            paperTradeCount < 500 -> LearningPhase.DEVELOPING
+            paperTradeCount < 1000 -> LearningPhase.REFINING
             else -> LearningPhase.MATURE
         }
     }
