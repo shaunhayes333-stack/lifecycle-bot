@@ -1120,8 +1120,19 @@ for legal compliance.
                 trsUsd = if (ws.treasuryUsd > 0) ws.treasuryUsd else trs * solPrice
             }
             
-            val tier    = ws.highestMilestoneName
-            val nextUsd = ws.nextMilestoneUsd
+            // V5.6.21: Calculate milestone tier DYNAMICALLY based on actual treasury USD value
+            // This fixes the issue where paper mode showed "Max tier reached" with only $780
+            val milestones = com.lifecyclebot.engine.TreasuryManager.MILESTONES
+            var currentTierIdx = -1
+            for ((idx, m) in milestones.withIndex()) {
+                if (trsUsd >= m.thresholdUsd) {
+                    currentTierIdx = idx
+                }
+            }
+            
+            val tier = if (currentTierIdx >= 0) milestones[currentTierIdx].label else "None"
+            val nextMilestone = milestones.getOrNull(currentTierIdx + 1)
+            val nextUsd = nextMilestone?.thresholdUsd ?: 0.0
             val modeLabel = if (isPaper) " [PAPER]" else ""
             
             // Update BOTH old and new treasury views (new views have "2" suffix)
