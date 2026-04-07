@@ -119,11 +119,11 @@ object CollectiveSchema {
             discovery_source TEXT NOT NULL,
             liquidity_bucket TEXT NOT NULL,
             ema_trend TEXT NOT NULL,
-            total_trades INTEGER DEFAULT 0,
-            wins INTEGER DEFAULT 0,
-            losses INTEGER DEFAULT 0,
-            avg_pnl_pct REAL DEFAULT 0.0,
-            avg_hold_mins REAL DEFAULT 0.0,
+            total_trades INTEGER NOT NULL DEFAULT 0,
+            wins INTEGER NOT NULL DEFAULT 0,
+            losses INTEGER NOT NULL DEFAULT 0,
+            avg_pnl_pct REAL NOT NULL DEFAULT 0.0,
+            avg_hold_mins REAL NOT NULL DEFAULT 0.0,
             last_updated INTEGER NOT NULL
         )
     """
@@ -134,10 +134,10 @@ object CollectiveSchema {
             mint TEXT UNIQUE NOT NULL,
             symbol TEXT NOT NULL,
             reason TEXT NOT NULL,
-            report_count INTEGER DEFAULT 1,
+            report_count INTEGER NOT NULL DEFAULT 1,
             first_reported INTEGER NOT NULL,
             last_reported INTEGER NOT NULL,
-            severity INTEGER DEFAULT 3
+            severity INTEGER NOT NULL DEFAULT 3
         )
     """
 
@@ -147,11 +147,11 @@ object CollectiveSchema {
             mode_name TEXT NOT NULL,
             market_condition TEXT NOT NULL,
             liquidity_bucket TEXT NOT NULL,
-            total_trades INTEGER DEFAULT 0,
-            wins INTEGER DEFAULT 0,
-            losses INTEGER DEFAULT 0,
-            avg_pnl_pct REAL DEFAULT 0.0,
-            avg_hold_mins REAL DEFAULT 0.0,
+            total_trades INTEGER NOT NULL DEFAULT 0,
+            wins INTEGER NOT NULL DEFAULT 0,
+            losses INTEGER NOT NULL DEFAULT 0,
+            avg_pnl_pct REAL NOT NULL DEFAULT 0.0,
+            avg_hold_mins REAL NOT NULL DEFAULT 0.0,
             last_updated INTEGER NOT NULL,
             UNIQUE(mode_name, market_condition, liquidity_bucket)
         )
@@ -161,10 +161,10 @@ object CollectiveSchema {
         CREATE TABLE IF NOT EXISTS whale_effectiveness (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             wallet_hash TEXT UNIQUE NOT NULL,
-            total_follows INTEGER DEFAULT 0,
-            profitable_follows INTEGER DEFAULT 0,
-            avg_pnl_pct REAL DEFAULT 0.0,
-            avg_lead_time_sec INTEGER DEFAULT 0,
+            total_follows INTEGER NOT NULL DEFAULT 0,
+            profitable_follows INTEGER NOT NULL DEFAULT 0,
+            avg_pnl_pct REAL NOT NULL DEFAULT 0.0,
+            avg_lead_time_sec INTEGER NOT NULL DEFAULT 0,
             last_updated INTEGER NOT NULL
         )
     """
@@ -179,7 +179,7 @@ object CollectiveSchema {
             accepted_at_iso TEXT NOT NULL,
             device_info TEXT NOT NULL,
             app_version TEXT NOT NULL,
-            ip_country TEXT DEFAULT '',
+            ip_country TEXT NOT NULL DEFAULT '',
             consent_checksum TEXT NOT NULL,
             UNIQUE(instance_id, agreement_type, agreement_version)
         )
@@ -190,9 +190,9 @@ object CollectiveSchema {
             instance_id TEXT PRIMARY KEY NOT NULL,
             last_heartbeat INTEGER NOT NULL,
             app_version TEXT NOT NULL,
-            paper_mode INTEGER DEFAULT 1,
-            trades_24h INTEGER DEFAULT 0,
-            pnl_24h_pct REAL DEFAULT 0.0
+            paper_mode INTEGER NOT NULL DEFAULT 1,
+            trades_24h INTEGER NOT NULL DEFAULT 0,
+            pnl_24h_pct REAL NOT NULL DEFAULT 0.0
         )
     """
 
@@ -204,13 +204,13 @@ object CollectiveSchema {
             symbol TEXT NOT NULL,
             broadcaster_id TEXT NOT NULL,
             timestamp INTEGER NOT NULL,
-            pnl_pct REAL DEFAULT 0.0,
-            confidence INTEGER DEFAULT 0,
-            liquidity_usd REAL DEFAULT 0.0,
-            mode TEXT DEFAULT '',
-            reason TEXT DEFAULT '',
+            pnl_pct REAL NOT NULL DEFAULT 0.0,
+            confidence INTEGER NOT NULL DEFAULT 0,
+            liquidity_usd REAL NOT NULL DEFAULT 0.0,
+            mode TEXT NOT NULL DEFAULT '',
+            reason TEXT NOT NULL DEFAULT '',
             expires_at INTEGER NOT NULL,
-            ack_count INTEGER DEFAULT 0
+            ack_count INTEGER NOT NULL DEFAULT 0
         )
     """
 
@@ -229,34 +229,54 @@ object CollectiveSchema {
             install_timestamp_iso TEXT NOT NULL,
             device_info TEXT NOT NULL,
             app_version TEXT NOT NULL,
-            region_code TEXT DEFAULT '',
-            total_trades INTEGER DEFAULT 0,
-            total_pnl_sol REAL DEFAULT 0.0,
+            region_code TEXT NOT NULL DEFAULT '',
+            total_trades INTEGER NOT NULL DEFAULT 0,
+            total_pnl_sol REAL NOT NULL DEFAULT 0.0,
             last_active INTEGER NOT NULL,
-            is_active INTEGER DEFAULT 1
+            is_active INTEGER NOT NULL DEFAULT 1
         )
     """
 
+    /**
+     * Final expected shape for collective_trades.
+     */
     const val CREATE_ALL_TRADES_TABLE = """
         CREATE TABLE IF NOT EXISTS collective_trades (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             trade_hash TEXT UNIQUE NOT NULL,
-            instance_id TEXT NOT NULL,
+            instance_id TEXT NOT NULL DEFAULT '',
             timestamp INTEGER NOT NULL,
             side TEXT NOT NULL,
             symbol TEXT NOT NULL,
             mode TEXT NOT NULL,
-            source TEXT NOT NULL,
-            liquidity_bucket TEXT NOT NULL,
-            market_sentiment TEXT NOT NULL,
-            entry_score INTEGER DEFAULT 0,
-            confidence INTEGER DEFAULT 0,
-            pnl_pct REAL DEFAULT 0.0,
-            hold_mins REAL DEFAULT 0.0,
-            is_win INTEGER DEFAULT 0,
-            paper_mode INTEGER DEFAULT 1
+            source TEXT NOT NULL DEFAULT '',
+            liquidity_bucket TEXT NOT NULL DEFAULT '',
+            market_sentiment TEXT NOT NULL DEFAULT '',
+            entry_score INTEGER NOT NULL DEFAULT 0,
+            confidence INTEGER NOT NULL DEFAULT 0,
+            pnl_pct REAL NOT NULL DEFAULT 0.0,
+            hold_mins REAL NOT NULL DEFAULT 0.0,
+            is_win INTEGER NOT NULL DEFAULT 0,
+            paper_mode INTEGER NOT NULL DEFAULT 1
         )
     """
+
+    /**
+     * These run AFTER CREATE TABLE IF NOT EXISTS and patch older databases.
+     * Ignore "duplicate column name" errors in the migration runner.
+     */
+    val MIGRATION_STATEMENTS = listOf(
+        "ALTER TABLE collective_trades ADD COLUMN instance_id TEXT NOT NULL DEFAULT ''",
+        "ALTER TABLE collective_trades ADD COLUMN source TEXT NOT NULL DEFAULT ''",
+        "ALTER TABLE collective_trades ADD COLUMN liquidity_bucket TEXT NOT NULL DEFAULT ''",
+        "ALTER TABLE collective_trades ADD COLUMN market_sentiment TEXT NOT NULL DEFAULT ''",
+        "ALTER TABLE collective_trades ADD COLUMN entry_score INTEGER NOT NULL DEFAULT 0",
+        "ALTER TABLE collective_trades ADD COLUMN confidence INTEGER NOT NULL DEFAULT 0",
+        "ALTER TABLE collective_trades ADD COLUMN pnl_pct REAL NOT NULL DEFAULT 0.0",
+        "ALTER TABLE collective_trades ADD COLUMN hold_mins REAL NOT NULL DEFAULT 0.0",
+        "ALTER TABLE collective_trades ADD COLUMN is_win INTEGER NOT NULL DEFAULT 0",
+        "ALTER TABLE collective_trades ADD COLUMN paper_mode INTEGER NOT NULL DEFAULT 1"
+    )
 
     const val CREATE_INDEXES = """
         CREATE INDEX IF NOT EXISTS idx_patterns_type ON collective_patterns(pattern_type);
