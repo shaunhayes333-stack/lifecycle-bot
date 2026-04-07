@@ -1104,15 +1104,20 @@ for legal compliance.
             val trs: Double
             val trsUsd: Double
             
+            // V5.6.20: Get SOL price with fallback to prevent $0 display bug
+            val solPrice = com.lifecyclebot.engine.WalletManager.lastKnownSolPrice.takeIf { it > 0 }
+                ?: ws.solPriceUsd.takeIf { it > 0 }
+                ?: 130.0  // Reasonable fallback if all else fails
+            
             if (isPaper) {
                 // In paper mode, show the CashGenerationAI paper treasury balance
                 trs = com.lifecyclebot.v3.scoring.CashGenerationAI.getTreasuryBalance(true)
-                val solPrice = com.lifecyclebot.engine.WalletManager.lastKnownSolPrice
                 trsUsd = trs * solPrice
             } else {
                 // In live mode, show the TreasuryManager live treasury
                 trs = ws.treasurySol
-                trsUsd = ws.treasuryUsd
+                // V5.6.20: Also recalculate USD in live mode if ws.treasuryUsd is 0
+                trsUsd = if (ws.treasuryUsd > 0) ws.treasuryUsd else trs * solPrice
             }
             
             val tier    = ws.highestMilestoneName
