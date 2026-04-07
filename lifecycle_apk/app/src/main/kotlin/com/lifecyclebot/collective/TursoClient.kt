@@ -272,6 +272,11 @@ class TursoClient(
     
     private fun parseResponse(responseJson: String, isQuery: Boolean): QueryResult {
         try {
+            // V5.6.20: Log raw response for debugging INSERT issues
+            if (!isQuery && responseJson.length < 2000) {
+                Log.d(TAG, "📡 RAW RESPONSE (execute): ${responseJson.take(500)}")
+            }
+            
             val json = JSONObject(responseJson)
             val results = json.optJSONArray("results") ?: return QueryResult(
                 false, emptyList(), 0, null, "No results in response"

@@ -409,11 +409,18 @@ object CollectiveLearning {
         isWin: Boolean = false, // Only relevant for SELL
         paperMode: Boolean = true,
     ) {
-        // V5.6.12: Track upload attempts
+        // V5.6.20: Track upload attempts
         totalUploadAttemptsThisSession++
         
-        // V5.6.12: ALWAYS log upload attempt for debugging hive mind sync issues
-        Log.i(TAG, "📤 UPLOAD ATTEMPT #$totalUploadAttemptsThisSession: $side $symbol | enabled=${isEnabled()} | init=$isInitialized | client=${client != null}")
+        // V5.6.20: ALWAYS log upload attempt for debugging hive mind sync issues
+        Log.i(TAG, "📤 UPLOAD ATTEMPT #$totalUploadAttemptsThisSession: $side $symbol | enabled=${isEnabled()} | init=$isInitialized | client=${client != null} | instanceId=${instanceId.take(8)}...")
+        
+        // V5.6.20: Validate instanceId BEFORE attempting upload
+        if (instanceId.isBlank()) {
+            totalUploadSkippedThisSession++
+            Log.e(TAG, "❌ SKIPPED UPLOAD #$totalUploadSkippedThisSession: $side $symbol - instanceId is BLANK! CollectiveLearning.init() may not have completed.")
+            return
+        }
         
         // V5.6.11: Try to reconnect if disconnected
         if (!isEnabled()) {
@@ -429,7 +436,7 @@ object CollectiveLearning {
         try {
             val now = System.currentTimeMillis()
             
-            Log.d(TAG, "📤 UPLOADING: $side $symbol to collective_trades...")
+            Log.i(TAG, "📤 UPLOADING: $side $symbol to collective_trades... (instanceId=${instanceId.take(8)})")
             
             // Create unique hash for this trade (privacy: no wallet, no mint)
             val tradeHash = sha256("$now|$side|$symbol|$mode|${System.nanoTime()}").take(24)
@@ -441,6 +448,9 @@ object CollectiveLearning {
                 else -> "LARGE"
             }
             
+            // V5.6.20: Log all parameters for debugging
+            Log.d(TAG, "📤 PARAMS: hash=${tradeHash.take(8)} | inst=${instanceId.take(8)} | ts=$now | $side | $symbol | $mode | $source | $liquidityBucket | $marketSentiment | score=$entryScore | conf=$confidence | pnl=$pnlPct | hold=$holdMins | win=$isWin | paper=$paperMode")
+            
             // V3.3: Include instance_id for legal compliance and per-user audit trail
             val sql = """
                 INSERT INTO collective_trades 
@@ -449,7 +459,7 @@ object CollectiveLearning {
                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """.trimIndent()
             
-            Log.d(TAG, "📤 INSERTING: $side $symbol | hash=${tradeHash.take(8)}... | instance=${instanceId.take(8)}...")
+            Log.i(TAG, "📤 INSERTING: $side $symbol | hash=${tradeHash.take(8)}... | instance=${instanceId.take(8)}...")
             
             val result = client!!.execute(sql, listOf(
                 tradeHash, instanceId, now, side, symbol, mode, source, liquidityBucket,
@@ -457,18 +467,29 @@ object CollectiveLearning {
                 if (isWin) 1 else 0, if (paperMode) 1 else 0
             ))
             
-            Log.d(TAG, "📤 INSERT RESULT: success=${result.success} | rows=${result.rowsAffected} | lastId=${result.lastInsertId} | error=${result.error}")
+            Log.i(TAG, "📤 INSERT RESULT: success=${result.success} | rows=${result.rowsAffected} | lastId=${result.lastInsertId} | error=${result.error}")
             
             if (result.success) {
-                if (result.rowsAffected > 0 || result.lastInsertId != null) {
+                // V5.6.20: Turso HTTP API may return success=true with no rowsAffected for INSERTs
+                // Treat as success if no error is reported
+                if (result.error.isNullOrBlank()) {
                     totalUploadSuccessThisSession++
                     Log.i(TAG, "📤 TRADE → COLLECTIVE: $side $symbol ($mode) ${if (side == "SELL") "${pnlPct.toInt()}%" else ""} ✅ [session: $totalUploadSuccessThisSession/$totalUploadAttemptsThisSession]")
                     totalUploadsThisSession++
                     
                     // V3.3: Update instance registry trade count
                     updateInstanceTradeCount()
+                    
+                    // V5.6.20: Log specific success info
+                    if (result.rowsAffected > 0) {
+                        Log.d(TAG, "📤 INSERT confirmed: $side $symbol | rowsAffected=${result.rowsAffected}")
+                    } else if (result.lastInsertId != null) {
+                        Log.d(TAG, "📤 INSERT confirmed: $side $symbol | lastInsertId=${result.lastInsertId}")
+                    } else {
+                        Log.d(TAG, "📤 INSERT assumed success (no error): $side $symbol")
+                    }
                 } else {
-                    Log.w(TAG, "⚠️ INSERT returned success but 0 rows affected for $side $symbol")
+                    Log.w(TAG, "⚠️ INSERT returned success but with error message for $side $symbol: ${result.error}")
                 }
             } else {
                 Log.e(TAG, "❌ UPLOAD FAILED: $side $symbol | error=${result.error} | affected=${result.rowsAffected}")
