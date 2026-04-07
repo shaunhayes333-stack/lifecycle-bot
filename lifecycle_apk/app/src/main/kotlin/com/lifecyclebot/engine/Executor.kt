@@ -2742,6 +2742,8 @@ class Executor(
             ErrorLogger.info("Executor", "🌐 [COLLECTIVE] Launching upload for BUY ${ts.symbol}...")
             kotlinx.coroutines.GlobalScope.launch(kotlinx.coroutines.Dispatchers.IO) {
                 try {
+                    // V5.6.21: Log coroutine start to verify it executes
+                    ErrorLogger.info("Executor", "🌐 [COLLECTIVE] Coroutine STARTED for BUY ${ts.symbol}")
                     val marketSentiment = ts.meta.emafanAlignment.ifBlank { "NEUTRAL" }
                     com.lifecyclebot.collective.CollectiveLearning.uploadTrade(
                         side = "BUY",
@@ -2757,8 +2759,9 @@ class Executor(
                         isWin = false,
                         paperMode = isPaper
                     )
+                    ErrorLogger.info("Executor", "🌐 [COLLECTIVE] uploadTrade COMPLETED for BUY ${ts.symbol}")
                 } catch (e: Exception) {
-                    ErrorLogger.error("Executor", "🌐 [COLLECTIVE] Upload coroutine error: ${e.message}", e)
+                    ErrorLogger.error("Executor", "🌐 [COLLECTIVE] Upload coroutine error for ${ts.symbol}: ${e.message}", e)
                 }
             }
         } catch (e: Exception) {
@@ -3853,8 +3856,10 @@ class Executor(
             )
             
             if (com.lifecyclebot.collective.CollectiveLearning.isEnabled()) {
+                ErrorLogger.info("Executor", "🌐 [COLLECTIVE] SELL: isEnabled=true, launching upload for ${ts.symbol}")
                 GlobalScope.launch(Dispatchers.IO) {
                     try {
+                        ErrorLogger.info("Executor", "🌐 [COLLECTIVE] SELL coroutine STARTED for ${ts.symbol}")
                         val liquidityBucket = when {
                             ts.lastLiquidityUsd < 5_000 -> "MICRO"
                             ts.lastLiquidityUsd < 25_000 -> "SMALL"
@@ -3862,6 +3867,7 @@ class Executor(
                             else -> "LARGE"
                         }
                         
+                        ErrorLogger.info("Executor", "🌐 [COLLECTIVE] Calling uploadPatternOutcome for ${ts.symbol}...")
                         com.lifecyclebot.collective.CollectiveLearning.uploadPatternOutcome(
                             patternType = "${ts.position.entryPhase}_${ts.position.tradingMode.ifEmpty { "STANDARD" }}",
                             discoverySource = ts.source.ifEmpty { "UNKNOWN" },
@@ -3871,7 +3877,9 @@ class Executor(
                             pnlPct = pnlP,
                             holdMins = holdMins.toDouble()
                         )
+                        ErrorLogger.info("Executor", "🌐 [COLLECTIVE] uploadPatternOutcome DONE for ${ts.symbol}")
                         
+                        ErrorLogger.info("Executor", "🌐 [COLLECTIVE] Calling uploadTrade SELL for ${ts.symbol}...")
                         com.lifecyclebot.collective.CollectiveLearning.uploadTrade(
                             side = "SELL",
                             symbol = ts.symbol,
@@ -3886,15 +3894,18 @@ class Executor(
                             isWin = shouldLearnAsWin,
                             paperMode = cfg().paperMode
                         )
+                        ErrorLogger.info("Executor", "🌐 [COLLECTIVE] uploadTrade SELL DONE for ${ts.symbol}")
                         
                         CollectiveAnalytics.recordPatternUpload()
                         
                         ErrorLogger.debug("CollectiveLearning", 
                             "📤 Uploaded: ${ts.symbol} | ${if(shouldLearnAsWin) "WIN" else "LOSS"} | ${pnlP.toInt()}%")
                     } catch (e: Exception) {
-                        ErrorLogger.debug("CollectiveLearning", "Upload error: ${e.message}")
+                        ErrorLogger.error("CollectiveLearning", "Upload error for ${ts.symbol}: ${e.message}", e)
                     }
                 }
+            } else {
+                ErrorLogger.warn("Executor", "🌐 [COLLECTIVE] SELL: isEnabled=false, skipping upload for ${ts.symbol}")
             }
         } catch (e: Exception) {
             ErrorLogger.debug("BehaviorLearning", "recordTrade error: ${e.message}")
