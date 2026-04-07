@@ -326,6 +326,19 @@ object TreasuryManager {
     // ── Persistence ───────────────────────────────────────────────────
 
     fun save(ctx: Context) {
+        // V5.6.17: Save to both encrypted AND regular prefs for redundancy
+        val obj = JSONObject().apply {
+            put("treasury_sol",        treasurySol)
+            put("treasury_usd",        treasuryUsd)
+            put("milestone_hit",       highestMilestoneHit)
+            put("lifetime_locked",     lifetimeLocked)
+            put("lifetime_withdrawn",  lifetimeWithdrawn)
+            put("last_wallet_usd",     lastWalletUsd)
+            put("peak_wallet_usd",     peakWalletUsd)
+            put("saved_at",            System.currentTimeMillis())
+        }
+        
+        // Primary: Encrypted SharedPreferences
         try {
             val mk = MasterKey.Builder(ctx)
                 .setKeyScheme(MasterKey.KeyScheme.AES256_GCM).build()
@@ -334,21 +347,24 @@ object TreasuryManager {
                 EncryptedSharedPreferences.PrefKeyEncryptionScheme.AES256_SIV,
                 EncryptedSharedPreferences.PrefValueEncryptionScheme.AES256_GCM,
             )
-            val obj = JSONObject().apply {
-                put("treasury_sol",        treasurySol)
-                put("treasury_usd",        treasuryUsd)
-                put("milestone_hit",       highestMilestoneHit)
-                put("lifetime_locked",     lifetimeLocked)
-                put("lifetime_withdrawn",  lifetimeWithdrawn)
-                put("last_wallet_usd",     lastWalletUsd)
-                put("peak_wallet_usd",     peakWalletUsd)
-                put("saved_at",            System.currentTimeMillis())
-            }
             prefs.edit().putString("state", obj.toString()).apply()
-        } catch (_: Exception) {}
+        } catch (e: Exception) {
+            ErrorLogger.warn("Treasury", "Encrypted save failed: ${e.message}")
+        }
+        
+        // Backup: Regular SharedPreferences (survives app updates better)
+        try {
+            val backupPrefs = ctx.getSharedPreferences("${PREFS_NAME}_backup", Context.MODE_PRIVATE)
+            backupPrefs.edit().putString("state", obj.toString()).apply()
+        } catch (e: Exception) {
+            ErrorLogger.warn("Treasury", "Backup save failed: ${e.message}")
+        }
     }
 
     fun restore(ctx: Context) {
+        var restored = false
+        
+        // Try primary: Encrypted SharedPreferences
         try {
             val mk = MasterKey.Builder(ctx)
                 .setKeyScheme(MasterKey.KeyScheme.AES256_GCM).build()
@@ -357,27 +373,55 @@ object TreasuryManager {
                 EncryptedSharedPreferences.PrefKeyEncryptionScheme.AES256_SIV,
                 EncryptedSharedPreferences.PrefValueEncryptionScheme.AES256_GCM,
             )
-            val json = prefs.getString("state", null) ?: return
-            val obj  = JSONObject(json)
-            treasurySol          = obj.optDouble("treasury_sol", 0.0)
-            treasuryUsd          = obj.optDouble("treasury_usd", 0.0)
-            highestMilestoneHit  = obj.optInt("milestone_hit", -1)
-            lifetimeLocked       = obj.optDouble("lifetime_locked", 0.0)
-            lifetimeWithdrawn    = obj.optDouble("lifetime_withdrawn", 0.0)
-            lastWalletUsd        = obj.optDouble("last_wallet_usd", 0.0)
-            peakWalletUsd        = obj.optDouble("peak_wallet_usd", 0.0)
-            
-            // Safety check: if no milestones were ever hit but treasury has a value,
-            // this is corrupted state - reset it
-            if (highestMilestoneHit < 0 && treasurySol > 0) {
-                treasurySol = 0.0
-                treasuryUsd = 0.0
+            val json = prefs.getString("state", null)
+            if (json != null) {
+                restoreFromJson(json)
+                restored = true
+                ErrorLogger.info("Treasury", "📂 Restored from encrypted prefs: ${treasurySol.fmtSol()}◎")
             }
-        } catch (_: Exception) {
-            // On any error, start fresh - never block trading due to storage issues
+        } catch (e: Exception) {
+            ErrorLogger.warn("Treasury", "Encrypted restore failed: ${e.message}, trying backup...")
+        }
+        
+        // Fallback: Regular SharedPreferences backup
+        if (!restored) {
+            try {
+                val backupPrefs = ctx.getSharedPreferences("${PREFS_NAME}_backup", Context.MODE_PRIVATE)
+                val json = backupPrefs.getString("state", null)
+                if (json != null) {
+                    restoreFromJson(json)
+                    restored = true
+                    ErrorLogger.info("Treasury", "📂 Restored from backup prefs: ${treasurySol.fmtSol()}◎")
+                    
+                    // Re-save to encrypted prefs to heal the primary storage
+                    save(ctx)
+                }
+            } catch (e: Exception) {
+                ErrorLogger.error("Treasury", "Backup restore also failed: ${e.message}")
+            }
+        }
+        
+        if (!restored) {
+            ErrorLogger.warn("Treasury", "No treasury state found - starting fresh")
+        }
+    }
+    
+    private fun restoreFromJson(json: String) {
+        val obj = JSONObject(json)
+        treasurySol          = obj.optDouble("treasury_sol", 0.0)
+        treasuryUsd          = obj.optDouble("treasury_usd", 0.0)
+        highestMilestoneHit  = obj.optInt("milestone_hit", -1)
+        lifetimeLocked       = obj.optDouble("lifetime_locked", 0.0)
+        lifetimeWithdrawn    = obj.optDouble("lifetime_withdrawn", 0.0)
+        lastWalletUsd        = obj.optDouble("last_wallet_usd", 0.0)
+        peakWalletUsd        = obj.optDouble("peak_wallet_usd", 0.0)
+        
+        // Safety check: if no milestones were ever hit but treasury has a value,
+        // this is corrupted state - reset it
+        if (highestMilestoneHit < 0 && treasurySol > 0) {
+            ErrorLogger.warn("Treasury", "Corrupted state detected: treasury=${treasurySol} but no milestones. Resetting.")
             treasurySol = 0.0
             treasuryUsd = 0.0
-            highestMilestoneHit = -1
         }
     }
     
