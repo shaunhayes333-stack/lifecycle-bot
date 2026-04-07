@@ -350,6 +350,11 @@ class TradeJournal(private val ctx: Context) {
         val scratchTrades = sells.filter { it.pnlPct >= -2.0 && it.pnlPct <= 2.0 }
         val wins  = meaningfulTrades.filter { it.pnlPct > 2.0 }
         val loss  = meaningfulTrades.filter { it.pnlPct < -2.0 }
+        
+        // V5.6.15: Cap outlier percentages for avg calculation to prevent 150k% moonshots from skewing stats
+        val cappedWinsPct = wins.map { it.pnlPct.coerceAtMost(500.0) }  // Cap at 500% for avg calculation
+        val cappedLossPct = loss.map { it.pnlPct.coerceAtLeast(-100.0) }  // Cap at -100%
+        
         return JournalStats(
             totalTrades   = meaningfulTrades.size,
             totalWins     = wins.size,
@@ -358,8 +363,8 @@ class TradeJournal(private val ctx: Context) {
             totalPnlSol   = sells.sumOf { it.pnlSol },
             bestTrade     = sells.maxByOrNull { it.pnlPct },
             worstTrade    = sells.minByOrNull { it.pnlPct },
-            avgWinPct     = if (wins.isNotEmpty()) wins.map { it.pnlPct }.average() else 0.0,
-            avgLossPct    = if (loss.isNotEmpty()) loss.map { it.pnlPct }.average() else 0.0,
+            avgWinPct     = if (cappedWinsPct.isNotEmpty()) cappedWinsPct.average() else 0.0,
+            avgLossPct    = if (cappedLossPct.isNotEmpty()) cappedLossPct.average() else 0.0,
             totalVolumeSol = sells.sumOf { it.solAmount },
             scratchCount  = scratchTrades.size,
         )
