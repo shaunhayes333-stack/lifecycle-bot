@@ -22,9 +22,9 @@ import java.util.concurrent.ConcurrentHashMap
 object TokenWinMemory {
     
     private const val PREFS_NAME = "token_win_memory"
-    private const val MAX_WINNERS = 500      // Max tokens to remember
-    private const val MAX_PATTERNS = 100     // Max patterns to track
-    private const val MIN_PNL_FOR_WIN = 10.0 // Min PnL% to count as a significant win
+    private const val MAX_WINNERS = 5000     // Max tokens to remember
+    private const val MAX_PATTERNS = 1000     // Max patterns to track
+    private const val MIN_PNL_FOR_WIN = 5.0 // Min PnL% to count as a significant win
     
     private var ctx: Context? = null
     
@@ -415,7 +415,7 @@ object TokenWinMemory {
         val stats = winningTokens[mint] ?: return 0
         
         return when {
-            stats.totalPnl >= 100 -> 50   // Big winner
+            stats.totalPnl >= 500 -> 50   // Big winner
             stats.totalPnl >= 50 -> 35
             stats.totalPnl >= 20 -> 25
             stats.totalPnl >= 10 -> 15
