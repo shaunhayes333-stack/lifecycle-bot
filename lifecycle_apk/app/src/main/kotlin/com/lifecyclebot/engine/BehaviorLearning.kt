@@ -191,12 +191,12 @@ object BehaviorLearning {
     ) {
         try {
             val isWin = pnlPct > 5.0
-            val isBigWin = pnlPct > 30.0
+            val isBigWin = pnlPct > 100.0
             val isBigLoss = pnlPct < -15.0
 
             val outcomeCategory = when {
-                pnlPct > 30.0 -> "BIG_WIN"
-                pnlPct > 3.0 -> "SMALL_WIN"
+                pnlPct > 100.0 -> "BIG_WIN"
+                pnlPct > 25.0 -> "SMALL_WIN"
                 pnlPct > -2.0 -> "SCRATCH"
                 pnlPct > -15.0 -> "SMALL_LOSS"
                 else -> "BIG_LOSS"
@@ -741,7 +741,7 @@ object BehaviorLearning {
 
     private fun weightedPnl(pnlPct: Double): Double {
         return when {
-            pnlPct > 30.0 -> pnlPct * 1.5
+            pnlPct > 300.0 -> pnlPct * 1.5
             pnlPct > 15.0 -> pnlPct * 1.2
             else -> pnlPct
         }
