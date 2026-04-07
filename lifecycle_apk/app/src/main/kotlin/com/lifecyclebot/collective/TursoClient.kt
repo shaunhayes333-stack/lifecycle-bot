@@ -10,15 +10,22 @@ import java.net.HttpURLConnection
 import java.net.URL
 
 /**
- * Turso Client
+ * TursoClient
  *
- * HTTP client for communicating with Turso/libSQL using POST /v2/pipeline.
+ * HTTP client for Turso / libSQL pipeline API.
+ *
+ * CRITICAL FIX:
+ * Numeric args must be encoded as JSON numbers, not strings.
+ * Old broken payload example:
+ *   {"type":"float","value":"0.0"}
+ *
+ * Correct payload:
+ *   {"type":"float","value":0.0}
  */
 class TursoClient(
     dbUrl: String,
     private val authToken: String
 ) {
-
     companion object {
         private const val TAG = "TursoClient"
         private const val TIMEOUT_MS = 30_000
@@ -30,20 +37,10 @@ class TursoClient(
     data class QueryResult(
         val success: Boolean,
         val rows: List<Map<String, Any?>>,
-        val rowsAffected: Int,
-        val lastInsertId: Long?,
-        val error: String?
+        val rowsAffected: Int = 0,
+        val lastInsertId: Long? = null,
+        val error: String? = null
     )
-
-    private fun normalizeDbUrl(url: String): String {
-        val normalized = when {
-            url.startsWith("libsql://") -> url.replace("libsql://", "https://")
-            url.startsWith("https://") -> url
-            url.startsWith("http://") -> url
-            else -> "https://$url"
-        }
-        return normalized.trim().trimEnd('/')
-    }
 
     suspend fun execute(sql: String, args: List<Any?> = emptyList()): QueryResult {
         return executeRequest(sql = sql, args = args, expectRows = false)
@@ -55,8 +52,6 @@ class TursoClient(
 
     suspend fun batch(statements: List<Pair<String, List<Any?>>>): List<QueryResult> {
         return withContext(Dispatchers.IO) {
-            if (statements.isEmpty()) return@withContext emptyList()
-
             try {
                 val requests = JSONArray()
 
@@ -67,18 +62,12 @@ class TursoClient(
                 requests.put(buildCloseRequest())
 
                 val body = JSONObject().put("requests", requests).toString()
-                val responseJson = httpPost(body)
-                parseBatchResponse(responseJson, statements.size)
+                val responseText = httpPost(body)
+                parseBatchResponse(responseText)
             } catch (e: Exception) {
                 Log.e(TAG, "Batch error: ${e.message}", e)
                 statements.map {
-                    QueryResult(
-                        success = false,
-                        rows = emptyList(),
-                        rowsAffected = 0,
-                        lastInsertId = null,
-                        error = e.message ?: "Unknown batch error"
-                    )
+                    QueryResult(success = false, rows = emptyList(), error = e.message)
                 }
             }
         }
@@ -89,7 +78,7 @@ class TursoClient(
             for (createSql in CollectiveSchema.ALL_TABLES) {
                 val result = execute(createSql.trim())
                 if (!result.success) {
-                    Log.e(TAG, "Schema init failed: ${result.error}")
+                    Log.e(TAG, "Schema table init failed: ${result.error}")
                     return false
                 }
             }
@@ -102,7 +91,7 @@ class TursoClient(
             for (indexSql in indexStatements) {
                 val result = execute(indexSql)
                 if (!result.success) {
-                    Log.w(TAG, "Index creation warning: ${result.error}")
+                    Log.w(TAG, "Index init warning: ${result.error}")
                 }
             }
 
@@ -117,9 +106,9 @@ class TursoClient(
     suspend fun testConnection(): Boolean {
         return try {
             val result = query("SELECT 1 as test")
-            result.success && result.rows.isNotEmpty()
+            result.success
         } catch (e: Exception) {
-            Log.e(TAG, "Connection test failed: ${e.message}")
+            Log.e(TAG, "Connection test failed: ${e.message}", e)
             false
         }
     }
@@ -132,27 +121,26 @@ class TursoClient(
         return withContext(Dispatchers.IO) {
             try {
                 val requests = JSONArray()
-                    .put(buildExecuteRequest(sql, args))
-                    .put(buildCloseRequest())
+                requests.put(buildExecuteRequest(sql, args))
+                requests.put(buildCloseRequest())
 
                 val body = JSONObject().put("requests", requests).toString()
-                val responseJson = httpPost(body)
-                parseSingleResponse(responseJson, expectRows)
+
+                Log.d(TAG, "SQL: ${sql.take(180)}")
+                Log.d(TAG, "ARGS: ${args.joinToString(prefix = "[", postfix = "]") { describeArg(it) }}")
+
+                val responseText = httpPost(body)
+                parseSingleResponse(responseText, expectRows)
             } catch (e: Exception) {
                 Log.e(TAG, "Execute error: ${e.message}", e)
-                QueryResult(
-                    success = false,
-                    rows = emptyList(),
-                    rowsAffected = 0,
-                    lastInsertId = null,
-                    error = e.message ?: "Unknown execute error"
-                )
+                QueryResult(success = false, rows = emptyList(), error = e.message)
             }
         }
     }
 
     private fun buildExecuteRequest(sql: String, args: List<Any?>): JSONObject {
-        val stmt = JSONObject().put("sql", sql)
+        val stmt = JSONObject()
+        stmt.put("sql", sql)
 
         if (args.isNotEmpty()) {
             val argsArray = JSONArray()
@@ -171,6 +159,10 @@ class TursoClient(
         return JSONObject().put("type", "close")
     }
 
+    /**
+     * FIXED:
+     * Numeric "value" fields are encoded as JSON numbers, not strings.
+     */
     private fun convertArg(arg: Any?): JSONObject {
         val obj = JSONObject()
 
@@ -181,42 +173,53 @@ class TursoClient(
 
             is Int -> {
                 obj.put("type", "integer")
-                obj.put("value", arg.toString())
+                obj.put("value", arg)
             }
 
             is Long -> {
                 obj.put("type", "integer")
-                obj.put("value", arg.toString())
+                obj.put("value", arg)
             }
 
             is Short -> {
                 obj.put("type", "integer")
-                obj.put("value", arg.toString())
+                obj.put("value", arg.toInt())
             }
 
             is Byte -> {
                 obj.put("type", "integer")
-                obj.put("value", arg.toString())
+                obj.put("value", arg.toInt())
             }
 
             is Float -> {
                 obj.put("type", "float")
-                obj.put("value", sanitizeDouble(arg.toDouble()).toString())
+                obj.put("value", sanitizeDouble(arg.toDouble()))
             }
 
             is Double -> {
                 obj.put("type", "float")
-                obj.put("value", sanitizeDouble(arg).toString())
+                obj.put("value", sanitizeDouble(arg))
             }
 
             is Boolean -> {
                 obj.put("type", "integer")
-                obj.put("value", if (arg) "1" else "0")
+                obj.put("value", if (arg) 1 else 0)
             }
 
             is ByteArray -> {
                 obj.put("type", "blob")
                 obj.put("base64", Base64.encodeToString(arg, Base64.NO_WRAP))
+            }
+
+            is Number -> {
+                val asDouble = arg.toDouble()
+                if (asDouble % 1.0 == 0.0) {
+                    obj.put("type", "integer")
+                    obj.put("value", arg.toLong())
+                } else {
+                    obj.put("type", "float")
+                    obj.put("value", sanitizeDouble(asDouble))
+                }
             }
 
             else -> {
@@ -229,25 +232,22 @@ class TursoClient(
     }
 
     private fun httpPost(body: String): String {
-        val endpoint = "$httpDbUrl$PIPELINE_PATH"
-        val conn = (URL(endpoint).openConnection() as HttpURLConnection)
+        val url = URL("$httpDbUrl$PIPELINE_PATH")
+        val conn = url.openConnection() as HttpURLConnection
 
-        return try {
-            Log.d(TAG, "HTTP POST → $endpoint")
-
+        try {
             conn.requestMethod = "POST"
             conn.connectTimeout = TIMEOUT_MS
             conn.readTimeout = TIMEOUT_MS
-            conn.useCaches = false
-            conn.doInput = true
             conn.doOutput = true
             conn.setRequestProperty("Authorization", "Bearer $authToken")
             conn.setRequestProperty("Content-Type", "application/json")
-            conn.setRequestProperty("Accept", "application/json")
 
-            conn.outputStream.bufferedWriter().use { writer ->
-                writer.write(body)
-                writer.flush()
+            Log.d(TAG, "POST $url")
+            Log.d(TAG, "BODY ${body.take(1000)}")
+
+            conn.outputStream.use { os ->
+                os.write(body.toByteArray(Charsets.UTF_8))
             }
 
             val responseCode = conn.responseCode
@@ -255,17 +255,17 @@ class TursoClient(
                 conn.inputStream.bufferedReader().use { it.readText() }
             } else {
                 conn.errorStream?.bufferedReader()?.use { it.readText() }
-                    ?: "Unknown error"
+                    ?: "HTTP $responseCode with empty error body"
             }
 
             Log.d(TAG, "HTTP $responseCode")
+            Log.d(TAG, "RESP ${responseText.take(1000)}")
 
             if (responseCode !in 200..299) {
-                Log.e(TAG, "HTTP ERROR $responseCode: $responseText")
                 throw RuntimeException("HTTP $responseCode: $responseText")
             }
 
-            responseText
+            return responseText
         } finally {
             conn.disconnect()
         }
@@ -273,109 +273,69 @@ class TursoClient(
 
     private fun parseSingleResponse(responseJson: String, expectRows: Boolean): QueryResult {
         return try {
-            val root = JSONObject(responseJson)
-            val results = root.optJSONArray("results")
-                ?: return failure("No results in response")
+            val json = JSONObject(responseJson)
+            val results = json.optJSONArray("results")
+                ?: return QueryResult(false, emptyList(), error = "No results in response")
 
             if (results.length() == 0) {
-                return failure("Empty results")
+                return QueryResult(false, emptyList(), error = "Empty results array")
             }
 
-            val firstResult = results.optJSONObject(0)
-                ?: return failure("Missing first pipeline result")
-
-            parsePipelineItem(firstResult, expectRows)
+            parsePipelineResult(results.optJSONObject(0), expectRows)
         } catch (e: Exception) {
-            Log.e(TAG, "Parse error: ${e.message}", e)
-            failure(e.message ?: "Parse error")
+            Log.e(TAG, "Parse single response error: ${e.message}", e)
+            QueryResult(false, emptyList(), error = e.message)
         }
     }
 
-    private fun parseBatchResponse(responseJson: String, expectedStatements: Int): List<QueryResult> {
+    private fun parseBatchResponse(responseJson: String): List<QueryResult> {
         return try {
-            val root = JSONObject(responseJson)
-            val results = root.optJSONArray("results")
-                ?: return List(expectedStatements) { failure("No results in batch response") }
+            val json = JSONObject(responseJson)
+            val results = json.optJSONArray("results")
+                ?: return listOf(QueryResult(false, emptyList(), error = "No results in response"))
 
             val parsed = mutableListOf<QueryResult>()
-
             for (i in 0 until results.length()) {
                 val item = results.optJSONObject(i) ?: continue
-
                 val type = item.optString("type", "")
                 if (type == "close") continue
-
-                parsed.add(parsePipelineItem(item, expectRows = true))
+                parsed.add(parsePipelineResult(item, expectRows = false))
             }
-
-            if (parsed.isEmpty()) {
-                return List(expectedStatements) { failure("No executable results in batch response") }
-            }
-
             parsed
         } catch (e: Exception) {
-            Log.e(TAG, "Batch parse error: ${e.message}", e)
-            listOf(failure(e.message ?: "Batch parse error"))
+            Log.e(TAG, "Parse batch response error: ${e.message}", e)
+            listOf(QueryResult(false, emptyList(), error = e.message))
         }
     }
 
-    private fun parsePipelineItem(item: JSONObject, expectRows: Boolean): QueryResult {
-        val topLevelError = item.optJSONObject("error")
-        if (topLevelError != null) {
-            val msg = extractErrorMessage(topLevelError)
-            Log.e(TAG, "Pipeline item error: $msg")
-            return failure(msg)
+    private fun parsePipelineResult(item: JSONObject?, expectRows: Boolean): QueryResult {
+        if (item == null) {
+            return QueryResult(false, emptyList(), error = "Null pipeline result")
         }
 
-        val response = item.optJSONObject("response")
-        if (response == null) {
-            return QueryResult(
-                success = true,
-                rows = emptyList(),
-                rowsAffected = 0,
-                lastInsertId = null,
-                error = null
-            )
+        val type = item.optString("type", "")
+
+        if (type == "error") {
+            val errObj = item.optJSONObject("error")
+            val message = errObj?.optString("message")
+                ?: item.optString("error", "Unknown Turso error")
+            return QueryResult(false, emptyList(), error = message)
         }
 
-        val responseError = response.optJSONObject("error")
-        if (responseError != null) {
-            val msg = extractErrorMessage(responseError)
-            Log.e(TAG, "Response error: $msg")
-            return failure(msg)
-        }
+        val responseObj = item.optJSONObject("response")
+        val resultObj = responseObj?.optJSONObject("result")
 
-        val resultObj = response.optJSONObject("result")
-        if (resultObj == null) {
-            return QueryResult(
-                success = true,
-                rows = emptyList(),
-                rowsAffected = 0,
-                lastInsertId = null,
-                error = null
-            )
-        }
+        val rowsAffected = resultObj?.optInt("affected_row_count", 0) ?: 0
+        val lastInsertId = resultObj
+            ?.opt("last_insert_rowid")
+            ?.toString()
+            ?.toLongOrNull()
 
-        val resultError = resultObj.optJSONObject("error")
-        if (resultError != null) {
-            val msg = extractErrorMessage(resultError)
-            Log.e(TAG, "Result error: $msg")
-            return failure(msg)
-        }
-
-        val rowsAffected = parseInt(resultObj.opt("affected_row_count"))
-        val lastInsertId = parseLongOrNull(resultObj.opt("last_insert_rowid"))
-
-        val rows = if (expectRows) {
+        val rows = if (expectRows && resultObj != null) {
             parseRows(resultObj)
         } else {
             emptyList()
         }
-
-        Log.d(
-            TAG,
-            "Parsed: success=true rows=${rows.size} affected=$rowsAffected lastInsertId=$lastInsertId"
-        )
 
         return QueryResult(
             success = true,
@@ -390,13 +350,14 @@ class TursoClient(
         val cols = resultObj.optJSONArray("cols") ?: return emptyList()
         val rowsArray = resultObj.optJSONArray("rows") ?: return emptyList()
 
-        val columnNames = ArrayList<String>(cols.length())
+        val columnNames = mutableListOf<String>()
         for (i in 0 until cols.length()) {
             val col = cols.optJSONObject(i)
-            val colName = col?.optString("name")
-                ?: col?.optString("column")
-                ?: "col$i"
-            columnNames.add(colName)
+            columnNames.add(
+                col?.optString("name")
+                    ?: col?.optString("column")
+                    ?: "col_$i"
+            )
         }
 
         val rows = mutableListOf<Map<String, Any?>>()
@@ -405,9 +366,10 @@ class TursoClient(
             val rowArray = rowsArray.optJSONArray(i) ?: continue
             val rowMap = linkedMapOf<String, Any?>()
 
-            for (j in 0 until rowArray.length()) {
-                val colName = columnNames.getOrElse(j) { "col$j" }
-                rowMap[colName] = parseCellValue(rowArray.opt(j))
+            for (j in 0 until columnNames.size) {
+                val colName = columnNames[j]
+                val cell = rowArray.opt(j)
+                rowMap[colName] = parseCellValue(cell)
             }
 
             rows.add(rowMap)
@@ -424,17 +386,23 @@ class TursoClient(
                 val type = cell.optString("type", "")
                 when (type) {
                     "null" -> null
-                    "integer" -> parseLong(cell.opt("value"))
-                    "float" -> sanitizeDouble(parseDouble(cell.opt("value")))
-                    "text" -> cell.optString("value", "")
-                    "blob" -> cell.optString("base64", "")
-                    else -> {
-                        if (cell.has("value")) {
-                            cell.opt("value")
-                        } else {
-                            cell.toString()
+                    "integer" -> cell.opt("value")?.let { v ->
+                        when (v) {
+                            is Number -> v.toLong()
+                            is String -> v.toLongOrNull() ?: 0L
+                            else -> 0L
                         }
                     }
+                    "float" -> cell.opt("value")?.let { v ->
+                        when (v) {
+                            is Number -> sanitizeDouble(v.toDouble())
+                            is String -> sanitizeDouble(v.toDoubleOrNull() ?: 0.0)
+                            else -> 0.0
+                        }
+                    }
+                    "text" -> cell.optString("value", "")
+                    "blob" -> cell.optString("base64", "")
+                    else -> cell.opt("value") ?: cell.toString()
                 }
             }
 
@@ -444,79 +412,29 @@ class TursoClient(
         }
     }
 
-    private fun extractErrorMessage(errorObj: JSONObject): String {
-        return errorObj.optString("message")
-            .ifBlank {
-                errorObj.optString("code")
-            }
-            .ifBlank {
-                errorObj.toString()
-            }
-    }
-
-    private fun failure(message: String): QueryResult {
-        return QueryResult(
-            success = false,
-            rows = emptyList(),
-            rowsAffected = 0,
-            lastInsertId = null,
-            error = message
-        )
+    private fun normalizeDbUrl(url: String): String {
+        return when {
+            url.startsWith("libsql://") -> url.replace("libsql://", "https://")
+            url.startsWith("https://") -> url
+            url.startsWith("http://") -> url
+            else -> "https://$url"
+        }.trimEnd('/')
     }
 
     private fun sanitizeDouble(value: Double): Double {
         return if (value.isNaN() || value.isInfinite()) 0.0 else value
     }
 
-    private fun parseInt(value: Any?): Int {
-        return when (value) {
-            null, JSONObject.NULL -> 0
-            is Int -> value
-            is Long -> value.toInt()
-            is Double -> value.toInt()
-            is Float -> value.toInt()
-            is Number -> value.toInt()
-            is String -> value.toIntOrNull() ?: value.toDoubleOrNull()?.toInt() ?: 0
-            else -> 0
-        }
-    }
-
-    private fun parseLong(value: Any?): Long {
-        return when (value) {
-            null, JSONObject.NULL -> 0L
-            is Long -> value
-            is Int -> value.toLong()
-            is Double -> value.toLong()
-            is Float -> value.toLong()
-            is Number -> value.toLong()
-            is String -> value.toLongOrNull() ?: value.toDoubleOrNull()?.toLong() ?: 0L
-            else -> 0L
-        }
-    }
-
-    private fun parseLongOrNull(value: Any?): Long? {
-        return when (value) {
-            null, JSONObject.NULL -> null
-            is Long -> value
-            is Int -> value.toLong()
-            is Double -> value.toLong()
-            is Float -> value.toLong()
-            is Number -> value.toLong()
-            is String -> value.toLongOrNull() ?: value.toDoubleOrNull()?.toLong()
-            else -> null
-        }
-    }
-
-    private fun parseDouble(value: Any?): Double {
-        return when (value) {
-            null, JSONObject.NULL -> 0.0
-            is Double -> value
-            is Float -> value.toDouble()
-            is Int -> value.toDouble()
-            is Long -> value.toDouble()
-            is Number -> value.toDouble()
-            is String -> value.toDoubleOrNull() ?: 0.0
-            else -> 0.0
+    private fun describeArg(arg: Any?): String {
+        return when (arg) {
+            null -> "null"
+            is Double -> "Double($arg)"
+            is Float -> "Float($arg)"
+            is Int -> "Int($arg)"
+            is Long -> "Long($arg)"
+            is Boolean -> "Boolean($arg)"
+            is String -> "String($arg)"
+            else -> "${arg::class.java.simpleName}($arg)"
         }
     }
 }
