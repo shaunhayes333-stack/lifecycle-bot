@@ -18,6 +18,10 @@ import java.net.URL
  * - integer.value must be a STRING
  * - float.value must be a JSON NUMBER
  * - text.value must be a STRING
+ *
+ * IMPORTANT SCHEMA RULE:
+ * - CREATE TABLE IF NOT EXISTS does NOT upgrade old tables
+ * - runMigrations() must patch older schemas
  */
 class TursoClient(
     dbUrl: String,
@@ -87,6 +91,10 @@ class TursoClient(
                 }
             }
 
+            if (!runMigrations()) {
+                return false
+            }
+
             val indexStatements = CollectiveSchema.CREATE_INDEXES
                 .split(";")
                 .map { it.trim() }
@@ -115,6 +123,29 @@ class TursoClient(
             Log.e(TAG, "Connection test failed: ${e.message}", e)
             false
         }
+    }
+
+    private suspend fun runMigrations(): Boolean {
+        for (sql in CollectiveSchema.MIGRATION_STATEMENTS) {
+            val result = execute(sql)
+            if (!result.success) {
+                val err = result.error.orEmpty()
+
+                if (
+                    err.contains("duplicate column name", ignoreCase = true) ||
+                    err.contains("already exists", ignoreCase = true)
+                ) {
+                    Log.d(TAG, "Migration already applied: $sql")
+                    continue
+                }
+
+                Log.e(TAG, "Migration failed: $sql | $err")
+                return false
+            } else {
+                Log.i(TAG, "Migration applied: $sql")
+            }
+        }
+        return true
     }
 
     private suspend fun executeRequest(
