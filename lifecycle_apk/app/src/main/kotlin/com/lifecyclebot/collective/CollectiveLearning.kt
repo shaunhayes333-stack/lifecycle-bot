@@ -409,34 +409,29 @@ object CollectiveLearning {
         isWin: Boolean = false, // Only relevant for SELL
         paperMode: Boolean = true,
     ) {
-        // V5.6.22: Track upload attempts
+        // V5.6.23: Track attempts
         totalUploadAttemptsThisSession++
         
-        // V5.6.22: Use ErrorLogger so logs appear in the app's Error Log export
         ErrorLogger.info("CollectiveTrade", "📤 ATTEMPT #$totalUploadAttemptsThisSession: $side $symbol | enabled=${isEnabled()} | init=$isInitialized | client=${client != null} | inst=${instanceId.take(8)}")
         
-        // V5.6.20: Validate instanceId BEFORE attempting upload
         if (instanceId.isBlank()) {
             totalUploadSkippedThisSession++
-            ErrorLogger.error("CollectiveTrade", "❌ SKIPPED: $side $symbol - instanceId BLANK! init() not completed")
+            ErrorLogger.error("CollectiveTrade", "❌ SKIP: $side $symbol - instanceId BLANK")
             return
         }
         
-        // V5.6.11: Try to reconnect if disconnected
         if (!isEnabled()) {
             ErrorLogger.warn("CollectiveTrade", "🔄 Reconnecting for $side $symbol...")
             ensureConnected()
             if (!isEnabled()) {
                 totalUploadSkippedThisSession++
-                ErrorLogger.error("CollectiveTrade", "❌ SKIPPED: $side $symbol - DISABLED (client=${client != null}, init=$isInitialized)")
+                ErrorLogger.error("CollectiveTrade", "❌ SKIP: $side $symbol - DISABLED")
                 return
             }
         }
         
         try {
             val now = System.currentTimeMillis()
-            
-            // Create unique hash for this trade (privacy: no wallet, no mint)
             val tradeHash = sha256("$now|$side|$symbol|$mode|${System.nanoTime()}").take(24)
             
             val liquidityBucket = when {
@@ -446,15 +441,15 @@ object CollectiveLearning {
                 else -> "LARGE"
             }
             
-            ErrorLogger.info("CollectiveTrade", "📤 INSERT: $side $symbol | hash=${tradeHash.take(8)} | inst=${instanceId.take(8)} | liq=$liquidityBucket")
-            
-            // V3.3: Include instance_id for legal compliance and per-user audit trail
+            // V5.6.23: Use INSERT OR REPLACE to handle any duplicate key issues
             val sql = """
-                INSERT INTO collective_trades 
+                INSERT OR REPLACE INTO collective_trades 
                     (trade_hash, instance_id, timestamp, side, symbol, mode, source, liquidity_bucket,
                      market_sentiment, entry_score, confidence, pnl_pct, hold_mins, is_win, paper_mode)
                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """.trimIndent()
+            
+            ErrorLogger.info("CollectiveTrade", "📤 INSERT: $side $symbol | hash=${tradeHash.take(8)} | inst=${instanceId.take(8)}")
             
             val result = client!!.execute(sql, listOf(
                 tradeHash, instanceId, now, side, symbol, mode, source, liquidityBucket,
@@ -462,24 +457,26 @@ object CollectiveLearning {
                 if (isWin) 1 else 0, if (paperMode) 1 else 0
             ))
             
-            // V5.6.22: Log the actual Turso response for debugging
-            ErrorLogger.info("CollectiveTrade", "📤 RESULT: $side $symbol | success=${result.success} | rows=${result.rowsAffected} | lastId=${result.lastInsertId} | err=${result.error?.take(100)}")
+            ErrorLogger.info("CollectiveTrade", "📤 RESULT: $side $symbol | success=${result.success} | rows=${result.rowsAffected} | lastId=${result.lastInsertId} | err=${result.error?.take(50)}")
             
-            if (result.success) {
-                // V5.6.20: Turso HTTP API may return success=true with no rowsAffected for INSERTs
-                // Treat as success if no error is reported
-                if (result.error.isNullOrBlank()) {
+            // V5.6.23: VERIFY the insert worked by querying back
+            if (result.success && result.error.isNullOrBlank()) {
+                val verify = client!!.query(
+                    "SELECT COUNT(*) as cnt FROM collective_trades WHERE trade_hash = ?",
+                    listOf(tradeHash)
+                )
+                val count = (verify.rows.firstOrNull()?.get("cnt") as? Number)?.toInt() ?: 0
+                
+                if (count > 0) {
                     totalUploadSuccessThisSession++
-                    ErrorLogger.info("CollectiveTrade", "✅ UPLOADED: $side $symbol ($mode) ${if (side == "SELL") "${pnlPct.toInt()}%" else ""} [${totalUploadSuccessThisSession}/${totalUploadAttemptsThisSession}]")
                     totalUploadsThisSession++
-                    
-                    // V3.3: Update instance registry trade count
+                    ErrorLogger.info("CollectiveTrade", "✅ VERIFIED: $side $symbol exists in DB! [${totalUploadSuccessThisSession}/${totalUploadAttemptsThisSession}]")
                     updateInstanceTradeCount()
                 } else {
-                    ErrorLogger.warn("CollectiveTrade", "⚠️ SUCCESS but error msg: $side $symbol | ${result.error}")
+                    ErrorLogger.error("CollectiveTrade", "❌ VERIFY FAILED: $side $symbol - INSERT returned success but row not found in DB!")
                 }
             } else {
-                ErrorLogger.error("CollectiveTrade", "❌ FAILED: $side $symbol | err=${result.error} | rows=${result.rowsAffected}")
+                ErrorLogger.error("CollectiveTrade", "❌ FAILED: $side $symbol | err=${result.error}")
             }
         } catch (e: Exception) {
             ErrorLogger.error("CollectiveTrade", "❌ EXCEPTION: $side $symbol | ${e.message}")
