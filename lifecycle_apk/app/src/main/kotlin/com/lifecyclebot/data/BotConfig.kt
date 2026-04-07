@@ -209,7 +209,7 @@ data class BotConfig(
     // ── Turso Collective Learning ────────────────────────────────────────
     // Shared knowledge base across all AATE instances (ENABLED BY DEFAULT)
     val tursoDbUrl: String = "libsql://superbrain-shaunhayes333-stack.aws-ap-northeast-1.turso.io",
-    val tursoAuthToken: String = "eyJhbGciOiJFZERTQSIsInR5cCI6IkpXVCJ9.eyJhIjoicnciLCJpYXQiOjE3NzQ3NzMwMDYsImlkIjoiMDE5ZDMwNjYtMmUwMS03NzcyLTgyMTYtMDIyYzY1YzRmNmVjIiwicmlkIjoiMGExMzRiY2EtZmY1YS00NmQ2LWI2ZWYtYmU4MjAyYWE1ZWI4In0.HFbG4n8j8VFjDZu-u-gWaCVfU3FSxftitCqzrSBwpKAq90m2CT_18kpM-k6qFas_0s3MOf5Q_hzWFKse_mUIDw",
+    val tursoAuthToken: String = "eyJhbGciOiJFZERTQSIsInR5cCI6IkpXVCJ9.eyJhIjoicnciLCJpYXQiOjE3NzU1NTE3MzQsImlkIjoiMDE5ZDMwNjYtMmUwMS03NzcyLTgyMTYtMDIyYzY1YzRmNmVjIiwicmlkIjoiMGExMzRiY2EtZmY1YS00NmQ2LWI2ZWYtYmU4MjAyYWE1ZWI4In0.PNhzeQw2rXloG3cDJaOPRg-Kq6rCpOy5kk6Q6GCD8Ar_AKC2iiW5OTKoK-q3Y78LFPWp_8ttrEhtlPz0VJ_VDw",
     val collectiveLearningEnabled: Boolean = true,  // Enable collective learning sync
     // ── V3 Scoring Engine ─────────────────────────────────────────────────
     // V3.2: V3 is now the PRIMARY and ONLY decision engine
@@ -410,7 +410,7 @@ object ConfigStore {
                 if (it.isNullOrBlank()) "libsql://superbrain-shaunhayes333-stack.aws-ap-northeast-1.turso.io" else it 
             },
             tursoAuthToken              = s.getString("turso_auth_token", "").let {
-                if (it.isNullOrBlank()) "eyJhbGciOiJFZERTQSIsInR5cCI6IkpXVCJ9.eyJhIjoicnciLCJpYXQiOjE3NzQ3NzMwMDYsImlkIjoiMDE5ZDMwNjYtMmUwMS03NzcyLTgyMTYtMDIyYzY1YzRmNmVjIiwicmlkIjoiMGExMzRiY2EtZmY1YS00NmQ2LWI2ZWYtYmU4MjAyYWE1ZWI4In0.HFbG4n8j8VFjDZu-u-gWaCVfU3FSxftitCqzrSBwpKAq90m2CT_18kpM-k6qFas_0s3MOf5Q_hzWFKse_mUIDw" else it
+                if (it.isNullOrBlank()) "eyJhbGciOiJFZERTQSIsInR5cCI6IkpXVCJ9.eyJhIjoicnciLCJpYXQiOjE3NzU1NTE3MzQsImlkIjoiMDE5ZDMwNjYtMmUwMS03NzcyLTgyMTYtMDIyYzY1YzRmNmVjIiwicmlkIjoiMGExMzRiY2EtZmY1YS00NmQ2LWI2ZWYtYmU4MjAyYWE1ZWI4In0.PNhzeQw2rXloG3cDJaOPRg-Kq6rCpOy5kk6Q6GCD8Ar_AKC2iiW5OTKoK-q3Y78LFPWp_8ttrEhtlPz0VJ_VDw" else it
             },
             autoAddNewTokens            = p.getBoolean("auto_add_new_tokens", true),
             geminiEnabled               = p.getBoolean("gemini_enabled", true),

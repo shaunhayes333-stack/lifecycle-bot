@@ -27,7 +27,7 @@ object CloudLearningSync {
     // TURSO CONFIG
     // NOTE: Converted from libsql:// to https:// for SQL-over-HTTP pipeline usage
     private const val TURSO_HTTP_URL = "https://superbrain-shaunhayes333-stack.aws-ap-northeast-1.turso.io"
-    private const val TURSO_AUTH_TOKEN = "eyJhbGciOiJFZERTQSIsInR5cCI6IkpXVCJ9.eyJhIjoicnciLCJpYXQiOjE3NzU0OTUwNDMsImlkIjoiMDE5ZDMwNjYtMmUwMS03NzcyLTgyMTYtMDIyYzY1YzRmNmVjIiwicmlkIjoiMGExMzRiY2EtZmY1YS00NmQ2LWI2ZWYtYmU4MjAyYWE1ZWI4In0.Dtq8CaIehB22Taqs8j17F_GY3Gr3fY8xq0vbigQwQ-jIelJiidZ_BU_BPlTztCnEXa2spFBwmxONuJQAZkKmAw"
+    private const val TURSO_AUTH_TOKEN = "eyJhbGciOiJFZERTQSIsInR5cCI6IkpXVCJ9.eyJhIjoicnciLCJpYXQiOjE3NzU1NTE3MzQsImlkIjoiMDE5ZDMwNjYtMmUwMS03NzcyLTgyMTYtMDIyYzY1YzRmNmVjIiwicmlkIjoiMGExMzRiY2EtZmY1YS00NmQ2LWI2ZWYtYmU4MjAyYWE1ZWI4In0.PNhzeQw2rXloG3cDJaOPRg-Kq6rCpOy5kk6Q6GCD8Ar_AKC2iiW5OTKoK-q3Y78LFPWp_8ttrEhtlPz0VJ_VDw"
 
     private const val MIN_TRADES_TO_CONTRIBUTE = 20
     private const val UPLOAD_INTERVAL_MS = 4 * 60 * 60 * 1000L
