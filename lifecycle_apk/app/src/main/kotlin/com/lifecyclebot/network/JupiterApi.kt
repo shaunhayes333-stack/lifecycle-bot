@@ -1,5 +1,6 @@
 package com.lifecyclebot.network
 
+import android.util.Log
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
 import okhttp3.Request
@@ -486,48 +487,49 @@ class JupiterApi(private val apiKey: String = "") {
                 .post(payload.toRequestBody(JSON))
                 .build()
 
-            val resp = http.newCall(req).execute()
-            val body = resp.body?.string()
-            val elapsed = System.currentTimeMillis() - startMs
+            http.newCall(req).execute().use { resp ->
+                val body = resp.body?.string()
+                val elapsed = System.currentTimeMillis() - startMs
 
-            if (body.isNullOrBlank()) {
-                log("⚠️ SIMULATE empty response (${elapsed}ms)")
-                return "RPC error: empty response"
-            }
+                if (body.isNullOrBlank()) {
+                    log("⚠️ SIMULATE empty response (${elapsed}ms)")
+                    return "RPC error: empty response"
+                }
 
-            val json = JSONObject(body)
+                val json = JSONObject(body)
 
-            if (json.has("error")) {
-                val rpcError = json.optJSONObject("error")?.optString("message", "unknown")
-                    ?: json.optString("error", "unknown")
-                log("❌ SIMULATE RPC ERROR: $rpcError (${elapsed}ms)")
-                return "RPC error: $rpcError"
-            }
+                if (json.has("error")) {
+                    val rpcError = json.optJSONObject("error")?.optString("message", "unknown")
+                        ?: json.optString("error", "unknown")
+                    log("❌ SIMULATE RPC ERROR: $rpcError (${elapsed}ms)")
+                    return "RPC error: $rpcError"
+                }
 
-            val err = json.optJSONObject("result")
-                ?.optJSONObject("value")
-                ?.opt("err")
-
-            if (err != null && err.toString() != "null") {
-                val logs = json.optJSONObject("result")
+                val err = json.optJSONObject("result")
                     ?.optJSONObject("value")
-                    ?.optJSONArray("logs")
+                    ?.opt("err")
 
-                val lastLog = (0 until (logs?.length() ?: 0))
-                    .mapNotNull { logs?.optString(it) }
-                    .lastOrNull {
-                        it.contains("Error", ignoreCase = true) ||
-                            it.contains("failed", ignoreCase = true) ||
-                            it.contains("insufficient", ignoreCase = true)
-                    }
+                if (err != null && err.toString() != "null") {
+                    val logs = json.optJSONObject("result")
+                        ?.optJSONObject("value")
+                        ?.optJSONArray("logs")
 
-                val msg = "Simulate failed: $err${if (lastLog != null) " | $lastLog" else ""}"
-                log("❌ $msg (${elapsed}ms)")
-                return msg
+                    val lastLog = (0 until (logs?.length() ?: 0))
+                        .mapNotNull { logs?.optString(it) }
+                        .lastOrNull {
+                            it.contains("Error", ignoreCase = true) ||
+                                it.contains("failed", ignoreCase = true) ||
+                                it.contains("insufficient", ignoreCase = true)
+                        }
+
+                    val msg = "Simulate failed: $err${if (lastLog != null) " | $lastLog" else ""}"
+                    log("❌ $msg (${elapsed}ms)")
+                    return msg
+                }
+
+                log("✅ SIMULATE PASSED (${elapsed}ms)")
+                null
             }
-
-            log("✅ SIMULATE PASSED (${elapsed}ms)")
-            null
         } catch (e: Exception) {
             log("⚠️ SIMULATE exception: ${e.javaClass.simpleName} - ${e.message?.take(80)}")
             null
@@ -551,22 +553,23 @@ class JupiterApi(private val apiKey: String = "") {
         val req = reqBuilder.build()
 
         try {
-            val resp = http.newCall(req).execute()
-            val code = resp.code
-            val body = resp.body?.string()
+            http.newCall(req).execute().use { resp ->
+                val code = resp.code
+                val body = resp.body?.string()
 
-            if (!resp.isSuccessful) {
-                if (code == 401) {
-                    throw RuntimeException("Jupiter API 401: API key required")
+                if (!resp.isSuccessful) {
+                    if (code == 401) {
+                        throw RuntimeException("Jupiter API 401: API key required")
+                    }
+                    throw RuntimeException("Jupiter GET $code: ${body?.take(300) ?: "no body"}")
                 }
-                throw RuntimeException("Jupiter GET $code: ${body?.take(300) ?: "no body"}")
-            }
 
-            if (body.isNullOrBlank()) {
-                throw RuntimeException("Empty Jupiter GET response")
-            }
+                if (body.isNullOrBlank()) {
+                    throw RuntimeException("Empty Jupiter GET response")
+                }
 
-            return body
+                return body
+            }
         } catch (e: UnknownHostException) {
             throw RuntimeException("Cannot resolve Jupiter host")
         } catch (e: SocketTimeoutException) {
@@ -590,22 +593,23 @@ class JupiterApi(private val apiKey: String = "") {
         val req = reqBuilder.build()
 
         try {
-            val resp = http.newCall(req).execute()
-            val code = resp.code
-            val body = resp.body?.string()
+            http.newCall(req).execute().use { resp ->
+                val code = resp.code
+                val body = resp.body?.string()
 
-            if (!resp.isSuccessful) {
-                if (code == 401) {
-                    throw RuntimeException("Jupiter API 401: API key required")
+                if (!resp.isSuccessful) {
+                    if (code == 401) {
+                        throw RuntimeException("Jupiter API 401: API key required")
+                    }
+                    throw RuntimeException("Jupiter POST $code: ${body?.take(300) ?: "no body"}")
                 }
-                throw RuntimeException("Jupiter POST $code: ${body?.take(300) ?: "no body"}")
-            }
 
-            if (body.isNullOrBlank()) {
-                throw RuntimeException("Empty Jupiter POST response")
-            }
+                if (body.isNullOrBlank()) {
+                    throw RuntimeException("Empty Jupiter POST response")
+                }
 
-            return body
+                return body
+            }
         } catch (e: UnknownHostException) {
             throw RuntimeException("Cannot resolve Jupiter host")
         } catch (e: SocketTimeoutException) {
@@ -660,19 +664,6 @@ class JupiterApi(private val apiKey: String = "") {
     }
 
     private fun fmt2(value: Double): String = String.format("%.2f", value)
-
-    private fun describeArg(arg: Any?): String {
-        return when (arg) {
-            null -> "null"
-            is Double -> "Double($arg)"
-            is Float -> "Float($arg)"
-            is Int -> "Int($arg)"
-            is Long -> "Long($arg)"
-            is Boolean -> "Boolean($arg)"
-            is String -> "String($arg)"
-            else -> "${arg::class.java.simpleName}($arg)"
-        }
-    }
 
     private fun log(msg: String) {
         try {
