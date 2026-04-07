@@ -1,26 +1,24 @@
 package com.lifecyclebot.engine
 
-import com.lifecyclebot.engine.TradeRecord
+import java.util.Calendar
+import java.util.Locale
 import kotlin.math.abs
 import kotlin.math.max
-import kotlin.math.min
 
 /**
  * PerformanceAnalytics — Deep trading performance insights
- * ═══════════════════════════════════════════════════════════════════════
  *
- * Analyzes your trading history to identify:
- *   📊 Win rates by phase, time, market regime
- *   🎯 Best entry conditions (score ranges, phases)
- *   ⏰ Optimal trading hours
- *   📉 Drawdown analysis
- *   🔥 Streak tracking
- *   💡 Actionable insights for improvement
+ * Analyzes trading history to identify:
+ * - Win rates by phase, time, market regime
+ * - Best entry conditions
+ * - Optimal trading hours
+ * - Drawdown analysis
+ * - Streak tracking
+ * - Actionable insights
  */
 object PerformanceAnalytics {
 
     data class AnalyticsSnapshot(
-        // Overall stats
         val totalTrades: Int = 0,
         val winCount: Int = 0,
         val lossCount: Int = 0,
@@ -29,265 +27,301 @@ object PerformanceAnalytics {
         val avgPnlSol: Double = 0.0,
         val avgWinSol: Double = 0.0,
         val avgLossSol: Double = 0.0,
-        val profitFactor: Double = 0.0,  // gross profit / gross loss
-        val expectancy: Double = 0.0,     // avg gain per trade
-        
-        // Streak tracking
-        val currentStreak: Int = 0,       // positive = wins, negative = losses
+        val profitFactor: Double = 0.0,
+        val expectancy: Double = 0.0,
+
+        val currentStreak: Int = 0,
         val longestWinStreak: Int = 0,
         val longestLossStreak: Int = 0,
-        
-        // Drawdown
+
         val maxDrawdownSol: Double = 0.0,
         val maxDrawdownPct: Double = 0.0,
         val currentDrawdownPct: Double = 0.0,
-        
-        // Phase analysis
+
         val winRateByPhase: Map<String, Double> = emptyMap(),
         val avgPnlByPhase: Map<String, Double> = emptyMap(),
         val tradeCountByPhase: Map<String, Int> = emptyMap(),
-        
-        // Time analysis
+
         val winRateByHour: Map<Int, Double> = emptyMap(),
         val tradeCountByHour: Map<Int, Int> = emptyMap(),
         val bestHour: Int = 0,
         val worstHour: Int = 0,
-        
-        // Entry score analysis
+
         val winRateByScoreRange: Map<String, Double> = emptyMap(),
         val avgPnlByScoreRange: Map<String, Double> = emptyMap(),
         val optimalScoreRange: String = "",
-        
-        // Regime analysis
+
         val winRateByRegime: Map<String, Double> = emptyMap(),
-        
-        // Hold time analysis
+
         val avgHoldMinsWin: Double = 0.0,
         val avgHoldMinsLoss: Double = 0.0,
         val optimalHoldMins: Double = 0.0,
-        
-        // Insights
+
         val insights: List<String> = emptyList(),
-        val warnings: List<String> = emptyList(),
+        val warnings: List<String> = emptyList()
     )
 
-    /**
-     * Generate full analytics snapshot from trade history.
-     */
+    data class Quadruple<A, B, C, D>(
+        val first: A,
+        val second: B,
+        val third: C,
+        val fourth: D
+    )
+
     fun analyze(trades: List<TradeRecord>): AnalyticsSnapshot {
         if (trades.isEmpty()) return AnalyticsSnapshot()
-        
-        val closedTrades = trades.filter { it.exitPrice > 0 && it.tsExit > 0 }
-        if (closedTrades.isEmpty()) return AnalyticsSnapshot(totalTrades = trades.size)
-        
-        // Basic stats
-        val wins = closedTrades.filter { it.pnlSol >= 0 }
-        val losses = closedTrades.filter { it.pnlSol < 0 }
-        val winRate = wins.size.toDouble() / closedTrades.size * 100
-        val totalPnl = closedTrades.sumOf { it.pnlSol }
-        val avgPnl = totalPnl / closedTrades.size
-        val avgWin = if (wins.isNotEmpty()) wins.sumOf { it.pnlSol } / wins.size else 0.0
-        val avgLoss = if (losses.isNotEmpty()) abs(losses.sumOf { it.pnlSol }) / losses.size else 0.0
-        
-        // Profit factor
-        val grossProfit = wins.sumOf { it.pnlSol }
-        val grossLoss = abs(losses.sumOf { it.pnlSol })
-        val profitFactor = if (grossLoss > 0) grossProfit / grossLoss else grossProfit
-        
-        // Expectancy
-        val expectancy = (winRate / 100 * avgWin) - ((100 - winRate) / 100 * avgLoss)
-        
-        // Streaks
-        val (currentStreak, longestWin, longestLoss) = calculateStreaks(closedTrades)
-        
-        // Drawdown
-        val (maxDdSol, maxDdPct, currentDdPct) = calculateDrawdown(closedTrades)
-        
-        // Phase analysis
+
+        val closedTrades = trades.filter { sanitizeDouble(it.exitPrice) > 0.0 && it.tsExit > 0L }
+        if (closedTrades.isEmpty()) {
+            return AnalyticsSnapshot(totalTrades = trades.size)
+        }
+
+        val wins = closedTrades.filter { sanitizeDouble(it.pnlSol) >= 0.0 }
+        val losses = closedTrades.filter { sanitizeDouble(it.pnlSol) < 0.0 }
+
+        val winRate = percentage(wins.size, closedTrades.size)
+        val totalPnl = closedTrades.sumOf { sanitizeDouble(it.pnlSol) }
+        val avgPnl = safeAverage(closedTrades.map { sanitizeDouble(it.pnlSol) })
+        val avgWin = safeAverage(wins.map { sanitizeDouble(it.pnlSol) })
+        val avgLoss = abs(safeAverage(losses.map { sanitizeDouble(it.pnlSol) }))
+
+        val grossProfit = wins.sumOf { sanitizeDouble(it.pnlSol).coerceAtLeast(0.0) }
+        val grossLoss = abs(losses.sumOf { sanitizeDouble(it.pnlSol).coerceAtMost(0.0) })
+        val profitFactor = if (grossLoss > 0.0) grossProfit / grossLoss else if (grossProfit > 0.0) grossProfit else 0.0
+
+        val expectancy = ((winRate / 100.0) * avgWin) - (((100.0 - winRate) / 100.0) * avgLoss)
+
+        val streaks = calculateStreaks(closedTrades)
+        val drawdown = calculateDrawdown(closedTrades)
         val phaseStats = analyzeByPhase(closedTrades)
-        
-        // Time analysis
         val timeStats = analyzeByHour(closedTrades)
-        
-        // Score analysis
         val scoreStats = analyzeByScore(closedTrades)
-        
-        // Regime analysis
         val regimeStats = analyzeByRegime(closedTrades)
-        
-        // Hold time analysis
         val holdStats = analyzeHoldTime(closedTrades)
-        
-        // Generate insights
+
         val insights = generateInsights(
-            winRate, avgPnl, phaseStats, timeStats, scoreStats, 
-            holdStats, currentStreak, maxDdPct
+            winRate = winRate,
+            avgPnl = avgPnl,
+            phaseStats = phaseStats,
+            timeStats = timeStats,
+            scoreStats = scoreStats,
+            holdStats = holdStats,
+            currentStreak = streaks.first,
+            maxDdPct = drawdown.second
         )
-        
+
         val warnings = generateWarnings(
-            winRate, currentStreak, maxDdPct, currentDdPct, closedTrades.size
+            winRate = winRate,
+            currentStreak = streaks.first,
+            maxDdPct = drawdown.second,
+            currentDdPct = drawdown.third,
+            tradeCount = closedTrades.size
         )
-        
+
         return AnalyticsSnapshot(
             totalTrades = closedTrades.size,
             winCount = wins.size,
             lossCount = losses.size,
-            winRate = winRate,
-            totalPnlSol = totalPnl,
-            avgPnlSol = avgPnl,
-            avgWinSol = avgWin,
-            avgLossSol = avgLoss,
-            profitFactor = profitFactor,
-            expectancy = expectancy,
-            currentStreak = currentStreak,
-            longestWinStreak = longestWin,
-            longestLossStreak = longestLoss,
-            maxDrawdownSol = maxDdSol,
-            maxDrawdownPct = maxDdPct,
-            currentDrawdownPct = currentDdPct,
+            winRate = sanitizeDouble(winRate),
+            totalPnlSol = sanitizeDouble(totalPnl),
+            avgPnlSol = sanitizeDouble(avgPnl),
+            avgWinSol = sanitizeDouble(avgWin),
+            avgLossSol = sanitizeDouble(avgLoss),
+            profitFactor = sanitizeDouble(profitFactor),
+            expectancy = sanitizeDouble(expectancy),
+
+            currentStreak = streaks.first,
+            longestWinStreak = streaks.second,
+            longestLossStreak = streaks.third,
+
+            maxDrawdownSol = sanitizeDouble(drawdown.first),
+            maxDrawdownPct = sanitizeDouble(drawdown.second),
+            currentDrawdownPct = sanitizeDouble(drawdown.third),
+
             winRateByPhase = phaseStats.first,
             avgPnlByPhase = phaseStats.second,
             tradeCountByPhase = phaseStats.third,
+
             winRateByHour = timeStats.first,
             tradeCountByHour = timeStats.second,
             bestHour = timeStats.third,
             worstHour = timeStats.fourth,
+
             winRateByScoreRange = scoreStats.first,
             avgPnlByScoreRange = scoreStats.second,
             optimalScoreRange = scoreStats.third,
+
             winRateByRegime = regimeStats,
-            avgHoldMinsWin = holdStats.first,
-            avgHoldMinsLoss = holdStats.second,
-            optimalHoldMins = holdStats.third,
+
+            avgHoldMinsWin = sanitizeDouble(holdStats.first),
+            avgHoldMinsLoss = sanitizeDouble(holdStats.second),
+            optimalHoldMins = sanitizeDouble(holdStats.third),
+
             insights = insights,
-            warnings = warnings,
+            warnings = warnings
         )
     }
 
     private fun calculateStreaks(trades: List<TradeRecord>): Triple<Int, Int, Int> {
-        var currentStreak = 0
+        var tempStreak = 0
         var longestWin = 0
         var longestLoss = 0
-        var tempStreak = 0
-        
+
         for (trade in trades.sortedBy { it.tsEntry }) {
-            if (trade.pnlSol >= 0) {
-                if (tempStreak >= 0) tempStreak++ else tempStreak = 1
+            val pnl = sanitizeDouble(trade.pnlSol)
+            if (pnl >= 0.0) {
+                tempStreak = if (tempStreak >= 0) tempStreak + 1 else 1
                 longestWin = max(longestWin, tempStreak)
             } else {
-                if (tempStreak <= 0) tempStreak-- else tempStreak = -1
+                tempStreak = if (tempStreak <= 0) tempStreak - 1 else -1
                 longestLoss = max(longestLoss, abs(tempStreak))
             }
         }
-        currentStreak = tempStreak
-        
-        return Triple(currentStreak, longestWin, longestLoss)
+
+        return Triple(tempStreak, longestWin, longestLoss)
     }
 
     private fun calculateDrawdown(trades: List<TradeRecord>): Triple<Double, Double, Double> {
         val sorted = trades.sortedBy { it.tsExit }
+
         var peak = 0.0
         var equity = 0.0
         var maxDdSol = 0.0
         var maxDdPct = 0.0
-        
+
         for (trade in sorted) {
-            equity += trade.pnlSol
-            if (equity > peak) peak = equity
+            equity += sanitizeDouble(trade.pnlSol)
+
+            if (equity > peak) {
+                peak = equity
+            }
+
             val dd = peak - equity
             if (dd > maxDdSol) {
                 maxDdSol = dd
-                maxDdPct = if (peak > 0) dd / peak * 100 else 0.0
+                maxDdPct = if (peak > 0.0) (dd / peak) * 100.0 else 0.0
             }
         }
-        
-        val currentDdPct = if (peak > 0 && equity < peak) (peak - equity) / peak * 100 else 0.0
-        
-        return Triple(maxDdSol, maxDdPct, currentDdPct)
+
+        val currentDdPct = if (peak > 0.0 && equity < peak) {
+            ((peak - equity) / peak) * 100.0
+        } else {
+            0.0
+        }
+
+        return Triple(
+            sanitizeDouble(maxDdSol),
+            sanitizeDouble(maxDdPct),
+            sanitizeDouble(currentDdPct)
+        )
     }
 
-    private fun analyzeByPhase(trades: List<TradeRecord>): Triple<Map<String, Double>, Map<String, Double>, Map<String, Int>> {
+    private fun analyzeByPhase(
+        trades: List<TradeRecord>
+    ): Triple<Map<String, Double>, Map<String, Double>, Map<String, Int>> {
         val byPhase = trades.groupBy { it.entryPhase.ifBlank { "unknown" } }
-        
+
         val winRates = byPhase.mapValues { (_, list) ->
-            list.count { it.pnlSol >= 0 }.toDouble() / list.size * 100
+            percentage(list.count { sanitizeDouble(it.pnlSol) >= 0.0 }, list.size)
         }
-        
+
         val avgPnl = byPhase.mapValues { (_, list) ->
-            list.sumOf { it.pnlSol } / list.size
+            safeAverage(list.map { sanitizeDouble(it.pnlSol) })
         }
-        
+
         val counts = byPhase.mapValues { it.value.size }
-        
+
         return Triple(winRates, avgPnl, counts)
     }
 
-    private fun analyzeByHour(trades: List<TradeRecord>): Quadruple<Map<Int, Double>, Map<Int, Int>, Int, Int> {
-        val byHour = trades.groupBy { 
-            java.util.Calendar.getInstance().apply { 
-                timeInMillis = it.tsEntry 
-            }.get(java.util.Calendar.HOUR_OF_DAY)
+    private fun analyzeByHour(
+        trades: List<TradeRecord>
+    ): Quadruple<Map<Int, Double>, Map<Int, Int>, Int, Int> {
+        val byHour = trades.groupBy { trade ->
+            Calendar.getInstance().apply {
+                timeInMillis = trade.tsEntry
+            }.get(Calendar.HOUR_OF_DAY)
         }
-        
+
         val winRates = byHour.mapValues { (_, list) ->
-            list.count { it.pnlSol >= 0 }.toDouble() / list.size * 100
+            percentage(list.count { sanitizeDouble(it.pnlSol) >= 0.0 }, list.size)
         }
-        
+
         val counts = byHour.mapValues { it.value.size }
-        
-        val bestHour = winRates.maxByOrNull { it.value }?.key ?: 0
-        val worstHour = winRates.filter { counts[it.key] ?: 0 >= 3 }.minByOrNull { it.value }?.key ?: 0
-        
+
+        val bestHour = winRates
+            .filter { (counts[it.key] ?: 0) >= 3 }
+            .maxByOrNull { it.value }
+            ?.key ?: 0
+
+        val worstHour = winRates
+            .filter { (counts[it.key] ?: 0) >= 3 }
+            .minByOrNull { it.value }
+            ?.key ?: 0
+
         return Quadruple(winRates, counts, bestHour, worstHour)
     }
 
-    private fun analyzeByScore(trades: List<TradeRecord>): Triple<Map<String, Double>, Map<String, Double>, String> {
+    private fun analyzeByScore(
+        trades: List<TradeRecord>
+    ): Triple<Map<String, Double>, Map<String, Double>, String> {
         val ranges = listOf(
             "35-45" to (35..45),
             "46-55" to (46..55),
             "56-65" to (56..65),
             "66-75" to (66..75),
-            "76+" to (76..100),
+            "76+" to (76..100)
         )
-        
+
         val winRates = mutableMapOf<String, Double>()
         val avgPnl = mutableMapOf<String, Double>()
-        
+
         for ((label, range) in ranges) {
-            val inRange = trades.filter { it.entryScore.toInt() in range }
+            val inRange = trades.filter { sanitizeDouble(it.entryScore).toInt() in range }
             if (inRange.isNotEmpty()) {
-                winRates[label] = inRange.count { it.pnlSol >= 0 }.toDouble() / inRange.size * 100
-                avgPnl[label] = inRange.sumOf { it.pnlSol } / inRange.size
+                winRates[label] = percentage(inRange.count { sanitizeDouble(it.pnlSol) >= 0.0 }, inRange.size)
+                avgPnl[label] = safeAverage(inRange.map { sanitizeDouble(it.pnlSol) })
             }
         }
-        
-        val optimalRange = avgPnl.filter { (winRates[it.key] ?: 0.0) >= 50 }
-            .maxByOrNull { it.value }?.key ?: ""
-        
+
+        val optimalRange = avgPnl
+            .filter { (winRates[it.key] ?: 0.0) >= 50.0 }
+            .maxByOrNull { it.value }
+            ?.key ?: ""
+
         return Triple(winRates, avgPnl, optimalRange)
     }
 
     private fun analyzeByRegime(trades: List<TradeRecord>): Map<String, Double> {
         val byRegime = trades.groupBy { it.mode.ifBlank { "NORMAL" } }
+
         return byRegime.mapValues { (_, list) ->
-            list.count { it.pnlSol >= 0 }.toDouble() / list.size * 100
+            percentage(list.count { sanitizeDouble(it.pnlSol) >= 0.0 }, list.size)
         }
     }
 
     private fun analyzeHoldTime(trades: List<TradeRecord>): Triple<Double, Double, Double> {
-        val wins = trades.filter { it.pnlSol >= 0 && it.heldMins > 0 }
-        val losses = trades.filter { it.pnlSol < 0 && it.heldMins > 0 }
-        
-        val avgHoldWin = if (wins.isNotEmpty()) wins.sumOf { it.heldMins } / wins.size else 0.0
-        val avgHoldLoss = if (losses.isNotEmpty()) losses.sumOf { it.heldMins } / losses.size else 0.0
-        
-        // Optimal hold = time that maximizes profit
-        val profitable = trades.filter { it.pnlSol > 0 && it.heldMins > 0 }
+        val wins = trades.filter { sanitizeDouble(it.pnlSol) >= 0.0 && sanitizeDouble(it.heldMins) > 0.0 }
+        val losses = trades.filter { sanitizeDouble(it.pnlSol) < 0.0 && sanitizeDouble(it.heldMins) > 0.0 }
+
+        val avgHoldWin = safeAverage(wins.map { sanitizeDouble(it.heldMins) })
+        val avgHoldLoss = safeAverage(losses.map { sanitizeDouble(it.heldMins) })
+
+        val profitable = trades.filter { sanitizeDouble(it.pnlSol) > 0.0 && sanitizeDouble(it.heldMins) > 0.0 }
         val optimalHold = if (profitable.isNotEmpty()) {
-            profitable.sortedByDescending { it.pnlSol }.take(5).map { it.heldMins }.average()
-        } else avgHoldWin
-        
-        return Triple(avgHoldWin, avgHoldLoss, optimalHold)
+            profitable.sortedByDescending { sanitizeDouble(it.pnlSol) }
+                .take(5)
+                .map { sanitizeDouble(it.heldMins) }
+                .average()
+        } else {
+            avgHoldWin
+        }
+
+        return Triple(
+            sanitizeDouble(avgHoldWin),
+            sanitizeDouble(avgHoldLoss),
+            sanitizeDouble(optimalHold)
+        )
     }
 
     private fun generateInsights(
@@ -298,41 +332,44 @@ object PerformanceAnalytics {
         scoreStats: Triple<Map<String, Double>, Map<String, Double>, String>,
         holdStats: Triple<Double, Double, Double>,
         currentStreak: Int,
-        maxDdPct: Double,
+        maxDdPct: Double
     ): List<String> {
         val insights = mutableListOf<String>()
-        
-        // Phase insights
-        val bestPhase = phaseStats.first.filter { (phaseStats.third[it.key] ?: 0) >= 3 }
+
+        val bestPhase = phaseStats.first
+            .filter { (phaseStats.third[it.key] ?: 0) >= 3 }
             .maxByOrNull { it.value }
+
         bestPhase?.let {
             insights.add("🎯 Best phase: ${it.key} (${it.value.fmt(1)}% win rate)")
         }
-        
-        // Time insights
+
         val bestHour = timeStats.third
         val bestHourWR = timeStats.first[bestHour] ?: 0.0
-        if (bestHourWR > winRate + 10) {
+        if (bestHourWR > winRate + 10.0) {
             insights.add("⏰ Best hour: ${bestHour}:00 UTC (${bestHourWR.fmt(1)}% win rate)")
         }
-        
-        // Score insights
+
         if (scoreStats.third.isNotBlank()) {
             insights.add("📊 Optimal entry score: ${scoreStats.third}")
         }
-        
-        // Hold time insights
-        if (holdStats.first > 0 && holdStats.second > 0) {
+
+        if (holdStats.first > 0.0 && holdStats.second > 0.0) {
             if (holdStats.second > holdStats.first * 1.5) {
-                insights.add("⏱ Cut losses faster — losers held ${holdStats.second.fmt(1)}min vs winners ${holdStats.first.fmt(1)}min")
+                insights.add(
+                    "⏱ Cut losses faster — losers held ${holdStats.second.fmt(1)}min vs winners ${holdStats.first.fmt(1)}min"
+                )
             }
         }
-        
-        // Streak insights
+
         if (currentStreak >= 3) {
             insights.add("🔥 Hot streak! $currentStreak consecutive wins")
         }
-        
+
+        if (avgPnl > 0.0 && maxDdPct < 15.0) {
+            insights.add("✅ Positive expectancy with controlled drawdown")
+        }
+
         return insights
     }
 
@@ -341,60 +378,79 @@ object PerformanceAnalytics {
         currentStreak: Int,
         maxDdPct: Double,
         currentDdPct: Double,
-        tradeCount: Int,
+        tradeCount: Int
     ): List<String> {
         val warnings = mutableListOf<String>()
-        
-        if (winRate < 40 && tradeCount >= 10) {
+
+        if (winRate < 40.0 && tradeCount >= 10) {
             warnings.add("⚠️ Win rate below 40% — review entry criteria")
         }
-        
+
         if (currentStreak <= -3) {
             warnings.add("🔴 Cold streak: ${abs(currentStreak)} consecutive losses")
         }
-        
-        if (currentDdPct > 20) {
+
+        if (currentDdPct > 20.0) {
             warnings.add("📉 Currently in ${currentDdPct.fmt(1)}% drawdown")
         }
-        
-        if (maxDdPct > 30) {
+
+        if (maxDdPct > 30.0) {
             warnings.add("⚠️ Max drawdown ${maxDdPct.fmt(1)}% — consider reducing size")
         }
-        
+
         return warnings
     }
 
-    /**
-     * Format analytics for display or Telegram.
-     */
-    fun formatSummary(stats: AnalyticsSnapshot): String = buildString {
-        appendLine("📊 *PERFORMANCE ANALYTICS*")
-        appendLine("━━━━━━━━━━━━━━━━━━━━━")
-        appendLine()
-        appendLine("*Overall:*")
-        appendLine("  Trades: ${stats.totalTrades} (${stats.winCount}W / ${stats.lossCount}L)")
-        appendLine("  Win Rate: ${stats.winRate.fmt(1)}%")
-        appendLine("  Total P&L: ${stats.totalPnlSol.fmt(4)} SOL")
-        appendLine("  Profit Factor: ${stats.profitFactor.fmt(2)}")
-        appendLine("  Expectancy: ${stats.expectancy.fmt(4)} SOL/trade")
-        appendLine()
-        appendLine("*Risk:*")
-        appendLine("  Max Drawdown: ${stats.maxDrawdownPct.fmt(1)}%")
-        appendLine("  Current DD: ${stats.currentDrawdownPct.fmt(1)}%")
-        appendLine("  Longest Loss Streak: ${stats.longestLossStreak}")
-        appendLine()
+    fun formatSummary(stats: AnalyticsSnapshot): String {
+        val sb = StringBuilder()
+
+        sb.append("📊 *PERFORMANCE ANALYTICS*\n")
+        sb.append("━━━━━━━━━━━━━━━━━━━━━\n\n")
+        sb.append("*Overall:*\n")
+        sb.append("  Trades: ").append(stats.totalTrades).append(" (")
+            .append(stats.winCount).append("W / ")
+            .append(stats.lossCount).append("L)\n")
+        sb.append("  Win Rate: ").append(stats.winRate.fmt(1)).append("%\n")
+        sb.append("  Total P&L: ").append(stats.totalPnlSol.fmt(4)).append(" SOL\n")
+        sb.append("  Profit Factor: ").append(stats.profitFactor.fmt(2)).append("\n")
+        sb.append("  Expectancy: ").append(stats.expectancy.fmt(4)).append(" SOL/trade\n\n")
+
+        sb.append("*Risk:*\n")
+        sb.append("  Max Drawdown: ").append(stats.maxDrawdownPct.fmt(1)).append("%\n")
+        sb.append("  Current DD: ").append(stats.currentDrawdownPct.fmt(1)).append("%\n")
+        sb.append("  Longest Loss Streak: ").append(stats.longestLossStreak).append("\n\n")
+
         if (stats.insights.isNotEmpty()) {
-            appendLine("*Insights:*")
-            stats.insights.forEach { appendLine("  $it") }
-            appendLine()
+            sb.append("*Insights:*\n")
+            for (insight in stats.insights) {
+                sb.append("  ").append(insight).append('\n')
+            }
+            sb.append('\n')
         }
+
         if (stats.warnings.isNotEmpty()) {
-            appendLine("*Warnings:*")
-            stats.warnings.forEach { appendLine("  $it") }
+            sb.append("*Warnings:*\n")
+            for (warning in stats.warnings) {
+                sb.append("  ").append(warning).append('\n')
+            }
         }
+
+        return sb.toString()
     }
 
-    private fun Double.fmt(d: Int) = "%.${d}f".format(this)
-    
-    data class Quadruple<A, B, C, D>(val first: A, val second: B, val third: C, val fourth: D)
+    private fun percentage(count: Int, total: Int): Double {
+        return if (total > 0) (count.toDouble() / total.toDouble()) * 100.0 else 0.0
+    }
+
+    private fun safeAverage(values: List<Double>): Double {
+        return if (values.isNotEmpty()) values.average() else 0.0
+    }
+
+    private fun sanitizeDouble(value: Double): Double {
+        return if (value.isNaN() || value.isInfinite()) 0.0 else value
+    }
+
+    private fun Double.fmt(d: Int): String {
+        return String.format(Locale.US, "%.${d}f", sanitizeDouble(this))
+    }
 }
