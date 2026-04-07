@@ -3948,7 +3948,7 @@ class Executor(
         
         EntryIntelligence.learnFromOutcome(tradeId.mint, pnlP, holdMinutes.toInt())
         
-        ExitIntelligence.learnFromExit(tradeId.mint, reason, pnlP, holdMinutes)
+        ExitIntelligence.learnFromExit(tradeId.mint, reason, pnlP, holdMinutes.toInt())
         ExitIntelligence.resetPosition(tradeId.mint)
         
         try {
@@ -4043,7 +4043,7 @@ class Executor(
                 entryMcap = approxEntryMcap,
                 exitMcap = ts.lastMcap,
                 entryLiquidity = ts.position.entryLiquidityUsd,
-                holdTimeMinutes = holdMinutes,
+                holdTimeMinutes = holdMinutes.toInt(),
                 buyPercent = latestBuyPct,
                 source = ts.source,
                 phase = ts.position.entryPhase,
@@ -4063,7 +4063,7 @@ class Executor(
                 mint = tradeId.mint,
                 symbol = ts.symbol,
                 pnlPct = pnlP,
-                holdTimeMinutes = holdMinutes,
+                holdTimeMinutes = holdMinutes.toInt(),
                 exitReason = reason,
                 entryPhase = ts.position.entryPhase.ifEmpty { "UNKNOWN" },
                 tradingMode = ts.position.tradingMode.ifEmpty { "STANDARD" },
