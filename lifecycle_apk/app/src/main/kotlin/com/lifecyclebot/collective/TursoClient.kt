@@ -273,9 +273,6 @@ class TursoClient(
     
     private fun parseResponse(responseJson: String, isQuery: Boolean): QueryResult {
         try {
-            // V5.6.25: Log raw response for debugging
-            ErrorLogger.debug("TursoClient", "📡 RAW: ${responseJson.take(300)}")
-            
             val json = JSONObject(responseJson)
             val results = json.optJSONArray("results") ?: return QueryResult(
                 false, emptyList(), 0, null, "No results in response"
@@ -286,35 +283,41 @@ class TursoClient(
             }
             
             val firstResult = results.getJSONObject(0)
+            val resultType = firstResult.optString("type", "")
             
-            // V5.6.25: Check for error first
-            val errorObj = firstResult.optJSONObject("error")
-            if (errorObj != null) {
-                val errMsg = errorObj.optString("message", "Unknown Turso error")
-                ErrorLogger.error("TursoClient", "❌ Turso error: $errMsg")
+            // Check for error
+            if (resultType == "error") {
+                val error = firstResult.optJSONObject("error")
+                val errMsg = error?.optString("message") ?: "Unknown Turso error"
+                Log.e(TAG, "Turso error: $errMsg")
                 return QueryResult(false, emptyList(), 0, null, errMsg)
             }
             
-            // V5.6.25: FIXED! Turso v2 pipeline returns results directly under each result object
-            // Format: results[0].cols, results[0].rows, results[0].affected_row_count
-            // NOT: results[0].response.result.cols (that was wrong!)
+            // Get the response.result object
+            val response = firstResult.optJSONObject("response")
+            if (response == null) {
+                return QueryResult(true, emptyList(), 0, null, null)
+            }
             
-            val rowsAffected = firstResult.optInt("affected_row_count", 0)
-            val lastInsertId = firstResult.optLong("last_insert_rowid", 0).takeIf { it > 0 }
+            val resultObj = response.optJSONObject("result")
+            if (resultObj == null) {
+                return QueryResult(true, emptyList(), 0, null, null)
+            }
+            
+            val rowsAffected = resultObj.optInt("affected_row_count", 0)
+            val lastInsertId = resultObj.optString("last_insert_rowid", "").toLongOrNull()
             
             // Parse rows for queries
             val rows = mutableListOf<Map<String, Any?>>()
             if (isQuery) {
-                val cols = firstResult.optJSONArray("cols")
-                val rowsArray = firstResult.optJSONArray("rows")
+                val cols = resultObj.optJSONArray("cols")
+                val rowsArray = resultObj.optJSONArray("rows")
                 
                 if (cols != null && rowsArray != null) {
                     val columnNames = mutableListOf<String>()
                     for (i in 0 until cols.length()) {
                         val col = cols.optJSONObject(i)
-                        val colName = col?.optString("name") 
-                            ?: col?.optString("column") 
-                            ?: "col$i"
+                        val colName = col?.optString("name") ?: "col$i"
                         columnNames.add(colName)
                     }
                     
@@ -333,15 +336,14 @@ class TursoClient(
                 }
             }
             
-            ErrorLogger.info("TursoClient", "✅ Parsed: rows=${rows.size} affected=$rowsAffected lastId=$lastInsertId")
+            Log.d(TAG, "Parsed: success=true rows=${rows.size} affected=$rowsAffected")
             return QueryResult(true, rows, rowsAffected, lastInsertId, null)
         } catch (e: Exception) {
-            ErrorLogger.error("TursoClient", "❌ Parse error: ${e.message}")
+            Log.e(TAG, "Parse error: ${e.message}")
             return QueryResult(false, emptyList(), 0, null, e.message)
         }
     }
     
-    // V5.6.25: Handle both old format (JSONObject with type/value) and direct values
     private fun parseCellValue(cell: Any?): Any? {
         return when (cell) {
             null, JSONObject.NULL -> null
@@ -356,8 +358,8 @@ class TursoClient(
                     else -> cell.opt("value") ?: cell.toString()
                 }
             }
-            is Int, is Long, is Double, is Boolean, is String -> cell
-            is Number -> cell.toLong()
+            is Number -> cell
+            is String -> cell
             else -> cell.toString()
         }
     }
@@ -378,25 +380,27 @@ class TursoClient(
                 if (type == "close") continue
                 
                 // Check for error
-                val error = result.optJSONObject("error")
-                if (error != null) {
+                if (type == "error") {
+                    val error = result.optJSONObject("error")
                     queryResults.add(QueryResult(
                         false, emptyList(), 0, null,
-                        error.optString("message", "Unknown error")
+                        error?.optString("message") ?: "Unknown error"
                     ))
                     continue
                 }
                 
-                // V5.6.25: Read directly from result object
-                val rowsAffected = result.optInt("affected_row_count", 0)
-                val lastInsertId = result.optLong("last_insert_rowid", 0).takeIf { it > 0 }
+                // Get response.result
+                val response = result.optJSONObject("response")
+                val resultObj = response?.optJSONObject("result")
+                val rowsAffected = resultObj?.optInt("affected_row_count", 0) ?: 0
+                val lastInsertId = resultObj?.optString("last_insert_rowid", "")?.toLongOrNull()
                 
                 queryResults.add(QueryResult(true, emptyList(), rowsAffected, lastInsertId, null))
             }
             
             return queryResults
         } catch (e: Exception) {
-            ErrorLogger.error("TursoClient", "Batch parse error: ${e.message}")
+            Log.e(TAG, "Batch parse error: ${e.message}")
             return listOf(QueryResult(false, emptyList(), 0, null, e.message))
         }
     }
