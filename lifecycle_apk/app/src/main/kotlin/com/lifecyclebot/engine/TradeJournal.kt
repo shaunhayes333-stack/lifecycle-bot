@@ -351,8 +351,8 @@ class TradeJournal(private val ctx: Context) {
         val wins  = meaningfulTrades.filter { it.pnlPct > 2.0 }
         val loss  = meaningfulTrades.filter { it.pnlPct < -2.0 }
         
-        // V5.6.15: Cap outlier percentages for avg calculation to prevent 150k% moonshots from skewing stats
-        val cappedWinsPct = wins.map { it.pnlPct.coerceAtMost(500.0) }  // Cap at 500% for avg calculation
+        // V5.6.15: Cap outlier percentages for avg calculation to prevent 10000k% moonshots from skewing stats
+        val cappedWinsPct = wins.map { it.pnlPct.coerceAtMost(10000.0) }  // Cap at 10000% for avg calculation
         val cappedLossPct = loss.map { it.pnlPct.coerceAtLeast(-100.0) }  // Cap at -100%
         
         return JournalStats(
