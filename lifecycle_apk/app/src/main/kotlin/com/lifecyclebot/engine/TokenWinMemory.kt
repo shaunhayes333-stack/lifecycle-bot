@@ -24,7 +24,7 @@ object TokenWinMemory {
     private const val PREFS_NAME = "token_win_memory"
     private const val MAX_WINNERS = 5000     // Max tokens to remember
     private const val MAX_PATTERNS = 1000     // Max patterns to track
-    private const val MIN_PNL_FOR_WIN = 1.0 // Min PnL% to count as a significant win
+    private const val MIN_PNL_FOR_WIN = 0.5 // Min PnL% to count as a significant win
     
     private var ctx: Context? = null
     
