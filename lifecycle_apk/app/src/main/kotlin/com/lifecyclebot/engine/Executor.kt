@@ -7,6 +7,7 @@ import com.lifecyclebot.engine.quant.PortfolioAnalytics
 import com.lifecyclebot.v3.scoring.FluidLearningAI
 import com.lifecyclebot.v3.scoring.HoldTimeOptimizerAI
 import kotlin.math.abs
+import kotlin.math.log10
 import kotlin.math.pow
 
 import com.lifecyclebot.data.*
@@ -167,6 +168,7 @@ class Executor(
      * Instead of cooldown, we keep watching it for a recovery opportunity.
      */
     private fun markForRecoveryScan(ts: TokenState, lossPct: Double, stopReason: String) {
+        normalizePositionScaleIfNeeded(ts)
         val currentPrice = getActualPrice(ts)
         if (currentPrice <= 0) return
         
@@ -195,6 +197,7 @@ class Executor(
      * Returns true if we should re-enter for recovery trade.
      */
     fun checkRecoveryOpportunity(ts: TokenState): Boolean {
+        normalizePositionScaleIfNeeded(ts)
         val candidate = recoveryCandidates[ts.mint] ?: return false
         
         // Check if recovery window expired
@@ -237,21 +240,294 @@ class Executor(
     }
 
     /**
-     * CRITICAL FIX: Get actual token PRICE, not market cap
-     * 
-     * ts.ref = if (lastMcap > 0) lastMcap else lastPrice ← CAN BE MARKET CAP!
-     * ts.lastPrice = actual token price in USD
-     * 
-     * Use this helper everywhere we need current price for:
-     * - P&L calculations
-     * - Entry price recording
-     * - Exit value calculations
+     * CRITICAL FIX: Dynamic token price normalization.
+     *
+     * Some feeds leak base-unit scaled prices (lamports / token base units) or
+     * mis-route large numeric references into the price path. We normalize using:
+     *   1. explicit token decimals when available
+     *   2. trade-context inference from quote.outAmount vs SOL in
+     *   3. fallback heuristics (6 / 9 decimals)
+     *
+     * This helper is the single source of truth for all price-based logic.
      */
     private fun getActualPrice(ts: TokenState): Double {
-        return ts.lastPrice.takeIf { it > 0 } 
-            ?: ts.history.lastOrNull()?.priceUsd 
-            ?: ts.position.entryPrice.takeIf { it > 0 }
-            ?: 0.0
+        val explicitUsd = reflectDouble(ts, "priceUsd", "usdPrice", "currentPriceUsd")
+        val directLast = ts.lastPrice.takeIf { it > 0 }
+        val historyUsd = ts.history.lastOrNull()?.priceUsd?.takeIf { it > 0 }
+        val refValue = reflectDouble(ts, "ref", "referencePrice", "referenceUsd")
+        val entryUsd = ts.position.entryPrice.takeIf { it > 0 }
+        val decimals = getTokenDecimals(ts)
+
+        val rawCandidates = listOfNotNull(
+            explicitUsd,
+            historyUsd,
+            directLast,
+            refValue,
+            entryUsd,
+        ).filter { it.isFinite() && it > 0.0 }.distinct()
+
+        if (rawCandidates.isEmpty()) return 0.0
+
+        val references = listOfNotNull(
+            explicitUsd?.takeIf { it > 0.0 && it < 1_000_000.0 },
+            historyUsd?.takeIf { it > 0.0 && it < 1_000_000.0 },
+            entryUsd?.takeIf { it > 0.0 && it < 1_000_000.0 },
+        )
+
+        return rawCandidates
+            .flatMap { buildPriceVariants(it, decimals) }
+            .filter { it.isFinite() && it > 0.0 }
+            .distinct()
+            .minByOrNull { scorePriceCandidate(it, references, ts.lastMcap) }
+            ?: rawCandidates.first()
+    }
+
+    /**
+     * One-shot self-heal for legacy positions whose stored entry/high/low prices
+     * were written before the scaling fix. Without this, current normalized price
+     * vs legacy raw entry price creates fake million-percent PnL swings.
+     */
+    private fun normalizePositionScaleIfNeeded(ts: TokenState) {
+        val pos = ts.position
+        if (!pos.isOpen) return
+
+        val currentPrice = getActualPrice(ts)
+        val entryPrice = pos.entryPrice
+        if (currentPrice <= 0.0 || entryPrice <= 0.0 || !currentPrice.isFinite() || !entryPrice.isFinite()) return
+
+        val ratio = entryPrice / currentPrice
+        val absRatio = kotlin.math.abs(ratio)
+        if (absRatio < 100.0) return
+
+        val scale = detectPowerOfTenScale(absRatio)
+        if (scale <= 1.0) return
+
+        val divideStored = ratio > 1.0
+        fun fix(v: Double): Double {
+            if (v <= 0.0 || !v.isFinite()) return v
+            return if (divideStored) v / scale else v * scale
+        }
+
+        ts.position = pos.copy(
+            entryPrice = fix(pos.entryPrice),
+            highestPrice = fix(pos.highestPrice),
+            lowestPrice = fix(pos.lowestPrice),
+            lastTopUpPrice = fix(pos.lastTopUpPrice),
+        )
+
+        if (normalizedPositionScale.putIfAbsent(ts.mint, true) == null) {
+            val action = if (divideStored) "÷" else "×"
+            ErrorLogger.warn(
+                "Executor",
+                "🛠 PRICE SCALE HEAL: ${ts.symbol} legacy position normalized ($action${scale.toLong()})"
+            )
+        }
+    }
+
+    /**
+     * Background monitor helper. Uses normalized prices for recovery / rug checks
+     * even when the rest of the strategy loop has not touched the token yet.
+     */
+    fun updatePositions(activeTokens: List<TokenState>) {
+        val now = System.currentTimeMillis()
+
+        activeTokens.forEach { ts ->
+            normalizePositionScaleIfNeeded(ts)
+
+            val currentPrice = getActualPrice(ts)
+            val entryPrice = ts.position.entryPrice
+            if (currentPrice <= 0.0 || entryPrice <= 0.0) return@forEach
+
+            val pnlPct = ((currentPrice - entryPrice) / entryPrice) * 100.0
+            if (pnlPct <= -33.0 && !RuggedContracts.isBlacklisted(ts.mint)) {
+                ErrorLogger.warn("Executor", "🚨 RUG/STOP LOSS: ${ts.symbol} at ${pnlPct.toInt()}%")
+                markForRecoveryScan(ts, pnlPct, "hard_floor")
+                RuggedContracts.add(ts.mint, ts.symbol, pnlPct)
+            }
+        }
+
+        recoveryCandidates.entries.removeIf { now - it.value.stopTime > RECOVERY_SCAN_WINDOW_MS }
+    }
+
+    private val normalizedPositionScale = ConcurrentHashMap<String, Boolean>()
+
+    private fun buildPriceVariants(rawPrice: Double, decimals: Int): List<Double> {
+        if (!rawPrice.isFinite() || rawPrice <= 0.0) return emptyList()
+
+        val variants = linkedSetOf<Double>()
+        variants += rawPrice
+
+        listOf(decimals, 6, 9).distinct().forEach { d ->
+            if (d > 0) {
+                val scaled = rawPrice / 10.0.pow(d.toDouble())
+                if (scaled.isFinite() && scaled > 0.0) variants += scaled
+            }
+        }
+        return variants.toList()
+    }
+
+    private fun scorePriceCandidate(candidate: Double, references: List<Double>, mcapUsd: Double): Double {
+        if (!candidate.isFinite() || candidate <= 0.0) return Double.MAX_VALUE
+
+        var score = 0.0
+
+        if (candidate > 1_000_000.0) score += 500.0
+        if (candidate < 1e-18) score += 500.0
+
+        if (references.isNotEmpty()) {
+            val minDistance = references
+                .filter { it.isFinite() && it > 0.0 }
+                .minOfOrNull { kotlin.math.abs(log10(candidate / it)) }
+                ?: 0.0
+            score += minDistance
+        } else if (candidate > 10_000.0) {
+            score += 5.0
+        }
+
+        if (mcapUsd in 1.0..30_000_000.0) {
+            when {
+                candidate < 1.0 -> score -= 0.25
+                candidate > 1_000.0 -> score += 2.0
+            }
+        }
+
+        if (mcapUsd > 0.0 && candidate >= mcapUsd * 0.25) {
+            score += 50.0
+        }
+
+        return score
+    }
+
+    private fun detectPowerOfTenScale(value: Double): Double {
+        if (!value.isFinite() || value <= 0.0) return 1.0
+
+        val exponents = listOf(1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 12)
+        var bestScale = 1.0
+        var bestDistance = Double.MAX_VALUE
+
+        for (exp in exponents) {
+            val scale = 10.0.pow(exp.toDouble())
+            val distance = kotlin.math.abs(log10(value / scale))
+            if (distance < bestDistance) {
+                bestDistance = distance
+                bestScale = scale
+            }
+        }
+
+        return if (bestDistance <= 0.25) bestScale else 1.0
+    }
+
+    private fun getTokenDecimals(ts: TokenState): Int {
+        val reflected = reflectInt(ts, "decimals", "tokenDecimals", "baseDecimals", "mintDecimals")
+            ?: reflectInt(ts.meta, "decimals", "tokenDecimals", "baseDecimals")
+            ?: reflectInt(ts.position, "decimals", "tokenDecimals")
+
+        return reflected?.coerceAtLeast(0) ?: -1
+    }
+
+    private fun rawTokenAmountToUiAmount(
+        ts: TokenState,
+        rawAmount: Long,
+        solAmount: Double = 0.0,
+        priceUsd: Double = 0.0,
+        explicitDecimals: Int? = null,
+    ): Double {
+        if (rawAmount <= 0L) return 0.0
+
+        val scale = when {
+            explicitDecimals != null && explicitDecimals >= 0 -> 10.0.pow(explicitDecimals.toDouble())
+            getTokenDecimals(ts) >= 0 -> 10.0.pow(getTokenDecimals(ts).toDouble())
+            solAmount > 0.0 && priceUsd > 0.0 -> inferUiScaleFromTrade(rawAmount, solAmount, priceUsd)
+            else -> tokenScale(rawAmount)
+        }
+
+        return rawAmount.toDouble() / scale.coerceAtLeast(1.0)
+    }
+
+    private fun inferUiScaleFromTrade(rawAmount: Long, solAmount: Double, priceUsd: Double): Double {
+        if (rawAmount <= 0L || solAmount <= 0.0 || priceUsd <= 0.0) return 1_000_000_000.0
+
+        val estimatedQty = solAmount / priceUsd
+        if (!estimatedQty.isFinite() || estimatedQty <= 0.0) return 1_000_000_000.0
+
+        val observedScale = rawAmount.toDouble() / estimatedQty
+        val candidates = listOf(1.0, 10.0, 100.0, 1_000.0, 10_000.0, 100_000.0, 1_000_000.0, 10_000_000.0, 100_000_000.0, 1_000_000_000.0, 1_000_000_000_000.0)
+
+        return candidates.minByOrNull { kotlin.math.abs(log10(observedScale / it)) } ?: 1_000_000_000.0
+    }
+
+    private fun resolveSellUnits(ts: TokenState, qty: Double, wallet: SolanaWallet? = null): Long {
+        return resolveSellUnitsForMint(
+            mint = ts.mint,
+            qty = qty,
+            wallet = wallet,
+            fallbackDecimals = getTokenDecimals(ts).takeIf { it >= 0 }
+        )
+    }
+
+    private fun resolveSellUnitsForMint(
+        mint: String,
+        qty: Double,
+        wallet: SolanaWallet? = null,
+        fallbackDecimals: Int? = null,
+    ): Long {
+        if (!qty.isFinite() || qty <= 0.0) return 1L
+
+        val decimals = try {
+            wallet?.getTokenAccountsWithDecimals()?.get(mint)?.second
+        } catch (_: Exception) {
+            null
+        } ?: fallbackDecimals ?: 9
+
+        val scale = 10.0.pow(decimals.coerceAtLeast(0).toDouble())
+        return (qty * scale).toLong().coerceAtLeast(1L)
+    }
+
+    private fun reflectInt(target: Any?, vararg names: String): Int? {
+        for (name in names) {
+            val value = reflectValue(target, name) ?: continue
+            when (value) {
+                is Number -> return value.toInt()
+                is String -> value.toIntOrNull()?.let { return it }
+            }
+        }
+        return null
+    }
+
+    private fun reflectDouble(target: Any?, vararg names: String): Double? {
+        for (name in names) {
+            val value = reflectValue(target, name) ?: continue
+            when (value) {
+                is Number -> return value.toDouble()
+                is String -> value.toDoubleOrNull()?.let { return it }
+            }
+        }
+        return null
+    }
+
+    private fun reflectValue(target: Any?, name: String): Any? {
+        if (target == null) return null
+        val cls = target.javaClass
+
+        try {
+            val field = cls.getDeclaredField(name)
+            field.isAccessible = true
+            return field.get(target)
+        } catch (_: Exception) {
+        }
+
+        val suffix = if (name.isEmpty()) name else name.substring(0, 1).uppercase() + name.substring(1)
+        val methodNames = arrayOf("get$suffix", "is$suffix", name)
+
+        for (methodName in methodNames) {
+            try {
+                val method = cls.methods.firstOrNull { it.name == methodName && it.parameterCount == 0 } ?: continue
+                return method.invoke(target)
+            } catch (_: Exception) {
+            }
+        }
+
+        return null
     }
 
     // ── position sizing ───────────────────────────────────────────────
@@ -925,6 +1201,7 @@ class Executor(
     
     fun checkProfitLock(ts: TokenState, wallet: SolanaWallet?, walletSol: Double): Boolean {
         val c = cfg()
+        normalizePositionScaleIfNeeded(ts)
         val pos = ts.position
         if (!pos.isOpen) return false
         
@@ -1058,7 +1335,7 @@ class Executor(
         }
         
         val sellQty = pos.qtyToken * sellFraction
-        val sellUnits = (sellQty * 1_000_000_000.0).toLong().coerceAtLeast(1L)
+        val sellUnits = resolveSellUnits(ts, sellQty, wallet = wallet)
         
         try {
             val sellSlippage = (c.slippageBps * 2).coerceAtMost(1000)
@@ -1123,6 +1400,7 @@ class Executor(
 
     fun checkPartialSell(ts: TokenState, wallet: SolanaWallet?, walletSol: Double): Boolean {
         val c   = cfg()
+        normalizePositionScaleIfNeeded(ts)
         val pos = ts.position
         if (!c.partialSellEnabled || !pos.isOpen) return false
 
@@ -1208,7 +1486,7 @@ class Executor(
                     partialSellInFlight.remove(ts.mint)
                     return true
                 }
-                val sellUnits = (sellQty * 1_000_000_000.0).toLong().coerceAtLeast(1L)
+                val sellUnits = resolveSellUnits(ts, sellQty, wallet = wallet)
                 val sellSlippage = (c.slippageBps * 2).coerceAtMost(1000)
                 val quote     = getQuoteWithSlippageGuard(
                     ts.mint, JupiterApi.SOL_MINT, sellUnits, sellSlippage, isBuy = false)
@@ -1249,6 +1527,7 @@ class Executor(
     private val partialSellInFlight = mutableSetOf<String>()
 
     fun riskCheck(ts: TokenState, modeConf: AutoModeEngine.ModeConfig? = null): String? {
+        normalizePositionScaleIfNeeded(ts)
         val pos   = ts.position
         val price = getActualPrice(ts)
         if (!pos.isOpen || price == 0.0) return null
@@ -1510,6 +1789,8 @@ class Executor(
         modeConfig: AutoModeEngine.ModeConfig? = null,
         walletTotalTrades: Int = 0,
     ) {
+        normalizePositionScaleIfNeeded(ts)
+
         val isSellAction = (signal in listOf("SELL", "EXIT")) || 
             (ts.position.isOpen && PrecisionExitLogic.quickCheck(
                 mint = ts.mint,
@@ -1906,6 +2187,7 @@ class Executor(
         tradeIdentity: TradeIdentity? = null,
         fdgApprovalClass: FinalDecisionGate.ApprovalClass? = null,
     ) {
+        normalizePositionScaleIfNeeded(ts)
         val identity = tradeIdentity ?: TradeIdentityManager.getOrCreate(ts.mint, ts.symbol, ts.source)
         
         fdgApprovalClass?.let { identity.fdgApprovalClass = it.name }
@@ -2175,6 +2457,7 @@ class Executor(
         wallet: SolanaWallet?,
         totalExposureSol: Double,
     ) {
+        normalizePositionScaleIfNeeded(ts)
         val pos  = ts.position
         val c    = cfg()
         val size = topUpSizeSol(pos, walletSol, totalExposureSol)
@@ -2197,7 +2480,7 @@ class Executor(
                 symbol       = ts.symbol,
                 solAmount    = size,
                 walletSol    = walletSol,
-                currentPrice = ts.lastPrice,
+                currentPrice = getActualPrice(ts),
                 currentVol   = ts.history.lastOrNull()?.vol ?: 0.0,
                 liquidityUsd = ts.lastLiquidityUsd,
             )
@@ -2273,7 +2556,7 @@ class Executor(
             val sig    = wallet.signSendAndConfirm(txResult.txBase64, useJito, jitoTip, ultraReqId, c.jupiterApiKey, txResult.isRfqRoute)
             val pos    = ts.position
             val price  = getActualPrice(ts)
-            val newQty = quote.outAmount.toDouble() / tokenScale(quote.outAmount)
+            val newQty = rawTokenAmountToUiAmount(ts, quote.outAmount, solAmount = sol, priceUsd = price)
 
             ts.position = pos.copy(
                 qtyToken       = pos.qtyToken + newQty,
@@ -2319,7 +2602,7 @@ class Executor(
                 symbol       = tradeId.symbol,
                 solAmount    = sol,
                 walletSol    = walletSol,
-                currentPrice = ts.lastPrice,
+                currentPrice = getActualPrice(ts),
                 currentVol   = ts.history.lastOrNull()?.vol ?: 0.0,
                 liquidityUsd = ts.lastLiquidityUsd,
             )
@@ -2375,7 +2658,7 @@ class Executor(
             
             if (shadowPositions.containsKey(ts.mint)) return
             
-            val price = ts.lastPrice.takeIf { it > 0 } ?: ts.history.lastOrNull()?.priceUsd ?: 0.0
+            val price = getActualPrice(ts)
             if (price <= 0) return
             
             val shadowPos = ShadowPosition(
@@ -2502,7 +2785,8 @@ class Executor(
         
         val tradeId = identity ?: TradeIdentityManager.getOrCreate(ts.mint, ts.symbol, ts.source)
         
-        val price = ts.lastPrice.takeIf { it > 0 } ?: ts.history.lastOrNull()?.priceUsd ?: 0.0
+        normalizePositionScaleIfNeeded(ts)
+        val price = getActualPrice(ts)
         if (price <= 0) {
             ErrorLogger.debug("Executor", "Paper buy skipped: no valid price for ${tradeId.symbol}")
             return
@@ -3105,8 +3389,11 @@ class Executor(
             
             val ultraReqId = if (quote.isUltra) txResult.requestId else null
             val sig = wallet.signSendAndConfirm(txResult.txBase64, useJito, jitoTip, ultraReqId, c.jupiterApiKey, txResult.isRfqRoute)
-            val qty   = quote.outAmount.toDouble() / tokenScale(quote.outAmount)
             val price = getActualPrice(ts)
+            if (price <= 0.0) {
+                throw Exception("Invalid normalized price for ${ts.symbol}")
+            }
+            val qty   = rawTokenAmountToUiAmount(ts, quote.outAmount, solAmount = sol, priceUsd = price)
 
             if (ts.position.isOpen) {
                 onLog("⚠ Position opened during confirmation wait — aborting duplicate", ts.mint); return
@@ -3293,7 +3580,8 @@ class Executor(
         val remainingAmount = originalHolding - sellAmount
         
         val isPaper = cfg().paperMode
-        val currentPrice = ts.lastPrice.takeIf { it > 0 } ?: ts.position.entryPrice
+        normalizePositionScaleIfNeeded(ts)
+        val currentPrice = getActualPrice(ts)
         val pnlPct = if (ts.position.entryPrice > 0) {
             ((currentPrice - ts.position.entryPrice) / ts.position.entryPrice) * 100
         } else 0.0
@@ -4282,7 +4570,7 @@ class Executor(
             ErrorLogger.warn("Executor", "⚠️ SELL PROCEEDING: Integrity failed but attempting anyway for ${ts.symbol}")
         }
 
-        var tokenUnits = (pos.qtyToken * 1_000_000_000.0).toLong().coerceAtLeast(1L)
+        var tokenUnits = resolveSellUnits(ts, pos.qtyToken)
         onLog("📊 SELL DEBUG: Initial tokenUnits from tracker = $tokenUnits", tradeId.mint)
 
         try {
@@ -4398,7 +4686,7 @@ class Executor(
                     if (remainingTokens > 0.01) {
                         onLog("🧹 DUST-BUSTER: Attempting to sell remaining $remainingTokens tokens...", tradeId.mint)
                         try {
-                            val remainingUnits = (remainingTokens * 1_000_000_000.0).toLong()
+                            val remainingUnits = resolveSellUnits(ts, remainingTokens, wallet = wallet)
                             val dustQuote = getQuoteWithSlippageGuard(ts.mint, JupiterApi.SOL_MINT,
                                                                        remainingUnits, 1500, isBuy = false)
                             val dustTx = buildTxWithRetry(dustQuote, wallet.publicKeyB58)
@@ -4438,7 +4726,7 @@ class Executor(
                         if (retryRemaining > 0.01) {
                             onLog("🧹 DUST-BUSTER (retry): Attempting to sell remaining $retryRemaining tokens...", tradeId.mint)
                             try {
-                                val retryUnits = (retryRemaining * 1_000_000_000.0).toLong()
+                                val retryUnits = resolveSellUnits(ts, retryRemaining, wallet = wallet)
                                 val dustQuote = getQuoteWithSlippageGuard(ts.mint, JupiterApi.SOL_MINT,
                                                                            retryUnits, 2000, isBuy = false)
                                 val dustTx = buildTxWithRetry(dustQuote, wallet.publicKeyB58)
@@ -5101,8 +5389,13 @@ class Executor(
         }
     }
 
-    private fun tokenScale(rawAmount: Long): Double =
-        if (rawAmount > 500_000_000L) 1_000_000_000.0 else 1_000_000.0
+    private fun tokenScale(rawAmount: Long): Double {
+        return when {
+            rawAmount >= 1_000_000_000_000L -> 1_000_000_000_000.0
+            rawAmount >= 1_000_000_000L -> 1_000_000_000.0
+            else -> 1_000_000.0
+        }
+    }
 
     // ── Treasury withdrawal ───────────────────────────────────────────
 
@@ -5161,7 +5454,7 @@ class Executor(
         return try {
             onLog("🧹 Attempting orphan sell: $mint ($qty tokens)", mint)
             
-            val sellUnits = (qty * 1_000_000_000.0).toLong().coerceAtLeast(1L)
+            val sellUnits = resolveSellUnitsForMint(mint, qty, wallet = wallet)
             val sellSlippage = (c.slippageBps * 3).coerceAtMost(2000)
             
             val quote = getQuoteWithSlippageGuard(
