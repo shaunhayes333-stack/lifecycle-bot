@@ -347,7 +347,7 @@ class TradeJournal(private val ctx: Context) {
     private fun getStatsFiltered(entries: List<JournalEntry>): JournalStats {
         val sells = entries.filter { it.side == "SELL" }
         val meaningfulTrades = sells.filter { it.pnlPct < -2.0 || it.pnlPct > 2.0 }
-        val scratchTrades = sells.filter { it.pnlPct >= -2.0 && it.pnlPct <= 2.0 }
+        val scratchTrades = sells.filter { it.pnlPct >= -2.0 && it.pnlPct <= 0.5 }
         val wins  = meaningfulTrades.filter { it.pnlPct > 2.0 }
         val loss  = meaningfulTrades.filter { it.pnlPct < -2.0 }
         
