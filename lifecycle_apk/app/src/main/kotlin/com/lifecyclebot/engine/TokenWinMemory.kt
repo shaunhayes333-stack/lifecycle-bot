@@ -6,93 +6,108 @@ import org.json.JSONObject
 import java.util.concurrent.ConcurrentHashMap
 
 /**
- * TokenWinMemory - Remembers winning tokens and their characteristics
- * 
- * This system tracks:
- * 1. Specific tokens that generated profits (for re-entry opportunities)
- * 2. Token name/symbol patterns that correlate with wins
- * 3. Developer/creator addresses that launched winners
- * 4. Characteristics of winning tokens (liquidity, age, holder count at entry)
- * 
- * The goal is to:
- * - Boost confidence on tokens similar to past winners
- * - Enable re-entry on tokens that pumped before
- * - Learn which "themes" or patterns lead to wins
+ * TokenWinMemory
+ *
+ * Decisive-trade classification:
+ * - WIN  = pnlPct >= 0.5
+ * - LOSS = pnlPct <= -2.0
+ * - Anything between is SCRATCH and is ignored for memory learning
  */
 object TokenWinMemory {
-    
+
     private const val PREFS_NAME = "token_win_memory"
-    private const val MAX_WINNERS = 5000     // Max tokens to remember
-    private const val MAX_PATTERNS = 1000     // Max patterns to track
-    private const val MIN_PNL_FOR_WIN = 0.5 // Min PnL% to count as a significant win
-    
+    private const val KEY_WINNERS = "winners"
+    private const val KEY_PATTERNS = "patterns"
+    private const val KEY_CREATORS = "creators"
+    private const val KEY_TOKEN_STATS = "token_stats"
+
+    private const val MAX_WINNERS = 5000
+    private const val MAX_PATTERNS = 1000
+
+    private const val WIN_THRESHOLD_PCT = 0.5
+    private const val LOSS_THRESHOLD_PCT = -2.0
+
     private var ctx: Context? = null
-    
+
     // ═══════════════════════════════════════════════════════════════════════
     // WINNING TOKEN RECORDS
     // ═══════════════════════════════════════════════════════════════════════
-    
+
     data class WinningToken(
         val mint: String,
         val symbol: String,
         val name: String,
         val pnlPercent: Double,
-        val peakPnl: Double,           // Highest PnL reached during hold
+        val peakPnl: Double,
         val entryMcap: Double,
         val exitMcap: Double,
         val entryLiquidity: Double,
         val holdTimeMinutes: Int,
-        val buyPercent: Double,        // Buy pressure at entry
+        val buyPercent: Double,
         val timestamp: Long,
-        val source: String,            // Where we found it (pump.fun, dexscreener, etc)
-        val phase: String,             // Phase at entry (early_accumulation, etc)
-        var timesTraded: Int = 1,      // How many times we've traded this token
-        var totalPnl: Double = pnlPercent,  // Cumulative PnL from this token
+        val source: String,
+        val phase: String,
+        var timesTraded: Int = 1,
+        var totalPnl: Double = pnlPercent,
     )
-    
-    // Mint -> WinningToken
-    private val winningTokens = ConcurrentHashMap<String, WinningToken>()
-    
-    // ═══════════════════════════════════════════════════════════════════════
-    // PATTERN LEARNING - What characteristics correlate with wins
-    // ═══════════════════════════════════════════════════════════════════════
-    
+
     data class PatternStats(
         var wins: Int = 0,
         var losses: Int = 0,
         var totalPnl: Double = 0.0,
         var avgWinPnl: Double = 0.0,
     ) {
-        val winRate: Double get() = if (wins + losses > 0) wins.toDouble() / (wins + losses) else 0.5
-        val isReliable: Boolean get() = wins + losses >= 5  // Enough data to trust
+        val winRate: Double
+            get() = if (wins + losses > 0) wins.toDouble() / (wins + losses).toDouble() else 0.5
+
+        val isReliable: Boolean
+            get() = wins + losses >= 5
     }
-    
+
+    data class TokenStats(
+        var wins: Int = 0,
+        var losses: Int = 0,
+        var totalPnl: Double = 0.0,
+        var bestPnl: Double = Double.NEGATIVE_INFINITY,
+        var lastPnl: Double = 0.0,
+        var lastSeen: Long = 0L,
+    ) {
+        val decisiveTrades: Int
+            get() = wins + losses
+
+        val winRate: Double
+            get() = if (decisiveTrades > 0) wins.toDouble() / decisiveTrades.toDouble() else 0.5
+    }
+
+    // Mint -> WinningToken
+    private val winningTokens = ConcurrentHashMap<String, WinningToken>()
+
     // Pattern type -> pattern value -> stats
-    // e.g., "name_contains" -> "AI" -> PatternStats(wins=5, losses=2)
     private val patterns = ConcurrentHashMap<String, ConcurrentHashMap<String, PatternStats>>()
-    
-    // ═══════════════════════════════════════════════════════════════════════
-    // DEVELOPER TRACKING - Which creators launch winners
-    // ═══════════════════════════════════════════════════════════════════════
-    
-    // Creator address -> win/loss stats
+
+    // Creator address -> stats
     private val creatorStats = ConcurrentHashMap<String, PatternStats>()
-    
+
+    // Mint -> decisive trade history
+    private val tokenStats = ConcurrentHashMap<String, TokenStats>()
+
     // ═══════════════════════════════════════════════════════════════════════
     // INITIALIZATION
     // ═══════════════════════════════════════════════════════════════════════
-    
+
     fun init(context: Context) {
         ctx = context.applicationContext
         load()
-        ErrorLogger.info("TokenWinMemory", 
-            "📊 Loaded: ${winningTokens.size} winning tokens, ${countPatterns()} patterns")
+        ErrorLogger.info(
+            "TokenWinMemory",
+            "📊 Loaded: ${winningTokens.size} winners, ${tokenStats.size} token stats, ${countPatterns()} patterns"
+        )
     }
-    
+
     // ═══════════════════════════════════════════════════════════════════════
     // RECORD A TRADE OUTCOME
     // ═══════════════════════════════════════════════════════════════════════
-    
+
     fun recordTradeOutcome(
         mint: String,
         symbol: String,
@@ -108,27 +123,44 @@ object TokenWinMemory {
         phase: String,
         creatorAddress: String? = null,
     ) {
-        val isWin = pnlPercent >= MIN_PNL_FOR_WIN
-        val isLoss = pnlPercent <= -MIN_PNL_FOR_WIN
+        val isWin = isWinPnl(pnlPercent)
+        val isLoss = isLossPnl(pnlPercent)
         val isScratch = !isWin && !isLoss
-        
-        // Skip scratch trades
+
         if (isScratch) {
-            ErrorLogger.debug("TokenWinMemory", "$symbol: Scratch trade (${pnlPercent.toInt()}%) - not recorded")
+            ErrorLogger.debug(
+                "TokenWinMemory",
+                "$symbol: Scratch trade (${pnlPercent.toInt()}%) - not recorded"
+            )
             return
         }
-        
-        // ── Record winning token ─────────────────────────────────────────
+
+        val now = System.currentTimeMillis()
+
+        // ── Track exact mint stats (wins and losses) ──────────────────────
+        val mintStats = tokenStats.getOrPut(mint) { TokenStats() }
         if (isWin) {
-            val existing = winningTokens[mint]
-            if (existing != null) {
-                // Update existing winner
-                existing.timesTraded++
-                existing.totalPnl += pnlPercent
-                ErrorLogger.info("TokenWinMemory", 
-                    "🏆 REPEAT WINNER: $symbol | +${pnlPercent.toInt()}% | total: +${existing.totalPnl.toInt()}% over ${existing.timesTraded} trades")
+            mintStats.wins++
+        } else {
+            mintStats.losses++
+        }
+        mintStats.totalPnl += pnlPercent
+        mintStats.bestPnl = maxOf(mintStats.bestPnl, pnlPercent)
+        mintStats.lastPnl = pnlPercent
+        mintStats.lastSeen = now
+
+        // ── Record / update winning token memory ──────────────────────────
+        val existingWinner = winningTokens[mint]
+
+        if (isWin) {
+            if (existingWinner != null) {
+                existingWinner.timesTraded++
+                existingWinner.totalPnl += pnlPercent
+                ErrorLogger.info(
+                    "TokenWinMemory",
+                    "🏆 REPEAT WINNER: $symbol | +${pnlPercent.toInt()}% | total: +${existingWinner.totalPnl.toInt()}% over ${existingWinner.timesTraded} trades"
+                )
             } else {
-                // New winner
                 winningTokens[mint] = WinningToken(
                     mint = mint,
                     symbol = symbol,
@@ -140,43 +172,63 @@ object TokenWinMemory {
                     entryLiquidity = entryLiquidity,
                     holdTimeMinutes = holdTimeMinutes,
                     buyPercent = buyPercent,
-                    timestamp = System.currentTimeMillis(),
+                    timestamp = now,
                     source = source,
                     phase = phase,
                 )
-                ErrorLogger.info("TokenWinMemory", 
-                    "🏆 NEW WINNER: $symbol | +${pnlPercent.toInt()}% | mcap: $${entryMcap.toInt()} → $${exitMcap.toInt()}")
-                
-                // Trim if too many
+                ErrorLogger.info(
+                    "TokenWinMemory",
+                    "🏆 NEW WINNER: $symbol | +${pnlPercent.toInt()}% | mcap: $${entryMcap.toInt()} → $${exitMcap.toInt()}"
+                )
                 trimWinners()
             }
+        } else if (existingWinner != null) {
+            existingWinner.timesTraded++
+            existingWinner.totalPnl += pnlPercent
+            ErrorLogger.debug(
+                "TokenWinMemory",
+                "📉 KNOWN WINNER LOST: $symbol | ${pnlPercent.toInt()}% | cumulative: ${existingWinner.totalPnl.toInt()}%"
+            )
         }
-        
-        // ── Learn patterns from this trade ───────────────────────────────
-        learnPatterns(symbol, name, entryMcap, entryLiquidity, buyPercent, phase, source, isWin, pnlPercent)
-        
-        // ── Track creator ────────────────────────────────────────────────
+
+        // ── Learn patterns from decisive trades only ──────────────────────
+        learnPatterns(
+            symbol = symbol,
+            name = name,
+            mcap = entryMcap,
+            liquidity = entryLiquidity,
+            buyPercent = buyPercent,
+            phase = phase,
+            source = source,
+            isWin = isWin,
+            pnl = pnlPercent,
+        )
+
+        // ── Track creator stats ───────────────────────────────────────────
         if (!creatorAddress.isNullOrBlank()) {
             val stats = creatorStats.getOrPut(creatorAddress) { PatternStats() }
             if (isWin) {
                 stats.wins++
                 stats.totalPnl += pnlPercent
-                stats.avgWinPnl = stats.totalPnl / stats.wins
+                stats.avgWinPnl = stats.totalPnl / stats.wins.toDouble()
             } else {
                 stats.losses++
             }
         }
-        
-        // Save periodically
-        if ((winningTokens.size + countPatterns()) % 10 == 0) {
+
+        if (countPatterns() > MAX_PATTERNS + 50) {
+            trimPatterns()
+        }
+
+        if ((winningTokens.size + tokenStats.size + countPatterns()) % 10 == 0) {
             save()
         }
     }
-    
+
     // ═══════════════════════════════════════════════════════════════════════
     // PATTERN LEARNING
     // ═══════════════════════════════════════════════════════════════════════
-    
+
     private fun learnPatterns(
         symbol: String,
         name: String,
@@ -188,30 +240,24 @@ object TokenWinMemory {
         isWin: Boolean,
         pnl: Double,
     ) {
-        // ── Name-based patterns ──────────────────────────────────────────
-        val namePatterns = extractNamePatterns(name.lowercase())
-        namePatterns.forEach { pattern ->
+        extractNamePatterns(name.lowercase()).forEach { pattern ->
             recordPattern("name_contains", pattern, isWin, pnl)
         }
-        
-        // ── Symbol patterns ──────────────────────────────────────────────
-        val symbolPatterns = extractSymbolPatterns(symbol.uppercase())
-        symbolPatterns.forEach { pattern ->
+
+        extractSymbolPatterns(symbol.uppercase()).forEach { pattern ->
             recordPattern("symbol_pattern", pattern, isWin, pnl)
         }
-        
-        // ── Mcap bucket ──────────────────────────────────────────────────
+
         val mcapBucket = when {
-            mcap < 20_000 -> "micro_<20k"
-            mcap < 50_000 -> "small_20k_50k"
-            mcap < 100_000 -> "mid_50k_100k"
-            mcap < 500_000 -> "large_100k_500k"
+            mcap < 20_000.0 -> "micro_<20k"
+            mcap < 50_000.0 -> "small_20k_50k"
+            mcap < 100_000.0 -> "mid_50k_100k"
+            mcap < 500_000.0 -> "large_100k_500k"
             else -> "mega_500k+"
         }
         recordPattern("mcap_bucket", mcapBucket, isWin, pnl)
-        
-        // ── Liquidity ratio ──────────────────────────────────────────────
-        val liqRatio = if (mcap > 0) liquidity / mcap else 0.0
+
+        val liqRatio = if (mcap > 0.0) liquidity / mcap else 0.0
         val liqBucket = when {
             liqRatio < 0.1 -> "liq_ratio_<10%"
             liqRatio < 0.3 -> "liq_ratio_10_30%"
@@ -219,96 +265,84 @@ object TokenWinMemory {
             else -> "liq_ratio_50%+"
         }
         recordPattern("liq_ratio", liqBucket, isWin, pnl)
-        
-        // ── Buy pressure bucket ──────────────────────────────────────────
+
         val buyBucket = when {
-            buyPercent < 40 -> "buy_weak_<40%"
-            buyPercent < 55 -> "buy_neutral_40_55%"
-            buyPercent < 70 -> "buy_strong_55_70%"
+            buyPercent < 40.0 -> "buy_weak_<40%"
+            buyPercent < 55.0 -> "buy_neutral_40_55%"
+            buyPercent < 70.0 -> "buy_strong_55_70%"
             else -> "buy_fomo_70%+"
         }
         recordPattern("buy_pressure", buyBucket, isWin, pnl)
-        
-        // ── Phase ────────────────────────────────────────────────────────
+
         recordPattern("phase", phase, isWin, pnl)
-        
-        // ── Source ───────────────────────────────────────────────────────
         recordPattern("source", source, isWin, pnl)
     }
-    
+
     private fun recordPattern(type: String, value: String, isWin: Boolean, pnl: Double) {
         val typeMap = patterns.getOrPut(type) { ConcurrentHashMap() }
         val stats = typeMap.getOrPut(value) { PatternStats() }
-        
+
         if (isWin) {
             stats.wins++
             stats.totalPnl += pnl
-            stats.avgWinPnl = stats.totalPnl / stats.wins
+            stats.avgWinPnl = stats.totalPnl / stats.wins.toDouble()
         } else {
             stats.losses++
         }
     }
-    
+
     private fun extractNamePatterns(name: String): List<String> {
-        val patterns = mutableListOf<String>()
-        
-        // Common meme themes
+        val found = mutableListOf<String>()
+
         val themes = listOf(
-            "ai", "gpt", "agent", "bot",           // AI theme
-            "pepe", "frog", "wojak", "chad",       // Meme characters
-            "doge", "shib", "inu", "dog", "cat",   // Animal coins
-            "elon", "trump", "biden", "musk",      // Celebrity names
-            "moon", "rocket", "mars", "space",     // Moon themes
-            "baby", "mini", "mega", "giga", "ultra", // Size modifiers
-            "safe", "fair", "based", "wagmi",      // Community terms
-            "sol", "solana", "pump", "bonk",       // Solana specific
-            "100x", "1000x", "gem",                // Moonshot language
+            "ai", "gpt", "agent", "bot",
+            "pepe", "frog", "wojak", "chad",
+            "doge", "shib", "inu", "dog", "cat",
+            "elon", "trump", "biden", "musk",
+            "moon", "rocket", "mars", "space",
+            "baby", "mini", "mega", "giga", "ultra",
+            "safe", "fair", "based", "wagmi",
+            "sol", "solana", "pump", "bonk",
+            "100x", "1000x", "gem",
         )
-        
+
         themes.forEach { theme ->
             if (name.contains(theme)) {
-                patterns.add("theme_$theme")
+                found.add("theme_$theme")
             }
         }
-        
-        // Length pattern
+
         val lengthBucket = when {
             name.length <= 4 -> "name_short"
             name.length <= 8 -> "name_medium"
             else -> "name_long"
         }
-        patterns.add(lengthBucket)
-        
-        return patterns
+        found.add(lengthBucket)
+
+        return found
     }
-    
+
     private fun extractSymbolPatterns(symbol: String): List<String> {
-        val patterns = mutableListOf<String>()
-        
-        // Symbol length
+        val found = mutableListOf<String>()
+
         val lenBucket = when {
             symbol.length <= 3 -> "sym_short"
             symbol.length <= 5 -> "sym_medium"
             else -> "sym_long"
         }
-        patterns.add(lenBucket)
-        
-        // All caps vs mixed case (already uppercase)
+        found.add(lenBucket)
+
         if (symbol.all { it.isUpperCase() || it.isDigit() }) {
-            patterns.add("sym_standard")
+            found.add("sym_standard")
         }
-        
-        return patterns
+
+        return found
     }
-    
+
     // ═══════════════════════════════════════════════════════════════════════
-    // QUERY: Get confidence boost for a token based on memory
+    // QUERY
     // ═══════════════════════════════════════════════════════════════════════
-    
-    /**
-     * Returns a confidence multiplier (0.5 to 2.0) based on how similar
-     * this token is to past winners.
-     */
+
     fun getConfidenceMultiplier(
         mint: String,
         symbol: String,
@@ -321,220 +355,242 @@ object TokenWinMemory {
     ): Double {
         var score = 0.0
         var factors = 0
-        
-        // ── Check if this exact token was a winner ───────────────────────
-        val pastWin = winningTokens[mint]
-        if (pastWin != null) {
-            // HUGE boost for repeat winners
-            val repeatBoost = when {
-                pastWin.totalPnl >= 100 -> 50.0  // Big winner
-                pastWin.totalPnl >= 50 -> 35.0
-                pastWin.totalPnl >= 20 -> 25.0
-                else -> 15.0
+
+        val exactStats = tokenStats[mint]
+        if (exactStats != null && exactStats.decisiveTrades > 0) {
+            val exactScore = when {
+                exactStats.totalPnl >= 100.0 -> 50.0
+                exactStats.totalPnl >= 50.0 -> 35.0
+                exactStats.totalPnl >= 20.0 -> 25.0
+                exactStats.totalPnl >= 10.0 -> 15.0
+                exactStats.totalPnl >= 0.5 -> 8.0
+                exactStats.totalPnl <= -50.0 -> -25.0
+                exactStats.totalPnl <= -20.0 -> -15.0
+                exactStats.totalPnl <= -5.0 -> -8.0
+                else -> 0.0
             }
-            score += repeatBoost
+
+            score += exactScore
             factors++
-            ErrorLogger.info("TokenWinMemory", 
-                "🔥 REPEAT WINNER DETECTED: $symbol | past pnl: +${pastWin.totalPnl.toInt()}% | boost: +$repeatBoost")
+
+            if (exactScore > 0.0) {
+                ErrorLogger.info(
+                    "TokenWinMemory",
+                    "🔥 KNOWN WINNER DETECTED: $symbol | total pnl: ${exactStats.totalPnl.toInt()}% | boost: +$exactScore"
+                )
+            } else if (exactScore < 0.0) {
+                ErrorLogger.debug(
+                    "TokenWinMemory",
+                    "⚠️ KNOWN LOSER DETECTED: $symbol | total pnl: ${exactStats.totalPnl.toInt()}% | penalty: $exactScore"
+                )
+            }
         }
-        
-        // ── Check name patterns ──────────────────────────────────────────
-        val namePatterns = extractNamePatterns(name.lowercase())
-        namePatterns.forEach { pattern ->
+
+        extractNamePatterns(name.lowercase()).forEach { pattern ->
             val stats = patterns["name_contains"]?.get(pattern)
             if (stats != null && stats.isReliable) {
-                val patternScore = (stats.winRate - 0.5) * 20.0  // -10 to +10
-                score += patternScore
+                score += (stats.winRate - 0.5) * 20.0
                 factors++
             }
         }
-        
-        // ── Check mcap bucket ────────────────────────────────────────────
+
         val mcapBucket = when {
-            mcap < 20_000 -> "micro_<20k"
-            mcap < 50_000 -> "small_20k_50k"
-            mcap < 100_000 -> "mid_50k_100k"
-            mcap < 500_000 -> "large_100k_500k"
+            mcap < 20_000.0 -> "micro_<20k"
+            mcap < 50_000.0 -> "small_20k_50k"
+            mcap < 100_000.0 -> "mid_50k_100k"
+            mcap < 500_000.0 -> "large_100k_500k"
             else -> "mega_500k+"
         }
-        val mcapStats = patterns["mcap_bucket"]?.get(mcapBucket)
-        if (mcapStats != null && mcapStats.isReliable) {
-            score += (mcapStats.winRate - 0.5) * 15.0
-            factors++
+        patterns["mcap_bucket"]?.get(mcapBucket)?.let { stats ->
+            if (stats.isReliable) {
+                score += (stats.winRate - 0.5) * 15.0
+                factors++
+            }
         }
-        
-        // ── Check phase ──────────────────────────────────────────────────
-        val phaseStats = patterns["phase"]?.get(phase)
-        if (phaseStats != null && phaseStats.isReliable) {
-            score += (phaseStats.winRate - 0.5) * 15.0
-            factors++
+
+        patterns["phase"]?.get(phase)?.let { stats ->
+            if (stats.isReliable) {
+                score += (stats.winRate - 0.5) * 15.0
+                factors++
+            }
         }
-        
-        // ── Check source ─────────────────────────────────────────────────
-        val sourceStats = patterns["source"]?.get(source)
-        if (sourceStats != null && sourceStats.isReliable) {
-            score += (sourceStats.winRate - 0.5) * 10.0
-            factors++
+
+        patterns["source"]?.get(source)?.let { stats ->
+            if (stats.isReliable) {
+                score += (stats.winRate - 0.5) * 10.0
+                factors++
+            }
         }
-        
-        // Convert score to multiplier (0.5 to 2.0)
-        // score ranges roughly -30 to +50
+
         val multiplier = when {
-            score >= 30 -> 2.0    // Very similar to past winners
-            score >= 15 -> 1.5   
-            score >= 5 -> 1.2
-            score >= -5 -> 1.0   // Neutral
-            score >= -15 -> 0.8
-            else -> 0.5          // Very different from winners
+            score >= 30.0 -> 2.0
+            score >= 15.0 -> 1.5
+            score >= 5.0 -> 1.2
+            score >= -5.0 -> 1.0
+            score >= -15.0 -> 0.8
+            else -> 0.5
         }
-        
+
         if (factors > 0) {
-            ErrorLogger.debug("TokenWinMemory", 
-                "$symbol: memory score=${"%.1f".format(score)} multiplier=${"%.2f".format(multiplier)} (${factors} factors)")
+            ErrorLogger.debug(
+                "TokenWinMemory",
+                "$symbol: memory score=${"%.1f".format(score)} multiplier=${"%.2f".format(multiplier)} ($factors factors)"
+            )
         }
-        
+
         return multiplier
     }
-    
-    /**
-     * Check if a token is a known winner (for re-entry opportunities)
-     */
+
     fun isKnownWinner(mint: String): Boolean = winningTokens.containsKey(mint)
-    
-    /**
-     * Get past performance of a known winner
-     */
+
     fun getWinnerStats(mint: String): WinningToken? = winningTokens[mint]
-    
-    /**
-     * V3.2: Get memory score for a mint (for pre-score filtering)
-     * Returns a score from -20 to +50 based on past performance
-     * Negative = losing history, Positive = winning history
-     */
+
     fun getMemoryScoreForMint(mint: String): Int {
-        val stats = winningTokens[mint] ?: return 0
-        
+        val stats = tokenStats[mint] ?: return 0
+
         return when {
-            stats.totalPnl >= 100 -> 50   // Big winner
-            stats.totalPnl >= 50 -> 35
-            stats.totalPnl >= 20 -> 25
-            stats.totalPnl >= 10 -> 15
-            stats.totalPnl >= 0 -> 5
-            stats.totalPnl >= -10 -> -5
-            stats.totalPnl >= -20 -> -10
-            stats.totalPnl >= -50 -> -15
-            else -> -20  // Big loser
+            stats.totalPnl >= 100.0 -> 50
+            stats.totalPnl >= 50.0 -> 35
+            stats.totalPnl >= 20.0 -> 25
+            stats.totalPnl >= 10.0 -> 15
+            stats.totalPnl >= 0.5 -> 5
+            stats.totalPnl <= -50.0 -> -20
+            stats.totalPnl <= -20.0 -> -15
+            stats.totalPnl <= -10.0 -> -10
+            stats.totalPnl <= -5.0 -> -5
+            else -> 0
         }
     }
-    
-    /**
-     * Get best performing pattern for display
-     */
+
     fun getBestPatterns(limit: Int = 5): List<Pair<String, PatternStats>> {
         return patterns.flatMap { (type, typePatterns) ->
             typePatterns.map { (value, stats) -> "$type:$value" to stats }
         }
-        .filter { it.second.isReliable }
-        .sortedByDescending { it.second.winRate }
-        .take(limit)
+            .filter { it.second.isReliable }
+            .sortedByDescending { it.second.winRate }
+            .take(limit)
     }
-    
-    /**
-     * Get worst performing patterns (to avoid)
-     */
+
     fun getWorstPatterns(limit: Int = 5): List<Pair<String, PatternStats>> {
         return patterns.flatMap { (type, typePatterns) ->
             typePatterns.map { (value, stats) -> "$type:$value" to stats }
         }
-        .filter { it.second.isReliable }
-        .sortedBy { it.second.winRate }
-        .take(limit)
+            .filter { it.second.isReliable }
+            .sortedBy { it.second.winRate }
+            .take(limit)
     }
-    
+
     // ═══════════════════════════════════════════════════════════════════════
     // STATS & UTILITIES
     // ═══════════════════════════════════════════════════════════════════════
-    
+
     private fun countPatterns(): Int {
         return patterns.values.sumOf { it.size }
     }
-    
+
     private fun trimWinners() {
-        if (winningTokens.size > MAX_WINNERS) {
-            // Remove oldest/lowest PnL winners
-            val toRemove = winningTokens.values
-                .sortedBy { it.totalPnl }
-                .take(winningTokens.size - MAX_WINNERS + 500)
-                .map { it.mint }
-            toRemove.forEach { winningTokens.remove(it) }
+        if (winningTokens.size <= MAX_WINNERS) return
+
+        val toRemove = winningTokens.values
+            .sortedBy { it.totalPnl }
+            .take(winningTokens.size - MAX_WINNERS + 500)
+            .map { it.mint }
+
+        toRemove.forEach { winningTokens.remove(it) }
+    }
+
+    private fun trimPatterns() {
+        val total = countPatterns()
+        if (total <= MAX_PATTERNS) return
+
+        val allPatterns = mutableListOf<Triple<String, String, PatternStats>>()
+        patterns.forEach { (type, typePatterns) ->
+            typePatterns.forEach { (value, stats) ->
+                allPatterns.add(Triple(type, value, stats))
+            }
+        }
+
+        val toRemove = allPatterns
+            .sortedWith(
+                compareBy<Triple<String, String, PatternStats>>(
+                    { it.third.wins + it.third.losses },
+                    { it.third.totalPnl }
+                )
+            )
+            .take(total - MAX_PATTERNS)
+
+        toRemove.forEach { (type, value, _) ->
+            patterns[type]?.remove(value)
+            if (patterns[type]?.isEmpty() == true) {
+                patterns.remove(type)
+            }
         }
     }
-    
+
     fun getStats(): String {
         val totalWinners = winningTokens.size
         val totalPnl = winningTokens.values.sumOf { it.totalPnl }
-        val avgPnl = if (totalWinners > 0) totalPnl / totalWinners else 0.0
+        val avgPnl = if (totalWinners > 0) totalPnl / totalWinners.toDouble() else 0.0
         val repeatWinners = winningTokens.values.count { it.timesTraded > 1 }
-        
-        return "Winners: $totalWinners (${repeatWinners} repeat) | Total PnL: +${totalPnl.toInt()}% | Avg: +${avgPnl.toInt()}%"
+
+        return "Winners: $totalWinners ($repeatWinners repeat) | Total PnL: ${totalPnl.toInt()}% | Avg: ${avgPnl.toInt()}%"
     }
-    
-    /**
-     * Get a summary of pattern stats for logging
-     */
+
     fun getPatternSummary(): String {
         val totalPatterns = countPatterns()
-        val reliablePatterns = patterns.values.sumOf { typeMap -> 
-            typeMap.values.count { it.isReliable } 
+        val reliablePatterns = patterns.values.sumOf { typeMap ->
+            typeMap.values.count { it.isReliable }
         }
-        
+
         val bestPatterns = getBestPatterns(3)
         val worstPatterns = getWorstPatterns(3)
-        
-        val bestStr = bestPatterns.joinToString(", ") { 
-            "${it.first.substringAfter(":")}(${(it.second.winRate * 100).toInt()}%)" 
+
+        val bestStr = bestPatterns.joinToString(", ") {
+            "${it.first.substringAfter(":")}(${(it.second.winRate * 100).toInt()}%)"
         }
-        val worstStr = worstPatterns.joinToString(", ") { 
-            "${it.first.substringAfter(":")}(${(it.second.winRate * 100).toInt()}%)" 
+        val worstStr = worstPatterns.joinToString(", ") {
+            "${it.first.substringAfter(":")}(${(it.second.winRate * 100).toInt()}%)"
         }
-        
+
         return "patterns=$totalPatterns (reliable=$reliablePatterns) | " +
-            "winners=${winningTokens.size} | " +
-            "best=[$bestStr] | worst=[$worstStr]"
+            "winners=${winningTokens.size} | best=[$bestStr] | worst=[$worstStr]"
     }
-    
-    /**
-     * Force save current state to storage
-     */
+
     fun forceSave() {
         save()
-        ErrorLogger.debug("TokenWinMemory", "💾 Force saved ${winningTokens.size} winners, ${countPatterns()} patterns")
+        ErrorLogger.debug(
+            "TokenWinMemory",
+            "💾 Force saved ${winningTokens.size} winners, ${tokenStats.size} token stats, ${countPatterns()} patterns"
+        )
     }
-    
+
     fun logDetailedStats() {
-        ErrorLogger.info("TokenWinMemory", """
+        ErrorLogger.info(
+            "TokenWinMemory",
+            """
             |📊 TOKEN WIN MEMORY STATS
             |   Winning tokens: ${winningTokens.size}
+            |   Exact token stats: ${tokenStats.size}
             |   Total patterns: ${countPatterns()}
-            |   
+            |
             |   🏆 TOP PATTERNS:
             |   ${getBestPatterns(5).joinToString("\n|   ") { "${it.first}: ${(it.second.winRate * 100).toInt()}% win rate (${it.second.wins}W/${it.second.losses}L)" }}
-            |   
+            |
             |   ⚠️ WORST PATTERNS:
             |   ${getWorstPatterns(5).joinToString("\n|   ") { "${it.first}: ${(it.second.winRate * 100).toInt()}% win rate (${it.second.wins}W/${it.second.losses}L)" }}
-        """.trimMargin())
+            """.trimMargin()
+        )
     }
-    
+
     // ═══════════════════════════════════════════════════════════════════════
     // PERSISTENCE
     // ═══════════════════════════════════════════════════════════════════════
-    
+
     fun save() {
         val c = ctx ?: return
         try {
             val prefs = c.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
-            
-            // Save winning tokens
+
             val winnersJson = JSONArray()
             winningTokens.values.forEach { w ->
                 winnersJson.put(JSONObject().apply {
@@ -555,8 +611,7 @@ object TokenWinMemory {
                     put("totalPnl", w.totalPnl)
                 })
             }
-            
-            // Save patterns
+
             val patternsJson = JSONObject()
             patterns.forEach { (type, typePatterns) ->
                 val typeJson = JSONObject()
@@ -570,32 +625,66 @@ object TokenWinMemory {
                 }
                 patternsJson.put(type, typeJson)
             }
-            
+
+            val creatorsJson = JSONObject()
+            creatorStats.forEach { (creator, stats) ->
+                creatorsJson.put(creator, JSONObject().apply {
+                    put("wins", stats.wins)
+                    put("losses", stats.losses)
+                    put("totalPnl", stats.totalPnl)
+                    put("avgWinPnl", stats.avgWinPnl)
+                })
+            }
+
+            val tokenStatsJson = JSONObject()
+            tokenStats.forEach { (mint, stats) ->
+                tokenStatsJson.put(mint, JSONObject().apply {
+                    put("wins", stats.wins)
+                    put("losses", stats.losses)
+                    put("totalPnl", stats.totalPnl)
+                    put("bestPnl", stats.bestPnl)
+                    put("lastPnl", stats.lastPnl)
+                    put("lastSeen", stats.lastSeen)
+                })
+            }
+
             prefs.edit()
-                .putString("winners", winnersJson.toString())
-                .putString("patterns", patternsJson.toString())
+                .putString(KEY_WINNERS, winnersJson.toString())
+                .putString(KEY_PATTERNS, patternsJson.toString())
+                .putString(KEY_CREATORS, creatorsJson.toString())
+                .putString(KEY_TOKEN_STATS, tokenStatsJson.toString())
                 .apply()
-            
-            // Also save to persistent storage (survives reinstall)
-            PersistentLearning.saveTokenWinMemory(winnersJson.toString(), patternsJson.toString())
-            
-            ErrorLogger.debug("TokenWinMemory", "💾 Saved ${winningTokens.size} winners, ${countPatterns()} patterns")
+
+            PersistentLearning.saveTokenWinMemory(
+                winnersJson.toString(),
+                patternsJson.toString()
+            )
+
+            ErrorLogger.debug(
+                "TokenWinMemory",
+                "💾 Saved ${winningTokens.size} winners, ${tokenStats.size} token stats, ${countPatterns()} patterns"
+            )
         } catch (e: Exception) {
             ErrorLogger.error("TokenWinMemory", "Save failed: ${e.message}")
         }
     }
-    
+
     private fun load() {
         val c = ctx ?: return
         try {
-            // First try persistent storage (survives reinstall)
+            winningTokens.clear()
+            patterns.clear()
+            creatorStats.clear()
+            tokenStats.clear()
+
             val persistent = PersistentLearning.loadTokenWinMemory()
-            
             val prefs = c.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
-            val winnersStr = persistent?.first ?: prefs.getString("winners", "[]") ?: "[]"
-            val patternsStr = persistent?.second ?: prefs.getString("patterns", "{}") ?: "{}"
-            
-            // Load winners
+
+            val winnersStr = persistent?.first ?: prefs.getString(KEY_WINNERS, "[]") ?: "[]"
+            val patternsStr = persistent?.second ?: prefs.getString(KEY_PATTERNS, "{}") ?: "{}"
+            val creatorsStr = prefs.getString(KEY_CREATORS, "{}") ?: "{}"
+            val tokenStatsStr = prefs.getString(KEY_TOKEN_STATS, "{}") ?: "{}"
+
             val winnersJson = JSONArray(winnersStr)
             for (i in 0 until winnersJson.length()) {
                 val j = winnersJson.getJSONObject(i)
@@ -618,13 +707,16 @@ object TokenWinMemory {
                 )
                 winningTokens[w.mint] = w
             }
-            
-            // Load patterns
+
             val patternsJson = JSONObject(patternsStr)
-            patternsJson.keys().forEach { type ->
+            val patternTypeKeys = patternsJson.keys()
+            while (patternTypeKeys.hasNext()) {
+                val type = patternTypeKeys.next()
                 val typeJson = patternsJson.getJSONObject(type)
                 val typeMap = ConcurrentHashMap<String, PatternStats>()
-                typeJson.keys().forEach { value ->
+                val valueKeys = typeJson.keys()
+                while (valueKeys.hasNext()) {
+                    val value = valueKeys.next()
                     val statsJson = typeJson.getJSONObject(value)
                     typeMap[value] = PatternStats(
                         wins = statsJson.getInt("wins"),
@@ -635,17 +727,63 @@ object TokenWinMemory {
                 }
                 patterns[type] = typeMap
             }
-            
+
+            val creatorsJson = JSONObject(creatorsStr)
+            val creatorKeys = creatorsJson.keys()
+            while (creatorKeys.hasNext()) {
+                val creator = creatorKeys.next()
+                val statsJson = creatorsJson.getJSONObject(creator)
+                creatorStats[creator] = PatternStats(
+                    wins = statsJson.getInt("wins"),
+                    losses = statsJson.getInt("losses"),
+                    totalPnl = statsJson.optDouble("totalPnl", 0.0),
+                    avgWinPnl = statsJson.optDouble("avgWinPnl", 0.0),
+                )
+            }
+
+            val tokenStatsJson = JSONObject(tokenStatsStr)
+            val tokenKeys = tokenStatsJson.keys()
+            while (tokenKeys.hasNext()) {
+                val mint = tokenKeys.next()
+                val statsJson = tokenStatsJson.getJSONObject(mint)
+                tokenStats[mint] = TokenStats(
+                    wins = statsJson.getInt("wins"),
+                    losses = statsJson.getInt("losses"),
+                    totalPnl = statsJson.optDouble("totalPnl", 0.0),
+                    bestPnl = statsJson.optDouble("bestPnl", Double.NEGATIVE_INFINITY),
+                    lastPnl = statsJson.optDouble("lastPnl", 0.0),
+                    lastSeen = statsJson.optLong("lastSeen", 0L),
+                )
+            }
+
+            // Backfill tokenStats from winners if older storage had no token stats saved
+            if (tokenStats.isEmpty() && winningTokens.isNotEmpty()) {
+                winningTokens.values.forEach { winner ->
+                    tokenStats[winner.mint] = TokenStats(
+                        wins = winner.timesTraded.coerceAtLeast(1),
+                        losses = 0,
+                        totalPnl = winner.totalPnl,
+                        bestPnl = winner.peakPnl,
+                        lastPnl = winner.pnlPercent,
+                        lastSeen = winner.timestamp,
+                    )
+                }
+            }
         } catch (e: Exception) {
             ErrorLogger.error("TokenWinMemory", "Load failed: ${e.message}")
         }
     }
-    
+
     fun reset() {
         winningTokens.clear()
         patterns.clear()
         creatorStats.clear()
+        tokenStats.clear()
         save()
         ErrorLogger.info("TokenWinMemory", "🔄 Reset all memory")
     }
+
+    private fun isWinPnl(pnlPercent: Double): Boolean = pnlPercent >= WIN_THRESHOLD_PCT
+
+    private fun isLossPnl(pnlPercent: Double): Boolean = pnlPercent <= LOSS_THRESHOLD_PCT
 }
