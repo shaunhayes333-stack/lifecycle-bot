@@ -9,15 +9,10 @@ import java.util.concurrent.atomic.AtomicInteger
 /**
  * BehaviorLearning — Separate learning layers for good vs bad trading behavior.
  *
- * Learns WHAT behaviors lead to wins vs losses and turns that into:
- * - score adjustments
- * - FDG hard blocks
- * - self-healing diagnostics
- *
- * Defensive design:
- * - static object, no init required
- * - thread-safe maps/counters
- * - broad try/catch protection
+ * Decisive-trade classification:
+ * - WIN    = pnlPct >= 0.5
+ * - LOSS   = pnlPct <= -2.0
+ * - SCRATCH = between those thresholds (ignored)
  */
 object BehaviorLearning {
 
@@ -26,6 +21,9 @@ object BehaviorLearning {
     private const val MAX_PATTERNS_PER_LAYER = 5000
     private const val MIN_OCCURRENCES_RELIABLE = 5
     private const val MIN_CONFIDENCE_TO_USE = 0.60
+
+    private const val WIN_THRESHOLD_PCT = 0.5
+    private const val LOSS_THRESHOLD_PCT = -2.0
 
     // Self-healing
     private const val HEALTH_CHECK_INTERVAL_MS = 30 * 60 * 1000L
@@ -39,13 +37,9 @@ object BehaviorLearning {
     @Volatile
     private var consecutiveBadPeriods = 0
 
-    // Counters
     private val totalGoodRecorded = AtomicInteger(0)
     private val totalBadRecorded = AtomicInteger(0)
 
-    /**
-     * Individual captured trade pattern.
-     */
     data class BehaviorPattern(
         val patternId: String,
         val timestamp: Long = System.currentTimeMillis(),
@@ -53,7 +47,7 @@ object BehaviorLearning {
         // Entry
         val entryScore: Int,
         val entryPhase: String,
-        val setupQuality: String,   // A+, A, B, C
+        val setupQuality: String,
         val tradingMode: String,
 
         // Market
@@ -77,25 +71,15 @@ object BehaviorLearning {
         val isWin: Boolean,
         val outcomeCategory: String,
     ) {
-        /**
-         * Tight signature used for primary matching.
-         * Broader than your old version so pattern reuse is much better.
-         */
         fun getSignature(): String {
             return "${setupQuality}_${tradingMode}_${liquidityBucket}"
         }
 
-        /**
-         * Broad fallback signature.
-         */
         fun getBroadSignature(): String {
             return "${tradingMode}_${liquidityBucket}"
         }
     }
 
-    /**
-     * Aggregated stats for one signature.
-     */
     data class PatternStats(
         val signature: String,
         var occurrences: Int = 0,
@@ -112,7 +96,7 @@ object BehaviorLearning {
             get() = if (occurrences > 0) totalPnlPct / occurrences else 0.0
 
         val confidence: Double
-            get() = minOf(occurrences / 10.0, 1.0) // full confidence at 10 samples
+            get() = minOf(occurrences / 10.0, 1.0)
 
         val isReliable: Boolean
             get() = occurrences >= MIN_OCCURRENCES_RELIABLE
@@ -160,17 +144,15 @@ object BehaviorLearning {
         }
     }
 
-    // Raw pattern memory
     private val goodPatterns = ConcurrentHashMap<String, MutableList<BehaviorPattern>>()
     private val badPatterns = ConcurrentHashMap<String, MutableList<BehaviorPattern>>()
 
-    // Aggregated stats
     private val goodStats = ConcurrentHashMap<String, PatternStats>()
     private val badStats = ConcurrentHashMap<String, PatternStats>()
 
     /**
      * Record a trade outcome.
-     * Scratches are intentionally ignored as noise.
+     * Scratch trades are ignored.
      */
     fun recordTrade(
         entryScore: Int,
@@ -190,16 +172,23 @@ object BehaviorLearning {
         pnlPct: Double,
     ) {
         try {
-            val isWin = pnlPct > 0.5
-            val isBigWin = pnlPct > 100.0
-            val isBigLoss = pnlPct < -15.0
+            val isWin = isWin(pnlPct)
+            val isLoss = isLoss(pnlPct)
+
+            if (!isWin && !isLoss) {
+                return
+            }
+
+            val isBigWin = pnlPct >= 100.0
+            val isBigLoss = pnlPct <= -15.0
 
             val outcomeCategory = when {
-                pnlPct > 100.0 -> "BIG_WIN"
-                pnlPct > 25.0 -> "SMALL_WIN"
-                pnlPct > -2.0 -> "SCRATCH"
-                pnlPct > -15.0 -> "SMALL_LOSS"
-                else -> "BIG_LOSS"
+                pnlPct >= 100.0 -> "BIG_WIN"
+                pnlPct >= 25.0 -> "SMALL_WIN"
+                pnlPct >= WIN_THRESHOLD_PCT -> "WIN"
+                pnlPct <= -15.0 -> "BIG_LOSS"
+                pnlPct <= LOSS_THRESHOLD_PCT -> "LOSS"
+                else -> "SCRATCH"
             }
 
             val pattern = BehaviorPattern(
@@ -226,29 +215,21 @@ object BehaviorLearning {
             val exactSignature = pattern.getSignature()
             val broadSignature = pattern.getBroadSignature()
 
-            when {
-                isWin -> {
-                    recordGoodPattern(pattern, exactSignature)
-                    recordGoodPattern(pattern, broadSignature)
-                    totalGoodRecorded.incrementAndGet()
+            if (isWin) {
+                recordGoodPattern(pattern, exactSignature)
+                recordGoodPattern(pattern, broadSignature)
+                totalGoodRecorded.incrementAndGet()
 
-                    if (isBigWin) {
-                        ErrorLogger.info(TAG, "✅ BIG WIN pattern recorded: $exactSignature | +${pnlPct.toInt()}%")
-                    }
+                if (isBigWin) {
+                    ErrorLogger.info(TAG, "✅ BIG WIN pattern recorded: $exactSignature | +${pnlPct.toInt()}%")
                 }
+            } else {
+                recordBadPattern(pattern, exactSignature)
+                recordBadPattern(pattern, broadSignature)
+                totalBadRecorded.incrementAndGet()
 
-                pnlPct < -5.0 -> {
-                    recordBadPattern(pattern, exactSignature)
-                    recordBadPattern(pattern, broadSignature)
-                    totalBadRecorded.incrementAndGet()
-
-                    if (isBigLoss) {
-                        ErrorLogger.info(TAG, "❌ BIG LOSS pattern recorded: $exactSignature | ${pnlPct.toInt()}%")
-                    }
-                }
-
-                else -> {
-                    // Scratch/noise trade. Ignore.
+                if (isBigLoss) {
+                    ErrorLogger.info(TAG, "❌ BIG LOSS pattern recorded: $exactSignature | ${pnlPct.toInt()}%")
                 }
             }
         } catch (e: Exception) {
@@ -455,7 +436,7 @@ object BehaviorLearning {
                 volumeSignal = volumeSignal,
             )
 
-            val maxPenalty = -2 - (9 * FluidLearningAI.getLearningProgress()).toInt() // -2 to -11 approx
+            val maxPenalty = -2 - (9 * FluidLearningAI.getLearningProgress()).toInt()
             (eval.scoreAdjustment * eval.confidence).toInt().coerceIn(maxPenalty, 10)
         } catch (_: Exception) {
             0
@@ -749,20 +730,20 @@ object BehaviorLearning {
 
     private fun getLiquidityBucket(liquidityUsd: Double): String {
         return when {
-            liquidityUsd < 2_000 -> "LIQ_TINY"
-            liquidityUsd < 20_000 -> "LIQ_LOW"
-            liquidityUsd < 50_000 -> "LIQ_MED"
-            liquidityUsd < 100_000 -> "LIQ_GOOD"
+            liquidityUsd < 2_000.0 -> "LIQ_TINY"
+            liquidityUsd < 20_000.0 -> "LIQ_LOW"
+            liquidityUsd < 50_000.0 -> "LIQ_MED"
+            liquidityUsd < 100_000.0 -> "LIQ_GOOD"
             else -> "LIQ_DEEP"
         }
     }
 
     private fun getMcapBucket(mcapUsd: Double): String {
         return when {
-            mcapUsd < 20_000 -> "MCAP_MICRO"
-            mcapUsd < 50_000 -> "MCAP_TINY"
-            mcapUsd < 100_000 -> "MCAP_SMALL"
-            mcapUsd < 500_000 -> "MCAP_MED"
+            mcapUsd < 20_000.0 -> "MCAP_MICRO"
+            mcapUsd < 50_000.0 -> "MCAP_TINY"
+            mcapUsd < 100_000.0 -> "MCAP_SMALL"
+            mcapUsd < 500_000.0 -> "MCAP_MED"
             else -> "MCAP_LARGE"
         }
     }
@@ -774,4 +755,8 @@ object BehaviorLearning {
             else -> "CONC_LOW"
         }
     }
+
+    private fun isWin(pnlPct: Double): Boolean = pnlPct >= WIN_THRESHOLD_PCT
+
+    private fun isLoss(pnlPct: Double): Boolean = pnlPct <= LOSS_THRESHOLD_PCT
 }
