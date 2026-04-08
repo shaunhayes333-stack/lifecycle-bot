@@ -220,9 +220,9 @@ object FluidLearning {
         paperTradeCount++
         
         // V5.6.16: Only count meaningful trades (not scratches)
-        // Scratches are trades between -2% and +2% - they're essentially break-even
+        // Scratches are trades between -2% and +0.5% - they're essentially break-even
         val pnlPct = if (originalSol > 0) (pnlSol / originalSol) * 100 else 0.0
-        val isScratch = pnlPct >= -2.0 && pnlPct <= 2.0
+        val isScratch = pnlPct >= -2.0 && pnlPct <= 0.5
         
         if (!isScratch) {
             if (pnlSol > 0) {
