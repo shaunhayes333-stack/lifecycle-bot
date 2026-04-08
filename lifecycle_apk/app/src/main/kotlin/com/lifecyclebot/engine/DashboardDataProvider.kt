@@ -16,10 +16,13 @@ import org.json.JSONObject
  * - Never throw to caller
  * - Safe defaults everywhere
  * - Isolate failures by subsystem
+ * - Sanitize upstream values before they hit UI
  */
 object DashboardDataProvider {
 
     private const val TAG = "DashboardData"
+    private const val MIN_TRADES_FOR_TOP_MODE = 5
+    private const val MAX_TOP_PATTERNS = 8
 
     // ═══════════════════════════════════════════════════════════════════
     // UNIFIED DASHBOARD DATA
@@ -62,35 +65,41 @@ object DashboardDataProvider {
             val brainData = getSafeSuperBrainDashboard()
             val treasuryData = getSafeTreasuryPair()
 
-            val patterns = brainData.topPatterns.map { stat ->
-                PatternDisplay(
-                    name = stat.pattern,
-                    emoji = getPatternEmoji(stat.pattern),
-                    winRate = stat.winRate,
-                    trades = stat.trades,
-                )
-            }
+            val patterns = brainData.topPatterns
+                .mapNotNull { stat ->
+                    val name = sanitizeText(stat.pattern, "Unknown Pattern")
+                    if (name.isBlank()) return@mapNotNull null
+
+                    PatternDisplay(
+                        name = name,
+                        emoji = getPatternEmoji(name),
+                        winRate = normalizeRate(stat.winRate),
+                        trades = normalizeCount(stat.trades),
+                    )
+                }
+                .sortedWith(compareByDescending<PatternDisplay> { it.trades }.thenByDescending { it.winRate })
+                .take(MAX_TOP_PATTERNS)
 
             IntelligenceDashboard(
-                currentMode = modeSummary.currentMode,
-                activeModes = modeSummary.activeModes,
-                totalModes = modeSummary.totalModes,
-                topPerformingMode = modeSummary.topModeName,
-                topModeWinRate = modeSummary.topModeWinRate,
+                currentMode = sanitizeText(modeSummary.currentMode, "Standard"),
+                activeModes = normalizeCount(modeSummary.activeModes),
+                totalModes = normalizeCount(modeSummary.totalModes),
+                topPerformingMode = sanitizeText(modeSummary.topModeName, "N/A"),
+                topModeWinRate = normalizeRate(modeSummary.topModeWinRate),
 
-                marketSentiment = brainData.marketSentiment,
-                breadthTrend = brainData.breadthTrend,
-                totalInsights = brainData.totalInsights,
-                activeSignals = brainData.activeSignals,
+                marketSentiment = sanitizeText(brainData.marketSentiment, "UNKNOWN"),
+                breadthTrend = sanitizeText(brainData.breadthTrend, "UNKNOWN"),
+                totalInsights = normalizeCount(brainData.totalInsights),
+                activeSignals = normalizeCount(brainData.activeSignals),
 
                 topPatterns = patterns,
 
-                totalTradesAnalyzed = brain?.totalTradesAnalysed ?: 0,
-                currentRegime = brain?.currentRegime ?: "UNKNOWN",
-                entryThresholdDelta = brain?.entryThresholdDelta ?: 0.0,
+                totalTradesAnalyzed = normalizeCount(brain?.totalTradesAnalysed ?: 0),
+                currentRegime = sanitizeText(brain?.currentRegime ?: "UNKNOWN", "UNKNOWN"),
+                entryThresholdDelta = normalizeNumber(brain?.entryThresholdDelta ?: 0.0),
 
-                treasuryBalance = treasuryData.first,
-                treasuryPnl = treasuryData.second,
+                treasuryBalance = normalizeMoney(treasuryData.first),
+                treasuryPnl = normalizeMoney(treasuryData.second),
 
                 lastUpdateMs = System.currentTimeMillis(),
             )
@@ -117,17 +126,23 @@ object DashboardDataProvider {
     fun getModePerformanceCards(): List<ModePerformanceCard> {
         return try {
             UnifiedModeOrchestrator.ensureInitialized()
-            UnifiedModeOrchestrator.getAllStatsSorted().map { stats ->
-                ModePerformanceCard(
-                    emoji = stats.mode.emoji,
-                    name = stats.mode.label,
-                    trades = stats.trades,
-                    winRate = stats.winRate,
-                    avgPnl = stats.avgPnlPct,
-                    isActive = stats.isActive,
-                    riskLevel = stats.mode.riskLevel,
+            UnifiedModeOrchestrator.getAllStatsSorted()
+                .map { stats ->
+                    ModePerformanceCard(
+                        emoji = sanitizeText(stats.mode.emoji, "📈"),
+                        name = sanitizeText(stats.mode.label, "Unknown"),
+                        trades = normalizeCount(stats.trades),
+                        winRate = normalizeRate(stats.winRate),
+                        avgPnl = normalizeNumber(stats.avgPnlPct),
+                        isActive = stats.isActive,
+                        riskLevel = normalizeCount(stats.mode.riskLevel),
+                    )
+                }
+                .sortedWith(
+                    compareByDescending<ModePerformanceCard> { it.isActive }
+                        .thenByDescending { it.trades }
+                        .thenByDescending { it.winRate }
                 )
-            }
         } catch (e: Exception) {
             ErrorLogger.debug(TAG, "getModePerformanceCards error: ${e.message}")
             emptyList()
@@ -150,9 +165,9 @@ object DashboardDataProvider {
     fun getTreasuryDashboard(): TreasuryDashboard {
         return try {
             TreasuryDashboard(
-                currentBalance = TreasuryManager.treasurySol,
-                lifetimePnl = TreasuryManager.lifetimeLocked,
-                totalWithdrawn = TreasuryManager.lifetimeWithdrawn,
+                currentBalance = normalizeMoney(TreasuryManager.treasurySol),
+                lifetimePnl = normalizeMoney(TreasuryManager.lifetimeLocked),
+                totalWithdrawn = normalizeMoney(TreasuryManager.lifetimeWithdrawn),
                 lastDepositMs = 0L,
                 isLocked = false,
                 lockReason = "",
@@ -179,7 +194,7 @@ object DashboardDataProvider {
     fun getQuickStats(): QuickStats {
         return try {
             val sentiment = try {
-                SuperBrainEnhancements.getCurrentSentiment()
+                sanitizeText(SuperBrainEnhancements.getCurrentSentiment(), "UNKNOWN")
             } catch (_: Exception) {
                 "UNKNOWN"
             }
@@ -192,13 +207,13 @@ object DashboardDataProvider {
             }
 
             val insights = try {
-                SuperBrainEnhancements.getDashboardData().totalInsights
+                normalizeCount(SuperBrainEnhancements.getDashboardData().totalInsights)
             } catch (_: Exception) {
                 0
             }
 
             val treasury = try {
-                TreasuryManager.treasurySol
+                normalizeMoney(TreasuryManager.treasurySol)
             } catch (_: Exception) {
                 0.0
             }
@@ -206,8 +221,8 @@ object DashboardDataProvider {
             QuickStats(
                 sentiment = sentiment,
                 sentimentEmoji = getSentimentEmoji(sentiment),
-                activeMode = mode?.label ?: "Standard",
-                modeEmoji = mode?.emoji ?: "📈",
+                activeMode = sanitizeText(mode?.label ?: "Standard", "Standard"),
+                modeEmoji = sanitizeText(mode?.emoji ?: "📈", "📈"),
                 treasurySol = treasury,
                 insightCount = insights,
             )
@@ -297,7 +312,13 @@ object DashboardDataProvider {
         return try {
             UnifiedModeOrchestrator.ensureInitialized()
             val stats = UnifiedModeOrchestrator.getAllStatsSorted()
-            val topMode = stats.firstOrNull { it.trades >= 5 }
+
+            val topMode = stats
+                .filter { normalizeCount(it.trades) >= MIN_TRADES_FOR_TOP_MODE }
+                .maxWithOrNull(
+                    compareBy<UnifiedModeOrchestrator.ModeStats> { normalizeRate(it.winRate) }
+                        .thenBy { normalizeCount(it.trades) }
+                )
 
             val totalModes = try {
                 UnifiedModeOrchestrator.ExtendedMode.values().size
@@ -306,13 +327,16 @@ object DashboardDataProvider {
             }
 
             SafeModeSummary(
-                currentMode = UnifiedModeOrchestrator.getModeDisplay(
-                    UnifiedModeOrchestrator.getCurrentPrimaryMode()
+                currentMode = sanitizeText(
+                    UnifiedModeOrchestrator.getModeDisplay(UnifiedModeOrchestrator.getCurrentPrimaryMode()),
+                    "Standard"
                 ),
-                activeModes = stats.count { it.isActive },
-                totalModes = totalModes,
-                topModeName = topMode?.let { UnifiedModeOrchestrator.getModeDisplay(it.mode) } ?: "N/A",
-                topModeWinRate = topMode?.winRate ?: 0.0,
+                activeModes = normalizeCount(stats.count { it.isActive }),
+                totalModes = normalizeCount(totalModes),
+                topModeName = topMode?.let {
+                    sanitizeText(UnifiedModeOrchestrator.getModeDisplay(it.mode), "N/A")
+                } ?: "N/A",
+                topModeWinRate = normalizeRate(topMode?.winRate ?: 0.0),
             )
         } catch (e: Exception) {
             ErrorLogger.debug(TAG, "getSafeModeSummary error: ${e.message}")
@@ -332,8 +356,8 @@ object DashboardDataProvider {
     private fun getSafeTreasuryPair(): Pair<Double, Double> {
         return try {
             Pair(
-                TreasuryManager.treasurySol,
-                TreasuryManager.lifetimeLocked,
+                normalizeMoney(TreasuryManager.treasurySol),
+                normalizeMoney(TreasuryManager.lifetimeLocked),
             )
         } catch (e: Exception) {
             ErrorLogger.debug(TAG, "getSafeTreasuryPair error: ${e.message}")
@@ -377,5 +401,26 @@ object DashboardDataProvider {
             "STRONG_BEAR" -> "🔴🔴"
             else -> "❓"
         }
+    }
+
+    private fun normalizeRate(value: Double): Double {
+        return if (value.isFinite()) value.coerceIn(0.0, 100.0) else 0.0
+    }
+
+    private fun normalizeNumber(value: Double): Double {
+        return if (value.isFinite()) value else 0.0
+    }
+
+    private fun normalizeMoney(value: Double): Double {
+        return if (value.isFinite()) value else 0.0
+    }
+
+    private fun normalizeCount(value: Int): Int {
+        return value.coerceAtLeast(0)
+    }
+
+    private fun sanitizeText(value: String?, fallback: String): String {
+        val cleaned = value?.trim().orEmpty()
+        return if (cleaned.isBlank()) fallback else cleaned
     }
 }
