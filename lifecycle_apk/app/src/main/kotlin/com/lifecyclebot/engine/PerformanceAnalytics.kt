@@ -2,21 +2,23 @@ package com.lifecyclebot.engine
 
 import java.util.Calendar
 import java.util.Locale
+import java.util.TimeZone
 import kotlin.math.abs
 import kotlin.math.max
 
 /**
  * PerformanceAnalytics — Deep trading performance insights
  *
- * Analyzes trading history to identify:
- * - Win rates by phase, time, market regime
- * - Best entry conditions
- * - Optimal trading hours
- * - Drawdown analysis
- * - Streak tracking
- * - Actionable insights
+ * Decisive-trade classification:
+ * - WIN    = pnlPct >= 0.5
+ * - LOSS   = pnlPct <= -2.0
+ * - SCRATCH = between those thresholds, ignored in win/loss analytics
  */
 object PerformanceAnalytics {
+
+    private const val WIN_THRESHOLD_PCT = 0.5
+    private const val LOSS_THRESHOLD_PCT = -2.0
+    private val UTC: TimeZone = TimeZone.getTimeZone("UTC")
 
     data class AnalyticsSnapshot(
         val totalTrades: Int = 0,
@@ -73,31 +75,55 @@ object PerformanceAnalytics {
 
         val closedTrades = trades.filter { sanitizeDouble(it.exitPrice) > 0.0 && it.tsExit > 0L }
         if (closedTrades.isEmpty()) {
-            return AnalyticsSnapshot(totalTrades = trades.size)
+            return AnalyticsSnapshot(totalTrades = 0)
         }
 
-        val wins = closedTrades.filter { sanitizeDouble(it.pnlSol) >= 0.0 }
-        val losses = closedTrades.filter { sanitizeDouble(it.pnlSol) < 0.0 }
+        val decisiveTrades = closedTrades.filter { isDecisive(it) }
+        if (decisiveTrades.isEmpty()) {
+            return AnalyticsSnapshot(
+                totalTrades = 0,
+                winCount = 0,
+                lossCount = 0,
+                winRate = 0.0,
+                totalPnlSol = 0.0,
+                avgPnlSol = 0.0,
+                avgWinSol = 0.0,
+                avgLossSol = 0.0,
+                profitFactor = 0.0,
+                expectancy = 0.0,
+                insights = listOf("No decisive trades yet — all recent closes are scratches"),
+                warnings = emptyList()
+            )
+        }
 
-        val winRate = percentage(wins.size, closedTrades.size)
-        val totalPnl = closedTrades.sumOf { sanitizeDouble(it.pnlSol) }
-        val avgPnl = safeAverage(closedTrades.map { sanitizeDouble(it.pnlSol) })
+        val wins = decisiveTrades.filter { isWin(it) }
+        val losses = decisiveTrades.filter { isLoss(it) }
+
+        val winRate = percentage(wins.size, wins.size + losses.size)
+        val totalPnl = decisiveTrades.sumOf { sanitizeDouble(it.pnlSol) }
+        val avgPnl = safeAverage(decisiveTrades.map { sanitizeDouble(it.pnlSol) })
         val avgWin = safeAverage(wins.map { sanitizeDouble(it.pnlSol) })
         val avgLoss = abs(safeAverage(losses.map { sanitizeDouble(it.pnlSol) }))
 
         val grossProfit = wins.sumOf { sanitizeDouble(it.pnlSol).coerceAtLeast(0.0) }
         val grossLoss = abs(losses.sumOf { sanitizeDouble(it.pnlSol).coerceAtMost(0.0) })
-        val profitFactor = if (grossLoss > 0.0) grossProfit / grossLoss else if (grossProfit > 0.0) grossProfit else 0.0
+        val profitFactor = if (grossLoss > 0.0) {
+            grossProfit / grossLoss
+        } else if (grossProfit > 0.0) {
+            grossProfit
+        } else {
+            0.0
+        }
 
         val expectancy = ((winRate / 100.0) * avgWin) - (((100.0 - winRate) / 100.0) * avgLoss)
 
-        val streaks = calculateStreaks(closedTrades)
-        val drawdown = calculateDrawdown(closedTrades)
-        val phaseStats = analyzeByPhase(closedTrades)
-        val timeStats = analyzeByHour(closedTrades)
-        val scoreStats = analyzeByScore(closedTrades)
-        val regimeStats = analyzeByRegime(closedTrades)
-        val holdStats = analyzeHoldTime(closedTrades)
+        val streaks = calculateStreaks(decisiveTrades)
+        val drawdown = calculateDrawdown(decisiveTrades)
+        val phaseStats = analyzeByPhase(decisiveTrades)
+        val timeStats = analyzeByHour(decisiveTrades)
+        val scoreStats = analyzeByScore(decisiveTrades)
+        val regimeStats = analyzeByRegime(decisiveTrades)
+        val holdStats = analyzeHoldTime(decisiveTrades)
 
         val insights = generateInsights(
             winRate = winRate,
@@ -115,11 +141,11 @@ object PerformanceAnalytics {
             currentStreak = streaks.first,
             maxDdPct = drawdown.second,
             currentDdPct = drawdown.third,
-            tradeCount = closedTrades.size
+            tradeCount = decisiveTrades.size
         )
 
         return AnalyticsSnapshot(
-            totalTrades = closedTrades.size,
+            totalTrades = decisiveTrades.size,
             winCount = wins.size,
             lossCount = losses.size,
             winRate = sanitizeDouble(winRate),
@@ -168,8 +194,7 @@ object PerformanceAnalytics {
         var longestLoss = 0
 
         for (trade in trades.sortedBy { it.tsEntry }) {
-            val pnl = sanitizeDouble(trade.pnlSol)
-            if (pnl >= 0.0) {
+            if (isWin(trade)) {
                 tempStreak = if (tempStreak >= 0) tempStreak + 1 else 1
                 longestWin = max(longestWin, tempStreak)
             } else {
@@ -222,14 +247,16 @@ object PerformanceAnalytics {
         val byPhase = trades.groupBy { it.entryPhase.ifBlank { "unknown" } }
 
         val winRates = byPhase.mapValues { (_, list) ->
-            percentage(list.count { sanitizeDouble(it.pnlSol) >= 0.0 }, list.size)
+            percentage(list.count { isWin(it) }, list.count { isDecisive(it) })
         }
 
         val avgPnl = byPhase.mapValues { (_, list) ->
             safeAverage(list.map { sanitizeDouble(it.pnlSol) })
         }
 
-        val counts = byPhase.mapValues { it.value.size }
+        val counts = byPhase.mapValues { (_, list) ->
+            list.count { isDecisive(it) }
+        }
 
         return Triple(winRates, avgPnl, counts)
     }
@@ -238,16 +265,18 @@ object PerformanceAnalytics {
         trades: List<TradeRecord>
     ): Quadruple<Map<Int, Double>, Map<Int, Int>, Int, Int> {
         val byHour = trades.groupBy { trade ->
-            Calendar.getInstance().apply {
+            Calendar.getInstance(UTC).apply {
                 timeInMillis = trade.tsEntry
             }.get(Calendar.HOUR_OF_DAY)
         }
 
         val winRates = byHour.mapValues { (_, list) ->
-            percentage(list.count { sanitizeDouble(it.pnlSol) >= 0.0 }, list.size)
+            percentage(list.count { isWin(it) }, list.count { isDecisive(it) })
         }
 
-        val counts = byHour.mapValues { it.value.size }
+        val counts = byHour.mapValues { (_, list) ->
+            list.count { isDecisive(it) }
+        }
 
         val bestHour = winRates
             .filter { (counts[it.key] ?: 0) >= 3 }
@@ -278,9 +307,10 @@ object PerformanceAnalytics {
 
         for ((label, range) in ranges) {
             val inRange = trades.filter { sanitizeDouble(it.entryScore).toInt() in range }
-            if (inRange.isNotEmpty()) {
-                winRates[label] = percentage(inRange.count { sanitizeDouble(it.pnlSol) >= 0.0 }, inRange.size)
-                avgPnl[label] = safeAverage(inRange.map { sanitizeDouble(it.pnlSol) })
+            val decisive = inRange.filter { isDecisive(it) }
+            if (decisive.isNotEmpty()) {
+                winRates[label] = percentage(decisive.count { isWin(it) }, decisive.size)
+                avgPnl[label] = safeAverage(decisive.map { sanitizeDouble(it.pnlSol) })
             }
         }
 
@@ -296,18 +326,18 @@ object PerformanceAnalytics {
         val byRegime = trades.groupBy { it.mode.ifBlank { "NORMAL" } }
 
         return byRegime.mapValues { (_, list) ->
-            percentage(list.count { sanitizeDouble(it.pnlSol) >= 0.0 }, list.size)
+            percentage(list.count { isWin(it) }, list.count { isDecisive(it) })
         }
     }
 
     private fun analyzeHoldTime(trades: List<TradeRecord>): Triple<Double, Double, Double> {
-        val wins = trades.filter { sanitizeDouble(it.pnlSol) >= 0.0 && sanitizeDouble(it.heldMins) > 0.0 }
-        val losses = trades.filter { sanitizeDouble(it.pnlSol) < 0.0 && sanitizeDouble(it.heldMins) > 0.0 }
+        val wins = trades.filter { isWin(it) && sanitizeDouble(it.heldMins) > 0.0 }
+        val losses = trades.filter { isLoss(it) && sanitizeDouble(it.heldMins) > 0.0 }
 
         val avgHoldWin = safeAverage(wins.map { sanitizeDouble(it.heldMins) })
         val avgHoldLoss = safeAverage(losses.map { sanitizeDouble(it.heldMins) })
 
-        val profitable = trades.filter { sanitizeDouble(it.pnlSol) > 0.0 && sanitizeDouble(it.heldMins) > 0.0 }
+        val profitable = trades.filter { isWin(it) && sanitizeDouble(it.heldMins) > 0.0 }
         val optimalHold = if (profitable.isNotEmpty()) {
             profitable.sortedByDescending { sanitizeDouble(it.pnlSol) }
                 .take(5)
@@ -436,6 +466,18 @@ object PerformanceAnalytics {
         }
 
         return sb.toString()
+    }
+
+    private fun isWin(trade: TradeRecord): Boolean {
+        return sanitizeDouble(trade.pnlPct) >= WIN_THRESHOLD_PCT
+    }
+
+    private fun isLoss(trade: TradeRecord): Boolean {
+        return sanitizeDouble(trade.pnlPct) <= LOSS_THRESHOLD_PCT
+    }
+
+    private fun isDecisive(trade: TradeRecord): Boolean {
+        return isWin(trade) || isLoss(trade)
     }
 
     private fun percentage(count: Int, total: Int): Double {
