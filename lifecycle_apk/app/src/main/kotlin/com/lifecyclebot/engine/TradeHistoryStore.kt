@@ -169,7 +169,7 @@ object TradeHistoryStore {
         val sells = getSells24h()
         if (sells.isEmpty()) return 0
         
-        val wins = sells.count { it.pnlPct > 0.0 }
+        val wins = sells.count { it.pnlPct > 0.5 }
         val losses = sells.count { it.pnlPct < -2.0 }
         val total = wins + losses
         
@@ -193,13 +193,13 @@ object TradeHistoryStore {
      */
     fun getStats(): StatsSnapshot {
         val sells24h = getSells24h()
-        val wins = sells24h.count { it.pnlPct > 0.0 }
+        val wins = sells24h.count { it.pnlPct > 0.5 }
         val losses = sells24h.count { it.pnlPct < -2.0 }
         val total = wins + losses
         
         // Calculate lifetime stats for FluidLearningAI
         val allSells = trades.filter { it.side == "SELL" }
-        val totalWins = allSells.count { it.pnlPct > 0.0 }
+        val totalWins = allSells.count { it.pnlPct > 0.5 }
         val totalLosses = allSells.count { it.pnlPct < 2 }
         val totalCompleted = totalWins + totalLosses
         val lifetimeWinRate = if (totalCompleted > 0) {
