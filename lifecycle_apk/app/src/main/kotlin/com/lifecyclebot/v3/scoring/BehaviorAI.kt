@@ -601,7 +601,7 @@ object BehaviorAI {
                 if (pnl <= BIG_LOSS_PCT) bigLossCount.incrementAndGet()
                 
                 // Track streaks
-                if (pnl > 2.0) {
+                if (pnl > 0.5) {
                     if (tempStreak > 0) tempStreak++ else tempStreak = 1
                     maxWinStreak = maxOf(maxWinStreak, tempStreak)
                 } else if (pnl < -2.0) {
@@ -614,7 +614,7 @@ object BehaviorAI {
             val recentTrades = trades.takeLast(10)
             var recentStreak = 0
             for (trade in recentTrades.reversed()) {
-                if (trade.pnlPct > 2.0) {
+                if (trade.pnlPct > 0.5) {
                     if (recentStreak >= 0) recentStreak++ else break
                 } else if (trade.pnlPct < -2.0) {
                     if (recentStreak <= 0) recentStreak-- else break
