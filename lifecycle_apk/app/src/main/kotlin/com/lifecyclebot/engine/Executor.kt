@@ -391,12 +391,12 @@ class Executor(
             // ═══════════════════════════════════════════════════════════════
             // V4.0: Record trade to FluidLearningAI with TIERED WEIGHTS
             // - LIVE trades: 0.5 weight (real money, highest value learning)
-            // - PAPER trades: 0.1 weight (real decisions, simulated consequences)
+            // - PAPER trades: 0.5 weight (real decisions, simulated consequences)
             // Also record to BehaviorAI for pattern analysis
             // ═══════════════════════════════════════════════════════════════
             try {
                 val pnl = trade.pnlPct
-                val isWin = pnl > 2.0
+                val isWin = pnl >0.5
                 val isPaper = cfg().paperMode
                 
                 // Record to FluidLearningAI with appropriate weight
