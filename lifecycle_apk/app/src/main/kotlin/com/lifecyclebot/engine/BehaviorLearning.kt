@@ -190,7 +190,7 @@ object BehaviorLearning {
         pnlPct: Double,
     ) {
         try {
-            val isWin = pnlPct > 5.0
+            val isWin = pnlPct > 0.5
             val isBigWin = pnlPct > 100.0
             val isBigLoss = pnlPct < -15.0
 
