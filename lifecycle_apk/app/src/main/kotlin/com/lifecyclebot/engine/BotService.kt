@@ -2638,7 +2638,7 @@ class BotService : Service() {
                         scope.launch {
                             try {
                                 synchronized(status.tokens) {
-                                    status.tokens.getOrPut(merged.mint) {
+                                    val ts = status.tokens.getOrPut(merged.mint) {
                                         com.lifecyclebot.data.TokenState(
                                             mint = merged.mint,
                                             symbol = merged.symbol,
@@ -2646,12 +2646,14 @@ class BotService : Service() {
                                             candleTimeframeMinutes = 1,
                                             source = merged.allScanners.joinToString(","),
                                             logoUrl = "https://dd.dexscreener.com/ds-data/tokens/solana/${merged.mint}.png",
-                                        ).also { ts ->
-                                            // V5.6.29: Seed initial liquidity from scanner discovery
-                                            // Prevents HardRugPreFilter ZERO_LIQUIDITY blocks before first API poll
-                                            ts.lastLiquidityUsd = merged.liquidityUsd
-                                            ts.lastMcap = merged.marketCapUsd
-                                        }
+                                        )
+                                    }
+                                    // V5.6.29c: ALWAYS seed liquidity from scanner - even for existing TokenState
+                                    // getOrPut only runs lambda for NEW tokens, but existing tokens may have 0 liquidity
+                                    // from before the fix or from a different creation path
+                                    if (ts.lastLiquidityUsd <= 0 && merged.liquidityUsd > 0) {
+                                        ts.lastLiquidityUsd = merged.liquidityUsd
+                                        ts.lastMcap = merged.marketCapUsd
                                     }
                                 }
                                 orchestrator?.onTokenAdded(merged.mint, merged.symbol)
@@ -2674,10 +2676,12 @@ class BotService : Service() {
                             // Seed TokenState for promoted token
                             scope.launch {
                                 try {
-                                    // V5.6.29: Get liquidity from ProbationEntry before creating TokenState
+                                    // V5.6.29c: Get liquidity from ProbationEntry
                                     val probEntry = GlobalTradeRegistry.getProbationEntry(result.mint)
+                                    val probLiq = probEntry?.initialLiquidity ?: 0.0
+                                    val probMcap = probEntry?.initialMcap ?: 0.0
                                     synchronized(status.tokens) {
-                                        status.tokens.getOrPut(result.mint) {
+                                        val ts = status.tokens.getOrPut(result.mint) {
                                             com.lifecyclebot.data.TokenState(
                                                 mint = result.mint,
                                                 symbol = result.symbol,
@@ -2685,11 +2689,12 @@ class BotService : Service() {
                                                 candleTimeframeMinutes = 1,
                                                 source = "PROBATION",
                                                 logoUrl = "https://dd.dexscreener.com/ds-data/tokens/solana/${result.mint}.png",
-                                            ).also { ts ->
-                                                // V5.6.29: Seed initial liquidity from probation entry
-                                                ts.lastLiquidityUsd = probEntry?.initialLiquidity ?: 0.0
-                                                ts.lastMcap = probEntry?.initialMcap ?: 0.0
-                                            }
+                                            )
+                                        }
+                                        // V5.6.29c: ALWAYS seed liquidity - even for existing TokenState
+                                        if (ts.lastLiquidityUsd <= 0 && probLiq > 0) {
+                                            ts.lastLiquidityUsd = probLiq
+                                            ts.lastMcap = probMcap
                                         }
                                     }
                                     orchestrator?.onTokenAdded(result.mint, result.symbol)
