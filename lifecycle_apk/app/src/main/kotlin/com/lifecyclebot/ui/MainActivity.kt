@@ -2697,7 +2697,7 @@ for legal compliance.
             llSniperMissions.removeAllViews()
             
             for (mission in missions) {
-                val currentPrice = status?.tokens?.get(mission.mint)?.ref ?: mission.entryPrice
+                val currentPrice = botService?.status?.tokens?.get(mission.mint)?.ref ?: mission.entryPrice
                 val pnlPct = ((currentPrice - mission.entryPrice) / mission.entryPrice * 100)
                 val holdTimeSecs = (System.currentTimeMillis() - mission.entryTime) / 1000
                 

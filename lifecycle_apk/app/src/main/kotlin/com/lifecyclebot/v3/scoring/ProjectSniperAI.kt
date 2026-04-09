@@ -535,14 +535,7 @@ object ProjectSniperAI {
         
         // Record to FluidLearning
         try {
-            FluidLearningAI.recordTradeOutcome(
-                mint = mint,
-                entryPrice = mission.entryPrice,
-                exitPrice = exitPrice,
-                holdTimeMs = System.currentTimeMillis() - mission.entryTime,
-                pnlPct = pnlPct,
-                tradingMode = "SNIPER",
-            )
+            FluidLearningAI.recordTrade(pnlPct >= 0)
         } catch (e: Exception) {
             ErrorLogger.debug(TAG, "FluidLearning record failed: ${e.message}")
         }

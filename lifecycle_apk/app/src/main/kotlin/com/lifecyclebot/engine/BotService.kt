@@ -4801,15 +4801,10 @@ if (deferredCount > 0) {
                             
                             // Execute the sell
                             val mission = com.lifecyclebot.v3.scoring.ProjectSniperAI.getMission(ts.mint)
-                            if (mission != null && exitSignal.exitPct == 100) {
-                                // Full exit
-                                executor.paperSell(ts, "SNIPER_${exitSignal.rank.name}", wallet, cfg.paperMode)
+                            if (mission != null) {
+                                // Sniper uses full exits for speed - no partial sells
+                                executor.paperSell(ts, "SNIPER_${exitSignal.rank.name}")
                                 com.lifecyclebot.v3.scoring.ProjectSniperAI.completeMission(ts.mint, ts.ref, exitSignal)
-                            } else if (mission != null && exitSignal.exitPct > 0) {
-                                // Partial exit
-                                executor.paperPartialSell(ts, exitSignal.exitPct, "SNIPER_TP", wallet, cfg.paperMode)
-                                com.lifecyclebot.v3.scoring.ProjectSniperAI.updateExtracted(ts.mint, 
-                                    (mission.extractedPct + exitSignal.exitPct).coerceAtMost(100))
                             }
                             
                             addLog("🎯 SNIPER: ${ts.symbol} | ${exitSignal.rank.emoji} ${exitSignal.reason}", ts.mint)
