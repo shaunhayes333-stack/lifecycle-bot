@@ -2994,26 +2994,29 @@ for legal compliance.
         try {
             // Get trade history stats
             val stats = com.lifecyclebot.engine.TradeHistoryStore.getStats()
-            val totalTrades = stats.totalTrades
+            // V5.6.28f: Use totalStoredTrades to match Journal display
+            // (totalTrades only counts W+L, excluding scratches)
+            val totalTrades = stats.totalStoredTrades
+            val meaningfulTrades = stats.totalWins + stats.totalLosses
             val winRate = stats.winRate  // Already a percentage 0-100
             
             // Determine phase based on trade count
             val phase = when {
-                totalTrades < 1000 -> "Bootstrap"
-                totalTrades < 3000 -> "Mature"
+                meaningfulTrades < 1000 -> "Bootstrap"
+                meaningfulTrades < 3000 -> "Mature"
                 else -> "Continuous"
             }
             
             // Calculate readiness score (0-100%)
-            // Trades component: 0-50% (need 1000 trades for full credit)
-            val tradesScore = minOf(totalTrades.toDouble() / 1000.0, 1.0) * 50.0
+            // Trades component: 0-50% (need 1000 meaningful trades for full credit)
+            val tradesScore = minOf(meaningfulTrades.toDouble() / 1000.0, 1.0) * 50.0
             // Win rate component: 0-50% (need 42% win rate for full credit)
             val winRateScore = minOf(winRate / 42.0, 1.0) * 50.0
             val readinessScore = (tradesScore + winRateScore).toInt()
             
             // Determine status
-            val isReady = totalTrades >= 1000 && winRate >= 42.0
-            val isAlmostReady = totalTrades >= 500 && winRate >= 38.0
+            val isReady = meaningfulTrades >= 1000 && winRate >= 42.0
+            val isAlmostReady = meaningfulTrades >= 500 && winRate >= 38.0
             
             // Update UI
             tvReadinessWinRate.text = if (totalTrades > 0) "${winRate.toInt()}%" else "--"
