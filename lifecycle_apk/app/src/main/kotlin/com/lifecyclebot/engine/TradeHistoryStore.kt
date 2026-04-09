@@ -160,19 +160,32 @@ object TradeHistoryStore {
     }
 
     /**
-     * Get trades from last 24 hours
+     * Get trades from TODAY (since midnight local time)
+     * V5.6.29d: Changed from rolling 24h to midnight-based
+     * Count only goes UP during the day, resets at midnight
      */
     fun getTrades24h(): List<Trade> {
-        val cutoff = System.currentTimeMillis() - (24 * 60 * 60 * 1000L)
-        return trades.filter { it.ts >= cutoff }
+        val calendar = java.util.Calendar.getInstance()
+        calendar.set(java.util.Calendar.HOUR_OF_DAY, 0)
+        calendar.set(java.util.Calendar.MINUTE, 0)
+        calendar.set(java.util.Calendar.SECOND, 0)
+        calendar.set(java.util.Calendar.MILLISECOND, 0)
+        val midnightToday = calendar.timeInMillis
+        return trades.filter { it.ts >= midnightToday }
     }
 
     /**
-     * Get fully closed SELL trades from last 24 hours
+     * Get fully closed SELL trades from TODAY (since midnight)
+     * V5.6.29d: Changed from rolling 24h to midnight-based
      */
     fun getSells24h(): List<Trade> {
-        val cutoff = System.currentTimeMillis() - (24 * 60 * 60 * 1000L)
-        return trades.filter { it.side == "SELL" && it.ts >= cutoff }
+        val calendar = java.util.Calendar.getInstance()
+        calendar.set(java.util.Calendar.HOUR_OF_DAY, 0)
+        calendar.set(java.util.Calendar.MINUTE, 0)
+        calendar.set(java.util.Calendar.SECOND, 0)
+        calendar.set(java.util.Calendar.MILLISECOND, 0)
+        val midnightToday = calendar.timeInMillis
+        return trades.filter { it.side == "SELL" && it.ts >= midnightToday }
     }
 
     /**
