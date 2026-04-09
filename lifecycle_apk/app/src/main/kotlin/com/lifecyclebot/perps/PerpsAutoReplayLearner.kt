@@ -191,7 +191,8 @@ object PerpsAutoReplayLearner {
      */
     private suspend fun loadHistoricalTradesFromTurso() {
         try {
-            val tursoTrades = com.lifecyclebot.collective.TursoClient.getPerpsTradesForReplay(50)
+            val client = com.lifecyclebot.collective.CollectiveLearning.getClient() ?: return
+            val tursoTrades = client.getPerpsTradesForReplay(50)
             
             if (tursoTrades.isNotEmpty()) {
                 ErrorLogger.info(TAG, "🎬 Loaded ${tursoTrades.size} historical trades from Turso")
@@ -203,12 +204,13 @@ object PerpsAutoReplayLearner {
                         val direction = if (record.direction == "LONG") PerpsDirection.LONG else PerpsDirection.SHORT
                         
                         val trade = PerpsTrade(
+                            id = record.tradeHash,
                             market = market,
                             direction = direction,
+                            side = "CLOSE",
                             entryPrice = record.entryPrice,
                             exitPrice = record.exitPrice,
                             sizeSol = record.sizeSol,
-                            sizeUsd = record.sizeSol * record.entryPrice,
                             leverage = record.leverage,
                             pnlUsd = record.pnlUsd,
                             pnlPct = record.pnlPct,
@@ -218,7 +220,7 @@ object PerpsAutoReplayLearner {
                             riskTier = PerpsRiskTier.values().find { it.name == record.riskTier } ?: PerpsRiskTier.SNIPER,
                             aiScore = record.aiScore,
                             aiConfidence = record.aiConfidence,
-                            paperMode = record.paperMode,
+                            isPaper = record.paperMode,
                         )
                         
                         // Create estimated market snapshots
@@ -356,6 +358,7 @@ object PerpsAutoReplayLearner {
         // V5.7.3: Save to Turso for cross-device learning
         kotlinx.coroutines.GlobalScope.launch(kotlinx.coroutines.Dispatchers.IO) {
             try {
+                val client = com.lifecyclebot.collective.CollectiveLearning.getClient() ?: return@launch
                 val record = com.lifecyclebot.collective.PerpsTradeRecord(
                     tradeHash = "${trade.market.symbol}_${trade.openTime}_${trade.closeTime}",
                     instanceId = com.lifecyclebot.collective.CollectiveLearning.getInstanceId() ?: "",
@@ -373,11 +376,11 @@ object PerpsAutoReplayLearner {
                     riskTier = trade.riskTier.name,
                     aiScore = trade.aiScore,
                     aiConfidence = trade.aiConfidence,
-                    paperMode = trade.paperMode,
+                    paperMode = trade.isPaper,
                     isWin = trade.pnlPct > 0,
                     holdMins = ((trade.closeTime - trade.openTime) / 60_000.0),
                 )
-                com.lifecyclebot.collective.TursoClient.savePerpsTradeRecord(record)
+                client.savePerpsTradeRecord(record)
             } catch (e: Exception) {
                 ErrorLogger.debug(TAG, "Turso save error: ${e.message}")
             }

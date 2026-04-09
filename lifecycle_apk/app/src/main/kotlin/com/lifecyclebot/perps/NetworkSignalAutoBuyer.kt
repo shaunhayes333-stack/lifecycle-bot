@@ -377,6 +377,7 @@ object NetworkSignalAutoBuyer {
             // Record insight to perps learning
             CoroutineScope(Dispatchers.IO).launch {
                 try {
+                    val client = com.lifecyclebot.collective.CollectiveLearning.getClient() ?: return@launch
                     val insight = com.lifecyclebot.collective.PerpsInsightRecord(
                         instanceId = com.lifecyclebot.collective.CollectiveLearning.getInstanceId() ?: "",
                         insightType = "AUTO_BUY",
@@ -388,7 +389,7 @@ object NetworkSignalAutoBuyer {
                         impactScore = signal.pnlPct,
                         timestamp = System.currentTimeMillis(),
                     )
-                    com.lifecyclebot.collective.TursoClient.savePerpsInsight(insight)
+                    client.savePerpsInsight(insight)
                 } catch (e: Exception) {
                     ErrorLogger.debug(TAG, "Record insight failed: ${e.message}")
                 }

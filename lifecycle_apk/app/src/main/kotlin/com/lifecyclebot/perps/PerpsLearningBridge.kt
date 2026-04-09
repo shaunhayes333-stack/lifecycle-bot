@@ -2,6 +2,9 @@ package com.lifecyclebot.perps
 
 import com.lifecyclebot.engine.ErrorLogger
 import com.lifecyclebot.engine.TradeHistoryStore
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.GlobalScope
+import kotlinx.coroutines.launch
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.atomic.AtomicInteger
 import java.util.concurrent.atomic.AtomicLong
@@ -798,9 +801,10 @@ object PerpsLearningBridge {
             }
             
             // V5.7.3: Save to Turso for cross-device learning
-            kotlinx.coroutines.GlobalScope.launch(kotlinx.coroutines.Dispatchers.IO) {
+            GlobalScope.launch(Dispatchers.IO) {
                 try {
-                    com.lifecyclebot.collective.TursoClient.updatePerpsLayerPerformance(
+                    val client = com.lifecyclebot.collective.CollectiveLearning.getClient() ?: return@launch
+                    client.updatePerpsLayerPerformance(
                         layerName = layerName,
                         market = trade.market.symbol,
                         direction = trade.direction.symbol,
@@ -858,9 +862,10 @@ object PerpsLearningBridge {
         }
         
         // Save market stats to Turso
-        kotlinx.coroutines.GlobalScope.launch(kotlinx.coroutines.Dispatchers.IO) {
+        GlobalScope.launch(Dispatchers.IO) {
             try {
-                com.lifecyclebot.collective.TursoClient.updatePerpsMarketStats(
+                val client = com.lifecyclebot.collective.CollectiveLearning.getClient() ?: return@launch
+                client.updatePerpsMarketStats(
                     market = trade.market.symbol,
                     direction = trade.direction.symbol,
                     isWin = isWin,

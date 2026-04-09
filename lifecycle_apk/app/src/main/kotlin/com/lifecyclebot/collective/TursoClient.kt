@@ -2,6 +2,7 @@ package com.lifecyclebot.collective
 
 import android.util.Base64
 import android.util.Log
+import com.lifecyclebot.engine.ErrorLogger
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import org.json.JSONArray
@@ -534,7 +535,7 @@ class TursoClient(
             ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """.trimIndent()
         
-        val result = executeQuery(
+        val result = execute(
             sql, listOf(
                 trade.tradeHash, trade.instanceId, trade.market, trade.direction,
                 trade.entryPrice, trade.exitPrice, trade.sizeSol, trade.leverage,
@@ -561,7 +562,7 @@ class TursoClient(
             ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """.trimIndent()
         
-        val result = executeQuery(
+        val result = execute(
             sql, listOf(
                 position.id, position.instanceId, position.market, position.direction,
                 position.entryPrice, position.currentPrice, position.sizeSol, position.sizeUsd,
@@ -593,7 +594,7 @@ class TursoClient(
             WHERE layer_name = ? AND market = ? AND direction = ?
         """.trimIndent()
         
-        val existing = executeQuery(selectSql, listOf(layerName, market, direction), expectRows = true)
+        val existing = query(selectSql, listOf(layerName, market, direction))
         
         return if (existing.success && existing.rows.isNotEmpty()) {
             val row = existing.rows[0]
@@ -613,7 +614,7 @@ class TursoClient(
                 WHERE layer_name = ? AND market = ? AND direction = ?
             """.trimIndent()
             
-            executeQuery(
+            execute(
                 updateSql,
                 listOf(totalTrades, wins, losses, newAvg, newTrust, System.currentTimeMillis(), layerName, market, direction),
                 expectRows = false
@@ -626,7 +627,7 @@ class TursoClient(
                 ) VALUES (?, ?, ?, 1, ?, ?, ?, 0.5, ?)
             """.trimIndent()
             
-            executeQuery(
+            execute(
                 insertSql,
                 listOf(layerName, market, direction, if (isWin) 1 else 0, if (!isWin) 1 else 0, pnlPct, System.currentTimeMillis()),
                 expectRows = false
@@ -645,7 +646,7 @@ class TursoClient(
             ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """.trimIndent()
         
-        val result = executeQuery(
+        val result = execute(
             sql, listOf(
                 pattern.patternId, pattern.market, pattern.direction, pattern.riskTier,
                 pattern.winRate, pattern.avgPnl, pattern.occurrences, pattern.confidence,
@@ -669,7 +670,7 @@ class TursoClient(
             ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
         """.trimIndent()
         
-        val result = executeQuery(
+        val result = execute(
             sql, listOf(
                 insight.instanceId, insight.insightType, insight.layerName ?: "",
                 insight.market ?: "", insight.direction ?: "", insight.insight,
@@ -686,7 +687,7 @@ class TursoClient(
      */
     suspend fun updatePerpsMarketStats(market: String, direction: String, isWin: Boolean, pnlPct: Double, holdMins: Double, leverage: Double): Boolean {
         val selectSql = "SELECT * FROM perps_market_stats WHERE market = ?"
-        val existing = executeQuery(selectSql, listOf(market), expectRows = true)
+        val existing = query(selectSql, listOf(market))
         
         return if (existing.success && existing.rows.isNotEmpty()) {
             val row = existing.rows[0]
@@ -724,7 +725,7 @@ class TursoClient(
                 WHERE market = ?
             """.trimIndent()
             
-            executeQuery(
+            execute(
                 updateSql,
                 listOf(totalLong, totalShort, newLongWinRate, newShortWinRate, newAvgLongPnl, newAvgShortPnl, newBestLev, newAvgHold, System.currentTimeMillis(), market),
                 expectRows = false
@@ -739,7 +740,7 @@ class TursoClient(
             """.trimIndent()
             
             val isLong = direction == "LONG"
-            executeQuery(
+            execute(
                 insertSql,
                 listOf(
                     market,
@@ -761,7 +762,7 @@ class TursoClient(
             SELECT * FROM perps_trades ORDER BY close_time DESC LIMIT ?
         """.trimIndent()
         
-        val result = executeQuery(sql, listOf(limit), expectRows = true)
+        val result = query(sql, listOf(limit))
         
         return if (result.success) {
             result.rows.mapNotNull { row ->
@@ -806,7 +807,7 @@ class TursoClient(
             SELECT * FROM perps_layer_performance ORDER BY trust_score DESC
         """.trimIndent()
         
-        val result = executeQuery(sql, emptyList(), expectRows = true)
+        val result = query(sql, emptyList())
         
         return if (result.success) {
             result.rows.mapNotNull { row ->

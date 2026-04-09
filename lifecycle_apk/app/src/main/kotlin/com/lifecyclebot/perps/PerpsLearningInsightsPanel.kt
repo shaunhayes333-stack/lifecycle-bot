@@ -1,6 +1,6 @@
 package com.lifecyclebot.perps
 
-import com.lifecyclebot.collective.TursoClient
+import com.lifecyclebot.collective.CollectiveLearning
 import com.lifecyclebot.collective.PerpsInsightRecord
 import com.lifecyclebot.engine.ErrorLogger
 import kotlinx.coroutines.*
@@ -150,7 +150,7 @@ object PerpsLearningInsightsPanel {
                 impactScore = impactScore,
                 timestamp = System.currentTimeMillis(),
             )
-            TursoClient.savePerpsInsight(record)
+            CollectiveLearning.getClient()?.savePerpsInsight(record)
         } catch (e: Exception) {
             ErrorLogger.debug(TAG, "Failed to persist insight: ${e.message}")
         }

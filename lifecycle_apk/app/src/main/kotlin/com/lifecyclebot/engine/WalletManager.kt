@@ -93,6 +93,12 @@ class WalletManager private constructor(private val ctx: Context) {
         }
         
         /**
+         * V5.7.3: Get wallet from singleton instance (no context required)
+         * Used by perps system for live transaction signing
+         */
+        fun getWallet(): SolanaWallet? = INSTANCE?.getWallet()
+        
+        /**
          * CRITICAL FIX: Attempt to reconnect wallet using saved credentials.
          * Called when wallet is null during a sell attempt.
          * Returns the reconnected SolanaWallet or null if reconnect fails.

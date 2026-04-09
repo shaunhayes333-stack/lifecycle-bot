@@ -37,6 +37,12 @@ object CollectiveLearning {
     private const val RECONNECT_COOLDOWN_MS = 60_000L
 
     private var instanceId: String = ""
+    
+    /** V5.7.3: Public getter for instance ID (used by perps learning) */
+    fun getInstanceId(): String? = instanceId.takeIf { it.isNotBlank() }
+    
+    /** V5.7.3: Public getter for TursoClient (used by perps learning) */
+    fun getClient(): TursoClient? = client
 
     private const val SYNC_INTERVAL_MS = 15 * 60 * 1000L
 
