@@ -265,7 +265,7 @@ object NetworkSignalAutoBuyer {
     private fun getAILayerApproval(signal: CollectiveLearning.NetworkSignal): Boolean {
         try {
             // Check if token is blacklisted
-            val isBlacklisted = com.lifecyclebot.engine.TokenBlacklistAI.isBlacklisted(signal.mint)
+            val isBlacklisted = com.lifecyclebot.engine.TokenBlacklist.isBlocked(signal.mint)
             if (isBlacklisted) return false
             
             // Check collective sentiment
@@ -294,8 +294,15 @@ object NetworkSignalAutoBuyer {
      */
     private suspend fun executeSpotBuy(signal: CollectiveLearning.NetworkSignal): Boolean {
         try {
+            // Get executor from BotService
+            val executor = com.lifecyclebot.engine.BotService.instance?.executor
+            if (executor == null) {
+                ErrorLogger.warn(TAG, "No executor available")
+                return false
+            }
+            
             // Use existing Executor to queue a buy
-            val success = com.lifecyclebot.engine.Executor.queueNetworkSignalBuy(
+            val success = executor.queueNetworkSignalBuy(
                 mint = signal.mint,
                 symbol = signal.symbol,
                 sizePct = config.positionSizePct,

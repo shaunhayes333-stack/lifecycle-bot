@@ -387,8 +387,8 @@ object JupiterPerps {
     ): String? = withContext(Dispatchers.IO) {
         try {
             // Get wallet from WalletManager
-            val walletAddress = WalletManager.getCurrentWalletAddress()
             val wallet = WalletManager.getWallet()
+            val walletAddress = wallet?.publicKeyB58
             
             if (walletAddress.isNullOrEmpty() || wallet == null) {
                 ErrorLogger.warn(TAG, "No wallet available for live signing")
@@ -547,7 +547,7 @@ object JupiterPerps {
                 useJito = false,
                 jitoTipLamports = 0,
                 ultraRequestId = null,
-                jupApiKey = null,
+                jupiterApiKey = "",
                 isRfqRoute = false,
             )
             
@@ -567,8 +567,8 @@ object JupiterPerps {
         exitPrice: Double,
     ): String? = withContext(Dispatchers.IO) {
         try {
-            val walletAddress = WalletManager.getCurrentWalletAddress()
             val wallet = WalletManager.getWallet()
+            val walletAddress = wallet?.publicKeyB58
             
             if (walletAddress.isNullOrEmpty() || wallet == null) {
                 ErrorLogger.warn(TAG, "No wallet available")
