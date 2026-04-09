@@ -3579,7 +3579,9 @@ class Executor(
         val sellAmount = originalHolding * pct
         val remainingAmount = originalHolding - sellAmount
         
-        val isPaper = cfg().paperMode
+        // CRITICAL FIX: Use position mode, NOT config mode!
+        // A LIVE position must ALWAYS execute LIVE sells regardless of current config.
+        val isPaper = ts.position.isPaperPosition
         normalizePositionScaleIfNeeded(ts)
         val currentPrice = getActualPrice(ts)
         val pnlPct = if (ts.position.entryPrice > 0) {
@@ -3604,21 +3606,92 @@ class Executor(
                 com.lifecyclebot.engine.NotificationHistory.NotifEntry.NotifType.INFO)
             
         } else {
-            if (wallet == null) {
-                ErrorLogger.error("Executor", "🚨 PARTIAL SELL BLOCKED: No wallet for ${ts.symbol}")
-                return
+            // LIVE partial sell - need wallet
+            var activeWallet = wallet
+            
+            if (activeWallet == null) {
+                ErrorLogger.error("Executor", "🚨 LIVE PARTIAL SELL: Wallet NULL for ${ts.symbol} - attempting reconnect...")
+                
+                try {
+                    val reconnectedWallet = WalletManager.attemptReconnect()
+                    if (reconnectedWallet != null) {
+                        ErrorLogger.info("Executor", "✅ Wallet reconnected for partial sell!")
+                        activeWallet = reconnectedWallet
+                    }
+                } catch (e: Exception) {
+                    ErrorLogger.error("Executor", "🚨 Wallet reconnect failed: ${e.message}")
+                }
+                
+                if (activeWallet == null) {
+                    ErrorLogger.error("Executor", "🚨 PARTIAL SELL BLOCKED: No wallet for ${ts.symbol}")
+                    onNotify("🚨 Partial Sell Blocked!", 
+                        "Cannot partial-sell ${ts.symbol} - wallet not connected!",
+                        com.lifecyclebot.engine.NotificationHistory.NotifEntry.NotifType.INFO)
+                    return
+                }
             }
             
             ErrorLogger.info("Executor", "🔄 LIVE PARTIAL SELL: ${ts.symbol} | " +
                 "${(pct * 100).toInt()}% of holdings")
             
             if (pct >= 0.9) {
-                doSell(ts, "[PARTIAL→FULL] $reason", wallet, walletBalance)
+                doSell(ts, "[PARTIAL→FULL] $reason", activeWallet, walletBalance)
             } else {
-                onLog("⚠️ Partial sells in live mode require full swap implementation", ts.mint)
-                val soldValueSol = ts.position.costSol * pct
-                val profitSol = soldValueSol * (pnlPct / 100.0)
-                TradeHistoryStore.recordPartialProfit(ts.mint, profitSol, pnlPct)
+                // V5.6.27: Implement actual partial sell for LIVE mode
+                try {
+                    val c = cfg()
+                    val pos = ts.position
+                    val sellQty = pos.qtyToken * pct
+                    val newQty = pos.qtyToken - sellQty
+                    val newCost = pos.costSol * (1 - pct)
+                    val newSoldPct = pos.partialSoldPct + (pct * 100)
+                    
+                    val sellUnits = resolveSellUnits(ts, sellQty, wallet = activeWallet)
+                    val sellSlippage = (c.slippageBps * 2).coerceAtMost(1000)
+                    
+                    onLog("📊 LIVE PARTIAL: Getting quote for $sellUnits units @ ${sellSlippage}bps slippage", ts.mint)
+                    
+                    val quote = getQuoteWithSlippageGuard(
+                        ts.mint, JupiterApi.SOL_MINT, sellUnits, sellSlippage, isBuy = false)
+                    
+                    val txResult = buildTxWithRetry(quote, activeWallet.publicKeyB58)
+                    security.enforceSignDelay()
+                    
+                    val useJito = c.jitoEnabled && !quote.isUltra
+                    val jitoTip = c.jitoTipLamports
+                    val ultraReqId = if (quote.isUltra) txResult.requestId else null
+                    
+                    onLog("📊 LIVE PARTIAL: Signing and broadcasting tx...", ts.mint)
+                    val sig = activeWallet.signSendAndConfirm(txResult.txBase64, useJito, jitoTip, ultraReqId, c.jupiterApiKey, txResult.isRfqRoute)
+                    
+                    val solBack = quote.outAmount / 1_000_000_000.0
+                    val livePnl = solBack - pos.costSol * pct
+                    val liveScore = pct(pos.costSol * pct, solBack)
+                    val (netPnl, feeSol) = slippageGuard.calcNetPnl(livePnl, pos.costSol * pct)
+                    
+                    // Update position
+                    ts.position = pos.copy(qtyToken = newQty, costSol = newCost, partialSoldPct = newSoldPct)
+                    
+                    val liveTrade = Trade("SELL", "live", solBack, currentPrice,
+                        System.currentTimeMillis(), "partial_${newSoldPct.toInt()}pct",
+                        livePnl, liveScore, sig = sig, feeSol = feeSol, netPnlSol = netPnl,
+                        mint = ts.mint, tradingMode = pos.tradingMode, tradingModeEmoji = pos.tradingModeEmoji)
+                    
+                    recordTrade(ts, liveTrade)
+                    security.recordTrade(liveTrade)
+                    SmartSizer.recordTrade(livePnl > 0, isPaperMode = false)
+                    
+                    onLog("✅ LIVE PARTIAL SELL ${(pct*100).toInt()}% @ +${pnlPct.toInt()}% | " +
+                          "${solBack.fmt(4)}◎ | sig=${sig.take(16)}…", ts.mint)
+                    
+                    onNotify("💰 Live Partial Sell",
+                        "${ts.symbol}  +${pnlPct.toInt()}%  sold ${(pct*100).toInt()}%",
+                        com.lifecyclebot.engine.NotificationHistory.NotifEntry.NotifType.INFO)
+                        
+                } catch (e: Exception) {
+                    ErrorLogger.error("Executor", "❌ LIVE PARTIAL SELL FAILED: ${ts.symbol} | ${e.message}")
+                    onLog("❌ Live partial sell FAILED: ${security.sanitiseForLog(e.message?:"err")}", ts.mint)
+                }
             }
         }
     }
