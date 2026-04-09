@@ -2160,6 +2160,65 @@
             </LinearLayout>
 
             <!-- ═══════════════════════════════
+                 🎯 PROJECT SNIPER CARD (V5.6.29d)
+                 Military-themed launch sniper
+                 ═══════════════════════════════ -->
+            <LinearLayout
+                android:id="@+id/cardSniperPositions"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:background="@drawable/section_card_bg"
+                android:layout_marginStart="@dimen/card_margin"
+                android:layout_marginEnd="@dimen/card_margin"
+                android:layout_marginBottom="@dimen/card_margin_bottom"
+                android:orientation="vertical"
+                android:padding="@dimen/card_padding"
+                android:visibility="gone">
+
+                <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content"
+                    android:orientation="horizontal" android:gravity="center_vertical"
+                    android:layout_marginBottom="6dp">
+                    <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+                        android:text="🎯" android:textSize="14sp"
+                        android:layout_marginEnd="6dp"/>
+                    <TextView android:layout_width="0dp" android:layout_height="wrap_content"
+                        android:layout_weight="1"
+                        android:text="PROJECT SNIPER" android:textColor="#EF4444"
+                        android:textSize="@dimen/section_title_size" android:textStyle="bold"/>
+                    <TextView android:id="@+id/tvSniperExposure"
+                        android:layout_width="wrap_content" android:layout_height="wrap_content"
+                        android:text="0 missions" android:textColor="#6B7280"
+                        android:textSize="11sp" android:fontFamily="monospace"/>
+                </LinearLayout>
+
+                <!-- Sniper Stats Row -->
+                <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content"
+                    android:orientation="horizontal" android:gravity="center_vertical"
+                    android:layout_marginBottom="8dp">
+                    <TextView android:id="@+id/tvSniperRank"
+                        android:layout_width="wrap_content" android:layout_height="wrap_content"
+                        android:text="⭐0 🎖️0" android:textColor="#F59E0B"
+                        android:textSize="10sp" android:fontFamily="monospace"
+                        android:background="#1F1F1F"
+                        android:paddingHorizontal="6dp" android:paddingVertical="2dp"/>
+                    <TextView android:id="@+id/tvSniperWinRate"
+                        android:layout_width="wrap_content" android:layout_height="wrap_content"
+                        android:text="0K/0KIA" android:textColor="#6B7280"
+                        android:textSize="10sp" android:fontFamily="monospace"
+                        android:layout_marginStart="8dp"/>
+                    <TextView android:id="@+id/tvSniperDailyPnl"
+                        android:layout_width="wrap_content" android:layout_height="wrap_content"
+                        android:text="Day: +0.00" android:textColor="#10B981"
+                        android:textSize="10sp" android:fontFamily="monospace"
+                        android:layout_marginStart="8dp"/>
+                </LinearLayout>
+
+                <LinearLayout android:id="@+id/llSniperMissions"
+                    android:layout_width="match_parent" android:layout_height="wrap_content"
+                    android:orientation="vertical"/>
+            </LinearLayout>
+
+            <!-- ═══════════════════════════════
                  SHITCOIN EXPRESS POSITIONS CARD
                  ═══════════════════════════════ -->
             <LinearLayout

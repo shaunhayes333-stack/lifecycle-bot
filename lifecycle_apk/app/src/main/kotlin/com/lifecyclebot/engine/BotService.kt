@@ -228,6 +228,7 @@ class BotService : Service() {
             com.lifecyclebot.v3.scoring.ShitCoinExpress.init(applicationContext)
             com.lifecyclebot.v3.scoring.BlueChipTraderAI.init(applicationContext)
             com.lifecyclebot.v3.scoring.QualityTraderAI.init(applicationContext)
+            com.lifecyclebot.v3.scoring.ProjectSniperAI.init(applicationContext)
             ErrorLogger.info("BotService", "All layer AI persistence initialized")
         } catch (e: Exception) {
             ErrorLogger.error("BotService", "Layer AI init error: ${e.message}", e)
@@ -4780,6 +4781,105 @@ if (deferredCount > 0) {
             }
             // ═══════════════════════════════════════════════════════════════════
             // END ShitCoin Express evaluation
+            // ═══════════════════════════════════════════════════════════════════
+            
+            // ═══════════════════════════════════════════════════════════════════
+            // 🎯 PROJECT SNIPER - Snipe fresh launches
+            // V5.6.29d: New layer for catching launch pumps
+            // ═══════════════════════════════════════════════════════════════════
+            if (!ts.position.isOpen && com.lifecyclebot.v3.scoring.ProjectSniperAI.isEnabled()) {
+                // Check if we already have a sniper mission on this token
+                if (com.lifecyclebot.v3.scoring.ProjectSniperAI.hasMission(ts.mint)) {
+                    // Check exit conditions
+                    try {
+                        val exitSignal = com.lifecyclebot.v3.scoring.ProjectSniperAI.checkExit(
+                            ts.mint, ts.ref, ts.lastBuyPressurePct
+                        )
+                        if (exitSignal.shouldExit) {
+                            ErrorLogger.info("BotService", "🎯 [SNIPER] ${ts.symbol} | EXIT | " +
+                                "${exitSignal.rank.emoji} ${exitSignal.reason}")
+                            
+                            // Execute the sell
+                            val mission = com.lifecyclebot.v3.scoring.ProjectSniperAI.getMission(ts.mint)
+                            if (mission != null && exitSignal.exitPct == 100) {
+                                // Full exit
+                                executor.paperSell(ts, "SNIPER_${exitSignal.rank.name}", wallet, cfg.paperMode)
+                                com.lifecyclebot.v3.scoring.ProjectSniperAI.completeMission(ts.mint, ts.ref, exitSignal)
+                            } else if (mission != null && exitSignal.exitPct > 0) {
+                                // Partial exit
+                                executor.paperPartialSell(ts, exitSignal.exitPct, "SNIPER_TP", wallet, cfg.paperMode)
+                                com.lifecyclebot.v3.scoring.ProjectSniperAI.updateExtracted(ts.mint, 
+                                    (mission.extractedPct + exitSignal.exitPct).coerceAtMost(100))
+                            }
+                            
+                            addLog("🎯 SNIPER: ${ts.symbol} | ${exitSignal.rank.emoji} ${exitSignal.reason}", ts.mint)
+                        }
+                    } catch (e: Exception) {
+                        ErrorLogger.debug("BotService", "🎯 [SNIPER] ${ts.symbol} | EXIT_ERROR | ${e.message}")
+                    }
+                } else if (!com.lifecyclebot.v3.scoring.CashGenerationAI.hasPosition(ts.mint)) {
+                    // Try to acquire target
+                    try {
+                        val assessment = com.lifecyclebot.v3.scoring.ProjectSniperAI.assessTarget(ts, ts.ref)
+                        
+                        if (assessment.shouldEngage) {
+                            // Authorize with TradeAuthorizer
+                            val authResult = TradeAuthorizer.authorize(
+                                mint = ts.mint,
+                                symbol = ts.symbol,
+                                score = assessment.confidence,
+                                confidence = assessment.confidence.toDouble(),
+                                quality = "SNIPER",
+                                isPaperMode = cfg.paperMode,
+                                requestedBook = TradeAuthorizer.ExecutionBook.SHITCOIN,
+                                rugcheckScore = ts.safety.rugcheckScore.takeIf { it >= 0 } ?: 100,
+                                liquidity = ts.lastLiquidityUsd,
+                                isBanned = BannedTokens.isBanned(ts.mint),
+                            )
+                            
+                            if (authResult.isExecutable()) {
+                                ErrorLogger.info("BotService", "🎯 [SNIPER] ${ts.symbol} | ENGAGE | " +
+                                    "${assessment.threatLevel.emoji} | age=${assessment.tokenAgeSecs}s | " +
+                                    "size=${assessment.positionSizeSol.fmt(3)}◎ | conf=${assessment.confidence}%")
+                                
+                                // Engage mission
+                                com.lifecyclebot.v3.scoring.ProjectSniperAI.engageMission(
+                                    mint = ts.mint,
+                                    symbol = ts.symbol,
+                                    entryPrice = ts.ref,
+                                    entrySol = assessment.positionSizeSol,
+                                    assessment = assessment,
+                                    liquidity = ts.lastLiquidityUsd,
+                                    mcap = ts.lastMcap,
+                                    buyPressure = ts.lastBuyPressurePct,
+                                )
+                                
+                                // Execute buy
+                                executor.shitCoinBuy(
+                                    ts = ts,
+                                    sizeSol = assessment.positionSizeSol,
+                                    walletSol = effectiveBalance,
+                                    takeProfitPct = 35.0,
+                                    stopLossPct = -12.0,
+                                    wallet = wallet,
+                                    isPaper = cfg.paperMode,
+                                    launchPlatform = com.lifecyclebot.v3.scoring.ShitCoinTraderAI.detectPlatform(ts.source),
+                                    riskLevel = com.lifecyclebot.v3.scoring.ShitCoinTraderAI.RiskLevel.EXTREME,
+                                )
+                                
+                                addLog("🎯 SNIPER: ${ts.symbol} | ${assessment.threatLevel.emoji} ENGAGED | " +
+                                    "age=${assessment.tokenAgeSecs}s | ${if (cfg.paperMode) "PAPER" else "LIVE"}", ts.mint)
+                            } else {
+                                ErrorLogger.debug("BotService", "🎯 [SNIPER] ${ts.symbol} | ${authResult.reason}")
+                            }
+                        }
+                    } catch (e: Exception) {
+                        ErrorLogger.debug("BotService", "🎯 [SNIPER] ${ts.symbol} | ERROR | ${e.message}")
+                    }
+                }
+            }
+            // ═══════════════════════════════════════════════════════════════════
+            // END Project Sniper evaluation
             // ═══════════════════════════════════════════════════════════════════
             
             // ═══════════════════════════════════════════════════════════════════

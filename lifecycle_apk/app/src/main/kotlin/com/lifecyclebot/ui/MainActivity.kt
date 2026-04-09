@@ -161,6 +161,14 @@ class MainActivity : AppCompatActivity() {
     private lateinit var tvNetworkAvoid: TextView
     private lateinit var tvNetworkLastSync: TextView
     
+    // V5.6.29d: Project Sniper panel
+    private lateinit var cardSniperPositions: android.view.View
+    private lateinit var llSniperMissions: LinearLayout
+    private lateinit var tvSniperExposure: TextView
+    private lateinit var tvSniperRank: TextView
+    private lateinit var tvSniperWinRate: TextView
+    private lateinit var tvSniperDailyPnl: TextView
+    
     // V5.2: Tile Stats TextViews (show wins/trades on each tile)
     private lateinit var tvV3Stats: TextView
     private lateinit var tvTreasuryStats: TextView
@@ -754,6 +762,14 @@ for legal compliance.
         tvNetworkHotTokens = try { findViewById(R.id.tvNetworkHotTokens) } catch (_: Exception) { TextView(this) }
         tvNetworkAvoid = try { findViewById(R.id.tvNetworkAvoid) } catch (_: Exception) { TextView(this) }
         tvNetworkLastSync = try { findViewById(R.id.tvNetworkLastSync) } catch (_: Exception) { TextView(this) }
+        
+        // V5.6.29d: Project Sniper panel bindings
+        cardSniperPositions = try { findViewById(R.id.cardSniperPositions) } catch (_: Exception) { android.view.View(this) }
+        llSniperMissions = try { findViewById(R.id.llSniperMissions) } catch (_: Exception) { LinearLayout(this) }
+        tvSniperExposure = try { findViewById(R.id.tvSniperExposure) } catch (_: Exception) { TextView(this) }
+        tvSniperRank = try { findViewById(R.id.tvSniperRank) } catch (_: Exception) { TextView(this) }
+        tvSniperWinRate = try { findViewById(R.id.tvSniperWinRate) } catch (_: Exception) { TextView(this) }
+        tvSniperDailyPnl = try { findViewById(R.id.tvSniperDailyPnl) } catch (_: Exception) { TextView(this) }
         
         // V5.2: Tile stats TextViews - show wins/trades on each tile
         tvV3Stats = try { findViewById(R.id.tvV3Stats) } catch (_: Exception) { TextView(this) }
@@ -1575,6 +1591,11 @@ for legal compliance.
         // V5.6.29d: Update Network Signals panel (Collective Intelligence)
         try {
             renderNetworkSignals()
+        } catch (_: Exception) {}
+        
+        // V5.6.29d: Update Project Sniper panel
+        try {
+            renderSniperMissions()
         } catch (_: Exception) {}
         
         // ── V4.0: AI Status panel ─────────────────────────────────
@@ -2643,6 +2664,123 @@ for legal compliance.
             }
         } catch (e: Exception) {
             // Silent fail - don't crash UI for network signals
+        }
+    }
+    
+    // V5.6.29d: Render Project Sniper missions
+    private fun renderSniperMissions() {
+        try {
+            val missions = com.lifecyclebot.v3.scoring.ProjectSniperAI.getActiveMissions()
+            val dailyStats = com.lifecyclebot.v3.scoring.ProjectSniperAI.getDailyStats()
+            val lifetimeStats = com.lifecyclebot.v3.scoring.ProjectSniperAI.getLifetimeStats()
+            
+            // Show/hide card
+            cardSniperPositions.visibility = if (missions.isNotEmpty() || dailyStats.missions > 0) {
+                android.view.View.VISIBLE
+            } else {
+                android.view.View.GONE
+            }
+            
+            if (cardSniperPositions.visibility == android.view.View.GONE) return
+            
+            // Update stats
+            tvSniperExposure.text = "${missions.size} missions"
+            tvSniperRank.text = "⭐${lifetimeStats.generals} 🎖️${lifetimeStats.colonels + lifetimeStats.majors}"
+            tvSniperWinRate.text = "${dailyStats.kills}K/${dailyStats.kia}KIA"
+            
+            val pnlColor = if (dailyStats.pnlSol >= 0) 0xFF10B981.toInt() else 0xFFEF4444.toInt()
+            val pnlSign = if (dailyStats.pnlSol >= 0) "+" else ""
+            tvSniperDailyPnl.text = "Day: $pnlSign${String.format("%.2f", dailyStats.pnlSol)}"
+            tvSniperDailyPnl.setTextColor(pnlColor)
+            
+            // Render active missions
+            llSniperMissions.removeAllViews()
+            
+            for (mission in missions) {
+                val currentPrice = status?.tokens?.get(mission.mint)?.ref ?: mission.entryPrice
+                val pnlPct = ((currentPrice - mission.entryPrice) / mission.entryPrice * 100)
+                val holdTimeSecs = (System.currentTimeMillis() - mission.entryTime) / 1000
+                
+                val row = LinearLayout(this).apply {
+                    orientation = LinearLayout.HORIZONTAL
+                    gravity = android.view.Gravity.CENTER_VERTICAL
+                    layoutParams = LinearLayout.LayoutParams(
+                        LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT
+                    ).also { it.bottomMargin = 6 }
+                }
+                
+                // Rank emoji
+                val rankEmoji = when {
+                    pnlPct >= 100 -> "⭐"
+                    pnlPct >= 50 -> "🎖️"
+                    pnlPct >= 25 -> "🎖️"
+                    pnlPct >= 10 -> "🎖️"
+                    pnlPct >= 0 -> "🎯"
+                    else -> "💀"
+                }
+                val tvEmoji = TextView(this).apply {
+                    text = rankEmoji
+                    textSize = 12f
+                    layoutParams = LinearLayout.LayoutParams(
+                        LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT
+                    ).also { it.marginEnd = 6 }
+                }
+                
+                // Symbol
+                val tvSymbol = TextView(this).apply {
+                    text = mission.symbol.take(8)
+                    setTextColor(0xFFEF4444.toInt())
+                    textSize = 12f
+                    typeface = android.graphics.Typeface.DEFAULT_BOLD
+                    layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 0.3f)
+                }
+                
+                // PnL
+                val pnlTextColor = if (pnlPct >= 0) 0xFF10B981.toInt() else 0xFFEF4444.toInt()
+                val tvPnl = TextView(this).apply {
+                    text = "${if (pnlPct >= 0) "+" else ""}${String.format("%.1f", pnlPct)}%"
+                    setTextColor(pnlTextColor)
+                    textSize = 11f
+                    typeface = android.graphics.Typeface.create("monospace", android.graphics.Typeface.BOLD)
+                    layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 0.2f)
+                }
+                
+                // Hold time
+                val tvTime = TextView(this).apply {
+                    text = "${holdTimeSecs}s"
+                    setTextColor(0xFF6B7280.toInt())
+                    textSize = 10f
+                    typeface = android.graphics.Typeface.create("monospace", android.graphics.Typeface.NORMAL)
+                    layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 0.15f)
+                }
+                
+                // Entry age
+                val tvAge = TextView(this).apply {
+                    text = "@${mission.tokenAgeSecs}s"
+                    setTextColor(0xFF6B7280.toInt())
+                    textSize = 10f
+                    layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 0.15f)
+                }
+                
+                // Size
+                val tvSize = TextView(this).apply {
+                    text = String.format("%.2f◎", mission.entrySol)
+                    setTextColor(0xFF6B7280.toInt())
+                    textSize = 10f
+                    layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 0.2f)
+                }
+                
+                row.addView(tvEmoji)
+                row.addView(tvSymbol)
+                row.addView(tvPnl)
+                row.addView(tvTime)
+                row.addView(tvAge)
+                row.addView(tvSize)
+                
+                llSniperMissions.addView(row)
+            }
+        } catch (e: Exception) {
+            // Silent fail
         }
     }
     
