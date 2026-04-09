@@ -866,32 +866,6 @@ class BotService : Service() {
             addLog("⚠️ Market scanner disabled — enable in settings")
         }
 
-        // ═══════════════════════════════════════════════════════════════════
-        // V5.6.28d: PRE-POPULATE status.tokens FROM CONFIG WATCHLIST
-        // This ensures tokens appear in UI immediately on bot start,
-        // instead of waiting for scanner to re-discover them.
-        // ═══════════════════════════════════════════════════════════════════
-        try {
-            val watchlistMints = ConfigStore.load(applicationContext).watchlist
-            if (watchlistMints.isNotEmpty()) {
-                synchronized(status.tokens) {
-                    for (mint in watchlistMints) {
-                        if (mint.isNotBlank() && mint.length > 30 && !status.tokens.containsKey(mint)) {
-                            status.tokens[mint] = TokenState(
-                                mint = mint,
-                                symbol = mint.take(6),  // Placeholder, will be updated
-                                name = "Loading...",
-                                source = "CONFIG_WATCHLIST",
-                            )
-                        }
-                    }
-                }
-                addLog("📋 Pre-populated ${watchlistMints.size} tokens from config watchlist")
-            }
-        } catch (e: Exception) {
-            ErrorLogger.error("BotService", "Failed to pre-populate watchlist: ${e.message}")
-        }
-
         // Seed candle history for all watchlist tokens
         scope.launch {
             ConfigStore.load(applicationContext).watchlist.forEach { mint ->
