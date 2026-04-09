@@ -1751,6 +1751,83 @@
                             android:textStyle="bold"/>
                     </LinearLayout>
                 </LinearLayout>
+                
+                <!-- V5.6.29d: TOKEN SAFETY (moved under chart) -->
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="horizontal"
+                    android:gravity="center_vertical"
+                    android:layout_marginTop="12dp"
+                    android:layout_marginBottom="8dp">
+
+                    <LinearLayout android:layout_width="0dp" android:layout_height="wrap_content"
+                        android:layout_weight="1" android:orientation="vertical">
+                        <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+                            android:text="TOKEN SAFETY" android:textColor="#6B7280"
+                            android:textSize="9sp" android:fontFamily="monospace"
+                            android:layout_marginBottom="2dp"/>
+                        <TextView android:id="@+id/tvSafety"
+                            android:layout_width="wrap_content" android:layout_height="wrap_content"
+                            android:text="Not checked" android:textColor="#6B7280"
+                            android:textSize="11sp" android:fontFamily="monospace"
+                            android:maxLines="2"/>
+                    </LinearLayout>
+                    <TextView android:id="@+id/tvRugcheck"
+                        android:layout_width="wrap_content" android:layout_height="wrap_content"
+                        android:text="RC —" android:textColor="#6B7280"
+                        android:textSize="13sp" android:fontFamily="monospace" android:textStyle="bold"
+                        android:layout_marginStart="8dp"/>
+                </LinearLayout>
+
+                <!-- V5.6.29d: BONDING CURVE (moved under chart) -->
+                <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content"
+                    android:orientation="horizontal" android:gravity="center_vertical"
+                    android:layout_marginBottom="8dp">
+                    <LinearLayout android:layout_width="0dp" android:layout_height="wrap_content"
+                        android:layout_weight="1" android:orientation="vertical">
+                        <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+                            android:text="BONDING CURVE" android:textColor="#6B7280"
+                            android:textSize="9sp" android:fontFamily="monospace"
+                            android:layout_marginBottom="4dp"/>
+                        <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content"
+                            android:orientation="horizontal" android:gravity="center_vertical">
+                            <ProgressBar android:id="@+id/pbBondingCurve"
+                                style="@style/Widget.AppCompat.ProgressBar.Horizontal"
+                                android:layout_width="0dp" android:layout_height="@dimen/bar_height"
+                                android:layout_weight="1" android:max="100"
+                                android:progressTint="#9945FF"
+                                android:progressBackgroundTint="#1F2937"
+                                android:layout_marginEnd="8dp"/>
+                            <TextView android:id="@+id/tvCurveStage"
+                                android:layout_width="wrap_content" android:layout_height="wrap_content"
+                                android:text="—" android:textColor="#6B7280"
+                                android:textSize="11sp" android:fontFamily="monospace"
+                                android:maxWidth="200dp" android:ellipsize="end" android:singleLine="true"/>
+                        </LinearLayout>
+                    </LinearLayout>
+                </LinearLayout>
+
+                <!-- V5.6.29d: WHALE (moved under chart) -->
+                <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content"
+                    android:orientation="horizontal" android:gravity="center_vertical">
+                    <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+                        android:text="WHALE" android:textColor="#6B7280"
+                        android:textSize="9sp" android:fontFamily="monospace"
+                        android:minWidth="@dimen/bar_label_min_width"/>
+                    <ProgressBar android:id="@+id/pbWhale"
+                        style="@style/Widget.AppCompat.ProgressBar.Horizontal"
+                        android:layout_width="0dp" android:layout_height="@dimen/bar_height"
+                        android:layout_weight="1" android:max="100"
+                        android:progressTint="#F59E0B"
+                        android:progressBackgroundTint="#1F2937"
+                        android:layout_marginStart="8dp" android:layout_marginEnd="8dp"/>
+                    <TextView android:id="@+id/tvWhaleSummary"
+                        android:layout_width="wrap_content" android:layout_height="wrap_content"
+                        android:text="—" android:textColor="#6B7280"
+                        android:textSize="10sp" android:fontFamily="monospace"
+                        android:maxWidth="140dp" android:ellipsize="end" android:singleLine="true"/>
+                </LinearLayout>
             </LinearLayout>
 
             <!-- ═══════════════════════════════
@@ -2400,102 +2477,6 @@
                 <LinearLayout android:id="@+id/llNetworkSignals"
                     android:layout_width="match_parent" android:layout_height="wrap_content"
                     android:orientation="vertical"/>
-            </LinearLayout>
-
-            <!-- ═══════════════════════════════
-                 BONDING CURVE + WHALE ROW
-                 ═══════════════════════════════ -->
-            <LinearLayout
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:background="@drawable/section_card_bg"
-                android:layout_marginStart="@dimen/card_margin"
-                android:layout_marginEnd="@dimen/card_margin"
-                android:layout_marginBottom="@dimen/card_margin_bottom"
-                android:orientation="vertical"
-                android:padding="@dimen/card_padding">
-
-                <!-- Bonding curve row -->
-                <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content"
-                    android:orientation="horizontal" android:gravity="center_vertical"
-                    android:layout_marginBottom="10dp">
-                    <LinearLayout android:layout_width="0dp" android:layout_height="wrap_content"
-                        android:layout_weight="1" android:orientation="vertical">
-                        <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
-                            android:text="BONDING CURVE" android:textColor="#6B7280"
-                            android:textSize="9sp" android:fontFamily="monospace"
-                            android:layout_marginBottom="4dp"/>
-                        <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content"
-                            android:orientation="horizontal" android:gravity="center_vertical">
-                            <ProgressBar android:id="@+id/pbBondingCurve"
-                                style="@style/Widget.AppCompat.ProgressBar.Horizontal"
-                                android:layout_width="0dp" android:layout_height="@dimen/bar_height"
-                                android:layout_weight="1" android:max="100"
-                                android:progressTint="#9945FF"
-                                android:progressBackgroundTint="#1F2937"
-                                android:layout_marginEnd="8dp"/>
-                            <TextView android:id="@+id/tvCurveStage"
-                                android:layout_width="wrap_content" android:layout_height="wrap_content"
-                                android:text="—" android:textColor="#6B7280"
-                                android:textSize="11sp" android:fontFamily="monospace"
-                                android:maxWidth="200dp" android:ellipsize="end" android:singleLine="true"/>
-                        </LinearLayout>
-                    </LinearLayout>
-                </LinearLayout>
-
-                <!-- Whale + velocity row -->
-                <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content"
-                    android:orientation="horizontal" android:gravity="center_vertical">
-                    <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
-                        android:text="WHALE" android:textColor="#6B7280"
-                        android:textSize="9sp" android:fontFamily="monospace"
-                        android:minWidth="@dimen/bar_label_min_width"/>
-                    <ProgressBar android:id="@+id/pbWhale"
-                        style="@style/Widget.AppCompat.ProgressBar.Horizontal"
-                        android:layout_width="0dp" android:layout_height="@dimen/bar_height"
-                        android:layout_weight="1" android:max="100"
-                        android:progressTint="#F59E0B"
-                        android:progressBackgroundTint="#1F2937"
-                        android:layout_marginStart="8dp" android:layout_marginEnd="8dp"/>
-                    <TextView android:id="@+id/tvWhaleSummary"
-                        android:layout_width="wrap_content" android:layout_height="wrap_content"
-                        android:text="—" android:textColor="#6B7280"
-                        android:textSize="10sp" android:fontFamily="monospace"
-                        android:maxWidth="140dp" android:ellipsize="end" android:singleLine="true"/>
-                </LinearLayout>
-            </LinearLayout>
-
-            <!-- ═══════════════════════════════
-                 SAFETY ROW
-                 ═══════════════════════════════ -->
-            <LinearLayout
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:background="@drawable/section_card_bg"
-                android:layout_marginStart="@dimen/card_margin"
-                android:layout_marginEnd="@dimen/card_margin"
-                android:layout_marginBottom="@dimen/card_margin_bottom"
-                android:orientation="horizontal"
-                android:gravity="center_vertical"
-                android:padding="@dimen/card_padding">
-
-                <LinearLayout android:layout_width="0dp" android:layout_height="wrap_content"
-                    android:layout_weight="1" android:orientation="vertical">
-                    <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
-                        android:text="Token Safety" android:textColor="#FFFFFF"
-                        android:textSize="@dimen/section_title_size" android:textStyle="bold"
-                        android:layout_marginBottom="2dp"/>
-                    <TextView android:id="@+id/tvSafety"
-                        android:layout_width="wrap_content" android:layout_height="wrap_content"
-                        android:text="Not checked" android:textColor="#6B7280"
-                        android:textSize="12sp" android:fontFamily="monospace"
-                        android:maxLines="2"/>
-                </LinearLayout>
-                <TextView android:id="@+id/tvRugcheck"
-                    android:layout_width="wrap_content" android:layout_height="wrap_content"
-                    android:text="RC —" android:textColor="#6B7280"
-                    android:textSize="13sp" android:fontFamily="monospace" android:textStyle="bold"
-                    android:layout_marginStart="8dp"/>
             </LinearLayout>
 
             <!-- ═══════════════════════════════
