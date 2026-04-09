@@ -206,6 +206,13 @@ class BotService : Service() {
             ErrorLogger.error("BotService", "Position Persistence init error: ${e.message}", e)
         }
         
+        // V5.6.28: Initialize CashGenerationAI for treasury persistence
+        try {
+            com.lifecyclebot.v3.scoring.CashGenerationAI.init(applicationContext)
+        } catch (e: Exception) {
+            ErrorLogger.error("BotService", "CashGenerationAI init error: ${e.message}", e)
+        }
+        
         } catch (e: Exception) {
             ErrorLogger.crash("BotService", "onCreate CRASH: ${e.javaClass.simpleName}: ${e.message}", e)
             android.util.Log.e("BotService", "onCreate CRASH: ${e.javaClass.simpleName}: ${e.message}", e)
@@ -2827,6 +2834,8 @@ if (deferredCount > 0) {
                 try {
                     val tokensCopy = synchronized(status.tokens) { status.tokens.toMap() }
                     PositionPersistence.saveAllPositions(tokensCopy)
+                    // V5.6.28: Also save CashGenerationAI treasury state
+                    com.lifecyclebot.v3.scoring.CashGenerationAI.save()
                 } catch (e: Exception) {
                     ErrorLogger.debug("BotService", "Position persistence save error: ${e.message}")
                 }

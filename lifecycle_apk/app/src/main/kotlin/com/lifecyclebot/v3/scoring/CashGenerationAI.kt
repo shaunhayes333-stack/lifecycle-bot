@@ -1,10 +1,12 @@
 package com.lifecyclebot.v3.scoring
 
+import android.content.Context
 import com.lifecyclebot.engine.AutoCompoundEngine
 import com.lifecyclebot.engine.ErrorLogger
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.atomic.AtomicInteger
 import java.util.concurrent.atomic.AtomicLong
+import org.json.JSONObject
 
 /**
  * ═══════════════════════════════════════════════════════════════════════════════
@@ -266,6 +268,110 @@ object CashGenerationAI {
             "💰 TREASURY +${profitSol.fmt(4)} SOL | " +
                 "Total ${if (isPaper) "PAPER" else "LIVE"}: ${getTreasuryBalance(isPaper).fmt(4)} SOL",
         )
+        // V5.6.28: Auto-save after treasury balance change
+        save()
+    }
+    
+    // ═══════════════════════════════════════════════════════════════════════════
+    // V5.6.28: PERSISTENCE - Save/Restore treasury state across app restarts
+    // ═══════════════════════════════════════════════════════════════════════════
+    
+    private const val PREFS_NAME = "cash_generation_ai_state"
+    @Volatile private var ctx: Context? = null
+    
+    /**
+     * Initialize CashGenerationAI with context and restore persisted state.
+     * Call this from BotService.onCreate() BEFORE any trading starts.
+     */
+    fun init(context: Context) {
+        ctx = context.applicationContext
+        restore()
+        ErrorLogger.info(TAG, "💰 CashGenerationAI initialized | Paper: ${getTreasuryBalance(true).fmt(4)} SOL | Live: ${getTreasuryBalance(false).fmt(4)} SOL")
+    }
+    
+    /**
+     * Save treasury state to SharedPreferences.
+     * Call after any treasury balance change.
+     */
+    fun save() {
+        val c = ctx ?: return
+        try {
+            val prefs = c.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+            val obj = JSONObject().apply {
+                put("paper_treasury_bps", paperTreasuryBalanceBps.get())
+                put("live_treasury_bps", liveTreasuryBalanceBps.get())
+                put("paper_win_streak", paperWinStreak.get())
+                put("live_win_streak", liveWinStreak.get())
+                put("paper_daily_pnl_bps", paperDailyPnlSolBps.get())
+                put("paper_daily_wins", paperDailyWins.get())
+                put("paper_daily_losses", paperDailyLosses.get())
+                put("paper_daily_trades", paperDailyTradeCount.get())
+                put("live_daily_pnl_bps", liveDailyPnlSolBps.get())
+                put("live_daily_wins", liveDailyWins.get())
+                put("live_daily_losses", liveDailyLosses.get())
+                put("live_daily_trades", liveDailyTradeCount.get())
+                put("last_reset_day", lastResetDay)
+                put("saved_at", System.currentTimeMillis())
+            }
+            prefs.edit().putString("state", obj.toString()).apply()
+            ErrorLogger.debug(TAG, "💾 Saved CashGenerationAI state: Paper=${paperTreasuryBalanceBps.get()/100.0} SOL")
+        } catch (e: Exception) {
+            ErrorLogger.error(TAG, "💾 Save failed: ${e.message}")
+        }
+    }
+    
+    /**
+     * Restore treasury state from SharedPreferences.
+     */
+    private fun restore() {
+        val c = ctx ?: return
+        try {
+            val prefs = c.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+            val json = prefs.getString("state", null) ?: return
+            
+            val obj = JSONObject(json)
+            
+            // Restore paper treasury balance
+            val savedPaperBps = obj.optLong("paper_treasury_bps", 600L)
+            if (savedPaperBps > 0) {
+                paperTreasuryBalanceBps.set(savedPaperBps)
+            }
+            
+            // Restore live treasury balance
+            val savedLiveBps = obj.optLong("live_treasury_bps", 0L)
+            if (savedLiveBps > 0) {
+                liveTreasuryBalanceBps.set(savedLiveBps)
+            }
+            
+            // Restore win streaks
+            paperWinStreak.set(obj.optInt("paper_win_streak", 0))
+            liveWinStreak.set(obj.optInt("live_win_streak", 0))
+            
+            // Restore daily stats (only if same day)
+            val savedDay = obj.optInt("last_reset_day", 0)
+            val currentDay = java.util.Calendar.getInstance().get(java.util.Calendar.DAY_OF_YEAR)
+            
+            if (savedDay == currentDay) {
+                paperDailyPnlSolBps.set(obj.optLong("paper_daily_pnl_bps", 0L))
+                paperDailyWins.set(obj.optInt("paper_daily_wins", 0))
+                paperDailyLosses.set(obj.optInt("paper_daily_losses", 0))
+                paperDailyTradeCount.set(obj.optInt("paper_daily_trades", 0))
+                liveDailyPnlSolBps.set(obj.optLong("live_daily_pnl_bps", 0L))
+                liveDailyWins.set(obj.optInt("live_daily_wins", 0))
+                liveDailyLosses.set(obj.optInt("live_daily_losses", 0))
+                liveDailyTradeCount.set(obj.optInt("live_daily_trades", 0))
+                lastResetDay = savedDay
+                ErrorLogger.info(TAG, "💾 Restored daily stats (same day)")
+            } else {
+                // New day - reset daily stats but keep treasury balance
+                lastResetDay = currentDay
+                ErrorLogger.info(TAG, "💾 New day detected - daily stats reset, treasury preserved")
+            }
+            
+            ErrorLogger.info(TAG, "💾 Restored CashGenerationAI: Paper=${paperTreasuryBalanceBps.get()/100.0} SOL | Live=${liveTreasuryBalanceBps.get()/100.0} SOL")
+        } catch (e: Exception) {
+            ErrorLogger.error(TAG, "💾 Restore failed: ${e.message}")
+        }
     }
 
     // ═══════════════════════════════════════════════════════════════════════════
