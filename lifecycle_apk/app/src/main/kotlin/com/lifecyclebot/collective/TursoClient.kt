@@ -542,8 +542,7 @@ class TursoClient(
                 trade.pnlUsd, trade.pnlPct, trade.openTime, trade.closeTime,
                 trade.closeReason, trade.riskTier, trade.aiScore, trade.aiConfidence,
                 if (trade.paperMode) 1 else 0, if (trade.isWin) 1 else 0, trade.holdMins
-            ),
-            expectRows = false
+            )
         )
         
         return result.success
@@ -570,8 +569,7 @@ class TursoClient(
                 position.entryTime, position.riskTier, position.takeProfitPrice ?: 0.0,
                 position.stopLossPrice ?: 0.0, position.aiScore, position.aiConfidence,
                 if (position.paperMode) 1 else 0, position.status, position.lastUpdate
-            ),
-            expectRows = false
+            )
         )
         
         return result.success
@@ -616,8 +614,7 @@ class TursoClient(
             
             execute(
                 updateSql,
-                listOf(totalTrades, wins, losses, newAvg, newTrust, System.currentTimeMillis(), layerName, market, direction),
-                expectRows = false
+                listOf(totalTrades, wins, losses, newAvg, newTrust, System.currentTimeMillis(), layerName, market, direction)
             ).success
         } else {
             val insertSql = """
@@ -629,8 +626,7 @@ class TursoClient(
             
             execute(
                 insertSql,
-                listOf(layerName, market, direction, if (isWin) 1 else 0, if (!isWin) 1 else 0, pnlPct, System.currentTimeMillis()),
-                expectRows = false
+                listOf(layerName, market, direction, if (isWin) 1 else 0, if (!isWin) 1 else 0, pnlPct, System.currentTimeMillis())
             ).success
         }
     }
@@ -652,8 +648,7 @@ class TursoClient(
                 pattern.winRate, pattern.avgPnl, pattern.occurrences, pattern.confidence,
                 pattern.patternConditions, pattern.description, if (pattern.isWinning) 1 else 0,
                 pattern.lastUpdated
-            ),
-            expectRows = false
+            )
         )
         
         return result.success
@@ -675,8 +670,7 @@ class TursoClient(
                 insight.instanceId, insight.insightType, insight.layerName ?: "",
                 insight.market ?: "", insight.direction ?: "", insight.insight,
                 insight.actionTaken, insight.impactScore, insight.timestamp
-            ),
-            expectRows = false
+            )
         )
         
         return result.success
@@ -727,8 +721,7 @@ class TursoClient(
             
             execute(
                 updateSql,
-                listOf(totalLong, totalShort, newLongWinRate, newShortWinRate, newAvgLongPnl, newAvgShortPnl, newBestLev, newAvgHold, System.currentTimeMillis(), market),
-                expectRows = false
+                listOf(totalLong, totalShort, newLongWinRate, newShortWinRate, newAvgLongPnl, newAvgShortPnl, newBestLev, newAvgHold, System.currentTimeMillis(), market)
             ).success
         } else {
             val insertSql = """
@@ -748,8 +741,7 @@ class TursoClient(
                     if (isLong && isWin) 100.0 else 0.0, if (!isLong && isWin) 100.0 else 0.0,
                     if (isLong) pnlPct else 0.0, if (!isLong) pnlPct else 0.0,
                     leverage, holdMins, System.currentTimeMillis()
-                ),
-                expectRows = false
+                )
             ).success
         }
     }

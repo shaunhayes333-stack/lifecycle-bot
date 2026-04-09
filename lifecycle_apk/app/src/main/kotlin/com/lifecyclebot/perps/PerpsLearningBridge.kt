@@ -938,6 +938,3 @@ object PerpsLearningBridge {
         return sb.toString()
     }
 }
-
-// Extension for formatting
-private fun Double.fmt(decimals: Int): String = String.format("%.${decimals}f", this)

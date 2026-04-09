@@ -457,6 +457,3 @@ object PerpsExecutionEngine {
         val learningEvents: Int,
     )
 }
-
-// Extension
-private fun Double.fmt(decimals: Int): String = String.format("%.${decimals}f", this)

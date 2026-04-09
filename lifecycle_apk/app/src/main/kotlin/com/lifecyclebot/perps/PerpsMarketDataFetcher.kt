@@ -34,6 +34,18 @@ object PerpsMarketDataFetcher {
     private val lastFetchTime = ConcurrentHashMap<PerpsMarket, Long>()
     private const val CACHE_TTL_MS = 3_000L  // 3 second cache for real-time
     
+    // Stock price cache (simulated prices for tokenized stocks)
+    private val stockPrices = ConcurrentHashMap<String, Double>().apply {
+        put("AAPL", 175.0)
+        put("TSLA", 250.0)
+        put("NVDA", 480.0)
+        put("GOOGL", 140.0)
+        put("AMZN", 180.0)
+        put("META", 500.0)
+        put("MSFT", 420.0)
+        put("COIN", 220.0)
+    }
+    
     // HTTP Client
     private val client = OkHttpClient.Builder()
         .connectTimeout(10, TimeUnit.SECONDS)

@@ -737,6 +737,3 @@ object PerpsMarketScanners {
         return ScannerType.values().associateWith { 0 }
     }
 }
-
-// Extension
-private fun Double.fmt(decimals: Int): String = String.format("%.${decimals}f", this)
