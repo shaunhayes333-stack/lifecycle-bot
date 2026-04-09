@@ -221,6 +221,18 @@ class BotService : Service() {
             ErrorLogger.error("BotService", "SmartSizer init error: ${e.message}", e)
         }
         
+        // V5.6.29c: Initialize layer AI persistence
+        try {
+            com.lifecyclebot.v3.scoring.MoonshotTraderAI.init(applicationContext)
+            com.lifecyclebot.v3.scoring.ShitCoinTraderAI.init(applicationContext)
+            com.lifecyclebot.v3.scoring.ShitCoinExpress.init(applicationContext)
+            com.lifecyclebot.v3.scoring.BlueChipTraderAI.init(applicationContext)
+            com.lifecyclebot.v3.scoring.QualityTraderAI.init(applicationContext)
+            ErrorLogger.info("BotService", "All layer AI persistence initialized")
+        } catch (e: Exception) {
+            ErrorLogger.error("BotService", "Layer AI init error: ${e.message}", e)
+        }
+        
         // V5.6.28f: Sync RunTracker30D stats with TradeHistoryStore
         try {
             if (com.lifecyclebot.engine.RunTracker30D.isRunActive()) {

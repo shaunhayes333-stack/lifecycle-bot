@@ -104,8 +104,52 @@ object QualityTraderAI {
     private var wins = 0
     private var losses = 0
     
+    // ═══════════════════════════════════════════════════════════════════════════
+    // PERSISTENCE - V5.6.29c
+    // ═══════════════════════════════════════════════════════════════════════════
+    
+    private var prefs: android.content.SharedPreferences? = null
+    private var lastSaveTime = 0L
+    private const val SAVE_THROTTLE_MS = 10_000L
+    
+    fun init(context: android.content.Context) {
+        prefs = context.getSharedPreferences("quality_trader_ai", android.content.Context.MODE_PRIVATE)
+        restore()
+        ErrorLogger.info(TAG, "⭐ QualityTraderAI persistence initialized")
+    }
+    
+    private fun restore() {
+        val p = prefs ?: return
+        totalTrades = p.getInt("totalTrades", 0)
+        wins = p.getInt("wins", 0)
+        losses = p.getInt("losses", 0)
+        
+        val savedDay = p.getLong("savedDay", 0)
+        val currentDay = System.currentTimeMillis() / (24 * 60 * 60 * 1000)
+        if (savedDay == currentDay) {
+            dailyPnlSol = p.getFloat("dailyPnlSol", 0f).toDouble()
+        }
+        ErrorLogger.info(TAG, "⭐ RESTORED: totalTrades=$totalTrades | wins=$wins losses=$losses")
+    }
+    
+    fun save(force: Boolean = false) {
+        val p = prefs ?: return
+        val now = System.currentTimeMillis()
+        if (!force && now - lastSaveTime < SAVE_THROTTLE_MS) return
+        lastSaveTime = now
+        
+        p.edit().apply {
+            putInt("totalTrades", totalTrades)
+            putInt("wins", wins)
+            putInt("losses", losses)
+            putLong("savedDay", now / (24 * 60 * 60 * 1000))
+            putFloat("dailyPnlSol", dailyPnlSol.toFloat())
+            apply()
+        }
+    }
+
     /**
-     * V5.2.12: Initialize with paper/live mode
+     * V5.2.12: Initialize with paper/live mode (legacy - use init(context) instead)
      */
     fun init(paperMode: Boolean) {
         isPaperMode = paperMode
@@ -435,6 +479,9 @@ object QualityTraderAI {
         } catch (e: Exception) {
             ErrorLogger.warn(TAG, "FluidLearningAI record failed: ${e.message}")
         }
+        
+        // V5.6.29c: Persist after trade
+        save()
         
         ErrorLogger.info(TAG, "📊 QUALITY CLOSED: ${pos.symbol} | " +
             "${if (pnlPct >= 0) "+" else ""}${pnlPct.toInt()}% | reason=$exitSignal | " +

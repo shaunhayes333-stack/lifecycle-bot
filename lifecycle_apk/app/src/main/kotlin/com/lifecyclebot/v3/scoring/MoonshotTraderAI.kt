@@ -196,6 +196,95 @@ object MoonshotTraderAI {
     )
     
     // ═══════════════════════════════════════════════════════════════════════════
+    // PERSISTENCE - V5.6.29c: Save/restore learning state across app restarts
+    // ═══════════════════════════════════════════════════════════════════════════
+    
+    private var prefs: android.content.SharedPreferences? = null
+    private var lastSaveTime = 0L
+    private const val SAVE_THROTTLE_MS = 10_000L  // Max once per 10 seconds
+    
+    /**
+     * Initialize persistence - call from BotService.onCreate()
+     */
+    fun init(context: android.content.Context) {
+        prefs = context.getSharedPreferences("moonshot_trader_ai", android.content.Context.MODE_PRIVATE)
+        restore()
+        ErrorLogger.info(TAG, "🚀 MoonshotTraderAI persistence initialized")
+    }
+    
+    /**
+     * Restore state from SharedPreferences
+     */
+    private fun restore() {
+        val p = prefs ?: return
+        
+        // Lifetime milestones
+        lifetimeTenX.set(p.getInt("lifetimeTenX", 0))
+        lifetimeHundredX.set(p.getInt("lifetimeHundredX", 0))
+        lifetimeThousandX.set(p.getInt("lifetimeThousandX", 0))
+        
+        // Balances
+        paperBalanceBps.set(p.getLong("paperBalanceBps", 200_0000))
+        liveBalanceBps.set(p.getLong("liveBalanceBps", 0))
+        
+        // Learning progress
+        learningProgress = p.getFloat("learningProgress", 0f).toDouble()
+        
+        // Daily stats (only restore if same day)
+        val savedDay = p.getLong("savedDay", 0)
+        val currentDay = System.currentTimeMillis() / (24 * 60 * 60 * 1000)
+        if (savedDay == currentDay) {
+            dailyPnlSolBps.set(p.getLong("dailyPnlSolBps", 0))
+            dailyWins.set(p.getInt("dailyWins", 0))
+            dailyLosses.set(p.getInt("dailyLosses", 0))
+            dailyTradeCount.set(p.getInt("dailyTradeCount", 0))
+            dailyTenXCount.set(p.getInt("dailyTenXCount", 0))
+            dailyHundredXCount.set(p.getInt("dailyHundredXCount", 0))
+        }
+        
+        ErrorLogger.info(TAG, "🚀 RESTORED: lifetime10x=${lifetimeTenX.get()} 100x=${lifetimeHundredX.get()} " +
+            "1000x=${lifetimeThousandX.get()} | paperBal=${paperBalanceBps.get()/10000.0} SOL | " +
+            "learning=${(learningProgress * 100).toInt()}%")
+    }
+    
+    /**
+     * Save state to SharedPreferences (throttled to prevent ANR)
+     */
+    fun save(force: Boolean = false) {
+        val p = prefs ?: return
+        val now = System.currentTimeMillis()
+        
+        // Throttle saves unless forced
+        if (!force && now - lastSaveTime < SAVE_THROTTLE_MS) return
+        lastSaveTime = now
+        
+        p.edit().apply {
+            // Lifetime milestones
+            putInt("lifetimeTenX", lifetimeTenX.get())
+            putInt("lifetimeHundredX", lifetimeHundredX.get())
+            putInt("lifetimeThousandX", lifetimeThousandX.get())
+            
+            // Balances
+            putLong("paperBalanceBps", paperBalanceBps.get())
+            putLong("liveBalanceBps", liveBalanceBps.get())
+            
+            // Learning progress
+            putFloat("learningProgress", learningProgress.toFloat())
+            
+            // Daily stats with day marker
+            putLong("savedDay", now / (24 * 60 * 60 * 1000))
+            putLong("dailyPnlSolBps", dailyPnlSolBps.get())
+            putInt("dailyWins", dailyWins.get())
+            putInt("dailyLosses", dailyLosses.get())
+            putInt("dailyTradeCount", dailyTradeCount.get())
+            putInt("dailyTenXCount", dailyTenXCount.get())
+            putInt("dailyHundredXCount", dailyHundredXCount.get())
+            
+            apply()
+        }
+    }
+    
+    // ═══════════════════════════════════════════════════════════════════════════
     // INITIALIZATION
     // ═══════════════════════════════════════════════════════════════════════════
     
@@ -699,6 +788,9 @@ object MoonshotTraderAI {
         } catch (e: Exception) {
             ErrorLogger.warn(TAG, "FluidLearningAI record failed: ${e.message}")
         }
+        
+        // V5.6.29c: Persist learning state after trade
+        save()
         
         val emoji = when {
             pnlPct >= 900 -> "🌌"

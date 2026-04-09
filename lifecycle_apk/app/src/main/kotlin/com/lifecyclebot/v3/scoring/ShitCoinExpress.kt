@@ -93,6 +93,52 @@ object ShitCoinExpress {
     private val recentRides = ConcurrentHashMap<String, Long>()
     
     // ═══════════════════════════════════════════════════════════════════════════
+    // PERSISTENCE - V5.6.29c
+    // ═══════════════════════════════════════════════════════════════════════════
+    
+    private var prefs: android.content.SharedPreferences? = null
+    private var lastSaveTime = 0L
+    private const val SAVE_THROTTLE_MS = 10_000L
+    
+    fun init(context: android.content.Context) {
+        prefs = context.getSharedPreferences("shitcoin_express_ai", android.content.Context.MODE_PRIVATE)
+        restore()
+        ErrorLogger.info(TAG, "🚂 ShitCoinExpress persistence initialized")
+    }
+    
+    private fun restore() {
+        val p = prefs ?: return
+        expressBalanceBps.set(p.getLong("expressBalanceBps", 50))
+        
+        val savedDay = p.getLong("savedDay", 0)
+        val currentDay = System.currentTimeMillis() / (24 * 60 * 60 * 1000)
+        if (savedDay == currentDay) {
+            dailyPnlSolBps.set(p.getLong("dailyPnlSolBps", 0))
+            dailyRides.set(p.getInt("dailyRides", 0))
+            dailyWins.set(p.getInt("dailyWins", 0))
+            dailyLosses.set(p.getInt("dailyLosses", 0))
+        }
+        ErrorLogger.info(TAG, "🚂 RESTORED: balance=${expressBalanceBps.get()/100.0} | wins=${dailyWins.get()} losses=${dailyLosses.get()}")
+    }
+    
+    fun save(force: Boolean = false) {
+        val p = prefs ?: return
+        val now = System.currentTimeMillis()
+        if (!force && now - lastSaveTime < SAVE_THROTTLE_MS) return
+        lastSaveTime = now
+        
+        p.edit().apply {
+            putLong("expressBalanceBps", expressBalanceBps.get())
+            putLong("savedDay", now / (24 * 60 * 60 * 1000))
+            putLong("dailyPnlSolBps", dailyPnlSolBps.get())
+            putInt("dailyRides", dailyRides.get())
+            putInt("dailyWins", dailyWins.get())
+            putInt("dailyLosses", dailyLosses.get())
+            apply()
+        }
+    }
+    
+    // ═══════════════════════════════════════════════════════════════════════════
     // DATA CLASSES
     // ═══════════════════════════════════════════════════════════════════════════
     
@@ -542,6 +588,9 @@ object ShitCoinExpress {
         } catch (e: Exception) {
             ErrorLogger.debug(TAG, "FluidLearning update failed: ${e.message}")
         }
+        
+        // V5.6.29c: Persist after trade
+        save()
         
         val emoji = when (exitSignal) {
             ExitSignal.TAKE_PROFIT_100 -> "🚀"

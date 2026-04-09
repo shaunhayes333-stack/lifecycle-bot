@@ -95,6 +95,54 @@ object BlueChipTraderAI {
     private val livePositions = ConcurrentHashMap<String, BlueChipPosition>()
     private val paperPositions = ConcurrentHashMap<String, BlueChipPosition>()
     
+    // ═══════════════════════════════════════════════════════════════════════════
+    // PERSISTENCE - V5.6.29c
+    // ═══════════════════════════════════════════════════════════════════════════
+    
+    private var prefs: android.content.SharedPreferences? = null
+    private var lastSaveTime = 0L
+    private const val SAVE_THROTTLE_MS = 10_000L
+    
+    fun init(context: android.content.Context) {
+        prefs = context.getSharedPreferences("bluechip_trader_ai", android.content.Context.MODE_PRIVATE)
+        restore()
+        ErrorLogger.info(TAG, "💎 BlueChipTraderAI persistence initialized")
+    }
+    
+    private fun restore() {
+        val p = prefs ?: return
+        paperBalanceBps.set(p.getLong("paperBalanceBps", 0))
+        liveBalanceBps.set(p.getLong("liveBalanceBps", 0))
+        
+        val savedDay = p.getLong("savedDay", 0)
+        val currentDay = System.currentTimeMillis() / (24 * 60 * 60 * 1000)
+        if (savedDay == currentDay) {
+            dailyPnlSolBps.set(p.getLong("dailyPnlSolBps", 0))
+            dailyWins.set(p.getInt("dailyWins", 0))
+            dailyLosses.set(p.getInt("dailyLosses", 0))
+            dailyTradeCount.set(p.getInt("dailyTradeCount", 0))
+        }
+        ErrorLogger.info(TAG, "💎 RESTORED: paperBal=${paperBalanceBps.get()/100.0} | wins=${dailyWins.get()} losses=${dailyLosses.get()}")
+    }
+    
+    fun save(force: Boolean = false) {
+        val p = prefs ?: return
+        val now = System.currentTimeMillis()
+        if (!force && now - lastSaveTime < SAVE_THROTTLE_MS) return
+        lastSaveTime = now
+        
+        p.edit().apply {
+            putLong("paperBalanceBps", paperBalanceBps.get())
+            putLong("liveBalanceBps", liveBalanceBps.get())
+            putLong("savedDay", now / (24 * 60 * 60 * 1000))
+            putLong("dailyPnlSolBps", dailyPnlSolBps.get())
+            putInt("dailyWins", dailyWins.get())
+            putInt("dailyLosses", dailyLosses.get())
+            putInt("dailyTradeCount", dailyTradeCount.get())
+            apply()
+        }
+    }
+
     // Position data
     data class BlueChipPosition(
         val mint: String,
@@ -308,6 +356,9 @@ object BlueChipTraderAI {
         } catch (e: Exception) {
             ErrorLogger.debug(TAG, "FluidLearning update failed: ${e.message}")
         }
+        
+        // V5.6.29c: Persist after trade
+        save()
         
         val dailyPnl = dailyPnlSolBps.get() / 100.0
         val modeLabel = if (pos.isPaper) "PAPER" else "LIVE"
