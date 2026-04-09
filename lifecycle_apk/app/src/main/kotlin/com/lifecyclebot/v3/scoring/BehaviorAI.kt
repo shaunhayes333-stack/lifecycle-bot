@@ -874,6 +874,8 @@ object BehaviorAI {
     
     private const val PREFS_NAME = "behavior_ai_state"
     @Volatile private var ctx: Context? = null
+    @Volatile private var lastSaveTime: Long = 0L
+    private const val SAVE_THROTTLE_MS = 10_000L  // Only save every 10 seconds max
     
     /**
      * Initialize BehaviorAI with context and restore persisted state.
@@ -887,9 +889,18 @@ object BehaviorAI {
     
     /**
      * Save behavior state to SharedPreferences.
+     * Throttled to max once per 10 seconds to prevent excessive I/O.
      */
-    fun save() {
+    fun save(force: Boolean = false) {
         val c = ctx ?: return
+        val now = System.currentTimeMillis()
+        
+        // Throttle saves unless forced
+        if (!force && now - lastSaveTime < SAVE_THROTTLE_MS) {
+            return
+        }
+        lastSaveTime = now
+        
         try {
             val prefs = c.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
             val obj = JSONObject().apply {

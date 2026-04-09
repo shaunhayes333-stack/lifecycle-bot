@@ -2852,11 +2852,11 @@ if (deferredCount > 0) {
                     val tokensCopy = synchronized(status.tokens) { status.tokens.toMap() }
                     PositionPersistence.saveAllPositions(tokensCopy)
                     // V5.6.28: Also save CashGenerationAI treasury state
-                    com.lifecyclebot.v3.scoring.CashGenerationAI.save()
+                    com.lifecyclebot.v3.scoring.CashGenerationAI.save(force = true)
                     // V5.6.28d: Also save SmartSizer streaks
-                    SmartSizer.save()
+                    SmartSizer.save(force = true)
                     // V5.6.28e: Also save BehaviorAI state
-                    com.lifecyclebot.v3.scoring.BehaviorAI.save()
+                    com.lifecyclebot.v3.scoring.BehaviorAI.save(force = true)
                 } catch (e: Exception) {
                     ErrorLogger.debug("BotService", "Position persistence save error: ${e.message}")
                 }
