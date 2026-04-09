@@ -47,8 +47,28 @@ object HardRugPreFilter {
      * 
      * V5.2 FIX: Paper Mode bypass - allow all tokens through for maximum learning.
      * The AI needs to see good AND bad trades to learn patterns.
+     * 
+     * V5.6.29 FIX: Grace period for new tokens - allow tokens with no history yet
+     * to pass through until their first API poll completes. Prevents premature
+     * ZERO_LIQUIDITY blocks before real data is fetched.
      */
     fun filter(ts: TokenState, isPaperMode: Boolean = false): PreFilterResult {
+        // V5.6.29: GRACE PERIOD FOR NEW TOKENS
+        // Tokens just added to watchlist have no history yet (empty ArrayDeque).
+        // Their lastLiquidityUsd may be 0.0 if scanner didn't populate it, or the
+        // first API poll hasn't returned yet. Give them time to fetch real data.
+        val tokenAgeMs = System.currentTimeMillis() - ts.addedToWatchlistAt
+        val isNewToken = ts.history.isEmpty() && tokenAgeMs < 30_000  // < 30 seconds old
+        
+        if (isNewToken) {
+            ErrorLogger.debug(TAG, "⏳ GRACE PERIOD: ${ts.symbol} - new token, no history yet (age=${tokenAgeMs/1000}s)")
+            return PreFilterResult(
+                pass = true,
+                reason = "GRACE_PERIOD_NEW_TOKEN",
+                severity = FilterSeverity.PASS,
+            )
+        }
+        
         // V5.2 FIX: PAPER MODE BYPASS - Skip pre-filter to maximize learning
         // Only block truly dangerous tokens (zero liquidity) in paper mode
         if (isPaperMode) {

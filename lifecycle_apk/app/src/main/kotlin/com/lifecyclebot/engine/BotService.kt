@@ -2646,7 +2646,12 @@ class BotService : Service() {
                                             candleTimeframeMinutes = 1,
                                             source = merged.allScanners.joinToString(","),
                                             logoUrl = "https://dd.dexscreener.com/ds-data/tokens/solana/${merged.mint}.png",
-                                        )
+                                        ).also { ts ->
+                                            // V5.6.29: Seed initial liquidity from scanner discovery
+                                            // Prevents HardRugPreFilter ZERO_LIQUIDITY blocks before first API poll
+                                            ts.lastLiquidityUsd = merged.liquidityUsd
+                                            ts.lastMcap = merged.marketCapUsd
+                                        }
                                     }
                                 }
                                 orchestrator?.onTokenAdded(merged.mint, merged.symbol)
