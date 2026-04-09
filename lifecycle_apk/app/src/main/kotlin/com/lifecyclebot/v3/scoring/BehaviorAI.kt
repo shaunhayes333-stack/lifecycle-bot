@@ -1,7 +1,9 @@
 package com.lifecyclebot.v3.scoring
 
+import android.content.Context
 import com.lifecyclebot.engine.ErrorLogger
 import com.lifecyclebot.engine.TradeHistoryStore
+import org.json.JSONObject
 import java.util.concurrent.atomic.AtomicInteger
 import java.util.concurrent.atomic.AtomicReference
 
@@ -248,6 +250,9 @@ object BehaviorAI {
         
         // Log state
         logBehaviorState()
+        
+        // V5.6.28e: Auto-save after behavior state change
+        save()
     }
     
     // ═══════════════════════════════════════════════════════════════════════════
@@ -860,5 +865,88 @@ object BehaviorAI {
         // tenXCount, hundredXCount, megaPumpCount, bigLossCount
         
         ErrorLogger.info(TAG, "🔄 Full behavior reset")
+        save()
+    }
+    
+    // ═══════════════════════════════════════════════════════════════════════════
+    // V5.6.28e: PERSISTENCE - Save/Restore behavior state across app restarts
+    // ═══════════════════════════════════════════════════════════════════════════
+    
+    private const val PREFS_NAME = "behavior_ai_state"
+    @Volatile private var ctx: Context? = null
+    
+    /**
+     * Initialize BehaviorAI with context and restore persisted state.
+     * Call from BotService.onCreate() BEFORE trading starts.
+     */
+    fun init(context: Context) {
+        ctx = context.applicationContext
+        restore()
+        ErrorLogger.info(TAG, "💾 BehaviorAI initialized | streak=${currentStreak.get()} | tilt=${tiltLevel.get()}% | disc=${disciplineScore.get()}%")
+    }
+    
+    /**
+     * Save behavior state to SharedPreferences.
+     */
+    fun save() {
+        val c = ctx ?: return
+        try {
+            val prefs = c.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+            val obj = JSONObject().apply {
+                put("current_streak", currentStreak.get())
+                put("consecutive_losses", consecutiveLosses.get())
+                put("consecutive_wins", consecutiveWins.get())
+                put("tilt_level", tiltLevel.get())
+                put("discipline_score", disciplineScore.get())
+                put("ten_x_count", tenXCount.get())
+                put("hundred_x_count", hundredXCount.get())
+                put("mega_pump_count", megaPumpCount.get())
+                put("big_loss_count", bigLossCount.get())
+                put("aggression_level", aggressionLevel.get())
+                put("fluid_adjustment", fluidAdjustment.get())
+                put("session_trades", sessionTrades.get())
+                put("session_wins", sessionWins.get())
+                put("session_losses", sessionLosses.get())
+                put("session_big_wins", sessionBigWins.get())
+                put("saved_at", System.currentTimeMillis())
+            }
+            prefs.edit().putString("state", obj.toString()).apply()
+            ErrorLogger.debug(TAG, "💾 Saved BehaviorAI: streak=${currentStreak.get()} tilt=${tiltLevel.get()}%")
+        } catch (e: Exception) {
+            ErrorLogger.error(TAG, "💾 Save failed: ${e.message}")
+        }
+    }
+    
+    /**
+     * Restore behavior state from SharedPreferences.
+     */
+    private fun restore() {
+        val c = ctx ?: return
+        try {
+            val prefs = c.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+            val json = prefs.getString("state", null) ?: return
+            
+            val obj = JSONObject(json)
+            
+            currentStreak.set(obj.optInt("current_streak", 0))
+            consecutiveLosses.set(obj.optInt("consecutive_losses", 0))
+            consecutiveWins.set(obj.optInt("consecutive_wins", 0))
+            tiltLevel.set(obj.optInt("tilt_level", 0))
+            disciplineScore.set(obj.optInt("discipline_score", 50))
+            tenXCount.set(obj.optInt("ten_x_count", 0))
+            hundredXCount.set(obj.optInt("hundred_x_count", 0))
+            megaPumpCount.set(obj.optInt("mega_pump_count", 0))
+            bigLossCount.set(obj.optInt("big_loss_count", 0))
+            aggressionLevel.set(obj.optInt("aggression_level", 5))
+            fluidAdjustment.set(obj.optDouble("fluid_adjustment", 0.0))
+            sessionTrades.set(obj.optInt("session_trades", 0))
+            sessionWins.set(obj.optInt("session_wins", 0))
+            sessionLosses.set(obj.optInt("session_losses", 0))
+            sessionBigWins.set(obj.optInt("session_big_wins", 0))
+            
+            ErrorLogger.info(TAG, "💾 Restored BehaviorAI: streak=${currentStreak.get()} tilt=${tiltLevel.get()}% disc=${disciplineScore.get()}%")
+        } catch (e: Exception) {
+            ErrorLogger.error(TAG, "💾 Restore failed: ${e.message}")
+        }
     }
 }

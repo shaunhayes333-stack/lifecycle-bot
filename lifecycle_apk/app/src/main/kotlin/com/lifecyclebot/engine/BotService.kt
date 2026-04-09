@@ -171,12 +171,13 @@ class BotService : Service() {
         // Initialize TradeHistoryStore for persistent trade stats
         TradeHistoryStore.init(applicationContext)
         
-        // Initialize BehaviorAI from trade history
+        // V5.6.28e: Initialize BehaviorAI with context for persistence, then load from history
         try {
+            com.lifecyclebot.v3.scoring.BehaviorAI.init(applicationContext)
             com.lifecyclebot.v3.scoring.BehaviorAI.loadFromHistory()
-            ErrorLogger.info("BotService", "BehaviorAI loaded from trade history")
+            ErrorLogger.info("BotService", "BehaviorAI initialized and loaded from trade history")
         } catch (e: Exception) {
-            ErrorLogger.debug("BotService", "BehaviorAI load error: ${e.message}")
+            ErrorLogger.debug("BotService", "BehaviorAI init/load error: ${e.message}")
         }
         
         // Initialize GeminiCopilot with API key from config
@@ -2871,6 +2872,8 @@ if (deferredCount > 0) {
                     com.lifecyclebot.v3.scoring.CashGenerationAI.save()
                     // V5.6.28d: Also save SmartSizer streaks
                     SmartSizer.save()
+                    // V5.6.28e: Also save BehaviorAI state
+                    com.lifecyclebot.v3.scoring.BehaviorAI.save()
                 } catch (e: Exception) {
                     ErrorLogger.debug("BotService", "Position persistence save error: ${e.message}")
                 }
