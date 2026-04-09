@@ -152,6 +152,15 @@ class MainActivity : AppCompatActivity() {
     private lateinit var tvMoonshotDailyPnl: TextView
     private lateinit var tvMoonshotLearning: TextView
     
+    // V5.6.29d: Network Signals panel (Collective Intelligence)
+    private lateinit var cardNetworkSignals: android.view.View
+    private lateinit var llNetworkSignals: LinearLayout
+    private lateinit var tvNetworkSignalCount: TextView
+    private lateinit var tvNetworkMegaWinners: TextView
+    private lateinit var tvNetworkHotTokens: TextView
+    private lateinit var tvNetworkAvoid: TextView
+    private lateinit var tvNetworkLastSync: TextView
+    
     // V5.2: Tile Stats TextViews (show wins/trades on each tile)
     private lateinit var tvV3Stats: TextView
     private lateinit var tvTreasuryStats: TextView
@@ -736,6 +745,15 @@ for legal compliance.
         tvMoonshotWinRate = try { findViewById(R.id.tvMoonshotWinRate) } catch (_: Exception) { TextView(this) }
         tvMoonshotDailyPnl = try { findViewById(R.id.tvMoonshotDailyPnl) } catch (_: Exception) { TextView(this) }
         tvMoonshotLearning = try { findViewById(R.id.tvMoonshotLearning) } catch (_: Exception) { TextView(this) }
+        
+        // V5.6.29d: Network Signals panel bindings (Collective Intelligence)
+        cardNetworkSignals = try { findViewById(R.id.cardNetworkSignals) } catch (_: Exception) { android.view.View(this) }
+        llNetworkSignals = try { findViewById(R.id.llNetworkSignals) } catch (_: Exception) { LinearLayout(this) }
+        tvNetworkSignalCount = try { findViewById(R.id.tvNetworkSignalCount) } catch (_: Exception) { TextView(this) }
+        tvNetworkMegaWinners = try { findViewById(R.id.tvNetworkMegaWinners) } catch (_: Exception) { TextView(this) }
+        tvNetworkHotTokens = try { findViewById(R.id.tvNetworkHotTokens) } catch (_: Exception) { TextView(this) }
+        tvNetworkAvoid = try { findViewById(R.id.tvNetworkAvoid) } catch (_: Exception) { TextView(this) }
+        tvNetworkLastSync = try { findViewById(R.id.tvNetworkLastSync) } catch (_: Exception) { TextView(this) }
         
         // V5.2: Tile stats TextViews - show wins/trades on each tile
         tvV3Stats = try { findViewById(R.id.tvV3Stats) } catch (_: Exception) { TextView(this) }
@@ -1552,6 +1570,11 @@ for legal compliance.
             } else {
                 rowTreasuryMoonshot.visibility = android.view.View.GONE
             }
+        } catch (_: Exception) {}
+        
+        // V5.6.29d: Update Network Signals panel (Collective Intelligence)
+        try {
+            renderNetworkSignals()
         } catch (_: Exception) {}
         
         // ── V4.0: AI Status panel ─────────────────────────────────
@@ -2494,6 +2517,132 @@ for legal compliance.
             }
             llMoonshotPositions.addView(row)
             llMoonshotPositions.addView(div)
+        }
+    }
+    
+    // V5.6.29d: Render Network Signals from Collective Intelligence
+    private fun renderNetworkSignals() {
+        try {
+            val signals = com.lifecyclebot.v3.scoring.CollectiveIntelligenceAI.getActiveNetworkSignals()
+            
+            // Count by type
+            val megaCount = signals.count { it.signalType == "MEGA_WINNER" }
+            val hotCount = signals.count { it.signalType == "HOT_TOKEN" }
+            val avoidCount = signals.count { it.signalType == "AVOID" }
+            val totalActive = signals.size
+            
+            // Show/hide card based on whether we have signals
+            cardNetworkSignals.visibility = if (totalActive > 0) android.view.View.VISIBLE else android.view.View.GONE
+            
+            if (totalActive == 0) return
+            
+            // Update stats
+            tvNetworkSignalCount.text = "$totalActive active"
+            tvNetworkMegaWinners.text = "MEGA: $megaCount"
+            tvNetworkMegaWinners.setTextColor(if (megaCount > 0) 0xFFF59E0B.toInt() else 0xFF6B7280.toInt())
+            tvNetworkHotTokens.text = "HOT: $hotCount"
+            tvNetworkHotTokens.setTextColor(if (hotCount > 0) 0xFF10B981.toInt() else 0xFF6B7280.toInt())
+            tvNetworkAvoid.text = "AVOID: $avoidCount"
+            tvNetworkAvoid.setTextColor(if (avoidCount > 0) 0xFFEF4444.toInt() else 0xFF6B7280.toInt())
+            
+            // Get last sync time from CollectiveIntelligenceAI
+            val lastRefresh = com.lifecyclebot.v3.scoring.CollectiveIntelligenceAI.getLastRefreshTime()
+            val syncAgoSecs = (System.currentTimeMillis() - lastRefresh) / 1000
+            tvNetworkLastSync.text = if (syncAgoSecs < 60) "Sync: ${syncAgoSecs}s" else "Sync: ${syncAgoSecs/60}m"
+            
+            // Clear and repopulate list
+            llNetworkSignals.removeAllViews()
+            
+            // Sort: MEGA_WINNER first, then HOT_TOKEN, then AVOID. Within each, by pnl desc
+            val sortedSignals = signals.sortedWith(compareBy(
+                { when (it.signalType) { "MEGA_WINNER" -> 0; "HOT_TOKEN" -> 1; "AVOID" -> 2; else -> 3 } },
+                { -it.pnlPct }
+            )).take(10)  // Show max 10 signals
+            
+            for (signal in sortedSignals) {
+                val row = LinearLayout(this).apply {
+                    orientation = LinearLayout.HORIZONTAL
+                    gravity = android.view.Gravity.CENTER_VERTICAL
+                    layoutParams = LinearLayout.LayoutParams(
+                        LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT
+                    ).also { it.bottomMargin = 4 }
+                }
+                
+                // Signal type emoji
+                val emoji = when (signal.signalType) {
+                    "MEGA_WINNER" -> "🔥"
+                    "HOT_TOKEN" -> "🌐"
+                    "AVOID" -> "⚠️"
+                    else -> "📡"
+                }
+                val tvEmoji = TextView(this).apply {
+                    text = emoji
+                    textSize = 14f
+                    layoutParams = LinearLayout.LayoutParams(
+                        LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT
+                    ).also { it.marginEnd = 8 }
+                }
+                
+                // Symbol
+                val tvSymbol = TextView(this).apply {
+                    text = signal.symbol.take(10)
+                    setTextColor(when (signal.signalType) {
+                        "MEGA_WINNER" -> 0xFFF59E0B.toInt()
+                        "HOT_TOKEN" -> 0xFF10B981.toInt()
+                        "AVOID" -> 0xFFEF4444.toInt()
+                        else -> 0xFFFFFFFF.toInt()
+                    })
+                    textSize = 13f
+                    typeface = android.graphics.Typeface.DEFAULT_BOLD
+                    layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 0.35f)
+                }
+                
+                // PnL %
+                val pnlColor = if (signal.pnlPct >= 0) 0xFF10B981.toInt() else 0xFFEF4444.toInt()
+                val pnlSign = if (signal.pnlPct >= 0) "+" else ""
+                val tvPnl = TextView(this).apply {
+                    text = "$pnlSign${signal.pnlPct.toInt()}%"
+                    setTextColor(pnlColor)
+                    textSize = 12f
+                    typeface = android.graphics.Typeface.create("monospace", android.graphics.Typeface.BOLD)
+                    layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 0.2f)
+                }
+                
+                // Source (broadcaster truncated)
+                val tvSource = TextView(this).apply {
+                    text = "from ${signal.broadcasterId.take(6)}..."
+                    setTextColor(0xFF6B7280.toInt())
+                    textSize = 10f
+                    typeface = android.graphics.Typeface.create("monospace", android.graphics.Typeface.NORMAL)
+                    layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 0.35f)
+                }
+                
+                // Ack count if > 1
+                if (signal.ackCount > 1) {
+                    val tvAck = TextView(this).apply {
+                        text = "x${signal.ackCount}"
+                        setTextColor(0xFF00D4FF.toInt())
+                        textSize = 10f
+                        layoutParams = LinearLayout.LayoutParams(
+                            LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT
+                        ).also { it.marginStart = 4 }
+                    }
+                    row.addView(tvEmoji)
+                    row.addView(tvSymbol)
+                    row.addView(tvPnl)
+                    row.addView(tvSource)
+                    row.addView(tvAck)
+                } else {
+                    row.addView(tvEmoji)
+                    row.addView(tvSymbol)
+                    row.addView(tvPnl)
+                    row.addView(tvSource)
+                }
+                
+                llNetworkSignals.addView(row)
+            }
+        } catch (e: Exception) {
+            // Silent fail - don't crash UI for network signals
         }
     }
     

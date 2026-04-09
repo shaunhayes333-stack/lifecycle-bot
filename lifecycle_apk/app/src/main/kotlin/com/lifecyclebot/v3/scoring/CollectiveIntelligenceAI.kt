@@ -838,6 +838,20 @@ object CollectiveIntelligenceAI {
     }
     
     /**
+     * V5.6.29d: Get all active network signals for UI display.
+     */
+    fun getActiveNetworkSignals(): List<CollectiveLearning.NetworkSignal> {
+        return networkSignalsCache.values.toList()
+    }
+    
+    /**
+     * V5.6.29d: Get last refresh time for UI.
+     */
+    fun getLastRefreshTime(): Long {
+        return lastRefreshMs.get()
+    }
+    
+    /**
      * Get stats for UI display.
      */
     fun getStats(): CollectiveAIStats {
