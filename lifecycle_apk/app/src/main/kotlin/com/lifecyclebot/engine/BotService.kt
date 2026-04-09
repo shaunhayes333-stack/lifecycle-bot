@@ -250,6 +250,24 @@ class BotService : Service() {
             ErrorLogger.error("BotService", "PerpsLearningBridge init error: ${e.message}", e)
         }
         
+        // V5.7.3: Start PerpsExecutionEngine for FULLY AUTOMATIC perps trading
+        try {
+            if (com.lifecyclebot.perps.PerpsTraderAI.isEnabled()) {
+                com.lifecyclebot.perps.PerpsExecutionEngine.start(applicationContext)
+                ErrorLogger.info("BotService", "⚡ PerpsExecutionEngine STARTED - Fully Automatic Trading ACTIVE")
+            }
+        } catch (e: Exception) {
+            ErrorLogger.error("BotService", "PerpsExecutionEngine start error: ${e.message}", e)
+        }
+        
+        // V5.7.3: Start PerpsAutoReplayLearner for CONTINUOUS learning
+        try {
+            com.lifecyclebot.perps.PerpsAutoReplayLearner.start()
+            ErrorLogger.info("BotService", "🎬 PerpsAutoReplayLearner STARTED - Always Learning Mode ACTIVE")
+        } catch (e: Exception) {
+            ErrorLogger.error("BotService", "PerpsAutoReplayLearner start error: ${e.message}", e)
+        }
+        
         // V5.6.28f: Sync RunTracker30D stats with TradeHistoryStore
         try {
             if (com.lifecyclebot.engine.RunTracker30D.isRunActive()) {
@@ -463,6 +481,22 @@ class BotService : Service() {
             ErrorLogger.info("BotService", "💾 PerpsLearningBridge saved before destroy")
         } catch (e: Exception) {
             ErrorLogger.error("BotService", "Failed to save PerpsLearningBridge: ${e.message}", e)
+        }
+        
+        // V5.7.3: Stop PerpsExecutionEngine
+        try {
+            com.lifecyclebot.perps.PerpsExecutionEngine.stop()
+            ErrorLogger.info("BotService", "⚡ PerpsExecutionEngine stopped")
+        } catch (e: Exception) {
+            ErrorLogger.error("BotService", "PerpsExecutionEngine stop error: ${e.message}", e)
+        }
+        
+        // V5.7.3: Stop PerpsAutoReplayLearner
+        try {
+            com.lifecyclebot.perps.PerpsAutoReplayLearner.stop()
+            ErrorLogger.info("BotService", "🎬 PerpsAutoReplayLearner stopped")
+        } catch (e: Exception) {
+            ErrorLogger.error("BotService", "PerpsAutoReplayLearner stop error: ${e.message}", e)
         }
         
         // Shutdown CollectiveLearning

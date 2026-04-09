@@ -517,4 +517,318 @@ class TursoClient(
             else -> "${arg::class.java.simpleName}($arg)"
         }
     }
+    
+    // ═══════════════════════════════════════════════════════════════════════════════
+    // V5.7.3: PERPS & TOKENIZED STOCKS DATABASE OPERATIONS
+    // ═══════════════════════════════════════════════════════════════════════════════
+    
+    /**
+     * Save a completed perps trade to the collective database
+     */
+    suspend fun savePerpsTradeRecord(trade: PerpsTradeRecord): Boolean {
+        val sql = """
+            INSERT OR REPLACE INTO perps_trades (
+                trade_hash, instance_id, market, direction, entry_price, exit_price,
+                size_sol, leverage, pnl_usd, pnl_pct, open_time, close_time,
+                close_reason, risk_tier, ai_score, ai_confidence, paper_mode, is_win, hold_mins
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """.trimIndent()
+        
+        val result = executeQuery(
+            sql, listOf(
+                trade.tradeHash, trade.instanceId, trade.market, trade.direction,
+                trade.entryPrice, trade.exitPrice, trade.sizeSol, trade.leverage,
+                trade.pnlUsd, trade.pnlPct, trade.openTime, trade.closeTime,
+                trade.closeReason, trade.riskTier, trade.aiScore, trade.aiConfidence,
+                if (trade.paperMode) 1 else 0, if (trade.isWin) 1 else 0, trade.holdMins
+            ),
+            expectRows = false
+        )
+        
+        return result.success
+    }
+    
+    /**
+     * Save/update an open perps position
+     */
+    suspend fun savePerpsPosition(position: PerpsPositionRecord): Boolean {
+        val sql = """
+            INSERT OR REPLACE INTO perps_positions (
+                id, instance_id, market, direction, entry_price, current_price,
+                size_sol, size_usd, leverage, margin_usd, liquidation_price,
+                entry_time, risk_tier, take_profit_price, stop_loss_price,
+                ai_score, ai_confidence, paper_mode, status, last_update
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """.trimIndent()
+        
+        val result = executeQuery(
+            sql, listOf(
+                position.id, position.instanceId, position.market, position.direction,
+                position.entryPrice, position.currentPrice, position.sizeSol, position.sizeUsd,
+                position.leverage, position.marginUsd, position.liquidationPrice,
+                position.entryTime, position.riskTier, position.takeProfitPrice ?: 0.0,
+                position.stopLossPrice ?: 0.0, position.aiScore, position.aiConfidence,
+                if (position.paperMode) 1 else 0, position.status, position.lastUpdate
+            ),
+            expectRows = false
+        )
+        
+        return result.success
+    }
+    
+    /**
+     * Update layer performance for perps trading
+     */
+    suspend fun updatePerpsLayerPerformance(
+        layerName: String,
+        market: String,
+        direction: String,
+        isWin: Boolean,
+        pnlPct: Double,
+    ): Boolean {
+        // First try to get existing record
+        val selectSql = """
+            SELECT total_trades, wins, losses, avg_pnl_pct, trust_score
+            FROM perps_layer_performance
+            WHERE layer_name = ? AND market = ? AND direction = ?
+        """.trimIndent()
+        
+        val existing = executeQuery(selectSql, listOf(layerName, market, direction), expectRows = true)
+        
+        return if (existing.success && existing.rows.isNotEmpty()) {
+            val row = existing.rows[0]
+            val totalTrades = (row["total_trades"] as? Long ?: 0) + 1
+            val wins = (row["wins"] as? Long ?: 0) + if (isWin) 1 else 0
+            val losses = (row["losses"] as? Long ?: 0) + if (!isWin) 1 else 0
+            val currentAvg = row["avg_pnl_pct"] as? Double ?: 0.0
+            val newAvg = ((currentAvg * (totalTrades - 1)) + pnlPct) / totalTrades
+            val currentTrust = row["trust_score"] as? Double ?: 0.5
+            val trustDelta = if (isWin) 0.01 else -0.01
+            val newTrust = (currentTrust + trustDelta).coerceIn(0.1, 1.0)
+            
+            val updateSql = """
+                UPDATE perps_layer_performance SET
+                    total_trades = ?, wins = ?, losses = ?, avg_pnl_pct = ?,
+                    trust_score = ?, last_updated = ?
+                WHERE layer_name = ? AND market = ? AND direction = ?
+            """.trimIndent()
+            
+            executeQuery(
+                updateSql,
+                listOf(totalTrades, wins, losses, newAvg, newTrust, System.currentTimeMillis(), layerName, market, direction),
+                expectRows = false
+            ).success
+        } else {
+            val insertSql = """
+                INSERT INTO perps_layer_performance (
+                    layer_name, market, direction, total_trades, wins, losses,
+                    avg_pnl_pct, trust_score, last_updated
+                ) VALUES (?, ?, ?, 1, ?, ?, ?, 0.5, ?)
+            """.trimIndent()
+            
+            executeQuery(
+                insertSql,
+                listOf(layerName, market, direction, if (isWin) 1 else 0, if (!isWin) 1 else 0, pnlPct, System.currentTimeMillis()),
+                expectRows = false
+            ).success
+        }
+    }
+    
+    /**
+     * Save a learned pattern from replay
+     */
+    suspend fun savePerpsPattern(pattern: PerpsPatternRecord): Boolean {
+        val sql = """
+            INSERT OR REPLACE INTO perps_patterns (
+                pattern_id, market, direction, risk_tier, win_rate, avg_pnl,
+                occurrences, confidence, pattern_conditions, description, is_winning, last_updated
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """.trimIndent()
+        
+        val result = executeQuery(
+            sql, listOf(
+                pattern.patternId, pattern.market, pattern.direction, pattern.riskTier,
+                pattern.winRate, pattern.avgPnl, pattern.occurrences, pattern.confidence,
+                pattern.patternConditions, pattern.description, if (pattern.isWinning) 1 else 0,
+                pattern.lastUpdated
+            ),
+            expectRows = false
+        )
+        
+        return result.success
+    }
+    
+    /**
+     * Save a learning insight
+     */
+    suspend fun savePerpsInsight(insight: PerpsInsightRecord): Boolean {
+        val sql = """
+            INSERT INTO perps_insights (
+                instance_id, insight_type, layer_name, market, direction,
+                insight, action_taken, impact_score, timestamp
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """.trimIndent()
+        
+        val result = executeQuery(
+            sql, listOf(
+                insight.instanceId, insight.insightType, insight.layerName ?: "",
+                insight.market ?: "", insight.direction ?: "", insight.insight,
+                insight.actionTaken, insight.impactScore, insight.timestamp
+            ),
+            expectRows = false
+        )
+        
+        return result.success
+    }
+    
+    /**
+     * Update market statistics
+     */
+    suspend fun updatePerpsMarketStats(market: String, direction: String, isWin: Boolean, pnlPct: Double, holdMins: Double, leverage: Double): Boolean {
+        val selectSql = "SELECT * FROM perps_market_stats WHERE market = ?"
+        val existing = executeQuery(selectSql, listOf(market), expectRows = true)
+        
+        return if (existing.success && existing.rows.isNotEmpty()) {
+            val row = existing.rows[0]
+            val isLong = direction == "LONG"
+            
+            val totalLong = (row["total_long_trades"] as? Long ?: 0) + if (isLong) 1 else 0
+            val totalShort = (row["total_short_trades"] as? Long ?: 0) + if (!isLong) 1 else 0
+            val longWins = if (isLong && isWin) 1 else 0
+            val shortWins = if (!isLong && isWin) 1 else 0
+            
+            // Calculate new win rates
+            val currentLongWinRate = row["long_win_rate"] as? Double ?: 0.0
+            val currentShortWinRate = row["short_win_rate"] as? Double ?: 0.0
+            val newLongWinRate = if (isLong) ((currentLongWinRate * (totalLong - 1)) + (if (isWin) 100 else 0)) / totalLong else currentLongWinRate
+            val newShortWinRate = if (!isLong) ((currentShortWinRate * (totalShort - 1)) + (if (isWin) 100 else 0)) / totalShort else currentShortWinRate
+            
+            val currentAvgLongPnl = row["avg_long_pnl"] as? Double ?: 0.0
+            val currentAvgShortPnl = row["avg_short_pnl"] as? Double ?: 0.0
+            val newAvgLongPnl = if (isLong) ((currentAvgLongPnl * (totalLong - 1)) + pnlPct) / totalLong else currentAvgLongPnl
+            val newAvgShortPnl = if (!isLong) ((currentAvgShortPnl * (totalShort - 1)) + pnlPct) / totalShort else currentAvgShortPnl
+            
+            val currentBestLev = row["best_leverage"] as? Double ?: 1.0
+            val newBestLev = if (isWin && pnlPct > 10) leverage else currentBestLev
+            
+            val currentAvgHold = row["avg_hold_mins"] as? Double ?: 0.0
+            val totalTrades = totalLong + totalShort
+            val newAvgHold = ((currentAvgHold * (totalTrades - 1)) + holdMins) / totalTrades
+            
+            val updateSql = """
+                UPDATE perps_market_stats SET
+                    total_long_trades = ?, total_short_trades = ?,
+                    long_win_rate = ?, short_win_rate = ?,
+                    avg_long_pnl = ?, avg_short_pnl = ?,
+                    best_leverage = ?, avg_hold_mins = ?, last_updated = ?
+                WHERE market = ?
+            """.trimIndent()
+            
+            executeQuery(
+                updateSql,
+                listOf(totalLong, totalShort, newLongWinRate, newShortWinRate, newAvgLongPnl, newAvgShortPnl, newBestLev, newAvgHold, System.currentTimeMillis(), market),
+                expectRows = false
+            ).success
+        } else {
+            val insertSql = """
+                INSERT INTO perps_market_stats (
+                    market, total_long_trades, total_short_trades,
+                    long_win_rate, short_win_rate, avg_long_pnl, avg_short_pnl,
+                    best_leverage, avg_hold_mins, last_updated
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """.trimIndent()
+            
+            val isLong = direction == "LONG"
+            executeQuery(
+                insertSql,
+                listOf(
+                    market,
+                    if (isLong) 1 else 0, if (!isLong) 1 else 0,
+                    if (isLong && isWin) 100.0 else 0.0, if (!isLong && isWin) 100.0 else 0.0,
+                    if (isLong) pnlPct else 0.0, if (!isLong) pnlPct else 0.0,
+                    leverage, holdMins, System.currentTimeMillis()
+                ),
+                expectRows = false
+            ).success
+        }
+    }
+    
+    /**
+     * Get perps trades for replay learning
+     */
+    suspend fun getPerpsTradesForReplay(limit: Int = 100): List<PerpsTradeRecord> {
+        val sql = """
+            SELECT * FROM perps_trades ORDER BY close_time DESC LIMIT ?
+        """.trimIndent()
+        
+        val result = executeQuery(sql, listOf(limit), expectRows = true)
+        
+        return if (result.success) {
+            result.rows.mapNotNull { row ->
+                try {
+                    PerpsTradeRecord(
+                        id = (row["id"] as? Long) ?: 0,
+                        tradeHash = row["trade_hash"] as? String ?: "",
+                        instanceId = row["instance_id"] as? String ?: "",
+                        market = row["market"] as? String ?: "",
+                        direction = row["direction"] as? String ?: "",
+                        entryPrice = row["entry_price"] as? Double ?: 0.0,
+                        exitPrice = row["exit_price"] as? Double ?: 0.0,
+                        sizeSol = row["size_sol"] as? Double ?: 0.0,
+                        leverage = row["leverage"] as? Double ?: 0.0,
+                        pnlUsd = row["pnl_usd"] as? Double ?: 0.0,
+                        pnlPct = row["pnl_pct"] as? Double ?: 0.0,
+                        openTime = (row["open_time"] as? Long) ?: 0,
+                        closeTime = (row["close_time"] as? Long) ?: 0,
+                        closeReason = row["close_reason"] as? String ?: "",
+                        riskTier = row["risk_tier"] as? String ?: "",
+                        aiScore = (row["ai_score"] as? Long)?.toInt() ?: 0,
+                        aiConfidence = (row["ai_confidence"] as? Long)?.toInt() ?: 0,
+                        paperMode = (row["paper_mode"] as? Long) == 1L,
+                        isWin = (row["is_win"] as? Long) == 1L,
+                        holdMins = row["hold_mins"] as? Double ?: 0.0
+                    )
+                } catch (e: Exception) {
+                    ErrorLogger.debug(TAG, "Parse trade error: ${e.message}")
+                    null
+                }
+            }
+        } else {
+            emptyList()
+        }
+    }
+    
+    /**
+     * Get layer performance rankings
+     */
+    suspend fun getPerpsLayerRankings(): List<PerpsLayerPerformance> {
+        val sql = """
+            SELECT * FROM perps_layer_performance ORDER BY trust_score DESC
+        """.trimIndent()
+        
+        val result = executeQuery(sql, emptyList(), expectRows = true)
+        
+        return if (result.success) {
+            result.rows.mapNotNull { row ->
+                try {
+                    PerpsLayerPerformance(
+                        id = (row["id"] as? Long) ?: 0,
+                        layerName = row["layer_name"] as? String ?: "",
+                        market = row["market"] as? String ?: "",
+                        direction = row["direction"] as? String ?: "",
+                        totalTrades = (row["total_trades"] as? Long)?.toInt() ?: 0,
+                        wins = (row["wins"] as? Long)?.toInt() ?: 0,
+                        losses = (row["losses"] as? Long)?.toInt() ?: 0,
+                        avgPnlPct = row["avg_pnl_pct"] as? Double ?: 0.0,
+                        trustScore = row["trust_score"] as? Double ?: 0.5,
+                        lastUpdated = (row["last_updated"] as? Long) ?: 0
+                    )
+                } catch (e: Exception) {
+                    null
+                }
+            }
+        } else {
+            emptyList()
+        }
+    }
 }

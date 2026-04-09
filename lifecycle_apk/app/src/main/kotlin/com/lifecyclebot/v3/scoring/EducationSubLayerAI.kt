@@ -935,4 +935,106 @@ object EducationSubLayerAI {
             ErrorLogger.debug(TAG, "dispatchOutcome error: ${e.message}")
         }
     }
+    
+    /**
+     * V5.7.3: Dispatch stock-specific learning for tokenized stocks
+     * Called when tokenized stock perps trades complete.
+     */
+    fun dispatchStockLearning(
+        stock: String,
+        direction: String,
+        isWin: Boolean,
+        pnlPct: Double,
+        leverage: Double,
+    ) {
+        try {
+            // Update stock-specific metrics
+            val stockKey = "STOCK_$stock"
+            val metrics = layerPerformance.getOrPut(stockKey) {
+                LayerPerformanceMetrics(
+                    layerName = stockKey,
+                    totalSignals = 0,
+                    accurateSignals = 0,
+                    avgContribution = 0.0,
+                    totalContributions = 0,
+                    learningRate = 0.02,  // Higher learning rate for stocks
+                    lastUpdate = System.currentTimeMillis(),
+                )
+            }
+            
+            val updated = metrics.copy(
+                totalSignals = metrics.totalSignals + 1,
+                accurateSignals = metrics.accurateSignals + if (isWin) 1 else 0,
+                avgContribution = ((metrics.avgContribution * metrics.totalContributions) + pnlPct) / (metrics.totalContributions + 1),
+                totalContributions = metrics.totalContributions + 1,
+                lastUpdate = System.currentTimeMillis(),
+            )
+            layerPerformance[stockKey] = updated
+            
+            // Update direction-specific learning
+            val directionKey = "STOCK_${stock}_$direction"
+            val dirMetrics = layerPerformance.getOrPut(directionKey) {
+                LayerPerformanceMetrics(
+                    layerName = directionKey,
+                    totalSignals = 0,
+                    accurateSignals = 0,
+                    avgContribution = 0.0,
+                    totalContributions = 0,
+                    learningRate = 0.025,
+                    lastUpdate = System.currentTimeMillis(),
+                )
+            }
+            
+            layerPerformance[directionKey] = dirMetrics.copy(
+                totalSignals = dirMetrics.totalSignals + 1,
+                accurateSignals = dirMetrics.accurateSignals + if (isWin) 1 else 0,
+                avgContribution = ((dirMetrics.avgContribution * dirMetrics.totalContributions) + pnlPct) / (dirMetrics.totalContributions + 1),
+                totalContributions = dirMetrics.totalContributions + 1,
+                lastUpdate = System.currentTimeMillis(),
+            )
+            
+            // Log significant stock lessons
+            if (isWin && pnlPct >= 20) {
+                ErrorLogger.info(TAG, "📈 Stock Lesson: $stock $direction +${pnlPct.toInt()}% @ ${leverage.toInt()}x")
+            } else if (!isWin && pnlPct <= -10) {
+                ErrorLogger.info(TAG, "📉 Stock Lesson: $stock $direction ${pnlPct.toInt()}% @ ${leverage.toInt()}x (learning from loss)")
+            }
+            
+            save()
+        } catch (e: Exception) {
+            ErrorLogger.debug(TAG, "dispatchStockLearning error: ${e.message}")
+        }
+    }
+    
+    /**
+     * V5.7.3: Get stock-specific learning statistics
+     */
+    fun getStockLearningStats(stock: String): Map<String, Any> {
+        val stockKey = "STOCK_$stock"
+        val metrics = layerPerformance[stockKey]
+        
+        return if (metrics != null) {
+            mapOf(
+                "totalTrades" to metrics.totalSignals,
+                "wins" to metrics.accurateSignals,
+                "winRate" to if (metrics.totalSignals > 0) (metrics.accurateSignals * 100.0 / metrics.totalSignals) else 0.0,
+                "avgPnl" to metrics.avgContribution,
+                "longWinRate" to (layerPerformance["${stockKey}_LONG"]?.let { 
+                    if (it.totalSignals > 0) it.accurateSignals * 100.0 / it.totalSignals else 0.0 
+                } ?: 0.0),
+                "shortWinRate" to (layerPerformance["${stockKey}_SHORT"]?.let {
+                    if (it.totalSignals > 0) it.accurateSignals * 100.0 / it.totalSignals else 0.0
+                } ?: 0.0),
+            )
+        } else {
+            mapOf(
+                "totalTrades" to 0,
+                "wins" to 0,
+                "winRate" to 0.0,
+                "avgPnl" to 0.0,
+                "longWinRate" to 0.0,
+                "shortWinRate" to 0.0,
+            )
+        }
+    }
 }

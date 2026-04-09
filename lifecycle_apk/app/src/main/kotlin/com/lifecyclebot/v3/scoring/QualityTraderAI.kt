@@ -533,6 +533,49 @@ object QualityTraderAI {
      */
     fun getWinRatePct(): Int = getWinRate().toInt()
     
+    /**
+     * V5.7.3: Record learning from perps trades
+     */
+    fun recordPerpsLearning(
+        symbol: String,
+        isWin: Boolean,
+        pnlPct: Double,
+        leverage: Double,
+    ) {
+        try {
+            // Update global counters
+            if (isWin) wins++ else losses++
+            
+            // Learn optimal leverage for this symbol
+            val leverageKey = "LEV_$symbol"
+            val currentOptimal = leveragePreferences[leverageKey] ?: 3.0
+            
+            if (isWin && pnlPct > 10) {
+                // This leverage worked well - bias toward it
+                val newOptimal = (currentOptimal * 0.9 + leverage * 0.1).coerceIn(1.0, 10.0)
+                leveragePreferences[leverageKey] = newOptimal
+            } else if (!isWin) {
+                // Loss - bias away from high leverage
+                val newOptimal = (currentOptimal * 0.95 + 2.0 * 0.05).coerceIn(1.0, 10.0)
+                leveragePreferences[leverageKey] = newOptimal
+            }
+            
+            ErrorLogger.debug(TAG, "Perps learning: $symbol leverage pref=${leveragePreferences[leverageKey]?.fmt(1)}")
+        } catch (e: Exception) {
+            ErrorLogger.debug(TAG, "recordPerpsLearning error: ${e.message}")
+        }
+    }
+    
+    /**
+     * V5.7.3: Get recommended leverage for a symbol
+     */
+    fun getRecommendedLeverage(symbol: String): Double {
+        return leveragePreferences["LEV_$symbol"] ?: 3.0
+    }
+    
+    // Leverage preferences learned over time
+    private val leveragePreferences = java.util.concurrent.ConcurrentHashMap<String, Double>()
+    
     fun getDailyPnl(): Double = dailyPnlSol
     
     fun resetDaily() {
@@ -543,4 +586,6 @@ object QualityTraderAI {
         val wr = getWinRate()
         return "Quality: ${activePositions.size} open | W/L: $wins/$losses | WR: ${wr.toInt()}% | Daily: ${String.format("%+.4f", dailyPnlSol)} SOL"
     }
+    
+    private fun Double.fmt(decimals: Int): String = String.format("%.${decimals}f", this)
 }

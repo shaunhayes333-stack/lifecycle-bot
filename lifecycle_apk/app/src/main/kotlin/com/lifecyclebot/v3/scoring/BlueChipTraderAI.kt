@@ -794,6 +794,54 @@ object BlueChipTraderAI {
         return if (total > 0) ((dailyWins.get().toDouble() / total) * 100).toInt() else 0
     }
     
+    /**
+     * V5.7.3: Record learning from perps/stock trades
+     */
+    fun recordPerpsLearning(
+        symbol: String,
+        isWin: Boolean,
+        pnlPct: Double,
+        isStock: Boolean,
+    ) {
+        try {
+            // Update win/loss counters
+            if (isWin) {
+                dailyWins.incrementAndGet()
+            } else {
+                dailyLosses.incrementAndGet()
+            }
+            
+            // Stock-specific learning
+            if (isStock) {
+                // Track stock-specific patterns
+                val stockKey = "STOCK_$symbol"
+                val currentScore = symbolTrustScores[stockKey] ?: 50
+                val delta = if (isWin) {
+                    (pnlPct / 10).coerceIn(1.0, 10.0).toInt()
+                } else {
+                    -(pnlPct.absoluteValue / 10).coerceIn(1.0, 5.0).toInt()
+                }
+                symbolTrustScores[stockKey] = (currentScore + delta).coerceIn(0, 100)
+                
+                ErrorLogger.info(TAG, "📈 Stock learning: $symbol ${if (isWin) "WIN" else "LOSS"} " +
+                    "trust=${symbolTrustScores[stockKey]}")
+            }
+        } catch (e: Exception) {
+            ErrorLogger.debug(TAG, "recordPerpsLearning error: ${e.message}")
+        }
+    }
+    
+    /**
+     * V5.7.3: Get stock trust score
+     */
+    fun getStockTrustScore(symbol: String): Int {
+        return symbolTrustScores["STOCK_$symbol"] ?: 50
+    }
+    
+    // Symbol trust scores for stocks
+    private val symbolTrustScores = java.util.concurrent.ConcurrentHashMap<String, Int>()
+    
     // Helper extension
     private fun Double.fmt(decimals: Int): String = String.format("%.${decimals}f", this)
+    private val Double.absoluteValue: Double get() = kotlin.math.abs(this)
 }

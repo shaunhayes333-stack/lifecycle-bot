@@ -92,6 +92,133 @@ data class WhaleEffectiveness(
         get() = totalFollows >= 5
 }
 
+// ═══════════════════════════════════════════════════════════════════════════════
+// V5.7: PERPS & LEVERAGE DATA CLASSES
+// ═══════════════════════════════════════════════════════════════════════════════
+
+/**
+ * Perps trade record for database storage
+ */
+data class PerpsTradeRecord(
+    val id: Long = 0,
+    val tradeHash: String,
+    val instanceId: String,
+    val market: String,
+    val direction: String,
+    val entryPrice: Double,
+    val exitPrice: Double,
+    val sizeSol: Double,
+    val leverage: Double,
+    val pnlUsd: Double,
+    val pnlPct: Double,
+    val openTime: Long,
+    val closeTime: Long,
+    val closeReason: String,
+    val riskTier: String,
+    val aiScore: Int,
+    val aiConfidence: Int,
+    val paperMode: Boolean,
+    val isWin: Boolean,
+    val holdMins: Double
+)
+
+/**
+ * Perps position record for database storage
+ */
+data class PerpsPositionRecord(
+    val id: String,
+    val instanceId: String,
+    val market: String,
+    val direction: String,
+    val entryPrice: Double,
+    val currentPrice: Double,
+    val sizeSol: Double,
+    val sizeUsd: Double,
+    val leverage: Double,
+    val marginUsd: Double,
+    val liquidationPrice: Double,
+    val entryTime: Long,
+    val riskTier: String,
+    val takeProfitPrice: Double?,
+    val stopLossPrice: Double?,
+    val aiScore: Int,
+    val aiConfidence: Int,
+    val paperMode: Boolean,
+    val status: String,
+    val lastUpdate: Long
+)
+
+/**
+ * Perps layer performance tracking
+ */
+data class PerpsLayerPerformance(
+    val id: Long = 0,
+    val layerName: String,
+    val market: String,
+    val direction: String,
+    val totalTrades: Int,
+    val wins: Int,
+    val losses: Int,
+    val avgPnlPct: Double,
+    val trustScore: Double,
+    val lastUpdated: Long
+) {
+    val winRate: Double
+        get() = if (totalTrades > 0) (wins.toDouble() / totalTrades.toDouble()) * 100.0 else 0.0
+}
+
+/**
+ * Perps pattern record
+ */
+data class PerpsPatternRecord(
+    val id: Long = 0,
+    val patternId: String,
+    val market: String,
+    val direction: String,
+    val riskTier: String,
+    val winRate: Double,
+    val avgPnl: Double,
+    val occurrences: Int,
+    val confidence: Double,
+    val patternConditions: String,
+    val description: String,
+    val isWinning: Boolean,
+    val lastUpdated: Long
+)
+
+/**
+ * Perps learning insight record
+ */
+data class PerpsInsightRecord(
+    val id: Long = 0,
+    val instanceId: String,
+    val insightType: String,
+    val layerName: String?,
+    val market: String?,
+    val direction: String?,
+    val insight: String,
+    val actionTaken: String,
+    val impactScore: Double,
+    val timestamp: Long
+)
+
+/**
+ * Perps market statistics
+ */
+data class PerpsMarketStatsRecord(
+    val id: Long = 0,
+    val market: String,
+    val totalLongTrades: Int,
+    val totalShortTrades: Int,
+    val longWinRate: Double,
+    val shortWinRate: Double,
+    val avgLongPnl: Double,
+    val avgShortPnl: Double,
+    val bestLeverage: Double,
+    val avgHoldMins: Double,
+    val lastUpdated: Long
+)
+
 /**
  * Legal Agreement Acknowledgment Record.
  * Stores when a user accepted the terms and conditions.
@@ -261,11 +388,150 @@ object CollectiveSchema {
         )
     """
 
+    // ═══════════════════════════════════════════════════════════════════════════════
+    // V5.7: PERPS & LEVERAGE TABLES
+    // ═══════════════════════════════════════════════════════════════════════════════
+
+    /**
+     * Perps/Leverage trades table - stores all completed perps trades
+     */
+    const val CREATE_PERPS_TRADES_TABLE = """
+        CREATE TABLE IF NOT EXISTS perps_trades (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            trade_hash TEXT UNIQUE NOT NULL,
+            instance_id TEXT NOT NULL DEFAULT '',
+            market TEXT NOT NULL,
+            direction TEXT NOT NULL,
+            entry_price REAL NOT NULL,
+            exit_price REAL NOT NULL,
+            size_sol REAL NOT NULL,
+            leverage REAL NOT NULL,
+            pnl_usd REAL NOT NULL DEFAULT 0.0,
+            pnl_pct REAL NOT NULL DEFAULT 0.0,
+            open_time INTEGER NOT NULL,
+            close_time INTEGER NOT NULL,
+            close_reason TEXT NOT NULL DEFAULT '',
+            risk_tier TEXT NOT NULL DEFAULT 'SNIPER',
+            ai_score INTEGER NOT NULL DEFAULT 0,
+            ai_confidence INTEGER NOT NULL DEFAULT 0,
+            paper_mode INTEGER NOT NULL DEFAULT 1,
+            is_win INTEGER NOT NULL DEFAULT 0,
+            hold_mins REAL NOT NULL DEFAULT 0.0
+        )
+    """
+
+    /**
+     * Perps positions table - stores open positions for cross-device sync
+     */
+    const val CREATE_PERPS_POSITIONS_TABLE = """
+        CREATE TABLE IF NOT EXISTS perps_positions (
+            id TEXT PRIMARY KEY NOT NULL,
+            instance_id TEXT NOT NULL DEFAULT '',
+            market TEXT NOT NULL,
+            direction TEXT NOT NULL,
+            entry_price REAL NOT NULL,
+            current_price REAL NOT NULL DEFAULT 0.0,
+            size_sol REAL NOT NULL,
+            size_usd REAL NOT NULL,
+            leverage REAL NOT NULL,
+            margin_usd REAL NOT NULL,
+            liquidation_price REAL NOT NULL,
+            entry_time INTEGER NOT NULL,
+            risk_tier TEXT NOT NULL DEFAULT 'SNIPER',
+            take_profit_price REAL,
+            stop_loss_price REAL,
+            ai_score INTEGER NOT NULL DEFAULT 0,
+            ai_confidence INTEGER NOT NULL DEFAULT 0,
+            paper_mode INTEGER NOT NULL DEFAULT 1,
+            status TEXT NOT NULL DEFAULT 'OPEN',
+            last_update INTEGER NOT NULL
+        )
+    """
+
+    /**
+     * Perps layer performance - tracks each AI layer's perps trading performance
+     */
+    const val CREATE_PERPS_LAYER_PERFORMANCE_TABLE = """
+        CREATE TABLE IF NOT EXISTS perps_layer_performance (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            layer_name TEXT NOT NULL,
+            market TEXT NOT NULL,
+            direction TEXT NOT NULL,
+            total_trades INTEGER NOT NULL DEFAULT 0,
+            wins INTEGER NOT NULL DEFAULT 0,
+            losses INTEGER NOT NULL DEFAULT 0,
+            avg_pnl_pct REAL NOT NULL DEFAULT 0.0,
+            trust_score REAL NOT NULL DEFAULT 0.5,
+            last_updated INTEGER NOT NULL,
+            UNIQUE(layer_name, market, direction)
+        )
+    """
+
+    /**
+     * Perps patterns - learned trading patterns from replay system
+     */
+    const val CREATE_PERPS_PATTERNS_TABLE = """
+        CREATE TABLE IF NOT EXISTS perps_patterns (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            pattern_id TEXT UNIQUE NOT NULL,
+            market TEXT NOT NULL,
+            direction TEXT NOT NULL,
+            risk_tier TEXT NOT NULL,
+            win_rate REAL NOT NULL DEFAULT 0.0,
+            avg_pnl REAL NOT NULL DEFAULT 0.0,
+            occurrences INTEGER NOT NULL DEFAULT 0,
+            confidence REAL NOT NULL DEFAULT 0.0,
+            pattern_conditions TEXT NOT NULL DEFAULT '',
+            description TEXT NOT NULL DEFAULT '',
+            is_winning INTEGER NOT NULL DEFAULT 0,
+            last_updated INTEGER NOT NULL
+        )
+    """
+
+    /**
+     * Perps learning insights - AI-generated insights from auto-replay
+     */
+    const val CREATE_PERPS_INSIGHTS_TABLE = """
+        CREATE TABLE IF NOT EXISTS perps_insights (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            instance_id TEXT NOT NULL DEFAULT '',
+            insight_type TEXT NOT NULL,
+            layer_name TEXT,
+            market TEXT,
+            direction TEXT,
+            insight TEXT NOT NULL,
+            action_taken TEXT NOT NULL DEFAULT '',
+            impact_score REAL NOT NULL DEFAULT 0.0,
+            timestamp INTEGER NOT NULL
+        )
+    """
+
+    /**
+     * Perps market stats - aggregated market statistics
+     */
+    const val CREATE_PERPS_MARKET_STATS_TABLE = """
+        CREATE TABLE IF NOT EXISTS perps_market_stats (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            market TEXT NOT NULL,
+            total_long_trades INTEGER NOT NULL DEFAULT 0,
+            total_short_trades INTEGER NOT NULL DEFAULT 0,
+            long_win_rate REAL NOT NULL DEFAULT 0.0,
+            short_win_rate REAL NOT NULL DEFAULT 0.0,
+            avg_long_pnl REAL NOT NULL DEFAULT 0.0,
+            avg_short_pnl REAL NOT NULL DEFAULT 0.0,
+            best_leverage REAL NOT NULL DEFAULT 1.0,
+            avg_hold_mins REAL NOT NULL DEFAULT 0.0,
+            last_updated INTEGER NOT NULL,
+            UNIQUE(market)
+        )
+    """
+
     /**
      * These run AFTER CREATE TABLE IF NOT EXISTS and patch older databases.
      * Ignore "duplicate column name" errors in the migration runner.
      */
     val MIGRATION_STATEMENTS = listOf(
+        // Original collective_trades migrations
         "ALTER TABLE collective_trades ADD COLUMN instance_id TEXT NOT NULL DEFAULT ''",
         "ALTER TABLE collective_trades ADD COLUMN source TEXT NOT NULL DEFAULT ''",
         "ALTER TABLE collective_trades ADD COLUMN liquidity_bucket TEXT NOT NULL DEFAULT ''",
@@ -275,7 +541,11 @@ object CollectiveSchema {
         "ALTER TABLE collective_trades ADD COLUMN pnl_pct REAL NOT NULL DEFAULT 0.0",
         "ALTER TABLE collective_trades ADD COLUMN hold_mins REAL NOT NULL DEFAULT 0.0",
         "ALTER TABLE collective_trades ADD COLUMN is_win INTEGER NOT NULL DEFAULT 0",
-        "ALTER TABLE collective_trades ADD COLUMN paper_mode INTEGER NOT NULL DEFAULT 1"
+        "ALTER TABLE collective_trades ADD COLUMN paper_mode INTEGER NOT NULL DEFAULT 1",
+        // V5.7: Perps table migrations (for older databases)
+        "ALTER TABLE perps_trades ADD COLUMN hold_mins REAL NOT NULL DEFAULT 0.0",
+        "ALTER TABLE perps_positions ADD COLUMN last_update INTEGER NOT NULL DEFAULT 0",
+        "ALTER TABLE perps_layer_performance ADD COLUMN trust_score REAL NOT NULL DEFAULT 0.5"
     )
 
     const val CREATE_INDEXES = """
@@ -294,7 +564,17 @@ object CollectiveSchema {
         CREATE INDEX IF NOT EXISTS idx_registry_active ON instance_registry(last_active);
         CREATE INDEX IF NOT EXISTS idx_network_signals_mint ON network_signals(mint);
         CREATE INDEX IF NOT EXISTS idx_network_signals_expires ON network_signals(expires_at);
-        CREATE INDEX IF NOT EXISTS idx_network_signals_type ON network_signals(signal_type)
+        CREATE INDEX IF NOT EXISTS idx_network_signals_type ON network_signals(signal_type);
+        CREATE INDEX IF NOT EXISTS idx_perps_trades_market ON perps_trades(market);
+        CREATE INDEX IF NOT EXISTS idx_perps_trades_direction ON perps_trades(direction);
+        CREATE INDEX IF NOT EXISTS idx_perps_trades_close_time ON perps_trades(close_time);
+        CREATE INDEX IF NOT EXISTS idx_perps_trades_instance ON perps_trades(instance_id);
+        CREATE INDEX IF NOT EXISTS idx_perps_positions_instance ON perps_positions(instance_id);
+        CREATE INDEX IF NOT EXISTS idx_perps_positions_status ON perps_positions(status);
+        CREATE INDEX IF NOT EXISTS idx_perps_layer_perf_layer ON perps_layer_performance(layer_name);
+        CREATE INDEX IF NOT EXISTS idx_perps_patterns_market ON perps_patterns(market);
+        CREATE INDEX IF NOT EXISTS idx_perps_insights_type ON perps_insights(insight_type);
+        CREATE INDEX IF NOT EXISTS idx_perps_market_stats_market ON perps_market_stats(market)
     """
 
     val ALL_TABLES = listOf(
@@ -307,6 +587,13 @@ object CollectiveSchema {
         CREATE_NETWORK_SIGNALS_TABLE,
         CREATE_COLLECTIVE_STATS_TABLE,
         CREATE_INSTANCE_REGISTRY_TABLE,
-        CREATE_ALL_TRADES_TABLE
+        CREATE_ALL_TRADES_TABLE,
+        // V5.7: Perps & Leverage Tables
+        CREATE_PERPS_TRADES_TABLE,
+        CREATE_PERPS_POSITIONS_TABLE,
+        CREATE_PERPS_LAYER_PERFORMANCE_TABLE,
+        CREATE_PERPS_PATTERNS_TABLE,
+        CREATE_PERPS_INSIGHTS_TABLE,
+        CREATE_PERPS_MARKET_STATS_TABLE
     )
 }

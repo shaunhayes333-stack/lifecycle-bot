@@ -211,6 +211,30 @@ class MainActivity : AppCompatActivity() {
     private var tvLayerLearningEvents: TextView? = null
     private var tvLayerCrossSync: TextView? = null
     
+    // V5.7.3: Tokenized Stocks UI
+    private var cardTokenizedStocks: android.view.View? = null
+    private var tvStocksModeBadge: TextView? = null
+    private var tvStocksBalance: TextView? = null
+    private var tvStocksPnl: TextView? = null
+    private var tvStocksWinRate: TextView? = null
+    private var tvStocksTrades: TextView? = null
+    private var tvStocksStats: TextView? = null
+    private var llStocksPositions: LinearLayout? = null
+    private var tvStocksMarketHours: TextView? = null
+    // Stock price TextViews
+    private var tvStocksAaplPrice: TextView? = null
+    private var tvStocksAaplChange: TextView? = null
+    private var tvStocksTslaPrice: TextView? = null
+    private var tvStocksTslaChange: TextView? = null
+    private var tvStocksNvdaPrice: TextView? = null
+    private var tvStocksNvdaChange: TextView? = null
+    private var tvStocksGooglPrice: TextView? = null
+    private var tvStocksGooglChange: TextView? = null
+    private var tvStocksAmznPrice: TextView? = null
+    private var tvStocksMetaPrice: TextView? = null
+    private var tvStocksMsftPrice: TextView? = null
+    private var tvStocksCoinPrice: TextView? = null
+    
     // V5.2: Side-by-side Treasury + Moonshot row
     private lateinit var rowTreasuryMoonshot: android.view.View
     private lateinit var cardTreasuryMini: android.view.View
@@ -840,6 +864,29 @@ for legal compliance.
         tvLayerLearningEvents = try { findViewById(R.id.tvLayerLearningEvents) } catch (_: Exception) { null }
         tvLayerCrossSync = try { findViewById(R.id.tvLayerCrossSync) } catch (_: Exception) { null }
         
+        // V5.7.3: Tokenized Stocks UI bindings
+        cardTokenizedStocks = try { findViewById(R.id.cardTokenizedStocks) } catch (_: Exception) { null }
+        tvStocksModeBadge = try { findViewById(R.id.tvStocksModeBadge) } catch (_: Exception) { null }
+        tvStocksBalance = try { findViewById(R.id.tvStocksBalance) } catch (_: Exception) { null }
+        tvStocksPnl = try { findViewById(R.id.tvStocksPnl) } catch (_: Exception) { null }
+        tvStocksWinRate = try { findViewById(R.id.tvStocksWinRate) } catch (_: Exception) { null }
+        tvStocksTrades = try { findViewById(R.id.tvStocksTrades) } catch (_: Exception) { null }
+        tvStocksStats = try { findViewById(R.id.tvStocksStats) } catch (_: Exception) { null }
+        llStocksPositions = try { findViewById(R.id.llStocksPositions) } catch (_: Exception) { null }
+        tvStocksMarketHours = try { findViewById(R.id.tvStocksMarketHours) } catch (_: Exception) { null }
+        tvStocksAaplPrice = try { findViewById(R.id.tvStocksAaplPrice) } catch (_: Exception) { null }
+        tvStocksAaplChange = try { findViewById(R.id.tvStocksAaplChange) } catch (_: Exception) { null }
+        tvStocksTslaPrice = try { findViewById(R.id.tvStocksTslaPrice) } catch (_: Exception) { null }
+        tvStocksTslaChange = try { findViewById(R.id.tvStocksTslaChange) } catch (_: Exception) { null }
+        tvStocksNvdaPrice = try { findViewById(R.id.tvStocksNvdaPrice) } catch (_: Exception) { null }
+        tvStocksNvdaChange = try { findViewById(R.id.tvStocksNvdaChange) } catch (_: Exception) { null }
+        tvStocksGooglPrice = try { findViewById(R.id.tvStocksGooglPrice) } catch (_: Exception) { null }
+        tvStocksGooglChange = try { findViewById(R.id.tvStocksGooglChange) } catch (_: Exception) { null }
+        tvStocksAmznPrice = try { findViewById(R.id.tvStocksAmznPrice) } catch (_: Exception) { null }
+        tvStocksMetaPrice = try { findViewById(R.id.tvStocksMetaPrice) } catch (_: Exception) { null }
+        tvStocksMsftPrice = try { findViewById(R.id.tvStocksMsftPrice) } catch (_: Exception) { null }
+        tvStocksCoinPrice = try { findViewById(R.id.tvStocksCoinPrice) } catch (_: Exception) { null }
+        
         // V5.2: Side-by-side Treasury + Moonshot
         rowTreasuryMoonshot = try { findViewById(R.id.rowTreasuryMoonshot) } catch (_: Exception) { android.view.View(this) }
         cardTreasuryMini = try { findViewById(R.id.cardTreasuryMini) } catch (_: Exception) { android.view.View(this) }
@@ -970,6 +1017,10 @@ for legal compliance.
 
         // Quick action buttons
         setupQuickActionButtons()
+        
+        // V5.7.3: Setup perps and stocks card click handlers
+        setupPerpsPositionClickHandlers()
+        setupStockButtonClickHandlers()
 
         // decision log
         cardLogScores = try { findViewById(R.id.cardLogScores) } catch (_: Exception) { android.view.View(this) }
@@ -3219,6 +3270,9 @@ for legal compliance.
                 
                 // Update Perps card if visible
                 updatePerpsCard(perpsAI)
+                
+                // V5.7.3: Update Tokenized Stocks card
+                updateTokenizedStocksCard()
             } else {
                 tvPerpsStats?.text = "OFF"
                 tvPerpsStats?.setTextColor(muted)
@@ -4625,6 +4679,12 @@ for legal compliance.
             showPerpsModeDialog()
             performHaptic()
         }
+        
+        // V5.7.3: Tokenized Stocks button → Shows Stocks trading UI
+        findViewById<View>(R.id.btnQuickStocks)?.setOnClickListener {
+            showTokenizedStocksDialog()
+            performHaptic()
+        }
     }
 
     /** Setup clear settings button with confirmation */
@@ -5666,6 +5726,907 @@ By proceeding, you acknowledge:
                 showPerpsModeDialog()
             }
             .setNegativeButton("Cancel") { d, _ -> d.dismiss() }
+            .show()
+    }
+    
+    // ═══════════════════════════════════════════════════════════════════════════════
+    // V5.7.3: PERPS TRADE VISUALIZER & BUY/SELL TRIGGERS
+    // ═══════════════════════════════════════════════════════════════════════════════
+    
+    /**
+     * V5.7.3: Shows the detailed trade visualizer pop-out for a specific position
+     */
+    private fun showPerpsTradeVisualizerDialog(position: com.lifecyclebot.perps.PerpsPosition) {
+        try {
+            lifecycleScope.launch {
+                // Generate visualization data
+                val viz = com.lifecyclebot.perps.PerpsTradeVisualizer.generateVisualization(position)
+                
+                withContext(kotlinx.coroutines.Dispatchers.Main) {
+                    val pred = viz.prediction
+                    val risk = viz.riskGauge
+                    val momentum = viz.momentumRibbon
+                    val pnl = viz.pnlProjection
+                    
+                    val alertsText = viz.smartAlerts.take(3).joinToString("\n") { 
+                        "${it.emoji} ${it.message}" 
+                    }
+                    
+                    val message = """
+${position.market.emoji} ${position.market.displayName}
+${position.direction.emoji} ${position.direction.symbol} | ${position.leverage}x
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+💰 CURRENT P&L
+Entry: $${String.format("%.4f", position.entryPrice)}
+Current: $${String.format("%.4f", position.currentPrice)}
+P&L: ${position.getDisplayPnl()} ($$${String.format("%.2f", position.getUnrealizedPnlUsd())})
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+🔮 AI PREDICTION (${pred.layerConsensus} layers)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+${pred.emoji} Direction: ${pred.predictedDirection.symbol}
+Confidence: ${String.format("%.0f", pred.directionConfidence)}%
+Target: $${String.format("%.4f", pred.predictedPriceTarget)}
+
+📊 Probabilities:
+  🎯 TP: ${String.format("%.0f", pred.probabilityOfTP)}%
+  🛑 SL: ${String.format("%.0f", pred.probabilityOfSL)}%
+  💀 Liquidation: ${String.format("%.0f", pred.probabilityOfLiquidation)}%
+
+${pred.reasoning}
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+${risk.emoji} RISK GAUGE: ${risk.riskLevel}/100
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+${risk.riskCategory.name} | Dist to Liq: ${String.format("%.1f", risk.distanceToLiquidation)}%
+Leverage Health: ${String.format("%.0f", risk.leverageHealth)}%
+${risk.warning ?: ""}
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+${momentum.emoji} MOMENTUM: ${momentum.strength}
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Trend: ${momentum.trend.name}
+Direction: ${momentum.direction.symbol}
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+📈 P&L PROJECTION
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Break Even: $${String.format("%.4f", pnl.breakEvenPrice)}
+Max Potential: $${String.format("%.2f", pnl.maxGain)}
+Max Loss: $${String.format("%.2f", pnl.maxLoss)}
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+⚡ SMART ALERTS
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+${if (alertsText.isNotEmpty()) alertsText else "No active alerts"}
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+                    """.trimIndent()
+                    
+                    AlertDialog.Builder(this@MainActivity, R.style.Theme_AATE_Dialog)
+                        .setTitle("${position.market.emoji} Trade Visualizer")
+                        .setMessage(message)
+                        .setPositiveButton("Close") { d, _ -> d.dismiss() }
+                        .setNegativeButton("Close Position") { d, _ ->
+                            showClosePositionConfirmation(position)
+                            d.dismiss()
+                        }
+                        .setNeutralButton("Refresh") { d, _ ->
+                            d.dismiss()
+                            showPerpsTradeVisualizerDialog(position)
+                        }
+                        .show()
+                }
+            }
+        } catch (e: Exception) {
+            Toast.makeText(this, "Visualizer error: ${e.message}", Toast.LENGTH_SHORT).show()
+        }
+    }
+    
+    /**
+     * V5.7.3: Shows confirmation dialog before closing a position
+     */
+    private fun showClosePositionConfirmation(position: com.lifecyclebot.perps.PerpsPosition) {
+        val pnlText = position.getDisplayPnl()
+        val pnlColor = if (position.getUnrealizedPnlPct() >= 0) "profit" else "loss"
+        
+        AlertDialog.Builder(this, R.style.Theme_AATE_Dialog)
+            .setTitle("⚠️ Close Position?")
+            .setMessage("""
+Close ${position.market.symbol} ${position.direction.symbol} position?
+
+Current P&L: $pnlText ($${"%.2f".format(position.getUnrealizedPnlUsd())})
+
+This action cannot be undone.
+            """.trimIndent())
+            .setPositiveButton("Close Position") { d, _ ->
+                lifecycleScope.launch {
+                    try {
+                        val trade = com.lifecyclebot.perps.PerpsExecutionEngine.manualClose(position.id)
+                        withContext(kotlinx.coroutines.Dispatchers.Main) {
+                            if (trade != null) {
+                                Toast.makeText(this@MainActivity, 
+                                    "${if (trade.pnlPct >= 0) "✅" else "📉"} Closed: ${trade.pnlPct.fmt(1)}%", 
+                                    Toast.LENGTH_SHORT).show()
+                            } else {
+                                Toast.makeText(this@MainActivity, "Failed to close position", Toast.LENGTH_SHORT).show()
+                            }
+                        }
+                    } catch (e: Exception) {
+                        withContext(kotlinx.coroutines.Dispatchers.Main) {
+                            Toast.makeText(this@MainActivity, "Error: ${e.message}", Toast.LENGTH_SHORT).show()
+                        }
+                    }
+                }
+                d.dismiss()
+            }
+            .setNegativeButton("Cancel") { d, _ -> d.dismiss() }
+            .show()
+    }
+    
+    /**
+     * V5.7.3: Shows manual buy dialog for perps trading
+     */
+    private fun showPerpsBuyDialog() {
+        val perpsAI = com.lifecyclebot.perps.PerpsTraderAI
+        
+        if (!perpsAI.isEnabled() || !perpsAI.hasAcknowledgedRisk()) {
+            showPerpsRiskWarning()
+            return
+        }
+        
+        val markets = com.lifecyclebot.perps.PerpsMarket.values()
+        val marketLabels = markets.map { "${it.emoji} ${it.symbol} (${it.displayName})" }.toTypedArray()
+        var selectedMarket = com.lifecyclebot.perps.PerpsMarket.SOL
+        var selectedDirection = com.lifecyclebot.perps.PerpsDirection.LONG
+        var selectedLeverage = 2.0
+        var selectedSizePct = 5.0
+        
+        // Build dialog with input fields
+        val layout = android.widget.LinearLayout(this).apply {
+            orientation = android.widget.LinearLayout.VERTICAL
+            setPadding(48, 24, 48, 24)
+        }
+        
+        // Market selector
+        val marketSpinner = android.widget.Spinner(this)
+        val marketAdapter = android.widget.ArrayAdapter(this, android.R.layout.simple_spinner_dropdown_item, marketLabels)
+        marketSpinner.adapter = marketAdapter
+        marketSpinner.onItemSelectedListener = object : android.widget.AdapterView.OnItemSelectedListener {
+            override fun onItemSelected(parent: android.widget.AdapterView<*>?, view: View?, pos: Int, id: Long) {
+                selectedMarket = markets[pos]
+            }
+            override fun onNothingSelected(parent: android.widget.AdapterView<*>?) {}
+        }
+        
+        // Direction buttons
+        val directionLayout = android.widget.LinearLayout(this).apply {
+            orientation = android.widget.LinearLayout.HORIZONTAL
+        }
+        val btnLong = android.widget.Button(this).apply {
+            text = "📈 LONG"
+            setBackgroundColor(0xFF22C55E.toInt())
+            setTextColor(0xFFFFFFFF.toInt())
+            setOnClickListener {
+                selectedDirection = com.lifecyclebot.perps.PerpsDirection.LONG
+                setBackgroundColor(0xFF22C55E.toInt())
+                (directionLayout.getChildAt(1) as android.widget.Button).setBackgroundColor(0xFF374151.toInt())
+            }
+        }
+        val btnShort = android.widget.Button(this).apply {
+            text = "📉 SHORT"
+            setBackgroundColor(0xFF374151.toInt())
+            setTextColor(0xFFFFFFFF.toInt())
+            setOnClickListener {
+                selectedDirection = com.lifecyclebot.perps.PerpsDirection.SHORT
+                setBackgroundColor(0xFFEF4444.toInt())
+                (directionLayout.getChildAt(0) as android.widget.Button).setBackgroundColor(0xFF374151.toInt())
+            }
+        }
+        directionLayout.addView(btnLong, android.widget.LinearLayout.LayoutParams(0, android.widget.LinearLayout.LayoutParams.WRAP_CONTENT, 1f))
+        directionLayout.addView(btnShort, android.widget.LinearLayout.LayoutParams(0, android.widget.LinearLayout.LayoutParams.WRAP_CONTENT, 1f))
+        
+        // Leverage input
+        val leverageLabel = android.widget.TextView(this).apply {
+            text = "Leverage: 2x"
+            setTextColor(0xFFFFFFFF.toInt())
+        }
+        val leverageSeekBar = android.widget.SeekBar(this).apply {
+            max = 19  // 1-20x
+            progress = 1  // Default 2x
+            setOnSeekBarChangeListener(object : android.widget.SeekBar.OnSeekBarChangeListener {
+                override fun onProgressChanged(seekBar: android.widget.SeekBar?, progress: Int, fromUser: Boolean) {
+                    selectedLeverage = (progress + 1).toDouble()
+                    leverageLabel.text = "Leverage: ${selectedLeverage.toInt()}x"
+                }
+                override fun onStartTrackingTouch(seekBar: android.widget.SeekBar?) {}
+                override fun onStopTrackingTouch(seekBar: android.widget.SeekBar?) {}
+            })
+        }
+        
+        // Size input
+        val sizeLabel = android.widget.TextView(this).apply {
+            text = "Position Size: 5% of balance"
+            setTextColor(0xFFFFFFFF.toInt())
+        }
+        val sizeSeekBar = android.widget.SeekBar(this).apply {
+            max = 24  // 1-25%
+            progress = 4  // Default 5%
+            setOnSeekBarChangeListener(object : android.widget.SeekBar.OnSeekBarChangeListener {
+                override fun onProgressChanged(seekBar: android.widget.SeekBar?, progress: Int, fromUser: Boolean) {
+                    selectedSizePct = (progress + 1).toDouble()
+                    sizeLabel.text = "Position Size: ${selectedSizePct.toInt()}% of balance"
+                }
+                override fun onStartTrackingTouch(seekBar: android.widget.SeekBar?) {}
+                override fun onStopTrackingTouch(seekBar: android.widget.SeekBar?) {}
+            })
+        }
+        
+        layout.addView(android.widget.TextView(this).apply { text = "Market:"; setTextColor(0xFFFFFFFF.toInt()) })
+        layout.addView(marketSpinner)
+        layout.addView(android.widget.TextView(this).apply { text = "\nDirection:"; setTextColor(0xFFFFFFFF.toInt()) })
+        layout.addView(directionLayout)
+        layout.addView(android.widget.TextView(this).apply { text = "\n"; setTextColor(0xFFFFFFFF.toInt()) })
+        layout.addView(leverageLabel)
+        layout.addView(leverageSeekBar)
+        layout.addView(android.widget.TextView(this).apply { text = "\n"; setTextColor(0xFFFFFFFF.toInt()) })
+        layout.addView(sizeLabel)
+        layout.addView(sizeSeekBar)
+        
+        AlertDialog.Builder(this, R.style.Theme_AATE_Dialog)
+            .setTitle("📈 Open Perps Position")
+            .setView(layout)
+            .setPositiveButton("Open Position") { d, _ ->
+                lifecycleScope.launch {
+                    try {
+                        val position = com.lifecyclebot.perps.PerpsExecutionEngine.manualOpen(
+                            market = selectedMarket,
+                            direction = selectedDirection,
+                            leverage = selectedLeverage,
+                            sizePct = selectedSizePct,
+                        )
+                        withContext(kotlinx.coroutines.Dispatchers.Main) {
+                            if (position != null) {
+                                Toast.makeText(this@MainActivity, 
+                                    "${selectedDirection.emoji} Opened ${selectedMarket.symbol} @ ${selectedLeverage.toInt()}x", 
+                                    Toast.LENGTH_SHORT).show()
+                                performHaptic()
+                            } else {
+                                Toast.makeText(this@MainActivity, "Failed to open position", Toast.LENGTH_SHORT).show()
+                            }
+                        }
+                    } catch (e: Exception) {
+                        withContext(kotlinx.coroutines.Dispatchers.Main) {
+                            Toast.makeText(this@MainActivity, "Error: ${e.message}", Toast.LENGTH_SHORT).show()
+                        }
+                    }
+                }
+                d.dismiss()
+            }
+            .setNegativeButton("Cancel") { d, _ -> d.dismiss() }
+            .show()
+    }
+    
+    /**
+     * V5.7.3: Shows AI-recommended perps signals for quick execution
+     */
+    private fun showPerpsSignalsDialog() {
+        val perpsAI = com.lifecyclebot.perps.PerpsTraderAI
+        
+        if (!perpsAI.isEnabled() || !perpsAI.hasAcknowledgedRisk()) {
+            showPerpsRiskWarning()
+            return
+        }
+        
+        lifecycleScope.launch {
+            try {
+                // Get current market data and generate signals
+                val solData = com.lifecyclebot.perps.PerpsMarketDataFetcher.getMarketData(
+                    com.lifecyclebot.perps.PerpsMarket.SOL
+                )
+                val aggregated = com.lifecyclebot.perps.PerpsLearningBridge.aggregateLayerSignals(
+                    com.lifecyclebot.perps.PerpsMarket.SOL, solData
+                )
+                
+                // Get replay learner recommendation
+                val recommendation = com.lifecyclebot.perps.PerpsAutoReplayLearner.getRecommendation(
+                    com.lifecyclebot.perps.PerpsMarket.SOL, aggregated.direction
+                )
+                
+                // Get recent insights
+                val insights = com.lifecyclebot.perps.PerpsAutoReplayLearner.getRecentInsights().take(5)
+                val insightsText = insights.joinToString("\n") { 
+                    "${it.type.name}: ${it.insight}" 
+                }
+                
+                withContext(kotlinx.coroutines.Dispatchers.Main) {
+                    val message = """
+🧠 AI SIGNAL ANALYSIS
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+📊 SOL-PERP Current: $${String.format("%.2f", solData.price)}
+24h Change: ${if (solData.priceChange24hPct >= 0) "+" else ""}${String.format("%.1f", solData.priceChange24hPct)}%
+Funding: ${String.format("%.4f", solData.fundingRate * 100)}%
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+🎯 26-LAYER CONSENSUS
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Direction: ${aggregated.direction.emoji} ${aggregated.direction.symbol}
+Confidence: ${String.format("%.0f", aggregated.directionConfidence)}%
+Layers Voting: ${aggregated.layerConsensus}/${aggregated.totalLayersVoting}
+Risk Score: ${aggregated.riskScore.toInt()}/100
+
+Top Layers: ${aggregated.contributingLayers.take(3).joinToString(", ")}
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+🎬 REPLAY LEARNER
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+$recommendation
+
+Patterns Identified: ${com.lifecyclebot.perps.PerpsAutoReplayLearner.getPatternsIdentified()}
+Total Replays: ${com.lifecyclebot.perps.PerpsAutoReplayLearner.getTotalReplays()}
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+💡 RECENT INSIGHTS
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+${if (insightsText.isNotEmpty()) insightsText else "No recent insights"}
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+                    """.trimIndent()
+                    
+                    AlertDialog.Builder(this@MainActivity, R.style.Theme_AATE_Dialog)
+                        .setTitle("🧠 AI Signals")
+                        .setMessage(message)
+                        .setPositiveButton("Close") { d, _ -> d.dismiss() }
+                        .setNeutralButton("Manual Trade") { d, _ ->
+                            d.dismiss()
+                            showPerpsBuyDialog()
+                        }
+                        .show()
+                }
+            } catch (e: Exception) {
+                withContext(kotlinx.coroutines.Dispatchers.Main) {
+                    Toast.makeText(this@MainActivity, "Error: ${e.message}", Toast.LENGTH_SHORT).show()
+                }
+            }
+        }
+    }
+    
+    /**
+     * V5.7.3: Setup perps card click handlers for positions
+     */
+    private fun setupPerpsPositionClickHandlers() {
+        try {
+            // Card click → show full perps dialog
+            cardPerpsTrading?.setOnClickListener {
+                showPerpsModeDialog()
+                performHaptic()
+            }
+            
+            // Long press → show buy dialog
+            cardPerpsTrading?.setOnLongClickListener {
+                showPerpsBuyDialog()
+                performHaptic()
+                true
+            }
+        } catch (_: Exception) {}
+    }
+    
+    private fun Double.fmt(decimals: Int): String = String.format("%.${decimals}f", this)
+    
+    // ═══════════════════════════════════════════════════════════════════════════════
+    // V5.7.3: TOKENIZED STOCKS TRADING UI
+    // ═══════════════════════════════════════════════════════════════════════════════
+    
+    /**
+     * V5.7.3: Shows the tokenized stocks main dialog
+     */
+    private fun showTokenizedStocksDialog() {
+        val perpsAI = com.lifecyclebot.perps.PerpsTraderAI
+        
+        // Check risk acknowledgement
+        if (!perpsAI.hasAcknowledgedRisk()) {
+            showPerpsRiskWarning()
+            return
+        }
+        
+        val cfg = com.lifecyclebot.data.ConfigStore.load(applicationContext)
+        val state = perpsAI.getState()
+        
+        // Get stock positions
+        val stockPositions = perpsAI.getActivePositions().filter { it.market.isStock }
+        val stockTrades = state.lifetimeTrades  // Would ideally filter by stock trades
+        
+        val positionsText = if (stockPositions.isEmpty()) {
+            "No open stock positions"
+        } else {
+            stockPositions.joinToString("\n") { pos ->
+                "${pos.market.emoji} ${pos.market.symbol}: ${pos.getDisplayPnl()} | ${pos.direction.symbol} ${pos.leverage}x"
+            }
+        }
+        
+        val message = """
+📈 TOKENIZED STOCKS TRADING
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+${if (cfg.paperMode) "📝" else "💰"} ${if (cfg.paperMode) "PAPER MODE" else "LIVE MODE"}
+
+AVAILABLE MARKETS:
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+🍎 AAPL (Apple)     - Max 10x
+🚗 TSLA (Tesla)     - Max 10x  
+🖥️ NVDA (NVIDIA)    - Max 10x
+🔍 GOOGL (Alphabet) - Max 10x
+📦 AMZN (Amazon)    - Max 10x
+👤 META (Meta)      - Max 10x
+🪟 MSFT (Microsoft) - Max 10x
+🪙 COIN (Coinbase)  - Max 10x
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+📊 CURRENT POSITIONS
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+$positionsText
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+📅 MARKET HOURS
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Mon-Fri: 9:30 AM - 4:00 PM ET
+Pre-market: 4:00 AM - 9:30 AM ET
+After-hours: 4:00 PM - 8:00 PM ET
+
+⚠️ Tokenized stocks follow real market hours!
+Trading outside hours may have wider spreads.
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+        """.trimIndent()
+        
+        AlertDialog.Builder(this, R.style.Theme_AATE_Dialog)
+            .setTitle("📈 Tokenized Stocks")
+            .setMessage(message)
+            .setPositiveButton("Close") { d, _ -> d.dismiss() }
+            .setNegativeButton("Trade Stock") { d, _ ->
+                d.dismiss()
+                showStockBuyDialog()
+            }
+            .setNeutralButton(if (cardTokenizedStocks?.visibility == View.VISIBLE) "Hide Card" else "Show Card") { d, _ ->
+                cardTokenizedStocks?.visibility = if (cardTokenizedStocks?.visibility == View.VISIBLE) View.GONE else View.VISIBLE
+                d.dismiss()
+            }
+            .show()
+    }
+    
+    /**
+     * V5.7.3: Shows manual buy dialog for tokenized stocks
+     */
+    private fun showStockBuyDialog() {
+        val perpsAI = com.lifecyclebot.perps.PerpsTraderAI
+        
+        if (!perpsAI.isEnabled() || !perpsAI.hasAcknowledgedRisk()) {
+            showPerpsRiskWarning()
+            return
+        }
+        
+        // Only show stock markets
+        val stockMarkets = com.lifecyclebot.perps.PerpsMarket.values().filter { it.isStock }
+        val marketLabels = stockMarkets.map { "${it.emoji} ${it.symbol} (${it.displayName})" }.toTypedArray()
+        var selectedMarket = stockMarkets.firstOrNull() ?: return
+        var selectedDirection = com.lifecyclebot.perps.PerpsDirection.LONG
+        var selectedLeverage = 2.0
+        var selectedSizePct = 5.0
+        
+        // Build dialog with input fields
+        val layout = android.widget.LinearLayout(this).apply {
+            orientation = android.widget.LinearLayout.VERTICAL
+            setPadding(48, 24, 48, 24)
+        }
+        
+        // Market selector
+        val marketSpinner = android.widget.Spinner(this)
+        val marketAdapter = android.widget.ArrayAdapter(this, android.R.layout.simple_spinner_dropdown_item, marketLabels)
+        marketSpinner.adapter = marketAdapter
+        marketSpinner.onItemSelectedListener = object : android.widget.AdapterView.OnItemSelectedListener {
+            override fun onItemSelected(parent: android.widget.AdapterView<*>?, view: View?, pos: Int, id: Long) {
+                selectedMarket = stockMarkets[pos]
+            }
+            override fun onNothingSelected(parent: android.widget.AdapterView<*>?) {}
+        }
+        
+        // Direction buttons
+        val directionLayout = android.widget.LinearLayout(this).apply {
+            orientation = android.widget.LinearLayout.HORIZONTAL
+        }
+        val btnLong = android.widget.Button(this).apply {
+            text = "📈 LONG"
+            setBackgroundColor(0xFF22C55E.toInt())
+            setTextColor(0xFFFFFFFF.toInt())
+            setOnClickListener {
+                selectedDirection = com.lifecyclebot.perps.PerpsDirection.LONG
+                setBackgroundColor(0xFF22C55E.toInt())
+                (directionLayout.getChildAt(1) as android.widget.Button).setBackgroundColor(0xFF374151.toInt())
+            }
+        }
+        val btnShort = android.widget.Button(this).apply {
+            text = "📉 SHORT"
+            setBackgroundColor(0xFF374151.toInt())
+            setTextColor(0xFFFFFFFF.toInt())
+            setOnClickListener {
+                selectedDirection = com.lifecyclebot.perps.PerpsDirection.SHORT
+                setBackgroundColor(0xFFEF4444.toInt())
+                (directionLayout.getChildAt(0) as android.widget.Button).setBackgroundColor(0xFF374151.toInt())
+            }
+        }
+        directionLayout.addView(btnLong, android.widget.LinearLayout.LayoutParams(0, android.widget.LinearLayout.LayoutParams.WRAP_CONTENT, 1f))
+        directionLayout.addView(btnShort, android.widget.LinearLayout.LayoutParams(0, android.widget.LinearLayout.LayoutParams.WRAP_CONTENT, 1f))
+        
+        // Leverage input (max 10x for stocks)
+        val leverageLabel = android.widget.TextView(this).apply {
+            text = "Leverage: 2x"
+            setTextColor(0xFFFFFFFF.toInt())
+        }
+        val leverageSeekBar = android.widget.SeekBar(this).apply {
+            max = 9  // 1-10x for stocks
+            progress = 1  // Default 2x
+            setOnSeekBarChangeListener(object : android.widget.SeekBar.OnSeekBarChangeListener {
+                override fun onProgressChanged(seekBar: android.widget.SeekBar?, progress: Int, fromUser: Boolean) {
+                    selectedLeverage = (progress + 1).toDouble()
+                    leverageLabel.text = "Leverage: ${selectedLeverage.toInt()}x"
+                }
+                override fun onStartTrackingTouch(seekBar: android.widget.SeekBar?) {}
+                override fun onStopTrackingTouch(seekBar: android.widget.SeekBar?) {}
+            })
+        }
+        
+        // Size input
+        val sizeLabel = android.widget.TextView(this).apply {
+            text = "Position Size: 5% of balance"
+            setTextColor(0xFFFFFFFF.toInt())
+        }
+        val sizeSeekBar = android.widget.SeekBar(this).apply {
+            max = 24  // 1-25%
+            progress = 4  // Default 5%
+            setOnSeekBarChangeListener(object : android.widget.SeekBar.OnSeekBarChangeListener {
+                override fun onProgressChanged(seekBar: android.widget.SeekBar?, progress: Int, fromUser: Boolean) {
+                    selectedSizePct = (progress + 1).toDouble()
+                    sizeLabel.text = "Position Size: ${selectedSizePct.toInt()}% of balance"
+                }
+                override fun onStartTrackingTouch(seekBar: android.widget.SeekBar?) {}
+                override fun onStopTrackingTouch(seekBar: android.widget.SeekBar?) {}
+            })
+        }
+        
+        layout.addView(android.widget.TextView(this).apply { text = "Stock:"; setTextColor(0xFFFFFFFF.toInt()) })
+        layout.addView(marketSpinner)
+        layout.addView(android.widget.TextView(this).apply { text = "\nDirection:"; setTextColor(0xFFFFFFFF.toInt()) })
+        layout.addView(directionLayout)
+        layout.addView(android.widget.TextView(this).apply { text = "\n"; setTextColor(0xFFFFFFFF.toInt()) })
+        layout.addView(leverageLabel)
+        layout.addView(leverageSeekBar)
+        layout.addView(android.widget.TextView(this).apply { text = "\n"; setTextColor(0xFFFFFFFF.toInt()) })
+        layout.addView(sizeLabel)
+        layout.addView(sizeSeekBar)
+        
+        AlertDialog.Builder(this, R.style.Theme_AATE_Dialog)
+            .setTitle("📈 Open Stock Position")
+            .setView(layout)
+            .setPositiveButton("Open Position") { d, _ ->
+                lifecycleScope.launch {
+                    try {
+                        val position = com.lifecyclebot.perps.PerpsExecutionEngine.manualOpen(
+                            market = selectedMarket,
+                            direction = selectedDirection,
+                            leverage = selectedLeverage,
+                            sizePct = selectedSizePct,
+                        )
+                        withContext(kotlinx.coroutines.Dispatchers.Main) {
+                            if (position != null) {
+                                Toast.makeText(this@MainActivity, 
+                                    "${selectedMarket.emoji} Opened ${selectedMarket.symbol} ${selectedDirection.symbol} @ ${selectedLeverage.toInt()}x", 
+                                    Toast.LENGTH_SHORT).show()
+                                performHaptic()
+                                // Show the stocks card
+                                cardTokenizedStocks?.visibility = View.VISIBLE
+                            } else {
+                                Toast.makeText(this@MainActivity, "Failed to open position", Toast.LENGTH_SHORT).show()
+                            }
+                        }
+                    } catch (e: Exception) {
+                        withContext(kotlinx.coroutines.Dispatchers.Main) {
+                            Toast.makeText(this@MainActivity, "Error: ${e.message}", Toast.LENGTH_SHORT).show()
+                        }
+                    }
+                }
+                d.dismiss()
+            }
+            .setNegativeButton("Cancel") { d, _ -> d.dismiss() }
+            .show()
+    }
+    
+    /**
+     * V5.7.3: Update the tokenized stocks card with current prices and positions
+     */
+    private fun updateTokenizedStocksCard() {
+        try {
+            val perpsAI = com.lifecyclebot.perps.PerpsTraderAI
+            
+            // Only show if perps is enabled and has stock positions or explicitly shown
+            val stockPositions = perpsAI.getActivePositions().filter { it.market.isStock }
+            if (!perpsAI.isEnabled() || !perpsAI.hasAcknowledgedRisk()) {
+                cardTokenizedStocks?.visibility = View.GONE
+                return
+            }
+            
+            // Show card if has positions
+            if (stockPositions.isNotEmpty()) {
+                cardTokenizedStocks?.visibility = View.VISIBLE
+            }
+            
+            val cfg = com.lifecyclebot.data.ConfigStore.load(applicationContext)
+            val state = perpsAI.getState()
+            
+            // Mode badge
+            tvStocksModeBadge?.text = if (cfg.paperMode) "PAPER" else "LIVE"
+            tvStocksModeBadge?.setBackgroundResource(
+                if (cfg.paperMode) R.drawable.pill_bg_yellow else R.drawable.pill_bg_green
+            )
+            
+            // Balance
+            val balance = if (cfg.paperMode) state.paperBalanceSol else state.liveBalanceSol
+            tvStocksBalance?.text = "%.4f".format(balance)
+            
+            // Stats - filter for stock trades only
+            val stockPnlPct = stockPositions.sumOf { it.getUnrealizedPnlPct() }
+            val stockWins = stockPositions.count { it.getUnrealizedPnlPct() > 0 }
+            val stockTotal = stockPositions.size
+            
+            tvStocksPnl?.text = "${if (stockPnlPct >= 0) "+" else ""}${"%.2f".format(stockPnlPct)}%"
+            tvStocksPnl?.setTextColor(if (stockPnlPct >= 0) 0xFF22C55E.toInt() else 0xFFEF4444.toInt())
+            
+            tvStocksWinRate?.text = if (stockTotal > 0) "${stockWins * 100 / stockTotal}%" else "0%"
+            tvStocksTrades?.text = "$stockTotal"
+            
+            // Update tile stats
+            tvStocksStats?.text = "$stockWins/$stockTotal"
+            
+            // Fetch stock prices asynchronously
+            lifecycleScope.launch {
+                try {
+                    // Fetch prices for each stock market
+                    val stockMarkets = com.lifecyclebot.perps.PerpsMarket.values().filter { it.isStock }
+                    
+                    for (market in stockMarkets) {
+                        try {
+                            val data = com.lifecyclebot.perps.PerpsMarketDataFetcher.getMarketData(market)
+                            withContext(kotlinx.coroutines.Dispatchers.Main) {
+                                when (market) {
+                                    com.lifecyclebot.perps.PerpsMarket.AAPL -> {
+                                        tvStocksAaplPrice?.text = "$${"%.2f".format(data.price)}"
+                                        tvStocksAaplChange?.text = "${if (data.priceChange24hPct >= 0) "+" else ""}${"%.1f".format(data.priceChange24hPct)}%"
+                                        tvStocksAaplChange?.setTextColor(if (data.priceChange24hPct >= 0) 0xFF22C55E.toInt() else 0xFFEF4444.toInt())
+                                    }
+                                    com.lifecyclebot.perps.PerpsMarket.TSLA -> {
+                                        tvStocksTslaPrice?.text = "$${"%.2f".format(data.price)}"
+                                        tvStocksTslaChange?.text = "${if (data.priceChange24hPct >= 0) "+" else ""}${"%.1f".format(data.priceChange24hPct)}%"
+                                        tvStocksTslaChange?.setTextColor(if (data.priceChange24hPct >= 0) 0xFF22C55E.toInt() else 0xFFEF4444.toInt())
+                                    }
+                                    com.lifecyclebot.perps.PerpsMarket.NVDA -> {
+                                        tvStocksNvdaPrice?.text = "$${"%.2f".format(data.price)}"
+                                        tvStocksNvdaChange?.text = "${if (data.priceChange24hPct >= 0) "+" else ""}${"%.1f".format(data.priceChange24hPct)}%"
+                                        tvStocksNvdaChange?.setTextColor(if (data.priceChange24hPct >= 0) 0xFF22C55E.toInt() else 0xFFEF4444.toInt())
+                                    }
+                                    com.lifecyclebot.perps.PerpsMarket.GOOGL -> {
+                                        tvStocksGooglPrice?.text = "$${"%.2f".format(data.price)}"
+                                        tvStocksGooglChange?.text = "${if (data.priceChange24hPct >= 0) "+" else ""}${"%.1f".format(data.priceChange24hPct)}%"
+                                        tvStocksGooglChange?.setTextColor(if (data.priceChange24hPct >= 0) 0xFF22C55E.toInt() else 0xFFEF4444.toInt())
+                                    }
+                                    com.lifecyclebot.perps.PerpsMarket.AMZN -> {
+                                        tvStocksAmznPrice?.text = "$${"%.2f".format(data.price)}"
+                                    }
+                                    com.lifecyclebot.perps.PerpsMarket.META -> {
+                                        tvStocksMetaPrice?.text = "$${"%.2f".format(data.price)}"
+                                    }
+                                    com.lifecyclebot.perps.PerpsMarket.MSFT -> {
+                                        tvStocksMsftPrice?.text = "$${"%.2f".format(data.price)}"
+                                    }
+                                    com.lifecyclebot.perps.PerpsMarket.COIN -> {
+                                        tvStocksCoinPrice?.text = "$${"%.2f".format(data.price)}"
+                                    }
+                                    else -> {}
+                                }
+                            }
+                        } catch (_: Exception) {}
+                    }
+                } catch (_: Exception) {}
+            }
+            
+            // Update positions list
+            updateStocksPositionsList(stockPositions)
+            
+        } catch (e: Exception) {
+            com.lifecyclebot.engine.ErrorLogger.debug("MainActivity", "Stocks card update error: ${e.message}")
+        }
+    }
+    
+    /**
+     * V5.7.3: Update the stocks positions list UI
+     */
+    private fun updateStocksPositionsList(positions: List<com.lifecyclebot.perps.PerpsPosition>) {
+        llStocksPositions?.removeAllViews()
+        
+        if (positions.isEmpty()) return
+        
+        for (position in positions) {
+            val positionView = layoutInflater.inflate(android.R.layout.simple_list_item_2, llStocksPositions, false)
+            
+            positionView.findViewById<TextView>(android.R.id.text1)?.apply {
+                text = "${position.market.emoji} ${position.market.symbol} ${position.direction.symbol} ${position.leverage}x"
+                setTextColor(0xFFFFFFFF.toInt())
+                textSize = 12f
+            }
+            
+            positionView.findViewById<TextView>(android.R.id.text2)?.apply {
+                val pnl = position.getUnrealizedPnlPct()
+                text = "P&L: ${position.getDisplayPnl()} | Entry: $${String.format("%.2f", position.entryPrice)}"
+                setTextColor(if (pnl >= 0) 0xFF22C55E.toInt() else 0xFFEF4444.toInt())
+                textSize = 10f
+            }
+            
+            positionView.setBackgroundResource(R.drawable.section_card_bg)
+            positionView.setPadding(16, 8, 16, 8)
+            
+            // Click to show visualizer
+            positionView.setOnClickListener {
+                showPerpsTradeVisualizerDialog(position)
+                performHaptic()
+            }
+            
+            llStocksPositions?.addView(positionView)
+        }
+    }
+    
+    /**
+     * V5.7.3: Setup stock button click handlers for direct trading
+     */
+    private fun setupStockButtonClickHandlers() {
+        try {
+            // Stock card click handlers
+            findViewById<View>(R.id.btnStocksAapl)?.setOnClickListener {
+                openQuickStockTrade(com.lifecyclebot.perps.PerpsMarket.AAPL)
+                performHaptic()
+            }
+            findViewById<View>(R.id.btnStocksTsla)?.setOnClickListener {
+                openQuickStockTrade(com.lifecyclebot.perps.PerpsMarket.TSLA)
+                performHaptic()
+            }
+            findViewById<View>(R.id.btnStocksNvda)?.setOnClickListener {
+                openQuickStockTrade(com.lifecyclebot.perps.PerpsMarket.NVDA)
+                performHaptic()
+            }
+            findViewById<View>(R.id.btnStocksGoogl)?.setOnClickListener {
+                openQuickStockTrade(com.lifecyclebot.perps.PerpsMarket.GOOGL)
+                performHaptic()
+            }
+            findViewById<View>(R.id.btnStocksAmzn)?.setOnClickListener {
+                openQuickStockTrade(com.lifecyclebot.perps.PerpsMarket.AMZN)
+                performHaptic()
+            }
+            findViewById<View>(R.id.btnStocksMeta)?.setOnClickListener {
+                openQuickStockTrade(com.lifecyclebot.perps.PerpsMarket.META)
+                performHaptic()
+            }
+            findViewById<View>(R.id.btnStocksMsft)?.setOnClickListener {
+                openQuickStockTrade(com.lifecyclebot.perps.PerpsMarket.MSFT)
+                performHaptic()
+            }
+            findViewById<View>(R.id.btnStocksCoin)?.setOnClickListener {
+                openQuickStockTrade(com.lifecyclebot.perps.PerpsMarket.COIN)
+                performHaptic()
+            }
+            
+            // Card click → show full stocks dialog  
+            cardTokenizedStocks?.setOnClickListener {
+                showTokenizedStocksDialog()
+                performHaptic()
+            }
+            
+            // Long press → show trade dialog
+            cardTokenizedStocks?.setOnLongClickListener {
+                showStockBuyDialog()
+                performHaptic()
+                true
+            }
+        } catch (_: Exception) {}
+    }
+    
+    /**
+     * V5.7.3: Quick trade dialog for a specific stock
+     */
+    private fun openQuickStockTrade(market: com.lifecyclebot.perps.PerpsMarket) {
+        val perpsAI = com.lifecyclebot.perps.PerpsTraderAI
+        
+        if (!perpsAI.isEnabled() || !perpsAI.hasAcknowledgedRisk()) {
+            showPerpsRiskWarning()
+            return
+        }
+        
+        // Check if already have position in this market
+        val existingPosition = perpsAI.getActivePositions().find { it.market == market }
+        if (existingPosition != null) {
+            // Show position details instead
+            showPerpsTradeVisualizerDialog(existingPosition)
+            return
+        }
+        
+        AlertDialog.Builder(this, R.style.Theme_AATE_Dialog)
+            .setTitle("${market.emoji} Trade ${market.symbol}")
+            .setMessage("""
+${market.displayName}
+Max Leverage: ${market.maxLeverage.toInt()}x
+Trading Hours: ${market.tradingHours}
+
+Quick trade or open detailed dialog?
+            """.trimIndent())
+            .setPositiveButton("📈 LONG") { d, _ ->
+                lifecycleScope.launch {
+                    try {
+                        val position = com.lifecyclebot.perps.PerpsExecutionEngine.manualOpen(
+                            market = market,
+                            direction = com.lifecyclebot.perps.PerpsDirection.LONG,
+                            leverage = 2.0,
+                            sizePct = 5.0,
+                        )
+                        withContext(kotlinx.coroutines.Dispatchers.Main) {
+                            if (position != null) {
+                                Toast.makeText(this@MainActivity, "📈 Opened ${market.symbol} LONG @ 2x", Toast.LENGTH_SHORT).show()
+                                cardTokenizedStocks?.visibility = View.VISIBLE
+                            }
+                        }
+                    } catch (e: Exception) {
+                        withContext(kotlinx.coroutines.Dispatchers.Main) {
+                            Toast.makeText(this@MainActivity, "Error: ${e.message}", Toast.LENGTH_SHORT).show()
+                        }
+                    }
+                }
+                d.dismiss()
+            }
+            .setNegativeButton("📉 SHORT") { d, _ ->
+                lifecycleScope.launch {
+                    try {
+                        val position = com.lifecyclebot.perps.PerpsExecutionEngine.manualOpen(
+                            market = market,
+                            direction = com.lifecyclebot.perps.PerpsDirection.SHORT,
+                            leverage = 2.0,
+                            sizePct = 5.0,
+                        )
+                        withContext(kotlinx.coroutines.Dispatchers.Main) {
+                            if (position != null) {
+                                Toast.makeText(this@MainActivity, "📉 Opened ${market.symbol} SHORT @ 2x", Toast.LENGTH_SHORT).show()
+                                cardTokenizedStocks?.visibility = View.VISIBLE
+                            }
+                        }
+                    } catch (e: Exception) {
+                        withContext(kotlinx.coroutines.Dispatchers.Main) {
+                            Toast.makeText(this@MainActivity, "Error: ${e.message}", Toast.LENGTH_SHORT).show()
+                        }
+                    }
+                }
+                d.dismiss()
+            }
+            .setNeutralButton("Custom") { d, _ ->
+                d.dismiss()
+                showStockBuyDialog()
+            }
             .show()
     }
 

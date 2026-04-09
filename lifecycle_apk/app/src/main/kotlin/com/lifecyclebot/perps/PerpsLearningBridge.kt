@@ -741,13 +741,35 @@ object PerpsLearningBridge {
                     }
                 }
                 
+                "BlueChipTraderAI" -> {
+                    // BlueChip learns from tokenized stock trades
+                    if (trade.market.isStock) {
+                        com.lifecyclebot.v3.scoring.BlueChipTraderAI.recordPerpsLearning(
+                            symbol = trade.market.symbol,
+                            isWin = wasCorrect,
+                            pnlPct = trade.pnlPct,
+                            isStock = true,
+                        )
+                    }
+                }
+                
+                "QualityTraderAI" -> {
+                    // Quality trader learns from all perps
+                    com.lifecyclebot.v3.scoring.QualityTraderAI.recordPerpsLearning(
+                        symbol = trade.market.symbol,
+                        isWin = wasCorrect,
+                        pnlPct = trade.pnlPct,
+                        leverage = trade.leverage,
+                    )
+                }
+                
                 "FluidLearningAI" -> {
                     // Fluid learning tracks overall progress
                     com.lifecyclebot.v3.scoring.FluidLearningAI.recordTrade(wasCorrect)
                 }
                 
                 "EducationSubLayerAI" -> {
-                    // Education layer gets full outcome
+                    // Education layer gets full outcome with stock context
                     com.lifecyclebot.v3.scoring.EducationSubLayerAI.dispatchOutcome(
                         mint = trade.market.symbol,
                         symbol = trade.market.symbol,
@@ -756,6 +778,17 @@ object PerpsLearningBridge {
                         holdMinutes = ((trade.closeTime - trade.openTime) / 60_000).toInt(),
                         scoreCard = null,
                     )
+                    
+                    // Dispatch stock-specific learning if applicable
+                    if (trade.market.isStock) {
+                        com.lifecyclebot.v3.scoring.EducationSubLayerAI.dispatchStockLearning(
+                            stock = trade.market.symbol,
+                            direction = trade.direction.symbol,
+                            isWin = wasCorrect,
+                            pnlPct = trade.pnlPct,
+                            leverage = trade.leverage,
+                        )
+                    }
                 }
                 
                 // Add more layer-specific learning routes as needed
@@ -763,9 +796,101 @@ object PerpsLearningBridge {
                     // Generic learning for other layers (they'll pick it up via TradeHistoryStore)
                 }
             }
+            
+            // V5.7.3: Save to Turso for cross-device learning
+            kotlinx.coroutines.GlobalScope.launch(kotlinx.coroutines.Dispatchers.IO) {
+                try {
+                    com.lifecyclebot.collective.TursoClient.updatePerpsLayerPerformance(
+                        layerName = layerName,
+                        market = trade.market.symbol,
+                        direction = trade.direction.symbol,
+                        isWin = wasCorrect,
+                        pnlPct = trade.pnlPct,
+                    )
+                } catch (e: Exception) {
+                    ErrorLogger.debug(TAG, "Turso layer update failed: ${e.message}")
+                }
+            }
         } catch (e: Exception) {
             ErrorLogger.debug(TAG, "Learning route to $layerName failed: ${e.message}")
         }
+    }
+    
+    /**
+     * V5.7.3: Enhanced learning from stock trades - routes to all relevant layers
+     */
+    fun learnFromStockTrade(
+        trade: PerpsTrade,
+        contributingLayers: List<String>,
+        marketConditions: Map<String, Any>,
+    ) {
+        totalPerpsLearningEvents.incrementAndGet()
+        
+        val isWin = trade.pnlPct > 0
+        
+        // Stock-specific layer learning
+        val stockLayers = listOf(
+            "BlueChipTraderAI",      // Quality stock picker
+            "QualityTraderAI",       // Quality filter
+            "MarketRegimeAI",        // Market conditions
+            "SmartMoneyDivergenceAI", // Institutional flow
+            "FluidLearningAI",       // Adaptive thresholds
+            "EducationSubLayerAI",   // Cross-layer learning
+        )
+        
+        (contributingLayers + stockLayers).distinct().forEach { layerName ->
+            // Update correlation data
+            val key = "${layerName}_STOCK"
+            val corr = layerPerpsCorrelation.getOrPut(key) { CorrelationData() }
+            corr.signalsGiven++
+            if (isWin) corr.signalsCorrect++
+            corr.totalPnlContribution += trade.pnlPct
+            corr.lastUpdate = System.currentTimeMillis()
+            
+            // Adjust trust score for stocks
+            val currentTrust = layerPerpsTrust["${layerName}_STOCK"] ?: 0.5
+            val trustDelta = if (isWin) 0.015 else -0.01  // Slightly higher reward for stock wins
+            val newTrust = (currentTrust + trustDelta).coerceIn(0.1, 1.0)
+            layerPerpsTrust["${layerName}_STOCK"] = newTrust
+            
+            // Route learning
+            routeLearningToLayer(layerName, trade, isWin)
+        }
+        
+        // Save market stats to Turso
+        kotlinx.coroutines.GlobalScope.launch(kotlinx.coroutines.Dispatchers.IO) {
+            try {
+                com.lifecyclebot.collective.TursoClient.updatePerpsMarketStats(
+                    market = trade.market.symbol,
+                    direction = trade.direction.symbol,
+                    isWin = isWin,
+                    pnlPct = trade.pnlPct,
+                    holdMins = ((trade.closeTime - trade.openTime) / 60_000.0),
+                    leverage = trade.leverage,
+                )
+            } catch (e: Exception) {
+                ErrorLogger.debug(TAG, "Turso market stats update failed: ${e.message}")
+            }
+        }
+        
+        crossLayerSyncs.incrementAndGet()
+        save()
+        
+        ErrorLogger.info(TAG, "📈 Stock learning: ${trade.market.symbol} ${trade.direction.symbol} " +
+            "${if (isWin) "WIN" else "LOSS"} ${trade.pnlPct.fmt(1)}%")
+    }
+    
+    /**
+     * V5.7.3: Get stock-specific layer recommendations
+     */
+    fun getStockLayerRecommendations(market: PerpsMarket): Map<String, Double> {
+        if (!market.isStock) return emptyMap()
+        
+        return layerPerpsTrust.entries
+            .filter { it.key.endsWith("_STOCK") || layerConfigs[it.key]?.applicableMarkets?.contains(market) == true }
+            .sortedByDescending { it.value }
+            .take(5)
+            .associate { it.key.removeSuffix("_STOCK") to it.value }
     }
     
     // ═══════════════════════════════════════════════════════════════════════════

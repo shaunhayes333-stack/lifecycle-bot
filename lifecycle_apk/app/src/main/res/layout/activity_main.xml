@@ -1227,6 +1227,7 @@
                     android:gravity="center"
                     android:padding="6dp"
                     android:background="@drawable/section_card_bg"
+                    android:layout_marginEnd="3dp"
                     android:clickable="true"
                     android:focusable="true">
                     <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
@@ -1235,6 +1236,29 @@
                         android:text="Perps" android:textColor="#FF6B6B" android:textSize="8sp"
                         android:layout_marginTop="1dp"/>
                     <TextView android:id="@+id/tvPerpsStats"
+                        android:layout_width="wrap_content" android:layout_height="wrap_content"
+                        android:text="0/0" android:textColor="#6B7280" android:textSize="6sp"
+                        android:fontFamily="monospace"/>
+                </LinearLayout>
+
+                <!-- TOKENIZED STOCKS - V5.7.3 -->
+                <LinearLayout
+                    android:id="@+id/btnQuickStocks"
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:orientation="vertical"
+                    android:gravity="center"
+                    android:padding="6dp"
+                    android:background="@drawable/section_card_bg"
+                    android:clickable="true"
+                    android:focusable="true">
+                    <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+                        android:text="📈" android:textSize="16sp"/>
+                    <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+                        android:text="Stocks" android:textColor="#4285F4" android:textSize="8sp"
+                        android:layout_marginTop="1dp"/>
+                    <TextView android:id="@+id/tvStocksStats"
                         android:layout_width="wrap_content" android:layout_height="wrap_content"
                         android:text="0/0" android:textColor="#6B7280" android:textSize="6sp"
                         android:fontFamily="monospace"/>
@@ -2115,9 +2139,383 @@
 
             </LinearLayout>
 
+            <!-- ═══════════════════════════════════════════════════════════════════
+                 V5.7.3: TOKENIZED STOCKS POSITIONS CARD
+                 Dedicated UI for AAPL, TSLA, NVDA, GOOGL, AMZN, META, MSFT, COIN
+                 ═══════════════════════════════════════════════════════════════════ -->
+            <LinearLayout
+                android:id="@+id/cardTokenizedStocks"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="vertical"
+                android:background="@drawable/hero_card_bg"
+                android:layout_marginStart="@dimen/card_margin"
+                android:layout_marginEnd="@dimen/card_margin"
+                android:layout_marginBottom="@dimen/card_margin_bottom"
+                android:padding="@dimen/card_padding"
+                android:visibility="gone">
+
+                <!-- Header Row -->
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="horizontal"
+                    android:gravity="center_vertical">
+                    <TextView
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="📈 Tokenized Stocks"
+                        android:textColor="#4285F4"
+                        android:textSize="13sp"
+                        android:textStyle="bold"/>
+                    <View
+                        android:layout_width="0dp"
+                        android:layout_height="1dp"
+                        android:layout_weight="1"/>
+                    <TextView
+                        android:id="@+id/tvStocksModeBadge"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="PAPER"
+                        android:textColor="#000000"
+                        android:textSize="8sp"
+                        android:textStyle="bold"
+                        android:paddingStart="6dp"
+                        android:paddingEnd="6dp"
+                        android:paddingTop="2dp"
+                        android:paddingBottom="2dp"
+                        android:background="@drawable/pill_bg_yellow"/>
+                </LinearLayout>
+
+                <!-- Stock Prices Row -->
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="horizontal"
+                    android:layout_marginTop="8dp">
+
+                    <!-- AAPL -->
+                    <LinearLayout
+                        android:id="@+id/btnStocksAapl"
+                        android:layout_width="0dp"
+                        android:layout_height="wrap_content"
+                        android:layout_weight="1"
+                        android:orientation="vertical"
+                        android:gravity="center"
+                        android:background="@drawable/section_card_bg"
+                        android:padding="6dp"
+                        android:layout_marginEnd="3dp"
+                        android:clickable="true"
+                        android:focusable="true">
+                        <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+                            android:text="🍎 AAPL" android:textSize="9sp" android:textColor="#A2AAAD"
+                            android:textStyle="bold"/>
+                        <TextView android:id="@+id/tvStocksAaplPrice"
+                            android:layout_width="wrap_content" android:layout_height="wrap_content"
+                            android:text="$—" android:textColor="#FFFFFF" android:textSize="10sp"
+                            android:fontFamily="monospace"/>
+                        <TextView android:id="@+id/tvStocksAaplChange"
+                            android:layout_width="wrap_content" android:layout_height="wrap_content"
+                            android:text="+0.0%" android:textColor="#22C55E" android:textSize="8sp"/>
+                    </LinearLayout>
+
+                    <!-- TSLA -->
+                    <LinearLayout
+                        android:id="@+id/btnStocksTsla"
+                        android:layout_width="0dp"
+                        android:layout_height="wrap_content"
+                        android:layout_weight="1"
+                        android:orientation="vertical"
+                        android:gravity="center"
+                        android:background="@drawable/section_card_bg"
+                        android:padding="6dp"
+                        android:layout_marginEnd="3dp"
+                        android:clickable="true"
+                        android:focusable="true">
+                        <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+                            android:text="🚗 TSLA" android:textSize="9sp" android:textColor="#E31937"
+                            android:textStyle="bold"/>
+                        <TextView android:id="@+id/tvStocksTslaPrice"
+                            android:layout_width="wrap_content" android:layout_height="wrap_content"
+                            android:text="$—" android:textColor="#FFFFFF" android:textSize="10sp"
+                            android:fontFamily="monospace"/>
+                        <TextView android:id="@+id/tvStocksTslaChange"
+                            android:layout_width="wrap_content" android:layout_height="wrap_content"
+                            android:text="+0.0%" android:textColor="#22C55E" android:textSize="8sp"/>
+                    </LinearLayout>
+
+                    <!-- NVDA -->
+                    <LinearLayout
+                        android:id="@+id/btnStocksNvda"
+                        android:layout_width="0dp"
+                        android:layout_height="wrap_content"
+                        android:layout_weight="1"
+                        android:orientation="vertical"
+                        android:gravity="center"
+                        android:background="@drawable/section_card_bg"
+                        android:padding="6dp"
+                        android:layout_marginEnd="3dp"
+                        android:clickable="true"
+                        android:focusable="true">
+                        <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+                            android:text="🖥️ NVDA" android:textSize="9sp" android:textColor="#76B900"
+                            android:textStyle="bold"/>
+                        <TextView android:id="@+id/tvStocksNvdaPrice"
+                            android:layout_width="wrap_content" android:layout_height="wrap_content"
+                            android:text="$—" android:textColor="#FFFFFF" android:textSize="10sp"
+                            android:fontFamily="monospace"/>
+                        <TextView android:id="@+id/tvStocksNvdaChange"
+                            android:layout_width="wrap_content" android:layout_height="wrap_content"
+                            android:text="+0.0%" android:textColor="#22C55E" android:textSize="8sp"/>
+                    </LinearLayout>
+
+                    <!-- GOOGL -->
+                    <LinearLayout
+                        android:id="@+id/btnStocksGoogl"
+                        android:layout_width="0dp"
+                        android:layout_height="wrap_content"
+                        android:layout_weight="1"
+                        android:orientation="vertical"
+                        android:gravity="center"
+                        android:background="@drawable/section_card_bg"
+                        android:padding="6dp"
+                        android:clickable="true"
+                        android:focusable="true">
+                        <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+                            android:text="🔍 GOOG" android:textSize="9sp" android:textColor="#4285F4"
+                            android:textStyle="bold"/>
+                        <TextView android:id="@+id/tvStocksGooglPrice"
+                            android:layout_width="wrap_content" android:layout_height="wrap_content"
+                            android:text="$—" android:textColor="#FFFFFF" android:textSize="10sp"
+                            android:fontFamily="monospace"/>
+                        <TextView android:id="@+id/tvStocksGooglChange"
+                            android:layout_width="wrap_content" android:layout_height="wrap_content"
+                            android:text="+0.0%" android:textColor="#22C55E" android:textSize="8sp"/>
+                    </LinearLayout>
+                </LinearLayout>
+
+                <!-- Second Row: AMZN, META, MSFT, COIN -->
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="horizontal"
+                    android:layout_marginTop="4dp">
+
+                    <!-- AMZN -->
+                    <LinearLayout
+                        android:id="@+id/btnStocksAmzn"
+                        android:layout_width="0dp"
+                        android:layout_height="wrap_content"
+                        android:layout_weight="1"
+                        android:orientation="vertical"
+                        android:gravity="center"
+                        android:background="@drawable/section_card_bg"
+                        android:padding="6dp"
+                        android:layout_marginEnd="3dp"
+                        android:clickable="true"
+                        android:focusable="true">
+                        <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+                            android:text="📦 AMZN" android:textSize="9sp" android:textColor="#FF9900"
+                            android:textStyle="bold"/>
+                        <TextView android:id="@+id/tvStocksAmznPrice"
+                            android:layout_width="wrap_content" android:layout_height="wrap_content"
+                            android:text="$—" android:textColor="#FFFFFF" android:textSize="10sp"
+                            android:fontFamily="monospace"/>
+                    </LinearLayout>
+
+                    <!-- META -->
+                    <LinearLayout
+                        android:id="@+id/btnStocksMeta"
+                        android:layout_width="0dp"
+                        android:layout_height="wrap_content"
+                        android:layout_weight="1"
+                        android:orientation="vertical"
+                        android:gravity="center"
+                        android:background="@drawable/section_card_bg"
+                        android:padding="6dp"
+                        android:layout_marginEnd="3dp"
+                        android:clickable="true"
+                        android:focusable="true">
+                        <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+                            android:text="👤 META" android:textSize="9sp" android:textColor="#0081FB"
+                            android:textStyle="bold"/>
+                        <TextView android:id="@+id/tvStocksMetaPrice"
+                            android:layout_width="wrap_content" android:layout_height="wrap_content"
+                            android:text="$—" android:textColor="#FFFFFF" android:textSize="10sp"
+                            android:fontFamily="monospace"/>
+                    </LinearLayout>
+
+                    <!-- MSFT -->
+                    <LinearLayout
+                        android:id="@+id/btnStocksMsft"
+                        android:layout_width="0dp"
+                        android:layout_height="wrap_content"
+                        android:layout_weight="1"
+                        android:orientation="vertical"
+                        android:gravity="center"
+                        android:background="@drawable/section_card_bg"
+                        android:padding="6dp"
+                        android:layout_marginEnd="3dp"
+                        android:clickable="true"
+                        android:focusable="true">
+                        <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+                            android:text="🪟 MSFT" android:textSize="9sp" android:textColor="#00A4EF"
+                            android:textStyle="bold"/>
+                        <TextView android:id="@+id/tvStocksMsftPrice"
+                            android:layout_width="wrap_content" android:layout_height="wrap_content"
+                            android:text="$—" android:textColor="#FFFFFF" android:textSize="10sp"
+                            android:fontFamily="monospace"/>
+                    </LinearLayout>
+
+                    <!-- COIN -->
+                    <LinearLayout
+                        android:id="@+id/btnStocksCoin"
+                        android:layout_width="0dp"
+                        android:layout_height="wrap_content"
+                        android:layout_weight="1"
+                        android:orientation="vertical"
+                        android:gravity="center"
+                        android:background="@drawable/section_card_bg"
+                        android:padding="6dp"
+                        android:clickable="true"
+                        android:focusable="true">
+                        <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+                            android:text="🪙 COIN" android:textSize="9sp" android:textColor="#0052FF"
+                            android:textStyle="bold"/>
+                        <TextView android:id="@+id/tvStocksCoinPrice"
+                            android:layout_width="wrap_content" android:layout_height="wrap_content"
+                            android:text="$—" android:textColor="#FFFFFF" android:textSize="10sp"
+                            android:fontFamily="monospace"/>
+                    </LinearLayout>
+                </LinearLayout>
+
+                <!-- Stats Row -->
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="horizontal"
+                    android:layout_marginTop="8dp"
+                    android:gravity="center_vertical">
+
+                    <!-- Balance -->
+                    <LinearLayout
+                        android:layout_width="0dp"
+                        android:layout_height="wrap_content"
+                        android:layout_weight="1"
+                        android:orientation="vertical"
+                        android:gravity="center">
+                        <TextView
+                            android:id="@+id/tvStocksBalance"
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:text="5.0000"
+                            android:textColor="#FFFFFF"
+                            android:textSize="14sp"
+                            android:textStyle="bold"
+                            android:fontFamily="monospace"/>
+                        <TextView
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:text="Balance ◎"
+                            android:textColor="#6B7280"
+                            android:textSize="8sp"/>
+                    </LinearLayout>
+
+                    <!-- Day P&L -->
+                    <LinearLayout
+                        android:layout_width="0dp"
+                        android:layout_height="wrap_content"
+                        android:layout_weight="1"
+                        android:orientation="vertical"
+                        android:gravity="center">
+                        <TextView
+                            android:id="@+id/tvStocksPnl"
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:text="+0.00%"
+                            android:textColor="#22C55E"
+                            android:textSize="14sp"
+                            android:textStyle="bold"
+                            android:fontFamily="monospace"/>
+                        <TextView
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:text="Day P&L"
+                            android:textColor="#6B7280"
+                            android:textSize="8sp"/>
+                    </LinearLayout>
+
+                    <!-- Win Rate -->
+                    <LinearLayout
+                        android:layout_width="0dp"
+                        android:layout_height="wrap_content"
+                        android:layout_weight="1"
+                        android:orientation="vertical"
+                        android:gravity="center">
+                        <TextView
+                            android:id="@+id/tvStocksWinRate"
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:text="0%"
+                            android:textColor="#FFFFFF"
+                            android:textSize="14sp"
+                            android:textStyle="bold"
+                            android:fontFamily="monospace"/>
+                        <TextView
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:text="Win Rate"
+                            android:textColor="#6B7280"
+                            android:textSize="8sp"/>
+                    </LinearLayout>
+
+                    <!-- Trades -->
+                    <LinearLayout
+                        android:layout_width="0dp"
+                        android:layout_height="wrap_content"
+                        android:layout_weight="1"
+                        android:orientation="vertical"
+                        android:gravity="center">
+                        <TextView
+                            android:id="@+id/tvStocksTrades"
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:text="0"
+                            android:textColor="#FFFFFF"
+                            android:textSize="14sp"
+                            android:textStyle="bold"
+                            android:fontFamily="monospace"/>
+                        <TextView
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:text="Trades"
+                            android:textColor="#6B7280"
+                            android:textSize="8sp"/>
+                    </LinearLayout>
+                </LinearLayout>
+
+                <!-- Open Stock Positions List -->
+                <LinearLayout
+                    android:id="@+id/llStocksPositions"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="vertical"
+                    android:layout_marginTop="8dp"/>
+
+                <!-- Market Hours Notice -->
+                <TextView
+                    android:id="@+id/tvStocksMarketHours"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:text="📅 Market Hours: Mon-Fri 9:30 AM - 4:00 PM ET"
+                    android:textColor="#6B7280"
+                    android:textSize="8sp"
+                    android:layout_marginTop="6dp"
+                    android:gravity="center"/>
+
+            </LinearLayout>
+
             <!-- ═══════════════════════════════
-                 BOT STATUS CARD
-                 ═══════════════════════════════ -->
             <LinearLayout
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
