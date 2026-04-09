@@ -221,6 +221,15 @@ class BotService : Service() {
             ErrorLogger.error("BotService", "SmartSizer init error: ${e.message}", e)
         }
         
+        // V5.6.28f: Sync RunTracker30D stats with TradeHistoryStore
+        try {
+            if (com.lifecyclebot.engine.RunTracker30D.isRunActive()) {
+                com.lifecyclebot.engine.RunTracker30D.syncStatsFromTradeHistory()
+            }
+        } catch (e: Exception) {
+            ErrorLogger.debug("BotService", "RunTracker30D sync error: ${e.message}")
+        }
+        
         } catch (e: Exception) {
             ErrorLogger.crash("BotService", "onCreate CRASH: ${e.javaClass.simpleName}: ${e.message}", e)
             android.util.Log.e("BotService", "onCreate CRASH: ${e.javaClass.simpleName}: ${e.message}", e)
