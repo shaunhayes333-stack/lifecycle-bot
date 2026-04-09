@@ -2646,30 +2646,30 @@ class BotService : Service() {
                         // Play sound for new token
                         soundManager.playNewToken()
                         
-                        // Seed TokenState for the merged token
-                        scope.launch {
-                            try {
-                                synchronized(status.tokens) {
-                                    val ts = status.tokens.getOrPut(merged.mint) {
-                                        com.lifecyclebot.data.TokenState(
-                                            mint = merged.mint,
-                                            symbol = merged.symbol,
-                                            name = merged.symbol,
-                                            candleTimeframeMinutes = 1,
-                                            source = merged.allScanners.joinToString(","),
-                                            logoUrl = "https://dd.dexscreener.com/ds-data/tokens/solana/${merged.mint}.png",
-                                        )
-                                    }
-                                    // V5.6.29c: ALWAYS seed liquidity from scanner - even for existing TokenState
-                                    // getOrPut only runs lambda for NEW tokens, but existing tokens may have 0 liquidity
-                                    // from before the fix or from a different creation path
-                                    if (ts.lastLiquidityUsd <= 0 && merged.liquidityUsd > 0) {
-                                        ts.lastLiquidityUsd = merged.liquidityUsd
-                                        ts.lastMcap = merged.marketCapUsd
-                                    }
+                        // V5.6.29d: Seed TokenState SYNCHRONOUSLY - async was causing race condition
+                        // where bot loop would evaluate token before liquidity was seeded
+                        try {
+                            synchronized(status.tokens) {
+                                val ts = status.tokens.getOrPut(merged.mint) {
+                                    com.lifecyclebot.data.TokenState(
+                                        mint = merged.mint,
+                                        symbol = merged.symbol,
+                                        name = merged.symbol,
+                                        candleTimeframeMinutes = 1,
+                                        source = merged.allScanners.joinToString(","),
+                                        logoUrl = "https://dd.dexscreener.com/ds-data/tokens/solana/${merged.mint}.png",
+                                    )
                                 }
-                                orchestrator?.onTokenAdded(merged.mint, merged.symbol)
-                            } catch (_: Exception) {}
+                                // ALWAYS seed liquidity from scanner - even for existing TokenState
+                                if (ts.lastLiquidityUsd <= 0 && merged.liquidityUsd > 0) {
+                                    ts.lastLiquidityUsd = merged.liquidityUsd
+                                    ts.lastMcap = merged.marketCapUsd
+                                    ErrorLogger.debug("BotService", "💧 Seeded ${merged.symbol} liq=$${merged.liquidityUsd.toInt()}")
+                                }
+                            }
+                            orchestrator?.onTokenAdded(merged.mint, merged.symbol)
+                        } catch (e: Exception) {
+                            ErrorLogger.debug("BotService", "TokenState seed error: ${e.message}")
                         }
                     } else if (addResult.probation) {
                         // V5.0: Token went to probation
@@ -2685,32 +2685,31 @@ class BotService : Service() {
                             addLog("✅ PROMOTED: ${result.symbol} | ${result.reason}", result.mint)
                             soundManager.playNewToken()
                             
-                            // Seed TokenState for promoted token
-                            scope.launch {
-                                try {
-                                    // V5.6.29c: Get liquidity from ProbationEntry
-                                    val probEntry = GlobalTradeRegistry.getProbationEntry(result.mint)
-                                    val probLiq = probEntry?.initialLiquidity ?: 0.0
-                                    val probMcap = probEntry?.initialMcap ?: 0.0
-                                    synchronized(status.tokens) {
-                                        val ts = status.tokens.getOrPut(result.mint) {
-                                            com.lifecyclebot.data.TokenState(
-                                                mint = result.mint,
-                                                symbol = result.symbol,
-                                                name = result.symbol,
-                                                candleTimeframeMinutes = 1,
-                                                source = "PROBATION",
-                                                logoUrl = "https://dd.dexscreener.com/ds-data/tokens/solana/${result.mint}.png",
-                                            )
-                                        }
-                                        // V5.6.29c: ALWAYS seed liquidity - even for existing TokenState
-                                        if (ts.lastLiquidityUsd <= 0 && probLiq > 0) {
-                                            ts.lastLiquidityUsd = probLiq
-                                            ts.lastMcap = probMcap
-                                        }
+                            // V5.6.29d: Seed TokenState SYNCHRONOUSLY for promoted token
+                            try {
+                                val probEntry = GlobalTradeRegistry.getProbationEntry(result.mint)
+                                val probLiq = probEntry?.initialLiquidity ?: 0.0
+                                val probMcap = probEntry?.initialMcap ?: 0.0
+                                synchronized(status.tokens) {
+                                    val ts = status.tokens.getOrPut(result.mint) {
+                                        com.lifecyclebot.data.TokenState(
+                                            mint = result.mint,
+                                            symbol = result.symbol,
+                                            name = result.symbol,
+                                            candleTimeframeMinutes = 1,
+                                            source = "PROBATION",
+                                            logoUrl = "https://dd.dexscreener.com/ds-data/tokens/solana/${result.mint}.png",
+                                        )
                                     }
-                                    orchestrator?.onTokenAdded(result.mint, result.symbol)
-                                } catch (_: Exception) {}
+                                    if (ts.lastLiquidityUsd <= 0 && probLiq > 0) {
+                                        ts.lastLiquidityUsd = probLiq
+                                        ts.lastMcap = probMcap
+                                        ErrorLogger.debug("BotService", "💧 Seeded PROMOTED ${result.symbol} liq=$${probLiq.toInt()}")
+                                    }
+                                }
+                                orchestrator?.onTokenAdded(result.mint, result.symbol)
+                            } catch (e: Exception) {
+                                ErrorLogger.debug("BotService", "PROMOTED TokenState seed error: ${e.message}")
                             }
                         }
                         "REJECTED" -> {

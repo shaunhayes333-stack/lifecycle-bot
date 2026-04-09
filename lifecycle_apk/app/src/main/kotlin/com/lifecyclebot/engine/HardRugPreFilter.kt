@@ -53,18 +53,22 @@ object HardRugPreFilter {
      * ZERO_LIQUIDITY blocks before real data is fetched.
      */
     fun filter(ts: TokenState, isPaperMode: Boolean = false): PreFilterResult {
-        // V5.6.29: GRACE PERIOD FOR NEW TOKENS
-        // Tokens just added to watchlist have no history yet (empty ArrayDeque).
-        // Their lastLiquidityUsd may be 0.0 if scanner didn't populate it, or the
-        // first API poll hasn't returned yet. Give them time to fetch real data.
+        // V5.6.29d: GRACE PERIOD FOR NEW TOKENS
+        // Tokens just added to watchlist may not have liquidity data yet because:
+        // 1. Scanner didn't populate it (async race condition - now fixed to be sync)
+        // 2. First API poll hasn't returned yet
+        // 3. Token was added before the fix was deployed
+        // Give tokens time to get their liquidity data from the API poll.
         val tokenAgeMs = System.currentTimeMillis() - ts.addedToWatchlistAt
-        val isNewToken = ts.history.isEmpty() && tokenAgeMs < 30_000  // < 30 seconds old
+        val hasNoLiquidity = ts.lastLiquidityUsd <= 0
+        val isVeryNew = tokenAgeMs < 60_000  // < 60 seconds since watchlist add
         
-        if (isNewToken) {
-            ErrorLogger.debug(TAG, "⏳ GRACE PERIOD: ${ts.symbol} - new token, no history yet (age=${tokenAgeMs/1000}s)")
+        // Grace period: no liquidity + added recently = let API poll have time to fetch data
+        if (hasNoLiquidity && isVeryNew) {
+            ErrorLogger.debug(TAG, "⏳ GRACE PERIOD: ${ts.symbol} - no liquidity yet (age=${tokenAgeMs/1000}s, hist=${ts.history.size})")
             return PreFilterResult(
                 pass = true,
-                reason = "GRACE_PERIOD_NEW_TOKEN",
+                reason = "GRACE_PERIOD_AWAITING_LIQUIDITY",
                 severity = FilterSeverity.PASS,
             )
         }
@@ -73,6 +77,7 @@ object HardRugPreFilter {
         // Only block truly dangerous tokens (zero liquidity) in paper mode
         if (isPaperMode) {
             // Even in paper mode, block tokens with literally zero liquidity (can't trade)
+            // But only if they've had enough time to get polled (grace period above handles new tokens)
             if (ts.lastLiquidityUsd <= 0) {
                 return PreFilterResult(
                     pass = false,
