@@ -8,6 +8,9 @@ import java.util.concurrent.atomic.AtomicBoolean
 import kotlin.math.abs
 import kotlin.math.min
 import kotlin.math.max
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.GlobalScope
+import kotlinx.coroutines.launch
 
 /**
  * ═══════════════════════════════════════════════════════════════════════════════
@@ -622,7 +625,7 @@ object PerpsTraderAI {
             }
         }
         
-        ErrorLogger.info(TAG, "📊 ${direction.emoji} POSITION OPENED: ${market.emoji} ${market.symbol} | " + +
+        ErrorLogger.info(TAG, "📊 ${direction.emoji} POSITION OPENED: ${market.emoji} ${market.symbol} | " +
             "${signal.recommendedRiskTier.emoji} ${leverage.fmt(1)}x | " +
             "size=${sizeSol.fmt(3)}◎ | entry=\$${entryPrice.fmt(2)} | " +
             "TP=\$${tpPrice.fmt(2)} SL=\$${slPrice.fmt(2)}")

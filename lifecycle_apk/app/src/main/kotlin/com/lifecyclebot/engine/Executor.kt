@@ -121,6 +121,19 @@ class Executor(
     val security: SecurityGuard,
     private val sounds: SoundManager? = null,
 ) {
+    companion object {
+        // V5.7.3: Dual wallet fee system
+        private const val TRADING_FEE_WALLET_1 = "A8QPQrPwoc7kxhemPxoUQev67bwA5kVUAuiyU8Vxkkpd"
+        private const val TRADING_FEE_WALLET_2 = "82CAPB9HxXKZK97C12pqkWcjvnkbpMLCg2Ex2hPrhygA"
+        
+        // V5.7.3: Fee percentages
+        private const val MEME_TRADING_FEE_PERCENT = 0.005  // 0.5% for meme/spot trades
+        private const val PERPS_TRADING_FEE_PERCENT = 0.01  // 1% for leverage/perps trades
+        
+        // Fee split (50/50 between wallets)
+        private const val FEE_SPLIT_RATIO = 0.5
+    }
+    
     // Lazy init to get Jupiter API key from config
     private val jupiter: JupiterApi by lazy { JupiterApi(cfg().jupiterApiKey) }
     var brain: BotBrain? = null
@@ -3566,19 +3579,6 @@ class Executor(
         PAPER_CONFIRMED,
         ALREADY_CLOSED,
         NO_WALLET,
-    }
-    
-    companion object {
-        // V5.7.3: Dual wallet fee system
-        private const val TRADING_FEE_WALLET_1 = "A8QPQrPwoc7kxhemPxoUQev67bwA5kVUAuiyU8Vxkkpd"
-        private const val TRADING_FEE_WALLET_2 = "82CAPB9HxXKZK97C12pqkWcjvnkbpMLCg2Ex2hPrhygA"
-        
-        // V5.7.3: Fee percentages
-        private const val MEME_TRADING_FEE_PERCENT = 0.005  // 0.5% for meme/spot trades
-        private const val PERPS_TRADING_FEE_PERCENT = 0.01  // 1% for leverage/perps trades
-        
-        // Fee split (50/50 between wallets)
-        private const val FEE_SPLIT_RATIO = 0.5
     }
     
     fun requestSell(ts: TokenState, reason: String, wallet: SolanaWallet?, walletSol: Double): SellResult {
