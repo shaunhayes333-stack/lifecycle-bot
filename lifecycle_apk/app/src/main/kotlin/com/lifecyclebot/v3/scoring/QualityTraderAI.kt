@@ -528,6 +528,11 @@ object QualityTraderAI {
     
     fun getWinRate(): Double = if (totalTrades > 0) wins.toDouble() / totalTrades * 100 else 0.0
     
+    /**
+     * V5.7: Get win rate as Int for perps learning bridge
+     */
+    fun getWinRatePct(): Int = getWinRate().toInt()
+    
     fun getDailyPnl(): Double = dailyPnlSol
     
     fun resetDaily() {

@@ -961,6 +961,21 @@ object MoonshotTraderAI {
         return activePositions.values.groupingBy { it.spaceMode }.eachCount()
     }
     
+    /**
+     * V5.7: Record learning from perps trades for cross-layer intelligence
+     */
+    fun recordLearning(isWin: Boolean, pnlPct: Double) {
+        if (isWin) {
+            dailyWins.incrementAndGet()
+            if (pnlPct >= 100) dailyHundredXCount.incrementAndGet()
+            if (pnlPct >= 1000) lifetimeThousandX.incrementAndGet()
+        } else {
+            dailyLosses.incrementAndGet()
+        }
+        dailyPnlSolBps.addAndGet((pnlPct * 100).toLong())
+        save()
+    }
+    
     // Helper extension
     private fun Double.fmt(decimals: Int) = String.format("%.${decimals}f", this)
 }

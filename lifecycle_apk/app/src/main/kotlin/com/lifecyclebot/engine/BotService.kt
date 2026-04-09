@@ -242,6 +242,14 @@ class BotService : Service() {
             ErrorLogger.error("BotService", "PerpsTraderAI init error: ${e.message}", e)
         }
         
+        // V5.7: Initialize PerpsLearningBridge for cross-layer perps intelligence
+        try {
+            com.lifecyclebot.perps.PerpsLearningBridge.init(applicationContext)
+            ErrorLogger.info("BotService", "PerpsLearningBridge initialized - ${com.lifecyclebot.perps.PerpsLearningBridge.getConnectedLayerCount()} layers connected")
+        } catch (e: Exception) {
+            ErrorLogger.error("BotService", "PerpsLearningBridge init error: ${e.message}", e)
+        }
+        
         // V5.6.28f: Sync RunTracker30D stats with TradeHistoryStore
         try {
             if (com.lifecyclebot.engine.RunTracker30D.isRunActive()) {
@@ -447,6 +455,14 @@ class BotService : Service() {
             ErrorLogger.info("BotService", "💾 PerpsTraderAI saved before destroy")
         } catch (e: Exception) {
             ErrorLogger.error("BotService", "Failed to save PerpsTraderAI: ${e.message}", e)
+        }
+        
+        // V5.7: Save PerpsLearningBridge
+        try {
+            com.lifecyclebot.perps.PerpsLearningBridge.save()
+            ErrorLogger.info("BotService", "💾 PerpsLearningBridge saved before destroy")
+        } catch (e: Exception) {
+            ErrorLogger.error("BotService", "Failed to save PerpsLearningBridge: ${e.message}", e)
         }
         
         // Shutdown CollectiveLearning

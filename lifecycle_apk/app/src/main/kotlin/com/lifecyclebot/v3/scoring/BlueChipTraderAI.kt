@@ -786,6 +786,14 @@ object BlueChipTraderAI {
         )
     }
     
+    /**
+     * V5.7: Get win rate for perps learning bridge
+     */
+    fun getWinRatePct(): Int {
+        val total = dailyWins.get() + dailyLosses.get()
+        return if (total > 0) ((dailyWins.get().toDouble() / total) * 100).toInt() else 0
+    }
+    
     // Helper extension
     private fun Double.fmt(decimals: Int): String = String.format("%.${decimals}f", this)
 }

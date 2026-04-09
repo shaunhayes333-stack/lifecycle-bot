@@ -898,4 +898,41 @@ object EducationSubLayerAI {
         saveForced()  // Bypass debounce on explicit reset
         ErrorLogger.info(TAG, "🧹 EducationSubLayerAI reset")
     }
+    
+    /**
+     * V5.7: Dispatch trade outcome to education layer for cross-layer learning
+     * Called by PerpsLearningBridge when perps trades complete.
+     */
+    fun dispatchOutcome(
+        mint: String,
+        symbol: String,
+        isWin: Boolean,
+        pnlPct: Double,
+        holdMinutes: Int,
+        scoreCard: Any?,  // ScoreCard if available
+    ) {
+        try {
+            // Record to all layers that contributed
+            layerPerformance.keys.forEach { layerName ->
+                val metrics = layerPerformance[layerName] ?: return@forEach
+                val updated = metrics.copy(
+                    totalSignals = metrics.totalSignals + 1,
+                    accurateSignals = metrics.accurateSignals + if (isWin) 1 else 0,
+                    totalContributions = metrics.totalContributions + 1,
+                    lastUpdate = System.currentTimeMillis(),
+                )
+                layerPerformance[layerName] = updated
+            }
+            
+            // Update curriculum progress
+            val level = getCurrentCurriculumLevel()
+            if (isWin && pnlPct >= 100) {
+                ErrorLogger.info(TAG, "🎓 ${level.icon} MEGA WIN recorded: +${pnlPct.toInt()}%")
+            }
+            
+            save()
+        } catch (e: Exception) {
+            ErrorLogger.debug(TAG, "dispatchOutcome error: ${e.message}")
+        }
+    }
 }

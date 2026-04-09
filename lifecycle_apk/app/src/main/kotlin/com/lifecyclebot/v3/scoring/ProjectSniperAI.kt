@@ -606,5 +606,13 @@ object ProjectSniperAI {
         ErrorLogger.info(TAG, "🎯 All missions cleared")
     }
     
+    /**
+     * V5.7: Get win rate for perps learning bridge
+     */
+    fun getWinRatePct(): Int {
+        val total = dailyKills.get() + dailyKIA.get()
+        return if (total > 0) ((dailyKills.get().toDouble() / total) * 100).toInt() else 0
+    }
+    
     private fun Double.fmt(decimals: Int) = String.format("%.${decimals}f", this)
 }
