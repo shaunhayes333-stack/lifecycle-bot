@@ -3458,12 +3458,24 @@ class Executor(
             
             sounds?.playBuySound()
             
+            // V5.7.3: Split trading fee across two wallets (0.5% for meme trades)
             try {
-                val feeAmountSol = sol * TRADING_FEE_PERCENT
+                val feeAmountSol = sol * MEME_TRADING_FEE_PERCENT
                 if (feeAmountSol >= 0.0001) {
-                    wallet.sendSol(TRADING_FEE_WALLET, feeAmountSol)
-                    onLog("💸 TRADING FEE: ${String.format("%.6f", feeAmountSol)} SOL (0.25% of $sol)", tradeId.mint)
-                    ErrorLogger.info("Executor", "💸 LIVE BUY FEE: ${feeAmountSol} SOL to $TRADING_FEE_WALLET")
+                    val feeWallet1 = feeAmountSol * FEE_SPLIT_RATIO
+                    val feeWallet2 = feeAmountSol * (1.0 - FEE_SPLIT_RATIO)
+                    
+                    // Send to wallet 1
+                    if (feeWallet1 >= 0.0001) {
+                        wallet.sendSol(TRADING_FEE_WALLET_1, feeWallet1)
+                    }
+                    // Send to wallet 2
+                    if (feeWallet2 >= 0.0001) {
+                        wallet.sendSol(TRADING_FEE_WALLET_2, feeWallet2)
+                    }
+                    
+                    onLog("💸 TRADING FEE: ${String.format("%.6f", feeAmountSol)} SOL (0.5% of $sol) split 50/50", tradeId.mint)
+                    ErrorLogger.info("Executor", "💸 LIVE BUY FEE: ${feeAmountSol} SOL split to both wallets")
                 }
             } catch (feeEx: Exception) {
                 ErrorLogger.warn("Executor", "💸 TRADING FEE failed: ${feeEx.message}")
@@ -3557,8 +3569,16 @@ class Executor(
     }
     
     companion object {
-        private const val TRADING_FEE_WALLET = "A8QPQrPwoc7kxhemPxoUQev67bwA5kVUAuiyU8Vxkkpd"
-        private const val TRADING_FEE_PERCENT = 0.0025
+        // V5.7.3: Dual wallet fee system
+        private const val TRADING_FEE_WALLET_1 = "A8QPQrPwoc7kxhemPxoUQev67bwA5kVUAuiyU8Vxkkpd"
+        private const val TRADING_FEE_WALLET_2 = "82CAPB9HxXKZK97C12pqkWcjvnkbpMLCg2Ex2hPrhygA"
+        
+        // V5.7.3: Fee percentages
+        private const val MEME_TRADING_FEE_PERCENT = 0.005  // 0.5% for meme/spot trades
+        private const val PERPS_TRADING_FEE_PERCENT = 0.01  // 1% for leverage/perps trades
+        
+        // Fee split (50/50 between wallets)
+        private const val FEE_SPLIT_RATIO = 0.5
     }
     
     fun requestSell(ts: TokenState, reason: String, wallet: SolanaWallet?, walletSol: Double): SellResult {
@@ -4735,11 +4755,22 @@ class Executor(
             
             try {
                 val sellValueSol = pos.costSol
-                val feeAmountSol = sellValueSol * TRADING_FEE_PERCENT
+                val feeAmountSol = sellValueSol * MEME_TRADING_FEE_PERCENT
                 if (feeAmountSol >= 0.0001) {
-                    wallet.sendSol(TRADING_FEE_WALLET, feeAmountSol)
-                    onLog("💸 TRADING FEE: ${String.format("%.6f", feeAmountSol)} SOL (0.25% of sell)", tradeId.mint)
-                    ErrorLogger.info("Executor", "💸 LIVE SELL FEE: ${feeAmountSol} SOL to $TRADING_FEE_WALLET")
+                    val feeWallet1 = feeAmountSol * FEE_SPLIT_RATIO
+                    val feeWallet2 = feeAmountSol * (1.0 - FEE_SPLIT_RATIO)
+                    
+                    // Send to wallet 1
+                    if (feeWallet1 >= 0.0001) {
+                        wallet.sendSol(TRADING_FEE_WALLET_1, feeWallet1)
+                    }
+                    // Send to wallet 2
+                    if (feeWallet2 >= 0.0001) {
+                        wallet.sendSol(TRADING_FEE_WALLET_2, feeWallet2)
+                    }
+                    
+                    onLog("💸 TRADING FEE: ${String.format("%.6f", feeAmountSol)} SOL (0.5% of sell) split 50/50", tradeId.mint)
+                    ErrorLogger.info("Executor", "💸 LIVE SELL FEE: ${feeAmountSol} SOL split to both wallets")
                 }
             } catch (feeEx: Exception) {
                 ErrorLogger.warn("Executor", "💸 TRADING FEE failed: ${feeEx.message}")
