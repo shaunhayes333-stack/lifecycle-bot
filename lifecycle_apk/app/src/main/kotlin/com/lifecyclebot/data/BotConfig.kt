@@ -219,6 +219,13 @@ data class BotConfig(
     val v3MinScoreToTrade: Int = 20,                // V3.2: Lowered from 55 - minimum unified score to consider trade
     val v3MaxExposurePct: Double = 70.0,            // Max wallet exposure in V3 mode
     val v3ConservativeMode: Boolean = false,        // More conservative scoring thresholds
+    // ── V5.7.3: Network Signal Auto-Buy ─────────────────────────────────────
+    // Auto-buy from network signals (Copy Trade from Hive)
+    val autoTradeNetworkSignals: Boolean = false,   // DISABLED by default - user must opt-in
+    val autoTradeNetworkSignalsMegaWinner: Boolean = true,  // Auto-buy MEGA_WINNER signals
+    val autoTradeNetworkSignalsHotToken: Boolean = false,   // Auto-buy HOT_TOKEN signals
+    val autoTradeNetworkSignalsMinAcks: Int = 2,            // Min confirmations required
+    val autoTradeNetworkSignalsMaxDaily: Int = 10,          // Max auto-buys per day
 )
 
 /** Persists config — private key stored in EncryptedSharedPreferences */

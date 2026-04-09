@@ -2135,6 +2135,142 @@
                             android:gravity="center"
                             android:fontFamily="monospace"/>
                     </LinearLayout>
+                    
+                    <!-- V5.7.3: LEARNING INSIGHTS PANEL -->
+                    <LinearLayout
+                        android:id="@+id/cardLearningInsights"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:orientation="vertical"
+                        android:background="@drawable/section_card_bg"
+                        android:padding="8dp"
+                        android:layout_marginTop="8dp">
+                        
+                        <LinearLayout
+                            android:layout_width="match_parent"
+                            android:layout_height="wrap_content"
+                            android:orientation="horizontal"
+                            android:gravity="center_vertical">
+                            <TextView
+                                android:layout_width="wrap_content"
+                                android:layout_height="wrap_content"
+                                android:text="🧠 Learning Insights"
+                                android:textColor="#8B5CF6"
+                                android:textSize="10sp"
+                                android:textStyle="bold"/>
+                            <View
+                                android:layout_width="0dp"
+                                android:layout_height="1dp"
+                                android:layout_weight="1"/>
+                            <TextView
+                                android:id="@+id/tvInsightsCount"
+                                android:layout_width="wrap_content"
+                                android:layout_height="wrap_content"
+                                android:text="0 insights"
+                                android:textColor="#6B7280"
+                                android:textSize="8sp"
+                                android:fontFamily="monospace"/>
+                        </LinearLayout>
+                        
+                        <!-- Insights Stats Row -->
+                        <LinearLayout
+                            android:layout_width="match_parent"
+                            android:layout_height="wrap_content"
+                            android:orientation="horizontal"
+                            android:layout_marginTop="6dp"
+                            android:gravity="center">
+                            
+                            <LinearLayout
+                                android:layout_width="0dp"
+                                android:layout_height="wrap_content"
+                                android:layout_weight="1"
+                                android:orientation="vertical"
+                                android:gravity="center">
+                                <TextView
+                                    android:id="@+id/tvInsightsPatternsCount"
+                                    android:layout_width="wrap_content"
+                                    android:layout_height="wrap_content"
+                                    android:text="0"
+                                    android:textColor="#22C55E"
+                                    android:textSize="14sp"
+                                    android:textStyle="bold"
+                                    android:fontFamily="monospace"/>
+                                <TextView
+                                    android:layout_width="wrap_content"
+                                    android:layout_height="wrap_content"
+                                    android:text="Patterns"
+                                    android:textColor="#6B7280"
+                                    android:textSize="8sp"/>
+                            </LinearLayout>
+                            
+                            <LinearLayout
+                                android:layout_width="0dp"
+                                android:layout_height="wrap_content"
+                                android:layout_weight="1"
+                                android:orientation="vertical"
+                                android:gravity="center">
+                                <TextView
+                                    android:id="@+id/tvInsightsReplaysCount"
+                                    android:layout_width="wrap_content"
+                                    android:layout_height="wrap_content"
+                                    android:text="0"
+                                    android:textColor="#3B82F6"
+                                    android:textSize="14sp"
+                                    android:textStyle="bold"
+                                    android:fontFamily="monospace"/>
+                                <TextView
+                                    android:layout_width="wrap_content"
+                                    android:layout_height="wrap_content"
+                                    android:text="Replays"
+                                    android:textColor="#6B7280"
+                                    android:textSize="8sp"/>
+                            </LinearLayout>
+                            
+                            <LinearLayout
+                                android:layout_width="0dp"
+                                android:layout_height="wrap_content"
+                                android:layout_weight="1"
+                                android:orientation="vertical"
+                                android:gravity="center">
+                                <TextView
+                                    android:id="@+id/tvInsightsOptimizations"
+                                    android:layout_width="wrap_content"
+                                    android:layout_height="wrap_content"
+                                    android:text="0"
+                                    android:textColor="#F59E0B"
+                                    android:textSize="14sp"
+                                    android:textStyle="bold"
+                                    android:fontFamily="monospace"/>
+                                <TextView
+                                    android:layout_width="wrap_content"
+                                    android:layout_height="wrap_content"
+                                    android:text="Optimized"
+                                    android:textColor="#6B7280"
+                                    android:textSize="8sp"/>
+                            </LinearLayout>
+                        </LinearLayout>
+                        
+                        <!-- Recent Insights List -->
+                        <LinearLayout
+                            android:id="@+id/llRecentInsights"
+                            android:layout_width="match_parent"
+                            android:layout_height="wrap_content"
+                            android:orientation="vertical"
+                            android:layout_marginTop="6dp"/>
+                        
+                        <!-- View All Button -->
+                        <TextView
+                            android:id="@+id/btnViewAllInsights"
+                            android:layout_width="match_parent"
+                            android:layout_height="wrap_content"
+                            android:text="View All Insights →"
+                            android:textColor="#8B5CF6"
+                            android:textSize="9sp"
+                            android:layout_marginTop="6dp"
+                            android:gravity="center"
+                            android:clickable="true"
+                            android:focusable="true"/>
+                    </LinearLayout>
                 </LinearLayout>
 
             </LinearLayout>

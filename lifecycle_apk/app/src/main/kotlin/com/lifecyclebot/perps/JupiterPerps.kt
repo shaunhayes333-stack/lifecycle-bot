@@ -371,12 +371,12 @@ object JupiterPerps {
     }
     
     // ═══════════════════════════════════════════════════════════════════════════
-    // TRANSACTION BUILDING
+    // TRANSACTION BUILDING - V5.7.3 LIVE SIGNING
     // ═══════════════════════════════════════════════════════════════════════════
     
     /**
-     * Build and send open position transaction
-     * NOTE: In production, this would use Solana web3 to build and sign transactions
+     * V5.7.3: Build and send open position transaction with LIVE signing
+     * Uses the actual Solana wallet for transaction signing
      */
     private suspend fun buildAndSendOpenPositionTx(
         market: PerpsMarket,
@@ -386,27 +386,60 @@ object JupiterPerps {
         currentPrice: Double,
     ): String? = withContext(Dispatchers.IO) {
         try {
-            // Get wallet
-            val wallet = WalletManager.getCurrentWalletAddress()
-            if (wallet.isNullOrEmpty()) {
-                ErrorLogger.warn(TAG, "No wallet available")
+            // Get wallet from WalletManager
+            val walletAddress = WalletManager.getCurrentWalletAddress()
+            val wallet = WalletManager.getWallet()
+            
+            if (walletAddress.isNullOrEmpty() || wallet == null) {
+                ErrorLogger.warn(TAG, "No wallet available for live signing")
                 return@withContext null
             }
             
-            // In production, this would:
-            // 1. Build the position request instruction
-            // 2. Get recent blockhash
-            // 3. Create transaction with compute budget
-            // 4. Sign with wallet
-            // 5. Send and confirm
+            // Calculate position parameters
+            val collateralUsd = sizeSol * currentPrice / leverage
+            val collateralSol = collateralUsd / currentPrice
             
-            // For now, we simulate success for live mode testing
-            val simulatedTx = "sim_${System.currentTimeMillis()}_${(Math.random() * 1000000).toLong()}"
+            ErrorLogger.info(TAG, "⚡ Building LIVE perps tx: ${market.symbol} ${direction.symbol} " +
+                "${leverage}x | collateral=${collateralSol.fmt(4)}◎")
             
-            ErrorLogger.info(TAG, "📤 Position tx built: market=${market.symbol} dir=${direction.symbol} " +
-                "size=$sizeSol lev=$leverage wallet=${wallet.take(8)}...")
+            // Step 1: Get open position quote from Jupiter Perps API
+            val quoteResponse = getPerpsPositionQuote(
+                market = market,
+                direction = direction,
+                sizeSol = sizeSol,
+                leverage = leverage,
+            )
             
-            return@withContext simulatedTx
+            if (quoteResponse == null) {
+                ErrorLogger.warn(TAG, "Failed to get perps quote")
+                return@withContext null
+            }
+            
+            // Step 2: Build the transaction via Jupiter Perps API
+            val txBase64 = buildPerpsTransaction(
+                market = market,
+                direction = direction,
+                sizeSol = sizeSol,
+                leverage = leverage,
+                walletAddress = walletAddress,
+                quote = quoteResponse,
+            )
+            
+            if (txBase64 == null) {
+                ErrorLogger.warn(TAG, "Failed to build perps transaction")
+                return@withContext null
+            }
+            
+            // Step 3: Sign and send the transaction
+            val txSignature = signAndSendTransaction(wallet, txBase64)
+            
+            if (txSignature != null) {
+                ErrorLogger.info(TAG, "✅ LIVE perps tx sent: ${txSignature.take(20)}...")
+            } else {
+                ErrorLogger.warn(TAG, "❌ Transaction signing failed")
+            }
+            
+            return@withContext txSignature
             
         } catch (e: Exception) {
             ErrorLogger.error(TAG, "Build open tx error: ${e.message}", e)
@@ -415,25 +448,169 @@ object JupiterPerps {
     }
     
     /**
-     * Build and send close position transaction
+     * Get a position quote from Jupiter Perps API
+     */
+    private suspend fun getPerpsPositionQuote(
+        market: PerpsMarket,
+        direction: PerpsDirection,
+        sizeSol: Double,
+        leverage: Double,
+    ): JSONObject? = withContext(Dispatchers.IO) {
+        try {
+            // Jupiter Perps quote endpoint
+            val body = JSONObject().apply {
+                put("market", market.symbol)
+                put("side", if (direction == PerpsDirection.LONG) "long" else "short")
+                put("collateral", (sizeSol * 1_000_000_000).toLong())  // In lamports
+                put("leverage", leverage)
+            }
+            
+            val request = Request.Builder()
+                .url("$JUPITER_PERPS_API/v1/quote")
+                .post(body.toString().toRequestBody("application/json".toMediaType()))
+                .header("Content-Type", "application/json")
+                .build()
+            
+            val response = client.newCall(request).execute()
+            
+            if (response.isSuccessful) {
+                val responseBody = response.body?.string()
+                return@withContext if (responseBody != null) JSONObject(responseBody) else null
+            }
+            
+            ErrorLogger.debug(TAG, "Quote request failed: ${response.code}")
+            return@withContext null
+            
+        } catch (e: Exception) {
+            ErrorLogger.debug(TAG, "Quote error: ${e.message}")
+            return@withContext null
+        }
+    }
+    
+    /**
+     * Build perps transaction via API
+     */
+    private suspend fun buildPerpsTransaction(
+        market: PerpsMarket,
+        direction: PerpsDirection,
+        sizeSol: Double,
+        leverage: Double,
+        walletAddress: String,
+        quote: JSONObject,
+    ): String? = withContext(Dispatchers.IO) {
+        try {
+            val body = JSONObject().apply {
+                put("market", market.symbol)
+                put("side", if (direction == PerpsDirection.LONG) "long" else "short")
+                put("collateral", (sizeSol * 1_000_000_000).toLong())
+                put("leverage", leverage)
+                put("userPublicKey", walletAddress)
+                put("quoteId", quote.optString("quoteId", ""))
+            }
+            
+            val request = Request.Builder()
+                .url("$JUPITER_PERPS_API/v1/transaction")
+                .post(body.toString().toRequestBody("application/json".toMediaType()))
+                .header("Content-Type", "application/json")
+                .build()
+            
+            val response = client.newCall(request).execute()
+            
+            if (response.isSuccessful) {
+                val responseBody = response.body?.string()
+                if (responseBody != null) {
+                    val json = JSONObject(responseBody)
+                    return@withContext json.optString("transaction", null)
+                }
+            }
+            
+            ErrorLogger.debug(TAG, "Build tx failed: ${response.code}")
+            return@withContext null
+            
+        } catch (e: Exception) {
+            ErrorLogger.debug(TAG, "Build tx error: ${e.message}")
+            return@withContext null
+        }
+    }
+    
+    /**
+     * Sign and send a transaction using the wallet
+     */
+    private suspend fun signAndSendTransaction(
+        wallet: com.lifecyclebot.network.SolanaWallet,
+        txBase64: String,
+    ): String? = withContext(Dispatchers.IO) {
+        try {
+            // Use the wallet's signSendAndConfirm method
+            val signature = wallet.signSendAndConfirm(
+                txBase64 = txBase64,
+                useJito = false,
+                jitoTipLamports = 0,
+                ultraRequestId = null,
+                jupApiKey = null,
+                isRfqRoute = false,
+            )
+            
+            return@withContext signature
+            
+        } catch (e: Exception) {
+            ErrorLogger.error(TAG, "Sign and send error: ${e.message}", e)
+            return@withContext null
+        }
+    }
+    
+    /**
+     * V5.7.3: Build and send close position transaction with LIVE signing
      */
     private suspend fun buildAndSendClosePositionTx(
         order: PerpsOrder,
         exitPrice: Double,
     ): String? = withContext(Dispatchers.IO) {
         try {
-            val wallet = WalletManager.getCurrentWalletAddress()
-            if (wallet.isNullOrEmpty()) {
+            val walletAddress = WalletManager.getCurrentWalletAddress()
+            val wallet = WalletManager.getWallet()
+            
+            if (walletAddress.isNullOrEmpty() || wallet == null) {
                 ErrorLogger.warn(TAG, "No wallet available")
                 return@withContext null
             }
             
-            // Simulate close transaction
-            val simulatedTx = "close_${System.currentTimeMillis()}_${(Math.random() * 1000000).toLong()}"
+            ErrorLogger.info(TAG, "⚡ Building LIVE close tx: ${order.orderId}")
             
-            ErrorLogger.info(TAG, "📤 Close tx built: orderId=${order.orderId} exit=\$$exitPrice")
+            // Build close position request
+            val body = JSONObject().apply {
+                put("positionId", order.orderId)
+                put("market", order.market.symbol)
+                put("userPublicKey", walletAddress)
+            }
             
-            return@withContext simulatedTx
+            val request = Request.Builder()
+                .url("$JUPITER_PERPS_API/v1/close")
+                .post(body.toString().toRequestBody("application/json".toMediaType()))
+                .header("Content-Type", "application/json")
+                .build()
+            
+            val response = client.newCall(request).execute()
+            
+            if (response.isSuccessful) {
+                val responseBody = response.body?.string()
+                if (responseBody != null) {
+                    val json = JSONObject(responseBody)
+                    val txBase64 = json.optString("transaction", null)
+                    
+                    if (txBase64 != null) {
+                        // Sign and send
+                        val signature = signAndSendTransaction(wallet, txBase64)
+                        if (signature != null) {
+                            ErrorLogger.info(TAG, "✅ LIVE close tx sent: ${signature.take(20)}...")
+                        }
+                        return@withContext signature
+                    }
+                }
+            }
+            
+            ErrorLogger.debug(TAG, "Close tx request failed: ${response.code}")
+            return@withContext null
             
         } catch (e: Exception) {
             ErrorLogger.error(TAG, "Build close tx error: ${e.message}", e)

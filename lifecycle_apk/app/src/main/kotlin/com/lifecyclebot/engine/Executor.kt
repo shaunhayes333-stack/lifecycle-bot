@@ -5551,6 +5551,88 @@ class Executor(
             false
         }
     }
+    
+    // ═══════════════════════════════════════════════════════════════════════════════
+    // V5.7.3: NETWORK SIGNAL AUTO-BUY
+    // ═══════════════════════════════════════════════════════════════════════════════
+    
+    /**
+     * Queue a network signal auto-buy
+     * Called by NetworkSignalAutoBuyer when a signal triggers
+     */
+    fun queueNetworkSignalBuy(
+        mint: String,
+        symbol: String,
+        sizePct: Double,
+        reason: String,
+        isPaper: Boolean,
+    ): Boolean {
+        val c = cfg()
+        
+        // Safety: force paper mode if configured
+        if (!isPaper && c.paperMode) {
+            onLog("📡 Network signal buy rejected: paper mode only", mint)
+            return false
+        }
+        
+        // Check if already have position in this token
+        if (positionStore.containsKey(mint)) {
+            onLog("📡 Network signal buy skipped: already holding $symbol", mint)
+            return false
+        }
+        
+        try {
+            onLog("📡 NETWORK SIGNAL BUY: $symbol | size=${sizePct}% | $reason", mint)
+            
+            // Calculate buy size
+            val balance = if (isPaper) walletMan.getPaperBalance() else walletMan.lastKnownWalletSol
+            val buySol = balance * (sizePct / 100.0)
+            
+            if (buySol < 0.01) {
+                onLog("📡 Buy size too small: ${buySol.fmt(4)} SOL", mint)
+                return false
+            }
+            
+            // Paper mode execution
+            if (isPaper || c.paperMode) {
+                // Simulate paper buy
+                val fakePrice = 0.0001  // Placeholder price
+                val fakeTokens = buySol / fakePrice
+                
+                val pos = PositionData(
+                    id = System.currentTimeMillis().toString(),
+                    mint = mint,
+                    symbol = symbol,
+                    tokens = fakeTokens,
+                    entryPrice = fakePrice,
+                    entrySol = buySol,
+                    entryTime = System.currentTimeMillis(),
+                    mode = "NETWORK_SIGNAL",
+                    paperMode = true,
+                    entryReason = reason,
+                )
+                positionStore[mint] = pos
+                
+                onLog("✅ PAPER AUTO-BUY: $symbol | ${buySol.fmt(4)} SOL | $reason", mint)
+                onNotify(
+                    "📡 Network Auto-Buy",
+                    "PAPER: Bought $symbol (${buySol.fmt(4)} SOL)",
+                    NotificationHistory.NotifEntry.NotifType.INFO
+                )
+                
+                return true
+            }
+            
+            // Live mode execution would go here
+            // For now, we don't support live auto-buy (safety)
+            onLog("📡 Live auto-buy not yet implemented", mint)
+            return false
+            
+        } catch (e: Exception) {
+            onLog("❌ Network signal buy failed: ${e.message}", mint)
+            return false
+        }
+    }
 
     private fun Double.fmt(d: Int = 6) = "%.${d}f".format(this)
 }

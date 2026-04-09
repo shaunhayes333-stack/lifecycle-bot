@@ -235,6 +235,15 @@ class MainActivity : AppCompatActivity() {
     private var tvStocksMsftPrice: TextView? = null
     private var tvStocksCoinPrice: TextView? = null
     
+    // V5.7.3: Learning Insights Panel
+    private var cardLearningInsights: android.view.View? = null
+    private var tvInsightsCount: TextView? = null
+    private var tvInsightsPatternsCount: TextView? = null
+    private var tvInsightsReplaysCount: TextView? = null
+    private var tvInsightsOptimizations: TextView? = null
+    private var llRecentInsights: LinearLayout? = null
+    private var btnViewAllInsights: TextView? = null
+    
     // V5.2: Side-by-side Treasury + Moonshot row
     private lateinit var rowTreasuryMoonshot: android.view.View
     private lateinit var cardTreasuryMini: android.view.View
@@ -886,6 +895,15 @@ for legal compliance.
         tvStocksMetaPrice = try { findViewById(R.id.tvStocksMetaPrice) } catch (_: Exception) { null }
         tvStocksMsftPrice = try { findViewById(R.id.tvStocksMsftPrice) } catch (_: Exception) { null }
         tvStocksCoinPrice = try { findViewById(R.id.tvStocksCoinPrice) } catch (_: Exception) { null }
+        
+        // V5.7.3: Learning Insights Panel bindings
+        cardLearningInsights = try { findViewById(R.id.cardLearningInsights) } catch (_: Exception) { null }
+        tvInsightsCount = try { findViewById(R.id.tvInsightsCount) } catch (_: Exception) { null }
+        tvInsightsPatternsCount = try { findViewById(R.id.tvInsightsPatternsCount) } catch (_: Exception) { null }
+        tvInsightsReplaysCount = try { findViewById(R.id.tvInsightsReplaysCount) } catch (_: Exception) { null }
+        tvInsightsOptimizations = try { findViewById(R.id.tvInsightsOptimizations) } catch (_: Exception) { null }
+        llRecentInsights = try { findViewById(R.id.llRecentInsights) } catch (_: Exception) { null }
+        btnViewAllInsights = try { findViewById(R.id.btnViewAllInsights) } catch (_: Exception) { null }
         
         // V5.2: Side-by-side Treasury + Moonshot
         rowTreasuryMoonshot = try { findViewById(R.id.rowTreasuryMoonshot) } catch (_: Exception) { android.view.View(this) }
@@ -3463,6 +3481,9 @@ for legal compliance.
             // Update learning stats
             tvLayerLearningEvents?.text = "${bridge.getTotalLearningEvents()} learning events"
             tvLayerCrossSync?.text = "${bridge.getCrossLayerSyncs()} cross-syncs"
+            
+            // V5.7.3: Update Learning Insights Panel
+            updateLearningInsightsPanel()
             
         } catch (e: Exception) {
             com.lifecyclebot.engine.ErrorLogger.debug("MainActivity", "Layer dashboard update error: ${e.message}")
@@ -6694,6 +6715,224 @@ Keep trading to make it smarter!
             val info = currency.selectedInfo
             btnCurrencySelector.text = "${info.code} ▼"
         } catch (_: Exception) {}
+    }
+    
+    // ═══════════════════════════════════════════════════════════════════════════════
+    // V5.7.3: LEARNING INSIGHTS PANEL
+    // ═══════════════════════════════════════════════════════════════════════════════
+    
+    /**
+     * Update the Learning Insights Panel with latest data
+     */
+    private fun updateLearningInsightsPanel() {
+        try {
+            // Get insights data
+            val totalInsights = com.lifecyclebot.perps.PerpsLearningInsightsPanel.getTotalInsights()
+            val patterns = com.lifecyclebot.perps.PerpsLearningInsightsPanel.getPatternsCount()
+            val replays = com.lifecyclebot.perps.PerpsAutoReplayLearner.getTotalReplays()
+            val optimizations = com.lifecyclebot.perps.PerpsLearningInsightsPanel.getOptimizationsCount()
+            
+            // Update counts
+            tvInsightsCount?.text = "$totalInsights insights"
+            tvInsightsPatternsCount?.text = "$patterns"
+            tvInsightsReplaysCount?.text = "$replays"
+            tvInsightsOptimizations?.text = "$optimizations"
+            
+            // Update recent insights list
+            val insights = com.lifecyclebot.perps.PerpsLearningInsightsPanel.getRecentInsights(3)
+            llRecentInsights?.removeAllViews()
+            
+            for (insight in insights) {
+                val row = LinearLayout(this).apply {
+                    orientation = LinearLayout.HORIZONTAL
+                    gravity = android.view.Gravity.CENTER_VERTICAL
+                    layoutParams = LinearLayout.LayoutParams(
+                        LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT
+                    ).also { it.bottomMargin = 4 }
+                }
+                
+                val tvEmoji = TextView(this).apply {
+                    text = insight.type.emoji
+                    textSize = 12f
+                    layoutParams = LinearLayout.LayoutParams(
+                        LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT
+                    ).also { it.marginEnd = 6 }
+                }
+                
+                val tvText = TextView(this).apply {
+                    text = insight.title
+                    setTextColor(0xFFFFFFFF.toInt())
+                    textSize = 9f
+                    layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
+                }
+                
+                val tvTime = TextView(this).apply {
+                    text = insight.getTimeAgo()
+                    setTextColor(0xFF6B7280.toInt())
+                    textSize = 8f
+                }
+                
+                row.addView(tvEmoji)
+                row.addView(tvText)
+                row.addView(tvTime)
+                
+                row.setOnClickListener {
+                    showInsightDetailDialog(insight)
+                    performHaptic()
+                }
+                
+                llRecentInsights?.addView(row)
+            }
+            
+            // Setup view all button
+            btnViewAllInsights?.setOnClickListener {
+                showAllInsightsDialog()
+                performHaptic()
+            }
+            
+        } catch (e: Exception) {
+            com.lifecyclebot.engine.ErrorLogger.debug("MainActivity", "Insights panel update error: ${e.message}")
+        }
+    }
+    
+    /**
+     * Show detailed insight dialog
+     */
+    private fun showInsightDetailDialog(insight: com.lifecyclebot.perps.PerpsLearningInsightsPanel.DisplayInsight) {
+        val message = """
+${insight.type.emoji} ${insight.type.displayName}
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+${insight.title}
+
+${insight.description}
+
+${if (insight.market != null) "📊 Market: ${insight.market}" else ""}
+${if (insight.layerName != null) "🧠 Layer: ${insight.layerName}" else ""}
+${if (insight.impactScore != 0.0) "📈 Impact: ${String.format("%.1f", insight.impactScore)}" else ""}
+
+🕐 ${insight.getTimeAgo()}
+
+${if (insight.actionable && insight.actionText != null) "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n💡 Suggested Action: ${insight.actionText}" else ""}
+        """.trimIndent()
+        
+        AlertDialog.Builder(this, R.style.Theme_AATE_Dialog)
+            .setTitle("${insight.type.emoji} Insight Detail")
+            .setMessage(message)
+            .setPositiveButton("Close") { d, _ -> d.dismiss() }
+            .show()
+    }
+    
+    /**
+     * Show all insights dialog
+     */
+    private fun showAllInsightsDialog() {
+        lifecycleScope.launch {
+            try {
+                val panelData = com.lifecyclebot.perps.PerpsLearningInsightsPanel.getPanelData()
+                
+                withContext(kotlinx.coroutines.Dispatchers.Main) {
+                    val insightsText = panelData.recentInsights.take(10).joinToString("\n\n") { insight ->
+                        "${insight.type.emoji} ${insight.title}\n   ${insight.description}\n   ${insight.getTimeAgo()}"
+                    }
+                    
+                    val topLayersText = panelData.topPerformingLayers.take(5).joinToString("\n") { (name, score) ->
+                        "• $name: ${String.format("%.0f", score)}%"
+                    }
+                    
+                    val message = """
+🧠 LEARNING INSIGHTS DASHBOARD
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+📊 STATS
+───────────────────────────────
+Total Insights: ${panelData.totalInsights}
+Patterns Found: ${panelData.patternsIdentified}
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+🏆 TOP PERFORMING LAYERS
+───────────────────────────────
+${if (topLayersText.isNotEmpty()) topLayersText else "No data yet"}
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+📜 RECENT INSIGHTS
+───────────────────────────────
+${if (insightsText.isNotEmpty()) insightsText else "No insights yet. Keep trading!"}
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+                    """.trimIndent()
+                    
+                    AlertDialog.Builder(this@MainActivity, R.style.Theme_AATE_Dialog)
+                        .setTitle("🧠 All Learning Insights")
+                        .setMessage(message)
+                        .setPositiveButton("Close") { d, _ -> d.dismiss() }
+                        .setNeutralButton("Refresh") { d, _ ->
+                            d.dismiss()
+                            showAllInsightsDialog()
+                        }
+                        .show()
+                }
+            } catch (e: Exception) {
+                withContext(kotlinx.coroutines.Dispatchers.Main) {
+                    Toast.makeText(this@MainActivity, "Error: ${e.message}", Toast.LENGTH_SHORT).show()
+                }
+            }
+        }
+    }
+    
+    /**
+     * V5.7.3: Show Network Signal Auto-Buyer dialog
+     */
+    private fun showNetworkSignalAutoBuyerDialog() {
+        val autoBuyer = com.lifecyclebot.perps.NetworkSignalAutoBuyer
+        val stats = autoBuyer.getStats()
+        val config = autoBuyer.getConfig()
+        
+        val message = """
+📡 NETWORK SIGNAL AUTO-BUYER
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Status: ${if (stats.isEnabled) "🟢 ACTIVE" else "🔴 DISABLED"}
+Mode: ${if (stats.paperModeOnly) "📝 PAPER" else "💰 LIVE"}
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+📊 TODAY'S STATS
+───────────────────────────────
+Daily Auto-Buys: ${stats.dailyAutoBuys}/${stats.maxDailyAutoBuys}
+Successful: ${stats.successfulBuys}
+Failed: ${stats.failedBuys}
+Active Cooldowns: ${stats.activeCooldowns}
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+⚙️ CONFIGURATION
+───────────────────────────────
+🔥 MEGA_WINNER: ${if (config.autoBuyMegaWinners) "✅ Auto" else "❌ Skip"}
+🌐 HOT_TOKEN: ${if (config.autoBuyHotTokens) "✅ Auto" else "❌ Skip"}
+Min Acks: ${config.minAckCount}
+Min Confidence: ${config.minConfidence}%
+Min Liquidity: $${String.format("%,.0f", config.minLiquidityUsd)}
+Position Size: ${config.positionSizePct}%
+Cooldown: ${config.cooldownMinutes} min
+AI Confirmation: ${if (config.requireAIConfirmation) "✅" else "❌"}
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+        """.trimIndent()
+        
+        AlertDialog.Builder(this, R.style.Theme_AATE_Dialog)
+            .setTitle("📡 Network Signal Auto-Buyer")
+            .setMessage(message)
+            .setPositiveButton("Close") { d, _ -> d.dismiss() }
+            .setNegativeButton(if (stats.isEnabled) "Disable" else "Enable") { d, _ ->
+                if (stats.isEnabled) {
+                    autoBuyer.stop()
+                    Toast.makeText(this, "📡 Auto-buyer disabled", Toast.LENGTH_SHORT).show()
+                } else {
+                    autoBuyer.start()
+                    Toast.makeText(this, "📡 Auto-buyer enabled", Toast.LENGTH_SHORT).show()
+                }
+                d.dismiss()
+            }
+            .show()
     }
 }
 

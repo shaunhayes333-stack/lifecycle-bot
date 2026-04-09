@@ -268,6 +268,23 @@ class BotService : Service() {
             ErrorLogger.error("BotService", "PerpsAutoReplayLearner start error: ${e.message}", e)
         }
         
+        // V5.7.3: Start Network Signal Auto-Buyer (disabled by default, paper mode only)
+        try {
+            // Only start if user has explicitly enabled it
+            val cfg = com.lifecyclebot.data.ConfigStore.load(applicationContext)
+            if (cfg.autoTradeNetworkSignals) {
+                com.lifecyclebot.perps.NetworkSignalAutoBuyer.start(
+                    com.lifecyclebot.perps.NetworkSignalAutoBuyer.AutoBuyerConfig(
+                        enabled = true,
+                        paperModeOnly = cfg.paperMode,
+                    )
+                )
+                ErrorLogger.info("BotService", "📡 NetworkSignalAutoBuyer STARTED - Copy Trade from Hive ACTIVE")
+            }
+        } catch (e: Exception) {
+            ErrorLogger.debug("BotService", "NetworkSignalAutoBuyer start error: ${e.message}")
+        }
+        
         // V5.6.28f: Sync RunTracker30D stats with TradeHistoryStore
         try {
             if (com.lifecyclebot.engine.RunTracker30D.isRunActive()) {
@@ -497,6 +514,14 @@ class BotService : Service() {
             ErrorLogger.info("BotService", "🎬 PerpsAutoReplayLearner stopped")
         } catch (e: Exception) {
             ErrorLogger.error("BotService", "PerpsAutoReplayLearner stop error: ${e.message}", e)
+        }
+        
+        // V5.7.3: Stop Network Signal Auto-Buyer
+        try {
+            com.lifecyclebot.perps.NetworkSignalAutoBuyer.stop()
+            ErrorLogger.info("BotService", "📡 NetworkSignalAutoBuyer stopped")
+        } catch (e: Exception) {
+            ErrorLogger.debug("BotService", "NetworkSignalAutoBuyer stop error: ${e.message}")
         }
         
         // Shutdown CollectiveLearning
