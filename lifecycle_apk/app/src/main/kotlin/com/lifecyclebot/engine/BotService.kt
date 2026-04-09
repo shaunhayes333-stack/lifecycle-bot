@@ -251,11 +251,10 @@ class BotService : Service() {
         }
         
         // V5.7.3: Start PerpsExecutionEngine for FULLY AUTOMATIC perps trading
+        // ALWAYS start the engine - it will auto-enable in paper mode for learning
         try {
-            if (com.lifecyclebot.perps.PerpsTraderAI.isEnabled()) {
-                com.lifecyclebot.perps.PerpsExecutionEngine.start(applicationContext)
-                ErrorLogger.info("BotService", "⚡ PerpsExecutionEngine STARTED - Fully Automatic Trading ACTIVE")
-            }
+            com.lifecyclebot.perps.PerpsExecutionEngine.start(applicationContext)
+            ErrorLogger.info("BotService", "⚡ PerpsExecutionEngine STARTED - Fully Automatic Trading ACTIVE (enabled=${com.lifecyclebot.perps.PerpsTraderAI.isEnabled()}, paper=${com.lifecyclebot.perps.PerpsTraderAI.isPaperMode})")
         } catch (e: Exception) {
             ErrorLogger.error("BotService", "PerpsExecutionEngine start error: ${e.message}", e)
         }

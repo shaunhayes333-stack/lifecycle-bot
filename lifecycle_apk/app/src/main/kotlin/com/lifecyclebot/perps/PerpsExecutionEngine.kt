@@ -56,6 +56,9 @@ object PerpsExecutionEngine {
     private const val SCAN_INTERVAL_MS = 30_000L  // 30 seconds
     private const val POSITION_CHECK_INTERVAL_MS = 10_000L  // 10 seconds
     
+    // Counters for logging
+    private val scanCount = AtomicLong(0)
+    
     // Job references
     private var scanJob: Job? = null
     private var positionMonitorJob: Job? = null
@@ -124,10 +127,15 @@ object PerpsExecutionEngine {
     // ═══════════════════════════════════════════════════════════════════════════
     
     private suspend fun runScanLoop() {
+        ErrorLogger.info(TAG, "⚡ PERPS SCAN LOOP STARTED - Running every ${SCAN_INTERVAL_MS/1000}s")
+        
         while (isRunning.get()) {
             try {
                 if (!isPaused.get() && PerpsTraderAI.isEnabled()) {
                     val isPaper = PerpsTraderAI.isPaperMode
+                    scanCount.incrementAndGet()
+                    
+                    ErrorLogger.debug(TAG, "⚡ PERPS SCAN #${scanCount.get()} | paper=$isPaper")
                     
                     // Run all scanners
                     val scanResults = PerpsMarketScanners.runAllScanners(isPaper)
@@ -135,13 +143,24 @@ object PerpsExecutionEngine {
                     // Process high-priority signals
                     val highPrioritySignals = scanResults.filter { it.priority >= 5 && it.signal != null }
                     
+                    if (highPrioritySignals.isNotEmpty()) {
+                        ErrorLogger.info(TAG, "⚡ PERPS SIGNALS: ${highPrioritySignals.size} high-priority signals found")
+                    }
+                    
                     for (result in highPrioritySignals) {
                         val signal = result.signal ?: continue
                         
                         // Check if we should take this trade
                         if (shouldTakeTrade(signal)) {
+                            ErrorLogger.info(TAG, "⚡ PERPS EXECUTING: ${signal.market.symbol} ${signal.direction.symbol} @ ${signal.recommendedLeverage}x")
                             executeSignal(signal, result.scanner, isPaper)
                         }
+                    }
+                } else {
+                    if (isPaused.get()) {
+                        ErrorLogger.debug(TAG, "⚡ PERPS SCAN SKIPPED - Engine paused")
+                    } else if (!PerpsTraderAI.isEnabled()) {
+                        ErrorLogger.debug(TAG, "⚡ PERPS SCAN SKIPPED - PerpsTraderAI disabled")
                     }
                 }
             } catch (e: Exception) {
