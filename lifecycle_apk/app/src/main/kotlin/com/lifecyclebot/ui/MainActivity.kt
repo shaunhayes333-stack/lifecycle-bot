@@ -198,6 +198,19 @@ class MainActivity : AppCompatActivity() {
     private var tvPerpsSolChange: TextView? = null
     private var llPerpsPositions: LinearLayout? = null
     
+    // V5.7.1: Layer Confidence Dashboard
+    private var tvLayerSyncCount: TextView? = null
+    private var tvLayer1Name: TextView? = null
+    private var tvLayer1Score: TextView? = null
+    private var tvLayer2Name: TextView? = null
+    private var tvLayer2Score: TextView? = null
+    private var tvLayer3Name: TextView? = null
+    private var tvLayer3Score: TextView? = null
+    private var tvLayer4Name: TextView? = null
+    private var tvLayer4Score: TextView? = null
+    private var tvLayerLearningEvents: TextView? = null
+    private var tvLayerCrossSync: TextView? = null
+    
     // V5.2: Side-by-side Treasury + Moonshot row
     private lateinit var rowTreasuryMoonshot: android.view.View
     private lateinit var cardTreasuryMini: android.view.View
@@ -813,6 +826,19 @@ for legal compliance.
         tvPerpsSolPrice = try { findViewById(R.id.tvPerpsSolPrice) } catch (_: Exception) { null }
         tvPerpsSolChange = try { findViewById(R.id.tvPerpsSolChange) } catch (_: Exception) { null }
         llPerpsPositions = try { findViewById(R.id.llPerpsPositions) } catch (_: Exception) { null }
+        
+        // V5.7.1: Layer Confidence Dashboard bindings
+        tvLayerSyncCount = try { findViewById(R.id.tvLayerSyncCount) } catch (_: Exception) { null }
+        tvLayer1Name = try { findViewById(R.id.tvLayer1Name) } catch (_: Exception) { null }
+        tvLayer1Score = try { findViewById(R.id.tvLayer1Score) } catch (_: Exception) { null }
+        tvLayer2Name = try { findViewById(R.id.tvLayer2Name) } catch (_: Exception) { null }
+        tvLayer2Score = try { findViewById(R.id.tvLayer2Score) } catch (_: Exception) { null }
+        tvLayer3Name = try { findViewById(R.id.tvLayer3Name) } catch (_: Exception) { null }
+        tvLayer3Score = try { findViewById(R.id.tvLayer3Score) } catch (_: Exception) { null }
+        tvLayer4Name = try { findViewById(R.id.tvLayer4Name) } catch (_: Exception) { null }
+        tvLayer4Score = try { findViewById(R.id.tvLayer4Score) } catch (_: Exception) { null }
+        tvLayerLearningEvents = try { findViewById(R.id.tvLayerLearningEvents) } catch (_: Exception) { null }
+        tvLayerCrossSync = try { findViewById(R.id.tvLayerCrossSync) } catch (_: Exception) { null }
         
         // V5.2: Side-by-side Treasury + Moonshot
         rowTreasuryMoonshot = try { findViewById(R.id.rowTreasuryMoonshot) } catch (_: Exception) { android.view.View(this) }
@@ -3327,8 +3353,74 @@ for legal compliance.
                 }
             }
             
+            // V5.7.1: Update Layer Confidence Dashboard
+            updateLayerConfidenceDashboard()
+            
         } catch (e: Exception) {
             com.lifecyclebot.engine.ErrorLogger.warn("MainActivity", "Perps card update error: ${e.message}")
+        }
+    }
+    
+    /**
+     * V5.7.1: Update Layer Confidence Dashboard with top performing layers
+     */
+    private fun updateLayerConfidenceDashboard() {
+        try {
+            val bridge = com.lifecyclebot.perps.PerpsLearningBridge
+            val layerStats = bridge.getLayerPerpsStats()
+            
+            // Sort layers by trust score
+            val sortedLayers = layerStats.entries
+                .sortedByDescending { it.value.first }
+                .take(4)
+            
+            // Update layer count
+            tvLayerSyncCount?.text = "${bridge.getConnectedLayerCount()} layers"
+            
+            // Update top 4 layers
+            sortedLayers.getOrNull(0)?.let { (name, stats) ->
+                tvLayer1Name?.text = name.replace("TraderAI", "").replace("AI", "")
+                val score = (stats.first * 100).toInt()
+                tvLayer1Score?.text = "$score%"
+                tvLayer1Score?.setTextColor(getScoreColor(score))
+            }
+            
+            sortedLayers.getOrNull(1)?.let { (name, stats) ->
+                tvLayer2Name?.text = name.replace("TraderAI", "").replace("AI", "")
+                val score = (stats.first * 100).toInt()
+                tvLayer2Score?.text = "$score%"
+                tvLayer2Score?.setTextColor(getScoreColor(score))
+            }
+            
+            sortedLayers.getOrNull(2)?.let { (name, stats) ->
+                tvLayer3Name?.text = name.replace("TraderAI", "").replace("AI", "")
+                val score = (stats.first * 100).toInt()
+                tvLayer3Score?.text = "$score%"
+                tvLayer3Score?.setTextColor(getScoreColor(score))
+            }
+            
+            sortedLayers.getOrNull(3)?.let { (name, stats) ->
+                tvLayer4Name?.text = name.replace("TraderAI", "").replace("AI", "")
+                val score = (stats.first * 100).toInt()
+                tvLayer4Score?.text = "$score%"
+                tvLayer4Score?.setTextColor(getScoreColor(score))
+            }
+            
+            // Update learning stats
+            tvLayerLearningEvents?.text = "${bridge.getTotalLearningEvents()} learning events"
+            tvLayerCrossSync?.text = "${bridge.getCrossLayerSyncs()} cross-syncs"
+            
+        } catch (e: Exception) {
+            com.lifecyclebot.engine.ErrorLogger.debug("MainActivity", "Layer dashboard update error: ${e.message}")
+        }
+    }
+    
+    private fun getScoreColor(score: Int): Int {
+        return when {
+            score >= 80 -> 0xFF22C55E.toInt()  // Green
+            score >= 60 -> 0xFFF59E0B.toInt()  // Amber
+            score >= 40 -> 0xFF3B82F6.toInt()  // Blue
+            else -> 0xFFEF4444.toInt()          // Red
         }
     }
     

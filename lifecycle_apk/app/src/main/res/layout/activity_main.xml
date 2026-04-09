@@ -1695,6 +1695,228 @@
                     android:orientation="vertical"
                     android:layout_marginTop="8dp"/>
 
+                <!-- V5.7: LAYER CONFIDENCE DASHBOARD -->
+                <LinearLayout
+                    android:id="@+id/cardLayerConfidence"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="vertical"
+                    android:background="@drawable/section_card_bg"
+                    android:padding="10dp"
+                    android:layout_marginTop="10dp">
+                    
+                    <LinearLayout
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:orientation="horizontal"
+                        android:gravity="center_vertical">
+                        <TextView
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:text="🧠 Layer Confidence"
+                            android:textColor="#A855F7"
+                            android:textSize="11sp"
+                            android:textStyle="bold"/>
+                        <View
+                            android:layout_width="0dp"
+                            android:layout_height="1dp"
+                            android:layout_weight="1"/>
+                        <TextView
+                            android:id="@+id/tvLayerSyncCount"
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:text="26 layers"
+                            android:textColor="#6B7280"
+                            android:textSize="9sp"
+                            android:fontFamily="monospace"/>
+                    </LinearLayout>
+                    
+                    <!-- Top Performing Layers -->
+                    <LinearLayout
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:orientation="horizontal"
+                        android:layout_marginTop="8dp">
+                        
+                        <!-- Layer 1 -->
+                        <LinearLayout
+                            android:layout_width="0dp"
+                            android:layout_height="wrap_content"
+                            android:layout_weight="1"
+                            android:orientation="vertical"
+                            android:gravity="center"
+                            android:layout_marginEnd="4dp">
+                            <TextView
+                                android:id="@+id/tvLayer1Name"
+                                android:layout_width="wrap_content"
+                                android:layout_height="wrap_content"
+                                android:text="Moonshot"
+                                android:textColor="#FFFFFF"
+                                android:textSize="9sp"
+                                android:textStyle="bold"
+                                android:maxLines="1"/>
+                            <TextView
+                                android:id="@+id/tvLayer1Score"
+                                android:layout_width="wrap_content"
+                                android:layout_height="wrap_content"
+                                android:text="92%"
+                                android:textColor="#22C55E"
+                                android:textSize="14sp"
+                                android:textStyle="bold"
+                                android:fontFamily="monospace"/>
+                            <ProgressBar
+                                android:id="@+id/pbLayer1"
+                                style="@android:style/Widget.ProgressBar.Horizontal"
+                                android:layout_width="match_parent"
+                                android:layout_height="3dp"
+                                android:progress="92"
+                                android:max="100"
+                                android:progressDrawable="@drawable/progress_fill"/>
+                        </LinearLayout>
+                        
+                        <!-- Layer 2 -->
+                        <LinearLayout
+                            android:layout_width="0dp"
+                            android:layout_height="wrap_content"
+                            android:layout_weight="1"
+                            android:orientation="vertical"
+                            android:gravity="center"
+                            android:layout_marginEnd="4dp">
+                            <TextView
+                                android:id="@+id/tvLayer2Name"
+                                android:layout_width="wrap_content"
+                                android:layout_height="wrap_content"
+                                android:text="Volatility"
+                                android:textColor="#FFFFFF"
+                                android:textSize="9sp"
+                                android:textStyle="bold"
+                                android:maxLines="1"/>
+                            <TextView
+                                android:id="@+id/tvLayer2Score"
+                                android:layout_width="wrap_content"
+                                android:layout_height="wrap_content"
+                                android:text="88%"
+                                android:textColor="#22C55E"
+                                android:textSize="14sp"
+                                android:textStyle="bold"
+                                android:fontFamily="monospace"/>
+                            <ProgressBar
+                                android:id="@+id/pbLayer2"
+                                style="@android:style/Widget.ProgressBar.Horizontal"
+                                android:layout_width="match_parent"
+                                android:layout_height="3dp"
+                                android:progress="88"
+                                android:max="100"
+                                android:progressDrawable="@drawable/progress_fill"/>
+                        </LinearLayout>
+                        
+                        <!-- Layer 3 -->
+                        <LinearLayout
+                            android:layout_width="0dp"
+                            android:layout_height="wrap_content"
+                            android:layout_weight="1"
+                            android:orientation="vertical"
+                            android:gravity="center"
+                            android:layout_marginEnd="4dp">
+                            <TextView
+                                android:id="@+id/tvLayer3Name"
+                                android:layout_width="wrap_content"
+                                android:layout_height="wrap_content"
+                                android:text="OrderFlow"
+                                android:textColor="#FFFFFF"
+                                android:textSize="9sp"
+                                android:textStyle="bold"
+                                android:maxLines="1"/>
+                            <TextView
+                                android:id="@+id/tvLayer3Score"
+                                android:layout_width="wrap_content"
+                                android:layout_height="wrap_content"
+                                android:text="85%"
+                                android:textColor="#22C55E"
+                                android:textSize="14sp"
+                                android:textStyle="bold"
+                                android:fontFamily="monospace"/>
+                            <ProgressBar
+                                android:id="@+id/pbLayer3"
+                                style="@android:style/Widget.ProgressBar.Horizontal"
+                                android:layout_width="match_parent"
+                                android:layout_height="3dp"
+                                android:progress="85"
+                                android:max="100"
+                                android:progressDrawable="@drawable/progress_fill"/>
+                        </LinearLayout>
+                        
+                        <!-- Layer 4 -->
+                        <LinearLayout
+                            android:layout_width="0dp"
+                            android:layout_height="wrap_content"
+                            android:layout_weight="1"
+                            android:orientation="vertical"
+                            android:gravity="center">
+                            <TextView
+                                android:id="@+id/tvLayer4Name"
+                                android:layout_width="wrap_content"
+                                android:layout_height="wrap_content"
+                                android:text="Collective"
+                                android:textColor="#FFFFFF"
+                                android:textSize="9sp"
+                                android:textStyle="bold"
+                                android:maxLines="1"/>
+                            <TextView
+                                android:id="@+id/tvLayer4Score"
+                                android:layout_width="wrap_content"
+                                android:layout_height="wrap_content"
+                                android:text="82%"
+                                android:textColor="#F59E0B"
+                                android:textSize="14sp"
+                                android:textStyle="bold"
+                                android:fontFamily="monospace"/>
+                            <ProgressBar
+                                android:id="@+id/pbLayer4"
+                                style="@android:style/Widget.ProgressBar.Horizontal"
+                                android:layout_width="match_parent"
+                                android:layout_height="3dp"
+                                android:progress="82"
+                                android:max="100"
+                                android:progressDrawable="@drawable/progress_fill"/>
+                        </LinearLayout>
+                    </LinearLayout>
+                    
+                    <!-- Layer Stats Summary -->
+                    <LinearLayout
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:orientation="horizontal"
+                        android:layout_marginTop="8dp"
+                        android:gravity="center">
+                        
+                        <TextView
+                            android:id="@+id/tvLayerLearningEvents"
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:text="0 learning events"
+                            android:textColor="#6B7280"
+                            android:textSize="9sp"
+                            android:fontFamily="monospace"/>
+                        
+                        <TextView
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:text=" • "
+                            android:textColor="#4B5563"
+                            android:textSize="9sp"/>
+                        
+                        <TextView
+                            android:id="@+id/tvLayerCrossSync"
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:text="0 cross-syncs"
+                            android:textColor="#6B7280"
+                            android:textSize="9sp"
+                            android:fontFamily="monospace"/>
+                    </LinearLayout>
+                </LinearLayout>
+
             </LinearLayout>
 
             <!-- ═══════════════════════════════
