@@ -234,6 +234,14 @@ class BotService : Service() {
             ErrorLogger.error("BotService", "Layer AI init error: ${e.message}", e)
         }
         
+        // V5.7: Initialize PerpsTraderAI for leverage trading
+        try {
+            com.lifecyclebot.perps.PerpsTraderAI.init(applicationContext)
+            ErrorLogger.info("BotService", "PerpsTraderAI initialized")
+        } catch (e: Exception) {
+            ErrorLogger.error("BotService", "PerpsTraderAI init error: ${e.message}", e)
+        }
+        
         // V5.6.28f: Sync RunTracker30D stats with TradeHistoryStore
         try {
             if (com.lifecyclebot.engine.RunTracker30D.isRunActive()) {
@@ -431,6 +439,14 @@ class BotService : Service() {
             ErrorLogger.info("BotService", "💾 AICrossTalk saved before destroy")
         } catch (e: Exception) {
             ErrorLogger.error("BotService", "Failed to save AICrossTalk: ${e.message}", e)
+        }
+        
+        // V5.7: Save PerpsTraderAI
+        try {
+            com.lifecyclebot.perps.PerpsTraderAI.save(force = true)
+            ErrorLogger.info("BotService", "💾 PerpsTraderAI saved before destroy")
+        } catch (e: Exception) {
+            ErrorLogger.error("BotService", "Failed to save PerpsTraderAI: ${e.message}", e)
         }
         
         // Shutdown CollectiveLearning

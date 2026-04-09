@@ -177,11 +177,26 @@ class MainActivity : AppCompatActivity() {
     private lateinit var tvExpressStats: TextView
     private lateinit var tvManipStats: TextView
     private lateinit var tvMoonshotStats: TextView
+    private var tvPerpsStats: TextView? = null
     // Note: Below 4 tiles don't have stats TextViews in XML yet
     private var tvAiBrainStats: TextView? = null
     private var tvShadowStats: TextView? = null
     private var tvRegimesStats: TextView? = null
     private var tv25AIsStats: TextView? = null
+    
+    // V5.7: Perps Trading UI
+    private var cardPerpsTrading: android.view.View? = null
+    private var tvPerpsModeBadge: TextView? = null
+    private var tvPerpsBalance: TextView? = null
+    private var tvPerpsPnl: TextView? = null
+    private var tvPerpsWinRate: TextView? = null
+    private var tvPerpsTrades: TextView? = null
+    private var tvPerpsReadinessPhase: TextView? = null
+    private var viewPerpsReadinessBar: android.view.View? = null
+    private var tvPerpsReadinessText: TextView? = null
+    private var tvPerpsSolPrice: TextView? = null
+    private var tvPerpsSolChange: TextView? = null
+    private var llPerpsPositions: LinearLayout? = null
     
     // V5.2: Side-by-side Treasury + Moonshot row
     private lateinit var rowTreasuryMoonshot: android.view.View
@@ -779,10 +794,25 @@ for legal compliance.
         tvExpressStats = try { findViewById(R.id.tvExpressStats) } catch (_: Exception) { TextView(this) }
         tvManipStats = try { findViewById(R.id.tvManipStats) } catch (_: Exception) { TextView(this) }
         tvMoonshotStats = try { findViewById(R.id.tvMoonshotStats) } catch (_: Exception) { TextView(this) }
+        tvPerpsStats = try { findViewById(R.id.tvPerpsStats) } catch (_: Exception) { null }
         tvAiBrainStats = try { findViewById(R.id.tvAiBrainStats) } catch (_: Exception) { null }
         tvShadowStats = try { findViewById(R.id.tvShadowStats) } catch (_: Exception) { null }
         tvRegimesStats = try { findViewById(R.id.tvRegimesStats) } catch (_: Exception) { null }
         tv25AIsStats = try { findViewById(R.id.tv25AIsStats) } catch (_: Exception) { null }
+        
+        // V5.7: Perps Trading UI bindings
+        cardPerpsTrading = try { findViewById(R.id.cardPerpsTrading) } catch (_: Exception) { null }
+        tvPerpsModeBadge = try { findViewById(R.id.tvPerpsModeBadge) } catch (_: Exception) { null }
+        tvPerpsBalance = try { findViewById(R.id.tvPerpsBalance) } catch (_: Exception) { null }
+        tvPerpsPnl = try { findViewById(R.id.tvPerpsPnl) } catch (_: Exception) { null }
+        tvPerpsWinRate = try { findViewById(R.id.tvPerpsWinRate) } catch (_: Exception) { null }
+        tvPerpsTrades = try { findViewById(R.id.tvPerpsTrades) } catch (_: Exception) { null }
+        tvPerpsReadinessPhase = try { findViewById(R.id.tvPerpsReadinessPhase) } catch (_: Exception) { null }
+        viewPerpsReadinessBar = try { findViewById(R.id.viewPerpsReadinessBar) } catch (_: Exception) { null }
+        tvPerpsReadinessText = try { findViewById(R.id.tvPerpsReadinessText) } catch (_: Exception) { null }
+        tvPerpsSolPrice = try { findViewById(R.id.tvPerpsSolPrice) } catch (_: Exception) { null }
+        tvPerpsSolChange = try { findViewById(R.id.tvPerpsSolChange) } catch (_: Exception) { null }
+        llPerpsPositions = try { findViewById(R.id.llPerpsPositions) } catch (_: Exception) { null }
         
         // V5.2: Side-by-side Treasury + Moonshot
         rowTreasuryMoonshot = try { findViewById(R.id.rowTreasuryMoonshot) } catch (_: Exception) { android.view.View(this) }
@@ -3141,6 +3171,34 @@ for legal compliance.
             }
         } catch (_: Exception) { tvMoonshotStats.text = "—" }
         
+        // V5.7: Perps - show active positions and win rate
+        try {
+            val perpsAI = com.lifecyclebot.perps.PerpsTraderAI
+            val posCount = perpsAI.getPositionCount()
+            val winRate = perpsAI.getWinRatePct()
+            val totalTrades = perpsAI.getDailyWins() + perpsAI.getDailyLosses()
+            
+            if (perpsAI.isEnabled()) {
+                if (posCount > 0 || totalTrades > 0) {
+                    tvPerpsStats?.text = "$posCount | $winRate%"
+                    tvPerpsStats?.setTextColor(when {
+                        winRate >= 60 -> green
+                        winRate >= 45 -> amber
+                        else -> red
+                    })
+                } else {
+                    tvPerpsStats?.text = "0/0"
+                    tvPerpsStats?.setTextColor(muted)
+                }
+                
+                // Update Perps card if visible
+                updatePerpsCard(perpsAI)
+            } else {
+                tvPerpsStats?.text = "OFF"
+                tvPerpsStats?.setTextColor(muted)
+            }
+        } catch (_: Exception) { tvPerpsStats?.text = "—" }
+        
         // AI Brain - show active/total layers
         try {
             val diagnostics = com.lifecyclebot.v3.scoring.EducationSubLayerAI.runDiagnostics()
@@ -3194,6 +3252,84 @@ for legal compliance.
                 else -> 0xFF3B82F6.toInt() // blue
             })
         } catch (_: Exception) { tv25AIsStats?.text = "—" }
+    }
+    
+    /**
+     * V5.7: Update Perps Trading Card UI
+     */
+    private fun updatePerpsCard(perpsAI: com.lifecyclebot.perps.PerpsTraderAI) {
+        try {
+            if (!perpsAI.isEnabled() || !perpsAI.hasAcknowledgedRisk()) {
+                cardPerpsTrading?.visibility = View.GONE
+                return
+            }
+            
+            cardPerpsTrading?.visibility = View.VISIBLE
+            val state = perpsAI.getState()
+            val readiness = perpsAI.getLiveReadiness()
+            val cfg = com.lifecyclebot.data.ConfigStore.load(applicationContext)
+            
+            // Mode badge
+            tvPerpsModeBadge?.text = if (cfg.paperMode) "PAPER" else "LIVE"
+            tvPerpsModeBadge?.setBackgroundResource(
+                if (cfg.paperMode) R.drawable.pill_bg_yellow else R.drawable.pill_bg_green
+            )
+            
+            // Balance
+            val balance = if (cfg.paperMode) state.paperBalanceSol else state.liveBalanceSol
+            tvPerpsBalance?.text = "%.4f".format(balance)
+            
+            // P&L
+            val pnlPct = state.dailyPnlPct
+            val pnlSign = if (pnlPct >= 0) "+" else ""
+            tvPerpsPnl?.text = "$pnlSign${"%.2f".format(pnlPct)}%"
+            tvPerpsPnl?.setTextColor(if (pnlPct >= 0) 0xFF22C55E.toInt() else 0xFFEF4444.toInt())
+            
+            // Win Rate
+            val winRate = perpsAI.getWinRatePct()
+            tvPerpsWinRate?.text = "${winRate}%"
+            tvPerpsWinRate?.setTextColor(when {
+                winRate >= 55 -> 0xFF22C55E.toInt()
+                winRate >= 45 -> 0xFFF59E0B.toInt()
+                else -> 0xFFEF4444.toInt()
+            })
+            
+            // Trades
+            tvPerpsTrades?.text = "${state.dailyTrades}"
+            
+            // Readiness gauge
+            tvPerpsReadinessPhase?.text = readiness.phase.displayName
+            tvPerpsReadinessPhase?.setTextColor(android.graphics.Color.parseColor(readiness.phase.color))
+            
+            // Progress bar
+            val progressPct = readiness.getProgressPct()
+            val barWidth = (cardPerpsTrading?.width ?: 300) * progressPct / 100
+            viewPerpsReadinessBar?.layoutParams?.width = barWidth.coerceAtLeast(0)
+            viewPerpsReadinessBar?.requestLayout()
+            
+            tvPerpsReadinessText?.text = readiness.recommendation
+            
+            // Fetch and display SOL price
+            kotlinx.coroutines.GlobalScope.launch(kotlinx.coroutines.Dispatchers.Main) {
+                try {
+                    val marketData = com.lifecyclebot.perps.PerpsMarketDataFetcher.getMarketData(
+                        com.lifecyclebot.perps.PerpsMarket.SOL
+                    )
+                    tvPerpsSolPrice?.text = "$${"%.2f".format(marketData.price)}"
+                    val changeSign = if (marketData.priceChange24hPct >= 0) "+" else ""
+                    tvPerpsSolChange?.text = "$changeSign${"%.1f".format(marketData.priceChange24hPct)}%"
+                    tvPerpsSolChange?.setTextColor(
+                        if (marketData.priceChange24hPct >= 0) 0xFF22C55E.toInt() else 0xFFEF4444.toInt()
+                    )
+                } catch (_: Exception) {
+                    tvPerpsSolPrice?.text = "$—"
+                    tvPerpsSolChange?.text = "—"
+                }
+            }
+            
+        } catch (e: Exception) {
+            com.lifecyclebot.engine.ErrorLogger.warn("MainActivity", "Perps card update error: ${e.message}")
+        }
     }
     
     /**
@@ -4391,6 +4527,12 @@ for legal compliance.
             showMoonshotModeDialog()
             performHaptic()
         }
+        
+        // V5.7: Perps/Leverage Mode button → Shows Perps AI status
+        findViewById<View>(R.id.btnQuickPerps)?.setOnClickListener {
+            showPerpsModeDialog()
+            performHaptic()
+        }
     }
 
     /** Setup clear settings button with confirmation */
@@ -5283,6 +5425,156 @@ get PROMOTED here to ride for
         } catch (e: Exception) {
             Toast.makeText(this, "Moonshot Mode: ${e.message ?: "Not available"}", Toast.LENGTH_SHORT).show()
         }
+    }
+
+    /**
+     * V5.7: Shows Perps/Leverage trading mode dialog with risk acknowledgement
+     */
+    private fun showPerpsModeDialog() {
+        try {
+            val perpsAI = com.lifecyclebot.perps.PerpsTraderAI
+            val cfg = com.lifecyclebot.data.ConfigStore.load(applicationContext)
+            val solPrice = com.lifecyclebot.engine.WalletManager.lastKnownSolPrice
+            
+            // Check if user has acknowledged risk
+            if (!perpsAI.hasAcknowledgedRisk()) {
+                showPerpsRiskWarning()
+                return
+            }
+            
+            val currentModeLabel = if (cfg.paperMode) "PAPER MODE" else "LIVE MODE"
+            val state = perpsAI.getState()
+            val readiness = perpsAI.getLiveReadiness()
+            
+            val pnlSign = if (state.dailyPnlSol >= 0) "+" else ""
+            val dailyPnlUsd = state.dailyPnlSol * solPrice
+            
+            val streakEmoji = when {
+                state.currentStreak >= 5 -> "🔥🔥🔥"
+                state.currentStreak >= 3 -> "🔥🔥"
+                state.currentStreak > 0 -> "🔥"
+                state.currentStreak <= -3 -> "❄️"
+                else -> ""
+            }
+            
+            val message = """
+📊 SOL PERPS & LEVERAGE
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+${if (cfg.paperMode) "📝" else "💰"} $currentModeLabel
+🧠 Learning: ${state.learningProgress.toInt()}% | Discipline: ${perpsAI.getDisciplineScore()}%
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+💼 BALANCE
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Paper: ${"%.4f".format(state.paperBalanceSol)} ◎
+Live: ${"%.4f".format(state.liveBalanceSol)} ◎
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+📊 TODAY'S PERFORMANCE
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Day P&L: $pnlSign${"%.4f".format(state.dailyPnlSol)} ◎ (~$${"%.2f".format(dailyPnlUsd)})
+W/L: ${state.dailyWins}/${state.dailyLosses} | Win Rate: ${perpsAI.getWinRatePct()}%
+Trades: ${state.dailyTrades}
+Streak: ${state.currentStreak} $streakEmoji
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+📈 LIFETIME STATS
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Total Trades: ${state.lifetimeTrades}
+Win Rate: ${perpsAI.getLifetimeWinRatePct()}%
+Total P&L: ${if (state.lifetimePnlSol >= 0) "+" else ""}${"%.4f".format(state.lifetimePnlSol)} ◎
+Best Win: ${"%.4f".format(state.lifetimeBest)} ◎
+Worst Loss: ${"%.4f".format(state.lifetimeWorst)} ◎
+Max Win Streak: ${perpsAI.getMaxWinStreak()}
+Max Loss Streak: ${perpsAI.getMaxLossStreak()}
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+🎯 LIVE READINESS
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+${readiness.phase.emoji} ${readiness.phase.displayName}
+Score: ${readiness.readinessScore}% | Discipline: ${readiness.disciplineScore}%
+Paper Win Rate: ${"%.1f".format(readiness.paperWinRate)}%
+Paper Trades: ${readiness.paperTrades}
+Max Drawdown: ${"%.1f".format(readiness.maxDrawdownPct)}%
+
+${readiness.recommendation}
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+⚠️ RISK TIERS:
+🎯 Sniper (2x) | ⚔️ Tactical (5x)
+💥 Assault (10x) | ☢️ Nuclear (20x)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+            """.trimIndent()
+            
+            AlertDialog.Builder(this, R.style.Theme_AATE_Dialog)
+                .setTitle("📊 Perps & Leverage")
+                .setMessage(message)
+                .setPositiveButton("Close") { d, _ -> d.dismiss() }
+                .setNegativeButton("Reset Daily") { d, _ ->
+                    perpsAI.resetDaily()
+                    Toast.makeText(this, "Perps daily stats reset", Toast.LENGTH_SHORT).show()
+                    d.dismiss()
+                }
+                .setNeutralButton(if (perpsAI.isEnabled()) "Disable" else "Enable") { d, _ ->
+                    perpsAI.setEnabled(!perpsAI.isEnabled())
+                    cardPerpsTrading?.visibility = if (perpsAI.isEnabled()) View.VISIBLE else View.GONE
+                    Toast.makeText(this, "Perps ${if (perpsAI.isEnabled()) "ENABLED" else "DISABLED"}", Toast.LENGTH_SHORT).show()
+                    d.dismiss()
+                }
+                .show()
+        } catch (e: Exception) {
+            Toast.makeText(this, "Perps Mode: ${e.message ?: "Not available"}", Toast.LENGTH_SHORT).show()
+        }
+    }
+    
+    /**
+     * V5.7: Shows risk warning before enabling Perps trading
+     */
+    private fun showPerpsRiskWarning() {
+        val warningMessage = """
+⚠️ LEVERAGE TRADING RISK WARNING ⚠️
+
+Leverage trading carries EXTREME risk:
+
+• You can lose MORE than your initial investment
+• Positions can be LIQUIDATED within minutes
+• Past performance does NOT guarantee future results
+• AI recommendations are NOT financial advice
+
+ONLY trade with funds you can afford to lose 100%.
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+By proceeding, you acknowledge:
+
+✓ I understand leverage amplifies both gains AND losses
+✓ I accept full responsibility for my trading decisions
+✓ I will start with PAPER MODE to practice first
+✓ I am NOT using funds needed for essential expenses
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+        """.trimIndent()
+        
+        AlertDialog.Builder(this, R.style.Theme_AATE_Dialog)
+            .setTitle("⚠️ Risk Acknowledgement Required")
+            .setMessage(warningMessage)
+            .setCancelable(false)
+            .setPositiveButton("I UNDERSTAND & ACCEPT") { d, _ ->
+                com.lifecyclebot.perps.PerpsTraderAI.acknowledgeRisk()
+                com.lifecyclebot.perps.PerpsTraderAI.setEnabled(true)
+                cardPerpsTrading?.visibility = View.VISIBLE
+                Toast.makeText(this, "📊 Perps Trading Unlocked - Start with Paper Mode!", Toast.LENGTH_LONG).show()
+                d.dismiss()
+                // Show the full dialog now
+                showPerpsModeDialog()
+            }
+            .setNegativeButton("Cancel") { d, _ -> d.dismiss() }
+            .show()
     }
 
     private fun showLearningStats() {

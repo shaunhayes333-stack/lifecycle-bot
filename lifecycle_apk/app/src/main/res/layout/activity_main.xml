@@ -1203,6 +1203,7 @@
                     android:gravity="center"
                     android:padding="6dp"
                     android:background="@drawable/section_card_bg"
+                    android:layout_marginEnd="3dp"
                     android:clickable="true"
                     android:focusable="true">
                     <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
@@ -1211,6 +1212,29 @@
                         android:text="Moon" android:textColor="#A855F7" android:textSize="8sp"
                         android:layout_marginTop="1dp"/>
                     <TextView android:id="@+id/tvMoonshotStats"
+                        android:layout_width="wrap_content" android:layout_height="wrap_content"
+                        android:text="0/0" android:textColor="#6B7280" android:textSize="6sp"
+                        android:fontFamily="monospace"/>
+                </LinearLayout>
+
+                <!-- PERPS / LEVERAGE MODE - V5.7 -->
+                <LinearLayout
+                    android:id="@+id/btnQuickPerps"
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:orientation="vertical"
+                    android:gravity="center"
+                    android:padding="6dp"
+                    android:background="@drawable/section_card_bg"
+                    android:clickable="true"
+                    android:focusable="true">
+                    <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+                        android:text="📊" android:textSize="16sp"/>
+                    <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+                        android:text="Perps" android:textColor="#FF6B6B" android:textSize="8sp"
+                        android:layout_marginTop="1dp"/>
+                    <TextView android:id="@+id/tvPerpsStats"
                         android:layout_width="wrap_content" android:layout_height="wrap_content"
                         android:text="0/0" android:textColor="#6B7280" android:textSize="6sp"
                         android:fontFamily="monospace"/>
@@ -1324,6 +1348,353 @@
                         android:text="0%" android:textColor="#888888" android:textSize="8sp"
                         android:layout_marginTop="1dp"/>
                 </LinearLayout>
+            </LinearLayout>
+
+            <!-- ═══════════════════════════════════════════════════════════════
+                 V5.7: SOL PERPS / LEVERAGE TRADING CARD
+                 Pro-style leverage trading with AI sizing intelligence
+                 ═══════════════════════════════════════════════════════════════ -->
+            <LinearLayout
+                android:id="@+id/cardPerpsTrading"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="vertical"
+                android:background="@drawable/section_card_bg"
+                android:paddingStart="12dp"
+                android:paddingEnd="12dp"
+                android:paddingTop="10dp"
+                android:paddingBottom="10dp"
+                android:layout_marginStart="@dimen/screen_padding"
+                android:layout_marginEnd="@dimen/screen_padding"
+                android:layout_marginBottom="8dp"
+                android:visibility="gone">
+
+                <!-- Header: Perps Trading -->
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="horizontal"
+                    android:gravity="center_vertical">
+                    
+                    <TextView
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="📊 SOL Perps &amp; Leverage"
+                        android:textColor="#FF6B6B"
+                        android:textSize="12sp"
+                        android:textStyle="bold"/>
+                    
+                    <View
+                        android:layout_width="0dp"
+                        android:layout_height="1dp"
+                        android:layout_weight="1"/>
+                    
+                    <!-- Mode Badge -->
+                    <TextView
+                        android:id="@+id/tvPerpsModeBadge"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="PAPER"
+                        android:textColor="#000000"
+                        android:textSize="10sp"
+                        android:textStyle="bold"
+                        android:fontFamily="monospace"
+                        android:background="@drawable/pill_bg_yellow"
+                        android:paddingStart="8dp"
+                        android:paddingEnd="8dp"
+                        android:paddingTop="3dp"
+                        android:paddingBottom="3dp"/>
+                </LinearLayout>
+
+                <!-- Markets Row: SOL + Stocks -->
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="horizontal"
+                    android:layout_marginTop="10dp">
+                    
+                    <!-- SOL Market -->
+                    <LinearLayout
+                        android:id="@+id/btnPerpsSol"
+                        android:layout_width="0dp"
+                        android:layout_height="wrap_content"
+                        android:layout_weight="1"
+                        android:orientation="vertical"
+                        android:gravity="center"
+                        android:background="@drawable/section_card_bg"
+                        android:padding="8dp"
+                        android:layout_marginEnd="4dp"
+                        android:clickable="true"
+                        android:focusable="true">
+                        <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+                            android:text="◎" android:textSize="18sp" android:textColor="#14F195"/>
+                        <TextView android:id="@+id/tvPerpsSolPrice"
+                            android:layout_width="wrap_content" android:layout_height="wrap_content"
+                            android:text="$—" android:textColor="#FFFFFF" android:textSize="11sp"
+                            android:textStyle="bold" android:fontFamily="monospace"/>
+                        <TextView android:id="@+id/tvPerpsSolChange"
+                            android:layout_width="wrap_content" android:layout_height="wrap_content"
+                            android:text="+0.0%" android:textColor="#22C55E" android:textSize="9sp"
+                            android:fontFamily="monospace"/>
+                    </LinearLayout>
+
+                    <!-- AAPL -->
+                    <LinearLayout
+                        android:id="@+id/btnPerpsAapl"
+                        android:layout_width="0dp"
+                        android:layout_height="wrap_content"
+                        android:layout_weight="1"
+                        android:orientation="vertical"
+                        android:gravity="center"
+                        android:background="@drawable/section_card_bg"
+                        android:padding="8dp"
+                        android:layout_marginEnd="4dp"
+                        android:clickable="true"
+                        android:focusable="true">
+                        <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+                            android:text="AAPL" android:textSize="10sp" android:textColor="#A2AAAD"
+                            android:textStyle="bold"/>
+                        <TextView android:id="@+id/tvPerpsAaplPrice"
+                            android:layout_width="wrap_content" android:layout_height="wrap_content"
+                            android:text="$—" android:textColor="#FFFFFF" android:textSize="10sp"
+                            android:fontFamily="monospace"/>
+                    </LinearLayout>
+
+                    <!-- TSLA -->
+                    <LinearLayout
+                        android:id="@+id/btnPerpsTsla"
+                        android:layout_width="0dp"
+                        android:layout_height="wrap_content"
+                        android:layout_weight="1"
+                        android:orientation="vertical"
+                        android:gravity="center"
+                        android:background="@drawable/section_card_bg"
+                        android:padding="8dp"
+                        android:layout_marginEnd="4dp"
+                        android:clickable="true"
+                        android:focusable="true">
+                        <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+                            android:text="TSLA" android:textSize="10sp" android:textColor="#E31937"
+                            android:textStyle="bold"/>
+                        <TextView android:id="@+id/tvPerpsTslaPrice"
+                            android:layout_width="wrap_content" android:layout_height="wrap_content"
+                            android:text="$—" android:textColor="#FFFFFF" android:textSize="10sp"
+                            android:fontFamily="monospace"/>
+                    </LinearLayout>
+
+                    <!-- NVDA -->
+                    <LinearLayout
+                        android:id="@+id/btnPerpsNvda"
+                        android:layout_width="0dp"
+                        android:layout_height="wrap_content"
+                        android:layout_weight="1"
+                        android:orientation="vertical"
+                        android:gravity="center"
+                        android:background="@drawable/section_card_bg"
+                        android:padding="8dp"
+                        android:clickable="true"
+                        android:focusable="true">
+                        <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+                            android:text="NVDA" android:textSize="10sp" android:textColor="#76B900"
+                            android:textStyle="bold"/>
+                        <TextView android:id="@+id/tvPerpsNvdaPrice"
+                            android:layout_width="wrap_content" android:layout_height="wrap_content"
+                            android:text="$—" android:textColor="#FFFFFF" android:textSize="10sp"
+                            android:fontFamily="monospace"/>
+                    </LinearLayout>
+                </LinearLayout>
+
+                <!-- Stats Row -->
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="horizontal"
+                    android:layout_marginTop="10dp"
+                    android:gravity="center_vertical">
+                    
+                    <!-- Balance -->
+                    <LinearLayout
+                        android:layout_width="0dp"
+                        android:layout_height="wrap_content"
+                        android:layout_weight="1"
+                        android:orientation="vertical"
+                        android:gravity="center">
+                        <TextView
+                            android:id="@+id/tvPerpsBalance"
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:text="5.0000"
+                            android:textColor="#FFFFFF"
+                            android:textSize="16sp"
+                            android:textStyle="bold"
+                            android:fontFamily="monospace"/>
+                        <TextView
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:text="Balance"
+                            android:textColor="#9CA3AF"
+                            android:textSize="9sp"/>
+                    </LinearLayout>
+                    
+                    <!-- Divider -->
+                    <View
+                        android:layout_width="1dp"
+                        android:layout_height="28dp"
+                        android:background="#333333"/>
+                    
+                    <!-- P&L -->
+                    <LinearLayout
+                        android:layout_width="0dp"
+                        android:layout_height="wrap_content"
+                        android:layout_weight="1"
+                        android:orientation="vertical"
+                        android:gravity="center">
+                        <TextView
+                            android:id="@+id/tvPerpsPnl"
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:text="+0.00%"
+                            android:textColor="#22C55E"
+                            android:textSize="16sp"
+                            android:textStyle="bold"
+                            android:fontFamily="monospace"/>
+                        <TextView
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:text="Day P&amp;L"
+                            android:textColor="#9CA3AF"
+                            android:textSize="9sp"/>
+                    </LinearLayout>
+                    
+                    <!-- Divider -->
+                    <View
+                        android:layout_width="1dp"
+                        android:layout_height="28dp"
+                        android:background="#333333"/>
+                    
+                    <!-- Win Rate -->
+                    <LinearLayout
+                        android:layout_width="0dp"
+                        android:layout_height="wrap_content"
+                        android:layout_weight="1"
+                        android:orientation="vertical"
+                        android:gravity="center">
+                        <TextView
+                            android:id="@+id/tvPerpsWinRate"
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:text="—%"
+                            android:textColor="#F59E0B"
+                            android:textSize="16sp"
+                            android:textStyle="bold"
+                            android:fontFamily="monospace"/>
+                        <TextView
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:text="Win Rate"
+                            android:textColor="#9CA3AF"
+                            android:textSize="9sp"/>
+                    </LinearLayout>
+                    
+                    <!-- Divider -->
+                    <View
+                        android:layout_width="1dp"
+                        android:layout_height="28dp"
+                        android:background="#333333"/>
+                    
+                    <!-- Trades -->
+                    <LinearLayout
+                        android:layout_width="0dp"
+                        android:layout_height="wrap_content"
+                        android:layout_weight="1"
+                        android:orientation="vertical"
+                        android:gravity="center">
+                        <TextView
+                            android:id="@+id/tvPerpsTrades"
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:text="0"
+                            android:textColor="#FFFFFF"
+                            android:textSize="16sp"
+                            android:textStyle="bold"
+                            android:fontFamily="monospace"/>
+                        <TextView
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:text="Trades"
+                            android:textColor="#9CA3AF"
+                            android:textSize="9sp"/>
+                    </LinearLayout>
+                </LinearLayout>
+
+                <!-- Live Readiness Gauge -->
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="vertical"
+                    android:layout_marginTop="10dp"
+                    android:background="@drawable/section_card_bg"
+                    android:padding="8dp">
+                    
+                    <LinearLayout
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:orientation="horizontal"
+                        android:gravity="center_vertical">
+                        <TextView
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:text="Live Readiness"
+                            android:textColor="#9CA3AF"
+                            android:textSize="10sp"/>
+                        <View
+                            android:layout_width="0dp"
+                            android:layout_height="1dp"
+                            android:layout_weight="1"/>
+                        <TextView
+                            android:id="@+id/tvPerpsReadinessPhase"
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:text="LEARNING"
+                            android:textColor="#F59E0B"
+                            android:textSize="10sp"
+                            android:textStyle="bold"
+                            android:fontFamily="monospace"/>
+                    </LinearLayout>
+                    
+                    <!-- Progress Bar Background -->
+                    <FrameLayout
+                        android:layout_width="match_parent"
+                        android:layout_height="6dp"
+                        android:layout_marginTop="6dp"
+                        android:background="@drawable/progress_bg">
+                        
+                        <View
+                            android:id="@+id/viewPerpsReadinessBar"
+                            android:layout_width="0dp"
+                            android:layout_height="match_parent"
+                            android:background="@drawable/progress_fill"/>
+                    </FrameLayout>
+                    
+                    <TextView
+                        android:id="@+id/tvPerpsReadinessText"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:text="Need 50+ trades and 45%+ win rate"
+                        android:textColor="#6B7280"
+                        android:textSize="9sp"
+                        android:layout_marginTop="4dp"
+                        android:gravity="center"/>
+                </LinearLayout>
+
+                <!-- Open Positions List -->
+                <LinearLayout
+                    android:id="@+id/llPerpsPositions"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="vertical"
+                    android:layout_marginTop="8dp"/>
+
             </LinearLayout>
 
             <!-- ═══════════════════════════════
