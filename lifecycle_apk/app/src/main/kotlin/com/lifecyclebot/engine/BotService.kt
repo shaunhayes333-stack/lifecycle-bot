@@ -769,13 +769,14 @@ class BotService : Service() {
                             
                             // Define dual eligibility thresholds
 
-                            // V5.5: Paper mode - let everything through; FDG/watchlist scoring decides
-                            val paperMinLiquidity = 500.0    // $500 for paper exploration
-                            val liveMinLiquidity = 8000.0    // $8K for live capital protection
+                            // V5.6.29d: UNIFIED PAPER/LIVE thresholds - let FDG and AI layers decide
+                            // Previously LIVE had much stricter filters, but this prevented learning
+                            val paperMinLiquidity = 2000.0    // $2K floor for both modes
+                            val liveMinLiquidity = 2000.0     // Same as paper - let AI decide
                             val paperMinScore = 1.0           // Let everything through; watchlist scoring filters quality
-                            val liveMinScore = 65.0           // Higher bar for live execution
+                            val liveMinScore = 1.0            // Same as paper - FDG gates execution
                             
-                            // Check 2a: MINIMUM LIQUIDITY (mode-dependent)
+                            // Check 2a: MINIMUM LIQUIDITY (now unified)
                             val minLiquidity = if (c.paperMode) paperMinLiquidity else liveMinLiquidity
                             if (liquidityUsd < minLiquidity) {
                                 TradeLifecycle.ineligible(identity.mint, "Liquidity too low: $${liquidityUsd.toInt()} < $${minLiquidity.toInt()}")
@@ -790,8 +791,7 @@ class BotService : Service() {
                                 return@SolanaMarketScanner
                             }
                             
-                            // Check 2c: Minimum score threshold (mode-dependent)
-                            // V5.2.12: Paper mode uses D-grade threshold (5) to let scanner results through
+                            // Check 2c: Minimum score threshold (now unified)
                             val minScore = if (c.paperMode) paperMinScore else liveMinScore
                             if (score < minScore) {
                                 TradeLifecycle.ineligible(identity.mint, "Score too low: $score < $minScore")
@@ -802,16 +802,8 @@ class BotService : Service() {
                             // V5.2.12: Log successful score admission for debugging
                             ErrorLogger.debug("BotService", "✅ SCORE OK: ${identity.symbol} | score=$score >= minScore=$minScore (${if (c.paperMode) "PAPER" else "LIVE"} mode)")
                             
-                            // V4.20: Additional live-mode strictness
-                            // In live mode, also require stronger fundamentals
-                            if (!c.paperMode) {
-                                // Reject very low scores even if above threshold but marginal
-                                if (score < 70.0 && liquidityUsd < 12000.0) {
-                                    TradeLifecycle.ineligible(identity.mint, "Live mode: marginal quality (score=$score, liq=$${liquidityUsd.toInt()})")
-                                    ErrorLogger.debug("BotService", "INELIGIBLE (LIVE): ${identity.symbol} - marginal quality")
-                                    return@SolanaMarketScanner
-                                }
-                            }
+                            // V5.6.29d: REMOVED extra live-mode strictness - FDG handles this now
+                            // The AI layers and confidence gating provide sufficient protection
                             
                             // Mark as ELIGIBLE (passed all prereqs)
                             val modeLabel = if (c.paperMode) "PAPER" else "LIVE"

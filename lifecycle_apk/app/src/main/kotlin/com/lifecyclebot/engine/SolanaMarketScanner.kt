@@ -2120,66 +2120,26 @@ class SolanaMarketScanner(
         val c = cfg()
         val isPaperMode = c.paperMode
 
-        if (!isPaperMode && BannedTokens.isBanned(token.mint)) {
+        // V5.6.29d: Banned tokens blocked in both modes
+        if (BannedTokens.isBanned(token.mint)) {
             ErrorLogger.debug("Scanner", "FILTER REJECT ${token.symbol}: PERMANENTLY BANNED")
             return false
         }
 
-        val isPumpFunToken = token.source == TokenSource.PUMP_FUN_NEW ||
-            token.dexId == "pump.fun" ||
-            token.pairCreatedHoursAgo < 1.0
-
-        if (isPaperMode) {
-            val paperLiqFloor = 2000.0
-            if (token.liquidityUsd > 0 && token.liquidityUsd < paperLiqFloor) {
-                ErrorLogger.debug(
-                    "Scanner",
-                    "FILTER REJECT ${token.symbol}: paper liq \$${token.liquidityUsd.toInt()} < \$$paperLiqFloor"
-                )
-                return false
-            }
-            if (token.mcapUsd < 0) return false
-            return true
-        }
-
-        val hardMinMcap = if (isPumpFunToken) 5000.0 else 5_000.0
-        if (token.mcapUsd > 0 && token.mcapUsd < hardMinMcap) {
-            ErrorLogger.debug("Scanner", "FILTER REJECT ${token.symbol}: mcap \$${token.mcapUsd.toInt()} < hard min \$${hardMinMcap.toInt()}")
+        // V5.6.29d: UNIFIED PAPER/LIVE filtering - let FDG and AI layers decide execution
+        // Previously LIVE had much stricter scanner filters, preventing learning transfer
+        
+        // Minimum liquidity floor for both modes
+        val minLiqFloor = 2000.0
+        if (token.liquidityUsd > 0 && token.liquidityUsd < minLiqFloor) {
+            ErrorLogger.debug("Scanner", "FILTER REJECT ${token.symbol}: liq \$${token.liquidityUsd.toInt()} < \$${minLiqFloor.toInt()}")
             return false
         }
-
-        val hardMinLiq = if (isPumpFunToken) 100.0 else 500.0
-        if (token.liquidityUsd < hardMinLiq && token.liquidityUsd > 0) {
-            ErrorLogger.debug("Scanner", "FILTER REJECT ${token.symbol}: liq \$${token.liquidityUsd.toInt()} < min \$${hardMinLiq.toInt()}")
-            return false
-        }
-
-        if (c.allowedDexes.isNotEmpty() && token.dexId !in c.allowedDexes) {
-            ErrorLogger.debug("Scanner", "FILTER REJECT ${token.symbol}: DEX ${token.dexId} not in allowed list")
-            return false
-        }
-
-        if (c.scanMinMcapUsd > 0 && token.mcapUsd < c.scanMinMcapUsd) {
-            ErrorLogger.debug("Scanner", "FILTER REJECT ${token.symbol}: mcap \$${token.mcapUsd.toInt()} < min \$${c.scanMinMcapUsd.toInt()}")
-            return false
-        }
-
-        if (c.scanMaxMcapUsd > 0 && token.mcapUsd > c.scanMaxMcapUsd) {
-            ErrorLogger.debug("Scanner", "FILTER REJECT ${token.symbol}: mcap \$${token.mcapUsd.toInt()} > max \$${c.scanMaxMcapUsd.toInt()}")
-            return false
-        }
-
-        if (token.source == TokenSource.PUMP_FUN_NEW && !c.scanPumpFunNew) return false
-        if (token.source == TokenSource.PUMP_FUN_GRADUATE && !c.scanPumpGraduates) return false
-        if (token.source == TokenSource.DEX_TRENDING && !c.scanDexTrending) return false
-        if (token.source == TokenSource.RAYDIUM_NEW_POOL && !c.scanRaydiumNew) return false
-
-        val minScore = 5.0
-        if (token.score < minScore) {
-            ErrorLogger.debug("Scanner", "FILTER REJECT ${token.symbol}: score ${token.score.toInt()} < min ${minScore.toInt()}")
-            return false
-        }
-
+        
+        // Basic mcap sanity check
+        if (token.mcapUsd < 0) return false
+        
+        // Scam pattern detection (both modes)
         val sym = token.symbol.lowercase()
         val name = token.name.lowercase()
         val scamPatterns = listOf("test", "fake", "scam", "rug", "honeypot", "xxx", "porn")
@@ -2188,23 +2148,22 @@ class SolanaMarketScanner(
             ErrorLogger.info("Scanner", "FILTER REJECT ${token.symbol}: scam pattern detected")
             return false
         }
-
-        val infrastructureTokens = listOf(
-            "solana", "wrapped sol", "wrapped solana",
-            "raydium", "jupiter", "jito", "pyth", "marinade", "orca",
-            "pump", "pumpfun", "pump.fun"
-        )
-
-        val symLower = token.symbol.lowercase().trim()
-        val nameLower = token.name.lowercase().trim()
-
+        
+        // Block impersonation of infrastructure tokens (both modes)
         val blockedSymbols = listOf("sol", "wsol", "usdt", "usdc", "ray", "jup")
+        val symLower = token.symbol.lowercase().trim()
         if (symLower in blockedSymbols) {
             onLog("🚫 BLOCK: ${token.symbol} - reserved symbol")
             ErrorLogger.info("Scanner", "FILTER REJECT ${token.symbol}: blocked symbol '$symLower'")
             return false
         }
-
+        
+        val infrastructureTokens = listOf(
+            "solana", "wrapped sol", "wrapped solana",
+            "raydium", "jupiter", "jito", "pyth", "marinade", "orca",
+            "pump", "pumpfun", "pump.fun"
+        )
+        val nameLower = token.name.lowercase().trim()
         for (infra in infrastructureTokens) {
             if (nameLower == infra || nameLower.startsWith("$infra ")) {
                 onLog("🚫 BLOCK: ${token.symbol} - impersonates $infra")
