@@ -227,6 +227,13 @@ object EducationSubLayerAI {
         var avgConfidenceOnLosses: Double = 50.0,
         var learningVelocity: Double = 1.0,  // How fast this layer is improving
         var trustMultiplier: Double = 1.0,    // Meta-cognition trust score
+        // V5.7.3: Additional fields for perps learning
+        var totalSignals: Int = 0,
+        var accurateSignals: Int = 0,
+        var avgContribution: Double = 0.0,
+        var totalContributions: Int = 0,
+        var learningRate: Double = 0.01,
+        var lastUpdate: Long = System.currentTimeMillis(),
     ) {
         val accuracy: Double get() = if (totalOutcomesRecorded > 0) 
             (successfulPredictions.toDouble() / totalOutcomesRecorded) * 100 else 50.0
