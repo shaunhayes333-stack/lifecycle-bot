@@ -805,30 +805,30 @@ class IntelligenceMetrics {
         correctDecisions = 0
         totalDecisions = 0
     }
-}
-
-// ═══════════════════════════════════════════════════════════════════════
-// V5.6.28f: SYNC FUNCTION - Align stats across different tracking systems
-// ═══════════════════════════════════════════════════════════════════════
-fun syncStatsFromTradeHistory() {
-    try {
-        val stats = TradeHistoryStore.getStats()
-        
-        // Update RunTracker30D to match TradeHistoryStore totals
-        // Only sync if TradeHistoryStore has more trades (it's the source of truth)
-        if (stats.totalTrades > totalTrades) {
-            ErrorLogger.info(TAG, "📊 SYNC: Aligning stats from TradeHistoryStore")
-            ErrorLogger.info(TAG, "   Before: total=$totalTrades W=$wins L=$losses S=$scratches")
+    
+    // ═══════════════════════════════════════════════════════════════════════
+    // V5.6.28f: SYNC FUNCTION - Align stats across different tracking systems
+    // ═══════════════════════════════════════════════════════════════════════
+    fun syncStatsFromTradeHistory() {
+        try {
+            val stats = TradeHistoryStore.getStats()
             
-            totalTrades = stats.totalTrades
-            wins = stats.totalWins
-            losses = stats.totalLosses
-            scratches = stats.totalScratches
-            
-            ErrorLogger.info(TAG, "   After:  total=$totalTrades W=$wins L=$losses S=$scratches")
-            save()
+            // Update RunTracker30D to match TradeHistoryStore totals
+            // Only sync if TradeHistoryStore has more trades (it's the source of truth)
+            if (stats.totalTrades > totalTrades) {
+                ErrorLogger.info(TAG, "📊 SYNC: Aligning stats from TradeHistoryStore")
+                ErrorLogger.info(TAG, "   Before: total=$totalTrades W=$wins L=$losses S=$scratches")
+                
+                totalTrades = stats.totalTrades
+                wins = stats.totalWins
+                losses = stats.totalLosses
+                scratches = stats.totalScratches
+                
+                ErrorLogger.info(TAG, "   After:  total=$totalTrades W=$wins L=$losses S=$scratches")
+                save()
+            }
+        } catch (e: Exception) {
+            ErrorLogger.error(TAG, "Sync error: ${e.message}")
         }
-    } catch (e: Exception) {
-        ErrorLogger.error(TAG, "Sync error: ${e.message}")
     }
 }
