@@ -4688,9 +4688,12 @@ if (deferredCount > 0) {
                         (System.currentTimeMillis() - ts.addedToWatchlistAt) / 60_000.0
                     } else 60.0
                     
-                    // V5.8: Lowered buy pressure 60→55 to match ShitCoinExpress.kt pre-filter
-                    if (ts.lastMcap <= 300_000 && ts.lastMcap >= 5_000 &&
-                        (ts.momentum ?: 0.0) >= 5.0 && ts.lastBuyPressurePct >= 55) {
+                    // V5.6.29d: Lowered pre-filter to match ShitCoinExpress.kt (was 5%/55%, now 3%/50%)
+                    val momentum = ts.momentum ?: 0.0
+                    val passesPreFilter = ts.lastMcap <= 300_000 && ts.lastMcap >= 2_000 &&
+                        momentum >= 3.0 && ts.lastBuyPressurePct >= 50
+                    
+                    if (passesPreFilter) {
                         
                         val isTrending = ts.source.contains("TRENDING", ignoreCase = true)
                         val isBoosted = ts.source.contains("BOOSTED", ignoreCase = true)
