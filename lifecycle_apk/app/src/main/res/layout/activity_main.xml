@@ -1915,6 +1915,202 @@
                             android:textSize="9sp"
                             android:fontFamily="monospace"/>
                     </LinearLayout>
+                    
+                    <!-- V5.7.2: TRADE HEATMAP -->
+                    <LinearLayout
+                        android:id="@+id/cardTradeHeatmap"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:orientation="vertical"
+                        android:background="@drawable/section_card_bg"
+                        android:padding="8dp"
+                        android:layout_marginTop="8dp">
+                        
+                        <LinearLayout
+                            android:layout_width="match_parent"
+                            android:layout_height="wrap_content"
+                            android:orientation="horizontal"
+                            android:gravity="center_vertical">
+                            <TextView
+                                android:layout_width="wrap_content"
+                                android:layout_height="wrap_content"
+                                android:text="🔥 Heatmap"
+                                android:textColor="#F97316"
+                                android:textSize="10sp"
+                                android:textStyle="bold"/>
+                            <View
+                                android:layout_width="0dp"
+                                android:layout_height="1dp"
+                                android:layout_weight="1"/>
+                            <TextView
+                                android:id="@+id/tvHeatmapBestSetup"
+                                android:layout_width="wrap_content"
+                                android:layout_height="wrap_content"
+                                android:text="—"
+                                android:textColor="#22C55E"
+                                android:textSize="9sp"
+                                android:textStyle="bold"
+                                android:fontFamily="monospace"/>
+                        </LinearLayout>
+                        
+                        <!-- Heatmap Grid: 4 markets x 2 directions -->
+                        <LinearLayout
+                            android:layout_width="match_parent"
+                            android:layout_height="wrap_content"
+                            android:orientation="horizontal"
+                            android:layout_marginTop="6dp">
+                            
+                            <!-- SOL Column -->
+                            <LinearLayout
+                                android:layout_width="0dp"
+                                android:layout_height="wrap_content"
+                                android:layout_weight="1"
+                                android:orientation="vertical"
+                                android:gravity="center"
+                                android:layout_marginEnd="2dp">
+                                <TextView
+                                    android:layout_width="wrap_content"
+                                    android:layout_height="wrap_content"
+                                    android:text="◎"
+                                    android:textColor="#14F195"
+                                    android:textSize="10sp"/>
+                                <LinearLayout
+                                    android:layout_width="match_parent"
+                                    android:layout_height="wrap_content"
+                                    android:orientation="horizontal">
+                                    <View
+                                        android:id="@+id/heatSolLong"
+                                        android:layout_width="0dp"
+                                        android:layout_height="16dp"
+                                        android:layout_weight="1"
+                                        android:background="#4B5563"/>
+                                    <View
+                                        android:id="@+id/heatSolShort"
+                                        android:layout_width="0dp"
+                                        android:layout_height="16dp"
+                                        android:layout_weight="1"
+                                        android:layout_marginStart="1dp"
+                                        android:background="#4B5563"/>
+                                </LinearLayout>
+                            </LinearLayout>
+                            
+                            <!-- NVDA Column -->
+                            <LinearLayout
+                                android:layout_width="0dp"
+                                android:layout_height="wrap_content"
+                                android:layout_weight="1"
+                                android:orientation="vertical"
+                                android:gravity="center"
+                                android:layout_marginEnd="2dp">
+                                <TextView
+                                    android:layout_width="wrap_content"
+                                    android:layout_height="wrap_content"
+                                    android:text="NV"
+                                    android:textColor="#76B900"
+                                    android:textSize="8sp"
+                                    android:textStyle="bold"/>
+                                <LinearLayout
+                                    android:layout_width="match_parent"
+                                    android:layout_height="wrap_content"
+                                    android:orientation="horizontal">
+                                    <View
+                                        android:id="@+id/heatNvdaLong"
+                                        android:layout_width="0dp"
+                                        android:layout_height="16dp"
+                                        android:layout_weight="1"
+                                        android:background="#4B5563"/>
+                                    <View
+                                        android:id="@+id/heatNvdaShort"
+                                        android:layout_width="0dp"
+                                        android:layout_height="16dp"
+                                        android:layout_weight="1"
+                                        android:layout_marginStart="1dp"
+                                        android:background="#4B5563"/>
+                                </LinearLayout>
+                            </LinearLayout>
+                            
+                            <!-- TSLA Column -->
+                            <LinearLayout
+                                android:layout_width="0dp"
+                                android:layout_height="wrap_content"
+                                android:layout_weight="1"
+                                android:orientation="vertical"
+                                android:gravity="center"
+                                android:layout_marginEnd="2dp">
+                                <TextView
+                                    android:layout_width="wrap_content"
+                                    android:layout_height="wrap_content"
+                                    android:text="TS"
+                                    android:textColor="#E31937"
+                                    android:textSize="8sp"
+                                    android:textStyle="bold"/>
+                                <LinearLayout
+                                    android:layout_width="match_parent"
+                                    android:layout_height="wrap_content"
+                                    android:orientation="horizontal">
+                                    <View
+                                        android:id="@+id/heatTslaLong"
+                                        android:layout_width="0dp"
+                                        android:layout_height="16dp"
+                                        android:layout_weight="1"
+                                        android:background="#4B5563"/>
+                                    <View
+                                        android:id="@+id/heatTslaShort"
+                                        android:layout_width="0dp"
+                                        android:layout_height="16dp"
+                                        android:layout_weight="1"
+                                        android:layout_marginStart="1dp"
+                                        android:background="#4B5563"/>
+                                </LinearLayout>
+                            </LinearLayout>
+                            
+                            <!-- AAPL Column -->
+                            <LinearLayout
+                                android:layout_width="0dp"
+                                android:layout_height="wrap_content"
+                                android:layout_weight="1"
+                                android:orientation="vertical"
+                                android:gravity="center">
+                                <TextView
+                                    android:layout_width="wrap_content"
+                                    android:layout_height="wrap_content"
+                                    android:text="AA"
+                                    android:textColor="#A2AAAD"
+                                    android:textSize="8sp"
+                                    android:textStyle="bold"/>
+                                <LinearLayout
+                                    android:layout_width="match_parent"
+                                    android:layout_height="wrap_content"
+                                    android:orientation="horizontal">
+                                    <View
+                                        android:id="@+id/heatAaplLong"
+                                        android:layout_width="0dp"
+                                        android:layout_height="16dp"
+                                        android:layout_weight="1"
+                                        android:background="#4B5563"/>
+                                    <View
+                                        android:id="@+id/heatAaplShort"
+                                        android:layout_width="0dp"
+                                        android:layout_height="16dp"
+                                        android:layout_weight="1"
+                                        android:layout_marginStart="1dp"
+                                        android:background="#4B5563"/>
+                                </LinearLayout>
+                            </LinearLayout>
+                        </LinearLayout>
+                        
+                        <!-- Legend + AI Recommendation -->
+                        <TextView
+                            android:id="@+id/tvHeatmapRecommendation"
+                            android:layout_width="match_parent"
+                            android:layout_height="wrap_content"
+                            android:text="L|S • 🟢Hot 🔴Cold"
+                            android:textColor="#6B7280"
+                            android:textSize="8sp"
+                            android:layout_marginTop="4dp"
+                            android:gravity="center"
+                            android:fontFamily="monospace"/>
+                    </LinearLayout>
                 </LinearLayout>
 
             </LinearLayout>
