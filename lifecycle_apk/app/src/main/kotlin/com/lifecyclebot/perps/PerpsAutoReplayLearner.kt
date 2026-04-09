@@ -174,7 +174,102 @@ object PerpsAutoReplayLearner {
         
         replayJob = CoroutineScope(Dispatchers.Default).launch {
             ErrorLogger.info(TAG, "🎬 Auto-Replay Learner STARTED - Always learning!")
+            
+            // V5.7.3: Load historical trades from Turso on startup
+            try {
+                loadHistoricalTradesFromTurso()
+            } catch (e: Exception) {
+                ErrorLogger.debug(TAG, "Failed to load Turso history: ${e.message}")
+            }
+            
             runReplayLoop()
+        }
+    }
+    
+    /**
+     * V5.7.3: Load historical trades from Turso database for replay learning
+     */
+    private suspend fun loadHistoricalTradesFromTurso() {
+        try {
+            val tursoTrades = com.lifecyclebot.collective.TursoClient.getPerpsTradesForReplay(50)
+            
+            if (tursoTrades.isNotEmpty()) {
+                ErrorLogger.info(TAG, "🎬 Loaded ${tursoTrades.size} historical trades from Turso")
+                
+                // Convert to ReplayableTrade format with estimated market data
+                tursoTrades.forEach { record ->
+                    try {
+                        val market = PerpsMarket.values().find { it.symbol == record.market } ?: return@forEach
+                        val direction = if (record.direction == "LONG") PerpsDirection.LONG else PerpsDirection.SHORT
+                        
+                        val trade = PerpsTrade(
+                            market = market,
+                            direction = direction,
+                            entryPrice = record.entryPrice,
+                            exitPrice = record.exitPrice,
+                            sizeSol = record.sizeSol,
+                            sizeUsd = record.sizeSol * record.entryPrice,
+                            leverage = record.leverage,
+                            pnlUsd = record.pnlUsd,
+                            pnlPct = record.pnlPct,
+                            openTime = record.openTime,
+                            closeTime = record.closeTime,
+                            closeReason = record.closeReason,
+                            riskTier = PerpsRiskTier.values().find { it.name == record.riskTier } ?: PerpsRiskTier.SNIPER,
+                            aiScore = record.aiScore,
+                            aiConfidence = record.aiConfidence,
+                            paperMode = record.paperMode,
+                        )
+                        
+                        // Create estimated market snapshots
+                        val entrySnapshot = MarketSnapshot(
+                            price = record.entryPrice,
+                            priceChange24h = 0.0,
+                            volume24h = 0.0,
+                            fundingRate = 0.0,
+                            longShortRatio = 0.5,
+                            volatility = false,
+                        )
+                        
+                        val exitSnapshot = MarketSnapshot(
+                            price = record.exitPrice,
+                            priceChange24h = record.pnlPct,
+                            volume24h = 0.0,
+                            fundingRate = 0.0,
+                            longShortRatio = 0.5,
+                            volatility = false,
+                        )
+                        
+                        val prediction = PredictionSnapshot(
+                            predictedDirection = direction,
+                            confidence = record.aiConfidence.toDouble(),
+                            predictedTP = record.entryPrice * 1.1,
+                            predictedSL = record.entryPrice * 0.95,
+                            layerConsensus = 13,  // Estimated
+                        )
+                        
+                        val replayable = ReplayableTrade(
+                            trade = trade,
+                            marketStateAtEntry = entrySnapshot,
+                            marketStateAtExit = exitSnapshot,
+                            layerSignalsAtEntry = emptyMap(),  // Historical trades don't have this
+                            aiPrediction = prediction,
+                        )
+                        
+                        tradeHistory.add(replayable)
+                        
+                    } catch (e: Exception) {
+                        ErrorLogger.debug(TAG, "Failed to convert trade: ${e.message}")
+                    }
+                }
+                
+                // Trim if too large
+                while (tradeHistory.size > MAX_HISTORY_SIZE) {
+                    tradeHistory.poll()
+                }
+            }
+        } catch (e: Exception) {
+            ErrorLogger.debug(TAG, "Turso load error: ${e.message}")
         }
     }
     
@@ -257,6 +352,36 @@ object PerpsAutoReplayLearner {
         
         // Also record to heatmap
         PerpsTradeHeatmap.recordTrade(trade)
+        
+        // V5.7.3: Save to Turso for cross-device learning
+        kotlinx.coroutines.GlobalScope.launch(kotlinx.coroutines.Dispatchers.IO) {
+            try {
+                val record = com.lifecyclebot.collective.PerpsTradeRecord(
+                    tradeHash = "${trade.market.symbol}_${trade.openTime}_${trade.closeTime}",
+                    instanceId = com.lifecyclebot.collective.CollectiveLearning.getInstanceId() ?: "",
+                    market = trade.market.symbol,
+                    direction = trade.direction.symbol,
+                    entryPrice = trade.entryPrice,
+                    exitPrice = trade.exitPrice,
+                    sizeSol = trade.sizeSol,
+                    leverage = trade.leverage,
+                    pnlUsd = trade.pnlUsd,
+                    pnlPct = trade.pnlPct,
+                    openTime = trade.openTime,
+                    closeTime = trade.closeTime,
+                    closeReason = trade.closeReason,
+                    riskTier = trade.riskTier.name,
+                    aiScore = trade.aiScore,
+                    aiConfidence = trade.aiConfidence,
+                    paperMode = trade.paperMode,
+                    isWin = trade.pnlPct > 0,
+                    holdMins = ((trade.closeTime - trade.openTime) / 60_000.0),
+                )
+                com.lifecyclebot.collective.TursoClient.savePerpsTradeRecord(record)
+            } catch (e: Exception) {
+                ErrorLogger.debug(TAG, "Turso save error: ${e.message}")
+            }
+        }
         
         ErrorLogger.debug(TAG, "🎬 Recorded trade for replay: ${trade.market.symbol} ${trade.direction.symbol} ${trade.pnlPct.fmt(1)}%")
     }
