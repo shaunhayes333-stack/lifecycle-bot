@@ -2674,6 +2674,8 @@ class BotService : Service() {
                             // Seed TokenState for promoted token
                             scope.launch {
                                 try {
+                                    // V5.6.29: Get liquidity from ProbationEntry before creating TokenState
+                                    val probEntry = GlobalTradeRegistry.getProbationEntry(result.mint)
                                     synchronized(status.tokens) {
                                         status.tokens.getOrPut(result.mint) {
                                             com.lifecyclebot.data.TokenState(
@@ -2683,7 +2685,11 @@ class BotService : Service() {
                                                 candleTimeframeMinutes = 1,
                                                 source = "PROBATION",
                                                 logoUrl = "https://dd.dexscreener.com/ds-data/tokens/solana/${result.mint}.png",
-                                            )
+                                            ).also { ts ->
+                                                // V5.6.29: Seed initial liquidity from probation entry
+                                                ts.lastLiquidityUsd = probEntry?.initialLiquidity ?: 0.0
+                                                ts.lastMcap = probEntry?.initialMcap ?: 0.0
+                                            }
                                         }
                                     }
                                     orchestrator?.onTokenAdded(result.mint, result.symbol)
