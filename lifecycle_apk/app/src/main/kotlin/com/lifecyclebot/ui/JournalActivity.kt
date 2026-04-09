@@ -76,6 +76,7 @@ class JournalActivity : AppCompatActivity() {
         findViewById<View>(R.id.btnJournalBack).setOnClickListener { finish() }
         findViewById<View>(R.id.btnExportCsv).setOnClickListener { showExportDialog() }
         findViewById<View>(R.id.btnClearJournal).setOnClickListener { showClearConfirmDialog() }
+        findViewById<View>(R.id.btnRestoreStats).setOnClickListener { showRestoreStatsDialog() }
 
         startPolling()
     }
@@ -334,6 +335,120 @@ class JournalActivity : AppCompatActivity() {
                 com.lifecyclebot.engine.TradeHistoryStore.clearAllTrades()
                 Toast.makeText(this, "Trade history cleared", Toast.LENGTH_SHORT).show()
                 refreshTrades()
+            }
+            .setNegativeButton("Cancel", null)
+            .show()
+    }
+    
+    /**
+     * V5.6.28c: Manual restoration dialog for lost paper treasury balance.
+     * Shows input dialog to restore paper treasury value that was wiped.
+     */
+    private fun showRestoreStatsDialog() {
+        val currentPaper = com.lifecyclebot.v3.scoring.CashGenerationAI.getTreasuryBalance(true)
+        val currentLive = com.lifecyclebot.v3.scoring.CashGenerationAI.getTreasuryBalance(false)
+        
+        val options = arrayOf(
+            "Restore Paper Treasury",
+            "Restore Live Treasury", 
+            "Restore Both"
+        )
+        
+        android.app.AlertDialog.Builder(this)
+            .setTitle("Restore Stats")
+            .setMessage(
+                "Current values:\n" +
+                "• Paper Treasury: ${String.format("%.2f", currentPaper)} SOL\n" +
+                "• Live Treasury: ${String.format("%.2f", currentLive)} SOL\n\n" +
+                "What would you like to restore?"
+            )
+            .setItems(options) { _, which ->
+                when (which) {
+                    0 -> showTreasuryInputDialog("Paper", true)
+                    1 -> showTreasuryInputDialog("Live", false)
+                    2 -> showBothTreasuryInputDialog()
+                }
+            }
+            .setNegativeButton("Cancel", null)
+            .show()
+    }
+    
+    private fun showTreasuryInputDialog(type: String, isPaper: Boolean) {
+        val input = android.widget.EditText(this).apply {
+            inputType = android.text.InputType.TYPE_CLASS_NUMBER or android.text.InputType.TYPE_NUMBER_FLAG_DECIMAL
+            hint = "Enter $type treasury balance (SOL)"
+            setPadding(dp(20), dp(16), dp(20), dp(16))
+        }
+        
+        android.app.AlertDialog.Builder(this)
+            .setTitle("Restore $type Treasury")
+            .setMessage("Enter your $type treasury balance in SOL:")
+            .setView(input)
+            .setPositiveButton("Restore") { _, _ ->
+                val value = input.text.toString().toDoubleOrNull()
+                if (value != null && value > 0) {
+                    if (isPaper) {
+                        com.lifecyclebot.v3.scoring.CashGenerationAI.manualRestorePaperTreasury(value)
+                    } else {
+                        com.lifecyclebot.v3.scoring.CashGenerationAI.manualRestoreLiveTreasury(value)
+                    }
+                    Toast.makeText(this, "$type treasury restored to $value SOL", Toast.LENGTH_LONG).show()
+                } else {
+                    Toast.makeText(this, "Invalid value", Toast.LENGTH_SHORT).show()
+                }
+            }
+            .setNegativeButton("Cancel", null)
+            .show()
+    }
+    
+    private fun showBothTreasuryInputDialog() {
+        val layout = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(dp(20), dp(16), dp(20), dp(8))
+        }
+        
+        val paperInput = android.widget.EditText(this).apply {
+            inputType = android.text.InputType.TYPE_CLASS_NUMBER or android.text.InputType.TYPE_NUMBER_FLAG_DECIMAL
+            hint = "Paper treasury (SOL)"
+        }
+        val liveInput = android.widget.EditText(this).apply {
+            inputType = android.text.InputType.TYPE_CLASS_NUMBER or android.text.InputType.TYPE_NUMBER_FLAG_DECIMAL
+            hint = "Live treasury (SOL)"
+        }
+        
+        layout.addView(TextView(this).apply { 
+            text = "Paper Treasury:"
+            setTextColor(0xFF10B981.toInt())
+        })
+        layout.addView(paperInput)
+        layout.addView(TextView(this).apply { 
+            text = "\nLive Treasury:"
+            setTextColor(0xFF9945FF.toInt())
+        })
+        layout.addView(liveInput)
+        
+        android.app.AlertDialog.Builder(this)
+            .setTitle("Restore Both Treasuries")
+            .setView(layout)
+            .setPositiveButton("Restore") { _, _ ->
+                val paperValue = paperInput.text.toString().toDoubleOrNull()
+                val liveValue = liveInput.text.toString().toDoubleOrNull()
+                
+                var restored = 0
+                if (paperValue != null && paperValue > 0) {
+                    com.lifecyclebot.v3.scoring.CashGenerationAI.manualRestorePaperTreasury(paperValue)
+                    restored++
+                }
+                if (liveValue != null && liveValue > 0) {
+                    com.lifecyclebot.v3.scoring.CashGenerationAI.manualRestoreLiveTreasury(liveValue)
+                    restored++
+                }
+                
+                if (restored > 0) {
+                    Toast.makeText(this, "Treasury values restored!", Toast.LENGTH_LONG).show()
+                } else {
+                    Toast.makeText(this, "No valid values entered", Toast.LENGTH_SHORT).show()
+                }
             }
             .setNegativeButton("Cancel", null)
             .show()

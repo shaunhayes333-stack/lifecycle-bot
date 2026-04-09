@@ -373,6 +373,31 @@ object CashGenerationAI {
             ErrorLogger.error(TAG, "💾 Restore failed: ${e.message}")
         }
     }
+    
+    /**
+     * V5.6.28c: MANUAL RESTORATION - Allows user to restore paper treasury balance
+     * that was lost due to missing persistence in earlier versions.
+     * 
+     * @param treasurySol The paper treasury balance to restore (in SOL)
+     */
+    fun manualRestorePaperTreasury(treasurySol: Double) {
+        val bps = (treasurySol * 100).toLong()
+        paperTreasuryBalanceBps.set(bps)
+        save()
+        ErrorLogger.info(TAG, "🔧 MANUAL RESTORE: Paper treasury set to ${treasurySol.fmt(4)} SOL")
+    }
+    
+    /**
+     * V5.6.28c: MANUAL RESTORATION - Allows user to restore live treasury balance.
+     * 
+     * @param treasurySol The live treasury balance to restore (in SOL)
+     */
+    fun manualRestoreLiveTreasury(treasurySol: Double) {
+        val bps = (treasurySol * 100).toLong()
+        liveTreasuryBalanceBps.set(bps)
+        save()
+        ErrorLogger.info(TAG, "🔧 MANUAL RESTORE: Live treasury set to ${treasurySol.fmt(4)} SOL")
+    }
 
     // ═══════════════════════════════════════════════════════════════════════════
     // FLUID LEARNING
