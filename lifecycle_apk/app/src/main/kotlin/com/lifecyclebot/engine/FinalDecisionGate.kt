@@ -363,251 +363,37 @@ object FinalDecisionGate {
 
         val fluidBase = lerp(CONF_FLOOR_BOOTSTRAP, CONF_FLOOR_MATURE, learningProgress)
 
-        if (isPaperMode) {
-            val floor = lerp(paperConfidenceBase, CONF_FLOOR_MATURE * 0.6, learningProgress)
-            val adaptiveFloor = if (adaptiveRelaxationActive) {
-                (floor * 0.5).coerceAtLeast(5.0)
-            } else {
-                floor
-            }
-
-            val fdgState = EfficiencyLayer.createFdgState(
-                mode = "PAPER",
-                base = paperConfidenceBase.toInt(),
-                adj = 0,
-                final = adaptiveFloor.toInt(),
-                learning = (learningProgress * 100).toInt(),
-                bootstrap = learningProgress < 0.1
-            )
-            if (EfficiencyLayer.shouldLogFdgState(fdgState)) {
-                ErrorLogger.info(
-                    "FDG",
-                    "📊 FLUID CONF (PAPER): floor=${adaptiveFloor.toInt()}% | learning=${(learningProgress * 100).toInt()}%"
-                )
-            }
-
-            return adaptiveFloor
-        }
-
-        val baseConfidence = fluidBase
-        var adjustment = 0.0
-
-        val volatilityAdj = when {
-            currentConditions.avgVolatility >= 15.0 -> +10.0
-            currentConditions.avgVolatility >= 10.0 -> +5.0
-            currentConditions.avgVolatility >= 5.0 -> 0.0
-            currentConditions.avgVolatility >= 2.0 -> -5.0
-            else -> -8.0
-        }
-        adjustment += volatilityAdj
-
-        val winRateAdj = if (currentConditions.totalSessionTrades >= 5) {
-            when {
-                currentConditions.recentWinRate >= 70.0 -> -10.0
-                currentConditions.recentWinRate >= 60.0 -> -5.0
-                currentConditions.recentWinRate >= 50.0 -> 0.0
-                currentConditions.recentWinRate >= 40.0 -> +5.0
-                else -> +10.0
-            }
-        } else 0.0
-        adjustment += winRateAdj
-
-        val buyPressureAdj = when {
-            currentConditions.buyPressureTrend >= 65.0 -> -5.0
-            currentConditions.buyPressureTrend >= 55.0 -> -2.0
-            currentConditions.buyPressureTrend >= 45.0 -> 0.0
-            currentConditions.buyPressureTrend >= 35.0 -> +5.0
-            else -> +10.0
-        }
-        adjustment += buyPressureAdj
-
-        val timeSinceLossMinutes = currentConditions.timeSinceLastLossMs / 60_000
-        val lossRecencyAdj = when {
-            timeSinceLossMinutes < 5 -> +8.0
-            timeSinceLossMinutes < 15 -> +4.0
-            timeSinceLossMinutes < 60 -> +2.0
-            timeSinceLossMinutes < 240 -> 0.0
-            else -> -3.0
-        }
-        adjustment += lossRecencyAdj
-
-        val sessionPnlAdj = if (currentConditions.totalSessionTrades >= 3) {
-            when {
-                currentConditions.sessionPnlPct >= 20.0 -> -5.0
-                currentConditions.sessionPnlPct >= 10.0 -> -3.0
-                currentConditions.sessionPnlPct >= 0.0 -> 0.0
-                currentConditions.sessionPnlPct >= -10.0 -> +5.0
-                else -> +10.0
-            }
-        } else 0.0
-        adjustment += sessionPnlAdj
-
-        val tokenAdj = if (ts != null) {
-            var adj = 0.0
-            if (ts.lastLiquidityUsd >= 100_000) adj -= 3.0
-            else if (ts.lastLiquidityUsd < 10_000) adj += 5.0
-
-            if (ts.meta.pressScore >= 65) adj -= 3.0
-            else if (ts.meta.pressScore < 45) adj += 5.0
-            adj
-        } else 0.0
-        adjustment += tokenAdj
-
-        val treasuryAdj = try {
-            val solPrice = WalletManager.lastKnownSolPrice
-            val treasuryUsd = TreasuryManager.treasurySol * solPrice
-            val scalingTier = ScalingMode.activeTier(treasuryUsd)
-            when (scalingTier) {
-                ScalingMode.Tier.INSTITUTIONAL -> -8.0
-                ScalingMode.Tier.SCALED -> -5.0
-                ScalingMode.Tier.GROWTH -> -3.0
-                ScalingMode.Tier.STANDARD -> 0.0
-                ScalingMode.Tier.MICRO -> +3.0
-            }
-        } catch (_: Exception) {
-            0.0
-        }
-        adjustment += treasuryAdj
-
-        val isBootstrapPhase = currentConditions.totalSessionTrades < 30
-        val learningAdj = if (currentConditions.totalSessionTrades >= 10) {
-            var adj = 0.0
-
-            when {
-                currentConditions.entryAiWinRate >= 60.0 -> adj -= 5.0
-                currentConditions.entryAiWinRate >= 50.0 -> adj -= 2.0
-                currentConditions.entryAiWinRate >= 40.0 -> adj += 0.0
-                currentConditions.entryAiWinRate >= 30.0 -> adj += 3.0
-                else -> adj += 6.0
-            }
-
-            when {
-                currentConditions.exitAiAvgPnl >= 20.0 -> adj -= 4.0
-                currentConditions.exitAiAvgPnl >= 10.0 -> adj -= 2.0
-                currentConditions.exitAiAvgPnl >= 0.0 -> adj += 0.0
-                else -> adj += 4.0
-            }
-
-            when {
-                currentConditions.edgeLearningAccuracy >= 70.0 -> adj -= 3.0
-                currentConditions.edgeLearningAccuracy >= 55.0 -> adj -= 1.0
-                currentConditions.edgeLearningAccuracy >= 45.0 -> adj += 0.0
-                else -> adj += 3.0
-            }
-
-            if (isBootstrapPhase && adj > 0) {
-                adj = (adj * 0.3).coerceAtMost(3.0)
-            }
-
-            adj
-        } else 0.0
-        adjustment += learningAdj
-
-        val regimeAdj = try {
-            val regime = MarketRegimeAI.getCurrentRegime()
-            val regimeConfidence = MarketRegimeAI.getRegimeConfidence()
-            if (regimeConfidence >= 40.0) {
-                when (regime) {
-                    MarketRegimeAI.Regime.STRONG_BULL -> -8.0
-                    MarketRegimeAI.Regime.BULL -> -4.0
-                    MarketRegimeAI.Regime.NEUTRAL -> 0.0
-                    MarketRegimeAI.Regime.CRAB -> +3.0
-                    MarketRegimeAI.Regime.BEAR -> +6.0
-                    MarketRegimeAI.Regime.STRONG_BEAR -> +10.0
-                    MarketRegimeAI.Regime.HIGH_VOLATILITY -> +5.0
-                }
-            } else 0.0
-        } catch (_: Exception) {
-            0.0
-        }
-        adjustment += regimeAdj
-
-        val whaleAdj = if (ts != null) {
-            try {
-                val whaleSignal = WhaleTrackerAI.getWhaleSignal(ts.mint, ts.symbol)
-                when (whaleSignal.recommendation) {
-                    "STRONG_BUY" -> -6.0
-                    "BUY" -> -3.0
-                    "LEAN_BUY" -> -1.0
-                    "NEUTRAL" -> 0.0
-                    "LEAN_SELL" -> +2.0
-                    "SELL" -> +5.0
-                    "STRONG_SELL" -> +10.0
-                    else -> 0.0
-                }
-            } catch (_: Exception) {
-                0.0
-            }
-        } else 0.0
-        adjustment += whaleAdj
-
-        val momentumAdj = if (ts != null) {
-            try {
-                when (MomentumPredictorAI.getPrediction(ts.mint)) {
-                    MomentumPredictorAI.MomentumPrediction.STRONG_PUMP -> -5.0
-                    MomentumPredictorAI.MomentumPrediction.PUMP_BUILDING -> -2.0
-                    MomentumPredictorAI.MomentumPrediction.NEUTRAL -> 0.0
-                    MomentumPredictorAI.MomentumPrediction.WEAK -> +3.0
-                    MomentumPredictorAI.MomentumPrediction.DISTRIBUTION -> +8.0
-                }
-            } catch (_: Exception) {
-                0.0
-            }
-        } else 0.0
-        adjustment += momentumAdj
-
-        val narrativeAdj = if (ts != null) {
-            try {
-                val adj = NarrativeDetectorAI.getEntryScoreAdjustment(ts.symbol, ts.name)
-                (-adj * 0.5).coerceIn(-6.0, 6.0)
-            } catch (_: Exception) {
-                0.0
-            }
-        } else 0.0
-        adjustment += narrativeAdj
-
-        val timeAdj = try {
-            val adj = TimeOptimizationAI.getEntryScoreAdjustment()
-            (-adj * 0.4).coerceIn(-5.0, 5.0)
-        } catch (_: Exception) {
-            0.0
-        }
-        adjustment += timeAdj
-
-        val closedLoopAdj = getClosedLoopConfidenceAdjustment()
-        adjustment += closedLoopAdj
-
-        val isBootstrap = learningProgress < 0.1
-        val cappedAdjustment = if (isBootstrap && adjustment > 0) {
-            adjustment.coerceAtMost(5.0)
+        // ═══════════════════════════════════════════════════════════════════════════
+        // V5.6.28f: UNIFIED LEARNING - LIVE uses PAPER's learned confidence
+        // When switching from PAPER to LIVE, the bot should operate identically.
+        // All learning from PAPER mode carries over seamlessly.
+        // The only difference is tighter stop-losses applied elsewhere.
+        // ═══════════════════════════════════════════════════════════════════════════
+        
+        val floor = lerp(paperConfidenceBase, CONF_FLOOR_MATURE * 0.6, learningProgress)
+        val adaptiveFloor = if (adaptiveRelaxationActive) {
+            (floor * 0.5).coerceAtLeast(5.0)
         } else {
-            adjustment
+            floor
         }
 
-        val fluidMinimum = lerp(CONF_FLOOR_BOOTSTRAP, CONF_FLOOR_MATURE * 0.5, learningProgress)
-            .coerceIn(CONF_FLOOR_BOOTSTRAP, 30.0)
-
-        val adaptive = (baseConfidence + cappedAdjustment).coerceIn(
-            fluidMinimum,
-            CONF_FLOOR_MATURE + 5.0
-        )
-
+        val modeLabel = if (isPaperMode) "PAPER" else "LIVE"
         val fdgState = EfficiencyLayer.createFdgState(
-            mode = "LIVE",
-            base = baseConfidence.toInt(),
-            adj = cappedAdjustment.toInt(),
-            final = adaptive.toInt(),
+            mode = modeLabel,
+            base = paperConfidenceBase.toInt(),
+            adj = 0,
+            final = adaptiveFloor.toInt(),
             learning = (learningProgress * 100).toInt(),
-            bootstrap = isBootstrap
+            bootstrap = false  // V5.6.28f: Never bootstrap - learning carries over
         )
         if (EfficiencyLayer.shouldLogFdgState(fdgState)) {
             ErrorLogger.info(
                 "FDG",
-                "📊 FLUID CONF (LIVE): base=${baseConfidence.toInt()}% adj=${cappedAdjustment.toInt()}% final=${adaptive.toInt()}% | learning=${(learningProgress * 100).toInt()}% | bootstrap=$isBootstrap"
+                "📊 FLUID CONF ($modeLabel): floor=${adaptiveFloor.toInt()}% | learning=${(learningProgress * 100).toInt()}% | UNIFIED"
             )
         }
 
-        return adaptive
+        return adaptiveFloor
     }
 
     fun getAdaptiveConfidenceExplanation(isPaperMode: Boolean): String {
@@ -877,9 +663,12 @@ object FinalDecisionGate {
         }
 
         val learningProgress = FluidLearningAI.getLearningProgress()
+        // V5.6.28f: UNIFIED LEARNING - No separate bootstrap for LIVE
+        // LIVE inherits all PAPER learning. Both modes use same thresholds.
         val isBootstrapPhase = learningProgress < 0.25
         val isPaperMode = mode == TradeMode.PAPER
-        val canBypassConfidenceFloors = isBootstrapPhase && isPaperMode
+        // V5.6.28f: Allow confidence floor bypass for BOTH modes during learning
+        val canBypassConfidenceFloors = isBootstrapPhase
 
         // ══════════════════════════════════════════════════════════════════════
         // V5.6: ML Engine Prediction Check
@@ -1031,7 +820,8 @@ object FinalDecisionGate {
         // V5.8: In paper mode, bypass AI_DEGRADED confidence floor.
         // Degraded AI means we need MORE learning data, not less. Paper trades with low
         // confidence when AI is degraded are precisely the training signal needed to recover.
-        if (confidence < 32.0 && earlyAIDegraded && !canBypassConfidenceFloors && !isPaperMode) {
+        // V5.6.28f: Apply same rule to LIVE - unified learning
+        if (confidence < 32.0 && earlyAIDegraded && !canBypassConfidenceFloors) {
             ErrorLogger.warn("FDG", "🚫 HARD_KILL: ${ts.symbol} | conf=${confidence.toInt()}% + AI_DEGRADED | DEGRADED_AI_CONFIDENCE_FLOOR_VIOLATED")
 
             return FinalDecision(
