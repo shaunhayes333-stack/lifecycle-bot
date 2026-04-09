@@ -1,7 +1,10 @@
 package com.lifecyclebot.engine
 
+import android.content.Context
 import com.lifecyclebot.data.BotConfig
 import com.lifecyclebot.engine.ErrorLogger
+import org.json.JSONObject
+import java.util.ArrayDeque
 
 /**
  * SmartSizer — wallet-aware dynamic position sizing
@@ -630,6 +633,8 @@ object SmartSizer {
             if (isWin) { winStreakLive++; lossStreakLive = 0 }
             else       { lossStreakLive++; winStreakLive = 0 }
         }
+        // V5.6.28d: Auto-save after streak update
+        save()
     }
 
     fun getPerformanceContext(walletSol: Double, totalTrades: Int, isPaperMode: Boolean = true): PerformanceContext {
@@ -667,6 +672,78 @@ object SmartSizer {
         winStreakPaper = 0; lossStreakPaper = 0
         winStreakLive = 0; lossStreakLive = 0
         resetSessionPeak()
+    }
+    
+    // ═══════════════════════════════════════════════════════════════════════════
+    // V5.6.28d: PERSISTENCE - Save/Restore SmartSizer state across app restarts
+    // ═══════════════════════════════════════════════════════════════════════════
+    
+    private const val PREFS_NAME = "smart_sizer_state"
+    @Volatile private var ctx: Context? = null
+    
+    fun init(context: Context) {
+        ctx = context.applicationContext
+        restore()
+        ErrorLogger.info("SmartSizer", "💾 SmartSizer initialized | Paper: W${winStreakPaper}/L${lossStreakPaper} | Live: W${winStreakLive}/L${lossStreakLive}")
+    }
+    
+    fun save() {
+        val c = ctx ?: return
+        try {
+            val prefs = c.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+            val obj = JSONObject().apply {
+                put("win_streak_paper", winStreakPaper)
+                put("loss_streak_paper", lossStreakPaper)
+                put("win_streak_live", winStreakLive)
+                put("loss_streak_live", lossStreakLive)
+                put("session_peak_paper", _sessionPeakPaper)
+                put("session_peak_live", _sessionPeakLive)
+                // Save recent trades as comma-separated 1s and 0s
+                put("recent_paper", recentTradesPaper.joinToString(",") { if (it) "1" else "0" })
+                put("recent_live", recentTradesLive.joinToString(",") { if (it) "1" else "0" })
+                put("saved_at", System.currentTimeMillis())
+            }
+            prefs.edit().putString("state", obj.toString()).apply()
+        } catch (e: Exception) {
+            ErrorLogger.error("SmartSizer", "💾 Save failed: ${e.message}")
+        }
+    }
+    
+    private fun restore() {
+        val c = ctx ?: return
+        try {
+            val prefs = c.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+            val json = prefs.getString("state", null) ?: return
+            
+            val obj = JSONObject(json)
+            
+            winStreakPaper = obj.optInt("win_streak_paper", 0)
+            lossStreakPaper = obj.optInt("loss_streak_paper", 0)
+            winStreakLive = obj.optInt("win_streak_live", 0)
+            lossStreakLive = obj.optInt("loss_streak_live", 0)
+            _sessionPeakPaper = obj.optDouble("session_peak_paper", 0.0)
+            _sessionPeakLive = obj.optDouble("session_peak_live", 0.0)
+            
+            // Restore recent trades
+            val recentPaperStr = obj.optString("recent_paper", "")
+            if (recentPaperStr.isNotBlank()) {
+                recentTradesPaper.clear()
+                recentPaperStr.split(",").filter { it.isNotBlank() }.forEach {
+                    recentTradesPaper.addLast(it == "1")
+                }
+            }
+            val recentLiveStr = obj.optString("recent_live", "")
+            if (recentLiveStr.isNotBlank()) {
+                recentTradesLive.clear()
+                recentLiveStr.split(",").filter { it.isNotBlank() }.forEach {
+                    recentTradesLive.addLast(it == "1")
+                }
+            }
+            
+            ErrorLogger.info("SmartSizer", "💾 Restored: Paper W${winStreakPaper}/L${lossStreakPaper} | Live W${winStreakLive}/L${lossStreakLive}")
+        } catch (e: Exception) {
+            ErrorLogger.error("SmartSizer", "💾 Restore failed: ${e.message}")
+        }
     }
 }
 

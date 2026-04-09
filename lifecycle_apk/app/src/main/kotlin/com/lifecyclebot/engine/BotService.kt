@@ -213,6 +213,13 @@ class BotService : Service() {
             ErrorLogger.error("BotService", "CashGenerationAI init error: ${e.message}", e)
         }
         
+        // V5.6.28d: Initialize SmartSizer for streak persistence
+        try {
+            SmartSizer.init(applicationContext)
+        } catch (e: Exception) {
+            ErrorLogger.error("BotService", "SmartSizer init error: ${e.message}", e)
+        }
+        
         } catch (e: Exception) {
             ErrorLogger.crash("BotService", "onCreate CRASH: ${e.javaClass.simpleName}: ${e.message}", e)
             android.util.Log.e("BotService", "onCreate CRASH: ${e.javaClass.simpleName}: ${e.message}", e)
@@ -847,6 +854,32 @@ class BotService : Service() {
         } else {
             ErrorLogger.warn("BotService", "Market scanner DISABLED in config")
             addLog("⚠️ Market scanner disabled — enable in settings")
+        }
+
+        // ═══════════════════════════════════════════════════════════════════
+        // V5.6.28d: PRE-POPULATE status.tokens FROM CONFIG WATCHLIST
+        // This ensures tokens appear in UI immediately on bot start,
+        // instead of waiting for scanner to re-discover them.
+        // ═══════════════════════════════════════════════════════════════════
+        try {
+            val watchlistMints = ConfigStore.load(applicationContext).watchlist
+            if (watchlistMints.isNotEmpty()) {
+                synchronized(status.tokens) {
+                    for (mint in watchlistMints) {
+                        if (mint.isNotBlank() && mint.length > 30 && !status.tokens.containsKey(mint)) {
+                            status.tokens[mint] = TokenState(
+                                mint = mint,
+                                symbol = mint.take(6),  // Placeholder, will be updated
+                                name = "Loading...",
+                                source = "CONFIG_WATCHLIST",
+                            )
+                        }
+                    }
+                }
+                addLog("📋 Pre-populated ${watchlistMints.size} tokens from config watchlist")
+            }
+        } catch (e: Exception) {
+            ErrorLogger.error("BotService", "Failed to pre-populate watchlist: ${e.message}")
         }
 
         // Seed candle history for all watchlist tokens
@@ -2836,6 +2869,8 @@ if (deferredCount > 0) {
                     PositionPersistence.saveAllPositions(tokensCopy)
                     // V5.6.28: Also save CashGenerationAI treasury state
                     com.lifecyclebot.v3.scoring.CashGenerationAI.save()
+                    // V5.6.28d: Also save SmartSizer streaks
+                    SmartSizer.save()
                 } catch (e: Exception) {
                     ErrorLogger.debug("BotService", "Position persistence save error: ${e.message}")
                 }
