@@ -656,7 +656,9 @@ class MultiAssetActivity : AppCompatActivity() {
                             }
                             markets.forEach { market ->
                                 try {
-                                    PerpsMarketDataFetcher.getMarketData(market)
+                                    val data = PerpsMarketDataFetcher.getMarketData(market)
+                                    // V5.7.7: Record price for correlation tracking
+                                    CorrelationScanner.recordPrice(market, data.price)
                                 } catch (_: Exception) {}
                             }
                         } catch (_: Exception) {}
