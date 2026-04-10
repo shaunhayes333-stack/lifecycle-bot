@@ -101,6 +101,15 @@ class MultiAssetActivity : AppCompatActivity() {
     private lateinit var heatForex: TextView
     private lateinit var heatCrypto: TextView
     
+    // Markets Readiness UI
+    private lateinit var tvMarketsReadinessBadge: TextView
+    private lateinit var tvMarketsWinRate: TextView
+    private lateinit var tvMarketsTrades: TextView
+    private lateinit var tvMarketsPhase: TextView
+    private lateinit var tvMarketsProgressPct: TextView
+    private lateinit var viewMarketsProgressBar: View
+    private lateinit var tvMarketsRecommendation: TextView
+    
     // Asset logos mapping
     private val assetLogos = mapOf(
         // Stocks
@@ -234,6 +243,15 @@ class MultiAssetActivity : AppCompatActivity() {
         heatForex = findViewById(R.id.heatForex)
         heatCrypto = findViewById(R.id.heatCrypto)
         
+        // Markets Readiness
+        tvMarketsReadinessBadge = findViewById(R.id.tvMarketsReadinessBadge)
+        tvMarketsWinRate = findViewById(R.id.tvMarketsWinRate)
+        tvMarketsTrades = findViewById(R.id.tvMarketsTrades)
+        tvMarketsPhase = findViewById(R.id.tvMarketsPhase)
+        tvMarketsProgressPct = findViewById(R.id.tvMarketsProgressPct)
+        viewMarketsProgressBar = findViewById(R.id.viewMarketsProgressBar)
+        tvMarketsRecommendation = findViewById(R.id.tvMarketsRecommendation)
+        
         // Signals
         signalsContainer = findViewById(R.id.signalsContainer)
         tvNoSignals = findViewById(R.id.tvNoSignals)
@@ -309,6 +327,7 @@ class MultiAssetActivity : AppCompatActivity() {
     private fun refreshData() {
         lifecycleScope.launch(Dispatchers.Main) {
             updateQuickStats()
+            updateMarketsReadiness()
             updateTotalBalance()
             updateSummaryCards()
             updateCategoryHeader()
@@ -364,6 +383,152 @@ class MultiAssetActivity : AppCompatActivity() {
             tvStatsTotalPnl.text = "+0.00"
             tvStatsAiScore.text = "—"
         }
+    }
+    
+    // ═══════════════════════════════════════════════════════════════════════════
+    // MARKETS LIVE READINESS
+    // Requirements to go LIVE:
+    // - Minimum 50 paper trades
+    // - Win rate >= 55%
+    // - Consistent performance over 7 days
+    // ═══════════════════════════════════════════════════════════════════════════
+    
+    private fun updateMarketsReadiness() {
+        try {
+            val readiness = calculateMarketsReadiness()
+            
+            // Update badge
+            tvMarketsReadinessBadge.text = readiness.phase.name
+            tvMarketsReadinessBadge.setBackgroundResource(
+                when (readiness.phase) {
+                    MarketsPhase.BOOTSTRAP -> R.drawable.pill_bg_yellow
+                    MarketsPhase.LEARNING -> R.drawable.pill_bg
+                    MarketsPhase.VALIDATING -> R.drawable.pill_bg
+                    MarketsPhase.READY -> R.drawable.pill_bg_green
+                    MarketsPhase.LIVE -> R.drawable.pill_bg_green
+                }
+            )
+            tvMarketsReadinessBadge.setTextColor(
+                when (readiness.phase) {
+                    MarketsPhase.BOOTSTRAP -> 0xFF000000.toInt()
+                    MarketsPhase.LEARNING -> 0xFFFFFFFF.toInt()
+                    MarketsPhase.VALIDATING -> 0xFFFFFFFF.toInt()
+                    MarketsPhase.READY -> 0xFF000000.toInt()
+                    MarketsPhase.LIVE -> 0xFF000000.toInt()
+                }
+            )
+            
+            // Update stats
+            tvMarketsWinRate.text = if (readiness.winRate > 0) "${"%.1f".format(readiness.winRate)}%" else "--"
+            tvMarketsWinRate.setTextColor(
+                when {
+                    readiness.winRate >= 55 -> 0xFF00FF88.toInt()
+                    readiness.winRate >= 45 -> 0xFFF59E0B.toInt()
+                    readiness.winRate > 0 -> 0xFFFF4444.toInt()
+                    else -> 0xFF6B7280.toInt()
+                }
+            )
+            
+            tvMarketsTrades.text = "${readiness.paperTrades}/${readiness.requiredTrades}"
+            tvMarketsPhase.text = readiness.phase.shortName
+            tvMarketsPhase.setTextColor(
+                when (readiness.phase) {
+                    MarketsPhase.BOOTSTRAP -> 0xFFF59E0B.toInt()
+                    MarketsPhase.LEARNING -> 0xFF3B82F6.toInt()
+                    MarketsPhase.VALIDATING -> 0xFF8B5CF6.toInt()
+                    MarketsPhase.READY -> 0xFF10B981.toInt()
+                    MarketsPhase.LIVE -> 0xFF00FF88.toInt()
+                }
+            )
+            
+            // Update progress bar
+            tvMarketsProgressPct.text = "${readiness.progressPct}%"
+            val params = viewMarketsProgressBar.layoutParams as android.widget.FrameLayout.LayoutParams
+            params.width = 0
+            viewMarketsProgressBar.layoutParams = params
+            viewMarketsProgressBar.post {
+                val parentWidth = (viewMarketsProgressBar.parent as View).width
+                val newWidth = (parentWidth * readiness.progressPct / 100).toInt()
+                val newParams = viewMarketsProgressBar.layoutParams
+                newParams.width = newWidth
+                viewMarketsProgressBar.layoutParams = newParams
+            }
+            
+            // Update recommendation
+            tvMarketsRecommendation.text = readiness.recommendation
+            
+        } catch (_: Exception) {
+            tvMarketsReadinessBadge.text = "INIT"
+            tvMarketsWinRate.text = "--"
+            tvMarketsTrades.text = "0/50"
+            tvMarketsPhase.text = "BOOT"
+            tvMarketsProgressPct.text = "0%"
+            tvMarketsRecommendation.text = "Initializing Markets trading system..."
+        }
+    }
+    
+    enum class MarketsPhase(val shortName: String) {
+        BOOTSTRAP("BOOT"),   // 0-10 trades
+        LEARNING("LEARN"),   // 10-30 trades
+        VALIDATING("VALID"), // 30-50 trades
+        READY("READY"),      // 50+ trades, 55%+ win rate
+        LIVE("LIVE")         // User activated live mode
+    }
+    
+    data class MarketsReadiness(
+        val phase: MarketsPhase,
+        val paperTrades: Int,
+        val requiredTrades: Int,
+        val winRate: Double,
+        val requiredWinRate: Double,
+        val progressPct: Int,
+        val recommendation: String
+    )
+    
+    private fun calculateMarketsReadiness(): MarketsReadiness {
+        // Get stats from PerpsTraderAI (tracks all Markets trades)
+        val paperTrades = PerpsTraderAI.getLifetimeTrades()
+        val wins = PerpsTraderAI.getLifetimeWins()
+        val losses = PerpsTraderAI.getLifetimeLosses()
+        val winRate = if (paperTrades > 0) (wins.toDouble() / paperTrades * 100) else 0.0
+        
+        // Requirements
+        val requiredTrades = 50
+        val requiredWinRate = 55.0
+        
+        // Calculate phase
+        val phase = when {
+            paperTrades < 10 -> MarketsPhase.BOOTSTRAP
+            paperTrades < 30 -> MarketsPhase.LEARNING
+            paperTrades < requiredTrades -> MarketsPhase.VALIDATING
+            winRate >= requiredWinRate -> MarketsPhase.READY
+            else -> MarketsPhase.VALIDATING
+        }
+        
+        // Calculate progress (0-100%)
+        // 50% weight on trades, 50% weight on win rate
+        val tradeProgress = (paperTrades.toDouble() / requiredTrades * 50).coerceIn(0.0, 50.0)
+        val winRateProgress = if (winRate >= requiredWinRate) 50.0 else (winRate / requiredWinRate * 50).coerceIn(0.0, 45.0)
+        val progressPct = (tradeProgress + winRateProgress).toInt().coerceIn(0, 100)
+        
+        // Generate recommendation
+        val recommendation = when {
+            paperTrades < 10 -> "🚀 Getting started! Complete ${10 - paperTrades} more trades to exit bootstrap phase."
+            paperTrades < 30 -> "📚 Learning mode: ${30 - paperTrades} trades to validation. Current win rate: ${"%.1f".format(winRate)}%"
+            paperTrades < requiredTrades -> "✅ Validating: ${requiredTrades - paperTrades} more trades needed. Win rate: ${"%.1f".format(winRate)}%"
+            winRate < requiredWinRate -> "⚠️ Need ${"%.1f".format(requiredWinRate)}%+ win rate. Current: ${"%.1f".format(winRate)}%. Keep learning!"
+            else -> "🎉 READY FOR LIVE! $paperTrades trades with ${"%.1f".format(winRate)}% win rate. Enable LIVE mode in settings."
+        }
+        
+        return MarketsReadiness(
+            phase = phase,
+            paperTrades = paperTrades,
+            requiredTrades = requiredTrades,
+            winRate = winRate,
+            requiredWinRate = requiredWinRate,
+            progressPct = progressPct,
+            recommendation = recommendation
+        )
     }
     
     private fun updateTotalBalance() {

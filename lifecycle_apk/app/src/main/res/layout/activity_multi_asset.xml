@@ -206,6 +206,205 @@
         </LinearLayout>
 
         <!-- ═══════════════════════════════════════════════════════════════
+             MARKETS LIVE READINESS GAUGE
+             Shows when Markets trading is ready to go LIVE
+             ═══════════════════════════════════════════════════════════════ -->
+        <LinearLayout
+            android:id="@+id/cardMarketsReadiness"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="vertical"
+            android:background="@drawable/section_card_bg"
+            android:paddingStart="12dp"
+            android:paddingEnd="12dp"
+            android:paddingTop="10dp"
+            android:paddingBottom="10dp"
+            android:layout_marginStart="12dp"
+            android:layout_marginEnd="12dp"
+            android:layout_marginBottom="8dp">
+
+            <!-- Header -->
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="horizontal"
+                android:gravity="center_vertical">
+                
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="🚀 Markets Live Readiness"
+                    android:textColor="#FFD700"
+                    android:textSize="12sp"
+                    android:textStyle="bold"/>
+                
+                <View
+                    android:layout_width="0dp"
+                    android:layout_height="1dp"
+                    android:layout_weight="1"/>
+                
+                <!-- Status Badge -->
+                <TextView
+                    android:id="@+id/tvMarketsReadinessBadge"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="LEARNING"
+                    android:textColor="#000000"
+                    android:textSize="9sp"
+                    android:textStyle="bold"
+                    android:fontFamily="monospace"
+                    android:background="@drawable/pill_bg_yellow"
+                    android:paddingStart="6dp"
+                    android:paddingEnd="6dp"
+                    android:paddingTop="2dp"
+                    android:paddingBottom="2dp"/>
+            </LinearLayout>
+
+            <!-- Stats Row -->
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="horizontal"
+                android:layout_marginTop="8dp"
+                android:gravity="center_vertical">
+                
+                <!-- Paper Win Rate -->
+                <LinearLayout
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:orientation="vertical"
+                    android:gravity="center">
+                    <TextView
+                        android:id="@+id/tvMarketsWinRate"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="--"
+                        android:textColor="#FFFFFF"
+                        android:textSize="18sp"
+                        android:textStyle="bold"/>
+                    <TextView
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="Win Rate"
+                        android:textColor="#9CA3AF"
+                        android:textSize="9sp"/>
+                </LinearLayout>
+                
+                <View
+                    android:layout_width="1dp"
+                    android:layout_height="28dp"
+                    android:background="#333333"/>
+                
+                <!-- Paper Trades -->
+                <LinearLayout
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:orientation="vertical"
+                    android:gravity="center">
+                    <TextView
+                        android:id="@+id/tvMarketsTrades"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="0/50"
+                        android:textColor="#FFFFFF"
+                        android:textSize="18sp"
+                        android:textStyle="bold"/>
+                    <TextView
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="Trades"
+                        android:textColor="#9CA3AF"
+                        android:textSize="9sp"/>
+                </LinearLayout>
+                
+                <View
+                    android:layout_width="1dp"
+                    android:layout_height="28dp"
+                    android:background="#333333"/>
+                
+                <!-- Phase -->
+                <LinearLayout
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:orientation="vertical"
+                    android:gravity="center">
+                    <TextView
+                        android:id="@+id/tvMarketsPhase"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="BOOT"
+                        android:textColor="#F59E0B"
+                        android:textSize="14sp"
+                        android:textStyle="bold"
+                        android:fontFamily="monospace"/>
+                    <TextView
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="Phase"
+                        android:textColor="#9CA3AF"
+                        android:textSize="9sp"/>
+                </LinearLayout>
+            </LinearLayout>
+
+            <!-- Progress Bar -->
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="vertical"
+                android:layout_marginTop="8dp">
+                
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="horizontal"
+                    android:gravity="center_vertical">
+                    <TextView
+                        android:id="@+id/tvMarketsProgressLabel"
+                        android:layout_width="0dp"
+                        android:layout_height="wrap_content"
+                        android:layout_weight="1"
+                        android:text="Progress to LIVE"
+                        android:textColor="#6B7280"
+                        android:textSize="9sp"/>
+                    <TextView
+                        android:id="@+id/tvMarketsProgressPct"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="0%"
+                        android:textColor="#FFD700"
+                        android:textSize="10sp"
+                        android:textStyle="bold"/>
+                </LinearLayout>
+                
+                <!-- Progress Bar Background -->
+                <FrameLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="6dp"
+                    android:layout_marginTop="4dp"
+                    android:background="@drawable/progress_bar_bg">
+                    <View
+                        android:id="@+id/viewMarketsProgressBar"
+                        android:layout_width="0dp"
+                        android:layout_height="match_parent"
+                        android:background="@drawable/progress_bar_fill_gold"/>
+                </FrameLayout>
+            </LinearLayout>
+
+            <!-- Recommendation -->
+            <TextView
+                android:id="@+id/tvMarketsRecommendation"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="Complete 50 paper trades with 55%+ win rate to unlock LIVE mode"
+                android:textColor="#9CA3AF"
+                android:textSize="10sp"
+                android:layout_marginTop="6dp"/>
+        </LinearLayout>
+
+        <!-- ═══════════════════════════════════════════════════════════════
              QUICK ACTIONS BAR
              ═══════════════════════════════════════════════════════════════ -->
         <LinearLayout
