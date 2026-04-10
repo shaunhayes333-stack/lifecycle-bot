@@ -740,347 +740,47 @@ object PerpsMarketDataFetcher {
     }
     
     /**
-     * V5.7.7: Fetch real stock price - TRY ALL FREE SOURCES
-     * Priority: Yahoo v7 → Yahoo v8 → Stooq → CNBC → Google Finance
-     */
-    private suspend fun fetchYahooPrice(symbol: String): Double? = withContext(Dispatchers.IO) {
-        
-        // ═══════════════════════════════════════════════════════════════════
-        // SOURCE 1: YAHOO FINANCE v7 QUOTE API
-        // ═══════════════════════════════════════════════════════════════════
-        try {
-            val request = Request.Builder()
-                .url("${YAHOO_QUOTE_URL}${symbol}")
-                .header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36")
-                .header("Accept", "application/json")
-                .build()
-            
-            val response = client.newCall(request).execute()
-            if (response.isSuccessful) {
-                val body = response.body?.string()
-                if (body != null && body.contains("quoteResponse")) {
-                    val json = JSONObject(body)
-                    val quoteResponse = json.optJSONObject("quoteResponse")
-                    val result = quoteResponse?.optJSONArray("result")
-                    
-                    if (result != null && result.length() > 0) {
-                        val quote = result.getJSONObject(0)
-                        val price = quote.optDouble("regularMarketPrice", 0.0)
-                        val change = quote.optDouble("regularMarketChangePercent", 0.0)
-                        
-                        if (price > 0) {
-                            stockPrices[symbol] = price
-                            yahooChangeCache[symbol] = change
-                            priceSourceCache[symbol] = "YAHOO_V7"
-                            ErrorLogger.info(TAG, "📊 Yahoo V7: $symbol = \$${price.fmt(2)}")
-                            return@withContext price
-                        }
-                    }
-                }
-            }
-            response.close()
-        } catch (e: Exception) {
-            ErrorLogger.debug(TAG, "Yahoo V7 error for $symbol")
-        }
-        
-        // ═══════════════════════════════════════════════════════════════════
-        // SOURCE 2: YAHOO FINANCE v8 CHART API
-        // ═══════════════════════════════════════════════════════════════════
-        try {
-            val request = Request.Builder()
-                .url("${YAHOO_CHART_URL}${symbol}?interval=1d&range=1d")
-                .header("User-Agent", "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7)")
-                .build()
-            
-            val response = client.newCall(request).execute()
-            if (response.isSuccessful) {
-                val body = response.body?.string()
-                if (body != null && body.contains("chart")) {
-                    val json = JSONObject(body)
-                    val chart = json.optJSONObject("chart")
-                    val result = chart?.optJSONArray("result")
-                    
-                    if (result != null && result.length() > 0) {
-                        val meta = result.getJSONObject(0).optJSONObject("meta")
-                        val price = meta?.optDouble("regularMarketPrice", 0.0) ?: 0.0
-                        val prevClose = meta?.optDouble("chartPreviousClose", price) ?: price
-                        
-                        if (price > 0) {
-                            val change = if (prevClose > 0) ((price - prevClose) / prevClose) * 100 else 0.0
-                            stockPrices[symbol] = price
-                            yahooChangeCache[symbol] = change
-                            priceSourceCache[symbol] = "YAHOO_V8"
-                            ErrorLogger.info(TAG, "📊 Yahoo V8: $symbol = \$${price.fmt(2)}")
-                            return@withContext price
-                        }
-                    }
-                }
-            }
-            response.close()
-        } catch (e: Exception) {
-            ErrorLogger.debug(TAG, "Yahoo V8 error for $symbol")
-        }
-        
-        // ═══════════════════════════════════════════════════════════════════
-        // SOURCE 3: STOOQ (Free, no API key)
-        // ═══════════════════════════════════════════════════════════════════
-        try {
-            // Stooq uses .US suffix for US stocks
-            val stooqSymbol = "${symbol}.US"
-            val request = Request.Builder()
-                .url("${STOOQ_URL}${stooqSymbol}&f=sd2t2ohlcvn&h&e=csv")
-                .header("User-Agent", "Mozilla/5.0")
-                .build()
-            
-            val response = client.newCall(request).execute()
-            if (response.isSuccessful) {
-                val body = response.body?.string()
-                if (body != null && !body.contains("N/D") && body.contains(",")) {
-                    // CSV format: Symbol,Date,Time,Open,High,Low,Close,Volume,Name
-                    val lines = body.trim().split("\n")
-                    if (lines.size >= 2) {
-                        val data = lines[1].split(",")
-                        if (data.size >= 7) {
-                            val price = data[6].toDoubleOrNull() ?: 0.0  // Close price
-                            if (price > 0) {
-                                stockPrices[symbol] = price
-                                priceSourceCache[symbol] = "STOOQ"
-                                ErrorLogger.info(TAG, "📊 Stooq: $symbol = \$${price.fmt(2)}")
-                                return@withContext price
-                            }
-                        }
-                    }
-                }
-            }
-            response.close()
-        } catch (e: Exception) {
-            ErrorLogger.debug(TAG, "Stooq error for $symbol")
-        }
-        
-        // ═══════════════════════════════════════════════════════════════════
-        // SOURCE 4: CNBC QUOTE API (Free)
-        // ═══════════════════════════════════════════════════════════════════
-        try {
-            val request = Request.Builder()
-                .url("${CNBC_URL}${symbol}")
-                .header("User-Agent", "Mozilla/5.0")
-                .header("Accept", "application/json")
-                .build()
-            
-            val response = client.newCall(request).execute()
-            if (response.isSuccessful) {
-                val body = response.body?.string()
-                if (body != null && body.contains("FormattedQuoteResult")) {
-                    val json = JSONObject(body)
-                    val result = json.optJSONObject("FormattedQuoteResult")
-                    val data = result?.optJSONArray("FormattedQuote")
-                    
-                    if (data != null && data.length() > 0) {
-                        val quote = data.getJSONObject(0)
-                        val priceStr = quote.optString("last", "0").replace(",", "")
-                        val price = priceStr.toDoubleOrNull() ?: 0.0
-                        val changeStr = quote.optString("change_pct", "0").replace("%", "")
-                        val change = changeStr.toDoubleOrNull() ?: 0.0
-                        
-                        if (price > 0) {
-                            stockPrices[symbol] = price
-                            yahooChangeCache[symbol] = change
-                            priceSourceCache[symbol] = "CNBC"
-                            ErrorLogger.info(TAG, "📊 CNBC: $symbol = \$${price.fmt(2)}")
-                            return@withContext price
-                        }
-                    }
-                }
-            }
-            response.close()
-        } catch (e: Exception) {
-            ErrorLogger.debug(TAG, "CNBC error for $symbol")
-        }
-        
-        // ═══════════════════════════════════════════════════════════════════
-        // SOURCE 5: GOOGLE FINANCE (Scrape)
-        // ═══════════════════════════════════════════════════════════════════
-        try {
-            // Google Finance URL format: /quote/SYMBOL:EXCHANGE
-            val exchanges = listOf("NASDAQ", "NYSE", "NYSEARCA", "BATS")
-            for (exchange in exchanges) {
-                try {
-                    val request = Request.Builder()
-                        .url("${GOOGLE_FINANCE_URL}${symbol}:${exchange}")
-                        .header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64)")
-                        .build()
-                    
-                    val response = client.newCall(request).execute()
-                    if (response.isSuccessful) {
-                        val body = response.body?.string()
-                        if (body != null) {
-                            // Look for price in the HTML - data-last-price attribute
-                            val priceRegex = """data-last-price="([0-9.]+)"""".toRegex()
-                            val match = priceRegex.find(body)
-                            if (match != null) {
-                                val price = match.groupValues[1].toDoubleOrNull() ?: 0.0
-                                if (price > 0) {
-                                    stockPrices[symbol] = price
-                                    priceSourceCache[symbol] = "GOOGLE"
-                                    ErrorLogger.info(TAG, "📊 Google: $symbol = \$${price.fmt(2)}")
-                                    response.close()
-                                    return@withContext price
-                                }
-                            }
-                        }
-                    }
-                    response.close()
-                } catch (_: Exception) {}
-            }
-        } catch (e: Exception) {
-            ErrorLogger.debug(TAG, "Google error for $symbol")
-        }
-        
-        // ═══════════════════════════════════════════════════════════════════
-        // SOURCE 6: FINNHUB (Free tier - 60 calls/min)
-        // ═══════════════════════════════════════════════════════════════════
-        try {
-            // Finnhub free tier doesn't require API key for basic quote
-            val request = Request.Builder()
-                .url("https://finnhub.io/api/v1/quote?symbol=${symbol}&token=demo")
-                .header("User-Agent", "Mozilla/5.0")
-                .build()
-            
-            val response = client.newCall(request).execute()
-            if (response.isSuccessful) {
-                val body = response.body?.string()
-                if (body != null && body.contains("\"c\":")) {
-                    val json = JSONObject(body)
-                    val price = json.optDouble("c", 0.0)  // Current price
-                    val prevClose = json.optDouble("pc", price)  // Previous close
-                    
-                    if (price > 0) {
-                        val change = if (prevClose > 0) ((price - prevClose) / prevClose) * 100 else 0.0
-                        stockPrices[symbol] = price
-                        yahooChangeCache[symbol] = change
-                        priceSourceCache[symbol] = "FINNHUB"
-                        ErrorLogger.info(TAG, "📊 Finnhub: $symbol = \$${price.fmt(2)}")
-                        return@withContext price
-                    }
-                }
-            }
-            response.close()
-        } catch (e: Exception) {
-            ErrorLogger.debug(TAG, "Finnhub error for $symbol")
-        }
-        
-        // ═══════════════════════════════════════════════════════════════════
-        // SOURCE 7: ALPHA VANTAGE (Free tier - 5 calls/min)
-        // ═══════════════════════════════════════════════════════════════════
-        try {
-            // Alpha Vantage demo key
-            val request = Request.Builder()
-                .url("https://www.alphavantage.co/query?function=GLOBAL_QUOTE&symbol=${symbol}&apikey=demo")
-                .header("User-Agent", "Mozilla/5.0")
-                .build()
-            
-            val response = client.newCall(request).execute()
-            if (response.isSuccessful) {
-                val body = response.body?.string()
-                if (body != null && body.contains("Global Quote")) {
-                    val json = JSONObject(body)
-                    val quote = json.optJSONObject("Global Quote")
-                    if (quote != null) {
-                        val priceStr = quote.optString("05. price", "0")
-                        val price = priceStr.toDoubleOrNull() ?: 0.0
-                        val changeStr = quote.optString("10. change percent", "0%").replace("%", "")
-                        val change = changeStr.toDoubleOrNull() ?: 0.0
-                        
-                        if (price > 0) {
-                            stockPrices[symbol] = price
-                            yahooChangeCache[symbol] = change
-                            priceSourceCache[symbol] = "ALPHAVANTAGE"
-                            ErrorLogger.info(TAG, "📊 AlphaVantage: $symbol = \$${price.fmt(2)}")
-                            return@withContext price
-                        }
-                    }
-                }
-            }
-            response.close()
-        } catch (e: Exception) {
-            ErrorLogger.debug(TAG, "AlphaVantage error for $symbol")
-        }
-        
-        // ═══════════════════════════════════════════════════════════════════
-        // SOURCE 8: TWELVE DATA (Free tier)
-        // ═══════════════════════════════════════════════════════════════════
-        try {
-            val request = Request.Builder()
-                .url("https://api.twelvedata.com/price?symbol=${symbol}&apikey=demo")
-                .header("User-Agent", "Mozilla/5.0")
-                .build()
-            
-            val response = client.newCall(request).execute()
-            if (response.isSuccessful) {
-                val body = response.body?.string()
-                if (body != null && body.contains("price")) {
-                    val json = JSONObject(body)
-                    val priceStr = json.optString("price", "0")
-                    val price = priceStr.toDoubleOrNull() ?: 0.0
-                    
-                    if (price > 0) {
-                        stockPrices[symbol] = price
-                        priceSourceCache[symbol] = "TWELVEDATA"
-                        ErrorLogger.info(TAG, "📊 TwelveData: $symbol = \$${price.fmt(2)}")
-                        return@withContext price
-                    }
-                }
-            }
-            response.close()
-        } catch (e: Exception) {
-            ErrorLogger.debug(TAG, "TwelveData error for $symbol")
-        }
-        
-        // ═══════════════════════════════════════════════════════════════════
-        // ALL SOURCES FAILED
-        // ═══════════════════════════════════════════════════════════════════
-        ErrorLogger.warn(TAG, "⚠️ ALL SOURCES FAILED for $symbol - using cached price")
-        priceSourceCache[symbol] = "CACHED"
-        return@withContext null
-    }
-    
-    /**
      * Get the data source that was used for a symbol
      */
     fun getPriceSource(symbol: String): String = priceSourceCache[symbol] ?: "UNKNOWN"
     
     /**
-     * V5.7.7: Fallback stock data fetch - Try Yahoo Finance first for REAL prices
+     * V5.7.7: Fallback stock data fetch - Uses PriceAggregator with 20+ sources
      */
     private suspend fun fetchStockDataFallback(market: PerpsMarket): PerpsMarketData = withContext(Dispatchers.IO) {
-        // Try Yahoo Finance for REAL prices
-        val yahooPrice = fetchYahooPrice(market.symbol)
+        // V5.7.7: Use unified PriceAggregator with ALL sources
+        val result = PriceAggregator.getPrice(market.symbol)
         
-        if (yahooPrice != null && yahooPrice > 0) {
-            val change = yahooChangeCache[market.symbol] ?: 0.0
+        if (result != null && result.price > 0) {
+            stockPrices[market.symbol] = result.price
+            yahooChangeCache[market.symbol] = result.change24h
+            priceSourceCache[market.symbol] = result.source
+            
+            ErrorLogger.info(TAG, "📊 ${result.source}: ${market.symbol} = \$${result.price.fmt(2)} (${if (result.change24h >= 0) "+" else ""}${result.change24h.fmt(2)}%)")
             
             return@withContext PerpsMarketData(
                 market = market,
-                price = yahooPrice,
-                indexPrice = yahooPrice,
-                markPrice = yahooPrice,
+                price = result.price,
+                indexPrice = result.price,
+                markPrice = result.price,
                 fundingRate = 0.0,
                 fundingRateAnnualized = 0.0,
                 nextFundingTime = 0,
                 openInterestLong = getEstimatedOI(market, true),
                 openInterestShort = getEstimatedOI(market, false),
                 volume24h = getEstimatedVolume(market),
-                high24h = yahooPrice * (1 + kotlin.math.abs(change) / 100 + 0.005),
-                low24h = yahooPrice * (1 - kotlin.math.abs(change) / 100 - 0.005),
-                priceChange24hPct = change,
+                high24h = result.price * (1 + kotlin.math.abs(result.change24h) / 100 + 0.005),
+                low24h = result.price * (1 - kotlin.math.abs(result.change24h) / 100 - 0.005),
+                priceChange24hPct = result.change24h,
             )
         }
         
-        // Last resort: Use cached price (no change data available)
+        // Last resort: Use cached price
         val price = stockPrices[market.symbol] ?: run {
-            ErrorLogger.warn(TAG, "⚠️ NO PRICE SOURCE for ${market.symbol}")
+            ErrorLogger.warn(TAG, "⚠️ ALL SOURCES FAILED for ${market.symbol}")
             100.0
         }
+        priceSourceCache[market.symbol] = "CACHED"
         
         return@withContext PerpsMarketData(
             market = market,
