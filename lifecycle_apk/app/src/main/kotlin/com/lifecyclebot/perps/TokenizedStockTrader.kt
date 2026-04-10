@@ -93,6 +93,12 @@ object TokenizedStockTrader {
         // V5.7.6: isSpot property for UI compatibility
         val isSpot: Boolean get() = leverage == 1.0
         
+        // V5.7.6b: Aliases for MultiAssetActivity position card compatibility
+        val size: Double get() = sizeSol
+        val openTime: Long get() = entryTime
+        val takeProfit: Double get() = takeProfitPrice ?: (entryPrice * if (direction == PerpsDirection.LONG) 1.05 else 0.95)
+        val stopLoss: Double get() = stopLossPrice ?: (entryPrice * if (direction == PerpsDirection.LONG) 0.97 else 1.03)
+        
         fun getUnrealizedPnlPct(): Double {
             if (entryPrice <= 0) return 0.0
             val priceDiff = when (direction) {

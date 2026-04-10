@@ -709,10 +709,14 @@ class MultiAssetActivity : AppCompatActivity() {
                 }
             )
             
-            // Total P&L (all markets combined)
-            val totalPnl = PerpsTraderAI.getDailyPnlSol()
-            tvStatsTotalPnl.text = "${if (totalPnl >= 0) "+" else ""}${"%.2f".format(totalPnl)}"
-            tvStatsTotalPnl.setTextColor(if (totalPnl >= 0) 0xFF00FF88.toInt() else 0xFFFF4444.toInt())
+            // Total P&L in USD (all markets combined)
+            val totalPnlSol = PerpsTraderAI.getDailyPnlSol()
+            val solPrice = try {
+                PerpsMarketDataFetcher.getCachedPrice(PerpsMarket.SOL)?.price ?: SOL_PRICE_USD
+            } catch (_: Exception) { SOL_PRICE_USD }
+            val totalPnlUsd = totalPnlSol * solPrice
+            tvStatsTotalPnl.text = "${if (totalPnlUsd >= 0) "+" else ""}\$${"%,.0f".format(totalPnlUsd)}"
+            tvStatsTotalPnl.setTextColor(if (totalPnlUsd >= 0) 0xFF00FF88.toInt() else 0xFFFF4444.toInt())
             
             // AI Score (readiness from PerpsTraderAI)
             val readiness = PerpsTraderAI.getLiveReadiness()
@@ -727,7 +731,7 @@ class MultiAssetActivity : AppCompatActivity() {
         } catch (_: Exception) {
             tvStats24hTrades.text = "0"
             tvStatsWinRate.text = "—%"
-            tvStatsTotalPnl.text = "+0.00"
+            tvStatsTotalPnl.text = "+$0"
             tvStatsAiScore.text = "—"
         }
     }
@@ -1046,7 +1050,7 @@ class MultiAssetActivity : AppCompatActivity() {
                 wallet?.getSolBalance() ?: -1.0
             } catch (_: Exception) { -1.0 }
             
-            val paperBalance = try {
+            val paperBalanceSol = try {
                 TokenizedStockTrader.getBalance() +
                 CommoditiesTrader.getBalance() +
                 MetalsTrader.getBalance() +
@@ -1061,18 +1065,17 @@ class MultiAssetActivity : AppCompatActivity() {
             
             withContext(Dispatchers.Main) {
                 if (liveWalletSol > 0) {
-                    // LIVE wallet connected - show live balance
+                    // LIVE wallet connected - show USD value
                     val usdValue = liveWalletSol * solPriceUsd
-                    tvTotalBalance.text = "${"%.2f".format(liveWalletSol)} ◎ LIVE"
+                    tvTotalBalance.text = "\$${"%,.0f".format(usdValue)} LIVE"
                     tvTotalBalance.setTextColor(0xFF00FF88.toInt())  // Green for live
-                    
-                    // Also update the balance container tooltip
-                    balanceContainer.contentDescription = "Live: ${"%.2f".format(liveWalletSol)} SOL (~\$${"%.0f".format(usdValue)})"
+                    balanceContainer.contentDescription = "Live: \$${"%,.0f".format(usdValue)} (${"%.2f".format(liveWalletSol)} SOL)"
                 } else {
-                    // Paper mode - show paper balance
-                    tvTotalBalance.text = "${"%.2f".format(paperBalance)} ◎ PAPER"
+                    // Paper mode - show USD value
+                    val usdValue = paperBalanceSol * solPriceUsd
+                    tvTotalBalance.text = "\$${"%,.0f".format(usdValue)} PAPER"
                     tvTotalBalance.setTextColor(0xFFF59E0B.toInt())  // Yellow for paper
-                    balanceContainer.contentDescription = "Paper: ${"%.2f".format(paperBalance)} SOL"
+                    balanceContainer.contentDescription = "Paper: \$${"%,.0f".format(usdValue)} (${"%.2f".format(paperBalanceSol)} SOL)"
                 }
             }
         }
@@ -1082,10 +1085,15 @@ class MultiAssetActivity : AppCompatActivity() {
         val positions = getCurrentPositionCount()
         tvActivePositions.text = positions.toString()
         
-        // Calculate today's P&L (simplified - sum of open positions)
-        val pnl = getCurrentPnl()
-        tvTodayPnl.text = "${if (pnl >= 0) "+" else ""}${"%.2f".format(pnl)} ◎"
-        tvTodayPnl.setTextColor(if (pnl >= 0) 0xFF00FF88.toInt() else 0xFFFF4444.toInt())
+        // Calculate today's P&L in USD
+        val pnlSol = getCurrentPnl()
+        val solPrice = try {
+            PerpsMarketDataFetcher.getCachedPrice(PerpsMarket.SOL)?.price ?: SOL_PRICE_USD
+        } catch (_: Exception) { SOL_PRICE_USD }
+        val pnlUsd = pnlSol * solPrice
+        
+        tvTodayPnl.text = "${if (pnlUsd >= 0) "+" else ""}\$${"%,.2f".format(pnlUsd)}"
+        tvTodayPnl.setTextColor(if (pnlUsd >= 0) 0xFF00FF88.toInt() else 0xFFFF4444.toInt())
         
         // Win rate - use PerpsTraderAI stats (Markets-specific, not Meme stats)
         try {
@@ -1157,84 +1165,250 @@ class MultiAssetActivity : AppCompatActivity() {
     
     private fun createPositionCard(pos: PositionInfo): View {
         val card = LinearLayout(this).apply {
-            orientation = LinearLayout.HORIZONTAL
-            setPadding(12, 12, 12, 12)
+            orientation = LinearLayout.VERTICAL
+            setPadding(14, 12, 14, 12)
             setBackgroundResource(R.drawable.section_card_bg)
             layoutParams = LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT,
                 LinearLayout.LayoutParams.WRAP_CONTENT
             ).apply {
-                bottomMargin = 8
+                bottomMargin = 10
             }
             isClickable = true
             isFocusable = true
         }
         
+        // ═══════════════════════════════════════════════════════════════════════
+        // TOP ROW: Logo + Symbol/Direction + P&L
+        // ═══════════════════════════════════════════════════════════════════════
+        val topRow = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = android.view.Gravity.CENTER_VERTICAL
+        }
+        
         // Asset Logo
-        val logoView = TextView(this).apply {
+        topRow.addView(TextView(this).apply {
             text = getAssetLogo(pos.symbol)
-            textSize = 24f
+            textSize = 28f
             layoutParams = LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.WRAP_CONTENT,
                 LinearLayout.LayoutParams.WRAP_CONTENT
-            ).apply {
-                marginEnd = 12
-            }
-            gravity = android.view.Gravity.CENTER
-        }
-        card.addView(logoView)
+            ).apply { marginEnd = 12 }
+        })
         
-        // Middle Column: Symbol + Direction + Entry
-        val middleCol = LinearLayout(this).apply {
+        // Symbol + Direction + Type
+        val symbolCol = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
         }
-        middleCol.addView(TextView(this).apply {
+        symbolCol.addView(TextView(this).apply {
             text = "${pos.directionEmoji} ${pos.symbol}"
             setTextColor(0xFFFFFFFF.toInt())
-            textSize = 14f
+            textSize = 16f
             setTypeface(null, android.graphics.Typeface.BOLD)
         })
-        middleCol.addView(TextView(this).apply {
-            // V5.7.6b: Show current live price instead of entry price
-            text = "${pos.typeLabel} @ ${pos.currentPrice}"
-            setTextColor(0xFF6B7280.toInt())
-            textSize = 10f
-        })
-        // Mini sparkline placeholder
-        middleCol.addView(createMiniChart(pos.pnlPct))
-        card.addView(middleCol)
-        
-        // Right Column: P&L + Close Button
-        val rightCol = LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL
-            gravity = android.view.Gravity.END or android.view.Gravity.CENTER_VERTICAL
-        }
-        rightCol.addView(TextView(this).apply {
-            text = "${if (pos.pnl >= 0) "+" else ""}${"%.4f".format(pos.pnl)} ◎"
-            setTextColor(if (pos.pnl >= 0) 0xFF00FF88.toInt() else 0xFFFF4444.toInt())
-            textSize = 13f
-            setTypeface(null, android.graphics.Typeface.BOLD)
-        })
-        rightCol.addView(TextView(this).apply {
-            text = "${if (pos.pnlPct >= 0) "+" else ""}${"%.2f".format(pos.pnlPct)}%"
-            setTextColor(if (pos.pnlPct >= 0) 0xFF10B981.toInt() else 0xFFEF4444.toInt())
+        symbolCol.addView(TextView(this).apply {
+            text = "${pos.typeLabel} • Size: \$${"%,.0f".format(pos.sizeUsd)}"
+            setTextColor(0xFF9CA3AF.toInt())
             textSize = 11f
         })
+        topRow.addView(symbolCol)
+        
+        // P&L Column (right side)
+        val pnlCol = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            gravity = android.view.Gravity.END
+        }
+        pnlCol.addView(TextView(this).apply {
+            text = "${if (pos.pnlUsd >= 0) "+" else ""}\$${"%,.2f".format(pos.pnlUsd)}"
+            setTextColor(if (pos.pnlUsd >= 0) 0xFF00FF88.toInt() else 0xFFFF4444.toInt())
+            textSize = 16f
+            setTypeface(null, android.graphics.Typeface.BOLD)
+        })
+        pnlCol.addView(TextView(this).apply {
+            text = "${if (pos.pnlPct >= 0) "+" else ""}${"%.2f".format(pos.pnlPct)}%"
+            setTextColor(if (pos.pnlPct >= 0) 0xFF10B981.toInt() else 0xFFEF4444.toInt())
+            textSize = 12f
+        })
+        topRow.addView(pnlCol)
+        card.addView(topRow)
+        
+        // ═══════════════════════════════════════════════════════════════════════
+        // PRICE ROW: Entry → Current with visual progress
+        // ═══════════════════════════════════════════════════════════════════════
+        val priceRow = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            layoutParams = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT
+            ).apply { topMargin = 10 }
+            gravity = android.view.Gravity.CENTER_VERTICAL
+        }
+        priceRow.addView(TextView(this).apply {
+            text = "Entry: ${pos.entryPrice}"
+            setTextColor(0xFF6B7280.toInt())
+            textSize = 11f
+            layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
+        })
+        priceRow.addView(TextView(this).apply {
+            text = "→"
+            setTextColor(0xFF4B5563.toInt())
+            textSize = 14f
+            setPadding(8, 0, 8, 0)
+        })
+        priceRow.addView(TextView(this).apply {
+            text = "Now: ${pos.currentPrice}"
+            setTextColor(0xFFFFFFFF.toInt())
+            textSize = 11f
+            setTypeface(null, android.graphics.Typeface.BOLD)
+            layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
+            gravity = android.view.Gravity.END
+        })
+        card.addView(priceRow)
+        
+        // ═══════════════════════════════════════════════════════════════════════
+        // SL/TP ROW: Stop Loss and Take Profit targets
+        // ═══════════════════════════════════════════════════════════════════════
+        val slTpRow = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            layoutParams = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT
+            ).apply { topMargin = 6 }
+        }
+        // Stop Loss
+        slTpRow.addView(LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
+            gravity = android.view.Gravity.START or android.view.Gravity.CENTER_VERTICAL
+            
+            addView(TextView(this@MultiAssetActivity).apply {
+                text = "🔴"
+                textSize = 10f
+            })
+            addView(TextView(this@MultiAssetActivity).apply {
+                text = " SL: ${pos.stopLossPrice}"
+                setTextColor(0xFFEF4444.toInt())
+                textSize = 10f
+            })
+        })
+        // Take Profit
+        slTpRow.addView(LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
+            gravity = android.view.Gravity.END or android.view.Gravity.CENTER_VERTICAL
+            
+            addView(TextView(this@MultiAssetActivity).apply {
+                text = "🟢"
+                textSize = 10f
+            })
+            addView(TextView(this@MultiAssetActivity).apply {
+                text = " TP: ${pos.takeProfitPrice}"
+                setTextColor(0xFF10B981.toInt())
+                textSize = 10f
+            })
+        })
+        card.addView(slTpRow)
+        
+        // ═══════════════════════════════════════════════════════════════════════
+        // PROGRESS BAR: Visual SL/TP progress indicator
+        // ═══════════════════════════════════════════════════════════════════════
+        card.addView(createSlTpProgressBar(pos))
+        
+        // ═══════════════════════════════════════════════════════════════════════
+        // BOTTOM ROW: Time open + Close button
+        // ═══════════════════════════════════════════════════════════════════════
+        val bottomRow = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            layoutParams = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT
+            ).apply { topMargin = 8 }
+            gravity = android.view.Gravity.CENTER_VERTICAL
+        }
+        
+        // Time open
+        val timeOpen = if (pos.openTime > 0) {
+            val minutes = (System.currentTimeMillis() - pos.openTime) / 60000
+            when {
+                minutes < 60 -> "${minutes}m"
+                minutes < 1440 -> "${minutes / 60}h ${minutes % 60}m"
+                else -> "${minutes / 1440}d ${(minutes % 1440) / 60}h"
+            }
+        } else "—"
+        
+        bottomRow.addView(TextView(this).apply {
+            text = "⏱ Open: $timeOpen"
+            setTextColor(0xFF6B7280.toInt())
+            textSize = 10f
+            layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
+        })
+        
         // Close button
-        rightCol.addView(TextView(this).apply {
-            text = "✕ Close"
+        bottomRow.addView(TextView(this).apply {
+            text = "✕ CLOSE"
             setTextColor(0xFFFF6B6B.toInt())
-            textSize = 9f
-            setPadding(8, 4, 8, 4)
+            textSize = 11f
+            setTypeface(null, android.graphics.Typeface.BOLD)
+            setPadding(16, 6, 16, 6)
+            setBackgroundColor(0x33FF6B6B.toInt())
             setOnClickListener { showClosePositionDialog(pos) }
         })
-        card.addView(rightCol)
+        card.addView(bottomRow)
         
         // Click to expand details
         card.setOnClickListener { showPositionDetails(pos) }
         
         return card
+    }
+    
+    /**
+     * Creates a visual progress bar showing position progress between SL and TP
+     */
+    private fun createSlTpProgressBar(pos: PositionInfo): View {
+        return LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            layoutParams = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                12
+            ).apply { topMargin = 6 }
+            setBackgroundColor(0xFF1F2937.toInt())
+            
+            // Calculate progress: -100% (at SL) to +100% (at TP), 0% at entry
+            val progress = pos.pnlPct.coerceIn(-100.0, 100.0)
+            
+            // Left side (loss zone - red)
+            if (progress < 0) {
+                val lossWidth = (kotlin.math.abs(progress) / 100.0 * 50).toInt().coerceIn(1, 50)
+                addView(View(this@MultiAssetActivity).apply {
+                    layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.MATCH_PARENT, (50 - lossWidth).toFloat())
+                    setBackgroundColor(0xFF1F2937.toInt())
+                })
+                addView(View(this@MultiAssetActivity).apply {
+                    layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.MATCH_PARENT, lossWidth.toFloat())
+                    setBackgroundColor(0xFFEF4444.toInt())
+                })
+                addView(View(this@MultiAssetActivity).apply {
+                    layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.MATCH_PARENT, 50f)
+                    setBackgroundColor(0xFF1F2937.toInt())
+                })
+            } else {
+                // Right side (profit zone - green)
+                val profitWidth = (progress / 100.0 * 50).toInt().coerceIn(1, 50)
+                addView(View(this@MultiAssetActivity).apply {
+                    layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.MATCH_PARENT, 50f)
+                    setBackgroundColor(0xFF1F2937.toInt())
+                })
+                addView(View(this@MultiAssetActivity).apply {
+                    layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.MATCH_PARENT, profitWidth.toFloat())
+                    setBackgroundColor(0xFF10B981.toInt())
+                })
+                addView(View(this@MultiAssetActivity).apply {
+                    layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.MATCH_PARENT, (50 - profitWidth).toFloat())
+                    setBackgroundColor(0xFF1F2937.toInt())
+                })
+            }
+        }
     }
     
     private fun createMiniChart(pnlPct: Double): View {
@@ -1684,8 +1858,16 @@ class MultiAssetActivity : AppCompatActivity() {
         val typeLabel: String,
         val entryPrice: String,
         val currentPrice: String,  // V5.7.6b: Live price
-        val pnl: Double,
-        val pnlPct: Double
+        val pnl: Double,           // P&L in SOL
+        val pnlUsd: Double,        // V5.7.6b: P&L in USD
+        val pnlPct: Double,
+        // V5.7.6b: Extended position info
+        val takeProfitPrice: String = "",
+        val stopLossPrice: String = "",
+        val sizeSol: Double = 0.0,
+        val sizeUsd: Double = 0.0,
+        val openTime: Long = 0L,
+        val leverage: Double = 1.0
     )
     
     private fun getCurrentPositionCount(): Int {
@@ -1741,18 +1923,31 @@ class MultiAssetActivity : AppCompatActivity() {
     }
     
     private fun getCurrentPositions(): List<PositionInfo> {
+        // Get SOL price for USD conversion
+        val solPrice = try {
+            PerpsMarketDataFetcher.getCachedPrice(PerpsMarket.SOL)?.price ?: SOL_PRICE_USD
+        } catch (_: Exception) { SOL_PRICE_USD }
+        
         return try {
             when (currentTab) {
                 AssetTab.PERPS -> {
                     PerpsExecutionEngine.getActivePositions().map { pos ->
+                        val pnlSol = pos.getPnlSol()
                         PositionInfo(
                             symbol = pos.market.symbol,
                             directionEmoji = pos.direction.emoji,
                             typeLabel = "${pos.leverage.toInt()}x",
                             entryPrice = "$${pos.entryPrice.fmt(2)}",
                             currentPrice = "$${pos.currentPrice.fmt(2)}",
-                            pnl = pos.getPnlSol(),
-                            pnlPct = pos.getPnlPercent()
+                            pnl = pnlSol,
+                            pnlUsd = pnlSol * solPrice,
+                            pnlPct = pos.getPnlPercent(),
+                            takeProfitPrice = "$${pos.takeProfit.fmt(2)}",
+                            stopLossPrice = "$${pos.stopLoss.fmt(2)}",
+                            sizeSol = pos.size,
+                            sizeUsd = pos.size * solPrice,
+                            openTime = pos.openTime,
+                            leverage = pos.leverage
                         )
                     }
                 }
@@ -1760,14 +1955,22 @@ class MultiAssetActivity : AppCompatActivity() {
                     val positions = if (showSpotOnly) TokenizedStockTrader.getSpotPositions()
                                    else TokenizedStockTrader.getLeveragePositions()
                     positions.map { pos ->
+                        val pnlSol = pos.getPnlSol()
                         PositionInfo(
                             symbol = pos.market.symbol,
                             directionEmoji = pos.direction.emoji,
                             typeLabel = if (pos.isSpot) "SPOT" else "${pos.leverage.toInt()}x",
                             entryPrice = "$${pos.entryPrice.fmt(2)}",
                             currentPrice = "$${pos.currentPrice.fmt(2)}",
-                            pnl = pos.getPnlSol(),
-                            pnlPct = pos.getPnlPercent()
+                            pnl = pnlSol,
+                            pnlUsd = pnlSol * solPrice,
+                            pnlPct = pos.getPnlPercent(),
+                            takeProfitPrice = "$${pos.takeProfit.fmt(2)}",
+                            stopLossPrice = "$${pos.stopLoss.fmt(2)}",
+                            sizeSol = pos.size,
+                            sizeUsd = pos.size * solPrice,
+                            openTime = pos.openTime,
+                            leverage = pos.leverage
                         )
                     }
                 }
@@ -1775,14 +1978,22 @@ class MultiAssetActivity : AppCompatActivity() {
                     val positions = if (showSpotOnly) CommoditiesTrader.getSpotPositions()
                                    else CommoditiesTrader.getLeveragePositions()
                     positions.map { pos ->
+                        val pnlSol = pos.getPnlSol()
                         PositionInfo(
                             symbol = pos.market.symbol,
                             directionEmoji = pos.direction.emoji,
                             typeLabel = if (pos.isSpot) "SPOT" else "${pos.leverage.toInt()}x",
                             entryPrice = "$${pos.entryPrice.fmt(2)}",
                             currentPrice = "$${pos.currentPrice.fmt(2)}",
-                            pnl = pos.getPnlSol(),
-                            pnlPct = pos.getPnlPercent()
+                            pnl = pnlSol,
+                            pnlUsd = pnlSol * solPrice,
+                            pnlPct = pos.getPnlPercent(),
+                            takeProfitPrice = "$${pos.takeProfit.fmt(2)}",
+                            stopLossPrice = "$${pos.stopLoss.fmt(2)}",
+                            sizeSol = pos.size,
+                            sizeUsd = pos.size * solPrice,
+                            openTime = pos.openTime,
+                            leverage = if (pos.isSpot) 1.0 else 2.0
                         )
                     }
                 }
@@ -1790,14 +2001,22 @@ class MultiAssetActivity : AppCompatActivity() {
                     val positions = if (showSpotOnly) MetalsTrader.getSpotPositions()
                                    else MetalsTrader.getLeveragePositions()
                     positions.map { pos ->
+                        val pnlSol = pos.getPnlSol()
                         PositionInfo(
                             symbol = pos.market.symbol,
                             directionEmoji = pos.direction.emoji,
                             typeLabel = if (pos.leverage == 1.0) "SPOT" else "${pos.leverage.toInt()}x",
                             entryPrice = "$${pos.entryPrice.fmt(2)}",
                             currentPrice = "$${pos.currentPrice.fmt(2)}",
-                            pnl = pos.getPnlSol(),
-                            pnlPct = pos.getPnlPercent()
+                            pnl = pnlSol,
+                            pnlUsd = pnlSol * solPrice,
+                            pnlPct = pos.getPnlPercent(),
+                            takeProfitPrice = "$${pos.takeProfit.fmt(2)}",
+                            stopLossPrice = "$${pos.stopLoss.fmt(2)}",
+                            sizeSol = pos.size,
+                            sizeUsd = pos.size * solPrice,
+                            openTime = pos.openTime,
+                            leverage = pos.leverage
                         )
                     }
                 }
@@ -1805,14 +2024,22 @@ class MultiAssetActivity : AppCompatActivity() {
                     val positions = if (showSpotOnly) ForexTrader.getSpotPositions()
                                    else ForexTrader.getLeveragePositions()
                     positions.map { pos ->
+                        val pnlSol = pos.getPnlSol()
                         PositionInfo(
                             symbol = pos.market.symbol,
                             directionEmoji = pos.direction.emoji,
                             typeLabel = if (pos.leverage == 1.0) "SPOT" else "${pos.leverage.toInt()}x",
                             entryPrice = pos.entryPrice.fmt(5),
                             currentPrice = pos.currentPrice.fmt(5),
-                            pnl = pos.getPnlSol(),
-                            pnlPct = pos.getPnlPercent()
+                            pnl = pnlSol,
+                            pnlUsd = pnlSol * solPrice,
+                            pnlPct = pos.getPnlPercent(),
+                            takeProfitPrice = pos.takeProfit.fmt(5),
+                            stopLossPrice = pos.stopLoss.fmt(5),
+                            sizeSol = pos.size,
+                            sizeUsd = pos.size * solPrice,
+                            openTime = pos.openTime,
+                            leverage = pos.leverage
                         )
                     }
                 }
