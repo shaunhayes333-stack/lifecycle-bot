@@ -11,6 +11,7 @@ import androidx.swiperefreshlayout.widget.SwipeRefreshLayout
 import com.google.android.material.tabs.TabLayout
 import com.lifecyclebot.R
 import com.lifecyclebot.engine.ErrorLogger
+import com.lifecyclebot.engine.WalletManager
 import com.lifecyclebot.perps.*
 import kotlinx.coroutines.*
 
@@ -466,16 +467,40 @@ class MultiAssetActivity : AppCompatActivity() {
     // V5.7.6b: Show balance dialog with refresh option
     private fun showBalanceDialog() {
         lifecycleScope.launch {
-            val totalSol = getTotalMarketsBalance()
+            val totalPaperSol = getTotalMarketsBalance()
             val solPrice = try {
                 withContext(Dispatchers.IO) { PerpsMarketDataFetcher.getSolPrice() }
             } catch (_: Exception) { SOL_PRICE_USD }
-            val totalUsd = totalSol * solPrice
+            val totalPaperUsd = totalPaperSol * solPrice
+            
+            // V5.7.6b: Get LIVE wallet balance
+            val liveWalletSol = try {
+                withContext(Dispatchers.IO) {
+                    WalletManager.getWallet()?.getSolBalance() ?: -1.0
+                }
+            } catch (_: Exception) { -1.0 }
+            val liveWalletUsd = if (liveWalletSol > 0) liveWalletSol * solPrice else 0.0
+            
+            val liveStatus = if (liveWalletSol > 0) {
+                """
+                |
+                |🟢 LIVE WALLET CONNECTED
+                |Balance: ${"%.4f".format(liveWalletSol)} SOL (~${"$%.2f".format(liveWalletUsd)})
+                |
+                |⚠️ LIVE trading will execute REAL transactions!
+                """.trimMargin()
+            } else {
+                """
+                |
+                |🔴 NO WALLET CONNECTED
+                |Connect wallet in Settings to trade LIVE
+                """.trimMargin()
+            }
             
             val message = """
                 |💰 Markets Trading Balance
                 |
-                |Total: ${"%.2f".format(totalSol)} SOL (~${"$%.0f".format(totalUsd)})
+                |📄 PAPER MODE: ${"%.2f".format(totalPaperSol)} SOL (~${"$%.0f".format(totalPaperUsd)})
                 |
                 |📊 By Trader:
                 |• Stocks: ${"%.2f".format(TokenizedStockTrader.getBalance())} SOL
@@ -483,29 +508,35 @@ class MultiAssetActivity : AppCompatActivity() {
                 |• Metals: ${"%.2f".format(MetalsTrader.getBalance())} SOL
                 |• Forex: ${"%.2f".format(ForexTrader.getBalance())} SOL
                 |• Perps: ${"%.2f".format(PerpsTraderAI.getBalance())} SOL
-                |
-                |${if (totalUsd < MIN_BALANCE_USD) "⚠️ Below minimum ($${MIN_BALANCE_USD.toInt()})" else "✅ Above minimum"}
+                |$liveStatus
+                |${if (totalPaperUsd < MIN_BALANCE_USD) "⚠️ Paper below minimum ($${MIN_BALANCE_USD.toInt()})" else ""}
             """.trimMargin()
             
             android.app.AlertDialog.Builder(this@MultiAssetActivity, android.R.style.Theme_DeviceDefault_Dialog_Alert)
                 .setTitle("Balance Management")
                 .setMessage(message)
-                .setPositiveButton("Refresh to \$15K") { _, _ ->
+                .setPositiveButton("Refresh Paper \$15K") { _, _ ->
                     lifecycleScope.launch(Dispatchers.IO) {
                         val price = try { PerpsMarketDataFetcher.getSolPrice() } catch (_: Exception) { SOL_PRICE_USD }
                         val requiredSol = MIN_BALANCE_USD / price
                         refreshAllBalances(requiredSol)
                         withContext(Dispatchers.Main) {
                             android.widget.Toast.makeText(this@MultiAssetActivity, 
-                                "💰 Balance refreshed to \$15,000", android.widget.Toast.LENGTH_SHORT).show()
+                                "💰 Paper balance refreshed to \$15,000", android.widget.Toast.LENGTH_SHORT).show()
                             refreshData()
                         }
                     }
                 }
-                .setNeutralButton("Sync with Meme") { _, _ ->
-                    // TODO: Sync Markets balance with Meme trader balance
-                    android.widget.Toast.makeText(this@MultiAssetActivity, 
-                        "Meme sync coming soon", android.widget.Toast.LENGTH_SHORT).show()
+                .setNeutralButton(if (liveWalletSol > 0) "Use LIVE" else "Connect Wallet") { _, _ ->
+                    if (liveWalletSol > 0) {
+                        // TODO: Switch to LIVE mode
+                        android.widget.Toast.makeText(this@MultiAssetActivity, 
+                            "⚠️ LIVE trading coming soon! Currently paper only.", android.widget.Toast.LENGTH_LONG).show()
+                    } else {
+                        // Open settings to connect wallet
+                        android.widget.Toast.makeText(this@MultiAssetActivity, 
+                            "Go to Main screen → Settings → Connect Wallet", android.widget.Toast.LENGTH_LONG).show()
+                    }
                 }
                 .setNegativeButton("Close", null)
                 .show()
@@ -899,15 +930,43 @@ class MultiAssetActivity : AppCompatActivity() {
     }
     
     private fun updateTotalBalance() {
-        val total = try {
-            TokenizedStockTrader.getBalance() +
-            CommoditiesTrader.getBalance() +
-            MetalsTrader.getBalance() +
-            ForexTrader.getBalance() +
-            PerpsExecutionEngine.getPaperBalance()
-        } catch (_: Exception) { 250.0 }
-        
-        tvTotalBalance.text = "${"%.2f".format(total)} ◎"
+        lifecycleScope.launch(Dispatchers.IO) {
+            // V5.7.6b: Check for LIVE wallet balance first
+            val liveWalletSol = try {
+                val wallet = WalletManager.getWallet()
+                wallet?.getSolBalance() ?: -1.0
+            } catch (_: Exception) { -1.0 }
+            
+            val paperBalance = try {
+                TokenizedStockTrader.getBalance() +
+                CommoditiesTrader.getBalance() +
+                MetalsTrader.getBalance() +
+                ForexTrader.getBalance() +
+                PerpsExecutionEngine.getPaperBalance()
+            } catch (_: Exception) { 250.0 }
+            
+            // Get live SOL price from Pyth
+            val solPriceUsd = try {
+                PerpsMarketDataFetcher.getSolPrice()
+            } catch (_: Exception) { SOL_PRICE_USD }
+            
+            withContext(Dispatchers.Main) {
+                if (liveWalletSol > 0) {
+                    // LIVE wallet connected - show live balance
+                    val usdValue = liveWalletSol * solPriceUsd
+                    tvTotalBalance.text = "${"%.2f".format(liveWalletSol)} ◎ LIVE"
+                    tvTotalBalance.setTextColor(0xFF00FF88.toInt())  // Green for live
+                    
+                    // Also update the balance container tooltip
+                    balanceContainer.contentDescription = "Live: ${"%.2f".format(liveWalletSol)} SOL (~\$${"%.0f".format(usdValue)})"
+                } else {
+                    // Paper mode - show paper balance
+                    tvTotalBalance.text = "${"%.2f".format(paperBalance)} ◎ PAPER"
+                    tvTotalBalance.setTextColor(0xFFF59E0B.toInt())  // Yellow for paper
+                    balanceContainer.contentDescription = "Paper: ${"%.2f".format(paperBalance)} SOL"
+                }
+            }
+        }
     }
     
     private fun updateSummaryCards() {
