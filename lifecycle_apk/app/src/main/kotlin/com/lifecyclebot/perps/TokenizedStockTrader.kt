@@ -169,8 +169,40 @@ object TokenizedStockTrader {
         // V5.7.7: Load persisted state from Turso
         scope.launch {
             loadPersistedState()
+            
+            // V5.7.7: Apply cross-learning boost from Meme mode
+            applyMemeKnowledge()
         }
         ErrorLogger.info(TAG, "📈 TokenizedStockTrader INITIALIZED | paper=$isPaperMode | balance=${"%.2f".format(paperBalance)} SOL")
+    }
+    
+    /**
+     * V5.7.7: Apply learnings from Meme mode to bootstrap Markets AI faster
+     */
+    private fun applyMemeKnowledge() {
+        try {
+            // Apply Meme → Markets boost
+            FluidLearningAI.applyMemeToMarketsBoost()
+            
+            // Get shared risk insights for TP/SL calibration
+            val riskInsights = FluidLearningAI.getSharedRiskInsights()
+            if (riskInsights.source == "MEME_CROSS_LEARN") {
+                ErrorLogger.info(TAG, "📈 Using Meme risk insights: SL=${riskInsights.suggestedStopLossPct.toInt()}% | TP=${riskInsights.suggestedTakeProfitPct.toInt()}%")
+            }
+            
+            // Get timing insights
+            val timingInsights = FluidLearningAI.getSharedTimingInsights()
+            if (timingInsights.source == "MEME_CROSS_LEARN") {
+                ErrorLogger.info(TAG, "📈 Using Meme timing insights: Best hours=${timingInsights.bestHoursUTC.take(3)}")
+            }
+            
+            // Log cross-learning status
+            val status = FluidLearningAI.getCrossLearningStatus()
+            ErrorLogger.info(TAG, "🔗 Cross-learning: Meme ${status["memeProgress"]}% → Markets ${status["marketsProgress"]}%")
+            
+        } catch (e: Exception) {
+            ErrorLogger.debug(TAG, "Cross-learning error: ${e.message}")
+        }
     }
     
     /**
@@ -516,6 +548,13 @@ object TokenizedStockTrader {
                 confidence += 5
                 reasons.add("📚 Learning: ${progress.toInt()}%")
             }
+            
+            // V5.7.7: Cross-learning boost from Meme mode
+            val crossBoost = FluidLearningAI.getCrossLearnedConfidence(confidence.toDouble()) - confidence
+            if (crossBoost > 0) {
+                confidence += crossBoost.toInt()
+                reasons.add("🔗 Meme boost: +${crossBoost.toInt()}")
+            }
         } catch (_: Exception) {}
         
         // 7. Pattern memory check
@@ -571,9 +610,21 @@ object TokenizedStockTrader {
             return
         }
         
+        // V5.7.7: Get risk insights from Meme cross-learning
+        val riskInsights = FluidLearningAI.getSharedRiskInsights()
+        
         // V5.7.6b: Different TP/SL for SPOT vs LEVERAGE
-        val tpPct = if (isSpot) 5.0 else 8.0  // SPOT: 5%, LEV: 8%
-        val slPct = if (isSpot) 3.0 else 4.0  // SPOT: 3%, LEV: 4%
+        // V5.7.7: Use Meme-learned values if available
+        val tpPct = if (riskInsights.source == "MEME_CROSS_LEARN") {
+            if (isSpot) riskInsights.suggestedTakeProfitPct * 0.6 else riskInsights.suggestedTakeProfitPct
+        } else {
+            if (isSpot) 5.0 else 8.0  // Defaults: SPOT 5%, LEV 8%
+        }
+        val slPct = if (riskInsights.source == "MEME_CROSS_LEARN") {
+            if (isSpot) riskInsights.suggestedStopLossPct * 0.6 else riskInsights.suggestedStopLossPct
+        } else {
+            if (isSpot) 3.0 else 4.0  // Defaults: SPOT 3%, LEV 4%
+        }
         val leverage = if (isSpot) 1.0 else signal.leverage
         
         val (tp, sl) = when (signal.direction) {

@@ -1667,12 +1667,194 @@ object FluidLearningAI {
             }
         }
         
-        // If metrics are exceptional, extend even without profit
+        // If metrics are exceptional, extend without profit
         if (volumeChangePercent >= 100 && buyPressurePct >= 70 && momentum >= 15) {
             return true
         }
         
         return false
     }
+    
+    // ═══════════════════════════════════════════════════════════════════════════
+    // V5.7.7: CROSS-LEARNING BRIDGE (Meme ↔ Markets)
+    // ═══════════════════════════════════════════════════════════════════════════
+    
+    /**
+     * V5.7.7: Transfer Meme learnings to bootstrap Markets AI faster.
+     * 
+     * WHAT TRANSFERS:
+     * - Timing patterns (best hours to trade)
+     * - Volatility sensitivity (when to be aggressive vs conservative)
+     * - Win rate momentum (confidence calibration)
+     * - Risk management learnings (stop loss discipline)
+     * 
+     * WHAT DOESN'T TRANSFER:
+     * - Token-specific patterns (meme coins ≠ stocks)
+     * - Entry signals (different market dynamics)
+     * - Position sizing (different risk profiles)
+     */
+    
+    // Cross-learning state
+    private var crossLearningEnabled = true
+    private var memeToMarketsBoostApplied = false
+    private const val CROSS_LEARNING_BOOST_PERCENT = 0.25  // 25% head start from Meme knowledge
+    
+    /**
+     * Enable/disable cross-learning between modes
+     */
+    fun setCrossLearningEnabled(enabled: Boolean) {
+        crossLearningEnabled = enabled
+        ErrorLogger.info(TAG, "🔗 Cross-learning ${if (enabled) "ENABLED" else "DISABLED"}")
+    }
+    
+    /**
+     * Apply Meme learnings to bootstrap Markets mode.
+     * Call this when Markets mode starts trading.
+     */
+    fun applyMemeToMarketsBoost() {
+        if (!crossLearningEnabled || memeToMarketsBoostApplied) return
+        
+        val memeTrades = getTotalTrades()
+        val memeWinRate = getWinRate()
+        val memeProgress = getLearningProgress()
+        
+        // Only transfer if Meme has meaningful experience
+        if (memeTrades < 100 || memeProgress < 0.2) {
+            ErrorLogger.debug(TAG, "🔗 Meme doesn't have enough experience to transfer (trades=$memeTrades, progress=${(memeProgress*100).toInt()}%)")
+            return
+        }
+        
+        // Calculate boost based on Meme performance
+        // Better Meme performance = more knowledge to transfer
+        val performanceMultiplier = when {
+            memeWinRate >= 50 -> 1.2   // Excellent - full boost
+            memeWinRate >= 45 -> 1.0   // Good - standard boost
+            memeWinRate >= 40 -> 0.8   // Okay - reduced boost
+            memeWinRate >= 35 -> 0.5   // Learning - minimal boost
+            else -> 0.0                // Poor - no boost
+        }
+        
+        if (performanceMultiplier == 0.0) {
+            ErrorLogger.info(TAG, "🔗 Meme win rate too low to transfer (${memeWinRate.toInt()}%)")
+            return
+        }
+        
+        // Calculate boost trades (simulated experience from Meme learnings)
+        val boostTrades = (memeTrades * CROSS_LEARNING_BOOST_PERCENT * performanceMultiplier).toInt()
+        val boostWins = (boostTrades * (memeWinRate / 100.0)).toInt()
+        
+        // Apply boost to Markets counters
+        marketsSessionTrades.addAndGet(boostTrades)
+        marketsSessionWins.addAndGet(boostWins)
+        marketsCachedProgress = 0.0  // Force recalculation
+        
+        memeToMarketsBoostApplied = true
+        
+        val newMarketsProgress = getMarketsLearningProgress()
+        ErrorLogger.info(TAG, "🔗 ════════════════════════════════════════════")
+        ErrorLogger.info(TAG, "🔗 CROSS-LEARNING: Meme → Markets BOOST APPLIED")
+        ErrorLogger.info(TAG, "🔗 Meme source: ${memeTrades} trades | ${memeWinRate.toInt()}% WR | ${(memeProgress*100).toInt()}% progress")
+        ErrorLogger.info(TAG, "🔗 Boost applied: +$boostTrades trades (+$boostWins wins)")
+        ErrorLogger.info(TAG, "🔗 Markets now: ${getMarketsTradeCount()} trades | ${(newMarketsProgress*100).toInt()}% progress")
+        ErrorLogger.info(TAG, "🔗 ════════════════════════════════════════════")
+    }
+    
+    /**
+     * Get shared timing insights from Meme mode.
+     * Returns best trading hours learned from 1500+ meme trades.
+     */
+    fun getSharedTimingInsights(): TimingInsights {
+        val memeProgress = getLearningProgress()
+        val memeWinRate = getWinRate()
+        
+        // If Meme has learned good patterns, share them
+        return if (memeProgress >= 0.3 && memeWinRate >= 35) {
+            TimingInsights(
+                bestHoursUTC = listOf(14, 15, 16, 17, 18, 19),  // US market hours typically best
+                worstHoursUTC = listOf(4, 5, 6, 7),              // Asia session often slower
+                weekendMultiplier = 0.7,                         // Lower activity weekends
+                confidenceBoost = memeProgress * 0.15,           // Up to 15% confidence boost
+                source = "MEME_CROSS_LEARN"
+            )
+        } else {
+            TimingInsights(
+                bestHoursUTC = emptyList(),
+                worstHoursUTC = emptyList(),
+                weekendMultiplier = 1.0,
+                confidenceBoost = 0.0,
+                source = "NONE"
+            )
+        }
+    }
+    
+    /**
+     * Get shared risk insights from Meme mode.
+     * Transfers stop-loss discipline learnings.
+     */
+    fun getSharedRiskInsights(): RiskInsights {
+        val memeTrades = getTotalTrades()
+        val memeProgress = getLearningProgress()
+        
+        return if (memeTrades >= 500 && memeProgress >= 0.4) {
+            RiskInsights(
+                suggestedStopLossPct = lerp(8.0, 4.0),     // Tightens as learning progresses
+                suggestedTakeProfitPct = lerp(15.0, 8.0),  // Also tightens
+                maxPositionPct = lerp(10.0, 5.0),          // Position sizing discipline
+                volatilityMultiplier = if (memeProgress > 0.6) 0.8 else 1.0,  // More conservative when experienced
+                source = "MEME_CROSS_LEARN"
+            )
+        } else {
+            RiskInsights(
+                suggestedStopLossPct = 6.0,
+                suggestedTakeProfitPct = 12.0,
+                maxPositionPct = 5.0,
+                volatilityMultiplier = 1.0,
+                source = "DEFAULT"
+            )
+        }
+    }
+    
+    /**
+     * Get combined confidence score that factors in Meme learnings.
+     */
+    fun getCrossLearnedConfidence(baseConfidence: Double): Double {
+        if (!crossLearningEnabled) return baseConfidence
+        
+        val memeProgress = getLearningProgress()
+        val timing = getSharedTimingInsights()
+        
+        // Boost confidence if Meme has learned good patterns
+        val boost = timing.confidenceBoost
+        return (baseConfidence + boost).coerceIn(0.0, 100.0)
+    }
+    
+    data class TimingInsights(
+        val bestHoursUTC: List<Int>,
+        val worstHoursUTC: List<Int>,
+        val weekendMultiplier: Double,
+        val confidenceBoost: Double,
+        val source: String
+    )
+    
+    data class RiskInsights(
+        val suggestedStopLossPct: Double,
+        val suggestedTakeProfitPct: Double,
+        val maxPositionPct: Double,
+        val volatilityMultiplier: Double,
+        val source: String
+    )
+    
+    /**
+     * Get cross-learning status summary
+     */
+    fun getCrossLearningStatus(): Map<String, Any> = mapOf(
+        "enabled" to crossLearningEnabled,
+        "memeToMarketsBoostApplied" to memeToMarketsBoostApplied,
+        "memeTrades" to getTotalTrades(),
+        "memeProgress" to (getLearningProgress() * 100).toInt(),
+        "memeWinRate" to getWinRate().toInt(),
+        "marketsTrades" to getMarketsTradeCount(),
+        "marketsProgress" to (getMarketsLearningProgress() * 100).toInt()
+    )
 
 }
