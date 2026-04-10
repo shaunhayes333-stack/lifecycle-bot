@@ -716,31 +716,32 @@ object FluidLearningAI {
     // ═══════════════════════════════════════════════════════════════════════════
     // MULTI-MARKET TRADING THRESHOLDS (Used by TokenizedStockTrader, CommoditiesTrader, etc.)
     // V5.7.6: Dynamic thresholds for SPOT and LEVERAGE trading
+    // V5.7.6b: BROADENED to match Meme trader philosophy - loose bootstrap, tight mature
     // ═══════════════════════════════════════════════════════════════════════════
     
-    // SPOT trading thresholds (lower risk)
-    private const val MARKETS_SPOT_SCORE_BOOTSTRAP = 25
-    private const val MARKETS_SPOT_SCORE_MATURE = 40
-    private const val MARKETS_SPOT_CONF_BOOTSTRAP = 20
-    private const val MARKETS_SPOT_CONF_MATURE = 35
+    // SPOT trading thresholds - BROADENED like meme trader
+    private const val MARKETS_SPOT_SCORE_BOOTSTRAP = 15    // V5.7.6b: Was 25, now matches meme's aggression
+    private const val MARKETS_SPOT_SCORE_MATURE = 35       // V5.7.6b: Was 40, still selective when mature
+    private const val MARKETS_SPOT_CONF_BOOTSTRAP = 10     // V5.7.6b: Was 20, very loose at start
+    private const val MARKETS_SPOT_CONF_MATURE = 30        // V5.7.6b: Was 35
     
-    // LEVERAGE trading thresholds (higher risk, slightly stricter)
-    private const val MARKETS_LEV_SCORE_BOOTSTRAP = 30
-    private const val MARKETS_LEV_SCORE_MATURE = 50
-    private const val MARKETS_LEV_CONF_BOOTSTRAP = 25
-    private const val MARKETS_LEV_CONF_MATURE = 40
+    // LEVERAGE trading thresholds - BROADENED but slightly stricter than SPOT
+    private const val MARKETS_LEV_SCORE_BOOTSTRAP = 20     // V5.7.6b: Was 30, now more aggressive
+    private const val MARKETS_LEV_SCORE_MATURE = 40        // V5.7.6b: Was 50
+    private const val MARKETS_LEV_CONF_BOOTSTRAP = 15      // V5.7.6b: Was 25, loose at start
+    private const val MARKETS_LEV_CONF_MATURE = 35         // V5.7.6b: Was 40
     
-    // Take Profit targets (wider during learning, tighter when mature)
-    private const val MARKETS_TP_BOOTSTRAP = 3.0    // 3% TP during learning (quick wins)
-    private const val MARKETS_TP_MATURE = 8.0       // 8% TP when mature (let winners run)
+    // Take Profit targets - WIDER range for learning
+    private const val MARKETS_TP_BOOTSTRAP = 2.0    // V5.7.6b: Was 3%, now 2% quick scalps
+    private const val MARKETS_TP_MATURE = 12.0      // V5.7.6b: Was 8%, now 12% let winners run
     
-    // Stop Loss targets (wider during learning)
-    private const val MARKETS_SL_BOOTSTRAP = -8.0   // -8% SL during learning (room to breathe)
-    private const val MARKETS_SL_MATURE = -4.0      // -4% SL when mature (tighter risk)
+    // Stop Loss targets - WIDER at bootstrap for learning
+    private const val MARKETS_SL_BOOTSTRAP = -12.0  // V5.7.6b: Was -8%, now -12% room to breathe
+    private const val MARKETS_SL_MATURE = -5.0      // V5.7.6b: Was -4%, slightly looser
     
-    // Position size as % of balance
-    private const val MARKETS_SIZE_BOOTSTRAP = 3.0  // 3% per position during learning
-    private const val MARKETS_SIZE_MATURE = 5.0     // 5% per position when mature
+    // Position size as % of balance - MORE AGGRESSIVE
+    private const val MARKETS_SIZE_BOOTSTRAP = 2.0  // V5.7.6b: Was 3%, start smaller for safety
+    private const val MARKETS_SIZE_MATURE = 8.0     // V5.7.6b: Was 5%, scale up with confidence
     
     /** Get fluid score threshold for SPOT trades */
     fun getMarketsSpotScoreThreshold(): Int = lerp(MARKETS_SPOT_SCORE_BOOTSTRAP.toDouble(), MARKETS_SPOT_SCORE_MATURE.toDouble()).toInt()

@@ -429,6 +429,7 @@ class MultiAssetActivity : AppCompatActivity() {
                     MarketsPhase.BOOTSTRAP -> R.drawable.pill_bg_yellow
                     MarketsPhase.LEARNING -> R.drawable.pill_bg
                     MarketsPhase.VALIDATING -> R.drawable.pill_bg
+                    MarketsPhase.MATURING -> R.drawable.pill_bg
                     MarketsPhase.READY -> R.drawable.pill_bg_green
                     MarketsPhase.LIVE -> R.drawable.pill_bg_green
                 }
@@ -438,6 +439,7 @@ class MultiAssetActivity : AppCompatActivity() {
                     MarketsPhase.BOOTSTRAP -> 0xFF000000.toInt()
                     MarketsPhase.LEARNING -> 0xFFFFFFFF.toInt()
                     MarketsPhase.VALIDATING -> 0xFFFFFFFF.toInt()
+                    MarketsPhase.MATURING -> 0xFFFFFFFF.toInt()
                     MarketsPhase.READY -> 0xFF000000.toInt()
                     MarketsPhase.LIVE -> 0xFF000000.toInt()
                 }
@@ -461,6 +463,7 @@ class MultiAssetActivity : AppCompatActivity() {
                     MarketsPhase.BOOTSTRAP -> 0xFFF59E0B.toInt()
                     MarketsPhase.LEARNING -> 0xFF3B82F6.toInt()
                     MarketsPhase.VALIDATING -> 0xFF8B5CF6.toInt()
+                    MarketsPhase.MATURING -> 0xFF06B6D4.toInt()  // Cyan for maturing
                     MarketsPhase.READY -> 0xFF10B981.toInt()
                     MarketsPhase.LIVE -> 0xFF00FF88.toInt()
                 }
@@ -485,7 +488,7 @@ class MultiAssetActivity : AppCompatActivity() {
         } catch (_: Exception) {
             tvMarketsReadinessBadge.text = "INIT"
             tvMarketsWinRate.text = "--"
-            tvMarketsTrades.text = "0/50"
+            tvMarketsTrades.text = "0/5000"
             tvMarketsPhase.text = "BOOT"
             tvMarketsProgressPct.text = "0%"
             tvMarketsRecommendation.text = "Initializing Markets trading system..."
@@ -493,11 +496,12 @@ class MultiAssetActivity : AppCompatActivity() {
     }
     
     enum class MarketsPhase(val shortName: String) {
-        BOOTSTRAP("BOOT"),   // 0-10 trades
-        LEARNING("LEARN"),   // 10-30 trades
-        VALIDATING("VALID"), // 30-50 trades
-        READY("READY"),      // 50+ trades, 55%+ win rate
-        LIVE("LIVE")         // User activated live mode
+        BOOTSTRAP("BOOT"),     // 0-500 trades - Getting started
+        LEARNING("LEARN"),     // 500-1500 trades - Building patterns
+        VALIDATING("VALID"),   // 1500-3000 trades - Validating strategy
+        MATURING("MATURE"),    // 3000-5000 trades - Refining edge
+        READY("READY"),        // 5000+ trades, 55%+ win rate
+        LIVE("LIVE")           // User activated live mode
     }
     
     data class MarketsReadiness(
@@ -507,7 +511,8 @@ class MultiAssetActivity : AppCompatActivity() {
         val winRate: Double,
         val requiredWinRate: Double,
         val progressPct: Int,
-        val recommendation: String
+        val recommendation: String,
+        val readinessScore: Int = 0  // 0-100 overall readiness
     )
     
     private fun calculateMarketsReadiness(): MarketsReadiness {
@@ -517,30 +522,42 @@ class MultiAssetActivity : AppCompatActivity() {
         val losses = PerpsTraderAI.getLifetimeLosses()
         val winRate = if (paperTrades > 0) (wins.toDouble() / paperTrades * 100) else 0.0
         
-        // Requirements
-        val requiredTrades = 50
+        // V5.7.6b: Requirements - Match meme trader's 5000 trade maturity
+        val requiredTrades = 5000
         val requiredWinRate = 55.0
         
-        // Calculate phase
+        // Calculate phase - matches meme trader's 1000/3000/5000 philosophy
         val phase = when {
-            paperTrades < 10 -> MarketsPhase.BOOTSTRAP
-            paperTrades < 30 -> MarketsPhase.LEARNING
-            paperTrades < requiredTrades -> MarketsPhase.VALIDATING
+            paperTrades < 500 -> MarketsPhase.BOOTSTRAP
+            paperTrades < 1500 -> MarketsPhase.LEARNING
+            paperTrades < 3000 -> MarketsPhase.VALIDATING
+            paperTrades < requiredTrades -> MarketsPhase.MATURING
             winRate >= requiredWinRate -> MarketsPhase.READY
-            else -> MarketsPhase.VALIDATING
+            else -> MarketsPhase.MATURING
         }
         
         // Calculate progress (0-100%)
-        // 50% weight on trades, 50% weight on win rate
-        val tradeProgress = (paperTrades.toDouble() / requiredTrades * 50).coerceIn(0.0, 50.0)
-        val winRateProgress = if (winRate >= requiredWinRate) 50.0 else (winRate / requiredWinRate * 50).coerceIn(0.0, 45.0)
+        // 60% weight on trades, 40% weight on win rate (trades matter more early)
+        val tradeProgress = (paperTrades.toDouble() / requiredTrades * 60).coerceIn(0.0, 60.0)
+        val winRateProgress = if (winRate >= requiredWinRate) 40.0 else (winRate / requiredWinRate * 40).coerceIn(0.0, 35.0)
         val progressPct = (tradeProgress + winRateProgress).toInt().coerceIn(0, 100)
+        
+        // Calculate readiness score (0-100)
+        val readinessScore = when {
+            paperTrades < 500 -> (paperTrades * 10 / 500).coerceIn(0, 10)
+            paperTrades < 1500 -> 10 + ((paperTrades - 500) * 20 / 1000).coerceIn(0, 20)
+            paperTrades < 3000 -> 30 + ((paperTrades - 1500) * 25 / 1500).coerceIn(0, 25)
+            paperTrades < 5000 -> 55 + ((paperTrades - 3000) * 25 / 2000).coerceIn(0, 25)
+            winRate >= requiredWinRate -> 80 + ((winRate - requiredWinRate) * 2).toInt().coerceIn(0, 20)
+            else -> 80
+        }
         
         // Generate recommendation
         val recommendation = when {
-            paperTrades < 10 -> "🚀 Getting started! Complete ${10 - paperTrades} more trades to exit bootstrap phase."
-            paperTrades < 30 -> "📚 Learning mode: ${30 - paperTrades} trades to validation. Current win rate: ${"%.1f".format(winRate)}%"
-            paperTrades < requiredTrades -> "✅ Validating: ${requiredTrades - paperTrades} more trades needed. Win rate: ${"%.1f".format(winRate)}%"
+            paperTrades < 500 -> "🚀 Bootstrap: ${500 - paperTrades} trades to LEARNING phase. AI is calibrating..."
+            paperTrades < 1500 -> "📚 Learning: ${1500 - paperTrades} trades to VALIDATION. Win rate: ${"%.1f".format(winRate)}%"
+            paperTrades < 3000 -> "✅ Validating: ${3000 - paperTrades} trades to MATURING. Win rate: ${"%.1f".format(winRate)}%"
+            paperTrades < requiredTrades -> "🔬 Maturing: ${requiredTrades - paperTrades} trades to READY. Win rate: ${"%.1f".format(winRate)}%"
             winRate < requiredWinRate -> "⚠️ Need ${"%.1f".format(requiredWinRate)}%+ win rate. Current: ${"%.1f".format(winRate)}%. Keep learning!"
             else -> "🎉 READY FOR LIVE! $paperTrades trades with ${"%.1f".format(winRate)}% win rate. Enable LIVE mode in settings."
         }
@@ -552,7 +569,8 @@ class MultiAssetActivity : AppCompatActivity() {
             winRate = winRate,
             requiredWinRate = requiredWinRate,
             progressPct = progressPct,
-            recommendation = recommendation
+            recommendation = recommendation,
+            readinessScore = readinessScore
         )
     }
     
@@ -684,11 +702,13 @@ class MultiAssetActivity : AppCompatActivity() {
         // Check if Markets AI is synced with Meme AI learning
         return try {
             val marketsTrades = PerpsTraderAI.getLifetimeTrades()
-            // Cross-sync is OK if we have some trade history
+            // V5.7.6b: Updated thresholds to match 5000 trade requirement
             when {
-                marketsTrades >= 50 -> "SYNCED" to 0xFF00FF88.toInt()
-                marketsTrades >= 10 -> "OK" to 0xFF00FF88.toInt()
-                marketsTrades > 0 -> "LEARNING" to 0xFFF59E0B.toInt()
+                marketsTrades >= 5000 -> "SYNCED" to 0xFF00FF88.toInt()  // Full sync at 5000+
+                marketsTrades >= 3000 -> "MATURING" to 0xFF06B6D4.toInt()  // Cyan
+                marketsTrades >= 1500 -> "VALID" to 0xFF8B5CF6.toInt()  // Purple
+                marketsTrades >= 500 -> "LEARNING" to 0xFF3B82F6.toInt()  // Blue
+                marketsTrades > 0 -> "BOOT" to 0xFFF59E0B.toInt()  // Yellow
                 else -> "INIT" to 0xFF6B7280.toInt()
             }
         } catch (_: Exception) {
