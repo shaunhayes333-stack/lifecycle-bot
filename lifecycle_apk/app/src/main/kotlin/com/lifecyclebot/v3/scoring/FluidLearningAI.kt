@@ -1714,8 +1714,8 @@ object FluidLearningAI {
     fun applyMemeToMarketsBoost() {
         if (!crossLearningEnabled || memeToMarketsBoostApplied) return
         
-        val memeTrades = getTotalTrades()
-        val memeWinRate = getWinRate()
+        val memeTrades = getTotalTradeCount()
+        val memeWinRate = getMemeWinRate()
         val memeProgress = getLearningProgress()
         
         // Only transfer if Meme has meaningful experience
@@ -1765,7 +1765,7 @@ object FluidLearningAI {
      */
     fun getSharedTimingInsights(): TimingInsights {
         val memeProgress = getLearningProgress()
-        val memeWinRate = getWinRate()
+        val memeWinRate = getMemeWinRate()
         
         // If Meme has learned good patterns, share them
         return if (memeProgress >= 0.3 && memeWinRate >= 35) {
@@ -1792,7 +1792,7 @@ object FluidLearningAI {
      * Transfers stop-loss discipline learnings.
      */
     fun getSharedRiskInsights(): RiskInsights {
-        val memeTrades = getTotalTrades()
+        val memeTrades = getTotalTradeCount()
         val memeProgress = getLearningProgress()
         
         return if (memeTrades >= 500 && memeProgress >= 0.4) {
@@ -1845,14 +1845,23 @@ object FluidLearningAI {
     )
     
     /**
+     * V5.7.7: Helper to get Meme win rate for cross-learning
+     */
+    private fun getMemeWinRate(): Double {
+        val trades = sessionTrades.get()
+        val wins = sessionWins.get()
+        return if (trades > 0) (wins.toDouble() / trades * 100) else 50.0
+    }
+    
+    /**
      * Get cross-learning status summary
      */
     fun getCrossLearningStatus(): Map<String, Any> = mapOf(
         "enabled" to crossLearningEnabled,
         "memeToMarketsBoostApplied" to memeToMarketsBoostApplied,
-        "memeTrades" to getTotalTrades(),
+        "memeTrades" to getTotalTradeCount(),
         "memeProgress" to (getLearningProgress() * 100).toInt(),
-        "memeWinRate" to getWinRate().toInt(),
+        "memeWinRate" to getMemeWinRate().toInt(),
         "marketsTrades" to getMarketsTradeCount(),
         "marketsProgress" to (getMarketsLearningProgress() * 100).toInt()
     )
