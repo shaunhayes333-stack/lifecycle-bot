@@ -86,6 +86,51 @@ object PerpsMarketDataFetcher {
         put("XOM", 110.0)
         put("CVX", 150.0)
         
+        // V5.7.6b: MISSING STOCKS (were falling back to $100.00!)
+        put("TSM", 185.0)         // Taiwan Semiconductor
+        put("ASML", 950.0)        // ASML Holding
+        put("ARM", 155.0)         // ARM Holdings
+        put("MRVL", 75.0)         // Marvell Tech
+        put("SPOT", 385.0)        // Spotify
+        put("ZM", 75.0)           // Zoom Video
+        put("ROKU", 75.0)         // Roku
+        put("SQ", 85.0)           // Block Inc
+        put("TWLO", 75.0)         // Twilio
+        put("AI", 35.0)           // C3.ai
+        put("PATH", 15.0)         // UiPath
+        put("DDOG", 135.0)        // Datadog
+        put("NET", 95.0)          // Cloudflare
+        put("CRWD", 340.0)        // CrowdStrike
+        put("ZS", 195.0)          // Zscaler
+        put("MDB", 285.0)         // MongoDB
+        put("BAC", 42.0)          // Bank of America
+        put("WFC", 70.0)          // Wells Fargo
+        put("C", 67.0)            // Citigroup
+        put("MSTR", 1850.0)       // MicroStrategy
+        put("HOOD", 25.0)         // Robinhood
+        put("SOFI", 12.0)         // SoFi
+        put("NU", 14.0)           // Nu Holdings
+        put("CMG", 3350.0)        // Chipotle
+        put("LULU", 365.0)        // Lululemon
+        put("TGT", 135.0)         // Target
+        put("LOW", 255.0)         // Lowe's
+        put("CAT", 360.0)         // Caterpillar
+        put("DE", 420.0)          // John Deere
+        put("LMT", 480.0)         // Lockheed Martin
+        put("RTX", 125.0)         // RTX Corp
+        put("MRNA", 45.0)         // Moderna
+        put("LLY", 825.0)         // Eli Lilly
+        put("ABBV", 175.0)        // AbbVie
+        put("TMO", 545.0)         // Thermo Fisher
+        put("PG", 175.0)          // Procter & Gamble
+        put("PM", 125.0)          // Philip Morris
+        put("COP", 105.0)         // ConocoPhillips
+        put("OXY", 55.0)          // Occidental
+        put("ENPH", 115.0)        // Enphase
+        put("FSLR", 235.0)        // First Solar
+        put("PLUG", 2.50)         // Plug Power
+        put("NEE", 75.0)          // NextEra Energy
+        
         // ═══════════════════════════════════════════════════════════════════════
         // V5.7.6: COMMODITIES - Energy
         // ═══════════════════════════════════════════════════════════════════════
