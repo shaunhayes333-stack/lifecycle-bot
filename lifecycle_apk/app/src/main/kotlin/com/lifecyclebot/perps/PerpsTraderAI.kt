@@ -311,28 +311,30 @@ object PerpsTraderAI {
         var confidence = 50
         
         // ═══════════════════════════════════════════════════════════════════
-        // PRE-FLIGHT CHECKS
+        // PRE-FLIGHT CHECKS - V5.7.4: REMOVED ALL LIMITS FOR PAPER MODE
         // ═══════════════════════════════════════════════════════════════════
         
-        // Daily limits - V5.7.4: Unlimited in paper mode for maximum learning
-        val maxDailyTrades = if (isPaperMode) DAILY_MAX_TRADES_PAPER else DAILY_MAX_TRADES_LIVE
-        if (dailyTrades.get() >= maxDailyTrades) {
-            return noTradeSignal(market, "DAILY_TRADE_LIMIT", reasons)
+        // Daily limits - UNLIMITED in paper mode
+        if (!isPaperMode) {
+            if (dailyTrades.get() >= DAILY_MAX_TRADES_LIVE) {
+                return noTradeSignal(market, "DAILY_TRADE_LIMIT", reasons)
+            }
+            
+            val dailyPnlPct = getDailyPnlPct()
+            if (dailyPnlPct <= -DAILY_MAX_LOSS_PCT) {
+                return noTradeSignal(market, "DAILY_LOSS_LIMIT", reasons)
+            }
         }
         
-        val dailyPnlPct = getDailyPnlPct()
-        if (dailyPnlPct <= -DAILY_MAX_LOSS_PCT) {
-            return noTradeSignal(market, "DAILY_LOSS_LIMIT", reasons)
+        // Max positions - V5.7.4: NO LIMIT in paper mode for maximum learning
+        if (!isPaperMode) {
+            if (activePositions.size >= MAX_CONCURRENT_POSITIONS_LIVE) {
+                return noTradeSignal(market, "MAX_POSITIONS", reasons)
+            }
         }
         
-        // Max positions - V5.7.4: More positions allowed in paper mode
-        val maxPositions = if (isPaperMode) MAX_CONCURRENT_POSITIONS_PAPER else MAX_CONCURRENT_POSITIONS_LIVE
-        if (activePositions.size >= maxPositions) {
-            return noTradeSignal(market, "MAX_POSITIONS", reasons)
-        }
-        
-        // Stock market hours (simplified - would need real market hours check)
-        if (market.isStock && !isMarketOpen(market)) {
+        // Stock market hours - V5.7.4: SKIP CHECK in paper mode (24/7 learning)
+        if (market.isStock && !isPaperMode && !isMarketOpen(market)) {
             return noTradeSignal(market, "MARKET_CLOSED", reasons)
         }
         
@@ -971,16 +973,8 @@ object PerpsTraderAI {
         val recommendation = when (phase) {
             ReadinessPhase.READY -> "✅ Ready for live trading! Start with reduced position sizes."
             ReadinessPhase.CAUTION -> "⚠️ Recent losses detected. Continue paper trading."
-            ReadinessPhase.PRACTICING -> {
-                val tradesNeeded = maxOf(0, MIN_PAPER_TRADES_FOR_LIVE - trades)
-                if (tradesNeeded > 0) "🏋️ Good progress! Need $tradesNeeded more trades."
-                else "🏋️ Good progress! Keep improving win rate."
-            }
-            ReadinessPhase.LEARNING -> {
-                val tradesNeeded = maxOf(0, MIN_PAPER_TRADES_FOR_LIVE - trades)
-                if (tradesNeeded > 0) "📚 Keep learning. $tradesNeeded trades to go."
-                else "📚 Keep learning. Focus on win rate."
-            }
+            ReadinessPhase.PRACTICING -> "🏋️ Good progress! Paper mode trading freely."
+            ReadinessPhase.LEARNING -> "📚 Learning mode active. Trading without limits."
         }
         
         return PerpsLiveReadiness(

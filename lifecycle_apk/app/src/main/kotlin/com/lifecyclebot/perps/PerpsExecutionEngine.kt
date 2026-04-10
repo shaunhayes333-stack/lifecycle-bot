@@ -232,18 +232,23 @@ object PerpsExecutionEngine {
             return false
         }
         
-        // Check daily limits
-        val dailyTrades = PerpsTraderAI.getDailyTrades()
-        if (dailyTrades >= 30) {
-            ErrorLogger.debug(TAG, "Daily trade limit reached")
-            return false
-        }
+        // V5.7.4: SKIP ALL LIMITS IN PAPER MODE - Let it trade freely for learning!
+        val isPaper = PerpsTraderAI.isPaperMode
         
-        // Check daily P&L
-        val dailyPnlPct = PerpsTraderAI.getDailyPnlPct()
-        if (dailyPnlPct <= -15.0) {
-            ErrorLogger.debug(TAG, "Daily loss limit reached")
-            return false
+        if (!isPaper) {
+            // Check daily limits (LIVE MODE ONLY)
+            val dailyTrades = PerpsTraderAI.getDailyTrades()
+            if (dailyTrades >= 30) {
+                ErrorLogger.debug(TAG, "Daily trade limit reached")
+                return false
+            }
+            
+            // Check daily P&L (LIVE MODE ONLY)
+            val dailyPnlPct = PerpsTraderAI.getDailyPnlPct()
+            if (dailyPnlPct <= -15.0) {
+                ErrorLogger.debug(TAG, "Daily loss limit reached")
+                return false
+            }
         }
         
         // Aggregate layer signals for final confirmation
@@ -253,14 +258,15 @@ object PerpsExecutionEngine {
             }
             val aggregatedSignal = PerpsLearningBridge.aggregateLayerSignals(signal.market, marketData)
             
-            // Require layer consensus
-            if (aggregatedSignal.layerConsensus < 3) {
-                ErrorLogger.debug(TAG, "Insufficient layer consensus: ${aggregatedSignal.layerConsensus}")
+            // V5.7.4: Lower consensus requirement in paper mode for more learning
+            val minConsensus = if (isPaper) 1 else 3
+            if (aggregatedSignal.layerConsensus < minConsensus) {
+                ErrorLogger.debug(TAG, "Insufficient layer consensus: ${aggregatedSignal.layerConsensus} (need $minConsensus)")
                 return false
             }
             
-            // Direction must match
-            if (aggregatedSignal.direction != signal.direction) {
+            // Direction must match (skip in paper mode for more diversity)
+            if (!isPaper && aggregatedSignal.direction != signal.direction) {
                 ErrorLogger.debug(TAG, "Layer direction mismatch")
                 return false
             }
