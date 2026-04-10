@@ -3314,13 +3314,14 @@ for legal compliance.
                 
                 // Update Perps card if visible
                 updatePerpsCard(perpsAI)
-                
-                // V5.7.3: Update Tokenized Stocks card
-                updateTokenizedStocksCard()
             } else {
                 tvPerpsStats?.text = "OFF"
                 tvPerpsStats?.setTextColor(muted)
             }
+            
+            // V5.7.6: ALWAYS update Tokenized Stocks card - it has its own engine
+            // TokenizedStockTrader is independent of PerpsTraderAI
+            updateTokenizedStocksCard()
         } catch (_: Exception) { tvPerpsStats?.text = "—" }
         
         // AI Brain - show active/total layers
