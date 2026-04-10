@@ -268,6 +268,33 @@ class BotService : Service() {
             ErrorLogger.error("BotService", "TokenizedStockTrader start error: ${e.message}", e)
         }
         
+        // V5.7.6: Start CommoditiesTrader - Energy & Agricultural commodities
+        try {
+            com.lifecyclebot.perps.CommoditiesTrader.initialize()
+            com.lifecyclebot.perps.CommoditiesTrader.start()
+            ErrorLogger.info("BotService", "🛢️ CommoditiesTrader STARTED - Oil, Gas, Agriculture ACTIVE")
+        } catch (e: Exception) {
+            ErrorLogger.error("BotService", "CommoditiesTrader start error: ${e.message}", e)
+        }
+        
+        // V5.7.6: Start MetalsTrader - Precious & Industrial metals
+        try {
+            com.lifecyclebot.perps.MetalsTrader.initialize()
+            com.lifecyclebot.perps.MetalsTrader.start()
+            ErrorLogger.info("BotService", "🥇 MetalsTrader STARTED - Gold, Silver, Industrial Metals ACTIVE")
+        } catch (e: Exception) {
+            ErrorLogger.error("BotService", "MetalsTrader start error: ${e.message}", e)
+        }
+        
+        // V5.7.6: Start ForexTrader - Currency pairs
+        try {
+            com.lifecyclebot.perps.ForexTrader.initialize()
+            com.lifecyclebot.perps.ForexTrader.start()
+            ErrorLogger.info("BotService", "💱 ForexTrader STARTED - Major, Cross, EM Pairs ACTIVE")
+        } catch (e: Exception) {
+            ErrorLogger.error("BotService", "ForexTrader start error: ${e.message}", e)
+        }
+        
         // V5.7.3: Start PerpsAutoReplayLearner for CONTINUOUS learning
         try {
             com.lifecyclebot.perps.PerpsAutoReplayLearner.start()

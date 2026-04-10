@@ -151,11 +151,31 @@ enum class PerpsMarket(
     XOM("XOM", "⛽", "Exxon Mobil", true, 10.0, "MARKET", "#ED1B2D"),
     CVX("CVX", "🛢️", "Chevron", true, 10.0, "MARKET", "#0066B2"),
     
-    // 🛢️ COMMODITIES (Oil)
+    // ═══════════════════════════════════════════════════════════════════════════
+    // 🛢️ COMMODITIES - Energy (24/7 trading via Pyth)
+    // ═══════════════════════════════════════════════════════════════════════════
     BRENT("BRENT", "🛢️", "Brent Crude Oil", false, 15.0, "24/7", "#000000"),
     WTI("WTI", "🛢️", "WTI Crude Oil", false, 15.0, "24/7", "#1A1A1A"),
+    NATGAS("NATGAS", "🔥", "Natural Gas", false, 15.0, "24/7", "#4169E1"),
+    RBOB("RBOB", "⛽", "Gasoline RBOB", false, 15.0, "24/7", "#FF4500"),
+    HEATING("HEATING", "🏠", "Heating Oil", false, 15.0, "24/7", "#8B0000"),
     
-    // 🥇 PRECIOUS METALS
+    // 🌾 COMMODITIES - Agricultural
+    CORN("CORN", "🌽", "Corn", false, 15.0, "24/7", "#FFD700"),
+    WHEAT("WHEAT", "🌾", "Wheat", false, 15.0, "24/7", "#DEB887"),
+    SOYBEAN("SOYBEAN", "🫘", "Soybeans", false, 15.0, "24/7", "#228B22"),
+    COFFEE("COFFEE", "☕", "Coffee", false, 15.0, "24/7", "#6F4E37"),
+    COCOA("COCOA", "🍫", "Cocoa", false, 15.0, "24/7", "#7B3F00"),
+    SUGAR("SUGAR", "🍬", "Sugar", false, 15.0, "24/7", "#FFFFFF"),
+    COTTON("COTTON", "🧶", "Cotton", false, 15.0, "24/7", "#F5F5DC"),
+    LUMBER("LUMBER", "🪵", "Lumber", false, 15.0, "24/7", "#8B4513"),
+    OJ("OJ", "🍊", "Orange Juice", false, 15.0, "24/7", "#FFA500"),
+    CATTLE("CATTLE", "🐄", "Live Cattle", false, 15.0, "24/7", "#8B4513"),
+    HOGS("HOGS", "🐖", "Lean Hogs", false, 15.0, "24/7", "#FFB6C1"),
+    
+    // ═══════════════════════════════════════════════════════════════════════════
+    // 🥇 PRECIOUS METALS (24/7 trading via Pyth)
+    // ═══════════════════════════════════════════════════════════════════════════
     XAU("XAU", "🥇", "Gold", false, 15.0, "24/7", "#FFD700"),
     XAG("XAG", "🥈", "Silver", false, 15.0, "24/7", "#C0C0C0"),
     XPT("XPT", "⚪", "Platinum", false, 15.0, "24/7", "#E5E4E2"),
@@ -166,9 +186,16 @@ enum class PerpsMarket(
     XAL("XAL", "🔷", "Aluminum", false, 15.0, "24/7", "#848789"),
     XNI("XNI", "⬜", "Nickel", false, 15.0, "24/7", "#727472"),
     XTI("XTI", "⚫", "Titanium", false, 15.0, "24/7", "#878681"),
+    ZINC("ZINC", "🔘", "Zinc", false, 15.0, "24/7", "#7D7D7D"),
+    LEAD("LEAD", "⚫", "Lead", false, 15.0, "24/7", "#2F4F4F"),
+    TIN("TIN", "🪙", "Tin", false, 15.0, "24/7", "#D3D3D3"),
+    IRON("IRON", "🔩", "Iron Ore", false, 15.0, "24/7", "#A52A2A"),
+    COBALT("COBALT", "🔵", "Cobalt", false, 15.0, "24/7", "#0047AB"),
+    LITHIUM("LITHIUM", "🔋", "Lithium", false, 15.0, "24/7", "#87CEEB"),
+    URANIUM("URANIUM", "☢️", "Uranium", false, 15.0, "24/7", "#32CD32"),
     
     // ═══════════════════════════════════════════════════════════════════════════
-    // 💱 FOREX (Major Pairs)
+    // 💱 FOREX - Major Pairs (24/5 trading)
     // ═══════════════════════════════════════════════════════════════════════════
     EURUSD("EURUSD", "🇪🇺", "EUR/USD", false, 50.0, "24/5", "#003399"),
     GBPUSD("GBPUSD", "🇬🇧", "GBP/USD", false, 50.0, "24/5", "#012169"),
@@ -177,6 +204,43 @@ enum class PerpsMarket(
     USDCAD("USDCAD", "🇨🇦", "USD/CAD", false, 50.0, "24/5", "#FF0000"),
     USDCHF("USDCHF", "🇨🇭", "USD/CHF", false, 50.0, "24/5", "#D52B1E"),
     NZDUSD("NZDUSD", "🇳🇿", "NZD/USD", false, 50.0, "24/5", "#00247D"),
+    
+    // 💱 FOREX - Cross Pairs
+    EURGBP("EURGBP", "🇪🇺", "EUR/GBP", false, 50.0, "24/5", "#003399"),
+    EURJPY("EURJPY", "🇪🇺", "EUR/JPY", false, 50.0, "24/5", "#003399"),
+    GBPJPY("GBPJPY", "🇬🇧", "GBP/JPY", false, 50.0, "24/5", "#012169"),
+    AUDJPY("AUDJPY", "🇦🇺", "AUD/JPY", false, 50.0, "24/5", "#00008B"),
+    CADJPY("CADJPY", "🇨🇦", "CAD/JPY", false, 50.0, "24/5", "#FF0000"),
+    CHFJPY("CHFJPY", "🇨🇭", "CHF/JPY", false, 50.0, "24/5", "#D52B1E"),
+    
+    // 💱 FOREX - Emerging Markets
+    USDMXN("USDMXN", "🇲🇽", "USD/MXN", false, 30.0, "24/5", "#006847"),
+    USDBRL("USDBRL", "🇧🇷", "USD/BRL", false, 30.0, "24/5", "#009C3B"),
+    USDINR("USDINR", "🇮🇳", "USD/INR", false, 30.0, "24/5", "#FF9933"),
+    USDCNY("USDCNY", "🇨🇳", "USD/CNY", false, 30.0, "24/5", "#DE2910"),
+    USDZAR("USDZAR", "🇿🇦", "USD/ZAR", false, 30.0, "24/5", "#007749"),
+    USDTRY("USDTRY", "🇹🇷", "USD/TRY", false, 30.0, "24/5", "#E30A17"),
+    USDRUB("USDRUB", "🇷🇺", "USD/RUB", false, 30.0, "24/5", "#0039A6"),
+    USDSGD("USDSGD", "🇸🇬", "USD/SGD", false, 30.0, "24/5", "#EF3340"),
+    USDHKD("USDHKD", "🇭🇰", "USD/HKD", false, 30.0, "24/5", "#DE2910"),
+    USDKRW("USDKRW", "🇰🇷", "USD/KRW", false, 30.0, "24/5", "#0047A0"),
+    
+    ;  // End of enum
+    
+    // ═══════════════════════════════════════════════════════════════════════════
+    // ASSET TYPE HELPERS
+    // ═══════════════════════════════════════════════════════════════════════════
+    
+    val isCrypto: Boolean get() = !isStock && tradingHours == "24/7" && !isCommodity && !isMetal
+    val isCommodity: Boolean get() = symbol in listOf("BRENT", "WTI", "NATGAS", "RBOB", "HEATING", 
+        "CORN", "WHEAT", "SOYBEAN", "COFFEE", "COCOA", "SUGAR", "COTTON", "LUMBER", "OJ", "CATTLE", "HOGS")
+    val isMetal: Boolean get() = symbol in listOf("XAU", "XAG", "XPT", "XPD", "XCU", "XAL", "XNI", "XTI",
+        "ZINC", "LEAD", "TIN", "IRON", "COBALT", "LITHIUM", "URANIUM")
+    val isForex: Boolean get() = tradingHours == "24/5" && !isStock
+    val isPreciousMetal: Boolean get() = symbol in listOf("XAU", "XAG", "XPT", "XPD")
+    val isIndustrialMetal: Boolean get() = isMetal && !isPreciousMetal
+    val isEnergyCommodity: Boolean get() = symbol in listOf("BRENT", "WTI", "NATGAS", "RBOB", "HEATING")
+    val isAgriCommodity: Boolean get() = symbol in listOf("CORN", "WHEAT", "SOYBEAN", "COFFEE", "COCOA", "SUGAR", "COTTON", "LUMBER", "OJ", "CATTLE", "HOGS")
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════

@@ -34,7 +34,7 @@ object PerpsMarketDataFetcher {
     private val lastFetchTime = ConcurrentHashMap<PerpsMarket, Long>()
     private const val CACHE_TTL_MS = 3_000L  // 3 second cache for real-time
     
-    // Stock price cache (fallback prices if Pyth fails) - V5.7.4: Updated with real prices
+    // Stock price cache (fallback prices if Pyth fails) - V5.7.6: Full asset coverage
     private val stockPrices = ConcurrentHashMap<String, Double>().apply {
         // MEGA TECH (prices as of Apr 2026)
         put("AAPL", 260.50)
@@ -82,22 +82,84 @@ object PerpsMarketDataFetcher {
         put("UNH", 307.01)     // Per Pyth logs
         put("KO", 78.22)       // Per Pyth logs
         put("PEP", 157.48)     // Per Pyth logs
-        // ENERGY
+        // ENERGY STOCKS
         put("XOM", 110.0)
         put("CVX", 150.0)
-        // COMMODITIES (Oil)
-        put("BRENT", 85.0)
-        put("WTI", 80.0)
-        // PRECIOUS METALS
-        put("XAU", 2650.0)     // Gold per oz
-        put("XAG", 31.0)       // Silver per oz
-        put("XPT", 1000.0)     // Platinum per oz
-        put("XPD", 950.0)      // Palladium per oz
-        // INDUSTRIAL METALS
-        put("XCU", 4.50)       // Copper per lb
-        put("XAL", 2500.0)     // Aluminum per ton
-        put("XNI", 16000.0)    // Nickel per ton
-        put("XTI", 10.0)       // Titanium
+        
+        // ═══════════════════════════════════════════════════════════════════════
+        // V5.7.6: COMMODITIES - Energy
+        // ═══════════════════════════════════════════════════════════════════════
+        put("BRENT", 85.0)      // Brent Crude per barrel
+        put("WTI", 80.0)        // WTI Crude per barrel
+        put("NATGAS", 3.50)     // Natural Gas per MMBtu
+        put("RBOB", 2.80)       // Gasoline per gallon
+        put("HEATING", 2.75)    // Heating Oil per gallon
+        
+        // V5.7.6: COMMODITIES - Agricultural
+        put("CORN", 4.50)       // Corn per bushel
+        put("WHEAT", 6.20)      // Wheat per bushel
+        put("SOYBEAN", 12.50)   // Soybeans per bushel
+        put("COFFEE", 2.25)     // Coffee per lb
+        put("COCOA", 8500.0)    // Cocoa per ton
+        put("SUGAR", 0.22)      // Sugar per lb
+        put("COTTON", 0.85)     // Cotton per lb
+        put("LUMBER", 550.0)    // Lumber per 1000 bd ft
+        put("OJ", 4.20)         // Orange Juice per lb
+        put("CATTLE", 1.85)     // Live Cattle per lb
+        put("HOGS", 0.85)       // Lean Hogs per lb
+        
+        // ═══════════════════════════════════════════════════════════════════════
+        // V5.7.6: PRECIOUS METALS
+        // ═══════════════════════════════════════════════════════════════════════
+        put("XAU", 2650.0)      // Gold per oz
+        put("XAG", 31.0)        // Silver per oz
+        put("XPT", 1000.0)      // Platinum per oz
+        put("XPD", 950.0)       // Palladium per oz
+        
+        // V5.7.6: INDUSTRIAL METALS
+        put("XCU", 4.50)        // Copper per lb
+        put("XAL", 2500.0)      // Aluminum per ton
+        put("XNI", 16000.0)     // Nickel per ton
+        put("XTI", 10.0)        // Titanium
+        put("ZINC", 2800.0)     // Zinc per ton
+        put("LEAD", 2100.0)     // Lead per ton
+        put("TIN", 28000.0)     // Tin per ton
+        put("IRON", 120.0)      // Iron Ore per ton
+        put("COBALT", 35000.0)  // Cobalt per ton
+        put("LITHIUM", 25000.0) // Lithium per ton
+        put("URANIUM", 85.0)    // Uranium per lb
+        
+        // ═══════════════════════════════════════════════════════════════════════
+        // V5.7.6: FOREX - Major Pairs
+        // ═══════════════════════════════════════════════════════════════════════
+        put("EURUSD", 1.0850)
+        put("GBPUSD", 1.2650)
+        put("USDJPY", 154.50)
+        put("AUDUSD", 0.6550)
+        put("USDCAD", 1.3650)
+        put("USDCHF", 0.8850)
+        put("NZDUSD", 0.5950)
+        
+        // V5.7.6: FOREX - Cross Pairs
+        put("EURGBP", 0.8575)
+        put("EURJPY", 167.65)
+        put("GBPJPY", 195.55)
+        put("AUDJPY", 101.20)
+        put("CADJPY", 113.15)
+        put("CHFJPY", 174.60)
+        
+        // V5.7.6: FOREX - Emerging Markets
+        put("USDMXN", 17.25)
+        put("USDBRL", 5.05)
+        put("USDINR", 83.50)
+        put("USDCNY", 7.25)
+        put("USDZAR", 18.50)
+        put("USDTRY", 32.50)
+        put("USDRUB", 92.50)
+        put("USDSGD", 1.35)
+        put("USDHKD", 7.82)
+        put("USDKRW", 1350.0)
+        
         // SOL
         put("SOL", 83.21)      // Per Pyth logs
     }
