@@ -846,7 +846,8 @@ class MultiAssetActivity : AppCompatActivity() {
             setTypeface(null, android.graphics.Typeface.BOLD)
         })
         middleCol.addView(TextView(this).apply {
-            text = "${pos.typeLabel} @ ${pos.entryPrice}"
+            // V5.7.6b: Show current live price instead of entry price
+            text = "${pos.typeLabel} @ ${pos.currentPrice}"
             setTextColor(0xFF6B7280.toInt())
             textSize = 10f
         })
@@ -963,7 +964,8 @@ class MultiAssetActivity : AppCompatActivity() {
         builder.setMessage("""
             |Direction: ${pos.directionEmoji} ${if (pos.directionEmoji.contains("📈") || pos.directionEmoji.contains("🟢")) "LONG" else "SHORT"}
             |Type: ${pos.typeLabel}
-            |Entry: ${pos.entryPrice}
+            |Entry Price: ${pos.entryPrice}
+            |Current Price: ${pos.currentPrice}
             |
             |Current P&L: ${if (pos.pnl >= 0) "+" else ""}${"%.4f".format(pos.pnl)} SOL
             |Percent: ${if (pos.pnlPct >= 0) "+" else ""}${"%.2f".format(pos.pnlPct)}%
@@ -1335,6 +1337,7 @@ class MultiAssetActivity : AppCompatActivity() {
         val directionEmoji: String,
         val typeLabel: String,
         val entryPrice: String,
+        val currentPrice: String,  // V5.7.6b: Live price
         val pnl: Double,
         val pnlPct: Double
     )
@@ -1401,6 +1404,7 @@ class MultiAssetActivity : AppCompatActivity() {
                             directionEmoji = pos.direction.emoji,
                             typeLabel = "${pos.leverage.toInt()}x",
                             entryPrice = "$${pos.entryPrice.fmt(2)}",
+                            currentPrice = "$${pos.currentPrice.fmt(2)}",
                             pnl = pos.getPnlSol(),
                             pnlPct = pos.getPnlPercent()
                         )
@@ -1415,6 +1419,7 @@ class MultiAssetActivity : AppCompatActivity() {
                             directionEmoji = pos.direction.emoji,
                             typeLabel = if (pos.isSpot) "SPOT" else "${pos.leverage.toInt()}x",
                             entryPrice = "$${pos.entryPrice.fmt(2)}",
+                            currentPrice = "$${pos.currentPrice.fmt(2)}",
                             pnl = pos.getPnlSol(),
                             pnlPct = pos.getPnlPercent()
                         )
@@ -1429,6 +1434,7 @@ class MultiAssetActivity : AppCompatActivity() {
                             directionEmoji = pos.direction.emoji,
                             typeLabel = if (pos.isSpot) "SPOT" else "${pos.leverage.toInt()}x",
                             entryPrice = "$${pos.entryPrice.fmt(2)}",
+                            currentPrice = "$${pos.currentPrice.fmt(2)}",
                             pnl = pos.getPnlSol(),
                             pnlPct = pos.getPnlPercent()
                         )
@@ -1443,6 +1449,7 @@ class MultiAssetActivity : AppCompatActivity() {
                             directionEmoji = pos.direction.emoji,
                             typeLabel = if (pos.leverage == 1.0) "SPOT" else "${pos.leverage.toInt()}x",
                             entryPrice = "$${pos.entryPrice.fmt(2)}",
+                            currentPrice = "$${pos.currentPrice.fmt(2)}",
                             pnl = pos.getPnlSol(),
                             pnlPct = pos.getPnlPercent()
                         )
@@ -1457,6 +1464,7 @@ class MultiAssetActivity : AppCompatActivity() {
                             directionEmoji = pos.direction.emoji,
                             typeLabel = if (pos.leverage == 1.0) "SPOT" else "${pos.leverage.toInt()}x",
                             entryPrice = pos.entryPrice.fmt(5),
+                            currentPrice = pos.currentPrice.fmt(5),
                             pnl = pos.getPnlSol(),
                             pnlPct = pos.getPnlPercent()
                         )
