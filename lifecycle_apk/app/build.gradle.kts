@@ -31,6 +31,16 @@ println("========================================")
 android {
     namespace = "com.lifecyclebot"
     compileSdk = 34
+    
+    // V5.7.7: ABI splits - reduces APK from ~50MB to ~15-20MB per architecture
+    splits {
+        abi {
+            isEnable = true
+            reset()
+            include("armeabi-v7a", "arm64-v8a", "x86", "x86_64")
+            isUniversalApk = true  // Also build universal APK as fallback
+        }
+    }
 
     defaultConfig {
         applicationId = "com.lifecyclebot.aate"
@@ -80,12 +90,14 @@ android {
         }
     }
     
-    // Custom APK naming: AATE_v4.5.XX.apk
+    // Custom APK naming: AATE_v5.0.XX_<abi>.apk
+    // V5.7.7: Updated for ABI splits
     android.applicationVariants.all {
         val variant = this
         variant.outputs.all {
             val output = this as com.android.build.gradle.internal.api.BaseVariantOutputImpl
-            output.outputFileName = "AATE_v${finalVersionName}.apk"
+            val abiFilter = output.filters.find { it.filterType == "ABI" }?.identifier ?: "universal"
+            output.outputFileName = "AATE_v${finalVersionName}_${abiFilter}.apk"
         }
     }
 
