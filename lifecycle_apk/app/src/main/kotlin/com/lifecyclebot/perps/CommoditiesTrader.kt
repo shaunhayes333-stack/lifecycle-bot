@@ -498,4 +498,24 @@ object CommoditiesTrader {
     }
     
     fun isRunning(): Boolean = isRunning.get()
+    
+    // ═══════════════════════════════════════════════════════════════════════════
+    // V5.7.6b: LIVE TRADING MODE
+    // ═══════════════════════════════════════════════════════════════════════════
+    
+    private var liveWalletBalance = 0.0
+    
+    fun isLiveMode(): Boolean = !isPaperMode.get()
+    fun isPaperMode(): Boolean = isPaperMode.get()
+    
+    fun setLiveMode(live: Boolean) {
+        isPaperMode.set(!live)
+        ErrorLogger.info(TAG, "🛢️ CommoditiesTrader mode: ${if (live) "🔴 LIVE" else "📄 PAPER"}")
+    }
+    
+    fun updateLiveBalance(balanceSol: Double) {
+        liveWalletBalance = balanceSol
+    }
+    
+    fun getEffectiveBalance(): Double = if (isPaperMode.get()) paperBalance else liveWalletBalance
 }

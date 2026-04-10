@@ -48,8 +48,11 @@ object TokenizedStockTrader {
     // ═══════════════════════════════════════════════════════════════════════════
     
     private val isRunning = AtomicBoolean(false)
-    private val isPaperMode = AtomicBoolean(true)
+    private val isPaperMode = AtomicBoolean(true)  // V5.7.6b: Default to paper, can be switched to LIVE
     private val isEnabled = AtomicBoolean(true)
+    
+    // V5.7.6b: Live trading state
+    private var liveWalletBalance = 0.0  // Updated from connected wallet
     
     private var engineJob: Job? = null
     private val scope = CoroutineScope(Dispatchers.Default + SupervisorJob())
@@ -464,9 +467,19 @@ object TokenizedStockTrader {
     // EXECUTION
     // ═══════════════════════════════════════════════════════════════════════════
     
-    // V5.7.6b: Updated to support SPOT vs LEVERAGE
-    private fun executeSignal(signal: StockSignal, isSpot: Boolean = false) {
-        val balance = getBalance()
+    // V5.7.6b: Updated to support SPOT vs LEVERAGE + LIVE mode
+    private suspend fun executeSignal(signal: StockSignal, isSpot: Boolean = false) {
+        // V5.7.6b: Check if LIVE mode - execute on-chain
+        if (!isPaperMode.get()) {
+            val success = executeLiveTrade(signal, isSpot)
+            if (!success) {
+                ErrorLogger.warn(TAG, "🔴 LIVE trade not executed (awaiting full implementation)")
+                return
+            }
+        }
+        
+        // PAPER MODE execution (or post-live tracking)
+        val balance = getEffectiveBalance()
         val sizeSol = balance * (DEFAULT_SIZE_PCT / 100)
         
         if (sizeSol < 0.01) {
@@ -677,6 +690,52 @@ object TokenizedStockTrader {
     fun getSpotPositions(): List<StockPosition> = spotPositions.values.toList()
     fun getLeveragePositions(): List<StockPosition> = leveragePositions.values.toList()
     fun getAllPositions(): List<StockPosition> = positions.values.toList()
+    
+    // ═══════════════════════════════════════════════════════════════════════════
+    // V5.7.6b: LIVE TRADING MODE
+    // ═══════════════════════════════════════════════════════════════════════════
+    
+    /** Check if trading in LIVE mode */
+    fun isLiveMode(): Boolean = !isPaperMode.get()
+    
+    /** Check if trading in PAPER mode */
+    fun isPaperMode(): Boolean = isPaperMode.get()
+    
+    /** Switch to LIVE mode - REAL MONEY TRADING */
+    fun setLiveMode(live: Boolean) {
+        isPaperMode.set(!live)
+        ErrorLogger.info(TAG, "📈 TokenizedStockTrader mode: ${if (live) "🔴 LIVE" else "📄 PAPER"}")
+    }
+    
+    /** Update live wallet balance from connected wallet */
+    fun updateLiveBalance(balanceSol: Double) {
+        liveWalletBalance = balanceSol
+        ErrorLogger.info(TAG, "📈 Live wallet balance updated: ${"%.4f".format(balanceSol)} SOL")
+    }
+    
+    /** Get balance based on current mode */
+    fun getEffectiveBalance(): Double {
+        return if (isPaperMode.get()) paperBalance else liveWalletBalance
+    }
+    
+    /** Execute LIVE trade via Jupiter Perps (placeholder for actual implementation) */
+    private suspend fun executeLiveTrade(signal: StockSignal, isSpot: Boolean): Boolean {
+        // TODO: Wire to Jupiter Perps API for actual on-chain execution
+        // For now, log the intent and return false (no live execution yet)
+        
+        ErrorLogger.info(TAG, "🔴 LIVE TRADE REQUESTED: ${signal.direction.emoji} ${signal.market.symbol}")
+        ErrorLogger.info(TAG, "🔴 Price: \$${signal.price.fmt(2)} | ${if (isSpot) "SPOT" else "${signal.leverage.toInt()}x"}")
+        ErrorLogger.info(TAG, "🔴 Score: ${signal.score} | Confidence: ${signal.confidence}")
+        
+        // Actual live execution would:
+        // 1. Get quote from Jupiter Perps
+        // 2. Build transaction
+        // 3. Sign with connected wallet
+        // 4. Broadcast to Solana
+        // 5. Wait for confirmation
+        
+        return false  // Return false until fully implemented
+    }
     
     // Helper extension
     private fun Double.fmt(decimals: Int): String = "%.${decimals}f".format(this)

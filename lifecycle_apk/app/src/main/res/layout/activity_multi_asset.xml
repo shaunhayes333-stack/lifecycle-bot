@@ -62,6 +62,21 @@
                     android:textSize="10sp"/>
             </LinearLayout>
 
+            <!-- V5.7.6b: LIVE/PAPER MODE TOGGLE -->
+            <Button
+                android:id="@+id/btnModeToggle"
+                android:layout_width="wrap_content"
+                android:layout_height="36dp"
+                android:text="PAPER"
+                android:textColor="#000000"
+                android:textSize="9sp"
+                android:textStyle="bold"
+                android:background="@drawable/pill_bg_yellow"
+                android:paddingStart="10dp"
+                android:paddingEnd="10dp"
+                android:layout_marginEnd="4dp"
+                android:minWidth="55dp"/>
+
             <!-- V5.7.6b: STOP/START BUTTON -->
             <Button
                 android:id="@+id/btnMarketsToggle"

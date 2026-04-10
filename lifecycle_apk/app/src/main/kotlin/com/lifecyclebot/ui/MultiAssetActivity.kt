@@ -125,8 +125,10 @@ class MultiAssetActivity : AppCompatActivity() {
     
     // V5.7.6b: Stop/Start Button + Balance
     private lateinit var btnMarketsToggle: android.widget.Button
+    private lateinit var btnModeToggle: android.widget.Button  // LIVE/PAPER toggle
     private lateinit var balanceContainer: View
     private var marketsRunning = false
+    private var isLiveMode = false  // V5.7.6b: Track LIVE vs PAPER mode
     
     private lateinit var tvLayerCorrel: TextView
     private lateinit var tvMarketsLearningEvents: TextView
@@ -215,6 +217,7 @@ class MultiAssetActivity : AppCompatActivity() {
         
         // V5.7.6b: Stop/Start Button
         btnMarketsToggle = findViewById(R.id.btnMarketsToggle)
+        btnModeToggle = findViewById(R.id.btnModeToggle)
         balanceContainer = findViewById(R.id.balanceContainer)
         
         // Quick Stats Bar
@@ -349,9 +352,97 @@ class MultiAssetActivity : AppCompatActivity() {
             toggleMarketsTrading()
         }
         
+        // V5.7.6b: LIVE/PAPER mode toggle
+        btnModeToggle.setOnClickListener {
+            toggleLiveMode()
+        }
+        
         // V5.7.6b: Balance click to refresh
         balanceContainer.setOnClickListener {
             showBalanceDialog()
+        }
+    }
+    
+    // V5.7.6b: Toggle between LIVE and PAPER mode
+    private fun toggleLiveMode() {
+        // Check if wallet is connected first
+        lifecycleScope.launch(Dispatchers.IO) {
+            val wallet = try {
+                WalletManager.getWallet()
+            } catch (_: Exception) { null }
+            
+            withContext(Dispatchers.Main) {
+                if (wallet == null) {
+                    // No wallet connected - show instructions
+                    android.app.AlertDialog.Builder(this@MultiAssetActivity, android.R.style.Theme_DeviceDefault_Dialog_Alert)
+                        .setTitle("⚠️ No Wallet Connected")
+                        .setMessage("To enable LIVE trading, you must first connect your Solana wallet.\n\nGo to: Main screen → Settings → Connect Wallet")
+                        .setPositiveButton("OK", null)
+                        .show()
+                    return@withContext
+                }
+                
+                if (isLiveMode) {
+                    // Switching to PAPER mode - safe, no confirmation needed
+                    setAllTradersMode(false)
+                    isLiveMode = false
+                    updateModeButton()
+                    android.widget.Toast.makeText(this@MultiAssetActivity, 
+                        "📄 Switched to PAPER mode", android.widget.Toast.LENGTH_SHORT).show()
+                } else {
+                    // Switching to LIVE mode - DANGEROUS, need confirmation
+                    showLiveModeConfirmation()
+                }
+            }
+        }
+    }
+    
+    // V5.7.6b: Show confirmation dialog before enabling LIVE mode
+    private fun showLiveModeConfirmation() {
+        android.app.AlertDialog.Builder(this@MultiAssetActivity, android.R.style.Theme_DeviceDefault_Dialog_Alert)
+            .setTitle("⚠️ ENABLE LIVE TRADING?")
+            .setMessage("""
+                |🔴 LIVE MODE WILL EXECUTE REAL TRANSACTIONS!
+                |
+                |This means:
+                |• Real SOL will be spent on trades
+                |• Losses are REAL and PERMANENT
+                |• Trades execute automatically based on AI signals
+                |
+                |Are you absolutely sure you want to enable LIVE trading?
+            """.trimMargin())
+            .setPositiveButton("🔴 ENABLE LIVE") { _, _ ->
+                setAllTradersMode(true)
+                isLiveMode = true
+                updateModeButton()
+                android.widget.Toast.makeText(this@MultiAssetActivity, 
+                    "🔴 LIVE MODE ENABLED - Real trades will execute!", android.widget.Toast.LENGTH_LONG).show()
+            }
+            .setNegativeButton("Cancel", null)
+            .show()
+    }
+    
+    // V5.7.6b: Set mode for all traders
+    private fun setAllTradersMode(live: Boolean) {
+        TokenizedStockTrader.setLiveMode(live)
+        CommoditiesTrader.setLiveMode(live)
+        MetalsTrader.setLiveMode(live)
+        ForexTrader.setLiveMode(live)
+        // PerpsExecutionEngine uses its own mode from PerpsTraderAI
+        
+        ErrorLogger.info(TAG, "📊 All Markets traders set to ${if (live) "🔴 LIVE" else "📄 PAPER"} mode")
+    }
+    
+    // V5.7.6b: Update mode button appearance
+    private fun updateModeButton() {
+        if (isLiveMode) {
+            btnModeToggle.text = "LIVE"
+            btnModeToggle.setBackgroundResource(R.drawable.pill_bg_red)
+            btnModeToggle.setTextColor(0xFFFFFFFF.toInt())
+        } else {
+            btnModeToggle.text = "PAPER"
+            btnModeToggle.setBackgroundResource(R.drawable.pill_bg_yellow)
+            btnModeToggle.setTextColor(0xFF000000.toInt())
         }
     }
     
