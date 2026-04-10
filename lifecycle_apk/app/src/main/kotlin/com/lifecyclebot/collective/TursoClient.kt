@@ -824,4 +824,301 @@ class TursoClient(
             emptyList()
         }
     }
+    
+    // ═══════════════════════════════════════════════════════════════════════════════
+    // V5.7.6b: MARKETS DATABASE OPERATIONS (Stocks, Commodities, Metals, Forex)
+    // ═══════════════════════════════════════════════════════════════════════════════
+    
+    /**
+     * Save a completed Markets trade (Stocks, Commodities, Metals, Forex)
+     */
+    suspend fun saveMarketsTradeRecord(trade: MarketsTradeRecord): Boolean {
+        val sql = """
+            INSERT OR REPLACE INTO markets_trades (
+                trade_hash, instance_id, asset_class, market, direction, trade_type,
+                entry_price, exit_price, size_sol, size_usd, leverage,
+                pnl_sol, pnl_usd, pnl_pct, open_time, close_time, close_reason,
+                ai_score, ai_confidence, paper_mode, is_win, hold_mins
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """.trimIndent()
+        
+        val result = execute(
+            sql, listOf(
+                trade.tradeHash, trade.instanceId, trade.assetClass, trade.market,
+                trade.direction, trade.tradeType, trade.entryPrice, trade.exitPrice,
+                trade.sizeSol, trade.sizeUsd, trade.leverage, trade.pnlSol, trade.pnlUsd,
+                trade.pnlPct, trade.openTime, trade.closeTime, trade.closeReason,
+                trade.aiScore, trade.aiConfidence,
+                if (trade.paperMode) 1 else 0, if (trade.isWin) 1 else 0, trade.holdMins
+            )
+        )
+        
+        return result.success
+    }
+    
+    /**
+     * Save/update a Markets open position
+     */
+    suspend fun saveMarketsPosition(position: MarketsPositionRecord): Boolean {
+        val sql = """
+            INSERT OR REPLACE INTO markets_positions (
+                id, instance_id, asset_class, market, direction, trade_type,
+                entry_price, current_price, size_sol, size_usd, leverage,
+                take_profit_price, stop_loss_price, entry_time,
+                ai_score, ai_confidence, paper_mode, status, last_update
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """.trimIndent()
+        
+        val result = execute(
+            sql, listOf(
+                position.id, position.instanceId, position.assetClass, position.market,
+                position.direction, position.tradeType, position.entryPrice, position.currentPrice,
+                position.sizeSol, position.sizeUsd, position.leverage,
+                position.takeProfitPrice, position.stopLossPrice, position.entryTime,
+                position.aiScore, position.aiConfidence,
+                if (position.paperMode) 1 else 0, position.status, position.lastUpdate
+            )
+        )
+        
+        return result.success
+    }
+    
+    /**
+     * Delete a closed Markets position
+     */
+    suspend fun deleteMarketsPosition(positionId: String): Boolean {
+        val sql = "DELETE FROM markets_positions WHERE id = ?"
+        return execute(sql, listOf(positionId)).success
+    }
+    
+    /**
+     * Update Markets asset performance
+     */
+    suspend fun updateMarketsAssetPerformance(
+        assetClass: String,
+        market: String,
+        isSpot: Boolean,
+        isWin: Boolean,
+        pnlPct: Double,
+        holdMins: Double
+    ): Boolean {
+        val selectSql = "SELECT * FROM markets_asset_performance WHERE asset_class = ? AND market = ?"
+        val existing = query(selectSql, listOf(assetClass, market))
+        
+        return if (existing.success && existing.rows.isNotEmpty()) {
+            val row = existing.rows[0]
+            
+            val totalSpot = (row["total_spot_trades"] as? Long ?: 0) + if (isSpot) 1 else 0
+            val totalLev = (row["total_leverage_trades"] as? Long ?: 0) + if (!isSpot) 1 else 0
+            
+            val currentSpotWinRate = row["spot_win_rate"] as? Double ?: 0.0
+            val currentLevWinRate = row["leverage_win_rate"] as? Double ?: 0.0
+            
+            val newSpotWinRate = if (isSpot && totalSpot > 0) {
+                ((currentSpotWinRate * (totalSpot - 1)) + (if (isWin) 100.0 else 0.0)) / totalSpot
+            } else currentSpotWinRate
+            
+            val newLevWinRate = if (!isSpot && totalLev > 0) {
+                ((currentLevWinRate * (totalLev - 1)) + (if (isWin) 100.0 else 0.0)) / totalLev
+            } else currentLevWinRate
+            
+            val currentAvgSpotPnl = row["avg_spot_pnl"] as? Double ?: 0.0
+            val currentAvgLevPnl = row["avg_leverage_pnl"] as? Double ?: 0.0
+            
+            val newAvgSpotPnl = if (isSpot && totalSpot > 0) {
+                ((currentAvgSpotPnl * (totalSpot - 1)) + pnlPct) / totalSpot
+            } else currentAvgSpotPnl
+            
+            val newAvgLevPnl = if (!isSpot && totalLev > 0) {
+                ((currentAvgLevPnl * (totalLev - 1)) + pnlPct) / totalLev
+            } else currentAvgLevPnl
+            
+            val currentAvgHold = row["avg_hold_mins"] as? Double ?: 0.0
+            val totalTrades = totalSpot + totalLev
+            val newAvgHold = ((currentAvgHold * (totalTrades - 1)) + holdMins) / totalTrades
+            
+            val updateSql = """
+                UPDATE markets_asset_performance SET
+                    total_spot_trades = ?, total_leverage_trades = ?,
+                    spot_win_rate = ?, leverage_win_rate = ?,
+                    avg_spot_pnl = ?, avg_leverage_pnl = ?,
+                    avg_hold_mins = ?, last_updated = ?
+                WHERE asset_class = ? AND market = ?
+            """.trimIndent()
+            
+            execute(
+                updateSql,
+                listOf(totalSpot, totalLev, newSpotWinRate, newLevWinRate, newAvgSpotPnl, newAvgLevPnl, newAvgHold, System.currentTimeMillis(), assetClass, market)
+            ).success
+        } else {
+            val insertSql = """
+                INSERT INTO markets_asset_performance (
+                    asset_class, market, total_spot_trades, total_leverage_trades,
+                    spot_win_rate, leverage_win_rate, avg_spot_pnl, avg_leverage_pnl,
+                    best_time_to_trade, avg_hold_mins, last_updated
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, '', ?, ?)
+            """.trimIndent()
+            
+            execute(
+                insertSql,
+                listOf(
+                    assetClass, market,
+                    if (isSpot) 1 else 0, if (!isSpot) 1 else 0,
+                    if (isSpot && isWin) 100.0 else 0.0, if (!isSpot && isWin) 100.0 else 0.0,
+                    if (isSpot) pnlPct else 0.0, if (!isSpot) pnlPct else 0.0,
+                    holdMins, System.currentTimeMillis()
+                )
+            ).success
+        }
+    }
+    
+    /**
+     * Update Markets daily stats
+     */
+    suspend fun updateMarketsDailyStats(
+        instanceId: String,
+        assetClass: String,
+        isWin: Boolean,
+        pnlUsd: Double
+    ): Boolean {
+        val today = java.text.SimpleDateFormat("yyyy-MM-dd", java.util.Locale.US).format(java.util.Date())
+        
+        val selectSql = "SELECT * FROM markets_daily_stats WHERE instance_id = ? AND date = ? AND asset_class = ?"
+        val existing = query(selectSql, listOf(instanceId, today, assetClass))
+        
+        return if (existing.success && existing.rows.isNotEmpty()) {
+            val row = existing.rows[0]
+            val totalTrades = (row["total_trades"] as? Long ?: 0) + 1
+            val wins = (row["wins"] as? Long ?: 0) + if (isWin) 1 else 0
+            val losses = (row["losses"] as? Long ?: 0) + if (!isWin) 1 else 0
+            val currentPnl = row["pnl_usd"] as? Double ?: 0.0
+            val bestPnl = row["best_trade_pnl"] as? Double ?: 0.0
+            val worstPnl = row["worst_trade_pnl"] as? Double ?: 0.0
+            
+            val updateSql = """
+                UPDATE markets_daily_stats SET
+                    total_trades = ?, wins = ?, losses = ?, pnl_usd = ?,
+                    best_trade_pnl = ?, worst_trade_pnl = ?
+                WHERE instance_id = ? AND date = ? AND asset_class = ?
+            """.trimIndent()
+            
+            execute(
+                updateSql,
+                listOf(
+                    totalTrades, wins, losses, currentPnl + pnlUsd,
+                    if (pnlUsd > bestPnl) pnlUsd else bestPnl,
+                    if (pnlUsd < worstPnl) pnlUsd else worstPnl,
+                    instanceId, today, assetClass
+                )
+            ).success
+        } else {
+            val insertSql = """
+                INSERT INTO markets_daily_stats (
+                    instance_id, date, asset_class, total_trades, wins, losses,
+                    pnl_usd, best_trade_pnl, worst_trade_pnl
+                ) VALUES (?, ?, ?, 1, ?, ?, ?, ?, ?)
+            """.trimIndent()
+            
+            execute(
+                insertSql,
+                listOf(
+                    instanceId, today, assetClass,
+                    if (isWin) 1 else 0, if (!isWin) 1 else 0,
+                    pnlUsd,
+                    if (pnlUsd > 0) pnlUsd else 0.0,
+                    if (pnlUsd < 0) pnlUsd else 0.0
+                )
+            ).success
+        }
+    }
+    
+    /**
+     * Get Markets trades for replay learning
+     */
+    suspend fun getMarketsTradesForReplay(assetClass: String? = null, limit: Int = 100): List<MarketsTradeRecord> {
+        val sql = if (assetClass != null) {
+            "SELECT * FROM markets_trades WHERE asset_class = ? ORDER BY close_time DESC LIMIT ?"
+        } else {
+            "SELECT * FROM markets_trades ORDER BY close_time DESC LIMIT ?"
+        }
+        
+        val args = if (assetClass != null) listOf(assetClass, limit) else listOf(limit)
+        val result = query(sql, args)
+        
+        return if (result.success) {
+            result.rows.mapNotNull { row ->
+                try {
+                    MarketsTradeRecord(
+                        id = (row["id"] as? Long) ?: 0,
+                        tradeHash = row["trade_hash"] as? String ?: "",
+                        instanceId = row["instance_id"] as? String ?: "",
+                        assetClass = row["asset_class"] as? String ?: "",
+                        market = row["market"] as? String ?: "",
+                        direction = row["direction"] as? String ?: "",
+                        tradeType = row["trade_type"] as? String ?: "SPOT",
+                        entryPrice = row["entry_price"] as? Double ?: 0.0,
+                        exitPrice = row["exit_price"] as? Double ?: 0.0,
+                        sizeSol = row["size_sol"] as? Double ?: 0.0,
+                        sizeUsd = row["size_usd"] as? Double ?: 0.0,
+                        leverage = row["leverage"] as? Double ?: 1.0,
+                        pnlSol = row["pnl_sol"] as? Double ?: 0.0,
+                        pnlUsd = row["pnl_usd"] as? Double ?: 0.0,
+                        pnlPct = row["pnl_pct"] as? Double ?: 0.0,
+                        openTime = (row["open_time"] as? Long) ?: 0,
+                        closeTime = (row["close_time"] as? Long) ?: 0,
+                        closeReason = row["close_reason"] as? String ?: "",
+                        aiScore = (row["ai_score"] as? Long)?.toInt() ?: 0,
+                        aiConfidence = (row["ai_confidence"] as? Long)?.toInt() ?: 0,
+                        paperMode = (row["paper_mode"] as? Long) == 1L,
+                        isWin = (row["is_win"] as? Long) == 1L,
+                        holdMins = row["hold_mins"] as? Double ?: 0.0
+                    )
+                } catch (e: Exception) {
+                    ErrorLogger.debug(TAG, "Parse markets trade error: ${e.message}")
+                    null
+                }
+            }
+        } else {
+            emptyList()
+        }
+    }
+    
+    /**
+     * Get Markets asset performance rankings
+     */
+    suspend fun getMarketsAssetRankings(assetClass: String? = null): List<MarketsAssetPerformance> {
+        val sql = if (assetClass != null) {
+            "SELECT * FROM markets_asset_performance WHERE asset_class = ? ORDER BY (spot_win_rate + leverage_win_rate) / 2 DESC"
+        } else {
+            "SELECT * FROM markets_asset_performance ORDER BY (spot_win_rate + leverage_win_rate) / 2 DESC"
+        }
+        
+        val args = if (assetClass != null) listOf(assetClass) else emptyList()
+        val result = query(sql, args)
+        
+        return if (result.success) {
+            result.rows.mapNotNull { row ->
+                try {
+                    MarketsAssetPerformance(
+                        id = (row["id"] as? Long) ?: 0,
+                        assetClass = row["asset_class"] as? String ?: "",
+                        market = row["market"] as? String ?: "",
+                        totalSpotTrades = (row["total_spot_trades"] as? Long)?.toInt() ?: 0,
+                        totalLeverageTrades = (row["total_leverage_trades"] as? Long)?.toInt() ?: 0,
+                        spotWinRate = row["spot_win_rate"] as? Double ?: 0.0,
+                        leverageWinRate = row["leverage_win_rate"] as? Double ?: 0.0,
+                        avgSpotPnl = row["avg_spot_pnl"] as? Double ?: 0.0,
+                        avgLeveragePnl = row["avg_leverage_pnl"] as? Double ?: 0.0,
+                        bestTimeToTrade = row["best_time_to_trade"] as? String ?: "",
+                        avgHoldMins = row["avg_hold_mins"] as? Double ?: 0.0,
+                        lastUpdated = (row["last_updated"] as? Long) ?: 0
+                    )
+                } catch (e: Exception) {
+                    null
+                }
+            }
+        } else {
+            emptyList()
+        }
+    }
 }

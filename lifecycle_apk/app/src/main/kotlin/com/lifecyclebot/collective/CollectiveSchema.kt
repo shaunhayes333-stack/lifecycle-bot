@@ -219,6 +219,100 @@ data class PerpsMarketStatsRecord(
     val lastUpdated: Long
 )
 
+// ═══════════════════════════════════════════════════════════════════════════════
+// V5.7.6b: MARKETS TRADER DATA CLASSES (Stocks, Commodities, Metals, Forex)
+// ═══════════════════════════════════════════════════════════════════════════════
+
+/**
+ * Markets trade record - covers all non-meme Markets trades
+ */
+data class MarketsTradeRecord(
+    val id: Long = 0,
+    val tradeHash: String,
+    val instanceId: String,
+    val assetClass: String,  // STOCK, COMMODITY, METAL, FOREX
+    val market: String,
+    val direction: String,
+    val tradeType: String,   // SPOT or LEVERAGE
+    val entryPrice: Double,
+    val exitPrice: Double,
+    val sizeSol: Double,
+    val sizeUsd: Double,
+    val leverage: Double,
+    val pnlSol: Double,
+    val pnlUsd: Double,
+    val pnlPct: Double,
+    val openTime: Long,
+    val closeTime: Long,
+    val closeReason: String,
+    val aiScore: Int,
+    val aiConfidence: Int,
+    val paperMode: Boolean,
+    val isWin: Boolean,
+    val holdMins: Double
+)
+
+/**
+ * Markets position record - open positions across all Markets traders
+ */
+data class MarketsPositionRecord(
+    val id: String,
+    val instanceId: String,
+    val assetClass: String,
+    val market: String,
+    val direction: String,
+    val tradeType: String,
+    val entryPrice: Double,
+    val currentPrice: Double,
+    val sizeSol: Double,
+    val sizeUsd: Double,
+    val leverage: Double,
+    val takeProfitPrice: Double,
+    val stopLossPrice: Double,
+    val entryTime: Long,
+    val aiScore: Int,
+    val aiConfidence: Int,
+    val paperMode: Boolean,
+    val status: String,
+    val lastUpdate: Long
+)
+
+/**
+ * Markets asset performance - per-asset trading stats
+ */
+data class MarketsAssetPerformance(
+    val id: Long = 0,
+    val assetClass: String,
+    val market: String,
+    val totalSpotTrades: Int,
+    val totalLeverageTrades: Int,
+    val spotWinRate: Double,
+    val leverageWinRate: Double,
+    val avgSpotPnl: Double,
+    val avgLeveragePnl: Double,
+    val bestTimeToTrade: String,
+    val avgHoldMins: Double,
+    val lastUpdated: Long
+)
+
+/**
+ * Markets learning session - tracks AI learning progress
+ */
+data class MarketsLearningSession(
+    val id: Long = 0,
+    val instanceId: String,
+    val sessionStart: Long,
+    val sessionEnd: Long?,
+    val assetClass: String,
+    val totalTrades: Int,
+    val wins: Int,
+    val losses: Int,
+    val totalPnlUsd: Double,
+    val learningPhase: String,
+    val progressPct: Double,
+    val insightsGenerated: Int
+)
+
 /**
  * Legal Agreement Acknowledgment Record.
  * Stores when a user accepted the terms and conditions.
@@ -526,6 +620,128 @@ object CollectiveSchema {
         )
     """
 
+    // ═══════════════════════════════════════════════════════════════════════════════
+    // V5.7.6b: MARKETS TABLES (Stocks, Commodities, Metals, Forex)
+    // ═══════════════════════════════════════════════════════════════════════════════
+
+    /**
+     * Markets trades table - all completed trades for Stocks, Commodities, Metals, Forex
+     */
+    const val CREATE_MARKETS_TRADES_TABLE = """
+        CREATE TABLE IF NOT EXISTS markets_trades (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            trade_hash TEXT UNIQUE NOT NULL,
+            instance_id TEXT NOT NULL DEFAULT '',
+            asset_class TEXT NOT NULL,
+            market TEXT NOT NULL,
+            direction TEXT NOT NULL,
+            trade_type TEXT NOT NULL DEFAULT 'SPOT',
+            entry_price REAL NOT NULL,
+            exit_price REAL NOT NULL,
+            size_sol REAL NOT NULL,
+            size_usd REAL NOT NULL DEFAULT 0.0,
+            leverage REAL NOT NULL DEFAULT 1.0,
+            pnl_sol REAL NOT NULL DEFAULT 0.0,
+            pnl_usd REAL NOT NULL DEFAULT 0.0,
+            pnl_pct REAL NOT NULL DEFAULT 0.0,
+            open_time INTEGER NOT NULL,
+            close_time INTEGER NOT NULL,
+            close_reason TEXT NOT NULL DEFAULT '',
+            ai_score INTEGER NOT NULL DEFAULT 0,
+            ai_confidence INTEGER NOT NULL DEFAULT 0,
+            paper_mode INTEGER NOT NULL DEFAULT 1,
+            is_win INTEGER NOT NULL DEFAULT 0,
+            hold_mins REAL NOT NULL DEFAULT 0.0
+        )
+    """
+
+    /**
+     * Markets positions table - open positions across all Markets traders
+     */
+    const val CREATE_MARKETS_POSITIONS_TABLE = """
+        CREATE TABLE IF NOT EXISTS markets_positions (
+            id TEXT PRIMARY KEY NOT NULL,
+            instance_id TEXT NOT NULL DEFAULT '',
+            asset_class TEXT NOT NULL,
+            market TEXT NOT NULL,
+            direction TEXT NOT NULL,
+            trade_type TEXT NOT NULL DEFAULT 'SPOT',
+            entry_price REAL NOT NULL,
+            current_price REAL NOT NULL DEFAULT 0.0,
+            size_sol REAL NOT NULL,
+            size_usd REAL NOT NULL DEFAULT 0.0,
+            leverage REAL NOT NULL DEFAULT 1.0,
+            take_profit_price REAL NOT NULL DEFAULT 0.0,
+            stop_loss_price REAL NOT NULL DEFAULT 0.0,
+            entry_time INTEGER NOT NULL,
+            ai_score INTEGER NOT NULL DEFAULT 0,
+            ai_confidence INTEGER NOT NULL DEFAULT 0,
+            paper_mode INTEGER NOT NULL DEFAULT 1,
+            status TEXT NOT NULL DEFAULT 'OPEN',
+            last_update INTEGER NOT NULL
+        )
+    """
+
+    /**
+     * Markets asset performance - per-asset trading statistics
+     */
+    const val CREATE_MARKETS_ASSET_PERFORMANCE_TABLE = """
+        CREATE TABLE IF NOT EXISTS markets_asset_performance (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            asset_class TEXT NOT NULL,
+            market TEXT NOT NULL,
+            total_spot_trades INTEGER NOT NULL DEFAULT 0,
+            total_leverage_trades INTEGER NOT NULL DEFAULT 0,
+            spot_win_rate REAL NOT NULL DEFAULT 0.0,
+            leverage_win_rate REAL NOT NULL DEFAULT 0.0,
+            avg_spot_pnl REAL NOT NULL DEFAULT 0.0,
+            avg_leverage_pnl REAL NOT NULL DEFAULT 0.0,
+            best_time_to_trade TEXT NOT NULL DEFAULT '',
+            avg_hold_mins REAL NOT NULL DEFAULT 0.0,
+            last_updated INTEGER NOT NULL,
+            UNIQUE(asset_class, market)
+        )
+    """
+
+    /**
+     * Markets learning sessions - tracks AI learning progress per session
+     */
+    const val CREATE_MARKETS_LEARNING_SESSIONS_TABLE = """
+        CREATE TABLE IF NOT EXISTS markets_learning_sessions (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            instance_id TEXT NOT NULL DEFAULT '',
+            session_start INTEGER NOT NULL,
+            session_end INTEGER,
+            asset_class TEXT NOT NULL,
+            total_trades INTEGER NOT NULL DEFAULT 0,
+            wins INTEGER NOT NULL DEFAULT 0,
+            losses INTEGER NOT NULL DEFAULT 0,
+            total_pnl_usd REAL NOT NULL DEFAULT 0.0,
+            learning_phase TEXT NOT NULL DEFAULT 'BOOTSTRAP',
+            progress_pct REAL NOT NULL DEFAULT 0.0,
+            insights_generated INTEGER NOT NULL DEFAULT 0
+        )
+    """
+
+    /**
+     * Markets daily stats - aggregated daily performance
+     */
+    const val CREATE_MARKETS_DAILY_STATS_TABLE = """
+        CREATE TABLE IF NOT EXISTS markets_daily_stats (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            instance_id TEXT NOT NULL DEFAULT '',
+            date TEXT NOT NULL,
+            asset_class TEXT NOT NULL,
+            total_trades INTEGER NOT NULL DEFAULT 0,
+            wins INTEGER NOT NULL DEFAULT 0,
+            losses INTEGER NOT NULL DEFAULT 0,
+            pnl_usd REAL NOT NULL DEFAULT 0.0,
+            best_trade_pnl REAL NOT NULL DEFAULT 0.0,
+            worst_trade_pnl REAL NOT NULL DEFAULT 0.0,
+            UNIQUE(instance_id, date, asset_class)
+        )
+    """
+
     /**
      * These run AFTER CREATE TABLE IF NOT EXISTS and patch older databases.
      * Ignore "duplicate column name" errors in the migration runner.
@@ -545,7 +761,10 @@ object CollectiveSchema {
         // V5.7: Perps table migrations (for older databases)
         "ALTER TABLE perps_trades ADD COLUMN hold_mins REAL NOT NULL DEFAULT 0.0",
         "ALTER TABLE perps_positions ADD COLUMN last_update INTEGER NOT NULL DEFAULT 0",
-        "ALTER TABLE perps_layer_performance ADD COLUMN trust_score REAL NOT NULL DEFAULT 0.5"
+        "ALTER TABLE perps_layer_performance ADD COLUMN trust_score REAL NOT NULL DEFAULT 0.5",
+        // V5.7.6b: Markets table migrations
+        "ALTER TABLE markets_trades ADD COLUMN size_usd REAL NOT NULL DEFAULT 0.0",
+        "ALTER TABLE markets_positions ADD COLUMN size_usd REAL NOT NULL DEFAULT 0.0"
     )
 
     const val CREATE_INDEXES = """
@@ -574,7 +793,17 @@ object CollectiveSchema {
         CREATE INDEX IF NOT EXISTS idx_perps_layer_perf_layer ON perps_layer_performance(layer_name);
         CREATE INDEX IF NOT EXISTS idx_perps_patterns_market ON perps_patterns(market);
         CREATE INDEX IF NOT EXISTS idx_perps_insights_type ON perps_insights(insight_type);
-        CREATE INDEX IF NOT EXISTS idx_perps_market_stats_market ON perps_market_stats(market)
+        CREATE INDEX IF NOT EXISTS idx_perps_market_stats_market ON perps_market_stats(market);
+        CREATE INDEX IF NOT EXISTS idx_markets_trades_asset ON markets_trades(asset_class);
+        CREATE INDEX IF NOT EXISTS idx_markets_trades_market ON markets_trades(market);
+        CREATE INDEX IF NOT EXISTS idx_markets_trades_close_time ON markets_trades(close_time);
+        CREATE INDEX IF NOT EXISTS idx_markets_trades_instance ON markets_trades(instance_id);
+        CREATE INDEX IF NOT EXISTS idx_markets_positions_instance ON markets_positions(instance_id);
+        CREATE INDEX IF NOT EXISTS idx_markets_positions_status ON markets_positions(status);
+        CREATE INDEX IF NOT EXISTS idx_markets_positions_asset ON markets_positions(asset_class);
+        CREATE INDEX IF NOT EXISTS idx_markets_asset_perf_class ON markets_asset_performance(asset_class);
+        CREATE INDEX IF NOT EXISTS idx_markets_learning_instance ON markets_learning_sessions(instance_id);
+        CREATE INDEX IF NOT EXISTS idx_markets_daily_date ON markets_daily_stats(date)
     """
 
     val ALL_TABLES = listOf(
@@ -594,6 +823,12 @@ object CollectiveSchema {
         CREATE_PERPS_LAYER_PERFORMANCE_TABLE,
         CREATE_PERPS_PATTERNS_TABLE,
         CREATE_PERPS_INSIGHTS_TABLE,
-        CREATE_PERPS_MARKET_STATS_TABLE
+        CREATE_PERPS_MARKET_STATS_TABLE,
+        // V5.7.6b: Markets Tables (Stocks, Commodities, Metals, Forex)
+        CREATE_MARKETS_TRADES_TABLE,
+        CREATE_MARKETS_POSITIONS_TABLE,
+        CREATE_MARKETS_ASSET_PERFORMANCE_TABLE,
+        CREATE_MARKETS_LEARNING_SESSIONS_TABLE,
+        CREATE_MARKETS_DAILY_STATS_TABLE
     )
 }
