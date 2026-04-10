@@ -150,6 +150,37 @@ object PerpsMarketDataFetcher {
         put("XLV", 150.0)         // Healthcare Sector
         
         // ═══════════════════════════════════════════════════════════════════════
+        // V5.7.6b: TELECOM & PHARMA
+        // ═══════════════════════════════════════════════════════════════════════
+        put("MO", 52.0)           // Altria Group
+        put("T", 22.0)            // AT&T
+        put("VZ", 42.0)           // Verizon
+        put("TMUS", 235.0)        // T-Mobile
+        put("CVS", 58.0)          // CVS Health
+        put("GILD", 92.0)         // Gilead Sciences
+        put("BMY", 42.0)          // Bristol-Myers
+        put("BIIB", 165.0)        // Biogen
+        put("REGN", 780.0)        // Regeneron
+        put("VRTX", 465.0)        // Vertex Pharma
+        
+        // ═══════════════════════════════════════════════════════════════════════
+        // V5.7.6b: CANNABIS SECTOR
+        // ═══════════════════════════════════════════════════════════════════════
+        put("TLRY", 1.80)         // Tilray Brands
+        put("CGC", 4.50)          // Canopy Growth
+        put("ACB", 5.20)          // Aurora Cannabis
+        put("CRON", 2.40)         // Cronos Group
+        put("SNDL", 1.95)         // SNDL Inc
+        
+        // ═══════════════════════════════════════════════════════════════════════
+        // V5.7.6b: HOT MOMENTUM STOCKS
+        // ═══════════════════════════════════════════════════════════════════════
+        put("SMCI", 35.0)         // Super Micro
+        put("IONQ", 42.0)         // IonQ Quantum
+        put("RKLB", 28.0)         // Rocket Lab
+        put("RDDT", 185.0)        // Reddit
+        
+        // ═══════════════════════════════════════════════════════════════════════
         // V5.7.6: COMMODITIES - Energy
         // ═══════════════════════════════════════════════════════════════════════
         put("BRENT", 85.0)      // Brent Crude per barrel

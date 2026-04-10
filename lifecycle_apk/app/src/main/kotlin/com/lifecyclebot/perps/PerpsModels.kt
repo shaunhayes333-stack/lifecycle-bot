@@ -216,6 +216,20 @@ enum class PerpsMarket(
     PEP("PEP", "🥤", "PepsiCo", true, 10.0, "MARKET", "#004B93"),
     PG("PG", "🧴", "Procter & Gamble", true, 10.0, "MARKET", "#003DA5"),
     PM("PM", "🚬", "Philip Morris", true, 10.0, "MARKET", "#003366"),
+    MO("MO", "🚬", "Altria Group", true, 10.0, "MARKET", "#003366"),
+    
+    // 📞 TELECOM
+    T("T", "📞", "AT&T", true, 10.0, "MARKET", "#00A8E0"),
+    VZ("VZ", "📶", "Verizon", true, 10.0, "MARKET", "#CD040B"),
+    TMUS("TMUS", "📱", "T-Mobile", true, 10.0, "MARKET", "#E20074"),
+    
+    // 💊 PHARMA & BIOTECH
+    CVS("CVS", "💊", "CVS Health", true, 10.0, "MARKET", "#CC0000"),
+    GILD("GILD", "🧬", "Gilead Sciences", true, 10.0, "MARKET", "#003B71"),
+    BMY("BMY", "💉", "Bristol-Myers", true, 10.0, "MARKET", "#BE1E2D"),
+    BIIB("BIIB", "🧠", "Biogen", true, 10.0, "MARKET", "#003087"),
+    REGN("REGN", "🔬", "Regeneron", true, 10.0, "MARKET", "#002B5C"),
+    VRTX("VRTX", "🧬", "Vertex Pharma", true, 10.0, "MARKET", "#00A3E0"),
     
     // ⛽ ENERGY STOCKS
     XOM("XOM", "⛽", "Exxon Mobil", true, 10.0, "MARKET", "#ED1B2D"),
@@ -252,6 +266,24 @@ enum class PerpsMarket(
     XLE("XLE", "⛽", "Energy Sector", true, 10.0, "24/7", "#F57C00"),
     XLK("XLK", "💾", "Tech Sector", true, 10.0, "24/7", "#1565C0"),
     XLV("XLV", "💊", "Healthcare Sector", true, 10.0, "24/7", "#2E7D32"),
+    
+    // ═══════════════════════════════════════════════════════════════════════════
+    // 🌿 CANNABIS SECTOR - High Volatility
+    // ═══════════════════════════════════════════════════════════════════════════
+    TLRY("TLRY", "🌿", "Tilray Brands", true, 10.0, "MARKET", "#00843D"),
+    CGC("CGC", "🌿", "Canopy Growth", true, 10.0, "MARKET", "#8DC63F"),
+    ACB("ACB", "🌿", "Aurora Cannabis", true, 10.0, "MARKET", "#5C2D91"),
+    CRON("CRON", "🌿", "Cronos Group", true, 10.0, "MARKET", "#1E3A5F"),
+    SNDL("SNDL", "🌿", "SNDL Inc", true, 10.0, "MARKET", "#228B22"),
+    
+    // ═══════════════════════════════════════════════════════════════════════════
+    // 🚀 HOT MOMENTUM STOCKS - High Risk/Reward
+    // ═══════════════════════════════════════════════════════════════════════════
+    SMCI("SMCI", "🖥️", "Super Micro", true, 10.0, "MARKET", "#1E90FF"),
+    IONQ("IONQ", "⚛️", "IonQ Quantum", true, 10.0, "MARKET", "#6A0DAD"),
+    RKLB("RKLB", "🚀", "Rocket Lab", true, 10.0, "MARKET", "#000000"),
+    RDDT("RDDT", "👽", "Reddit", true, 10.0, "MARKET", "#FF4500"),
+    ARM("ARM", "💾", "ARM Holdings", true, 10.0, "MARKET", "#0091BD"),
     
     // ═══════════════════════════════════════════════════════════════════════════
     // 🛢️ COMMODITIES - Energy (24/7 trading via Pyth)
