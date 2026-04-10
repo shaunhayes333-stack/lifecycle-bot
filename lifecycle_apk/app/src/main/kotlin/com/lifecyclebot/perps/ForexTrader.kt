@@ -1,6 +1,7 @@
 package com.lifecyclebot.perps
 
 import com.lifecyclebot.engine.ErrorLogger
+import com.lifecyclebot.v3.scoring.FluidLearningAI
 import kotlinx.coroutines.*
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.atomic.AtomicBoolean
@@ -190,13 +191,14 @@ object ForexTrader {
     
     private suspend fun analyzeMarket(market: PerpsMarket, data: PerpsMarketData): ForexSignal? {
         val reasons = mutableListOf<String>()
+        val layerVotes = mutableMapOf<String, PerpsDirection>()
         var score = 50
         var confidence = 50
         
         val change = data.priceChange24hPct
         val direction = if (change >= 0) PerpsDirection.LONG else PerpsDirection.SHORT
         
-        // Momentum analysis (forex moves less, so lower thresholds)
+        // 1. Momentum analysis (forex moves less, so lower thresholds)
         when {
             abs(change) > 1.0 -> {
                 score += 25
@@ -213,8 +215,9 @@ object ForexTrader {
                 reasons.add("📊 Mild forex move: ${if (change > 0) "+" else ""}${"%.2f".format(change)}%")
             }
         }
+        layerVotes["Momentum"] = direction
         
-        // Major pair boost (more liquid, safer)
+        // 2. Major pair boost (more liquid, safer)
         val majorPairs = listOf("EURUSD", "GBPUSD", "USDJPY", "AUDUSD", "USDCAD", "USDCHF", "NZDUSD")
         if (market.symbol in majorPairs) {
             score += 10
@@ -222,21 +225,21 @@ object ForexTrader {
             reasons.add("💎 Major pair - high liquidity")
         }
         
-        // Cross pair analysis
+        // 3. Cross pair analysis
         val crossPairs = listOf("EURGBP", "EURJPY", "GBPJPY", "AUDJPY", "CADJPY", "CHFJPY")
         if (market.symbol in crossPairs) {
             score += 5
             reasons.add("🔀 Cross pair")
         }
         
-        // Emerging market pairs (higher volatility, higher risk/reward)
+        // 4. Emerging market pairs (higher volatility, higher risk/reward)
         val emPairs = listOf("USDMXN", "USDBRL", "USDINR", "USDCNY", "USDZAR", "USDTRY", "USDRUB", "USDSGD", "USDHKD", "USDKRW")
         if (market.symbol in emPairs) {
             score += 5
             reasons.add("🌍 EM pair - high volatility")
         }
         
-        // Special pair boosts
+        // 5. Special pair boosts
         when (market.symbol) {
             "EURUSD" -> {
                 score += 5
@@ -251,6 +254,76 @@ object ForexTrader {
                 reasons.add("🇬🇧 GBP/JPY - Dragon/Widow maker")
             }
         }
+        
+        // 6. Technical analysis via PerpsAdvancedAI (FULL AI INTEGRATION)
+        try {
+            PerpsAdvancedAI.recordPrice(market, data.price, data.volume24h)
+            val technicals = PerpsAdvancedAI.analyzeTechnicals(market)
+            
+            if (technicals.recommendation == direction) {
+                score += 10
+                confidence += 10
+                reasons.add("📊 RSI: ${"%.0f".format(technicals.rsi)}")
+                layerVotes["Technical"] = direction
+            }
+            
+            if (technicals.isOversold && direction == PerpsDirection.LONG) {
+                score += 15
+                reasons.add("📉 Oversold bounce")
+            }
+            if (technicals.isOverbought && direction == PerpsDirection.SHORT) {
+                score += 15
+                reasons.add("📈 Overbought short")
+            }
+        } catch (_: Exception) {}
+        
+        // 7. Volume analysis
+        try {
+            val volume = PerpsAdvancedAI.analyzeVolume(market)
+            if (volume.isSpike) {
+                score += when (volume.spikeStrength) {
+                    "EXTREME" -> 20
+                    "STRONG" -> 15
+                    "MILD" -> 10
+                    else -> 0
+                }
+                reasons.add("📊 Volume ${volume.spikeStrength}")
+                layerVotes["Volume"] = direction
+            }
+        } catch (_: Exception) {}
+        
+        // 8. Support/Resistance
+        try {
+            val sr = PerpsAdvancedAI.analyzeSupportResistance(market, data.price)
+            if (sr.nearSupport && direction == PerpsDirection.LONG) {
+                score += 10
+                reasons.add("📍 Near support")
+            }
+            if (sr.nearResistance && direction == PerpsDirection.SHORT) {
+                score += 10
+                reasons.add("📍 Near resistance")
+            }
+        } catch (_: Exception) {}
+        
+        // 9. Fluid Learning progress
+        try {
+            val progress = FluidLearningAI.getLearningProgress()
+            if (progress > 50) {
+                confidence += 5
+                reasons.add("📚 Learning: ${progress.toInt()}%")
+            }
+        } catch (_: Exception) {}
+        
+        // 10. Pattern memory check
+        try {
+            val technicals = PerpsAdvancedAI.analyzeTechnicals(market)
+            val patternConf = PerpsAdvancedAI.getPatternConfidence(market, direction, technicals)
+            if (patternConf > 60) {
+                score += 10
+                confidence += 10
+                reasons.add("🧠 Pattern WR: ${"%.0f".format(patternConf)}%")
+            }
+        } catch (_: Exception) {}
         
         // Floor for paper mode learning
         if (score < 35) score = 35
@@ -328,11 +401,44 @@ object ForexTrader {
     
     private fun closePosition(position: ForexPosition, reason: String) {
         val pnl = position.getPnlSol()
+        val pnlPct = position.getPnlPercent()
+        val isWin = pnl >= 0
+        
         paperBalance += position.size + pnl
         positions.remove(position.id)
         
-        val emoji = if (pnl >= 0) "✅" else "❌"
+        val emoji = if (isWin) "✅" else "❌"
         ErrorLogger.error(TAG, "💱 CLOSED: $emoji ${position.market.symbol} | PnL: ${if (pnl >= 0) "+" else ""}${"%.4f".format(pnl)}◎ | $reason")
+        
+        // Record to FluidLearningAI for unified learning
+        try {
+            FluidLearningAI.recordPaperTrade(isWin)
+        } catch (_: Exception) {}
+        
+        // Record pattern for AI memory
+        try {
+            val technicals = PerpsAdvancedAI.analyzeTechnicals(position.market)
+            PerpsAdvancedAI.recordPattern(
+                position.market,
+                position.direction,
+                technicals,
+                isWin,
+                pnlPct
+            )
+        } catch (_: Exception) {}
+        
+        // Record hourly performance
+        try {
+            val entryHour = java.util.Calendar.getInstance().apply { 
+                timeInMillis = position.openTime 
+            }.get(java.util.Calendar.HOUR_OF_DAY)
+            PerpsAdvancedAI.recordHourlyTrade(entryHour, isWin, pnlPct)
+        } catch (_: Exception) {}
+        
+        // Notify PerpsLearningBridge
+        try {
+            PerpsLearningBridge.recordForexTrade(position.market, position.direction, isWin, pnlPct)
+        } catch (_: Exception) {}
     }
     
     // ═══════════════════════════════════════════════════════════════════════════

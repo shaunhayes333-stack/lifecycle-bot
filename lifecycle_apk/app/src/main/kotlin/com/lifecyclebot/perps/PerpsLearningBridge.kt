@@ -916,6 +916,54 @@ object PerpsLearningBridge {
     
     fun getConnectedLayerCount(): Int = layerConfigs.size
     
+    // ═══════════════════════════════════════════════════════════════════════════
+    // V5.7.6: MULTI-ASSET TRADE RECORDING
+    // ═══════════════════════════════════════════════════════════════════════════
+    
+    private val stockTrades = AtomicInteger(0)
+    private val stockWins = AtomicInteger(0)
+    private val commodityTrades = AtomicInteger(0)
+    private val commodityWins = AtomicInteger(0)
+    private val metalTrades = AtomicInteger(0)
+    private val metalWins = AtomicInteger(0)
+    private val forexTrades = AtomicInteger(0)
+    private val forexWins = AtomicInteger(0)
+    
+    fun recordStockTrade(market: PerpsMarket, direction: PerpsDirection, isWin: Boolean, pnlPct: Double) {
+        stockTrades.incrementAndGet()
+        if (isWin) stockWins.incrementAndGet()
+        totalPerpsLearningEvents.incrementAndGet()
+        ErrorLogger.debug(TAG, "📈 Stock trade recorded: ${market.symbol} ${direction.symbol} win=$isWin pnl=${"%.2f".format(pnlPct)}%")
+    }
+    
+    fun recordCommodityTrade(market: PerpsMarket, direction: PerpsDirection, isWin: Boolean, pnlPct: Double) {
+        commodityTrades.incrementAndGet()
+        if (isWin) commodityWins.incrementAndGet()
+        totalPerpsLearningEvents.incrementAndGet()
+        ErrorLogger.debug(TAG, "🛢️ Commodity trade recorded: ${market.symbol} ${direction.symbol} win=$isWin pnl=${"%.2f".format(pnlPct)}%")
+    }
+    
+    fun recordMetalTrade(market: PerpsMarket, direction: PerpsDirection, isWin: Boolean, pnlPct: Double) {
+        metalTrades.incrementAndGet()
+        if (isWin) metalWins.incrementAndGet()
+        totalPerpsLearningEvents.incrementAndGet()
+        ErrorLogger.debug(TAG, "🥇 Metal trade recorded: ${market.symbol} ${direction.symbol} win=$isWin pnl=${"%.2f".format(pnlPct)}%")
+    }
+    
+    fun recordForexTrade(market: PerpsMarket, direction: PerpsDirection, isWin: Boolean, pnlPct: Double) {
+        forexTrades.incrementAndGet()
+        if (isWin) forexWins.incrementAndGet()
+        totalPerpsLearningEvents.incrementAndGet()
+        ErrorLogger.debug(TAG, "💱 Forex trade recorded: ${market.symbol} ${direction.symbol} win=$isWin pnl=${"%.2f".format(pnlPct)}%")
+    }
+    
+    fun getAssetClassStats(): Map<String, Pair<Int, Int>> = mapOf(
+        "Stocks" to Pair(stockTrades.get(), stockWins.get()),
+        "Commodities" to Pair(commodityTrades.get(), commodityWins.get()),
+        "Metals" to Pair(metalTrades.get(), metalWins.get()),
+        "Forex" to Pair(forexTrades.get(), forexWins.get())
+    )
+    
     /**
      * Get diagnostic report for debugging
      */
@@ -927,6 +975,16 @@ object PerpsLearningBridge {
         sb.appendLine("Connected Layers: ${layerConfigs.size}")
         sb.appendLine("Learning Events: ${totalPerpsLearningEvents.get()}")
         sb.appendLine("Cross-Layer Syncs: ${crossLayerSyncs.get()}")
+        sb.appendLine()
+        sb.appendLine("ASSET CLASS PERFORMANCE:")
+        val stockWr = if (stockTrades.get() > 0) stockWins.get() * 100.0 / stockTrades.get() else 0.0
+        val commodityWr = if (commodityTrades.get() > 0) commodityWins.get() * 100.0 / commodityTrades.get() else 0.0
+        val metalWr = if (metalTrades.get() > 0) metalWins.get() * 100.0 / metalTrades.get() else 0.0
+        val forexWr = if (forexTrades.get() > 0) forexWins.get() * 100.0 / forexTrades.get() else 0.0
+        sb.appendLine("  📈 Stocks: ${stockTrades.get()} trades | ${String.format("%.1f", stockWr)}% WR")
+        sb.appendLine("  🛢️ Commodities: ${commodityTrades.get()} trades | ${String.format("%.1f", commodityWr)}% WR")
+        sb.appendLine("  🥇 Metals: ${metalTrades.get()} trades | ${String.format("%.1f", metalWr)}% WR")
+        sb.appendLine("  💱 Forex: ${forexTrades.get()} trades | ${String.format("%.1f", forexWr)}% WR")
         sb.appendLine()
         sb.appendLine("LAYER TRUST SCORES:")
         layerPerpsTrust.entries.sortedByDescending { it.value }.forEach { (name, trust) ->

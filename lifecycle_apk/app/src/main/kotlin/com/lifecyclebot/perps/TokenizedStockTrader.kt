@@ -551,6 +551,11 @@ object TokenizedStockTrader {
             FluidLearningAI.recordPaperTrade(isWin)
         } catch (_: Exception) {}
         
+        // V5.7.6: Record to PerpsLearningBridge for unified tracking
+        try {
+            PerpsLearningBridge.recordStockTrade(position.market, position.direction, isWin, pnlPct)
+        } catch (_: Exception) {}
+        
         // Record pattern for learning
         try {
             val technicals = PerpsAdvancedAI.analyzeTechnicals(position.market)
