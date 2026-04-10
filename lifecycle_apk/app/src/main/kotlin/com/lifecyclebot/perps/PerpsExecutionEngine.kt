@@ -133,11 +133,17 @@ object PerpsExecutionEngine {
         
         while (isRunning.get()) {
             try {
+                // V5.7.5: Always log heartbeat so we know the loop is alive
+                val scanNum = scanCount.get()
+                if (scanNum % 6 == 0L) {  // Log every minute (6 x 10s)
+                    ErrorLogger.info(TAG, "⚡ PERPS HEARTBEAT #$scanNum | running=${isRunning.get()} paused=${isPaused.get()} enabled=${PerpsTraderAI.isEnabled()}")
+                }
+                
                 if (!isPaused.get() && PerpsTraderAI.isEnabled()) {
                     val isPaper = PerpsTraderAI.isPaperMode
                     scanCount.incrementAndGet()
                     
-                    ErrorLogger.debug(TAG, "⚡ PERPS SCAN #${scanCount.get()} | paper=$isPaper")
+                    ErrorLogger.info(TAG, "⚡ PERPS SCAN #${scanCount.get()} | paper=$isPaper")
                     
                     // Run all scanners
                     val scanResults = PerpsMarketScanners.runAllScanners(isPaper)

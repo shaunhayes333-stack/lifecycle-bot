@@ -142,8 +142,11 @@ object PerpsTraderAI {
      * Initialize persistence - call from BotService.onCreate()
      */
     fun init(context: android.content.Context) {
+        ErrorLogger.info(TAG, "📊 PerpsTraderAI INIT START...")
         prefs = context.getSharedPreferences("perps_trader_ai", android.content.Context.MODE_PRIVATE)
         restore()
+        
+        ErrorLogger.info(TAG, "📊 PerpsTraderAI after restore: enabled=${isEnabled.get()}, paper=$isPaperMode")
         
         // V5.7.3: AUTO-ENABLE in paper mode for continuous learning
         // The perps system should ALWAYS be learning, even if not live trading
