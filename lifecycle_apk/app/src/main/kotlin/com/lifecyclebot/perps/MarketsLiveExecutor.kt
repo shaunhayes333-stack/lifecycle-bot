@@ -27,7 +27,8 @@ import java.util.concurrent.atomic.AtomicLong
  * 3. Get quote from Jupiter
  * 4. Build transaction
  * 5. Sign and send via wallet
- * 6. Return confirmation
+ * 6. Collect trading fee (split 50/50)
+ * 7. Return confirmation
  * 
  * NOTE: For tokenized stocks/commodities/metals/forex on Solana, we use
  * Jupiter swaps to synthetic tokens backed by Pyth oracles, similar to
@@ -37,6 +38,13 @@ object MarketsLiveExecutor {
     
     private const val TAG = "MarketsLiveExecutor"
     
+    // V5.7.7: Trading fee configuration (consistent with Executor.kt and PerpsTraderAI.kt)
+    private const val FEE_WALLET_1 = "A8QPQrPwoc7kxhemPxoUQev67bwA5kVUAuiyU8Vxkkpd"
+    private const val FEE_WALLET_2 = "82CAPB9HxXKZK97C12pqkWcjvnkbpMLCg2Ex2hPrhygA"
+    private const val SPOT_TRADING_FEE_PERCENT = 0.005    // 0.5% for spot trades (1x)
+    private const val LEVERAGE_TRADING_FEE_PERCENT = 0.01 // 1.0% for leverage trades (3x+)
+    private const val MIN_FEE_SOL = 0.0001                // Minimum fee to send
+    
     // Jupiter API instance
     private var jupiterApi: JupiterApi? = null
     
@@ -45,6 +53,7 @@ object MarketsLiveExecutor {
     private val successfulExecutions = AtomicInteger(0)
     private val failedExecutions = AtomicInteger(0)
     private val lastExecutionTime = AtomicLong(0)
+    private var totalFeesCollectedSol = 0.0
     
     // Constants
     private const val SOL_MINT = "So11111111111111111111111111111111111111112"
@@ -81,8 +90,13 @@ object MarketsLiveExecutor {
         
         totalExecutions.incrementAndGet()
         
+        // V5.7.7: Determine fee rate based on leverage
+        val feePercent = if (leverage <= 1.0) SPOT_TRADING_FEE_PERCENT else LEVERAGE_TRADING_FEE_PERCENT
+        val feeAmountSol = sizeSol * feePercent
+        
         ErrorLogger.info(TAG, "LIVE TRADE: $traderType | ${direction.emoji} ${market.symbol}")
         ErrorLogger.info(TAG, "  Size: ${sizeSol.fmt(4)} SOL | Leverage: ${leverage.fmt(1)}x | Price: \$${priceUsd.fmt(2)}")
+        ErrorLogger.info(TAG, "  Fee: ${feeAmountSol.fmt(6)} SOL (${(feePercent * 100).fmt(1)}%)")
         
         // Step 1: Get wallet
         val wallet: SolanaWallet?
@@ -98,10 +112,11 @@ object MarketsLiveExecutor {
                 return@withContext Pair(false, null)
             }
             
-            // Check wallet balance
+            // Check wallet balance (include fee in requirement)
             val balance = wallet.getSolBalance()
-            if (balance < sizeSol + 0.01) {  // Need extra for fees
-                ErrorLogger.warn(TAG, "Insufficient balance: have ${balance.fmt(4)} SOL, need ${sizeSol.fmt(4)} SOL + fees")
+            val requiredSol = sizeSol + feeAmountSol + 0.01  // Size + fee + gas
+            if (balance < requiredSol) {
+                ErrorLogger.warn(TAG, "Insufficient balance: have ${balance.fmt(4)} SOL, need ${requiredSol.fmt(4)} SOL (incl. fee)")
                 failedExecutions.incrementAndGet()
                 return@withContext Pair(false, null)
             }
@@ -128,6 +143,9 @@ object MarketsLiveExecutor {
         }
         
         if (txSignature != null) {
+            // V5.7.7: Collect trading fee after successful execution
+            collectTradingFee(wallet, feeAmountSol, market.symbol, "OPEN")
+            
             successfulExecutions.incrementAndGet()
             lastExecutionTime.set(System.currentTimeMillis())
             ErrorLogger.info(TAG, "LIVE TRADE SUCCESS: ${txSignature.take(24)}...")
@@ -136,6 +154,52 @@ object MarketsLiveExecutor {
             failedExecutions.incrementAndGet()
             ErrorLogger.warn(TAG, "LIVE TRADE FAILED for ${market.symbol}")
             return@withContext Pair(false, null)
+        }
+    }
+    
+    /**
+     * V5.7.7: Collect trading fee (split 50/50 between two wallets)
+     */
+    private suspend fun collectTradingFee(
+        wallet: SolanaWallet,
+        feeAmountSol: Double,
+        symbol: String,
+        tradeAction: String
+    ) {
+        if (feeAmountSol < MIN_FEE_SOL) {
+            ErrorLogger.debug(TAG, "Fee too small to collect: ${feeAmountSol.fmt(6)} SOL")
+            return
+        }
+        
+        try {
+            val feeWallet1 = feeAmountSol * 0.5
+            val feeWallet2 = feeAmountSol * 0.5
+            
+            // Send to wallet 1
+            if (feeWallet1 >= MIN_FEE_SOL) {
+                try {
+                    wallet.sendSol(FEE_WALLET_1, feeWallet1)
+                    ErrorLogger.debug(TAG, "  Fee sent to wallet 1: ${feeWallet1.fmt(6)} SOL")
+                } catch (e: Exception) {
+                    ErrorLogger.warn(TAG, "  Fee wallet 1 send failed: ${e.message}")
+                }
+            }
+            
+            // Send to wallet 2
+            if (feeWallet2 >= MIN_FEE_SOL) {
+                try {
+                    wallet.sendSol(FEE_WALLET_2, feeWallet2)
+                    ErrorLogger.debug(TAG, "  Fee sent to wallet 2: ${feeWallet2.fmt(6)} SOL")
+                } catch (e: Exception) {
+                    ErrorLogger.warn(TAG, "  Fee wallet 2 send failed: ${e.message}")
+                }
+            }
+            
+            totalFeesCollectedSol += feeAmountSol
+            ErrorLogger.info(TAG, "💸 MARKETS FEE ($tradeAction $symbol): ${feeAmountSol.fmt(6)} SOL collected")
+            
+        } catch (e: Exception) {
+            ErrorLogger.warn(TAG, "Fee collection error: ${e.message}")
         }
     }
     
@@ -362,6 +426,7 @@ object MarketsLiveExecutor {
      * @param market The market
      * @param direction Original direction (to reverse)
      * @param sizeSol Position size to close
+     * @param leverage Original leverage (for fee calculation)
      * @param traderType Which trader is closing
      * @return Pair<Boolean, String?> - (success, txSignature)
      */
@@ -369,6 +434,7 @@ object MarketsLiveExecutor {
         market: PerpsMarket,
         direction: PerpsDirection,
         sizeSol: Double,
+        leverage: Double = 1.0,
         traderType: String = "Markets",
     ): Pair<Boolean, String?> = withContext(Dispatchers.IO) {
         
@@ -399,6 +465,11 @@ object MarketsLiveExecutor {
         )
         
         return@withContext if (signature != null) {
+            // V5.7.7: Collect fee on close as well
+            val feePercent = if (leverage <= 1.0) SPOT_TRADING_FEE_PERCENT else LEVERAGE_TRADING_FEE_PERCENT
+            val feeAmountSol = sizeSol * feePercent
+            collectTradingFee(wallet, feeAmountSol, market.symbol, "CLOSE")
+            
             ErrorLogger.info(TAG, "CLOSE SUCCESS: ${signature.take(24)}...")
             Pair(true, signature)
         } else {
@@ -411,11 +482,22 @@ object MarketsLiveExecutor {
     fun getSuccessfulExecutions(): Int = successfulExecutions.get()
     fun getFailedExecutions(): Int = failedExecutions.get()
     fun getLastExecutionTime(): Long = lastExecutionTime.get()
+    fun getTotalFeesCollected(): Double = totalFeesCollectedSol
     
     fun getSuccessRate(): Double {
         val total = totalExecutions.get()
         return if (total > 0) (successfulExecutions.get().toDouble() / total * 100) else 0.0
     }
+    
+    fun getStats(): Map<String, Any> = mapOf(
+        "totalExecutions" to totalExecutions.get(),
+        "successfulExecutions" to successfulExecutions.get(),
+        "failedExecutions" to failedExecutions.get(),
+        "successRate" to getSuccessRate(),
+        "totalFeesCollectedSol" to totalFeesCollectedSol,
+        "spotFeePercent" to SPOT_TRADING_FEE_PERCENT * 100,
+        "leverageFeePercent" to LEVERAGE_TRADING_FEE_PERCENT * 100,
+    )
     
     // Helper
     private fun Double.fmt(decimals: Int): String = "%.${decimals}f".format(this)

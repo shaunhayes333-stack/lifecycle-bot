@@ -47,6 +47,10 @@ object TokenizedStockTrader {
     private const val DEFAULT_LEVERAGE = 3.0
     private const val DEFAULT_SIZE_PCT = 5.0  // 5% of balance per trade
     
+    // V5.7.7: Trading fees (consistent across app)
+    private const val SPOT_TRADING_FEE_PERCENT = 0.005    // 0.5% for spot (1x)
+    private const val LEVERAGE_TRADING_FEE_PERCENT = 0.01 // 1.0% for leverage (3x+)
+    
     // ═══════════════════════════════════════════════════════════════════════════
     // STATE
     // ═══════════════════════════════════════════════════════════════════════════
@@ -602,17 +606,25 @@ object TokenizedStockTrader {
         // V5.7.6b: Remove from Turso
         removePositionFromTurso(positionId)
         
-        val pnlPct = position.getUnrealizedPnlPct()
-        val pnlSol = position.getUnrealizedPnlSol()
-        val isWin = pnlPct > 0
+        // V5.7.7: Calculate P&L with fee deduction
+        val grossPnlPct = position.getUnrealizedPnlPct()
+        val grossPnlSol = position.getUnrealizedPnlSol()
         
-        // Update stats
+        // Deduct trading fees (open + close)
+        val feePercent = if (position.isSpot) SPOT_TRADING_FEE_PERCENT else LEVERAGE_TRADING_FEE_PERCENT
+        val totalFeeSol = position.sizeSol * feePercent * 2  // Fee on open + close
+        val netPnlSol = grossPnlSol - totalFeeSol
+        val netPnlPct = if (position.sizeSol > 0) (netPnlSol / position.sizeSol) * 100 else 0.0
+        
+        val isWin = netPnlPct > 0
+        
+        // Update stats (use net P&L)
         if (isWin) winningTrades.incrementAndGet() else losingTrades.incrementAndGet()
-        totalPnlSol += pnlSol
+        totalPnlSol += netPnlSol
         
-        // Return capital + P&L to balance
+        // Return capital + net P&L to balance
         if (isPaperMode.get()) {
-            paperBalance += position.sizeSol + pnlSol
+            paperBalance += position.sizeSol + netPnlSol
         }
         
         // Record to FluidLearningAI
@@ -623,7 +635,7 @@ object TokenizedStockTrader {
         
         // V5.7.6: Record to PerpsLearningBridge for unified tracking
         try {
-            PerpsLearningBridge.recordStockTrade(position.market, position.direction, isWin, pnlPct)
+            PerpsLearningBridge.recordStockTrade(position.market, position.direction, isWin, netPnlPct)
         } catch (_: Exception) {}
         
         // Record pattern for learning
@@ -634,31 +646,32 @@ object TokenizedStockTrader {
                 position.direction,
                 technicals,
                 isWin,
-                pnlPct
+                netPnlPct
             )
             
             // Record time of day
             val entryHour = java.util.Calendar.getInstance().apply {
                 timeInMillis = position.entryTime
             }.get(java.util.Calendar.HOUR_OF_DAY)
-            PerpsAdvancedAI.recordHourlyTrade(entryHour, isWin, pnlPct)
+            PerpsAdvancedAI.recordHourlyTrade(entryHour, isWin, netPnlPct)
         } catch (_: Exception) {}
         
         val holdMins = (System.currentTimeMillis() - position.entryTime) / 60_000
         val emoji = when {
-            pnlPct >= 20 -> "🚀"
-            pnlPct >= 10 -> "🎯"
-            pnlPct > 0 -> "✅"
-            pnlPct > -5 -> "😐"
+            netPnlPct >= 20 -> "🚀"
+            netPnlPct >= 10 -> "🎯"
+            netPnlPct > 0 -> "✅"
+            netPnlPct > -5 -> "😐"
             else -> "💀"
         }
         
+        val feeStr = "(fee: ${totalFeeSol.fmt(4)}◎)"
         ErrorLogger.info(TAG, "$emoji CLOSED: ${position.market.symbol} | $reason | " +
-            "P&L: ${if (pnlPct >= 0) "+" else ""}${pnlPct.fmt(1)}% (${if (pnlSol >= 0) "+" else ""}${pnlSol.fmt(4)}◎) | " +
+            "P&L: ${if (netPnlPct >= 0) "+" else ""}${netPnlPct.fmt(1)}% (${if (netPnlSol >= 0) "+" else ""}${netPnlSol.fmt(4)}◎) $feeStr | " +
             "hold=${holdMins}m | WR=${getWinRate().toInt()}%")
         
-        // V5.7.6b: Persist to Turso for learning memory
-        persistTradeToTurso(position, reason, pnlSol, pnlPct, isWin, holdMins)
+        // V5.7.6b: Persist to Turso for learning memory (with net P&L)
+        persistTradeToTurso(position, reason, netPnlSol, netPnlPct, isWin, holdMins)
     }
     
     /**
