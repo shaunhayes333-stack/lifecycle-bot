@@ -243,59 +243,53 @@ object PerpsExecutionEngine {
     
     /**
      * Determine if we should take a trade based on current conditions
+     * V5.7.5: Simplified for paper mode - minimal filtering for maximum learning
      */
     private fun shouldTakeTrade(signal: PerpsSignal): Boolean {
-        // Must meet minimum thresholds
+        // Check if we already have a position in this market
+        if (PerpsTraderAI.hasPosition(signal.market)) {
+            ErrorLogger.debug(TAG, "⚡ SKIP ${signal.market.symbol}: Already have position")
+            return false
+        }
+        
+        val isPaper = PerpsTraderAI.isPaperMode
+        
+        // V5.7.5: In paper mode, be VERY aggressive - minimal filtering
+        if (isPaper) {
+            // Only check basic signal validity
+            if (signal.confidence < 40 || signal.score < 40) {
+                ErrorLogger.debug(TAG, "⚡ SKIP ${signal.market.symbol}: Low score/conf (${signal.score}/${signal.confidence})")
+                return false
+            }
+            
+            // Check max positions (allow up to 20 in paper mode)
+            val currentPositions = PerpsTraderAI.getActivePositions().size
+            if (currentPositions >= 20) {
+                ErrorLogger.debug(TAG, "⚡ SKIP ${signal.market.symbol}: Max positions reached ($currentPositions)")
+                return false
+            }
+            
+            ErrorLogger.info(TAG, "⚡ TRADE OK: ${signal.market.symbol} | score=${signal.score} conf=${signal.confidence}")
+            return true
+        }
+        
+        // LIVE MODE: Stricter checks
         if (!signal.shouldTrade()) {
             return false
         }
         
-        // Check if we already have a position in this market
-        if (PerpsTraderAI.hasPosition(signal.market)) {
+        // Check daily limits
+        val dailyTrades = PerpsTraderAI.getDailyTrades()
+        if (dailyTrades >= 30) {
+            ErrorLogger.debug(TAG, "Daily trade limit reached")
             return false
         }
         
-        // V5.7.4: SKIP ALL LIMITS IN PAPER MODE - Let it trade freely for learning!
-        val isPaper = PerpsTraderAI.isPaperMode
-        
-        if (!isPaper) {
-            // Check daily limits (LIVE MODE ONLY)
-            val dailyTrades = PerpsTraderAI.getDailyTrades()
-            if (dailyTrades >= 30) {
-                ErrorLogger.debug(TAG, "Daily trade limit reached")
-                return false
-            }
-            
-            // Check daily P&L (LIVE MODE ONLY)
-            val dailyPnlPct = PerpsTraderAI.getDailyPnlPct()
-            if (dailyPnlPct <= -15.0) {
-                ErrorLogger.debug(TAG, "Daily loss limit reached")
-                return false
-            }
-        }
-        
-        // Aggregate layer signals for final confirmation
-        try {
-            val marketData = kotlinx.coroutines.runBlocking {
-                PerpsMarketDataFetcher.getMarketData(signal.market)
-            }
-            val aggregatedSignal = PerpsLearningBridge.aggregateLayerSignals(signal.market, marketData)
-            
-            // V5.7.4: Lower consensus requirement in paper mode for more learning
-            val minConsensus = if (isPaper) 1 else 3
-            if (aggregatedSignal.layerConsensus < minConsensus) {
-                ErrorLogger.debug(TAG, "Insufficient layer consensus: ${aggregatedSignal.layerConsensus} (need $minConsensus)")
-                return false
-            }
-            
-            // Direction must match (skip in paper mode for more diversity)
-            if (!isPaper && aggregatedSignal.direction != signal.direction) {
-                ErrorLogger.debug(TAG, "Layer direction mismatch")
-                return false
-            }
-        } catch (e: Exception) {
-            ErrorLogger.debug(TAG, "Layer aggregation failed: ${e.message}")
-            // Continue anyway if aggregation fails
+        // Check daily P&L
+        val dailyPnlPct = PerpsTraderAI.getDailyPnlPct()
+        if (dailyPnlPct <= -15.0) {
+            ErrorLogger.debug(TAG, "Daily loss limit reached")
+            return false
         }
         
         return true
