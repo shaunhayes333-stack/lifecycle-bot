@@ -307,9 +307,9 @@ object TokenizedStockTrader {
         ErrorLogger.error(TAG, "📈 positions=${positions.size}/$MAX_STOCK_POSITIONS | balance=${"%.2f".format(getBalance())} SOL")
         ErrorLogger.error(TAG, "📈 ═══════════════════════════════════════════════════")
         
-        // Get all stock markets
+        // V5.7.7: Scan all stocks - Pyth for major stocks, Yahoo Finance for others
         val stockMarkets = PerpsMarket.values().filter { it.isStock }
-        ErrorLogger.info(TAG, "📈 Found ${stockMarkets.size} stock markets to scan: ${stockMarkets.take(5).map { it.symbol }}")
+        ErrorLogger.info(TAG, "📈 Found ${stockMarkets.size} stock markets to scan (Pyth + Yahoo Finance)")
         
         // Fetch prices and generate signals
         val signals = mutableListOf<StockSignal>()

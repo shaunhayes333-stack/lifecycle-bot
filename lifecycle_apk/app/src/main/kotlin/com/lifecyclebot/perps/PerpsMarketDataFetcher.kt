@@ -728,19 +728,89 @@ object PerpsMarketDataFetcher {
         return@withContext createSolMarketData(150.0)
     }
     
+    // ═══════════════════════════════════════════════════════════════════════════
+    // V5.7.7: YAHOO FINANCE API - Real stock prices for non-Pyth stocks
+    // ═══════════════════════════════════════════════════════════════════════════
+    
+    private const val YAHOO_QUOTE_URL = "https://query1.finance.yahoo.com/v8/finance/chart/"
+    
     /**
-     * Fallback stock data fetch - V5.7.4: Use comprehensive stockPrices map
+     * V5.7.7: Fetch real stock price from Yahoo Finance
+     */
+    private suspend fun fetchYahooPrice(symbol: String): Double? = withContext(Dispatchers.IO) {
+        try {
+            val request = Request.Builder()
+                .url("${YAHOO_QUOTE_URL}${symbol}?interval=1m&range=1d")
+                .header("User-Agent", "Mozilla/5.0")
+                .build()
+            
+            val response = client.newCall(request).execute()
+            if (!response.isSuccessful) {
+                ErrorLogger.debug(TAG, "Yahoo Finance HTTP ${response.code} for $symbol")
+                return@withContext null
+            }
+            
+            val body = response.body?.string() ?: return@withContext null
+            val json = JSONObject(body)
+            
+            val chart = json.getJSONObject("chart")
+            val result = chart.getJSONArray("result").getJSONObject(0)
+            val meta = result.getJSONObject("meta")
+            val price = meta.getDouble("regularMarketPrice")
+            val prevClose = meta.optDouble("chartPreviousClose", price)
+            
+            if (price > 0) {
+                // Cache the price
+                stockPrices[symbol] = price
+                
+                // Calculate change
+                val change = if (prevClose > 0) ((price - prevClose) / prevClose) * 100 else 0.0
+                yahooChangeCache[symbol] = change
+                
+                ErrorLogger.debug(TAG, "📊 Yahoo: $symbol = \$${price.fmt(2)} (${if (change >= 0) "+" else ""}${change.fmt(2)}%)")
+                return@withContext price
+            }
+        } catch (e: Exception) {
+            ErrorLogger.debug(TAG, "Yahoo fetch error for $symbol: ${e.message}")
+        }
+        return@withContext null
+    }
+    
+    // Cache for Yahoo 24h change
+    private val yahooChangeCache = ConcurrentHashMap<String, Double>()
+    
+    /**
+     * V5.7.7: Fallback stock data fetch - Try Yahoo Finance first, then static fallback
      */
     private suspend fun fetchStockDataFallback(market: PerpsMarket): PerpsMarketData = withContext(Dispatchers.IO) {
-        // Use the global stockPrices map which has all stocks
-        val price = stockPrices[market.symbol] ?: run {
-            ErrorLogger.warn(TAG, "⚠️ NO FALLBACK PRICE for ${market.symbol} - using Pyth estimate")
-            // Try to get from Pyth one more time
-            val pythPrice = try { PythOracle.getPrice(market.symbol) } catch (_: Exception) { null }
-            pythPrice?.price ?: 100.0  // Last resort default
+        // V5.7.7: Try Yahoo Finance for REAL prices
+        val yahooPrice = fetchYahooPrice(market.symbol)
+        
+        if (yahooPrice != null && yahooPrice > 0) {
+            val change = yahooChangeCache[market.symbol] ?: 0.0
+            
+            return@withContext PerpsMarketData(
+                market = market,
+                price = yahooPrice,
+                indexPrice = yahooPrice,
+                markPrice = yahooPrice,
+                fundingRate = 0.0,
+                fundingRateAnnualized = 0.0,
+                nextFundingTime = 0,
+                openInterestLong = getEstimatedOI(market, true),
+                openInterestShort = getEstimatedOI(market, false),
+                volume24h = getEstimatedVolume(market),
+                high24h = yahooPrice * (1 + Math.abs(change) / 100 + 0.005),
+                low24h = yahooPrice * (1 - Math.abs(change) / 100 - 0.005),
+                priceChange24hPct = change,
+            )
         }
         
-        val change = (Math.random() * 6 - 3)
+        // Last resort: Use cached/static price
+        val price = stockPrices[market.symbol] ?: run {
+            ErrorLogger.warn(TAG, "⚠️ NO PRICE SOURCE for ${market.symbol}")
+            100.0
+        }
         
         return@withContext PerpsMarketData(
             market = market,
@@ -753,9 +823,9 @@ object PerpsMarketDataFetcher {
             openInterestLong = getEstimatedOI(market, true),
             openInterestShort = getEstimatedOI(market, false),
             volume24h = getEstimatedVolume(market),
-            high24h = price * (1 + Math.abs(change) / 100 + 0.005),
-            low24h = price * (1 - Math.abs(change) / 100 - 0.005),
-            priceChange24hPct = change,
+            high24h = price * 1.02,
+            low24h = price * 0.98,
+            priceChange24hPct = 0.0,
         )
     }
 }
