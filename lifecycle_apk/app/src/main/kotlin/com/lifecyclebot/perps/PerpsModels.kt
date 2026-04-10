@@ -236,6 +236,24 @@ enum class PerpsMarket(
     GM("GM", "🚗", "General Motors", true, 10.0, "MARKET", "#0170CE"),
     
     // ═══════════════════════════════════════════════════════════════════════════
+    // 📊 INDEX ETFs - Major Market Indices (Pyth-powered, 24/7)
+    // ═══════════════════════════════════════════════════════════════════════════
+    SPY("SPY", "📈", "S&P 500 ETF", true, 10.0, "24/7", "#00875A"),
+    QQQ("QQQ", "💻", "NASDAQ 100 ETF", true, 10.0, "24/7", "#0091D5"),
+    DIA("DIA", "🏛️", "Dow Jones ETF", true, 10.0, "24/7", "#003087"),
+    IWM("IWM", "📊", "Russell 2000 ETF", true, 10.0, "24/7", "#FF6600"),
+    VTI("VTI", "🌎", "Total Stock Market", true, 10.0, "24/7", "#96151D"),
+    EEM("EEM", "🌏", "Emerging Markets", true, 10.0, "24/7", "#00A650"),
+    EFA("EFA", "🌍", "EAFE Intl ETF", true, 10.0, "24/7", "#0033A0"),
+    GLD("GLD", "🥇", "Gold ETF", true, 10.0, "24/7", "#FFD700"),
+    SLV("SLV", "🥈", "Silver ETF", true, 10.0, "24/7", "#C0C0C0"),
+    TLT("TLT", "📜", "20+ Yr Treasury", true, 10.0, "24/7", "#003366"),
+    XLF("XLF", "🏦", "Financial Sector", true, 10.0, "24/7", "#00796B"),
+    XLE("XLE", "⛽", "Energy Sector", true, 10.0, "24/7", "#F57C00"),
+    XLK("XLK", "💾", "Tech Sector", true, 10.0, "24/7", "#1565C0"),
+    XLV("XLV", "💊", "Healthcare Sector", true, 10.0, "24/7", "#2E7D32"),
+    
+    // ═══════════════════════════════════════════════════════════════════════════
     // 🛢️ COMMODITIES - Energy (24/7 trading via Pyth)
     // ═══════════════════════════════════════════════════════════════════════════
     BRENT("BRENT", "🛢️", "Brent Crude Oil", false, 15.0, "24/7", "#000000"),

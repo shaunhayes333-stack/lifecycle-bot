@@ -132,6 +132,24 @@ object PerpsMarketDataFetcher {
         put("NEE", 75.0)          // NextEra Energy
         
         // ═══════════════════════════════════════════════════════════════════════
+        // V5.7.6b: INDEX ETFs - Major Market Indices
+        // ═══════════════════════════════════════════════════════════════════════
+        put("SPY", 595.0)         // S&P 500 ETF
+        put("QQQ", 520.0)         // NASDAQ 100 ETF
+        put("DIA", 425.0)         // Dow Jones ETF
+        put("IWM", 225.0)         // Russell 2000 ETF
+        put("VTI", 285.0)         // Total Stock Market
+        put("EEM", 45.0)          // Emerging Markets
+        put("EFA", 82.0)          // EAFE Intl ETF
+        put("GLD", 245.0)         // Gold ETF
+        put("SLV", 28.0)          // Silver ETF
+        put("TLT", 92.0)          // 20+ Yr Treasury
+        put("XLF", 48.0)          // Financial Sector
+        put("XLE", 92.0)          // Energy Sector
+        put("XLK", 230.0)         // Tech Sector
+        put("XLV", 150.0)         // Healthcare Sector
+        
+        // ═══════════════════════════════════════════════════════════════════════
         // V5.7.6: COMMODITIES - Energy
         // ═══════════════════════════════════════════════════════════════════════
         put("BRENT", 85.0)      // Brent Crude per barrel
