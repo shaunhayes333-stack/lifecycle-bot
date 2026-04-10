@@ -957,7 +957,8 @@ object PerpsMarketScanners {
         
         stockMarkets.forEach { stockMarket ->
             val stockData = marketData[stockMarket] ?: return@forEach
-            if (!PerpsMarketDataFetcher.isMarketTradeable(stockMarket)) return@forEach
+            // V5.7.6: Pass isPaperMode to allow 24/7 stock trading in paper mode
+            if (!PerpsMarketDataFetcher.isMarketTradeable(stockMarket, isPaperMode)) return@forEach
             
             val stockChange = stockData.priceChange24hPct
             val reasoning = mutableListOf<String>()
