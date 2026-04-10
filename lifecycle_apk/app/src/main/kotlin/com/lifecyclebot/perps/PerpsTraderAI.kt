@@ -518,18 +518,21 @@ object PerpsTraderAI {
     
     private fun isMarketOpen(market: PerpsMarket): Boolean {
         if (!market.isStock) return true  // Crypto is 24/7
-        
-        // Simplified check - would need proper market hours API
-        val hour = java.util.Calendar.getInstance().get(java.util.Calendar.HOUR_OF_DAY)
-        val dayOfWeek = java.util.Calendar.getInstance().get(java.util.Calendar.DAY_OF_WEEK)
-        
+
+        val nyZone = java.util.TimeZone.getTimeZone("America/New_York")
+        val cal = java.util.Calendar.getInstance(nyZone)
+        val dayOfWeek = cal.get(java.util.Calendar.DAY_OF_WEEK)
+        val hour = cal.get(java.util.Calendar.HOUR_OF_DAY)
+        val minute = cal.get(java.util.Calendar.MINUTE)
+        val timeInMinutes = hour * 60 + minute
+
         // Skip weekends
         if (dayOfWeek == java.util.Calendar.SATURDAY || dayOfWeek == java.util.Calendar.SUNDAY) {
             return false
         }
-        
-        // US market hours (9:30 AM - 4:00 PM ET, roughly 14:30-21:00 UTC)
-        return hour in 14..21
+
+        // Extended hours: 4:00 AM - 8:00 PM ET (includes pre-market and after-hours)
+        return timeInMinutes in (4 * 60)..(20 * 60)
     }
     
     // ═══════════════════════════════════════════════════════════════════════════
@@ -610,7 +613,7 @@ object PerpsTraderAI {
         
         // Store position
         activePositions[position.id] = position
-        if (isPaper) paperPositions[position.id] else livePositions[position.id]
+        if (isPaper) paperPositions[position.id] = position else livePositions[position.id] = position
         
         // Update stats
         dailyTrades.incrementAndGet()

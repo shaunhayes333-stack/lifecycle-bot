@@ -653,16 +653,20 @@ object PerpsMarketDataFetcher {
             return true
         }
         
-        // Check market hours (simplified)
-        val hour = java.util.Calendar.getInstance().get(java.util.Calendar.HOUR_OF_DAY)
-        val dayOfWeek = java.util.Calendar.getInstance().get(java.util.Calendar.DAY_OF_WEEK)
-        
+        // Check market hours using America/New_York timezone
+        val nyZone = java.util.TimeZone.getTimeZone("America/New_York")
+        val cal = java.util.Calendar.getInstance(nyZone)
+        val dayOfWeek = cal.get(java.util.Calendar.DAY_OF_WEEK)
+        val hour = cal.get(java.util.Calendar.HOUR_OF_DAY)
+        val minute = cal.get(java.util.Calendar.MINUTE)
+        val timeInMinutes = hour * 60 + minute
+
         if (dayOfWeek == java.util.Calendar.SATURDAY || dayOfWeek == java.util.Calendar.SUNDAY) {
             return false
         }
-        
-        // US market hours approximation (9:30-16:00 ET ~ 14:30-21:00 UTC)
-        return hour in 14..21
+
+        // Extended hours: 4:00 AM - 8:00 PM ET (includes pre-market and after-hours)
+        return timeInMinutes in (4 * 60)..(20 * 60)
     }
     
     /**

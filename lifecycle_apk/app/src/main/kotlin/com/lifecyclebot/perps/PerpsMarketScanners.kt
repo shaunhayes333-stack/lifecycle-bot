@@ -110,23 +110,20 @@ object PerpsMarketScanners {
         
         // V5.7.5: Get current positions for correlation filtering
         val currentPositions = PerpsTraderAI.getActivePositions().map { it.market }
-        
-        // V5.7.5: Skip top movers and hot sectors for now - they use runBlocking which can deadlock
-        // TODO: Make these suspend functions
-        val topMovers = emptyList<PerpsMarket>()
-        val hotSectors = emptyList<PerpsAdvancedAI.Sector>()
-        
-        // Run each scanner
-        ScannerType.values().forEach { scannerType ->
+
+        // Fetch top movers and hot sectors using proper suspend functions (no runBlocking deadlock)
+        val topMovers = try { PerpsAdvancedAI.getTopMovers() } catch (_: Exception) { emptyList() }
+        val hotSectors = try { PerpsAdvancedAI.getHotSectors() } catch (_: Exception) { emptyList() }
+
+        // Run each scanner (use for loop so suspend calls are allowed inside)
+        for (scannerType in ScannerType.values()) {
             try {
                 val scanResults = when (scannerType) {
                     ScannerType.SOL_MOMENTUM -> scanSolMomentum(marketDataMap, isPaperMode)
                     ScannerType.SOL_SNIPER -> scanSolSniper(marketDataMap, isPaperMode)
-                    ScannerType.STOCK_QUALITY -> {
-                        // V5.7.5: Use simple scanner for reliability - advanced scanner can cause deadlocks
-                        // TODO: Fix PerpsAdvancedAI to use suspend functions properly
-                        scanStockQuality(marketDataMap, isPaperMode)
-                    }
+                    ScannerType.STOCK_QUALITY -> scanStockQualityAdvanced(
+                        marketDataMap, isPaperMode, currentPositions, topMovers, hotSectors
+                    )
                     ScannerType.WHALE_LIQUIDATION -> scanWhaleLiquidation(marketDataMap, isPaperMode)
                     ScannerType.FUNDING_RATE -> scanFundingRate(marketDataMap, isPaperMode)
                     ScannerType.VOLATILITY_BREAKOUT -> scanVolatilityBreakout(marketDataMap, isPaperMode)
@@ -501,7 +498,7 @@ object PerpsMarketScanners {
     // Uses PerpsAdvancedAI for RSI, MACD, Volume, Support/Resistance, etc.
     // ═══════════════════════════════════════════════════════════════════════════
     
-    private fun scanStockQualityAdvanced(
+    private suspend fun scanStockQualityAdvanced(
         marketData: Map<PerpsMarket, PerpsMarketData>,
         isPaperMode: Boolean,
         currentPositions: List<PerpsMarket>,

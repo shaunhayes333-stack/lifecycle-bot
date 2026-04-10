@@ -1,7 +1,6 @@
 package com.lifecyclebot.perps
 
 import com.lifecyclebot.engine.ErrorLogger
-import kotlinx.coroutines.runBlocking
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.atomic.AtomicLong
 import kotlin.math.abs
@@ -446,10 +445,10 @@ object PerpsAdvancedAI {
         val isTopMover: Boolean
     )
     
-    fun getMomentumRanking(markets: List<PerpsMarket> = PerpsMarket.values().toList()): List<MomentumScore> {
+    suspend fun getMomentumRanking(markets: List<PerpsMarket> = PerpsMarket.values().toList()): List<MomentumScore> {
         val scores = markets.mapNotNull { market ->
             try {
-                val data = runBlocking { PerpsMarketDataFetcher.getMarketData(market) }
+                val data = PerpsMarketDataFetcher.getMarketData(market)
                 val technical = analyzeTechnicals(market)
                 val volume = analyzeVolume(market)
                 
@@ -482,7 +481,7 @@ object PerpsAdvancedAI {
         }
     }
     
-    fun getTopMovers(count: Int = 5): List<PerpsMarket> {
+    suspend fun getTopMovers(count: Int = 5): List<PerpsMarket> {
         return getMomentumRanking().take(count).map { it.market }
     }
     
@@ -498,12 +497,12 @@ object PerpsAdvancedAI {
         val isHot: Boolean
     )
     
-    fun getSectorRotation(): List<SectorStrength> {
+    suspend fun getSectorRotation(): List<SectorStrength> {
         val sectorScores = mutableMapOf<Sector, MutableList<Double>>()
-        
+
         for ((market, sector) in marketSectors) {
             try {
-                val data = runBlocking { PerpsMarketDataFetcher.getMarketData(market) }
+                val data = PerpsMarketDataFetcher.getMarketData(market)
                 sectorScores.getOrPut(sector) { mutableListOf() }.add(data.priceChange24hPct)
             } catch (_: Exception) {}
         }
@@ -522,11 +521,11 @@ object PerpsAdvancedAI {
         }.sortedByDescending { it.strength }
     }
     
-    fun getHotSectors(): List<Sector> {
+    suspend fun getHotSectors(): List<Sector> {
         return getSectorRotation().filter { it.isHot }.map { it.sector }
     }
-    
-    fun isInHotSector(market: PerpsMarket): Boolean {
+
+    suspend fun isInHotSector(market: PerpsMarket): Boolean {
         val sector = marketSectors[market] ?: return false
         return sector in getHotSectors()
     }
@@ -875,7 +874,7 @@ object PerpsAdvancedAI {
         val patternConfidence: Double
     )
     
-    fun analyzeEntry(
+    suspend fun analyzeEntry(
         market: PerpsMarket,
         currentPrice: Double,
         currentPositions: List<PerpsMarket> = emptyList()
