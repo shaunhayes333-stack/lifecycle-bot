@@ -169,9 +169,14 @@ object PerpsMarketDataFetcher {
                         priceChange24hPct = calculateChange(pythPrice.price, pythPrice.emaPrice),
                     )
                 } else {
-                    // V5.7.4: If stale, still use the price but with a warning
-                    ErrorLogger.warn(TAG, "⚠️ Pyth price STALE for ${market.symbol}, using last known: \$${pythPrice.price.fmt(2)}")
-                    stockPrices[market.symbol] = pythPrice.price  // Still update cache
+                    // V5.7.5: If stale, still use the price - only debug log (not warn)
+                    // This prevents log spam for assets like SNOW that Pyth doesn't track well
+                    if (pythPrice.price > 0) {
+                        ErrorLogger.debug(TAG, "📊 Pyth stale but valid: ${market.symbol} = \$${pythPrice.price.fmt(2)}")
+                        stockPrices[market.symbol] = pythPrice.price
+                    } else {
+                        ErrorLogger.debug(TAG, "📊 Pyth stale/zero for ${market.symbol}, using fallback: \$${stockPrices[market.symbol]?.fmt(2) ?: "100.00"}")
+                    }
                     
                     return PerpsMarketData(
                         market = market,

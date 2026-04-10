@@ -329,6 +329,7 @@ object PerpsMarketScanners {
     // ═══════════════════════════════════════════════════════════════════════════
     // SCANNER 3: STOCK QUALITY SCANNER
     // Quality setups on tokenized stocks (AAPL, TSLA, NVDA, etc.)
+    // V5.7.5: Enhanced with MTF confirmation and better signal generation
     // ═══════════════════════════════════════════════════════════════════════════
     
     private fun scanStockQuality(
@@ -352,46 +353,88 @@ object PerpsMarketScanners {
                 return@forEach
             }
             
+            // Skip if price is invalid
+            if (data.price <= 0) {
+                ErrorLogger.debug(TAG, "💎 ${market.symbol}: Invalid price ${data.price}, skipping")
+                return@forEach
+            }
+            
             val change = data.priceChange24hPct
-            // V5.7.3: Lower threshold for paper mode learning (0.5% vs 1.5%)
-            val threshold = if (isPaperMode) 0.5 else 1.5
+            // V5.7.5: Much lower threshold in paper mode to generate more trades
+            val threshold = if (isPaperMode) 0.1 else 1.0
             val hasTrend = abs(change) > threshold
             
-            ErrorLogger.debug(TAG, "💎 ${market.symbol}: change=${change.fmt(2)}% threshold=$threshold hasTrend=$hasTrend")
+            // V5.7.5: In paper mode, generate signals even without strong trend for learning
+            if (!hasTrend && !isPaperMode) return@forEach
             
-            if (!hasTrend) return@forEach
-            
-            val direction = if (change > 0) PerpsDirection.LONG else PerpsDirection.SHORT
-            var score = 55
-            var confidence = 60
-            var priority = 4  // Base priority for stocks
+            val direction = if (change >= 0) PerpsDirection.LONG else PerpsDirection.SHORT
+            var score = 60  // Higher base score
+            var confidence = 65
+            var priority = 5  // Higher base priority to ensure execution
             
             reasoning.add("${market.emoji} ${market.displayName}")
-            reasoning.add("📊 Change: ${if (change > 0) "+" else ""}${change.fmt(1)}%")
+            reasoning.add("📊 Price: \$${data.price.fmt(2)}")
+            reasoning.add("📈 Change: ${if (change > 0) "+" else ""}${change.fmt(2)}%")
             
             // Quality stocks get higher base confidence
             when (market) {
                 PerpsMarket.AAPL, PerpsMarket.MSFT, PerpsMarket.GOOGL -> {
                     confidence += 10
-                    priority = 5
+                    score += 5
+                    priority = 6
                     reasoning.add("💎 Blue chip quality")
                 }
                 PerpsMarket.NVDA -> {
                     confidence += 15  // AI darling
-                    priority = 6
+                    score += 10
+                    priority = 7  // Highest priority
                     reasoning.add("🔥 AI sector leader")
                 }
                 PerpsMarket.TSLA -> {
-                    score += 5
-                    priority = 5
+                    score += 8
+                    confidence += 5
+                    priority = 6
                     reasoning.add("⚡ High volatility name")
                 }
-                else -> {}
+                PerpsMarket.META, PerpsMarket.AMZN -> {
+                    confidence += 8
+                    priority = 6
+                    reasoning.add("📱 Tech giant")
+                }
+                PerpsMarket.COIN -> {
+                    score += 5
+                    priority = 6
+                    reasoning.add("🪙 Crypto exposure")
+                }
+                else -> {
+                    // Other stocks still get decent priority in paper mode
+                    if (isPaperMode) priority = 5
+                }
             }
             
-            // Stronger moves get higher priority
-            if (abs(change) > 3.0) priority += 2
-            else if (abs(change) > 2.0) priority += 1
+            // Stronger moves get higher priority and score
+            when {
+                abs(change) > 3.0 -> {
+                    priority += 2
+                    score += 15
+                    confidence += 10
+                    reasoning.add("🚀 Strong move >3%")
+                }
+                abs(change) > 2.0 -> {
+                    priority += 1
+                    score += 10
+                    reasoning.add("📊 Solid move >2%")
+                }
+                abs(change) > 1.0 -> {
+                    score += 5
+                    reasoning.add("📈 Trending >1%")
+                }
+            }
+            
+            // V5.7.5: Paper mode always generates signals for learning
+            if (isPaperMode && priority < 5) {
+                priority = 5  // Ensure stocks get executed in paper mode
+            }
             
             // Conservative leverage for stocks
             val leverage = if (isPaperMode) 5.0 else 3.0
@@ -402,15 +445,15 @@ object PerpsMarketScanners {
                 score = score.coerceIn(0, 100),
                 confidence = confidence.coerceIn(0, 100),
                 recommendedLeverage = leverage,
-                recommendedSizePct = 7.0,
+                recommendedSizePct = 8.0,  // Slightly larger for quality stocks
                 recommendedRiskTier = PerpsRiskTier.SNIPER,  // Conservative for stocks
                 takeProfitPct = 8.0,
                 stopLossPct = 4.0,
                 reasons = reasoning,
-                aiReasoning = "💎 QUALITY: ${direction.symbol} ${market.symbol} @ ${leverage.fmt(1)}x",
+                aiReasoning = "💎 STOCK: ${direction.symbol} ${market.symbol} @ \$${data.price.fmt(2)} | ${leverage.fmt(0)}x",
             )
             
-            ErrorLogger.info(TAG, "💎 STOCK SIGNAL: ${market.symbol} ${direction.symbol} | change=${change.fmt(1)}% | priority=$priority")
+            ErrorLogger.info(TAG, "💎 STOCK SIGNAL: ${market.symbol} ${direction.symbol} | \$${data.price.fmt(2)} | change=${change.fmt(2)}% | priority=$priority | score=$score")
             
             results.add(ScanResult(
                 scanner = ScannerType.STOCK_QUALITY,
