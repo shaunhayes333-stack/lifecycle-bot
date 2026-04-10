@@ -294,8 +294,14 @@ object PerpsMarketDataFetcher {
     /**
      * Check if market is currently tradeable
      */
-    fun isMarketTradeable(market: PerpsMarket): Boolean {
+    fun isMarketTradeable(market: PerpsMarket, isPaperMode: Boolean = false): Boolean {
         if (!market.isStock) return true  // Crypto 24/7
+        
+        // V5.7.3: Paper mode allows 24/7 stock trading for learning
+        if (isPaperMode) {
+            ErrorLogger.debug(TAG, "📊 ${market.symbol}: Paper mode - allowing 24/7 trading")
+            return true
+        }
         
         // Check market hours (simplified)
         val hour = java.util.Calendar.getInstance().get(java.util.Calendar.HOUR_OF_DAY)

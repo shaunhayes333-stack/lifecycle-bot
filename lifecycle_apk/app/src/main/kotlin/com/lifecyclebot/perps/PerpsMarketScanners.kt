@@ -340,23 +340,31 @@ object PerpsMarketScanners {
         // Scan all stock markets
         val stockMarkets = PerpsMarket.values().filter { it.isStock }
         
+        ErrorLogger.debug(TAG, "💎 STOCK SCAN: Checking ${stockMarkets.size} stocks (paper=$isPaperMode)")
+        
         stockMarkets.forEach { market ->
             val data = marketData[market] ?: return@forEach
             val reasoning = mutableListOf<String>()
             
-            // Check if market is open
-            if (!PerpsMarketDataFetcher.isMarketTradeable(market)) {
+            // Check if market is open (paper mode allows 24/7)
+            if (!PerpsMarketDataFetcher.isMarketTradeable(market, isPaperMode)) {
+                ErrorLogger.debug(TAG, "💎 ${market.symbol}: Market closed, skipping")
                 return@forEach
             }
             
             val change = data.priceChange24hPct
-            val hasTrend = abs(change) > 1.5
+            // V5.7.3: Lower threshold for paper mode learning (0.5% vs 1.5%)
+            val threshold = if (isPaperMode) 0.5 else 1.5
+            val hasTrend = abs(change) > threshold
+            
+            ErrorLogger.debug(TAG, "💎 ${market.symbol}: change=${change.fmt(2)}% threshold=$threshold hasTrend=$hasTrend")
             
             if (!hasTrend) return@forEach
             
             val direction = if (change > 0) PerpsDirection.LONG else PerpsDirection.SHORT
             var score = 55
             var confidence = 60
+            var priority = 4  // Base priority for stocks
             
             reasoning.add("${market.emoji} ${market.displayName}")
             reasoning.add("📊 Change: ${if (change > 0) "+" else ""}${change.fmt(1)}%")
@@ -365,18 +373,25 @@ object PerpsMarketScanners {
             when (market) {
                 PerpsMarket.AAPL, PerpsMarket.MSFT, PerpsMarket.GOOGL -> {
                     confidence += 10
+                    priority = 5
                     reasoning.add("💎 Blue chip quality")
                 }
                 PerpsMarket.NVDA -> {
                     confidence += 15  // AI darling
+                    priority = 6
                     reasoning.add("🔥 AI sector leader")
                 }
                 PerpsMarket.TSLA -> {
                     score += 5
+                    priority = 5
                     reasoning.add("⚡ High volatility name")
                 }
                 else -> {}
             }
+            
+            // Stronger moves get higher priority
+            if (abs(change) > 3.0) priority += 2
+            else if (abs(change) > 2.0) priority += 1
             
             // Conservative leverage for stocks
             val leverage = if (isPaperMode) 5.0 else 3.0
@@ -395,11 +410,13 @@ object PerpsMarketScanners {
                 aiReasoning = "💎 QUALITY: ${direction.symbol} ${market.symbol} @ ${leverage.fmt(1)}x",
             )
             
+            ErrorLogger.info(TAG, "💎 STOCK SIGNAL: ${market.symbol} ${direction.symbol} | change=${change.fmt(1)}% | priority=$priority")
+            
             results.add(ScanResult(
                 scanner = ScannerType.STOCK_QUALITY,
                 market = market,
                 signal = signal,
-                priority = 5,
+                priority = priority,
                 reasoning = reasoning,
             ))
             
