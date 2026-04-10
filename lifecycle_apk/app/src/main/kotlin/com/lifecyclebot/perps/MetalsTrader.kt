@@ -524,7 +524,7 @@ object MetalsTrader {
         GlobalScope.launch(Dispatchers.IO) {
             try {
                 val client = CollectiveLearning.getClient() ?: return@launch
-                val instanceId = CollectiveLearning.getInstanceId()
+                val instanceId = CollectiveLearning.getInstanceId() ?: ""
                 val solPrice = try { PerpsMarketDataFetcher.getSolPrice() } catch (_: Exception) { 150.0 }
                 val holdMins = (System.currentTimeMillis() - position.openTime) / 60_000.0
                 

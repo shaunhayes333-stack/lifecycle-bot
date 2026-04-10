@@ -13,6 +13,7 @@ import com.lifecyclebot.R
 import com.lifecyclebot.engine.ErrorLogger
 import com.lifecyclebot.engine.WalletManager
 import com.lifecyclebot.perps.*
+import com.lifecyclebot.v3.scoring.FluidLearningAI
 import kotlinx.coroutines.*
 
 /**
@@ -887,11 +888,11 @@ class MultiAssetActivity : AppCompatActivity() {
         // Generate recommendation
         val recommendation = when {
             paperTrades < 500 -> "🚀 Bootstrap: ${500 - paperTrades} trades to LEARNING phase. AI is calibrating..."
-            paperTrades < 1500 -> "📚 Learning: ${1500 - paperTrades} trades to VALIDATION. Win rate: ${"%.1f".format(winRate)}%"
-            paperTrades < 3000 -> "✅ Validating: ${3000 - paperTrades} trades to MATURING. Win rate: ${"%.1f".format(winRate)}%"
-            paperTrades < requiredTrades -> "🔬 Maturing: ${requiredTrades - paperTrades} trades to READY. Win rate: ${"%.1f".format(winRate)}%"
-            winRate < requiredWinRate -> "⚠️ Need ${"%.1f".format(requiredWinRate)}%+ win rate. Current: ${"%.1f".format(winRate)}%. Keep learning!"
-            else -> "🎉 READY FOR LIVE! $paperTrades trades with ${"%.1f".format(winRate)}% win rate. Enable LIVE mode in settings."
+            paperTrades < 1500 -> "📚 Learning: ${1500 - paperTrades} trades to VALIDATION. Win rate: ${String.format("%.1f", winRate)}%"
+            paperTrades < 3000 -> "✅ Validating: ${3000 - paperTrades} trades to MATURING. Win rate: ${String.format("%.1f", winRate)}%"
+            paperTrades < requiredTrades -> "🔬 Maturing: ${requiredTrades - paperTrades} trades to READY. Win rate: ${String.format("%.1f", winRate)}%"
+            winRate < requiredWinRate -> "⚠️ Need ${String.format("%.1f", requiredWinRate)}%+ win rate. Current: ${String.format("%.1f", winRate)}%. Keep learning!"
+            else -> "🎉 READY FOR LIVE! $paperTrades trades with ${String.format("%.1f", winRate)}% win rate. Enable LIVE mode in settings."
         }
         
         return MarketsReadiness(

@@ -675,7 +675,7 @@ object TokenizedStockTrader {
         GlobalScope.launch(Dispatchers.IO) {
             try {
                 val client = CollectiveLearning.getClient() ?: return@launch
-                val instanceId = CollectiveLearning.getInstanceId()
+                val instanceId = CollectiveLearning.getInstanceId() ?: ""
                 
                 // Get SOL price for USD conversion
                 val solPrice = try {
@@ -742,7 +742,7 @@ object TokenizedStockTrader {
         GlobalScope.launch(Dispatchers.IO) {
             try {
                 val client = CollectiveLearning.getClient() ?: return@launch
-                val instanceId = CollectiveLearning.getInstanceId()
+                val instanceId = CollectiveLearning.getInstanceId() ?: ""
                 
                 val solPrice = try {
                     PerpsMarketDataFetcher.getSolPrice()
