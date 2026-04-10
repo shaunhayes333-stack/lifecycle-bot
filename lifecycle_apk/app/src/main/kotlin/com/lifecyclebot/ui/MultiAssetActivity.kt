@@ -642,6 +642,24 @@ class MultiAssetActivity : AppCompatActivity() {
         updateJob = scope.launch {
             while (isActive) {
                 try {
+                    // V5.7.6b: Refresh LIVE prices in background
+                    launch(Dispatchers.IO) {
+                        try {
+                            // Refresh prices for current tab's markets
+                            val markets = when (currentTab) {
+                                AssetTab.STOCKS -> PerpsMarket.values().filter { it.isStock }.take(15)
+                                AssetTab.COMMODITIES -> PerpsMarket.values().filter { it.isCommodity }
+                                AssetTab.METALS -> PerpsMarket.values().filter { it.isMetal }
+                                AssetTab.FOREX -> PerpsMarket.values().filter { it.isForex }
+                                AssetTab.PERPS -> PerpsMarket.values().filter { it.isCrypto }.take(10)
+                            }
+                            markets.forEach { market ->
+                                try {
+                                    PerpsMarketDataFetcher.getMarketData(market)
+                                } catch (_: Exception) {}
+                            }
+                        } catch (_: Exception) {}
+                    }
                     refreshData()
                 } catch (e: Exception) {
                     ErrorLogger.error(TAG, "Update error: ${e.message}")
@@ -1337,7 +1355,7 @@ class MultiAssetActivity : AppCompatActivity() {
     )
     
     private fun getTopMoversForCategory(): List<MoverInfo> {
-        // Use cached price data for UI - don't block with suspend calls
+        // V5.7.6b: Use LIVE cached prices from PerpsMarketDataFetcher
         return try {
             val movers = mutableListOf<MoverInfo>()
             val markets = when (currentTab) {
@@ -1348,22 +1366,18 @@ class MultiAssetActivity : AppCompatActivity() {
                 AssetTab.PERPS -> PerpsMarket.values().filter { it.isCrypto }.take(5)
             }
             
-            // Generate realistic mock data based on market type
-            // Real data comes from background traders - this is just for UI display
-            markets.forEachIndexed { index, market ->
-                val baseChange = (kotlin.math.sin(System.currentTimeMillis() / 10000.0 + index) * 5)
-                val price = when {
-                    market.isStock -> 50.0 + (index * 20) + (Math.random() * 100)
-                    market.isCommodity -> 20.0 + (index * 10) + (Math.random() * 50)
-                    market.isMetal -> 1000.0 + (index * 200) + (Math.random() * 500)
-                    market.isForex -> 0.8 + (Math.random() * 0.6)
-                    else -> 50.0 + (Math.random() * 150) // Crypto
-                }
-                movers.add(MoverInfo(
-                    symbol = market.symbol,
-                    price = price,
-                    change24h = baseChange + (Math.random() * 2 - 1)
-                ))
+            // V5.7.6b: Get LIVE prices from cache (non-blocking)
+            markets.forEach { market ->
+                try {
+                    val cachedData = PerpsMarketDataFetcher.getCachedPrice(market)
+                    if (cachedData != null && cachedData.price > 0) {
+                        movers.add(MoverInfo(
+                            symbol = market.symbol,
+                            price = cachedData.price,
+                            change24h = cachedData.priceChange24hPct
+                        ))
+                    }
+                } catch (_: Exception) {}
             }
             
             // Sort by absolute change (biggest movers first)

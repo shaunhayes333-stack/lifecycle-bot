@@ -365,9 +365,19 @@ object CommoditiesTrader {
     // ═══════════════════════════════════════════════════════════════════════════
     
     private suspend fun executeSignal(signal: CommoditySignal) {
-        if (paperBalance < POSITION_SIZE_SOL) {
+        val balance = getEffectiveBalance()
+        if (balance < POSITION_SIZE_SOL) {
             ErrorLogger.warn(TAG, "🛢️ Insufficient balance for ${signal.market.symbol}")
             return
+        }
+        
+        // V5.7.6b: Check if LIVE mode - execute on-chain
+        if (!isPaperMode.get()) {
+            val success = executeLiveTrade(signal)
+            if (!success) {
+                ErrorLogger.warn(TAG, "🔴 LIVE trade not executed for ${signal.market.symbol}")
+                return
+            }
         }
         
         val tpPct = if (signal.tradeType == TradeType.SPOT) TP_PERCENT_SPOT else TP_PERCENT_LEVERAGE
@@ -404,10 +414,44 @@ object CommoditiesTrader {
         } else {
             leveragePositions[position.id] = position
         }
-        paperBalance -= POSITION_SIZE_SOL
+        
+        // Deduct from appropriate balance
+        if (isPaperMode.get()) {
+            paperBalance -= POSITION_SIZE_SOL
+        }
         
         val leverageStr = if (signal.tradeType == TradeType.SPOT) "1x SPOT" else "${signal.tradeType.leverage.toInt()}x LEV"
         ErrorLogger.error(TAG, "🛢️ OPENED: ${signal.tradeType.emoji} ${signal.direction.emoji} ${signal.market.symbol} @ \$${signal.price.fmt(2)} | $leverageStr | size=${POSITION_SIZE_SOL}◎ | score=${signal.score}")
+    }
+    
+    /** V5.7.6b: Execute LIVE trade via MarketsLiveExecutor */
+    private suspend fun executeLiveTrade(signal: CommoditySignal): Boolean {
+        val sizeSol = POSITION_SIZE_SOL
+        
+        ErrorLogger.info(TAG, "🔴 LIVE COMMODITY TRADE: ${signal.direction.emoji} ${signal.market.symbol}")
+        ErrorLogger.info(TAG, "🔴 Price: \$${signal.price.fmt(2)} | ${signal.tradeType.name}")
+        
+        val (success, txSignature) = MarketsLiveExecutor.executeLiveTrade(
+            market = signal.market,
+            direction = signal.direction,
+            sizeSol = sizeSol,
+            leverage = signal.tradeType.leverage,
+            priceUsd = signal.price,
+            traderType = "Commodities",
+        )
+        
+        if (success && txSignature != null) {
+            ErrorLogger.info(TAG, "🔴 LIVE SUCCESS: ${signal.market.symbol} | tx=${txSignature.take(16)}...")
+            
+            // Update live wallet balance
+            try {
+                val newBalance = com.lifecyclebot.engine.WalletManager.getWallet()?.getSolBalance() ?: liveWalletBalance
+                updateLiveBalance(newBalance)
+            } catch (_: Exception) {}
+            
+            return true
+        }
+        return false
     }
     
     private suspend fun monitorPositions() {

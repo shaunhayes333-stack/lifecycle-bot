@@ -198,6 +198,26 @@ object PerpsMarketDataFetcher {
     }
     
     /**
+     * V5.7.6b: Get cached price data (non-blocking, for UI)
+     * Returns null if no cached data available
+     */
+    fun getCachedPrice(market: PerpsMarket): PerpsMarketData? {
+        return marketDataCache[market]
+    }
+    
+    /**
+     * V5.7.6b: Force refresh all cached prices (call from background)
+     */
+    suspend fun refreshAllPrices() {
+        val markets = PerpsMarket.values().toList()
+        markets.forEach { market ->
+            try {
+                getMarketData(market)
+            } catch (_: Exception) {}
+        }
+    }
+    
+    /**
      * V5.7.1: Primary data source - Pyth Oracle
      * V5.7.4: Improved fallback handling and logging
      */

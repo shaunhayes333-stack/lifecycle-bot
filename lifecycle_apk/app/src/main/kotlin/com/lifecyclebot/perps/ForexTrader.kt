@@ -362,13 +362,23 @@ object ForexTrader {
     }
     
     // ═══════════════════════════════════════════════════════════════════════════
-    // EXECUTION - V5.7.6: SPOT + LEVERAGE
+    // EXECUTION - V5.7.6b: SPOT + LEVERAGE + LIVE mode
     // ═══════════════════════════════════════════════════════════════════════════
     
     private suspend fun executeSignal(signal: ForexSignal, positionMap: ConcurrentHashMap<String, ForexPosition>, typeLabel: String) {
-        if (paperBalance < POSITION_SIZE_SOL) {
+        val balance = getEffectiveBalance()
+        if (balance < POSITION_SIZE_SOL) {
             ErrorLogger.warn(TAG, "💱 Insufficient balance for ${signal.market.symbol}")
             return
+        }
+        
+        // V5.7.6b: Check if LIVE mode - execute on-chain
+        if (!isPaperMode.get()) {
+            val success = executeLiveTrade(signal, typeLabel)
+            if (!success) {
+                ErrorLogger.warn(TAG, "🔴 LIVE trade not executed for ${signal.market.symbol}")
+                return
+            }
         }
         
         val tp = if (signal.direction == PerpsDirection.LONG) {
@@ -397,9 +407,41 @@ object ForexTrader {
         )
         
         positionMap[position.id] = position
-        paperBalance -= POSITION_SIZE_SOL
+        
+        // Deduct from appropriate balance
+        if (isPaperMode.get()) {
+            paperBalance -= POSITION_SIZE_SOL
+        }
         
         ErrorLogger.error(TAG, "💱 OPENED: $typeLabel ${signal.direction.emoji} ${signal.market.symbol} @ ${signal.price.fmt(5)} | size=${POSITION_SIZE_SOL}◎ | score=${signal.score}")
+    }
+    
+    /** V5.7.6b: Execute LIVE trade via MarketsLiveExecutor */
+    private suspend fun executeLiveTrade(signal: ForexSignal, typeLabel: String): Boolean {
+        ErrorLogger.info(TAG, "🔴 LIVE FOREX TRADE: ${signal.direction.emoji} ${signal.market.symbol}")
+        ErrorLogger.info(TAG, "🔴 Price: ${signal.price.fmt(5)} | $typeLabel")
+        
+        val (success, txSignature) = MarketsLiveExecutor.executeLiveTrade(
+            market = signal.market,
+            direction = signal.direction,
+            sizeSol = POSITION_SIZE_SOL,
+            leverage = signal.leverage,
+            priceUsd = signal.price,
+            traderType = "Forex",
+        )
+        
+        if (success && txSignature != null) {
+            ErrorLogger.info(TAG, "🔴 LIVE SUCCESS: ${signal.market.symbol} | tx=${txSignature.take(16)}...")
+            
+            // Update live wallet balance
+            try {
+                val newBalance = com.lifecyclebot.engine.WalletManager.getWallet()?.getSolBalance() ?: liveWalletBalance
+                updateLiveBalance(newBalance)
+            } catch (_: Exception) {}
+            
+            return true
+        }
+        return false
     }
     
     private suspend fun monitorPositions() {

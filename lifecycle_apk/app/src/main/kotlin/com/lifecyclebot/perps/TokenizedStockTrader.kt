@@ -719,23 +719,46 @@ object TokenizedStockTrader {
         return if (isPaperMode.get()) paperBalance else liveWalletBalance
     }
     
-    /** Execute LIVE trade via Jupiter Perps (placeholder for actual implementation) */
+    /** Execute LIVE trade via MarketsLiveExecutor
+     * V5.7.6b: Fully wired to on-chain execution via Jupiter API
+     */
     private suspend fun executeLiveTrade(signal: StockSignal, isSpot: Boolean): Boolean {
-        // TODO: Wire to Jupiter Perps API for actual on-chain execution
-        // For now, log the intent and return false (no live execution yet)
+        val leverage = if (isSpot) 1.0 else signal.leverage
+        val sizeSol = getEffectiveBalance() * (DEFAULT_SIZE_PCT / 100)
         
-        ErrorLogger.info(TAG, "🔴 LIVE TRADE REQUESTED: ${signal.direction.emoji} ${signal.market.symbol}")
-        ErrorLogger.info(TAG, "🔴 Price: \$${signal.price.fmt(2)} | ${if (isSpot) "SPOT" else "${signal.leverage.toInt()}x"}")
-        ErrorLogger.info(TAG, "🔴 Score: ${signal.score} | Confidence: ${signal.confidence}")
+        if (sizeSol < 0.01) {
+            ErrorLogger.warn(TAG, "🔴 LIVE: Insufficient balance for trade")
+            return false
+        }
         
-        // Actual live execution would:
-        // 1. Get quote from Jupiter Perps
-        // 2. Build transaction
-        // 3. Sign with connected wallet
-        // 4. Broadcast to Solana
-        // 5. Wait for confirmation
+        ErrorLogger.info(TAG, "🔴 LIVE TRADE: ${signal.direction.emoji} ${signal.market.symbol}")
+        ErrorLogger.info(TAG, "🔴 Price: \$${signal.price.fmt(2)} | ${if (isSpot) "SPOT" else "${leverage.toInt()}x"}")
+        ErrorLogger.info(TAG, "🔴 Size: ${sizeSol.fmt(4)} SOL | Score: ${signal.score}")
         
-        return false  // Return false until fully implemented
+        // Execute via MarketsLiveExecutor
+        val (success, txSignature) = MarketsLiveExecutor.executeLiveTrade(
+            market = signal.market,
+            direction = signal.direction,
+            sizeSol = sizeSol,
+            leverage = leverage,
+            priceUsd = signal.price,
+            traderType = "TokenizedStocks",
+        )
+        
+        if (success && txSignature != null) {
+            ErrorLogger.info(TAG, "🔴 LIVE SUCCESS: ${signal.market.symbol} | tx=${txSignature.take(16)}...")
+            
+            // Update live wallet balance
+            try {
+                val newBalance = com.lifecyclebot.engine.WalletManager.getWallet()?.getSolBalance() ?: liveWalletBalance
+                updateLiveBalance(newBalance)
+            } catch (_: Exception) {}
+            
+            return true
+        } else {
+            ErrorLogger.warn(TAG, "🔴 LIVE FAILED: ${signal.market.symbol}")
+            return false
+        }
     }
     
     // Helper extension
