@@ -39,7 +39,7 @@ object TokenizedStockTrader {
     // ═══════════════════════════════════════════════════════════════════════════
     
     private const val SCAN_INTERVAL_MS = 15_000L  // 15 seconds
-    private const val MAX_STOCK_POSITIONS = 10
+    private const val MAX_STOCK_POSITIONS = 47  // V5.7.6: ALL stocks tradeable simultaneously
     private const val DEFAULT_LEVERAGE = 3.0
     private const val DEFAULT_SIZE_PCT = 5.0  // 5% of balance per trade
     
