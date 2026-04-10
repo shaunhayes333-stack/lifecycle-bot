@@ -302,6 +302,10 @@ data class PerpsPosition(
         return marginUsd * (getUnrealizedPnlPct() / 100)
     }
     
+    // V5.7.6: Aliases for MultiAssetActivity compatibility
+    fun getPnlPercent(): Double = getUnrealizedPnlPct()
+    fun getPnlSol(): Double = sizeSol * (getUnrealizedPnlPct() / 100)
+    
     fun getDistanceToLiquidation(): Double {
         return when (direction) {
             PerpsDirection.LONG -> ((currentPrice - liquidationPrice) / currentPrice * 100)
