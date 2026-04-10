@@ -971,8 +971,16 @@ object PerpsTraderAI {
         val recommendation = when (phase) {
             ReadinessPhase.READY -> "✅ Ready for live trading! Start with reduced position sizes."
             ReadinessPhase.CAUTION -> "⚠️ Recent losses detected. Continue paper trading."
-            ReadinessPhase.PRACTICING -> "🏋️ Good progress! Need ${MIN_PAPER_TRADES_FOR_LIVE - trades} more trades."
-            ReadinessPhase.LEARNING -> "📚 Keep learning. ${MIN_PAPER_TRADES_FOR_LIVE - trades} trades to go."
+            ReadinessPhase.PRACTICING -> {
+                val tradesNeeded = maxOf(0, MIN_PAPER_TRADES_FOR_LIVE - trades)
+                if (tradesNeeded > 0) "🏋️ Good progress! Need $tradesNeeded more trades."
+                else "🏋️ Good progress! Keep improving win rate."
+            }
+            ReadinessPhase.LEARNING -> {
+                val tradesNeeded = maxOf(0, MIN_PAPER_TRADES_FOR_LIVE - trades)
+                if (tradesNeeded > 0) "📚 Keep learning. $tradesNeeded trades to go."
+                else "📚 Keep learning. Focus on win rate."
+            }
         }
         
         return PerpsLiveReadiness(
