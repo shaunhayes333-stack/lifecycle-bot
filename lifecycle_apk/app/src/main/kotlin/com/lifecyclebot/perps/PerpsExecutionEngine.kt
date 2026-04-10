@@ -198,8 +198,25 @@ object PerpsExecutionEngine {
                     val marketData = PerpsMarketDataFetcher.getMarketData(position.market)
                     val currentPrice = marketData.price
                     
+                    // V5.7.5: Record price for technical analysis
+                    PerpsAdvancedAI.recordPrice(position.market, currentPrice, marketData.volume24h)
+                    
                     // Check exit conditions
-                    val exitSignal = PerpsTraderAI.checkExit(position.id, currentPrice)
+                    var exitSignal = PerpsTraderAI.checkExit(position.id, currentPrice)
+                    
+                    // V5.7.5: Check time-based exit if no other exit signal
+                    if (exitSignal == PerpsExitSignal.HOLD) {
+                        val pnlPct = position.getUnrealizedPnlPct()
+                        val timeCheck = PerpsAdvancedAI.checkTimeBasedExit(
+                            position.entryTime, 
+                            pnlPct, 
+                            position.market
+                        )
+                        if (timeCheck.shouldExit) {
+                            ErrorLogger.info(TAG, "⏰ TIME EXIT: ${position.market.symbol} | ${timeCheck.reason} | hold=${timeCheck.holdMinutes}m")
+                            exitSignal = PerpsExitSignal.TIMEOUT
+                        }
+                    }
                     
                     if (exitSignal != PerpsExitSignal.HOLD) {
                         // Execute exit
@@ -339,6 +356,7 @@ object PerpsExecutionEngine {
     
     /**
      * Execute an exit (close position)
+     * V5.7.5: Enhanced with pattern learning and time-of-day recording
      */
     private suspend fun executeExit(
         position: PerpsPosition,
@@ -363,6 +381,27 @@ object PerpsExecutionEngine {
                     contributingLayers = contributingLayers,
                     predictedDirection = position.direction,
                 )
+                
+                // V5.7.5: Record pattern for AdvancedAI learning
+                try {
+                    val technicals = PerpsAdvancedAI.analyzeTechnicals(position.market)
+                    val wasWin = trade.pnlPct > 0
+                    PerpsAdvancedAI.recordPattern(
+                        position.market, 
+                        position.direction, 
+                        technicals, 
+                        wasWin, 
+                        trade.pnlPct
+                    )
+                    
+                    // Record time-of-day performance
+                    val entryHour = java.util.Calendar.getInstance().apply {
+                        timeInMillis = position.entryTime
+                    }.get(java.util.Calendar.HOUR_OF_DAY)
+                    PerpsAdvancedAI.recordHourlyTrade(entryHour, wasWin, trade.pnlPct)
+                } catch (e: Exception) {
+                    ErrorLogger.debug(TAG, "AdvancedAI learning error: ${e.message}")
+                }
                 
                 val emoji = when {
                     trade.pnlPct >= 50 -> "🚀"

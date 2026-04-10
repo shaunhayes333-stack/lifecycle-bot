@@ -11,11 +11,21 @@ import kotlin.math.min
 
 /**
  * ═══════════════════════════════════════════════════════════════════════════════
- * 📡 PERPS MARKET SCANNERS - V5.7.0
+ * 📡 PERPS MARKET SCANNERS - V5.7.5
  * ═══════════════════════════════════════════════════════════════════════════════
  * 
  * Specialized scanners for each Perps trading mode, designed to work with the
  * existing AI layer infrastructure.
+ * 
+ * V5.7.5: Now integrated with PerpsAdvancedAI for:
+ *   • RSI/MACD technical indicator alignment
+ *   • Volume spike detection
+ *   • Support/Resistance levels
+ *   • Momentum ranking (top movers only)
+ *   • Sector rotation (hot sectors)
+ *   • Correlation filtering
+ *   • Pattern memory (learned setups)
+ *   • Time-of-day optimization
  * 
  * SCANNER TYPES:
  * ─────────────────────────────────────────────────────────────────────────────
@@ -77,6 +87,7 @@ object PerpsMarketScanners {
     
     /**
      * Run all scanners and return prioritized signals
+     * V5.7.5: Enhanced with PerpsAdvancedAI integration
      */
     suspend fun runAllScanners(isPaperMode: Boolean): List<ScanResult> = withContext(Dispatchers.Default) {
         val results = mutableListOf<ScanResult>()
@@ -85,7 +96,11 @@ object PerpsMarketScanners {
         val marketDataMap = mutableMapOf<PerpsMarket, PerpsMarketData>()
         PerpsMarket.values().forEach { market ->
             try {
-                marketDataMap[market] = PerpsMarketDataFetcher.getMarketData(market)
+                val data = PerpsMarketDataFetcher.getMarketData(market)
+                marketDataMap[market] = data
+                
+                // V5.7.5: Record price in AdvancedAI for technical analysis
+                PerpsAdvancedAI.recordPrice(market, data.price, data.volume24h)
             } catch (e: Exception) {
                 ErrorLogger.debug(TAG, "Failed to fetch ${market.symbol}: ${e.message}")
             }
@@ -93,13 +108,23 @@ object PerpsMarketScanners {
         
         ErrorLogger.debug(TAG, "📊 PERPS SCAN: Fetched ${marketDataMap.size} markets")
         
+        // V5.7.5: Get current positions for correlation filtering
+        val currentPositions = PerpsTraderAI.getActivePositions().map { it.market }
+        
+        // V5.7.5: Get top movers and hot sectors for prioritization
+        val topMovers = try { PerpsAdvancedAI.getTopMovers(5) } catch (_: Exception) { emptyList() }
+        val hotSectors = try { PerpsAdvancedAI.getHotSectors() } catch (_: Exception) { emptyList() }
+        
+        ErrorLogger.debug(TAG, "🔥 Top movers: ${topMovers.map { it.symbol }}")
+        ErrorLogger.debug(TAG, "🌡️ Hot sectors: ${hotSectors.map { it.displayName }}")
+        
         // Run each scanner
         ScannerType.values().forEach { scannerType ->
             try {
                 val scanResults = when (scannerType) {
                     ScannerType.SOL_MOMENTUM -> scanSolMomentum(marketDataMap, isPaperMode)
                     ScannerType.SOL_SNIPER -> scanSolSniper(marketDataMap, isPaperMode)
-                    ScannerType.STOCK_QUALITY -> scanStockQuality(marketDataMap, isPaperMode)
+                    ScannerType.STOCK_QUALITY -> scanStockQualityAdvanced(marketDataMap, isPaperMode, currentPositions, topMovers, hotSectors)
                     ScannerType.WHALE_LIQUIDATION -> scanWhaleLiquidation(marketDataMap, isPaperMode)
                     ScannerType.FUNDING_RATE -> scanFundingRate(marketDataMap, isPaperMode)
                     ScannerType.VOLATILITY_BREAKOUT -> scanVolatilityBreakout(marketDataMap, isPaperMode)
@@ -454,6 +479,189 @@ object PerpsMarketScanners {
             )
             
             ErrorLogger.info(TAG, "💎 STOCK SIGNAL: ${market.symbol} ${direction.symbol} | \$${data.price.fmt(2)} | change=${change.fmt(2)}% | priority=$priority | score=$score")
+            
+            results.add(ScanResult(
+                scanner = ScannerType.STOCK_QUALITY,
+                market = market,
+                signal = signal,
+                priority = priority,
+                reasoning = reasoning,
+            ))
+            
+            signalsGenerated.incrementAndGet()
+        }
+        
+        return results
+    }
+    
+    // ═══════════════════════════════════════════════════════════════════════════
+    // SCANNER 3B: ADVANCED STOCK SCANNER (V5.7.5)
+    // Uses PerpsAdvancedAI for RSI, MACD, Volume, Support/Resistance, etc.
+    // ═══════════════════════════════════════════════════════════════════════════
+    
+    private fun scanStockQualityAdvanced(
+        marketData: Map<PerpsMarket, PerpsMarketData>,
+        isPaperMode: Boolean,
+        currentPositions: List<PerpsMarket>,
+        topMovers: List<PerpsMarket>,
+        hotSectors: List<PerpsAdvancedAI.Sector>
+    ): List<ScanResult> {
+        val results = mutableListOf<ScanResult>()
+        
+        // Scan all stock markets
+        val stockMarkets = PerpsMarket.values().filter { it.isStock }
+        
+        ErrorLogger.debug(TAG, "🧠 ADVANCED STOCK SCAN: ${stockMarkets.size} stocks (paper=$isPaperMode)")
+        
+        stockMarkets.forEach { market ->
+            val data = marketData[market] ?: return@forEach
+            val reasoning = mutableListOf<String>()
+            
+            // Check if market is tradeable
+            if (!PerpsMarketDataFetcher.isMarketTradeable(market, isPaperMode)) {
+                return@forEach
+            }
+            
+            if (data.price <= 0) return@forEach
+            
+            // V5.7.5: Get comprehensive AI analysis
+            val analysis = try {
+                PerpsAdvancedAI.analyzeEntry(market, data.price, currentPositions)
+            } catch (e: Exception) {
+                ErrorLogger.debug(TAG, "🧠 ${market.symbol}: AI analysis failed: ${e.message}")
+                return@forEach
+            }
+            
+            reasoning.add("${market.emoji} ${market.displayName}")
+            reasoning.add("📊 Price: \$${data.price.fmt(2)}")
+            
+            // Use AI recommendation for direction
+            val direction = analysis.recommendedDirection ?: run {
+                // Fallback to price change if no AI recommendation
+                if (data.priceChange24hPct >= 0) PerpsDirection.LONG else PerpsDirection.SHORT
+            }
+            
+            var score = 50
+            var confidence = analysis.confidence.toInt()
+            var priority = 4
+            
+            // Add AI reasons
+            analysis.reasons.forEach { reasoning.add(it) }
+            
+            // Add AI warnings
+            analysis.warnings.forEach { reasoning.add("⚠️ $it") }
+            
+            // Technical indicator boosts
+            if (analysis.technicals.recommendation == direction) {
+                score += 15
+                priority += 1
+                reasoning.add("📊 RSI confirms: ${"%.0f".format(analysis.technicals.rsi)}")
+            }
+            
+            if (analysis.technicals.macdSignal in listOf(
+                PerpsAdvancedAI.MacdSignal.BULLISH_CROSS, 
+                PerpsAdvancedAI.MacdSignal.BEARISH_CROSS)) {
+                score += 10
+                priority += 1
+                reasoning.add("📈 MACD crossover!")
+            }
+            
+            // Volume spike boost
+            if (analysis.volume.isSpike) {
+                score += when (analysis.volume.spikeStrength) {
+                    "EXTREME" -> 20
+                    "STRONG" -> 15
+                    "MILD" -> 10
+                    else -> 0
+                }
+                priority += 1
+                reasoning.add("📊 Volume: ${analysis.volume.spikeStrength}")
+            }
+            
+            // Support/Resistance positioning
+            if (analysis.supportResistance.nearSupport && direction == PerpsDirection.LONG) {
+                score += 10
+                reasoning.add("📍 Entry near support")
+            }
+            if (analysis.supportResistance.nearResistance && direction == PerpsDirection.SHORT) {
+                score += 10
+                reasoning.add("📍 Entry near resistance")
+            }
+            
+            // Top mover boost
+            if (market in topMovers) {
+                score += 15
+                priority += 2
+                reasoning.add("🔥 TOP MOVER")
+            }
+            
+            // Hot sector boost
+            if (analysis.isInHotSector) {
+                score += 5
+                reasoning.add("🌡️ Hot sector")
+            }
+            
+            // Pattern memory bonus/penalty
+            if (analysis.patternConfidence > 65) {
+                score += 10
+                reasoning.add("🧠 Pattern WR: ${"%.0f".format(analysis.patternConfidence)}%")
+            } else if (analysis.patternConfidence < 35) {
+                score -= 10
+                priority -= 1
+            }
+            
+            // Correlation penalty
+            if (PerpsAdvancedAI.shouldAvoidDueToCorrelation(currentPositions, market)) {
+                score -= 15
+                priority -= 2
+                reasoning.add("🔗 CORRELATED - lower priority")
+            }
+            
+            // Time of day check
+            if (!PerpsAdvancedAI.isGoodTradingHour()) {
+                score -= 5
+            }
+            
+            // Paper mode ensures minimum priority
+            if (isPaperMode && priority < 5) {
+                priority = 5
+            }
+            
+            // Only generate signal if AI says to trade OR paper mode learning
+            if (!analysis.shouldTrade && !isPaperMode) {
+                return@forEach
+            }
+            
+            // Get dynamic TP/SL from AI
+            val leverage = if (isPaperMode) 5.0 else 3.0
+            val dynamicTargets = try {
+                PerpsAdvancedAI.calculateDynamicTargets(market, data.price, direction, leverage)
+            } catch (_: Exception) {
+                null
+            }
+            
+            val tpPct = dynamicTargets?.takeProfitPct ?: 8.0
+            val slPct = dynamicTargets?.stopLossPct ?: 4.0
+            
+            if (dynamicTargets != null) {
+                reasoning.add("🎯 Dynamic TP: ${"%.1f".format(tpPct)}% SL: ${"%.1f".format(slPct)}% (${dynamicTargets.volatility})")
+            }
+            
+            val signal = PerpsSignal(
+                market = market,
+                direction = direction,
+                score = score.coerceIn(0, 100),
+                confidence = confidence.coerceIn(0, 100),
+                recommendedLeverage = leverage,
+                recommendedSizePct = 8.0,
+                recommendedRiskTier = PerpsRiskTier.SNIPER,
+                takeProfitPct = tpPct,
+                stopLossPct = slPct,
+                reasons = reasoning,
+                aiReasoning = "🧠 AI: ${direction.symbol} ${market.symbol} | Conf=${"%.0f".format(analysis.confidence)}% | Score=$score | P=$priority",
+            )
+            
+            ErrorLogger.info(TAG, "🧠 AI SIGNAL: ${market.symbol} ${direction.symbol} | conf=${"%.0f".format(analysis.confidence)}% | score=$score | priority=$priority")
             
             results.add(ScanResult(
                 scanner = ScannerType.STOCK_QUALITY,
