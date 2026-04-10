@@ -54,8 +54,10 @@ object TokenizedStockTrader {
     private var engineJob: Job? = null
     private val scope = CoroutineScope(Dispatchers.Default + SupervisorJob())
     
-    // Positions
-    private val positions = ConcurrentHashMap<String, StockPosition>()
+    // Positions - V5.7.6b: Separate SPOT and LEVERAGE tracking
+    private val positions = ConcurrentHashMap<String, StockPosition>()  // All positions
+    private val spotPositions = ConcurrentHashMap<String, StockPosition>()      // SPOT (1x) only
+    private val leveragePositions = ConcurrentHashMap<String, StockPosition>()  // LEVERAGE (3x+) only
     private var positionIdCounter = AtomicLong(System.currentTimeMillis())
     
     // Stats
@@ -298,9 +300,22 @@ object TokenizedStockTrader {
                 break
             }
             
-            ErrorLogger.info(TAG, "📈 EXECUTING: ${signal.market.symbol} ${signal.direction.symbol} @ \$${signal.price.fmt(2)}")
-            executeSignal(signal)
+            // V5.7.6b: Alternate between SPOT and LEVERAGE
+            val useSpot = (positions.size % 2 == 0) // Even = SPOT, Odd = LEVERAGE
+            val leverage = if (useSpot) 1.0 else DEFAULT_LEVERAGE
+            ErrorLogger.info(TAG, "📈 EXECUTING: ${signal.market.symbol} ${signal.direction.symbol} @ \$${signal.price.fmt(2)} | ${if (useSpot) "SPOT" else "${leverage.toInt()}x"}")
+            executeSignal(signal.copy(leverage = leverage), isSpot = useSpot)
         }
+    }
+    
+    // V5.7.6b: Check for existing SPOT position
+    private fun hasSpotPosition(market: PerpsMarket): Boolean {
+        return spotPositions.values.any { it.market == market }
+    }
+    
+    // V5.7.6b: Check for existing LEVERAGE position
+    private fun hasLeveragePosition(market: PerpsMarket): Boolean {
+        return leveragePositions.values.any { it.market == market }
     }
     
     // ═══════════════════════════════════════════════════════════════════════════
@@ -449,7 +464,8 @@ object TokenizedStockTrader {
     // EXECUTION
     // ═══════════════════════════════════════════════════════════════════════════
     
-    private fun executeSignal(signal: StockSignal) {
+    // V5.7.6b: Updated to support SPOT vs LEVERAGE
+    private fun executeSignal(signal: StockSignal, isSpot: Boolean = false) {
         val balance = getBalance()
         val sizeSol = balance * (DEFAULT_SIZE_PCT / 100)
         
@@ -458,9 +474,10 @@ object TokenizedStockTrader {
             return
         }
         
-        // Calculate TP/SL
-        val tpPct = 8.0  // 8% take profit
-        val slPct = 4.0  // 4% stop loss
+        // V5.7.6b: Different TP/SL for SPOT vs LEVERAGE
+        val tpPct = if (isSpot) 5.0 else 8.0  // SPOT: 5%, LEV: 8%
+        val slPct = if (isSpot) 3.0 else 4.0  // SPOT: 3%, LEV: 4%
+        val leverage = if (isSpot) 1.0 else signal.leverage
         
         val (tp, sl) = when (signal.direction) {
             PerpsDirection.LONG -> {
@@ -478,7 +495,7 @@ object TokenizedStockTrader {
             entryPrice = signal.price,
             currentPrice = signal.price,
             sizeSol = sizeSol,
-            leverage = DEFAULT_LEVERAGE,
+            leverage = leverage,
             takeProfitPrice = tp,
             stopLossPrice = sl,
             aiScore = signal.score,
@@ -486,7 +503,13 @@ object TokenizedStockTrader {
             reasons = signal.reasons
         )
         
+        // V5.7.6b: Add to appropriate map
         positions[position.id] = position
+        if (isSpot) {
+            spotPositions[position.id] = position
+        } else {
+            leveragePositions[position.id] = position
+        }
         totalTrades.incrementAndGet()
         
         // Deduct from balance
@@ -499,8 +522,9 @@ object TokenizedStockTrader {
             FluidLearningAI.recordTradeStart()
         } catch (_: Exception) {}
         
+        val leverageStr = if (isSpot) "1x SPOT" else "${leverage.toInt()}x LEV"
         ErrorLogger.info(TAG, "📈 OPENED: ${signal.direction.emoji} ${signal.market.symbol} @ \$${signal.price.fmt(2)} | " +
-            "${DEFAULT_LEVERAGE}x | size=${sizeSol.fmt(3)}◎ | score=${signal.score} | TP=\$${tp.fmt(2)} SL=\$${sl.fmt(2)}")
+            "$leverageStr | size=${sizeSol.fmt(3)}◎ | score=${signal.score} | TP=\$${tp.fmt(2)} SL=\$${sl.fmt(2)}")
         
         signal.reasons.take(3).forEach { reason ->
             ErrorLogger.debug(TAG, "   → $reason")
@@ -542,6 +566,10 @@ object TokenizedStockTrader {
     
     private fun closePosition(positionId: String, reason: String) {
         val position = positions.remove(positionId) ?: return
+        
+        // V5.7.6b: Remove from appropriate map
+        spotPositions.remove(positionId)
+        leveragePositions.remove(positionId)
         
         val pnlPct = position.getUnrealizedPnlPct()
         val pnlSol = position.getUnrealizedPnlSol()
@@ -645,9 +673,9 @@ object TokenizedStockTrader {
     // V5.7.6: Public running state accessor for UI
     fun isRunning(): Boolean = isRunning.get()
     
-    // V5.7.6: SPOT vs LEVERAGE position getters for MultiAssetActivity compatibility
-    fun getSpotPositions(): List<StockPosition> = positions.values.filter { it.leverage == 1.0 }
-    fun getLeveragePositions(): List<StockPosition> = positions.values.filter { it.leverage > 1.0 }
+    // V5.7.6b: SPOT vs LEVERAGE position getters - now use dedicated maps
+    fun getSpotPositions(): List<StockPosition> = spotPositions.values.toList()
+    fun getLeveragePositions(): List<StockPosition> = leveragePositions.values.toList()
     fun getAllPositions(): List<StockPosition> = positions.values.toList()
     
     // Helper extension
