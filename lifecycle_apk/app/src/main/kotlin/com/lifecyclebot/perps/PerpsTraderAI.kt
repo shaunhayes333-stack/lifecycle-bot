@@ -646,6 +646,56 @@ object PerpsTraderAI {
             "size=${sizeSol.fmt(3)}◎ | entry=\$${entryPrice.fmt(2)} | " +
             "TP=\$${tpPrice.fmt(2)} SL=\$${slPrice.fmt(2)}")
         
+        // V5.7.5: Initialize trailing stop
+        try {
+            PerpsTrailingStop.initPosition(
+                positionId = position.id,
+                entryPrice = entryPrice,
+                direction = direction,
+                initialStopLoss = slPrice,
+            )
+        } catch (e: Exception) {
+            ErrorLogger.debug(TAG, "Trailing stop init error: ${e.message}")
+        }
+        
+        // V5.7.5: Record for position sizing stats
+        try {
+            // Record entry for performance attribution
+            val layerVotes = signal.aiReasoning.split(",").mapNotNull { reason ->
+                val parts = reason.trim().split(":")
+                if (parts.size >= 2) {
+                    PerpsPerformanceAttribution.LayerVote(
+                        layerName = parts[0].trim(),
+                        direction = direction,
+                        confidence = signal.confidence,
+                        score = signal.score,
+                    )
+                } else null
+            }
+            PerpsPerformanceAttribution.recordEntry(
+                tradeId = position.id,
+                market = market,
+                direction = direction,
+                entryPrice = entryPrice,
+                layerVotes = layerVotes,
+            )
+        } catch (e: Exception) {
+            ErrorLogger.debug(TAG, "Attribution recording error: ${e.message}")
+        }
+        
+        // V5.7.5: Send notification
+        try {
+            PerpsNotificationManager.notifyPositionOpened(
+                market = market,
+                direction = direction,
+                sizeSol = sizeSol,
+                leverage = leverage,
+                entryPrice = entryPrice,
+            )
+        } catch (e: Exception) {
+            ErrorLogger.debug(TAG, "Notification error: ${e.message}")
+        }
+        
         save()
         return position
     }
@@ -782,6 +832,47 @@ object PerpsTraderAI {
                 ErrorLogger.debug(TAG, "🎬 Trade recording failed: ${e.message}")
             }
         }
+        
+        // V5.7.5: Record exit for performance attribution
+        try {
+            PerpsPerformanceAttribution.recordExit(
+                tradeId = position.id,
+                exitPrice = exitPrice,
+                pnlPct = pnlPct,
+            )
+        } catch (e: Exception) {
+            ErrorLogger.debug(TAG, "Attribution exit recording error: ${e.message}")
+        }
+        
+        // V5.7.5: Record for position sizing
+        try {
+            PerpsPositionSizer.recordTrade(position.market, pnlPct)
+        } catch (e: Exception) {
+            ErrorLogger.debug(TAG, "Position sizing recording error: ${e.message}")
+        }
+        
+        // V5.7.5: Remove trailing stop tracking
+        try {
+            PerpsTrailingStop.removePosition(position.id)
+        } catch (e: Exception) {}
+        
+        // V5.7.5: Send notification
+        try {
+            PerpsNotificationManager.notifyPositionClosed(
+                market = position.market,
+                direction = position.direction,
+                pnlSol = pnlSol,
+                pnlPct = pnlPct,
+                reason = exitReason.displayName,
+            )
+        } catch (e: Exception) {
+            ErrorLogger.debug(TAG, "Notification error: ${e.message}")
+        }
+        
+        // V5.7.5: Record correlation data
+        try {
+            PerpsCorrelationMatrix.recordReturn(position.market, pnlPct)
+        } catch (e: Exception) {}
         
         save()
         return trade
