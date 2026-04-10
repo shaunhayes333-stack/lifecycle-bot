@@ -31,6 +31,8 @@ object MetalsTrader {
     private const val POSITION_SIZE_SOL = 4.0
     private const val TP_PERCENT = 5.0
     private const val SL_PERCENT = 3.0
+    private const val SPOT_TRADING_FEE_PERCENT = 0.005     // 0.5% for spot (1x)
+    private const val LEVERAGE_TRADING_FEE_PERCENT = 0.01  // 1.0% for leverage (5x)
     
     // ═══════════════════════════════════════════════════════════════════════════
     // STATE
@@ -69,8 +71,8 @@ object MetalsTrader {
     ) {
         fun getPnlPercent(): Double {
             val priceDiff = currentPrice - entryPrice
-            val direction = if (direction == PerpsDirection.LONG) 1 else -1
-            return (priceDiff / entryPrice) * 100.0 * direction * leverage
+            val dirMultiplier = if (direction == PerpsDirection.LONG) 1 else -1
+            return (priceDiff / entryPrice) * 100.0 * dirMultiplier * leverage
         }
         
         fun getPnlSol(): Double = size * (getPnlPercent() / 100.0)
@@ -480,10 +482,13 @@ object MetalsTrader {
     }
     
     private fun closePosition(position: MetalPosition, positionMap: ConcurrentHashMap<String, MetalPosition>, reason: String) {
-        val pnl = position.getPnlSol()
-        val pnlPct = position.getPnlPercent()
+        val grossPnl = position.getPnlSol()
+        val feePercent = if (position.leverage == 1.0) SPOT_TRADING_FEE_PERCENT else LEVERAGE_TRADING_FEE_PERCENT
+        val totalFeeSol = position.size * feePercent * 2  // fee on open + close
+        val pnl = grossPnl - totalFeeSol
+        val pnlPct = position.getPnlPercent() - (totalFeeSol / position.size * 100)
         val isWin = pnl >= 0
-        
+
         paperBalance += position.size + pnl
         positionMap.remove(position.id)
         

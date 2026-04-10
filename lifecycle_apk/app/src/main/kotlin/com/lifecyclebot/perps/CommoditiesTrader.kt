@@ -33,6 +33,8 @@ object CommoditiesTrader {
     private const val SL_PERCENT_SPOT = 3.0       // Tighter SL for spot
     private const val TP_PERCENT_LEVERAGE = 8.0   // Wider for leverage
     private const val SL_PERCENT_LEVERAGE = 5.0
+    private const val SPOT_TRADING_FEE_PERCENT = 0.005     // 0.5% for spot (1x)
+    private const val LEVERAGE_TRADING_FEE_PERCENT = 0.01  // 1.0% for leverage (5x)
     
     // ═══════════════════════════════════════════════════════════════════════════
     // STATE
@@ -498,10 +500,13 @@ object CommoditiesTrader {
     }
     
     private fun closePosition(position: CommodityPosition, positionMap: ConcurrentHashMap<String, CommodityPosition>, reason: String) {
-        val pnl = position.getPnlSol()
-        val pnlPct = position.getPnlPercent()
+        val grossPnl = position.getPnlSol()
+        val feePercent = if (position.isSpot) SPOT_TRADING_FEE_PERCENT else LEVERAGE_TRADING_FEE_PERCENT
+        val totalFeeSol = position.size * feePercent * 2  // fee on open + close
+        val pnl = grossPnl - totalFeeSol
+        val pnlPct = position.getPnlPercent() - (totalFeeSol / position.size * 100)
         val isWin = pnl >= 0
-        
+
         paperBalance += position.size + pnl
         positionMap.remove(position.id)
         

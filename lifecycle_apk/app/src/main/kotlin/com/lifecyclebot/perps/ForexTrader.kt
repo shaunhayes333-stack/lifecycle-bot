@@ -32,6 +32,8 @@ object ForexTrader {
     private const val POSITION_SIZE_SOL = 2.0
     private const val TP_PERCENT = 3.0           // Tighter TP for forex
     private const val SL_PERCENT = 2.0           // Tighter SL for forex
+    private const val SPOT_TRADING_FEE_PERCENT = 0.005     // 0.5% for spot (1x)
+    private const val LEVERAGE_TRADING_FEE_PERCENT = 0.01  // 1.0% for leverage (10x)
     
     // ═══════════════════════════════════════════════════════════════════════════
     // STATE - V5.7.6: SPOT + LEVERAGE positions
@@ -486,10 +488,13 @@ object ForexTrader {
     }
     
     private fun closePosition(position: ForexPosition, positionMap: ConcurrentHashMap<String, ForexPosition>, reason: String) {
-        val pnl = position.getPnlSol()
-        val pnlPct = position.getPnlPercent()
+        val grossPnl = position.getPnlSol()
+        val feePercent = if (position.leverage == 1.0) SPOT_TRADING_FEE_PERCENT else LEVERAGE_TRADING_FEE_PERCENT
+        val totalFeeSol = position.size * feePercent * 2  // fee on open + close
+        val pnl = grossPnl - totalFeeSol
+        val pnlPct = position.getPnlPercent() - (totalFeeSol / position.size * 100)
         val isWin = pnl >= 0
-        
+
         paperBalance += position.size + pnl
         positionMap.remove(position.id)
         

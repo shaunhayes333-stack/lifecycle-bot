@@ -986,7 +986,7 @@ object PerpsAdvancedAI {
             "bestPatternWinRate" to (patternMemory.values.maxOfOrNull { it.winRate } ?: 0.0),
             "hoursTracked" to hourlyPerformance.size,
             "bestHours" to getBestTradingHours(),
-            "hotSectors" to getHotSectors().map { it.displayName },
+            "hotSectors" to emptyList<String>(),  // async — use getHotSectors() from a suspend context
             "priceHistoryMarkets" to priceHistory.size
         )
     }
