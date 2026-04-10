@@ -154,11 +154,6 @@ object PerpsMarketScanners {
                     ScannerType.VOLATILITY_BREAKOUT -> scanVolatilityBreakout(marketDataMap, isPaperMode)
                     ScannerType.CORRELATION -> scanCorrelation(marketDataMap, isPaperMode)
                 }
-                    ScannerType.WHALE_LIQUIDATION -> scanWhaleLiquidation(marketDataMap, isPaperMode)
-                    ScannerType.FUNDING_RATE -> scanFundingRate(marketDataMap, isPaperMode)
-                    ScannerType.VOLATILITY_BREAKOUT -> scanVolatilityBreakout(marketDataMap, isPaperMode)
-                    ScannerType.CORRELATION -> scanCorrelation(marketDataMap, isPaperMode)
-                }
                 
                 // Log scanner results
                 val withSignals = scanResults.filter { it.signal != null }
