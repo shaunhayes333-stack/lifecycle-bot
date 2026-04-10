@@ -984,6 +984,12 @@ for legal compliance.
             }
         }
         
+        // V5.7.5: Long-press 30-day card to reset
+        card30DayRun.setOnLongClickListener {
+            show30DayResetDialog()
+            true
+        }
+        
         llTokenList     = findViewById(R.id.llTokenList)
         llProbationList = findViewById(R.id.llProbationList)  // V5.0
         llIdleList      = findViewById(R.id.llIdleList)       // V5.2: Idle column
@@ -3605,6 +3611,58 @@ for legal compliance.
             integrity >= 60 -> amber
             else -> red
         })
+    }
+    
+    /**
+     * V5.7.5: Show 30-Day Run Reset Dialog
+     */
+    private fun show30DayResetDialog() {
+        val tracker = com.lifecyclebot.engine.RunTracker30D
+        
+        val message = """
+🔄 RESET 30-DAY RUN TRACKER?
+
+Current Stats:
+• Day: ${tracker.getCurrentDay()}/30
+• Balance: ${"%.4f".format(tracker.currentBalance)} SOL
+• Trades: ${tracker.totalTrades}
+• W/L/S: ${tracker.wins}/${tracker.losses}/${tracker.scratches}
+
+⚠️ This will:
+• Clear all trading history
+• Reset balance to current wallet
+• Start a new 30-day period
+
+This cannot be undone!
+        """.trimIndent()
+        
+        AlertDialog.Builder(this, R.style.Theme_AATE_Dialog)
+            .setTitle("🔄 Reset 30-Day Tracker")
+            .setMessage(message)
+            .setPositiveButton("RESET") { dialog, _ ->
+                try {
+                    // Get current wallet balance for fresh start
+                    val currentWalletBalance = com.lifecyclebot.engine.PaperWallet.balance.toDouble()
+                    
+                    // Reset the tracker
+                    tracker.reset()
+                    
+                    // Start a fresh run with current balance
+                    tracker.startRun(currentWalletBalance)
+                    
+                    Toast.makeText(this, "✅ 30-Day Tracker Reset! New run started.", Toast.LENGTH_LONG).show()
+                    
+                    // Update UI
+                    update30DayRunStats()
+                    
+                    performHaptic()
+                } catch (e: Exception) {
+                    Toast.makeText(this, "Reset failed: ${e.message}", Toast.LENGTH_SHORT).show()
+                }
+                dialog.dismiss()
+            }
+            .setNegativeButton("Cancel") { dialog, _ -> dialog.dismiss() }
+            .show()
     }
     
     /**
