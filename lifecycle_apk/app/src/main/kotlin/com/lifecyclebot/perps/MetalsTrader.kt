@@ -143,11 +143,12 @@ object MetalsTrader {
         scanCount.incrementAndGet()
         val scanNum = scanCount.get()
         
-        ErrorLogger.info(TAG, "🥇 METALS SCAN #$scanNum | positions=${positions.size}/$MAX_POSITIONS | balance=${"%.2f".format(paperBalance)} SOL")
+        ErrorLogger.error(TAG, "🥇 ═══════════════════════════════════════════════")
+        ErrorLogger.error(TAG, "🥇 METALS SCAN #$scanNum | positions=${positions.size}/$MAX_POSITIONS | balance=${"%.2f".format(paperBalance)} SOL")
         
         // Get all metal markets
         val metalMarkets = PerpsMarket.values().filter { it.isMetal }
-        ErrorLogger.info(TAG, "🥇 Found ${metalMarkets.size} metals to scan")
+        ErrorLogger.error(TAG, "🥇 Found ${metalMarkets.size} metals: ${metalMarkets.map { it.symbol }}")
         
         val signals = mutableListOf<MetalSignal>()
         
@@ -156,22 +157,29 @@ object MetalsTrader {
                 if (hasPosition(market)) continue
                 
                 val data = PerpsMarketDataFetcher.getMarketData(market)
-                if (data.price <= 0) continue
+                if (data.price <= 0) {
+                    ErrorLogger.warn(TAG, "🥇 ${market.symbol}: SKIPPED - price=0")
+                    continue
+                }
                 
                 val signal = analyzeMarket(market, data)
                 if (signal != null && signal.score >= 30 && signal.confidence >= 25) {
                     signals.add(signal)
+                    ErrorLogger.info(TAG, "🥇 SIGNAL: ${market.symbol} @ \$${data.price} | score=${signal.score} | ${signal.direction.symbol}")
                 }
             } catch (e: Exception) {
-                ErrorLogger.debug(TAG, "Failed to analyze ${market.symbol}: ${e.message}")
+                ErrorLogger.error(TAG, "🥇 ${market.symbol} EXCEPTION: ${e.message}")
             }
         }
         
         // Execute top signals
         val topSignals = signals.sortedByDescending { it.score }.take(3)
         if (topSignals.isNotEmpty()) {
-            ErrorLogger.info(TAG, "🥇 TOP ${topSignals.size} metal signals: ${topSignals.map { "${it.market.symbol}(${it.score})" }}")
+            ErrorLogger.error(TAG, "🥇 TOP ${topSignals.size} metal signals: ${topSignals.map { "${it.market.symbol}(${it.score})" }}")
+        } else {
+            ErrorLogger.error(TAG, "🥇 NO SIGNALS - all markets below threshold or no price data")
         }
+        ErrorLogger.error(TAG, "🥇 ═══════════════════════════════════════════════")
         
         for (signal in topSignals) {
             if (positions.size >= MAX_POSITIONS) break

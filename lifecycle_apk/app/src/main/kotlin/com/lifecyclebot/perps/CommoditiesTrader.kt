@@ -1,7 +1,6 @@
 package com.lifecyclebot.perps
 
 import com.lifecyclebot.engine.ErrorLogger
-import com.lifecyclebot.v3.scoring.FluidLearningAI
 import kotlinx.coroutines.*
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.atomic.AtomicBoolean
@@ -144,11 +143,12 @@ object CommoditiesTrader {
         scanCount.incrementAndGet()
         val scanNum = scanCount.get()
         
-        ErrorLogger.info(TAG, "🛢️ COMMODITY SCAN #$scanNum | positions=${positions.size}/$MAX_POSITIONS | balance=${"%.2f".format(paperBalance)} SOL")
+        ErrorLogger.error(TAG, "🛢️ ═══════════════════════════════════════════════")
+        ErrorLogger.error(TAG, "🛢️ COMMODITY SCAN #$scanNum | positions=${positions.size}/$MAX_POSITIONS | balance=${"%.2f".format(paperBalance)} SOL")
         
         // Get all commodity markets
         val commodityMarkets = PerpsMarket.values().filter { it.isCommodity }
-        ErrorLogger.info(TAG, "🛢️ Found ${commodityMarkets.size} commodities to scan")
+        ErrorLogger.error(TAG, "🛢️ Found ${commodityMarkets.size} commodities: ${commodityMarkets.map { it.symbol }}")
         
         val signals = mutableListOf<CommoditySignal>()
         
@@ -157,22 +157,29 @@ object CommoditiesTrader {
                 if (hasPosition(market)) continue
                 
                 val data = PerpsMarketDataFetcher.getMarketData(market)
-                if (data.price <= 0) continue
+                if (data.price <= 0) {
+                    ErrorLogger.warn(TAG, "🛢️ ${market.symbol}: SKIPPED - price=0")
+                    continue
+                }
                 
                 val signal = analyzeMarket(market, data)
                 if (signal != null && signal.score >= 30 && signal.confidence >= 25) {
                     signals.add(signal)
+                    ErrorLogger.info(TAG, "🛢️ SIGNAL: ${market.symbol} @ \$${data.price} | score=${signal.score} | ${signal.direction.symbol}")
                 }
             } catch (e: Exception) {
-                ErrorLogger.debug(TAG, "Failed to analyze ${market.symbol}: ${e.message}")
+                ErrorLogger.error(TAG, "🛢️ ${market.symbol} EXCEPTION: ${e.message}")
             }
         }
         
         // Execute top signals
         val topSignals = signals.sortedByDescending { it.score }.take(3)
         if (topSignals.isNotEmpty()) {
-            ErrorLogger.info(TAG, "🛢️ TOP ${topSignals.size} commodity signals: ${topSignals.map { "${it.market.symbol}(${it.score})" }}")
+            ErrorLogger.error(TAG, "🛢️ TOP ${topSignals.size} commodity signals: ${topSignals.map { "${it.market.symbol}(${it.score})" }}")
+        } else {
+            ErrorLogger.error(TAG, "🛢️ NO SIGNALS - all markets below threshold or no price data")
         }
+        ErrorLogger.error(TAG, "🛢️ ═══════════════════════════════════════════════")
         
         for (signal in topSignals) {
             if (positions.size >= MAX_POSITIONS) break
