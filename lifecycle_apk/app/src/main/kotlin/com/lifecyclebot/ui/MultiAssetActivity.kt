@@ -615,39 +615,35 @@ class MultiAssetActivity : AppCompatActivity() {
     )
     
     private fun getTopMoversForCategory(): List<MoverInfo> {
-        // Mock data - in real implementation, fetch from price data
-        return when (currentTab) {
-            AssetTab.STOCKS -> listOf(
-                MoverInfo("NVDA", 142.50, 4.2),
-                MoverInfo("TSLA", 248.30, 3.1),
-                MoverInfo("COIN", 285.40, -2.8),
-                MoverInfo("AAPL", 178.20, 1.5),
-                MoverInfo("AMD", 156.80, 2.3),
-                MoverInfo("META", 512.30, -1.2)
-            )
-            AssetTab.COMMODITIES -> listOf(
-                MoverInfo("WTI", 78.50, 2.1),
-                MoverInfo("NATGAS", 2.45, -3.5),
-                MoverInfo("WHEAT", 5.82, 1.8),
-                MoverInfo("CORN", 4.52, 0.9)
-            )
-            AssetTab.METALS -> listOf(
-                MoverInfo("XAU", 2045.50, 0.8),
-                MoverInfo("XAG", 24.30, 1.2),
-                MoverInfo("XPT", 1025.00, -0.5),
-                MoverInfo("XCU", 3.85, 2.1)
-            )
-            AssetTab.FOREX -> listOf(
-                MoverInfo("EUR/USD", 1.0875, 0.3),
-                MoverInfo("GBP/USD", 1.2650, -0.2),
-                MoverInfo("USD/JPY", 149.50, 0.5),
-                MoverInfo("AUD/USD", 0.6520, -0.8)
-            )
-            AssetTab.PERPS -> listOf(
-                MoverInfo("SOL", 185.50, 5.2),
-                MoverInfo("BTC", 67500.0, 2.1),
-                MoverInfo("ETH", 3450.0, 1.8)
-            )
+        // Get REAL price data from PerpsMarketDataFetcher
+        return try {
+            val movers = mutableListOf<MoverInfo>()
+            val markets = when (currentTab) {
+                AssetTab.STOCKS -> PerpsMarket.values().filter { it.isStock }.take(15)
+                AssetTab.COMMODITIES -> PerpsMarket.values().filter { it.isCommodity }.take(10)
+                AssetTab.METALS -> PerpsMarket.values().filter { it.isMetal }.take(10)
+                AssetTab.FOREX -> PerpsMarket.values().filter { it.isForex }.take(10)
+                AssetTab.PERPS -> PerpsMarket.values().filter { it.isCrypto }.take(5)
+            }
+            
+            markets.forEach { market ->
+                try {
+                    val data = PerpsMarketDataFetcher.getMarketData(market)
+                    if (data != null && data.price > 0) {
+                        movers.add(MoverInfo(
+                            symbol = market.symbol,
+                            price = data.price,
+                            change24h = data.change24h
+                        ))
+                    }
+                } catch (_: Exception) {}
+            }
+            
+            // Sort by absolute change (biggest movers first)
+            movers.sortedByDescending { kotlin.math.abs(it.change24h) }.take(6)
+        } catch (_: Exception) {
+            // Fallback to empty if data fetch fails
+            emptyList()
         }
     }
     
@@ -732,17 +728,99 @@ class MultiAssetActivity : AppCompatActivity() {
     )
     
     private fun getAiSignals(): List<AiSignal> {
-        // Get real signals from traders based on current tab
+        // Get REAL signals from traders based on current tab
         return try {
             when (currentTab) {
                 AssetTab.STOCKS -> {
-                    // Mock signals - in real implementation, get from TokenizedStockTrader
-                    listOf(
-                        AiSignal("NVDA", "LONG", 78, 72, "Momentum breakout + volume surge"),
-                        AiSignal("TSLA", "LONG", 65, 58, "Support bounce + bullish RSI")
-                    )
+                    // Get recent signals from TokenizedStockTrader via PerpsAdvancedAI
+                    val signals = mutableListOf<AiSignal>()
+                    PerpsMarket.values().filter { it.isStock }.take(10).forEach { market ->
+                        try {
+                            val technicals = PerpsAdvancedAI.analyzeTechnicals(market)
+                            if (technicals != null && technicals.score >= 40) {
+                                signals.add(AiSignal(
+                                    symbol = market.symbol,
+                                    direction = if (technicals.direction == PerpsDirection.LONG) "LONG" else "SHORT",
+                                    score = technicals.score.toInt(),
+                                    confidence = technicals.confidence.toInt(),
+                                    reason = technicals.reasons.firstOrNull() ?: "AI signal detected"
+                                ))
+                            }
+                        } catch (_: Exception) {}
+                    }
+                    signals.sortedByDescending { it.score }
                 }
-                else -> emptyList()
+                AssetTab.COMMODITIES -> {
+                    val signals = mutableListOf<AiSignal>()
+                    PerpsMarket.values().filter { it.isCommodity }.take(8).forEach { market ->
+                        try {
+                            val technicals = PerpsAdvancedAI.analyzeTechnicals(market)
+                            if (technicals != null && technicals.score >= 40) {
+                                signals.add(AiSignal(
+                                    symbol = market.symbol,
+                                    direction = if (technicals.direction == PerpsDirection.LONG) "LONG" else "SHORT",
+                                    score = technicals.score.toInt(),
+                                    confidence = technicals.confidence.toInt(),
+                                    reason = technicals.reasons.firstOrNull() ?: "AI signal detected"
+                                ))
+                            }
+                        } catch (_: Exception) {}
+                    }
+                    signals.sortedByDescending { it.score }
+                }
+                AssetTab.METALS -> {
+                    val signals = mutableListOf<AiSignal>()
+                    PerpsMarket.values().filter { it.isMetal }.take(8).forEach { market ->
+                        try {
+                            val technicals = PerpsAdvancedAI.analyzeTechnicals(market)
+                            if (technicals != null && technicals.score >= 40) {
+                                signals.add(AiSignal(
+                                    symbol = market.symbol,
+                                    direction = if (technicals.direction == PerpsDirection.LONG) "LONG" else "SHORT",
+                                    score = technicals.score.toInt(),
+                                    confidence = technicals.confidence.toInt(),
+                                    reason = technicals.reasons.firstOrNull() ?: "AI signal detected"
+                                ))
+                            }
+                        } catch (_: Exception) {}
+                    }
+                    signals.sortedByDescending { it.score }
+                }
+                AssetTab.FOREX -> {
+                    val signals = mutableListOf<AiSignal>()
+                    PerpsMarket.values().filter { it.isForex }.take(8).forEach { market ->
+                        try {
+                            val technicals = PerpsAdvancedAI.analyzeTechnicals(market)
+                            if (technicals != null && technicals.score >= 40) {
+                                signals.add(AiSignal(
+                                    symbol = market.symbol,
+                                    direction = if (technicals.direction == PerpsDirection.LONG) "LONG" else "SHORT",
+                                    score = technicals.score.toInt(),
+                                    confidence = technicals.confidence.toInt(),
+                                    reason = technicals.reasons.firstOrNull() ?: "AI signal detected"
+                                ))
+                            }
+                        } catch (_: Exception) {}
+                    }
+                    signals.sortedByDescending { it.score }
+                }
+                AssetTab.PERPS -> {
+                    // Get from PerpsTraderAI
+                    val signals = mutableListOf<AiSignal>()
+                    try {
+                        val readiness = PerpsTraderAI.getLiveReadiness()
+                        if (readiness.readinessScore >= 50) {
+                            signals.add(AiSignal(
+                                symbol = "SOL-PERP",
+                                direction = "LONG",
+                                score = readiness.readinessScore,
+                                confidence = readiness.paperWinRate.toInt(),
+                                reason = readiness.recommendation
+                            ))
+                        }
+                    } catch (_: Exception) {}
+                    signals
+                }
             }
         } catch (_: Exception) { emptyList() }
     }
@@ -830,15 +908,48 @@ class MultiAssetActivity : AppCompatActivity() {
     }
     
     private fun getSectorPerformance(): Map<String, Double> {
-        // Mock data - in real implementation, calculate from live prices
-        return mapOf(
-            "TECH" to 2.1,
-            "FINANCE" to -0.8,
-            "ENERGY" to 1.2,
-            "METALS" to 0.5,
-            "FOREX" to -0.2,
-            "CRYPTO" to 3.5
-        )
+        // Calculate REAL sector performance from market data
+        return try {
+            val sectors = mutableMapOf<String, MutableList<Double>>()
+            
+            // Gather 24h changes by sector
+            PerpsMarket.values().forEach { market ->
+                try {
+                    val data = PerpsMarketDataFetcher.getMarketData(market)
+                    if (data != null && data.price > 0) {
+                        val sector = when {
+                            market.isStock && (market.symbol.contains("NVDA") || market.symbol.contains("AMD") || 
+                                market.symbol.contains("INTC") || market.symbol.contains("AAPL") || 
+                                market.symbol.contains("MSFT") || market.symbol.contains("GOOGL") ||
+                                market.symbol.contains("META")) -> "TECH"
+                            market.isStock && (market.symbol.contains("JPM") || market.symbol.contains("GS") || 
+                                market.symbol.contains("BAC") || market.symbol.contains("V") || 
+                                market.symbol.contains("MA") || market.symbol.contains("PYPL") ||
+                                market.symbol.contains("COIN") || market.symbol.contains("SQ")) -> "FINANCE"
+                            market.isCommodity -> "ENERGY"
+                            market.isMetal -> "METALS"
+                            market.isForex -> "FOREX"
+                            market.isCrypto -> "CRYPTO"
+                            else -> null
+                        }
+                        sector?.let {
+                            sectors.getOrPut(it) { mutableListOf() }.add(data.change24h)
+                        }
+                    }
+                } catch (_: Exception) {}
+            }
+            
+            // Average each sector
+            sectors.mapValues { (_, changes) ->
+                if (changes.isNotEmpty()) changes.average() else 0.0
+            }
+        } catch (_: Exception) {
+            // Fallback
+            mapOf(
+                "TECH" to 0.0, "FINANCE" to 0.0, "ENERGY" to 0.0,
+                "METALS" to 0.0, "FOREX" to 0.0, "CRYPTO" to 0.0
+            )
+        }
     }
     
     private fun updateHeatCell(view: TextView, label: String, change: Double) {
