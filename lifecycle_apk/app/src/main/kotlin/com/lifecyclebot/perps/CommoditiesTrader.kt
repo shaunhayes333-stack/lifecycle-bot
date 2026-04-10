@@ -25,16 +25,18 @@ object CommoditiesTrader {
     
     private const val MAX_POSITIONS = 20
     private const val SCAN_INTERVAL_MS = 20_000L  // 20 seconds
-    private const val DEFAULT_LEVERAGE = 5.0
     private const val POSITION_SIZE_SOL = 3.0
-    private const val TP_PERCENT = 6.0
-    private const val SL_PERCENT = 4.0
+    private const val TP_PERCENT_SPOT = 4.0       // Tighter TP for spot
+    private const val SL_PERCENT_SPOT = 3.0       // Tighter SL for spot
+    private const val TP_PERCENT_LEVERAGE = 8.0   // Wider for leverage
+    private const val SL_PERCENT_LEVERAGE = 5.0
     
     // ═══════════════════════════════════════════════════════════════════════════
     // STATE
     // ═══════════════════════════════════════════════════════════════════════════
     
-    private val positions = ConcurrentHashMap<String, CommodityPosition>()
+    private val spotPositions = ConcurrentHashMap<String, CommodityPosition>()      // SPOT (1x)
+    private val leveragePositions = ConcurrentHashMap<String, CommodityPosition>()  // LEVERAGE (5x)
     private val isRunning = AtomicBoolean(false)
     private val isEnabled = AtomicBoolean(true)
     private val isPaperMode = AtomicBoolean(true)
@@ -48,14 +50,19 @@ object CommoditiesTrader {
     // DATA CLASSES
     // ═══════════════════════════════════════════════════════════════════════════
     
+    enum class TradeType(val emoji: String, val leverage: Double) {
+        SPOT("💰", 1.0),        // No leverage - simple buy/sell
+        LEVERAGE("⚡", 5.0)     // 5x leverage
+    }
+    
     data class CommodityPosition(
         val id: String,
         val market: PerpsMarket,
         val direction: PerpsDirection,
+        val tradeType: TradeType,
         val entryPrice: Double,
         var currentPrice: Double,
         val size: Double,
-        val leverage: Double,
         val takeProfit: Double,
         val stopLoss: Double,
         val openTime: Long = System.currentTimeMillis(),
@@ -64,21 +71,32 @@ object CommoditiesTrader {
         var realizedPnl: Double? = null,
         val reasons: List<String> = emptyList()
     ) {
+        val leverage: Double get() = tradeType.leverage
+        val isSpot: Boolean get() = tradeType == TradeType.SPOT
+        
         fun getPnlPercent(): Double {
             val priceDiff = currentPrice - entryPrice
-            val direction = if (direction == PerpsDirection.LONG) 1 else -1
-            return (priceDiff / entryPrice) * 100.0 * direction * leverage
+            val dir = if (direction == PerpsDirection.LONG) 1 else -1
+            return (priceDiff / entryPrice) * 100.0 * dir * leverage
         }
         
         fun getPnlSol(): Double = size * (getPnlPercent() / 100.0)
         
-        fun shouldTakeProfit(): Boolean = getPnlPercent() >= TP_PERCENT
-        fun shouldStopLoss(): Boolean = getPnlPercent() <= -SL_PERCENT
+        fun shouldTakeProfit(): Boolean {
+            val tp = if (isSpot) TP_PERCENT_SPOT else TP_PERCENT_LEVERAGE
+            return getPnlPercent() >= tp
+        }
+        
+        fun shouldStopLoss(): Boolean {
+            val sl = if (isSpot) SL_PERCENT_SPOT else SL_PERCENT_LEVERAGE
+            return getPnlPercent() <= -sl
+        }
     }
     
     data class CommoditySignal(
         val market: PerpsMarket,
         val direction: PerpsDirection,
+        val tradeType: TradeType,
         val score: Int,
         val confidence: Int,
         val price: Double,
@@ -144,51 +162,73 @@ object CommoditiesTrader {
         scanCount.incrementAndGet()
         val scanNum = scanCount.get()
         
+        val totalPositions = spotPositions.size + leveragePositions.size
         ErrorLogger.error(TAG, "🛢️ ═══════════════════════════════════════════════")
-        ErrorLogger.error(TAG, "🛢️ COMMODITY SCAN #$scanNum | positions=${positions.size}/$MAX_POSITIONS | balance=${"%.2f".format(paperBalance)} SOL")
+        ErrorLogger.error(TAG, "🛢️ COMMODITY SCAN #$scanNum | spot=${spotPositions.size} | leverage=${leveragePositions.size} | total=$totalPositions/$MAX_POSITIONS | balance=${"%.2f".format(paperBalance)} SOL")
         
         // Get all commodity markets
         val commodityMarkets = PerpsMarket.values().filter { it.isCommodity }
         ErrorLogger.error(TAG, "🛢️ Found ${commodityMarkets.size} commodities: ${commodityMarkets.map { it.symbol }}")
         
-        val signals = mutableListOf<CommoditySignal>()
+        val spotSignals = mutableListOf<CommoditySignal>()
+        val leverageSignals = mutableListOf<CommoditySignal>()
         
         for (market in commodityMarkets) {
             try {
-                if (hasPosition(market)) continue
-                
                 val data = PerpsMarketDataFetcher.getMarketData(market)
                 if (data.price <= 0) {
                     ErrorLogger.warn(TAG, "🛢️ ${market.symbol}: SKIPPED - price=0")
                     continue
                 }
                 
-                val signal = analyzeMarket(market, data)
-                if (signal != null && signal.score >= 30 && signal.confidence >= 25) {
-                    signals.add(signal)
-                    ErrorLogger.info(TAG, "🛢️ SIGNAL: ${market.symbol} @ \$${data.price} | score=${signal.score} | ${signal.direction.symbol}")
+                // Generate SPOT signal if no spot position
+                if (!hasSpotPosition(market)) {
+                    val spotSignal = analyzeMarket(market, data, TradeType.SPOT)
+                    if (spotSignal != null && spotSignal.score >= 30 && spotSignal.confidence >= 25) {
+                        spotSignals.add(spotSignal)
+                    }
+                }
+                
+                // Generate LEVERAGE signal if no leverage position
+                if (!hasLeveragePosition(market)) {
+                    val leverageSignal = analyzeMarket(market, data, TradeType.LEVERAGE)
+                    if (leverageSignal != null && leverageSignal.score >= 40 && leverageSignal.confidence >= 35) {
+                        leverageSignals.add(leverageSignal)
+                    }
                 }
             } catch (e: Exception) {
                 ErrorLogger.error(TAG, "🛢️ ${market.symbol} EXCEPTION: ${e.message}")
             }
         }
         
-        // Execute top signals
-        val topSignals = signals.sortedByDescending { it.score }.take(3)
-        if (topSignals.isNotEmpty()) {
-            ErrorLogger.error(TAG, "🛢️ TOP ${topSignals.size} commodity signals: ${topSignals.map { "${it.market.symbol}(${it.score})" }}")
-        } else {
-            ErrorLogger.error(TAG, "🛢️ NO SIGNALS - all markets below threshold or no price data")
+        ErrorLogger.info(TAG, "🛢️ Generated ${spotSignals.size} SPOT signals, ${leverageSignals.size} LEVERAGE signals")
+        
+        // Execute top SPOT signals (lower risk, more positions)
+        val topSpotSignals = spotSignals.sortedByDescending { it.score }.take(4)
+        if (topSpotSignals.isNotEmpty()) {
+            ErrorLogger.error(TAG, "🛢️ TOP SPOT: ${topSpotSignals.map { "${it.market.symbol}(${it.score})" }}")
         }
+        
+        // Execute top LEVERAGE signals (higher risk, fewer positions)
+        val topLeverageSignals = leverageSignals.sortedByDescending { it.score }.take(2)
+        if (topLeverageSignals.isNotEmpty()) {
+            ErrorLogger.error(TAG, "🛢️ TOP LEVERAGE: ${topLeverageSignals.map { "${it.market.symbol}(${it.score})" }}")
+        }
+        
         ErrorLogger.error(TAG, "🛢️ ═══════════════════════════════════════════════")
         
-        for (signal in topSignals) {
-            if (positions.size >= MAX_POSITIONS) break
+        // Execute signals
+        for (signal in topSpotSignals) {
+            if (spotPositions.size + leveragePositions.size >= MAX_POSITIONS) break
+            executeSignal(signal)
+        }
+        for (signal in topLeverageSignals) {
+            if (spotPositions.size + leveragePositions.size >= MAX_POSITIONS) break
             executeSignal(signal)
         }
     }
     
-    private suspend fun analyzeMarket(market: PerpsMarket, data: PerpsMarketData): CommoditySignal? {
+    private suspend fun analyzeMarket(market: PerpsMarket, data: PerpsMarketData, tradeType: TradeType): CommoditySignal? {
         val reasons = mutableListOf<String>()
         val layerVotes = mutableMapOf<String, PerpsDirection>()
         var score = 50
@@ -196,6 +236,9 @@ object CommoditiesTrader {
         
         val change = data.priceChange24hPct
         val direction = if (change >= 0) PerpsDirection.LONG else PerpsDirection.SHORT
+        
+        // Add trade type indicator
+        reasons.add("${tradeType.emoji} ${tradeType.name}")
         
         // 1. Momentum analysis
         when {
@@ -302,6 +345,7 @@ object CommoditiesTrader {
         return CommoditySignal(
             market = market,
             direction = direction,
+            tradeType = tradeType,
             score = score.coerceIn(0, 100),
             confidence = confidence.coerceIn(0, 100),
             price = data.price,
@@ -320,64 +364,83 @@ object CommoditiesTrader {
             return
         }
         
+        val tpPct = if (signal.tradeType == TradeType.SPOT) TP_PERCENT_SPOT else TP_PERCENT_LEVERAGE
+        val slPct = if (signal.tradeType == TradeType.SPOT) SL_PERCENT_SPOT else SL_PERCENT_LEVERAGE
+        
         val tp = if (signal.direction == PerpsDirection.LONG) {
-            signal.price * (1 + TP_PERCENT / 100)
+            signal.price * (1 + tpPct / 100)
         } else {
-            signal.price * (1 - TP_PERCENT / 100)
+            signal.price * (1 - tpPct / 100)
         }
         
         val sl = if (signal.direction == PerpsDirection.LONG) {
-            signal.price * (1 - SL_PERCENT / 100)
+            signal.price * (1 - slPct / 100)
         } else {
-            signal.price * (1 + SL_PERCENT / 100)
+            signal.price * (1 + slPct / 100)
         }
         
         val position = CommodityPosition(
-            id = "${signal.market.symbol}_${System.currentTimeMillis()}",
+            id = "${signal.tradeType.name}_${signal.market.symbol}_${System.currentTimeMillis()}",
             market = signal.market,
             direction = signal.direction,
+            tradeType = signal.tradeType,
             entryPrice = signal.price,
             currentPrice = signal.price,
             size = POSITION_SIZE_SOL,
-            leverage = DEFAULT_LEVERAGE,
             takeProfit = tp,
             stopLoss = sl,
             reasons = signal.reasons
         )
         
-        positions[position.id] = position
+        // Add to appropriate map
+        if (signal.tradeType == TradeType.SPOT) {
+            spotPositions[position.id] = position
+        } else {
+            leveragePositions[position.id] = position
+        }
         paperBalance -= POSITION_SIZE_SOL
         
-        ErrorLogger.error(TAG, "🛢️ OPENED: ${signal.direction.emoji} ${signal.market.symbol} @ \$${signal.price.fmt(2)} | ${DEFAULT_LEVERAGE.toInt()}x | size=${POSITION_SIZE_SOL}◎ | score=${signal.score}")
+        val leverageStr = if (signal.tradeType == TradeType.SPOT) "1x SPOT" else "${signal.tradeType.leverage.toInt()}x LEV"
+        ErrorLogger.error(TAG, "🛢️ OPENED: ${signal.tradeType.emoji} ${signal.direction.emoji} ${signal.market.symbol} @ \$${signal.price.fmt(2)} | $leverageStr | size=${POSITION_SIZE_SOL}◎ | score=${signal.score}")
     }
     
     private suspend fun monitorPositions() {
-        positions.values.toList().forEach { position ->
-            try {
-                val data = PerpsMarketDataFetcher.getMarketData(position.market)
-                if (data.price > 0) {
-                    position.currentPrice = data.price
-                    
-                    if (position.shouldTakeProfit()) {
-                        closePosition(position, "TP HIT")
-                    } else if (position.shouldStopLoss()) {
-                        closePosition(position, "SL HIT")
-                    }
-                }
-            } catch (_: Exception) {}
+        // Monitor SPOT positions
+        spotPositions.values.toList().forEach { position ->
+            monitorSinglePosition(position, spotPositions)
+        }
+        // Monitor LEVERAGE positions
+        leveragePositions.values.toList().forEach { position ->
+            monitorSinglePosition(position, leveragePositions)
         }
     }
     
-    private fun closePosition(position: CommodityPosition, reason: String) {
+    private suspend fun monitorSinglePosition(position: CommodityPosition, positionMap: ConcurrentHashMap<String, CommodityPosition>) {
+        try {
+            val data = PerpsMarketDataFetcher.getMarketData(position.market)
+            if (data.price > 0) {
+                position.currentPrice = data.price
+                
+                if (position.shouldTakeProfit()) {
+                    closePosition(position, positionMap, "TP HIT")
+                } else if (position.shouldStopLoss()) {
+                    closePosition(position, positionMap, "SL HIT")
+                }
+            }
+        } catch (_: Exception) {}
+    }
+    
+    private fun closePosition(position: CommodityPosition, positionMap: ConcurrentHashMap<String, CommodityPosition>, reason: String) {
         val pnl = position.getPnlSol()
         val pnlPct = position.getPnlPercent()
         val isWin = pnl >= 0
         
         paperBalance += position.size + pnl
-        positions.remove(position.id)
+        positionMap.remove(position.id)
         
         val emoji = if (isWin) "✅" else "❌"
-        ErrorLogger.error(TAG, "🛢️ CLOSED: $emoji ${position.market.symbol} | PnL: ${if (pnl >= 0) "+" else ""}${"%.4f".format(pnl)}◎ | $reason")
+        val typeEmoji = position.tradeType.emoji
+        ErrorLogger.error(TAG, "🛢️ CLOSED: $typeEmoji $emoji ${position.market.symbol} | PnL: ${if (pnl >= 0) "+" else ""}${"%.4f".format(pnl)}◎ (${position.tradeType.name}) | $reason")
         
         // Record to FluidLearningAI for unified learning
         try {
@@ -414,8 +477,12 @@ object CommoditiesTrader {
     // HELPERS
     // ═══════════════════════════════════════════════════════════════════════════
     
-    private fun hasPosition(market: PerpsMarket): Boolean = positions.values.any { it.market == market }
-    fun getActivePositions(): List<CommodityPosition> = positions.values.toList()
+    private fun hasSpotPosition(market: PerpsMarket): Boolean = spotPositions.values.any { it.market == market }
+    private fun hasLeveragePosition(market: PerpsMarket): Boolean = leveragePositions.values.any { it.market == market }
+    
+    fun getSpotPositions(): List<CommodityPosition> = spotPositions.values.toList()
+    fun getLeveragePositions(): List<CommodityPosition> = leveragePositions.values.toList()
+    fun getAllPositions(): List<CommodityPosition> = spotPositions.values.toList() + leveragePositions.values.toList()
     fun getBalance(): Double = paperBalance
     fun isRunning(): Boolean = isRunning.get()
     
