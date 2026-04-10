@@ -25,7 +25,6 @@ object MetalsTrader {
     
     private const val MAX_POSITIONS = 20
     private const val SCAN_INTERVAL_MS = 20_000L  // 20 seconds
-    private const val DEFAULT_LEVERAGE = 5.0
     private const val POSITION_SIZE_SOL = 4.0
     private const val TP_PERCENT = 5.0
     private const val SL_PERCENT = 3.0
@@ -34,7 +33,8 @@ object MetalsTrader {
     // STATE
     // ═══════════════════════════════════════════════════════════════════════════
     
-    private val positions = ConcurrentHashMap<String, MetalPosition>()
+    private val spotPositions = ConcurrentHashMap<String, MetalPosition>()      // 1x SPOT
+    private val leveragePositions = ConcurrentHashMap<String, MetalPosition>()  // 5x LEVERAGE
     private val isRunning = AtomicBoolean(false)
     private val isEnabled = AtomicBoolean(true)
     private val isPaperMode = AtomicBoolean(true)
@@ -55,7 +55,7 @@ object MetalsTrader {
         val entryPrice: Double,
         var currentPrice: Double,
         val size: Double,
-        val leverage: Double,
+        val leverage: Double,  // 1.0 for SPOT, 5.0 for LEVERAGE
         val takeProfit: Double,
         val stopLoss: Double,
         val openTime: Long = System.currentTimeMillis(),
@@ -83,7 +83,8 @@ object MetalsTrader {
         val confidence: Int,
         val price: Double,
         val priceChange24h: Double,
-        val reasons: List<String>
+        val reasons: List<String>,
+        val leverage: Double = 1.0  // V5.7.6: 1.0 = SPOT, 5.0 = LEVERAGE
     )
     
     // ═══════════════════════════════════════════════════════════════════════════
@@ -137,26 +138,26 @@ object MetalsTrader {
     }
     
     // ═══════════════════════════════════════════════════════════════════════════
-    // SCAN CYCLE
+    // SCAN CYCLE - V5.7.6: Now generates BOTH SPOT and LEVERAGE signals
     // ═══════════════════════════════════════════════════════════════════════════
     
     private suspend fun runScanCycle() {
         scanCount.incrementAndGet()
         val scanNum = scanCount.get()
         
+        val totalPositions = spotPositions.size + leveragePositions.size
         ErrorLogger.error(TAG, "🥇 ═══════════════════════════════════════════════")
-        ErrorLogger.error(TAG, "🥇 METALS SCAN #$scanNum | positions=${positions.size}/$MAX_POSITIONS | balance=${"%.2f".format(paperBalance)} SOL")
+        ErrorLogger.error(TAG, "🥇 METALS SCAN #$scanNum | spot=${spotPositions.size} | lev=${leveragePositions.size} | total=$totalPositions/$MAX_POSITIONS | balance=${"%.2f".format(paperBalance)} SOL")
         
         // Get all metal markets
         val metalMarkets = PerpsMarket.values().filter { it.isMetal }
         ErrorLogger.error(TAG, "🥇 Found ${metalMarkets.size} metals: ${metalMarkets.map { it.symbol }}")
         
-        val signals = mutableListOf<MetalSignal>()
+        val spotSignals = mutableListOf<MetalSignal>()
+        val leverageSignals = mutableListOf<MetalSignal>()
         
         for (market in metalMarkets) {
             try {
-                if (hasPosition(market)) continue
-                
                 val data = PerpsMarketDataFetcher.getMarketData(market)
                 if (data.price <= 0) {
                     ErrorLogger.warn(TAG, "🥇 ${market.symbol}: SKIPPED - price=0")
@@ -165,26 +166,41 @@ object MetalsTrader {
                 
                 val signal = analyzeMarket(market, data)
                 if (signal != null && signal.score >= 30 && signal.confidence >= 25) {
-                    signals.add(signal)
-                    ErrorLogger.info(TAG, "🥇 SIGNAL: ${market.symbol} @ \$${data.price} | score=${signal.score} | ${signal.direction.symbol}")
+                    // SPOT signal if no spot position
+                    if (!spotPositions.values.any { it.market == market }) {
+                        spotSignals.add(signal.copy(leverage = 1.0))
+                    }
+                    // LEVERAGE signal (higher threshold) if no leverage position
+                    if (signal.score >= 40 && !leveragePositions.values.any { it.market == market }) {
+                        leverageSignals.add(signal.copy(leverage = 5.0))
+                    }
                 }
             } catch (e: Exception) {
                 ErrorLogger.error(TAG, "🥇 ${market.symbol} EXCEPTION: ${e.message}")
             }
         }
         
-        // Execute top signals
-        val topSignals = signals.sortedByDescending { it.score }.take(3)
-        if (topSignals.isNotEmpty()) {
-            ErrorLogger.error(TAG, "🥇 TOP ${topSignals.size} metal signals: ${topSignals.map { "${it.market.symbol}(${it.score})" }}")
-        } else {
-            ErrorLogger.error(TAG, "🥇 NO SIGNALS - all markets below threshold or no price data")
+        // Execute top SPOT signals
+        val topSpotSignals = spotSignals.sortedByDescending { it.score }.take(4)
+        if (topSpotSignals.isNotEmpty()) {
+            ErrorLogger.error(TAG, "🥇 TOP SPOT: ${topSpotSignals.map { "${it.market.symbol}(${it.score})" }}")
         }
+        
+        // Execute top LEVERAGE signals
+        val topLeverageSignals = leverageSignals.sortedByDescending { it.score }.take(2)
+        if (topLeverageSignals.isNotEmpty()) {
+            ErrorLogger.error(TAG, "🥇 TOP LEVERAGE: ${topLeverageSignals.map { "${it.market.symbol}(${it.score})" }}")
+        }
+        
         ErrorLogger.error(TAG, "🥇 ═══════════════════════════════════════════════")
         
-        for (signal in topSignals) {
-            if (positions.size >= MAX_POSITIONS) break
-            executeSignal(signal)
+        for (signal in topSpotSignals) {
+            if (spotPositions.size + leveragePositions.size >= MAX_POSITIONS) break
+            executeSignal(signal, spotPositions, "💰 SPOT")
+        }
+        for (signal in topLeverageSignals) {
+            if (spotPositions.size + leveragePositions.size >= MAX_POSITIONS) break
+            executeSignal(signal, leveragePositions, "⚡ 5x")
         }
     }
     
@@ -333,10 +349,10 @@ object MetalsTrader {
     }
     
     // ═══════════════════════════════════════════════════════════════════════════
-    // EXECUTION
+    // EXECUTION - V5.7.6: Supports SPOT and LEVERAGE
     // ═══════════════════════════════════════════════════════════════════════════
     
-    private suspend fun executeSignal(signal: MetalSignal) {
+    private suspend fun executeSignal(signal: MetalSignal, positionMap: ConcurrentHashMap<String, MetalPosition>, typeLabel: String) {
         if (paperBalance < POSITION_SIZE_SOL) {
             ErrorLogger.warn(TAG, "🥇 Insufficient balance for ${signal.market.symbol}")
             return
@@ -355,51 +371,61 @@ object MetalsTrader {
         }
         
         val position = MetalPosition(
-            id = "${signal.market.symbol}_${System.currentTimeMillis()}",
+            id = "${if (signal.leverage == 1.0) "SPOT" else "LEV"}_${signal.market.symbol}_${System.currentTimeMillis()}",
             market = signal.market,
             direction = signal.direction,
             entryPrice = signal.price,
             currentPrice = signal.price,
             size = POSITION_SIZE_SOL,
-            leverage = DEFAULT_LEVERAGE,
+            leverage = signal.leverage,
             takeProfit = tp,
             stopLoss = sl,
             reasons = signal.reasons
         )
         
-        positions[position.id] = position
+        positionMap[position.id] = position
         paperBalance -= POSITION_SIZE_SOL
         
-        ErrorLogger.error(TAG, "🥇 OPENED: ${signal.direction.emoji} ${signal.market.symbol} @ \$${signal.price.fmt(2)} | ${DEFAULT_LEVERAGE.toInt()}x | size=${POSITION_SIZE_SOL}◎ | score=${signal.score}")
+        ErrorLogger.error(TAG, "🥇 OPENED: $typeLabel ${signal.direction.emoji} ${signal.market.symbol} @ \$${signal.price.fmt(2)} | size=${POSITION_SIZE_SOL}◎ | score=${signal.score}")
     }
     
     private suspend fun monitorPositions() {
-        positions.values.toList().forEach { position ->
-            try {
-                val data = PerpsMarketDataFetcher.getMarketData(position.market)
-                if (data.price > 0) {
-                    position.currentPrice = data.price
-                    
-                    if (position.shouldTakeProfit()) {
-                        closePosition(position, "TP HIT")
-                    } else if (position.shouldStopLoss()) {
-                        closePosition(position, "SL HIT")
-                    }
-                }
-            } catch (_: Exception) {}
+        // Monitor SPOT positions
+        spotPositions.values.toList().forEach { position ->
+            monitorSinglePosition(position, spotPositions)
+        }
+        // Monitor LEVERAGE positions  
+        leveragePositions.values.toList().forEach { position ->
+            monitorSinglePosition(position, leveragePositions)
         }
     }
     
-    private fun closePosition(position: MetalPosition, reason: String) {
+    private suspend fun monitorSinglePosition(position: MetalPosition, positionMap: ConcurrentHashMap<String, MetalPosition>) {
+        try {
+            val data = PerpsMarketDataFetcher.getMarketData(position.market)
+            if (data.price > 0) {
+                position.currentPrice = data.price
+                
+                if (position.shouldTakeProfit()) {
+                    closePosition(position, positionMap, "TP HIT")
+                } else if (position.shouldStopLoss()) {
+                    closePosition(position, positionMap, "SL HIT")
+                }
+            }
+        } catch (_: Exception) {}
+    }
+    
+    private fun closePosition(position: MetalPosition, positionMap: ConcurrentHashMap<String, MetalPosition>, reason: String) {
         val pnl = position.getPnlSol()
         val pnlPct = position.getPnlPercent()
         val isWin = pnl >= 0
         
         paperBalance += position.size + pnl
-        positions.remove(position.id)
+        positionMap.remove(position.id)
         
+        val typeLabel = if (position.leverage == 1.0) "💰" else "⚡"
         val emoji = if (isWin) "✅" else "❌"
-        ErrorLogger.error(TAG, "🥇 CLOSED: $emoji ${position.market.symbol} | PnL: ${if (pnl >= 0) "+" else ""}${"%.4f".format(pnl)}◎ | $reason")
+        ErrorLogger.error(TAG, "🥇 CLOSED: $typeLabel $emoji ${position.market.symbol} | PnL: ${if (pnl >= 0) "+" else ""}${"%.4f".format(pnl)}◎ | $reason")
         
         // Record to FluidLearningAI for unified learning
         try {
@@ -436,8 +462,9 @@ object MetalsTrader {
     // HELPERS
     // ═══════════════════════════════════════════════════════════════════════════
     
-    private fun hasPosition(market: PerpsMarket): Boolean = positions.values.any { it.market == market }
-    fun getActivePositions(): List<MetalPosition> = positions.values.toList()
+    fun getSpotPositions(): List<MetalPosition> = spotPositions.values.toList()
+    fun getLeveragePositions(): List<MetalPosition> = leveragePositions.values.toList()
+    fun getAllPositions(): List<MetalPosition> = spotPositions.values.toList() + leveragePositions.values.toList()
     fun getBalance(): Double = paperBalance
     fun isRunning(): Boolean = isRunning.get()
     
