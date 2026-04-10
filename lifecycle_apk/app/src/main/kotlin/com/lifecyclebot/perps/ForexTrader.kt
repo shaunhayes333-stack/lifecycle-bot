@@ -477,5 +477,12 @@ object ForexTrader {
     fun getLeveragePositions(): List<ForexPosition> = leveragePositions.values.toList()
     fun getAllPositions(): List<ForexPosition> = spotPositions.values.toList() + leveragePositions.values.toList()
     fun getBalance(): Double = paperBalance
+    
+    // V5.7.6b: Set balance for paper trading
+    fun setBalance(balance: Double) {
+        paperBalance = balance
+        ErrorLogger.info(TAG, "💱 ForexTrader balance set to ${"%.2f".format(balance)} SOL")
+    }
+    
     fun isRunning(): Boolean = isRunning.get()
 }

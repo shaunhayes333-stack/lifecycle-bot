@@ -490,5 +490,12 @@ object CommoditiesTrader {
     fun getLeveragePositions(): List<CommodityPosition> = leveragePositions.values.toList()
     fun getAllPositions(): List<CommodityPosition> = spotPositions.values.toList() + leveragePositions.values.toList()
     fun getBalance(): Double = paperBalance
+    
+    // V5.7.6b: Set balance for paper trading
+    fun setBalance(balance: Double) {
+        paperBalance = balance
+        ErrorLogger.info(TAG, "🛢️ CommoditiesTrader balance set to ${"%.2f".format(balance)} SOL")
+    }
+    
     fun isRunning(): Boolean = isRunning.get()
 }

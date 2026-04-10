@@ -118,6 +118,15 @@ class MultiAssetActivity : AppCompatActivity() {
     private lateinit var tvLayerSR: TextView
     private lateinit var tvLayerMomentum: TextView
     private lateinit var tvLayerSector: TextView
+    
+    // V5.7.6b: Stop/Start Button + Balance
+    private lateinit var btnMarketsToggle: android.widget.Button
+    private lateinit var balanceContainer: View
+    private var marketsRunning = false
+    
+    // V5.7.6b: Balance refresh threshold (15000 USD worth of SOL)
+    private const val MIN_BALANCE_USD = 15000.0
+    private const val SOL_PRICE_USD = 150.0  // Approximate, will be fetched live
     private lateinit var tvLayerCorrel: TextView
     private lateinit var tvMarketsLearningEvents: TextView
     private lateinit var tvMarketsCrossSync: TextView
@@ -202,6 +211,10 @@ class MultiAssetActivity : AppCompatActivity() {
         // Top bar
         findViewById<TextView>(R.id.btnBack).setOnClickListener { finish() }
         tvTotalBalance = findViewById(R.id.tvTotalBalance)
+        
+        // V5.7.6b: Stop/Start Button
+        btnMarketsToggle = findViewById(R.id.btnMarketsToggle)
+        balanceContainer = findViewById(R.id.balanceContainer)
         
         // Quick Stats Bar
         tvStats24hTrades = findViewById(R.id.tvStats24hTrades)
@@ -329,6 +342,174 @@ class MultiAssetActivity : AppCompatActivity() {
             updateModeToggle()
             refreshData()
         }
+        
+        // V5.7.6b: Stop/Start Markets Trading
+        btnMarketsToggle.setOnClickListener {
+            toggleMarketsTrading()
+        }
+        
+        // V5.7.6b: Balance click to refresh
+        balanceContainer.setOnClickListener {
+            showBalanceDialog()
+        }
+    }
+    
+    // V5.7.6b: Toggle all Markets traders on/off
+    private fun toggleMarketsTrading() {
+        marketsRunning = !marketsRunning
+        
+        lifecycleScope.launch(Dispatchers.IO) {
+            if (marketsRunning) {
+                // Check and refresh balance before starting
+                checkAndRefreshBalance()
+                
+                // Start all Markets traders
+                TokenizedStockTrader.start()
+                CommoditiesTrader.start()
+                MetalsTrader.start()
+                ForexTrader.start()
+                PerpsExecutionEngine.start()
+                
+                withContext(Dispatchers.Main) {
+                    android.widget.Toast.makeText(this@MultiAssetActivity, 
+                        "✅ Markets Trading STARTED", android.widget.Toast.LENGTH_SHORT).show()
+                }
+            } else {
+                // Stop all Markets traders
+                TokenizedStockTrader.stop()
+                CommoditiesTrader.stop()
+                MetalsTrader.stop()
+                ForexTrader.stop()
+                PerpsExecutionEngine.stop()
+                
+                withContext(Dispatchers.Main) {
+                    android.widget.Toast.makeText(this@MultiAssetActivity, 
+                        "⏹️ Markets Trading STOPPED", android.widget.Toast.LENGTH_SHORT).show()
+                }
+            }
+            
+            withContext(Dispatchers.Main) {
+                updateToggleButton()
+                refreshData()
+            }
+        }
+    }
+    
+    // V5.7.6b: Update the toggle button state
+    private fun updateToggleButton() {
+        val anyRunning = TokenizedStockTrader.isRunning() || 
+                        CommoditiesTrader.isRunning() || 
+                        MetalsTrader.isRunning() || 
+                        ForexTrader.isRunning() ||
+                        PerpsExecutionEngine.isRunning()
+        
+        marketsRunning = anyRunning
+        
+        btnMarketsToggle.text = if (anyRunning) "STOP" else "START"
+        btnMarketsToggle.setBackgroundResource(
+            if (anyRunning) R.drawable.pill_bg_yellow else R.drawable.pill_bg_green
+        )
+        btnMarketsToggle.setTextColor(
+            if (anyRunning) 0xFF000000.toInt() else 0xFFFFFFFF.toInt()
+        )
+    }
+    
+    // V5.7.6b: Check balance and refresh if below threshold
+    private suspend fun checkAndRefreshBalance() {
+        val totalBalanceSol = getTotalMarketsBalance()
+        val solPrice = try {
+            PerpsMarketDataFetcher.getSolPrice()
+        } catch (_: Exception) { SOL_PRICE_USD }
+        
+        val totalBalanceUsd = totalBalanceSol * solPrice
+        
+        // If balance is 0, negative, or below $15,000 USD - refresh to $15,000 USD
+        if (totalBalanceUsd <= 0 || totalBalanceUsd < MIN_BALANCE_USD) {
+            val requiredSol = MIN_BALANCE_USD / solPrice
+            refreshAllBalances(requiredSol)
+            
+            withContext(Dispatchers.Main) {
+                android.widget.Toast.makeText(this@MultiAssetActivity, 
+                    "💰 Balance refreshed to $${MIN_BALANCE_USD.toInt()} (${"%.2f".format(requiredSol)} SOL)", 
+                    android.widget.Toast.LENGTH_SHORT).show()
+            }
+            
+            ErrorLogger.info(TAG, "💰 Balance auto-refreshed: ${totalBalanceUsd.fmt(2)} USD -> $MIN_BALANCE_USD USD (${"%.2f".format(requiredSol)} SOL)")
+        }
+    }
+    
+    // V5.7.6b: Get total balance across all Markets traders
+    private fun getTotalMarketsBalance(): Double {
+        return try {
+            TokenizedStockTrader.getBalance() +
+            CommoditiesTrader.getBalance() +
+            MetalsTrader.getBalance() +
+            ForexTrader.getBalance() +
+            PerpsTraderAI.getBalance()
+        } catch (_: Exception) { 0.0 }
+    }
+    
+    // V5.7.6b: Refresh all trader balances
+    private fun refreshAllBalances(totalSol: Double) {
+        // Distribute balance across traders (weighted by asset count)
+        val perTraderSol = totalSol / 5.0  // Equal split for now
+        
+        TokenizedStockTrader.setBalance(perTraderSol)
+        CommoditiesTrader.setBalance(perTraderSol)
+        MetalsTrader.setBalance(perTraderSol)
+        ForexTrader.setBalance(perTraderSol)
+        PerpsTraderAI.setBalance(perTraderSol)
+        
+        ErrorLogger.info(TAG, "💰 All Markets balances set to ${"%.2f".format(perTraderSol)} SOL each")
+    }
+    
+    // V5.7.6b: Show balance dialog with refresh option
+    private fun showBalanceDialog() {
+        lifecycleScope.launch {
+            val totalSol = getTotalMarketsBalance()
+            val solPrice = try {
+                withContext(Dispatchers.IO) { PerpsMarketDataFetcher.getSolPrice() }
+            } catch (_: Exception) { SOL_PRICE_USD }
+            val totalUsd = totalSol * solPrice
+            
+            val message = """
+                |💰 Markets Trading Balance
+                |
+                |Total: ${"%.2f".format(totalSol)} SOL (~${"$%.0f".format(totalUsd)})
+                |
+                |📊 By Trader:
+                |• Stocks: ${"%.2f".format(TokenizedStockTrader.getBalance())} SOL
+                |• Commodities: ${"%.2f".format(CommoditiesTrader.getBalance())} SOL
+                |• Metals: ${"%.2f".format(MetalsTrader.getBalance())} SOL
+                |• Forex: ${"%.2f".format(ForexTrader.getBalance())} SOL
+                |• Perps: ${"%.2f".format(PerpsTraderAI.getBalance())} SOL
+                |
+                |${if (totalUsd < MIN_BALANCE_USD) "⚠️ Below minimum ($${MIN_BALANCE_USD.toInt()})" else "✅ Above minimum"}
+            """.trimMargin()
+            
+            android.app.AlertDialog.Builder(this@MultiAssetActivity, android.R.style.Theme_DeviceDefault_Dialog_Alert)
+                .setTitle("Balance Management")
+                .setMessage(message)
+                .setPositiveButton("Refresh to \$15K") { _, _ ->
+                    lifecycleScope.launch(Dispatchers.IO) {
+                        val price = try { PerpsMarketDataFetcher.getSolPrice() } catch (_: Exception) { SOL_PRICE_USD }
+                        val requiredSol = MIN_BALANCE_USD / price
+                        refreshAllBalances(requiredSol)
+                        withContext(Dispatchers.Main) {
+                            android.widget.Toast.makeText(this@MultiAssetActivity, 
+                                "💰 Balance refreshed to \$15,000", android.widget.Toast.LENGTH_SHORT).show()
+                            refreshData()
+                        }
+                    }
+                }
+                .setNeutralButton("Sync with Meme") { _, _ ->
+                    // TODO: Sync Markets balance with Meme trader balance
+                    android.widget.Toast.makeText(this@MultiAssetActivity, 
+                        "Meme sync coming soon", android.widget.Toast.LENGTH_SHORT).show()
+                }
+                .setNegativeButton("Close", null)
+                .show()
+        }
     }
     
     // ═══════════════════════════════════════════════════════════════════════════
@@ -362,6 +543,7 @@ class MultiAssetActivity : AppCompatActivity() {
             updateAiSignals()
             updateSectorHeatmap()
             updateEngineStatus()
+            updateToggleButton()  // V5.7.6b: Keep button state in sync
         }
     }
     

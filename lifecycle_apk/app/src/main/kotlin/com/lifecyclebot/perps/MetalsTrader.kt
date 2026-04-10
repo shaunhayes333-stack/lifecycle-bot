@@ -471,5 +471,12 @@ object MetalsTrader {
     fun getLeveragePositions(): List<MetalPosition> = leveragePositions.values.toList()
     fun getAllPositions(): List<MetalPosition> = spotPositions.values.toList() + leveragePositions.values.toList()
     fun getBalance(): Double = paperBalance
+    
+    // V5.7.6b: Set balance for paper trading
+    fun setBalance(balance: Double) {
+        paperBalance = balance
+        ErrorLogger.info(TAG, "🥇 MetalsTrader balance set to ${"%.2f".format(balance)} SOL")
+    }
+    
     fun isRunning(): Boolean = isRunning.get()
 }

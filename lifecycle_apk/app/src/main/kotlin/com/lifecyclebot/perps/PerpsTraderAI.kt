@@ -1128,6 +1128,15 @@ object PerpsTraderAI {
         return (if (isPaper) paperBalanceBps.get() else liveBalanceBps.get()) / 10000.0
     }
     
+    // V5.7.6b: Simple getBalance for UI (defaults to paper)
+    fun getBalance(): Double = paperBalanceBps.get() / 10000.0
+    
+    // V5.7.6b: Set balance for paper trading
+    fun setBalance(balanceSol: Double) {
+        paperBalanceBps.set((balanceSol * 10000).toLong())
+        ErrorLogger.info(TAG, "🔥 PerpsTraderAI balance set to ${"%.2f".format(balanceSol)} SOL")
+    }
+    
     fun getCurrentStreak(): Int = currentStreak.get()
     fun getMaxWinStreak(): Int = maxWinStreak.get()
     fun getMaxLossStreak(): Int = maxLossStreak.get()

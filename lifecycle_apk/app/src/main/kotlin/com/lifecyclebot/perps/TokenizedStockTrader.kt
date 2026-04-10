@@ -604,6 +604,12 @@ object TokenizedStockTrader {
     
     fun getBalance(): Double = paperBalance
     
+    // V5.7.6b: Set balance for paper trading
+    fun setBalance(balance: Double) {
+        paperBalance = balance
+        ErrorLogger.info(TAG, "📈 TokenizedStockTrader balance set to ${"%.2f".format(balance)} SOL")
+    }
+    
     fun getActivePositions(): List<StockPosition> = positions.values.toList()
     
     fun hasPosition(market: PerpsMarket): Boolean = positions.values.any { it.market == market }

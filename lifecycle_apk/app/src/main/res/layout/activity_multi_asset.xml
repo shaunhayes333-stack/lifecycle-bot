@@ -62,8 +62,24 @@
                     android:textSize="10sp"/>
             </LinearLayout>
 
+            <!-- V5.7.6b: STOP/START BUTTON -->
+            <Button
+                android:id="@+id/btnMarketsToggle"
+                android:layout_width="wrap_content"
+                android:layout_height="36dp"
+                android:text="START"
+                android:textColor="#FFFFFF"
+                android:textSize="11sp"
+                android:textStyle="bold"
+                android:background="@drawable/pill_bg_green"
+                android:paddingStart="16dp"
+                android:paddingEnd="16dp"
+                android:layout_marginEnd="8dp"
+                android:minWidth="80dp"/>
+
             <!-- Combined Balance -->
             <LinearLayout
+                android:id="@+id/balanceContainer"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 android:orientation="vertical"
@@ -72,7 +88,9 @@
                 android:paddingStart="10dp"
                 android:paddingEnd="10dp"
                 android:paddingTop="6dp"
-                android:paddingBottom="6dp">
+                android:paddingBottom="6dp"
+                android:clickable="true"
+                android:focusable="true">
                 <TextView
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
