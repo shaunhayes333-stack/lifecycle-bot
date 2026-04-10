@@ -1,5 +1,7 @@
 package com.lifecyclebot.perps
 
+import com.lifecyclebot.collective.CollectiveSchema.MarketsTradeRecord
+import com.lifecyclebot.collective.CollectiveLearning
 import com.lifecyclebot.engine.ErrorLogger
 import com.lifecyclebot.v3.scoring.FluidLearningAI
 import kotlinx.coroutines.*
@@ -504,6 +506,55 @@ object MetalsTrader {
         try {
             PerpsLearningBridge.recordMetalTrade(position.market, position.direction, isWin, pnlPct)
         } catch (_: Exception) {}
+        
+        // V5.7.6b: Persist trade to Turso
+        persistTradeToTurso(position, reason, pnl, pnlPct, isWin)
+    }
+    
+    /**
+     * V5.7.6b: Persist trade to Turso for AI learning memory
+     */
+    private fun persistTradeToTurso(position: MetalPosition, reason: String, pnlSol: Double, pnlPct: Double, isWin: Boolean) {
+        GlobalScope.launch(Dispatchers.IO) {
+            try {
+                val client = CollectiveLearning.getClient() ?: return@launch
+                val instanceId = CollectiveLearning.getInstanceId()
+                val solPrice = try { PerpsMarketDataFetcher.getSolPrice() } catch (_: Exception) { 150.0 }
+                val holdMins = (System.currentTimeMillis() - position.openTime) / 60_000.0
+                
+                val tradeRecord = MarketsTradeRecord(
+                    tradeHash = "METAL_${position.id}_${System.currentTimeMillis()}",
+                    instanceId = instanceId,
+                    assetClass = "METAL",
+                    market = position.market.symbol,
+                    direction = position.direction.name,
+                    tradeType = if (position.leverage == 1.0) "SPOT" else "LEVERAGE",
+                    entryPrice = position.entryPrice,
+                    exitPrice = position.currentPrice,
+                    sizeSol = position.size,
+                    sizeUsd = position.size * solPrice,
+                    leverage = position.leverage,
+                    pnlSol = pnlSol,
+                    pnlUsd = pnlSol * solPrice,
+                    pnlPct = pnlPct,
+                    openTime = position.openTime,
+                    closeTime = System.currentTimeMillis(),
+                    closeReason = reason,
+                    aiScore = 50,
+                    aiConfidence = 50,
+                    paperMode = isPaperMode.get(),
+                    isWin = isWin,
+                    holdMins = holdMins
+                )
+                
+                client.saveMarketsTradeRecord(tradeRecord)
+                client.updateMarketsAssetPerformance("METAL", position.market.symbol, position.leverage == 1.0, isWin, pnlPct, holdMins)
+                client.updateMarketsDailyStats(instanceId, "METAL", isWin, pnlSol * solPrice)
+                ErrorLogger.debug(TAG, "📊 Trade persisted to Turso: ${position.market.symbol}")
+            } catch (e: Exception) {
+                ErrorLogger.debug(TAG, "📊 Turso persist error: ${e.message}")
+            }
+        }
     }
     
     // ═══════════════════════════════════════════════════════════════════════════

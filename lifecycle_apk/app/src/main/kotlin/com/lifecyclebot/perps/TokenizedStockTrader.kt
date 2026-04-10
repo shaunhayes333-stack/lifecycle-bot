@@ -1,5 +1,8 @@
 package com.lifecyclebot.perps
 
+import com.lifecyclebot.collective.CollectiveSchema.MarketsTradeRecord
+import com.lifecyclebot.collective.CollectiveSchema.MarketsPositionRecord
+import com.lifecyclebot.collective.CollectiveLearning
 import com.lifecyclebot.engine.ErrorLogger
 import com.lifecyclebot.v3.scoring.FluidLearningAI
 import kotlinx.coroutines.*
@@ -550,6 +553,9 @@ object TokenizedStockTrader {
         signal.reasons.take(3).forEach { reason ->
             ErrorLogger.debug(TAG, "   → $reason")
         }
+        
+        // V5.7.6b: Persist position to Turso for recovery
+        persistPositionToTurso(position)
     }
     
     // ═══════════════════════════════════════════════════════════════════════════
@@ -591,6 +597,9 @@ object TokenizedStockTrader {
         // V5.7.6b: Remove from appropriate map
         spotPositions.remove(positionId)
         leveragePositions.remove(positionId)
+        
+        // V5.7.6b: Remove from Turso
+        removePositionFromTurso(positionId)
         
         val pnlPct = position.getUnrealizedPnlPct()
         val pnlSol = position.getUnrealizedPnlSol()
@@ -646,6 +655,138 @@ object TokenizedStockTrader {
         ErrorLogger.info(TAG, "$emoji CLOSED: ${position.market.symbol} | $reason | " +
             "P&L: ${if (pnlPct >= 0) "+" else ""}${pnlPct.fmt(1)}% (${if (pnlSol >= 0) "+" else ""}${pnlSol.fmt(4)}◎) | " +
             "hold=${holdMins}m | WR=${getWinRate().toInt()}%")
+        
+        // V5.7.6b: Persist to Turso for learning memory
+        persistTradeToTurso(position, reason, pnlSol, pnlPct, isWin, holdMins)
+    }
+    
+    /**
+     * V5.7.6b: Persist trade to Turso database for AI learning memory
+     */
+    private fun persistTradeToTurso(
+        position: StockPosition,
+        closeReason: String,
+        pnlSol: Double,
+        pnlPct: Double,
+        isWin: Boolean,
+        holdMins: Long
+    ) {
+        GlobalScope.launch(Dispatchers.IO) {
+            try {
+                val client = CollectiveLearning.getClient() ?: return@launch
+                val instanceId = CollectiveLearning.getInstanceId()
+                
+                // Get SOL price for USD conversion
+                val solPrice = try {
+                    PerpsMarketDataFetcher.getSolPrice()
+                } catch (_: Exception) { 150.0 }
+                
+                val tradeRecord = MarketsTradeRecord(
+                    tradeHash = "STOCK_${position.id}_${System.currentTimeMillis()}",
+                    instanceId = instanceId,
+                    assetClass = "STOCK",
+                    market = position.market.symbol,
+                    direction = position.direction.name,
+                    tradeType = if (position.isSpot) "SPOT" else "LEVERAGE",
+                    entryPrice = position.entryPrice,
+                    exitPrice = position.currentPrice,
+                    sizeSol = position.sizeSol,
+                    sizeUsd = position.sizeSol * solPrice,
+                    leverage = position.leverage,
+                    pnlSol = pnlSol,
+                    pnlUsd = pnlSol * solPrice,
+                    pnlPct = pnlPct,
+                    openTime = position.entryTime,
+                    closeTime = System.currentTimeMillis(),
+                    closeReason = closeReason,
+                    aiScore = position.aiScore,
+                    aiConfidence = position.aiConfidence,
+                    paperMode = isPaperMode.get(),
+                    isWin = isWin,
+                    holdMins = holdMins.toDouble()
+                )
+                
+                val saved = client.saveMarketsTradeRecord(tradeRecord)
+                if (saved) {
+                    ErrorLogger.debug(TAG, "📊 Trade persisted to Turso: ${position.market.symbol}")
+                    
+                    // Also update asset performance
+                    client.updateMarketsAssetPerformance(
+                        assetClass = "STOCK",
+                        market = position.market.symbol,
+                        isSpot = position.isSpot,
+                        isWin = isWin,
+                        pnlPct = pnlPct,
+                        holdMins = holdMins.toDouble()
+                    )
+                    
+                    // Update daily stats
+                    client.updateMarketsDailyStats(
+                        instanceId = instanceId,
+                        assetClass = "STOCK",
+                        isWin = isWin,
+                        pnlUsd = pnlSol * solPrice
+                    )
+                }
+            } catch (e: Exception) {
+                ErrorLogger.debug(TAG, "📊 Turso persist error: ${e.message}")
+            }
+        }
+    }
+    
+    /**
+     * V5.7.6b: Save current position to Turso (for recovery after restart)
+     */
+    private fun persistPositionToTurso(position: StockPosition) {
+        GlobalScope.launch(Dispatchers.IO) {
+            try {
+                val client = CollectiveLearning.getClient() ?: return@launch
+                val instanceId = CollectiveLearning.getInstanceId()
+                
+                val solPrice = try {
+                    PerpsMarketDataFetcher.getSolPrice()
+                } catch (_: Exception) { 150.0 }
+                
+                val posRecord = MarketsPositionRecord(
+                    id = position.id,
+                    instanceId = instanceId,
+                    assetClass = "STOCK",
+                    market = position.market.symbol,
+                    direction = position.direction.name,
+                    tradeType = if (position.isSpot) "SPOT" else "LEVERAGE",
+                    entryPrice = position.entryPrice,
+                    currentPrice = position.currentPrice,
+                    sizeSol = position.sizeSol,
+                    sizeUsd = position.sizeSol * solPrice,
+                    leverage = position.leverage,
+                    takeProfitPrice = position.takeProfit,
+                    stopLossPrice = position.stopLoss,
+                    entryTime = position.entryTime,
+                    aiScore = position.aiScore,
+                    aiConfidence = position.aiConfidence,
+                    paperMode = isPaperMode.get(),
+                    status = "OPEN",
+                    lastUpdate = System.currentTimeMillis()
+                )
+                
+                client.saveMarketsPosition(posRecord)
+                ErrorLogger.debug(TAG, "📊 Position saved to Turso: ${position.market.symbol}")
+            } catch (e: Exception) {
+                ErrorLogger.debug(TAG, "📊 Position save error: ${e.message}")
+            }
+        }
+    }
+    
+    /**
+     * V5.7.6b: Remove closed position from Turso
+     */
+    private fun removePositionFromTurso(positionId: String) {
+        GlobalScope.launch(Dispatchers.IO) {
+            try {
+                val client = CollectiveLearning.getClient() ?: return@launch
+                client.deleteMarketsPosition(positionId)
+            } catch (_: Exception) {}
+        }
     }
     
     // ═══════════════════════════════════════════════════════════════════════════

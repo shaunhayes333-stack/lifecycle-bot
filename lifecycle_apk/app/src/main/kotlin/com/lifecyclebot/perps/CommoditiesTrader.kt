@@ -1,5 +1,8 @@
 package com.lifecyclebot.perps
 
+import com.lifecyclebot.collective.CollectiveSchema.MarketsTradeRecord
+import com.lifecyclebot.collective.CollectiveSchema.MarketsPositionRecord
+import com.lifecyclebot.collective.CollectiveLearning
 import com.lifecyclebot.engine.ErrorLogger
 import com.lifecyclebot.v3.scoring.FluidLearningAI
 import kotlinx.coroutines.*
@@ -522,6 +525,55 @@ object CommoditiesTrader {
         try {
             PerpsLearningBridge.recordCommodityTrade(position.market, position.direction, isWin, pnlPct)
         } catch (_: Exception) {}
+        
+        // V5.7.6b: Persist trade to Turso
+        persistTradeToTurso(position, reason, pnl, pnlPct, isWin)
+    }
+    
+    /**
+     * V5.7.6b: Persist trade to Turso for AI learning memory
+     */
+    private fun persistTradeToTurso(position: CommodityPosition, reason: String, pnlSol: Double, pnlPct: Double, isWin: Boolean) {
+        GlobalScope.launch(Dispatchers.IO) {
+            try {
+                val client = CollectiveLearning.getClient() ?: return@launch
+                val instanceId = CollectiveLearning.getInstanceId()
+                val solPrice = try { PerpsMarketDataFetcher.getSolPrice() } catch (_: Exception) { 150.0 }
+                val holdMins = (System.currentTimeMillis() - position.openTime) / 60_000.0
+                
+                val tradeRecord = MarketsTradeRecord(
+                    tradeHash = "COMMODITY_${position.id}_${System.currentTimeMillis()}",
+                    instanceId = instanceId,
+                    assetClass = "COMMODITY",
+                    market = position.market.symbol,
+                    direction = position.direction.name,
+                    tradeType = position.tradeType.name,
+                    entryPrice = position.entryPrice,
+                    exitPrice = position.currentPrice,
+                    sizeSol = position.size,
+                    sizeUsd = position.size * solPrice,
+                    leverage = position.tradeType.leverage,
+                    pnlSol = pnlSol,
+                    pnlUsd = pnlSol * solPrice,
+                    pnlPct = pnlPct,
+                    openTime = position.openTime,
+                    closeTime = System.currentTimeMillis(),
+                    closeReason = reason,
+                    aiScore = 50,
+                    aiConfidence = 50,
+                    paperMode = isPaperMode.get(),
+                    isWin = isWin,
+                    holdMins = holdMins
+                )
+                
+                client.saveMarketsTradeRecord(tradeRecord)
+                client.updateMarketsAssetPerformance("COMMODITY", position.market.symbol, position.isSpot, isWin, pnlPct, holdMins)
+                client.updateMarketsDailyStats(instanceId, "COMMODITY", isWin, pnlSol * solPrice)
+                ErrorLogger.debug(TAG, "📊 Trade persisted to Turso: ${position.market.symbol}")
+            } catch (e: Exception) {
+                ErrorLogger.debug(TAG, "📊 Turso persist error: ${e.message}")
+            }
+        }
     }
     
     // ═══════════════════════════════════════════════════════════════════════════
