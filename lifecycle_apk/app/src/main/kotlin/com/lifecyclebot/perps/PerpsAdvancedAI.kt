@@ -719,9 +719,10 @@ object PerpsAdvancedAI {
         val holdMinutes = (System.currentTimeMillis() - entryTime) / 60_000
         
         // Different thresholds for different asset types
+        val isCrypto = market.symbol in listOf("SOL", "BTC", "ETH", "PEPE", "WIF", "BONK", "DOGE", "SHIB", "AVAX", "LINK", "UNI", "AAVE", "ARB", "OP", "SUI", "APT", "INJ", "TIA", "JUP", "PYTH", "JTO", "RNDR", "FET", "TAO", "WLD", "ONDO")
         val maxHoldMinutes = when {
             market.isStock -> 480  // 8 hours for stocks
-            market.isCrypto -> 240  // 4 hours for crypto
+            isCrypto -> 240  // 4 hours for crypto
             else -> 360  // 6 hours for commodities/forex
         }
         
