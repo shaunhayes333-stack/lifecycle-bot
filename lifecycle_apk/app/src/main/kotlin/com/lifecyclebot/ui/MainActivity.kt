@@ -6490,31 +6490,162 @@ Trading outside hours may have wider spreads.
         if (positions.isEmpty()) return
         
         for (position in positions) {
-            val positionView = layoutInflater.inflate(android.R.layout.simple_list_item_2, llStocksPositions, false)
+            // Create a rich position card
+            val cardLayout = LinearLayout(this).apply {
+                orientation = LinearLayout.VERTICAL
+                setBackgroundResource(R.drawable.section_card_bg)
+                setPadding(24, 16, 24, 16)
+                layoutParams = LinearLayout.LayoutParams(
+                    LinearLayout.LayoutParams.MATCH_PARENT,
+                    LinearLayout.LayoutParams.WRAP_CONTENT
+                ).apply {
+                    setMargins(0, 0, 0, 12)
+                }
+            }
             
-            positionView.findViewById<TextView>(android.R.id.text1)?.apply {
-                text = "${position.market.emoji} ${position.market.symbol} ${position.direction.symbol} ${position.leverage}x"
+            // Header row: Symbol + Direction + Leverage
+            val headerRow = LinearLayout(this).apply {
+                orientation = LinearLayout.HORIZONTAL
+                gravity = android.view.Gravity.CENTER_VERTICAL
+            }
+            
+            val headerText = TextView(this).apply {
+                text = "${position.market.emoji} ${position.market.symbol} ${position.direction.symbol} ${position.leverage.toInt()}x"
+                setTextColor(0xFFFFFFFF.toInt())
+                textSize = 14f
+                setTypeface(null, android.graphics.Typeface.BOLD)
+                layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
+            }
+            headerRow.addView(headerText)
+            
+            // P&L badge
+            val pnlPct = position.getUnrealizedPnlPct()
+            val pnlBadge = TextView(this).apply {
+                text = "${if (pnlPct >= 0) "+" else ""}${String.format("%.2f", pnlPct)}%"
+                setTextColor(if (pnlPct >= 0) 0xFF22C55E.toInt() else 0xFFEF4444.toInt())
+                textSize = 14f
+                setTypeface(null, android.graphics.Typeface.BOLD)
+            }
+            headerRow.addView(pnlBadge)
+            cardLayout.addView(headerRow)
+            
+            // Spacer
+            cardLayout.addView(android.view.View(this).apply {
+                layoutParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, 8)
+            })
+            
+            // Data grid
+            val dataGrid = LinearLayout(this).apply {
+                orientation = LinearLayout.HORIZONTAL
+            }
+            
+            // Entry price
+            val entryCol = LinearLayout(this).apply {
+                orientation = LinearLayout.VERTICAL
+                layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
+            }
+            entryCol.addView(TextView(this).apply {
+                text = "Entry"
+                setTextColor(0xFF9CA3AF.toInt())
+                textSize = 10f
+            })
+            entryCol.addView(TextView(this).apply {
+                text = "$${String.format("%.2f", position.entryPrice)}"
                 setTextColor(0xFFFFFFFF.toInt())
                 textSize = 12f
-            }
+            })
+            dataGrid.addView(entryCol)
             
-            positionView.findViewById<TextView>(android.R.id.text2)?.apply {
-                val pnl = position.getUnrealizedPnlPct()
-                text = "P&L: ${position.getDisplayPnl()} | Entry: $${String.format("%.2f", position.entryPrice)}"
-                setTextColor(if (pnl >= 0) 0xFF22C55E.toInt() else 0xFFEF4444.toInt())
+            // Current price
+            val currentCol = LinearLayout(this).apply {
+                orientation = LinearLayout.VERTICAL
+                layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
+            }
+            currentCol.addView(TextView(this).apply {
+                text = "Current"
+                setTextColor(0xFF9CA3AF.toInt())
                 textSize = 10f
-            }
+            })
+            currentCol.addView(TextView(this).apply {
+                text = "$${String.format("%.2f", position.currentPrice)}"
+                setTextColor(0xFFFFFFFF.toInt())
+                textSize = 12f
+            })
+            dataGrid.addView(currentCol)
             
-            positionView.setBackgroundResource(R.drawable.section_card_bg)
-            positionView.setPadding(16, 8, 16, 8)
+            // Size
+            val sizeCol = LinearLayout(this).apply {
+                orientation = LinearLayout.VERTICAL
+                layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
+            }
+            sizeCol.addView(TextView(this).apply {
+                text = "Size"
+                setTextColor(0xFF9CA3AF.toInt())
+                textSize = 10f
+            })
+            sizeCol.addView(TextView(this).apply {
+                text = "${String.format("%.2f", position.sizeSol)} SOL"
+                setTextColor(0xFFFFFFFF.toInt())
+                textSize = 12f
+            })
+            dataGrid.addView(sizeCol)
+            
+            // P&L USD
+            val pnlCol = LinearLayout(this).apply {
+                orientation = LinearLayout.VERTICAL
+                layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
+            }
+            pnlCol.addView(TextView(this).apply {
+                text = "P&L"
+                setTextColor(0xFF9CA3AF.toInt())
+                textSize = 10f
+            })
+            val pnlUsd = position.getUnrealizedPnlUsd()
+            pnlCol.addView(TextView(this).apply {
+                text = "${if (pnlUsd >= 0) "+" else ""}$${String.format("%.2f", pnlUsd)}"
+                setTextColor(if (pnlUsd >= 0) 0xFF22C55E.toInt() else 0xFFEF4444.toInt())
+                textSize = 12f
+            })
+            dataGrid.addView(pnlCol)
+            
+            cardLayout.addView(dataGrid)
+            
+            // Spacer
+            cardLayout.addView(android.view.View(this).apply {
+                layoutParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, 8)
+            })
+            
+            // TP/SL row
+            val tpSlRow = LinearLayout(this).apply {
+                orientation = LinearLayout.HORIZONTAL
+            }
+            tpSlRow.addView(TextView(this).apply {
+                text = "TP: ${if (position.takeProfitPrice != null) "$${String.format("%.2f", position.takeProfitPrice)}" else "---"}"
+                setTextColor(0xFF22C55E.toInt())
+                textSize = 10f
+                layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
+            })
+            tpSlRow.addView(TextView(this).apply {
+                text = "SL: ${if (position.stopLossPrice != null) "$${String.format("%.2f", position.stopLossPrice)}" else "---"}"
+                setTextColor(0xFFEF4444.toInt())
+                textSize = 10f
+                layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
+            })
+            val holdTime = (System.currentTimeMillis() - position.entryTime) / 60000
+            tpSlRow.addView(TextView(this).apply {
+                text = "⏱️ ${holdTime}m"
+                setTextColor(0xFF9CA3AF.toInt())
+                textSize = 10f
+            })
+            cardLayout.addView(tpSlRow)
             
             // Click to show visualizer
-            positionView.setOnClickListener {
+            cardLayout.setOnClickListener {
                 showPerpsTradeVisualizerDialog(position)
                 performHaptic()
             }
             
-            llStocksPositions?.addView(positionView)
+            llStocksPositions?.addView(cardLayout)
         }
     }
     
