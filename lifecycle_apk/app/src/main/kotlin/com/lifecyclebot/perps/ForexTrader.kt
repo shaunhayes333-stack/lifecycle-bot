@@ -26,16 +26,16 @@ object ForexTrader {
     
     private const val MAX_POSITIONS = 25
     private const val SCAN_INTERVAL_MS = 15_000L  // 15 seconds (forex is fast)
-    private const val DEFAULT_LEVERAGE = 10.0    // Higher leverage for forex
     private const val POSITION_SIZE_SOL = 2.0
     private const val TP_PERCENT = 3.0           // Tighter TP for forex
     private const val SL_PERCENT = 2.0           // Tighter SL for forex
     
     // ═══════════════════════════════════════════════════════════════════════════
-    // STATE
+    // STATE - V5.7.6: SPOT + LEVERAGE positions
     // ═══════════════════════════════════════════════════════════════════════════
     
-    private val positions = ConcurrentHashMap<String, ForexPosition>()
+    private val spotPositions = ConcurrentHashMap<String, ForexPosition>()      // 1x SPOT
+    private val leveragePositions = ConcurrentHashMap<String, ForexPosition>()  // 10x LEVERAGE
     private val isRunning = AtomicBoolean(false)
     private val isEnabled = AtomicBoolean(true)
     private val isPaperMode = AtomicBoolean(true)
@@ -84,7 +84,8 @@ object ForexTrader {
         val confidence: Int,
         val price: Double,
         val priceChange24h: Double,
-        val reasons: List<String>
+        val reasons: List<String>,
+        val leverage: Double = 1.0  // V5.7.6: 1.0 = SPOT, 10.0 = LEVERAGE
     )
     
     // ═══════════════════════════════════════════════════════════════════════════
@@ -138,26 +139,26 @@ object ForexTrader {
     }
     
     // ═══════════════════════════════════════════════════════════════════════════
-    // SCAN CYCLE
+    // SCAN CYCLE - V5.7.6: SPOT + LEVERAGE
     // ═══════════════════════════════════════════════════════════════════════════
     
     private suspend fun runScanCycle() {
         scanCount.incrementAndGet()
         val scanNum = scanCount.get()
         
+        val totalPositions = spotPositions.size + leveragePositions.size
         ErrorLogger.error(TAG, "💱 ═══════════════════════════════════════════════")
-        ErrorLogger.error(TAG, "💱 FOREX SCAN #$scanNum | positions=${positions.size}/$MAX_POSITIONS | balance=${"%.2f".format(paperBalance)} SOL")
+        ErrorLogger.error(TAG, "💱 FOREX SCAN #$scanNum | spot=${spotPositions.size} | lev=${leveragePositions.size} | total=$totalPositions/$MAX_POSITIONS | balance=${"%.2f".format(paperBalance)} SOL")
         
         // Get all forex markets
         val forexMarkets = PerpsMarket.values().filter { it.isForex }
         ErrorLogger.error(TAG, "💱 Found ${forexMarkets.size} forex pairs: ${forexMarkets.map { it.symbol }}")
         
-        val signals = mutableListOf<ForexSignal>()
+        val spotSignals = mutableListOf<ForexSignal>()
+        val leverageSignals = mutableListOf<ForexSignal>()
         
         for (market in forexMarkets) {
             try {
-                if (hasPosition(market)) continue
-                
                 val data = PerpsMarketDataFetcher.getMarketData(market)
                 if (data.price <= 0) {
                     ErrorLogger.warn(TAG, "💱 ${market.symbol}: SKIPPED - price=0")
@@ -166,22 +167,42 @@ object ForexTrader {
                 
                 val signal = analyzeMarket(market, data)
                 if (signal != null && signal.score >= 30 && signal.confidence >= 25) {
-                    signals.add(signal)
-                    ErrorLogger.info(TAG, "💱 SIGNAL: ${market.symbol} @ ${data.price} | score=${signal.score} | ${signal.direction.symbol}")
+                    // SPOT signal if no spot position
+                    if (!spotPositions.values.any { it.market == market }) {
+                        spotSignals.add(signal.copy(leverage = 1.0))
+                    }
+                    // LEVERAGE signal (higher threshold) if no leverage position
+                    if (signal.score >= 40 && !leveragePositions.values.any { it.market == market }) {
+                        leverageSignals.add(signal.copy(leverage = 10.0))
+                    }
                 }
             } catch (e: Exception) {
                 ErrorLogger.error(TAG, "💱 ${market.symbol} EXCEPTION: ${e.message}")
             }
         }
         
-        // Execute top signals
-        val topSignals = signals.sortedByDescending { it.score }.take(4)
-        if (topSignals.isNotEmpty()) {
-            ErrorLogger.error(TAG, "💱 TOP ${topSignals.size} forex signals: ${topSignals.map { "${it.market.symbol}(${it.score})" }}")
-        } else {
-            ErrorLogger.error(TAG, "💱 NO SIGNALS - all markets below threshold or no price data")
+        // Execute top SPOT signals
+        val topSpotSignals = spotSignals.sortedByDescending { it.score }.take(5)
+        if (topSpotSignals.isNotEmpty()) {
+            ErrorLogger.error(TAG, "💱 TOP SPOT: ${topSpotSignals.map { "${it.market.symbol}(${it.score})" }}")
+        }
+        
+        // Execute top LEVERAGE signals
+        val topLeverageSignals = leverageSignals.sortedByDescending { it.score }.take(3)
+        if (topLeverageSignals.isNotEmpty()) {
+            ErrorLogger.error(TAG, "💱 TOP LEVERAGE: ${topLeverageSignals.map { "${it.market.symbol}(${it.score})" }}")
         }
         ErrorLogger.error(TAG, "💱 ═══════════════════════════════════════════════")
+        
+        for (signal in topSpotSignals) {
+            if (spotPositions.size + leveragePositions.size >= MAX_POSITIONS) break
+            executeSignal(signal, spotPositions, "💰 SPOT")
+        }
+        for (signal in topLeverageSignals) {
+            if (spotPositions.size + leveragePositions.size >= MAX_POSITIONS) break
+            executeSignal(signal, leveragePositions, "⚡ 10x")
+        }
+    }
         
         for (signal in topSignals) {
             if (positions.size >= MAX_POSITIONS) break
@@ -342,10 +363,10 @@ object ForexTrader {
     }
     
     // ═══════════════════════════════════════════════════════════════════════════
-    // EXECUTION
+    // EXECUTION - V5.7.6: SPOT + LEVERAGE
     // ═══════════════════════════════════════════════════════════════════════════
     
-    private suspend fun executeSignal(signal: ForexSignal) {
+    private suspend fun executeSignal(signal: ForexSignal, positionMap: ConcurrentHashMap<String, ForexPosition>, typeLabel: String) {
         if (paperBalance < POSITION_SIZE_SOL) {
             ErrorLogger.warn(TAG, "💱 Insufficient balance for ${signal.market.symbol}")
             return
@@ -364,51 +385,59 @@ object ForexTrader {
         }
         
         val position = ForexPosition(
-            id = "${signal.market.symbol}_${System.currentTimeMillis()}",
+            id = "${if (signal.leverage == 1.0) "SPOT" else "LEV"}_${signal.market.symbol}_${System.currentTimeMillis()}",
             market = signal.market,
             direction = signal.direction,
             entryPrice = signal.price,
             currentPrice = signal.price,
             size = POSITION_SIZE_SOL,
-            leverage = DEFAULT_LEVERAGE,
+            leverage = signal.leverage,
             takeProfit = tp,
             stopLoss = sl,
             reasons = signal.reasons
         )
         
-        positions[position.id] = position
+        positionMap[position.id] = position
         paperBalance -= POSITION_SIZE_SOL
         
-        ErrorLogger.error(TAG, "💱 OPENED: ${signal.direction.emoji} ${signal.market.symbol} @ ${signal.price.fmt(5)} | ${DEFAULT_LEVERAGE.toInt()}x | size=${POSITION_SIZE_SOL}◎ | score=${signal.score}")
+        ErrorLogger.error(TAG, "💱 OPENED: $typeLabel ${signal.direction.emoji} ${signal.market.symbol} @ ${signal.price.fmt(5)} | size=${POSITION_SIZE_SOL}◎ | score=${signal.score}")
     }
     
     private suspend fun monitorPositions() {
-        positions.values.toList().forEach { position ->
-            try {
-                val data = PerpsMarketDataFetcher.getMarketData(position.market)
-                if (data.price > 0) {
-                    position.currentPrice = data.price
-                    
-                    if (position.shouldTakeProfit()) {
-                        closePosition(position, "TP HIT")
-                    } else if (position.shouldStopLoss()) {
-                        closePosition(position, "SL HIT")
-                    }
-                }
-            } catch (_: Exception) {}
+        spotPositions.values.toList().forEach { position ->
+            monitorSinglePosition(position, spotPositions)
+        }
+        leveragePositions.values.toList().forEach { position ->
+            monitorSinglePosition(position, leveragePositions)
         }
     }
     
-    private fun closePosition(position: ForexPosition, reason: String) {
+    private suspend fun monitorSinglePosition(position: ForexPosition, positionMap: ConcurrentHashMap<String, ForexPosition>) {
+        try {
+            val data = PerpsMarketDataFetcher.getMarketData(position.market)
+            if (data.price > 0) {
+                position.currentPrice = data.price
+                
+                if (position.shouldTakeProfit()) {
+                    closePosition(position, positionMap, "TP HIT")
+                } else if (position.shouldStopLoss()) {
+                    closePosition(position, positionMap, "SL HIT")
+                }
+            }
+        } catch (_: Exception) {}
+    }
+    
+    private fun closePosition(position: ForexPosition, positionMap: ConcurrentHashMap<String, ForexPosition>, reason: String) {
         val pnl = position.getPnlSol()
         val pnlPct = position.getPnlPercent()
         val isWin = pnl >= 0
         
         paperBalance += position.size + pnl
-        positions.remove(position.id)
+        positionMap.remove(position.id)
         
+        val typeLabel = if (position.leverage == 1.0) "💰" else "⚡"
         val emoji = if (isWin) "✅" else "❌"
-        ErrorLogger.error(TAG, "💱 CLOSED: $emoji ${position.market.symbol} | PnL: ${if (pnl >= 0) "+" else ""}${"%.4f".format(pnl)}◎ | $reason")
+        ErrorLogger.error(TAG, "💱 CLOSED: $typeLabel $emoji ${position.market.symbol} | PnL: ${if (pnl >= 0) "+" else ""}${"%.4f".format(pnl)}◎ | $reason")
         
         // Record to FluidLearningAI for unified learning
         try {
@@ -445,8 +474,9 @@ object ForexTrader {
     // HELPERS
     // ═══════════════════════════════════════════════════════════════════════════
     
-    private fun hasPosition(market: PerpsMarket): Boolean = positions.values.any { it.market == market }
-    fun getActivePositions(): List<ForexPosition> = positions.values.toList()
+    fun getSpotPositions(): List<ForexPosition> = spotPositions.values.toList()
+    fun getLeveragePositions(): List<ForexPosition> = leveragePositions.values.toList()
+    fun getAllPositions(): List<ForexPosition> = spotPositions.values.toList() + leveragePositions.values.toList()
     fun getBalance(): Double = paperBalance
     fun isRunning(): Boolean = isRunning.get()
     
