@@ -117,7 +117,7 @@
             android:orientation="horizontal"
             android:paddingStart="12dp"
             android:paddingEnd="12dp"
-            android:layout_marginBottom="8dp">
+            android:layout_marginBottom="4dp">
 
             <!-- 24h Trades -->
             <LinearLayout
@@ -127,22 +127,22 @@
                 android:orientation="vertical"
                 android:gravity="center"
                 android:background="@drawable/section_card_bg"
-                android:padding="8dp"
-                android:layout_marginEnd="4dp">
+                android:padding="5dp"
+                android:layout_marginEnd="3dp">
                 <TextView
                     android:id="@+id/tvStats24hTrades"
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
                     android:text="0"
                     android:textColor="#FFFFFF"
-                    android:textSize="16sp"
+                    android:textSize="12sp"
                     android:textStyle="bold"/>
                 <TextView
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
-                    android:text="24h Trades"
+                    android:text="24h"
                     android:textColor="#6B7280"
-                    android:textSize="9sp"/>
+                    android:textSize="7sp"/>
             </LinearLayout>
 
             <!-- Win Rate -->
@@ -153,22 +153,22 @@
                 android:orientation="vertical"
                 android:gravity="center"
                 android:background="@drawable/section_card_bg"
-                android:padding="8dp"
-                android:layout_marginEnd="4dp">
+                android:padding="5dp"
+                android:layout_marginEnd="3dp">
                 <TextView
                     android:id="@+id/tvStatsWinRate"
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
                     android:text="—%"
                     android:textColor="#10B981"
-                    android:textSize="16sp"
+                    android:textSize="12sp"
                     android:textStyle="bold"/>
                 <TextView
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
-                    android:text="Win Rate"
+                    android:text="WR"
                     android:textColor="#6B7280"
-                    android:textSize="9sp"/>
+                    android:textSize="7sp"/>
             </LinearLayout>
 
             <!-- Total P&L -->
@@ -179,22 +179,22 @@
                 android:orientation="vertical"
                 android:gravity="center"
                 android:background="@drawable/section_card_bg"
-                android:padding="8dp"
-                android:layout_marginEnd="4dp">
+                android:padding="5dp"
+                android:layout_marginEnd="3dp">
                 <TextView
                     android:id="@+id/tvStatsTotalPnl"
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
                     android:text="+0.00"
                     android:textColor="#00FF88"
-                    android:textSize="16sp"
+                    android:textSize="12sp"
                     android:textStyle="bold"/>
                 <TextView
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
-                    android:text="Total P&amp;L"
+                    android:text="P&amp;L"
                     android:textColor="#6B7280"
-                    android:textSize="9sp"/>
+                    android:textSize="7sp"/>
             </LinearLayout>
 
             <!-- AI Score -->
@@ -205,515 +205,234 @@
                 android:orientation="vertical"
                 android:gravity="center"
                 android:background="@drawable/section_card_bg"
-                android:padding="8dp">
+                android:padding="5dp">
                 <TextView
                     android:id="@+id/tvStatsAiScore"
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
                     android:text="—"
                     android:textColor="#F59E0B"
-                    android:textSize="16sp"
+                    android:textSize="12sp"
                     android:textStyle="bold"/>
                 <TextView
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
-                    android:text="AI Score"
+                    android:text="AI"
                     android:textColor="#6B7280"
-                    android:textSize="9sp"/>
+                    android:textSize="7sp"/>
             </LinearLayout>
         </LinearLayout>
 
         <!-- ═══════════════════════════════════════════════════════════════
-             MARKETS LIVE READINESS GAUGE
-             Shows when Markets trading is ready to go LIVE
+             MARKETS LIVE READINESS GAUGE - COMPACT VERSION
              ═══════════════════════════════════════════════════════════════ -->
         <LinearLayout
             android:id="@+id/cardMarketsReadiness"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:orientation="vertical"
+            android:orientation="horizontal"
             android:background="@drawable/section_card_bg"
-            android:paddingStart="12dp"
-            android:paddingEnd="12dp"
-            android:paddingTop="10dp"
-            android:paddingBottom="10dp"
+            android:paddingStart="10dp"
+            android:paddingEnd="10dp"
+            android:paddingTop="6dp"
+            android:paddingBottom="6dp"
             android:layout_marginStart="12dp"
             android:layout_marginEnd="12dp"
-            android:layout_marginBottom="8dp">
+            android:layout_marginBottom="4dp"
+            android:gravity="center_vertical">
 
-            <!-- Header -->
-            <LinearLayout
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:orientation="horizontal"
-                android:gravity="center_vertical">
-                
-                <TextView
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:text="🚀 Markets Live Readiness"
-                    android:textColor="#FFD700"
-                    android:textSize="12sp"
-                    android:textStyle="bold"/>
-                
-                <View
-                    android:layout_width="0dp"
-                    android:layout_height="1dp"
-                    android:layout_weight="1"/>
-                
-                <!-- Status Badge -->
-                <TextView
-                    android:id="@+id/tvMarketsReadinessBadge"
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:text="LEARNING"
-                    android:textColor="#000000"
-                    android:textSize="9sp"
-                    android:textStyle="bold"
-                    android:fontFamily="monospace"
-                    android:background="@drawable/pill_bg_yellow"
-                    android:paddingStart="6dp"
-                    android:paddingEnd="6dp"
-                    android:paddingTop="2dp"
-                    android:paddingBottom="2dp"/>
-            </LinearLayout>
-
-            <!-- Stats Row -->
-            <LinearLayout
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:orientation="horizontal"
-                android:layout_marginTop="8dp"
-                android:gravity="center_vertical">
-                
-                <!-- Paper Win Rate -->
-                <LinearLayout
-                    android:layout_width="0dp"
-                    android:layout_height="wrap_content"
-                    android:layout_weight="1"
-                    android:orientation="vertical"
-                    android:gravity="center">
-                    <TextView
-                        android:id="@+id/tvMarketsWinRate"
-                        android:layout_width="wrap_content"
-                        android:layout_height="wrap_content"
-                        android:text="--"
-                        android:textColor="#FFFFFF"
-                        android:textSize="18sp"
-                        android:textStyle="bold"/>
-                    <TextView
-                        android:layout_width="wrap_content"
-                        android:layout_height="wrap_content"
-                        android:text="Win Rate"
-                        android:textColor="#9CA3AF"
-                        android:textSize="9sp"/>
-                </LinearLayout>
-                
-                <View
-                    android:layout_width="1dp"
-                    android:layout_height="28dp"
-                    android:background="#333333"/>
-                
-                <!-- Paper Trades -->
-                <LinearLayout
-                    android:layout_width="0dp"
-                    android:layout_height="wrap_content"
-                    android:layout_weight="1"
-                    android:orientation="vertical"
-                    android:gravity="center">
-                    <TextView
-                        android:id="@+id/tvMarketsTrades"
-                        android:layout_width="wrap_content"
-                        android:layout_height="wrap_content"
-                        android:text="0/50"
-                        android:textColor="#FFFFFF"
-                        android:textSize="18sp"
-                        android:textStyle="bold"/>
-                    <TextView
-                        android:layout_width="wrap_content"
-                        android:layout_height="wrap_content"
-                        android:text="Trades"
-                        android:textColor="#9CA3AF"
-                        android:textSize="9sp"/>
-                </LinearLayout>
-                
-                <View
-                    android:layout_width="1dp"
-                    android:layout_height="28dp"
-                    android:background="#333333"/>
-                
-                <!-- Phase -->
-                <LinearLayout
-                    android:layout_width="0dp"
-                    android:layout_height="wrap_content"
-                    android:layout_weight="1"
-                    android:orientation="vertical"
-                    android:gravity="center">
-                    <TextView
-                        android:id="@+id/tvMarketsPhase"
-                        android:layout_width="wrap_content"
-                        android:layout_height="wrap_content"
-                        android:text="BOOT"
-                        android:textColor="#F59E0B"
-                        android:textSize="14sp"
-                        android:textStyle="bold"
-                        android:fontFamily="monospace"/>
-                    <TextView
-                        android:layout_width="wrap_content"
-                        android:layout_height="wrap_content"
-                        android:text="Phase"
-                        android:textColor="#9CA3AF"
-                        android:textSize="9sp"/>
-                </LinearLayout>
-            </LinearLayout>
-
-            <!-- Progress Bar -->
-            <LinearLayout
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:orientation="vertical"
-                android:layout_marginTop="8dp">
-                
-                <LinearLayout
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:orientation="horizontal"
-                    android:gravity="center_vertical">
-                    <TextView
-                        android:id="@+id/tvMarketsProgressLabel"
-                        android:layout_width="0dp"
-                        android:layout_height="wrap_content"
-                        android:layout_weight="1"
-                        android:text="Progress to LIVE"
-                        android:textColor="#6B7280"
-                        android:textSize="9sp"/>
-                    <TextView
-                        android:id="@+id/tvMarketsProgressPct"
-                        android:layout_width="wrap_content"
-                        android:layout_height="wrap_content"
-                        android:text="0%"
-                        android:textColor="#FFD700"
-                        android:textSize="10sp"
-                        android:textStyle="bold"/>
-                </LinearLayout>
-                
-                <!-- Progress Bar Background -->
-                <FrameLayout
-                    android:layout_width="match_parent"
-                    android:layout_height="6dp"
-                    android:layout_marginTop="4dp"
-                    android:background="@drawable/progress_bar_bg">
-                    <View
-                        android:id="@+id/viewMarketsProgressBar"
-                        android:layout_width="0dp"
-                        android:layout_height="match_parent"
-                        android:background="@drawable/progress_bar_fill_gold"/>
-                </FrameLayout>
-            </LinearLayout>
-
-            <!-- Recommendation -->
+            <!-- Left: Icon + Label -->
             <TextView
-                android:id="@+id/tvMarketsRecommendation"
-                android:layout_width="match_parent"
+                android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
-                android:text="Complete 50 paper trades with 55%+ win rate to unlock LIVE mode"
-                android:textColor="#9CA3AF"
+                android:text="🚀"
+                android:textSize="12sp"/>
+            
+            <!-- Win Rate -->
+            <TextView
+                android:id="@+id/tvMarketsWinRate"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="--"
+                android:textColor="#10B981"
+                android:textSize="12sp"
+                android:textStyle="bold"
+                android:layout_marginStart="6dp"/>
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="WR"
+                android:textColor="#6B7280"
+                android:textSize="8sp"
+                android:layout_marginStart="2dp"/>
+            
+            <View android:layout_width="1dp" android:layout_height="14dp" android:background="#333" android:layout_marginStart="8dp" android:layout_marginEnd="8dp"/>
+            
+            <!-- Trades -->
+            <TextView
+                android:id="@+id/tvMarketsTrades"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="0/5000"
+                android:textColor="#FFFFFF"
+                android:textSize="11sp"
+                android:fontFamily="monospace"/>
+            
+            <View android:layout_width="1dp" android:layout_height="14dp" android:background="#333" android:layout_marginStart="8dp" android:layout_marginEnd="8dp"/>
+            
+            <!-- Phase Badge -->
+            <TextView
+                android:id="@+id/tvMarketsPhase"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="BOOT"
+                android:textColor="#F59E0B"
+                android:textSize="9sp"
+                android:textStyle="bold"
+                android:fontFamily="monospace"/>
+            
+            <View android:layout_width="0dp" android:layout_height="1dp" android:layout_weight="1"/>
+            
+            <!-- Progress -->
+            <TextView
+                android:id="@+id/tvMarketsProgressPct"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="0%"
+                android:textColor="#FFD700"
                 android:textSize="10sp"
-                android:layout_marginTop="6dp"/>
+                android:textStyle="bold"/>
+            
+            <!-- Status Badge -->
+            <TextView
+                android:id="@+id/tvMarketsReadinessBadge"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="LEARN"
+                android:textColor="#000000"
+                android:textSize="8sp"
+                android:textStyle="bold"
+                android:fontFamily="monospace"
+                android:background="@drawable/pill_bg_yellow"
+                android:paddingStart="5dp"
+                android:paddingEnd="5dp"
+                android:paddingTop="1dp"
+                android:paddingBottom="1dp"
+                android:layout_marginStart="6dp"/>
         </LinearLayout>
+        
+        <!-- Hidden views for compatibility -->
+        <FrameLayout
+            android:layout_width="match_parent"
+            android:layout_height="4dp"
+            android:layout_marginStart="12dp"
+            android:layout_marginEnd="12dp"
+            android:layout_marginBottom="4dp"
+            android:background="@drawable/progress_bar_bg">
+            <View
+                android:id="@+id/viewMarketsProgressBar"
+                android:layout_width="0dp"
+                android:layout_height="match_parent"
+                android:background="@drawable/progress_bar_fill_gold"/>
+        </FrameLayout>
+        
+        <TextView
+            android:id="@+id/tvMarketsRecommendation"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text=""
+            android:textColor="#6B7280"
+            android:textSize="9sp"
+            android:layout_marginStart="12dp"
+            android:layout_marginEnd="12dp"
+            android:layout_marginBottom="4dp"
+            android:visibility="gone"/>
 
         <!-- ═══════════════════════════════════════════════════════════════
-             MARKETS AI LAYER CONFIDENCE DASHBOARD
-             Shows top performing AI layers for Markets trading
+             MARKETS AI LAYERS - ULTRA COMPACT
              ═══════════════════════════════════════════════════════════════ -->
         <LinearLayout
             android:id="@+id/cardMarketsLayers"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:orientation="vertical"
+            android:orientation="horizontal"
             android:background="@drawable/section_card_bg"
-            android:paddingStart="12dp"
-            android:paddingEnd="12dp"
-            android:paddingTop="10dp"
-            android:paddingBottom="10dp"
+            android:paddingStart="8dp"
+            android:paddingEnd="8dp"
+            android:paddingTop="6dp"
+            android:paddingBottom="6dp"
             android:layout_marginStart="12dp"
             android:layout_marginEnd="12dp"
-            android:layout_marginBottom="8dp">
+            android:layout_marginBottom="4dp"
+            android:gravity="center_vertical">
 
-            <!-- Header -->
-            <LinearLayout
-                android:layout_width="match_parent"
+            <TextView
+                android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
-                android:orientation="horizontal"
-                android:gravity="center_vertical">
-                <TextView
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:text="🧠 Markets AI Layers"
-                    android:textColor="#A855F7"
-                    android:textSize="12sp"
-                    android:textStyle="bold"/>
-                <View
-                    android:layout_width="0dp"
-                    android:layout_height="1dp"
-                    android:layout_weight="1"/>
-                <TextView
-                    android:id="@+id/tvMarketsLayerCount"
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:text="7 active"
-                    android:textColor="#6B7280"
-                    android:textSize="9sp"
-                    android:fontFamily="monospace"/>
-            </LinearLayout>
-
-            <!-- Layer Confidence Grid -->
-            <LinearLayout
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:orientation="horizontal"
-                android:layout_marginTop="8dp">
-                
-                <!-- RSI Layer -->
-                <LinearLayout
-                    android:layout_width="0dp"
-                    android:layout_height="wrap_content"
-                    android:layout_weight="1"
-                    android:orientation="vertical"
-                    android:gravity="center"
-                    android:layout_marginEnd="4dp">
-                    <TextView
-                        android:layout_width="wrap_content"
-                        android:layout_height="wrap_content"
-                        android:text="RSI"
-                        android:textColor="#FFFFFF"
-                        android:textSize="9sp"
-                        android:textStyle="bold"/>
-                    <TextView
-                        android:id="@+id/tvLayerRsi"
-                        android:layout_width="wrap_content"
-                        android:layout_height="wrap_content"
-                        android:text="--"
-                        android:textColor="#22C55E"
-                        android:textSize="14sp"
-                        android:textStyle="bold"
-                        android:fontFamily="monospace"/>
-                </LinearLayout>
-                
-                <!-- MACD Layer -->
-                <LinearLayout
-                    android:layout_width="0dp"
-                    android:layout_height="wrap_content"
-                    android:layout_weight="1"
-                    android:orientation="vertical"
-                    android:gravity="center"
-                    android:layout_marginEnd="4dp">
-                    <TextView
-                        android:layout_width="wrap_content"
-                        android:layout_height="wrap_content"
-                        android:text="MACD"
-                        android:textColor="#FFFFFF"
-                        android:textSize="9sp"
-                        android:textStyle="bold"/>
-                    <TextView
-                        android:id="@+id/tvLayerMacd"
-                        android:layout_width="wrap_content"
-                        android:layout_height="wrap_content"
-                        android:text="--"
-                        android:textColor="#22C55E"
-                        android:textSize="14sp"
-                        android:textStyle="bold"
-                        android:fontFamily="monospace"/>
-                </LinearLayout>
-                
-                <!-- Volume Layer -->
-                <LinearLayout
-                    android:layout_width="0dp"
-                    android:layout_height="wrap_content"
-                    android:layout_weight="1"
-                    android:orientation="vertical"
-                    android:gravity="center"
-                    android:layout_marginEnd="4dp">
-                    <TextView
-                        android:layout_width="wrap_content"
-                        android:layout_height="wrap_content"
-                        android:text="VOL"
-                        android:textColor="#FFFFFF"
-                        android:textSize="9sp"
-                        android:textStyle="bold"/>
-                    <TextView
-                        android:id="@+id/tvLayerVolume"
-                        android:layout_width="wrap_content"
-                        android:layout_height="wrap_content"
-                        android:text="--"
-                        android:textColor="#22C55E"
-                        android:textSize="14sp"
-                        android:textStyle="bold"
-                        android:fontFamily="monospace"/>
-                </LinearLayout>
-                
-                <!-- Support/Resistance Layer -->
-                <LinearLayout
-                    android:layout_width="0dp"
-                    android:layout_height="wrap_content"
-                    android:layout_weight="1"
-                    android:orientation="vertical"
-                    android:gravity="center">
-                    <TextView
-                        android:layout_width="wrap_content"
-                        android:layout_height="wrap_content"
-                        android:text="S/R"
-                        android:textColor="#FFFFFF"
-                        android:textSize="9sp"
-                        android:textStyle="bold"/>
-                    <TextView
-                        android:id="@+id/tvLayerSR"
-                        android:layout_width="wrap_content"
-                        android:layout_height="wrap_content"
-                        android:text="--"
-                        android:textColor="#22C55E"
-                        android:textSize="14sp"
-                        android:textStyle="bold"
-                        android:fontFamily="monospace"/>
-                </LinearLayout>
-            </LinearLayout>
+                android:text="🧠"
+                android:textSize="10sp"/>
             
-            <!-- Second Row of Layers -->
-            <LinearLayout
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:orientation="horizontal"
-                android:layout_marginTop="8dp">
-                
-                <!-- Momentum Layer -->
-                <LinearLayout
-                    android:layout_width="0dp"
-                    android:layout_height="wrap_content"
-                    android:layout_weight="1"
-                    android:orientation="vertical"
-                    android:gravity="center"
-                    android:layout_marginEnd="4dp">
-                    <TextView
-                        android:layout_width="wrap_content"
-                        android:layout_height="wrap_content"
-                        android:text="MOMENTUM"
-                        android:textColor="#FFFFFF"
-                        android:textSize="9sp"
-                        android:textStyle="bold"/>
-                    <TextView
-                        android:id="@+id/tvLayerMomentum"
-                        android:layout_width="wrap_content"
-                        android:layout_height="wrap_content"
-                        android:text="--"
-                        android:textColor="#22C55E"
-                        android:textSize="14sp"
-                        android:textStyle="bold"
-                        android:fontFamily="monospace"/>
-                </LinearLayout>
-                
-                <!-- Sector Layer -->
-                <LinearLayout
-                    android:layout_width="0dp"
-                    android:layout_height="wrap_content"
-                    android:layout_weight="1"
-                    android:orientation="vertical"
-                    android:gravity="center"
-                    android:layout_marginEnd="4dp">
-                    <TextView
-                        android:layout_width="wrap_content"
-                        android:layout_height="wrap_content"
-                        android:text="SECTOR"
-                        android:textColor="#FFFFFF"
-                        android:textSize="9sp"
-                        android:textStyle="bold"/>
-                    <TextView
-                        android:id="@+id/tvLayerSector"
-                        android:layout_width="wrap_content"
-                        android:layout_height="wrap_content"
-                        android:text="--"
-                        android:textColor="#22C55E"
-                        android:textSize="14sp"
-                        android:textStyle="bold"
-                        android:fontFamily="monospace"/>
-                </LinearLayout>
-                
-                <!-- Correlation Layer -->
-                <LinearLayout
-                    android:layout_width="0dp"
-                    android:layout_height="wrap_content"
-                    android:layout_weight="1"
-                    android:orientation="vertical"
-                    android:gravity="center">
-                    <TextView
-                        android:layout_width="wrap_content"
-                        android:layout_height="wrap_content"
-                        android:text="CORREL"
-                        android:textColor="#FFFFFF"
-                        android:textSize="9sp"
-                        android:textStyle="bold"/>
-                    <TextView
-                        android:id="@+id/tvLayerCorrel"
-                        android:layout_width="wrap_content"
-                        android:layout_height="wrap_content"
-                        android:text="--"
-                        android:textColor="#22C55E"
-                        android:textSize="14sp"
-                        android:textStyle="bold"
-                        android:fontFamily="monospace"/>
-                </LinearLayout>
-            </LinearLayout>
-
-            <!-- Learning Progress -->
-            <LinearLayout
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:orientation="horizontal"
-                android:gravity="center_vertical"
-                android:layout_marginTop="10dp"
-                android:background="@drawable/section_card_bg"
-                android:padding="8dp">
-                
-                <TextView
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:text="📚 Learning Events:"
-                    android:textColor="#9CA3AF"
-                    android:textSize="10sp"/>
-                <TextView
-                    android:id="@+id/tvMarketsLearningEvents"
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:text="0"
-                    android:textColor="#00FF88"
-                    android:textSize="12sp"
-                    android:textStyle="bold"
-                    android:layout_marginStart="6dp"/>
-                
-                <View
-                    android:layout_width="0dp"
-                    android:layout_height="1dp"
-                    android:layout_weight="1"/>
-                
-                <TextView
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:text="🔄 Cross-Sync:"
-                    android:textColor="#9CA3AF"
-                    android:textSize="10sp"/>
-                <TextView
-                    android:id="@+id/tvMarketsCrossSync"
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:text="OK"
-                    android:textColor="#00FF88"
-                    android:textSize="10sp"
-                    android:textStyle="bold"
-                    android:layout_marginStart="4dp"/>
-            </LinearLayout>
+            <!-- RSI -->
+            <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+                android:text="RSI" android:textColor="#6B7280" android:textSize="7sp" android:layout_marginStart="4dp"/>
+            <TextView android:id="@+id/tvLayerRsi" android:layout_width="wrap_content" android:layout_height="wrap_content"
+                android:text="--" android:textColor="#22C55E" android:textSize="9sp" android:textStyle="bold" android:layout_marginStart="2dp"/>
+            
+            <!-- MACD -->
+            <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+                android:text="MACD" android:textColor="#6B7280" android:textSize="7sp" android:layout_marginStart="6dp"/>
+            <TextView android:id="@+id/tvLayerMacd" android:layout_width="wrap_content" android:layout_height="wrap_content"
+                android:text="--" android:textColor="#22C55E" android:textSize="9sp" android:textStyle="bold" android:layout_marginStart="2dp"/>
+            
+            <!-- VOL -->
+            <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+                android:text="VOL" android:textColor="#6B7280" android:textSize="7sp" android:layout_marginStart="6dp"/>
+            <TextView android:id="@+id/tvLayerVolume" android:layout_width="wrap_content" android:layout_height="wrap_content"
+                android:text="--" android:textColor="#22C55E" android:textSize="9sp" android:textStyle="bold" android:layout_marginStart="2dp"/>
+            
+            <!-- S/R -->
+            <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+                android:text="S/R" android:textColor="#6B7280" android:textSize="7sp" android:layout_marginStart="6dp"/>
+            <TextView android:id="@+id/tvLayerSR" android:layout_width="wrap_content" android:layout_height="wrap_content"
+                android:text="--" android:textColor="#22C55E" android:textSize="9sp" android:textStyle="bold" android:layout_marginStart="2dp"/>
+            
+            <!-- MOM -->
+            <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+                android:text="MOM" android:textColor="#6B7280" android:textSize="7sp" android:layout_marginStart="6dp"/>
+            <TextView android:id="@+id/tvLayerMomentum" android:layout_width="wrap_content" android:layout_height="wrap_content"
+                android:text="--" android:textColor="#22C55E" android:textSize="9sp" android:textStyle="bold" android:layout_marginStart="2dp"/>
+            
+            <!-- SEC -->
+            <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+                android:text="SEC" android:textColor="#6B7280" android:textSize="7sp" android:layout_marginStart="6dp"/>
+            <TextView android:id="@+id/tvLayerSector" android:layout_width="wrap_content" android:layout_height="wrap_content"
+                android:text="--" android:textColor="#22C55E" android:textSize="9sp" android:textStyle="bold" android:layout_marginStart="2dp"/>
+            
+            <!-- COR -->
+            <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+                android:text="COR" android:textColor="#6B7280" android:textSize="7sp" android:layout_marginStart="6dp"/>
+            <TextView android:id="@+id/tvLayerCorrel" android:layout_width="wrap_content" android:layout_height="wrap_content"
+                android:text="--" android:textColor="#22C55E" android:textSize="9sp" android:textStyle="bold" android:layout_marginStart="2dp"/>
+            
+            <View android:layout_width="0dp" android:layout_height="1dp" android:layout_weight="1"/>
+            
+            <!-- Learn Events -->
+            <TextView android:id="@+id/tvMarketsLearningEvents" android:layout_width="wrap_content" android:layout_height="wrap_content"
+                android:text="0" android:textColor="#00FF88" android:textSize="9sp" android:textStyle="bold"/>
+            <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+                android:text="📚" android:textSize="8sp" android:layout_marginStart="2dp"/>
+            
+            <!-- Cross-Sync -->
+            <TextView android:id="@+id/tvMarketsCrossSync" android:layout_width="wrap_content" android:layout_height="wrap_content"
+                android:text="OK" android:textColor="#00FF88" android:textSize="8sp" android:textStyle="bold" android:layout_marginStart="6dp"/>
+            
+            <!-- Hidden for compat -->
+            <TextView android:id="@+id/tvMarketsLayerCount" android:layout_width="0dp" android:layout_height="0dp"
+                android:text="7" android:visibility="gone"/>
         </LinearLayout>
 
         <!-- ═══════════════════════════════════════════════════════════════
-             QUICK ACTIONS BAR
+             QUICK ACTIONS BAR - COMPACT
              ═══════════════════════════════════════════════════════════════ -->
         <LinearLayout
             android:layout_width="match_parent"
@@ -721,7 +440,7 @@
             android:orientation="horizontal"
             android:paddingStart="12dp"
             android:paddingEnd="12dp"
-            android:layout_marginBottom="8dp">
+            android:layout_marginBottom="4dp">
 
             <!-- Journal -->
             <LinearLayout
@@ -729,17 +448,17 @@
                 android:layout_width="0dp"
                 android:layout_height="wrap_content"
                 android:layout_weight="1"
-                android:orientation="vertical"
+                android:orientation="horizontal"
                 android:gravity="center"
-                android:padding="10dp"
+                android:padding="6dp"
                 android:background="@drawable/section_card_bg"
-                android:layout_marginEnd="4dp"
+                android:layout_marginEnd="3dp"
                 android:clickable="true"
                 android:focusable="true">
                 <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
-                    android:text="📒" android:textSize="18sp"/>
+                    android:text="📒" android:textSize="12sp"/>
                 <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
-                    android:text="Journal" android:textColor="#9CA3AF" android:textSize="9sp"/>
+                    android:text="Log" android:textColor="#9CA3AF" android:textSize="8sp" android:layout_marginStart="3dp"/>
             </LinearLayout>
 
             <!-- Tax Report -->
@@ -748,17 +467,17 @@
                 android:layout_width="0dp"
                 android:layout_height="wrap_content"
                 android:layout_weight="1"
-                android:orientation="vertical"
+                android:orientation="horizontal"
                 android:gravity="center"
-                android:padding="10dp"
+                android:padding="6dp"
                 android:background="@drawable/section_card_bg"
-                android:layout_marginEnd="4dp"
+                android:layout_marginEnd="3dp"
                 android:clickable="true"
                 android:focusable="true">
                 <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
-                    android:text="📋" android:textSize="18sp"/>
+                    android:text="📋" android:textSize="12sp"/>
                 <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
-                    android:text="Tax Forms" android:textColor="#9CA3AF" android:textSize="9sp"/>
+                    android:text="Tax" android:textColor="#9CA3AF" android:textSize="8sp" android:layout_marginStart="3dp"/>
             </LinearLayout>
 
             <!-- Performance -->
@@ -767,17 +486,17 @@
                 android:layout_width="0dp"
                 android:layout_height="wrap_content"
                 android:layout_weight="1"
-                android:orientation="vertical"
+                android:orientation="horizontal"
                 android:gravity="center"
-                android:padding="10dp"
+                android:padding="6dp"
                 android:background="@drawable/section_card_bg"
-                android:layout_marginEnd="4dp"
+                android:layout_marginEnd="3dp"
                 android:clickable="true"
                 android:focusable="true">
                 <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
-                    android:text="📊" android:textSize="18sp"/>
+                    android:text="📊" android:textSize="12sp"/>
                 <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
-                    android:text="Stats" android:textColor="#9CA3AF" android:textSize="9sp"/>
+                    android:text="Stats" android:textColor="#9CA3AF" android:textSize="8sp" android:layout_marginStart="3dp"/>
             </LinearLayout>
 
             <!-- Export -->
@@ -786,16 +505,16 @@
                 android:layout_width="0dp"
                 android:layout_height="wrap_content"
                 android:layout_weight="1"
-                android:orientation="vertical"
+                android:orientation="horizontal"
                 android:gravity="center"
-                android:padding="10dp"
+                android:padding="6dp"
                 android:background="@drawable/section_card_bg"
                 android:clickable="true"
                 android:focusable="true">
                 <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
-                    android:text="📤" android:textSize="18sp"/>
+                    android:text="📤" android:textSize="12sp"/>
                 <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
-                    android:text="Export" android:textColor="#9CA3AF" android:textSize="9sp"/>
+                    android:text="Export" android:textColor="#9CA3AF" android:textSize="8sp" android:layout_marginStart="3dp"/>
             </LinearLayout>
         </LinearLayout>
 
