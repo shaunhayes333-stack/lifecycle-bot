@@ -626,6 +626,16 @@ object TokenizedStockTrader {
     
     fun isEnabled(): Boolean = isEnabled.get()
     
+    // V5.7.6: SPOT vs LEVERAGE position getters for MultiAssetActivity compatibility
+    fun getSpotPositions(): List<StockPosition> = positions.values.filter { it.leverage == 1.0 }
+    fun getLeveragePositions(): List<StockPosition> = positions.values.filter { it.leverage > 1.0 }
+    fun getAllPositions(): List<StockPosition> = positions.values.toList()
+    
+    // V5.7.6: Position info helpers for MultiAssetActivity
+    val StockPosition.isSpot: Boolean get() = leverage == 1.0
+    fun StockPosition.getPnlSol(): Double = getUnrealizedPnlSol()
+    fun StockPosition.getPnlPercent(): Double = getUnrealizedPnlPct()
+    
     // Helper extension
     private fun Double.fmt(decimals: Int): String = "%.${decimals}f".format(this)
 }

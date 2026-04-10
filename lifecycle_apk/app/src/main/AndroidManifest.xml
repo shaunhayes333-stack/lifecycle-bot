@@ -67,6 +67,7 @@
         <activity android:name=".ui.AlertsActivity"  android:exported="false"/>
         <activity android:name=".ui.JournalActivity" android:exported="false"/>
         <activity android:name=".ui.ErrorLogActivity" android:exported="false"/>
+        <activity android:name=".ui.MultiAssetActivity" android:exported="false" android:screenOrientation="portrait"/>
         <activity android:name=".ui.CollectiveBrainActivity" android:exported="false"/>
         <activity android:name=".ui.BehaviorActivity" android:exported="false" android:screenOrientation="portrait"/>
 

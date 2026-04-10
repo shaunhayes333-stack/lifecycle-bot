@@ -508,6 +508,10 @@ object PerpsExecutionEngine {
     fun getFailedExecutions(): Int = failedExecutions.get()
     fun getLastExecutionTime(): Long = lastExecutionTime.get()
     
+    // V5.7.6: MultiAssetActivity compatibility helpers
+    fun getActivePositions(): List<PerpsPosition> = PerpsTraderAI.getActivePositions()
+    fun getPaperBalance(): Double = PerpsTraderAI.getBalance(isPaper = true)
+    
     fun getStats(): ExecutionStats {
         return ExecutionStats(
             isRunning = isRunning.get(),

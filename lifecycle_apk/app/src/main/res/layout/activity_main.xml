@@ -543,6 +543,26 @@
                         android:text="Tuning" android:textColor="#00FF88" android:textSize="10sp"
                         android:layout_marginTop="2dp"/>
                 </LinearLayout>
+
+                <!-- V5.7.6: Multi-Asset Markets Tile -->
+                <LinearLayout
+                    android:id="@+id/btnQuickMarkets"
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:orientation="vertical"
+                    android:gravity="center"
+                    android:padding="10dp"
+                    android:background="@drawable/section_card_bg"
+                    android:layout_marginStart="6dp"
+                    android:clickable="true"
+                    android:focusable="true">
+                    <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+                        android:text="📊" android:textSize="20sp"/>
+                    <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+                        android:text="Markets" android:textColor="#FFD700" android:textSize="10sp"
+                        android:layout_marginTop="2dp"/>
+                </LinearLayout>
             </LinearLayout>
 
             <!-- ═══════════════════════════════════════════════════════════════

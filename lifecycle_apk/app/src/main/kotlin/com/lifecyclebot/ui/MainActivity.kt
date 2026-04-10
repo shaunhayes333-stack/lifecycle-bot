@@ -4801,6 +4801,12 @@ This cannot be undone!
             showTokenizedStocksDialog()
             performHaptic()
         }
+        
+        // V5.7.6: Multi-Asset Markets button → Opens dedicated trading UI
+        findViewById<View>(R.id.btnQuickMarkets)?.setOnClickListener {
+            startActivity(Intent(this, MultiAssetActivity::class.java))
+            performHaptic()
+        }
     }
 
     /** Setup clear settings button with confirmation */
