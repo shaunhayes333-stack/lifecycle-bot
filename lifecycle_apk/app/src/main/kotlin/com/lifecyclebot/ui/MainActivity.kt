@@ -3642,7 +3642,7 @@ This cannot be undone!
             .setPositiveButton("RESET") { dialog, _ ->
                 try {
                     // Get current wallet balance for fresh start
-                    val currentWalletBalance = com.lifecyclebot.engine.PaperWallet.balance.toDouble()
+                    val currentWalletBalance = com.lifecyclebot.engine.WalletManager.getPaperBalance()
                     
                     // Reset the tracker
                     tracker.reset()
