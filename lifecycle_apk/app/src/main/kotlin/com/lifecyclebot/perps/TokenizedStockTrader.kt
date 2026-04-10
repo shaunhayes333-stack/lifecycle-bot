@@ -633,6 +633,9 @@ object TokenizedStockTrader {
     
     fun isEnabled(): Boolean = isEnabled.get()
     
+    // V5.7.6: Public running state accessor for UI
+    fun isRunning(): Boolean = isRunning.get()
+    
     // V5.7.6: SPOT vs LEVERAGE position getters for MultiAssetActivity compatibility
     fun getSpotPositions(): List<StockPosition> = positions.values.filter { it.leverage == 1.0 }
     fun getLeveragePositions(): List<StockPosition> = positions.values.filter { it.leverage > 1.0 }

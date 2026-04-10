@@ -252,7 +252,7 @@ class BotService : Service() {
         
         // V5.7.3: Start PerpsExecutionEngine for FULLY AUTOMATIC perps trading
         // V5.7.6: Respects tradingMode setting (only starts if Markets mode enabled)
-        val marketsEnabled = config.marketsTraderEnabled || config.tradingMode == 1 || config.tradingMode == 2
+        val marketsEnabled = cfg.marketsTraderEnabled || cfg.tradingMode == 1 || cfg.tradingMode == 2
         
         if (marketsEnabled) {
             try {

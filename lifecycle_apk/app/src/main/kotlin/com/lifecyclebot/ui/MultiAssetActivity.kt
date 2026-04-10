@@ -243,10 +243,10 @@ class MultiAssetActivity : AppCompatActivity() {
         tvTodayPnl.text = "${if (pnl >= 0) "+" else ""}${"%.2f".format(pnl)} ◎"
         tvTodayPnl.setTextColor(if (pnl >= 0) 0xFF00FF88.toInt() else 0xFFFF4444.toInt())
         
-        // Win rate from FluidLearningAI
+        // Win rate - use learning progress as a proxy
         try {
-            val wr = com.lifecyclebot.v3.scoring.FluidLearningAI.getWinRate()
-            tvWinRate.text = if (wr > 0) "${"%.0f".format(wr)}%" else "--"
+            val progress = com.lifecyclebot.v3.scoring.FluidLearningAI.getLearningProgress()
+            tvWinRate.text = if (progress > 0) "${"%.0f".format(progress * 100)}%" else "--"
         } catch (_: Exception) {
             tvWinRate.text = "--"
         }
@@ -258,7 +258,7 @@ class MultiAssetActivity : AppCompatActivity() {
         
         val count = when (currentTab) {
             AssetTab.PERPS -> "SOL perpetuals"
-            AssetTab.STOCKS -> "${PerpsMarket.values().count { it.isTokenizedStock }} stocks"
+            AssetTab.STOCKS -> "${PerpsMarket.values().count { it.isStock }} stocks"
             AssetTab.COMMODITIES -> "${PerpsMarket.values().count { it.isCommodity }} assets"
             AssetTab.METALS -> "${PerpsMarket.values().count { it.isMetal }} metals"
             AssetTab.FOREX -> "${PerpsMarket.values().count { it.isForex }} pairs"
