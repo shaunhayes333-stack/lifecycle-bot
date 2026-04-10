@@ -30,6 +30,9 @@ class MultiAssetActivity : AppCompatActivity() {
     
     companion object {
         private const val TAG = "MultiAssetActivity"
+        // V5.7.6b: Balance refresh threshold (15000 USD worth of SOL)
+        private const val MIN_BALANCE_USD = 15000.0
+        private const val SOL_PRICE_USD = 150.0  // Approximate, will be fetched live
     }
     
     // ═══════════════════════════════════════════════════════════════════════════
@@ -124,9 +127,6 @@ class MultiAssetActivity : AppCompatActivity() {
     private lateinit var balanceContainer: View
     private var marketsRunning = false
     
-    // V5.7.6b: Balance refresh threshold (15000 USD worth of SOL)
-    private const val MIN_BALANCE_USD = 15000.0
-    private const val SOL_PRICE_USD = 150.0  // Approximate, will be fetched live
     private lateinit var tvLayerCorrel: TextView
     private lateinit var tvMarketsLearningEvents: TextView
     private lateinit var tvMarketsCrossSync: TextView
@@ -368,7 +368,7 @@ class MultiAssetActivity : AppCompatActivity() {
                 CommoditiesTrader.start()
                 MetalsTrader.start()
                 ForexTrader.start()
-                PerpsExecutionEngine.start()
+                PerpsExecutionEngine.start(this@MultiAssetActivity)
                 
                 withContext(Dispatchers.Main) {
                     android.widget.Toast.makeText(this@MultiAssetActivity, 
