@@ -769,6 +769,18 @@ object PerpsTraderAI {
             "P&L: ${if (pnlSol >= 0) "+" else ""}${pnlSol.fmt(4)}◎ (${if (pnlPct >= 0) "+" else ""}${pnlPct.fmt(1)}%) | " +
             "reason=${exitReason.displayName}")
         
+        // V5.7.4: Record trade for replay learning
+        kotlinx.coroutines.GlobalScope.launch(kotlinx.coroutines.Dispatchers.IO) {
+            try {
+                val entryMarketData = PerpsMarketDataFetcher.getMarketData(position.market)
+                val exitMarketData = entryMarketData.copy(price = exitPrice)  // Use exit price
+                PerpsAutoReplayLearner.recordTrade(trade, entryMarketData, exitMarketData)
+                ErrorLogger.debug(TAG, "🎬 Trade recorded for learning: ${trade.market.symbol} ${trade.direction.symbol}")
+            } catch (e: Exception) {
+                ErrorLogger.debug(TAG, "🎬 Trade recording failed: ${e.message}")
+            }
+        }
+        
         save()
         return trade
     }

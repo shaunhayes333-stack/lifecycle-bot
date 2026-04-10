@@ -213,6 +213,11 @@ class MainActivity : AppCompatActivity() {
     private var tvLayerLearningEvents: TextView? = null
     private var tvLayerCrossSync: TextView? = null
     
+    // V5.7.4: Perps Card - Quick Stock Prices (AAPL, TSLA, NVDA in header)
+    private var tvPerpsAaplPrice: TextView? = null
+    private var tvPerpsTslaPrice: TextView? = null
+    private var tvPerpsNvdaPrice: TextView? = null
+    
     // V5.7.3: Tokenized Stocks UI
     private var cardTokenizedStocks: android.view.View? = null
     private var tvStocksModeBadge: TextView? = null
@@ -874,6 +879,11 @@ for legal compliance.
         tvLayer4Score = try { findViewById(R.id.tvLayer4Score) } catch (_: Exception) { null }
         tvLayerLearningEvents = try { findViewById(R.id.tvLayerLearningEvents) } catch (_: Exception) { null }
         tvLayerCrossSync = try { findViewById(R.id.tvLayerCrossSync) } catch (_: Exception) { null }
+        
+        // V5.7.4: Perps Card - Quick Stock Prices (AAPL, TSLA, NVDA in header)
+        tvPerpsAaplPrice = try { findViewById(R.id.tvPerpsAaplPrice) } catch (_: Exception) { null }
+        tvPerpsTslaPrice = try { findViewById(R.id.tvPerpsTslaPrice) } catch (_: Exception) { null }
+        tvPerpsNvdaPrice = try { findViewById(R.id.tvPerpsNvdaPrice) } catch (_: Exception) { null }
         
         // V5.7.3: Tokenized Stocks UI bindings
         cardTokenizedStocks = try { findViewById(R.id.cardTokenizedStocks) } catch (_: Exception) { null }
@@ -3433,6 +3443,22 @@ for legal compliance.
                     tvPerpsSolPrice?.text = "$—"
                     tvPerpsSolChange?.text = "—"
                 }
+                
+                // V5.7.4: Update AAPL/TSLA/NVDA prices in perps card header
+                try {
+                    val aaplData = com.lifecyclebot.perps.PerpsMarketDataFetcher.getMarketData(com.lifecyclebot.perps.PerpsMarket.AAPL)
+                    tvPerpsAaplPrice?.text = "$${"%.2f".format(aaplData.price)}"
+                } catch (_: Exception) { tvPerpsAaplPrice?.text = "$--" }
+                
+                try {
+                    val tslaData = com.lifecyclebot.perps.PerpsMarketDataFetcher.getMarketData(com.lifecyclebot.perps.PerpsMarket.TSLA)
+                    tvPerpsTslaPrice?.text = "$${"%.2f".format(tslaData.price)}"
+                } catch (_: Exception) { tvPerpsTslaPrice?.text = "$--" }
+                
+                try {
+                    val nvdaData = com.lifecyclebot.perps.PerpsMarketDataFetcher.getMarketData(com.lifecyclebot.perps.PerpsMarket.NVDA)
+                    tvPerpsNvdaPrice?.text = "$${"%.2f".format(nvdaData.price)}"
+                } catch (_: Exception) { tvPerpsNvdaPrice?.text = "$--" }
             }
             
             // V5.7.1: Update Layer Confidence Dashboard
@@ -6813,8 +6839,8 @@ Quick trade or open detailed dialog?
             }
             
             val tradesNeeded = when (phase) {
-                com.lifecyclebot.engine.FinalDecisionGate.LearningPhase.BOOTSTRAP -> 50 - totalTrades
-                com.lifecyclebot.engine.FinalDecisionGate.LearningPhase.LEARNING -> 500 - totalTrades
+                com.lifecyclebot.engine.FinalDecisionGate.LearningPhase.BOOTSTRAP -> maxOf(0, 50 - totalTrades)
+                com.lifecyclebot.engine.FinalDecisionGate.LearningPhase.LEARNING -> maxOf(0, 500 - totalTrades)
                 com.lifecyclebot.engine.FinalDecisionGate.LearningPhase.MATURE -> 0
             }
             

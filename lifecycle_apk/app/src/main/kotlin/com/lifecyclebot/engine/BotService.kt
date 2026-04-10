@@ -267,6 +267,14 @@ class BotService : Service() {
             ErrorLogger.error("BotService", "PerpsAutoReplayLearner start error: ${e.message}", e)
         }
         
+        // V5.7.4: Start Learning Insights Panel for continuous analysis
+        try {
+            com.lifecyclebot.perps.PerpsLearningInsightsPanel.start()
+            ErrorLogger.info("BotService", "🧠 PerpsLearningInsightsPanel STARTED - Continuous Analysis Mode ACTIVE")
+        } catch (e: Exception) {
+            ErrorLogger.debug("BotService", "PerpsLearningInsightsPanel start error: ${e.message}")
+        }
+        
         // V5.7.3: Start Network Signal Auto-Buyer (disabled by default, paper mode only)
         try {
             // Only start if user has explicitly enabled it

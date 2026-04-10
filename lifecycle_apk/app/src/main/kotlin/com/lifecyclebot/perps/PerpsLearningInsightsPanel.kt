@@ -39,6 +39,42 @@ object PerpsLearningInsightsPanel {
     
     private const val TAG = "🧠InsightsPanel"
     
+    // V5.7.4: Background job for continuous learning
+    private var analysisJob: Job? = null
+    private val isRunning = java.util.concurrent.atomic.AtomicBoolean(false)
+    private const val ANALYSIS_INTERVAL_MS = 60_000L  // Analyze every 60 seconds
+    
+    /**
+     * V5.7.4: Start the insights panel background analysis
+     */
+    fun start() {
+        if (isRunning.get()) return
+        isRunning.set(true)
+        
+        analysisJob = CoroutineScope(Dispatchers.Default).launch {
+            ErrorLogger.info(TAG, "🧠 Learning Insights Panel STARTED")
+            
+            while (isRunning.get()) {
+                try {
+                    analyzeAndGenerateInsights()
+                } catch (e: Exception) {
+                    ErrorLogger.debug(TAG, "Analysis error: ${e.message}")
+                }
+                delay(ANALYSIS_INTERVAL_MS)
+            }
+        }
+    }
+    
+    /**
+     * V5.7.4: Stop the insights panel
+     */
+    fun stop() {
+        isRunning.set(false)
+        analysisJob?.cancel()
+        analysisJob = null
+        ErrorLogger.info(TAG, "🧠 Learning Insights Panel STOPPED")
+    }
+    
     // ═══════════════════════════════════════════════════════════════════════════
     // INSIGHT TYPES
     // ═══════════════════════════════════════════════════════════════════════════
