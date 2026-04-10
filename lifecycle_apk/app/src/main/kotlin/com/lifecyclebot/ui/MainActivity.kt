@@ -6669,7 +6669,7 @@ Trading outside hours may have wider spreads.
                     })
                     dataGrid.addView(entryCol)
                     
-                    // Current price - V5.7.5: Use LIVE price from Pyth/fallback
+                    // Current price - V5.7.5: Use LIVE price from Pyth/fallback with change indicator
                     val currentCol = LinearLayout(this@MainActivity).apply {
                         orientation = LinearLayout.VERTICAL
                         layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
@@ -6679,9 +6679,25 @@ Trading outside hours may have wider spreads.
                         setTextColor(0xFF9CA3AF.toInt())
                         textSize = 10f
                     })
+                    
+                    // V5.7.5: Price with change indicator arrow
+                    val priceChangePct = if (position.entryPrice > 0) {
+                        ((livePrice - position.entryPrice) / position.entryPrice * 100)
+                    } else 0.0
+                    val changeArrow = when {
+                        priceChangePct > 0.5 -> "▲"
+                        priceChangePct < -0.5 -> "▼"
+                        else -> "•"
+                    }
+                    val changeColor = when {
+                        priceChangePct > 0.1 -> 0xFF22C55E.toInt()  // Green
+                        priceChangePct < -0.1 -> 0xFFEF4444.toInt() // Red
+                        else -> 0xFFFFFFFF.toInt()                   // White (flat)
+                    }
+                    
                     currentCol.addView(TextView(this@MainActivity).apply {
-                        text = "$${String.format("%.2f", livePrice)}"
-                        setTextColor(0xFFFFFFFF.toInt())
+                        text = "$${String.format("%.2f", livePrice)} $changeArrow"
+                        setTextColor(changeColor)
                         textSize = 12f
                     })
                     dataGrid.addView(currentCol)
