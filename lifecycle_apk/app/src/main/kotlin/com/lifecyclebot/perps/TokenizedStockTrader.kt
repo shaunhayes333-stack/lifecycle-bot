@@ -166,7 +166,76 @@ object TokenizedStockTrader {
     // ═══════════════════════════════════════════════════════════════════════════
     
     fun init() {
+        // V5.7.7: Load persisted state from Turso
+        scope.launch {
+            loadPersistedState()
+        }
         ErrorLogger.info(TAG, "📈 TokenizedStockTrader INITIALIZED | paper=$isPaperMode | balance=${"%.2f".format(paperBalance)} SOL")
+    }
+    
+    /**
+     * V5.7.7: Load persisted Markets state from Turso
+     */
+    private suspend fun loadPersistedState() {
+        try {
+            val tursoClient = com.lifecyclebot.engine.BotService.getTursoClient()
+            if (tursoClient != null) {
+                val instanceId = com.lifecyclebot.engine.BotService.getInstanceId()
+                val state = tursoClient.loadMarketsState(instanceId)
+                if (state != null) {
+                    paperBalance = state.paperBalanceSol
+                    totalTrades.set(state.totalTrades)
+                    winningTrades.set(state.totalWins)
+                    losingTrades.set(state.totalLosses)
+                    totalPnlSol = state.totalPnlSol
+                    isPaperMode.set(!state.isLiveMode)
+                    ErrorLogger.info(TAG, "📈 Loaded persisted state: balance=${paperBalance.fmt(2)} SOL | trades=${state.totalTrades} | WR=${state.winRate.toInt()}%")
+                } else {
+                    ErrorLogger.info(TAG, "📈 No persisted state found - using defaults")
+                }
+            }
+        } catch (e: Exception) {
+            ErrorLogger.debug(TAG, "Error loading persisted state: ${e.message}")
+        }
+    }
+    
+    /**
+     * V5.7.7: Save current state to Turso
+     */
+    private fun savePersistedState() {
+        scope.launch {
+            try {
+                val tursoClient = com.lifecyclebot.engine.BotService.getTursoClient()
+                if (tursoClient != null) {
+                    val instanceId = com.lifecyclebot.engine.BotService.getInstanceId()
+                    val state = com.lifecyclebot.collective.MarketsState(
+                        instanceId = instanceId,
+                        paperBalanceSol = paperBalance,
+                        totalTrades = totalTrades.get(),
+                        totalWins = winningTrades.get(),
+                        totalLosses = losingTrades.get(),
+                        totalPnlSol = totalPnlSol,
+                        learningPhase = calculateLearningPhase(),
+                        isLiveMode = !isPaperMode.get(),
+                        lastUpdated = System.currentTimeMillis()
+                    )
+                    tursoClient.saveMarketsState(state)
+                }
+            } catch (e: Exception) {
+                ErrorLogger.debug(TAG, "Error saving state: ${e.message}")
+            }
+        }
+    }
+    
+    private fun calculateLearningPhase(): String {
+        val trades = totalTrades.get()
+        return when {
+            trades < 50 -> "BOOTSTRAP"
+            trades < 200 -> "LEARNING"
+            trades < 500 -> "VALIDATING"
+            trades < 1000 -> "MATURING"
+            else -> "READY"
+        }
     }
     
     fun start() {
@@ -672,6 +741,9 @@ object TokenizedStockTrader {
         
         // V5.7.6b: Persist to Turso for learning memory (with net P&L)
         persistTradeToTurso(position, reason, netPnlSol, netPnlPct, isWin, holdMins)
+        
+        // V5.7.7: Save state after each trade
+        savePersistedState()
     }
     
     /**

@@ -224,6 +224,24 @@ data class PerpsMarketStatsRecord(
 // ═══════════════════════════════════════════════════════════════════════════════
 
 /**
+ * V5.7.7: Markets state - persists paper balance across app restarts
+ */
+data class MarketsState(
+    val instanceId: String,
+    val paperBalanceSol: Double = 250.0,
+    val totalTrades: Int = 0,
+    val totalWins: Int = 0,
+    val totalLosses: Int = 0,
+    val totalPnlSol: Double = 0.0,
+    val learningPhase: String = "BOOTSTRAP",
+    val isLiveMode: Boolean = false,
+    val lastUpdated: Long = System.currentTimeMillis()
+) {
+    val winRate: Double
+        get() = if (totalTrades > 0) (totalWins.toDouble() / totalTrades.toDouble()) * 100.0 else 0.0
+}
+
+/**
  * Markets trade record - covers all non-meme Markets trades
  */
 data class MarketsTradeRecord(
@@ -743,6 +761,23 @@ object CollectiveSchema {
     """
 
     /**
+     * V5.7.7: Markets state - persists paper balance and settings
+     */
+    const val CREATE_MARKETS_STATE_TABLE = """
+        CREATE TABLE IF NOT EXISTS markets_state (
+            instance_id TEXT PRIMARY KEY NOT NULL,
+            paper_balance_sol REAL NOT NULL DEFAULT 250.0,
+            total_trades INTEGER NOT NULL DEFAULT 0,
+            total_wins INTEGER NOT NULL DEFAULT 0,
+            total_losses INTEGER NOT NULL DEFAULT 0,
+            total_pnl_sol REAL NOT NULL DEFAULT 0.0,
+            learning_phase TEXT NOT NULL DEFAULT 'BOOTSTRAP',
+            is_live_mode INTEGER NOT NULL DEFAULT 0,
+            last_updated INTEGER NOT NULL
+        )
+    """
+
+    /**
      * These run AFTER CREATE TABLE IF NOT EXISTS and patch older databases.
      * Ignore "duplicate column name" errors in the migration runner.
      */
@@ -829,6 +864,8 @@ object CollectiveSchema {
         CREATE_MARKETS_POSITIONS_TABLE,
         CREATE_MARKETS_ASSET_PERFORMANCE_TABLE,
         CREATE_MARKETS_LEARNING_SESSIONS_TABLE,
-        CREATE_MARKETS_DAILY_STATS_TABLE
+        CREATE_MARKETS_DAILY_STATS_TABLE,
+        // V5.7.7: Markets State
+        CREATE_MARKETS_STATE_TABLE
     )
 }

@@ -696,12 +696,16 @@ class MultiAssetActivity : AppCompatActivity() {
     
     private fun updateQuickStats() {
         try {
-            // 24h Trades - from PerpsTraderAI
-            val dailyTrades = PerpsTraderAI.getDailyTrades()
-            tvStats24hTrades.text = dailyTrades.toString()
+            // V5.7.7: Get stats from Markets traders, not PerpsTraderAI
+            val stockTrades = TokenizedStockTrader.getTotalTrades()
+            val stockWinRate = TokenizedStockTrader.getWinRate()
+            val stockPnlSol = TokenizedStockTrader.getTotalPnlSol()
             
-            // Win Rate
-            val winRate = PerpsTraderAI.getLifetimeWinRatePct()
+            // 24h Trades - from Markets traders
+            tvStats24hTrades.text = stockTrades.toString()
+            
+            // Win Rate from Markets
+            val winRate = stockWinRate.toInt()
             tvStatsWinRate.text = if (winRate > 0) "$winRate%" else "—%"
             tvStatsWinRate.setTextColor(
                 when {
@@ -713,21 +717,20 @@ class MultiAssetActivity : AppCompatActivity() {
             )
             
             // Total P&L in USD (all markets combined)
-            val totalPnlSol = PerpsTraderAI.getDailyPnlSol()
             val solPrice = try {
                 PerpsMarketDataFetcher.getCachedPrice(PerpsMarket.SOL)?.price ?: SOL_PRICE_USD
             } catch (_: Exception) { SOL_PRICE_USD }
-            val totalPnlUsd = totalPnlSol * solPrice
+            val totalPnlUsd = stockPnlSol * solPrice
             tvStatsTotalPnl.text = "${if (totalPnlUsd >= 0) "+" else ""}\$${"%,.0f".format(totalPnlUsd)}"
             tvStatsTotalPnl.setTextColor(if (totalPnlUsd >= 0) 0xFF00FF88.toInt() else 0xFFFF4444.toInt())
             
-            // AI Score (readiness from PerpsTraderAI)
-            val readiness = PerpsTraderAI.getLiveReadiness()
-            tvStatsAiScore.text = "${readiness.readinessScore}"
+            // AI Score - based on Markets learning progress
+            val readiness = calculateMarketsReadiness()
+            tvStatsAiScore.text = "${readiness.score}"
             tvStatsAiScore.setTextColor(
                 when {
-                    readiness.readinessScore >= 75 -> 0xFF10B981.toInt()
-                    readiness.readinessScore >= 50 -> 0xFFF59E0B.toInt()
+                    readiness.score >= 75 -> 0xFF10B981.toInt()
+                    readiness.score >= 50 -> 0xFFF59E0B.toInt()
                     else -> 0xFFEF4444.toInt()
                 }
             )

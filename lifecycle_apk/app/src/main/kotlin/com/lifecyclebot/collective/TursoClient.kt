@@ -1121,4 +1121,76 @@ class TursoClient(
             emptyList()
         }
     }
+    
+    // ═══════════════════════════════════════════════════════════════════════════
+    // V5.7.7: MARKETS STATE PERSISTENCE
+    // ═══════════════════════════════════════════════════════════════════════════
+    
+    /**
+     * Save Markets state (paper balance, stats, etc.)
+     */
+    suspend fun saveMarketsState(state: MarketsState): Boolean {
+        val sql = """
+            INSERT INTO markets_state (
+                instance_id, paper_balance_sol, total_trades, total_wins, total_losses,
+                total_pnl_sol, learning_phase, is_live_mode, last_updated
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT(instance_id) DO UPDATE SET
+                paper_balance_sol = excluded.paper_balance_sol,
+                total_trades = excluded.total_trades,
+                total_wins = excluded.total_wins,
+                total_losses = excluded.total_losses,
+                total_pnl_sol = excluded.total_pnl_sol,
+                learning_phase = excluded.learning_phase,
+                is_live_mode = excluded.is_live_mode,
+                last_updated = excluded.last_updated
+        """.trimIndent()
+        
+        val result = execute(sql, listOf(
+            state.instanceId,
+            state.paperBalanceSol,
+            state.totalTrades,
+            state.totalWins,
+            state.totalLosses,
+            state.totalPnlSol,
+            state.learningPhase,
+            if (state.isLiveMode) 1 else 0,
+            state.lastUpdated
+        ))
+        
+        if (result.success) {
+            ErrorLogger.debug(TAG, "Markets state saved: ${state.paperBalanceSol} SOL")
+        }
+        return result.success
+    }
+    
+    /**
+     * Load Markets state for an instance
+     */
+    suspend fun loadMarketsState(instanceId: String): MarketsState? {
+        val sql = "SELECT * FROM markets_state WHERE instance_id = ?"
+        val result = query(sql, listOf(instanceId))
+        
+        return if (result.success && result.rows.isNotEmpty()) {
+            val row = result.rows.first()
+            try {
+                MarketsState(
+                    instanceId = row["instance_id"] as? String ?: instanceId,
+                    paperBalanceSol = row["paper_balance_sol"] as? Double ?: 250.0,
+                    totalTrades = (row["total_trades"] as? Long)?.toInt() ?: 0,
+                    totalWins = (row["total_wins"] as? Long)?.toInt() ?: 0,
+                    totalLosses = (row["total_losses"] as? Long)?.toInt() ?: 0,
+                    totalPnlSol = row["total_pnl_sol"] as? Double ?: 0.0,
+                    learningPhase = row["learning_phase"] as? String ?: "BOOTSTRAP",
+                    isLiveMode = (row["is_live_mode"] as? Long) == 1L,
+                    lastUpdated = (row["last_updated"] as? Long) ?: System.currentTimeMillis()
+                )
+            } catch (e: Exception) {
+                ErrorLogger.debug(TAG, "Parse markets state error: ${e.message}")
+                null
+            }
+        } else {
+            null
+        }
+    }
 }
