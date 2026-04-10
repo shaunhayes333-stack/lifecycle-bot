@@ -284,6 +284,19 @@ class BotService : Service() {
             ErrorLogger.debug("BotService", "NetworkSignalAutoBuyer start error: ${e.message}")
         }
         
+        // V5.7.4: Start Insider Tracker AI (Trump/Pelosi/Whale wallet monitoring)
+        try {
+            com.lifecyclebot.v3.scoring.InsiderTrackerAI.start { signal ->
+                // Real-time alert callback for alpha signals
+                if (signal.wallet.riskLevel == com.lifecyclebot.v3.scoring.InsiderTrackerAI.RiskLevel.ALPHA) {
+                    ErrorLogger.info("BotService", "🔍 INSIDER ALERT: ${signal.wallet.label} | ${signal.signalType.name} | ${signal.tokenSymbol ?: "?"}")
+                }
+            }
+            ErrorLogger.info("BotService", "🔍 InsiderTrackerAI STARTED - Watching ${com.lifecyclebot.v3.scoring.InsiderTrackerAI.getAllWallets().size} wallets (Trump/Pelosi/Whales)")
+        } catch (e: Exception) {
+            ErrorLogger.debug("BotService", "InsiderTrackerAI start error: ${e.message}")
+        }
+        
         // V5.6.28f: Sync RunTracker30D stats with TradeHistoryStore
         try {
             if (com.lifecyclebot.engine.RunTracker30D.isRunActive()) {

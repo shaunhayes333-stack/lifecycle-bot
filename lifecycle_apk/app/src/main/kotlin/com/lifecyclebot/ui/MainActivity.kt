@@ -1041,6 +1041,14 @@ for legal compliance.
         // V5.7.3: Setup perps and stocks card click handlers
         setupPerpsPositionClickHandlers()
         setupStockButtonClickHandlers()
+        
+        // V5.7.4: Setup Network Signals / Insider Tracker click handlers
+        try {
+            cardNetworkSignals.setOnClickListener {
+                showNetworkSignalsMenu()
+                performHaptic()
+            }
+        } catch (_: Exception) {}
 
         // decision log
         cardLogScores = try { findViewById(R.id.cardLogScores) } catch (_: Exception) { android.view.View(this) }
@@ -7065,6 +7073,187 @@ AI Confirmation: ${if (config.requireAIConfirmation) "✅" else "❌"}
                 }
                 d.dismiss()
             }
+            .show()
+    }
+    
+    // ═══════════════════════════════════════════════════════════════════════════════
+    // V5.7.4: INSIDER TRACKER DIALOG
+    // ═══════════════════════════════════════════════════════════════════════════════
+    
+    /**
+     * V5.7.4: Show Network Signals menu with options for Auto-Buyer and Insider Tracker
+     */
+    private fun showNetworkSignalsMenu() {
+        val options = arrayOf(
+            "📡 Network Signal Auto-Buyer",
+            "🔍 Insider Tracker (Trump/Pelosi/Whales)",
+            "📊 View All Network Signals"
+        )
+        
+        AlertDialog.Builder(this, R.style.Theme_AATE_Dialog)
+            .setTitle("🌐 Network Intelligence")
+            .setItems(options) { _, which ->
+                when (which) {
+                    0 -> showNetworkSignalAutoBuyerDialog()
+                    1 -> showInsiderTrackerDialog()
+                    2 -> showAllNetworkSignalsDialog()
+                }
+            }
+            .setNegativeButton("Cancel") { d, _ -> d.dismiss() }
+            .show()
+    }
+    
+    /**
+     * V5.7.4: Show all network signals dialog
+     */
+    private fun showAllNetworkSignalsDialog() {
+        val signals = com.lifecyclebot.v3.scoring.CollectiveIntelligenceAI.getActiveNetworkSignals()
+        
+        if (signals.isEmpty()) {
+            Toast.makeText(this, "No active network signals", Toast.LENGTH_SHORT).show()
+            return
+        }
+        
+        val message = signals.sortedByDescending { it.pnlPct }.take(20).joinToString("\n\n") { signal ->
+            val emoji = when (signal.signalType) {
+                "MEGA_WINNER" -> "🔥"
+                "HOT_TOKEN" -> "🌐"
+                "AVOID" -> "⚠️"
+                else -> "📡"
+            }
+            "$emoji ${signal.symbol}\n   PnL: ${String.format("%+.1f", signal.pnlPct)}% | Acks: ${signal.ackCount} | Conf: ${signal.confidence}%"
+        }
+        
+        AlertDialog.Builder(this, R.style.Theme_AATE_Dialog)
+            .setTitle("📡 Active Network Signals (${signals.size})")
+            .setMessage(message)
+            .setPositiveButton("Close") { d, _ -> d.dismiss() }
+            .show()
+    }
+    
+    private fun showInsiderTrackerDialog() {
+        val tracker = com.lifecyclebot.v3.scoring.InsiderTrackerAI
+        val stats = tracker.getStats()
+        val recentAlpha = tracker.getAlphaSignals(5)
+        val preTweet = tracker.getPreTweetSignals()
+        
+        val signalsText = if (recentAlpha.isNotEmpty()) {
+            recentAlpha.joinToString("\n") { signal ->
+                val age = (System.currentTimeMillis() - signal.timestamp) / 60000
+                val emoji = when (signal.signalType) {
+                    com.lifecyclebot.v3.scoring.InsiderTrackerAI.InsiderSignalType.PRE_TWEET -> "🐦"
+                    com.lifecyclebot.v3.scoring.InsiderTrackerAI.InsiderSignalType.ACCUMULATION -> "💰"
+                    com.lifecyclebot.v3.scoring.InsiderTrackerAI.InsiderSignalType.DISTRIBUTION -> "🚨"
+                    else -> "⚡"
+                }
+                "$emoji ${signal.wallet.label}: ${signal.tokenSymbol ?: "?"} (${age}m ago)"
+            }
+        } else "No recent ALPHA signals"
+        
+        val preTweetText = if (preTweet.isNotEmpty()) {
+            preTweet.joinToString("\n") { "🐦 ${it.wallet.label}: Watch for tweet!" }
+        } else "None detected"
+        
+        val message = """
+🔍 INSIDER TRACKER
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Status: ${if (stats.isRunning) "🟢 ACTIVE" else "🔴 STOPPED"}
+Wallets Tracked: ${stats.walletsTracked}
+ALPHA Wallets: ${stats.alphaWallets}
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+📊 SIGNAL STATS
+───────────────────────────────
+Total Signals: ${stats.totalSignals}
+ALPHA Signals: ${stats.alphaSignals}
+Pre-Tweet Signals: ${stats.preTweetSignals}
+Active Signals: ${stats.recentSignalCount}
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+🔥 RECENT ALPHA SIGNALS
+───────────────────────────────
+$signalsText
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+🐦 PRE-TWEET ALERTS
+───────────────────────────────
+$preTweetText
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+🎯 TRACKED CATEGORIES:
+• Politicians (Pelosi)
+• Trump Family (Barron, DJT)
+• Whales (Jump, Wintermute)
+• Influencers (Ansem)
+• Exchanges (Coinbase, Binance)
+        """.trimIndent()
+        
+        AlertDialog.Builder(this, R.style.Theme_AATE_Dialog)
+            .setTitle("🔍 Insider Tracker (Trump/Pelosi)")
+            .setMessage(message)
+            .setPositiveButton("Close") { d, _ -> d.dismiss() }
+            .setNegativeButton(if (stats.isRunning) "Stop" else "Start") { d, _ ->
+                if (stats.isRunning) {
+                    tracker.stop()
+                    Toast.makeText(this, "🔍 Insider Tracker stopped", Toast.LENGTH_SHORT).show()
+                } else {
+                    tracker.start()
+                    Toast.makeText(this, "🔍 Insider Tracker started", Toast.LENGTH_SHORT).show()
+                }
+                d.dismiss()
+            }
+            .setNeutralButton("Add Wallet") { d, _ ->
+                showAddInsiderWalletDialog()
+                d.dismiss()
+            }
+            .show()
+    }
+    
+    private fun showAddInsiderWalletDialog() {
+        val layout = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(48, 24, 48, 24)
+        }
+        
+        val addressInput = EditText(this).apply {
+            hint = "Solana Wallet Address"
+            inputType = android.text.InputType.TYPE_CLASS_TEXT
+        }
+        
+        val labelInput = EditText(this).apply {
+            hint = "Label (e.g., 'My Insider')"
+            inputType = android.text.InputType.TYPE_CLASS_TEXT
+        }
+        
+        layout.addView(addressInput)
+        layout.addView(labelInput)
+        
+        AlertDialog.Builder(this, R.style.Theme_AATE_Dialog)
+            .setTitle("Add Custom Wallet to Track")
+            .setView(layout)
+            .setPositiveButton("Add") { d, _ ->
+                val address = addressInput.text.toString().trim()
+                val label = labelInput.text.toString().trim().ifEmpty { "Custom Wallet" }
+                
+                if (address.length >= 32) {
+                    val success = com.lifecyclebot.v3.scoring.InsiderTrackerAI.addCustomWallet(
+                        address = address,
+                        label = label,
+                        category = com.lifecyclebot.v3.scoring.InsiderTrackerAI.WalletCategory.WHALE,
+                        riskLevel = com.lifecyclebot.v3.scoring.InsiderTrackerAI.RiskLevel.HIGH
+                    )
+                    if (success) {
+                        Toast.makeText(this, "✅ Wallet added: $label", Toast.LENGTH_SHORT).show()
+                    } else {
+                        Toast.makeText(this, "❌ Failed to add wallet", Toast.LENGTH_SHORT).show()
+                    }
+                } else {
+                    Toast.makeText(this, "❌ Invalid address", Toast.LENGTH_SHORT).show()
+                }
+                d.dismiss()
+            }
+            .setNegativeButton("Cancel") { d, _ -> d.dismiss() }
             .show()
     }
 }

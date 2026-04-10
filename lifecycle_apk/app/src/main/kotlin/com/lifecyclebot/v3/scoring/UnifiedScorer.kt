@@ -83,7 +83,9 @@ class UnifiedScorer(
             OrderFlowImbalanceAI.score(candidate, ctx),    // Order flow analysis
             SmartMoneyDivergenceAI.score(candidate, ctx),  // Smart money divergence
             HoldTimeOptimizerAI.score(candidate, ctx),     // Hold time optimization
-            LiquidityCycleAI.score(candidate, ctx)         // Market-wide liquidity cycles
+            LiquidityCycleAI.score(candidate, ctx),         // Market-wide liquidity cycles
+            // V5.7.4 INSIDER TRACKER AI - Layer 27
+            insiderTrackerScore(candidate)                     // Insider wallet monitoring
         )
         
         // ═══════════════════════════════════════════════════════════════════════
@@ -286,7 +288,7 @@ class UnifiedScorer(
     }
     
     /**
-     * Get list of all module names (now 25 with BehaviorAI)
+     * Get list of all module names (now 26 with InsiderTrackerAI)
      */
     fun moduleNames(): List<String> = listOf(
         "source", "entry", "momentum", "liquidity", "volume",
@@ -298,5 +300,51 @@ class UnifiedScorer(
         "fluid_learning",    // Layer 23: Centralized fluidity control
         "sell_optimization", // Layer 24: Intelligent exit strategy
         "behavior",          // Layer 25: Trading behavior pattern recognition
+        "insider_tracker",   // Layer 27: Insider wallet monitoring (Trump/Pelosi/Whales)
     )
+    
+    /**
+     * V5.7.4: Score based on Insider Tracker signals (Trump/Pelosi/Whale wallets)
+     */
+    private fun insiderTrackerScore(candidate: CandidateSnapshot): ScoreComponent {
+        return try {
+            // Check if insider tracker has signals for this token
+            val entryBoost = InsiderTrackerAI.getEntryBoost(candidate.mint, candidate.symbol)
+            val shouldAvoid = InsiderTrackerAI.shouldAvoid(candidate.mint)
+            
+            when {
+                shouldAvoid -> ScoreComponent(
+                    name = "insider_tracker",
+                    value = -15,
+                    reason = "🚨 INSIDER SELLING: Distribution detected from tracked wallets"
+                )
+                entryBoost >= 20 -> ScoreComponent(
+                    name = "insider_tracker",
+                    value = entryBoost,
+                    reason = "🔥 ALPHA SIGNAL: Strong insider accumulation detected"
+                )
+                entryBoost >= 10 -> ScoreComponent(
+                    name = "insider_tracker",
+                    value = entryBoost,
+                    reason = "💰 INSIDER BUY: Tracked wallet accumulating"
+                )
+                entryBoost > 0 -> ScoreComponent(
+                    name = "insider_tracker",
+                    value = entryBoost,
+                    reason = "📡 Insider activity detected"
+                )
+                else -> ScoreComponent(
+                    name = "insider_tracker",
+                    value = 0,
+                    reason = "No insider signals"
+                )
+            }
+        } catch (e: Exception) {
+            ScoreComponent(
+                name = "insider_tracker",
+                value = 0,
+                reason = "NO_DATA"
+            )
+        }
+    }
 }
