@@ -123,6 +123,22 @@ enum class PerpsMarket(
     // ⛽ ENERGY
     XOM("XOM", "⛽", "Exxon Mobil", true, 10.0, "MARKET", "#ED1B2D"),
     CVX("CVX", "🛢️", "Chevron", true, 10.0, "MARKET", "#0066B2"),
+    
+    // 🛢️ COMMODITIES (Oil)
+    BRENT("BRENT", "🛢️", "Brent Crude Oil", false, 15.0, "24/7", "#000000"),
+    WTI("WTI", "🛢️", "WTI Crude Oil", false, 15.0, "24/7", "#1A1A1A"),
+    
+    // 🥇 PRECIOUS METALS
+    XAU("XAU", "🥇", "Gold", false, 15.0, "24/7", "#FFD700"),
+    XAG("XAG", "🥈", "Silver", false, 15.0, "24/7", "#C0C0C0"),
+    XPT("XPT", "⚪", "Platinum", false, 15.0, "24/7", "#E5E4E2"),
+    XPD("XPD", "💎", "Palladium", false, 15.0, "24/7", "#CED0DD"),
+    
+    // 🔩 INDUSTRIAL METALS
+    XCU("XCU", "🔶", "Copper", false, 15.0, "24/7", "#B87333"),
+    XAL("XAL", "🔷", "Aluminum", false, 15.0, "24/7", "#848789"),
+    XNI("XNI", "⬜", "Nickel", false, 15.0, "24/7", "#727472"),
+    XTI("XTI", "⚫", "Titanium", false, 15.0, "24/7", "#878681"),
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════

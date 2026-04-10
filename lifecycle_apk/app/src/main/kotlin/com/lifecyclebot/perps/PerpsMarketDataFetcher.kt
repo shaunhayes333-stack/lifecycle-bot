@@ -85,6 +85,19 @@ object PerpsMarketDataFetcher {
         // ENERGY
         put("XOM", 110.0)
         put("CVX", 150.0)
+        // COMMODITIES (Oil)
+        put("BRENT", 85.0)
+        put("WTI", 80.0)
+        // PRECIOUS METALS
+        put("XAU", 2650.0)   // Gold per oz
+        put("XAG", 31.0)     // Silver per oz
+        put("XPT", 1000.0)   // Platinum per oz
+        put("XPD", 950.0)    // Palladium per oz
+        // INDUSTRIAL METALS
+        put("XCU", 4.50)     // Copper per lb
+        put("XAL", 2500.0)   // Aluminum per ton
+        put("XNI", 16000.0)  // Nickel per ton
+        put("XTI", 10.0)     // Titanium
     }
     
     // HTTP Client

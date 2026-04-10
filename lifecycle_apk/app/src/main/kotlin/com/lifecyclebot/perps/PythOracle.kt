@@ -110,6 +110,22 @@ object PythOracle {
         // ⛽ ENERGY
         "XOM" to "0x4a1a12070192e8db9a89ac235bb032342a390dde39389b4ee1ba8e41e7eae5d8",
         "CVX" to "0xf464e36fd4ef2f1c3dc30801a9ab470dcdaaa0af14dd3cf6ae17a7fca9e051c5",
+        
+        // 🛢️ COMMODITIES (Oil - 24/7 trading)
+        "BRENT" to "0x27f0d5e09a830083e5491795cac9ca521399c8f7fd56240d09484b14e614d57a",  // UKOILSPOT
+        "WTI" to "0x925ca92ff005ae943c158e3563f59698ce7e75c5a8c8dd43303a0a154887b3e6",    // USOILSPOT
+        
+        // 🥇 PRECIOUS METALS (24/7 trading)
+        "XAU" to "0x765d2ba906dbc32ca17cc11f5310a89e9ee1f6420508c63861f2f8ba4ee34bb2",   // Gold
+        "XAG" to "0xf2fb02c32b055c805e7238d628e5e9dadef274376114eb1f012337cabe93871e",   // Silver
+        "XPT" to "0x398e4bbc7cbf89d6648c21e08019d878967677753b3096799595c78f805a34e5",   // Platinum
+        "XPD" to "0x80367e9664197f37d89a07a804dffd2101c479c7c4e8490501bc9d9e1e7f9021",   // Palladium
+        
+        // 🔩 INDUSTRIAL METALS (24/7 trading)
+        "XCU" to "0x636bedafa14a37912993f265eda22431a2be363ad41a10276424bbe1b7f508c4",   // Copper
+        "XAL" to "0x2818d3a9c8e0a80bd02bb500d62e5bb1323fa3df287f081d82b27d1e22c71afa",   // Aluminum
+        "XNI" to "0xa41da02810f3993706dca86e32582d40de376116eff24342353c33a0a8f9c083",   // Nickel
+        "XTI" to "0xa35b407f0fa4b027c2dfa8dff0b7b99b853fb4d326a9e9906271933237b90c1c",   // Titanium
     )
     
     // Cache
