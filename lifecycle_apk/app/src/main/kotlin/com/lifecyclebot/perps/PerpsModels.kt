@@ -90,6 +90,35 @@ enum class PerpsMarket(
     WIF("WIF", "🐕", "dogwifhat", false, 20.0, "24/7", "#C8A96A"),
     BONK("BONK", "🦴", "Bonk", false, 20.0, "24/7", "#F8A21A"),
     
+    // 🔥 V5.7.6: NEW CRYPTO - Layer 1s & DeFi
+    NEAR("NEAR", "🌐", "NEAR Protocol", false, 20.0, "24/7", "#00C08B"),
+    FTM("FTM", "👻", "Fantom", false, 20.0, "24/7", "#1969FF"),
+    ALGO("ALGO", "🔺", "Algorand", false, 20.0, "24/7", "#000000"),
+    HBAR("HBAR", "⬡", "Hedera", false, 20.0, "24/7", "#3A3A3A"),
+    ICP("ICP", "∞", "Internet Computer", false, 20.0, "24/7", "#3B00B9"),
+    VET("VET", "✓", "VeChain", false, 20.0, "24/7", "#15BDFF"),
+    FIL("FIL", "📁", "Filecoin", false, 20.0, "24/7", "#0090FF"),
+    RENDER("RENDER", "🎨", "Render", false, 20.0, "24/7", "#FF4F5A"),
+    GRT("GRT", "📊", "The Graph", false, 20.0, "24/7", "#6747ED"),
+    AAVE("AAVE", "👻", "Aave", false, 20.0, "24/7", "#B6509E"),
+    MKR("MKR", "🏛️", "Maker", false, 20.0, "24/7", "#1AAB9B"),
+    SNX("SNX", "💎", "Synthetix", false, 20.0, "24/7", "#00D1FF"),
+    CRV("CRV", "〰️", "Curve DAO", false, 20.0, "24/7", "#FF5733"),
+    RUNE("RUNE", "⚡", "THORChain", false, 20.0, "24/7", "#33FF99"),
+    STX("STX", "📚", "Stacks", false, 20.0, "24/7", "#5546FF"),
+    IMX("IMX", "🎮", "Immutable", false, 20.0, "24/7", "#00BFFF"),
+    SAND("SAND", "🏖️", "The Sandbox", false, 20.0, "24/7", "#04ADEF"),
+    MANA("MANA", "🌍", "Decentraland", false, 20.0, "24/7", "#FF2D55"),
+    AXS("AXS", "🎮", "Axie Infinity", false, 20.0, "24/7", "#0055D5"),
+    ENS("ENS", "🔗", "ENS Domains", false, 20.0, "24/7", "#5298FF"),
+    LDO("LDO", "🌊", "Lido DAO", false, 20.0, "24/7", "#00A3FF"),
+    RPL("RPL", "🚀", "Rocket Pool", false, 20.0, "24/7", "#FF6B35"),
+    PYTH("PYTH", "🔮", "Pyth Network", false, 20.0, "24/7", "#E6DAFE"),
+    RAY("RAY", "☀️", "Raydium", false, 20.0, "24/7", "#C7B2FF"),
+    ORCA("ORCA", "🐋", "Orca", false, 20.0, "24/7", "#FFD700"),
+    MNGO("MNGO", "🥭", "Mango Markets", false, 20.0, "24/7", "#F2C94C"),
+    DRIFT("DRIFT", "🌊", "Drift Protocol", false, 20.0, "24/7", "#6366F1"),
+    
     // ═══════════════════════════════════════════════════════════════════════════
     // TOKENIZED STOCKS - All available on Solana via Pyth Oracle
     // ═══════════════════════════════════════════════════════════════════════════
@@ -110,6 +139,10 @@ enum class PerpsMarket(
     QCOM("QCOM", "📱", "Qualcomm Inc.", true, 10.0, "MARKET", "#3253DC"),
     AVGO("AVGO", "⚡", "Broadcom Inc.", true, 10.0, "MARKET", "#CC092F"),
     MU("MU", "💾", "Micron Tech.", true, 10.0, "MARKET", "#0033A0"),
+    TSM("TSM", "🔧", "Taiwan Semi", true, 10.0, "MARKET", "#CC0000"),
+    ASML("ASML", "🔬", "ASML Holding", true, 10.0, "MARKET", "#00A9E0"),
+    ARM("ARM", "💪", "ARM Holdings", true, 10.0, "MARKET", "#0091BD"),
+    MRVL("MRVL", "🔷", "Marvell Tech", true, 10.0, "MARKET", "#E31937"),
     
     // 🚀 GROWTH TECH
     CRM("CRM", "☁️", "Salesforce", true, 10.0, "MARKET", "#00A1E0"),
@@ -117,6 +150,20 @@ enum class PerpsMarket(
     PLTR("PLTR", "🛡️", "Palantir", true, 10.0, "MARKET", "#101010"),
     SNOW("SNOW", "❄️", "Snowflake", true, 10.0, "MARKET", "#29B5E8"),
     SHOP("SHOP", "🛒", "Shopify", true, 10.0, "MARKET", "#96BF48"),
+    SPOT("SPOT", "🎵", "Spotify", true, 10.0, "MARKET", "#1DB954"),
+    ZM("ZM", "📹", "Zoom Video", true, 10.0, "MARKET", "#2D8CFF"),
+    ROKU("ROKU", "📺", "Roku Inc.", true, 10.0, "MARKET", "#6C3C97"),
+    SQ("SQ", "⬜", "Block Inc.", true, 10.0, "MARKET", "#3E4348"),
+    TWLO("TWLO", "📞", "Twilio", true, 10.0, "MARKET", "#F22F46"),
+    
+    // 🤖 AI & CLOUD
+    AI("AI", "🤖", "C3.ai", true, 10.0, "MARKET", "#00A3E0"),
+    PATH("PATH", "🤖", "UiPath", true, 10.0, "MARKET", "#FA4616"),
+    DDOG("DDOG", "🐶", "Datadog", true, 10.0, "MARKET", "#632CA6"),
+    NET("NET", "☁️", "Cloudflare", true, 10.0, "MARKET", "#F38020"),
+    CRWD("CRWD", "🦅", "CrowdStrike", true, 10.0, "MARKET", "#FA0001"),
+    ZS("ZS", "🔒", "Zscaler", true, 10.0, "MARKET", "#049FD9"),
+    MDB("MDB", "🍃", "MongoDB", true, 10.0, "MARKET", "#00ED64"),
     
     // 💳 FINTECH & CRYPTO
     COIN("COIN", "🪙", "Coinbase", true, 10.0, "MARKET", "#0052FF"),
@@ -125,6 +172,13 @@ enum class PerpsMarket(
     MA("MA", "💳", "Mastercard", true, 10.0, "MARKET", "#EB001B"),
     JPM("JPM", "🏦", "JPMorgan", true, 10.0, "MARKET", "#117ACA"),
     GS("GS", "🏛️", "Goldman Sachs", true, 10.0, "MARKET", "#7399C6"),
+    BAC("BAC", "🏦", "Bank of America", true, 10.0, "MARKET", "#012169"),
+    WFC("WFC", "🏦", "Wells Fargo", true, 10.0, "MARKET", "#D71E28"),
+    C("C", "🏦", "Citigroup", true, 10.0, "MARKET", "#056DAE"),
+    MSTR("MSTR", "₿", "MicroStrategy", true, 10.0, "MARKET", "#D9281C"),
+    HOOD("HOOD", "🪶", "Robinhood", true, 10.0, "MARKET", "#00C805"),
+    SOFI("SOFI", "💰", "SoFi Tech", true, 10.0, "MARKET", "#00D4AA"),
+    NU("NU", "💜", "Nu Holdings", true, 10.0, "MARKET", "#820AD1"),
     
     // 🎯 CONSUMER & TRAVEL
     DIS("DIS", "🏰", "Disney", true, 10.0, "MARKET", "#113CCF"),
@@ -133,23 +187,53 @@ enum class PerpsMarket(
     NKE("NKE", "👟", "Nike Inc.", true, 10.0, "MARKET", "#111111"),
     SBUX("SBUX", "☕", "Starbucks", true, 10.0, "MARKET", "#00704A"),
     MCD("MCD", "🍔", "McDonald's", true, 10.0, "MARKET", "#FFC72C"),
+    CMG("CMG", "🌯", "Chipotle", true, 10.0, "MARKET", "#A81612"),
+    LULU("LULU", "🧘", "Lululemon", true, 10.0, "MARKET", "#D31334"),
     
     // 🏭 INDUSTRIAL & RETAIL
     BA("BA", "✈️", "Boeing", true, 10.0, "MARKET", "#0033A0"),
     WMT("WMT", "🛍️", "Walmart", true, 10.0, "MARKET", "#0071CE"),
     HD("HD", "🔨", "Home Depot", true, 10.0, "MARKET", "#F96302"),
     COST("COST", "📦", "Costco", true, 10.0, "MARKET", "#E31837"),
+    TGT("TGT", "🎯", "Target", true, 10.0, "MARKET", "#CC0000"),
+    LOW("LOW", "🔧", "Lowe's", true, 10.0, "MARKET", "#004990"),
+    CAT("CAT", "🚜", "Caterpillar", true, 10.0, "MARKET", "#FFCD11"),
+    DE("DE", "🚜", "John Deere", true, 10.0, "MARKET", "#367C2B"),
+    LMT("LMT", "🛡️", "Lockheed Martin", true, 10.0, "MARKET", "#00237D"),
+    RTX("RTX", "🚀", "RTX Corp", true, 10.0, "MARKET", "#003087"),
     
-    // 🧬 HEALTHCARE & CONSUMER
+    // 🧬 HEALTHCARE
     JNJ("JNJ", "💊", "Johnson & Johnson", true, 10.0, "MARKET", "#D51900"),
     PFE("PFE", "💉", "Pfizer", true, 10.0, "MARKET", "#0093D0"),
     UNH("UNH", "🏥", "UnitedHealth", true, 10.0, "MARKET", "#002677"),
+    MRNA("MRNA", "🧬", "Moderna", true, 10.0, "MARKET", "#1A1A1A"),
+    LLY("LLY", "💊", "Eli Lilly", true, 10.0, "MARKET", "#D52B1E"),
+    ABBV("ABBV", "💊", "AbbVie", true, 10.0, "MARKET", "#071D49"),
+    TMO("TMO", "🔬", "Thermo Fisher", true, 10.0, "MARKET", "#1E4278"),
+    
+    // 🥤 CONSUMER STAPLES
     KO("KO", "🥤", "Coca-Cola", true, 10.0, "MARKET", "#F40009"),
     PEP("PEP", "🥤", "PepsiCo", true, 10.0, "MARKET", "#004B93"),
+    PG("PG", "🧴", "Procter & Gamble", true, 10.0, "MARKET", "#003DA5"),
+    PM("PM", "🚬", "Philip Morris", true, 10.0, "MARKET", "#003366"),
     
-    // ⛽ ENERGY
+    // ⛽ ENERGY STOCKS
     XOM("XOM", "⛽", "Exxon Mobil", true, 10.0, "MARKET", "#ED1B2D"),
     CVX("CVX", "🛢️", "Chevron", true, 10.0, "MARKET", "#0066B2"),
+    COP("COP", "🛢️", "ConocoPhillips", true, 10.0, "MARKET", "#ED1C24"),
+    OXY("OXY", "🛢️", "Occidental", true, 10.0, "MARKET", "#EE3124"),
+    
+    // ⚡ CLEAN ENERGY
+    ENPH("ENPH", "☀️", "Enphase Energy", true, 10.0, "MARKET", "#F26322"),
+    FSLR("FSLR", "☀️", "First Solar", true, 10.0, "MARKET", "#002E5D"),
+    PLUG("PLUG", "🔋", "Plug Power", true, 10.0, "MARKET", "#00A651"),
+    NEE("NEE", "⚡", "NextEra Energy", true, 10.0, "MARKET", "#006400"),
+    
+    // 🚗 EV & AUTOMOTIVE
+    RIVN("RIVN", "🚗", "Rivian", true, 10.0, "MARKET", "#0C6A35"),
+    LCID("LCID", "🚗", "Lucid Motors", true, 10.0, "MARKET", "#44525D"),
+    F("F", "🚗", "Ford Motor", true, 10.0, "MARKET", "#003478"),
+    GM("GM", "🚗", "General Motors", true, 10.0, "MARKET", "#0170CE"),
     
     // ═══════════════════════════════════════════════════════════════════════════
     // 🛢️ COMMODITIES - Energy (24/7 trading via Pyth)

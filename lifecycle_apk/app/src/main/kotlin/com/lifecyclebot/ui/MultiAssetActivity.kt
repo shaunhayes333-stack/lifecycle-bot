@@ -103,14 +103,52 @@ class MultiAssetActivity : AppCompatActivity() {
     
     // Asset logos mapping
     private val assetLogos = mapOf(
+        // Stocks
         "AAPL" to "🍎", "MSFT" to "🪟", "GOOGL" to "🔍", "AMZN" to "📦", "TSLA" to "⚡",
-        "NVDA" to "🎮", "META" to "👤", "NFLX" to "🎬", "AMD" to "💻", "INTC" to "🔲",
+        "NVDA" to "🖥️", "META" to "👤", "NFLX" to "🎬", "AMD" to "🔴", "INTC" to "🔵",
         "COIN" to "🪙", "SQ" to "⬜", "PYPL" to "💳", "V" to "💳", "MA" to "💳",
         "JPM" to "🏦", "GS" to "🏛️", "BAC" to "🏦", "WFC" to "🏦", "C" to "🏦",
-        "XAU" to "🥇", "XAG" to "🥈", "XPT" to "⚪", "XPD" to "⚫", "XCU" to "🟤",
-        "WTI" to "🛢️", "BRENT" to "🛢️", "NATGAS" to "🔥", "WHEAT" to "🌾", "CORN" to "🌽",
+        "DIS" to "🏰", "UBER" to "🚕", "ABNB" to "🏠", "NKE" to "👟", "SBUX" to "☕",
+        "MCD" to "🍔", "WMT" to "🛍️", "HD" to "🔨", "COST" to "📦", "BA" to "✈️",
+        "JNJ" to "💊", "PFE" to "💉", "UNH" to "🏥", "KO" to "🥤", "PEP" to "🥤",
+        "XOM" to "⛽", "CVX" to "🛢️", "CRM" to "☁️", "ORCL" to "🔮", "PLTR" to "🛡️",
+        "SNOW" to "❄️", "SHOP" to "🛒", "QCOM" to "📱", "AVGO" to "⚡", "MU" to "💾",
+        // NEW Stocks
+        "TSM" to "🔧", "ASML" to "🔬", "ARM" to "💪", "MRVL" to "🔷", "SPOT" to "🎵",
+        "ZM" to "📹", "ROKU" to "📺", "TWLO" to "📞", "AI" to "🤖", "PATH" to "🤖",
+        "DDOG" to "🐶", "NET" to "☁️", "CRWD" to "🦅", "ZS" to "🔒", "MDB" to "🍃",
+        "MSTR" to "₿", "HOOD" to "🪶", "SOFI" to "💰", "NU" to "💜", "CMG" to "🌯",
+        "LULU" to "🧘", "TGT" to "🎯", "LOW" to "🔧", "CAT" to "🚜", "DE" to "🚜",
+        "LMT" to "🛡️", "RTX" to "🚀", "MRNA" to "🧬", "LLY" to "💊", "ABBV" to "💊",
+        "TMO" to "🔬", "PG" to "🧴", "PM" to "🚬", "COP" to "🛢️", "OXY" to "🛢️",
+        "ENPH" to "☀️", "FSLR" to "☀️", "PLUG" to "🔋", "NEE" to "⚡",
+        "RIVN" to "🚗", "LCID" to "🚗", "F" to "🚗", "GM" to "🚗",
+        // Metals
+        "XAU" to "🥇", "XAG" to "🥈", "XPT" to "⚪", "XPD" to "💎", "XCU" to "🔶",
+        "XAL" to "🔷", "XNI" to "⬜", "XTI" to "⚫", "ZINC" to "🔘", "LEAD" to "⚫",
+        "TIN" to "🪙", "IRON" to "🔩", "COBALT" to "🔵", "LITHIUM" to "🔋", "URANIUM" to "☢️",
+        // Commodities
+        "WTI" to "🛢️", "BRENT" to "🛢️", "NATGAS" to "🔥", "RBOB" to "⛽", "HEATING" to "🏠",
+        "WHEAT" to "🌾", "CORN" to "🌽", "SOYBEAN" to "🫘", "COFFEE" to "☕", "COCOA" to "🍫",
+        "SUGAR" to "🍬", "COTTON" to "🧶", "LUMBER" to "🪵", "OJ" to "🍊",
+        "CATTLE" to "🐄", "HOGS" to "🐖",
+        // Forex
         "EUR" to "🇪🇺", "GBP" to "🇬🇧", "JPY" to "🇯🇵", "AUD" to "🇦🇺", "CAD" to "🇨🇦",
-        "SOL" to "◎", "BTC" to "₿", "ETH" to "⟠"
+        "CHF" to "🇨🇭", "NZD" to "🇳🇿", "MXN" to "🇲🇽", "BRL" to "🇧🇷", "INR" to "🇮🇳",
+        "CNY" to "🇨🇳", "ZAR" to "🇿🇦", "TRY" to "🇹🇷", "RUB" to "🇷🇺", "SGD" to "🇸🇬",
+        "HKD" to "🇭🇰", "KRW" to "🇰🇷",
+        // Crypto
+        "SOL" to "◎", "BTC" to "₿", "ETH" to "⟠", "BNB" to "🔶", "XRP" to "💧",
+        "ADA" to "🔵", "DOGE" to "🐕", "AVAX" to "🔺", "DOT" to "⚫", "LINK" to "🔗",
+        "MATIC" to "💜", "SHIB" to "🐕", "LTC" to "Ł", "ATOM" to "⚛️", "UNI" to "🦄",
+        "ARB" to "🔵", "OP" to "🔴", "APT" to "🟢", "SUI" to "💧", "SEI" to "🌊",
+        "INJ" to "💉", "TIA" to "🌌", "JUP" to "🪐", "PEPE" to "🐸", "WIF" to "🐕",
+        "BONK" to "🦴", "NEAR" to "🌐", "FTM" to "👻", "ALGO" to "🔺", "HBAR" to "⬡",
+        "ICP" to "∞", "VET" to "✓", "FIL" to "📁", "RENDER" to "🎨", "GRT" to "📊",
+        "AAVE" to "👻", "MKR" to "🏛️", "SNX" to "💎", "CRV" to "〰️", "RUNE" to "⚡",
+        "STX" to "📚", "IMX" to "🎮", "SAND" to "🏖️", "MANA" to "🌍", "AXS" to "🎮",
+        "ENS" to "🔗", "LDO" to "🌊", "RPL" to "🚀", "PYTH" to "🔮", "RAY" to "☀️",
+        "ORCA" to "🐋", "MNGO" to "🥭", "DRIFT" to "🌊"
     )
     
     // ═══════════════════════════════════════════════════════════════════════════
