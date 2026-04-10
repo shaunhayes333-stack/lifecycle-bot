@@ -143,7 +143,8 @@ object TokenizedStockTrader {
         val price: Double,
         val priceChange24h: Double,
         val reasons: List<String>,
-        val layerVotes: Map<String, PerpsDirection> = emptyMap()
+        val layerVotes: Map<String, PerpsDirection> = emptyMap(),
+        val leverage: Double = 3.0  // V5.7.6b: Default leverage, can be overridden
     )
     
     // ═══════════════════════════════════════════════════════════════════════════
