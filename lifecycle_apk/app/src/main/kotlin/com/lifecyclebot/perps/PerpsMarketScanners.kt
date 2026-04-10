@@ -91,6 +91,8 @@ object PerpsMarketScanners {
             }
         }
         
+        ErrorLogger.debug(TAG, "📊 PERPS SCAN: Fetched ${marketDataMap.size} markets")
+        
         // Run each scanner
         ScannerType.values().forEach { scannerType ->
             try {
@@ -103,6 +105,13 @@ object PerpsMarketScanners {
                     ScannerType.VOLATILITY_BREAKOUT -> scanVolatilityBreakout(marketDataMap, isPaperMode)
                     ScannerType.CORRELATION -> scanCorrelation(marketDataMap, isPaperMode)
                 }
+                
+                // Log scanner results
+                val withSignals = scanResults.filter { it.signal != null }
+                if (withSignals.isNotEmpty()) {
+                    ErrorLogger.info(TAG, "📊 ${scannerType.name}: ${withSignals.size} signals (priority: ${withSignals.maxOfOrNull { it.priority }})")
+                }
+                
                 results.addAll(scanResults)
             } catch (e: Exception) {
                 ErrorLogger.warn(TAG, "Scanner ${scannerType.name} failed: ${e.message}")
@@ -111,6 +120,11 @@ object PerpsMarketScanners {
         
         totalScans.incrementAndGet()
         lastScanTime.set(System.currentTimeMillis())
+        
+        // Log summary
+        val signalCount = results.count { it.signal != null }
+        val highPriority = results.count { it.priority >= 5 && it.signal != null }
+        ErrorLogger.info(TAG, "📊 PERPS SCAN COMPLETE: $signalCount signals, $highPriority high-priority (≥5)")
         
         // Sort by priority (highest first)
         results.sortedByDescending { it.priority }

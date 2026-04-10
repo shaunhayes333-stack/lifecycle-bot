@@ -140,11 +140,20 @@ object PerpsExecutionEngine {
                     // Run all scanners
                     val scanResults = PerpsMarketScanners.runAllScanners(isPaper)
                     
-                    // Process high-priority signals
-                    val highPrioritySignals = scanResults.filter { it.priority >= 5 && it.signal != null }
+                    // V5.7.3: In paper mode, lower threshold to priority >= 3 for learning
+                    // In live mode, require priority >= 5 for safety
+                    val priorityThreshold = if (isPaper) 3 else 5
+                    val highPrioritySignals = scanResults.filter { it.priority >= priorityThreshold && it.signal != null }
                     
                     if (highPrioritySignals.isNotEmpty()) {
-                        ErrorLogger.info(TAG, "⚡ PERPS SIGNALS: ${highPrioritySignals.size} high-priority signals found")
+                        ErrorLogger.info(TAG, "⚡ PERPS SIGNALS: ${highPrioritySignals.size} signals above threshold (>=$priorityThreshold)")
+                    } else {
+                        // Log what we got even if no high priority
+                        val anySignals = scanResults.filter { it.signal != null }
+                        if (anySignals.isNotEmpty()) {
+                            val maxPriority = anySignals.maxOfOrNull { it.priority } ?: 0
+                            ErrorLogger.debug(TAG, "⚡ PERPS: ${anySignals.size} signals found but max priority=$maxPriority (need >=$priorityThreshold)")
+                        }
                     }
                     
                     for (result in highPrioritySignals) {
