@@ -204,11 +204,14 @@ object TokenizedStockTrader {
         scanCount.incrementAndGet()
         val scanNum = scanCount.get()
         
-        ErrorLogger.info(TAG, "📈 STOCK SCAN #$scanNum | positions=${positions.size}/$MAX_STOCK_POSITIONS | balance=${"%.2f".format(getBalance())} SOL")
+        ErrorLogger.info(TAG, "📈 ═══════════════════════════════════════════════════")
+        ErrorLogger.info(TAG, "📈 STOCK SCAN #$scanNum STARTING")
+        ErrorLogger.info(TAG, "📈 positions=${positions.size}/$MAX_STOCK_POSITIONS | balance=${"%.2f".format(getBalance())} SOL")
+        ErrorLogger.info(TAG, "📈 ═══════════════════════════════════════════════════")
         
         // Get all stock markets
         val stockMarkets = PerpsMarket.values().filter { it.isStock }
-        ErrorLogger.debug(TAG, "📈 Found ${stockMarkets.size} stock markets to scan")
+        ErrorLogger.info(TAG, "📈 Found ${stockMarkets.size} stock markets to scan: ${stockMarkets.take(5).map { it.symbol }}")
         
         // Fetch prices and generate signals
         val signals = mutableListOf<StockSignal>()
@@ -226,8 +229,15 @@ object TokenizedStockTrader {
                 
                 // Get market data
                 val data = PerpsMarketDataFetcher.getMarketData(market)
+                
+                // V5.7.6: Log every price fetch for debugging
+                if (analyzedCount < 5) {
+                    ErrorLogger.info(TAG, "📈 ${market.symbol}: price=\$${data.price.fmt(2)} | change=${data.priceChange24hPct.fmt(2)}%")
+                }
+                
                 if (data.price <= 0) {
                     skippedBadPrice++
+                    ErrorLogger.warn(TAG, "📈 ${market.symbol}: SKIPPED - price is 0 or negative!")
                     continue
                 }
                 
@@ -235,16 +245,26 @@ object TokenizedStockTrader {
                 
                 // Generate signal using AI layers
                 val signal = analyzeStock(market, data)
-                // V5.7.6: Lower thresholds even more - score>=30, conf>=25 for maximum learning
-                if (signal != null && signal.score >= 30 && signal.confidence >= 25) {
-                    signals.add(signal)
-                    ErrorLogger.debug(TAG, "📈 Signal: ${market.symbol} @ \$${data.price.fmt(2)} | score=${signal.score} conf=${signal.confidence} | ${signal.direction.symbol}")
+                
+                // V5.7.6: Log every signal attempt
+                if (signal != null) {
+                    ErrorLogger.info(TAG, "📈 SIGNAL: ${market.symbol} | score=${signal.score} | conf=${signal.confidence} | dir=${signal.direction.symbol}")
+                    
+                    // V5.7.6: Lower thresholds even more - score>=30, conf>=25 for maximum learning
+                    if (signal.score >= 30 && signal.confidence >= 25) {
+                        signals.add(signal)
+                    } else {
+                        ErrorLogger.warn(TAG, "📈 ${market.symbol}: BELOW THRESHOLD (score=${signal.score}<30 or conf=${signal.confidence}<25)")
+                    }
+                } else {
+                    ErrorLogger.warn(TAG, "📈 ${market.symbol}: analyzeStock returned NULL")
                 }
             } catch (e: Exception) {
-                ErrorLogger.debug(TAG, "Failed to analyze ${market.symbol}: ${e.message}")
+                ErrorLogger.error(TAG, "📈 ${market.symbol}: EXCEPTION: ${e.message}", e)
             }
         }
         
+        ErrorLogger.info(TAG, "📈 ═══════════════════════════════════════════════════")
         ErrorLogger.info(TAG, "📈 Scan stats: analyzed=$analyzedCount | hasPos=$skippedHasPosition | badPrice=$skippedBadPrice | signals=${signals.size}")
         
         // Sort by score and take best signals
@@ -252,8 +272,11 @@ object TokenizedStockTrader {
         
         if (topSignals.isNotEmpty()) {
             ErrorLogger.info(TAG, "📈 TOP ${topSignals.size} stock signals: ${topSignals.map { "${it.market.symbol}(${it.score}/${it.confidence})" }}")
-        } else if (signals.isEmpty()) {
-            ErrorLogger.info(TAG, "📈 No stock signals generated this cycle - all markets below threshold or no data")
+            ErrorLogger.info(TAG, "📈 ═══════════════════════════════════════════════════")
+        } else {
+            ErrorLogger.warn(TAG, "📈 ⚠️ NO SIGNALS TO EXECUTE!")
+            ErrorLogger.info(TAG, "📈 ═══════════════════════════════════════════════════")
+            return  // Early return if no signals
         }
         
         // Execute top signals
@@ -263,6 +286,7 @@ object TokenizedStockTrader {
                 break
             }
             
+            ErrorLogger.info(TAG, "📈 EXECUTING: ${signal.market.symbol} ${signal.direction.symbol} @ \$${signal.price.fmt(2)}")
             executeSignal(signal)
         }
     }
