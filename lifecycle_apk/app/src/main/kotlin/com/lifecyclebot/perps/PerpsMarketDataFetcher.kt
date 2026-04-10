@@ -35,7 +35,7 @@ object PerpsMarketDataFetcher {
     private const val CACHE_TTL_MS = 3_000L  // 3 second cache for real-time
     
     // V5.7.7: Yahoo Finance API for real stock prices
-    private const val YAHOO_QUOTE_URL = "https://query1.finance.yahoo.com/v8/finance/chart/"
+    private const val YAHOO_QUOTE_URL = "https://query1.finance.yahoo.com/v7/finance/quote?symbols="
     private val yahooChangeCache = ConcurrentHashMap<String, Double>()
     
     // Stock price cache (fallback prices if Pyth fails) - V5.7.6: Full asset coverage
@@ -733,44 +733,81 @@ object PerpsMarketDataFetcher {
     }
     
     /**
-     * V5.7.7: Fetch real stock price from Yahoo Finance
+     * V5.7.7: Fetch real stock price - try multiple sources
      */
     private suspend fun fetchYahooPrice(symbol: String): Double? = withContext(Dispatchers.IO) {
+        // Try Yahoo Finance v7 quote API first
         try {
             val request = Request.Builder()
-                .url("${YAHOO_QUOTE_URL}${symbol}?interval=1m&range=1d")
-                .header("User-Agent", "Mozilla/5.0")
+                .url("${YAHOO_QUOTE_URL}${symbol}")
+                .header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36")
+                .header("Accept", "application/json")
                 .build()
             
             val response = client.newCall(request).execute()
-            if (!response.isSuccessful) {
-                ErrorLogger.debug(TAG, "Yahoo Finance HTTP ${response.code} for $symbol")
-                return@withContext null
+            if (response.isSuccessful) {
+                val body = response.body?.string()
+                if (body != null && body.contains("quoteResponse")) {
+                    val json = JSONObject(body)
+                    val quoteResponse = json.optJSONObject("quoteResponse")
+                    val result = quoteResponse?.optJSONArray("result")
+                    
+                    if (result != null && result.length() > 0) {
+                        val quote = result.getJSONObject(0)
+                        val price = quote.optDouble("regularMarketPrice", 0.0)
+                        val change = quote.optDouble("regularMarketChangePercent", 0.0)
+                        
+                        if (price > 0) {
+                            stockPrices[symbol] = price
+                            yahooChangeCache[symbol] = change
+                            ErrorLogger.info(TAG, "📊 Yahoo: $symbol = \$${price.fmt(2)} (${if (change >= 0) "+" else ""}${change.fmt(2)}%)")
+                            return@withContext price
+                        }
+                    }
+                }
             }
-            
-            val body = response.body?.string() ?: return@withContext null
-            val json = JSONObject(body)
-            
-            val chart = json.getJSONObject("chart")
-            val result = chart.getJSONArray("result").getJSONObject(0)
-            val meta = result.getJSONObject("meta")
-            val price = meta.getDouble("regularMarketPrice")
-            val prevClose = meta.optDouble("chartPreviousClose", price)
-            
-            if (price > 0) {
-                // Cache the price
-                stockPrices[symbol] = price
-                
-                // Calculate real change from Yahoo data
-                val change = if (prevClose > 0) ((price - prevClose) / prevClose) * 100 else 0.0
-                yahooChangeCache[symbol] = change
-                
-                ErrorLogger.debug(TAG, "📊 Yahoo: $symbol = \$${price.fmt(2)} (${if (change >= 0) "+" else ""}${change.fmt(2)}%)")
-                return@withContext price
-            }
+            response.close()
         } catch (e: Exception) {
-            ErrorLogger.debug(TAG, "Yahoo fetch error for $symbol: ${e.message}")
+            ErrorLogger.debug(TAG, "Yahoo error for $symbol: ${e.message}")
         }
+        
+        // Fallback: Try Yahoo v8 chart API
+        try {
+            val chartUrl = "https://query1.finance.yahoo.com/v8/finance/chart/${symbol}?interval=1d&range=1d"
+            val request = Request.Builder()
+                .url(chartUrl)
+                .header("User-Agent", "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7)")
+                .build()
+            
+            val response = client.newCall(request).execute()
+            if (response.isSuccessful) {
+                val body = response.body?.string()
+                if (body != null && body.contains("chart")) {
+                    val json = JSONObject(body)
+                    val chart = json.optJSONObject("chart")
+                    val result = chart?.optJSONArray("result")
+                    
+                    if (result != null && result.length() > 0) {
+                        val meta = result.getJSONObject(0).optJSONObject("meta")
+                        val price = meta?.optDouble("regularMarketPrice", 0.0) ?: 0.0
+                        val prevClose = meta?.optDouble("chartPreviousClose", price) ?: price
+                        
+                        if (price > 0) {
+                            val change = if (prevClose > 0) ((price - prevClose) / prevClose) * 100 else 0.0
+                            stockPrices[symbol] = price
+                            yahooChangeCache[symbol] = change
+                            ErrorLogger.info(TAG, "📊 Yahoo Chart: $symbol = \$${price.fmt(2)}")
+                            return@withContext price
+                        }
+                    }
+                }
+            }
+            response.close()
+        } catch (e: Exception) {
+            ErrorLogger.debug(TAG, "Yahoo Chart error for $symbol: ${e.message}")
+        }
+        
+        ErrorLogger.warn(TAG, "⚠️ No live price for $symbol - using cached")
         return@withContext null
     }
     

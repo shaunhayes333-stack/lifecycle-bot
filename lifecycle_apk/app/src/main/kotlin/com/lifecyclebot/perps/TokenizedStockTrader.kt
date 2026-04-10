@@ -339,9 +339,14 @@ object TokenizedStockTrader {
         ErrorLogger.error(TAG, "📈 positions=${positions.size}/$MAX_STOCK_POSITIONS | balance=${"%.2f".format(getBalance())} SOL")
         ErrorLogger.error(TAG, "📈 ═══════════════════════════════════════════════════")
         
-        // V5.7.7: Scan all stocks - Pyth for major stocks, Yahoo Finance for others
-        val stockMarkets = PerpsMarket.values().filter { it.isStock }
-        ErrorLogger.info(TAG, "📈 Found ${stockMarkets.size} stock markets to scan (Pyth + Yahoo Finance)")
+        // V5.7.7: PRIORITIZE Pyth-supported stocks for reliable price feeds
+        val pythSupported = PythOracle.getSupportedSymbols()
+        val pythStocks = PerpsMarket.values().filter { it.isStock && pythSupported.contains(it.symbol) }
+        val otherStocks = PerpsMarket.values().filter { it.isStock && !pythSupported.contains(it.symbol) }
+        
+        // Trade Pyth stocks first (reliable prices), then others
+        val stockMarkets = pythStocks + otherStocks.take(10)  // Limit non-Pyth to 10
+        ErrorLogger.info(TAG, "📈 Scanning ${pythStocks.size} Pyth stocks + ${otherStocks.take(10).size} others")
         
         // Fetch prices and generate signals
         val signals = mutableListOf<StockSignal>()
