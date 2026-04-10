@@ -52,6 +52,72 @@ object TokenizedStockTrader {
     private const val LEVERAGE_TRADING_FEE_PERCENT = 0.01 // 1.0% for leverage (3x+)
     
     // ═══════════════════════════════════════════════════════════════════════════
+    // MARKET HOURS CHECK - V5.7.7
+    // ═══════════════════════════════════════════════════════════════════════════
+    
+    /**
+     * Check if US stock market is currently open
+     * Regular hours: Mon-Fri 9:30 AM - 4:00 PM ET
+     * Extended hours: 4:00 AM - 8:00 PM ET (pre-market + after-hours)
+     * 
+     * Returns true for extended hours to allow some trading, but with warning
+     */
+    fun isStockMarketOpen(): Boolean {
+        val nyZone = java.util.TimeZone.getTimeZone("America/New_York")
+        val cal = java.util.Calendar.getInstance(nyZone)
+        
+        val dayOfWeek = cal.get(java.util.Calendar.DAY_OF_WEEK)
+        val hour = cal.get(java.util.Calendar.HOUR_OF_DAY)
+        val minute = cal.get(java.util.Calendar.MINUTE)
+        val timeInMinutes = hour * 60 + minute
+        
+        // Weekend check (Saturday = 7, Sunday = 1)
+        if (dayOfWeek == java.util.Calendar.SATURDAY || dayOfWeek == java.util.Calendar.SUNDAY) {
+            return false
+        }
+        
+        // Extended hours: 4:00 AM - 8:00 PM ET (240 - 1200 minutes)
+        val extendedOpen = 4 * 60      // 4:00 AM = 240 minutes
+        val extendedClose = 20 * 60    // 8:00 PM = 1200 minutes
+        
+        return timeInMinutes in extendedOpen..extendedClose
+    }
+    
+    /**
+     * Check if we're in regular trading hours (most liquid)
+     */
+    fun isRegularTradingHours(): Boolean {
+        val nyZone = java.util.TimeZone.getTimeZone("America/New_York")
+        val cal = java.util.Calendar.getInstance(nyZone)
+        
+        val dayOfWeek = cal.get(java.util.Calendar.DAY_OF_WEEK)
+        val hour = cal.get(java.util.Calendar.HOUR_OF_DAY)
+        val minute = cal.get(java.util.Calendar.MINUTE)
+        val timeInMinutes = hour * 60 + minute
+        
+        if (dayOfWeek == java.util.Calendar.SATURDAY || dayOfWeek == java.util.Calendar.SUNDAY) {
+            return false
+        }
+        
+        // Regular hours: 9:30 AM - 4:00 PM ET
+        val regularOpen = 9 * 60 + 30  // 9:30 AM = 570 minutes
+        val regularClose = 16 * 60     // 4:00 PM = 960 minutes
+        
+        return timeInMinutes in regularOpen..regularClose
+    }
+    
+    /**
+     * Get human-readable market status
+     */
+    fun getMarketStatus(): String {
+        return when {
+            isRegularTradingHours() -> "OPEN"
+            isStockMarketOpen() -> "EXTENDED"
+            else -> "CLOSED"
+        }
+    }
+    
+    // ═══════════════════════════════════════════════════════════════════════════
     // STATE
     // ═══════════════════════════════════════════════════════════════════════════
     
@@ -334,8 +400,19 @@ object TokenizedStockTrader {
         scanCount.incrementAndGet()
         val scanNum = scanCount.get()
         
+        // V5.7.7: Check market hours - don't open new stock positions when market is closed
+        val marketStatus = getMarketStatus()
+        if (marketStatus == "CLOSED") {
+            ErrorLogger.info(TAG, "📈 SCAN #$scanNum SKIPPED - US Stock Market is CLOSED (Weekend or After 8PM ET)")
+            ErrorLogger.info(TAG, "📈 Existing positions: ${positions.size} | Will monitor but not open new trades")
+            // Still monitor existing positions for TP/SL, but don't scan for new ones
+            return
+        }
+        
+        val marketHoursNote = if (marketStatus == "EXTENDED") " (EXTENDED HOURS - lower liquidity)" else ""
+        
         ErrorLogger.error(TAG, "📈 ═══════════════════════════════════════════════════")
-        ErrorLogger.error(TAG, "📈 STOCK SCAN #$scanNum STARTING")
+        ErrorLogger.error(TAG, "📈 STOCK SCAN #$scanNum STARTING$marketHoursNote")
         ErrorLogger.error(TAG, "📈 positions=${positions.size}/$MAX_STOCK_POSITIONS | balance=${"%.2f".format(getBalance())} SOL")
         ErrorLogger.error(TAG, "📈 ═══════════════════════════════════════════════════")
         

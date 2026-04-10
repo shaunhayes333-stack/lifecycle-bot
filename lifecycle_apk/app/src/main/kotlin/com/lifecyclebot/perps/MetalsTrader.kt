@@ -147,6 +147,15 @@ object MetalsTrader {
     private suspend fun runScanCycle() {
         scanCount.incrementAndGet()
         val scanNum = scanCount.get()
+
+        // V5.7.7: Check if weekend (metals markets closed on weekends)
+        val cal = java.util.Calendar.getInstance()
+        val dayOfWeek = cal.get(java.util.Calendar.DAY_OF_WEEK)
+        if (dayOfWeek == java.util.Calendar.SATURDAY || dayOfWeek == java.util.Calendar.SUNDAY) {
+            ErrorLogger.info(TAG, "🥇 SCAN #$scanNum SKIPPED - Metals markets CLOSED (Weekend)")
+            return
+        }
+
         
         val totalPositions = spotPositions.size + leveragePositions.size
         ErrorLogger.error(TAG, "🥇 ═══════════════════════════════════════════════")
