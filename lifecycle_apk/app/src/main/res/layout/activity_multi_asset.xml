@@ -512,12 +512,23 @@
                                 android:textSize="13sp"
                                 android:textStyle="bold"/>
                             <TextView
+                                android:id="@+id/btnCloseAll"
+                                android:layout_width="wrap_content"
+                                android:layout_height="wrap_content"
+                                android:text="Close All"
+                                android:textColor="#FF4444"
+                                android:textSize="10sp"
+                                android:padding="4dp"
+                                android:clickable="true"
+                                android:focusable="true"/>
+                            <TextView
                                 android:id="@+id/tvPositionCount"
                                 android:layout_width="wrap_content"
                                 android:layout_height="wrap_content"
                                 android:text="0 open"
                                 android:textColor="#6B7280"
-                                android:textSize="11sp"/>
+                                android:textSize="11sp"
+                                android:layout_marginStart="8dp"/>
                         </LinearLayout>
 
                         <!-- Positions will be added here dynamically -->
@@ -537,6 +548,198 @@
                                 android:textSize="12sp"
                                 android:gravity="center"
                                 android:padding="20dp"/>
+                        </LinearLayout>
+                    </LinearLayout>
+
+                    <!-- ═══════════════════════════════════════════════════
+                         TOP MOVERS (Hot assets in current category)
+                         ═══════════════════════════════════════════════════ -->
+                    <LinearLayout
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:orientation="vertical"
+                        android:background="@drawable/section_card_bg"
+                        android:padding="12dp"
+                        android:layout_marginBottom="12dp">
+
+                        <LinearLayout
+                            android:layout_width="match_parent"
+                            android:layout_height="wrap_content"
+                            android:orientation="horizontal"
+                            android:gravity="center_vertical"
+                            android:layout_marginBottom="8dp">
+                            <TextView
+                                android:layout_width="wrap_content"
+                                android:layout_height="wrap_content"
+                                android:text="🔥"
+                                android:textSize="14sp"
+                                android:layout_marginEnd="6dp"/>
+                            <TextView
+                                android:layout_width="0dp"
+                                android:layout_height="wrap_content"
+                                android:layout_weight="1"
+                                android:text="Top Movers"
+                                android:textColor="#FFFFFF"
+                                android:textSize="13sp"
+                                android:textStyle="bold"/>
+                            <TextView
+                                android:id="@+id/tvTopMoversTime"
+                                android:layout_width="wrap_content"
+                                android:layout_height="wrap_content"
+                                android:text="24h"
+                                android:textColor="#6B7280"
+                                android:textSize="10sp"/>
+                        </LinearLayout>
+
+                        <!-- Top Movers Horizontal Scroll -->
+                        <HorizontalScrollView
+                            android:layout_width="match_parent"
+                            android:layout_height="wrap_content"
+                            android:scrollbars="none">
+                            <LinearLayout
+                                android:id="@+id/topMoversContainer"
+                                android:layout_width="wrap_content"
+                                android:layout_height="wrap_content"
+                                android:orientation="horizontal">
+                                <!-- Top movers added dynamically -->
+                            </LinearLayout>
+                        </HorizontalScrollView>
+                    </LinearLayout>
+
+                    <!-- ═══════════════════════════════════════════════════
+                         AI SIGNALS PANEL
+                         ═══════════════════════════════════════════════════ -->
+                    <LinearLayout
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:orientation="vertical"
+                        android:background="@drawable/section_card_bg"
+                        android:padding="12dp"
+                        android:layout_marginBottom="12dp">
+
+                        <LinearLayout
+                            android:layout_width="match_parent"
+                            android:layout_height="wrap_content"
+                            android:orientation="horizontal"
+                            android:gravity="center_vertical"
+                            android:layout_marginBottom="8dp">
+                            <TextView
+                                android:layout_width="wrap_content"
+                                android:layout_height="wrap_content"
+                                android:text="🤖"
+                                android:textSize="14sp"
+                                android:layout_marginEnd="6dp"/>
+                            <TextView
+                                android:layout_width="0dp"
+                                android:layout_height="wrap_content"
+                                android:layout_weight="1"
+                                android:text="AI Signals"
+                                android:textColor="#FFFFFF"
+                                android:textSize="13sp"
+                                android:textStyle="bold"/>
+                            <View
+                                android:id="@+id/aiSignalDot"
+                                android:layout_width="8dp"
+                                android:layout_height="8dp"
+                                android:background="@drawable/dot_green"
+                                android:layout_marginEnd="4dp"/>
+                            <TextView
+                                android:id="@+id/tvAiSignalStatus"
+                                android:layout_width="wrap_content"
+                                android:layout_height="wrap_content"
+                                android:text="Scanning..."
+                                android:textColor="#00FF88"
+                                android:textSize="10sp"/>
+                        </LinearLayout>
+
+                        <!-- AI Signal Cards -->
+                        <LinearLayout
+                            android:id="@+id/aiSignalsContainer"
+                            android:layout_width="match_parent"
+                            android:layout_height="wrap_content"
+                            android:orientation="vertical">
+                            <TextView
+                                android:id="@+id/tvNoAiSignals"
+                                android:layout_width="match_parent"
+                                android:layout_height="wrap_content"
+                                android:text="AI analyzing markets..."
+                                android:textColor="#6B7280"
+                                android:textSize="11sp"
+                                android:gravity="center"
+                                android:padding="12dp"/>
+                        </LinearLayout>
+                    </LinearLayout>
+
+                    <!-- ═══════════════════════════════════════════════════
+                         SECTOR HEATMAP
+                         ═══════════════════════════════════════════════════ -->
+                    <LinearLayout
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:orientation="vertical"
+                        android:background="@drawable/section_card_bg"
+                        android:padding="12dp"
+                        android:layout_marginBottom="12dp">
+
+                        <LinearLayout
+                            android:layout_width="match_parent"
+                            android:layout_height="wrap_content"
+                            android:orientation="horizontal"
+                            android:gravity="center_vertical"
+                            android:layout_marginBottom="8dp">
+                            <TextView
+                                android:layout_width="wrap_content"
+                                android:layout_height="wrap_content"
+                                android:text="🗺️"
+                                android:textSize="14sp"
+                                android:layout_marginEnd="6dp"/>
+                            <TextView
+                                android:layout_width="0dp"
+                                android:layout_height="wrap_content"
+                                android:layout_weight="1"
+                                android:text="Sector Heatmap"
+                                android:textColor="#FFFFFF"
+                                android:textSize="13sp"
+                                android:textStyle="bold"/>
+                        </LinearLayout>
+
+                        <!-- Heatmap Grid -->
+                        <LinearLayout
+                            android:id="@+id/heatmapContainer"
+                            android:layout_width="match_parent"
+                            android:layout_height="wrap_content"
+                            android:orientation="vertical">
+                            <!-- Row 1 -->
+                            <LinearLayout
+                                android:layout_width="match_parent"
+                                android:layout_height="wrap_content"
+                                android:orientation="horizontal"
+                                android:layout_marginBottom="4dp">
+                                <TextView android:id="@+id/heatTech" android:layout_width="0dp" android:layout_height="40dp" android:layout_weight="1"
+                                    android:text="TECH\n+2.1%" android:textColor="#FFFFFF" android:textSize="9sp" android:gravity="center"
+                                    android:background="#1A10B981" android:layout_marginEnd="4dp"/>
+                                <TextView android:id="@+id/heatFinance" android:layout_width="0dp" android:layout_height="40dp" android:layout_weight="1"
+                                    android:text="FINANCE\n-0.8%" android:textColor="#FFFFFF" android:textSize="9sp" android:gravity="center"
+                                    android:background="#1AEF4444" android:layout_marginEnd="4dp"/>
+                                <TextView android:id="@+id/heatEnergy" android:layout_width="0dp" android:layout_height="40dp" android:layout_weight="1"
+                                    android:text="ENERGY\n+1.2%" android:textColor="#FFFFFF" android:textSize="9sp" android:gravity="center"
+                                    android:background="#1A10B981"/>
+                            </LinearLayout>
+                            <!-- Row 2 -->
+                            <LinearLayout
+                                android:layout_width="match_parent"
+                                android:layout_height="wrap_content"
+                                android:orientation="horizontal">
+                                <TextView android:id="@+id/heatMetals" android:layout_width="0dp" android:layout_height="40dp" android:layout_weight="1"
+                                    android:text="METALS\n+0.5%" android:textColor="#FFFFFF" android:textSize="9sp" android:gravity="center"
+                                    android:background="#1A10B981" android:layout_marginEnd="4dp"/>
+                                <TextView android:id="@+id/heatForex" android:layout_width="0dp" android:layout_height="40dp" android:layout_weight="1"
+                                    android:text="FOREX\n-0.2%" android:textColor="#FFFFFF" android:textSize="9sp" android:gravity="center"
+                                    android:background="#1AEF4444" android:layout_marginEnd="4dp"/>
+                                <TextView android:id="@+id/heatCrypto" android:layout_width="0dp" android:layout_height="40dp" android:layout_weight="1"
+                                    android:text="CRYPTO\n+3.5%" android:textColor="#FFFFFF" android:textSize="9sp" android:gravity="center"
+                                    android:background="#2010B981"/>
+                            </LinearLayout>
                         </LinearLayout>
                     </LinearLayout>
 

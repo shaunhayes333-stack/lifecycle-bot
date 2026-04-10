@@ -88,6 +88,31 @@ class MultiAssetActivity : AppCompatActivity() {
     private lateinit var dotForex: View
     private lateinit var dotPerps: View
     
+    // New UI elements
+    private lateinit var topMoversContainer: LinearLayout
+    private lateinit var aiSignalsContainer: LinearLayout
+    private lateinit var tvNoAiSignals: TextView
+    private lateinit var aiSignalDot: View
+    private lateinit var tvAiSignalStatus: TextView
+    private lateinit var heatTech: TextView
+    private lateinit var heatFinance: TextView
+    private lateinit var heatEnergy: TextView
+    private lateinit var heatMetals: TextView
+    private lateinit var heatForex: TextView
+    private lateinit var heatCrypto: TextView
+    
+    // Asset logos mapping
+    private val assetLogos = mapOf(
+        "AAPL" to "🍎", "MSFT" to "🪟", "GOOGL" to "🔍", "AMZN" to "📦", "TSLA" to "⚡",
+        "NVDA" to "🎮", "META" to "👤", "NFLX" to "🎬", "AMD" to "💻", "INTC" to "🔲",
+        "COIN" to "🪙", "SQ" to "⬜", "PYPL" to "💳", "V" to "💳", "MA" to "💳",
+        "JPM" to "🏦", "GS" to "🏛️", "BAC" to "🏦", "WFC" to "🏦", "C" to "🏦",
+        "XAU" to "🥇", "XAG" to "🥈", "XPT" to "⚪", "XPD" to "⚫", "XCU" to "🟤",
+        "WTI" to "🛢️", "BRENT" to "🛢️", "NATGAS" to "🔥", "WHEAT" to "🌾", "CORN" to "🌽",
+        "EUR" to "🇪🇺", "GBP" to "🇬🇧", "JPY" to "🇯🇵", "AUD" to "🇦🇺", "CAD" to "🇨🇦",
+        "SOL" to "◎", "BTC" to "₿", "ETH" to "⟠"
+    )
+    
     // ═══════════════════════════════════════════════════════════════════════════
     // LIFECYCLE
     // ═══════════════════════════════════════════════════════════════════════════
@@ -152,6 +177,24 @@ class MultiAssetActivity : AppCompatActivity() {
         tvPositionCount = findViewById(R.id.tvPositionCount)
         positionsContainer = findViewById(R.id.positionsContainer)
         tvNoPositions = findViewById(R.id.tvNoPositions)
+        findViewById<View>(R.id.btnCloseAll).setOnClickListener { showCloseAllDialog() }
+        
+        // Top Movers
+        topMoversContainer = findViewById(R.id.topMoversContainer)
+        
+        // AI Signals
+        aiSignalsContainer = findViewById(R.id.aiSignalsContainer)
+        tvNoAiSignals = findViewById(R.id.tvNoAiSignals)
+        aiSignalDot = findViewById(R.id.aiSignalDot)
+        tvAiSignalStatus = findViewById(R.id.tvAiSignalStatus)
+        
+        // Sector Heatmap
+        heatTech = findViewById(R.id.heatTech)
+        heatFinance = findViewById(R.id.heatFinance)
+        heatEnergy = findViewById(R.id.heatEnergy)
+        heatMetals = findViewById(R.id.heatMetals)
+        heatForex = findViewById(R.id.heatForex)
+        heatCrypto = findViewById(R.id.heatCrypto)
         
         // Signals
         signalsContainer = findViewById(R.id.signalsContainer)
@@ -233,6 +276,9 @@ class MultiAssetActivity : AppCompatActivity() {
             updateCategoryHeader()
             updateModeToggle()
             updatePositions()
+            updateTopMovers()
+            updateAiSignals()
+            updateSectorHeatmap()
             updateEngineStatus()
         }
     }
@@ -374,7 +420,337 @@ class MultiAssetActivity : AppCompatActivity() {
     private fun createPositionCard(pos: PositionInfo): View {
         val card = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
-            setPadding(8, 8, 8, 8)
+            setPadding(12, 12, 12, 12)
+            setBackgroundResource(R.drawable.section_card_bg)
+            layoutParams = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT
+            ).apply {
+                bottomMargin = 8
+            }
+            isClickable = true
+            isFocusable = true
+        }
+        
+        // Asset Logo
+        val logoView = TextView(this).apply {
+            text = getAssetLogo(pos.symbol)
+            textSize = 24f
+            layoutParams = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.WRAP_CONTENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT
+            ).apply {
+                marginEnd = 12
+            }
+            gravity = android.view.Gravity.CENTER
+        }
+        card.addView(logoView)
+        
+        // Middle Column: Symbol + Direction + Entry
+        val middleCol = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
+        }
+        middleCol.addView(TextView(this).apply {
+            text = "${pos.directionEmoji} ${pos.symbol}"
+            setTextColor(0xFFFFFFFF.toInt())
+            textSize = 14f
+            setTypeface(null, android.graphics.Typeface.BOLD)
+        })
+        middleCol.addView(TextView(this).apply {
+            text = "${pos.typeLabel} @ ${pos.entryPrice}"
+            setTextColor(0xFF6B7280.toInt())
+            textSize = 10f
+        })
+        // Mini sparkline placeholder
+        middleCol.addView(createMiniChart(pos.pnlPct))
+        card.addView(middleCol)
+        
+        // Right Column: P&L + Close Button
+        val rightCol = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            gravity = android.view.Gravity.END or android.view.Gravity.CENTER_VERTICAL
+        }
+        rightCol.addView(TextView(this).apply {
+            text = "${if (pos.pnl >= 0) "+" else ""}${"%.4f".format(pos.pnl)} ◎"
+            setTextColor(if (pos.pnl >= 0) 0xFF00FF88.toInt() else 0xFFFF4444.toInt())
+            textSize = 13f
+            setTypeface(null, android.graphics.Typeface.BOLD)
+        })
+        rightCol.addView(TextView(this).apply {
+            text = "${if (pos.pnlPct >= 0) "+" else ""}${"%.2f".format(pos.pnlPct)}%"
+            setTextColor(if (pos.pnlPct >= 0) 0xFF10B981.toInt() else 0xFFEF4444.toInt())
+            textSize = 11f
+        })
+        // Close button
+        rightCol.addView(TextView(this).apply {
+            text = "✕ Close"
+            setTextColor(0xFFFF6B6B.toInt())
+            textSize = 9f
+            setPadding(8, 4, 8, 4)
+            setOnClickListener { showClosePositionDialog(pos) }
+        })
+        card.addView(rightCol)
+        
+        // Click to expand details
+        card.setOnClickListener { showPositionDetails(pos) }
+        
+        return card
+    }
+    
+    private fun createMiniChart(pnlPct: Double): View {
+        // Simple visual indicator of position performance
+        return LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            layoutParams = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                8
+            ).apply {
+                topMargin = 4
+            }
+            
+            // Create a simple bar chart
+            val barWidth = (kotlin.math.abs(pnlPct).coerceIn(0.0, 20.0) / 20.0 * 100).toInt()
+            val barColor = if (pnlPct >= 0) 0xFF00FF88.toInt() else 0xFFFF4444.toInt()
+            
+            addView(View(this@MultiAssetActivity).apply {
+                layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.MATCH_PARENT, barWidth.toFloat())
+                setBackgroundColor(barColor)
+            })
+            addView(View(this@MultiAssetActivity).apply {
+                layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.MATCH_PARENT, (100 - barWidth).toFloat())
+                setBackgroundColor(0x20FFFFFF)
+            })
+        }
+    }
+    
+    private fun getAssetLogo(symbol: String): String {
+        // Try exact match first
+        assetLogos[symbol]?.let { return it }
+        // Try partial match for forex pairs
+        assetLogos.keys.find { symbol.contains(it) }?.let { return assetLogos[it]!! }
+        // Default based on category
+        return when {
+            symbol.contains("USD") || symbol.contains("EUR") || symbol.contains("GBP") -> "💱"
+            symbol.contains("XAU") || symbol.contains("GOLD") -> "🥇"
+            symbol.contains("XAG") || symbol.contains("SILVER") -> "🥈"
+            symbol.contains("OIL") || symbol.contains("WTI") || symbol.contains("BRENT") -> "🛢️"
+            else -> "📈"
+        }
+    }
+    
+    private fun showClosePositionDialog(pos: PositionInfo) {
+        val builder = android.app.AlertDialog.Builder(this, R.style.DarkDialogTheme)
+        builder.setTitle("Close Position")
+        builder.setMessage("Close ${pos.symbol} position?\n\nCurrent P&L: ${if (pos.pnl >= 0) "+" else ""}${"%.4f".format(pos.pnl)} SOL (${if (pos.pnlPct >= 0) "+" else ""}${"%.2f".format(pos.pnlPct)}%)")
+        builder.setPositiveButton("Close Position") { _, _ ->
+            android.widget.Toast.makeText(this, "Closing ${pos.symbol}...", android.widget.Toast.LENGTH_SHORT).show()
+            // TODO: Implement actual position close
+        }
+        builder.setNegativeButton("Cancel", null)
+        builder.show()
+    }
+    
+    private fun showCloseAllDialog() {
+        val count = getCurrentPositionCount()
+        if (count == 0) {
+            android.widget.Toast.makeText(this, "No positions to close", android.widget.Toast.LENGTH_SHORT).show()
+            return
+        }
+        
+        val builder = android.app.AlertDialog.Builder(this, R.style.DarkDialogTheme)
+        builder.setTitle("⚠️ Close All Positions")
+        builder.setMessage("Are you sure you want to close ALL $count positions?\n\nThis action cannot be undone.")
+        builder.setPositiveButton("Close All") { _, _ ->
+            android.widget.Toast.makeText(this, "Closing all positions...", android.widget.Toast.LENGTH_SHORT).show()
+            // TODO: Implement close all
+        }
+        builder.setNegativeButton("Cancel", null)
+        builder.show()
+    }
+    
+    private fun showPositionDetails(pos: PositionInfo) {
+        val builder = android.app.AlertDialog.Builder(this, R.style.DarkDialogTheme)
+        builder.setTitle("${getAssetLogo(pos.symbol)} ${pos.symbol}")
+        builder.setMessage("""
+            |Direction: ${pos.directionEmoji} ${if (pos.directionEmoji.contains("📈") || pos.directionEmoji.contains("🟢")) "LONG" else "SHORT"}
+            |Type: ${pos.typeLabel}
+            |Entry: ${pos.entryPrice}
+            |
+            |Current P&L: ${if (pos.pnl >= 0) "+" else ""}${"%.4f".format(pos.pnl)} SOL
+            |Percent: ${if (pos.pnlPct >= 0) "+" else ""}${"%.2f".format(pos.pnlPct)}%
+            |
+            |Status: ${if (pos.pnl >= 0) "✅ In Profit" else "⚠️ In Loss"}
+        """.trimMargin())
+        builder.setPositiveButton("Close Position") { _, _ ->
+            showClosePositionDialog(pos)
+        }
+        builder.setNeutralButton("Add to Position") { _, _ ->
+            android.widget.Toast.makeText(this, "Add to position coming soon", android.widget.Toast.LENGTH_SHORT).show()
+        }
+        builder.setNegativeButton("Close", null)
+        builder.show()
+    }
+    
+    // ═══════════════════════════════════════════════════════════════════════════
+    // TOP MOVERS
+    // ═══════════════════════════════════════════════════════════════════════════
+    
+    private fun updateTopMovers() {
+        topMoversContainer.removeAllViews()
+        
+        // Get top movers for current category
+        val movers = getTopMoversForCategory()
+        
+        movers.take(6).forEach { mover ->
+            val card = createMoverCard(mover)
+            topMoversContainer.addView(card)
+        }
+    }
+    
+    data class MoverInfo(
+        val symbol: String,
+        val price: Double,
+        val change24h: Double
+    )
+    
+    private fun getTopMoversForCategory(): List<MoverInfo> {
+        // Mock data - in real implementation, fetch from price data
+        return when (currentTab) {
+            AssetTab.STOCKS -> listOf(
+                MoverInfo("NVDA", 142.50, 4.2),
+                MoverInfo("TSLA", 248.30, 3.1),
+                MoverInfo("COIN", 285.40, -2.8),
+                MoverInfo("AAPL", 178.20, 1.5),
+                MoverInfo("AMD", 156.80, 2.3),
+                MoverInfo("META", 512.30, -1.2)
+            )
+            AssetTab.COMMODITIES -> listOf(
+                MoverInfo("WTI", 78.50, 2.1),
+                MoverInfo("NATGAS", 2.45, -3.5),
+                MoverInfo("WHEAT", 5.82, 1.8),
+                MoverInfo("CORN", 4.52, 0.9)
+            )
+            AssetTab.METALS -> listOf(
+                MoverInfo("XAU", 2045.50, 0.8),
+                MoverInfo("XAG", 24.30, 1.2),
+                MoverInfo("XPT", 1025.00, -0.5),
+                MoverInfo("XCU", 3.85, 2.1)
+            )
+            AssetTab.FOREX -> listOf(
+                MoverInfo("EUR/USD", 1.0875, 0.3),
+                MoverInfo("GBP/USD", 1.2650, -0.2),
+                MoverInfo("USD/JPY", 149.50, 0.5),
+                MoverInfo("AUD/USD", 0.6520, -0.8)
+            )
+            AssetTab.PERPS -> listOf(
+                MoverInfo("SOL", 185.50, 5.2),
+                MoverInfo("BTC", 67500.0, 2.1),
+                MoverInfo("ETH", 3450.0, 1.8)
+            )
+        }
+    }
+    
+    private fun createMoverCard(mover: MoverInfo): View {
+        return LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(12, 8, 12, 8)
+            setBackgroundResource(R.drawable.section_card_bg)
+            layoutParams = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.WRAP_CONTENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT
+            ).apply {
+                marginEnd = 8
+            }
+            minimumWidth = 90
+            
+            // Logo + Symbol
+            addView(LinearLayout(this@MultiAssetActivity).apply {
+                orientation = LinearLayout.HORIZONTAL
+                gravity = android.view.Gravity.CENTER_VERTICAL
+                addView(TextView(this@MultiAssetActivity).apply {
+                    text = getAssetLogo(mover.symbol)
+                    textSize = 16f
+                })
+                addView(TextView(this@MultiAssetActivity).apply {
+                    text = mover.symbol
+                    setTextColor(0xFFFFFFFF.toInt())
+                    textSize = 11f
+                    setTypeface(null, android.graphics.Typeface.BOLD)
+                    setPadding(4, 0, 0, 0)
+                })
+            })
+            
+            // Price
+            addView(TextView(this@MultiAssetActivity).apply {
+                text = if (mover.price > 1000) "${"%.0f".format(mover.price)}" else "${"%.2f".format(mover.price)}"
+                setTextColor(0xFFFFFFFF.toInt())
+                textSize = 12f
+            })
+            
+            // Change
+            addView(TextView(this@MultiAssetActivity).apply {
+                text = "${if (mover.change24h >= 0) "+" else ""}${"%.1f".format(mover.change24h)}%"
+                setTextColor(if (mover.change24h >= 0) 0xFF00FF88.toInt() else 0xFFFF4444.toInt())
+                textSize = 10f
+            })
+        }
+    }
+    
+    // ═══════════════════════════════════════════════════════════════════════════
+    // AI SIGNALS
+    // ═══════════════════════════════════════════════════════════════════════════
+    
+    private fun updateAiSignals() {
+        aiSignalsContainer.removeAllViews()
+        
+        // Get AI signals
+        val signals = getAiSignals()
+        
+        if (signals.isEmpty()) {
+            aiSignalsContainer.addView(tvNoAiSignals)
+            tvAiSignalStatus.text = "Scanning..."
+            aiSignalDot.setBackgroundResource(R.drawable.dot_green)
+            return
+        }
+        
+        tvAiSignalStatus.text = "${signals.size} signals"
+        aiSignalDot.setBackgroundResource(R.drawable.dot_green)
+        
+        signals.take(5).forEach { signal ->
+            val card = createSignalCard(signal)
+            aiSignalsContainer.addView(card)
+        }
+    }
+    
+    data class AiSignal(
+        val symbol: String,
+        val direction: String,
+        val score: Int,
+        val confidence: Int,
+        val reason: String
+    )
+    
+    private fun getAiSignals(): List<AiSignal> {
+        // Get real signals from traders based on current tab
+        return try {
+            when (currentTab) {
+                AssetTab.STOCKS -> {
+                    // Mock signals - in real implementation, get from TokenizedStockTrader
+                    listOf(
+                        AiSignal("NVDA", "LONG", 78, 72, "Momentum breakout + volume surge"),
+                        AiSignal("TSLA", "LONG", 65, 58, "Support bounce + bullish RSI")
+                    )
+                }
+                else -> emptyList()
+            }
+        } catch (_: Exception) { emptyList() }
+    }
+    
+    private fun createSignalCard(signal: AiSignal): View {
+        return LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            setPadding(10, 10, 10, 10)
             setBackgroundResource(R.drawable.section_card_bg)
             layoutParams = LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT,
@@ -382,43 +758,100 @@ class MultiAssetActivity : AppCompatActivity() {
             ).apply {
                 bottomMargin = 6
             }
+            gravity = android.view.Gravity.CENTER_VERTICAL
+            
+            // Logo
+            addView(TextView(this@MultiAssetActivity).apply {
+                text = getAssetLogo(signal.symbol)
+                textSize = 20f
+                layoutParams = LinearLayout.LayoutParams(
+                    LinearLayout.LayoutParams.WRAP_CONTENT,
+                    LinearLayout.LayoutParams.WRAP_CONTENT
+                ).apply { marginEnd = 10 }
+            })
+            
+            // Info
+            addView(LinearLayout(this@MultiAssetActivity).apply {
+                orientation = LinearLayout.VERTICAL
+                layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
+                
+                addView(TextView(this@MultiAssetActivity).apply {
+                    text = "${if (signal.direction == "LONG") "📈" else "📉"} ${signal.symbol} ${signal.direction}"
+                    setTextColor(0xFFFFFFFF.toInt())
+                    textSize = 12f
+                    setTypeface(null, android.graphics.Typeface.BOLD)
+                })
+                addView(TextView(this@MultiAssetActivity).apply {
+                    text = signal.reason
+                    setTextColor(0xFF6B7280.toInt())
+                    textSize = 9f
+                    maxLines = 1
+                })
+            })
+            
+            // Score
+            addView(LinearLayout(this@MultiAssetActivity).apply {
+                orientation = LinearLayout.VERTICAL
+                gravity = android.view.Gravity.END
+                
+                addView(TextView(this@MultiAssetActivity).apply {
+                    text = "${signal.score}"
+                    setTextColor(when {
+                        signal.score >= 70 -> 0xFF00FF88.toInt()
+                        signal.score >= 50 -> 0xFFF59E0B.toInt()
+                        else -> 0xFFFF4444.toInt()
+                    })
+                    textSize = 16f
+                    setTypeface(null, android.graphics.Typeface.BOLD)
+                })
+                addView(TextView(this@MultiAssetActivity).apply {
+                    text = "score"
+                    setTextColor(0xFF6B7280.toInt())
+                    textSize = 8f
+                })
+            })
         }
+    }
+    
+    // ═══════════════════════════════════════════════════════════════════════════
+    // SECTOR HEATMAP
+    // ═══════════════════════════════════════════════════════════════════════════
+    
+    private fun updateSectorHeatmap() {
+        // Update heatmap colors based on sector performance
+        val sectors = getSectorPerformance()
         
-        // Symbol + Direction
-        val leftCol = LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL
-            layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
+        updateHeatCell(heatTech, "TECH", sectors["TECH"] ?: 0.0)
+        updateHeatCell(heatFinance, "FINANCE", sectors["FINANCE"] ?: 0.0)
+        updateHeatCell(heatEnergy, "ENERGY", sectors["ENERGY"] ?: 0.0)
+        updateHeatCell(heatMetals, "METALS", sectors["METALS"] ?: 0.0)
+        updateHeatCell(heatForex, "FOREX", sectors["FOREX"] ?: 0.0)
+        updateHeatCell(heatCrypto, "CRYPTO", sectors["CRYPTO"] ?: 0.0)
+    }
+    
+    private fun getSectorPerformance(): Map<String, Double> {
+        // Mock data - in real implementation, calculate from live prices
+        return mapOf(
+            "TECH" to 2.1,
+            "FINANCE" to -0.8,
+            "ENERGY" to 1.2,
+            "METALS" to 0.5,
+            "FOREX" to -0.2,
+            "CRYPTO" to 3.5
+        )
+    }
+    
+    private fun updateHeatCell(view: TextView, label: String, change: Double) {
+        view.text = "$label\n${if (change >= 0) "+" else ""}${"%.1f".format(change)}%"
+        
+        // Color intensity based on change magnitude
+        val intensity = (kotlin.math.abs(change) / 5.0).coerceIn(0.1, 0.4)
+        val color = if (change >= 0) {
+            android.graphics.Color.argb((intensity * 255).toInt(), 16, 185, 129) // Green
+        } else {
+            android.graphics.Color.argb((intensity * 255).toInt(), 239, 68, 68) // Red
         }
-        leftCol.addView(TextView(this).apply {
-            text = "${pos.directionEmoji} ${pos.symbol}"
-            setTextColor(0xFFFFFFFF.toInt())
-            textSize = 13f
-        })
-        leftCol.addView(TextView(this).apply {
-            text = "${pos.typeLabel} @ ${pos.entryPrice}"
-            setTextColor(0xFF6B7280.toInt())
-            textSize = 10f
-        })
-        card.addView(leftCol)
-        
-        // P&L
-        val rightCol = LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL
-            gravity = android.view.Gravity.END
-        }
-        rightCol.addView(TextView(this).apply {
-            text = "${if (pos.pnl >= 0) "+" else ""}${"%.4f".format(pos.pnl)} ◎"
-            setTextColor(if (pos.pnl >= 0) 0xFF00FF88.toInt() else 0xFFFF4444.toInt())
-            textSize = 12f
-        })
-        rightCol.addView(TextView(this).apply {
-            text = "${if (pos.pnlPct >= 0) "+" else ""}${"%.2f".format(pos.pnlPct)}%"
-            setTextColor(0xFF6B7280.toInt())
-            textSize = 10f
-        })
-        card.addView(rightCol)
-        
-        return card
+        view.setBackgroundColor(color)
     }
     
     private fun updateEngineStatus() {
