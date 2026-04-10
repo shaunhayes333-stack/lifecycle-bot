@@ -714,6 +714,56 @@ object FluidLearningAI {
     fun getTreasuryScoreThreshold(): Int = lerp(TREASURY_SCORE_BOOTSTRAP.toDouble(), TREASURY_SCORE_MATURE.toDouble()).toInt()
     
     // ═══════════════════════════════════════════════════════════════════════════
+    // MULTI-MARKET TRADING THRESHOLDS (Used by TokenizedStockTrader, CommoditiesTrader, etc.)
+    // V5.7.6: Dynamic thresholds for SPOT and LEVERAGE trading
+    // ═══════════════════════════════════════════════════════════════════════════
+    
+    // SPOT trading thresholds (lower risk)
+    private const val MARKETS_SPOT_SCORE_BOOTSTRAP = 25
+    private const val MARKETS_SPOT_SCORE_MATURE = 40
+    private const val MARKETS_SPOT_CONF_BOOTSTRAP = 20
+    private const val MARKETS_SPOT_CONF_MATURE = 35
+    
+    // LEVERAGE trading thresholds (higher risk, slightly stricter)
+    private const val MARKETS_LEV_SCORE_BOOTSTRAP = 30
+    private const val MARKETS_LEV_SCORE_MATURE = 50
+    private const val MARKETS_LEV_CONF_BOOTSTRAP = 25
+    private const val MARKETS_LEV_CONF_MATURE = 40
+    
+    // Take Profit targets (wider during learning, tighter when mature)
+    private const val MARKETS_TP_BOOTSTRAP = 3.0    // 3% TP during learning (quick wins)
+    private const val MARKETS_TP_MATURE = 8.0       // 8% TP when mature (let winners run)
+    
+    // Stop Loss targets (wider during learning)
+    private const val MARKETS_SL_BOOTSTRAP = -8.0   // -8% SL during learning (room to breathe)
+    private const val MARKETS_SL_MATURE = -4.0      // -4% SL when mature (tighter risk)
+    
+    // Position size as % of balance
+    private const val MARKETS_SIZE_BOOTSTRAP = 3.0  // 3% per position during learning
+    private const val MARKETS_SIZE_MATURE = 5.0     // 5% per position when mature
+    
+    /** Get fluid score threshold for SPOT trades */
+    fun getMarketsSpotScoreThreshold(): Int = lerp(MARKETS_SPOT_SCORE_BOOTSTRAP.toDouble(), MARKETS_SPOT_SCORE_MATURE.toDouble()).toInt()
+    
+    /** Get fluid confidence threshold for SPOT trades */
+    fun getMarketsSpotConfThreshold(): Int = lerp(MARKETS_SPOT_CONF_BOOTSTRAP.toDouble(), MARKETS_SPOT_CONF_MATURE.toDouble()).toInt()
+    
+    /** Get fluid score threshold for LEVERAGE trades */
+    fun getMarketsLeverageScoreThreshold(): Int = lerp(MARKETS_LEV_SCORE_BOOTSTRAP.toDouble(), MARKETS_LEV_SCORE_MATURE.toDouble()).toInt()
+    
+    /** Get fluid confidence threshold for LEVERAGE trades */
+    fun getMarketsLeverageConfThreshold(): Int = lerp(MARKETS_LEV_CONF_BOOTSTRAP.toDouble(), MARKETS_LEV_CONF_MATURE.toDouble()).toInt()
+    
+    /** Get fluid take profit target for Markets trading */
+    fun getMarketsTakeProfitPct(): Double = lerp(MARKETS_TP_BOOTSTRAP, MARKETS_TP_MATURE)
+    
+    /** Get fluid stop loss target for Markets trading */
+    fun getMarketsStopLossPct(): Double = lerp(MARKETS_SL_BOOTSTRAP, MARKETS_SL_MATURE)
+    
+    /** Get fluid position size for Markets trading */
+    fun getMarketsPositionSizePct(): Double = lerp(MARKETS_SIZE_BOOTSTRAP, MARKETS_SIZE_MATURE)
+    
+    // ═══════════════════════════════════════════════════════════════════════════
     // RUG FILTER THRESHOLDS (Used by HardRugPreFilter)
     // ═══════════════════════════════════════════════════════════════════════════
     

@@ -165,14 +165,19 @@ object ForexTrader {
                     continue
                 }
                 
+                // V5.7.6: Use FLUID thresholds from FluidLearningAI
+                val spotScoreThresh = FluidLearningAI.getMarketsSpotScoreThreshold()
+                val spotConfThresh = FluidLearningAI.getMarketsSpotConfThreshold()
+                val levScoreThresh = FluidLearningAI.getMarketsLeverageScoreThreshold()
+                
                 val signal = analyzeMarket(market, data)
-                if (signal != null && signal.score >= 30 && signal.confidence >= 25) {
+                if (signal != null && signal.score >= spotScoreThresh && signal.confidence >= spotConfThresh) {
                     // SPOT signal if no spot position
                     if (!spotPositions.values.any { it.market == market }) {
                         spotSignals.add(signal.copy(leverage = 1.0))
                     }
-                    // LEVERAGE signal - V5.7.6: Lower threshold to match floor (35/30) for maximum learning
-                    if (signal.score >= 35 && !leveragePositions.values.any { it.market == market }) {
+                    // LEVERAGE signal - uses fluid threshold
+                    if (signal.score >= levScoreThresh && !leveragePositions.values.any { it.market == market }) {
                         leverageSignals.add(signal.copy(leverage = 10.0))
                     }
                 }

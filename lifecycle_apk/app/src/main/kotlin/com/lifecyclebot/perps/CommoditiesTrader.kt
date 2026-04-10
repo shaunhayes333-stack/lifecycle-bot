@@ -181,19 +181,24 @@ object CommoditiesTrader {
                     continue
                 }
                 
+                // V5.7.6: Use FLUID thresholds from FluidLearningAI
+                val spotScoreThresh = FluidLearningAI.getMarketsSpotScoreThreshold()
+                val spotConfThresh = FluidLearningAI.getMarketsSpotConfThreshold()
+                val levScoreThresh = FluidLearningAI.getMarketsLeverageScoreThreshold()
+                val levConfThresh = FluidLearningAI.getMarketsLeverageConfThreshold()
+                
                 // Generate SPOT signal if no spot position
                 if (!hasSpotPosition(market)) {
                     val spotSignal = analyzeMarket(market, data, TradeType.SPOT)
-                    if (spotSignal != null && spotSignal.score >= 30 && spotSignal.confidence >= 25) {
+                    if (spotSignal != null && spotSignal.score >= spotScoreThresh && spotSignal.confidence >= spotConfThresh) {
                         spotSignals.add(spotSignal)
                     }
                 }
                 
                 // Generate LEVERAGE signal if no leverage position
-                // V5.7.6: Lower threshold to match floor (35/30) for maximum learning
                 if (!hasLeveragePosition(market)) {
                     val leverageSignal = analyzeMarket(market, data, TradeType.LEVERAGE)
-                    if (leverageSignal != null && leverageSignal.score >= 35 && leverageSignal.confidence >= 30) {
+                    if (leverageSignal != null && leverageSignal.score >= levScoreThresh && leverageSignal.confidence >= levConfThresh) {
                         leverageSignals.add(leverageSignal)
                     }
                 }

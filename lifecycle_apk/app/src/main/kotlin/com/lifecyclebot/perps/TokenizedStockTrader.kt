@@ -259,11 +259,14 @@ object TokenizedStockTrader {
                 if (signal != null) {
                     ErrorLogger.info(TAG, "📈 SIGNAL: ${market.symbol} | score=${signal.score} | conf=${signal.confidence} | dir=${signal.direction.symbol}")
                     
-                    // V5.7.6: Lower thresholds even more - score>=30, conf>=25 for maximum learning
-                    if (signal.score >= 30 && signal.confidence >= 25) {
+                    // V5.7.6: Use FLUID thresholds from FluidLearningAI
+                    val scoreThresh = FluidLearningAI.getMarketsSpotScoreThreshold()
+                    val confThresh = FluidLearningAI.getMarketsSpotConfThreshold()
+                    
+                    if (signal.score >= scoreThresh && signal.confidence >= confThresh) {
                         signals.add(signal)
                     } else {
-                        ErrorLogger.warn(TAG, "📈 ${market.symbol}: BELOW THRESHOLD (score=${signal.score}<30 or conf=${signal.confidence}<25)")
+                        ErrorLogger.warn(TAG, "📈 ${market.symbol}: BELOW FLUID THRESHOLD (score=${signal.score}<$scoreThresh or conf=${signal.confidence}<$confThresh)")
                     }
                 } else {
                     ErrorLogger.warn(TAG, "📈 ${market.symbol}: analyzeStock returned NULL")
