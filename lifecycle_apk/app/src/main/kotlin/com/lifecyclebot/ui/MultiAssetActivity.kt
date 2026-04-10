@@ -243,10 +243,10 @@ class MultiAssetActivity : AppCompatActivity() {
         tvTodayPnl.text = "${if (pnl >= 0) "+" else ""}${"%.2f".format(pnl)} ◎"
         tvTodayPnl.setTextColor(if (pnl >= 0) 0xFF00FF88.toInt() else 0xFFFF4444.toInt())
         
-        // Win rate - use learning progress as a proxy
+        // Win rate - use PerpsTraderAI stats (Markets-specific, not Meme stats)
         try {
-            val progress = com.lifecyclebot.v3.scoring.FluidLearningAI.getLearningProgress()
-            tvWinRate.text = if (progress > 0) "${"%.0f".format(progress * 100)}%" else "--"
+            val wr = com.lifecyclebot.perps.PerpsTraderAI.getLifetimeWinRatePct()
+            tvWinRate.text = if (wr > 0) "${wr}%" else "--"
         } catch (_: Exception) {
             tvWinRate.text = "--"
         }
