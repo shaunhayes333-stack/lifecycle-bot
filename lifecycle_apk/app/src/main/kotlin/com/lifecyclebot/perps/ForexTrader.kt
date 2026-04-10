@@ -416,6 +416,11 @@ object ForexTrader {
         }
         
         ErrorLogger.error(TAG, "💱 OPENED: $typeLabel ${signal.direction.emoji} ${signal.market.symbol} @ ${signal.price.fmt(5)} | size=${POSITION_SIZE_SOL}◎ | score=${signal.score}")
+        
+        // V5.7.6b: Record trade start for Markets learning counter
+        try {
+            FluidLearningAI.recordMarketsTradeStart()
+        } catch (_: Exception) {}
     }
     
     /** V5.7.6b: Execute LIVE trade via MarketsLiveExecutor */

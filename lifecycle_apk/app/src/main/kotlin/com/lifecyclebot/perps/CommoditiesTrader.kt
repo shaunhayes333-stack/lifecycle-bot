@@ -424,6 +424,11 @@ object CommoditiesTrader {
         
         val leverageStr = if (signal.tradeType == TradeType.SPOT) "1x SPOT" else "${signal.tradeType.leverage.toInt()}x LEV"
         ErrorLogger.error(TAG, "🛢️ OPENED: ${signal.tradeType.emoji} ${signal.direction.emoji} ${signal.market.symbol} @ \$${signal.price.fmt(2)} | $leverageStr | size=${POSITION_SIZE_SOL}◎ | score=${signal.score}")
+        
+        // V5.7.6b: Record trade start for Markets learning counter
+        try {
+            FluidLearningAI.recordMarketsTradeStart()
+        } catch (_: Exception) {}
     }
     
     /** V5.7.6b: Execute LIVE trade via MarketsLiveExecutor */

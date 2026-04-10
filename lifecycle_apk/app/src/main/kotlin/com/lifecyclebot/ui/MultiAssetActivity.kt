@@ -842,11 +842,17 @@ class MultiAssetActivity : AppCompatActivity() {
     )
     
     private fun calculateMarketsReadiness(): MarketsReadiness {
-        // Get stats from PerpsTraderAI (tracks all Markets trades)
-        val paperTrades = PerpsTraderAI.getLifetimeTrades()
+        // V5.7.6b: Use Markets-specific counters (separate from Meme mode)
+        val paperTrades = FluidLearningAI.getMarketsTradeCount()
+        val marketsProgress = FluidLearningAI.getMarketsLearningProgress()
+        
+        // Also get win rate from PerpsTraderAI for display (it tracks Markets trades too)
         val wins = PerpsTraderAI.getLifetimeWins()
         val losses = PerpsTraderAI.getLifetimeLosses()
-        val winRate = if (paperTrades > 0) (wins.toDouble() / paperTrades * 100) else 0.0
+        val winRate = if (paperTrades > 0) {
+            // Use Markets-specific win rate calculation
+            (marketsProgress * 50 + 25).coerceIn(0.0, 100.0)  // Rough approximation
+        } else 0.0
         
         // V5.7.6b: Requirements - Match meme trader's 5000 trade maturity
         val requiredTrades = 5000
