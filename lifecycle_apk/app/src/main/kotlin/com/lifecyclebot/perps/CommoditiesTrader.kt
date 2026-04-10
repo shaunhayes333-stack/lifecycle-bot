@@ -485,6 +485,4 @@ object CommoditiesTrader {
     fun getAllPositions(): List<CommodityPosition> = spotPositions.values.toList() + leveragePositions.values.toList()
     fun getBalance(): Double = paperBalance
     fun isRunning(): Boolean = isRunning.get()
-    
-    private fun Double.fmt(decimals: Int): String = "%.${decimals}f".format(this)
 }

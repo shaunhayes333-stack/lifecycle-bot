@@ -203,12 +203,6 @@ object ForexTrader {
             executeSignal(signal, leveragePositions, "⚡ 10x")
         }
     }
-        
-        for (signal in topSignals) {
-            if (positions.size >= MAX_POSITIONS) break
-            executeSignal(signal)
-        }
-    }
     
     private suspend fun analyzeMarket(market: PerpsMarket, data: PerpsMarketData): ForexSignal? {
         val reasons = mutableListOf<String>()
@@ -479,6 +473,4 @@ object ForexTrader {
     fun getAllPositions(): List<ForexPosition> = spotPositions.values.toList() + leveragePositions.values.toList()
     fun getBalance(): Double = paperBalance
     fun isRunning(): Boolean = isRunning.get()
-    
-    private fun Double.fmt(decimals: Int): String = "%.${decimals}f".format(this)
 }
