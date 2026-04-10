@@ -259,6 +259,18 @@ class BotService : Service() {
             ErrorLogger.error("BotService", "PerpsExecutionEngine start error: ${e.message}", e)
         }
         
+        // V5.7.5: Start TokenizedStockTrader - DEDICATED stock trading engine
+        try {
+            com.lifecyclebot.perps.TokenizedStockTrader.init(
+                fluidLearning = fluidLearningAI,
+                scorer = unifiedScorer
+            )
+            com.lifecyclebot.perps.TokenizedStockTrader.start()
+            ErrorLogger.info("BotService", "📈 TokenizedStockTrader STARTED - Dedicated Stock Trading ACTIVE")
+        } catch (e: Exception) {
+            ErrorLogger.error("BotService", "TokenizedStockTrader start error: ${e.message}", e)
+        }
+        
         // V5.7.3: Start PerpsAutoReplayLearner for CONTINUOUS learning
         try {
             com.lifecyclebot.perps.PerpsAutoReplayLearner.start()
@@ -526,6 +538,14 @@ class BotService : Service() {
             ErrorLogger.info("BotService", "⚡ PerpsExecutionEngine stopped")
         } catch (e: Exception) {
             ErrorLogger.error("BotService", "PerpsExecutionEngine stop error: ${e.message}", e)
+        }
+        
+        // V5.7.5: Stop TokenizedStockTrader
+        try {
+            com.lifecyclebot.perps.TokenizedStockTrader.stop()
+            ErrorLogger.info("BotService", "📈 TokenizedStockTrader stopped")
+        } catch (e: Exception) {
+            ErrorLogger.error("BotService", "TokenizedStockTrader stop error: ${e.message}", e)
         }
         
         // V5.7.3: Stop PerpsAutoReplayLearner

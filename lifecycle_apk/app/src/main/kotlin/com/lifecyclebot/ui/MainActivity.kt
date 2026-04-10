@@ -6473,43 +6473,35 @@ Trading outside hours may have wider spreads.
      */
     private fun updateTokenizedStocksCard() {
         try {
-            val perpsAI = com.lifecyclebot.perps.PerpsTraderAI
+            // V5.7.5: Use dedicated TokenizedStockTrader instead of PerpsTraderAI
+            val stockTrader = com.lifecyclebot.perps.TokenizedStockTrader
+            val stockPositions = stockTrader.getActivePositions()
             
-            // Only show if perps is enabled and has stock positions or explicitly shown
-            val stockPositions = perpsAI.getActivePositions().filter { it.market.isStock }
-            if (!perpsAI.isEnabled() || !perpsAI.hasAcknowledgedRisk()) {
-                cardTokenizedStocks?.visibility = View.GONE
-                return
-            }
-            
-            // Show card if has positions
-            if (stockPositions.isNotEmpty()) {
-                cardTokenizedStocks?.visibility = View.VISIBLE
-            }
+            // Always show the stocks card
+            cardTokenizedStocks?.visibility = View.VISIBLE
             
             val cfg = com.lifecyclebot.data.ConfigStore.load(applicationContext)
-            val state = perpsAI.getState()
             
             // Mode badge
-            tvStocksModeBadge?.text = if (cfg.paperMode) "PAPER" else "LIVE"
-            tvStocksModeBadge?.setBackgroundResource(
-                if (cfg.paperMode) R.drawable.pill_bg_yellow else R.drawable.pill_bg_green
-            )
+            tvStocksModeBadge?.text = "PAPER"
+            tvStocksModeBadge?.setBackgroundResource(R.drawable.pill_bg_yellow)
             
-            // Balance
-            val balance = if (cfg.paperMode) state.paperBalanceSol else state.liveBalanceSol
+            // Balance from stock trader
+            val balance = stockTrader.getBalance()
             tvStocksBalance?.text = "%.4f".format(balance)
             
-            // Stats - filter for stock trades only
+            // Stats from dedicated trader
             val stockPnlPct = stockPositions.sumOf { it.getUnrealizedPnlPct() }
             val stockWins = stockPositions.count { it.getUnrealizedPnlPct() > 0 }
             val stockTotal = stockPositions.size
+            val winRate = stockTrader.getWinRate()
+            val totalTrades = stockTrader.getTotalTrades()
             
             tvStocksPnl?.text = "${if (stockPnlPct >= 0) "+" else ""}${"%.2f".format(stockPnlPct)}%"
             tvStocksPnl?.setTextColor(if (stockPnlPct >= 0) 0xFF22C55E.toInt() else 0xFFEF4444.toInt())
             
-            tvStocksWinRate?.text = if (stockTotal > 0) "${stockWins * 100 / stockTotal}%" else "0%"
-            tvStocksTrades?.text = "$stockTotal"
+            tvStocksWinRate?.text = "${winRate.toInt()}%"
+            tvStocksTrades?.text = "$totalTrades"
             
             // Update tile stats
             tvStocksStats?.text = "$stockWins/$stockTotal"
@@ -6565,8 +6557,8 @@ Trading outside hours may have wider spreads.
                 } catch (_: Exception) {}
             }
             
-            // Update positions list
-            updateStocksPositionsList(stockPositions)
+            // Update positions list with stock trader positions
+            updateStockTraderPositionsList(stockPositions)
             
         } catch (e: Exception) {
             com.lifecyclebot.engine.ErrorLogger.debug("MainActivity", "Stocks card update error: ${e.message}")
@@ -6574,7 +6566,190 @@ Trading outside hours may have wider spreads.
     }
     
     /**
-     * V5.7.5: Update the stocks positions list UI
+     * V5.7.5: Update the stocks positions list UI for TokenizedStockTrader
+     */
+    private fun updateStockTraderPositionsList(positions: List<com.lifecyclebot.perps.TokenizedStockTrader.StockPosition>) {
+        llStocksPositions?.removeAllViews()
+        
+        if (positions.isEmpty()) return
+        
+        for (position in positions) {
+            try {
+                val livePrice = position.currentPrice.takeIf { it > 0 } ?: position.entryPrice
+                
+                // Create a rich position card
+                val cardLayout = LinearLayout(this).apply {
+                    orientation = LinearLayout.VERTICAL
+                    setBackgroundResource(R.drawable.section_card_bg)
+                    setPadding(24, 16, 24, 16)
+                    layoutParams = LinearLayout.LayoutParams(
+                        LinearLayout.LayoutParams.MATCH_PARENT,
+                        LinearLayout.LayoutParams.WRAP_CONTENT
+                    ).apply {
+                        setMargins(0, 0, 0, 12)
+                    }
+                }
+                
+                // Header row: Symbol + Direction + Leverage
+                val headerRow = LinearLayout(this).apply {
+                    orientation = LinearLayout.HORIZONTAL
+                    gravity = android.view.Gravity.CENTER_VERTICAL
+                }
+                
+                val headerText = TextView(this).apply {
+                    text = "${position.market.emoji} ${position.market.symbol} ${position.direction.symbol} ${position.leverage.toInt()}x"
+                    setTextColor(0xFFFFFFFF.toInt())
+                    textSize = 14f
+                    setTypeface(null, android.graphics.Typeface.BOLD)
+                    layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
+                }
+                headerRow.addView(headerText)
+                
+                // P&L badge
+                val pnlPct = position.getUnrealizedPnlPct()
+                val pnlBadge = TextView(this).apply {
+                    text = "${if (pnlPct >= 0) "+" else ""}${String.format("%.2f", pnlPct)}%"
+                    setTextColor(if (pnlPct >= 0) 0xFF22C55E.toInt() else 0xFFEF4444.toInt())
+                    textSize = 14f
+                    setTypeface(null, android.graphics.Typeface.BOLD)
+                }
+                headerRow.addView(pnlBadge)
+                cardLayout.addView(headerRow)
+                
+                // Spacer
+                cardLayout.addView(android.view.View(this).apply {
+                    layoutParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, 8)
+                })
+                
+                // Data grid
+                val dataGrid = LinearLayout(this).apply {
+                    orientation = LinearLayout.HORIZONTAL
+                }
+                
+                // Entry price
+                val entryCol = LinearLayout(this).apply {
+                    orientation = LinearLayout.VERTICAL
+                    layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
+                }
+                entryCol.addView(TextView(this).apply {
+                    text = "Entry"
+                    setTextColor(0xFF9CA3AF.toInt())
+                    textSize = 10f
+                })
+                entryCol.addView(TextView(this).apply {
+                    text = "$${String.format("%.2f", position.entryPrice)}"
+                    setTextColor(0xFFFFFFFF.toInt())
+                    textSize = 12f
+                })
+                dataGrid.addView(entryCol)
+                
+                // Current price with change indicator
+                val currentCol = LinearLayout(this).apply {
+                    orientation = LinearLayout.VERTICAL
+                    layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
+                }
+                currentCol.addView(TextView(this).apply {
+                    text = "Current"
+                    setTextColor(0xFF9CA3AF.toInt())
+                    textSize = 10f
+                })
+                
+                val priceChangePct = if (position.entryPrice > 0) {
+                    ((livePrice - position.entryPrice) / position.entryPrice * 100)
+                } else 0.0
+                val changeArrow = when {
+                    priceChangePct > 0.5 -> "▲"
+                    priceChangePct < -0.5 -> "▼"
+                    else -> "•"
+                }
+                val changeColor = when {
+                    priceChangePct > 0.1 -> 0xFF22C55E.toInt()
+                    priceChangePct < -0.1 -> 0xFFEF4444.toInt()
+                    else -> 0xFFFFFFFF.toInt()
+                }
+                
+                currentCol.addView(TextView(this).apply {
+                    text = "$${String.format("%.2f", livePrice)} $changeArrow"
+                    setTextColor(changeColor)
+                    textSize = 12f
+                })
+                dataGrid.addView(currentCol)
+                
+                // Size
+                val sizeCol = LinearLayout(this).apply {
+                    orientation = LinearLayout.VERTICAL
+                    layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
+                }
+                sizeCol.addView(TextView(this).apply {
+                    text = "Size"
+                    setTextColor(0xFF9CA3AF.toInt())
+                    textSize = 10f
+                })
+                sizeCol.addView(TextView(this).apply {
+                    text = "${String.format("%.2f", position.sizeSol)} SOL"
+                    setTextColor(0xFFFFFFFF.toInt())
+                    textSize = 12f
+                })
+                dataGrid.addView(sizeCol)
+                
+                // P&L SOL
+                val pnlCol = LinearLayout(this).apply {
+                    orientation = LinearLayout.VERTICAL
+                    layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
+                }
+                pnlCol.addView(TextView(this).apply {
+                    text = "P&L"
+                    setTextColor(0xFF9CA3AF.toInt())
+                    textSize = 10f
+                })
+                val pnlSol = position.getUnrealizedPnlSol()
+                pnlCol.addView(TextView(this).apply {
+                    text = "${if (pnlSol >= 0) "+" else ""}${String.format("%.4f", pnlSol)}◎"
+                    setTextColor(if (pnlSol >= 0) 0xFF22C55E.toInt() else 0xFFEF4444.toInt())
+                    textSize = 12f
+                })
+                dataGrid.addView(pnlCol)
+                
+                cardLayout.addView(dataGrid)
+                
+                // Spacer
+                cardLayout.addView(android.view.View(this).apply {
+                    layoutParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, 8)
+                })
+                
+                // TP/SL row
+                val tpSlRow = LinearLayout(this).apply {
+                    orientation = LinearLayout.HORIZONTAL
+                }
+                tpSlRow.addView(TextView(this).apply {
+                    text = "TP: ${if (position.takeProfitPrice != null) "$${String.format("%.2f", position.takeProfitPrice)}" else "---"}"
+                    setTextColor(0xFF22C55E.toInt())
+                    textSize = 10f
+                    layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
+                })
+                tpSlRow.addView(TextView(this).apply {
+                    text = "SL: ${if (position.stopLossPrice != null) "$${String.format("%.2f", position.stopLossPrice)}" else "---"}"
+                    setTextColor(0xFFEF4444.toInt())
+                    textSize = 10f
+                    layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
+                })
+                val holdTime = (System.currentTimeMillis() - position.entryTime) / 60000
+                tpSlRow.addView(TextView(this).apply {
+                    text = "⏱️ ${holdTime}m"
+                    setTextColor(0xFF9CA3AF.toInt())
+                    textSize = 10f
+                })
+                cardLayout.addView(tpSlRow)
+                
+                llStocksPositions?.addView(cardLayout)
+            } catch (e: Exception) {
+                com.lifecyclebot.engine.ErrorLogger.debug("MainActivity", "Stock position card error: ${e.message}")
+            }
+        }
+    }
+    
+    /**
+     * V5.7.5: Update the stocks positions list UI (legacy for PerpsPosition)
      * Uses position's currentPrice which is updated by the monitor loop
      */
     private fun updateStocksPositionsList(positions: List<com.lifecyclebot.perps.PerpsPosition>) {
