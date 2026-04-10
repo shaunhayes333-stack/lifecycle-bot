@@ -1,7 +1,6 @@
 package com.lifecyclebot.perps
 
-import com.lifecyclebot.collective.CollectiveSchema.MarketsTradeRecord
-import com.lifecyclebot.collective.CollectiveSchema.MarketsPositionRecord
+import com.lifecyclebot.collective.CollectiveSchema
 import com.lifecyclebot.collective.CollectiveLearning
 import com.lifecyclebot.engine.ErrorLogger
 import com.lifecyclebot.v3.scoring.FluidLearningAI
@@ -541,7 +540,7 @@ object CommoditiesTrader {
                 val solPrice = try { PerpsMarketDataFetcher.getSolPrice() } catch (_: Exception) { 150.0 }
                 val holdMins = (System.currentTimeMillis() - position.openTime) / 60_000.0
                 
-                val tradeRecord = MarketsTradeRecord(
+                val tradeRecord = CollectiveSchema.MarketsTradeRecord(
                     tradeHash = "COMMODITY_${position.id}_${System.currentTimeMillis()}",
                     instanceId = instanceId,
                     assetClass = "COMMODITY",

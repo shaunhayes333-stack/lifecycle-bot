@@ -1,7 +1,6 @@
 package com.lifecyclebot.perps
 
-import com.lifecyclebot.collective.CollectiveSchema.MarketsTradeRecord
-import com.lifecyclebot.collective.CollectiveSchema.MarketsPositionRecord
+import com.lifecyclebot.collective.CollectiveSchema
 import com.lifecyclebot.collective.CollectiveLearning
 import com.lifecyclebot.engine.ErrorLogger
 import com.lifecyclebot.v3.scoring.FluidLearningAI
@@ -681,7 +680,7 @@ object TokenizedStockTrader {
                     PerpsMarketDataFetcher.getSolPrice()
                 } catch (_: Exception) { 150.0 }
                 
-                val tradeRecord = MarketsTradeRecord(
+                val tradeRecord = CollectiveSchema.MarketsTradeRecord(
                     tradeHash = "STOCK_${position.id}_${System.currentTimeMillis()}",
                     instanceId = instanceId,
                     assetClass = "STOCK",
@@ -747,7 +746,7 @@ object TokenizedStockTrader {
                     PerpsMarketDataFetcher.getSolPrice()
                 } catch (_: Exception) { 150.0 }
                 
-                val posRecord = MarketsPositionRecord(
+                val posRecord = CollectiveSchema.MarketsPositionRecord(
                     id = position.id,
                     instanceId = instanceId,
                     assetClass = "STOCK",
