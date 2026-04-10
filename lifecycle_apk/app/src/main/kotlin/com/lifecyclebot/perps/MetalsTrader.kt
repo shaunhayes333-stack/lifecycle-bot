@@ -475,8 +475,9 @@ object MetalsTrader {
         ErrorLogger.error(TAG, "🥇 CLOSED: $typeLabel $emoji ${position.market.symbol} | PnL: ${if (pnl >= 0) "+" else ""}${"%.4f".format(pnl)}◎ | $reason")
         
         // Record to FluidLearningAI for unified learning
+        // V5.7.6b: Use Markets-specific recording to avoid affecting Meme thresholds
         try {
-            FluidLearningAI.recordPaperTrade(isWin)
+            FluidLearningAI.recordMarketsPaperTrade(isWin)
         } catch (_: Exception) {}
         
         // Record pattern for AI memory

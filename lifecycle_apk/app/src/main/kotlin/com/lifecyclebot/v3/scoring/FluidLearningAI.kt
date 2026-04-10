@@ -60,12 +60,20 @@ object FluidLearningAI {
     
     // ═══════════════════════════════════════════════════════════════════════════
     // LEARNING PROGRESS TRACKING
+    // V5.7.6b: SEPARATE counters for Meme and Markets to prevent cross-contamination
     // ═══════════════════════════════════════════════════════════════════════════
     
+    // MEME MODE counters (used by BotService, Executor, FDG, Scanners)
     private val sessionTrades = AtomicInteger(0)
     private val sessionWins = AtomicInteger(0)
     private val lastProgressUpdate = AtomicLong(0)
     private var cachedProgress = 0.0
+    
+    // MARKETS MODE counters (used by TokenizedStockTrader, CommoditiesTrader, etc.)
+    private val marketsSessionTrades = AtomicInteger(0)
+    private val marketsSessionWins = AtomicInteger(0)
+    private val marketsLastProgressUpdate = AtomicLong(0)
+    private var marketsCachedProgress = 0.0
     
     // V5.6: EXTENDED Learning curve - Never fully closes
     //   Phase 1 Bootstrap (0-1000 trades):   progress 0.0→0.5 (permissive thresholds, learning mode)
@@ -452,6 +460,16 @@ object FluidLearningAI {
         ErrorLogger.debug(TAG, "📊 Trade started | total=${getTotalTradeCount()} | progress=${(getLearningProgress()*100).toInt()}%")
     }
     
+    /**
+     * V5.7.6b: Record a Markets trade start (separate from Meme).
+     * Call this when Markets traders open a position.
+     */
+    fun recordMarketsTradeStart() {
+        marketsSessionTrades.incrementAndGet()
+        marketsLastProgressUpdate.set(0)  // Force progress recalculation
+        ErrorLogger.debug(TAG, "📊 Markets trade started | total=${getMarketsTradeCount()} | progress=${(getMarketsLearningProgress()*100).toInt()}%")
+    }
+    
     // ═══════════════════════════════════════════════════════════════════════════
     // V4.0: TIERED LEARNING WEIGHT SYSTEM
     // 
@@ -550,6 +568,110 @@ object FluidLearningAI {
      */
     fun getLearningWeights(): Triple<Double, Double, Double> = 
         Triple(LIVE_LEARNING_WEIGHT, PAPER_LEARNING_WEIGHT, SHADOW_LEARNING_WEIGHT)
+    
+    // ═══════════════════════════════════════════════════════════════════════════
+    // V5.7.6b: MARKETS-SPECIFIC TRADE RECORDING
+    // Completely separate from Meme mode to prevent cross-contamination
+    // ═══════════════════════════════════════════════════════════════════════════
+    
+    private var marketsLiveAccumulator = 0.0
+    private var marketsPaperAccumulator = 0.0
+    private val marketsAccumulatorLock = Any()
+    
+    /**
+     * Record a MARKETS paper trade (TokenizedStocks, Commodities, Metals, Forex).
+     * Uses Markets-specific counters - does NOT affect Meme mode thresholds.
+     */
+    fun recordMarketsPaperTrade(isWin: Boolean) {
+        synchronized(marketsAccumulatorLock) {
+            marketsPaperAccumulator += PAPER_LEARNING_WEIGHT
+            
+            while (marketsPaperAccumulator >= 1.0) {
+                marketsSessionTrades.incrementAndGet()
+                if (isWin) marketsSessionWins.incrementAndGet()
+                marketsPaperAccumulator -= 1.0
+            }
+            
+            marketsCachedProgress = 0.0  // Force recalculation
+        }
+        
+        ErrorLogger.debug(TAG, "📊 MARKETS PAPER trade | Progress: ${(getMarketsLearningProgress()*100).toInt()}%")
+    }
+    
+    /**
+     * Record a MARKETS live trade.
+     * Uses Markets-specific counters - does NOT affect Meme mode thresholds.
+     */
+    fun recordMarketsLiveTrade(isWin: Boolean) {
+        synchronized(marketsAccumulatorLock) {
+            marketsLiveAccumulator += LIVE_LEARNING_WEIGHT
+            
+            while (marketsLiveAccumulator >= 1.0) {
+                marketsSessionTrades.incrementAndGet()
+                if (isWin) marketsSessionWins.incrementAndGet()
+                marketsLiveAccumulator -= 1.0
+            }
+            
+            marketsCachedProgress = 0.0  // Force recalculation
+        }
+        
+        ErrorLogger.debug(TAG, "📊 MARKETS LIVE trade | Progress: ${(getMarketsLearningProgress()*100).toInt()}%")
+    }
+    
+    /**
+     * Get Markets-specific trade count (separate from Meme trades).
+     */
+    fun getMarketsTradeCount(): Int = marketsSessionTrades.get()
+    
+    /**
+     * Get Markets-specific learning progress (0.0 - 1.0).
+     * Completely separate from Meme mode progress.
+     * Uses same phase curve (0-5000 trades) but separate counters.
+     */
+    fun getMarketsLearningProgress(): Double {
+        val now = System.currentTimeMillis()
+        if (now - marketsLastProgressUpdate.get() < 10_000 && marketsCachedProgress > 0) {
+            return marketsCachedProgress
+        }
+        
+        val totalTrades = marketsSessionTrades.get()
+        val winRate = if (totalTrades > 0) {
+            marketsSessionWins.get().toDouble() / totalTrades * 100
+        } else 50.0
+        
+        // Same 4-phase learning curve as Meme, but separate counter
+        val baseProgress = when {
+            totalTrades <= BOOTSTRAP_PHASE_END ->
+                (totalTrades.toDouble() / BOOTSTRAP_PHASE_END) * 0.50
+            totalTrades <= MATURE_PHASE_END ->
+                0.50 + ((totalTrades - BOOTSTRAP_PHASE_END).toDouble() / (MATURE_PHASE_END - BOOTSTRAP_PHASE_END)) * 0.30
+            totalTrades <= EXPERT_PHASE_END ->
+                0.80 + ((totalTrades - MATURE_PHASE_END).toDouble() / (EXPERT_PHASE_END - MATURE_PHASE_END)) * 0.20
+            else ->
+                MAX_LEARNING_PROGRESS
+        }
+        
+        // Adjust based on win rate
+        val progress = when {
+            winRate > 60 -> (baseProgress * 1.1).coerceAtMost(MAX_LEARNING_PROGRESS)
+            winRate < 40 -> baseProgress * 0.85
+            else -> baseProgress
+        }.coerceAtMost(MAX_LEARNING_PROGRESS)
+        
+        marketsCachedProgress = progress
+        marketsLastProgressUpdate.set(now)
+        
+        return progress
+    }
+    
+    /**
+     * V5.7.6b: Lerp using MARKETS-specific progress.
+     * Ensures Markets thresholds don't affect Meme mode and vice versa.
+     */
+    fun lerpMarkets(bootstrap: Double, mature: Double): Double {
+        val progress = getMarketsLearningProgress()
+        return bootstrap + (mature - bootstrap) * progress
+    }
     
     // ═══════════════════════════════════════════════════════════════════════════
     // INTERPOLATION HELPERS
@@ -743,26 +865,26 @@ object FluidLearningAI {
     private const val MARKETS_SIZE_BOOTSTRAP = 2.0  // V5.7.6b: Was 3%, start smaller for safety
     private const val MARKETS_SIZE_MATURE = 8.0     // V5.7.6b: Was 5%, scale up with confidence
     
-    /** Get fluid score threshold for SPOT trades */
-    fun getMarketsSpotScoreThreshold(): Int = lerp(MARKETS_SPOT_SCORE_BOOTSTRAP.toDouble(), MARKETS_SPOT_SCORE_MATURE.toDouble()).toInt()
+    /** Get fluid score threshold for SPOT trades - V5.7.6b: Uses Markets-specific progress */
+    fun getMarketsSpotScoreThreshold(): Int = lerpMarkets(MARKETS_SPOT_SCORE_BOOTSTRAP.toDouble(), MARKETS_SPOT_SCORE_MATURE.toDouble()).toInt()
     
-    /** Get fluid confidence threshold for SPOT trades */
-    fun getMarketsSpotConfThreshold(): Int = lerp(MARKETS_SPOT_CONF_BOOTSTRAP.toDouble(), MARKETS_SPOT_CONF_MATURE.toDouble()).toInt()
+    /** Get fluid confidence threshold for SPOT trades - V5.7.6b: Uses Markets-specific progress */
+    fun getMarketsSpotConfThreshold(): Int = lerpMarkets(MARKETS_SPOT_CONF_BOOTSTRAP.toDouble(), MARKETS_SPOT_CONF_MATURE.toDouble()).toInt()
     
-    /** Get fluid score threshold for LEVERAGE trades */
-    fun getMarketsLeverageScoreThreshold(): Int = lerp(MARKETS_LEV_SCORE_BOOTSTRAP.toDouble(), MARKETS_LEV_SCORE_MATURE.toDouble()).toInt()
+    /** Get fluid score threshold for LEVERAGE trades - V5.7.6b: Uses Markets-specific progress */
+    fun getMarketsLeverageScoreThreshold(): Int = lerpMarkets(MARKETS_LEV_SCORE_BOOTSTRAP.toDouble(), MARKETS_LEV_SCORE_MATURE.toDouble()).toInt()
     
-    /** Get fluid confidence threshold for LEVERAGE trades */
-    fun getMarketsLeverageConfThreshold(): Int = lerp(MARKETS_LEV_CONF_BOOTSTRAP.toDouble(), MARKETS_LEV_CONF_MATURE.toDouble()).toInt()
+    /** Get fluid confidence threshold for LEVERAGE trades - V5.7.6b: Uses Markets-specific progress */
+    fun getMarketsLeverageConfThreshold(): Int = lerpMarkets(MARKETS_LEV_CONF_BOOTSTRAP.toDouble(), MARKETS_LEV_CONF_MATURE.toDouble()).toInt()
     
-    /** Get fluid take profit target for Markets trading */
-    fun getMarketsTakeProfitPct(): Double = lerp(MARKETS_TP_BOOTSTRAP, MARKETS_TP_MATURE)
+    /** Get fluid take profit target for Markets trading - V5.7.6b: Uses Markets-specific progress */
+    fun getMarketsTakeProfitPct(): Double = lerpMarkets(MARKETS_TP_BOOTSTRAP, MARKETS_TP_MATURE)
     
-    /** Get fluid stop loss target for Markets trading */
-    fun getMarketsStopLossPct(): Double = lerp(MARKETS_SL_BOOTSTRAP, MARKETS_SL_MATURE)
+    /** Get fluid stop loss target for Markets trading - V5.7.6b: Uses Markets-specific progress */
+    fun getMarketsStopLossPct(): Double = lerpMarkets(MARKETS_SL_BOOTSTRAP, MARKETS_SL_MATURE)
     
-    /** Get fluid position size for Markets trading */
-    fun getMarketsPositionSizePct(): Double = lerp(MARKETS_SIZE_BOOTSTRAP, MARKETS_SIZE_MATURE)
+    /** Get fluid position size for Markets trading - V5.7.6b: Uses Markets-specific progress */
+    fun getMarketsPositionSizePct(): Double = lerpMarkets(MARKETS_SIZE_BOOTSTRAP, MARKETS_SIZE_MATURE)
     
     // ═══════════════════════════════════════════════════════════════════════════
     // RUG FILTER THRESHOLDS (Used by HardRugPreFilter)

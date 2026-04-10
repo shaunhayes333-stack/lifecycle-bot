@@ -532,8 +532,9 @@ object TokenizedStockTrader {
         }
         
         // Notify FluidLearningAI
+        // V5.7.6b: Use Markets-specific recording to avoid affecting Meme thresholds
         try {
-            FluidLearningAI.recordTradeStart()
+            FluidLearningAI.recordMarketsTradeStart()
         } catch (_: Exception) {}
         
         val leverageStr = if (isSpot) "1x SPOT" else "${leverage.toInt()}x LEV"
@@ -599,8 +600,9 @@ object TokenizedStockTrader {
         }
         
         // Record to FluidLearningAI
+        // V5.7.6b: Use Markets-specific recording to avoid affecting Meme thresholds
         try {
-            FluidLearningAI.recordPaperTrade(isWin)
+            FluidLearningAI.recordMarketsPaperTrade(isWin)
         } catch (_: Exception) {}
         
         // V5.7.6: Record to PerpsLearningBridge for unified tracking
