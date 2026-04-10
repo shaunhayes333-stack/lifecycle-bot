@@ -283,7 +283,75 @@ enum class PerpsMarket(
     IONQ("IONQ", "⚛️", "IonQ Quantum", true, 10.0, "MARKET", "#6A0DAD"),
     RKLB("RKLB", "🚀", "Rocket Lab", true, 10.0, "MARKET", "#000000"),
     RDDT("RDDT", "👽", "Reddit", true, 10.0, "MARKET", "#FF4500"),
-    ARM("ARM", "💾", "ARM Holdings", true, 10.0, "MARKET", "#0091BD"),
+    
+    // ═══════════════════════════════════════════════════════════════════════════
+    // 🇨🇳 CHINA ADR STOCKS - High Growth / High Volatility
+    // ═══════════════════════════════════════════════════════════════════════════
+    BABA("BABA", "🇨🇳", "Alibaba Group", true, 10.0, "MARKET", "#FF6A00"),
+    BIDU("BIDU", "🇨🇳", "Baidu Inc", true, 10.0, "MARKET", "#2932E1"),
+    JD("JD", "🇨🇳", "JD.com", true, 10.0, "MARKET", "#E2231A"),
+    NIO("NIO", "🇨🇳", "NIO Inc", true, 10.0, "MARKET", "#00BFFF"),
+    XPEV("XPEV", "🇨🇳", "XPeng Inc", true, 10.0, "MARKET", "#00D4AA"),
+    LI("LI", "🇨🇳", "Li Auto Inc", true, 10.0, "MARKET", "#000000"),
+    PDD("PDD", "🇨🇳", "PDD Holdings", true, 10.0, "MARKET", "#E02E24"),
+    TCEHY("TCEHY", "🇨🇳", "Tencent ADR", true, 10.0, "MARKET", "#25A2E0"),
+    BILI("BILI", "🇨🇳", "Bilibili Inc", true, 10.0, "MARKET", "#FB7299"),
+    TME("TME", "🇨🇳", "Tencent Music", true, 10.0, "MARKET", "#00B2A9"),
+    
+    // ═══════════════════════════════════════════════════════════════════════════
+    // 🇯🇵 JAPAN ADR STOCKS - Quality Large Caps
+    // ═══════════════════════════════════════════════════════════════════════════
+    SONY("SONY", "🇯🇵", "Sony Group", true, 10.0, "MARKET", "#000000"),
+    TM("TM", "🇯🇵", "Toyota Motor", true, 10.0, "MARKET", "#EB0A1E"),
+    NTDOY("NTDOY", "🇯🇵", "Nintendo ADR", true, 10.0, "MARKET", "#E60012"),
+    MUFG("MUFG", "🇯🇵", "Mitsubishi UFJ", true, 10.0, "MARKET", "#C8102E"),
+    HMC("HMC", "🇯🇵", "Honda Motor", true, 10.0, "MARKET", "#CC0000"),
+    SNE("SNE", "🇯🇵", "Sony Corp ADR", true, 10.0, "MARKET", "#003791"),
+    
+    // ═══════════════════════════════════════════════════════════════════════════
+    // 🇪🇺 EUROPE ADR STOCKS - Blue Chips
+    // ═══════════════════════════════════════════════════════════════════════════
+    SAP("SAP", "🇩🇪", "SAP SE", true, 10.0, "MARKET", "#0070C0"),
+    NVO("NVO", "🇩🇰", "Novo Nordisk", true, 10.0, "MARKET", "#0066CC"),
+    SHEL("SHEL", "🇬🇧", "Shell PLC", true, 10.0, "MARKET", "#FFD500"),
+    BP("BP", "🇬🇧", "BP PLC", true, 10.0, "MARKET", "#009900"),
+    UL("UL", "🇬🇧", "Unilever PLC", true, 10.0, "MARKET", "#1F36C7"),
+    DEO("DEO", "🇬🇧", "Diageo PLC", true, 10.0, "MARKET", "#AA8B56"),
+    GSK("GSK", "🇬🇧", "GSK PLC", true, 10.0, "MARKET", "#F36633"),
+    AZN("AZN", "🇬🇧", "AstraZeneca", true, 10.0, "MARKET", "#830051"),
+    BHP("BHP", "🇦🇺", "BHP Group", true, 10.0, "MARKET", "#F26722"),
+    RIO("RIO", "🇦🇺", "Rio Tinto", true, 10.0, "MARKET", "#E4002B"),
+    
+    // ═══════════════════════════════════════════════════════════════════════════
+    // ⛏️ GOLD & SILVER MINERS - Precious Metal Exposure
+    // ═══════════════════════════════════════════════════════════════════════════
+    NEM("NEM", "⛏️", "Newmont Corp", true, 10.0, "MARKET", "#FFD700"),
+    GOLD("GOLD", "⛏️", "Barrick Gold", true, 10.0, "MARKET", "#FFD700"),
+    AEM("AEM", "⛏️", "Agnico Eagle", true, 10.0, "MARKET", "#CFB53B"),
+    FNV("FNV", "⛏️", "Franco-Nevada", true, 10.0, "MARKET", "#D4AF37"),
+    WPM("WPM", "⛏️", "Wheaton Precious", true, 10.0, "MARKET", "#C0C0C0"),
+    KGC("KGC", "⛏️", "Kinross Gold", true, 10.0, "MARKET", "#B8860B"),
+    AGI("AGI", "⛏️", "Alamos Gold", true, 10.0, "MARKET", "#DAA520"),
+    EGO("EGO", "⛏️", "Eldorado Gold", true, 10.0, "MARKET", "#FFD700"),
+    HL("HL", "⛏️", "Hecla Mining", true, 10.0, "MARKET", "#C0C0C0"),
+    PAAS("PAAS", "⛏️", "Pan American Silver", true, 10.0, "MARKET", "#A8A9AD"),
+    AG("AG", "⛏️", "First Majestic Silver", true, 10.0, "MARKET", "#C4CACE"),
+    CDE("CDE", "⛏️", "Coeur Mining", true, 10.0, "MARKET", "#708090"),
+    FSM("FSM", "⛏️", "Fortuna Silver", true, 10.0, "MARKET", "#B0C4DE"),
+    MAG("MAG", "⛏️", "MAG Silver", true, 10.0, "MARKET", "#D3D3D3"),
+    SVM("SVM", "⛏️", "Silvercorp Metals", true, 10.0, "MARKET", "#BEC0C2"),
+    
+    // ═══════════════════════════════════════════════════════════════════════════
+    // 🏭 EMERGING JUNIOR MINERS - High Risk/High Reward
+    // ═══════════════════════════════════════════════════════════════════════════
+    BTG("BTG", "⛏️", "B2Gold Corp", true, 10.0, "MARKET", "#E5C100"),
+    NGD("NGD", "⛏️", "New Gold Inc", true, 10.0, "MARKET", "#CC9900"),
+    GATO("GATO", "⛏️", "Gatos Silver", true, 10.0, "MARKET", "#A9A9A9"),
+    SILV("SILV", "⛏️", "SilverCrest Metals", true, 10.0, "MARKET", "#C0C0C0"),
+    DRD("DRD", "⛏️", "DRDGOLD Ltd", true, 10.0, "MARKET", "#FFD700"),
+    HMY("HMY", "⛏️", "Harmony Gold", true, 10.0, "MARKET", "#B8860B"),
+    AU("AU", "⛏️", "AngloGold Ashanti", true, 10.0, "MARKET", "#DAA520"),
+    SSRM("SSRM", "⛏️", "SSR Mining", true, 10.0, "MARKET", "#C0C0C0"),
     
     // ═══════════════════════════════════════════════════════════════════════════
     // 🛢️ COMMODITIES - Energy (24/7 trading via Pyth)
@@ -375,6 +443,26 @@ enum class PerpsMarket(
     val isIndustrialMetal: Boolean get() = isMetal && !isPreciousMetal
     val isEnergyCommodity: Boolean get() = symbol in listOf("BRENT", "WTI", "NATGAS", "RBOB", "HEATING")
     val isAgriCommodity: Boolean get() = symbol in listOf("CORN", "WHEAT", "SOYBEAN", "COFFEE", "COCOA", "SUGAR", "COTTON", "LUMBER", "OJ", "CATTLE", "HOGS")
+    
+    // V5.7.7: FOREIGN MARKET HELPERS
+    val isChinaStock: Boolean get() = symbol in listOf("BABA", "BIDU", "JD", "NIO", "XPEV", "LI", "PDD", "TCEHY", "BILI", "TME")
+    val isJapanStock: Boolean get() = symbol in listOf("SONY", "TM", "NTDOY", "MUFG", "HMC", "SNE")
+    val isEuropeStock: Boolean get() = symbol in listOf("SAP", "NVO", "SHEL", "BP", "UL", "DEO", "GSK", "AZN", "BHP", "RIO", "ASML")
+    val isForeignStock: Boolean get() = isChinaStock || isJapanStock || isEuropeStock
+    
+    // V5.7.7: MINING SECTOR HELPERS
+    val isGoldMiner: Boolean get() = symbol in listOf("NEM", "GOLD", "AEM", "FNV", "KGC", "AGI", "EGO", "BTG", "NGD", "DRD", "HMY", "AU")
+    val isSilverMiner: Boolean get() = symbol in listOf("WPM", "HL", "PAAS", "AG", "CDE", "FSM", "MAG", "SVM", "GATO", "SILV", "SSRM")
+    val isPreciousMetalMiner: Boolean get() = isGoldMiner || isSilverMiner
+    val isJuniorMiner: Boolean get() = symbol in listOf("BTG", "NGD", "GATO", "SILV", "DRD", "HMY", "AU", "SSRM", "AGI", "EGO", "CDE", "FSM", "MAG", "SVM")
+    
+    // V5.7.7: SECTOR SCANNER HELPERS
+    val isETF: Boolean get() = symbol in listOf("SPY", "QQQ", "DIA", "IWM", "VTI", "EEM", "EFA", "GLD", "SLV", "TLT", "XLF", "XLE", "XLK", "XLV")
+    val isCannabis: Boolean get() = symbol in listOf("TLRY", "CGC", "ACB", "CRON", "SNDL")
+    val isSemiconductor: Boolean get() = symbol in listOf("NVDA", "AMD", "INTC", "QCOM", "AVGO", "MU", "TSM", "ASML", "ARM", "MRVL")
+    val isTech: Boolean get() = symbol in listOf("AAPL", "MSFT", "GOOGL", "AMZN", "META", "NFLX", "CRM", "ORCL", "PLTR", "SNOW", "SHOP", "SPOT", "ZM", "ROKU", "SQ", "TWLO")
+    val isAI: Boolean get() = symbol in listOf("NVDA", "MSFT", "GOOGL", "AI", "PATH", "DDOG", "NET", "CRWD", "ZS", "MDB", "PLTR")
+    val isEV: Boolean get() = symbol in listOf("TSLA", "RIVN", "LCID", "NIO", "XPEV", "LI", "F", "GM")
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════

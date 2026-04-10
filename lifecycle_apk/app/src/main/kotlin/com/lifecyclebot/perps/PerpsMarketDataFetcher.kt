@@ -181,6 +181,75 @@ object PerpsMarketDataFetcher {
         put("RDDT", 185.0)        // Reddit
         
         // ═══════════════════════════════════════════════════════════════════════
+        // V5.7.7: CHINA ADR STOCKS
+        // ═══════════════════════════════════════════════════════════════════════
+        put("BABA", 85.0)         // Alibaba Group
+        put("BIDU", 95.0)         // Baidu Inc
+        put("JD", 35.0)           // JD.com
+        put("NIO", 5.50)          // NIO Inc
+        put("XPEV", 18.0)         // XPeng Inc
+        put("LI", 28.0)           // Li Auto Inc
+        put("PDD", 135.0)         // PDD Holdings (Pinduoduo)
+        put("TCEHY", 52.0)        // Tencent ADR
+        put("BILI", 18.0)         // Bilibili Inc
+        put("TME", 12.0)          // Tencent Music
+        
+        // ═══════════════════════════════════════════════════════════════════════
+        // V5.7.7: JAPAN ADR STOCKS
+        // ═══════════════════════════════════════════════════════════════════════
+        put("SONY", 95.0)         // Sony Group
+        put("TM", 185.0)          // Toyota Motor
+        put("NTDOY", 75.0)        // Nintendo ADR
+        put("MUFG", 12.0)         // Mitsubishi UFJ
+        put("HMC", 35.0)          // Honda Motor
+        put("SNE", 95.0)          // Sony Corp ADR
+        
+        // ═══════════════════════════════════════════════════════════════════════
+        // V5.7.7: EUROPE ADR STOCKS
+        // ═══════════════════════════════════════════════════════════════════════
+        put("SAP", 245.0)         // SAP SE
+        put("NVO", 125.0)         // Novo Nordisk
+        put("SHEL", 68.0)         // Shell PLC
+        put("BP", 35.0)           // BP PLC
+        put("UL", 58.0)           // Unilever PLC
+        put("DEO", 145.0)         // Diageo PLC
+        put("GSK", 42.0)          // GSK PLC
+        put("AZN", 68.0)          // AstraZeneca
+        put("BHP", 58.0)          // BHP Group
+        put("RIO", 68.0)          // Rio Tinto
+        
+        // ═══════════════════════════════════════════════════════════════════════
+        // V5.7.7: GOLD MINERS
+        // ═══════════════════════════════════════════════════════════════════════
+        put("NEM", 52.0)          // Newmont Corp
+        put("GOLD", 22.0)         // Barrick Gold
+        put("AEM", 85.0)          // Agnico Eagle
+        put("FNV", 165.0)         // Franco-Nevada
+        put("KGC", 9.50)          // Kinross Gold
+        put("AGI", 22.0)          // Alamos Gold
+        put("EGO", 18.0)          // Eldorado Gold
+        put("BTG", 4.50)          // B2Gold Corp
+        put("NGD", 2.80)          // New Gold Inc
+        put("DRD", 14.0)          // DRDGOLD Ltd
+        put("HMY", 11.0)          // Harmony Gold
+        put("AU", 32.0)           // AngloGold Ashanti
+        
+        // ═══════════════════════════════════════════════════════════════════════
+        // V5.7.7: SILVER MINERS
+        // ═══════════════════════════════════════════════════════════════════════
+        put("WPM", 62.0)          // Wheaton Precious Metals
+        put("HL", 7.50)           // Hecla Mining
+        put("PAAS", 22.0)         // Pan American Silver
+        put("AG", 7.50)           // First Majestic Silver
+        put("CDE", 7.20)          // Coeur Mining
+        put("FSM", 8.50)          // Fortuna Silver
+        put("MAG", 18.0)          // MAG Silver
+        put("SVM", 4.80)          // Silvercorp Metals
+        put("GATO", 14.0)         // Gatos Silver
+        put("SILV", 8.50)         // SilverCrest Metals
+        put("SSRM", 7.50)         // SSR Mining
+        
+        // ═══════════════════════════════════════════════════════════════════════
         // V5.7.6: COMMODITIES - Energy
         // ═══════════════════════════════════════════════════════════════════════
         put("BRENT", 85.0)      // Brent Crude per barrel
