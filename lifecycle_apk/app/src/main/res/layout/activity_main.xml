@@ -1237,7 +1237,8 @@
                         android:fontFamily="monospace"/>
                 </LinearLayout>
 
-                <!-- PERPS / LEVERAGE MODE - V5.7 -->
+                <!-- V5.7.6: PERPS/STOCKS buttons removed - consolidated into Markets tile -->
+                <!-- PERPS / LEVERAGE MODE - V5.7 - HIDDEN -->
                 <LinearLayout
                     android:id="@+id/btnQuickPerps"
                     android:layout_width="0dp"
@@ -1249,7 +1250,8 @@
                     android:background="@drawable/section_card_bg"
                     android:layout_marginEnd="3dp"
                     android:clickable="true"
-                    android:focusable="true">
+                    android:focusable="true"
+                    android:visibility="gone">
                     <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
                         android:text="📊" android:textSize="16sp"/>
                     <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
@@ -1261,7 +1263,7 @@
                         android:fontFamily="monospace"/>
                 </LinearLayout>
 
-                <!-- TOKENIZED STOCKS - V5.7.3 -->
+                <!-- TOKENIZED STOCKS - V5.7.3 - HIDDEN -->
                 <LinearLayout
                     android:id="@+id/btnQuickStocks"
                     android:layout_width="0dp"
@@ -1272,7 +1274,8 @@
                     android:padding="6dp"
                     android:background="@drawable/section_card_bg"
                     android:clickable="true"
-                    android:focusable="true">
+                    android:focusable="true"
+                    android:visibility="gone">
                     <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
                         android:text="📈" android:textSize="16sp"/>
                     <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"

@@ -3389,7 +3389,11 @@ for legal compliance.
                 return
             }
             
-            cardPerpsTrading?.visibility = View.VISIBLE
+            // V5.7.6: Perps card moved to MultiAssetActivity - keep hidden
+            cardPerpsTrading?.visibility = View.GONE
+            return
+            
+            // DEPRECATED: All code below is unused - perps card now in Markets UI
             val state = perpsAI.getState()
             val readiness = perpsAI.getLiveReadiness()
             val cfg = com.lifecyclebot.data.ConfigStore.load(applicationContext)
@@ -5797,8 +5801,8 @@ ${readiness.recommendation}
                 }
                 .setNeutralButton(if (perpsAI.isEnabled()) "Disable" else "Enable") { d, _ ->
                     perpsAI.setEnabled(!perpsAI.isEnabled())
-                    cardPerpsTrading?.visibility = if (perpsAI.isEnabled()) View.VISIBLE else View.GONE
-                    Toast.makeText(this, "Perps ${if (perpsAI.isEnabled()) "ENABLED" else "DISABLED"}", Toast.LENGTH_SHORT).show()
+                    // V5.7.6: Perps card moved to Markets UI - keep hidden
+                    Toast.makeText(this, "Perps ${if (perpsAI.isEnabled()) "ENABLED" else "DISABLED"} - View in Markets", Toast.LENGTH_SHORT).show()
                     d.dismiss()
                 }
                 .show()
@@ -5842,8 +5846,8 @@ By proceeding, you acknowledge:
             .setPositiveButton("I UNDERSTAND & ACCEPT") { d, _ ->
                 com.lifecyclebot.perps.PerpsTraderAI.acknowledgeRisk()
                 com.lifecyclebot.perps.PerpsTraderAI.setEnabled(true)
-                cardPerpsTrading?.visibility = View.VISIBLE
-                Toast.makeText(this, "📊 Perps Trading Unlocked - Start with Paper Mode!", Toast.LENGTH_LONG).show()
+                // V5.7.6: Perps card moved to Markets UI
+                Toast.makeText(this, "📊 Perps Trading Unlocked - Open Markets to trade!", Toast.LENGTH_LONG).show()
                 d.dismiss()
                 // Show the full dialog now
                 showPerpsModeDialog()
@@ -6319,13 +6323,10 @@ Trading outside hours may have wider spreads.
             .setTitle("📈 Tokenized Stocks")
             .setMessage(message)
             .setPositiveButton("Close") { d, _ -> d.dismiss() }
-            .setNegativeButton("Trade Stock") { d, _ ->
+            .setNegativeButton("Open Markets") { d, _ ->
                 d.dismiss()
-                showStockBuyDialog()
-            }
-            .setNeutralButton(if (cardTokenizedStocks?.visibility == View.VISIBLE) "Hide Card" else "Show Card") { d, _ ->
-                cardTokenizedStocks?.visibility = if (cardTokenizedStocks?.visibility == View.VISIBLE) View.GONE else View.VISIBLE
-                d.dismiss()
+                // V5.7.6: Navigate to Markets UI for stocks trading
+                startActivity(Intent(this, MultiAssetActivity::class.java))
             }
             .show()
     }
@@ -6455,11 +6456,10 @@ Trading outside hours may have wider spreads.
                         withContext(kotlinx.coroutines.Dispatchers.Main) {
                             if (position != null) {
                                 Toast.makeText(this@MainActivity, 
-                                    "${selectedMarket.emoji} Opened ${selectedMarket.symbol} ${selectedDirection.symbol} @ ${selectedLeverage.toInt()}x", 
+                                    "${selectedMarket.emoji} Opened ${selectedMarket.symbol} ${selectedDirection.symbol} @ ${selectedLeverage.toInt()}x - View in Markets", 
                                     Toast.LENGTH_SHORT).show()
                                 performHaptic()
-                                // Show the stocks card
-                                cardTokenizedStocks?.visibility = View.VISIBLE
+                                // V5.7.6: Stocks card moved to Markets UI
                             } else {
                                 Toast.makeText(this@MainActivity, "Failed to open position", Toast.LENGTH_SHORT).show()
                             }
@@ -6478,8 +6478,14 @@ Trading outside hours may have wider spreads.
     
     /**
      * V5.7.3: Update the tokenized stocks card with current prices and positions
+     * V5.7.6: Card moved to Markets UI - this function now just returns early
      */
     private fun updateTokenizedStocksCard() {
+        // V5.7.6: Stocks card moved to MultiAssetActivity (Markets UI)
+        cardTokenizedStocks?.visibility = View.GONE
+        return
+        
+        // DEPRECATED: All code below unused - stocks now in Markets UI
         try {
             // V5.7.5: Use dedicated TokenizedStockTrader instead of PerpsTraderAI
             val stockTrader = com.lifecyclebot.perps.TokenizedStockTrader
@@ -7041,8 +7047,8 @@ Quick trade or open detailed dialog?
                         )
                         withContext(kotlinx.coroutines.Dispatchers.Main) {
                             if (position != null) {
-                                Toast.makeText(this@MainActivity, "📈 Opened ${market.symbol} LONG @ 2x", Toast.LENGTH_SHORT).show()
-                                cardTokenizedStocks?.visibility = View.VISIBLE
+                                Toast.makeText(this@MainActivity, "📈 Opened ${market.symbol} LONG @ 2x - View in Markets", Toast.LENGTH_SHORT).show()
+                                // V5.7.6: Stocks card moved to Markets UI
                             }
                         }
                     } catch (e: Exception) {
@@ -7064,8 +7070,8 @@ Quick trade or open detailed dialog?
                         )
                         withContext(kotlinx.coroutines.Dispatchers.Main) {
                             if (position != null) {
-                                Toast.makeText(this@MainActivity, "📉 Opened ${market.symbol} SHORT @ 2x", Toast.LENGTH_SHORT).show()
-                                cardTokenizedStocks?.visibility = View.VISIBLE
+                                Toast.makeText(this@MainActivity, "📉 Opened ${market.symbol} SHORT @ 2x - View in Markets", Toast.LENGTH_SHORT).show()
+                                // V5.7.6: Stocks card moved to Markets UI
                             }
                         }
                     } catch (e: Exception) {
