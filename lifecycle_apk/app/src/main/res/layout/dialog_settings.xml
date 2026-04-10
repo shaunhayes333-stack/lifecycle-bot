@@ -47,6 +47,115 @@
             android:layout_marginBottom="16dp"
             android:background="@drawable/drag_handle_bg"/>
 
+        <!-- ═══════════════════════════════════════════════════════════════
+             V5.7.6: TRADING MODE SELECTOR
+             ═══════════════════════════════════════════════════════════════ -->
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:background="@drawable/section_card_bg"
+            android:orientation="vertical"
+            android:padding="14dp"
+            android:layout_marginBottom="12dp">
+
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="🤖 AUTO TRADER MODE"
+                android:textColor="#FFD700"
+                android:textSize="11sp"
+                android:fontFamily="monospace"
+                android:letterSpacing="0.12"
+                android:layout_marginBottom="8dp"/>
+
+            <TextView
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="Select which smart auto-traders to run"
+                android:textColor="#6B7280"
+                android:textSize="10sp"
+                android:layout_marginBottom="12dp"/>
+
+            <!-- Trading Mode Spinner -->
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="TRADING MODE"
+                android:textColor="#6B7280"
+                android:textSize="10sp"
+                android:fontFamily="monospace"
+                android:layout_marginBottom="4dp"/>
+            <Spinner
+                android:id="@+id/spTradingMode"
+                android:layout_width="match_parent"
+                android:layout_height="44dp"
+                android:background="@drawable/input_bg"
+                android:paddingStart="12dp"
+                android:layout_marginBottom="12dp"/>
+
+            <!-- Individual Toggles -->
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="horizontal"
+                android:gravity="center_vertical"
+                android:layout_marginBottom="8dp">
+                <LinearLayout
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:orientation="vertical">
+                    <TextView
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="🎰 Meme Trader"
+                        android:textColor="#FFFFFF"
+                        android:textSize="12sp"/>
+                    <TextView
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="Pump.fun • Meme coins • Original bot"
+                        android:textColor="#6B7280"
+                        android:textSize="9sp"/>
+                </LinearLayout>
+                <Switch
+                    android:id="@+id/switchMemeTrader"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:checked="true"/>
+            </LinearLayout>
+
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="horizontal"
+                android:gravity="center_vertical">
+                <LinearLayout
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:orientation="vertical">
+                    <TextView
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="📊 Markets Trader"
+                        android:textColor="#FFFFFF"
+                        android:textSize="12sp"/>
+                    <TextView
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="Perps • Stocks • Commodities • Metals • Forex"
+                        android:textColor="#6B7280"
+                        android:textSize="9sp"/>
+                </LinearLayout>
+                <Switch
+                    android:id="@+id/switchMarketsTrader"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:checked="true"/>
+            </LinearLayout>
+        </LinearLayout>
+
         <!-- ═══════════════════════════════
              BASIC SETTINGS CARD
              ═══════════════════════════════ -->

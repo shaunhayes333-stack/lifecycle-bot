@@ -66,6 +66,11 @@ class SettingsBottomSheet : BottomSheetDialogFragment() {
     private lateinit var switchDarkMode: SwitchCompat
     private lateinit var etWatchlist: EditText
     
+    // V5.7.6: Trading Mode
+    private lateinit var spTradingMode: Spinner
+    private lateinit var switchMemeTrader: Switch
+    private lateinit var switchMarketsTrader: Switch
+    
     fun setConfig(config: BotConfig) {
         currentConfig = config
     }
@@ -127,6 +132,11 @@ class SettingsBottomSheet : BottomSheetDialogFragment() {
         switchSounds = view.findViewById(R.id.switchSounds)
         switchDarkMode = view.findViewById(R.id.switchDarkMode)
         etWatchlist = view.findViewById(R.id.etWatchlist)
+        
+        // V5.7.6: Trading Mode
+        spTradingMode = view.findViewById(R.id.spTradingMode)
+        switchMemeTrader = view.findViewById(R.id.switchMemeTrader)
+        switchMarketsTrader = view.findViewById(R.id.switchMarketsTrader)
     }
     
     private fun setupSpinners() {
@@ -140,6 +150,49 @@ class SettingsBottomSheet : BottomSheetDialogFragment() {
         // Bot is designed to be fully autonomous - buy AND sell
         val autoTrades = arrayOf("OFF", "FULL_AUTO")
         spAutoTrade.adapter = ArrayAdapter(ctx, android.R.layout.simple_spinner_dropdown_item, autoTrades)
+        
+        // V5.7.6: Trading Mode spinner
+        val tradingModes = arrayOf("🎰 MEME ONLY", "📊 MARKETS ONLY", "🚀 BOTH (Recommended)")
+        spTradingMode.adapter = ArrayAdapter(ctx, android.R.layout.simple_spinner_dropdown_item, tradingModes)
+        
+        // Sync trading mode spinner with individual switches
+        spTradingMode.onItemSelectedListener = object : android.widget.AdapterView.OnItemSelectedListener {
+            override fun onItemSelected(parent: android.widget.AdapterView<*>?, view: View?, position: Int, id: Long) {
+                when (position) {
+                    0 -> { // MEME ONLY
+                        switchMemeTrader.isChecked = true
+                        switchMarketsTrader.isChecked = false
+                    }
+                    1 -> { // MARKETS ONLY
+                        switchMemeTrader.isChecked = false
+                        switchMarketsTrader.isChecked = true
+                    }
+                    2 -> { // BOTH
+                        switchMemeTrader.isChecked = true
+                        switchMarketsTrader.isChecked = true
+                    }
+                }
+            }
+            override fun onNothingSelected(parent: android.widget.AdapterView<*>?) {}
+        }
+        
+        // Also sync switches back to spinner
+        switchMemeTrader.setOnCheckedChangeListener { _, _ -> syncTradingModeSpinner() }
+        switchMarketsTrader.setOnCheckedChangeListener { _, _ -> syncTradingModeSpinner() }
+    }
+    
+    private fun syncTradingModeSpinner() {
+        val meme = switchMemeTrader.isChecked
+        val markets = switchMarketsTrader.isChecked
+        val position = when {
+            meme && markets -> 2  // BOTH
+            meme -> 0            // MEME ONLY
+            markets -> 1         // MARKETS ONLY
+            else -> 2            // Default to BOTH if neither selected
+        }
+        if (spTradingMode.selectedItemPosition != position) {
+            spTradingMode.setSelection(position)
+        }
     }
     
     private fun setupClickListeners(view: View) {
@@ -221,6 +274,11 @@ class SettingsBottomSheet : BottomSheetDialogFragment() {
         // Auto trade spinner (0=OFF, 1=FULL_AUTO)
         spAutoTrade.setSelection(if (cfg.autoTrade) 1 else 0)
         
+        // V5.7.6: Trading Mode
+        spTradingMode.setSelection(cfg.tradingMode.coerceIn(0, 2))
+        switchMemeTrader.isChecked = cfg.memeTraderEnabled
+        switchMarketsTrader.isChecked = cfg.marketsTraderEnabled
+        
         etStopLoss.setText(cfg.stopLossPct.toString())
         etExitScore.setText(cfg.exitScoreThreshold.toString())
         etSmallBuy.setText(cfg.smallBuySol.toString())
@@ -263,6 +321,10 @@ class SettingsBottomSheet : BottomSheetDialogFragment() {
             activeToken = etActiveToken.text.toString().trim(),
             paperMode = spMode.selectedItemPosition == 0,  // 0=PAPER, 1=LIVE
             autoTrade = spAutoTrade.selectedItemPosition == 1,  // 0=OFF, 1=ON
+            // V5.7.6: Trading Mode
+            tradingMode = spTradingMode.selectedItemPosition,
+            memeTraderEnabled = switchMemeTrader.isChecked,
+            marketsTraderEnabled = switchMarketsTrader.isChecked,
             stopLossPct = etStopLoss.text.toString().toDoubleOrNull() ?: cfg.stopLossPct,
             exitScoreThreshold = etExitScore.text.toString().toDoubleOrNull() ?: cfg.exitScoreThreshold,
             smallBuySol = etSmallBuy.text.toString().toDoubleOrNull() ?: cfg.smallBuySol,

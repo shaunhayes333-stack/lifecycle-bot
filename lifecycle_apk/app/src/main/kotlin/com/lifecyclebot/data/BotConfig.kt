@@ -219,13 +219,20 @@ data class BotConfig(
     val v3MinScoreToTrade: Int = 20,                // V3.2: Lowered from 55 - minimum unified score to consider trade
     val v3MaxExposurePct: Double = 70.0,            // Max wallet exposure in V3 mode
     val v3ConservativeMode: Boolean = false,        // More conservative scoring thresholds
-    // ── V5.7.3: Network Signal Auto-Buy ─────────────────────────────────────
+    // V5.7.3: Network Signal Auto-Buy ─────────────────────────────────────
     // Auto-buy from network signals (Copy Trade from Hive)
     val autoTradeNetworkSignals: Boolean = false,   // DISABLED by default - user must opt-in
     val autoTradeNetworkSignalsMegaWinner: Boolean = true,  // Auto-buy MEGA_WINNER signals
     val autoTradeNetworkSignalsHotToken: Boolean = false,   // Auto-buy HOT_TOKEN signals
     val autoTradeNetworkSignalsMinAcks: Int = 2,            // Min confirmations required
     val autoTradeNetworkSignalsMaxDaily: Int = 10,          // Max auto-buys per day
+    
+    // ── V5.7.6: Trading Mode Selection ────────────────────────────────────
+    // Control which auto-traders run: Meme coins, Markets (Perps/Stocks/etc), or Both
+    // 0 = MEME only (original bot), 1 = MARKETS only, 2 = BOTH
+    val tradingMode: Int = 2,  // Default: BOTH - run all traders
+    val memeTraderEnabled: Boolean = true,      // Meme coin trader (original bot)
+    val marketsTraderEnabled: Boolean = true,   // All market traders (Stocks, Commodities, Metals, Forex, Perps)
 )
 
 /** Persists config — private key stored in EncryptedSharedPreferences */
@@ -359,6 +366,10 @@ object ConfigStore {
             putString("remote_config_url",             cfg.remoteConfigUrl)
             putInt("remote_config_poll_secs",          cfg.remoteConfigPollSecs)
             putBoolean("collective_learning_enabled",  cfg.collectiveLearningEnabled)
+            // V5.7.6: Trading Mode
+            putInt("trading_mode",                     cfg.tradingMode)
+            putBoolean("meme_trader_enabled",          cfg.memeTraderEnabled)
+            putBoolean("markets_trader_enabled",       cfg.marketsTraderEnabled)
             apply()
         }
     }
@@ -492,6 +503,10 @@ object ConfigStore {
             remoteConfigUrl             = p.getString("remote_config_url", "") ?: "",
             remoteConfigPollSecs        = p.getInt("remote_config_poll_secs", 60),
             collectiveLearningEnabled   = p.getBoolean("collective_learning_enabled", true),
+            // V5.7.6: Trading Mode
+            tradingMode                 = p.getInt("trading_mode", 2),  // Default: BOTH
+            memeTraderEnabled           = p.getBoolean("meme_trader_enabled", true),
+            marketsTraderEnabled        = p.getBoolean("markets_trader_enabled", true),
         )
     }
 
