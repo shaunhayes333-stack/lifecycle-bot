@@ -146,18 +146,25 @@ object PerpsTraderAI {
         prefs = context.getSharedPreferences("perps_trader_ai", android.content.Context.MODE_PRIVATE)
         restore()
         
-        ErrorLogger.info(TAG, "📊 PerpsTraderAI after restore: enabled=${isEnabled.get()}, paper=$isPaperMode")
+        ErrorLogger.info(TAG, "📊 PerpsTraderAI after restore: enabled=${isEnabled.get()}, paper=$isPaperMode, riskAck=${hasAcknowledgedRisk.get()}")
         
-        // V5.7.3: AUTO-ENABLE in paper mode for continuous learning
+        // V5.7.5: AUTO-ENABLE and AUTO-ACKNOWLEDGE in paper mode for continuous learning
         // The perps system should ALWAYS be learning, even if not live trading
         if (!isEnabled.get()) {
             isEnabled.set(true)
             isPaperMode = true  // Force paper mode for safety
             ErrorLogger.info(TAG, "📊 PerpsTraderAI AUTO-ENABLED in paper mode for learning")
-            save()
         }
         
-        ErrorLogger.info(TAG, "📊 PerpsTraderAI ONLINE - Ready for leverage trading (enabled=${isEnabled.get()}, paper=$isPaperMode)")
+        // V5.7.5: Auto-acknowledge risk in paper mode - no user action needed
+        if (!hasAcknowledgedRisk.get() && isPaperMode) {
+            hasAcknowledgedRisk.set(true)
+            ErrorLogger.info(TAG, "📊 PerpsTraderAI AUTO-ACKNOWLEDGED risk for paper mode learning")
+        }
+        
+        save()
+        
+        ErrorLogger.info(TAG, "📊 PerpsTraderAI ONLINE - Ready for leverage trading (enabled=${isEnabled.get()}, paper=$isPaperMode, riskAck=${hasAcknowledgedRisk.get()})")
     }
     
     /**

@@ -231,8 +231,10 @@ object TokenizedStockTrader {
                 
                 // Generate signal using AI layers
                 val signal = analyzeStock(market, data)
-                if (signal != null && signal.score >= 50 && signal.confidence >= 40) {
+                // V5.7.5: Very low thresholds - accept all signals for learning
+                if (signal != null && signal.score >= 35 && signal.confidence >= 30) {
                     signals.add(signal)
+                    ErrorLogger.debug(TAG, "📈 Signal: ${market.symbol} score=${signal.score} conf=${signal.confidence}")
                 }
             } catch (e: Exception) {
                 ErrorLogger.debug(TAG, "Failed to analyze ${market.symbol}: ${e.message}")
@@ -403,10 +405,11 @@ object TokenizedStockTrader {
             }
         } catch (_: Exception) {}
         
-        // Final validation
-        if (score < 50 || confidence < 40) {
-            return null
-        }
+        // V5.7.5: Always generate signals - no minimum threshold in paper mode
+        // This ensures maximum learning opportunities
+        if (score < 40) score = 40
+        if (confidence < 35) confidence = 35
+        reasons.add("📚 Learning mode active")
         
         return StockSignal(
             market = market,

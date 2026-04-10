@@ -254,17 +254,17 @@ object PerpsExecutionEngine {
         
         val isPaper = PerpsTraderAI.isPaperMode
         
-        // V5.7.5: In paper mode, be VERY aggressive - minimal filtering
+        // V5.7.5: In paper mode, be EXTREMELY aggressive - almost no filtering
         if (isPaper) {
-            // Only check basic signal validity
-            if (signal.confidence < 40 || signal.score < 40) {
-                ErrorLogger.debug(TAG, "⚡ SKIP ${signal.market.symbol}: Low score/conf (${signal.score}/${signal.confidence})")
+            // Only check very basic signal validity - almost everything passes
+            if (signal.confidence < 20 || signal.score < 20) {
+                ErrorLogger.debug(TAG, "⚡ SKIP ${signal.market.symbol}: Very low score/conf (${signal.score}/${signal.confidence})")
                 return false
             }
             
-            // Check max positions (allow up to 20 in paper mode)
+            // Check max positions (allow up to 30 in paper mode)
             val currentPositions = PerpsTraderAI.getActivePositions().size
-            if (currentPositions >= 20) {
+            if (currentPositions >= 30) {
                 ErrorLogger.debug(TAG, "⚡ SKIP ${signal.market.symbol}: Max positions reached ($currentPositions)")
                 return false
             }
