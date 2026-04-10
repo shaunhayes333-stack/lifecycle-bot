@@ -2,6 +2,7 @@ package com.lifecyclebot.perps
 
 import com.lifecyclebot.collective.CollectiveSchema
 import com.lifecyclebot.collective.CollectiveLearning
+import com.lifecyclebot.collective.MarketsTradeRecord
 import com.lifecyclebot.engine.ErrorLogger
 import com.lifecyclebot.v3.scoring.FluidLearningAI
 import kotlinx.coroutines.*
@@ -527,7 +528,7 @@ object MetalsTrader {
                 val solPrice = try { PerpsMarketDataFetcher.getSolPrice() } catch (_: Exception) { 150.0 }
                 val holdMins = (System.currentTimeMillis() - position.openTime) / 60_000.0
                 
-                val tradeRecord = CollectiveSchema.MarketsTradeRecord(
+                val tradeRecord = MarketsTradeRecord(
                     tradeHash = "METAL_${position.id}_${System.currentTimeMillis()}",
                     instanceId = instanceId,
                     assetClass = "METAL",
