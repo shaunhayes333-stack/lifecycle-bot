@@ -170,8 +170,8 @@ object MetalsTrader {
                     if (!spotPositions.values.any { it.market == market }) {
                         spotSignals.add(signal.copy(leverage = 1.0))
                     }
-                    // LEVERAGE signal (higher threshold) if no leverage position
-                    if (signal.score >= 40 && !leveragePositions.values.any { it.market == market }) {
+                    // LEVERAGE signal - V5.7.6: Lower threshold to match floor (35/30) for maximum learning
+                    if (signal.score >= 35 && !leveragePositions.values.any { it.market == market }) {
                         leverageSignals.add(signal.copy(leverage = 5.0))
                     }
                 }

@@ -190,9 +190,10 @@ object CommoditiesTrader {
                 }
                 
                 // Generate LEVERAGE signal if no leverage position
+                // V5.7.6: Lower threshold to match floor (35/30) for maximum learning
                 if (!hasLeveragePosition(market)) {
                     val leverageSignal = analyzeMarket(market, data, TradeType.LEVERAGE)
-                    if (leverageSignal != null && leverageSignal.score >= 40 && leverageSignal.confidence >= 35) {
+                    if (leverageSignal != null && leverageSignal.score >= 35 && leverageSignal.confidence >= 30) {
                         leverageSignals.add(leverageSignal)
                     }
                 }
