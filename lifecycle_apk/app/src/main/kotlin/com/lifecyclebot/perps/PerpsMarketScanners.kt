@@ -111,12 +111,22 @@ object PerpsMarketScanners {
         // V5.7.5: Get current positions for correlation filtering
         val currentPositions = PerpsTraderAI.getActivePositions().map { it.market }
         
-        // V5.7.5: Get top movers and hot sectors for prioritization
-        val topMovers = try { PerpsAdvancedAI.getTopMovers(5) } catch (_: Exception) { emptyList() }
-        val hotSectors = try { PerpsAdvancedAI.getHotSectors() } catch (_: Exception) { emptyList() }
+        // V5.7.5: Get top movers and hot sectors for prioritization (with fallbacks)
+        val topMovers = try { PerpsAdvancedAI.getTopMovers(5) } catch (e: Exception) { 
+            ErrorLogger.debug(TAG, "🔥 Top movers failed: ${e.message}")
+            emptyList() 
+        }
+        val hotSectors = try { PerpsAdvancedAI.getHotSectors() } catch (e: Exception) { 
+            ErrorLogger.debug(TAG, "🌡️ Hot sectors failed: ${e.message}")
+            emptyList() 
+        }
         
-        ErrorLogger.debug(TAG, "🔥 Top movers: ${topMovers.map { it.symbol }}")
-        ErrorLogger.debug(TAG, "🌡️ Hot sectors: ${hotSectors.map { it.displayName }}")
+        if (topMovers.isNotEmpty()) {
+            ErrorLogger.debug(TAG, "🔥 Top movers: ${topMovers.map { it.symbol }}")
+        }
+        if (hotSectors.isNotEmpty()) {
+            ErrorLogger.debug(TAG, "🌡️ Hot sectors: ${hotSectors.map { it.displayName }}")
+        }
         
         // Run each scanner
         ScannerType.values().forEach { scannerType ->
@@ -124,7 +134,26 @@ object PerpsMarketScanners {
                 val scanResults = when (scannerType) {
                     ScannerType.SOL_MOMENTUM -> scanSolMomentum(marketDataMap, isPaperMode)
                     ScannerType.SOL_SNIPER -> scanSolSniper(marketDataMap, isPaperMode)
-                    ScannerType.STOCK_QUALITY -> scanStockQualityAdvanced(marketDataMap, isPaperMode, currentPositions, topMovers, hotSectors)
+                    ScannerType.STOCK_QUALITY -> {
+                        // V5.7.5: Use advanced scanner, fall back to simple if it fails
+                        try {
+                            val advancedResults = scanStockQualityAdvanced(marketDataMap, isPaperMode, currentPositions, topMovers, hotSectors)
+                            if (advancedResults.isEmpty() && isPaperMode) {
+                                ErrorLogger.debug(TAG, "🧠 Advanced scanner empty, using simple scanner")
+                                scanStockQuality(marketDataMap, isPaperMode)
+                            } else {
+                                advancedResults
+                            }
+                        } catch (e: Exception) {
+                            ErrorLogger.warn(TAG, "🧠 Advanced scanner error: ${e.message}, using simple")
+                            scanStockQuality(marketDataMap, isPaperMode)
+                        }
+                    }
+                    ScannerType.WHALE_LIQUIDATION -> scanWhaleLiquidation(marketDataMap, isPaperMode)
+                    ScannerType.FUNDING_RATE -> scanFundingRate(marketDataMap, isPaperMode)
+                    ScannerType.VOLATILITY_BREAKOUT -> scanVolatilityBreakout(marketDataMap, isPaperMode)
+                    ScannerType.CORRELATION -> scanCorrelation(marketDataMap, isPaperMode)
+                }
                     ScannerType.WHALE_LIQUIDATION -> scanWhaleLiquidation(marketDataMap, isPaperMode)
                     ScannerType.FUNDING_RATE -> scanFundingRate(marketDataMap, isPaperMode)
                     ScannerType.VOLATILITY_BREAKOUT -> scanVolatilityBreakout(marketDataMap, isPaperMode)
@@ -627,8 +656,15 @@ object PerpsMarketScanners {
                 priority = 5
             }
             
-            // Only generate signal if AI says to trade OR paper mode learning
-            if (!analysis.shouldTrade && !isPaperMode) {
+            // Paper mode ensures minimum score for learning
+            if (isPaperMode && score < 55) {
+                score = 55
+                reasoning.add("📚 Paper mode learning boost")
+            }
+            
+            // In paper mode, ALWAYS generate signals for learning (skip shouldTrade check)
+            // In live mode, only trade if AI confirms
+            if (!isPaperMode && !analysis.shouldTrade) {
                 return@forEach
             }
             
