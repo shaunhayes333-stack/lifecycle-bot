@@ -151,19 +151,29 @@ object TokenizedStockTrader {
         isRunning.set(true)
         
         engineJob = scope.launch {
-            ErrorLogger.info(TAG, "📈 TokenizedStockTrader STARTED - Scanning every ${SCAN_INTERVAL_MS/1000}s")
+            ErrorLogger.info(TAG, "📈 TokenizedStockTrader STARTED - Scanning every ${SCAN_INTERVAL_MS/1000}s | enabled=${isEnabled.get()}")
+            
+            // V5.7.6: Run first scan immediately (no initial delay)
+            try {
+                ErrorLogger.info(TAG, "📈 Running INITIAL stock scan...")
+                runScanCycle()
+            } catch (e: Exception) {
+                ErrorLogger.error(TAG, "Initial scan error: ${e.message}", e)
+            }
             
             // Run scan loop
             while (isRunning.get()) {
                 try {
+                    delay(SCAN_INTERVAL_MS)
+                    
                     if (isEnabled.get()) {
                         runScanCycle()
+                    } else {
+                        ErrorLogger.debug(TAG, "📈 Stock trading DISABLED - skipping scan")
                     }
                 } catch (e: Exception) {
                     ErrorLogger.error(TAG, "Scan cycle error: ${e.message}", e)
                 }
-                
-                delay(SCAN_INTERVAL_MS)
             }
         }
         
@@ -198,36 +208,52 @@ object TokenizedStockTrader {
         
         // Get all stock markets
         val stockMarkets = PerpsMarket.values().filter { it.isStock }
+        ErrorLogger.debug(TAG, "📈 Found ${stockMarkets.size} stock markets to scan")
         
         // Fetch prices and generate signals
         val signals = mutableListOf<StockSignal>()
+        var analyzedCount = 0
+        var skippedHasPosition = 0
+        var skippedBadPrice = 0
         
         for (market in stockMarkets) {
             try {
                 // Skip if we already have a position
-                if (hasPosition(market)) continue
+                if (hasPosition(market)) {
+                    skippedHasPosition++
+                    continue
+                }
                 
                 // Get market data
                 val data = PerpsMarketDataFetcher.getMarketData(market)
-                if (data.price <= 0) continue
+                if (data.price <= 0) {
+                    skippedBadPrice++
+                    continue
+                }
+                
+                analyzedCount++
                 
                 // Generate signal using AI layers
                 val signal = analyzeStock(market, data)
-                // V5.7.5: Very low thresholds - accept all signals for learning
-                if (signal != null && signal.score >= 35 && signal.confidence >= 30) {
+                // V5.7.6: Lower thresholds even more - score>=30, conf>=25 for maximum learning
+                if (signal != null && signal.score >= 30 && signal.confidence >= 25) {
                     signals.add(signal)
-                    ErrorLogger.debug(TAG, "📈 Signal: ${market.symbol} score=${signal.score} conf=${signal.confidence}")
+                    ErrorLogger.debug(TAG, "📈 Signal: ${market.symbol} @ \$${data.price.fmt(2)} | score=${signal.score} conf=${signal.confidence} | ${signal.direction.symbol}")
                 }
             } catch (e: Exception) {
                 ErrorLogger.debug(TAG, "Failed to analyze ${market.symbol}: ${e.message}")
             }
         }
         
+        ErrorLogger.info(TAG, "📈 Scan stats: analyzed=$analyzedCount | hasPos=$skippedHasPosition | badPrice=$skippedBadPrice | signals=${signals.size}")
+        
         // Sort by score and take best signals
         val topSignals = signals.sortedByDescending { it.score }.take(3)
         
         if (topSignals.isNotEmpty()) {
-            ErrorLogger.info(TAG, "📈 Found ${topSignals.size} stock signals: ${topSignals.map { "${it.market.symbol}(${it.score})" }}")
+            ErrorLogger.info(TAG, "📈 TOP ${topSignals.size} stock signals: ${topSignals.map { "${it.market.symbol}(${it.score}/${it.confidence})" }}")
+        } else if (signals.isEmpty()) {
+            ErrorLogger.info(TAG, "📈 No stock signals generated this cycle - all markets below threshold or no data")
         }
         
         // Execute top signals
@@ -365,11 +391,11 @@ object TokenizedStockTrader {
             }
         } catch (_: Exception) {}
         
-        // V5.7.5: Always generate signals - no minimum threshold in paper mode
-        // This ensures maximum learning opportunities
-        if (score < 40) score = 40
-        if (confidence < 35) confidence = 35
-        reasons.add("📚 Learning mode active")
+        // V5.7.6: ALWAYS generate signals in paper mode - ensures maximum learning
+        // Floor guarantees we always pass the threshold check in runScanCycle (score>=30, conf>=25)
+        if (score < 35) score = 35
+        if (confidence < 30) confidence = 30
+        reasons.add("📚 Learning: ALWAYS_TRADE mode")
         
         return StockSignal(
             market = market,
