@@ -151,14 +151,16 @@ object TokenizedStockTrader {
         isRunning.set(true)
         
         engineJob = scope.launch {
-            ErrorLogger.info(TAG, "📈 TokenizedStockTrader STARTED - Scanning every ${SCAN_INTERVAL_MS/1000}s | enabled=${isEnabled.get()}")
+            // V5.7.6: Use error-level logging to ensure visibility
+            ErrorLogger.error(TAG, "📈📈📈 TokenizedStockTrader ENGINE STARTED 📈📈📈")
+            ErrorLogger.error(TAG, "📈 Scanning every ${SCAN_INTERVAL_MS/1000}s | enabled=${isEnabled.get()}")
             
             // V5.7.6: Run first scan immediately (no initial delay)
             try {
-                ErrorLogger.info(TAG, "📈 Running INITIAL stock scan...")
+                ErrorLogger.error(TAG, "📈📈📈 Running INITIAL stock scan NOW... 📈📈📈")
                 runScanCycle()
             } catch (e: Exception) {
-                ErrorLogger.error(TAG, "Initial scan error: ${e.message}", e)
+                ErrorLogger.error(TAG, "📈 Initial scan EXCEPTION: ${e.message}", e)
             }
             
             // Run scan loop
@@ -204,10 +206,10 @@ object TokenizedStockTrader {
         scanCount.incrementAndGet()
         val scanNum = scanCount.get()
         
-        ErrorLogger.info(TAG, "📈 ═══════════════════════════════════════════════════")
-        ErrorLogger.info(TAG, "📈 STOCK SCAN #$scanNum STARTING")
-        ErrorLogger.info(TAG, "📈 positions=${positions.size}/$MAX_STOCK_POSITIONS | balance=${"%.2f".format(getBalance())} SOL")
-        ErrorLogger.info(TAG, "📈 ═══════════════════════════════════════════════════")
+        ErrorLogger.error(TAG, "📈 ═══════════════════════════════════════════════════")
+        ErrorLogger.error(TAG, "📈 STOCK SCAN #$scanNum STARTING")
+        ErrorLogger.error(TAG, "📈 positions=${positions.size}/$MAX_STOCK_POSITIONS | balance=${"%.2f".format(getBalance())} SOL")
+        ErrorLogger.error(TAG, "📈 ═══════════════════════════════════════════════════")
         
         // Get all stock markets
         val stockMarkets = PerpsMarket.values().filter { it.isStock }
