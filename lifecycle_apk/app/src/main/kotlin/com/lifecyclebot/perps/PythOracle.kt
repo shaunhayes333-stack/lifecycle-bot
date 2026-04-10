@@ -50,15 +50,15 @@ object PythOracle {
         // Crypto
         "SOL" to "0xef0d8b6fda2ceba41da15d4095d1da392a0d2f8ed0c6c7bc0f4cfac8c280b56d",
         
-        // US Equities (tokenized via xStocks/Backed)
+        // US Equities - REAL Pyth Price Feed IDs (verified from Hermes API)
         "AAPL" to "0x49f6b65cb1de6b10eaf75e7c03ca029c306d0357e91b5311b175084a5ad55688",
         "TSLA" to "0x16dad506d7db8da01c87581c87ca897a012a153557d4d578c3b9c9e1bc0632f1",
-        "NVDA" to "0x3f336d8ad1f24e0f5a1cd5d4e1c4e5e3f3f2e1d0c9b8a79687564738291a0b1c",
-        "GOOGL" to "0x4f336d8ad1f24e0f5a1cd5d4e1c4e5e3f3f2e1d0c9b8a79687564738291a0b1d",
-        "AMZN" to "0x5f336d8ad1f24e0f5a1cd5d4e1c4e5e3f3f2e1d0c9b8a79687564738291a0b1e",
-        "META" to "0x6f336d8ad1f24e0f5a1cd5d4e1c4e5e3f3f2e1d0c9b8a79687564738291a0b1f",
-        "MSFT" to "0x7f336d8ad1f24e0f5a1cd5d4e1c4e5e3f3f2e1d0c9b8a79687564738291a0b20",
-        "COIN" to "0x8f336d8ad1f24e0f5a1cd5d4e1c4e5e3f3f2e1d0c9b8a79687564738291a0b21",
+        "NVDA" to "0xb1073854ed24cbc755dc527418f52b7d271f6cc967bbf8d8129112b18860a593",
+        "GOOGL" to "0x5a48c03e9b9cb337801073ed9d166817473697efff0d138874e0f6a33d6d5aa6",
+        "AMZN" to "0xb5d0e0fa58a1f8b81498ae670ce93c872d14434b72c364885d4fa1b257cbb07a",
+        "META" to "0x78a3e3b8e676a8f73c439f5d749737034b139bbbe899ba5775216fba596607fe",
+        "MSFT" to "0xd0ca23c1cc005e004ccf1db5bf76aeb6a49218f43dac3d4b275e92de12ded4d1",
+        "COIN" to "0xfee33f2a978bf32dd6b662b65ba8083c6773b494f8401194ec1870c640860245",
     )
     
     // Cache
