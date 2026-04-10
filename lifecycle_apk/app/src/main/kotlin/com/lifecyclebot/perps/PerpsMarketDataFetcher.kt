@@ -425,30 +425,32 @@ object PerpsMarketDataFetcher {
                         priceChange24hPct = calculateChange(pythPrice.price, pythPrice.emaPrice),
                     )
                 } else {
-                    // V5.7.5: If stale, still use the price - only debug log (not warn)
-                    // This prevents log spam for assets like SNOW that Pyth doesn't track well
-                    if (pythPrice.price > 0) {
-                        ErrorLogger.debug(TAG, "📊 Pyth stale but valid: ${market.symbol} = \$${pythPrice.price.fmt(2)}")
-                        stockPrices[market.symbol] = pythPrice.price
+                    // V5.7.7 FIX: If Pyth is stale for STOCKS, use fallback sources
+                    // This ensures we get after-hours prices from Yahoo/etc instead of stale close prices
+                    if (market.isStock || market.isETF) {
+                        ErrorLogger.debug(TAG, "📊 Pyth stale for ${market.symbol}, trying PriceAggregator fallback...")
+                        // Fall through to use fallback sources below
                     } else {
-                        ErrorLogger.debug(TAG, "📊 Pyth stale/zero for ${market.symbol}, using fallback: \$${stockPrices[market.symbol]?.fmt(2) ?: "100.00"}")
+                        // For crypto, stale but valid prices are OK
+                        if (pythPrice.price > 0) {
+                            ErrorLogger.debug(TAG, "📊 Pyth stale but valid (crypto): ${market.symbol} = \$${pythPrice.price.fmt(2)}")
+                            return PerpsMarketData(
+                                market = market,
+                                price = pythPrice.price,
+                                indexPrice = pythPrice.emaPrice,
+                                markPrice = pythPrice.price,
+                                fundingRate = calculateFundingRate(market),
+                                fundingRateAnnualized = calculateFundingRate(market) * 365 * 3 * 100,
+                                nextFundingTime = System.currentTimeMillis() + 8 * 60 * 60 * 1000,
+                                openInterestLong = getEstimatedOI(market, true),
+                                openInterestShort = getEstimatedOI(market, false),
+                                volume24h = getEstimatedVolume(market),
+                                high24h = pythPrice.price * 1.02,
+                                low24h = pythPrice.price * 0.98,
+                                priceChange24hPct = calculateChange(pythPrice.price, pythPrice.emaPrice),
+                            )
+                        }
                     }
-                    
-                    return PerpsMarketData(
-                        market = market,
-                        price = pythPrice.price,
-                        indexPrice = pythPrice.emaPrice,
-                        markPrice = pythPrice.price,
-                        fundingRate = calculateFundingRate(market),
-                        fundingRateAnnualized = calculateFundingRate(market) * 365 * 3 * 100,
-                        nextFundingTime = System.currentTimeMillis() + 8 * 60 * 60 * 1000,
-                        openInterestLong = getEstimatedOI(market, true),
-                        openInterestShort = getEstimatedOI(market, false),
-                        volume24h = getEstimatedVolume(market),
-                        high24h = pythPrice.price * 1.02,
-                        low24h = pythPrice.price * 0.98,
-                        priceChange24hPct = calculateChange(pythPrice.price, pythPrice.emaPrice),
-                    )
                 }
             } else {
                 ErrorLogger.warn(TAG, "⚠️ Pyth returned NULL for ${market.symbol}, using fallback")
