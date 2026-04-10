@@ -111,22 +111,10 @@ object PerpsMarketScanners {
         // V5.7.5: Get current positions for correlation filtering
         val currentPositions = PerpsTraderAI.getActivePositions().map { it.market }
         
-        // V5.7.5: Get top movers and hot sectors for prioritization (with fallbacks)
-        val topMovers = try { PerpsAdvancedAI.getTopMovers(5) } catch (e: Exception) { 
-            ErrorLogger.debug(TAG, "🔥 Top movers failed: ${e.message}")
-            emptyList() 
-        }
-        val hotSectors = try { PerpsAdvancedAI.getHotSectors() } catch (e: Exception) { 
-            ErrorLogger.debug(TAG, "🌡️ Hot sectors failed: ${e.message}")
-            emptyList() 
-        }
-        
-        if (topMovers.isNotEmpty()) {
-            ErrorLogger.debug(TAG, "🔥 Top movers: ${topMovers.map { it.symbol }}")
-        }
-        if (hotSectors.isNotEmpty()) {
-            ErrorLogger.debug(TAG, "🌡️ Hot sectors: ${hotSectors.map { it.displayName }}")
-        }
+        // V5.7.5: Skip top movers and hot sectors for now - they use runBlocking which can deadlock
+        // TODO: Make these suspend functions
+        val topMovers = emptyList<PerpsMarket>()
+        val hotSectors = emptyList<PerpsAdvancedAI.Sector>()
         
         // Run each scanner
         ScannerType.values().forEach { scannerType ->
@@ -135,19 +123,9 @@ object PerpsMarketScanners {
                     ScannerType.SOL_MOMENTUM -> scanSolMomentum(marketDataMap, isPaperMode)
                     ScannerType.SOL_SNIPER -> scanSolSniper(marketDataMap, isPaperMode)
                     ScannerType.STOCK_QUALITY -> {
-                        // V5.7.5: Use advanced scanner, fall back to simple if it fails
-                        try {
-                            val advancedResults = scanStockQualityAdvanced(marketDataMap, isPaperMode, currentPositions, topMovers, hotSectors)
-                            if (advancedResults.isEmpty() && isPaperMode) {
-                                ErrorLogger.debug(TAG, "🧠 Advanced scanner empty, using simple scanner")
-                                scanStockQuality(marketDataMap, isPaperMode)
-                            } else {
-                                advancedResults
-                            }
-                        } catch (e: Exception) {
-                            ErrorLogger.warn(TAG, "🧠 Advanced scanner error: ${e.message}, using simple")
-                            scanStockQuality(marketDataMap, isPaperMode)
-                        }
+                        // V5.7.5: Use simple scanner for reliability - advanced scanner can cause deadlocks
+                        // TODO: Fix PerpsAdvancedAI to use suspend functions properly
+                        scanStockQuality(marketDataMap, isPaperMode)
                     }
                     ScannerType.WHALE_LIQUIDATION -> scanWhaleLiquidation(marketDataMap, isPaperMode)
                     ScannerType.FUNDING_RATE -> scanFundingRate(marketDataMap, isPaperMode)
