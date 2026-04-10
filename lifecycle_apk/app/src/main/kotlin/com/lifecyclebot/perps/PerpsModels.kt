@@ -390,6 +390,12 @@ data class PerpsPosition(
     fun getPnlPercent(): Double = getUnrealizedPnlPct()
     fun getPnlSol(): Double = sizeSol * (getUnrealizedPnlPct() / 100)
     
+    // V5.7.6b: Aliases for position card compatibility
+    val size: Double get() = sizeSol
+    val openTime: Long get() = entryTime
+    val takeProfit: Double get() = takeProfitPrice ?: (entryPrice * if (direction == PerpsDirection.LONG) 1.05 else 0.95)
+    val stopLoss: Double get() = stopLossPrice ?: (entryPrice * if (direction == PerpsDirection.LONG) 0.97 else 1.03)
+    
     fun getDistanceToLiquidation(): Double {
         return when (direction) {
             PerpsDirection.LONG -> ((currentPrice - liquidationPrice) / currentPrice * 100)
