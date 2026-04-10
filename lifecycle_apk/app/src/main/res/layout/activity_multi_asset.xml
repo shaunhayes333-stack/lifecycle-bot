@@ -90,6 +90,208 @@
             </LinearLayout>
         </LinearLayout>
 
+        <!-- ═══════════════════════════════════════════════════════════════
+             QUICK STATS BAR (Markets-specific)
+             ═══════════════════════════════════════════════════════════════ -->
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal"
+            android:paddingStart="12dp"
+            android:paddingEnd="12dp"
+            android:layout_marginBottom="8dp">
+
+            <!-- 24h Trades -->
+            <LinearLayout
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:orientation="vertical"
+                android:gravity="center"
+                android:background="@drawable/section_card_bg"
+                android:padding="8dp"
+                android:layout_marginEnd="4dp">
+                <TextView
+                    android:id="@+id/tvStats24hTrades"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="0"
+                    android:textColor="#FFFFFF"
+                    android:textSize="16sp"
+                    android:textStyle="bold"/>
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="24h Trades"
+                    android:textColor="#6B7280"
+                    android:textSize="9sp"/>
+            </LinearLayout>
+
+            <!-- Win Rate -->
+            <LinearLayout
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:orientation="vertical"
+                android:gravity="center"
+                android:background="@drawable/section_card_bg"
+                android:padding="8dp"
+                android:layout_marginEnd="4dp">
+                <TextView
+                    android:id="@+id/tvStatsWinRate"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="—%"
+                    android:textColor="#10B981"
+                    android:textSize="16sp"
+                    android:textStyle="bold"/>
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="Win Rate"
+                    android:textColor="#6B7280"
+                    android:textSize="9sp"/>
+            </LinearLayout>
+
+            <!-- Total P&L -->
+            <LinearLayout
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:orientation="vertical"
+                android:gravity="center"
+                android:background="@drawable/section_card_bg"
+                android:padding="8dp"
+                android:layout_marginEnd="4dp">
+                <TextView
+                    android:id="@+id/tvStatsTotalPnl"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="+0.00"
+                    android:textColor="#00FF88"
+                    android:textSize="16sp"
+                    android:textStyle="bold"/>
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="Total P&amp;L"
+                    android:textColor="#6B7280"
+                    android:textSize="9sp"/>
+            </LinearLayout>
+
+            <!-- AI Score -->
+            <LinearLayout
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:orientation="vertical"
+                android:gravity="center"
+                android:background="@drawable/section_card_bg"
+                android:padding="8dp">
+                <TextView
+                    android:id="@+id/tvStatsAiScore"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="—"
+                    android:textColor="#F59E0B"
+                    android:textSize="16sp"
+                    android:textStyle="bold"/>
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="AI Score"
+                    android:textColor="#6B7280"
+                    android:textSize="9sp"/>
+            </LinearLayout>
+        </LinearLayout>
+
+        <!-- ═══════════════════════════════════════════════════════════════
+             QUICK ACTIONS BAR
+             ═══════════════════════════════════════════════════════════════ -->
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal"
+            android:paddingStart="12dp"
+            android:paddingEnd="12dp"
+            android:layout_marginBottom="8dp">
+
+            <!-- Journal -->
+            <LinearLayout
+                android:id="@+id/btnJournal"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:orientation="vertical"
+                android:gravity="center"
+                android:padding="10dp"
+                android:background="@drawable/section_card_bg"
+                android:layout_marginEnd="4dp"
+                android:clickable="true"
+                android:focusable="true">
+                <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+                    android:text="📒" android:textSize="18sp"/>
+                <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+                    android:text="Journal" android:textColor="#9CA3AF" android:textSize="9sp"/>
+            </LinearLayout>
+
+            <!-- Tax Report -->
+            <LinearLayout
+                android:id="@+id/btnTaxReport"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:orientation="vertical"
+                android:gravity="center"
+                android:padding="10dp"
+                android:background="@drawable/section_card_bg"
+                android:layout_marginEnd="4dp"
+                android:clickable="true"
+                android:focusable="true">
+                <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+                    android:text="📋" android:textSize="18sp"/>
+                <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+                    android:text="Tax Forms" android:textColor="#9CA3AF" android:textSize="9sp"/>
+            </LinearLayout>
+
+            <!-- Performance -->
+            <LinearLayout
+                android:id="@+id/btnPerformance"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:orientation="vertical"
+                android:gravity="center"
+                android:padding="10dp"
+                android:background="@drawable/section_card_bg"
+                android:layout_marginEnd="4dp"
+                android:clickable="true"
+                android:focusable="true">
+                <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+                    android:text="📊" android:textSize="18sp"/>
+                <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+                    android:text="Stats" android:textColor="#9CA3AF" android:textSize="9sp"/>
+            </LinearLayout>
+
+            <!-- Export -->
+            <LinearLayout
+                android:id="@+id/btnExport"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:orientation="vertical"
+                android:gravity="center"
+                android:padding="10dp"
+                android:background="@drawable/section_card_bg"
+                android:clickable="true"
+                android:focusable="true">
+                <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+                    android:text="📤" android:textSize="18sp"/>
+                <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+                    android:text="Export" android:textColor="#9CA3AF" android:textSize="9sp"/>
+            </LinearLayout>
+        </LinearLayout>
+
         <!-- ── TAB LAYOUT ── -->
         <com.google.android.material.tabs.TabLayout
             android:id="@+id/tabLayout"
