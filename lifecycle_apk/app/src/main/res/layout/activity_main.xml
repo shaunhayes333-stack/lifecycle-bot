@@ -13,7 +13,6 @@
 
     <!-- ── SCROLLABLE CONTENT ── -->
     <androidx.core.widget.NestedScrollView
-        android:id="@+id/mainScrollView"
         android:layout_width="match_parent"
         android:layout_height="match_parent"
         android:paddingBottom="@dimen/content_bottom_padding"
@@ -30,7 +29,6 @@
                  TOP BAR (Compact + Responsive)
                  ═══════════════════════════════ -->
             <LinearLayout
-                android:id="@+id/topBarContainer"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:minHeight="48dp"
@@ -159,7 +157,6 @@
                 
                 <!-- Logo (smaller) -->
                 <ImageView
-                    android:id="@+id/ivLogo"
                     android:layout_width="40dp"
                     android:layout_height="40dp"
                     android:src="@drawable/logo"
@@ -941,6 +938,52 @@
                         android:fontFamily="monospace"/>
                 </LinearLayout>
                 
+                <!-- ShitCoinExpress Mode -->
+                <LinearLayout
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:orientation="vertical"
+                    android:gravity="center"
+                    android:padding="6dp"
+                    android:background="@drawable/section_card_bg"
+                    android:layout_marginEnd="3dp"
+                    android:clickable="true"
+                    android:focusable="true">
+                    <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+                        android:text="⚡" android:textSize="16sp"/>
+                    <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+                        android:text="Express" android:textColor="#EAB308" android:textSize="8sp"
+                        android:layout_marginTop="1dp"/>
+                    <TextView android:id="@+id/tvExpressStats"
+                        android:layout_width="wrap_content" android:layout_height="wrap_content"
+                        android:text="0/0" android:textColor="#6B7280" android:textSize="6sp"
+                        android:fontFamily="monospace"/>
+                </LinearLayout>
+
+                <!-- The Manipulated Mode -->
+                <LinearLayout
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:orientation="vertical"
+                    android:gravity="center"
+                    android:padding="6dp"
+                    android:background="@drawable/section_card_bg"
+                    android:layout_marginEnd="3dp"
+                    android:clickable="true"
+                    android:focusable="true">
+                    <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+                        android:text="☠️" android:textSize="16sp"/>
+                    <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+                        android:text="Manip" android:textColor="#B91C1C" android:textSize="8sp"
+                        android:layout_marginTop="1dp"/>
+                    <TextView android:id="@+id/tvManipStats"
+                        android:layout_width="wrap_content" android:layout_height="wrap_content"
+                        android:text="0/0" android:textColor="#6B7280" android:textSize="6sp"
+                        android:fontFamily="monospace"/>
+                </LinearLayout>
+
                 <!-- Moonshot Mode -->
                 <LinearLayout
                     android:id="@+id/btnQuickMoonshot"
@@ -1797,7 +1840,6 @@
                     
                 <!-- V5.6: DexScreener-Style Token Metrics Row -->
                 <LinearLayout
-                    android:id="@+id/chartMetricsRow"
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
                     android:orientation="horizontal"
@@ -2657,7 +2699,6 @@
                  Kept for backward compat with findViewById
                  ═══════════════════════════════ -->
             <LinearLayout
-                android:id="@+id/cardSettings"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:background="@drawable/section_card_bg"
@@ -2947,7 +2988,7 @@
                         android:paddingStart="@dimen/input_padding_h"
                         android:layout_marginBottom="10dp"/>
 
-                    <TextView android:id="@+id/tvGeminiHelp"
+                    <TextView
                         android:layout_width="wrap_content" android:layout_height="wrap_content"
                         android:text="✨ GEMINI KEY — aistudio.google.com"
                         android:textColor="#6B7280" android:textSize="10sp"
@@ -2961,7 +3002,7 @@
                         android:paddingStart="@dimen/input_padding_h"
                         android:layout_marginBottom="10dp"/>
 
-                    <TextView android:id="@+id/tvJupiterHelp"
+                    <TextView
                         android:layout_width="wrap_content" android:layout_height="wrap_content"
                         android:text="🪐 JUPITER KEY — portal.jup.ag"
                         android:textColor="#6B7280" android:textSize="10sp"
