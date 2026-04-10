@@ -54,13 +54,15 @@ object PerpsTraderAI {
     // ═══════════════════════════════════════════════════════════════════════════
     
     // Position limits
-    private const val MAX_CONCURRENT_POSITIONS = 5
+    private const val MAX_CONCURRENT_POSITIONS_LIVE = 5
+    private const val MAX_CONCURRENT_POSITIONS_PAPER = 20   // V5.7.4: More positions in paper for learning
     private const val MAX_POSITION_PCT_OF_BALANCE = 25.0
     private const val MIN_POSITION_SOL = 0.05
     
     // Daily limits
     private const val DAILY_MAX_LOSS_PCT = 15.0           // Max 15% daily drawdown
-    private const val DAILY_MAX_TRADES = 30               // Prevent overtrading
+    private const val DAILY_MAX_TRADES_LIVE = 30          // Prevent overtrading in LIVE mode
+    private const val DAILY_MAX_TRADES_PAPER = 999999     // V5.7.4: UNLIMITED trades in paper mode for learning
     
     // Readiness thresholds
     private const val MIN_PAPER_TRADES_FOR_LIVE = 50
@@ -312,8 +314,9 @@ object PerpsTraderAI {
         // PRE-FLIGHT CHECKS
         // ═══════════════════════════════════════════════════════════════════
         
-        // Daily limits
-        if (dailyTrades.get() >= DAILY_MAX_TRADES) {
+        // Daily limits - V5.7.4: Unlimited in paper mode for maximum learning
+        val maxDailyTrades = if (isPaperMode) DAILY_MAX_TRADES_PAPER else DAILY_MAX_TRADES_LIVE
+        if (dailyTrades.get() >= maxDailyTrades) {
             return noTradeSignal(market, "DAILY_TRADE_LIMIT", reasons)
         }
         
@@ -322,8 +325,9 @@ object PerpsTraderAI {
             return noTradeSignal(market, "DAILY_LOSS_LIMIT", reasons)
         }
         
-        // Max positions
-        if (activePositions.size >= MAX_CONCURRENT_POSITIONS) {
+        // Max positions - V5.7.4: More positions allowed in paper mode
+        val maxPositions = if (isPaperMode) MAX_CONCURRENT_POSITIONS_PAPER else MAX_CONCURRENT_POSITIONS_LIVE
+        if (activePositions.size >= maxPositions) {
             return noTradeSignal(market, "MAX_POSITIONS", reasons)
         }
         

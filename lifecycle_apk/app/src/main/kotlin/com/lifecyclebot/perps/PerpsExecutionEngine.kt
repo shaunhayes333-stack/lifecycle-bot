@@ -52,8 +52,9 @@ object PerpsExecutionEngine {
     private val failedExecutions = AtomicInteger(0)
     private val lastExecutionTime = AtomicLong(0)
     
-    // Scan interval
-    private const val SCAN_INTERVAL_MS = 30_000L  // 30 seconds
+    // Scan interval - V5.7.4: Faster scanning in paper mode for more learning
+    private const val SCAN_INTERVAL_MS_LIVE = 30_000L   // 30 seconds in live
+    private const val SCAN_INTERVAL_MS_PAPER = 10_000L  // 10 seconds in paper (3x faster!)
     private const val POSITION_CHECK_INTERVAL_MS = 10_000L  // 10 seconds
     
     // Counters for logging
@@ -127,7 +128,8 @@ object PerpsExecutionEngine {
     // ═══════════════════════════════════════════════════════════════════════════
     
     private suspend fun runScanLoop() {
-        ErrorLogger.info(TAG, "⚡ PERPS SCAN LOOP STARTED - Running every ${SCAN_INTERVAL_MS/1000}s")
+        val scanIntervalMs = if (PerpsTraderAI.isPaperMode) SCAN_INTERVAL_MS_PAPER else SCAN_INTERVAL_MS_LIVE
+        ErrorLogger.info(TAG, "⚡ PERPS SCAN LOOP STARTED - Running every ${scanIntervalMs/1000}s (paper=${PerpsTraderAI.isPaperMode})")
         
         while (isRunning.get()) {
             try {
@@ -176,7 +178,9 @@ object PerpsExecutionEngine {
                 ErrorLogger.error(TAG, "Scan loop error: ${e.message}", e)
             }
             
-            delay(SCAN_INTERVAL_MS)
+            // V5.7.4: Dynamic interval - faster in paper mode for more learning
+            val interval = if (PerpsTraderAI.isPaperMode) SCAN_INTERVAL_MS_PAPER else SCAN_INTERVAL_MS_LIVE
+            delay(interval)
         }
     }
     
