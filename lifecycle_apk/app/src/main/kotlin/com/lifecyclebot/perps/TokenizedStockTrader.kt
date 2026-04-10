@@ -1074,6 +1074,14 @@ object TokenizedStockTrader {
     fun setLiveMode(live: Boolean) {
         isPaperMode.set(!live)
         ErrorLogger.info(TAG, "📈 TokenizedStockTrader mode: ${if (live) "🔴 LIVE" else "📄 PAPER"}")
+        if (live) {
+            // Fetch actual wallet balance so live trading doesn't start at 0
+            try {
+                val balance = com.lifecyclebot.engine.WalletManager.getWallet()?.getSolBalance() ?: 0.0
+                if (balance > 0) updateLiveBalance(balance)
+                ErrorLogger.info(TAG, "📈 Live wallet balance: ${"%.4f".format(liveWalletBalance)} SOL")
+            } catch (_: Exception) {}
+        }
     }
     
     /** Update live wallet balance from connected wallet */

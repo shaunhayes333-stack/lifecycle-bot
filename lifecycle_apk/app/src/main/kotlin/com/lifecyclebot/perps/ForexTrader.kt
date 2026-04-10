@@ -46,7 +46,7 @@ object ForexTrader {
     private val isPaperMode = AtomicBoolean(true)
     private val scanCount = AtomicInteger(0)
     
-    private var paperBalance = 50.0  // 50 SOL for forex
+    @Volatile private var paperBalance = 50.0  // 50 SOL for forex
     private var engineJob: Job? = null
     private val scope = CoroutineScope(Dispatchers.Default + SupervisorJob())
     
@@ -72,8 +72,8 @@ object ForexTrader {
     ) {
         fun getPnlPercent(): Double {
             val priceDiff = currentPrice - entryPrice
-            val direction = if (direction == PerpsDirection.LONG) 1 else -1
-            return (priceDiff / entryPrice) * 100.0 * direction * leverage
+            val dirMultiplier = if (direction == PerpsDirection.LONG) 1 else -1
+            return (priceDiff / entryPrice) * 100.0 * dirMultiplier * leverage
         }
         
         fun getPnlSol(): Double = size * (getPnlPercent() / 100.0)
@@ -151,8 +151,9 @@ object ForexTrader {
         scanCount.incrementAndGet()
         val scanNum = scanCount.get()
 
-        // V5.7.7: Check if weekend (Forex closed Sat-Sun)
-        val cal = java.util.Calendar.getInstance()
+        // V5.7.7: Check if weekend (Forex closed Sat-Sun) - use NY timezone
+        val nyZone = java.util.TimeZone.getTimeZone("America/New_York")
+        val cal = java.util.Calendar.getInstance(nyZone)
         val dayOfWeek = cal.get(java.util.Calendar.DAY_OF_WEEK)
         if (dayOfWeek == java.util.Calendar.SATURDAY || dayOfWeek == java.util.Calendar.SUNDAY) {
             ErrorLogger.info(TAG, "💱 SCAN #$scanNum SKIPPED - Forex markets CLOSED (Weekend)")
@@ -612,6 +613,14 @@ object ForexTrader {
     fun setLiveMode(live: Boolean) {
         isPaperMode.set(!live)
         ErrorLogger.info(TAG, "💱 ForexTrader mode: ${if (live) "🔴 LIVE" else "📄 PAPER"}")
+        if (live) {
+            // Fetch actual wallet balance so live trading doesn't start at 0
+            try {
+                val balance = com.lifecyclebot.engine.WalletManager.getWallet()?.getSolBalance() ?: 0.0
+                if (balance > 0) updateLiveBalance(balance)
+                ErrorLogger.info(TAG, "💱 Live wallet balance: ${"%.4f".format(liveWalletBalance)} SOL")
+            } catch (_: Exception) {}
+        }
     }
     
     fun updateLiveBalance(balanceSol: Double) {

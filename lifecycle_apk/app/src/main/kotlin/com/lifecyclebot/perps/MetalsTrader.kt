@@ -45,7 +45,7 @@ object MetalsTrader {
     private val isPaperMode = AtomicBoolean(true)
     private val scanCount = AtomicInteger(0)
     
-    private var paperBalance = 50.0  // 50 SOL for metals
+    @Volatile private var paperBalance = 50.0  // 50 SOL for metals
     private var engineJob: Job? = null
     private val scope = CoroutineScope(Dispatchers.Default + SupervisorJob())
     
@@ -150,8 +150,9 @@ object MetalsTrader {
         scanCount.incrementAndGet()
         val scanNum = scanCount.get()
 
-        // V5.7.7: Check if weekend (metals markets closed on weekends)
-        val cal = java.util.Calendar.getInstance()
+        // V5.7.7: Check if weekend (metals markets closed on weekends) - use NY timezone
+        val nyZone = java.util.TimeZone.getTimeZone("America/New_York")
+        val cal = java.util.Calendar.getInstance(nyZone)
         val dayOfWeek = cal.get(java.util.Calendar.DAY_OF_WEEK)
         if (dayOfWeek == java.util.Calendar.SATURDAY || dayOfWeek == java.util.Calendar.SUNDAY) {
             ErrorLogger.info(TAG, "🥇 SCAN #$scanNum SKIPPED - Metals markets CLOSED (Weekend)")
@@ -606,6 +607,14 @@ object MetalsTrader {
     fun setLiveMode(live: Boolean) {
         isPaperMode.set(!live)
         ErrorLogger.info(TAG, "🥇 MetalsTrader mode: ${if (live) "🔴 LIVE" else "📄 PAPER"}")
+        if (live) {
+            // Fetch actual wallet balance so live trading doesn't start at 0
+            try {
+                val balance = com.lifecyclebot.engine.WalletManager.getWallet()?.getSolBalance() ?: 0.0
+                if (balance > 0) updateLiveBalance(balance)
+                ErrorLogger.info(TAG, "🥇 Live wallet balance: ${"%.4f".format(liveWalletBalance)} SOL")
+            } catch (_: Exception) {}
+        }
     }
     
     fun updateLiveBalance(balanceSol: Double) {

@@ -218,23 +218,21 @@ object MarketsLiveExecutor {
         sizeSol: Double,
         priceUsd: Double,
     ): String? {
-        ErrorLogger.info(TAG, "  Executing STOCK trade: ${market.symbol}")
-        
-        // For stocks, use Jupiter swap to synthetic token or USDC depending on direction
-        // LONG = Buy synthetic token (SOL -> synthetic)
-        // SHORT = Sell synthetic token (synthetic -> SOL)
-        // Since we're starting fresh, LONG means swapping SOL to USDC as collateral
-        
+        // Synthetic market: both directions post SOL→USDC collateral.
+        // P&L direction is tracked in app logic using Pyth oracle prices.
+        // LONG = buy/hold exposure, SHORT = sell/inverse exposure (app-side).
+        ErrorLogger.info(TAG, "  Executing STOCK trade: ${direction.emoji} ${market.symbol} (collateral post SOL→USDC)")
+
         return executeJupiterSwap(
             wallet = wallet,
             walletAddress = walletAddress,
             inputMint = SOL_MINT,
-            outputMint = USDC_MINT,  // Use USDC as position collateral
+            outputMint = USDC_MINT,
             amountLamports = (sizeSol * 1_000_000_000).toLong(),
             slippageBps = DEFAULT_SLIPPAGE_BPS,
         )
     }
-    
+
     /**
      * Execute a commodity trade
      */
@@ -246,8 +244,8 @@ object MarketsLiveExecutor {
         sizeSol: Double,
         priceUsd: Double,
     ): String? {
-        ErrorLogger.info(TAG, "  Executing COMMODITY trade: ${market.symbol}")
-        
+        ErrorLogger.info(TAG, "  Executing COMMODITY trade: ${direction.emoji} ${market.symbol} (collateral post SOL→USDC)")
+
         return executeJupiterSwap(
             wallet = wallet,
             walletAddress = walletAddress,
@@ -257,7 +255,7 @@ object MarketsLiveExecutor {
             slippageBps = DEFAULT_SLIPPAGE_BPS,
         )
     }
-    
+
     /**
      * Execute a metal trade
      */
@@ -269,8 +267,8 @@ object MarketsLiveExecutor {
         sizeSol: Double,
         priceUsd: Double,
     ): String? {
-        ErrorLogger.info(TAG, "  Executing METAL trade: ${market.symbol}")
-        
+        ErrorLogger.info(TAG, "  Executing METAL trade: ${direction.emoji} ${market.symbol} (collateral post SOL→USDC)")
+
         return executeJupiterSwap(
             wallet = wallet,
             walletAddress = walletAddress,
@@ -280,7 +278,7 @@ object MarketsLiveExecutor {
             slippageBps = DEFAULT_SLIPPAGE_BPS,
         )
     }
-    
+
     /**
      * Execute a forex trade
      */
@@ -292,8 +290,8 @@ object MarketsLiveExecutor {
         sizeSol: Double,
         priceUsd: Double,
     ): String? {
-        ErrorLogger.info(TAG, "  Executing FOREX trade: ${market.symbol}")
-        
+        ErrorLogger.info(TAG, "  Executing FOREX trade: ${direction.emoji} ${market.symbol} (collateral post SOL→USDC)")
+
         return executeJupiterSwap(
             wallet = wallet,
             walletAddress = walletAddress,

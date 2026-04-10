@@ -363,11 +363,13 @@ object PerpsMarketDataFetcher {
         
         // Fetch fresh data using Pyth Oracle
         val freshData = fetchFromPythOracle(market)
-        
-        // Update cache
-        marketDataCache[market] = freshData
-        lastFetchTime[market] = System.currentTimeMillis()
-        
+
+        // Only cache valid (non-zero) prices to avoid poisoning the cache
+        if (freshData.price > 0) {
+            marketDataCache[market] = freshData
+            lastFetchTime[market] = System.currentTimeMillis()
+        }
+
         return freshData
     }
     
