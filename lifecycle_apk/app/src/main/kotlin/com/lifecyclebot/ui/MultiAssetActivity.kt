@@ -726,11 +726,11 @@ class MultiAssetActivity : AppCompatActivity() {
             
             // AI Score - based on Markets learning progress
             val readiness = calculateMarketsReadiness()
-            tvStatsAiScore.text = "${readiness.score}"
+            tvStatsAiScore.text = "${readiness.readinessScore}"
             tvStatsAiScore.setTextColor(
                 when {
-                    readiness.score >= 75 -> 0xFF10B981.toInt()
-                    readiness.score >= 50 -> 0xFFF59E0B.toInt()
+                    readiness.readinessScore >= 75 -> 0xFF10B981.toInt()
+                    readiness.readinessScore >= 50 -> 0xFFF59E0B.toInt()
                     else -> 0xFFEF4444.toInt()
                 }
             )

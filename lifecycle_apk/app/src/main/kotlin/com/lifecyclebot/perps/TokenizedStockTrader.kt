@@ -178,9 +178,9 @@ object TokenizedStockTrader {
      */
     private suspend fun loadPersistedState() {
         try {
-            val tursoClient = com.lifecyclebot.engine.BotService.getTursoClient()
+            val tursoClient = com.lifecyclebot.collective.CollectiveLearning.getClient()
             if (tursoClient != null) {
-                val instanceId = com.lifecyclebot.engine.BotService.getInstanceId()
+                val instanceId = com.lifecyclebot.collective.CollectiveLearning.getInstanceId() ?: ""
                 val state = tursoClient.loadMarketsState(instanceId)
                 if (state != null) {
                     paperBalance = state.paperBalanceSol
@@ -205,9 +205,9 @@ object TokenizedStockTrader {
     private fun savePersistedState() {
         scope.launch {
             try {
-                val tursoClient = com.lifecyclebot.engine.BotService.getTursoClient()
+                val tursoClient = com.lifecyclebot.collective.CollectiveLearning.getClient()
                 if (tursoClient != null) {
-                    val instanceId = com.lifecyclebot.engine.BotService.getInstanceId()
+                    val instanceId = com.lifecyclebot.collective.CollectiveLearning.getInstanceId() ?: ""
                     val state = com.lifecyclebot.collective.MarketsState(
                         instanceId = instanceId,
                         paperBalanceSol = paperBalance,
