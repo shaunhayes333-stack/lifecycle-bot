@@ -48,7 +48,7 @@ enum class PerpsRiskTier(
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
-// TRADEABLE MARKETS - SOL + TOKENIZED STOCKS
+// TRADEABLE MARKETS - CRYPTO + STOCKS + COMMODITIES + FOREX
 // ═══════════════════════════════════════════════════════════════════════════════
 
 enum class PerpsMarket(
@@ -60,8 +60,35 @@ enum class PerpsMarket(
     val tradingHours: String,
     val color: String,
 ) {
-    // Native Crypto
+    // ═══════════════════════════════════════════════════════════════════════════
+    // 🪙 MAJOR CRYPTOCURRENCIES
+    // ═══════════════════════════════════════════════════════════════════════════
     SOL("SOL", "◎", "Solana", false, 20.0, "24/7", "#14F195"),
+    BTC("BTC", "₿", "Bitcoin", false, 20.0, "24/7", "#F7931A"),
+    ETH("ETH", "⟠", "Ethereum", false, 20.0, "24/7", "#627EEA"),
+    BNB("BNB", "🔶", "BNB", false, 20.0, "24/7", "#F3BA2F"),
+    XRP("XRP", "💧", "Ripple", false, 20.0, "24/7", "#23292F"),
+    ADA("ADA", "🔵", "Cardano", false, 20.0, "24/7", "#0033AD"),
+    DOGE("DOGE", "🐕", "Dogecoin", false, 20.0, "24/7", "#C2A633"),
+    AVAX("AVAX", "🔺", "Avalanche", false, 20.0, "24/7", "#E84142"),
+    DOT("DOT", "⚫", "Polkadot", false, 20.0, "24/7", "#E6007A"),
+    LINK("LINK", "🔗", "Chainlink", false, 20.0, "24/7", "#375BD2"),
+    MATIC("MATIC", "💜", "Polygon", false, 20.0, "24/7", "#8247E5"),
+    SHIB("SHIB", "🐕", "Shiba Inu", false, 20.0, "24/7", "#FFA409"),
+    LTC("LTC", "Ł", "Litecoin", false, 20.0, "24/7", "#BFBBBB"),
+    ATOM("ATOM", "⚛️", "Cosmos", false, 20.0, "24/7", "#2E3148"),
+    UNI("UNI", "🦄", "Uniswap", false, 20.0, "24/7", "#FF007A"),
+    ARB("ARB", "🔵", "Arbitrum", false, 20.0, "24/7", "#28A0F0"),
+    OP("OP", "🔴", "Optimism", false, 20.0, "24/7", "#FF0420"),
+    APT("APT", "🟢", "Aptos", false, 20.0, "24/7", "#00D4AA"),
+    SUI("SUI", "💧", "Sui", false, 20.0, "24/7", "#6FBCF0"),
+    SEI("SEI", "🌊", "Sei", false, 20.0, "24/7", "#9B1C1C"),
+    INJ("INJ", "💉", "Injective", false, 20.0, "24/7", "#00F2FE"),
+    TIA("TIA", "🌌", "Celestia", false, 20.0, "24/7", "#7B2BF9"),
+    JUP("JUP", "🪐", "Jupiter", false, 20.0, "24/7", "#00D395"),
+    PEPE("PEPE", "🐸", "Pepe", false, 20.0, "24/7", "#3D9B47"),
+    WIF("WIF", "🐕", "dogwifhat", false, 20.0, "24/7", "#C8A96A"),
+    BONK("BONK", "🦴", "Bonk", false, 20.0, "24/7", "#F8A21A"),
     
     // ═══════════════════════════════════════════════════════════════════════════
     // TOKENIZED STOCKS - All available on Solana via Pyth Oracle
@@ -139,6 +166,17 @@ enum class PerpsMarket(
     XAL("XAL", "🔷", "Aluminum", false, 15.0, "24/7", "#848789"),
     XNI("XNI", "⬜", "Nickel", false, 15.0, "24/7", "#727472"),
     XTI("XTI", "⚫", "Titanium", false, 15.0, "24/7", "#878681"),
+    
+    // ═══════════════════════════════════════════════════════════════════════════
+    // 💱 FOREX (Major Pairs)
+    // ═══════════════════════════════════════════════════════════════════════════
+    EURUSD("EURUSD", "🇪🇺", "EUR/USD", false, 50.0, "24/5", "#003399"),
+    GBPUSD("GBPUSD", "🇬🇧", "GBP/USD", false, 50.0, "24/5", "#012169"),
+    USDJPY("USDJPY", "🇯🇵", "USD/JPY", false, 50.0, "24/5", "#BC002D"),
+    AUDUSD("AUDUSD", "🇦🇺", "AUD/USD", false, 50.0, "24/5", "#00008B"),
+    USDCAD("USDCAD", "🇨🇦", "USD/CAD", false, 50.0, "24/5", "#FF0000"),
+    USDCHF("USDCHF", "🇨🇭", "USD/CHF", false, 50.0, "24/5", "#D52B1E"),
+    NZDUSD("NZDUSD", "🇳🇿", "NZD/USD", false, 50.0, "24/5", "#00247D"),
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════

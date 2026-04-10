@@ -47,8 +47,35 @@ object PythOracle {
     // Pyth Price Feed IDs (mainnet)
     // These are the official Pyth price feed IDs
     private val PRICE_FEED_IDS = mapOf(
-        // Crypto
+        // ═══════════════════════════════════════════════════════════════════════
+        // 🪙 MAJOR CRYPTOCURRENCIES
+        // ═══════════════════════════════════════════════════════════════════════
         "SOL" to "0xef0d8b6fda2ceba41da15d4095d1da392a0d2f8ed0c6c7bc0f4cfac8c280b56d",
+        "BTC" to "0xe62df6c8b4a85fe1a67db44dc12de5db330f7ac66b72dc658afedf0f4a415b43",
+        "ETH" to "0xff61491a931112ddf1bd8147cd1b641375f79f5825126d665480874634fd0ace",
+        "BNB" to "0x2f95862b045670cd22bee3114c39763a4a08beeb663b145d283c31d7d1101c4f",
+        "XRP" to "0xec5d399846a9209f3fe5881d70aae9268c94339ff9817e8d18ff19fa05eea1c8",
+        "ADA" to "0x2a01deaec9e51a579277b34b122399984d0bbf57e2458a7e42fecd2829867a0d",
+        "DOGE" to "0xdcef50dd0a4cd2dcc17e45df1676dcb336a11a61c69df7a0299b0150c672d25c",
+        "AVAX" to "0x93da3352f9f1d105fdfe4971cfa80e9dd777bfc5d0f683ebb6e1294b92137bb7",
+        "DOT" to "0xca3eed9b267293f6595901c734c7525ce8ef49adafe8284606ceb307afa2ca5b",
+        "LINK" to "0x8ac0c70fff57e9aefdf5edf44b51d62c2d433653cbb2cf5cc06bb115af04d221",
+        "MATIC" to "0x5de33440f6c8ee339c2fb888957bfce23615f6c30ea6d2fcaf82d80a7c1ede11",
+        "SHIB" to "0xf0d57deca57b3da2fe63a493f4c25925fdfd8edf834b20f93e1f84dbd1504d4a",
+        "LTC" to "0x6e3f3fa8253588df9326580180233eb791e03b443a3ba7a1d892e73874e19a54",
+        "ATOM" to "0xb00b60f88b03a6a625a8d1c048c3f66653edf217439983d037e7222c4e612819",
+        "UNI" to "0x78d185a741d07edb3412b09008b7c5cfb9bbbd7d568bf00ba737b456ba171501",
+        "ARB" to "0x3fa4252848f9f0a1480be62745a4629d9eb1322aebab8a791e344b3b9c1adcf5",
+        "OP" to "0x385f64d993f7b77d8182ed5003d97c60aa3361f3cecfe711544d2d59165e9bdf",
+        "APT" to "0x03ae4db29ed4ae33d323568895aa00337e658e348b37509f5372ae51f0af00d5",
+        "SUI" to "0x23d7315113f5b1d3ba7a83604c44b94d79f4fd69af77f804fc7f920a6dc65744",
+        "SEI" to "0x53614f1cb0c031d4af66c04cb9c756234adad0e1cee85303795091499a4084eb",
+        "INJ" to "0x7a5bc1d2b56ad029048cd63964b3ad2776eadf812edc1a43a31406cb54bff592",
+        "TIA" to "0x09f7c1d7dfbb7df2b8fe3d3d87ee94a2259d212da4f30c1f0540d066dfa44723",
+        "JUP" to "0x0a0408d619e9380abad35060f9192039ed5042fa6f82301d0e48bb52be830996",
+        "PEPE" to "0xd69731a2e74ac1ce884fc3890f7ee324b6deb66147055249568869ed700882e4",
+        "WIF" to "0x4ca4beeca86f0d164160323817a4e42b10010a724c2217c6ee41b54cd4cc61fc",
+        "BONK" to "0x72b021217ca3fe68922a19aaf990109cb9d84e9ad004b4d2025ad6f529314419",
         
         // ═══════════════════════════════════════════════════════════════════════
         // US EQUITIES - REAL Pyth Price Feed IDs (verified from Hermes API)
@@ -126,6 +153,17 @@ object PythOracle {
         "XAL" to "0x2818d3a9c8e0a80bd02bb500d62e5bb1323fa3df287f081d82b27d1e22c71afa",   // Aluminum
         "XNI" to "0xa41da02810f3993706dca86e32582d40de376116eff24342353c33a0a8f9c083",   // Nickel
         "XTI" to "0xa35b407f0fa4b027c2dfa8dff0b7b99b853fb4d326a9e9906271933237b90c1c",   // Titanium
+        
+        // ═══════════════════════════════════════════════════════════════════════
+        // 💱 FOREX (Major Pairs - 24/5 trading)
+        // ═══════════════════════════════════════════════════════════════════════
+        "EURUSD" to "0xa995d00bb36a63cef7fd2c287dc105fc8f3d93779f062f09551b0af3e81ec30b",
+        "GBPUSD" to "0x84c2dde9633d93d1bcad84e7dc41c9d56578b7ec52fabedc1f335d673df0a7c1",
+        "USDJPY" to "0xef2c98c804ba503c6a707e38be4dfbb16683775f195b091252bf24693042fd52",
+        "AUDUSD" to "0x67a6f93030420c1c9e3fe37c1ab6b77966af82f995944a9fefce357a22854a80",
+        "USDCAD" to "0x3112b03a41c910ed446852aacf67118cb1bec67b2cd0b9a214c58cc0eaa2ecca",
+        "USDCHF" to "0x0b1e3297e69f162877b577b0d6a47a0d63b2392bc8499e6540da4187a63e28f8",
+        "NZDUSD" to "0x92eea8ba1b00078cdc2ef6f64f091f262e8c7d0576ee4677572f314ebfafa4c7",
     )
     
     // Cache
