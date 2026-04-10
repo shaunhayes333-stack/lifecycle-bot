@@ -339,6 +339,23 @@ class WalletManager private constructor(private val ctx: Context) {
 
     // ── SOL price (free, no key) ──────────────────────────────────────
     // Multiple fallback sources for reliability
+    
+    /**
+     * V5.7.7: Public method to eagerly fetch SOL price on app startup.
+     * Call this early in MainActivity.onCreate() so USD values display correctly.
+     */
+    fun refreshSolPriceEagerly() {
+        kotlinx.coroutines.GlobalScope.launch(kotlinx.coroutines.Dispatchers.IO) {
+            try {
+                val price = fetchSolPrice()
+                if (price > 0) {
+                    ErrorLogger.info("Wallet", "Eager SOL price fetch: \$${String.format("%.2f", price)}")
+                }
+            } catch (e: Exception) {
+                ErrorLogger.warn("Wallet", "Eager SOL price fetch failed: ${e.message}")
+            }
+        }
+    }
 
     private fun fetchSolPrice(): Double {
         // Try CoinGecko first (most reliable)

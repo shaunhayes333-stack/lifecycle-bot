@@ -432,6 +432,15 @@ class MainActivity : AppCompatActivity() {
             com.lifecyclebot.engine.ErrorLogger.error("MainActivity", "TradeHistoryStore init failed: ${e.message}")
         }
         
+        // ════════════════════════════════════════════════════════════════════════════
+        // V5.7.7: Eagerly fetch SOL price so USD values display correctly immediately
+        // ════════════════════════════════════════════════════════════════════════════
+        try {
+            com.lifecyclebot.engine.WalletManager.getInstance(applicationContext).refreshSolPriceEagerly()
+        } catch (e: Exception) {
+            com.lifecyclebot.engine.ErrorLogger.warn("MainActivity", "Eager SOL price fetch error: ${e.message}")
+        }
+        
         try {
             setContentView(R.layout.activity_main)
             supportActionBar?.hide()
@@ -2035,9 +2044,9 @@ for legal compliance.
                 typeface = android.graphics.Typeface.MONOSPACE
                 gravity = android.view.Gravity.END
             })
-            // Current value in USD
+            // Current value in USD — only show if we have real price data
             right.addView(TextView(this).apply {
-                text = "≈\$%.2f".format(valueUsd)
+                text = if (solPrice > 0) "≈\$%.2f".format(valueUsd) else "≈\$—"
                 textSize = resources.getDimension(R.dimen.trade_sub_text) / resources.displayMetrics.scaledDensity
                 setTextColor(muted)
                 typeface = android.graphics.Typeface.MONOSPACE
