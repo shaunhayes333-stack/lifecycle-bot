@@ -4796,9 +4796,10 @@ This cannot be undone!
             performHaptic()
         }
         
-        // V5.7.3: Tokenized Stocks button → Shows Stocks trading UI
+        // V5.7.3: Tokenized Stocks button → Opens dedicated Markets UI
+        // V5.7.6: Now navigates to MultiAssetActivity for proper Markets AI layers
         findViewById<View>(R.id.btnQuickStocks)?.setOnClickListener {
-            showTokenizedStocksDialog()
+            startActivity(Intent(this, MultiAssetActivity::class.java))
             performHaptic()
         }
         
@@ -6986,9 +6987,9 @@ Trading outside hours may have wider spreads.
                 performHaptic()
             }
             
-            // Card click → show full stocks dialog  
+            // Card click → V5.7.6: Navigate to MultiAssetActivity for proper Markets AI layers
             cardTokenizedStocks?.setOnClickListener {
-                showTokenizedStocksDialog()
+                startActivity(Intent(this, MultiAssetActivity::class.java))
                 performHaptic()
             }
             
