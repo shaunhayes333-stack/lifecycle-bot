@@ -999,16 +999,16 @@ class MultiAssetActivity : AppCompatActivity() {
             markets.forEachIndexed { index, market ->
                 val baseChange = (kotlin.math.sin(System.currentTimeMillis() / 10000.0 + index) * 5)
                 val price = when {
-                    market.isStock -> 50.0 + (index * 20) + (kotlin.math.random() * 100)
-                    market.isCommodity -> 20.0 + (index * 10) + (kotlin.math.random() * 50)
-                    market.isMetal -> 1000.0 + (index * 200) + (kotlin.math.random() * 500)
-                    market.isForex -> 0.8 + (kotlin.math.random() * 0.6)
-                    else -> 50.0 + (kotlin.math.random() * 150) // Crypto
+                    market.isStock -> 50.0 + (index * 20) + (Math.random() * 100)
+                    market.isCommodity -> 20.0 + (index * 10) + (Math.random() * 50)
+                    market.isMetal -> 1000.0 + (index * 200) + (Math.random() * 500)
+                    market.isForex -> 0.8 + (Math.random() * 0.6)
+                    else -> 50.0 + (Math.random() * 150) // Crypto
                 }
                 movers.add(MoverInfo(
                     symbol = market.symbol,
                     price = price,
-                    change24h = baseChange + (kotlin.math.random() * 2 - 1)
+                    change24h = baseChange + (Math.random() * 2 - 1)
                 ))
             }
             
