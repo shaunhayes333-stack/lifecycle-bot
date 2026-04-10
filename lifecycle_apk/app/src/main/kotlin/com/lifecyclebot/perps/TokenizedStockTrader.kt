@@ -1,7 +1,7 @@
 package com.lifecyclebot.perps
 
 import com.lifecyclebot.engine.ErrorLogger
-import com.lifecyclebot.v3.scoring.*
+import com.lifecyclebot.v3.scoring.FluidLearningAI
 import kotlinx.coroutines.*
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.atomic.AtomicBoolean
@@ -19,14 +19,12 @@ import kotlin.math.abs
  *   • Scanning loop
  *   • Position management
  *   • Learning integration
- *   • Fluid learning hooks
  * 
  * FEATURES:
  * ─────────────────────────────────────────────────────────────────────────────
  *   📊 Real-time Pyth Network price feeds
- *   🧠 27-layer AI signal aggregation
+ *   🧠 AI signal generation
  *   📈 Long/Short positions with leverage
- *   💰 Fluid learning balance integration
  *   🎯 Dynamic TP/SL based on volatility
  *   📚 Pattern learning and memory
  * 
@@ -67,10 +65,6 @@ object TokenizedStockTrader {
     private val scanCount = AtomicLong(0)
     private var paperBalance = 100.0  // Starting paper balance in SOL
     private var totalPnlSol = 0.0
-    
-    // Learning integration
-    private var fluidLearningAI: FluidLearningAI? = null
-    private var unifiedScorer: UnifiedScorer? = null
     
     // ═══════════════════════════════════════════════════════════════════════════
     // STOCK POSITION MODEL
@@ -144,19 +138,7 @@ object TokenizedStockTrader {
     // INITIALIZATION
     // ═══════════════════════════════════════════════════════════════════════════
     
-    fun init(
-        fluidLearning: FluidLearningAI? = null,
-        scorer: UnifiedScorer? = null
-    ) {
-        fluidLearningAI = fluidLearning
-        unifiedScorer = scorer
-        
-        // Get fluid learning balance if available
-        fluidLearning?.let {
-            paperBalance = it.getSimulatedBalance()
-            ErrorLogger.info(TAG, "📈 Using Fluid Learning balance: ${"%.2f".format(paperBalance)} SOL")
-        }
-        
+    fun init() {
         ErrorLogger.info(TAG, "📈 TokenizedStockTrader INITIALIZED | paper=$isPaperMode | balance=${"%.2f".format(paperBalance)} SOL")
     }
     
@@ -260,7 +242,7 @@ object TokenizedStockTrader {
     }
     
     // ═══════════════════════════════════════════════════════════════════════════
-    // AI ANALYSIS - Aggregate all layer signals
+    // AI ANALYSIS - Generate signals
     // ═══════════════════════════════════════════════════════════════════════════
     
     private suspend fun analyzeStock(market: PerpsMarket, data: PerpsMarketData): StockSignal? {
@@ -363,41 +345,19 @@ object TokenizedStockTrader {
             }
         } catch (_: Exception) {}
         
-        // 6. Unified Scorer integration (if available)
-        unifiedScorer?.let { scorer ->
-            try {
-                // Create a pseudo-token for scoring
-                val tokenScore = scorer.getQuickScore(
-                    symbol = market.symbol,
-                    price = data.price,
-                    liquidity = 1_000_000.0,  // Stocks have high liquidity
-                    buyPercent = if (change > 0) 60 else 40,
-                    mcap = 100_000_000_000.0  // Assume large cap
-                )
-                
-                if (tokenScore > 60) {
-                    score += 10
-                    confidence += 5
-                    reasons.add("🧠 AI score: $tokenScore")
-                }
-            } catch (_: Exception) {}
-        }
-        
-        // 7. Fluid Learning confidence boost
-        fluidLearningAI?.let { fluid ->
-            val progress = fluid.getLearningProgress()
+        // 6. Fluid Learning confidence boost
+        try {
+            val progress = FluidLearningAI.getLearningProgress()
             if (progress > 50) {
                 confidence += 5
                 reasons.add("📚 Learning: ${progress.toInt()}%")
             }
-        }
+        } catch (_: Exception) {}
         
-        // 8. Pattern memory check
+        // 7. Pattern memory check
         try {
-            val patternConf = PerpsAdvancedAI.getPatternConfidence(
-                market, direction,
-                PerpsAdvancedAI.analyzeTechnicals(market)
-            )
+            val technicals = PerpsAdvancedAI.analyzeTechnicals(market)
+            val patternConf = PerpsAdvancedAI.getPatternConfidence(market, direction, technicals)
             if (patternConf > 60) {
                 score += 10
                 confidence += 10
@@ -472,17 +432,10 @@ object TokenizedStockTrader {
             paperBalance -= sizeSol
         }
         
-        // Notify fluid learning
-        fluidLearningAI?.let { fluid ->
-            try {
-                fluid.recordPaperBuy(
-                    symbol = signal.market.symbol,
-                    price = signal.price,
-                    solAmount = sizeSol,
-                    confidence = signal.confidence
-                )
-            } catch (_: Exception) {}
-        }
+        // Notify FluidLearningAI
+        try {
+            FluidLearningAI.recordTradeStart()
+        } catch (_: Exception) {}
         
         ErrorLogger.info(TAG, "📈 OPENED: ${signal.direction.emoji} ${signal.market.symbol} @ \$${signal.price.fmt(2)} | " +
             "${DEFAULT_LEVERAGE}x | size=${sizeSol.fmt(3)}◎ | score=${signal.score} | TP=\$${tp.fmt(2)} SL=\$${sl.fmt(2)}")
@@ -541,19 +494,10 @@ object TokenizedStockTrader {
             paperBalance += position.sizeSol + pnlSol
         }
         
-        // Record to fluid learning
-        fluidLearningAI?.let { fluid ->
-            try {
-                fluid.recordPaperSell(
-                    symbol = position.market.symbol,
-                    price = position.currentPrice,
-                    solAmount = position.sizeSol,
-                    pnlSol = pnlSol,
-                    pnlPct = pnlPct,
-                    reason = reason
-                )
-            } catch (_: Exception) {}
-        }
+        // Record to FluidLearningAI
+        try {
+            FluidLearningAI.recordPaperTrade(isWin)
+        } catch (_: Exception) {}
         
         // Record pattern for learning
         try {
@@ -591,13 +535,7 @@ object TokenizedStockTrader {
     // PUBLIC API
     // ═══════════════════════════════════════════════════════════════════════════
     
-    fun getBalance(): Double {
-        // Use fluid learning balance if available
-        fluidLearningAI?.let {
-            return it.getSimulatedBalance()
-        }
-        return paperBalance
-    }
+    fun getBalance(): Double = paperBalance
     
     fun getActivePositions(): List<StockPosition> = positions.values.toList()
     

@@ -261,10 +261,7 @@ class BotService : Service() {
         
         // V5.7.5: Start TokenizedStockTrader - DEDICATED stock trading engine
         try {
-            com.lifecyclebot.perps.TokenizedStockTrader.init(
-                fluidLearning = fluidLearningAI,
-                scorer = unifiedScorer
-            )
+            com.lifecyclebot.perps.TokenizedStockTrader.init()
             com.lifecyclebot.perps.TokenizedStockTrader.start()
             ErrorLogger.info("BotService", "📈 TokenizedStockTrader STARTED - Dedicated Stock Trading ACTIVE")
         } catch (e: Exception) {
