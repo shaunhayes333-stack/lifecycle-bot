@@ -643,10 +643,9 @@ class MultiAssetActivity : AppCompatActivity() {
         updateJob = scope.launch {
             while (isActive) {
                 try {
-                    // V5.7.6b: Refresh LIVE prices in background
-                    launch(Dispatchers.IO) {
+                    // Refresh LIVE prices before updating UI so cache is populated
+                    withContext(Dispatchers.IO) {
                         try {
-                            // Refresh prices for current tab's markets
                             val markets = when (currentTab) {
                                 AssetTab.STOCKS -> PerpsMarket.values().filter { it.isStock }.take(15)
                                 AssetTab.COMMODITIES -> PerpsMarket.values().filter { it.isCommodity }
@@ -657,7 +656,6 @@ class MultiAssetActivity : AppCompatActivity() {
                             markets.forEach { market ->
                                 try {
                                     val data = PerpsMarketDataFetcher.getMarketData(market)
-                                    // V5.7.7: Record price for correlation tracking
                                     CorrelationScanner.recordPrice(market, data.price)
                                 } catch (_: Exception) {}
                             }
@@ -1944,13 +1942,14 @@ class MultiAssetActivity : AppCompatActivity() {
             when (currentTab) {
                 AssetTab.PERPS -> {
                     PerpsExecutionEngine.getActivePositions().map { pos ->
+                        val livePrice = PerpsMarketDataFetcher.getCachedPrice(pos.market)?.price?.takeIf { it > 0 } ?: pos.currentPrice
                         val pnlSol = pos.getPnlSol()
                         PositionInfo(
                             symbol = pos.market.symbol,
                             directionEmoji = pos.direction.emoji,
                             typeLabel = "${pos.leverage.toInt()}x",
                             entryPrice = "$${pos.entryPrice.fmt(2)}",
-                            currentPrice = "$${pos.currentPrice.fmt(2)}",
+                            currentPrice = "$${livePrice.fmt(2)}",
                             pnl = pnlSol,
                             pnlUsd = pnlSol * solPrice,
                             pnlPct = pos.getPnlPercent(),
@@ -1967,13 +1966,14 @@ class MultiAssetActivity : AppCompatActivity() {
                     val positions = if (showSpotOnly) TokenizedStockTrader.getSpotPositions()
                                    else TokenizedStockTrader.getLeveragePositions()
                     positions.map { pos ->
+                        val livePrice = PerpsMarketDataFetcher.getCachedPrice(pos.market)?.price?.takeIf { it > 0 } ?: pos.currentPrice
                         val pnlSol = pos.getPnlSol()
                         PositionInfo(
                             symbol = pos.market.symbol,
                             directionEmoji = pos.direction.emoji,
                             typeLabel = if (pos.isSpot) "SPOT" else "${pos.leverage.toInt()}x",
                             entryPrice = "$${pos.entryPrice.fmt(2)}",
-                            currentPrice = "$${pos.currentPrice.fmt(2)}",
+                            currentPrice = "$${livePrice.fmt(2)}",
                             pnl = pnlSol,
                             pnlUsd = pnlSol * solPrice,
                             pnlPct = pos.getPnlPercent(),
@@ -1990,13 +1990,14 @@ class MultiAssetActivity : AppCompatActivity() {
                     val positions = if (showSpotOnly) CommoditiesTrader.getSpotPositions()
                                    else CommoditiesTrader.getLeveragePositions()
                     positions.map { pos ->
+                        val livePrice = PerpsMarketDataFetcher.getCachedPrice(pos.market)?.price?.takeIf { it > 0 } ?: pos.currentPrice
                         val pnlSol = pos.getPnlSol()
                         PositionInfo(
                             symbol = pos.market.symbol,
                             directionEmoji = pos.direction.emoji,
                             typeLabel = if (pos.isSpot) "SPOT" else "${pos.leverage.toInt()}x",
                             entryPrice = "$${pos.entryPrice.fmt(2)}",
-                            currentPrice = "$${pos.currentPrice.fmt(2)}",
+                            currentPrice = "$${livePrice.fmt(2)}",
                             pnl = pnlSol,
                             pnlUsd = pnlSol * solPrice,
                             pnlPct = pos.getPnlPercent(),
@@ -2013,13 +2014,14 @@ class MultiAssetActivity : AppCompatActivity() {
                     val positions = if (showSpotOnly) MetalsTrader.getSpotPositions()
                                    else MetalsTrader.getLeveragePositions()
                     positions.map { pos ->
+                        val livePrice = PerpsMarketDataFetcher.getCachedPrice(pos.market)?.price?.takeIf { it > 0 } ?: pos.currentPrice
                         val pnlSol = pos.getPnlSol()
                         PositionInfo(
                             symbol = pos.market.symbol,
                             directionEmoji = pos.direction.emoji,
                             typeLabel = if (pos.leverage == 1.0) "SPOT" else "${pos.leverage.toInt()}x",
                             entryPrice = "$${pos.entryPrice.fmt(2)}",
-                            currentPrice = "$${pos.currentPrice.fmt(2)}",
+                            currentPrice = "$${livePrice.fmt(2)}",
                             pnl = pnlSol,
                             pnlUsd = pnlSol * solPrice,
                             pnlPct = pos.getPnlPercent(),
@@ -2036,13 +2038,14 @@ class MultiAssetActivity : AppCompatActivity() {
                     val positions = if (showSpotOnly) ForexTrader.getSpotPositions()
                                    else ForexTrader.getLeveragePositions()
                     positions.map { pos ->
+                        val livePrice = PerpsMarketDataFetcher.getCachedPrice(pos.market)?.price?.takeIf { it > 0 } ?: pos.currentPrice
                         val pnlSol = pos.getPnlSol()
                         PositionInfo(
                             symbol = pos.market.symbol,
                             directionEmoji = pos.direction.emoji,
                             typeLabel = if (pos.leverage == 1.0) "SPOT" else "${pos.leverage.toInt()}x",
                             entryPrice = pos.entryPrice.fmt(5),
-                            currentPrice = pos.currentPrice.fmt(5),
+                            currentPrice = livePrice.fmt(5),
                             pnl = pnlSol,
                             pnlUsd = pnlSol * solPrice,
                             pnlPct = pos.getPnlPercent(),
