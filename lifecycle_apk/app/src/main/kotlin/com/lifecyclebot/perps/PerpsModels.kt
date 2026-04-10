@@ -63,7 +63,11 @@ enum class PerpsMarket(
     // Native Crypto
     SOL("SOL", "◎", "Solana", false, 20.0, "24/7", "#14F195"),
     
-    // Tokenized Stocks (Solana RWA)
+    // ═══════════════════════════════════════════════════════════════════════════
+    // TOKENIZED STOCKS - All available on Solana via Pyth Oracle
+    // ═══════════════════════════════════════════════════════════════════════════
+    
+    // 🔥 MEGA TECH (FAANG+)
     AAPL("AAPL", "🍎", "Apple Inc.", true, 10.0, "MARKET", "#A2AAAD"),
     TSLA("TSLA", "🚗", "Tesla Inc.", true, 10.0, "MARKET", "#E31937"),
     NVDA("NVDA", "🖥️", "NVIDIA Corp.", true, 10.0, "MARKET", "#76B900"),
@@ -71,7 +75,54 @@ enum class PerpsMarket(
     AMZN("AMZN", "📦", "Amazon.com", true, 10.0, "MARKET", "#FF9900"),
     META("META", "👤", "Meta Platforms", true, 10.0, "MARKET", "#0081FB"),
     MSFT("MSFT", "🪟", "Microsoft Corp.", true, 10.0, "MARKET", "#00A4EF"),
-    COIN("COIN", "🪙", "Coinbase Global", true, 10.0, "MARKET", "#0052FF"),
+    NFLX("NFLX", "🎬", "Netflix Inc.", true, 10.0, "MARKET", "#E50914"),
+    
+    // 💎 SEMICONDUCTORS
+    AMD("AMD", "🔴", "AMD Inc.", true, 10.0, "MARKET", "#ED1C24"),
+    INTC("INTC", "🔵", "Intel Corp.", true, 10.0, "MARKET", "#0071C5"),
+    QCOM("QCOM", "📱", "Qualcomm Inc.", true, 10.0, "MARKET", "#3253DC"),
+    AVGO("AVGO", "⚡", "Broadcom Inc.", true, 10.0, "MARKET", "#CC092F"),
+    MU("MU", "💾", "Micron Tech.", true, 10.0, "MARKET", "#0033A0"),
+    
+    // 🚀 GROWTH TECH
+    CRM("CRM", "☁️", "Salesforce", true, 10.0, "MARKET", "#00A1E0"),
+    ORCL("ORCL", "🔮", "Oracle Corp.", true, 10.0, "MARKET", "#F80000"),
+    PLTR("PLTR", "🛡️", "Palantir", true, 10.0, "MARKET", "#101010"),
+    SNOW("SNOW", "❄️", "Snowflake", true, 10.0, "MARKET", "#29B5E8"),
+    SHOP("SHOP", "🛒", "Shopify", true, 10.0, "MARKET", "#96BF48"),
+    
+    // 💳 FINTECH & CRYPTO
+    COIN("COIN", "🪙", "Coinbase", true, 10.0, "MARKET", "#0052FF"),
+    PYPL("PYPL", "💳", "PayPal", true, 10.0, "MARKET", "#003087"),
+    V("V", "💳", "Visa Inc.", true, 10.0, "MARKET", "#1A1F71"),
+    MA("MA", "💳", "Mastercard", true, 10.0, "MARKET", "#EB001B"),
+    JPM("JPM", "🏦", "JPMorgan", true, 10.0, "MARKET", "#117ACA"),
+    GS("GS", "🏛️", "Goldman Sachs", true, 10.0, "MARKET", "#7399C6"),
+    
+    // 🎯 CONSUMER & TRAVEL
+    DIS("DIS", "🏰", "Disney", true, 10.0, "MARKET", "#113CCF"),
+    UBER("UBER", "🚕", "Uber", true, 10.0, "MARKET", "#000000"),
+    ABNB("ABNB", "🏠", "Airbnb", true, 10.0, "MARKET", "#FF5A5F"),
+    NKE("NKE", "👟", "Nike Inc.", true, 10.0, "MARKET", "#111111"),
+    SBUX("SBUX", "☕", "Starbucks", true, 10.0, "MARKET", "#00704A"),
+    MCD("MCD", "🍔", "McDonald's", true, 10.0, "MARKET", "#FFC72C"),
+    
+    // 🏭 INDUSTRIAL & RETAIL
+    BA("BA", "✈️", "Boeing", true, 10.0, "MARKET", "#0033A0"),
+    WMT("WMT", "🛍️", "Walmart", true, 10.0, "MARKET", "#0071CE"),
+    HD("HD", "🔨", "Home Depot", true, 10.0, "MARKET", "#F96302"),
+    COST("COST", "📦", "Costco", true, 10.0, "MARKET", "#E31837"),
+    
+    // 🧬 HEALTHCARE & CONSUMER
+    JNJ("JNJ", "💊", "Johnson & Johnson", true, 10.0, "MARKET", "#D51900"),
+    PFE("PFE", "💉", "Pfizer", true, 10.0, "MARKET", "#0093D0"),
+    UNH("UNH", "🏥", "UnitedHealth", true, 10.0, "MARKET", "#002677"),
+    KO("KO", "🥤", "Coca-Cola", true, 10.0, "MARKET", "#F40009"),
+    PEP("PEP", "🥤", "PepsiCo", true, 10.0, "MARKET", "#004B93"),
+    
+    // ⛽ ENERGY
+    XOM("XOM", "⛽", "Exxon Mobil", true, 10.0, "MARKET", "#ED1B2D"),
+    CVX("CVX", "🛢️", "Chevron", true, 10.0, "MARKET", "#0066B2"),
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════

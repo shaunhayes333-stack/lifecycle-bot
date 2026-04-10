@@ -34,16 +34,57 @@ object PerpsMarketDataFetcher {
     private val lastFetchTime = ConcurrentHashMap<PerpsMarket, Long>()
     private const val CACHE_TTL_MS = 3_000L  // 3 second cache for real-time
     
-    // Stock price cache (simulated prices for tokenized stocks)
+    // Stock price cache (fallback prices if Pyth fails)
     private val stockPrices = ConcurrentHashMap<String, Double>().apply {
-        put("AAPL", 175.0)
-        put("TSLA", 250.0)
-        put("NVDA", 480.0)
-        put("GOOGL", 140.0)
-        put("AMZN", 180.0)
-        put("META", 500.0)
-        put("MSFT", 420.0)
-        put("COIN", 220.0)
+        // MEGA TECH
+        put("AAPL", 260.0)
+        put("TSLA", 345.0)
+        put("NVDA", 185.0)
+        put("GOOGL", 320.0)
+        put("AMZN", 235.0)
+        put("META", 630.0)
+        put("MSFT", 375.0)
+        put("NFLX", 950.0)
+        // SEMICONDUCTORS
+        put("AMD", 125.0)
+        put("INTC", 22.0)
+        put("QCOM", 170.0)
+        put("AVGO", 230.0)
+        put("MU", 95.0)
+        // GROWTH TECH
+        put("CRM", 340.0)
+        put("ORCL", 190.0)
+        put("PLTR", 85.0)
+        put("SNOW", 165.0)
+        put("SHOP", 115.0)
+        // FINTECH & CRYPTO
+        put("COIN", 170.0)
+        put("PYPL", 85.0)
+        put("V", 340.0)
+        put("MA", 540.0)
+        put("JPM", 260.0)
+        put("GS", 620.0)
+        // CONSUMER & TRAVEL
+        put("DIS", 115.0)
+        put("UBER", 85.0)
+        put("ABNB", 140.0)
+        put("NKE", 75.0)
+        put("SBUX", 105.0)
+        put("MCD", 315.0)
+        // INDUSTRIAL & RETAIL
+        put("BA", 185.0)
+        put("WMT", 95.0)
+        put("HD", 420.0)
+        put("COST", 950.0)
+        // HEALTHCARE & CONSUMER
+        put("JNJ", 155.0)
+        put("PFE", 27.0)
+        put("UNH", 590.0)
+        put("KO", 63.0)
+        put("PEP", 150.0)
+        // ENERGY
+        put("XOM", 110.0)
+        put("CVX", 150.0)
     }
     
     // HTTP Client

@@ -50,7 +50,11 @@ object PythOracle {
         // Crypto
         "SOL" to "0xef0d8b6fda2ceba41da15d4095d1da392a0d2f8ed0c6c7bc0f4cfac8c280b56d",
         
-        // US Equities - REAL Pyth Price Feed IDs (verified from Hermes API)
+        // ═══════════════════════════════════════════════════════════════════════
+        // US EQUITIES - REAL Pyth Price Feed IDs (verified from Hermes API)
+        // ═══════════════════════════════════════════════════════════════════════
+        
+        // 🔥 MEGA TECH (FAANG+)
         "AAPL" to "0x49f6b65cb1de6b10eaf75e7c03ca029c306d0357e91b5311b175084a5ad55688",
         "TSLA" to "0x16dad506d7db8da01c87581c87ca897a012a153557d4d578c3b9c9e1bc0632f1",
         "NVDA" to "0xb1073854ed24cbc755dc527418f52b7d271f6cc967bbf8d8129112b18860a593",
@@ -58,7 +62,54 @@ object PythOracle {
         "AMZN" to "0xb5d0e0fa58a1f8b81498ae670ce93c872d14434b72c364885d4fa1b257cbb07a",
         "META" to "0x78a3e3b8e676a8f73c439f5d749737034b139bbbe899ba5775216fba596607fe",
         "MSFT" to "0xd0ca23c1cc005e004ccf1db5bf76aeb6a49218f43dac3d4b275e92de12ded4d1",
+        "NFLX" to "0x8376cfd7ca8bcdf372ced05307b24dced1f15b1afafdeff715664598f15a3dd2",
+        
+        // 💎 SEMICONDUCTORS  
+        "AMD" to "0x3622e381dbca2efd1859253763b1adc63f7f9abb8e76da1aa8e638a57ccde93e",
+        "INTC" to "0xc1751e085ee292b8b3b9dd122a135614485a201c35dfc653553f0e28c1baf3ff",
+        "QCOM" to "0x54350ebf587c3f14857efcfec50e5c4f6e10220770c2266e9fe85bd5e42e4022",
+        "AVGO" to "0xd0c9aef79b28308b256db7742a0a9b08aaa5009db67a52ea7fa30ed6853f243b",
+        "MU" to "0x152244dc24665ca7dd3f257b8f442dc449b6346f48235b7b229268cb770dda2d",
+        
+        // 🚀 GROWTH TECH
+        "CRM" to "0xfeff234600320f4d6bb5a01d02570a9725c1e424977f2b823f7231e6857bdae8",
+        "ORCL" to "0xe47ff732eaeb6b4163902bdee61572659ddf326511917b1423bae93fcdf3153c",
+        "PLTR" to "0x11a70634863ddffb71f2b11f2cff29f73f3db8f6d0b78c49f2b5f4ad36e885f0",
+        "SNOW" to "0x14291d2651ecf1f9105729bdc59553c1ce73fb3d6c931dd98a9d2adddc37e00f",
+        "SHOP" to "0xc9034e8c405ba92888887bc76962b619d0f8e8bf3e12aba972af0cf64e814d5d",
+        
+        // 💳 FINTECH & CRYPTO
         "COIN" to "0xfee33f2a978bf32dd6b662b65ba8083c6773b494f8401194ec1870c640860245",
+        "PYPL" to "0x773c3b11f6be58e8151966a9f5832696d8cd08884ccc43ac8965a7ebea911533",
+        "V" to "0xc719eb7bab9b2bc060167f1d1680eb34a29c490919072513b545b9785b73ee90",
+        "MA" to "0x639db3fe6951d2465bd722768242e68eb0285f279cb4fa97f677ee8f80f1f1c0",
+        "JPM" to "0x7f4f157e57bfcccd934c566df536f34933e74338fe241a5425ce561acdab164e",
+        "GS" to "0x9c68c0c6999765cf6e27adf75ed551b34403126d3b0d5b686a2addb147ed4554",
+        
+        // 🎯 CONSUMER & TRAVEL
+        "DIS" to "0x703e36203020ae6761e6298975764e266fb869210db9b35dd4e4225fa68217d0",
+        "UBER" to "0xc04665f62a0eabf427a834bb5da5f27773ef7422e462d40c7468ef3e4d39d8f1",
+        "ABNB" to "0xccab508da0999d36e1ac429391d67b3ac5abf1900978ea1a56dab6b1b932168e",
+        "NKE" to "0x67649450b4ca4bfff97cbaf96d2fd9e40f6db148cb65999140154415e4378e14",
+        "SBUX" to "0x86cd9abb315081b136afc72829058cf3aaf1100d4650acb2edb6a8e39f03ef75",
+        "MCD" to "0xd3178156b7c0f6ce10d6da7d347952a672467b51708baaf1a57ffe1fb005824a",
+        
+        // 🏭 INDUSTRIAL & RETAIL
+        "BA" to "0x8419416ba640c8bbbcf2d464561ed7dd860db1e38e51cec9baf1e34c4be839ae",
+        "WMT" to "0x327ae981719058e6fb44e132fb4adbf1bd5978b43db0661bfdaefd9bea0c82dc",
+        "HD" to "0xb3a83dbe70b62241b0f916212e097465a1b31085fa30da3342dd35468ca17ca5",
+        "COST" to "0x163f6a6406d65305e8e27965b9081ac79b0cf9529f0fcdc14fe37e65e3b6b5cb",
+        
+        // 🧬 HEALTHCARE & CONSUMER
+        "JNJ" to "0x12848738d5db3aef52f51d78d98fc8b8b8450ffb19fb3aeeb67d38f8c147ff63",
+        "PFE" to "0x0704ad7547b3dfee329266ee53276349d48e4587cb08264a2818288f356efd1d",
+        "UNH" to "0x05380f8817eb1316c0b35ac19c3caa92c9aa9ea6be1555986c46dce97fed6afd",
+        "KO" to "0x9aa471dccea36b90703325225ac76189baf7e0cc286b8843de1de4f31f9caa7d",
+        "PEP" to "0xbe230eddb16aad5ad273a85e581e74eb615ebf67d378f885768d9b047df0c843",
+        
+        // ⛽ ENERGY
+        "XOM" to "0x4a1a12070192e8db9a89ac235bb032342a390dde39389b4ee1ba8e41e7eae5d8",
+        "CVX" to "0xf464e36fd4ef2f1c3dc30801a9ab470dcdaaa0af14dd3cf6ae17a7fca9e051c5",
     )
     
     // Cache
