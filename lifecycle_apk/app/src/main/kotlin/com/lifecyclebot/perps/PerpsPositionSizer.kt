@@ -25,10 +25,10 @@ import kotlin.math.sqrt
  * 
  * MODIFICATIONS:
  * ─────────────────────────────────────────────────────────────────────────────
- *   • HALF KELLY: f*/2 - More conservative, smoother equity curve
- *   • QUARTER KELLY: f*/4 - Very conservative
- *   • VOLATILITY ADJUSTED: Scale by inverse volatility
- *   • CONFIDENCE SCALED: Scale by AI confidence score
+ *   - HALF KELLY: f/2 - More conservative, smoother equity curve
+ *   - QUARTER KELLY: f/4 - Very conservative
+ *   - VOLATILITY ADJUSTED: Scale by inverse volatility
+ *   - CONFIDENCE SCALED: Scale by AI confidence score
  * 
  * ═══════════════════════════════════════════════════════════════════════════════
  */

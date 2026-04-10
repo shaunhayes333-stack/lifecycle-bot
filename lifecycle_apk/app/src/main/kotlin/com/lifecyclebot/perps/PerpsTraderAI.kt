@@ -689,7 +689,7 @@ object PerpsTraderAI {
                 market = market,
                 direction = direction,
                 sizeSol = sizeSol,
-                leverage = leverage,
+                leverage = leverage.toInt(),
                 entryPrice = entryPrice,
             )
         } catch (e: Exception) {

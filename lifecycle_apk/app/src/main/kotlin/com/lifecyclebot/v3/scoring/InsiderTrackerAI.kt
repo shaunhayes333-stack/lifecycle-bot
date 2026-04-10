@@ -224,8 +224,8 @@ object InsiderTrackerAI {
             category = WalletCategory.TRUMP_FAMILY,
             riskLevel = RiskLevel.ALPHA,
             notes = "TRUMP token deployment wallet"
-        ),
-    ),
+        )
+    )
     
     // Custom wallets added by user
     private val customWallets = ConcurrentHashMap<String, TrackedWallet>()
