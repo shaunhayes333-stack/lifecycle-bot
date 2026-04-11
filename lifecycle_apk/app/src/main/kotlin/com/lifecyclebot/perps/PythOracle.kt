@@ -76,6 +76,25 @@ object PythOracle {
         "PEPE" to "0xd69731a2e74ac1ce884fc3890f7ee324b6deb66147055249568869ed700882e4",
         "WIF" to "0x4ca4beeca86f0d164160323817a4e42b10010a724c2217c6ee41b54cd4cc61fc",
         "BONK" to "0x72b021217ca3fe68922a19aaf990109cb9d84e9ad004b4d2025ad6f529314419",
+
+        // ═══════════════════════════════════════════════════════════════════════
+        // V5.8 - MAJOR ALTS (Pyth-verified feed IDs)
+        // ═══════════════════════════════════════════════════════════════════════
+        "TRX" to "0x67aed5a24fdaa045475e7195c98a98aea119c763f272d4523f5bac93a4f33c2b",
+        "BCH" to "0x3dd2b63686a450ec7290df3a1e0b583c0481f651351edfa7636f39aed55cf8a3",
+        "XLM" to "0xb7a8eba68a997cd0210c2e1e4ee811ad2d174b3611c22d9ebf16f4cb7e9ba850",
+        "XMR" to "0x46b8cc9347f04391764a0361e0b17c3ba394b001e7c304f7650f6e0d723a9992",
+        "ETC" to "0x7f2c397a1d8ad5e5dc76b49ccf0dce0c7cc0a94c04c5c04eeab1dd7c0dd6d8b4",
+
+        // V5.8 - DeFi & New Ecosystem
+        "DYDX" to "0x6489800bb8974169adfe35937bf6736507097d13c190d760c557108c7e93a81b",
+        "WLD" to "0xd6835ad1f773de4a378115eb6824bd0c0e42d84d1c84d9750e853fb6b6c7794d",
+        "JTO" to "0xb43660a5f790c69354b0729a5ef9d50d68f1df92107540210b9cccba1f947cc2",
+        "W" to "0xeff7446475e218517566ea99e72a4abec2e1bd8498b43b7d8331e29dcb059389",
+        "STRK" to "0x6a182399ff70ccf3e06024898942028204125a819e519a335ffa4579e66cd870",
+        "TAO" to "0x410f41de235f2db824e562ea7ab2d3d3d4ff048316c61d629c0b93f58584e1af",
+        // TON, ENA, PENDLE, CAKE, GMX, ZEC, XTZ, EOS, FLOKI, NOT, POPCAT, TRUMP:
+        // no confirmed Pyth IDs — fall through to Jupiter/CoinGecko/Binance
         
         // ═══════════════════════════════════════════════════════════════════════
         // US EQUITIES - REAL Pyth Price Feed IDs (verified from Hermes API)
@@ -139,24 +158,10 @@ object PythOracle {
         "CVX" to "0xf464e36fd4ef2f1c3dc30801a9ab470dcdaaa0af14dd3cf6ae17a7fca9e051c5",
         
         // 🛢️ COMMODITIES (Oil - 24/7 trading)
+        // NATGAS: removed — the previously used ID returned UK NBP (~100 pence/therm) not Henry Hub (~3.50 USD/MMBtu)
+        // RBOB, HEATING, agricultural: no verified Pyth feed IDs — fall through to PriceAggregator Yahoo futures
         "BRENT" to "0x27f0d5e09a830083e5491795cac9ca521399c8f7fd56240d09484b14e614d57a",  // UKOILSPOT
         "WTI" to "0x925ca92ff005ae943c158e3563f59698ce7e75c5a8c8dd43303a0a154887b3e6",    // USOILSPOT
-        "NATGAS" to "0xf2b7c6150a88f99b76cfe1e5a3aace9f00a2f85bf5ff32e3bc8a4d2f4e8e0c2b", // Natural Gas
-        "RBOB" to "0x7c48578e4cd3e9b2e5c3c4f6a1d2e3f4a5b6c7d8e9f0a1b2c3d4e5f6a7b8c9d0",    // Gasoline
-        "HEATING" to "0x8a2b3c4d5e6f7a8b9c0d1e2f3a4b5c6d7e8f9a0b1c2d3e4f5a6b7c8d9e0f1a2", // Heating Oil
-        
-        // 🌾 AGRICULTURAL COMMODITIES
-        "CORN" to "0x6f0ee4ceacb3e3e1a8c4d2b5f6a7e8d9c0b1a2f3e4d5c6b7a8f9e0d1c2b3a4f5",
-        "WHEAT" to "0x7a8b9c0d1e2f3a4b5c6d7e8f9a0b1c2d3e4f5a6b7c8d9e0f1a2b3c4d5e6f7a8",
-        "SOYBEAN" to "0x8b9c0d1e2f3a4b5c6d7e8f9a0b1c2d3e4f5a6b7c8d9e0f1a2b3c4d5e6f7a8b9",
-        "COFFEE" to "0x9c0d1e2f3a4b5c6d7e8f9a0b1c2d3e4f5a6b7c8d9e0f1a2b3c4d5e6f7a8b9c0",
-        "COCOA" to "0xa0d1e2f3a4b5c6d7e8f9a0b1c2d3e4f5a6b7c8d9e0f1a2b3c4d5e6f7a8b9c0d1",
-        "SUGAR" to "0xb1e2f3a4b5c6d7e8f9a0b1c2d3e4f5a6b7c8d9e0f1a2b3c4d5e6f7a8b9c0d1e2",
-        "COTTON" to "0xc2f3a4b5c6d7e8f9a0b1c2d3e4f5a6b7c8d9e0f1a2b3c4d5e6f7a8b9c0d1e2f3",
-        "LUMBER" to "0xd3a4b5c6d7e8f9a0b1c2d3e4f5a6b7c8d9e0f1a2b3c4d5e6f7a8b9c0d1e2f3a4",
-        "OJ" to "0xe4b5c6d7e8f9a0b1c2d3e4f5a6b7c8d9e0f1a2b3c4d5e6f7a8b9c0d1e2f3a4b5",
-        "CATTLE" to "0xf5c6d7e8f9a0b1c2d3e4f5a6b7c8d9e0f1a2b3c4d5e6f7a8b9c0d1e2f3a4b5c6",
-        "HOGS" to "0xa6d7e8f9a0b1c2d3e4f5a6b7c8d9e0f1a2b3c4d5e6f7a8b9c0d1e2f3a4b5c6d7",
         
         // 🥇 PRECIOUS METALS (24/7 trading)
         "XAU" to "0x765d2ba906dbc32ca17cc11f5310a89e9ee1f6420508c63861f2f8ba4ee34bb2",   // Gold
@@ -169,13 +174,7 @@ object PythOracle {
         "XAL" to "0x2818d3a9c8e0a80bd02bb500d62e5bb1323fa3df287f081d82b27d1e22c71afa",   // Aluminum
         "XNI" to "0xa41da02810f3993706dca86e32582d40de376116eff24342353c33a0a8f9c083",   // Nickel
         "XTI" to "0xa35b407f0fa4b027c2dfa8dff0b7b99b853fb4d326a9e9906271933237b90c1c",   // Titanium
-        "ZINC" to "0xb7e8f9a0b1c2d3e4f5a6b7c8d9e0f1a2b3c4d5e6f7a8b9c0d1e2f3a4b5c6d7e8",
-        "LEAD" to "0xc8f9a0b1c2d3e4f5a6b7c8d9e0f1a2b3c4d5e6f7a8b9c0d1e2f3a4b5c6d7e8f9",
-        "TIN" to "0xd9a0b1c2d3e4f5a6b7c8d9e0f1a2b3c4d5e6f7a8b9c0d1e2f3a4b5c6d7e8f9a0",
-        "IRON" to "0xeab1c2d3e4f5a6b7c8d9e0f1a2b3c4d5e6f7a8b9c0d1e2f3a4b5c6d7e8f9a0b1",
-        "COBALT" to "0xfbc2d3e4f5a6b7c8d9e0f1a2b3c4d5e6f7a8b9c0d1e2f3a4b5c6d7e8f9a0b1c2",
-        "LITHIUM" to "0xacd3e4f5a6b7c8d9e0f1a2b3c4d5e6f7a8b9c0d1e2f3a4b5c6d7e8f9a0b1c2d3",
-        "URANIUM" to "0xbde4f5a6b7c8d9e0f1a2b3c4d5e6f7a8b9c0d1e2f3a4b5c6d7e8f9a0b1c2d3e4",
+        // ZINC, LEAD, TIN, IRON, COBALT, LITHIUM, URANIUM: no verified Pyth feed IDs — fall through to PriceAggregator
         
         // ═══════════════════════════════════════════════════════════════════════
         // 💱 FOREX (Major Pairs - 24/5 trading)
@@ -188,25 +187,7 @@ object PythOracle {
         "USDCHF" to "0x0b1e3297e69f162877b577b0d6a47a0d63b2392bc8499e6540da4187a63e28f8",
         "NZDUSD" to "0x92eea8ba1b00078cdc2ef6f64f091f262e8c7d0576ee4677572f314ebfafa4c7",
         
-        // 💱 FOREX - Cross Pairs
-        "EURGBP" to "0xcef5a6b7c8d9e0f1a2b3c4d5e6f7a8b9c0d1e2f3a4b5c6d7e8f9a0b1c2d3e4f5",
-        "EURJPY" to "0xdf6b7c8d9e0f1a2b3c4d5e6f7a8b9c0d1e2f3a4b5c6d7e8f9a0b1c2d3e4f5a6",
-        "GBPJPY" to "0xe07c8d9e0f1a2b3c4d5e6f7a8b9c0d1e2f3a4b5c6d7e8f9a0b1c2d3e4f5a6b7",
-        "AUDJPY" to "0xf18d9e0f1a2b3c4d5e6f7a8b9a0d1e2f3a4b5c6d7e8f9a0b1c2d3e4f5a6b7c8",
-        "CADJPY" to "0xa29e0f1a2b3c4d5e6f7a8b9c0d1e2f3a4b5c6d7e8f9a0b1c2d3e4f5a6b7c8d9",
-        "CHFJPY" to "0xb3af1a2b3c4d5e6f7a8b9c0d1e2f3a4b5c6d7e8f9a0b1c2d3e4f5a6b7c8d9e0",
-        
-        // 💱 FOREX - Emerging Markets
-        "USDMXN" to "0xc4b02b3c4d5e6f7a8b9c0d1e2f3a4b5c6d7e8f9a0b1c2d3e4f5a6b7c8d9e0f1",
-        "USDBRL" to "0xd5c13c4d5e6f7a8b9c0d1e2f3a4b5c6d7e8f9a0b1c2d3e4f5a6b7c8d9e0f1a2",
-        "USDINR" to "0xe6d24d5e6f7a8b9c0d1e2f3a4b5c6d7e8f9a0b1c2d3e4f5a6b7c8d9e0f1a2b3",
-        "USDCNY" to "0xf7e35e6f7a8b9c0d1e2f3a4b5c6d7e8f9a0b1c2d3e4f5a6b7c8d9e0f1a2b3c4",
-        "USDZAR" to "0xa8f46f7a8b9c0d1e2f3a4b5c6d7e8f9a0b1c2d3e4f5a6b7c8d9e0f1a2b3c4d5",
-        "USDTRY" to "0xb9a57a8b9c0d1e2f3a4b5c6d7e8f9a0b1c2d3e4f5a6b7c8d9e0f1a2b3c4d5e6",
-        "USDRUB" to "0xcab68b9c0d1e2f3a4b5c6d7e8f9a0b1c2d3e4f5a6b7c8d9e0f1a2b3c4d5e6f7",
-        "USDSGD" to "0xdbc79c0d1e2f3a4b5c6d7e8f9a0b1c2d3e4b5c6d7e8f9a0b1c2d3e4f5a6b7c8",
-        "USDHKD" to "0xecd8ad1e2f3a4b5c6d7e8f9a0b1c2d3e4f5a6b7c8d9e0f1a2b3c4d5e6f7a8b9",
-        "USDKRW" to "0xfde9be2f3a4b5c6d7e8f9a0b1c2d3e4f5a6b7c8d9e0f1a2b3c4d5e6f7a8b9c0",
+        // Cross pairs and emerging market forex: no verified Pyth feed IDs — fall through to PriceAggregator Yahoo (EURUSD=X format)
     )
     
     // Cache

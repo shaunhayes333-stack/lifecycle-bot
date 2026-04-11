@@ -1635,7 +1635,8 @@ class MultiAssetActivity : AppCompatActivity() {
                 val dow = cal.get(java.util.Calendar.DAY_OF_WEEK)
                 dow == java.util.Calendar.SATURDAY || dow == java.util.Calendar.SUNDAY
             }
-            tvAiSignalStatus.text = if (isWeekend && currentTab != AssetTab.PERPS) "Closed (weekend)" else "Scanning..."
+            val isTraditionalMarket = currentTab in setOf(AssetTab.COMMODITIES, AssetTab.METALS, AssetTab.FOREX)
+            tvAiSignalStatus.text = if (isWeekend && isTraditionalMarket) "Closed (weekend)" else "Scanning..."
             aiSignalDot.setBackgroundResource(R.drawable.dot_green)
             return
         }
@@ -1667,7 +1668,10 @@ class MultiAssetActivity : AppCompatActivity() {
                 val dow = cal.get(java.util.Calendar.DAY_OF_WEEK)
                 dow == java.util.Calendar.SATURDAY || dow == java.util.Calendar.SUNDAY
             }
-            if (isWeekend && currentTab != AssetTab.PERPS) return emptyList()
+            // Tokenized stocks are Solana crypto tokens — 24/7 trading, no weekend restriction.
+            // Only traditional markets (commodities, metals, forex) have weekend closures.
+            val isTraditionalMarket = currentTab in setOf(AssetTab.COMMODITIES, AssetTab.METALS, AssetTab.FOREX)
+            if (isWeekend && isTraditionalMarket) return emptyList()
 
             val signals = mutableListOf<AiSignal>()
             val markets = when (currentTab) {

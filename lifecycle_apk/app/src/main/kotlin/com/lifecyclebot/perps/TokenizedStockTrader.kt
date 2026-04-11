@@ -400,16 +400,9 @@ object TokenizedStockTrader {
         scanCount.incrementAndGet()
         val scanNum = scanCount.get()
         
-        // V5.7.7: Check market hours - don't open new stock positions when market is closed
-        val marketStatus = getMarketStatus()
-        if (marketStatus == "CLOSED") {
-            ErrorLogger.info(TAG, "📈 SCAN #$scanNum SKIPPED - US Stock Market is CLOSED (Weekend or After 8PM ET)")
-            ErrorLogger.info(TAG, "📈 Existing positions: ${positions.size} | Will monitor but not open new trades")
-            // Still monitor existing positions for TP/SL, but don't scan for new ones
-            return
-        }
-        
-        val marketHoursNote = if (marketStatus == "EXTENDED") " (EXTENDED HOURS - lower liquidity)" else ""
+        // Tokenized stocks are Solana crypto tokens (xStocks) — they trade 24/7 on DEXes.
+        // The underlying NYSE/NASDAQ stock market hours do NOT apply here.
+        val marketHoursNote = ""
         
         ErrorLogger.error(TAG, "📈 ═══════════════════════════════════════════════════")
         ErrorLogger.error(TAG, "📈 STOCK SCAN #$scanNum STARTING$marketHoursNote")

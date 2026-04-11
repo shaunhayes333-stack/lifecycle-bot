@@ -153,9 +153,17 @@ object PriceAggregator {
     private fun detectAssetType(symbol: String): AssetType {
         return when {
             // Crypto detection
-            symbol in listOf("BTC", "ETH", "SOL", "BNB", "XRP", "ADA", "DOGE", "AVAX", "DOT", 
+            symbol in listOf("BTC", "ETH", "SOL", "BNB", "XRP", "ADA", "DOGE", "AVAX", "DOT",
                 "LINK", "MATIC", "SHIB", "LTC", "ATOM", "UNI", "ARB", "OP", "APT", "SUI", "SEI",
-                "INJ", "TIA", "JUP", "PEPE", "WIF", "BONK", "PYTH", "RAY", "ORCA") -> AssetType.CRYPTO
+                "INJ", "TIA", "JUP", "PEPE", "WIF", "BONK", "PYTH", "RAY", "ORCA",
+                "NEAR", "FTM", "ALGO", "HBAR", "ICP", "VET", "FIL", "RENDER", "GRT", "AAVE",
+                "MKR", "SNX", "CRV", "RUNE", "STX", "IMX", "SAND", "MANA", "AXS", "ENS",
+                "LDO", "RPL", "MNGO", "DRIFT",
+                // V5.8
+                "TRX", "TON", "BCH", "XLM", "XMR", "ETC", "ZEC", "XTZ", "EOS",
+                "CAKE", "GMX", "DYDX", "ENA", "PENDLE",
+                "WLD", "JTO", "W", "STRK", "TAO",
+                "FLOKI", "NOT", "POPCAT", "TRUMP") -> AssetType.CRYPTO
             
             // Forex detection
             symbol.length == 6 && symbol.matches(Regex("[A-Z]{6}")) -> AssetType.FOREX
@@ -417,13 +425,63 @@ object PriceAggregator {
     }
     
     // ═══════════════════════════════════════════════════════════════════════════
+    // SYMBOL MAPPING
+    // ═══════════════════════════════════════════════════════════════════════════
+
+    /**
+     * Convert internal symbol to Yahoo Finance ticker symbol.
+     * - Commodity futures use the exchange futures code (e.g. NG=F for Henry Hub natural gas)
+     * - Precious/industrial metals mapped to CME/COMEX futures
+     * - Forex pairs appended with "=X" (e.g. EURUSD=X)
+     * - Stocks/crypto passed through unchanged
+     */
+    private fun toYahooSymbol(symbol: String): String {
+        val futuresMap = mapOf(
+            // Energy
+            "NATGAS"  to "NG=F",
+            "WTI"     to "CL=F",
+            "BRENT"   to "BZ=F",
+            "RBOB"    to "RB=F",
+            "HEATING" to "HO=F",
+            // Agricultural
+            "CORN"    to "ZC=F",
+            "WHEAT"   to "ZW=F",
+            "SOYBEAN" to "ZS=F",
+            "COFFEE"  to "KC=F",
+            "COCOA"   to "CC=F",
+            "SUGAR"   to "SB=F",
+            "COTTON"  to "CT=F",
+            "LUMBER"  to "LBS=F",
+            "OJ"      to "OJ=F",
+            "CATTLE"  to "LE=F",
+            "HOGS"    to "HE=F",
+            // Precious metals (CME/COMEX futures)
+            "XAU"     to "GC=F",
+            "XAG"     to "SI=F",
+            "XPT"     to "PL=F",
+            "XPD"     to "PA=F",
+            // Industrial metals
+            "XCU"     to "HG=F",
+            "ZINC"    to "ZINC=F",
+            "IRON"    to "TIO=F"
+        )
+        return when {
+            futuresMap.containsKey(symbol) -> futuresMap[symbol]!!
+            // Forex 6-char pairs: EURUSD → EURUSD=X
+            symbol.length == 6 && symbol.matches(Regex("[A-Z]{6}")) -> "$symbol=X"
+            else -> symbol
+        }
+    }
+
+    // ═══════════════════════════════════════════════════════════════════════════
     // STOCK SOURCES
     // ═══════════════════════════════════════════════════════════════════════════
-    
+
     private suspend fun fetchYahooV7(symbol: String): PriceResult? = withContext(Dispatchers.IO) {
         try {
+            val yahooSymbol = toYahooSymbol(symbol)
             val request = Request.Builder()
-                .url("https://query1.finance.yahoo.com/v7/finance/quote?symbols=$symbol")
+                .url("https://query1.finance.yahoo.com/v7/finance/quote?symbols=$yahooSymbol")
                 .header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64)")
                 .build()
             
@@ -451,8 +509,9 @@ object PriceAggregator {
     
     private suspend fun fetchYahooV8(symbol: String): PriceResult? = withContext(Dispatchers.IO) {
         try {
+            val yahooSymbol = toYahooSymbol(symbol)
             val request = Request.Builder()
-                .url("https://query1.finance.yahoo.com/v8/finance/chart/$symbol?interval=1d&range=1d")
+                .url("https://query1.finance.yahoo.com/v8/finance/chart/$yahooSymbol?interval=1d&range=1d")
                 .header("User-Agent", "Mozilla/5.0")
                 .build()
             
@@ -479,9 +538,19 @@ object PriceAggregator {
         return@withContext null
     }
     
+    private fun toStooqSymbol(symbol: String): String {
+        // Stooq uses lowercase .f for futures, bare pair for forex, .US for US stocks
+        val yahooSym = toYahooSymbol(symbol)
+        return when {
+            yahooSym.endsWith("=F") -> yahooSym.replace("=F", ".F")  // NG=F → NG.F
+            yahooSym.endsWith("=X") -> yahooSym.replace("=X", "")     // EURUSD=X → EURUSD
+            else -> "${symbol}.US"
+        }
+    }
+
     private suspend fun fetchStooq(symbol: String): PriceResult? = withContext(Dispatchers.IO) {
         try {
-            val stooqSymbol = "${symbol}.US"
+            val stooqSymbol = toStooqSymbol(symbol)
             val request = Request.Builder()
                 .url("https://stooq.com/q/l/?s=$stooqSymbol&f=sd2t2ohlcvn&h&e=csv")
                 .header("User-Agent", "Mozilla/5.0")
@@ -814,7 +883,31 @@ object PriceAggregator {
             "JUP" to "jupiter-exchange-solana",
             "PEPE" to "pepe",
             "WIF" to "dogwifcoin",
-            "BONK" to "bonk"
+            "BONK" to "bonk",
+            // V5.8 additions
+            "TRX" to "tron",
+            "TON" to "the-open-network",
+            "BCH" to "bitcoin-cash",
+            "XLM" to "stellar",
+            "XMR" to "monero",
+            "ETC" to "ethereum-classic",
+            "ZEC" to "zcash",
+            "XTZ" to "tezos",
+            "EOS" to "eos",
+            "CAKE" to "pancakeswap-token",
+            "GMX" to "gmx",
+            "DYDX" to "dydx",
+            "ENA" to "ethena",
+            "PENDLE" to "pendle",
+            "WLD" to "worldcoin-wld",
+            "JTO" to "jito-governance-token",
+            "W" to "wormhole",
+            "STRK" to "starknet",
+            "TAO" to "bittensor",
+            "FLOKI" to "floki",
+            "NOT" to "notcoin",
+            "POPCAT" to "popcat",
+            "TRUMP" to "official-trump"
         )[symbol]
     }
     
