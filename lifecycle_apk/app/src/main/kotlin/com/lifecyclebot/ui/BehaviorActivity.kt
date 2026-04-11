@@ -498,7 +498,6 @@ class BehaviorActivity : AppCompatActivity() {
                     } else {
                         append("V4 Meta: Initializing...")
                     }
-                    }
                 }
                 tvDormantWarning.visibility = View.VISIBLE
                 tvDormantWarning.text = "🧠 $metaInfo"
