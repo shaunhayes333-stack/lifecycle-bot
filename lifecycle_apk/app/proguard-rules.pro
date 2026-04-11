@@ -1,3 +1,12 @@
+# V5.7.8: Keep V4 Meta-Intelligence data classes (used with reflection)
+-keepclassmembers class com.lifecyclebot.v4.meta.** {
+    <init>(...);
+    <fields>;
+}
+-keep class com.lifecyclebot.v4.meta.** { *; }
+-keep class com.lifecyclebot.engine.quant.QuantMindV2** { *; }
+
+
 -keep class com.lifecyclebot.** { *; }
 -keepclassmembers class com.lifecyclebot.** { *; }
 -keep class com.github.mikephil.** { *; }

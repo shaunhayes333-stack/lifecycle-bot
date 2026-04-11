@@ -80,6 +80,23 @@ android {
         }
     }
     
+    // V5.7.8: Packaging options to handle native lib conflicts
+    packaging {
+        jniLibs {
+            useLegacyPackaging = true  // Prevents IncrementalSplitterRunnable failures
+        }
+        resources {
+            excludes += listOf(
+                "META-INF/DEPENDENCIES",
+                "META-INF/LICENSE",
+                "META-INF/LICENSE.txt",
+                "META-INF/license.txt",
+                "META-INF/NOTICE",
+                "META-INF/NOTICE.txt"
+            )
+        }
+    }
+    
     // Custom APK naming: AATE_v5.0.XX.apk
     applicationVariants.all {
         val variant = this
