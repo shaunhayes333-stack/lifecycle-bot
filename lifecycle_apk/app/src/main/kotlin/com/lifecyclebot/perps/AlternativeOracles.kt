@@ -234,22 +234,67 @@ object JupiterPriceOracle {
         "MEME" to "MEME111111111111111111111111111111111111111",
         
         // ═══════════════════════════════════════════════════════════════════════════
-        // V5.7.7: xSTOCKS - TOKENIZED STOCKS (Backed.fi on Solana) - TRADE 24/7!
-        // These are real SPL tokens backed 1:1 by actual shares via Kraken/Backed
+        // V5.7.8: xSTOCKS - TOKENIZED STOCKS (Backed.fi on Solana) - TRADE 24/7!
+        // 57 stocks + ETFs from official api.backed.fi - all verified SPL mints
         // ═══════════════════════════════════════════════════════════════════════════
-        "TSLA" to "XsDoVfqeBukxuZHWhdvWHBhgEHjGNst4MLodqsJHzoB",  // TSLAx - Tesla
-        "AAPL" to "XsbEhLAtcf6HdfpFZ5xEMdqW8nfAvcsP5bdudRLJzJp",  // AAPLx - Apple
-        "NVDA" to "Xsc9qvGR1efVDFGLrVsmkzv3qi45LTBjeUKSPmx9qEh",  // NVDAx - NVIDIA
-        "META" to "Xsa62P5mvPszXL1krVUnU5ar38bBSVcWAB6fmPCo5Zu",  // METAx - Meta/Facebook
-        "GOOGL" to "XsCPL9dNWBMvFtTmwcCA5v3xWPSMEBCszbQdiLLq6aN", // GOOGLx - Alphabet
-        "AMZN" to "Xs3eBt7uRfJX8QUs4suhyU8p2M6DoUDrJyWBa8LLZsg",  // AMZNx - Amazon
-        "MSFT" to "XspzcW1PRtgf6Wj92HCiZdjzKCyFekVD8P5Ueh3dRMX",  // MSFTx - Microsoft
-        "COIN" to "Xs7ZdzSHLU9ftNJsii5fCeJhoRWSC32SQGzGQtePxNu",  // COINx - Coinbase
-        "SPY" to "XsoCS1TfEyfFhfvj8EtZ528L3CaKBDBRqRapnBbDF2W",   // SPYx - S&P 500 ETF
-        "QQQ" to "Xs8S1uUs1zvS2p7iwtsG3b6fkhpvmwz4GYU3gWAmWHZ",   // QQQx - Nasdaq ETF
-        "MSTR" to "XsP7xzNPvEHS1m6qfanPUGjNmdnmsLKEoNAnHjdxxyZ",  // MSTRx - MicroStrategy
-        "JPM" to "XsMAqkcKsUewDrzVkait4e5u4y8REgtyS7jWgCpLV2C",    // JPMx - JPMorgan Chase
-        "CRCL" to "XsueG8BtpquVJX9LVLLEGuViXUungE6WmK5YZ3p3bd1",  // CRCLx - Circle
+        "AAPL" to "XsbEhLAtcf6HdfpFZ5xEMdqW8nfAvcsP5bdudRLJzJp",
+        "ABBV" to "XswbinNKyPmzTa5CskMbCPvMW6G5CMnZXZEeQSSQoie",
+        "ADBE" to "XsDZMGEU8zadWFCkTtPBoPWYcUX3JHVmghnwf2Mve2q",
+        "AMD" to "XsXcJ6GZ9kVnjqGsjBnktRcuwMBmvKWh8S93RefZ1rF",
+        "AMZN" to "Xs3eBt7uRfJX8QUs4suhyU8p2M6DoUDrJyWBa8LLZsg",
+        "ASML" to "XshuHQ6o6SVpUNawvnnTMxsZ4tacZsNgVCLorv7TkFq",
+        "AVGO" to "XsgSaSvNSqLTtFuyWPBhK9196Xb9Bbdyjj4fH3cPJGo",
+        "AZN" to "Xs3ZFkPYT2BN7qBMqf1j1bfTeTm1rFzEFSsQ1z3wAKU",
+        "BAC" to "XswsQk4duEQmCbGzfqUUWYmi7pV7xpJ9eEmLHXCaEQP",
+        "COIN" to "Xs7ZdzSHLU9ftNJsii5fCeJhoRWSC32SQGzGQtePxNu",
+        "CRCL" to "XsueG8BtpquVJX9LVLLEGuViXUungE6WmK5YZ3p3bd1",
+        "CRM" to "XsczbcQ3zfcgAEt9qHQES8pxKAVG5rujPSHQEXi4kaN",
+        "CRWD" to "Xs7xXqkcK7K8urEqGg52SECi79dRp2cEKKuYjUePYDw",
+        "CVX" to "XsNNMt7WTNA2sV3jrb1NNfNgapxRF5i4i6GcnTRRHts",
+        "GLD" to "Xsv9hRk1z5ystj9MhnA7Lq4vjSsLwzL2nxrwmwtD3re",
+        "GOOGL" to "XsCPL9dNWBMvFtTmwcCA5v3xWPSMEBCszbQdiLLq6aN",
+        "GS" to "XsgaUyp4jd1fNBCxgtTKkW64xnnhQcvgaxzsbAq5ZD1",
+        "HD" to "XszjVtyhowGjSC5odCqBpW1CtXXwXjYokymrk7fGKD3",
+        "HOOD" to "XsvNBAYkrDRNhA7wPHQfX3ZUXZyZLdnCQDfHZ56bzpg",
+        "INTC" to "XshPgPdXFRWB8tP1j82rebb2Q9rPgGX37RuqzohmArM",
+        "IWM" to "XsbELVbLGBkn7xfMfyYuUipKGt1iRUc2B7pYRvFTFu3",
+        "JNJ" to "XsGVi5eo1Dh2zUpic4qACcjuWGjNv8GCt3dm5XcX6Dn",
+        "JPM" to "XsMAqkcKsUewDrzVkait4e5u4y8REgtyS7jWgCpLV2C",
+        "KO" to "XsaBXg8dU5cPM6ehmVctMkVqoiRG2ZjMo1cyBJ3AykQ",
+        "LLY" to "Xsnuv4omNoHozR6EEW5mXkw8Nrny5rB3jVfLqi6gKMH",
+        "MA" to "XsApJFV9MAktqnAc6jqzsHVujxkGm9xcSUffaBoYLKC",
+        "MCD" to "XsqE9cRRpzxcGKDXj1BJ7Xmg4GRhZoyY1KpmGSxAWT2",
+        "META" to "Xsa62P5mvPszXL1krVUnU5ar38bBSVcWAB6fmPCo5Zu",
+        "MRVL" to "XsuxRGDzbLjnJ72v74b7p9VY6N66uYgTCyfwwRjVCJA",
+        "MSFT" to "XspzcW1PRtgf6Wj92HCiZdjzKCyFekVD8P5Ueh3dRMX",
+        "MSTR" to "XsP7xzNPvEHS1m6qfanPUGjNmdnmsLKEoNAnHjdxxyZ",
+        "MU" to "XsQLZycSZ7QnBBdBXQaTbQdiUcbRqjNJgyBGAMzhHav",
+        "NFLX" to "XsEH7wWfJJu2ZT3UCFeVfALnVA6CP5ur7Ee11KmzVpL",
+        "NVDA" to "Xsc9qvGR1efVDFGLrVsmkzv3qi45LTBjeUKSPmx9qEh",
+        "NVO" to "XsfAzPzYrYjd4Dpa9BU3cusBsvWfVB9gBcyGC87S57n",
+        "ORCL" to "XsjFwUPiLofddX5cWFHW35GCbXcSu1BCUGfxoQAQjeL",
+        "PEP" to "Xsv99frTRUeornyvCfvhnDesQDWuvns1M852Pez91vF",
+        "PFE" to "XsAtbqkAP1HJxy7hFDeq7ok6yM43DQ9mQ1Rh861X8rw",
+        "PG" to "XsYdjDjNUygZ7yGKfQaB6TxLh2gC6RRjzLtLAGJrhzV",
+        "PLTR" to "XsoBhf2ufR8fTyNSjqfU71DYGaE6Z3SUGAidpzriAA4",
+        "PM" to "Xsba6tUnSjDae2VcopDB6FGGDaxRrewFCDa5hKn5vT3",
+        "PYPL" to "XshWQWYVp5ff8CrAEsGmLVKD47nBWi3Ygn5v8wXK27G",
+        "QQQ" to "Xs8S1uUs1zvS2p7iwtsG3b6fkhpvmwz4GYU3gWAmWHZ",
+        "RBLX" to "Xss5RAku5EH6UViFdvW7ss9xQjwQLsrs2opPMhb3k43",
+        "SLV" to "XsxAd6okt8y1RRK6gNg7iJaqiWNiq5Md5EDf3ZrF2dm",
+        "SMCI" to "XsMxAoJP47FQGLsVUvSS2QfBaHdNsd7DRU6nWRL8RSa",
+        "SPY" to "XsoCS1TfEyfFhfvj8EtZ528L3CaKBDBRqRapnBbDF2W",
+        "TMO" to "Xs8drBWy3Sd5QY3aifG9kt9KFs2K3PGZmx7jWrsrk57",
+        "TMUS" to "XswCi2U1G6Ppbw1QhG45yKb8UKuR1FKLJrquv2FZSD4",
+        "TSLA" to "XsDoVfqeBukxuZHWhdvWHBhgEHjGNst4MLodqsJHzoB",
+        "TSM" to "XsafvsGtzFqqHgTnA3aPC83EAMkacU5mcGtcSayhpVV",
+        "UBER" to "XsAsZLF4MmsvS1sDxRMrUz7REjHfwbC9UAMXSRBqgEB",
+        "UNH" to "XszvaiXGPwvk2nwb3o9C1CX4K6zH8sez11E6uyup6fe",
+        "V" to "XsqgsbXwWogGJsNcVZ3TyVouy2MbTkfCFhCGGGcQZ2p",
+        "VTI" to "XsssYEQjzxBCFgvYFFNuhJFBeHNdLWYeUSP8F45cDr9",
+        "WMT" to "Xs151QeqTCiuKtinzfRATnUESM2xTU6V9Wy8Vy538ci",
+        "XLE" to "Xs54CrhmpVp6uxZXwgSTegrRH2kShh88XFPzgf4BExu",
+        "XOM" to "XsaHND8sHyfMfsWPj6kSdd5VwvCayZvjYgKmmcNL5qh",
     )
     
     /**
