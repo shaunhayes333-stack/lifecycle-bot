@@ -1433,6 +1433,27 @@ class BotService : Service() {
         } catch (e: Exception) {
             ErrorLogger.error("BotService", "V4 Meta init failed (non-fatal): ${e.message}", e)
         }
+        
+        // ═══════════════════════════════════════════════════════════════════
+        // V5.7.8: WATCHLIST & ALERTS ENGINE
+        // ═══════════════════════════════════════════════════════════════════
+        try {
+            com.lifecyclebot.perps.WatchlistEngine.init(applicationContext)
+            com.lifecyclebot.perps.WatchlistEngine.setAlertCallback { triggered ->
+                addLog("🔔 ALERT: ${triggered.message}")
+                try {
+                    notifHistory.add(
+                        NotificationHistory.NotifEntry.NotifType.SAFETY_BLOCK,
+                        "Price Alert: ${triggered.alert.symbol}",
+                        triggered.message
+                    )
+                } catch (_: Exception) {}
+            }
+            val wStats = com.lifecyclebot.perps.WatchlistEngine.getStats()
+            addLog("🔔 Watchlist: ${wStats["watchlist_size"]} items, ${wStats["active_alerts"]} alerts")
+        } catch (e: Exception) {
+            ErrorLogger.error("BotService", "Watchlist init failed (non-fatal): ${e.message}", e)
+        }
         // Set up paper wallet balance tracking
         executor.onPaperBalanceChange = { delta ->
             status.paperWalletSol = (status.paperWalletSol + delta).coerceAtLeast(0.0)

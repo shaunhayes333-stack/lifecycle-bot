@@ -449,6 +449,12 @@ object TokenizedStockTrader {
                     continue
                 }
                 
+                // V5.7.8: Feed V4 LeadLag + Regime with every price update
+                try {
+                    com.lifecyclebot.v4.meta.CrossAssetLeadLagAI.recordReturn(market.symbol, data.priceChange24hPct)
+                    com.lifecyclebot.v4.meta.CrossMarketRegimeAI.updateMarketState(market.symbol, data.price, data.priceChange24hPct, data.volume24h)
+                } catch (_: Exception) {}
+                
                 analyzedCount++
                 
                 // Generate signal using AI layers
@@ -477,6 +483,17 @@ object TokenizedStockTrader {
         
         ErrorLogger.info(TAG, "📈 ═══════════════════════════════════════════════════")
         ErrorLogger.info(TAG, "📈 Scan stats: analyzed=$analyzedCount | hasPos=$skippedHasPosition | badPrice=$skippedBadPrice | signals=${signals.size}")
+        
+        // V5.7.8: Run V4 LeadLag scan + fuse snapshot after each cycle
+        try {
+            com.lifecyclebot.v4.meta.CrossAssetLeadLagAI.scan()
+            com.lifecyclebot.v4.meta.CrossMarketRegimeAI.assessRegime()
+            com.lifecyclebot.v4.meta.LeverageSurvivalAI.assess(
+                currentVolatility = signals.map { kotlin.math.abs(it.priceChange24h) }.average().takeIf { !it.isNaN() } ?: 0.0,
+                fragilityScore = com.lifecyclebot.v4.meta.LiquidityFragilityAI.getFragilityScore("MARKET_AVG")
+            )
+            com.lifecyclebot.v4.meta.CrossTalkFusionEngine.fuse()
+        } catch (_: Exception) {}
         
         // Sort by score and take best signals
         val topSignals = signals.sortedByDescending { it.score }.take(3)
@@ -889,6 +906,39 @@ object TokenizedStockTrader {
         // V5.7.6: Record to PerpsLearningBridge for unified tracking
         try {
             PerpsLearningBridge.recordStockTrade(position.market, position.direction, isWin, netPnlPct)
+        } catch (_: Exception) {}
+        
+        // V5.7.8: Record to V4 TradeLessonRecorder (full causal chain)
+        try {
+            val holdSec = ((System.currentTimeMillis() - position.entryTime) / 1000).toInt()
+            com.lifecyclebot.v4.meta.TradeLessonRecorder.completeLesson(
+                context = com.lifecyclebot.v4.meta.TradeLessonRecorder.TradeLessonContext(
+                    strategy = "TokenizedStockAI",
+                    market = if (position.market.isStock) "STOCKS" else "PERPS",
+                    symbol = position.market.symbol,
+                    entryRegime = com.lifecyclebot.v4.meta.CrossMarketRegimeAI.getCurrentRegime(),
+                    entrySession = com.lifecyclebot.v4.meta.SessionContext.OFF_HOURS,
+                    trustScore = com.lifecyclebot.v4.meta.StrategyTrustAI.getTrustScore("TokenizedStockAI"),
+                    fragilityScore = com.lifecyclebot.v4.meta.LiquidityFragilityAI.getFragilityScore(position.market.symbol),
+                    narrativeHeat = com.lifecyclebot.v4.meta.NarrativeFlowAI.getNarrativeHeat(position.market.symbol),
+                    portfolioHeat = com.lifecyclebot.v4.meta.PortfolioHeatAI.getPortfolioHeat(),
+                    leverageUsed = position.leverage,
+                    executionConfidence = 0.8,
+                    leadSource = com.lifecyclebot.v4.meta.CrossAssetLeadLagAI.getLeadSignalFor(position.market.symbol)?.leader,
+                    expectedDelaySec = null,
+                    executionRoute = "JUPITER_V6",
+                    expectedFillPrice = position.entryPrice,
+                    captureTime = position.entryTime
+                ),
+                outcomePct = netPnlPct,
+                mfePct = netPnlPct.coerceAtLeast(0.0),
+                maePct = netPnlPct.coerceAtMost(0.0),
+                holdSec = holdSec,
+                exitReason = reason,
+                actualFillPrice = position.currentPrice
+            )
+            // Remove from portfolio heat tracker
+            com.lifecyclebot.v4.meta.PortfolioHeatAI.removePosition("MARKET_${position.market.symbol}")
         } catch (_: Exception) {}
         
         // Record pattern for learning
