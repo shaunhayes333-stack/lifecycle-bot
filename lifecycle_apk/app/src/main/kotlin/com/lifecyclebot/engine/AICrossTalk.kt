@@ -91,6 +91,9 @@ object AICrossTalk {
 
         totalCrossTalkAnalyses++
 
+        // V4 Meta: Feed narrative activity (non-blocking, read-only)
+        try { com.lifecyclebot.v4.meta.NarrativeFlowAI.recordActivity(symbol) } catch (_: Exception) {}
+
         val whaleSignal = try { WhaleTrackerAI.getWhaleSignal(mint, symbol) } catch (_: Exception) { null }
         val momentum = try { MomentumPredictorAI.getPrediction(mint) } catch (_: Exception) { null }
         val liquidity = try { LiquidityDepthAI.getSignal(mint, symbol, isOpenPosition) } catch (_: Exception) { null }
@@ -710,6 +713,9 @@ object AICrossTalk {
     }
 
     fun recordOutcome(signalType: SignalType, pnlPct: Double, wasProfit: Boolean) {
+        // V4 Meta: Feed to CrossMarketRegimeAI (observe market conditions)
+        try { com.lifecyclebot.v4.meta.CrossTalkFusionEngine.fuse() } catch (_: Exception) {}
+
         when (signalType) {
             SignalType.SMART_MONEY_PUMP -> {
                 if (wasProfit && pnlPct > 10.0) {

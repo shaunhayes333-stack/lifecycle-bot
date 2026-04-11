@@ -1410,6 +1410,29 @@ class BotService : Service() {
             ErrorLogger.error("BotService", "New features init failed: ${e.message}", e)
         }
         
+        // ═══════════════════════════════════════════════════════════════════
+        // INITIALIZE V4 META-INTELLIGENCE LAYER
+        // Read-only overlay — observes and advises, never blocks meme trades directly
+        // ═══════════════════════════════════════════════════════════════════
+        try {
+            com.lifecyclebot.v4.meta.StrategyTrustAI.init()
+            com.lifecyclebot.v4.meta.CrossAssetLeadLagAI.init()
+            com.lifecyclebot.v4.meta.ExecutionPathAI.init()
+            com.lifecyclebot.v4.meta.NarrativeFlowAI.init()
+            com.lifecyclebot.v4.meta.CrossTalkFusionEngine.init(
+                strategyTrust = com.lifecyclebot.v4.meta.StrategyTrustAI,
+                fragility = com.lifecyclebot.v4.meta.LiquidityFragilityAI,
+                leadLag = com.lifecyclebot.v4.meta.CrossAssetLeadLagAI,
+                regime = com.lifecyclebot.v4.meta.CrossMarketRegimeAI,
+                portfolioHeat = com.lifecyclebot.v4.meta.PortfolioHeatAI,
+                leverageSurvival = com.lifecyclebot.v4.meta.LeverageSurvivalAI,
+                narrative = com.lifecyclebot.v4.meta.NarrativeFlowAI,
+                executionPath = com.lifecyclebot.v4.meta.ExecutionPathAI
+            )
+            addLog("🧠 V4 Meta-Intelligence: ${com.lifecyclebot.v4.meta.CrossTalkFusionEngine.getStats()}")
+        } catch (e: Exception) {
+            ErrorLogger.error("BotService", "V4 Meta init failed (non-fatal): ${e.message}", e)
+        }
         // Set up paper wallet balance tracking
         executor.onPaperBalanceChange = { delta ->
             status.paperWalletSol = (status.paperWalletSol + delta).coerceAtLeast(0.0)

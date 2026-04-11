@@ -497,9 +497,43 @@ object TokenizedStockTrader {
                 break
             }
             
-            // V5.7.6b: Alternate between SPOT and LEVERAGE
-            val useSpot = (positions.size % 2 == 0) // Even = SPOT, Odd = LEVERAGE
-            val leverage = if (useSpot) 1.0 else DEFAULT_LEVERAGE
+            // V5.7.8: V4 Meta-Intelligence gated scoring
+            val useSpotDefault = (positions.size % 2 == 0)
+            var useSpot = useSpotDefault
+            var leverage = if (useSpot) 1.0 else DEFAULT_LEVERAGE
+            try {
+                // Feed regime data
+                com.lifecyclebot.v4.meta.CrossMarketRegimeAI.updateMarketState(
+                    signal.market.symbol, signal.price, signal.price * 0.01) // Approximate change
+                
+                // Check V4 gated score
+                val gated = com.lifecyclebot.v4.meta.CrossTalkFusionEngine.computeGatedScore(
+                    baseScore = signal.score.toDouble(),
+                    strategy = "TokenizedStockAI",
+                    market = if (signal.market.isStock) "STOCKS" else "PERPS",
+                    symbol = signal.market.symbol,
+                    leverageRequested = leverage
+                )
+                
+                // V4 can suppress leverage but NOT block trades entirely in Markets
+                if (gated.vetoes.any { it.startsWith("LEVERAGE") } && !useSpotDefault) {
+                    useSpot = true
+                    leverage = 1.0
+                    ErrorLogger.info(TAG, "📈 V4 META: Suppressed leverage for ${signal.market.symbol} → SPOT only")
+                }
+                
+                // Feed to portfolio heat tracker
+                com.lifecyclebot.v4.meta.PortfolioHeatAI.addPosition(
+                    id = "MARKET_${signal.market.symbol}",
+                    symbol = signal.market.symbol,
+                    market = if (signal.market.isStock) "STOCKS" else "PERPS",
+                    sector = signal.market.emoji,
+                    direction = signal.direction.name,
+                    sizeSol = getEffectiveBalance() * (DEFAULT_SIZE_PCT / 100),
+                    leverage = leverage
+                )
+            } catch (_: Exception) {}
+            
             ErrorLogger.info(TAG, "📈 EXECUTING: ${signal.market.symbol} ${signal.direction.symbol} @ \$${signal.price.fmt(2)} | ${if (useSpot) "SPOT" else "${leverage.toInt()}x"}")
             executeSignal(signal.copy(leverage = leverage), isSpot = useSpot)
         }

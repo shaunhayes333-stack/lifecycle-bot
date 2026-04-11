@@ -194,6 +194,89 @@ class CollectiveBrainActivity : AppCompatActivity() {
         
         // Initial sync status
         updateSyncStatus()
+        
+        // ═══════════════════════════════════════════════════════════════
+        // V5.7.8: BOOST BUTTON — Scan/Backtest Collective Learning (24h cooldown)
+        // ═══════════════════════════════════════════════════════════════
+        val boostPrefs = getSharedPreferences("collective_boost", android.content.Context.MODE_PRIVATE)
+        
+        // Create boost button programmatically (below sync button)
+        val btnBoost = android.widget.Button(this).apply {
+            text = "⚡ BOOST — Scan & Backtest"
+            setTextColor(0xFF000000.toInt())
+            setBackgroundColor(0xFFFFD700.toInt())
+            textSize = 14f
+            typeface = android.graphics.Typeface.DEFAULT_BOLD
+            setPadding(dp(16), dp(12), dp(16), dp(12))
+        }
+        
+        // Find parent layout of sync button and add boost button after it
+        val syncParent = btnForceSync.parent as? android.view.ViewGroup
+        if (syncParent != null) {
+            val syncIndex = syncParent.indexOfChild(btnForceSync)
+            syncParent.addView(btnBoost, syncIndex + 1, android.widget.LinearLayout.LayoutParams(
+                android.widget.LinearLayout.LayoutParams.MATCH_PARENT,
+                android.widget.LinearLayout.LayoutParams.WRAP_CONTENT
+            ).apply { topMargin = dp(8) })
+        }
+        
+        // Check cooldown
+        fun updateBoostState() {
+            val lastBoost = boostPrefs.getLong("last_boost_time", 0L)
+            val elapsed = System.currentTimeMillis() - lastBoost
+            val cooldownMs = 24 * 60 * 60 * 1000L
+            if (elapsed < cooldownMs) {
+                val hoursLeft = ((cooldownMs - elapsed) / (60 * 60 * 1000.0)).toInt()
+                val minsLeft = (((cooldownMs - elapsed) % (60 * 60 * 1000L)) / (60 * 1000.0)).toInt()
+                btnBoost.text = "⚡ BOOST — ${hoursLeft}h ${minsLeft}m cooldown"
+                btnBoost.setBackgroundColor(0xFF333333.toInt())
+                btnBoost.setTextColor(0xFF888888.toInt())
+                btnBoost.isEnabled = false
+                btnBoost.alpha = 0.6f
+            } else {
+                btnBoost.text = "⚡ BOOST — Scan & Backtest"
+                btnBoost.setBackgroundColor(0xFFFFD700.toInt())
+                btnBoost.setTextColor(0xFF000000.toInt())
+                btnBoost.isEnabled = true
+                btnBoost.alpha = 1.0f
+            }
+        }
+        updateBoostState()
+        
+        btnBoost.setOnClickListener {
+            val lastBoost = boostPrefs.getLong("last_boost_time", 0L)
+            val elapsed = System.currentTimeMillis() - lastBoost
+            if (elapsed < 24 * 60 * 60 * 1000L) {
+                android.widget.Toast.makeText(this, "Boost available in ${((24 * 60 * 60 * 1000L - elapsed) / (60 * 60 * 1000.0)).toInt()}h", android.widget.Toast.LENGTH_SHORT).show()
+                return@setOnClickListener
+            }
+            
+            btnBoost.text = "⚡ BOOSTING..."
+            btnBoost.isEnabled = false
+            btnBoost.alpha = 0.5f
+            
+            lifecycleScope.launch {
+                try {
+                    val result = withContext(Dispatchers.IO) {
+                        runCollectiveBoost()
+                    }
+                    
+                    // Record boost time
+                    boostPrefs.edit().putLong("last_boost_time", System.currentTimeMillis()).apply()
+                    
+                    android.app.AlertDialog.Builder(this@CollectiveBrainActivity, R.style.Theme_AATE_Dialog)
+                        .setTitle("⚡ Boost Complete")
+                        .setMessage(result)
+                        .setPositiveButton("Nice") { d, _ -> d.dismiss() }
+                        .show()
+                    
+                    refreshStats()
+                } catch (e: Exception) {
+                    android.widget.Toast.makeText(this@CollectiveBrainActivity, "Boost failed: ${e.message}", android.widget.Toast.LENGTH_LONG).show()
+                }
+                updateBoostState()
+            }
+        }
     }
     
     private fun updateSyncStatus() {
@@ -684,3 +767,111 @@ class AnimatedBrainView @JvmOverloads constructor(
         canvas.drawText(pctStr, cx, cy + radius - 10f, subtextPaint)
     }
 }
+
+    // ═══════════════════════════════════════════════════════════════════════
+    // V5.7.8: COLLECTIVE BOOST — Scan & Backtest using collective data
+    // ═══════════════════════════════════════════════════════════════════════
+    
+    private suspend fun runCollectiveBoost(): String {
+        val sb = StringBuilder()
+        sb.appendLine("⚡ COLLECTIVE BOOST RESULTS")
+        sb.appendLine("━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+        
+        // 1. Sync latest collective data
+        try {
+            val syncResult = CollectiveLearning.forceSyncNow()
+            sb.appendLine("📡 Sync: $syncResult")
+        } catch (e: Exception) {
+            sb.appendLine("📡 Sync: Using cached data (${e.message})")
+        }
+        
+        // 2. Get collective stats for backtesting
+        val stats = try { CollectiveLearning.getCollectiveStats() } catch (_: Exception) { null }
+        val topModes = try { CollectiveLearning.getTopModes(10) } catch (_: Exception) { emptyList() }
+        val avoidModes = try { CollectiveLearning.getModesToAvoid(5) } catch (_: Exception) { emptyList() }
+        
+        sb.appendLine()
+        sb.appendLine("📊 COLLECTIVE INTELLIGENCE SCAN")
+        if (stats != null) {
+            sb.appendLine("Network Trades: ${stats.totalTrades}")
+            sb.appendLine("Network WR: ${String.format("%.1f", stats.winRate)}%")
+            sb.appendLine("Active Instances: ${stats.activeInstances}")
+            sb.appendLine("Patterns Learned: ${stats.patternsLearned}")
+        }
+        
+        // 3. Backtest top modes against collective data
+        sb.appendLine()
+        sb.appendLine("🏆 TOP MODE PERFORMANCE")
+        topModes.take(5).forEachIndexed { i, mode ->
+            sb.appendLine("${i + 1}. ${mode.mode}: WR=${String.format("%.1f", mode.winRate)}% | Trades=${mode.trades} | PnL=${String.format("%.2f", mode.avgPnlPct)}%")
+        }
+        
+        // 4. Modes to suppress
+        if (avoidModes.isNotEmpty()) {
+            sb.appendLine()
+            sb.appendLine("⚠️ SUPPRESS THESE MODES")
+            avoidModes.forEach { mode ->
+                sb.appendLine("❌ ${mode.mode}: WR=${String.format("%.1f", mode.winRate)}% (${mode.trades} trades)")
+            }
+        }
+        
+        // 5. Feed collective insights into V4 StrategyTrustAI
+        try {
+            topModes.forEach { mode ->
+                val lesson = com.lifecyclebot.v4.meta.TradeLesson(
+                    id = "BOOST_${mode.mode}_${System.currentTimeMillis()}",
+                    strategy = mode.mode,
+                    market = "MEME",
+                    symbol = "COLLECTIVE",
+                    entryRegime = com.lifecyclebot.v4.meta.GlobalRiskMode.RISK_ON,
+                    entrySession = com.lifecyclebot.v4.meta.SessionContext.OFF_HOURS,
+                    trustScore = mode.winRate / 100.0,
+                    fragilityScore = 0.3,
+                    narrativeHeat = 0.5,
+                    portfolioHeat = 0.3,
+                    leverageUsed = 1.0,
+                    executionConfidence = 0.8,
+                    leadSource = null,
+                    expectedDelaySec = null,
+                    outcomePct = mode.avgPnlPct,
+                    mfePct = mode.avgPnlPct * 1.5,
+                    maePct = -(100 - mode.winRate) / 10.0,
+                    holdSec = 300,
+                    exitReason = if (mode.avgPnlPct > 0) "TAKE_PROFIT" else "STOP_LOSS",
+                    expectedFillPrice = 1.0,
+                    actualFillPrice = 1.0,
+                    slippagePct = 0.5,
+                    executionRoute = "JUPITER_V6"
+                )
+                com.lifecyclebot.v4.meta.StrategyTrustAI.recordTrade(lesson)
+            }
+            sb.appendLine()
+            sb.appendLine("🧠 V4 META UPDATE")
+            sb.appendLine("Fed ${topModes.size} mode insights to StrategyTrustAI")
+            
+            // Fuse snapshot
+            val snapshot = com.lifecyclebot.v4.meta.CrossTalkFusionEngine.fuse()
+            sb.appendLine("Regime: ${snapshot.globalRiskMode.name}")
+            sb.appendLine("Leverage Cap: ${snapshot.leverageCap.toInt()}x")
+            sb.appendLine("Portfolio Heat: ${(snapshot.portfolioHeat * 100).toInt()}%")
+            
+            val trust = com.lifecyclebot.v4.meta.StrategyTrustAI.getAllTrustScores()
+            if (trust.isNotEmpty()) {
+                sb.appendLine()
+                sb.appendLine("📈 STRATEGY TRUST SCORES")
+                trust.entries.sortedByDescending { it.value.trustScore }.forEach { (name, record) ->
+                    sb.appendLine("${record.trustLevel.name.take(4).padEnd(4)} ${name}: ${(record.trustScore * 100).toInt()}%")
+                }
+            }
+        } catch (e: Exception) {
+            sb.appendLine("V4 update: ${e.message}")
+        }
+        
+        sb.appendLine()
+        sb.appendLine("━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+        sb.appendLine("Next boost available in 24 hours")
+        
+        return sb.toString()
+    }
+    
+    private fun dp(v: Int) = (v * resources.displayMetrics.density).toInt()

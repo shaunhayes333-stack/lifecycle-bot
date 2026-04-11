@@ -451,6 +451,34 @@ class BehaviorActivity : AppCompatActivity() {
                 tvDormantWarning.visibility = View.GONE
             }
             
+            // ═══════════════════════════════════════════════════════════════
+            // V4 META-INTELLIGENCE DISPLAY
+            // ═══════════════════════════════════════════════════════════════
+            try {
+                val snapshot = com.lifecyclebot.v4.meta.CrossTalkFusionEngine.getSnapshot()
+                val metaInfo = buildString {
+                    if (snapshot != null) {
+                        append("Regime: ${snapshot.globalRiskMode.name}")
+                        append(" | Session: ${snapshot.sessionContext.name}")
+                        append(" | Lev Cap: ${snapshot.leverageCap.toInt()}x")
+                        append(" | Heat: ${(snapshot.portfolioHeat * 100).toInt()}%")
+                        if (snapshot.killFlags.isNotEmpty()) {
+                            append("\nFlags: ${snapshot.killFlags.joinToString(", ")}")
+                        }
+                        val trust = snapshot.strategyTrust
+                        if (trust.isNotEmpty()) {
+                            val top3 = trust.entries.sortedByDescending { it.value }.take(3)
+                            append("\nTrust: ${top3.joinToString(" ") { "${it.key.take(8)}=${(it.value * 100).toInt()}%" }}")
+                        }
+                    } else {
+                        append("V4 Meta: Initializing...")
+                    }
+                }
+                tvDormantWarning.visibility = View.VISIBLE
+                tvDormantWarning.text = "🧠 $metaInfo"
+                tvDormantWarning.setTextColor(0xFF9945FF.toInt())
+            } catch (_: Exception) {}
+            
         } catch (e: Exception) {
             ErrorLogger.warn("BehaviorUI", "Brain health refresh error: ${e.message}")
         }
