@@ -350,6 +350,8 @@ class Executor(
     }
 
     private val normalizedPositionScale = ConcurrentHashMap<String, Boolean>()
+    // V5.7.8: Track zero-balance sell retries — force close after 5 attempts
+    private val zeroBalanceRetries = ConcurrentHashMap<String, Int>()
 
     private fun buildPriceVariants(rawPrice: Double, decimals: Int): List<Double> {
         if (!rawPrice.isFinite() || rawPrice <= 0.0) return emptyList()
@@ -4675,9 +4677,27 @@ class Executor(
             val tokenData = onChainBalances[ts.mint]
             
             if (tokenData == null || tokenData.first <= 0.0) {
-                onLog("⚠️ SELL BLOCKED: On-chain balance check returned 0 for ${ts.symbol}", tradeId.mint)
-                onLog("   Expected: ${pos.qtyToken} | Found: 0 | Keeping position (may retry)", tradeId.mint)
-                ErrorLogger.warn("Executor", "⚠️ LIVE SELL BLOCKED: ${ts.symbol} balance=0 on-chain. RPC issue? Keeping position.")
+                // V5.7.8: Track zero-balance retries — force close after 5 attempts
+                val retryCount = zeroBalanceRetries.merge(ts.mint, 1) { old, _ -> old + 1 } ?: 1
+                
+                if (retryCount >= 5) {
+                    // Force close — tokens are gone (rug, failed buy, or already sold externally)
+                    onLog("FORCE CLOSE: ${ts.symbol} — 0 balance after $retryCount checks. Tokens gone.", tradeId.mint)
+                    ErrorLogger.warn("Executor", "FORCE CLOSE: ${ts.symbol} — balance=0 after $retryCount retries. Position dead.")
+                    zeroBalanceRetries.remove(ts.mint)
+                    
+                    // Close the position as a loss
+                    ts.position.isOpen = false
+                    ts.position.soldAt = System.currentTimeMillis()
+                    ts.position.sellReason = "ZERO_BALANCE_FORCE_CLOSE"
+                    ts.position.pnlPct = -100.0
+                    tradeId.sold(0.0, 0.0, -100.0, false, "ZERO_BALANCE")
+                    
+                    return SellResult.SOLD
+                }
+                
+                onLog("SELL BLOCKED: On-chain balance=0 for ${ts.symbol} (retry $retryCount/5)", tradeId.mint)
+                ErrorLogger.warn("Executor", "LIVE SELL BLOCKED: ${ts.symbol} balance=0 on-chain (retry $retryCount/5)")
                 return SellResult.FAILED_RETRYABLE
             }
             
