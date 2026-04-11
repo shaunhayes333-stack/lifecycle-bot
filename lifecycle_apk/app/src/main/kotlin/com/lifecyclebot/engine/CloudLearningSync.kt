@@ -719,8 +719,10 @@ object CloudLearningSync {
             null -> JSONObject().put("type", "null")
             is Int -> JSONObject().put("type", "integer").put("value", value.toString())
             is Long -> JSONObject().put("type", "integer").put("value", value.toString())
-            is Float -> JSONObject().put("type", "float").put("value", value.toString())
-            is Double -> JSONObject().put("type", "float").put("value", value.toString())
+            // Turso hrana protocol requires float values as JSON numbers, NOT strings.
+            // Integers use strings (to preserve 64-bit precision), but f64 must be numeric.
+            is Float -> JSONObject().put("type", "float").put("value", value.toDouble())
+            is Double -> JSONObject().put("type", "float").put("value", value)
             is Boolean -> JSONObject().put("type", "integer").put("value", if (value) "1" else "0")
             else -> JSONObject().put("type", "text").put("value", value.toString())
         }

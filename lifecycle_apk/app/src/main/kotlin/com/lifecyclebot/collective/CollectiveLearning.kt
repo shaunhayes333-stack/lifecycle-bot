@@ -385,6 +385,13 @@ object CollectiveLearning {
             }
         }
 
+        // Capture client in a local val to avoid TOCTOU race: isEnabled() may pass but
+        // another coroutine can null out client before client!!.execute() is reached.
+        val c = client ?: run {
+            ErrorLogger.error("CollectiveTrade", "SKIP: $side $symbol - client became null after isEnabled check")
+            return
+        }
+
         try {
             val now = System.currentTimeMillis()
             val tradeHash = sha256("$now|$side|$symbol|$mode|${System.nanoTime()}").take(24)
@@ -408,7 +415,7 @@ object CollectiveLearning {
                 "INSERT: $side $symbol | hash=${tradeHash.take(8)} | inst=${instanceId.take(8)}"
             )
 
-            val result = client!!.execute(
+            val result = c.execute(
                 sql,
                 listOf(
                     tradeHash,
@@ -435,7 +442,7 @@ object CollectiveLearning {
             )
 
             if (result.success && result.error.isNullOrBlank()) {
-                val verify = client!!.query(
+                val verify = c.query(
                     "SELECT COUNT(*) as cnt FROM collective_trades WHERE trade_hash = ?",
                     listOf(tradeHash)
                 )
