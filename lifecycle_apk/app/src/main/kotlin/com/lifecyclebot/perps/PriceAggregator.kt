@@ -195,10 +195,13 @@ object PriceAggregator {
                 DataSource.SWITCHBOARD
             )
             AssetType.STOCK, AssetType.ETF -> listOf(
+                DataSource.JUPITER,      // V5.7.7: Jupiter has xStocks (TSLAx, AAPLx, NVDAx) - 24/7 on-chain!
+                DataSource.BIRDEYE,      // V5.7.7: Birdeye for Solana token prices
+                DataSource.DEXSCREENER,  // V5.7.7: DexScreener for DEX prices
                 DataSource.PYTH,
                 DataSource.YAHOO_V7,
                 DataSource.YAHOO_V8,
-                DataSource.STOOQ,        // V5.7.7: Prioritize Stooq - reliable for stocks
+                DataSource.STOOQ,
                 DataSource.FINNHUB,
                 DataSource.TWELVE_DATA,
                 DataSource.ALPHA_VANTAGE,
@@ -414,14 +417,44 @@ object PriceAggregator {
         return@withContext null
     }
     
+    // ═══════════════════════════════════════════════════════════════════════════
+    // V5.7.7: xSTOCK MINT ADDRESSES - Tokenized Stocks on Solana (24/7 Trading!)
+    // ═══════════════════════════════════════════════════════════════════════════
+    private val xStockMints = mapOf(
+        // Backed.fi xStocks - Real SPL tokens backed 1:1 by shares
+        "TSLA" to "XsDoVfqeBukxuZHWhdvWHBhgEHjGNst4MLodqsJHzoB",
+        "AAPL" to "XsbEhLAtcf6HdfpFZ5xEMdqW8nfAvcsP5bdudRLJzJp",
+        "NVDA" to "xfhWV1ABqmBzATqDxVSZDmT3psooDiHCBo8gdjpkdXy",
+        // Crypto stocks
+        "SOL"  to "So11111111111111111111111111111111111111112",
+        "JUP"  to "JUPyiwrYJFskUPiHa7hkeR8VUtAeFoSYbKedZNsDvCN",
+        "BONK" to "DezXAZ8z7PnrnRJjz3wXBoRgixCa6xjnB7YaB1pPB263",
+        "WIF"  to "EKpQGSJtjMFqKZ9KQanSqYXRcF8fBopzLHYxdM65zcjm",
+        "PYTH" to "HZ1JovNiVvGrGNiiYvEozEVgZ58xaU3RKwX8eACQBCt3",
+    )
+    
     private suspend fun fetchBirdeye(symbol: String): PriceResult? {
-        // Requires token address - skip for symbols
-        return null
+        // Get mint address for symbol
+        val mint = xStockMints[symbol] ?: return null
+        return try {
+            val price = BirdeyeOracle.getPriceByAddress(mint)
+            if (price != null && price > 0) {
+                ErrorLogger.debug(TAG, "🐦 Birdeye: $symbol = \$${"%.4f".format(price)}")
+                PriceResult(price, 0.0, "BIRDEYE")
+            } else null
+        } catch (e: Exception) { null }
     }
     
     private suspend fun fetchDexScreener(symbol: String): PriceResult? {
-        // Requires token address - skip for symbols
-        return null
+        // Get mint address for symbol
+        val mint = xStockMints[symbol] ?: return null
+        return try {
+            val price = DexScreenerOracle.getPriceByAddress(mint)
+            if (price != null && price > 0) {
+                ErrorLogger.debug(TAG, "📊 DexScreener: $symbol = \$${"%.4f".format(price)}")
+                PriceResult(price, 0.0, "DEXSCREENER")
+            } else null
+        } catch (e: Exception) { null }
     }
     
     // ═══════════════════════════════════════════════════════════════════════════

@@ -210,6 +210,9 @@ object JupiterPriceOracle {
     
     // Token mint addresses for Jupiter
     private val TOKEN_MINTS = mapOf(
+        // ═══════════════════════════════════════════════════════════════════════════
+        // CRYPTO TOKENS
+        // ═══════════════════════════════════════════════════════════════════════════
         "SOL" to "So11111111111111111111111111111111111111112",
         "USDC" to "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v",
         "USDT" to "Es9vMFrzaCERmJfrF4H2FYD4KCoNkY11McCe8BenwNYB",
@@ -229,6 +232,14 @@ object JupiterPriceOracle {
         "TULIP" to "TuLipcqtGVXP9XR62wM8WWCm6a9vhLs7T1uoWBk6FDs",
         "SNY" to "4dmKkXNHdgYsXqBHCuMikNQWwVomZURhYvkkX5c4pQ7y",
         "MEME" to "MEME111111111111111111111111111111111111111",
+        
+        // ═══════════════════════════════════════════════════════════════════════════
+        // V5.7.7: xSTOCKS - TOKENIZED STOCKS (Backed.fi on Solana) - TRADE 24/7!
+        // These are real SPL tokens backed 1:1 by actual shares via Kraken/Backed
+        // ═══════════════════════════════════════════════════════════════════════════
+        "TSLA" to "XsDoVfqeBukxuZHWhdvWHBhgEHjGNst4MLodqsJHzoB",  // TSLAx - Tesla
+        "AAPL" to "XsbEhLAtcf6HdfpFZ5xEMdqW8nfAvcsP5bdudRLJzJp",  // AAPLx - Apple
+        "NVDA" to "xfhWV1ABqmBzATqDxVSZDmT3psooDiHCBo8gdjpkdXy",  // NVDAx - NVIDIA
     )
     
     /**
