@@ -239,9 +239,9 @@ object WatchlistEngine {
     // ═══════════════════════════════════════════════════════════════════════
 
     fun addTopGainersToWatchlist(limit: Int = 5) {
-        val topGainers = MarketsScanner.scanResults[MarketsScanner.ScanCategory.TOP_GAINERS]
-        topGainers?.take(limit)?.forEach { result ->
-            addToWatchlist(result.market.symbol)
+        // Use getMarketsForCategory since scanResults is private
+        MarketsScanner.getMarketsForCategory(MarketsScanner.ScanCategory.TOP_GAINERS).take(limit).forEach { market ->
+            addToWatchlist(market.symbol)
         }
     }
 

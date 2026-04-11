@@ -1443,9 +1443,9 @@ class BotService : Service() {
                 addLog("🔔 ALERT: ${triggered.message}")
                 try {
                     notifHistory.add(
-                        NotificationHistory.NotifEntry.NotifType.SAFETY_BLOCK,
                         "Price Alert: ${triggered.alert.symbol}",
-                        triggered.message
+                        triggered.message,
+                        NotificationHistory.NotifEntry.NotifType.SAFETY_BLOCK
                     )
                 } catch (_: Exception) {}
             }
