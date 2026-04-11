@@ -3920,8 +3920,8 @@ if (deferredCount > 0) {
                         }
                         
                         // V5.7.7: Bootstrap score gate - during first 50 trades, require score >= 75
-                        if (com.lifecyclebot.v3.scoring.FluidLearningAI.shouldBlockBootstrapTrade(treasurySignal.qualityScore)) {
-                            ErrorLogger.debug("BotService", "💰 [TREASURY] ${ts.symbol} | BOOTSTRAP BLOCKED | score=${treasurySignal.qualityScore} | ${com.lifecyclebot.v3.scoring.FluidLearningAI.getBootstrapStatus()}")
+                        if (com.lifecyclebot.v3.scoring.FluidLearningAI.shouldBlockBootstrapTrade(treasurySignal.confidence)) {
+                            ErrorLogger.debug("BotService", "💰 [TREASURY] ${ts.symbol} | BOOTSTRAP BLOCKED | score=${treasurySignal.confidence} | ${com.lifecyclebot.v3.scoring.FluidLearningAI.getBootstrapStatus()}")
                             return
                         }
 
