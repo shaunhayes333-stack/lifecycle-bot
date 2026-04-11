@@ -1623,13 +1623,19 @@ class MultiAssetActivity : AppCompatActivity() {
     
     private fun updateAiSignals() {
         aiSignalsContainer.removeAllViews()
-        
+
         // Get AI signals
         val signals = getAiSignals()
-        
+
         if (signals.isEmpty()) {
             aiSignalsContainer.addView(tvNoAiSignals)
-            tvAiSignalStatus.text = "Scanning..."
+            // Show a more informative status when traditional markets are closed for weekend
+            val isWeekend = run {
+                val cal = java.util.Calendar.getInstance(java.util.TimeZone.getTimeZone("America/New_York"))
+                val dow = cal.get(java.util.Calendar.DAY_OF_WEEK)
+                dow == java.util.Calendar.SATURDAY || dow == java.util.Calendar.SUNDAY
+            }
+            tvAiSignalStatus.text = if (isWeekend && currentTab != AssetTab.PERPS) "Closed (weekend)" else "Scanning..."
             aiSignalDot.setBackgroundResource(R.drawable.dot_green)
             return
         }
@@ -1655,6 +1661,14 @@ class MultiAssetActivity : AppCompatActivity() {
         // Get signals from traders based on current tab
         // Uses TechnicalSignal which has RSI, MACD, trendStrength
         return try {
+            // Traditional markets are closed on weekends — don't fabricate signals
+            val isWeekend = run {
+                val cal = java.util.Calendar.getInstance(java.util.TimeZone.getTimeZone("America/New_York"))
+                val dow = cal.get(java.util.Calendar.DAY_OF_WEEK)
+                dow == java.util.Calendar.SATURDAY || dow == java.util.Calendar.SUNDAY
+            }
+            if (isWeekend && currentTab != AssetTab.PERPS) return emptyList()
+
             val signals = mutableListOf<AiSignal>()
             val markets = when (currentTab) {
                 AssetTab.STOCKS -> PerpsMarket.values().filter { it.isStock }.take(10)
@@ -1663,10 +1677,19 @@ class MultiAssetActivity : AppCompatActivity() {
                 AssetTab.FOREX -> PerpsMarket.values().filter { it.isForex }.take(8)
                 AssetTab.PERPS -> PerpsMarket.values().filter { it.isCrypto }.take(5)
             }
-            
+
             markets.forEach { market ->
                 try {
                     val tech = PerpsAdvancedAI.analyzeTechnicals(market)
+                    // Skip the "no data yet" default state: PerpsAdvancedAI returns
+                    // trendStrength=50, recommendation=null, MACD=NEUTRAL when it has
+                    // fewer than 14 price data points. Showing these as "signals" is
+                    // misleading — they will never lead to a trade.
+                    val hasRealSignal = tech.recommendation != null ||
+                                        tech.isOversold || tech.isOverbought ||
+                                        tech.macdSignal != PerpsAdvancedAI.MacdSignal.NEUTRAL
+                    if (!hasRealSignal) return@forEach
+
                     val score = tech.trendStrength.toInt()
                     if (score >= 40 || tech.isOversold || tech.isOverbought) {
                         val direction = when {
