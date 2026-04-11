@@ -1,6 +1,9 @@
 package com.lifecyclebot.v4.meta
 
 import com.lifecyclebot.engine.ErrorLogger
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.GlobalScope
+import kotlinx.coroutines.launch
 import java.util.concurrent.ConcurrentHashMap
 
 /**
@@ -95,7 +98,7 @@ object TradeLessonRecorder {
 
         // V5.7.8: Persist to Turso (fire and forget)
         tursoClient?.let { client ->
-            kotlinx.coroutines.GlobalScope.launch(kotlinx.coroutines.Dispatchers.IO) {
+            GlobalScope.launch(Dispatchers.IO) {
                 try { client.saveTradeLesson(lesson) } catch (_: Exception) {}
             }
         }

@@ -1432,7 +1432,7 @@ class BotService : Service() {
             addLog("🧠 V4 Meta-Intelligence: ${com.lifecyclebot.v4.meta.CrossTalkFusionEngine.getStats()}")
             
             // Wire Turso persistence + load saved memory
-            com.lifecyclebot.v4.meta.TradeLessonRecorder.tursoClient = tursoClient
+            com.lifecyclebot.v4.meta.TradeLessonRecorder.tursoClient = com.lifecyclebot.collective.CollectiveLearning.getClient()
             kotlinx.coroutines.GlobalScope.launch(kotlinx.coroutines.Dispatchers.IO) {
                 try {
                     com.lifecyclebot.v4.meta.TradeLessonRecorder.loadFromTurso()
