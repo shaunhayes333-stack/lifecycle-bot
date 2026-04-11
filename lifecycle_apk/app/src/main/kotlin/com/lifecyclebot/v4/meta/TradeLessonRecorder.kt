@@ -85,6 +85,9 @@ object TradeLessonRecorder {
         // Feed to StrategyTrustAI
         StrategyTrustAI.recordTrade(lesson)
 
+        // Feed to QuantMind V2
+        try { com.lifecyclebot.engine.quant.QuantMindV2.recordTrade(lesson) } catch (_: Exception) {}
+
         // Feed leveraged trades to LeverageSurvivalAI
         if (lesson.leverageUsed > 1.0) {
             LeverageSurvivalAI.recordLeveragedTrade(

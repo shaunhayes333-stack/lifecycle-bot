@@ -486,8 +486,18 @@ class BehaviorActivity : AppCompatActivity() {
                             val top3 = trust.entries.sortedByDescending { it.value }.take(3)
                             append("\nTrust: ${top3.joinToString(" ") { "${it.key.take(8)}=${(it.value * 100).toInt()}%" }}")
                         }
+                        // V5.7.8: QuantMind V2 display
+                        try {
+                            val qm = com.lifecyclebot.engine.quant.QuantMindV2.getState()
+                            if (qm != null) {
+                                append("\nQuant: ${qm.overallGrade} | Sharpe ${String.format("%.2f", qm.adaptiveSharpe)} | Kelly ${String.format("%.0f", qm.kellyFraction * 100)}%")
+                                append(" | Mom: ${qm.momentumState}")
+                                if (qm.edgeDecay > 0.2) append(" | EDGE DECAY ${String.format("%.0f", qm.edgeDecay * 100)}%")
+                            }
+                        } catch (_: Exception) {}
                     } else {
                         append("V4 Meta: Initializing...")
+                    }
                     }
                 }
                 tvDormantWarning.visibility = View.VISIBLE
