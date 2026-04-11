@@ -198,11 +198,11 @@ object PriceAggregator {
                 DataSource.PYTH,
                 DataSource.YAHOO_V7,
                 DataSource.YAHOO_V8,
+                DataSource.STOOQ,        // V5.7.7: Prioritize Stooq - reliable for stocks
                 DataSource.FINNHUB,
                 DataSource.TWELVE_DATA,
                 DataSource.ALPHA_VANTAGE,
                 DataSource.FMP,
-                DataSource.STOOQ,
                 DataSource.CNBC,
                 DataSource.GOOGLE_FINANCE,
                 DataSource.IEX,
