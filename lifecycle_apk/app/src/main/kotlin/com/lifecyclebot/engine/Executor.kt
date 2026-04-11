@@ -3061,7 +3061,7 @@ class Executor(
         stopLossPct: Double,
         wallet: SolanaWallet?,
         isPaper: Boolean
-    ) {
+    ): Boolean {
         val identity = TradeIdentityManager.getOrCreate(ts.mint, ts.symbol, ts.source)
         
         identity.executed(getActualPrice(ts), sizeSol, isPaper)
@@ -3084,7 +3084,12 @@ class Executor(
         } else {
             if (wallet == null) {
                 ErrorLogger.error("Executor", "💰 [TREASURY] ${ts.symbol} | LIVE_BUY_FAILED | no wallet")
-                return
+                return false
+            }
+            // V5.7.8: Check real wallet balance before live execution
+            if (walletSol < sizeSol) {
+                ErrorLogger.error("Executor", "💰 [TREASURY] ${ts.symbol} | LIVE_BUY_FAILED | insufficient balance: wallet=${walletSol.fmt(3)} < size=${sizeSol.fmt(3)}")
+                return false
             }
             liveBuy(
                 ts = ts,
@@ -3131,6 +3136,7 @@ class Executor(
         } catch (e: Exception) {
             ErrorLogger.debug("Collective", "TREASURY BUY upload error: ${e.message}")
         }
+        return true
     }
     
     fun blueChipBuy(

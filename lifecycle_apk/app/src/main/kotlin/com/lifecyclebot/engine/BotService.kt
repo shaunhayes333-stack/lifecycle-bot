@@ -4048,6 +4048,19 @@ if (deferredCount > 0) {
                                     "treasuryEntry=$treasuryEntryPrice | " +
                                     "mode=${treasurySignal.mode}")
                                 
+                                // V5.7.8: In LIVE mode, verify actual wallet can fund the trade
+                                if (!cfg.paperMode) {
+                                    val realWalletBal = status.walletSol
+                                    if (realWalletBal < adjustedSize) {
+                                        ErrorLogger.warn("BotService", "💰 [TREASURY] ${ts.symbol} | LIVE_SKIP | " +
+                                            "wallet=${realWalletBal.fmt(3)}◎ < size=${adjustedSize.fmt(3)}◎ | " +
+                                            "Treasury paper balance is higher but real wallet can't fund this trade")
+                                        addLog("💰 TREASURY SKIP: ${ts.symbol} | Insufficient wallet (${realWalletBal.fmt(3)}◎ < ${adjustedSize.fmt(3)}◎)")
+                                        FinalExecutionPermit.releaseExecution(ts.mint)
+                                        continue
+                                    }
+                                }
+                                
                                 // Execute treasury buy (this calls paperBuy which applies slippage to ts.position)
                                 // V5.2.8 FIX: Use effectiveTpPct/effectiveSlPct to prevent 0% TP instant-exits!
                                 executor.treasuryBuy(
