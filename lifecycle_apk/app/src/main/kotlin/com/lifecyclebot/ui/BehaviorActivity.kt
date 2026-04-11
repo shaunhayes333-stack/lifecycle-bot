@@ -428,10 +428,26 @@ class BehaviorActivity : AppCompatActivity() {
                     "🔥 Peak performance • Multi-dimensional analysis active"
                 EducationSubLayerAI.CurriculumLevel.MARKET_ORACLE,
                 EducationSubLayerAI.CurriculumLevel.ALPHA_ARCHITECT ->
-                    "👁️ Oracle mode • Predictive patterns: ACTIVE"
+                    "Oracle mode - Predictive patterns: ACTIVE"
                 EducationSubLayerAI.CurriculumLevel.TRADING_GOD,
                 EducationSubLayerAI.CurriculumLevel.SINGULARITY ->
-                    "♾️ TRANSCENDED • ${totalTrades} trades learned"
+                    "TRANSCENDED - ${totalTrades} trades learned"
+                // V5.7.8: Ascended levels
+                EducationSubLayerAI.CurriculumLevel.VOID_WALKER,
+                EducationSubLayerAI.CurriculumLevel.CHAOS_ENGINE ->
+                    "VOID STATE - Pattern recognition beyond human limits"
+                EducationSubLayerAI.CurriculumLevel.DARK_ORACLE,
+                EducationSubLayerAI.CurriculumLevel.ENTROPY_LORD ->
+                    "ENTROPY MASTERED - ${totalTrades} trades in the neural fabric"
+                EducationSubLayerAI.CurriculumLevel.MARKET_WEAVER,
+                EducationSubLayerAI.CurriculumLevel.ALPHA_PREDATOR ->
+                    "APEX PREDATOR - Hunting alpha across all dimensions"
+                EducationSubLayerAI.CurriculumLevel.PRIME_ARCHITECT,
+                EducationSubLayerAI.CurriculumLevel.NEURAL_SOVEREIGN ->
+                    "SOVEREIGN MIND - ${totalTrades} trades woven into reality"
+                EducationSubLayerAI.CurriculumLevel.OMEGA_MIND,
+                EducationSubLayerAI.CurriculumLevel.TRANSCENDENCE ->
+                    "OMEGA - The market IS the mind. ${totalTrades} trades."
             }
             tvTopLayers.text = topLayers
             tvTopLayers.setTextColor(if (isMegaBrain) 0xFFFFD700.toInt() else 0xFF00FF88.toInt())

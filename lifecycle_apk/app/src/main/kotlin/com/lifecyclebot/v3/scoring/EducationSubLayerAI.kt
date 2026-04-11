@@ -99,25 +99,39 @@ object EducationSubLayerAI {
      *   - Learning never stops - markets always evolve
      */
     enum class CurriculumLevel(val minTrades: Int, val displayName: String, val icon: String, val learningWeight: Double) {
-        FRESHMAN(0, "Freshman", "🎓", 1.0),            // 0-100 trades: Learning basics
-        SOPHOMORE(100, "Sophomore", "📚", 1.0),        // 100-250: Pattern recognition
-        JUNIOR(250, "Junior", "📊", 1.0),              // 250-500: Statistical inference
-        SENIOR(500, "Senior", "📈", 1.0),              // 500-750: Risk management mastery
-        MASTERS(750, "Masters", "🎯", 1.0),            // 750-1000: Cross-layer synthesis
-        PHD(1000, "PhD", "🏆", 1.0),                   // 1000-1500: Institutional grade
+        FRESHMAN(0, "Freshman", "🎓", 1.0),
+        SOPHOMORE(100, "Sophomore", "📚", 1.0),
+        JUNIOR(250, "Junior", "📊", 1.0),
+        SENIOR(500, "Senior", "📈", 1.0),
+        MASTERS(750, "Masters", "🎯", 1.0),
+        PHD(1000, "PhD", "🏆", 1.0),
         
         // ═══════════════════════════════════════════════════════════════════
         // MEGA BRAIN LEVELS - Beyond PhD, half learning weight but NEVER STOPS
         // ═══════════════════════════════════════════════════════════════════
-        MEGA_BRAIN_I(1500, "Mega Brain I", "🧠", 0.5),          // 1500-2000
-        MEGA_BRAIN_II(2000, "Mega Brain II", "🧠✨", 0.5),       // 2000-2500
-        MEGA_BRAIN_III(2500, "Mega Brain III", "🧠🔥", 0.5),     // 2500-3000
-        QUANTUM_MIND(3000, "Quantum Mind", "⚛️🧠", 0.5),         // 3000-4000
-        NEURAL_APEX(4000, "Neural Apex", "🌟🧠", 0.5),           // 4000-5000
-        MARKET_ORACLE(5000, "Market Oracle", "🔮🧠", 0.5),       // 5000-7500
-        ALPHA_ARCHITECT(7500, "Alpha Architect", "🏛️🧠", 0.5),   // 7500-10000
-        TRADING_GOD(10000, "Trading God", "👑🧠", 0.5),          // 10000-15000
-        SINGULARITY(15000, "Singularity", "♾️🧠", 0.5),          // 15000+: The ultimate
+        MEGA_BRAIN_I(1500, "Mega Brain I", "🧠", 0.5),
+        MEGA_BRAIN_II(2000, "Mega Brain II", "🧠✨", 0.5),
+        MEGA_BRAIN_III(2500, "Mega Brain III", "🧠🔥", 0.5),
+        QUANTUM_MIND(3000, "Quantum Mind", "⚛️🧠", 0.5),
+        NEURAL_APEX(4000, "Neural Apex", "🌟🧠", 0.5),
+        MARKET_ORACLE(5000, "Market Oracle", "🔮🧠", 0.5),
+        ALPHA_ARCHITECT(7500, "Alpha Architect", "🏛️🧠", 0.5),
+        TRADING_GOD(10000, "Trading God", "👑🧠", 0.5),
+        SINGULARITY(15000, "Singularity", "♾️🧠", 0.4),
+        
+        // ═══════════════════════════════════════════════════════════════════
+        // V5.7.8: ASCENDED LEVELS — Beyond Singularity
+        // ═══════════════════════════════════════════════════════════════════
+        VOID_WALKER(20000, "Void Walker", "🌑🧠", 0.35),
+        CHAOS_ENGINE(30000, "Chaos Engine", "⚙️🔥", 0.3),
+        DARK_ORACLE(50000, "Dark Oracle", "🌑🔮", 0.25),
+        ENTROPY_LORD(75000, "Entropy Lord", "🌪️👑", 0.2),
+        MARKET_WEAVER(100000, "Market Weaver", "🕸️⚡", 0.2),
+        ALPHA_PREDATOR(150000, "Alpha Predator", "🐺🔥", 0.15),
+        PRIME_ARCHITECT(200000, "Prime Architect", "🏗️♾️", 0.15),
+        NEURAL_SOVEREIGN(300000, "Neural Sovereign", "👁️🧠", 0.1),
+        OMEGA_MIND(500000, "Omega Mind", "Ω🧠", 0.1),
+        TRANSCENDENCE(1000000, "Transcendence", "✦♾️", 0.05),
     }
     
     /**

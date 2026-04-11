@@ -363,6 +363,13 @@ object CollectiveLearning {
         paperMode: Boolean
     ) {
         totalUploadAttemptsThisSession++
+        
+        // V5.7.8: Don't upload scratch trades to collective — they waste DB space and pollute learning
+        val isScratch = kotlin.math.abs(pnlPct) < 0.5
+        if (isScratch) {
+            ErrorLogger.debug("CollectiveTrade", "SKIP SCRATCH: $side $symbol | pnl=${String.format("%.2f", pnlPct)}% < 0.5%")
+            return
+        }
 
         ErrorLogger.info(
             "CollectiveTrade",

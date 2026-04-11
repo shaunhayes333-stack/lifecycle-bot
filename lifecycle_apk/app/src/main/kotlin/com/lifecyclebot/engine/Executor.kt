@@ -338,7 +338,7 @@ class Executor(
             val entryPrice = ts.position.entryPrice
             if (currentPrice <= 0.0 || entryPrice <= 0.0) return@forEach
 
-            val pnlPct = ((currentPrice - entryPrice) / entryPrice) * 100.0
+            val pnlPct = (((currentPrice - entryPrice) / entryPrice) * 100.0).coerceIn(-100.0, 10000.0)
             if (pnlPct <= -33.0 && !RuggedContracts.isBlacklisted(ts.mint)) {
                 ErrorLogger.warn("Executor", "🚨 RUG/STOP LOSS: ${ts.symbol} at ${pnlPct.toInt()}%")
                 markForRecoveryScan(ts, pnlPct, "hard_floor")
