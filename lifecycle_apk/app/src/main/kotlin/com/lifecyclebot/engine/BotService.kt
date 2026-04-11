@@ -4049,17 +4049,20 @@ if (deferredCount > 0) {
                                     "mode=${treasurySignal.mode}")
                                 
                                 // V5.7.8: In LIVE mode, verify actual wallet can fund the trade
-                                if (!cfg.paperMode) {
+                                val canFundLive = if (!cfg.paperMode) {
                                     val realWalletBal = status.walletSol
                                     if (realWalletBal < adjustedSize) {
                                         ErrorLogger.warn("BotService", "💰 [TREASURY] ${ts.symbol} | LIVE_SKIP | " +
-                                            "wallet=${realWalletBal.fmt(3)}◎ < size=${adjustedSize.fmt(3)}◎ | " +
-                                            "Treasury paper balance is higher but real wallet can't fund this trade")
+                                            "wallet=${realWalletBal.fmt(3)}◎ < size=${adjustedSize.fmt(3)}◎")
                                         addLog("💰 TREASURY SKIP: ${ts.symbol} | Insufficient wallet (${realWalletBal.fmt(3)}◎ < ${adjustedSize.fmt(3)}◎)")
                                         FinalExecutionPermit.releaseExecution(ts.mint)
-                                        continue
-                                    }
-                                }
+                                        false
+                                    } else true
+                                } else true
+                                
+                                if (!canFundLive) {
+                                    // Skip treasury entry — wallet can't fund
+                                } else {
                                 
                                 // Execute treasury buy (this calls paperBuy which applies slippage to ts.position)
                                 // V5.2.8 FIX: Use effectiveTpPct/effectiveSlPct to prevent 0% TP instant-exits!
@@ -4102,6 +4105,7 @@ if (deferredCount > 0) {
                                 val bootstrapLabel = if (forceBootstrapEntry) " [BOOTSTRAP]" else ""
                                 addLog("💰 TREASURY BUY$bootstrapLabel: ${ts.symbol} | ${adjustedSize.fmt(3)} SOL | " +
                                     "${if (cfg.paperMode) "PAPER" else "LIVE"}", ts.mint)
+                                } // end canFundLive else block
                             } else {
                                 ErrorLogger.debug("BotService", "💰 [TREASURY] ${ts.symbol} | EXECUTION_BLOCKED | another layer executing")
                                 // Release authorizer lock since we didn't execute

@@ -4686,14 +4686,10 @@ class Executor(
                     ErrorLogger.warn("Executor", "FORCE CLOSE: ${ts.symbol} — balance=0 after $retryCount retries. Position dead.")
                     zeroBalanceRetries.remove(ts.mint)
                     
-                    // Close the position as a loss
-                    ts.position.isOpen = false
-                    ts.position.soldAt = System.currentTimeMillis()
-                    ts.position.sellReason = "ZERO_BALANCE_FORCE_CLOSE"
-                    ts.position.pnlPct = -100.0
-                    tradeId.sold(0.0, 0.0, -100.0, false, "ZERO_BALANCE")
+                    // Mark position as closed via the proper API
+                    tradeId.closed(getActualPrice(ts), -100.0, -(pos.sizeSol), "ZERO_BALANCE_FORCE_CLOSE")
                     
-                    return SellResult.SOLD
+                    return SellResult.CONFIRMED
                 }
                 
                 onLog("SELL BLOCKED: On-chain balance=0 for ${ts.symbol} (retry $retryCount/5)", tradeId.mint)
