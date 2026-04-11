@@ -566,6 +566,27 @@ object TokenizedStockTrader {
                 score += 5
                 reasons.add("🪙 Crypto proxy")
             }
+            // V5.7.8: Crypto perps bonuses — these are high-liquidity 24/7 markets
+            PerpsMarket.SOL -> {
+                score += 15
+                confidence += 15
+                reasons.add("◎ SOL native — highest liquidity perp")
+            }
+            PerpsMarket.BTC -> {
+                score += 10
+                confidence += 15
+                reasons.add("₿ BTC king — market leader")
+            }
+            PerpsMarket.ETH -> {
+                score += 10
+                confidence += 10
+                reasons.add("⟠ ETH — DeFi backbone")
+            }
+            PerpsMarket.BNB, PerpsMarket.XRP -> {
+                score += 5
+                confidence += 10
+                reasons.add("🔷 Major alt — high volume")
+            }
             else -> {}
         }
         
