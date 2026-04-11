@@ -224,6 +224,69 @@ object InsiderTrackerAI {
             category = WalletCategory.TRUMP_FAMILY,
             riskLevel = RiskLevel.ALPHA,
             notes = "TRUMP token deployment wallet"
+        ),
+        TrackedWallet(
+            address = "HdHqKPz3n52e6FCJREKY3MS56TagyvRxsxVYG7E4rF99",
+            label = "Trump Admin Wallet",
+            category = WalletCategory.TRUMP_FAMILY,
+            riskLevel = RiskLevel.HIGH,
+            notes = "Labeled 'President Trump' on Solana Explorer",
+            twitterHandle = "@realDonaldTrump"
+        ),
+
+        // ═══════════════════════════════════════════════════════════════════════
+        // V5.7.8: MELANIA / POLITICAL FAMILY
+        // ═══════════════════════════════════════════════════════════════════════
+        TrackedWallet(
+            address = "FUAfBo2jgks6gB4Z4LfZkqSZgzNucisEHqnNebaRxM1P",
+            label = "MELANIA Token Mint",
+            category = WalletCategory.TRUMP_FAMILY,
+            riskLevel = RiskLevel.HIGH,
+            notes = "Official MELANIA meme coin mint address",
+            twitterHandle = "@MELANIATRUMP"
+        ),
+
+        // ═══════════════════════════════════════════════════════════════════════
+        // V5.7.8: KNOWN MEMECOIN INSIDERS (Verified profitable wallets)
+        // ═══════════════════════════════════════════════════════════════════════
+        TrackedWallet(
+            address = "3bpQitXdThkCgfELQ2KwhLvacze3fXWYEue993LqEhUD",
+            label = "Memecoin Insider Alpha",
+            category = WalletCategory.WHALE,
+            riskLevel = RiskLevel.ALPHA,
+            notes = "303 trades, $2M+ profit on ROCKY/MYRO/GINNAN/NEIRO"
+        ),
+
+        // ═══════════════════════════════════════════════════════════════════════
+        // V5.7.8: SOLANA RICH LIST / MEGA WHALES
+        // ═══════════════════════════════════════════════════════════════════════
+        TrackedWallet(
+            address = "MJKqp326RZCHnAAbew9MDdui3iCKWco7fsK9sVuZTX2",
+            label = "Solana Mega Whale #1",
+            category = WalletCategory.WHALE,
+            riskLevel = RiskLevel.HIGH,
+            notes = "5.18M SOL holder - largest non-exchange wallet"
+        ),
+        TrackedWallet(
+            address = "8BseXT9EtoEhBTKFFYkwTnjKSUZwhtmdKY2Jrj8j45Rt",
+            label = "Solana Mega Whale #2",
+            category = WalletCategory.WHALE,
+            riskLevel = RiskLevel.HIGH,
+            notes = "3.93M SOL holder - second largest wallet"
+        ),
+        TrackedWallet(
+            address = "2HehXG149TXuVptQhbiWAWDjbbuCsXSAtLTB5wc2aajK",
+            label = "Galaxy Digital (GLXY)",
+            category = WalletCategory.INSTITUTION,
+            riskLevel = RiskLevel.MEDIUM,
+            notes = "Galaxy Digital tokenized stock contract on Solana"
+        ),
+        TrackedWallet(
+            address = "5gNnjJB5KTW19s3PyqMWBQzmKi1YcaUqe3mFTmqfexuU",
+            label = "Trump CIC Digital Treasury",
+            category = WalletCategory.TRUMP_FAMILY,
+            riskLevel = RiskLevel.ALPHA,
+            notes = "CIC Digital LLC TRUMP token treasury"
         )
     )
     

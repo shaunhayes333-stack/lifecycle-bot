@@ -421,16 +421,31 @@ object PriceAggregator {
     // V5.7.7: xSTOCK MINT ADDRESSES - Tokenized Stocks on Solana (24/7 Trading!)
     // ═══════════════════════════════════════════════════════════════════════════
     private val xStockMints = mapOf(
-        // Backed.fi xStocks - Real SPL tokens backed 1:1 by shares
-        "TSLA" to "XsDoVfqeBukxuZHWhdvWHBhgEHjGNst4MLodqsJHzoB",
-        "AAPL" to "XsbEhLAtcf6HdfpFZ5xEMdqW8nfAvcsP5bdudRLJzJp",
-        "NVDA" to "xfhWV1ABqmBzATqDxVSZDmT3psooDiHCBo8gdjpkdXy",
-        // Crypto stocks
-        "SOL"  to "So11111111111111111111111111111111111111112",
-        "JUP"  to "JUPyiwrYJFskUPiHa7hkeR8VUtAeFoSYbKedZNsDvCN",
-        "BONK" to "DezXAZ8z7PnrnRJjz3wXBoRgixCa6xjnB7YaB1pPB263",
-        "WIF"  to "EKpQGSJtjMFqKZ9KQanSqYXRcF8fBopzLHYxdM65zcjm",
-        "PYTH" to "HZ1JovNiVvGrGNiiYvEozEVgZ58xaU3RKwX8eACQBCt3",
+        // ═══════════════════════════════════════════════════════════════════════
+        // Backed.fi xStocks - Real SPL tokens backed 1:1 by shares (24/7 DEX!)
+        // All verified on Solscan/Solflare/CMC - Official Backed.fi addresses
+        // ═══════════════════════════════════════════════════════════════════════
+        "TSLA"  to "XsDoVfqeBukxuZHWhdvWHBhgEHjGNst4MLodqsJHzoB",
+        "AAPL"  to "XsbEhLAtcf6HdfpFZ5xEMdqW8nfAvcsP5bdudRLJzJp",
+        "NVDA"  to "Xsc9qvGR1efVDFGLrVsmkzv3qi45LTBjeUKSPmx9qEh",
+        "META"  to "Xsa62P5mvPszXL1krVUnU5ar38bBSVcWAB6fmPCo5Zu",
+        "GOOGL" to "XsCPL9dNWBMvFtTmwcCA5v3xWPSMEBCszbQdiLLq6aN",
+        "AMZN"  to "Xs3eBt7uRfJX8QUs4suhyU8p2M6DoUDrJyWBa8LLZsg",
+        "MSFT"  to "XspzcW1PRtgf6Wj92HCiZdjzKCyFekVD8P5Ueh3dRMX",
+        "COIN"  to "Xs7ZdzSHLU9ftNJsii5fCeJhoRWSC32SQGzGQtePxNu",
+        "SPY"   to "XsoCS1TfEyfFhfvj8EtZ528L3CaKBDBRqRapnBbDF2W",
+        "QQQ"   to "Xs8S1uUs1zvS2p7iwtsG3b6fkhpvmwz4GYU3gWAmWHZ",
+        "MSTR"  to "XsP7xzNPvEHS1m6qfanPUGjNmdnmsLKEoNAnHjdxxyZ",
+        "JPM"   to "XsMAqkcKsUewDrzVkait4e5u4y8REgtyS7jWgCpLV2C",
+        "CRCL"  to "XsueG8BtpquVJX9LVLLEGuViXUungE6WmK5YZ3p3bd1",
+        // ═══════════════════════════════════════════════════════════════════════
+        // Crypto SPL tokens (native Solana)
+        // ═══════════════════════════════════════════════════════════════════════
+        "SOL"   to "So11111111111111111111111111111111111111112",
+        "JUP"   to "JUPyiwrYJFskUPiHa7hkeR8VUtAeFoSYbKedZNsDvCN",
+        "BONK"  to "DezXAZ8z7PnrnRJjz3wXBoRgixCa6xjnB7YaB1pPB263",
+        "WIF"   to "EKpQGSJtjMFqKZ9KQanSqYXRcF8fBopzLHYxdM65zcjm",
+        "PYTH"  to "HZ1JovNiVvGrGNiiYvEozEVgZ58xaU3RKwX8eACQBCt3",
     )
     
     private suspend fun fetchBirdeye(symbol: String): PriceResult? {

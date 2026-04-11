@@ -239,7 +239,17 @@ object JupiterPriceOracle {
         // ═══════════════════════════════════════════════════════════════════════════
         "TSLA" to "XsDoVfqeBukxuZHWhdvWHBhgEHjGNst4MLodqsJHzoB",  // TSLAx - Tesla
         "AAPL" to "XsbEhLAtcf6HdfpFZ5xEMdqW8nfAvcsP5bdudRLJzJp",  // AAPLx - Apple
-        "NVDA" to "xfhWV1ABqmBzATqDxVSZDmT3psooDiHCBo8gdjpkdXy",  // NVDAx - NVIDIA
+        "NVDA" to "Xsc9qvGR1efVDFGLrVsmkzv3qi45LTBjeUKSPmx9qEh",  // NVDAx - NVIDIA
+        "META" to "Xsa62P5mvPszXL1krVUnU5ar38bBSVcWAB6fmPCo5Zu",  // METAx - Meta/Facebook
+        "GOOGL" to "XsCPL9dNWBMvFtTmwcCA5v3xWPSMEBCszbQdiLLq6aN", // GOOGLx - Alphabet
+        "AMZN" to "Xs3eBt7uRfJX8QUs4suhyU8p2M6DoUDrJyWBa8LLZsg",  // AMZNx - Amazon
+        "MSFT" to "XspzcW1PRtgf6Wj92HCiZdjzKCyFekVD8P5Ueh3dRMX",  // MSFTx - Microsoft
+        "COIN" to "Xs7ZdzSHLU9ftNJsii5fCeJhoRWSC32SQGzGQtePxNu",  // COINx - Coinbase
+        "SPY" to "XsoCS1TfEyfFhfvj8EtZ528L3CaKBDBRqRapnBbDF2W",   // SPYx - S&P 500 ETF
+        "QQQ" to "Xs8S1uUs1zvS2p7iwtsG3b6fkhpvmwz4GYU3gWAmWHZ",   // QQQx - Nasdaq ETF
+        "MSTR" to "XsP7xzNPvEHS1m6qfanPUGjNmdnmsLKEoNAnHjdxxyZ",  // MSTRx - MicroStrategy
+        "JPM" to "XsMAqkcKsUewDrzVkait4e5u4y8REgtyS7jWgCpLV2C",    // JPMx - JPMorgan Chase
+        "CRCL" to "XsueG8BtpquVJX9LVLLEGuViXUungE6WmK5YZ3p3bd1",  // CRCLx - Circle
     )
     
     /**

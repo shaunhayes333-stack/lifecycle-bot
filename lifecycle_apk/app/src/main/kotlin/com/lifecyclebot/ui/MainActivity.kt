@@ -7504,7 +7504,10 @@ $preTweetText
         AlertDialog.Builder(this, R.style.Theme_AATE_Dialog)
             .setTitle("🔍 Insider Tracker (Trump/Pelosi)")
             .setMessage(message)
-            .setPositiveButton("Close") { d, _ -> d.dismiss() }
+            .setPositiveButton("Full View") { d, _ ->
+                startActivity(Intent(this, InsiderWalletsActivity::class.java))
+                d.dismiss()
+            }
             .setNegativeButton(if (stats.isRunning) "Stop" else "Start") { d, _ ->
                 if (stats.isRunning) {
                     tracker.stop()
