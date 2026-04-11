@@ -386,19 +386,46 @@ class SolanaWallet(privateKeyB58: String, val rpcUrl: String) {
             .put("method",  method)
             .put("params",  params)
         val body = payload.toString()
-        // Retry once on rate-limit (429) or server error (5xx)
-        var lastBody = "{}"
-        for (attempt in 0..1) {
-            val req  = Request.Builder().url(rpcUrl)
-                .header("Content-Type", "application/json")
-                .post(body.toRequestBody(JSON_MT)).build()
-            val resp = http.newCall(req).execute()
-            val code = resp.code
-            lastBody = resp.body?.string() ?: "{}"
-            if (code != 429 && code < 500) return JSONObject(lastBody)
-            if (attempt == 0) Thread.sleep(2_000)
+        
+        // V5.7.8: Try primary RPC first, then ALL fallback RPCs
+        val rpcsToTry = mutableListOf(rpcUrl)
+        com.lifecyclebot.engine.WalletManager.FALLBACK_RPCS.forEach { fallback ->
+            if (fallback != rpcUrl && fallback !in rpcsToTry) rpcsToTry.add(fallback)
         }
-        throw RuntimeException("RPC $method rate-limited after retry")
+        
+        var lastBody = "{}"
+        var lastError: Exception? = null
+        
+        for (endpoint in rpcsToTry) {
+            for (attempt in 0..1) {
+                try {
+                    val req = Request.Builder().url(endpoint)
+                        .header("Content-Type", "application/json")
+                        .post(body.toRequestBody(JSON_MT)).build()
+                    val resp = http.newCall(req).execute()
+                    val code = resp.code
+                    lastBody = resp.body?.string() ?: "{}"
+                    
+                    if (code != 429 && code < 500) {
+                        val json = JSONObject(lastBody)
+                        // Check for RPC-level errors
+                        if (json.has("error")) {
+                            val errMsg = json.optJSONObject("error")?.optString("message", "") ?: ""
+                            if (errMsg.contains("rate") || errMsg.contains("limit")) {
+                                // Rate limited — try next endpoint
+                                break
+                            }
+                        }
+                        return json
+                    }
+                    if (attempt == 0) Thread.sleep(1_000)
+                } catch (e: Exception) {
+                    lastError = e
+                    if (attempt == 0) Thread.sleep(500)
+                }
+            }
+        }
+        throw lastError ?: RuntimeException("RPC $method failed on all ${rpcsToTry.size} endpoints")
     }
     /**
      * Transfer SOL to a destination address — used for treasury withdrawals.
@@ -432,7 +459,10 @@ class SolanaWallet(privateKeyB58: String, val rpcUrl: String) {
                 }
             }
             out
-        } catch (_: Exception) { emptyMap() }
+        } catch (e: Exception) {
+            com.lifecyclebot.engine.ErrorLogger.warn("SolanaWallet", "getTokenAccountsWithDecimals FAILED: ${e.message}")
+            emptyMap()
+        }
     }
 
     fun getTokenAccounts(): Map<String, Double> {
