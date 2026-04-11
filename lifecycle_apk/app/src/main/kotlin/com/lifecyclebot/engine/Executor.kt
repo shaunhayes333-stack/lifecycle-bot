@@ -264,35 +264,22 @@ class Executor(
      * This helper is the single source of truth for all price-based logic.
      */
     private fun getActualPrice(ts: TokenState): Double {
-        val explicitUsd = reflectDouble(ts, "priceUsd", "usdPrice", "currentPriceUsd")
-        val directLast = ts.lastPrice.takeIf { it > 0 }
-        val historyUsd = ts.history.lastOrNull()?.priceUsd?.takeIf { it > 0 }
-        val refValue = reflectDouble(ts, "ref", "referencePrice", "referenceUsd")
-        val entryUsd = ts.position.entryPrice.takeIf { it > 0 }
-        val decimals = getTokenDecimals(ts)
-
-        val rawCandidates = listOfNotNull(
-            explicitUsd,
-            historyUsd,
-            directLast,
-            refValue,
-            entryUsd,
-        ).filter { it.isFinite() && it > 0.0 }.distinct()
-
-        if (rawCandidates.isEmpty()) return 0.0
-
-        val references = listOfNotNull(
-            explicitUsd?.takeIf { it > 0.0 && it < 1_000_000.0 },
-            historyUsd?.takeIf { it > 0.0 && it < 1_000_000.0 },
-            entryUsd?.takeIf { it > 0.0 && it < 1_000_000.0 },
-        )
-
-        return rawCandidates
-            .flatMap { buildPriceVariants(it, decimals) }
-            .filter { it.isFinite() && it > 0.0 }
-            .distinct()
-            .minByOrNull { scorePriceCandidate(it, references, ts.lastMcap) }
-            ?: rawCandidates.first()
+        // V5.7.7 SIMPLIFIED: Use lastPrice directly - it's updated by DexScreener WebSocket
+        // The old complex logic with variants/scaling caused price mismatches and fake PnL
+        
+        // Primary: DexScreener price (most reliable, real-time)
+        val dexPrice = ts.lastPrice.takeIf { it > 0 && it.isFinite() }
+        if (dexPrice != null) return dexPrice
+        
+        // Fallback 1: Latest candle price
+        val candlePrice = ts.history.lastOrNull()?.priceUsd?.takeIf { it > 0 && it.isFinite() }
+        if (candlePrice != null) return candlePrice
+        
+        // Fallback 2: Entry price (if position is open and no live price available)
+        val entryPrice = ts.position.entryPrice.takeIf { it > 0 && it.isFinite() }
+        if (entryPrice != null) return entryPrice
+        
+        return 0.0
     }
 
     /**
