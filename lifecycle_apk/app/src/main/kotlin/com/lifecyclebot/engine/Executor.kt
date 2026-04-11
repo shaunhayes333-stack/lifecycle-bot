@@ -4687,7 +4687,7 @@ class Executor(
                     zeroBalanceRetries.remove(ts.mint)
                     
                     // Mark position as closed via the proper API
-                    tradeId.closed(getActualPrice(ts), -100.0, -(pos.sizeSol), "ZERO_BALANCE_FORCE_CLOSE")
+                    tradeId.closed(getActualPrice(ts), -100.0, -(pos.costSol), "ZERO_BALANCE_FORCE_CLOSE")
                     
                     return SellResult.CONFIRMED
                 }
