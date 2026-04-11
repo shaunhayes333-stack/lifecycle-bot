@@ -2704,7 +2704,13 @@ for legal compliance.
     // V5.6.29d: Render Network Signals from Collective Intelligence
     private fun renderNetworkSignals() {
         try {
-            val signals = com.lifecyclebot.v3.scoring.CollectiveIntelligenceAI.getActiveNetworkSignals()
+            val rawSignals = com.lifecyclebot.v3.scoring.CollectiveIntelligenceAI.getActiveNetworkSignals()
+            
+            // V5.7.7: Filter out obviously corrupted signals (price scale bugs can create >10M% values)
+            // Real meme pumps can hit 100,000% but anything above 1,000,000% is likely data corruption
+            val signals = rawSignals.filter { 
+                it.pnlPct.isFinite() && it.pnlPct > -101.0 && it.pnlPct < 1_000_000.0 
+            }
             
             // Count by type
             val megaCount = signals.count { it.signalType == "MEGA_WINNER" }

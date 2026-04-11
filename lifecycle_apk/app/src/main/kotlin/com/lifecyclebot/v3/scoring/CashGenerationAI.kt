@@ -262,10 +262,23 @@ object CashGenerationAI {
         // an astronomical treasury balance in one shot.
         val cappedProfit = profitSol.coerceAtMost(100.0)
         val bps = (cappedProfit * 100).toLong()
+        
+        // V5.7.7: Also cap TOTAL treasury balance to prevent runaway values
+        val MAX_TREASURY_BPS = 100_000_00L  // 1000 SOL max (100,000 bps)
+        
         if (isPaper) {
-            paperTreasuryBalanceBps.addAndGet(bps)
+            val newBalance = paperTreasuryBalanceBps.addAndGet(bps)
+            // Cap total balance
+            if (newBalance > MAX_TREASURY_BPS) {
+                paperTreasuryBalanceBps.set(MAX_TREASURY_BPS)
+                ErrorLogger.warn(TAG, "💰 TREASURY CAPPED at ${MAX_TREASURY_BPS/100.0} SOL (was ${newBalance/100.0})")
+            }
         } else {
-            liveTreasuryBalanceBps.addAndGet(bps)
+            val newBalance = liveTreasuryBalanceBps.addAndGet(bps)
+            if (newBalance > MAX_TREASURY_BPS) {
+                liveTreasuryBalanceBps.set(MAX_TREASURY_BPS)
+                ErrorLogger.warn(TAG, "💰 TREASURY CAPPED at ${MAX_TREASURY_BPS/100.0} SOL (was ${newBalance/100.0})")
+            }
         }
         ErrorLogger.info(
             TAG,
