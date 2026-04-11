@@ -795,37 +795,37 @@ class AnimatedBrainView @JvmOverloads constructor(
         if (stats != null) {
             sb.appendLine("Network Trades: ${stats.totalTrades}")
             sb.appendLine("Network WR: ${String.format("%.1f", stats.winRate)}%")
-            sb.appendLine("Active Instances: ${stats.activeInstances}")
-            sb.appendLine("Patterns Learned: ${stats.patternsLearned}")
+            sb.appendLine("Active Users 24h: ${stats.activeUsers24h}")
+            sb.appendLine("Avg PnL: ${String.format("%.2f", stats.avgPnlPct)}%")
         }
         
         // 3. Backtest top modes against collective data
         sb.appendLine()
         sb.appendLine("🏆 TOP MODE PERFORMANCE")
-        topModes.take(5).forEachIndexed { i, mode ->
-            sb.appendLine("${i + 1}. ${mode.mode}: WR=${String.format("%.1f", mode.winRate)}% | Trades=${mode.trades} | PnL=${String.format("%.2f", mode.avgPnlPct)}%")
+        topModes.take(5).forEachIndexed { i, ranking ->
+            sb.appendLine("${i + 1}. ${ranking.modeName}: WR=${String.format("%.1f", ranking.winRate)}% | Trades=${ranking.trades} | PnL=${String.format("%.2f", ranking.avgPnlPct)}%")
         }
         
         // 4. Modes to suppress
         if (avoidModes.isNotEmpty()) {
             sb.appendLine()
-            sb.appendLine("⚠️ SUPPRESS THESE MODES")
-            avoidModes.forEach { mode ->
-                sb.appendLine("❌ ${mode.mode}: WR=${String.format("%.1f", mode.winRate)}% (${mode.trades} trades)")
+            sb.appendLine("SUPPRESS THESE MODES")
+            avoidModes.forEach { ranking ->
+                sb.appendLine("X ${ranking.modeName}: WR=${String.format("%.1f", ranking.winRate)}% (${ranking.trades} trades)")
             }
         }
         
         // 5. Feed collective insights into V4 StrategyTrustAI
         try {
-            topModes.forEach { mode ->
+            topModes.forEach { ranking ->
                 val lesson = com.lifecyclebot.v4.meta.TradeLesson(
-                    id = "BOOST_${mode.mode}_${System.currentTimeMillis()}",
-                    strategy = mode.mode,
+                    id = "BOOST_${ranking.modeName}_${System.currentTimeMillis()}",
+                    strategy = ranking.modeName,
                     market = "MEME",
                     symbol = "COLLECTIVE",
                     entryRegime = com.lifecyclebot.v4.meta.GlobalRiskMode.RISK_ON,
                     entrySession = com.lifecyclebot.v4.meta.SessionContext.OFF_HOURS,
-                    trustScore = mode.winRate / 100.0,
+                    trustScore = ranking.winRate / 100.0,
                     fragilityScore = 0.3,
                     narrativeHeat = 0.5,
                     portfolioHeat = 0.3,
@@ -833,11 +833,11 @@ class AnimatedBrainView @JvmOverloads constructor(
                     executionConfidence = 0.8,
                     leadSource = null,
                     expectedDelaySec = null,
-                    outcomePct = mode.avgPnlPct,
-                    mfePct = mode.avgPnlPct * 1.5,
-                    maePct = -(100 - mode.winRate) / 10.0,
+                    outcomePct = ranking.avgPnlPct,
+                    mfePct = ranking.avgPnlPct * 1.5,
+                    maePct = -(100 - ranking.winRate) / 10.0,
                     holdSec = 300,
-                    exitReason = if (mode.avgPnlPct > 0) "TAKE_PROFIT" else "STOP_LOSS",
+                    exitReason = if (ranking.avgPnlPct > 0) "TAKE_PROFIT" else "STOP_LOSS",
                     expectedFillPrice = 1.0,
                     actualFillPrice = 1.0,
                     slippagePct = 0.5,
@@ -873,5 +873,3 @@ class AnimatedBrainView @JvmOverloads constructor(
         
         return sb.toString()
     }
-    
-    private fun dp(v: Int) = (v * resources.displayMetrics.density).toInt()
