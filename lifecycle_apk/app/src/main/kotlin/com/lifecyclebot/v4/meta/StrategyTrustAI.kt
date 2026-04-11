@@ -253,6 +253,10 @@ object StrategyTrustAI {
     fun isStrategyAllowed(strategy: String): Boolean =
         getTrustLevel(strategy) != TrustLevel.DISTRUSTED
 
+    fun restoreTrustRecord(record: StrategyTrustRecord) {
+        trustRecords[record.strategyName] = record
+    }
+
     // ═══════════════════════════════════════════════════════════════════════
     // HELPERS
     // ═══════════════════════════════════════════════════════════════════════

@@ -841,6 +841,94 @@ object CollectiveSchema {
         CREATE INDEX IF NOT EXISTS idx_markets_daily_date ON markets_daily_stats(date)
     """
 
+    // ═══════════════════════════════════════════════════════════════════════
+    // V5.7.8: V4 META-INTELLIGENCE PERSISTENT MEMORY TABLES
+    // ═══════════════════════════════════════════════════════════════════════
+
+    const val CREATE_V4_TRADE_LESSONS_TABLE = """
+        CREATE TABLE IF NOT EXISTS v4_trade_lessons (
+            id TEXT PRIMARY KEY NOT NULL,
+            strategy TEXT NOT NULL,
+            market TEXT NOT NULL,
+            symbol TEXT NOT NULL,
+            entry_regime TEXT NOT NULL,
+            entry_session TEXT NOT NULL,
+            trust_score REAL NOT NULL DEFAULT 0.5,
+            fragility_score REAL NOT NULL DEFAULT 0.3,
+            narrative_heat REAL NOT NULL DEFAULT 0.0,
+            portfolio_heat REAL NOT NULL DEFAULT 0.0,
+            leverage_used REAL NOT NULL DEFAULT 1.0,
+            execution_confidence REAL NOT NULL DEFAULT 0.8,
+            lead_source TEXT,
+            expected_delay_sec INTEGER,
+            outcome_pct REAL NOT NULL DEFAULT 0.0,
+            mfe_pct REAL NOT NULL DEFAULT 0.0,
+            mae_pct REAL NOT NULL DEFAULT 0.0,
+            hold_sec INTEGER NOT NULL DEFAULT 0,
+            exit_reason TEXT NOT NULL DEFAULT '',
+            expected_fill_price REAL NOT NULL DEFAULT 0.0,
+            actual_fill_price REAL NOT NULL DEFAULT 0.0,
+            slippage_pct REAL NOT NULL DEFAULT 0.0,
+            execution_route TEXT NOT NULL DEFAULT 'JUPITER_V6',
+            timestamp INTEGER NOT NULL
+        )
+    """
+
+    const val CREATE_V4_STRATEGY_TRUST_TABLE = """
+        CREATE TABLE IF NOT EXISTS v4_strategy_trust (
+            strategy_name TEXT PRIMARY KEY NOT NULL,
+            recent_win_rate REAL NOT NULL DEFAULT 0.5,
+            expectancy REAL NOT NULL DEFAULT 0.0,
+            drawdown_slope REAL NOT NULL DEFAULT 0.0,
+            avg_mae REAL NOT NULL DEFAULT 0.0,
+            avg_mfe REAL NOT NULL DEFAULT 0.0,
+            false_positive_rate REAL NOT NULL DEFAULT 0.0,
+            regime_fit REAL NOT NULL DEFAULT 0.5,
+            execution_quality REAL NOT NULL DEFAULT 0.5,
+            slippage_damage REAL NOT NULL DEFAULT 0.0,
+            hold_time_efficiency REAL NOT NULL DEFAULT 0.5,
+            trust_level TEXT NOT NULL DEFAULT 'UNTESTED',
+            trust_score REAL NOT NULL DEFAULT 0.5,
+            last_updated INTEGER NOT NULL
+        )
+    """
+
+    const val CREATE_V4_LEAD_LAG_PAIRS_TABLE = """
+        CREATE TABLE IF NOT EXISTS v4_lead_lag_pairs (
+            pair_key TEXT PRIMARY KEY NOT NULL,
+            leader TEXT NOT NULL,
+            lagger TEXT NOT NULL,
+            historical_correlation REAL NOT NULL DEFAULT 0.5,
+            typical_delay_sec INTEGER NOT NULL DEFAULT 300,
+            direction TEXT NOT NULL DEFAULT 'SAME',
+            confidence REAL NOT NULL DEFAULT 0.5,
+            sample_count INTEGER NOT NULL DEFAULT 0,
+            last_updated INTEGER NOT NULL
+        )
+    """
+
+    const val CREATE_V4_REGIME_HISTORY_TABLE = """
+        CREATE TABLE IF NOT EXISTS v4_regime_history (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            regime TEXT NOT NULL,
+            session_context TEXT NOT NULL,
+            leverage_cap REAL NOT NULL DEFAULT 5.0,
+            portfolio_heat REAL NOT NULL DEFAULT 0.0,
+            btc_price REAL,
+            sol_price REAL,
+            eth_price REAL,
+            kill_flags TEXT NOT NULL DEFAULT '',
+            timestamp INTEGER NOT NULL
+        )
+    """
+
+    const val CREATE_V4_INDEXES = """
+        CREATE INDEX IF NOT EXISTS idx_v4_lessons_strategy ON v4_trade_lessons(strategy);
+        CREATE INDEX IF NOT EXISTS idx_v4_lessons_market ON v4_trade_lessons(market);
+        CREATE INDEX IF NOT EXISTS idx_v4_lessons_timestamp ON v4_trade_lessons(timestamp);
+        CREATE INDEX IF NOT EXISTS idx_v4_regime_timestamp ON v4_regime_history(timestamp)
+    """
+
     val ALL_TABLES = listOf(
         CREATE_PATTERNS_TABLE,
         CREATE_BLACKLIST_TABLE,
@@ -866,6 +954,11 @@ object CollectiveSchema {
         CREATE_MARKETS_LEARNING_SESSIONS_TABLE,
         CREATE_MARKETS_DAILY_STATS_TABLE,
         // V5.7.7: Markets State
-        CREATE_MARKETS_STATE_TABLE
+        CREATE_MARKETS_STATE_TABLE,
+        // V5.7.8: V4 Meta-Intelligence Memory
+        CREATE_V4_TRADE_LESSONS_TABLE,
+        CREATE_V4_STRATEGY_TRUST_TABLE,
+        CREATE_V4_LEAD_LAG_PAIRS_TABLE,
+        CREATE_V4_REGIME_HISTORY_TABLE
     )
 }

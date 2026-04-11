@@ -26,6 +26,9 @@ object TradeLessonRecorder {
     private const val TAG = "TradeLessonRecorder"
     private const val MAX_LESSONS_PER_LANE = 500
 
+    // Turso client reference for persistence
+    var tursoClient: com.lifecyclebot.collective.TursoClient? = null
+
     // Separate memory lanes
     private val strategyLane = ConcurrentHashMap<String, MutableList<TradeLesson>>()
     private val regimeLane = ConcurrentHashMap<String, MutableList<TradeLesson>>()       // By regime
@@ -88,6 +91,13 @@ object TradeLessonRecorder {
                 wasLiquidated = lesson.exitReason == "LIQUIDATED",
                 maePct = lesson.maePct
             )
+        }
+
+        // V5.7.8: Persist to Turso (fire and forget)
+        tursoClient?.let { client ->
+            kotlinx.coroutines.GlobalScope.launch(kotlinx.coroutines.Dispatchers.IO) {
+                try { client.saveTradeLesson(lesson) } catch (_: Exception) {}
+            }
         }
 
         ErrorLogger.debug(TAG, "Recorded lesson: ${lesson.strategy}/${lesson.symbol} " +
@@ -237,5 +247,51 @@ object TradeLessonRecorder {
         leverageLane.clear()
         narrativeLane.clear()
         rotationLane.clear()
+    }
+
+    // ═══════════════════════════════════════════════════════════════════════
+    // V5.7.8: TURSO PERSISTENCE — Load/Save
+    // ═══════════════════════════════════════════════════════════════════════
+
+    suspend fun loadFromTurso() {
+        val client = tursoClient ?: return
+        try {
+            // Load trade lessons
+            val lessons = client.loadRecentTradeLessons(limit = 500)
+            lessons.forEach { lesson ->
+                synchronized(allLessons) { allLessons.add(lesson) }
+                addToLane(strategyLane, lesson.strategy, lesson)
+                addToLane(regimeLane, lesson.entryRegime.name, lesson)
+                addToLane(executionLane, lesson.executionRoute, lesson)
+            }
+            ErrorLogger.info(TAG, "Loaded ${lessons.size} trade lessons from Turso")
+
+            // Load strategy trust records → feed to StrategyTrustAI
+            val trustRecords = client.loadAllStrategyTrust()
+            trustRecords.forEach { record ->
+                StrategyTrustAI.restoreTrustRecord(record)
+            }
+            ErrorLogger.info(TAG, "Restored ${trustRecords.size} strategy trust records")
+
+            // Load lead-lag pairs
+            val pairs = client.loadLeadLagPairs()
+            pairs.forEach { pair ->
+                CrossAssetLeadLagAI.restorePair(pair)
+            }
+            ErrorLogger.info(TAG, "Restored ${pairs.size} lead-lag pairs")
+        } catch (e: Exception) {
+            ErrorLogger.error(TAG, "Load from Turso failed: ${e.message}")
+        }
+    }
+
+    suspend fun saveAllTrustToTurso() {
+        val client = tursoClient ?: return
+        try {
+            StrategyTrustAI.getAllTrustScores().values.forEach { record ->
+                client.saveStrategyTrust(record)
+            }
+        } catch (e: Exception) {
+            ErrorLogger.debug(TAG, "Save trust to Turso failed: ${e.message}")
+        }
     }
 }

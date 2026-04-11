@@ -1193,4 +1193,187 @@ class TursoClient(
             null
         }
     }
+
+    // ═══════════════════════════════════════════════════════════════════════
+    // V5.7.8: V4 META-INTELLIGENCE PERSISTENCE
+    // ═══════════════════════════════════════════════════════════════════════
+
+    suspend fun saveTradeLesson(lesson: com.lifecyclebot.v4.meta.TradeLesson): Boolean {
+        return try {
+            execute("""
+                INSERT OR REPLACE INTO v4_trade_lessons (
+                    id, strategy, market, symbol, entry_regime, entry_session,
+                    trust_score, fragility_score, narrative_heat, portfolio_heat,
+                    leverage_used, execution_confidence, lead_source, expected_delay_sec,
+                    outcome_pct, mfe_pct, mae_pct, hold_sec, exit_reason,
+                    expected_fill_price, actual_fill_price, slippage_pct, execution_route, timestamp
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """, listOf(
+                lesson.id, lesson.strategy, lesson.market, lesson.symbol,
+                lesson.entryRegime.name, lesson.entrySession.name,
+                lesson.trustScore, lesson.fragilityScore, lesson.narrativeHeat, lesson.portfolioHeat,
+                lesson.leverageUsed, lesson.executionConfidence, lesson.leadSource, lesson.expectedDelaySec,
+                lesson.outcomePct, lesson.mfePct, lesson.maePct, lesson.holdSec, lesson.exitReason,
+                lesson.expectedFillPrice, lesson.actualFillPrice, lesson.slippagePct, lesson.executionRoute, lesson.timestamp
+            ))
+            true
+        } catch (e: Exception) {
+            ErrorLogger.debug(TAG, "Save trade lesson error: ${e.message}")
+            false
+        }
+    }
+
+    suspend fun loadRecentTradeLessons(strategy: String? = null, limit: Int = 100): List<com.lifecyclebot.v4.meta.TradeLesson> {
+        val results = mutableListOf<com.lifecyclebot.v4.meta.TradeLesson>()
+        try {
+            val sql = if (strategy != null) {
+                "SELECT * FROM v4_trade_lessons WHERE strategy = ? ORDER BY timestamp DESC LIMIT ?"
+            } else {
+                "SELECT * FROM v4_trade_lessons ORDER BY timestamp DESC LIMIT ?"
+            }
+            val args = if (strategy != null) listOf(strategy, limit) else listOf(limit)
+            val qr = query(sql, args)
+
+            for (row in qr.rows) {
+                try {
+                    results.add(com.lifecyclebot.v4.meta.TradeLesson(
+                        id = row["id"] as? String ?: "",
+                        strategy = row["strategy"] as? String ?: "",
+                        market = row["market"] as? String ?: "",
+                        symbol = row["symbol"] as? String ?: "",
+                        entryRegime = try { com.lifecyclebot.v4.meta.GlobalRiskMode.valueOf(row["entry_regime"] as? String ?: "RISK_ON") } catch (_: Exception) { com.lifecyclebot.v4.meta.GlobalRiskMode.RISK_ON },
+                        entrySession = try { com.lifecyclebot.v4.meta.SessionContext.valueOf(row["entry_session"] as? String ?: "OFF_HOURS") } catch (_: Exception) { com.lifecyclebot.v4.meta.SessionContext.OFF_HOURS },
+                        trustScore = (row["trust_score"] as? Number)?.toDouble() ?: 0.5,
+                        fragilityScore = (row["fragility_score"] as? Number)?.toDouble() ?: 0.3,
+                        narrativeHeat = (row["narrative_heat"] as? Number)?.toDouble() ?: 0.0,
+                        portfolioHeat = (row["portfolio_heat"] as? Number)?.toDouble() ?: 0.0,
+                        leverageUsed = (row["leverage_used"] as? Number)?.toDouble() ?: 1.0,
+                        executionConfidence = (row["execution_confidence"] as? Number)?.toDouble() ?: 0.8,
+                        leadSource = row["lead_source"] as? String,
+                        expectedDelaySec = (row["expected_delay_sec"] as? Number)?.toInt(),
+                        outcomePct = (row["outcome_pct"] as? Number)?.toDouble() ?: 0.0,
+                        mfePct = (row["mfe_pct"] as? Number)?.toDouble() ?: 0.0,
+                        maePct = (row["mae_pct"] as? Number)?.toDouble() ?: 0.0,
+                        holdSec = (row["hold_sec"] as? Number)?.toInt() ?: 0,
+                        exitReason = row["exit_reason"] as? String ?: "",
+                        expectedFillPrice = (row["expected_fill_price"] as? Number)?.toDouble() ?: 0.0,
+                        actualFillPrice = (row["actual_fill_price"] as? Number)?.toDouble() ?: 0.0,
+                        slippagePct = (row["slippage_pct"] as? Number)?.toDouble() ?: 0.0,
+                        executionRoute = row["execution_route"] as? String ?: "JUPITER_V6",
+                        timestamp = (row["timestamp"] as? Number)?.toLong() ?: 0L
+                    ))
+                } catch (_: Exception) {}
+            }
+        } catch (e: Exception) {
+            ErrorLogger.debug(TAG, "Load trade lessons error: ${e.message}")
+        }
+        return results
+    }
+
+    suspend fun saveStrategyTrust(record: com.lifecyclebot.v4.meta.StrategyTrustRecord): Boolean {
+        return try {
+            execute("""
+                INSERT OR REPLACE INTO v4_strategy_trust (
+                    strategy_name, recent_win_rate, expectancy, drawdown_slope,
+                    avg_mae, avg_mfe, false_positive_rate, regime_fit,
+                    execution_quality, slippage_damage, hold_time_efficiency,
+                    trust_level, trust_score, last_updated
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """, listOf(
+                record.strategyName, record.recentWinRate, record.expectancy, record.drawdownSlope,
+                record.avgMAE, record.avgMFE, record.falsePositiveRate, record.regimeFit,
+                record.executionQuality, record.slippageDamage, record.holdTimeEfficiency,
+                record.trustLevel.name, record.trustScore, record.lastUpdated
+            ))
+            true
+        } catch (e: Exception) {
+            ErrorLogger.debug(TAG, "Save strategy trust error: ${e.message}")
+            false
+        }
+    }
+
+    suspend fun loadAllStrategyTrust(): List<com.lifecyclebot.v4.meta.StrategyTrustRecord> {
+        val results = mutableListOf<com.lifecyclebot.v4.meta.StrategyTrustRecord>()
+        try {
+            val qr = query("SELECT * FROM v4_strategy_trust")
+            for (row in qr.rows) {
+                try {
+                    results.add(com.lifecyclebot.v4.meta.StrategyTrustRecord(
+                        strategyName = row["strategy_name"] as? String ?: "",
+                        recentWinRate = (row["recent_win_rate"] as? Number)?.toDouble() ?: 0.5,
+                        expectancy = (row["expectancy"] as? Number)?.toDouble() ?: 0.0,
+                        drawdownSlope = (row["drawdown_slope"] as? Number)?.toDouble() ?: 0.0,
+                        avgMAE = (row["avg_mae"] as? Number)?.toDouble() ?: 0.0,
+                        avgMFE = (row["avg_mfe"] as? Number)?.toDouble() ?: 0.0,
+                        falsePositiveRate = (row["false_positive_rate"] as? Number)?.toDouble() ?: 0.0,
+                        regimeFit = (row["regime_fit"] as? Number)?.toDouble() ?: 0.5,
+                        executionQuality = (row["execution_quality"] as? Number)?.toDouble() ?: 0.5,
+                        slippageDamage = (row["slippage_damage"] as? Number)?.toDouble() ?: 0.0,
+                        holdTimeEfficiency = (row["hold_time_efficiency"] as? Number)?.toDouble() ?: 0.5,
+                        timeOfDayPerformance = emptyMap(),
+                        trustLevel = try { com.lifecyclebot.v4.meta.TrustLevel.valueOf(row["trust_level"] as? String ?: "UNTESTED") } catch (_: Exception) { com.lifecyclebot.v4.meta.TrustLevel.UNTESTED },
+                        trustScore = (row["trust_score"] as? Number)?.toDouble() ?: 0.5,
+                        lastUpdated = (row["last_updated"] as? Number)?.toLong() ?: 0L
+                    ))
+                } catch (_: Exception) {}
+            }
+        } catch (e: Exception) {
+            ErrorLogger.debug(TAG, "Load strategy trust error: ${e.message}")
+        }
+        return results
+    }
+
+    suspend fun saveLeadLagPair(pair: com.lifecyclebot.v4.meta.CrossAssetLeadLagAI.LeadLagPair): Boolean {
+        return try {
+            execute("""
+                INSERT OR REPLACE INTO v4_lead_lag_pairs (
+                    pair_key, leader, lagger, historical_correlation,
+                    typical_delay_sec, direction, confidence, sample_count, last_updated
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """, listOf(
+                "${pair.leader}->${pair.lagger}", pair.leader, pair.lagger,
+                pair.historicalCorrelation, pair.typicalDelaySec,
+                pair.direction, pair.confidence, pair.sampleCount, System.currentTimeMillis()
+            ))
+            true
+        } catch (e: Exception) {
+            ErrorLogger.debug(TAG, "Save lead-lag pair error: ${e.message}")
+            false
+        }
+    }
+
+    suspend fun loadLeadLagPairs(): List<com.lifecyclebot.v4.meta.CrossAssetLeadLagAI.LeadLagPair> {
+        val results = mutableListOf<com.lifecyclebot.v4.meta.CrossAssetLeadLagAI.LeadLagPair>()
+        try {
+            val qr = query("SELECT * FROM v4_lead_lag_pairs")
+            for (row in qr.rows) {
+                try {
+                    results.add(com.lifecyclebot.v4.meta.CrossAssetLeadLagAI.LeadLagPair(
+                        leader = row["leader"] as? String ?: "",
+                        lagger = row["lagger"] as? String ?: "",
+                        historicalCorrelation = (row["historical_correlation"] as? Number)?.toDouble() ?: 0.5,
+                        typicalDelaySec = (row["typical_delay_sec"] as? Number)?.toInt() ?: 300,
+                        direction = row["direction"] as? String ?: "SAME",
+                        confidence = (row["confidence"] as? Number)?.toDouble() ?: 0.5,
+                        sampleCount = (row["sample_count"] as? Number)?.toInt() ?: 0
+                    ))
+                } catch (_: Exception) {}
+            }
+        } catch (e: Exception) {
+            ErrorLogger.debug(TAG, "Load lead-lag pairs error: ${e.message}")
+        }
+        return results
+    }
+
+    suspend fun saveRegimeSnapshot(regime: String, session: String, leverageCap: Double, portfolioHeat: Double, killFlags: String) {
+        try {
+            execute("""
+                INSERT INTO v4_regime_history (regime, session_context, leverage_cap, portfolio_heat, kill_flags, timestamp)
+                VALUES (?, ?, ?, ?, ?, ?)
+            """, listOf(regime, session, leverageCap, portfolioHeat, killFlags, System.currentTimeMillis()))
+        } catch (e: Exception) {
+            ErrorLogger.debug(TAG, "Save regime snapshot error: ${e.message}")
+        }
+    }
+
 }

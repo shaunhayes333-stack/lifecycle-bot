@@ -190,6 +190,10 @@ object CrossAssetLeadLagAI {
         return if (link != null) 1.0 + link.rotationProbability * 0.3 else 1.0
     }
 
+    fun restorePair(pair: LeadLagPair) {
+        knownPairs["${pair.leader}->${pair.lagger}"] = pair
+    }
+
     // ═══════════════════════════════════════════════════════════════════════
     // HELPERS
     // ═══════════════════════════════════════════════════════════════════════

@@ -978,6 +978,13 @@ object TokenizedStockTrader {
         
         // V5.7.7: Save state after each trade
         savePersistedState()
+        
+        // V5.7.8: Save V4 strategy trust to Turso after each close
+        try {
+            kotlinx.coroutines.GlobalScope.launch(kotlinx.coroutines.Dispatchers.IO) {
+                com.lifecyclebot.v4.meta.TradeLessonRecorder.saveAllTrustToTurso()
+            }
+        } catch (_: Exception) {}
     }
     
     /**

@@ -1430,6 +1430,17 @@ class BotService : Service() {
                 executionPath = com.lifecyclebot.v4.meta.ExecutionPathAI
             )
             addLog("🧠 V4 Meta-Intelligence: ${com.lifecyclebot.v4.meta.CrossTalkFusionEngine.getStats()}")
+            
+            // Wire Turso persistence + load saved memory
+            com.lifecyclebot.v4.meta.TradeLessonRecorder.tursoClient = tursoClient
+            kotlinx.coroutines.GlobalScope.launch(kotlinx.coroutines.Dispatchers.IO) {
+                try {
+                    com.lifecyclebot.v4.meta.TradeLessonRecorder.loadFromTurso()
+                    addLog("🧠 V4 Memory loaded from Turso: ${com.lifecyclebot.v4.meta.TradeLessonRecorder.getTotalLessons()} lessons")
+                } catch (e: Exception) {
+                    ErrorLogger.debug("BotService", "V4 Turso load (non-fatal): ${e.message}")
+                }
+            }
         } catch (e: Exception) {
             ErrorLogger.error("BotService", "V4 Meta init failed (non-fatal): ${e.message}", e)
         }
