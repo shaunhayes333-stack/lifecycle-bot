@@ -452,13 +452,31 @@ object MarketsLiveExecutor {
             return@withContext Pair(false, null)
         }
         
+        // V5.7.7 FIX: Get actual USDC balance to sell, not a derived value
+        // We posted SOL→USDC on open, now we need to close by selling that USDC
+        val usdcBalanceUnits: Long
+        try {
+            val tokenBalances = wallet.getTokenAccountsWithDecimals()
+            val usdcData = tokenBalances[USDC_MINT]
+            if (usdcData == null || usdcData.first <= 0) {
+                ErrorLogger.warn(TAG, "No USDC balance to close position")
+                return@withContext Pair(false, null)
+            }
+            // USDC has 6 decimals
+            usdcBalanceUnits = (usdcData.first * 1_000_000).toLong()
+            ErrorLogger.info(TAG, "  USDC balance: ${usdcData.first} (${usdcBalanceUnits} units)")
+        } catch (e: Exception) {
+            ErrorLogger.warn(TAG, "Failed to get USDC balance: ${e.message}")
+            return@withContext Pair(false, null)
+        }
+        
         // For closing, we swap back: USDC -> SOL
         val signature = executeJupiterSwap(
             wallet = wallet,
             walletAddress = walletAddress,
             inputMint = USDC_MINT,
             outputMint = SOL_MINT,
-            amountLamports = (sizeSol * 1_000_000).toLong(),  // USDC has 6 decimals
+            amountLamports = usdcBalanceUnits,  // Use actual USDC balance
             slippageBps = DEFAULT_SLIPPAGE_BPS,
         )
         
