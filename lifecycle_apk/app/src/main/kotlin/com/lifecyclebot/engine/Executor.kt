@@ -3378,8 +3378,16 @@ class Executor(
 
             val simErr = jupiter.simulateSwap(txResult.txBase64, wallet.rpcUrl)
             if (simErr != null) {
-                onLog("Swap simulation failed: $simErr", ts.mint)
-                throw Exception(simErr)
+                if (simErr.startsWith("RPC error:") || simErr.startsWith("Simulate failed: null")) {
+                    // RPC connectivity issue (rate-limit, timeout, unavailable) — NOT a swap failure.
+                    // Log and proceed: the actual on-chain send will reject with a clear error if invalid.
+                    onLog("⚠️ Simulation RPC unavailable: $simErr — proceeding without preflight", ts.mint)
+                    ErrorLogger.warn("Executor", "⚠️ Sim RPC skipped for ${ts.symbol}: $simErr")
+                } else {
+                    // Actual swap simulation failure (bad accounts, insufficient funds, etc.)
+                    onLog("Swap simulation failed: $simErr", ts.mint)
+                    throw Exception(simErr)
+                }
             }
 
             security.enforceSignDelay()

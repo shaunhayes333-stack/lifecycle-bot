@@ -71,18 +71,23 @@ class SolanaWallet(privateKeyB58: String, val rpcUrl: String) {
     // ── balance ────────────────────────────────────────────
 
     fun getSolBalance(): Double {
-        try {
-            val resp = rpc("getBalance", JSONArray().put(publicKeyB58))
-            val error = resp.optJSONObject("error")
-            if (error != null) {
-                throw RuntimeException("RPC error: ${error.optString("message", "unknown")}")
+        var lastEx: Exception? = null
+        repeat(3) { attempt ->
+            try {
+                val resp = rpc("getBalance", JSONArray().put(publicKeyB58))
+                val error = resp.optJSONObject("error")
+                if (error != null) {
+                    throw RuntimeException("RPC error: ${error.optString("message", "unknown")}")
+                }
+                val lam = resp.optJSONObject("result")?.optLong("value", 0L) ?: 0L
+                return lam / 1_000_000_000.0
+            } catch (e: Exception) {
+                lastEx = e
+                if (attempt < 2) Thread.sleep((300L shl attempt))
             }
-            val lam = resp.optJSONObject("result")?.optLong("value", 0L) ?: 0L
-            return lam / 1_000_000_000.0
-        } catch (e: Exception) {
-            android.util.Log.e("SolanaWallet", "getSolBalance failed: ${e.message}", e)
-            throw e
         }
+        android.util.Log.e("SolanaWallet", "getSolBalance failed after 3 attempts: ${lastEx?.message}", lastEx)
+        throw lastEx ?: RuntimeException("getSolBalance: unknown error")
     }
 
     // ── sign + broadcast ───────────────────────────────────
@@ -379,23 +384,23 @@ class SolanaWallet(privateKeyB58: String, val rpcUrl: String) {
 
     // ── JSON-RPC helper ────────────────────────────────────
 
-        private fun rpc(method: String, params: JSONArray): JSONObject {
+    private fun rpc(method: String, params: JSONArray): JSONObject {
         val payload = JSONObject()
             .put("jsonrpc", "2.0")
             .put("id",      idGen.getAndIncrement())
             .put("method",  method)
             .put("params",  params)
         val body = payload.toString()
-        
+
         // V5.7.8: Try primary RPC first, then ALL fallback RPCs
         val rpcsToTry = mutableListOf(rpcUrl)
         com.lifecyclebot.engine.WalletManager.FALLBACK_RPCS.forEach { fallback ->
             if (fallback != rpcUrl && fallback !in rpcsToTry) rpcsToTry.add(fallback)
         }
-        
+
         var lastBody = "{}"
         var lastError: Exception? = null
-        
+
         for (endpoint in rpcsToTry) {
             for (attempt in 0..1) {
                 try {
@@ -405,7 +410,7 @@ class SolanaWallet(privateKeyB58: String, val rpcUrl: String) {
                     val resp = http.newCall(req).execute()
                     val code = resp.code
                     lastBody = resp.body?.string() ?: "{}"
-                    
+
                     if (code != 429 && code < 500) {
                         val json = JSONObject(lastBody)
                         // Check for RPC-level errors
@@ -439,30 +444,33 @@ class SolanaWallet(privateKeyB58: String, val rpcUrl: String) {
      * Returns Map<mint, Pair<uiAmount, decimals>>
      */
     fun getTokenAccountsWithDecimals(): Map<String, Pair<Double, Int>> {
-        return try {
-            val params = JSONArray()
-                .put(publicKeyB58)
-                .put(JSONObject().put("encoding","jsonParsed")
-                    .put("filters", JSONArray().put(JSONObject().put("dataSize",165))))
-            val resp = rpc("getTokenAccountsByOwner", params)
-            val out  = mutableMapOf<String, Pair<Double, Int>>()
-            resp.optJSONObject("result")?.optJSONArray("value")?.let { arr ->
-                for (i in 0 until arr.length()) {
-                    val info = arr.optJSONObject(i)
-                        ?.optJSONObject("account")?.optJSONObject("data")
-                        ?.optJSONObject("parsed")?.optJSONObject("info") ?: continue
-                    val mint = info.optString("mint","")
-                    val tokenAmount = info.optJSONObject("tokenAmount")
-                    val qty = tokenAmount?.optString("uiAmountString","0")?.toDoubleOrNull() ?: 0.0
-                    val decimals = tokenAmount?.optInt("decimals", 9) ?: 9
-                    if (mint.isNotBlank() && qty > 0) out[mint] = Pair(qty, decimals)
+        repeat(3) { attempt ->
+            try {
+                val params = JSONArray()
+                    .put(publicKeyB58)
+                    .put(JSONObject().put("encoding","jsonParsed")
+                        .put("filters", JSONArray().put(JSONObject().put("dataSize",165))))
+                val resp = rpc("getTokenAccountsByOwner", params)
+                val out  = mutableMapOf<String, Pair<Double, Int>>()
+                resp.optJSONObject("result")?.optJSONArray("value")?.let { arr ->
+                    for (i in 0 until arr.length()) {
+                        val info = arr.optJSONObject(i)
+                            ?.optJSONObject("account")?.optJSONObject("data")
+                            ?.optJSONObject("parsed")?.optJSONObject("info") ?: continue
+                        val mint = info.optString("mint","")
+                        val tokenAmount = info.optJSONObject("tokenAmount")
+                        val qty = tokenAmount?.optString("uiAmountString","0")?.toDoubleOrNull() ?: 0.0
+                        val decimals = tokenAmount?.optInt("decimals", 9) ?: 9
+                        if (mint.isNotBlank() && qty > 0) out[mint] = Pair(qty, decimals)
+                    }
                 }
+                return out
+            } catch (e: Exception) {
+                android.util.Log.w("SolanaWallet", "getTokenAccountsWithDecimals attempt ${attempt+1}/3 failed: ${e.message}")
+                if (attempt < 2) Thread.sleep((300L shl attempt))
             }
-            out
-        } catch (e: Exception) {
-            com.lifecyclebot.engine.ErrorLogger.warn("SolanaWallet", "getTokenAccountsWithDecimals FAILED: ${e.message}")
-            emptyMap()
         }
+        return emptyMap()
     }
 
     fun getTokenAccounts(): Map<String, Double> {
