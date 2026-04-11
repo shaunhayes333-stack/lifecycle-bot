@@ -172,8 +172,9 @@ object PerpsMarketScanners {
         val trend = solData.getTrend()
         val lsRatio = solData.getLongShortRatio()
         
-        // Strong trend detection
-        val hasMomentum = abs(change24h) > 3.0
+        // V5.7.7: Lower momentum threshold in paper mode for continuous learning (0.5% vs 3%)
+        val momentumThreshold = if (isPaperMode) 0.5 else 3.0
+        val hasMomentum = abs(change24h) > momentumThreshold
         
         if (!hasMomentum) {
             return listOf(ScanResult(
@@ -181,7 +182,7 @@ object PerpsMarketScanners {
                 market = PerpsMarket.SOL,
                 signal = null,
                 priority = 1,
-                reasoning = listOf("No strong momentum detected"),
+                reasoning = listOf("No momentum detected (need >${momentumThreshold}%, got ${change24h.fmt(1)}%)"),
             ))
         }
         
@@ -280,10 +281,13 @@ object PerpsMarketScanners {
         val priceFromLow = solData.price - solData.low24h
         val priceFromHigh = solData.high24h - solData.price
         
+        // V5.7.7: More relaxed snipe setup in paper mode (0.35 vs 0.2)
+        val rangeThreshold = if (isPaperMode) 0.35 else 0.2
+        
         // Near day low = potential long snipe
-        val nearLow = (priceFromLow / priceRange) < 0.2
+        val nearLow = priceRange > 0 && (priceFromLow / priceRange) < rangeThreshold
         // Near day high = potential short snipe  
-        val nearHigh = (priceFromHigh / priceRange) < 0.2
+        val nearHigh = priceRange > 0 && (priceFromHigh / priceRange) < rangeThreshold
         
         if (!nearLow && !nearHigh) {
             return listOf(ScanResult(
@@ -291,7 +295,7 @@ object PerpsMarketScanners {
                 market = PerpsMarket.SOL,
                 signal = null,
                 priority = 1,
-                reasoning = listOf("Price in middle of range - no snipe setup"),
+                reasoning = listOf("Price in middle of range - no snipe setup (threshold: ${(rangeThreshold*100).toInt()}%)"),
             ))
         }
         
