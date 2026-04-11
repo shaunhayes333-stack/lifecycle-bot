@@ -237,18 +237,18 @@ object SolanaArbAI {
             return ArbSignal(false, null, "DISABLED: Treasury < \$${MIN_TREASURY_USD.toInt()}")
         }
         
-        // Check daily limits
-        if (dailyTrades.get() >= MAX_DAILY_TRADES) {
+        // Check daily limits (V5.7.8: bypass in paper mode)
+        if (!isPaperMode && dailyTrades.get() >= MAX_DAILY_TRADES) {
             return ArbSignal(false, null, "DAILY_LIMIT: ${dailyTrades.get()}/$MAX_DAILY_TRADES")
         }
         
         val dailyPnl = dailyPnlUsdBps.get() / 100.0
-        if (dailyPnl <= -MAX_DAILY_LOSS_USD) {
+        if (!isPaperMode && dailyPnl <= -MAX_DAILY_LOSS_USD) {
             return ArbSignal(false, null, "LOSS_LIMIT: \$${dailyPnl.toInt()}")
         }
         
-        // Circuit breaker
-        if (consecutiveLosses.get() >= CIRCUIT_BREAKER_LOSSES) {
+        // Circuit breaker (V5.7.8: bypass in paper mode)
+        if (!isPaperMode && consecutiveLosses.get() >= CIRCUIT_BREAKER_LOSSES) {
             return ArbSignal(false, null, "CIRCUIT_BREAKER: ${consecutiveLosses.get()} losses")
         }
         

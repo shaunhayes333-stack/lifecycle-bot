@@ -1211,6 +1211,8 @@ class BotService : Service() {
         // Initialize KillSwitch for account protection
         val effectiveBalance = status.getEffectiveBalance(cfg.paperMode)
         KillSwitch.init(applicationContext, effectiveBalance)
+        // V5.7.8: Paper mode — disable all daily limits for maximum learning
+        KillSwitch.isPaperMode = cfg.paperMode
         KillSwitch.onKillTriggered = { reason ->
             addLog("🛑 KILL SWITCH: $reason")
             sendTradeNotif("🛑 KILL SWITCH", reason, NotificationHistory.NotifEntry.NotifType.WARNING)
@@ -5485,8 +5487,8 @@ if (deferredCount > 0) {
     val isBootstrap = learningProgress < 0.50  // Bootstrap phase ends at 0.5 (500 trades)
 
     // V5.9: In bootstrap paper mode, allow ALL low-quality tokens through for learning data.
-    // Previously only edge="SKIP" was allowed — conf=0 C-grade tokens (edge="C") were still blocked.
-    val allowSkipForLearning = isBootstrap && cfg.paperMode
+    // V5.7.8: In paper mode, ALWAYS allow — no daily limits, no promotion blocks. Let all modes trade freely.
+    val allowSkipForLearning = cfg.paperMode
     
     if ((edgeVerdictStr == "SKIP" || confValue <= 0) && !allowSkipForLearning) {
         ErrorLogger.info("BotService", "[V3|PROMOTION_GATE] ${identity.symbol} | allow=false | " +

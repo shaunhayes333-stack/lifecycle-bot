@@ -126,15 +126,18 @@ class SecurityGuard(
         }
 
         // ── 3. Daily loss limit ───────────────────────────────────────
+        // V5.7.8: Skip daily loss limit in paper mode
         resetDailyCountersIfNeeded()
         val c = cfg()
-        val dailyLimitSol = walletSol * (DAILY_LOSS_LIMIT_PCT / 100.0)
-        if (cbState.dailyLossSol >= dailyLimitSol) {
-            halt("Daily loss limit reached: ${cbState.dailyLossSol.fmt(4)} SOL lost today")
-            return GuardResult.Block(
-                "Daily loss limit hit (${DAILY_LOSS_LIMIT_PCT}% = ${dailyLimitSol.fmt(4)} SOL)",
-                fatal = true
-            )
+        if (!c.paperMode) {
+            val dailyLimitSol = walletSol * (DAILY_LOSS_LIMIT_PCT / 100.0)
+            if (cbState.dailyLossSol >= dailyLimitSol) {
+                halt("Daily loss limit reached: ${cbState.dailyLossSol.fmt(4)} SOL lost today")
+                return GuardResult.Block(
+                    "Daily loss limit hit (${DAILY_LOSS_LIMIT_PCT}% = ${dailyLimitSol.fmt(4)} SOL)",
+                    fatal = true
+                )
+            }
         }
 
         // ── 4. Wallet reserve floor ───────────────────────────────────

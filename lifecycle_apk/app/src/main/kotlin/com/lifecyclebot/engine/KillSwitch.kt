@@ -24,6 +24,15 @@ object KillSwitch {
     private const val DEFAULT_MAX_CONSECUTIVE_LOSSES = 5     // Stop after 5 losses in a row
     private const val DEFAULT_MAX_TRADES_PER_HOUR = 10       // Rate limit
     
+    // V5.7.8: Paper mode — no limits, let it learn freely
+    private const val PAPER_MAX_DAILY_LOSS_PCT = 999.0
+    private const val PAPER_MAX_DRAWDOWN_PCT = 999.0
+    private const val PAPER_MAX_CONSECUTIVE_LOSSES = 999
+    private const val PAPER_MAX_TRADES_PER_HOUR = 999
+    
+    // Paper mode flag
+    var isPaperMode: Boolean = false
+    
     // State tracking
     private var peakBalance: Double = 0.0
     private var dailyStartBalance: Double = 0.0
@@ -108,6 +117,12 @@ object KillSwitch {
         maxDrawdownPct: Double = DEFAULT_MAX_DRAWDOWN_PCT,
         maxConsecutiveLosses: Int = DEFAULT_MAX_CONSECUTIVE_LOSSES,
     ): Boolean {
+        
+        // V5.7.8: Paper mode — never kill, always continue
+        if (isPaperMode) {
+            tradesThisHour++
+            return true
+        }
         
         if (isKilled) {
             ErrorLogger.warn("KillSwitch", "Already killed: $killReason")
@@ -202,6 +217,11 @@ object KillSwitch {
         maxConsecutiveLosses: Int = DEFAULT_MAX_CONSECUTIVE_LOSSES,
         maxTradesPerHour: Int = DEFAULT_MAX_TRADES_PER_HOUR,
     ): Pair<Boolean, String> {
+        
+        // V5.7.8: Paper mode — always allow trading, no limits
+        if (isPaperMode) {
+            return Pair(true, "PAPER_MODE: no limits")
+        }
         
         if (isKilled) {
             return Pair(false, "KILLED: $killReason")
