@@ -1970,6 +1970,8 @@ class MultiAssetActivity : AppCompatActivity() {
                 AssetTab.PERPS -> {
                     PerpsExecutionEngine.getActivePositions().map { pos ->
                         val livePrice = PerpsMarketDataFetcher.getCachedPrice(pos.market)?.price?.takeIf { it > 0 } ?: pos.currentPrice
+                        // V5.7.8: Sync position price with live price before PnL calc
+                        if (livePrice > 0 && livePrice != pos.currentPrice) pos.currentPrice = livePrice
                         val pnlSol = pos.getPnlSol()
                         PositionInfo(
                             symbol = pos.market.symbol,
@@ -1994,6 +1996,8 @@ class MultiAssetActivity : AppCompatActivity() {
                                    else TokenizedStockTrader.getLeveragePositions()
                     positions.map { pos ->
                         val livePrice = PerpsMarketDataFetcher.getCachedPrice(pos.market)?.price?.takeIf { it > 0 } ?: pos.currentPrice
+                        // V5.7.8: Sync position price with live price before PnL calc
+                        if (livePrice > 0 && livePrice != pos.currentPrice) pos.currentPrice = livePrice
                         val pnlSol = pos.getPnlSol()
                         PositionInfo(
                             symbol = pos.market.symbol,
@@ -2018,6 +2022,8 @@ class MultiAssetActivity : AppCompatActivity() {
                                    else CommoditiesTrader.getLeveragePositions()
                     positions.map { pos ->
                         val livePrice = PerpsMarketDataFetcher.getCachedPrice(pos.market)?.price?.takeIf { it > 0 } ?: pos.currentPrice
+                        // V5.7.8: Sync position price with live price before PnL calc
+                        if (livePrice > 0 && livePrice != pos.currentPrice) pos.currentPrice = livePrice
                         val pnlSol = pos.getPnlSol()
                         PositionInfo(
                             symbol = pos.market.symbol,
@@ -2042,6 +2048,8 @@ class MultiAssetActivity : AppCompatActivity() {
                                    else MetalsTrader.getLeveragePositions()
                     positions.map { pos ->
                         val livePrice = PerpsMarketDataFetcher.getCachedPrice(pos.market)?.price?.takeIf { it > 0 } ?: pos.currentPrice
+                        // V5.7.8: Sync position price with live price before PnL calc
+                        if (livePrice > 0 && livePrice != pos.currentPrice) pos.currentPrice = livePrice
                         val pnlSol = pos.getPnlSol()
                         PositionInfo(
                             symbol = pos.market.symbol,
@@ -2066,6 +2074,8 @@ class MultiAssetActivity : AppCompatActivity() {
                                    else ForexTrader.getLeveragePositions()
                     positions.map { pos ->
                         val livePrice = PerpsMarketDataFetcher.getCachedPrice(pos.market)?.price?.takeIf { it > 0 } ?: pos.currentPrice
+                        // V5.7.8: Sync position price with live price before PnL calc
+                        if (livePrice > 0 && livePrice != pos.currentPrice) pos.currentPrice = livePrice
                         val pnlSol = pos.getPnlSol()
                         PositionInfo(
                             symbol = pos.market.symbol,
