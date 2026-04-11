@@ -336,6 +336,75 @@ object PerpsMarketDataFetcher {
         
         // SOL
         put("SOL", 83.21)      // Per Pyth logs
+
+        // ═══════════════════════════════════════════════════════════════════════
+        // V5.8: MAJOR ALT CRYPTOS
+        // ═══════════════════════════════════════════════════════════════════════
+        put("TRX", 0.145)         // TRON
+        put("TON", 5.50)          // Toncoin
+        put("BCH", 420.0)         // Bitcoin Cash
+        put("XLM", 0.115)         // Stellar Lumens
+        put("XMR", 175.0)         // Monero
+        put("ETC", 28.0)          // Ethereum Classic
+        put("ZEC", 35.0)          // Zcash
+        put("XTZ", 0.90)          // Tezos
+        put("EOS", 0.80)          // EOS
+
+        // V5.8: DeFi & Protocol Tokens
+        put("CAKE", 2.40)         // PancakeSwap
+        put("GMX", 20.0)          // GMX Perpetuals
+        put("DYDX", 1.50)         // dYdX
+        put("ENA", 0.45)          // Ethena
+        put("PENDLE", 3.80)       // Pendle Finance
+
+        // V5.8: New Ecosystem
+        put("WLD", 1.20)          // Worldcoin
+        put("JTO", 3.50)          // Jito
+        put("W", 0.48)            // Wormhole
+        put("STRK", 0.55)         // Starknet
+        put("TAO", 440.0)         // Bittensor
+
+        // V5.8: Meme Coins
+        put("FLOKI", 0.000135)    // FLOKI
+        put("NOT", 0.0085)        // Notcoin
+        put("POPCAT", 0.80)       // Popcat
+        put("TRUMP", 9.50)        // OFFICIAL TRUMP
+
+        // ═══════════════════════════════════════════════════════════════════════
+        // V5.8: NEW STOCKS
+        // ═══════════════════════════════════════════════════════════════════════
+        put("ADBE", 440.0)        // Adobe Inc
+        put("NOW", 895.0)         // ServiceNow
+        put("WDAY", 270.0)        // Workday
+        put("SNAP", 14.0)         // Snap Inc
+        put("PINS", 30.0)         // Pinterest
+        put("RBLX", 38.0)         // Roblox
+        put("MELI", 1950.0)       // MercadoLibre
+        put("SE", 88.0)           // Sea Limited
+        put("GRAB", 4.50)         // Grab Holdings
+        put("INFY", 19.0)         // Infosys ADR
+        put("SPGI", 470.0)        // S&P Global
+        put("BX", 125.0)          // Blackstone
+        put("KKR", 115.0)         // KKR & Co
+        put("CME", 235.0)         // CME Group
+        put("IBKR", 155.0)        // Interactive Brokers
+        put("AMGN", 295.0)        // Amgen
+        put("ISRG", 490.0)        // Intuitive Surgical
+        put("NOC", 500.0)         // Northrop Grumman
+        put("GD", 280.0)          // General Dynamics
+        put("AFRM", 48.0)         // Affirm Holdings
+
+        // ═══════════════════════════════════════════════════════════════════════
+        // V5.8: NEW FOREX CROSS PAIRS
+        // ═══════════════════════════════════════════════════════════════════════
+        put("EURCHF", 0.9350)
+        put("GBPCHF", 1.1100)
+        put("EURCAD", 1.4900)
+        put("EURAUD", 1.7550)
+        put("GBPAUD", 2.0800)
+        put("AUDCAD", 0.8950)
+        put("AUDNZD", 1.0850)
+        put("NZDJPY", 88.50)
     }
     
     // HTTP Client

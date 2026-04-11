@@ -118,7 +118,46 @@ enum class PerpsMarket(
     ORCA("ORCA", "🐋", "Orca", false, 20.0, "24/7", "#FFD700"),
     MNGO("MNGO", "🥭", "Mango Markets", false, 20.0, "24/7", "#F2C94C"),
     DRIFT("DRIFT", "🌊", "Drift Protocol", false, 20.0, "24/7", "#6366F1"),
-    
+
+    // ═══════════════════════════════════════════════════════════════════════════
+    // 🪙 V5.8: MAJOR ALTS - High Market Cap
+    // ═══════════════════════════════════════════════════════════════════════════
+    TRX("TRX", "♻️", "TRON", false, 20.0, "24/7", "#FF0013"),
+    TON("TON", "💎", "Toncoin", false, 20.0, "24/7", "#0088CC"),
+    BCH("BCH", "🟩", "Bitcoin Cash", false, 20.0, "24/7", "#8DC351"),
+    XLM("XLM", "✨", "Stellar Lumens", false, 20.0, "24/7", "#7D00FF"),
+    XMR("XMR", "🔒", "Monero", false, 20.0, "24/7", "#FF6600"),
+    ETC("ETC", "⟠", "Ethereum Classic", false, 20.0, "24/7", "#328332"),
+    ZEC("ZEC", "🛡️", "Zcash", false, 20.0, "24/7", "#F4B728"),
+    XTZ("XTZ", "Ꜩ", "Tezos", false, 20.0, "24/7", "#2C7DF7"),
+    EOS("EOS", "⚫", "EOS", false, 20.0, "24/7", "#443F54"),
+
+    // ═══════════════════════════════════════════════════════════════════════════
+    // 🔵 V5.8: DeFi & DEX PROTOCOLS
+    // ═══════════════════════════════════════════════════════════════════════════
+    CAKE("CAKE", "🥞", "PancakeSwap", false, 20.0, "24/7", "#1FC7D4"),
+    GMX("GMX", "🔵", "GMX", false, 20.0, "24/7", "#3B4FF8"),
+    DYDX("DYDX", "📊", "dYdX", false, 20.0, "24/7", "#6966FF"),
+    ENA("ENA", "💠", "Ethena", false, 20.0, "24/7", "#7A2FEB"),
+    PENDLE("PENDLE", "⚡", "Pendle", false, 20.0, "24/7", "#00B2FF"),
+
+    // ═══════════════════════════════════════════════════════════════════════════
+    // 🚀 V5.8: NEW SOLANA & CROSS-CHAIN ECOSYSTEM
+    // ═══════════════════════════════════════════════════════════════════════════
+    WLD("WLD", "🌍", "Worldcoin", false, 20.0, "24/7", "#000000"),
+    JTO("JTO", "🪐", "Jito", false, 20.0, "24/7", "#01C37D"),
+    W("W", "🌀", "Wormhole", false, 20.0, "24/7", "#7B00FF"),
+    STRK("STRK", "⚡", "Starknet", false, 20.0, "24/7", "#EC796B"),
+    TAO("TAO", "🧠", "Bittensor", false, 20.0, "24/7", "#E6007A"),
+
+    // ═══════════════════════════════════════════════════════════════════════════
+    // 🐸 V5.8: MEME COINS
+    // ═══════════════════════════════════════════════════════════════════════════
+    FLOKI("FLOKI", "🐕", "FLOKI", false, 20.0, "24/7", "#E2B100"),
+    NOT("NOT", "💬", "Notcoin", false, 20.0, "24/7", "#F7B731"),
+    POPCAT("POPCAT", "🐱", "Popcat", false, 20.0, "24/7", "#FF6B35"),
+    TRUMP("TRUMP", "🎩", "OFFICIAL TRUMP", false, 20.0, "24/7", "#FF0000"),
+
     // ═══════════════════════════════════════════════════════════════════════════
     // TOKENIZED STOCKS - All available on Solana via Pyth Oracle
     // ═══════════════════════════════════════════════════════════════════════════
@@ -352,7 +391,55 @@ enum class PerpsMarket(
     HMY("HMY", "⛏️", "Harmony Gold", true, 10.0, "MARKET", "#B8860B"),
     AU("AU", "⛏️", "AngloGold Ashanti", true, 10.0, "MARKET", "#DAA520"),
     SSRM("SSRM", "⛏️", "SSR Mining", true, 10.0, "MARKET", "#C0C0C0"),
-    
+
+    // ═══════════════════════════════════════════════════════════════════════════
+    // 🎨 V5.8: SOFTWARE & DESIGN
+    // ═══════════════════════════════════════════════════════════════════════════
+    ADBE("ADBE", "🎨", "Adobe Inc.", true, 10.0, "MARKET", "#FF0000"),
+    NOW("NOW", "☁️", "ServiceNow", true, 10.0, "MARKET", "#62D84E"),
+    WDAY("WDAY", "☁️", "Workday Inc.", true, 10.0, "MARKET", "#0A7AFF"),
+
+    // ═══════════════════════════════════════════════════════════════════════════
+    // 📱 V5.8: SOCIAL MEDIA & APPS
+    // ═══════════════════════════════════════════════════════════════════════════
+    SNAP("SNAP", "👻", "Snap Inc.", true, 10.0, "MARKET", "#FFFC00"),
+    PINS("PINS", "📌", "Pinterest", true, 10.0, "MARKET", "#E60023"),
+    RBLX("RBLX", "🎮", "Roblox Corp.", true, 10.0, "MARKET", "#E8192C"),
+
+    // ═══════════════════════════════════════════════════════════════════════════
+    // 🌎 V5.8: GLOBAL GROWTH - LatAm, SE Asia, India
+    // ═══════════════════════════════════════════════════════════════════════════
+    MELI("MELI", "🛒", "MercadoLibre", true, 10.0, "MARKET", "#FFE600"),
+    SE("SE", "🌊", "Sea Limited", true, 10.0, "MARKET", "#E00000"),
+    GRAB("GRAB", "🚗", "Grab Holdings", true, 10.0, "MARKET", "#01B14F"),
+    INFY("INFY", "🇮🇳", "Infosys ADR", true, 10.0, "MARKET", "#007CC2"),
+
+    // ═══════════════════════════════════════════════════════════════════════════
+    // 🏛️ V5.8: ALTERNATIVE ASSET MANAGERS & EXCHANGES
+    // ═══════════════════════════════════════════════════════════════════════════
+    SPGI("SPGI", "📊", "S&P Global", true, 10.0, "MARKET", "#286EB4"),
+    BX("BX", "🏦", "Blackstone", true, 10.0, "MARKET", "#000000"),
+    KKR("KKR", "🏦", "KKR & Co", true, 10.0, "MARKET", "#1A1A1A"),
+    CME("CME", "🔔", "CME Group", true, 10.0, "MARKET", "#003082"),
+    IBKR("IBKR", "📈", "Interactive Brokers", true, 10.0, "MARKET", "#D6001C"),
+
+    // ═══════════════════════════════════════════════════════════════════════════
+    // 🧬 V5.8: ADDITIONAL BIOTECH
+    // ═══════════════════════════════════════════════════════════════════════════
+    AMGN("AMGN", "🧬", "Amgen Inc.", true, 10.0, "MARKET", "#0065B3"),
+    ISRG("ISRG", "🤖", "Intuitive Surgical", true, 10.0, "MARKET", "#002B60"),
+
+    // ═══════════════════════════════════════════════════════════════════════════
+    // 🛸 V5.8: DEFENSE & AEROSPACE
+    // ═══════════════════════════════════════════════════════════════════════════
+    NOC("NOC", "🛡️", "Northrop Grumman", true, 10.0, "MARKET", "#003087"),
+    GD("GD", "✈️", "General Dynamics", true, 10.0, "MARKET", "#003082"),
+
+    // ═══════════════════════════════════════════════════════════════════════════
+    // 💳 V5.8: CONSUMER FINTECH
+    // ═══════════════════════════════════════════════════════════════════════════
+    AFRM("AFRM", "💳", "Affirm Holdings", true, 10.0, "MARKET", "#0FA0EA"),
+
     // ═══════════════════════════════════════════════════════════════════════════
     // 🛢️ COMMODITIES - Energy (24/7 trading via Pyth)
     // ═══════════════════════════════════════════════════════════════════════════
@@ -414,6 +501,14 @@ enum class PerpsMarket(
     AUDJPY("AUDJPY", "🇦🇺", "AUD/JPY", false, 50.0, "24/5", "#00008B"),
     CADJPY("CADJPY", "🇨🇦", "CAD/JPY", false, 50.0, "24/5", "#FF0000"),
     CHFJPY("CHFJPY", "🇨🇭", "CHF/JPY", false, 50.0, "24/5", "#D52B1E"),
+    EURCHF("EURCHF", "🇪🇺", "EUR/CHF", false, 50.0, "24/5", "#003399"),
+    GBPCHF("GBPCHF", "🇬🇧", "GBP/CHF", false, 50.0, "24/5", "#012169"),
+    EURCAD("EURCAD", "🇪🇺", "EUR/CAD", false, 50.0, "24/5", "#003399"),
+    EURAUD("EURAUD", "🇪🇺", "EUR/AUD", false, 50.0, "24/5", "#003399"),
+    GBPAUD("GBPAUD", "🇬🇧", "GBP/AUD", false, 50.0, "24/5", "#012169"),
+    AUDCAD("AUDCAD", "🇦🇺", "AUD/CAD", false, 50.0, "24/5", "#00008B"),
+    AUDNZD("AUDNZD", "🇦🇺", "AUD/NZD", false, 50.0, "24/5", "#00008B"),
+    NZDJPY("NZDJPY", "🇳🇿", "NZD/JPY", false, 50.0, "24/5", "#00247D"),
     
     // 💱 FOREX - Emerging Markets
     USDMXN("USDMXN", "🇲🇽", "USD/MXN", false, 30.0, "24/5", "#006847"),

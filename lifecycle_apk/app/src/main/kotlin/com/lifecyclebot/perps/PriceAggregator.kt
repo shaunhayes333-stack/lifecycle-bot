@@ -153,9 +153,17 @@ object PriceAggregator {
     private fun detectAssetType(symbol: String): AssetType {
         return when {
             // Crypto detection
-            symbol in listOf("BTC", "ETH", "SOL", "BNB", "XRP", "ADA", "DOGE", "AVAX", "DOT", 
+            symbol in listOf("BTC", "ETH", "SOL", "BNB", "XRP", "ADA", "DOGE", "AVAX", "DOT",
                 "LINK", "MATIC", "SHIB", "LTC", "ATOM", "UNI", "ARB", "OP", "APT", "SUI", "SEI",
-                "INJ", "TIA", "JUP", "PEPE", "WIF", "BONK", "PYTH", "RAY", "ORCA") -> AssetType.CRYPTO
+                "INJ", "TIA", "JUP", "PEPE", "WIF", "BONK", "PYTH", "RAY", "ORCA",
+                "NEAR", "FTM", "ALGO", "HBAR", "ICP", "VET", "FIL", "RENDER", "GRT", "AAVE",
+                "MKR", "SNX", "CRV", "RUNE", "STX", "IMX", "SAND", "MANA", "AXS", "ENS",
+                "LDO", "RPL", "MNGO", "DRIFT",
+                // V5.8
+                "TRX", "TON", "BCH", "XLM", "XMR", "ETC", "ZEC", "XTZ", "EOS",
+                "CAKE", "GMX", "DYDX", "ENA", "PENDLE",
+                "WLD", "JTO", "W", "STRK", "TAO",
+                "FLOKI", "NOT", "POPCAT", "TRUMP") -> AssetType.CRYPTO
             
             // Forex detection
             symbol.length == 6 && symbol.matches(Regex("[A-Z]{6}")) -> AssetType.FOREX
@@ -875,7 +883,31 @@ object PriceAggregator {
             "JUP" to "jupiter-exchange-solana",
             "PEPE" to "pepe",
             "WIF" to "dogwifcoin",
-            "BONK" to "bonk"
+            "BONK" to "bonk",
+            // V5.8 additions
+            "TRX" to "tron",
+            "TON" to "the-open-network",
+            "BCH" to "bitcoin-cash",
+            "XLM" to "stellar",
+            "XMR" to "monero",
+            "ETC" to "ethereum-classic",
+            "ZEC" to "zcash",
+            "XTZ" to "tezos",
+            "EOS" to "eos",
+            "CAKE" to "pancakeswap-token",
+            "GMX" to "gmx",
+            "DYDX" to "dydx",
+            "ENA" to "ethena",
+            "PENDLE" to "pendle",
+            "WLD" to "worldcoin-wld",
+            "JTO" to "jito-governance-token",
+            "W" to "wormhole",
+            "STRK" to "starknet",
+            "TAO" to "bittensor",
+            "FLOKI" to "floki",
+            "NOT" to "notcoin",
+            "POPCAT" to "popcat",
+            "TRUMP" to "official-trump"
         )[symbol]
     }
     

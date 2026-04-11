@@ -76,6 +76,25 @@ object PythOracle {
         "PEPE" to "0xd69731a2e74ac1ce884fc3890f7ee324b6deb66147055249568869ed700882e4",
         "WIF" to "0x4ca4beeca86f0d164160323817a4e42b10010a724c2217c6ee41b54cd4cc61fc",
         "BONK" to "0x72b021217ca3fe68922a19aaf990109cb9d84e9ad004b4d2025ad6f529314419",
+
+        // ═══════════════════════════════════════════════════════════════════════
+        // V5.8 - MAJOR ALTS (Pyth-verified feed IDs)
+        // ═══════════════════════════════════════════════════════════════════════
+        "TRX" to "0x67aed5a24fdaa045475e7195c98a98aea119c763f272d4523f5bac93a4f33c2b",
+        "BCH" to "0x3dd2b63686a450ec7290df3a1e0b583c0481f651351edfa7636f39aed55cf8a3",
+        "XLM" to "0xb7a8eba68a997cd0210c2e1e4ee811ad2d174b3611c22d9ebf16f4cb7e9ba850",
+        "XMR" to "0x46b8cc9347f04391764a0361e0b17c3ba394b001e7c304f7650f6e0d723a9992",
+        "ETC" to "0x7f2c397a1d8ad5e5dc76b49ccf0dce0c7cc0a94c04c5c04eeab1dd7c0dd6d8b4",
+
+        // V5.8 - DeFi & New Ecosystem
+        "DYDX" to "0x6489800bb8974169adfe35937bf6736507097d13c190d760c557108c7e93a81b",
+        "WLD" to "0xd6835ad1f773de4a378115eb6824bd0c0e42d84d1c84d9750e853fb6b6c7794d",
+        "JTO" to "0xb43660a5f790c69354b0729a5ef9d50d68f1df92107540210b9cccba1f947cc2",
+        "W" to "0xeff7446475e218517566ea99e72a4abec2e1bd8498b43b7d8331e29dcb059389",
+        "STRK" to "0x6a182399ff70ccf3e06024898942028204125a819e519a335ffa4579e66cd870",
+        "TAO" to "0x410f41de235f2db824e562ea7ab2d3d3d4ff048316c61d629c0b93f58584e1af",
+        // TON, ENA, PENDLE, CAKE, GMX, ZEC, XTZ, EOS, FLOKI, NOT, POPCAT, TRUMP:
+        // no confirmed Pyth IDs — fall through to Jupiter/CoinGecko/Binance
         
         // ═══════════════════════════════════════════════════════════════════════
         // US EQUITIES - REAL Pyth Price Feed IDs (verified from Hermes API)
