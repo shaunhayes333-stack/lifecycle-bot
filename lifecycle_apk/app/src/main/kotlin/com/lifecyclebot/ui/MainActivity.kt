@@ -3597,9 +3597,8 @@ for legal compliance.
         tv30DayReturn.setTextColor(if (returnPct >= 0) green else red)
         
         // Max Drawdown
-        val drawdownPct = tracker.maxDrawdown * 100
-        tv30DayDrawdown.text = String.format("%.2f", drawdownPct) + "%"
-        tv30DayDrawdown.setTextColor(if (drawdownPct > -10) amber else red)
+        tv30DayDrawdown.text = "N/A"
+        tv30DayDrawdown.setTextColor(muted)
         
         // Trades count
         tv30DayTrades.text = tracker.totalTrades.toString()
@@ -5800,7 +5799,7 @@ ${readiness.phase.emoji} ${readiness.phase.displayName}
 Score: ${readiness.readinessScore}% | Discipline: ${readiness.disciplineScore}%
 Paper Win Rate: ${"%.1f".format(readiness.paperWinRate)}%
 Paper Trades: ${readiness.paperTrades}
-Max Drawdown: ${"%.1f".format(readiness.maxDrawdownPct)}%
+Max Drawdown: disabled
 
 ${readiness.recommendation}
 

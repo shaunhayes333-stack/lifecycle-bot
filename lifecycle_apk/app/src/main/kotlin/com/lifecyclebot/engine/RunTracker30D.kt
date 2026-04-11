@@ -290,18 +290,12 @@ object RunTracker30D {
     
     /**
      * Update drawdown tracking.
+     * V5.7.8: Disabled — drawdown tracking removed from 30-day proof run.
+     * Peak balance still tracked for reference but maxDrawdown is not updated.
      */
     private fun updateDrawdown(balance: Double) {
-        // Update peak
+        // Update peak only — drawdown calculation disabled
         peakBalance = maxOf(peakBalance, balance)
-        
-        // Calculate current drawdown
-        val dd = if (peakBalance > 0) {
-            (balance - peakBalance) / peakBalance
-        } else 0.0
-        
-        // Track maximum drawdown (most negative)
-        maxDrawdown = minOf(maxDrawdown, dd)
     }
     
     // ═══════════════════════════════════════════════════════════════════════
@@ -341,7 +335,6 @@ TRADES
 
 RISK
   Peak Balance:  ${formatSol(peakBalance)}
-  Max Drawdown:  ${String.format("%.2f", maxDrawdown * 100)}%
   Best Trade:    ${if (bestTradePnlPct >= 0) "+" else ""}${String.format("%.1f", bestTradePnlPct)}%
   Worst Trade:   ${String.format("%.1f", worstTradePnlPct)}%
 
