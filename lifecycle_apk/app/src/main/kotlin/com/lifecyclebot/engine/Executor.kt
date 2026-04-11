@@ -3764,7 +3764,14 @@ class Executor(
             return SellResult.NO_WALLET
         } else {
             onLog("💰 Routing to liveSell", tradeId.mint)
-            return liveSell(ts, reason, wallet, walletSol, tradeId)
+            val result = liveSell(ts, reason, wallet, walletSol, tradeId)
+            // V5.7.7 FIX: Auto-requeue on retryable failure so SL/TP never gets silently dropped
+            if (result == SellResult.FAILED_RETRYABLE) {
+                PendingSellQueue.add(ts.mint, ts.symbol, reason)
+                onLog("🔄 Sell auto-queued for retry: ${ts.symbol} | reason=$reason", tradeId.mint)
+                ErrorLogger.warn("Executor", "🔄 SELL REQUEUED: ${ts.symbol} — will retry when wallet/RPC recovers")
+            }
+            return result
         }
     }
 

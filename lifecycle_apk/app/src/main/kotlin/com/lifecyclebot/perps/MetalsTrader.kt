@@ -373,6 +373,13 @@ object MetalsTrader {
     // ═══════════════════════════════════════════════════════════════════════════
     
     private suspend fun executeSignal(signal: MetalSignal, positionMap: ConcurrentHashMap<String, MetalPosition>, typeLabel: String) {
+        // V5.7.7 FIX: Refresh live wallet balance if uninitialized (0) — prevents all trades being silently blocked
+        if (!isPaperMode.get() && liveWalletBalance <= 0.0) {
+            try {
+                val fresh = com.lifecyclebot.engine.WalletManager.getWallet()?.getSolBalance() ?: 0.0
+                if (fresh > 0) updateLiveBalance(fresh)
+            } catch (_: Exception) {}
+        }
         val balance = getEffectiveBalance()
         if (balance < POSITION_SIZE_SOL) {
             ErrorLogger.warn(TAG, "🥇 Insufficient balance for ${signal.market.symbol}")
@@ -490,9 +497,30 @@ object MetalsTrader {
         val pnlPct = position.getPnlPercent() - (totalFeeSol / position.size * 100)
         val isWin = pnl >= 0
 
-        paperBalance += position.size + pnl
+        // V5.7.7 FIX: Execute live on-chain close, not just paper bookkeeping
+        if (!isPaperMode.get()) {
+            GlobalScope.launch(Dispatchers.IO) {
+                try {
+                    MarketsLiveExecutor.closeLivePosition(
+                        market = position.market,
+                        direction = position.direction,
+                        sizeSol = position.size,
+                        leverage = position.leverage,
+                        traderType = "Metals",
+                    )
+                } catch (e: Exception) {
+                    ErrorLogger.warn(TAG, "Live close failed for ${position.market.symbol}: ${e.message}")
+                }
+            }
+            try {
+                val newBal = com.lifecyclebot.engine.WalletManager.getWallet()?.getSolBalance() ?: liveWalletBalance
+                updateLiveBalance(newBal)
+            } catch (_: Exception) {}
+        } else {
+            paperBalance += position.size + pnl
+        }
         positionMap.remove(position.id)
-        
+
         val typeLabel = if (position.leverage == 1.0) "💰" else "⚡"
         val emoji = if (isWin) "✅" else "❌"
         ErrorLogger.error(TAG, "🥇 CLOSED: $typeLabel $emoji ${position.market.symbol} | PnL: ${if (pnl >= 0) "+" else ""}${"%.4f".format(pnl)}◎ | $reason")

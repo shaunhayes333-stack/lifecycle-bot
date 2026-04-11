@@ -892,8 +892,26 @@ object TokenizedStockTrader {
         if (isWin) winningTrades.incrementAndGet() else losingTrades.incrementAndGet()
         totalPnlSol += netPnlSol
         
-        // Return capital + net P&L to balance
-        if (isPaperMode.get()) {
+        // V5.7.7 FIX: Return capital + P&L — execute live on-chain close in live mode
+        if (!isPaperMode.get()) {
+            GlobalScope.launch(Dispatchers.IO) {
+                try {
+                    MarketsLiveExecutor.closeLivePosition(
+                        market = position.market,
+                        direction = position.direction,
+                        sizeSol = position.sizeSol,
+                        leverage = position.leverage,
+                        traderType = "TokenizedStocks",
+                    )
+                } catch (e: Exception) {
+                    ErrorLogger.warn(TAG, "Live close failed for ${position.market.symbol}: ${e.message}")
+                }
+            }
+            try {
+                val newBal = com.lifecyclebot.engine.WalletManager.getWallet()?.getSolBalance() ?: liveWalletBalance
+                updateLiveBalance(newBal)
+            } catch (_: Exception) {}
+        } else {
             paperBalance += position.sizeSol + netPnlSol
         }
         
@@ -1208,8 +1226,15 @@ object TokenizedStockTrader {
      */
     private suspend fun executeLiveTrade(signal: StockSignal, isSpot: Boolean): Boolean {
         val leverage = if (isSpot) 1.0 else signal.leverage
+        // V5.7.7 FIX: Refresh live wallet balance if uninitialized (0) — prevents all trades being silently blocked
+        if (liveWalletBalance <= 0.0) {
+            try {
+                val fresh = com.lifecyclebot.engine.WalletManager.getWallet()?.getSolBalance() ?: 0.0
+                if (fresh > 0) updateLiveBalance(fresh)
+            } catch (_: Exception) {}
+        }
         val sizeSol = getEffectiveBalance() * (DEFAULT_SIZE_PCT / 100)
-        
+
         if (sizeSol < 0.01) {
             ErrorLogger.warn(TAG, "🔴 LIVE: Insufficient balance for trade")
             return false
