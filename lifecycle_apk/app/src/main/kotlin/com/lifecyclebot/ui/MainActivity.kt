@@ -748,6 +748,12 @@ for legal compliance.
         }
         btnOpenAlerts.setOnClickListener  { startActivity(android.content.Intent(this, AlertsActivity::class.java)) }
         
+        // V5.7.8: Watchlist button — long-press alerts to open watchlist
+        btnOpenAlerts.setOnLongClickListener {
+            startActivity(android.content.Intent(this, WatchlistActivity::class.java))
+            true
+        }
+        
         // V5.2: Behavior Dashboard button
         try {
             findViewById<android.view.View>(R.id.btnOpenBehavior)
@@ -7399,7 +7405,8 @@ AI Confirmation: ${if (config.requireAIConfirmation) "✅" else "❌"}
         val options = arrayOf(
             "📡 Network Signal Auto-Buyer",
             "🔍 Insider Tracker (Trump/Pelosi/Whales)",
-            "📊 View All Network Signals"
+            "📊 View All Network Signals",
+            "🔔 Watchlist & Price Alerts"
         )
         
         AlertDialog.Builder(this, R.style.Theme_AATE_Dialog)
@@ -7409,6 +7416,7 @@ AI Confirmation: ${if (config.requireAIConfirmation) "✅" else "❌"}
                     0 -> showNetworkSignalAutoBuyerDialog()
                     1 -> showInsiderTrackerDialog()
                     2 -> showAllNetworkSignalsDialog()
+                    3 -> startActivity(Intent(this, WatchlistActivity::class.java))
                 }
             }
             .setNegativeButton("Cancel") { d, _ -> d.dismiss() }

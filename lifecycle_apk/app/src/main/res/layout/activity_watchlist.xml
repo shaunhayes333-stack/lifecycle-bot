@@ -1,0 +1,87 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:background="#0A0A0F"
+    android:orientation="vertical">
+
+    <!-- Header -->
+    <LinearLayout android:layout_width="match_parent" android:layout_height="60dp"
+        android:orientation="horizontal" android:gravity="center_vertical"
+        android:paddingStart="16dp" android:paddingEnd="16dp"
+        android:background="#111118">
+        <TextView android:id="@+id/btnWatchlistBack"
+            android:layout_width="wrap_content" android:layout_height="wrap_content"
+            android:text="←" android:textColor="#9945FF" android:textSize="22sp"
+            android:paddingEnd="16dp" android:clickable="true" android:focusable="true"/>
+        <TextView android:layout_width="0dp" android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:text="Watchlist &amp; Alerts" android:textColor="#FFFFFF"
+            android:textSize="18sp" android:textStyle="bold"/>
+        <TextView android:id="@+id/btnAddSymbol"
+            android:layout_width="wrap_content" android:layout_height="wrap_content"
+            android:text="+ Add" android:textColor="#14F195" android:textSize="13sp"
+            android:clickable="true" android:focusable="true"/>
+    </LinearLayout>
+
+    <View android:layout_width="match_parent" android:layout_height="1dp"
+        android:background="#1F2937"/>
+
+    <!-- Tabs: Watchlist | Alerts | Triggered -->
+    <LinearLayout android:layout_width="match_parent" android:layout_height="44dp"
+        android:orientation="horizontal" android:gravity="center_vertical"
+        android:paddingStart="12dp" android:paddingEnd="12dp"
+        android:background="#0D0D14">
+        <TextView android:id="@+id/tabWatchlist"
+            android:layout_width="0dp" android:layout_height="32dp"
+            android:layout_weight="1" android:gravity="center"
+            android:text="WATCHLIST" android:textColor="#14F195" android:textSize="12sp"
+            android:textStyle="bold" android:background="#1A2E1A"
+            android:clickable="true" android:focusable="true"/>
+        <TextView android:id="@+id/tabActiveAlerts"
+            android:layout_width="0dp" android:layout_height="32dp"
+            android:layout_weight="1" android:gravity="center"
+            android:text="ALERTS" android:textColor="#6B7280" android:textSize="12sp"
+            android:clickable="true" android:focusable="true"/>
+        <TextView android:id="@+id/tabTriggered"
+            android:layout_width="0dp" android:layout_height="32dp"
+            android:layout_weight="1" android:gravity="center"
+            android:text="TRIGGERED" android:textColor="#6B7280" android:textSize="12sp"
+            android:clickable="true" android:focusable="true"/>
+    </LinearLayout>
+
+    <View android:layout_width="match_parent" android:layout_height="1dp"
+        android:background="#1F2937"/>
+
+    <!-- Stats Bar -->
+    <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content"
+        android:orientation="horizontal" android:gravity="center_vertical"
+        android:paddingStart="16dp" android:paddingEnd="16dp"
+        android:paddingTop="8dp" android:paddingBottom="8dp"
+        android:background="#0D0D14">
+        <TextView android:id="@+id/tvWatchlistStats"
+            android:layout_width="0dp" android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:text="0 items | 0 alerts" android:textColor="#6B7280"
+            android:textSize="11sp"/>
+        <TextView android:id="@+id/btnRefreshWatchlist"
+            android:layout_width="wrap_content" android:layout_height="wrap_content"
+            android:text="Scan All" android:textColor="#14F195" android:textSize="11sp"
+            android:clickable="true" android:focusable="true"/>
+    </LinearLayout>
+
+    <View android:layout_width="match_parent" android:layout_height="1dp"
+        android:background="#1F2937"/>
+
+    <ProgressBar android:id="@+id/progressWatchlist"
+        android:layout_width="match_parent" android:layout_height="3dp"
+        style="@android:style/Widget.ProgressBar.Horizontal"
+        android:indeterminate="true" android:visibility="gone"/>
+
+    <!-- Content List -->
+    <ScrollView android:layout_width="match_parent" android:layout_height="match_parent">
+        <LinearLayout android:id="@+id/llWatchlistContent"
+            android:layout_width="match_parent" android:layout_height="wrap_content"
+            android:orientation="vertical" android:paddingBottom="24dp"/>
+    </ScrollView>
+</LinearLayout>
