@@ -257,7 +257,11 @@ object CashGenerationAI {
 
     fun addToTreasury(profitSol: Double, isPaper: Boolean) {
         if (profitSol <= 0) return
-        val bps = (profitSol * 100).toLong()
+        // Sanity cap: a single trade can allocate at most 100 SOL to the treasury.
+        // Prevents a price-scale anomaly (e.g. lamport-unit price leak) from producing
+        // an astronomical treasury balance in one shot.
+        val cappedProfit = profitSol.coerceAtMost(100.0)
+        val bps = (cappedProfit * 100).toLong()
         if (isPaper) {
             paperTreasuryBalanceBps.addAndGet(bps)
         } else {
@@ -342,15 +346,25 @@ object CashGenerationAI {
             val obj = JSONObject(json)
             
             // Restore paper treasury balance
+            // Cap at 100,000 SOL (10,000,000 bps) — rejects corrupted values from
+            // price-scale anomalies while preserving any legitimate accumulated balance.
             val savedPaperBps = obj.optLong("paper_treasury_bps", 600L)
             if (savedPaperBps > 0) {
-                paperTreasuryBalanceBps.set(savedPaperBps)
+                val cappedPaperBps = savedPaperBps.coerceAtMost(10_000_000L)
+                if (savedPaperBps != cappedPaperBps) {
+                    ErrorLogger.warn(TAG, "💾 TREASURY CORRUPTED: paper=${savedPaperBps/100.0} SOL — clamped to ${cappedPaperBps/100.0} SOL")
+                }
+                paperTreasuryBalanceBps.set(cappedPaperBps)
             }
-            
+
             // Restore live treasury balance
             val savedLiveBps = obj.optLong("live_treasury_bps", 0L)
             if (savedLiveBps > 0) {
-                liveTreasuryBalanceBps.set(savedLiveBps)
+                val cappedLiveBps = savedLiveBps.coerceAtMost(10_000_000L)
+                if (savedLiveBps != cappedLiveBps) {
+                    ErrorLogger.warn(TAG, "💾 TREASURY CORRUPTED: live=${savedLiveBps/100.0} SOL — clamped to ${cappedLiveBps/100.0} SOL")
+                }
+                liveTreasuryBalanceBps.set(cappedLiveBps)
             }
             
             // Restore win streaks
