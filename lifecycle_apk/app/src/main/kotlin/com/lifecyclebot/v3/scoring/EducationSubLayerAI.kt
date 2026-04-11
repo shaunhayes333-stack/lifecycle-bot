@@ -221,7 +221,17 @@ object EducationSubLayerAI {
             CurriculumLevel.MARKET_ORACLE -> "Seeing patterns before they form. Stay humble."
             CurriculumLevel.ALPHA_ARCHITECT -> "Designing alpha. Markets are infinite teachers."
             CurriculumLevel.TRADING_GOD -> "Legendary status. Yet the market humbles all."
-            CurriculumLevel.SINGULARITY -> "Transcended. But even singularities evolve. ${trades} trades and counting..."
+            CurriculumLevel.SINGULARITY -> "Transcended. But even singularities evolve."
+            CurriculumLevel.VOID_WALKER -> "Walking the void between candles. ${trades} trades deep."
+            CurriculumLevel.CHAOS_ENGINE -> "Chaos is not disorder. It is a higher order."
+            CurriculumLevel.DARK_ORACLE -> "Seeing what others cannot. The dark patterns speak."
+            CurriculumLevel.ENTROPY_LORD -> "Entropy is not the enemy. It is the fuel."
+            CurriculumLevel.MARKET_WEAVER -> "Weaving reality from probability threads."
+            CurriculumLevel.ALPHA_PREDATOR -> "The apex. Every market is your hunting ground."
+            CurriculumLevel.PRIME_ARCHITECT -> "Building the architecture of alpha itself."
+            CurriculumLevel.NEURAL_SOVEREIGN -> "Sovereign over ${trades} neural pathways."
+            CurriculumLevel.OMEGA_MIND -> "The end is the beginning. Omega state achieved."
+            CurriculumLevel.TRANSCENDENCE -> "Beyond. ${trades} trades woven into the fabric of markets."
         }
     }
     
