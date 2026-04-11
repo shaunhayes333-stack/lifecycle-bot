@@ -89,6 +89,10 @@ object FluidLearningAI {
     private const val EXPERT_PHASE_END = 5000      // V5.9: Phase 3: 3000-5000 trades
     private const val MAX_LEARNING_PROGRESS = 1.0  // V5.9: Full expert at 5000+ trades
     
+    // V5.7.7: Bootstrap score gate constants
+    private const val EARLY_BOOTSTRAP_TRADES = 50
+    private const val EARLY_BOOTSTRAP_MIN_SCORE = 75
+    
     /**
      * V5.2: Reset all learning progress.
      * WARNING: This clears ALL learned data - use with caution!
@@ -264,6 +268,47 @@ object FluidLearningAI {
             progress < 0.30 -> 0.50  // 50% of normal size
             progress < 0.50 -> 0.75  // 75% of normal size
             else -> 1.0               // Full size when mature
+        }
+    }
+    
+    // ═══════════════════════════════════════════════════════════════════════════
+    // V5.7.7: BOOTSTRAP SCORE GATE
+    // 
+    // During first 50 trades, require higher confidence to prevent drawdown
+    // ═══════════════════════════════════════════════════════════════════════════
+    
+    /**
+     * Check if a trade should be blocked due to bootstrap score requirements.
+     * During the first 50 trades, only allow scores >= 75 to prevent early drawdown.
+     * 
+     * @param score The signal score (0-100)
+     * @return true if trade should be BLOCKED, false if allowed
+     */
+    fun shouldBlockBootstrapTrade(score: Int): Boolean {
+        val totalTrades = getTotalTradeCount()
+        
+        // After first 50 trades, no blocking
+        if (totalTrades >= EARLY_BOOTSTRAP_TRADES) return false
+        
+        // During first 50 trades, require score >= 75
+        val shouldBlock = score < EARLY_BOOTSTRAP_MIN_SCORE
+        
+        if (shouldBlock) {
+            ErrorLogger.debug(TAG, "🚫 BOOTSTRAP GATE: Trade #${totalTrades + 1}/$EARLY_BOOTSTRAP_TRADES blocked (score $score < $EARLY_BOOTSTRAP_MIN_SCORE)")
+        }
+        
+        return shouldBlock
+    }
+    
+    /**
+     * Get bootstrap status info for logging
+     */
+    fun getBootstrapStatus(): String {
+        val trades = getTotalTradeCount()
+        return if (trades < EARLY_BOOTSTRAP_TRADES) {
+            "BOOTSTRAP ${trades}/$EARLY_BOOTSTRAP_TRADES (min score: $EARLY_BOOTSTRAP_MIN_SCORE)"
+        } else {
+            "NORMAL (trades: $trades)"
         }
     }
     

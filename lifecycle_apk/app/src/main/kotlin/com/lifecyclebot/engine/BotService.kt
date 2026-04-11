@@ -3918,6 +3918,12 @@ if (deferredCount > 0) {
                             ErrorLogger.debug("BotService", "💰 [TREASURY] ${ts.symbol} | COOLDOWN | closed ${closedAgoMs/1000}s ago (min ${BotService.RE_ENTRY_COOLDOWN_MS/1000}s)")
                             return
                         }
+                        
+                        // V5.7.7: Bootstrap score gate - during first 50 trades, require score >= 75
+                        if (com.lifecyclebot.v3.scoring.FluidLearningAI.shouldBlockBootstrapTrade(treasurySignal.qualityScore)) {
+                            ErrorLogger.debug("BotService", "💰 [TREASURY] ${ts.symbol} | BOOTSTRAP BLOCKED | score=${treasurySignal.qualityScore} | ${com.lifecyclebot.v3.scoring.FluidLearningAI.getBootstrapStatus()}")
+                            return
+                        }
 
                         if (shouldEnter) {
                             // V4.1: Apply bootstrap size multiplier for micro-positions
@@ -4573,6 +4579,12 @@ if (deferredCount > 0) {
                             || v3Decision is com.lifecyclebot.v3.V3Decision.Blocked
                         val shitCoinHasDump = try { AICrossTalk.isCoordinatedDump(ts.mint, ts.symbol) } catch (_: Exception) { false }
                         val shouldEnter = shitCoinSignal.shouldEnter || (forceBootstrapEntry && !shitCoinV3HardReject && !shitCoinHasDump)
+                        
+                        // V5.7.7: Bootstrap score gate - during first 50 trades, require score >= 75
+                        if (com.lifecyclebot.v3.scoring.FluidLearningAI.shouldBlockBootstrapTrade(shitCoinSignal.confidence)) {
+                            ErrorLogger.debug("BotService", "💩 [SHITCOIN] ${ts.symbol} | BOOTSTRAP BLOCKED | score=${shitCoinSignal.confidence} | ${com.lifecyclebot.v3.scoring.FluidLearningAI.getBootstrapStatus()}")
+                            return
+                        }
                         
                         if (shouldEnter) {
                             // V4.1: Apply bootstrap size multiplier for micro-positions
