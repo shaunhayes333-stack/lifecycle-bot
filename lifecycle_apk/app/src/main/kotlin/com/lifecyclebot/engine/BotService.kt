@@ -3359,6 +3359,13 @@ if (deferredCount > 0) {
                 }
             }
             
+            // Defense-in-depth: confirm the pair's base token is the mint we polled for.
+            // getBestPair() already filters this, but guard here in case of stale cache hits.
+            if (pair.baseTokenAddress.isNotBlank() && pair.baseTokenAddress != mint) {
+                ErrorLogger.warn("BotService", "DATA POLLUTION GUARD: ${ts.symbol} pair baseToken=${pair.baseTokenAddress} != queried mint=$mint — skipping price update")
+                return
+            }
+
             // V5.7.8: Validate price against mcap/supply to catch decimal mismatches
             // If price * known_supply differs from mcap by >100x, the price is likely wrong
             var validatedPrice = pair.candle.priceUsd

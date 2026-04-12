@@ -66,11 +66,20 @@ class DexscreenerApi {
             return null
         }
 
-        // Score each pair by liquidity + volume + tx count
+        // Score each pair by liquidity + volume + tx count.
+        // CRITICAL: Only consider pairs where the requested mint is the BASE token.
+        // DexScreener can return pairs where the meme token is the QUOTE (e.g., SOL/MEME).
+        // In those pairs, priceUsd is the SOL price (~$150) not the meme token price,
+        // which causes massive price data pollution in the token state.
         var best: JSONObject? = null
         var bestScore = -1.0
         for (i in 0 until pairs.length()) {
             val p = pairs.getJSONObject(i)
+            val baseAddress = p.optJSONObject("baseToken")?.optString("address", "") ?: ""
+            if (baseAddress.isNotBlank() && baseAddress != mint) {
+                // This mint is the QUOTE token in this pair — skip it to avoid price pollution
+                continue
+            }
             val score = scorePair(p)
             if (score > bestScore) { bestScore = score; best = p }
         }

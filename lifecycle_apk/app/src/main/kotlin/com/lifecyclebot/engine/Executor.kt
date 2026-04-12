@@ -2790,26 +2790,12 @@ class Executor(
         }
         
         PipelineTracer.executorStart(ts.symbol, ts.mint, "PAPER", sol)
-        
-        val isMoonshot = cfg().moonshotOverrideEnabled &&
-                         score >= 85 && 
-                         quality in listOf("A", "B") && 
-                         ts.lastLiquidityUsd >= 5000 &&
-                         ts.meta.pressScore >= 70
-        
-        if (isMoonshot && wallet != null && walletSol > 0) {
-            if (walletSol >= sol * 1.1) {
-                onLog("🌙🚀 MOONSHOT DETECTED in paper mode! Score=${score.toInt()} Quality=$quality → LIVE BUY OVERRIDE", ts.mint)
-                onNotify("🌙 Moonshot Override!", "${ts.symbol} score=${score.toInt()}% → Going LIVE!", 
-                    com.lifecyclebot.engine.NotificationHistory.NotifEntry.NotifType.INFO)
-                sounds?.playMilestone(100.0)
-                
-                val tradeId = identity ?: TradeIdentityManager.getOrCreate(ts.mint, ts.symbol, ts.source)
-                liveBuy(ts, sol, score, wallet, walletSol, tradeId, quality)
-                return
-            }
-        }
-        
+
+        // NOTE: paperBuy() is only reached when cfg().paperMode == true (see doBuy).
+        // No live-buy override here — paper mode means paper mode, full stop.
+        // The shadow buy path (runShadowPaperBuy) handles the live-override case correctly
+        // with an explicit !cfg().paperMode guard.
+
         val tradeId = identity ?: TradeIdentityManager.getOrCreate(ts.mint, ts.symbol, ts.source)
         
         normalizePositionScaleIfNeeded(ts)

@@ -196,8 +196,15 @@ class MultiAssetActivity : AppCompatActivity() {
         initViews()
         setupTabs()
         setupClickListeners()
+
+        // Sync the Activity's isLiveMode flag with the actual trader state persisted from
+        // the last session. Without this, a user who closed the app in LIVE mode would see
+        // the mode button say "PAPER" while the balance still showed LIVE values.
+        isLiveMode = TokenizedStockTrader.isLiveMode()
+        updateModeButton()
+
         startUpdateLoop()
-        
+
         ErrorLogger.info(TAG, "📊 MultiAssetActivity CREATED")
     }
     
@@ -1054,41 +1061,53 @@ class MultiAssetActivity : AppCompatActivity() {
     
     private fun updateTotalBalance() {
         lifecycleScope.launch(Dispatchers.IO) {
-            // V5.7.6b: Check for LIVE wallet balance first
-            val liveWalletSol = try {
-                val wallet = WalletManager.getWallet()
-                wallet?.getSolBalance() ?: -1.0
-            } catch (_: Exception) { -1.0 }
-            
-            val paperBalanceSol = try {
-                TokenizedStockTrader.getBalance() +
-                CommoditiesTrader.getBalance() +
-                MetalsTrader.getBalance() +
-                ForexTrader.getBalance() +
-                PerpsExecutionEngine.getPaperBalance()
-            } catch (_: Exception) { 250.0 }
-            
-            // Get live SOL price from Pyth
-            val solPriceUsd = try {
-                PerpsMarketDataFetcher.getSolPrice()
-            } catch (_: Exception) { SOL_PRICE_USD }
-            
-            withContext(Dispatchers.Main) {
-                // V5.7.8: Only show LIVE wallet when Markets is actually in LIVE mode
-                // Don't show live balance when trading in paper mode
-                val isLiveMode = TokenizedStockTrader.isLiveMode()
-                if (isLiveMode && liveWalletSol > 0) {
-                    // LIVE wallet connected AND trading live - show USD value
-                    val usdValue = liveWalletSol * solPriceUsd
-                    tvTotalBalance.text = "\$${"%,.0f".format(usdValue)} LIVE"
-                    tvTotalBalance.setTextColor(0xFF00FF88.toInt())  // Green for live
-                    balanceContainer.contentDescription = "Live: \$${"%,.0f".format(usdValue)} (${"%.2f".format(liveWalletSol)} SOL)"
-                } else {
-                    // Paper mode - show paper balance
-                    val usdValue = paperBalanceSol * solPriceUsd
-                    tvTotalBalance.text = "\$${"%,.0f".format(usdValue)} PAPER"
-                    tvTotalBalance.setTextColor(0xFFF59E0B.toInt())  // Yellow for paper
-                    balanceContainer.contentDescription = "Paper: \$${"%,.0f".format(usdValue)} (${"%.2f".format(paperBalanceSol)} SOL)"
+            try {
+                // Check live wallet balance (non-blocking — getSolBalance is a fast RPC call)
+                val liveWalletSol = try {
+                    val wallet = WalletManager.getWallet()
+                    wallet?.getSolBalance() ?: -1.0
+                } catch (_: Exception) { -1.0 }
+
+                // Sum paper balances across all Markets traders.
+                // Fallback to a non-zero default so the display is never blank.
+                val paperBalanceSol = try {
+                    val stock = TokenizedStockTrader.getBalance()
+                    val commod = CommoditiesTrader.getBalance()
+                    val metals = MetalsTrader.getBalance()
+                    val forex = ForexTrader.getBalance()
+                    val perps = PerpsExecutionEngine.getPaperBalance()
+                    (stock + commod + metals + forex + perps).coerceAtLeast(0.0)
+                } catch (_: Exception) { 250.0 }
+
+                // Get SOL price — Pyth first, cached fallback
+                val solPriceUsd = try {
+                    PerpsMarketDataFetcher.getSolPrice()
+                } catch (_: Exception) { SOL_PRICE_USD }
+
+                withContext(Dispatchers.Main) {
+                    // Use the Activity's isLiveMode flag — it is kept in sync via
+                    // toggleLiveMode() and is synced from trader state in onCreate().
+                    // Do NOT call TokenizedStockTrader.isLiveMode() here; that can disagree
+                    // with the Activity state mid-transition and show the wrong balance.
+                    if (isLiveMode && liveWalletSol > 0) {
+                        val usdValue = liveWalletSol * solPriceUsd
+                        tvTotalBalance.text = "\$${"%,.0f".format(usdValue)} LIVE"
+                        tvTotalBalance.setTextColor(0xFF00FF88.toInt())
+                        balanceContainer.contentDescription =
+                            "Live: \$${"%,.0f".format(usdValue)} (${"%.2f".format(liveWalletSol)} SOL)"
+                    } else {
+                        val usdValue = paperBalanceSol * solPriceUsd
+                        tvTotalBalance.text = "\$${"%,.0f".format(usdValue)} PAPER"
+                        tvTotalBalance.setTextColor(0xFFF59E0B.toInt())
+                        balanceContainer.contentDescription =
+                            "Paper: \$${"%,.0f".format(usdValue)} (${"%.2f".format(paperBalanceSol)} SOL)"
+                    }
+                }
+            } catch (e: Exception) {
+                ErrorLogger.error(TAG, "updateTotalBalance failed: ${e.message}")
+                withContext(Dispatchers.Main) {
+                    tvTotalBalance.text = "-- PAPER"
+                    tvTotalBalance.setTextColor(0xFFF59E0B.toInt())
                 }
             }
         }
