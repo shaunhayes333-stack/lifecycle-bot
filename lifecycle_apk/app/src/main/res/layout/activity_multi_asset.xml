@@ -114,12 +114,18 @@
                     android:textSize="8sp"/>
                 <TextView
                     android:id="@+id/tvTotalBalance"
-                    android:layout_width="wrap_content"
+                    android:layout_width="0dp"
+                    android:layout_weight="1"
                     android:layout_height="wrap_content"
                     android:text="250.00 ◎"
                     android:textColor="#00FF88"
                     android:textSize="14sp"
-                    android:textStyle="bold"/>
+                    android:textStyle="bold"
+                    android:maxLines="1"
+                    android:autoSizeTextType="uniform"
+                    android:autoSizeMinTextSize="10sp"
+                    android:autoSizeMaxTextSize="14sp"
+                    android:autoSizeStepGranularity="1sp"/>
             </LinearLayout>
         </LinearLayout>
 

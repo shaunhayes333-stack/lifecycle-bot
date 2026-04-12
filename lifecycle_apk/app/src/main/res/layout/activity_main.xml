@@ -199,14 +199,18 @@
 
                     <TextView
                         android:id="@+id/tvBalanceLarge"
-                        android:layout_width="wrap_content"
+                        android:layout_width="0dp"
+                        android:layout_weight="1"
                         android:layout_height="wrap_content"
                         android:text="—"
                         android:textColor="#FFFFFF"
                         android:textSize="@dimen/balance_text_size"
                         android:textStyle="bold"
                         android:maxLines="1"
-                        android:ellipsize="end"/>
+                        android:autoSizeTextType="uniform"
+                        android:autoSizeMinTextSize="14sp"
+                        android:autoSizeMaxTextSize="30sp"
+                        android:autoSizeStepGranularity="1sp"/>
 
                     <TextView
                         android:id="@+id/tvBalanceUsd"

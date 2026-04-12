@@ -1469,8 +1469,18 @@ class BotService : Service() {
         }
         // Set up paper wallet balance tracking
         executor.onPaperBalanceChange = { delta ->
-            status.paperWalletSol = (status.paperWalletSol + delta).coerceAtLeast(0.0)
-            ErrorLogger.info("PaperWallet", "Balance changed by ${delta}: new balance = ${status.paperWalletSol}")
+            // V5.7.8: Validate delta against current balance to catch bad price data
+            // A single trade should not return more than 100x the current wallet (data error, not a real 10000x)
+            val currentBal = status.paperWalletSol.coerceAtLeast(1.0)
+            val isSuspicious = delta > currentBal * 100 // Single trade returning 100x wallet = bad data
+            
+            if (isSuspicious) {
+                ErrorLogger.warn("PaperWallet", "SUSPICIOUS DELTA BLOCKED: delta=${delta} is ${(delta/currentBal).toInt()}x current balance ${currentBal} — likely decimal error in price data")
+                // Don't apply — this is bad data, not a real trade
+            } else {
+                status.paperWalletSol = (status.paperWalletSol + delta).coerceAtLeast(0.0)
+                ErrorLogger.info("PaperWallet", "Balance changed by ${delta}: new balance = ${status.paperWalletSol}")
+            }
         }
         
         // Persist running state so BootReceiver can restart after reboot
