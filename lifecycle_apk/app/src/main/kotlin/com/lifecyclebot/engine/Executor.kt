@@ -5549,16 +5549,26 @@ class Executor(
                 closedCount++
                 
             } catch (e: Exception) {
-                onLog("⚠️ Failed to close ${ts.symbol}: ${e.message}", ts.mint)
-                if (paperMode) {
-                    try {
-                        val pos = ts.position
-                        val value = pos.qtyToken * getActualPrice(ts)
-                        onPaperBalanceChange?.invoke(value)
-                        ts.position = com.lifecyclebot.data.Position()
-                        onLog("📝 Force-closed paper position: ${ts.symbol}", ts.mint)
-                        closedCount++
-                    } catch (_: Exception) {}
+                onLog("Failed to close ${ts.symbol}: ${e.message}", ts.mint)
+                // V5.7.8: Force close on ANY failure during shutdown — don't leave ghosts
+                try {
+                    val tradeId = com.lifecyclebot.engine.TradeIdentityManager.getOrCreate(ts.mint, ts.symbol, ts.source)
+                    tradeId.closed(getActualPrice(ts), 
+                        if (ts.position.entryPrice > 0) ((getActualPrice(ts) - ts.position.entryPrice) / ts.position.entryPrice * 100) else -100.0,
+                        -(ts.position.costSol), "SHUTDOWN_FORCE_CLOSE")
+                    onLog("Force-closed on shutdown: ${ts.symbol}", ts.mint)
+                    closedCount++
+                } catch (_: Exception) {
+                    if (paperMode) {
+                        try {
+                            val pos = ts.position
+                            val value = pos.qtyToken * getActualPrice(ts)
+                            onPaperBalanceChange?.invoke(value)
+                            ts.position = com.lifecyclebot.data.Position()
+                            onLog("Force-closed paper position: ${ts.symbol}", ts.mint)
+                            closedCount++
+                        } catch (_: Exception) {}
+                    }
                 }
             }
         }
