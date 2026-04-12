@@ -5027,12 +5027,23 @@ class Executor(
 
         } catch (e: Exception) {
             val safe = security.sanitiseForLog(e.message ?: "unknown")
-            onLog("🛑 SELL EXCEPTION: ${e.javaClass.simpleName} | ${safe}", tradeId.mint)
+            onLog("SELL EXCEPTION: ${e.javaClass.simpleName} | ${safe}", tradeId.mint)
             onLog("   Stack: ${e.stackTrace.take(3).joinToString(" → ") { "${it.fileName}:${it.lineNumber}" }}", tradeId.mint)
-            onNotify("⚠️ Sell Failed",
-                "${ts.symbol}: ${safe.take(80)}",
+            
+            // V5.7.8: Track broadcast failures — force close after 5
+            val broadcastRetries = zeroBalanceRetries.merge(ts.mint + "_broadcast", 1) { old, _ -> old + 1 } ?: 1
+            if (broadcastRetries >= 5) {
+                onLog("SELL FORCE CLOSE: ${ts.symbol} — $broadcastRetries broadcast failures. Closing as loss.", tradeId.mint)
+                ErrorLogger.warn("Executor", "SELL FORCE CLOSE: ${ts.symbol} — broadcast exhausted after $broadcastRetries attempts")
+                zeroBalanceRetries.remove(ts.mint + "_broadcast")
+                tradeId.closed(getActualPrice(ts), -100.0, -(pos.costSol), "BROADCAST_EXHAUSTED")
+                return SellResult.CONFIRMED
+            }
+            
+            onNotify("Sell Failed",
+                "${ts.symbol}: ${safe.take(80)} (attempt $broadcastRetries/5)",
                 com.lifecyclebot.engine.NotificationHistory.NotifEntry.NotifType.INFO)
-            onToast("❌ SELL FAILED: ${ts.symbol}\n${safe.take(50)}")
+            onToast("SELL FAILED: ${ts.symbol} (attempt $broadcastRetries/5)")
             return SellResult.FAILED_RETRYABLE
         }
 
