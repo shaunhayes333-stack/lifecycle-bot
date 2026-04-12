@@ -3859,9 +3859,9 @@ class Executor(
         val simulatedFeePct = 0.5
         
         val rawValue = pos.qtyToken * effectivePrice * (1.0 - simulatedFeePct / 100.0)
-        // Cap at 200x return — generous enough for real meme 100x moves but blocks inflated
-        // positions from price-scale anomalies producing astronomical PnL.
-        val value = minOf(rawValue, pos.costSol * 200.0)
+        // Cap at 10,000x return to prevent price-scale anomalies (e.g. lamport vs token price
+        // mismatch) from producing astronomical PnL and inflating the treasury balance.
+        val value = minOf(rawValue, pos.costSol * 10_000.0)
         val pnl   = value - pos.costSol
         val pnlP  = pct(pos.costSol, value)
         val trade = Trade(

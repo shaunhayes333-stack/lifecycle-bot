@@ -1469,9 +1469,7 @@ class BotService : Service() {
         }
         // Set up paper wallet balance tracking
         executor.onPaperBalanceChange = { delta ->
-            // Hard cap at 100 SOL to prevent runaway compounding from price anomalies
-            val MAX_PAPER_WALLET_SOL = 100.0
-            status.paperWalletSol = (status.paperWalletSol + delta).coerceIn(0.0, MAX_PAPER_WALLET_SOL)
+            status.paperWalletSol = (status.paperWalletSol + delta).coerceAtLeast(0.0)
             ErrorLogger.info("PaperWallet", "Balance changed by ${delta}: new balance = ${status.paperWalletSol}")
         }
         
@@ -2744,14 +2742,14 @@ class BotService : Service() {
                             ErrorLogger.info("PaperWallet", "Initialized with ${"%.2f".format(targetSol)} SOL (~\$1000 @ \$${"%.0f".format(solPxPaper)}/SOL)")
                             addLog("📝 Paper wallet: ${"%.2f".format(targetSol)} SOL (~\$1,000)")
                         } else {
-                            // Anomaly guard: if wallet is over 100 SOL it was inflated by buggy PnL —
-                            // reset immediately rather than waiting for the 12h timer.
-                            val MAX_PAPER_WALLET_SOL = 100.0
-                            if (status.paperWalletSol > MAX_PAPER_WALLET_SOL) {
+                            // Anomaly guard: if wallet exceeds 10,000 SOL it was inflated by buggy PnL
+                            // (legitimate compounding cannot reach this in normal use) — reset immediately.
+                            val ANOMALY_THRESHOLD_SOL = 10_000.0
+                            if (status.paperWalletSol > ANOMALY_THRESHOLD_SOL) {
                                 val oldSol = status.paperWalletSol
                                 status.paperWalletSol = targetSol
                                 status.paperWalletLastRefreshMs = System.currentTimeMillis()
-                                ErrorLogger.info("PaperWallet", "Anomaly reset: ${oldSol.toInt()} SOL > max ${MAX_PAPER_WALLET_SOL.toInt()} SOL — reset to ${"%.2f".format(targetSol)} SOL")
+                                ErrorLogger.info("PaperWallet", "Anomaly reset: ${oldSol.toInt()} SOL > ${ANOMALY_THRESHOLD_SOL.toInt()} SOL threshold — reset to ${"%.2f".format(targetSol)} SOL")
                                 addLog("🔧 Paper wallet anomaly reset: was ${oldSol.toInt()} SOL → ${"%.2f".format(targetSol)} SOL (~\$1,000)")
                             } else {
                                 // Auto-refresh every 12 hours so paper mode never runs dry
