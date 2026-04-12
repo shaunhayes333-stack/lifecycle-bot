@@ -1610,7 +1610,7 @@ class BotService : Service() {
                 }
                 
                 // Reset paper wallet ONLY if it's clearly inflated (>100x starting balance)
-                val solPrice = status.solPriceUsd.takeIf { it > 0 } ?: 130.0
+                val solPrice = WalletManager.lastKnownSolPrice.takeIf { it > 0.0 } ?: 130.0
                 val targetSol = 1000.0 / solPrice
                 if (status.paperWalletSol > targetSol * 100) {
                     status.paperWalletSol = targetSol
