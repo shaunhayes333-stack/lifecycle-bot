@@ -1074,14 +1074,17 @@ class MultiAssetActivity : AppCompatActivity() {
             } catch (_: Exception) { SOL_PRICE_USD }
             
             withContext(Dispatchers.Main) {
-                if (liveWalletSol > 0) {
-                    // LIVE wallet connected - show USD value
+                // V5.7.8: Only show LIVE wallet when Markets is actually in LIVE mode
+                // Don't show live balance when trading in paper mode
+                val isLiveMode = TokenizedStockTrader.isLiveMode()
+                if (isLiveMode && liveWalletSol > 0) {
+                    // LIVE wallet connected AND trading live - show USD value
                     val usdValue = liveWalletSol * solPriceUsd
                     tvTotalBalance.text = "\$${"%,.0f".format(usdValue)} LIVE"
                     tvTotalBalance.setTextColor(0xFF00FF88.toInt())  // Green for live
                     balanceContainer.contentDescription = "Live: \$${"%,.0f".format(usdValue)} (${"%.2f".format(liveWalletSol)} SOL)"
                 } else {
-                    // Paper mode - show USD value
+                    // Paper mode - show paper balance
                     val usdValue = paperBalanceSol * solPriceUsd
                     tvTotalBalance.text = "\$${"%,.0f".format(usdValue)} PAPER"
                     tvTotalBalance.setTextColor(0xFFF59E0B.toInt())  // Yellow for paper

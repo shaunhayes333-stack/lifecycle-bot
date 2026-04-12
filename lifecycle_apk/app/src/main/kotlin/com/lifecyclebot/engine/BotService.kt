@@ -1592,7 +1592,31 @@ class BotService : Service() {
     }
 
     fun stopBot() {
-        addLog("🛑 Stopping bot...")
+        addLog("Stopping bot...")
+        
+        // V5.7.8: In paper mode, purge bad data from journal and history on stop
+        try {
+            val cfg = ConfigStore.load(applicationContext)
+            if (cfg.paperMode) {
+                // Purge trade history — removes any entries with bad decimal data
+                val beforeCount = TradeHistoryStore.getAllTrades().size
+                TradeHistoryStore.clearAllTrades()
+                addLog("Paper mode stop: Purged $beforeCount trade history entries (clean slate)")
+                
+                // Reset paper wallet to default
+                val solPrice = status.solPriceUsd.takeIf { it > 0 } ?: 130.0
+                val targetSol = 1000.0 / solPrice
+                status.paperWalletSol = targetSol
+                status.paperWalletLastRefreshMs = System.currentTimeMillis()
+                addLog("Paper wallet reset to ${String.format("%.2f", targetSol)} SOL (~\$1,000)")
+                
+                // Reset 30-day tracker
+                RunTracker30D.reset()
+                addLog("30-day tracker reset")
+            }
+        } catch (e: Exception) {
+            ErrorLogger.debug("BotService", "Paper purge error (non-fatal): ${e.message}")
+        }
         
         // IMPORTANT: Close all open positions BEFORE stopping (if enabled in config)
         // This ensures funds are returned and no positions are left dangling
