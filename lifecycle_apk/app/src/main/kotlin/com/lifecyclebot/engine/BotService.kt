@@ -1594,25 +1594,29 @@ class BotService : Service() {
     fun stopBot() {
         addLog("Stopping bot...")
         
-        // V5.7.8: In paper mode, purge bad data from journal and history on stop
+        // V5.7.8: In paper mode, purge only obviously bad trades (not all history)
         try {
             val cfg = ConfigStore.load(applicationContext)
             if (cfg.paperMode) {
-                // Purge trade history — removes any entries with bad decimal data
-                val beforeCount = TradeHistoryStore.getAllTrades().size
-                TradeHistoryStore.clearAllTrades()
-                addLog("Paper mode stop: Purged $beforeCount trade history entries (clean slate)")
+                // Only remove trades with absurd PnL (>10000% or <-100%) — these are decimal errors
+                val allTrades = TradeHistoryStore.getAllTrades()
+                val badCount = allTrades.count { it.pnlPct > 10_000 || it.pnlPct < -100 }
+                if (badCount > 0) {
+                    // Clear and re-add only good trades
+                    val goodTrades = allTrades.filter { it.pnlPct <= 10_000 && it.pnlPct >= -100 }
+                    TradeHistoryStore.clearAllTrades()
+                    TradeHistoryStore.recordTrades(goodTrades)
+                    addLog("Purged $badCount bad trades (PnL > 10000% or < -100%) — kept ${goodTrades.size} good trades")
+                }
                 
-                // Reset paper wallet to default
+                // Reset paper wallet ONLY if it's clearly inflated (>100x starting balance)
                 val solPrice = status.solPriceUsd.takeIf { it > 0 } ?: 130.0
                 val targetSol = 1000.0 / solPrice
-                status.paperWalletSol = targetSol
-                status.paperWalletLastRefreshMs = System.currentTimeMillis()
-                addLog("Paper wallet reset to ${String.format("%.2f", targetSol)} SOL (~\$1,000)")
-                
-                // Reset 30-day tracker
-                RunTracker30D.reset()
-                addLog("30-day tracker reset")
+                if (status.paperWalletSol > targetSol * 100) {
+                    status.paperWalletSol = targetSol
+                    status.paperWalletLastRefreshMs = System.currentTimeMillis()
+                    addLog("Paper wallet was inflated — reset to ${String.format("%.2f", targetSol)} SOL (~\$1,000)")
+                }
             }
         } catch (e: Exception) {
             ErrorLogger.debug("BotService", "Paper purge error (non-fatal): ${e.message}")
