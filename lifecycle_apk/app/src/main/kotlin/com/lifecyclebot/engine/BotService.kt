@@ -6963,25 +6963,30 @@ if (deferredCount > 0) {
                     if (body != null) {
                         val json = org.json.JSONObject(body)
                         val mcap = json.optDouble("usd_market_cap", 0.0)
-                        val price = json.optDouble("price", 0.0)
-                        if (mcap > 0 || price > 0) {
+                        // NOTE: pump.fun API's "price" field is in SOL (not USD), so we
+                        // compute a correct USD price from usd_market_cap / total_supply.
+                        // Pump.fun tokens always have 1B token supply as their standard.
+                        val totalSupply = json.optDouble("total_supply", 1_000_000_000.0)
+                            .let { if (it <= 0) 1_000_000_000.0 else it }
+                        val priceUsd = if (mcap > 0 && totalSupply > 0) mcap / totalSupply else 0.0
+                        if (mcap > 0) {
                             synchronized(ts) {
-                                ts.lastPrice = price
+                                ts.lastPrice = priceUsd
                                 ts.lastMcap = mcap
                                 ts.lastFdv = mcap
                                 ts.lastLiquidityUsd = mcap * 0.1
                                 val syntheticCandle = com.lifecyclebot.data.Candle(
-                                    ts = System.currentTimeMillis(), priceUsd = price,
+                                    ts = System.currentTimeMillis(), priceUsd = priceUsd,
                                     marketCap = mcap, volumeH1 = 0.0, volume24h = 0.0,
-                                    buysH1 = 0, sellsH1 = 0, highUsd = price,
-                                    lowUsd = price, openUsd = price,
+                                    buysH1 = 0, sellsH1 = 0, highUsd = priceUsd,
+                                    lowUsd = priceUsd, openUsd = priceUsd,
                                 )
                                 synchronized(ts.history) {
                                     ts.history.addLast(syntheticCandle)
                                     if (ts.history.size > 300) ts.history.removeFirst()
                                 }
                             }
-                            addLog("🎯 Pump.fun: ${ts.symbol} mcap=\$${mcap.toInt()}", mint)
+                            addLog("🎯 Pump.fun: ${ts.symbol} mcap=\$${mcap.toInt()} priceUsd=\$${String.format("%.10f", priceUsd)}", mint)
                             return true
                         }
                     }

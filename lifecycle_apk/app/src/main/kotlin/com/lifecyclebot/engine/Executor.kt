@@ -1527,6 +1527,9 @@ class Executor(
 
     private val milestonesHit      = mutableMapOf<String, MutableSet<Int>>()
     private val partialSellInFlight = mutableSetOf<String>()
+    // Guard against concurrent exit triggers (e.g. RAPID_HARD_FLOOR + SELL_OPT) both
+    // executing a sell on the same position before the first one clears it.
+    private val sellInProgress = java.util.concurrent.ConcurrentHashMap<String, Boolean>()
 
     fun riskCheck(ts: TokenState, modeConf: AutoModeEngine.ModeConfig? = null): String? {
         normalizePositionScaleIfNeeded(ts)
@@ -3615,19 +3618,46 @@ class Executor(
             "sell=$sellAmount remain=$remainingAmount | pnl=${pnlPct.toInt()}% | $reason", ts.mint)
         
         if (isPaper) {
-            val soldValueSol = ts.position.costSol * pct
+            val pos = ts.position
+            val soldValueSol = pos.costSol * pct
             val profitSol = soldValueSol * (pnlPct / 100.0)
-            
+            val newSoldPct = pos.partialSoldPct + (pct * 100.0)
+
+            // Update position state to reflect the partial sell so that subsequent
+            // exits operate on the correct remaining size, not the full original.
+            ts.position = pos.copy(
+                qtyToken       = pos.qtyToken * (1.0 - pct),
+                costSol        = pos.costSol * (1.0 - pct),
+                partialSoldPct = newSoldPct,
+            )
+
+            // Record the partial sell as a proper Trade entry in the journal
+            val trade = Trade(
+                side             = "SELL",
+                mode             = "paper",
+                sol              = soldValueSol,
+                price            = currentPrice,
+                ts               = System.currentTimeMillis(),
+                reason           = "partial_${newSoldPct.toInt()}pct",
+                pnlSol           = profitSol,
+                pnlPct           = pnlPct.coerceIn(-100.0, 10_000.0),
+                tradingMode      = pos.tradingMode,
+                tradingModeEmoji = pos.tradingModeEmoji,
+                mint             = ts.mint,
+            )
+            recordTrade(ts, trade)
+            onPaperBalanceChange?.invoke(soldValueSol + profitSol)
+
             TradeHistoryStore.recordPartialProfit(ts.mint, profitSol, pnlPct)
-            
+
             ErrorLogger.info("Executor", "📄 PAPER PARTIAL SELL: ${ts.symbol} | " +
                 "sold=${(pct * 100).toInt()}% @ ${pnlPct.toInt()}% | profit=${profitSol}SOL | " +
                 "remaining=${((1-pct) * 100).toInt()}%")
-            
-            onNotify("📊 Partial Profit (PAPER)", 
+
+            onNotify("📊 Partial Profit (PAPER)",
                 "${ts.symbol}: Sold ${(pct * 100).toInt()}% @ +${pnlPct.toInt()}% | +${String.format("%.4f", profitSol)}SOL",
                 com.lifecyclebot.engine.NotificationHistory.NotifEntry.NotifType.INFO)
-            
+
         } else {
             // LIVE partial sell - need wallet
             var activeWallet = wallet
@@ -3723,10 +3753,20 @@ class Executor(
                        wallet: SolanaWallet?, walletSol: Double,
                        identity: TradeIdentity? = null): SellResult {
         val tradeId = identity ?: TradeIdentityManager.getOrCreate(ts.mint, ts.symbol, ts.source)
-        
+
+        // Atomic guard: only ONE sell can proceed per mint at a time.
+        // Prevents duplicate trades when concurrent exit triggers (e.g. RAPID_HARD_FLOOR_STOP
+        // and SELL_OPT Stop Loss) both fire before the first sell clears the position.
+        if (sellInProgress.putIfAbsent(ts.mint, true) != null) {
+            onLog("⚠️ SELL SKIPPED: sell already in-progress for ${ts.symbol}", tradeId.mint)
+            return SellResult.ALREADY_CLOSED
+        }
+
+        try {
+
         val isPaper = ts.position.isPaperPosition
         val hasWallet = wallet != null
-        
+
         if (!ts.position.isOpen) {
             onLog("⚠️ SELL SKIPPED: Position already closed for ${ts.symbol}", tradeId.mint)
             return SellResult.ALREADY_CLOSED
@@ -3773,7 +3813,7 @@ class Executor(
         } else if (wallet == null) {
             ErrorLogger.error("Executor", "🚨 LIVE MODE SELL BLOCKED: Wallet is NULL!")
             onLog("🚨 LIVE SELL BLOCKED: ${ts.symbol} | No wallet - position NOT cleared", tradeId.mint)
-            onNotify("🚨 Sell Blocked!", 
+            onNotify("🚨 Sell Blocked!",
                 "Cannot sell ${ts.symbol} - wallet not connected. Position still open!",
                 com.lifecyclebot.engine.NotificationHistory.NotifEntry.NotifType.INFO)
             onToast("🚨 Cannot sell ${ts.symbol} - reconnect wallet!")
@@ -3788,6 +3828,11 @@ class Executor(
                 ErrorLogger.warn("Executor", "🔄 SELL REQUEUED: ${ts.symbol} — will retry when wallet/RPC recovers")
             }
             return result
+        }
+
+        } finally {
+            // Always release the sell guard so future sells on this token are allowed
+            sellInProgress.remove(ts.mint)
         }
     }
 
