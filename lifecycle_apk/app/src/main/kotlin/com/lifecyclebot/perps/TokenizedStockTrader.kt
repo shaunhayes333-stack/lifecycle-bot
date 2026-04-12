@@ -1180,7 +1180,6 @@ object TokenizedStockTrader {
     
     // V5.7.6: Public running state accessor for UI
     fun isRunning(): Boolean = isRunning.get()
-    fun isLiveMode(): Boolean = !isPaperMode.get()
     
     // V5.7.6b: SPOT vs LEVERAGE position getters - now use dedicated maps
     fun getSpotPositions(): List<StockPosition> = spotPositions.values.toList()
