@@ -40,7 +40,7 @@ jobs:
           echo "Building AATE v5.0.${{ github.run_number }}"
           echo "versionCode = $((500 + ${{ github.run_number }}))"
           echo "========================================"
-          ./gradlew clean assembleRelease --no-daemon -PbuildNumber=${{ github.run_number }}
+          ./gradlew clean assembleRelease --no-daemon --stacktrace -PbuildNumber=${{ github.run_number }}
           echo "Built APK:"
           ls -la app/build/outputs/apk/release/
           # Rename APK to include build number
