@@ -3242,23 +3242,11 @@ class Executor(
         val identity = TradeIdentityManager.getOrCreate(ts.mint, ts.symbol, ts.source)
         
         identity.executed(getActualPrice(ts), sizeSol, isPaper)
-        
-        com.lifecyclebot.v3.scoring.ShitCoinTraderAI.addPosition(
-            com.lifecyclebot.v3.scoring.ShitCoinTraderAI.ShitCoinPosition(
-                mint = ts.mint,
-                symbol = ts.symbol,
-                entryPrice = getActualPrice(ts),
-                entrySol = sizeSol,
-                entryTime = System.currentTimeMillis(),
-                marketCapUsd = ts.lastMcap,
-                liquidityUsd = ts.lastLiquidityUsd,
-                isPaper = isPaper,
-                takeProfitPct = takeProfitPct,
-                stopLossPct = stopLossPct,
-                launchPlatform = launchPlatform,
-            )
-        )
-        
+
+        // NOTE: ShitCoinTraderAI.addPosition() is called by BotService AFTER the buy succeeds,
+        // guarded by ts.position.isOpen. DO NOT register here — premature registration before
+        // the buy creates phantom positions that block future real buys.
+
         ErrorLogger.info("Executor", "💩 [SHITCOIN] ${ts.symbol} | " +
             "${launchPlatform.emoji} ${launchPlatform.displayName} | " +
             "${if (isPaper) "PAPER" else "LIVE"}_BUY | " +

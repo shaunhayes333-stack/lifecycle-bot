@@ -4783,29 +4783,9 @@ if (deferredCount > 0) {
                                     riskLevel = shitCoinSignal.riskLevel,
                                 )
                                 
-                                // Record ShitCoin position
-                                com.lifecyclebot.v3.scoring.ShitCoinTraderAI.addPosition(
-                                    com.lifecyclebot.v3.scoring.ShitCoinTraderAI.ShitCoinPosition(
-                                        mint = ts.mint,
-                                        symbol = ts.symbol,
-                                        entryPrice = ts.ref,
-                                        entrySol = adjustedSize,
-                                        entryTime = System.currentTimeMillis(),
-                                        marketCapUsd = ts.lastMcap,
-                                        liquidityUsd = ts.lastLiquidityUsd,
-                                        isPaper = cfg.paperMode,
-                                        takeProfitPct = shitcoinEffectiveTpPct,  // V5.2.8: Use effective TP
-                                        stopLossPct = shitcoinEffectiveSlPct,    // V5.2.8: Use effective SL
-                                        launchPlatform = shitCoinSignal.launchPlatform,
-                                        devWallet = null,  // Dev wallet tracking not yet implemented
-                                        bundlePct = bundlePct,
-                                        socialScore = shitCoinSignal.socialScore,
-                                    )
-                                )
-                                
                                 // V5.6.8 FIX: Notify V3 exposure guards
                                 com.lifecyclebot.v3.V3EngineManager.onPositionOpened(ts.mint)
-                                
+
                                 // Register with Layer Transition Manager
                                 com.lifecyclebot.v3.scoring.LayerTransitionManager.registerPosition(
                                     mint = ts.mint,
@@ -4814,29 +4794,38 @@ if (deferredCount > 0) {
                                     entryMcap = ts.lastMcap,
                                     entryPrice = ts.ref,
                                 )
-                                
+
                                 // V5.0 FIX: Mark position as shitcoin so checkExit uses correct thresholds
                                 ts.position.isShitCoinPosition = true
                                 ts.position.tradingMode = "SHITCOIN"
                                 ts.position.tradingModeEmoji = "💩"
-                                
-                                // V5.2 FIX: Register position with ShitCoinTraderAI so checkExit can find it!
-                                val actualEntryPrice = ts.position.entryPrice.takeIf { it > 0 } ?: ts.ref
-                                com.lifecyclebot.v3.scoring.ShitCoinTraderAI.addPosition(
-                                    com.lifecyclebot.v3.scoring.ShitCoinTraderAI.ShitCoinPosition(
-                                        mint = ts.mint,
-                                        symbol = ts.symbol,
-                                        entryPrice = actualEntryPrice,
-                                        entrySol = adjustedSize,
-                                        entryTime = System.currentTimeMillis(),
-                                        marketCapUsd = ts.lastMcap,
-                                        liquidityUsd = ts.lastLiquidityUsd,
-                                        isPaper = cfg.paperMode,
-                                        takeProfitPct = shitcoinEffectiveTpPct,  // V5.2.8: Use effective TP
-                                        stopLossPct = shitcoinEffectiveSlPct,    // V5.2.8: Use effective SL
-                                        launchPlatform = shitCoinSignal.launchPlatform,
+
+                                // Register with ShitCoinTraderAI ONLY if the buy actually opened a position.
+                                // Premature registration (before isOpen is confirmed) creates phantom positions
+                                // that block future real buys with ALREADY_OPEN_IN_SHITCOIN rejections.
+                                if (ts.position.isOpen) {
+                                    val actualEntryPrice = ts.position.entryPrice.takeIf { it > 0 } ?: ts.ref
+                                    com.lifecyclebot.v3.scoring.ShitCoinTraderAI.addPosition(
+                                        com.lifecyclebot.v3.scoring.ShitCoinTraderAI.ShitCoinPosition(
+                                            mint = ts.mint,
+                                            symbol = ts.symbol,
+                                            entryPrice = actualEntryPrice,
+                                            entrySol = adjustedSize,
+                                            entryTime = System.currentTimeMillis(),
+                                            marketCapUsd = ts.lastMcap,
+                                            liquidityUsd = ts.lastLiquidityUsd,
+                                            isPaper = cfg.paperMode,
+                                            takeProfitPct = shitcoinEffectiveTpPct,
+                                            stopLossPct = shitcoinEffectiveSlPct,
+                                            launchPlatform = shitCoinSignal.launchPlatform,
+                                            devWallet = null,
+                                            bundlePct = bundlePct,
+                                            socialScore = shitCoinSignal.socialScore,
+                                        )
                                     )
-                                )
+                                } else {
+                                    ErrorLogger.warn("BotService", "💩 SHITCOIN BUY did not open position for ${ts.symbol} — skipping ShitCoinTraderAI registration")
+                                }
                                 
                                 // Release permit
                                 FinalExecutionPermit.releaseExecution(ts.mint)

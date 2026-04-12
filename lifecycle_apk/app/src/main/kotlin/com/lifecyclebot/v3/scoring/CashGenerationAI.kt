@@ -242,7 +242,9 @@ object CashGenerationAI {
     
     // V5.6.6: Update wallet balance for proper position scaling
     fun updateWalletBalance(balanceSol: Double) {
-        lastKnownWalletBalance = balanceSol.coerceAtLeast(0.1)
+        // Do NOT clamp to 0.1 — masking a tiny wallet allows sizing to exceed real capacity.
+        // The SmartSizer dust floor (0.005 SOL) handles the "too small to trade" case downstream.
+        lastKnownWalletBalance = balanceSol.coerceAtLeast(0.0)
     }
 
     fun getTreasuryBalance(isPaper: Boolean): Double {
@@ -639,9 +641,17 @@ object CashGenerationAI {
         
         val dailyPnl = dailyPnlSolBps.get() / 100.0
         val treasuryBalance = getTreasuryBalance(isPaperMode)
-        
-        // V5.6.6: Use ACTUAL wallet balance, not just treasury internal balance
-        val effectiveBalance = maxOf(lastKnownWalletBalance, treasuryBalance)
+
+        // In LIVE mode the actual wallet IS the truth — treasury is a virtual accounting
+        // ledger that can show thousands of SOL while the wallet holds pennies.
+        // Using maxOf(wallet, treasury) in live mode caused 20 SOL position sizes on
+        // a 0.07 SOL wallet (treasury=2169 SOL → effectiveBalance=2169 → size=20 SOL capped).
+        // In paper mode compounding from the virtual treasury is fine and intentional.
+        val effectiveBalance = if (isPaperMode) {
+            maxOf(lastKnownWalletBalance, treasuryBalance)
+        } else {
+            lastKnownWalletBalance  // Live mode: real wallet only — never phantom treasury
+        }
         val walletBasedSize = effectiveBalance * WALLET_SCALE_FACTOR
         var positionSol = maxOf(BASE_POSITION_SOL, walletBasedSize)
         
