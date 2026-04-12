@@ -2346,12 +2346,12 @@ class BotService : Service() {
             // PENDING SELL QUEUE PROCESSING - every 5 loops (~25 seconds) in live mode
             // Retries sells that failed due to wallet disconnect or other issues
             // ═══════════════════════════════════════════════════════════════════
-            if (!cfg.paperMode && loopCount % 5 == 0 && wallet != null && PendingSellQueue.hasPending()) {
+            if (!cfg.paperMode && loopCount % 1 == 0 && wallet != null && PendingSellQueue.hasPending()) {
                 scope.launch {
                     try {
                         val pendingSells = PendingSellQueue.getAndClear()
                         if (pendingSells.isNotEmpty()) {
-                            addLog("🔄 Processing ${pendingSells.size} pending sells...")
+                            addLog("Processing ${pendingSells.size} pending sells...")
                             for (sell in pendingSells) {
                                 try {
                                     // Find the token state if still tracked
@@ -2360,16 +2360,36 @@ class BotService : Service() {
                                     }
                                     
                                     if (ts != null && ts.position.isOpen) {
-                                        addLog("🔄 Retrying sell: ${sell.symbol} (attempt ${sell.retryCount})")
-                                        executor.requestSell(ts, "PENDING_RETRY: ${sell.reason}", wallet, wallet!!.getSolBalance())
+                                        // V5.7.8: If already retried 3+ times, force close the position
+                                        // Jupiter can't sell this token (dead pool, broken contract, etc.)
+                                        if (sell.retryCount >= 3) {
+                                            addLog("FORCE CLOSE: ${sell.symbol} — ${sell.retryCount} sell attempts failed. Closing as loss.")
+                                            val tradeId = com.lifecyclebot.engine.TradeIdentityManager.getOrCreate(ts.mint, ts.symbol, ts.source)
+                                            tradeId.closed(executor.getActualPricePublic(ts), -100.0, -(ts.position.costSol), "SELL_EXHAUSTED_${sell.retryCount}_ATTEMPTS")
+                                            PendingSellQueue.remove(sell.mint)
+                                        } else {
+                                            addLog("Retrying sell: ${sell.symbol} (attempt ${sell.retryCount})")
+                                            executor.requestSell(ts, "PENDING_RETRY: ${sell.reason}", wallet, wallet!!.getSolBalance())
+                                        }
                                     } else {
                                         // Token no longer tracked - might be orphaned
-                                        addLog("⚠️ Pending sell for untracked token: ${sell.symbol} - checking wallet...")
+                                        addLog("Pending sell for untracked token: ${sell.symbol} - checking wallet...")
                                         // The orphan scanner will catch it
                                     }
                                 } catch (e: Exception) {
-                                    addLog("❌ Pending sell retry failed: ${sell.symbol} - ${e.message}")
-                                    PendingSellQueue.requeue(sell)
+                                    addLog("Pending sell retry failed: ${sell.symbol} - ${e.message}")
+                                    // V5.7.8: Only requeue if under retry limit
+                                    if (sell.retryCount < 3) {
+                                        PendingSellQueue.requeue(sell)
+                                    } else {
+                                        // Force close — we've tried enough
+                                        val ts = synchronized(status.tokens) { status.tokens[sell.mint] }
+                                        if (ts != null && ts.position.isOpen) {
+                                            addLog("FORCE CLOSE after exception: ${sell.symbol}")
+                                            val tradeId = com.lifecyclebot.engine.TradeIdentityManager.getOrCreate(ts.mint, ts.symbol, ts.source)
+                                            tradeId.closed(executor.getActualPricePublic(ts), -100.0, -(ts.position.costSol), "SELL_EXCEPTION_FORCE_CLOSE")
+                                        }
+                                    }
                                 }
                                 // Small delay between retries to avoid rate limits
                                 kotlinx.coroutines.delay(500)

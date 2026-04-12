@@ -263,6 +263,8 @@ class Executor(
      *
      * This helper is the single source of truth for all price-based logic.
      */
+    fun getActualPricePublic(ts: TokenState): Double = getActualPrice(ts)
+    
     private fun getActualPrice(ts: TokenState): Double {
         // V5.7.7 SIMPLIFIED: Use lastPrice directly - it's updated by DexScreener WebSocket
         
@@ -4749,6 +4751,21 @@ class Executor(
             val actualDecimals = tokenData.second
             onLog("📊 SELL DEBUG: On-chain balance = $actualBalanceUi | decimals=$actualDecimals | mint=${ts.mint.take(8)}...", tradeId.mint)
             
+            // V5.7.8: If balance is dust AND position is deep in loss, force close
+            // Jupiter can't swap tiny amounts — don't keep retrying forever
+            val entryValueSol = pos.costSol
+            val currentValueEstimate = actualBalanceUi * (getActualPrice(ts))
+            val isDeepLoss = entryValueSol > 0 && currentValueEstimate < entryValueSol * 0.01 // Worth < 1% of entry
+            val isDust = actualBalanceUi < 1.0 || currentValueEstimate < 0.001 // Less than 1 token or < 0.001 SOL
+            
+            if (isDust && isDeepLoss) {
+                onLog("DUST FORCE CLOSE: ${ts.symbol} | balance=$actualBalanceUi tokens worth ~${String.format("%.6f", currentValueEstimate)} SOL — too small for Jupiter", tradeId.mint)
+                ErrorLogger.warn("Executor", "DUST FORCE CLOSE: ${ts.symbol} — ${actualBalanceUi} tokens at -${String.format("%.0f", (1.0 - currentValueEstimate / entryValueSol.coerceAtLeast(0.0001)) * 100)}%")
+                zeroBalanceRetries.remove(ts.mint)
+                tradeId.closed(getActualPrice(ts), -100.0, -(pos.costSol), "DUST_FORCE_CLOSE")
+                return SellResult.CONFIRMED
+            }
+            
             val multiplier = 10.0.pow(actualDecimals.toDouble())
             val actualRawUnits = (actualBalanceUi * multiplier).toLong()
             
@@ -4776,22 +4793,33 @@ class Executor(
             
             var quote: com.lifecyclebot.network.SwapQuote? = null
             var lastError: Exception? = null
-            for (attempt in 1..3) {
-                try {
-                    onLog("📊 SELL DEBUG: Quote attempt $attempt/3...", tradeId.mint)
-                    quote = getQuoteWithSlippageGuard(ts.mint, JupiterApi.SOL_MINT,
-                                                       tokenUnits, sellSlippage, isBuy = false)
-                    onLog("📊 SELL DEBUG: Quote SUCCESS | outAmount=${quote.outAmount} | impact=${quote.priceImpactPct}%", tradeId.mint)
-                    break
-                } catch (e: Exception) {
-                    lastError = e
-                    onLog("⚠ Sell quote attempt $attempt/3 failed: ${e.message?.take(60)}", ts.mint)
-                    if (attempt < 3) Thread.sleep(500L * attempt)
+            
+            // V5.7.8: Aggressive sell — try normal slippage, then 2x, then 5x, then max
+            val slippageLevels = listOf(sellSlippage, sellSlippage * 2, sellSlippage * 5, 5000)
+            
+            for (slipLevel in slippageLevels) {
+                for (attempt in 1..2) {
+                    try {
+                        onLog("SELL: Quote attempt slippage=${slipLevel}bps try=$attempt...", tradeId.mint)
+                        quote = getQuoteWithSlippageGuard(ts.mint, JupiterApi.SOL_MINT,
+                                                           tokenUnits, slipLevel.coerceAtMost(5000), isBuy = false)
+                        onLog("SELL: Quote OK | out=${quote.outAmount} | impact=${quote.priceImpactPct}%", tradeId.mint)
+                        break
+                    } catch (e: Exception) {
+                        lastError = e
+                        onLog("SELL: Quote failed slippage=${slipLevel}bps: ${e.message?.take(50)}", ts.mint)
+                        if (attempt < 2) Thread.sleep(300)
+                    }
                 }
+                if (quote != null) break
             }
+            
+            // V5.7.8: If ALL quote attempts failed, force close — don't queue for later
             if (quote == null) {
-                onLog("🛑 SELL FAILED: Could not get quote after 3 attempts", tradeId.mint)
-                throw lastError ?: RuntimeException("Failed to get sell quote after 3 attempts")
+                onLog("SELL FORCE CLOSE: ${ts.symbol} — all ${slippageLevels.size * 2} quote attempts failed. Pool likely dead.", tradeId.mint)
+                ErrorLogger.warn("Executor", "SELL FORCE CLOSE: ${ts.symbol} — Jupiter cannot quote. Force closing as total loss.")
+                tradeId.closed(getActualPrice(ts), -100.0, -(pos.costSol), "JUPITER_QUOTE_EXHAUSTED")
+                return SellResult.CONFIRMED
             }
 
             val qGuard = security.validateQuote(quote, isBuy = false, inputSol = pos.costSol)
