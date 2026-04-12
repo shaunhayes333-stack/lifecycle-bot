@@ -48,6 +48,7 @@ object ForexTrader {
     
     @Volatile private var paperBalance = 50.0  // 50 SOL for forex
     private var engineJob: Job? = null
+    private var monitorJob: Job? = null
     private val scope = CoroutineScope(Dispatchers.Default + SupervisorJob())
     
     // ═══════════════════════════════════════════════════════════════════════════
@@ -107,14 +108,16 @@ object ForexTrader {
         
         engineJob = scope.launch {
             ErrorLogger.error(TAG, "💱💱💱 ForexTrader ENGINE STARTED 💱💱💱")
-            
+
             // Initial scan
             try {
                 runScanCycle()
+            } catch (e: CancellationException) {
+                throw e
             } catch (e: Exception) {
                 ErrorLogger.error(TAG, "Initial scan error: ${e.message}", e)
             }
-            
+
             // Main loop
             while (isRunning.get()) {
                 try {
@@ -122,24 +125,27 @@ object ForexTrader {
                     if (isEnabled.get()) {
                         runScanCycle()
                     }
+                } catch (e: CancellationException) {
+                    throw e
                 } catch (e: Exception) {
                     ErrorLogger.error(TAG, "Scan cycle error: ${e.message}", e)
                 }
             }
         }
-        
-        // Start position monitor
-        scope.launch {
+
+        // Start position monitor — tracked so stop() can cancel it
+        monitorJob = scope.launch {
             while (isRunning.get()) {
                 delay(3000)  // Monitor forex more frequently
                 monitorPositions()
             }
         }
     }
-    
+
     fun stop() {
         isRunning.set(false)
         engineJob?.cancel()
+        monitorJob?.cancel()
         ErrorLogger.info(TAG, "💱 ForexTrader STOPPED")
     }
     
@@ -196,6 +202,8 @@ object ForexTrader {
                         leverageSignals.add(signal.copy(leverage = 10.0))
                     }
                 }
+            } catch (e: CancellationException) {
+                throw e
             } catch (e: Exception) {
                 ErrorLogger.error(TAG, "💱 ${market.symbol} EXCEPTION: ${e.message}")
             }

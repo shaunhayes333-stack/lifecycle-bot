@@ -63,6 +63,9 @@ object PerpsExecutionEngine {
     // Job references
     private var scanJob: Job? = null
     private var positionMonitorJob: Job? = null
+
+    // Single persistent scope — prevents orphaned coroutines on repeated start/stop
+    private var engineScope: CoroutineScope? = null
     
     // ═══════════════════════════════════════════════════════════════════════════
     // LIFECYCLE
@@ -83,14 +86,18 @@ object PerpsExecutionEngine {
         
         isRunning.set(true)
         isPaused.set(false)
-        
+
+        // Create a fresh scope for this run so previous orphaned coroutines are not reused
+        val scope = CoroutineScope(Dispatchers.Default + SupervisorJob())
+        engineScope = scope
+
         // Start scan loop
-        scanJob = CoroutineScope(Dispatchers.Default).launch {
+        scanJob = scope.launch {
             runScanLoop()
         }
-        
+
         // Start position monitor loop
-        positionMonitorJob = CoroutineScope(Dispatchers.Default).launch {
+        positionMonitorJob = scope.launch {
             runPositionMonitorLoop()
         }
         
@@ -104,6 +111,8 @@ object PerpsExecutionEngine {
         isRunning.set(false)
         scanJob?.cancel()
         positionMonitorJob?.cancel()
+        engineScope?.cancel()
+        engineScope = null
         
         // Save state
         PerpsTraderAI.save(force = true)
@@ -180,10 +189,12 @@ object PerpsExecutionEngine {
                         ErrorLogger.debug(TAG, "⚡ PERPS SCAN SKIPPED - PerpsTraderAI disabled")
                     }
                 }
+            } catch (e: CancellationException) {
+                throw e
             } catch (e: Exception) {
                 ErrorLogger.error(TAG, "Scan loop error: ${e.message}", e)
             }
-            
+
             // V5.7.4: Dynamic interval - faster in paper mode for more learning
             val interval = if (PerpsTraderAI.isPaperMode) SCAN_INTERVAL_MS_PAPER else SCAN_INTERVAL_MS_LIVE
             delay(interval)
@@ -229,10 +240,12 @@ object PerpsExecutionEngine {
                         executeExit(position, currentPrice, exitSignal)
                     }
                 }
+            } catch (e: CancellationException) {
+                throw e
             } catch (e: Exception) {
                 ErrorLogger.error(TAG, "Position monitor error: ${e.message}", e)
             }
-            
+
             delay(POSITION_CHECK_INTERVAL_MS)
         }
     }

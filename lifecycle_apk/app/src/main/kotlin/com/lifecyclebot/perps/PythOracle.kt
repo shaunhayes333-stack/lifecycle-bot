@@ -315,22 +315,150 @@ object PythOracle {
     }
     
     /**
-     * Fallback prices when Pyth is unavailable
-     * Uses realistic market prices as defaults
+     * Fallback prices when Pyth is unavailable.
+     * Covers all symbols that have Pyth feed IDs plus commonly-requested extras.
+     * Values are approximate and used only when the live feed is down.
      */
     private fun getFallbackPrice(symbol: String): PythPrice {
         val fallbackPrices = mapOf(
-            "SOL" to 150.0,
-            "AAPL" to 195.50,
-            "TSLA" to 248.30,
-            "NVDA" to 875.20,
+            // ── Crypto ──────────────────────────────────────────────────────────
+            "SOL"   to 150.0,
+            "BTC"   to 65000.0,
+            "ETH"   to 3200.0,
+            "BNB"   to 590.0,
+            "XRP"   to 0.52,
+            "ADA"   to 0.45,
+            "DOGE"  to 0.13,
+            "AVAX"  to 35.0,
+            "DOT"   to 7.5,
+            "LINK"  to 15.0,
+            "MATIC" to 0.90,
+            "SHIB"  to 0.000025,
+            "LTC"   to 80.0,
+            "ATOM"  to 9.0,
+            "UNI"   to 7.5,
+            "ARB"   to 1.10,
+            "OP"    to 2.20,
+            "APT"   to 9.5,
+            "SUI"   to 1.80,
+            "SEI"   to 0.55,
+            "INJ"   to 28.0,
+            "TIA"   to 8.0,
+            "JUP"   to 0.90,
+            "PEPE"  to 0.0000115,
+            "WIF"   to 2.50,
+            "BONK"  to 0.000028,
+            "TRX"   to 0.12,
+            "BCH"   to 480.0,
+            "XLM"   to 0.11,
+            "XMR"   to 165.0,
+            "ETC"   to 27.0,
+            "DYDX"  to 2.30,
+            "WLD"   to 2.80,
+            "JTO"   to 3.50,
+            "W"     to 0.48,
+            "STRK"  to 1.10,
+            "TAO"   to 450.0,
+            // ── US Equities (Mega/FAANG+) ────────────────────────────────────
+            "AAPL"  to 195.50,
+            "TSLA"  to 248.30,
+            "NVDA"  to 875.20,
             "GOOGL" to 175.80,
-            "AMZN" to 185.60,
-            "META" to 510.40,
-            "MSFT" to 420.15,
-            "COIN" to 245.80,
+            "AMZN"  to 185.60,
+            "META"  to 510.40,
+            "MSFT"  to 420.15,
+            "NFLX"  to 630.0,
+            // ── Semiconductors ──────────────────────────────────────────────
+            "AMD"   to 175.0,
+            "INTC"  to 31.0,
+            "QCOM"  to 175.0,
+            "AVGO"  to 1350.0,
+            "MU"    to 115.0,
+            // ── Growth Tech ─────────────────────────────────────────────────
+            "CRM"   to 290.0,
+            "ORCL"  to 120.0,
+            "PLTR"  to 24.0,
+            "SNOW"  to 165.0,
+            "SHOP"  to 72.0,
+            // ── Fintech & Crypto ─────────────────────────────────────────────
+            "COIN"  to 245.80,
+            "PYPL"  to 62.0,
+            "V"     to 280.0,
+            "MA"    to 480.0,
+            "JPM"   to 200.0,
+            "GS"    to 460.0,
+            // ── Consumer & Travel ────────────────────────────────────────────
+            "DIS"   to 110.0,
+            "UBER"  to 73.0,
+            "ABNB"  to 155.0,
+            "NKE"   to 95.0,
+            "SBUX"  to 75.0,
+            "MCD"   to 280.0,
+            // ── Industrial & Retail ──────────────────────────────────────────
+            "BA"    to 175.0,
+            "WMT"   to 175.0,
+            "HD"    to 360.0,
+            "COST"  to 850.0,
+            // ── Healthcare & Consumer ────────────────────────────────────────
+            "JNJ"   to 155.0,
+            "PFE"   to 28.0,
+            "UNH"   to 510.0,
+            "KO"    to 62.0,
+            "PEP"   to 170.0,
+            // ── Energy ──────────────────────────────────────────────────────
+            "XOM"   to 120.0,
+            "CVX"   to 155.0,
+            // ── Commodities ─────────────────────────────────────────────────
+            "BRENT" to 83.0,
+            "WTI"   to 79.0,
+            "NATGAS" to 2.20,
+            "WHEAT" to 550.0,
+            "CORN"  to 430.0,
+            "SOYBEAN" to 1130.0,
+            "COFFEE" to 185.0,
+            "COCOA" to 6500.0,
+            "SUGAR" to 21.0,
+            "COTTON" to 85.0,
+            "LUMBER" to 530.0,
+            "OJ"    to 350.0,
+            "CATTLE" to 175.0,
+            "HOGS"  to 85.0,
+            // ── Precious Metals ──────────────────────────────────────────────
+            "XAU"  to 2300.0,   // Gold $/troy oz
+            "XAG"  to 27.5,     // Silver $/troy oz
+            "XPT"  to 950.0,    // Platinum $/troy oz
+            "XPD"  to 1020.0,   // Palladium $/troy oz
+            // ── Industrial Metals ────────────────────────────────────────────
+            "XCU"  to 4.20,     // Copper $/lb
+            "XAL"  to 0.95,     // Aluminium $/lb
+            "XNI"  to 7.50,     // Nickel $/lb
+            "XTI"  to 5.50,     // Titanium $/lb
+            "ZINC" to 1.20,
+            "LEAD" to 0.90,
+            "TIN"  to 13.0,
+            "IRON" to 110.0,
+            "COBALT" to 14.0,
+            "LITHIUM" to 15.0,
+            "URANIUM" to 90.0,
+            // ── Forex ────────────────────────────────────────────────────────
+            "EURUSD" to 1.085,
+            "GBPUSD" to 1.265,
+            "USDJPY" to 153.0,
+            "AUDUSD" to 0.645,
+            "USDCAD" to 1.365,
+            "USDCHF" to 0.905,
+            "NZDUSD" to 0.595,
+            "USDMXN" to 17.2,
+            "USDBRL" to 5.05,
+            "USDINR" to 83.5,
+            "USDCNY" to 7.24,
+            "USDZAR" to 18.8,
+            "USDTRY" to 32.5,
+            "USDSGD" to 1.35,
+            "USDHKD" to 7.82,
+            "USDKRW" to 1360.0,
         )
-        
+
         val price = fallbackPrices[symbol] ?: 100.0
         
         return PythPrice(
