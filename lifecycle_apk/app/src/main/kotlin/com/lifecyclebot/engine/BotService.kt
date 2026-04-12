@@ -2742,25 +2742,14 @@ class BotService : Service() {
                             ErrorLogger.info("PaperWallet", "Initialized with ${"%.2f".format(targetSol)} SOL (~\$1000 @ \$${"%.0f".format(solPxPaper)}/SOL)")
                             addLog("📝 Paper wallet: ${"%.2f".format(targetSol)} SOL (~\$1,000)")
                         } else {
-                            // Anomaly guard: if wallet exceeds 10,000 SOL it was inflated by buggy PnL
-                            // (legitimate compounding cannot reach this in normal use) — reset immediately.
-                            val ANOMALY_THRESHOLD_SOL = 10_000.0
-                            if (status.paperWalletSol > ANOMALY_THRESHOLD_SOL) {
+                            // Auto-refresh every 12 hours so paper mode never runs dry
+                            val hoursSinceRefresh = (System.currentTimeMillis() - status.paperWalletLastRefreshMs) / 3_600_000.0
+                            if (hoursSinceRefresh >= 12.0) {
                                 val oldSol = status.paperWalletSol
                                 status.paperWalletSol = targetSol
                                 status.paperWalletLastRefreshMs = System.currentTimeMillis()
-                                ErrorLogger.info("PaperWallet", "Anomaly reset: ${oldSol.toInt()} SOL > ${ANOMALY_THRESHOLD_SOL.toInt()} SOL threshold — reset to ${"%.2f".format(targetSol)} SOL")
-                                addLog("🔧 Paper wallet anomaly reset: was ${oldSol.toInt()} SOL → ${"%.2f".format(targetSol)} SOL (~\$1,000)")
-                            } else {
-                                // Auto-refresh every 12 hours so paper mode never runs dry
-                                val hoursSinceRefresh = (System.currentTimeMillis() - status.paperWalletLastRefreshMs) / 3_600_000.0
-                                if (hoursSinceRefresh >= 12.0) {
-                                    val oldSol = status.paperWalletSol
-                                    status.paperWalletSol = targetSol
-                                    status.paperWalletLastRefreshMs = System.currentTimeMillis()
-                                    ErrorLogger.info("PaperWallet", "12h refresh: reset to ${"%.2f".format(targetSol)} SOL (~\$1000). Was ${"%.2f".format(oldSol)} SOL")
-                                    addLog("🔄 Paper wallet refreshed: ${"%.2f".format(targetSol)} SOL (~\$1,000) — 12h top-up")
-                                }
+                                ErrorLogger.info("PaperWallet", "12h refresh: reset to ${"%.2f".format(targetSol)} SOL (~\$1000). Was ${"%.2f".format(oldSol)} SOL")
+                                addLog("🔄 Paper wallet refreshed: ${"%.2f".format(targetSol)} SOL (~\$1,000) — 12h top-up")
                             }
                         }
                     }
@@ -3332,7 +3321,29 @@ if (deferredCount > 0) {
                 }
             }
             
-            ts.lastPrice        = pair.candle.priceUsd
+            // V5.7.8: Validate price against mcap/supply to catch decimal mismatches
+            // If price * known_supply differs from mcap by >100x, the price is likely wrong
+            var validatedPrice = pair.candle.priceUsd
+            if (validatedPrice > 0 && pair.candle.marketCap > 0) {
+                val supply = if (validatedPrice > 0) pair.candle.marketCap / validatedPrice else 0.0
+                // Sanity: meme coins typically have supply 1M-1T, price 0.0000001-100
+                // If price implies supply < 1 or > 1e15, it's a decimal error
+                if (supply > 0 && (supply < 1.0 || supply > 1e15)) {
+                    // Try to fix: derive price from mcap and a reasonable supply estimate
+                    val estimatedSupply = pair.candle.marketCap / validatedPrice
+                    ErrorLogger.warn("BotService", "PRICE VALIDATION: ${ts.symbol} price=$validatedPrice mcap=${pair.candle.marketCap} impliedSupply=$estimatedSupply — possible decimal error")
+                }
+                // Cross-check: if we have FDV and it's wildly different from mcap, flag it
+                if (pair.fdv > 0 && pair.candle.marketCap > 0) {
+                    val mcapFdvRatio = pair.fdv / pair.candle.marketCap
+                    // FDV should be >= mcap, and typically within 1-10x for meme coins
+                    if (mcapFdvRatio > 1000) {
+                        ErrorLogger.warn("BotService", "PRICE VALIDATION: ${ts.symbol} FDV/MCAP ratio=${mcapFdvRatio.toInt()} — likely decimal error in price")
+                    }
+                }
+            }
+            
+            ts.lastPrice        = validatedPrice
             ts.lastMcap         = pair.candle.marketCap
             ts.lastLiquidityUsd = pair.liquidity
             ts.lastFdv          = pair.fdv

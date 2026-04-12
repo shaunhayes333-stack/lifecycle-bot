@@ -4,9 +4,7 @@ import kotlin.math.sqrt
 
 fun pct(a: Double, b: Double): Double {
     if (a == 0.0) return 0.0
-    val raw = ((b - a) / a) * 100.0
-    // V5.7.8: Hard cap PnL to prevent astronomical display values from bad price data
-    return raw.coerceIn(-100.0, 10000.0)
+    return ((b - a) / a) * 100.0
 }
 
 fun sma(values: List<Double>): Double =

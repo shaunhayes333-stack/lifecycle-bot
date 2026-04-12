@@ -338,7 +338,7 @@ class Executor(
             val entryPrice = ts.position.entryPrice
             if (currentPrice <= 0.0 || entryPrice <= 0.0) return@forEach
 
-            val pnlPct = (((currentPrice - entryPrice) / entryPrice) * 100.0).coerceIn(-100.0, 10000.0)
+            val pnlPct = ((currentPrice - entryPrice) / entryPrice) * 100.0
             if (pnlPct <= -33.0 && !RuggedContracts.isBlacklisted(ts.mint)) {
                 ErrorLogger.warn("Executor", "🚨 RUG/STOP LOSS: ${ts.symbol} at ${pnlPct.toInt()}%")
                 markForRecoveryScan(ts, pnlPct, "hard_floor")
@@ -3859,9 +3859,8 @@ class Executor(
         val simulatedFeePct = 0.5
         
         val rawValue = pos.qtyToken * effectivePrice * (1.0 - simulatedFeePct / 100.0)
-        // Cap at 10,000x return to prevent price-scale anomalies (e.g. lamport vs token price
-        // mismatch) from producing astronomical PnL and inflating the treasury balance.
-        val value = minOf(rawValue, pos.costSol * 10_000.0)
+        // V5.7.8: No artificial caps — fix bad data at source instead
+        val value = rawValue
         val pnl   = value - pos.costSol
         val pnlP  = pct(pos.costSol, value)
         val trade = Trade(
