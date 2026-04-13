@@ -440,7 +440,8 @@ class MultiAssetActivity : AppCompatActivity() {
         CommoditiesTrader.setLiveMode(live)
         MetalsTrader.setLiveMode(live)
         ForexTrader.setLiveMode(live)
-        // PerpsExecutionEngine uses its own mode from PerpsTraderAI
+        // FIX: Also update PerpsTraderAI so the SOL Perps tab actually trades live
+        PerpsTraderAI.setTradingMode(isPaper = !live)
         
         ErrorLogger.info(TAG, "📊 All Markets traders set to ${if (live) "🔴 LIVE" else "📄 PAPER"} mode")
     }
@@ -1540,12 +1541,101 @@ class MultiAssetActivity : AppCompatActivity() {
             showClosePositionDialog(pos)
         }
         builder.setNeutralButton("Add to Position") { _, _ ->
-            android.widget.Toast.makeText(this, "Add to position coming soon", android.widget.Toast.LENGTH_SHORT).show()
+            showAddToPositionDialog(pos)
         }
         builder.setNegativeButton("Close", null)
         builder.show()
     }
     
+    // ═══════════════════════════════════════════════════════════════════════════
+    // ADD TO POSITION
+    // ═══════════════════════════════════════════════════════════════════════════
+
+    private fun showAddToPositionDialog(pos: PositionInfo) {
+        val solPrice = try {
+            PerpsMarketDataFetcher.getCachedPrice(PerpsMarket.SOL)?.price ?: SOL_PRICE_USD
+        } catch (_: Exception) { SOL_PRICE_USD }
+
+        val currentPnlPct = pos.pnlPct
+        val topUpSizes = arrayOf("0.05 SOL", "0.10 SOL", "0.25 SOL", "0.50 SOL", "1.00 SOL")
+        val topUpAmounts = doubleArrayOf(0.05, 0.10, 0.25, 0.50, 1.00)
+
+        android.app.AlertDialog.Builder(this)
+            .setTitle("➕ Add to ${pos.symbol} Position")
+            .setMessage(
+                "Current P&L: ${if (currentPnlPct >= 0) "+" else ""}${"%.1f".format(currentPnlPct)}%
+" +
+                "Entry: ${pos.entryPrice}  |  Now: ${pos.currentPrice}
+
+" +
+                "⚠️ Only add to winning positions. Adding to a loser increases risk.
+
+" +
+                "How much SOL to add?"
+            )
+            .setSingleChoiceItems(topUpSizes, 0) { _, _ -> }
+            .setPositiveButton("Add to Position") { dialog, _ ->
+                val lv = (dialog as android.app.AlertDialog).listView
+                val checkedIdx = lv.checkedItemPosition.takeIf { it >= 0 } ?: 0
+                val addSol = topUpAmounts[checkedIdx]
+                executeAddToPosition(pos, addSol)
+            }
+            .setNegativeButton("Cancel", null)
+            .show()
+    }
+
+    private fun executeAddToPosition(pos: PositionInfo, addSol: Double) {
+        val market = try {
+            PerpsMarket.values().firstOrNull { it.symbol == pos.symbol }
+        } catch (_: Exception) { null }
+
+        if (market == null) {
+            android.widget.Toast.makeText(this,
+                "Cannot add to position: unknown market ${pos.symbol}",
+                android.widget.Toast.LENGTH_SHORT).show()
+            return
+        }
+
+        // Determine direction from emoji
+        val direction = when (pos.directionEmoji) {
+            "🟢", "▲", "↑" -> PerpsDirection.LONG
+            "🔴", "▼", "↓" -> PerpsDirection.SHORT
+            else -> PerpsDirection.LONG
+        }
+
+        scope.launch(Dispatchers.IO) {
+            val result = try {
+                when {
+                    market.isStock -> TokenizedStockTrader.addToPosition(market, addSol)
+                    market.isCommodity -> CommoditiesTrader.addToPosition(market, addSol)
+                    market.isMetal -> MetalsTrader.addToPosition(market, addSol)
+                    market.isForex -> ForexTrader.addToPosition(market, addSol)
+                    market.isCrypto -> {
+                        // For perps, add via PerpsExecutionEngine
+                        PerpsExecutionEngine.addToPosition(market, direction, addSol)
+                        true
+                    }
+                    else -> false
+                }
+            } catch (e: Exception) {
+                ErrorLogger.error(TAG, "Add to position error: ${e.message}", e)
+                false
+            }
+
+            withContext(Dispatchers.Main) {
+                if (result) {
+                    android.widget.Toast.makeText(this@MultiAssetActivity,
+                        "✅ Added ${"%.2f".format(addSol)} SOL to ${pos.symbol}",
+                        android.widget.Toast.LENGTH_SHORT).show()
+                } else {
+                    android.widget.Toast.makeText(this@MultiAssetActivity,
+                        "❌ Could not add to ${pos.symbol} — no open position found",
+                        android.widget.Toast.LENGTH_SHORT).show()
+                }
+            }
+        }
+    }
+
     // ═══════════════════════════════════════════════════════════════════════════
     // TOP MOVERS
     // ═══════════════════════════════════════════════════════════════════════════
@@ -2401,3 +2491,4 @@ class MultiAssetActivity : AppCompatActivity() {
         builder.show()
     }
 }
+
