@@ -670,4 +670,32 @@ object ForexTrader {
     }
     
     fun getEffectiveBalance(): Double = if (isPaperMode.get()) paperBalance else liveWalletBalance
+
+    /**
+     * Add SOL to an existing open position (scale-in / pyramid).
+     * Returns true if a position was found and the add-on was recorded.
+     */
+    fun addToPosition(market: PerpsMarket, additionalSol: Double): Boolean {
+        val pos = positions.values.firstOrNull { it.market == market } ?: return false
+        val currentPrice = try {
+            PerpsMarketDataFetcher.getCachedPrice(market)?.price?.takeIf { it > 0 } ?: pos.currentPrice
+        } catch (_: Exception) { pos.currentPrice }
+        if (currentPrice <= 0) return false
+
+        val totalCost = pos.sizeSol + additionalSol
+        val blendedEntry = (pos.entryPrice * pos.sizeSol + currentPrice * additionalSol) / totalCost
+
+        val updated = pos.copy(
+            sizeSol = totalCost,
+            entryPrice = blendedEntry,
+            currentPrice = currentPrice
+        )
+        positions[pos.id] = updated
+        if (pos.isSpot) spotPositions[pos.id] = updated else leveragePositions[pos.id] = updated
+
+        ErrorLogger.info(TAG, "addToPosition ${market.symbol} +$additionalSol SOL | blendedEntry=$blendedEntry")
+        return true
+    }
+
 }
+
