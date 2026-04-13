@@ -16,16 +16,16 @@
         android:layout_height="match_parent"
         android:orientation="vertical">
 
-        <!-- ── TOP BAR ── -->
+        <!-- ── TOP BAR (matches meme trader style) ── -->
         <LinearLayout
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:orientation="horizontal"
             android:gravity="center_vertical"
-            android:paddingStart="12dp"
-            android:paddingEnd="12dp"
-            android:paddingTop="12dp"
-            android:paddingBottom="8dp"
+            android:paddingStart="16dp"
+            android:paddingEnd="16dp"
+            android:paddingTop="10dp"
+            android:paddingBottom="6dp"
             android:background="#0A0A0F">
 
             <!-- Back button -->
@@ -35,7 +35,7 @@
                 android:layout_height="wrap_content"
                 android:text="←"
                 android:textColor="#FFFFFF"
-                android:textSize="24sp"
+                android:textSize="22sp"
                 android:paddingEnd="12dp"
                 android:clickable="true"
                 android:focusable="true"/>
@@ -49,7 +49,7 @@
                 <TextView
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
-                    android:text="Multi-Asset Trading"
+                    android:text="AATE Markets"
                     android:textColor="#FFFFFF"
                     android:textSize="16sp"
                     android:textStyle="bold"/>
@@ -59,14 +59,14 @@
                     android:layout_height="wrap_content"
                     android:text="Perps • Stocks • Commodities • Metals • Forex"
                     android:textColor="#6B7280"
-                    android:textSize="10sp"/>
+                    android:textSize="9sp"/>
             </LinearLayout>
 
-            <!-- V5.7.6b: LIVE/PAPER MODE TOGGLE -->
+            <!-- Mode toggle pill -->
             <Button
                 android:id="@+id/btnModeToggle"
                 android:layout_width="wrap_content"
-                android:layout_height="36dp"
+                android:layout_height="32dp"
                 android:text="PAPER"
                 android:textColor="#000000"
                 android:textSize="9sp"
@@ -74,58 +74,78 @@
                 android:background="@drawable/pill_bg_yellow"
                 android:paddingStart="10dp"
                 android:paddingEnd="10dp"
-                android:layout_marginEnd="4dp"
-                android:minWidth="55dp"/>
+                android:layout_marginEnd="6dp"
+                android:minWidth="50dp"/>
 
-            <!-- V5.7.6b: STOP/START BUTTON -->
+            <!-- Start/Stop pill -->
             <Button
                 android:id="@+id/btnMarketsToggle"
                 android:layout_width="wrap_content"
-                android:layout_height="36dp"
+                android:layout_height="32dp"
                 android:text="START"
                 android:textColor="#FFFFFF"
-                android:textSize="11sp"
+                android:textSize="10sp"
                 android:textStyle="bold"
                 android:background="@drawable/pill_bg_green"
-                android:paddingStart="16dp"
-                android:paddingEnd="16dp"
-                android:layout_marginEnd="8dp"
-                android:minWidth="80dp"/>
+                android:paddingStart="14dp"
+                android:paddingEnd="14dp"
+                android:minWidth="70dp"/>
+        </LinearLayout>
 
-            <!-- Combined Balance -->
-            <LinearLayout
-                android:id="@+id/balanceContainer"
+        <!-- ═══════════════════════════════════════════════════════════════
+             HERO BALANCE (matches meme trader style)
+             ═══════════════════════════════════════════════════════════════ -->
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="vertical"
+            android:paddingStart="16dp"
+            android:paddingEnd="16dp"
+            android:paddingBottom="8dp">
+
+            <TextView
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
-                android:orientation="vertical"
-                android:gravity="end"
-                android:background="@drawable/pill_bg"
-                android:paddingStart="10dp"
-                android:paddingEnd="10dp"
-                android:paddingTop="6dp"
-                android:paddingBottom="6dp"
+                android:text="BALANCE"
+                android:textColor="#6B7280"
+                android:textSize="10sp"
+                android:letterSpacing="0.12"
+                android:fontFamily="monospace"
+                android:layout_marginBottom="2dp"/>
+
+            <LinearLayout
+                android:id="@+id/balanceContainer"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="horizontal"
+                android:gravity="bottom"
                 android:clickable="true"
                 android:focusable="true">
-                <TextView
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:text="PAPER BAL"
-                    android:textColor="#6B7280"
-                    android:textSize="8sp"/>
+
                 <TextView
                     android:id="@+id/tvTotalBalance"
                     android:layout_width="0dp"
                     android:layout_weight="1"
                     android:layout_height="wrap_content"
-                    android:text="250.00 ◎"
+                    android:text="$0.00"
                     android:textColor="#00FF88"
-                    android:textSize="14sp"
+                    android:textSize="28sp"
                     android:textStyle="bold"
                     android:maxLines="1"
                     android:autoSizeTextType="uniform"
-                    android:autoSizeMinTextSize="10sp"
-                    android:autoSizeMaxTextSize="14sp"
+                    android:autoSizeMinTextSize="14sp"
+                    android:autoSizeMaxTextSize="28sp"
                     android:autoSizeStepGranularity="1sp"/>
+
+                <TextView
+                    android:id="@+id/tvBalanceSecondary"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text=""
+                    android:textColor="#6B7280"
+                    android:textSize="12sp"
+                    android:layout_marginStart="8dp"
+                    android:layout_marginBottom="4dp"/>
             </LinearLayout>
         </LinearLayout>
 
@@ -136,9 +156,10 @@
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:orientation="horizontal"
-            android:paddingStart="12dp"
-            android:paddingEnd="12dp"
-            android:layout_marginBottom="4dp">
+            android:paddingStart="16dp"
+            android:paddingEnd="16dp"
+            android:paddingTop="4dp"
+            android:layout_marginBottom="6dp">
 
             <!-- 24h Trades -->
             <LinearLayout
