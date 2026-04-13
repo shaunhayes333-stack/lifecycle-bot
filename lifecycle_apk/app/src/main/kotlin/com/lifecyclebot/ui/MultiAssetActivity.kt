@@ -2051,7 +2051,7 @@ class MultiAssetActivity : AppCompatActivity() {
     private fun getCurrentPositionCount(): Int {
         return try {
             when (currentTab) {
-                AssetTab.PERPS -> PerpsExecutionEngine.getActivePositions().size
+                AssetTab.PERPS -> PerpsExecutionEngine.getActivePositions().size + TokenizedStockTrader.getAllPositions().count { !it.market.isStock }
                 AssetTab.STOCKS -> {
                     if (showSpotOnly) TokenizedStockTrader.getSpotPositions().size
                     else TokenizedStockTrader.getLeveragePositions().size
@@ -2075,7 +2075,7 @@ class MultiAssetActivity : AppCompatActivity() {
     private fun getCurrentPnl(): Double {
         return try {
             when (currentTab) {
-                AssetTab.PERPS -> PerpsExecutionEngine.getActivePositions().sumOf { it.getPnlSol() }
+                AssetTab.PERPS -> PerpsExecutionEngine.getActivePositions().sumOf { it.getPnlSol() } + TokenizedStockTrader.getAllPositions().filter { !it.market.isStock }.sumOf { it.getPnlSol() }
                 AssetTab.STOCKS -> {
                     val positions = if (showSpotOnly) TokenizedStockTrader.getSpotPositions()
                                    else TokenizedStockTrader.getLeveragePositions()
@@ -2109,9 +2109,9 @@ class MultiAssetActivity : AppCompatActivity() {
         return try {
             when (currentTab) {
                 AssetTab.PERPS -> {
-                    PerpsExecutionEngine.getActivePositions().map { pos ->
+                    // V5.7.8: Show crypto positions from BOTH PerpsExecutionEngine AND TokenizedStockTrader
+                    val perpsPositions = PerpsExecutionEngine.getActivePositions().map { pos ->
                         val livePrice = PerpsMarketDataFetcher.getCachedPrice(pos.market)?.price?.takeIf { it > 0 } ?: pos.currentPrice
-                        // V5.7.8: Sync position price with live price before PnL calc
                         if (livePrice > 0 && livePrice != pos.currentPrice) pos.currentPrice = livePrice
                         val pnlSol = pos.getPnlSol()
                         PositionInfo(
@@ -2131,6 +2131,31 @@ class MultiAssetActivity : AppCompatActivity() {
                             leverage = pos.leverage
                         )
                     }
+                    // Also get crypto positions from TokenizedStockTrader
+                    val cryptoFromTrader = TokenizedStockTrader.getAllPositions()
+                        .filter { !it.market.isStock }
+                        .map { pos ->
+                            val livePrice = PerpsMarketDataFetcher.getCachedPrice(pos.market)?.price?.takeIf { it > 0 } ?: pos.currentPrice
+                            if (livePrice > 0 && livePrice != pos.currentPrice) pos.currentPrice = livePrice
+                            val pnlSol = pos.getPnlSol()
+                            PositionInfo(
+                                symbol = pos.market.symbol,
+                                directionEmoji = pos.direction.emoji,
+                                typeLabel = if (pos.isSpot) "SPOT" else "${pos.leverage.toInt()}x",
+                                entryPrice = "$${pos.entryPrice.fmt(2)}",
+                                currentPrice = "$${livePrice.fmt(2)}",
+                                pnl = pnlSol,
+                                pnlUsd = pnlSol * solPrice,
+                                pnlPct = pos.getPnlPercent(),
+                                takeProfitPrice = "$${pos.takeProfit.fmt(2)}",
+                                stopLossPrice = "$${pos.stopLoss.fmt(2)}",
+                                sizeSol = pos.size,
+                                sizeUsd = pos.size * solPrice,
+                                openTime = pos.openTime,
+                                leverage = if (pos.isSpot) 1.0 else pos.leverage
+                            )
+                        }
+                    perpsPositions + cryptoFromTrader
                 }
                 AssetTab.STOCKS -> {
                     val positions = if (showSpotOnly) TokenizedStockTrader.getSpotPositions()
