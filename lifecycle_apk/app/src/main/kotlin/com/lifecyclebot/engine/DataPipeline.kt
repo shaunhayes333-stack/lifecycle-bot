@@ -232,6 +232,27 @@ object DataPipeline {
         val cacheKey = "dex_$mint"
         getCachedJson(cacheKey, CACHE_TTL_MS)?.let { return it }
 
+        // FIX: Use token-pairs/v1 endpoint — more reliable, returns JSONArray
+        // Wrap in {"pairs": [...]} so extractBestPair still works
+        val raw = fetchRaw("https://api.dexscreener.com/token-pairs/v1/solana/$mint")
+        if (raw != null) {
+            return try {
+                // token-pairs endpoint returns a JSONArray directly
+                val arr = org.json.JSONArray(raw)
+                val wrapper = JSONObject().put("pairs", arr)
+                cache[cacheKey] = CachedData(wrapper, System.currentTimeMillis())
+                wrapper
+            } catch (_: Exception) {
+                // fallback: maybe it returned an object with "pairs" already
+                try {
+                    val obj = JSONObject(raw)
+                    cache[cacheKey] = CachedData(obj, System.currentTimeMillis())
+                    obj
+                } catch (_: Exception) { null }
+            }
+        }
+
+        // Fallback to legacy endpoint
         return fetchJson("https://api.dexscreener.com/latest/dex/tokens/$mint")?.also {
             cache[cacheKey] = CachedData(it, System.currentTimeMillis())
         }
@@ -253,6 +274,18 @@ object DataPipeline {
         return fetchJson("https://public-api.solscan.io/token/holders?tokenAddress=$mint&limit=20")?.also {
             cache[cacheKey] = CachedData(it, System.currentTimeMillis())
         }
+    }
+
+    private fun fetchRaw(url: String): String? {
+        return try {
+            val request = Request.Builder()
+                .url(url)
+                .header("Accept", "application/json")
+                .header("User-Agent", "lifecycle-bot-android/6.0")
+                .build()
+            val resp = http.newCall(request).execute()
+            if (resp.isSuccessful) resp.body?.string() else null
+        } catch (_: Exception) { null }
     }
 
     private fun fetchJson(url: String): JSONObject? {
@@ -296,20 +329,27 @@ object DataPipeline {
         if (pairs.length() == 0) return null
 
         var best: JSONObject? = null
-        var bestLiquidity = -1.0
+        var bestScore = -1.0
 
         for (i in 0 until pairs.length()) {
             val pair = pairs.optJSONObject(i) ?: continue
             val baseToken = pair.optJSONObject("baseToken")
-            val quoteToken = pair.optJSONObject("quoteToken")
             val baseAddr = baseToken?.optString("address", "") ?: ""
-            val quoteAddr = quoteToken?.optString("address", "") ?: ""
 
-            if (baseAddr != mint && quoteAddr != mint) continue
+            // CRITICAL FIX: Only accept pairs where our token is the BASE.
+            // If the token is the QUOTE (e.g. SOL/MEME), priceUsd reflects
+            // the SOL price (~$150) not the meme token price — completely wrong data.
+            if (baseAddr.isNotBlank() && baseAddr != mint) continue
 
+            // Score by liquidity + volume for best pair selection
             val liq = pair.optJSONObject("liquidity")?.optDouble("usd", 0.0) ?: 0.0
-            if (liq > bestLiquidity) {
-                bestLiquidity = liq
+            val vol = pair.optJSONObject("volume")?.optDouble("h24", 0.0) ?: 0.0
+            val txns = pair.optJSONObject("txns")?.optJSONObject("h24")
+            val cnt = (txns?.optInt("buys", 0) ?: 0) + (txns?.optInt("sells", 0) ?: 0)
+            val score = liq * 1.5 + vol + cnt * 10.0
+
+            if (score > bestScore) {
+                bestScore = score
                 best = pair
             }
         }
