@@ -698,11 +698,11 @@ object CommoditiesTrader {
         } catch (_: Exception) { pos.currentPrice }
         if (currentPrice <= 0) return false
 
-        val totalCost = pos.sizeSol + additionalSol
-        val blendedEntry = (pos.entryPrice * pos.sizeSol + currentPrice * additionalSol) / totalCost
+        val totalCost = pos.size + additionalSol
+        val blendedEntry = (pos.entryPrice * pos.size + currentPrice * additionalSol) / totalCost
 
         val updated = pos.copy(
-            sizeSol = totalCost,
+            size = totalCost,
             entryPrice = blendedEntry,
             currentPrice = currentPrice
         )
