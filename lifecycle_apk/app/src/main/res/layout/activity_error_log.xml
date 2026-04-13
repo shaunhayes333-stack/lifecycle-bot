@@ -2,25 +2,32 @@
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
+    android:background="#0A0A0F"
     android:orientation="vertical"
-    android:background="#0d0d0d">
+    android:fitsSystemWindows="true">
 
-    <!-- Header -->
+    <!-- ── TOP BAR ── -->
     <LinearLayout
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:orientation="horizontal"
         android:gravity="center_vertical"
-        android:padding="16dp"
-        android:background="#1a1a1a">
+        android:paddingStart="@dimen/screen_padding"
+        android:paddingEnd="@dimen/screen_padding"
+        android:paddingTop="10dp"
+        android:paddingBottom="8dp"
+        android:background="#0A0A0F">
 
-        <ImageButton
+        <TextView
             android:id="@+id/backButton"
-            android:layout_width="40dp"
-            android:layout_height="40dp"
-            android:background="?attr/selectableItemBackgroundBorderless"
-            android:src="@android:drawable/ic_menu_close_clear_cancel"
-            android:contentDescription="Back" />
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="←"
+            android:textColor="#FFFFFF"
+            android:textSize="22sp"
+            android:paddingEnd="12dp"
+            android:clickable="true"
+            android:focusable="true"/>
 
         <TextView
             android:id="@+id/titleText"
@@ -28,95 +35,110 @@
             android:layout_height="wrap_content"
             android:layout_weight="1"
             android:text="Error Logs"
-            android:textColor="#ffffff"
-            android:textSize="20sp"
-            android:textStyle="bold"
-            android:layout_marginStart="16dp" />
+            android:textColor="#FFFFFF"
+            android:textSize="16sp"
+            android:textStyle="bold"/>
 
-        <ImageButton
+        <TextView
             android:id="@+id/refreshButton"
-            android:layout_width="40dp"
-            android:layout_height="40dp"
-            android:background="?attr/selectableItemBackgroundBorderless"
-            android:src="@android:drawable/ic_menu_rotate"
-            android:contentDescription="Refresh" />
-
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="↻"
+            android:textColor="#9945FF"
+            android:textSize="18sp"
+            android:paddingStart="12dp"
+            android:paddingEnd="4dp"
+            android:clickable="true"
+            android:focusable="true"/>
     </LinearLayout>
 
-    <!-- Stats Bar -->
+    <!-- Stats bar -->
     <TextView
         android:id="@+id/statsText"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:padding="12dp"
-        android:background="#121212"
-        android:textColor="#888888"
-        android:textSize="12sp"
-        android:text="Loading..." />
+        android:paddingStart="@dimen/screen_padding"
+        android:paddingEnd="@dimen/screen_padding"
+        android:paddingTop="8dp"
+        android:paddingBottom="8dp"
+        android:textColor="#6B7280"
+        android:textSize="11sp"
+        android:fontFamily="monospace"
+        android:text="Loading…"/>
 
-    <!-- Filter Row -->
+    <View android:layout_width="match_parent" android:layout_height="1dp"
+        android:background="#1F2937"/>
+
+    <!-- Filter row -->
     <LinearLayout
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:orientation="horizontal"
-        android:padding="12dp"
         android:gravity="center_vertical"
-        android:background="#151515">
-
-        <TextView
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:text="Filter: "
-            android:textColor="#aaaaaa"
-            android:textSize="14sp" />
+        android:paddingStart="@dimen/screen_padding"
+        android:paddingEnd="@dimen/screen_padding"
+        android:paddingTop="8dp"
+        android:paddingBottom="8dp">
 
         <Spinner
             android:id="@+id/filterSpinner"
             android:layout_width="0dp"
-            android:layout_height="40dp"
+            android:layout_height="36dp"
             android:layout_weight="1"
-            android:background="#222222"
-            android:padding="8dp" />
+            android:background="@drawable/input_bg"
+            android:padding="8dp"
+            android:layout_marginEnd="8dp"/>
 
         <Button
             android:id="@+id/exportButton"
             android:layout_width="wrap_content"
             android:layout_height="36dp"
             android:text="Export"
-            android:textSize="12sp"
-            android:layout_marginStart="8dp"
-            android:backgroundTint="#2196F3" />
+            android:textSize="11sp"
+            android:textColor="#FFFFFF"
+            android:backgroundTint="#1A1A2E"
+            android:fontFamily="monospace"
+            android:layout_marginEnd="8dp"
+            android:minWidth="0dp"
+            android:paddingStart="12dp"
+            android:paddingEnd="12dp"/>
 
         <Button
             android:id="@+id/clearButton"
             android:layout_width="wrap_content"
             android:layout_height="36dp"
             android:text="Clear"
-            android:textSize="12sp"
-            android:layout_marginStart="8dp"
-            android:backgroundTint="#f44336" />
-
+            android:textSize="11sp"
+            android:textColor="#EF4444"
+            android:backgroundTint="#1A0808"
+            android:fontFamily="monospace"
+            android:minWidth="0dp"
+            android:paddingStart="12dp"
+            android:paddingEnd="12dp"/>
     </LinearLayout>
 
-    <!-- Empty State -->
+    <View android:layout_width="match_parent" android:layout_height="1dp"
+        android:background="#1F2937"/>
+
+    <!-- Empty state -->
     <TextView
         android:id="@+id/emptyText"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:gravity="center"
         android:padding="48dp"
-        android:text="No logs found.\n\nLogs will appear here when errors occur."
-        android:textColor="#666666"
-        android:textSize="16sp"
-        android:visibility="gone" />
+        android:text="No errors logged.\n\nLogs will appear here when errors occur."
+        android:textColor="#4A5E70"
+        android:textSize="14sp"
+        android:visibility="gone"/>
 
-    <!-- Logs List -->
+    <!-- Logs list -->
     <androidx.recyclerview.widget.RecyclerView
         android:id="@+id/logsRecyclerView"
         android:layout_width="match_parent"
         android:layout_height="0dp"
         android:layout_weight="1"
         android:clipToPadding="false"
-        android:padding="8dp" />
+        android:padding="@dimen/screen_padding"/>
 
 </LinearLayout>
