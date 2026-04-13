@@ -32,8 +32,9 @@ class BotService : Service() {
             set(value) { _instance = if (value != null) java.lang.ref.WeakReference(value) else null }
         const val ACTION_START  = "com.lifecyclebot.START"
         const val ACTION_STOP   = "com.lifecyclebot.STOP"
-        const val CHANNEL_ID    = "bot_running"
-        const val CHANNEL_TRADE = "trade_signals"
+        const val CHANNEL_ID           = "bot_running"
+        const val CHANNEL_TRADE        = "trade_signals"
+        const val CHANNEL_TRADE_SILENT = "trade_signals_silent"
         const val NOTIF_ID      = 1
 
         // ═══════════════════════════════════════════════════════════════
@@ -7190,15 +7191,16 @@ if (deferredCount > 0) {
         
         // Only show system notification if enabled
         if (cfg.notificationsEnabled) {
+            val channel = if (cfg.vibrationEnabled) CHANNEL_TRADE else CHANNEL_TRADE_SILENT
             val intent = Intent(this, MainActivity::class.java)
             val pi     = PendingIntent.getActivity(this, 0, intent,
                              PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
-            val notif  = NotificationCompat.Builder(this, CHANNEL_TRADE)
+            val notif  = NotificationCompat.Builder(this, channel)
                 .setSmallIcon(R.drawable.ic_notif)
                 .setContentTitle(title)
                 .setContentText(body)
                 .setAutoCancel(true)
-                .setPriority(NotificationCompat.PRIORITY_HIGH)
+                .setPriority(if (cfg.vibrationEnabled) NotificationCompat.PRIORITY_HIGH else NotificationCompat.PRIORITY_DEFAULT)
                 .setContentIntent(pi)
                 .build()
             (getSystemService(NOTIFICATION_SERVICE) as NotificationManager)
@@ -7228,6 +7230,14 @@ if (deferredCount > 0) {
                 NotificationManager.IMPORTANCE_HIGH).apply {
                 description = "Buy/sell signal alerts"
                 enableVibration(true)
+            }
+        )
+        nm.createNotificationChannel(
+            NotificationChannel(CHANNEL_TRADE_SILENT, "Trade Signals (Silent)",
+                NotificationManager.IMPORTANCE_DEFAULT).apply {
+                description = "Trade alerts without vibration"
+                enableVibration(false)
+                setSound(null, null)
             }
         )
     }

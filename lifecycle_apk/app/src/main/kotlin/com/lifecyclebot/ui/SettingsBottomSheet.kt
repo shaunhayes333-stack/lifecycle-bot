@@ -62,6 +62,7 @@ class SettingsBottomSheet : BottomSheetDialogFragment() {
     private lateinit var etTgBotToken: EditText
     private lateinit var etTgChatId: EditText
     private lateinit var switchNotifications: Switch
+    private lateinit var switchVibration: Switch
     private lateinit var switchSounds: Switch
     private lateinit var switchDarkMode: SwitchCompat
     private lateinit var etWatchlist: EditText
@@ -129,6 +130,7 @@ class SettingsBottomSheet : BottomSheetDialogFragment() {
         etTgBotToken = view.findViewById(R.id.etTgBotToken)
         etTgChatId = view.findViewById(R.id.etTgChatId)
         switchNotifications = view.findViewById(R.id.switchNotifications)
+        switchVibration = view.findViewById(R.id.switchVibration)
         switchSounds = view.findViewById(R.id.switchSounds)
         switchDarkMode = view.findViewById(R.id.switchDarkMode)
         etWatchlist = view.findViewById(R.id.etWatchlist)
@@ -307,6 +309,7 @@ class SettingsBottomSheet : BottomSheetDialogFragment() {
         
         // Toggles
         switchNotifications.isChecked = cfg.notificationsEnabled
+        switchVibration.isChecked = cfg.vibrationEnabled
         switchSounds.isChecked = cfg.soundEnabled
         switchDarkMode.isChecked = cfg.darkModeEnabled
         
@@ -345,6 +348,7 @@ class SettingsBottomSheet : BottomSheetDialogFragment() {
             telegramBotToken = etTgBotToken.text.toString().trim(),
             telegramChatId = etTgChatId.text.toString().trim(),
             notificationsEnabled = switchNotifications.isChecked,
+            vibrationEnabled = switchVibration.isChecked,
             soundEnabled = switchSounds.isChecked,
             darkModeEnabled = switchDarkMode.isChecked,
             watchlist = etWatchlist.text.toString()

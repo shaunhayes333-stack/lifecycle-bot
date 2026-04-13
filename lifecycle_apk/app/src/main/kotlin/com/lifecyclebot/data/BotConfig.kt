@@ -94,6 +94,7 @@ data class BotConfig(
     val holdExtendPressThreshold: Double = 58.0, // pressure above this = extend hold
     // notifications & sounds
     val notificationsEnabled: Boolean = true,
+    val vibrationEnabled: Boolean = true,
     val soundEnabled: Boolean = true,
     val soundOnNewToken: Boolean = true,
     // UI theme
@@ -311,6 +312,7 @@ object ConfigStore {
             putFloat("hold_extend_vol_threshold",     cfg.holdExtendVolThreshold.toFloat())
             putFloat("hold_extend_press_threshold",   cfg.holdExtendPressThreshold.toFloat())
             putBoolean("notifications_enabled",       cfg.notificationsEnabled)
+            putBoolean("vibration_enabled",           cfg.vibrationEnabled)
             putBoolean("sound_enabled",               cfg.soundEnabled)
             putBoolean("sound_on_new_token",          cfg.soundOnNewToken)
             putBoolean("dark_mode_enabled",           cfg.darkModeEnabled)
@@ -447,6 +449,7 @@ object ConfigStore {
             holdExtendVolThreshold      = p.getFloat("hold_extend_vol_threshold", 60.0f).toDouble(),
             holdExtendPressThreshold    = p.getFloat("hold_extend_press_threshold", 58.0f).toDouble(),
             notificationsEnabled        = p.getBoolean("notifications_enabled", true),
+            vibrationEnabled            = p.getBoolean("vibration_enabled", true),
             soundEnabled                = p.getBoolean("sound_enabled", true),
             soundOnNewToken             = p.getBoolean("sound_on_new_token", true),
             darkModeEnabled             = p.getBoolean("dark_mode_enabled", true),
