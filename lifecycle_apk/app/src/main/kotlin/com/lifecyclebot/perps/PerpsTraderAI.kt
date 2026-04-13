@@ -1185,4 +1185,39 @@ object PerpsTraderAI {
         livePositions.clear()
         ErrorLogger.info(TAG, "📊 PERPS: Cleared all positions")
     }
+
+    /**
+     * Scale into an existing position (add to winner).
+     * Blends additional SOL into the position's average entry.
+     */
+    fun scaleInPosition(market: PerpsMarket, direction: PerpsDirection, additionalSol: Double): Boolean {
+        val pos = activePositions.values.firstOrNull { it.market == market && it.direction == direction }
+            ?: return false
+
+        val currentPrice = try {
+            PerpsMarketDataFetcher.getCachedPrice(market)?.price?.takeIf { it > 0 } ?: pos.currentPrice
+        } catch (_: Exception) { pos.currentPrice }
+
+        val newSize = pos.size + additionalSol
+        val blendedEntry = (pos.entryPrice * pos.size + currentPrice * additionalSol) / newSize
+
+        val tpDist = pos.takeProfitPrice?.let { kotlin.math.abs(it - pos.entryPrice) } ?: (pos.entryPrice * 0.05)
+        val slDist = pos.stopLossPrice?.let { kotlin.math.abs(it - pos.entryPrice) } ?: (pos.entryPrice * 0.02)
+        val newTp = if (direction == PerpsDirection.LONG) blendedEntry + tpDist else blendedEntry - tpDist
+        val newSl = if (direction == PerpsDirection.LONG) blendedEntry - slDist else blendedEntry + slDist
+
+        val updated = pos.copy(
+            size = newSize,
+            entryPrice = blendedEntry,
+            currentPrice = currentPrice,
+            takeProfitPrice = newTp,
+            stopLossPrice = newSl
+        )
+        activePositions[pos.id] = updated
+
+        ErrorLogger.info(TAG, "SCALE IN: ${market.symbol} ${direction.symbol} +$additionalSol SOL | " +
+            "newEntry=$blendedEntry | newSize=$newSize SOL")
+        return true
+    }
+
 }
