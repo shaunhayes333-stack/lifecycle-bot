@@ -480,6 +480,16 @@ object PerpsMarketDataFetcher {
                         stockPrices[market.symbol] = pythPrice.price
                     }
                     
+                    // Real 24h change from PriceAggregator (CoinGecko/Binance — cached 3s)
+                    // so scanners see actual market movement instead of near-zero EMA delta.
+                    // Falls back to EMA-derived change if aggregator unavailable.
+                    val real24hChange: Double = if (market.isCrypto) {
+                        try { PriceAggregator.getPrice(market.symbol)?.change24h
+                            ?: calculateChange(pythPrice.price, pythPrice.emaPrice) }
+                        catch (_: Exception) { calculateChange(pythPrice.price, pythPrice.emaPrice) }
+                    } else {
+                        calculateChange(pythPrice.price, pythPrice.emaPrice)
+                    }
                     return PerpsMarketData(
                         market = market,
                         price = pythPrice.price,
@@ -491,9 +501,9 @@ object PerpsMarketDataFetcher {
                         openInterestLong = getEstimatedOI(market, true),
                         openInterestShort = getEstimatedOI(market, false),
                         volume24h = getEstimatedVolume(market),
-                        high24h = pythPrice.price * 1.02,
-                        low24h = pythPrice.price * 0.98,
-                        priceChange24hPct = calculateChange(pythPrice.price, pythPrice.emaPrice),
+                        high24h = pythPrice.price * (1 + kotlin.math.abs(real24hChange) / 100 + 0.005),
+                        low24h = pythPrice.price * (1 - kotlin.math.abs(real24hChange) / 100 - 0.005),
+                        priceChange24hPct = real24hChange,
                     )
                 } else {
                     // V5.7.7 FIX: If Pyth is stale for STOCKS, use fallback sources
@@ -505,6 +515,10 @@ object PerpsMarketDataFetcher {
                         // For crypto, stale but valid prices are OK
                         if (pythPrice.price > 0) {
                             ErrorLogger.debug(TAG, "📊 Pyth stale but valid (crypto): ${market.symbol} = \$${pythPrice.price.fmt(2)}")
+                            val staleChange: Double = try {
+                                PriceAggregator.getPrice(market.symbol)?.change24h
+                                    ?: calculateChange(pythPrice.price, pythPrice.emaPrice)
+                            } catch (_: Exception) { calculateChange(pythPrice.price, pythPrice.emaPrice) }
                             return PerpsMarketData(
                                 market = market,
                                 price = pythPrice.price,
@@ -516,9 +530,9 @@ object PerpsMarketDataFetcher {
                                 openInterestLong = getEstimatedOI(market, true),
                                 openInterestShort = getEstimatedOI(market, false),
                                 volume24h = getEstimatedVolume(market),
-                                high24h = pythPrice.price * 1.02,
-                                low24h = pythPrice.price * 0.98,
-                                priceChange24hPct = calculateChange(pythPrice.price, pythPrice.emaPrice),
+                                high24h = pythPrice.price * (1 + kotlin.math.abs(staleChange) / 100 + 0.005),
+                                low24h = pythPrice.price * (1 - kotlin.math.abs(staleChange) / 100 - 0.005),
+                                priceChange24hPct = staleChange,
                             )
                         }
                     }
