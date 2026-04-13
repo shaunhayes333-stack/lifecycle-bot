@@ -376,7 +376,7 @@ class BotService : Service() {
         when (intent?.action) {
             ACTION_START -> {
                 if (!status.running) {
-                    startBot()
+                    scope.launch { startBot() }
                 } else {
                     // Bot already running - just reschedule keep-alive
                     scheduleKeepAliveAlarm()
