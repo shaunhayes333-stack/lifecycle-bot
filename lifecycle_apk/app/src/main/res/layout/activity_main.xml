@@ -18,7 +18,8 @@
         android:layout_height="match_parent"
         android:paddingBottom="@dimen/content_bottom_padding"
         android:clipToPadding="false"
-        android:fillViewport="true">
+        android:fillViewport="true"
+        android:fitsSystemWindows="true">
 
         <LinearLayout
             android:layout_width="match_parent"
@@ -52,15 +53,19 @@
                         android:layout_height="wrap_content"
                         android:text="AATE"
                         android:textColor="#FFFFFF"
-                        android:textSize="14sp"
-                        android:textStyle="bold"/>
+                        android:textSize="15sp"
+                        android:textStyle="bold"
+                        android:letterSpacing="0.06"
+                        android:fontFamily="monospace"/>
                     <TextView
                         android:id="@+id/tvNetworkLabel"
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
                         android:text="Solana Mainnet"
-                        android:textColor="#6B7280"
-                        android:textSize="9sp"/>
+                        android:textColor="#4B5563"
+                        android:textSize="8sp"
+                        android:fontFamily="monospace"
+                        android:letterSpacing="0.04"/>
                 </LinearLayout>
                 
                 <!-- Spacer -->
@@ -150,8 +155,9 @@
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
                         android:text="Connect"
-                        android:textColor="#9CA3AF"
+                        android:textColor="#6B7280"
                         android:textSize="10sp"
+                        android:fontFamily="monospace"
                         android:maxWidth="80dp"
                         android:ellipsize="end"
                         android:singleLine="true"/>
@@ -203,7 +209,7 @@
                         android:layout_weight="1"
                         android:layout_height="wrap_content"
                         android:text="—"
-                        android:textColor="#FFFFFF"
+                        android:textColor="#14F195"
                         android:textSize="@dimen/balance_text_size"
                         android:textStyle="bold"
                         android:maxLines="1"
@@ -228,7 +234,7 @@
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
                         android:text="USD ▼"
-                        android:textColor="#9CA3AF"
+                        android:textColor="#6B7280"
                         android:textSize="11sp"
                         android:fontFamily="monospace"
                         android:background="@drawable/pill_bg"
@@ -320,7 +326,7 @@
                     android:layout_weight="1"
                     android:orientation="vertical"
                     android:gravity="center"
-                    android:background="@drawable/stats_pill_bg"
+                    android:background="@drawable/section_card_bg"
                     android:padding="8dp"
                     android:layout_marginEnd="6dp">
                     <TextView
@@ -346,7 +352,7 @@
                     android:layout_weight="1"
                     android:orientation="vertical"
                     android:gravity="center"
-                    android:background="@drawable/stats_pill_bg"
+                    android:background="@drawable/section_card_bg"
                     android:padding="8dp"
                     android:layout_marginEnd="6dp">
                     <TextView
@@ -372,7 +378,7 @@
                     android:layout_weight="1"
                     android:orientation="vertical"
                     android:gravity="center"
-                    android:background="@drawable/stats_pill_bg"
+                    android:background="@drawable/section_card_bg"
                     android:padding="8dp"
                     android:layout_marginEnd="6dp">
                     <TextView
@@ -398,7 +404,7 @@
                     android:layout_weight="1"
                     android:orientation="vertical"
                     android:gravity="center"
-                    android:background="@drawable/stats_pill_bg"
+                    android:background="@drawable/section_card_bg"
                     android:padding="8dp">
                     <TextView
                         android:id="@+id/tvStatsAiConf"
@@ -445,8 +451,8 @@
                     <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
                         android:text="👛" android:textSize="20sp"/>
                     <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
-                        android:text="Wallet" android:textColor="#9CA3AF" android:textSize="10sp"
-                        android:layout_marginTop="2dp"/>
+                        android:text="Wallet" android:textColor="#14F195" android:textSize="10sp"
+                        android:fontFamily="monospace" android:layout_marginTop="2dp"/>
                 </LinearLayout>
 
                 <!-- Journal -->
@@ -465,8 +471,8 @@
                     <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
                         android:text="📊" android:textSize="20sp"/>
                     <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
-                        android:text="Journal" android:textColor="#9CA3AF" android:textSize="10sp"
-                        android:layout_marginTop="2dp"/>
+                        android:text="Journal" android:textColor="#9945FF" android:textSize="10sp"
+                        android:fontFamily="monospace" android:layout_marginTop="2dp"/>
                 </LinearLayout>
 
                 <!-- Alerts -->
@@ -485,8 +491,8 @@
                     <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
                         android:text="🔔" android:textSize="20sp"/>
                     <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
-                        android:text="Alerts" android:textColor="#9CA3AF" android:textSize="10sp"
-                        android:layout_marginTop="2dp"/>
+                        android:text="Alerts" android:textColor="#F59E0B" android:textSize="10sp"
+                        android:fontFamily="monospace" android:layout_marginTop="2dp"/>
                 </LinearLayout>
 
                 <!-- Settings -->
@@ -504,8 +510,8 @@
                     <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
                         android:text="⚙️" android:textSize="20sp"/>
                     <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
-                        android:text="Settings" android:textColor="#9CA3AF" android:textSize="10sp"
-                        android:layout_marginTop="2dp"/>
+                        android:text="Settings" android:textColor="#6B7280" android:textSize="10sp"
+                        android:fontFamily="monospace" android:layout_marginTop="2dp"/>
                 </LinearLayout>
 
                 <!-- Error Logs -->
@@ -524,8 +530,8 @@
                     <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
                         android:text="🐛" android:textSize="20sp"/>
                     <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
-                        android:text="Logs" android:textColor="#9CA3AF" android:textSize="10sp"
-                        android:layout_marginTop="2dp"/>
+                        android:text="Logs" android:textColor="#EF4444" android:textSize="10sp"
+                        android:fontFamily="monospace" android:layout_marginTop="2dp"/>
                 </LinearLayout>
 
                 <!-- V5.2: Behavior Tuning Tile -->
@@ -565,7 +571,7 @@
                         android:text="📊" android:textSize="20sp"/>
                     <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
                         android:text="Markets" android:textColor="#FFD700" android:textSize="10sp"
-                        android:layout_marginTop="2dp"/>
+                        android:fontFamily="monospace" android:layout_marginTop="2dp"/>
                 </LinearLayout>
             </LinearLayout>
 
@@ -651,7 +657,7 @@
                             android:layout_width="wrap_content"
                             android:layout_height="wrap_content"
                             android:text="Win Rate"
-                            android:textColor="#9CA3AF"
+                            android:textColor="#6B7280"
                             android:textSize="10sp"/>
                     </LinearLayout>
                     
@@ -659,7 +665,7 @@
                     <View
                         android:layout_width="1dp"
                         android:layout_height="30dp"
-                        android:background="#333333"/>
+                        android:background="#1F2937"/>
                     
                     <!-- Trades -->
                     <LinearLayout
@@ -680,7 +686,7 @@
                             android:layout_width="wrap_content"
                             android:layout_height="wrap_content"
                             android:text="Trades"
-                            android:textColor="#9CA3AF"
+                            android:textColor="#6B7280"
                             android:textSize="10sp"/>
                     </LinearLayout>
                     
@@ -688,7 +694,7 @@
                     <View
                         android:layout_width="1dp"
                         android:layout_height="30dp"
-                        android:background="#333333"/>
+                        android:background="#1F2937"/>
                     
                     <!-- Phase -->
                     <LinearLayout
@@ -709,7 +715,7 @@
                             android:layout_width="wrap_content"
                             android:layout_height="wrap_content"
                             android:text="Phase"
-                            android:textColor="#9CA3AF"
+                            android:textColor="#6B7280"
                             android:textSize="10sp"/>
                     </LinearLayout>
                 </LinearLayout>
@@ -730,7 +736,7 @@
                             android:layout_width="wrap_content"
                             android:layout_height="wrap_content"
                             android:text="Progress to Live"
-                            android:textColor="#9CA3AF"
+                            android:textColor="#6B7280"
                             android:textSize="10sp"/>
                         <View
                             android:layout_width="0dp"
@@ -767,7 +773,7 @@
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
                     android:text="Need 1000+ trades and 42%+ win rate for live trading"
-                    android:textColor="#9CA3AF"
+                    android:textColor="#6B7280"
                     android:textSize="11sp"
                     android:layout_marginTop="8dp"
                     android:gravity="center"/>
@@ -1093,7 +1099,7 @@
                         android:layout_marginTop="1dp"/>
                     <TextView android:id="@+id/tvV3Stats"
                         android:layout_width="wrap_content" android:layout_height="wrap_content"
-                        android:text="0/0" android:textColor="#6B7280" android:textSize="6sp"
+                        android:text="0/0" android:textColor="#6B7280" android:textSize="7sp"
                         android:fontFamily="monospace"/>
                 </LinearLayout>
 
@@ -1117,7 +1123,7 @@
                         android:layout_marginTop="1dp"/>
                     <TextView android:id="@+id/tvTreasuryStats"
                         android:layout_width="wrap_content" android:layout_height="wrap_content"
-                        android:text="0/0" android:textColor="#6B7280" android:textSize="6sp"
+                        android:text="0/0" android:textColor="#6B7280" android:textSize="7sp"
                         android:fontFamily="monospace"/>
                 </LinearLayout>
                 
@@ -1141,7 +1147,7 @@
                         android:layout_marginTop="1dp"/>
                     <TextView android:id="@+id/tvBlueChipStats"
                         android:layout_width="wrap_content" android:layout_height="wrap_content"
-                        android:text="0/0" android:textColor="#6B7280" android:textSize="6sp"
+                        android:text="0/0" android:textColor="#6B7280" android:textSize="7sp"
                         android:fontFamily="monospace"/>
                 </LinearLayout>
                 
@@ -1165,7 +1171,7 @@
                         android:layout_marginTop="1dp"/>
                     <TextView android:id="@+id/tvShitCoinStats"
                         android:layout_width="wrap_content" android:layout_height="wrap_content"
-                        android:text="0/0" android:textColor="#6B7280" android:textSize="6sp"
+                        android:text="0/0" android:textColor="#6B7280" android:textSize="7sp"
                         android:fontFamily="monospace"/>
                 </LinearLayout>
                 
@@ -1189,7 +1195,7 @@
                         android:layout_marginTop="1dp"/>
                     <TextView android:id="@+id/tvExpressStats"
                         android:layout_width="wrap_content" android:layout_height="wrap_content"
-                        android:text="0/0" android:textColor="#6B7280" android:textSize="6sp"
+                        android:text="0/0" android:textColor="#6B7280" android:textSize="7sp"
                         android:fontFamily="monospace"/>
                 </LinearLayout>
 
@@ -1213,7 +1219,7 @@
                         android:layout_marginTop="1dp"/>
                     <TextView android:id="@+id/tvManipStats"
                         android:layout_width="wrap_content" android:layout_height="wrap_content"
-                        android:text="0/0" android:textColor="#6B7280" android:textSize="6sp"
+                        android:text="0/0" android:textColor="#6B7280" android:textSize="7sp"
                         android:fontFamily="monospace"/>
                 </LinearLayout>
 
@@ -1237,7 +1243,7 @@
                         android:layout_marginTop="1dp"/>
                     <TextView android:id="@+id/tvMoonshotStats"
                         android:layout_width="wrap_content" android:layout_height="wrap_content"
-                        android:text="0/0" android:textColor="#6B7280" android:textSize="6sp"
+                        android:text="0/0" android:textColor="#6B7280" android:textSize="7sp"
                         android:fontFamily="monospace"/>
                 </LinearLayout>
 
@@ -1263,7 +1269,7 @@
                         android:layout_marginTop="1dp"/>
                     <TextView android:id="@+id/tvPerpsStats"
                         android:layout_width="wrap_content" android:layout_height="wrap_content"
-                        android:text="0/0" android:textColor="#6B7280" android:textSize="6sp"
+                        android:text="0/0" android:textColor="#6B7280" android:textSize="7sp"
                         android:fontFamily="monospace"/>
                 </LinearLayout>
 
@@ -1287,7 +1293,7 @@
                         android:layout_marginTop="1dp"/>
                     <TextView android:id="@+id/tvStocksStats"
                         android:layout_width="wrap_content" android:layout_height="wrap_content"
-                        android:text="0/0" android:textColor="#6B7280" android:textSize="6sp"
+                        android:text="0/0" android:textColor="#6B7280" android:textSize="7sp"
                         android:fontFamily="monospace"/>
                 </LinearLayout>
             </LinearLayout>
@@ -1325,7 +1331,7 @@
                         android:layout_marginTop="2dp"/>
                     <TextView android:id="@+id/tvAiBrainStats"
                         android:layout_width="wrap_content" android:layout_height="wrap_content"
-                        android:text="0/0" android:textColor="#888888" android:textSize="8sp"
+                        android:text="0/0" android:textColor="#4B5563" android:textSize="8sp"
                         android:layout_marginTop="1dp"/>
                 </LinearLayout>
 
@@ -1349,7 +1355,7 @@
                         android:layout_marginTop="2dp"/>
                     <TextView android:id="@+id/tvShadowStats"
                         android:layout_width="wrap_content" android:layout_height="wrap_content"
-                        android:text="0/0" android:textColor="#888888" android:textSize="8sp"
+                        android:text="0/0" android:textColor="#4B5563" android:textSize="8sp"
                         android:layout_marginTop="1dp"/>
                 </LinearLayout>
 
@@ -1373,7 +1379,7 @@
                         android:layout_marginTop="2dp"/>
                     <TextView android:id="@+id/tvRegimesStats"
                         android:layout_width="wrap_content" android:layout_height="wrap_content"
-                        android:text="—" android:textColor="#888888" android:textSize="8sp"
+                        android:text="—" android:textColor="#4B5563" android:textSize="8sp"
                         android:layout_marginTop="1dp"/>
                 </LinearLayout>
 
@@ -1396,7 +1402,7 @@
                         android:layout_marginTop="2dp"/>
                     <TextView android:id="@+id/tv25AIsStats"
                         android:layout_width="wrap_content" android:layout_height="wrap_content"
-                        android:text="0%" android:textColor="#888888" android:textSize="8sp"
+                        android:text="0%" android:textColor="#4B5563" android:textSize="8sp"
                         android:layout_marginTop="1dp"/>
                 </LinearLayout>
             </LinearLayout>
@@ -1583,7 +1589,7 @@
                             android:layout_width="wrap_content"
                             android:layout_height="wrap_content"
                             android:text="Balance"
-                            android:textColor="#9CA3AF"
+                            android:textColor="#6B7280"
                             android:textSize="9sp"/>
                     </LinearLayout>
                     
@@ -1591,7 +1597,7 @@
                     <View
                         android:layout_width="1dp"
                         android:layout_height="28dp"
-                        android:background="#333333"/>
+                        android:background="#1F2937"/>
                     
                     <!-- P and L -->
                     <LinearLayout
@@ -1613,7 +1619,7 @@
                             android:layout_width="wrap_content"
                             android:layout_height="wrap_content"
                             android:text="Day P&amp;L"
-                            android:textColor="#9CA3AF"
+                            android:textColor="#6B7280"
                             android:textSize="9sp"/>
                     </LinearLayout>
                     
@@ -1621,7 +1627,7 @@
                     <View
                         android:layout_width="1dp"
                         android:layout_height="28dp"
-                        android:background="#333333"/>
+                        android:background="#1F2937"/>
                     
                     <!-- Win Rate -->
                     <LinearLayout
@@ -1643,7 +1649,7 @@
                             android:layout_width="wrap_content"
                             android:layout_height="wrap_content"
                             android:text="Win Rate"
-                            android:textColor="#9CA3AF"
+                            android:textColor="#6B7280"
                             android:textSize="9sp"/>
                     </LinearLayout>
                     
@@ -1651,7 +1657,7 @@
                     <View
                         android:layout_width="1dp"
                         android:layout_height="28dp"
-                        android:background="#333333"/>
+                        android:background="#1F2937"/>
                     
                     <!-- Trades -->
                     <LinearLayout
@@ -1673,7 +1679,7 @@
                             android:layout_width="wrap_content"
                             android:layout_height="wrap_content"
                             android:text="Trades"
-                            android:textColor="#9CA3AF"
+                            android:textColor="#6B7280"
                             android:textSize="9sp"/>
                     </LinearLayout>
                 </LinearLayout>
@@ -1696,7 +1702,7 @@
                             android:layout_width="wrap_content"
                             android:layout_height="wrap_content"
                             android:text="Live Readiness"
-                            android:textColor="#9CA3AF"
+                            android:textColor="#6B7280"
                             android:textSize="10sp"/>
                         <View
                             android:layout_width="0dp"
@@ -2812,7 +2818,7 @@
                         android:layout_marginStart="8dp" android:layout_marginEnd="8dp"/>
                     <TextView android:id="@+id/tvEntryVal"
                         android:layout_width="@dimen/bar_val_width" android:layout_height="wrap_content"
-                        android:text="0" android:textColor="#9CA3AF"
+                        android:text="0" android:textColor="#6B7280"
                         android:textSize="@dimen/kpi_label_size" android:fontFamily="monospace"
                         android:gravity="end"/>
                 </LinearLayout>
@@ -2831,7 +2837,7 @@
                         android:layout_marginStart="8dp" android:layout_marginEnd="8dp"/>
                     <TextView android:id="@+id/tvExitVal"
                         android:layout_width="@dimen/bar_val_width" android:layout_height="wrap_content"
-                        android:text="0" android:textColor="#9CA3AF"
+                        android:text="0" android:textColor="#6B7280"
                         android:textSize="@dimen/kpi_label_size" android:fontFamily="monospace"
                         android:gravity="end"/>
                 </LinearLayout>
@@ -2850,7 +2856,7 @@
                         android:layout_marginStart="8dp" android:layout_marginEnd="8dp"/>
                     <TextView android:id="@+id/tvVolVal"
                         android:layout_width="@dimen/bar_val_width" android:layout_height="wrap_content"
-                        android:text="0" android:textColor="#9CA3AF"
+                        android:text="0" android:textColor="#6B7280"
                         android:textSize="@dimen/kpi_label_size" android:fontFamily="monospace"
                         android:gravity="end"/>
                 </LinearLayout>
@@ -2868,7 +2874,7 @@
                         android:layout_marginStart="8dp" android:layout_marginEnd="8dp"/>
                     <TextView android:id="@+id/tvPressVal"
                         android:layout_width="@dimen/bar_val_width" android:layout_height="wrap_content"
-                        android:text="0" android:textColor="#9CA3AF"
+                        android:text="0" android:textColor="#6B7280"
                         android:textSize="@dimen/kpi_label_size" android:fontFamily="monospace"
                         android:gravity="end"/>
                 </LinearLayout>
@@ -4020,7 +4026,7 @@
                     <TextView android:id="@+id/tvAiLayers"
                         android:layout_width="match_parent" android:layout_height="wrap_content"
                         android:text="Entry · Exit · Momentum · Liquidity · Volume · Narrative · Regime · Social · Behavior"
-                        android:textColor="#9CA3AF"
+                        android:textColor="#6B7280"
                         android:textSize="10sp" android:fontFamily="monospace"
                         android:maxLines="2" android:ellipsize="end"/>
                 </LinearLayout>
@@ -4169,7 +4175,7 @@
                             android:layout_width="wrap_content"
                             android:layout_height="wrap_content"
                             android:text="—"
-                            android:textColor="#9CA3AF"
+                            android:textColor="#6B7280"
                             android:textSize="11sp"
                             android:fontFamily="monospace"
                             android:layout_marginEnd="8dp"/>
@@ -4267,7 +4273,7 @@
                             android:layout_height="wrap_content"
                             android:layout_weight="1"
                             android:text="EMA FAN  —"
-                            android:textColor="#9CA3AF"
+                            android:textColor="#6B7280"
                             android:textSize="11sp"
                             android:fontFamily="monospace"/>
                     </LinearLayout>
@@ -5374,7 +5380,8 @@
                 android:layout_width="0dp" android:layout_height="wrap_content"
                 android:layout_weight="1"
                 android:text="Bot stopped"
-                android:textColor="#9CA3AF" android:textSize="13sp"
+                android:textColor="#4B5563" android:textSize="13sp"
+                android:fontFamily="monospace"
                 android:maxLines="1" android:ellipsize="end"/>
 
             <LinearLayout android:layout_width="wrap_content" android:layout_height="wrap_content"
@@ -5453,7 +5460,7 @@
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 android:text="Entry: $0.00"
-                android:textColor="#9CA3AF"
+                android:textColor="#6B7280"
                 android:textSize="11sp"/>
         </LinearLayout>
 
@@ -5467,15 +5474,16 @@
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 android:text="+0.0%"
-                android:textColor="#10B981"
+                android:textColor="#14F195"
                 android:textSize="18sp"
-                android:textStyle="bold"/>
+                android:textStyle="bold"
+                android:fontFamily="monospace"/>
             <TextView
                 android:id="@+id/tvPnlValue"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 android:text="$0.00"
-                android:textColor="#9CA3AF"
+                android:textColor="#6B7280"
                 android:textSize="11sp"/>
         </LinearLayout>
     </LinearLayout>
