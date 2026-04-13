@@ -77,6 +77,8 @@ class MultiAssetActivity : AppCompatActivity() {
     private lateinit var tvNoPositions: TextView
     private lateinit var signalsContainer: LinearLayout
     private lateinit var tvNoSignals: TextView
+    private lateinit var assetsContainer: LinearLayout
+    private lateinit var tvNoAssets: TextView
     private lateinit var btnSpotMode: TextView
     private lateinit var btnLeverageMode: TextView
     
@@ -304,6 +306,8 @@ class MultiAssetActivity : AppCompatActivity() {
         // Signals
         signalsContainer = findViewById(R.id.signalsContainer)
         tvNoSignals = findViewById(R.id.tvNoSignals)
+        assetsContainer = findViewById(R.id.assetsContainer)
+        tvNoAssets = findViewById(R.id.tvNoAssets)
         
         // Engine status dots
         dotStocks = findViewById(R.id.dotStocks)
@@ -691,6 +695,8 @@ class MultiAssetActivity : AppCompatActivity() {
             updatePositions()
             updateTopMovers()
             updateAiSignals()
+            updateRecentSignals()
+            updateAvailableAssets()
             updateSectorHeatmap()
             updateEngineStatus()
             updateToggleButton()  // V5.7.6b: Keep button state in sync
@@ -1641,6 +1647,117 @@ class MultiAssetActivity : AppCompatActivity() {
         }
     }
     
+    // ═══════════════════════════════════════════════════════════════════════════
+    // RECENT SIGNALS
+    // ═══════════════════════════════════════════════════════════════════════════
+
+    private fun updateRecentSignals() {
+        signalsContainer.removeAllViews()
+        val signals = getAiSignals()
+        if (signals.isEmpty()) {
+            signalsContainer.addView(tvNoSignals)
+            return
+        }
+        signals.take(5).forEach { signal ->
+            val row = LinearLayout(this).apply {
+                orientation = LinearLayout.HORIZONTAL
+                gravity = android.view.Gravity.CENTER_VERTICAL
+                setPadding(0, 6, 0, 6)
+            }
+            row.addView(TextView(this).apply {
+                text = "${getAssetLogo(signal.symbol)} ${signal.symbol}"
+                setTextColor(0xFFFFFFFF.toInt())
+                textSize = 13f
+                setTypeface(null, android.graphics.Typeface.BOLD)
+                layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
+            })
+            row.addView(TextView(this).apply {
+                text = signal.direction
+                setTextColor(if (signal.direction == "LONG") 0xFF00FF88.toInt() else 0xFFFF4444.toInt())
+                textSize = 12f
+                setTypeface(null, android.graphics.Typeface.BOLD)
+                layoutParams = LinearLayout.LayoutParams(
+                    LinearLayout.LayoutParams.WRAP_CONTENT,
+                    LinearLayout.LayoutParams.WRAP_CONTENT
+                ).apply { marginEnd = 10 }
+            })
+            row.addView(TextView(this).apply {
+                text = "${signal.confidence}%"
+                setTextColor(0xFF9CA3AF.toInt())
+                textSize = 11f
+            })
+            row.addView(TextView(this).apply {
+                text = signal.reason
+                setTextColor(0xFF6B7280.toInt())
+                textSize = 10f
+                layoutParams = LinearLayout.LayoutParams(
+                    LinearLayout.LayoutParams.WRAP_CONTENT,
+                    LinearLayout.LayoutParams.WRAP_CONTENT
+                ).apply { marginStart = 8 }
+                maxLines = 1
+                ellipsize = android.text.TextUtils.TruncateAt.END
+            })
+            signalsContainer.addView(row)
+        }
+    }
+
+    // ═══════════════════════════════════════════════════════════════════════════
+    // AVAILABLE ASSETS
+    // ═══════════════════════════════════════════════════════════════════════════
+
+    private fun updateAvailableAssets() {
+        assetsContainer.removeAllViews()
+        val markets = when (currentTab) {
+            AssetTab.STOCKS -> PerpsMarket.values().filter { it.isStock }
+            AssetTab.COMMODITIES -> PerpsMarket.values().filter { it.isCommodity }
+            AssetTab.METALS -> PerpsMarket.values().filter { it.isMetal }
+            AssetTab.FOREX -> PerpsMarket.values().filter { it.isForex }
+            AssetTab.PERPS -> PerpsMarket.values().filter { it.isCrypto }
+        }
+        if (markets.isEmpty()) {
+            assetsContainer.addView(tvNoAssets)
+            return
+        }
+        markets.forEach { market ->
+            val row = LinearLayout(this).apply {
+                orientation = LinearLayout.HORIZONTAL
+                gravity = android.view.Gravity.CENTER_VERTICAL
+                setPadding(0, 7, 0, 7)
+            }
+            val cachedData = try { PerpsMarketDataFetcher.getCachedPrice(market) } catch (_: Exception) { null }
+            val price = cachedData?.price ?: 0.0
+            val change = cachedData?.priceChange24hPct ?: 0.0
+            row.addView(TextView(this).apply {
+                text = "${getAssetLogo(market.symbol)} ${market.symbol}"
+                setTextColor(0xFFFFFFFF.toInt())
+                textSize = 13f
+                setTypeface(null, android.graphics.Typeface.BOLD)
+                layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
+            })
+            val priceText = when {
+                price <= 0 -> "—"
+                price >= 1000 -> "\$${"%,.0f".format(price)}"
+                price >= 1 -> "\$${"%.2f".format(price)}"
+                else -> "\$${"%.4f".format(price)}"
+            }
+            row.addView(TextView(this).apply {
+                text = priceText
+                setTextColor(0xFFE5E7EB.toInt())
+                textSize = 12f
+                layoutParams = LinearLayout.LayoutParams(
+                    LinearLayout.LayoutParams.WRAP_CONTENT,
+                    LinearLayout.LayoutParams.WRAP_CONTENT
+                ).apply { marginEnd = 12 }
+            })
+            row.addView(TextView(this).apply {
+                text = if (price <= 0) "" else "${if (change >= 0) "+" else ""}${"%.2f".format(change)}%"
+                setTextColor(if (change >= 0) 0xFF00FF88.toInt() else 0xFFFF4444.toInt())
+                textSize = 11f
+            })
+            assetsContainer.addView(row)
+        }
+    }
+
     // ═══════════════════════════════════════════════════════════════════════════
     // AI SIGNALS
     // ═══════════════════════════════════════════════════════════════════════════
