@@ -1194,6 +1194,33 @@ object TokenizedStockTrader {
     // V5.7.6b: SPOT vs LEVERAGE position getters - now use dedicated maps
     fun getSpotPositions(): List<StockPosition> = spotPositions.values.toList()
     fun getLeveragePositions(): List<StockPosition> = leveragePositions.values.toList()
+
+    /**
+     * Add SOL to an existing open position (scale-in / pyramid).
+     * Returns true if a matching open position was found and averaged-in.
+     */
+    fun addToPosition(market: PerpsMarket, additionalSol: Double): Boolean {
+        val pos = positions.values.firstOrNull { it.market == market } ?: return false
+        val currentPrice = try {
+            PerpsMarketDataFetcher.getCachedPrice(market)?.price?.takeIf { it > 0 } ?: pos.currentPrice
+        } catch (_: Exception) { pos.currentPrice }
+        if (currentPrice <= 0) return false
+
+        val totalCost = pos.sizeSol + additionalSol
+        val blendedEntry = (pos.entryPrice * pos.sizeSol + currentPrice * additionalSol) / totalCost
+
+        val updated = pos.copy(
+            sizeSol = totalCost,
+            entryPrice = blendedEntry,
+            currentPrice = currentPrice
+        )
+        positions[pos.id] = updated
+        if (pos.isSpot) spotPositions[pos.id] = updated else leveragePositions[pos.id] = updated
+
+        ErrorLogger.info(TAG, "addToPosition ${market.symbol} +$additionalSol SOL | newEntry=$blendedEntry | newSize=$totalCost")
+        return true
+    }
+
     fun getAllPositions(): List<StockPosition> = positions.values.toList()
     
     // ═══════════════════════════════════════════════════════════════════════════
@@ -1283,3 +1310,4 @@ object TokenizedStockTrader {
     // Helper extension
     private fun Double.fmt(decimals: Int): String = "%.${decimals}f".format(this)
 }
+
