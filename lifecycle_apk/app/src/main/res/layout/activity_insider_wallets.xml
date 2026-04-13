@@ -40,7 +40,9 @@
                 android:text="Insider Tracker"
                 android:textColor="#FFFFFF"
                 android:textSize="16sp"
-                android:textStyle="bold"/>
+                android:textStyle="bold"
+                android:fontFamily="monospace"
+                android:letterSpacing="0.04"/>
             <TextView android:id="@+id/tvWalletCount"
                 android:layout_width="wrap_content" android:layout_height="wrap_content"
                 android:text="0 wallets tracked" android:textColor="#6B7280"

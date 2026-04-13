@@ -35,8 +35,10 @@
             android:layout_weight="1"
             android:text="Trade Journal"
             android:textColor="#FFFFFF"
-            android:textSize="16sp"
-            android:textStyle="bold"/>
+                android:textSize="16sp"
+                android:textStyle="bold"
+                android:fontFamily="monospace"
+                android:letterSpacing="0.04"/>
 
         <TextView android:id="@+id/btnRestoreStats"
             android:layout_width="wrap_content" android:layout_height="wrap_content"
