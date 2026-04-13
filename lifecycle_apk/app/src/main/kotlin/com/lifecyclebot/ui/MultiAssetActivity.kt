@@ -669,6 +669,8 @@ class MultiAssetActivity : AppCompatActivity() {
                         } catch (_: Exception) {}
                     }
                     refreshData()
+                } catch (e: CancellationException) {
+                    throw e
                 } catch (e: Exception) {
                     ErrorLogger.error(TAG, "Update error: ${e.message}")
                 }

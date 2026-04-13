@@ -360,6 +360,16 @@ object PythOracle {
             "USDMXN" to 17.15, "USDBRL" to 5.00, "USDINR" to 83.5, "USDCNY" to 7.24,
             "USDZAR" to 18.7, "USDTRY" to 32.0, "USDRUB" to 92.0,
             "USDSGD" to 1.345, "USDHKD" to 7.82, "USDKRW" to 1335.0,
+            // Forex crosses (no Pyth feed — PriceAggregator fallback)
+            "EURAUD" to 1.638, "EURCHF" to 0.948, "EURCAD" to 1.488,
+            "GBPAUD" to 1.960, "GBPCHF" to 1.130, "GBPCAD" to 1.730,
+            "AUDCAD" to 0.905, "AUDNZD" to 1.098,
+            "NZDJPY" to 90.5, "NZDCAD" to 0.827,
+            // US Equities missing from map
+            "MRVL" to 85.50,   // Marvell Technology
+            "ZM" to 68.00,     // Zoom Video
+            // Crypto missing from map
+            "VET" to 0.042,    // VeChain
         )
 
         val price = fallbackPrices[symbol] ?: run {
