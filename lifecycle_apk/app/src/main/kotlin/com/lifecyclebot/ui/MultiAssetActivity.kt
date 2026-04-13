@@ -1552,25 +1552,18 @@ class MultiAssetActivity : AppCompatActivity() {
     // ═══════════════════════════════════════════════════════════════════════════
 
     private fun showAddToPositionDialog(pos: PositionInfo) {
-        val solPrice = try {
-            PerpsMarketDataFetcher.getCachedPrice(PerpsMarket.SOL)?.price ?: SOL_PRICE_USD
-        } catch (_: Exception) { SOL_PRICE_USD }
-
         val currentPnlPct = pos.pnlPct
+        val pnlSign = if (currentPnlPct >= 0) "+" else ""
+        val pnlFormatted = "%.1f".format(currentPnlPct)
         val topUpSizes = arrayOf("0.05 SOL", "0.10 SOL", "0.25 SOL", "0.50 SOL", "1.00 SOL")
         val topUpAmounts = doubleArrayOf(0.05, 0.10, 0.25, 0.50, 1.00)
 
         android.app.AlertDialog.Builder(this)
             .setTitle("➕ Add to ${pos.symbol} Position")
             .setMessage(
-                "Current P&L: ${if (currentPnlPct >= 0) "+" else ""}${"%.1f".format(currentPnlPct)}%
-" +
-                "Entry: ${pos.entryPrice}  |  Now: ${pos.currentPrice}
-
-" +
-                "⚠️ Only add to winning positions. Adding to a loser increases risk.
-
-" +
+                "Current P&L: $pnlSign$pnlFormatted%\n" +
+                "Entry: ${pos.entryPrice}  |  Now: ${pos.currentPrice}\n\n" +
+                "⚠️ Only add to winning positions. Adding to a loser increases risk.\n\n" +
                 "How much SOL to add?"
             )
             .setSingleChoiceItems(topUpSizes, 0) { _, _ -> }
@@ -2491,5 +2484,6 @@ class MultiAssetActivity : AppCompatActivity() {
         builder.show()
     }
 }
+
 
 
