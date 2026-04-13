@@ -547,4 +547,20 @@ object PerpsExecutionEngine {
         val scannerSignals: Int,
         val learningEvents: Int,
     )
+
+    /**
+     * Add to an existing perps position (scale-in).
+     * Opens a new position in the same direction if one already exists.
+     */
+    fun addToPosition(market: PerpsMarket, direction: PerpsDirection, additionalSol: Double): Boolean {
+        val existing = PerpsTraderAI.getActivePositions().firstOrNull { it.market == market && it.direction == direction }
+        return if (existing != null) {
+            // Delegate to PerpsTraderAI to handle the scale-in
+            PerpsTraderAI.scaleInPosition(market, direction, additionalSol)
+        } else {
+            ErrorLogger.warn("PerpsExecutionEngine", "addToPosition: no existing ${market.symbol} ${direction.symbol} position")
+            false
+        }
+    }
+
 }
