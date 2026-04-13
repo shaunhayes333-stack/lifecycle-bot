@@ -1574,7 +1574,7 @@ class MultiAssetActivity : AppCompatActivity() {
                 "How much SOL to add?"
             )
             .setSingleChoiceItems(topUpSizes, 0) { _, _ -> }
-            .setPositiveButton("Add to Position") { dialog, _ ->
+            .setPositiveButton("Add to Position") { dialog: android.content.DialogInterface, _: Int ->
                 val lv = (dialog as android.app.AlertDialog).listView
                 val checkedIdx = lv.checkedItemPosition.takeIf { it >= 0 } ?: 0
                 val addSol = topUpAmounts[checkedIdx]
@@ -2491,4 +2491,5 @@ class MultiAssetActivity : AppCompatActivity() {
         builder.show()
     }
 }
+
 
