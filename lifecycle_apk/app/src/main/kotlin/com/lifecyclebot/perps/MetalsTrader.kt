@@ -670,26 +670,27 @@ object MetalsTrader {
      * Returns true if a position was found and the add-on was recorded.
      */
     fun addToPosition(market: PerpsMarket, additionalSol: Double): Boolean {
-        val pos = positions.values.firstOrNull { it.market == market } ?: return false
+        val allPos = spotPositions.values.toList() + leveragePositions.values.toList()
+        val pos = allPos.firstOrNull { p: MetalPosition -> p.market == market } ?: return false
         val currentPrice = try {
-            PerpsMarketDataFetcher.getCachedPrice(market)?.price?.takeIf { it > 0 } ?: pos.currentPrice
+            PerpsMarketDataFetcher.getCachedPrice(market)?.price?.takeIf { price -> price > 0 } ?: pos.currentPrice
         } catch (_: Exception) { pos.currentPrice }
         if (currentPrice <= 0) return false
 
-        val totalCost = pos.sizeSol + additionalSol
-        val blendedEntry = (pos.entryPrice * pos.sizeSol + currentPrice * additionalSol) / totalCost
+        val totalCost = pos.size + additionalSol
+        val blendedEntry = (pos.entryPrice * pos.size + currentPrice * additionalSol) / totalCost
 
         val updated = pos.copy(
-            sizeSol = totalCost,
+            size = totalCost,
             entryPrice = blendedEntry,
             currentPrice = currentPrice
         )
-        positions[pos.id] = updated
-        if (pos.isSpot) spotPositions[pos.id] = updated else leveragePositions[pos.id] = updated
+        if (pos.leverage == 1.0) spotPositions[pos.id] = updated else leveragePositions[pos.id] = updated
 
         ErrorLogger.info(TAG, "addToPosition ${market.symbol} +$additionalSol SOL | blendedEntry=$blendedEntry")
         return true
     }
 
 }
+
 
