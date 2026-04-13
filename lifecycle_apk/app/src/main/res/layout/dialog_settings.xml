@@ -3,78 +3,110 @@
     xmlns:android="http://schemas.android.com/apk/res/android"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
-    android:background="#0D0D12"
+    android:background="#0A0A0F"
     android:fillViewport="true">
 
     <LinearLayout
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:orientation="vertical"
-        android:padding="16dp">
+        android:padding="@dimen/screen_padding">
 
-        <!-- Header with close button -->
+        <!-- ── DRAG HANDLE + HEADER ── -->
+        <View
+            android:layout_width="36dp"
+            android:layout_height="3dp"
+            android:layout_gravity="center_horizontal"
+            android:background="@drawable/drag_handle_bg"
+            android:layout_marginBottom="12dp"/>
+
         <LinearLayout
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:orientation="horizontal"
             android:gravity="center_vertical"
             android:layout_marginBottom="16dp">
-            
-            <TextView
+
+            <LinearLayout
                 android:layout_width="0dp"
                 android:layout_height="wrap_content"
                 android:layout_weight="1"
-                android:text="Settings"
-                android:textColor="#FFFFFF"
-                android:textSize="20sp"
-                android:textStyle="bold"/>
-            
+                android:orientation="vertical">
+
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="Settings"
+                    android:textColor="#FFFFFF"
+                    android:textSize="20sp"
+                    android:textStyle="bold"/>
+
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="Configure your trading engine"
+                    android:textColor="#4B5563"
+                    android:textSize="10sp"
+                    android:fontFamily="monospace"/>
+
+            </LinearLayout>
+
             <ImageButton
                 android:id="@+id/btnCloseSettings"
                 android:layout_width="36dp"
                 android:layout_height="36dp"
                 android:src="@android:drawable/ic_menu_close_clear_cancel"
                 android:background="?android:attr/selectableItemBackgroundBorderless"
-                android:tint="#6B7280"
+                android:tint="#4B5563"
                 android:contentDescription="Close"/>
+
         </LinearLayout>
 
-        <!-- Drag handle indicator -->
-        <View
-            android:layout_width="40dp"
-            android:layout_height="4dp"
-            android:layout_gravity="center_horizontal"
-            android:layout_marginBottom="16dp"
-            android:background="@drawable/drag_handle_bg"/>
-
-        <!-- ═══════════════════════════════════════════════════════════════
-             V5.7.6: TRADING MODE SELECTOR
-             ═══════════════════════════════════════════════════════════════ -->
+        <!-- ═══════════════════════════════════════════════════════
+             AUTO TRADER MODE
+             ═══════════════════════════════════════════════════════ -->
         <LinearLayout
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:background="@drawable/section_card_bg"
             android:orientation="vertical"
-            android:padding="14dp"
-            android:layout_marginBottom="12dp">
+            android:padding="@dimen/card_padding"
+            android:layout_marginBottom="@dimen/card_margin_bottom">
 
-            <TextView
-                android:layout_width="wrap_content"
+            <!-- Section header -->
+            <LinearLayout
+                android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:text="🤖 AUTO TRADER MODE"
-                android:textColor="#FFD700"
-                android:textSize="11sp"
-                android:fontFamily="monospace"
-                android:letterSpacing="0.12"
-                android:layout_marginBottom="8dp"/>
+                android:orientation="horizontal"
+                android:gravity="center_vertical"
+                android:layout_marginBottom="10dp">
+
+                <View
+                    android:layout_width="3dp"
+                    android:layout_height="14dp"
+                    android:background="#FFD700"
+                    android:layout_marginEnd="8dp"/>
+
+                <TextView
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:text="🤖 AUTO TRADER MODE"
+                    android:textColor="#FFD700"
+                    android:textSize="@dimen/section_title_size"
+                    android:textStyle="bold"
+                    android:fontFamily="monospace"
+                    android:letterSpacing="0.1"/>
+
+            </LinearLayout>
 
             <TextView
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:text="Select which smart auto-traders to run"
-                android:textColor="#6B7280"
+                android:textColor="#4B5563"
                 android:textSize="10sp"
-                android:layout_marginBottom="12dp"/>
+                android:layout_marginBottom="10dp"/>
 
             <!-- Trading Mode Spinner -->
             <TextView
@@ -82,375 +114,116 @@
                 android:layout_height="wrap_content"
                 android:text="TRADING MODE"
                 android:textColor="#6B7280"
-                android:textSize="10sp"
+                android:textSize="9sp"
                 android:fontFamily="monospace"
+                android:letterSpacing="0.08"
                 android:layout_marginBottom="4dp"/>
+
             <Spinner
                 android:id="@+id/spTradingMode"
                 android:layout_width="match_parent"
-                android:layout_height="44dp"
+                android:layout_height="@dimen/input_height"
                 android:background="@drawable/input_bg"
                 android:paddingStart="12dp"
                 android:layout_marginBottom="12dp"/>
 
-            <!-- Individual Toggles -->
+            <!-- Toggle row: Meme Trader -->
             <LinearLayout
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:orientation="horizontal"
                 android:gravity="center_vertical"
-                android:layout_marginBottom="8dp">
+                android:background="@drawable/section_card_bg"
+                android:padding="10dp"
+                android:layout_marginBottom="6dp">
+
                 <LinearLayout
                     android:layout_width="0dp"
                     android:layout_height="wrap_content"
                     android:layout_weight="1"
                     android:orientation="vertical">
+
                     <TextView
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
                         android:text="🎰 Meme Trader"
                         android:textColor="#FFFFFF"
                         android:textSize="12sp"/>
+
                     <TextView
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
-                        android:text="Pump.fun • Meme coins • Original bot"
-                        android:textColor="#6B7280"
-                        android:textSize="9sp"/>
+                        android:text="Pump.fun · Meme coins · Original bot"
+                        android:textColor="#4B5563"
+                        android:textSize="9sp"
+                        android:fontFamily="monospace"/>
+
                 </LinearLayout>
+
                 <Switch
                     android:id="@+id/switchMemeTrader"
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
-                    android:checked="true"/>
+                    android:checked="true"
+                    android:thumbTint="#14F195"
+                    android:trackTint="#1F2937"/>
+
             </LinearLayout>
 
+            <!-- Toggle row: Markets Trader -->
             <LinearLayout
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:orientation="horizontal"
-                android:gravity="center_vertical">
+                android:gravity="center_vertical"
+                android:background="@drawable/section_card_bg"
+                android:padding="10dp">
+
                 <LinearLayout
                     android:layout_width="0dp"
                     android:layout_height="wrap_content"
                     android:layout_weight="1"
                     android:orientation="vertical">
+
                     <TextView
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
                         android:text="📊 Markets Trader"
                         android:textColor="#FFFFFF"
                         android:textSize="12sp"/>
+
                     <TextView
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
-                        android:text="Perps • Stocks • Commodities • Metals • Forex"
-                        android:textColor="#6B7280"
-                        android:textSize="9sp"/>
+                        android:text="Perps · Stocks · Commodities · Metals · Forex"
+                        android:textColor="#4B5563"
+                        android:textSize="9sp"
+                        android:fontFamily="monospace"/>
+
                 </LinearLayout>
+
                 <Switch
                     android:id="@+id/switchMarketsTrader"
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
-                    android:checked="true"/>
+                    android:checked="true"
+                    android:thumbTint="#9945FF"
+                    android:trackTint="#1F2937"/>
+
             </LinearLayout>
+
         </LinearLayout>
 
-        <!-- ═══════════════════════════════
-             BASIC SETTINGS CARD
-             ═══════════════════════════════ -->
+        <!-- ═══════════════════════════════════════════════════════
+             TRADING CARD
+             ═══════════════════════════════════════════════════════ -->
         <LinearLayout
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:background="@drawable/section_card_bg"
             android:orientation="vertical"
-            android:padding="14dp"
-            android:layout_marginBottom="12dp">
-
-            <TextView
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:text="TRADING"
-                android:textColor="#9945FF"
-                android:textSize="11sp"
-                android:fontFamily="monospace"
-                android:letterSpacing="0.12"
-                android:layout_marginBottom="12dp"/>
-
-            <!-- Active token -->
-            <TextView
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:text="ACTIVE TOKEN"
-                android:textColor="#6B7280"
-                android:textSize="10sp"
-                android:fontFamily="monospace"
-                android:letterSpacing="0.08"
-                android:layout_marginBottom="4dp"/>
-            <EditText
-                android:id="@+id/etActiveToken"
-                android:layout_width="match_parent"
-                android:layout_height="44dp"
-                android:background="@drawable/input_bg"
-                android:textColor="#FFFFFF"
-                android:textColorHint="#374151"
-                android:textSize="12sp"
-                android:fontFamily="monospace"
-                android:hint="Token mint address..."
-                android:paddingStart="12dp"
-                android:paddingEnd="12dp"
-                android:inputType="text"
-                android:maxLines="1"
-                android:layout_marginBottom="10dp"/>
-
-            <!-- Mode row -->
-            <LinearLayout
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:orientation="horizontal"
-                android:layout_marginBottom="10dp">
-                
-                <LinearLayout
-                    android:layout_width="0dp"
-                    android:layout_height="wrap_content"
-                    android:layout_weight="1"
-                    android:orientation="vertical"
-                    android:layout_marginEnd="6dp">
-                    <TextView
-                        android:layout_width="wrap_content"
-                        android:layout_height="wrap_content"
-                        android:text="MODE"
-                        android:textColor="#6B7280"
-                        android:textSize="10sp"
-                        android:fontFamily="monospace"
-                        android:layout_marginBottom="4dp"/>
-                    <Spinner
-                        android:id="@+id/spMode"
-                        android:layout_width="match_parent"
-                        android:layout_height="44dp"
-                        android:background="@drawable/input_bg"
-                        android:paddingStart="12dp"/>
-                </LinearLayout>
-                
-                <LinearLayout
-                    android:layout_width="0dp"
-                    android:layout_height="wrap_content"
-                    android:layout_weight="1"
-                    android:orientation="vertical"
-                    android:layout_marginStart="6dp">
-                    <TextView
-                        android:layout_width="wrap_content"
-                        android:layout_height="wrap_content"
-                        android:text="AUTO TRADE"
-                        android:textColor="#6B7280"
-                        android:textSize="10sp"
-                        android:fontFamily="monospace"
-                        android:layout_marginBottom="4dp"/>
-                    <Spinner
-                        android:id="@+id/spAutoTrade"
-                        android:layout_width="match_parent"
-                        android:layout_height="44dp"
-                        android:background="@drawable/input_bg"
-                        android:paddingStart="12dp"/>
-                </LinearLayout>
-            </LinearLayout>
-
-            <!-- Risk row -->
-            <LinearLayout
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:orientation="horizontal"
-                android:layout_marginBottom="10dp">
-                
-                <LinearLayout
-                    android:layout_width="0dp"
-                    android:layout_height="wrap_content"
-                    android:layout_weight="1"
-                    android:orientation="vertical"
-                    android:layout_marginEnd="6dp">
-                    <TextView
-                        android:layout_width="wrap_content"
-                        android:layout_height="wrap_content"
-                        android:text="STOP LOSS %"
-                        android:textColor="#6B7280"
-                        android:textSize="10sp"
-                        android:fontFamily="monospace"
-                        android:layout_marginBottom="4dp"/>
-                    <EditText
-                        android:id="@+id/etStopLoss"
-                        android:layout_width="match_parent"
-                        android:layout_height="44dp"
-                        android:background="@drawable/input_bg"
-                        android:textColor="#FFFFFF"
-                        android:textSize="12sp"
-                        android:fontFamily="monospace"
-                        android:paddingStart="12dp"
-                        android:inputType="numberDecimal"
-                        android:text="10.0"/>
-                </LinearLayout>
-                
-                <LinearLayout
-                    android:layout_width="0dp"
-                    android:layout_height="wrap_content"
-                    android:layout_weight="1"
-                    android:orientation="vertical"
-                    android:layout_marginStart="6dp">
-                    <TextView
-                        android:layout_width="wrap_content"
-                        android:layout_height="wrap_content"
-                        android:text="EXIT SCORE"
-                        android:textColor="#6B7280"
-                        android:textSize="10sp"
-                        android:fontFamily="monospace"
-                        android:layout_marginBottom="4dp"/>
-                    <EditText
-                        android:id="@+id/etExitScore"
-                        android:layout_width="match_parent"
-                        android:layout_height="44dp"
-                        android:background="@drawable/input_bg"
-                        android:textColor="#FFFFFF"
-                        android:textSize="12sp"
-                        android:fontFamily="monospace"
-                        android:paddingStart="12dp"
-                        android:inputType="numberDecimal"
-                        android:text="58.0"/>
-                </LinearLayout>
-            </LinearLayout>
-
-            <!-- Buy amounts row -->
-            <LinearLayout
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:orientation="horizontal"
-                android:layout_marginBottom="10dp">
-                
-                <LinearLayout
-                    android:layout_width="0dp"
-                    android:layout_height="wrap_content"
-                    android:layout_weight="1"
-                    android:orientation="vertical"
-                    android:layout_marginEnd="6dp">
-                    <TextView
-                        android:layout_width="wrap_content"
-                        android:layout_height="wrap_content"
-                        android:text="SMALL BUY (SOL)"
-                        android:textColor="#6B7280"
-                        android:textSize="10sp"
-                        android:fontFamily="monospace"
-                        android:layout_marginBottom="4dp"/>
-                    <EditText
-                        android:id="@+id/etSmallBuy"
-                        android:layout_width="match_parent"
-                        android:layout_height="44dp"
-                        android:background="@drawable/input_bg"
-                        android:textColor="#FFFFFF"
-                        android:textSize="12sp"
-                        android:fontFamily="monospace"
-                        android:paddingStart="12dp"
-                        android:inputType="numberDecimal"
-                        android:text="0.05"/>
-                </LinearLayout>
-                
-                <LinearLayout
-                    android:layout_width="0dp"
-                    android:layout_height="wrap_content"
-                    android:layout_weight="1"
-                    android:orientation="vertical"
-                    android:layout_marginStart="6dp">
-                    <TextView
-                        android:layout_width="wrap_content"
-                        android:layout_height="wrap_content"
-                        android:text="LARGE BUY (SOL)"
-                        android:textColor="#6B7280"
-                        android:textSize="10sp"
-                        android:fontFamily="monospace"
-                        android:layout_marginBottom="4dp"/>
-                    <EditText
-                        android:id="@+id/etLargeBuy"
-                        android:layout_width="match_parent"
-                        android:layout_height="44dp"
-                        android:background="@drawable/input_bg"
-                        android:textColor="#FFFFFF"
-                        android:textSize="12sp"
-                        android:fontFamily="monospace"
-                        android:paddingStart="12dp"
-                        android:inputType="numberDecimal"
-                        android:text="0.10"/>
-                </LinearLayout>
-            </LinearLayout>
-
-            <!-- Slippage / Poll row -->
-            <LinearLayout
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:orientation="horizontal">
-                
-                <LinearLayout
-                    android:layout_width="0dp"
-                    android:layout_height="wrap_content"
-                    android:layout_weight="1"
-                    android:orientation="vertical"
-                    android:layout_marginEnd="6dp">
-                    <TextView
-                        android:layout_width="wrap_content"
-                        android:layout_height="wrap_content"
-                        android:text="SLIPPAGE BPS"
-                        android:textColor="#6B7280"
-                        android:textSize="10sp"
-                        android:fontFamily="monospace"
-                        android:layout_marginBottom="4dp"/>
-                    <EditText
-                        android:id="@+id/etSlippage"
-                        android:layout_width="match_parent"
-                        android:layout_height="44dp"
-                        android:background="@drawable/input_bg"
-                        android:textColor="#FFFFFF"
-                        android:textSize="12sp"
-                        android:fontFamily="monospace"
-                        android:paddingStart="12dp"
-                        android:inputType="number"
-                        android:text="200"/>
-                </LinearLayout>
-                
-                <LinearLayout
-                    android:layout_width="0dp"
-                    android:layout_height="wrap_content"
-                    android:layout_weight="1"
-                    android:orientation="vertical"
-                    android:layout_marginStart="6dp">
-                    <TextView
-                        android:layout_width="wrap_content"
-                        android:layout_height="wrap_content"
-                        android:text="POLL SECONDS"
-                        android:textColor="#6B7280"
-                        android:textSize="10sp"
-                        android:fontFamily="monospace"
-                        android:layout_marginBottom="4dp"/>
-                    <EditText
-                        android:id="@+id/etPoll"
-                        android:layout_width="match_parent"
-                        android:layout_height="44dp"
-                        android:background="@drawable/input_bg"
-                        android:textColor="#FFFFFF"
-                        android:textSize="12sp"
-                        android:fontFamily="monospace"
-                        android:paddingStart="12dp"
-                        android:inputType="number"
-                        android:text="8"/>
-                </LinearLayout>
-            </LinearLayout>
-        </LinearLayout>
-
-        <!-- ═══════════════════════════════
-             TOP-UP STRATEGY CARD
-             ═══════════════════════════════ -->
-        <LinearLayout
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:background="@drawable/section_card_bg"
-            android:orientation="vertical"
-            android:padding="14dp"
-            android:layout_marginBottom="12dp">
+            android:padding="@dimen/card_padding"
+            android:layout_marginBottom="@dimen/card_margin_bottom">
 
             <LinearLayout
                 android:layout_width="match_parent"
@@ -458,15 +231,248 @@
                 android:orientation="horizontal"
                 android:gravity="center_vertical"
                 android:layout_marginBottom="12dp">
+
+                <View
+                    android:layout_width="3dp"
+                    android:layout_height="14dp"
+                    android:background="#9945FF"
+                    android:layout_marginEnd="8dp"/>
+
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="TRADING"
+                    android:textColor="#9945FF"
+                    android:textSize="@dimen/section_title_size"
+                    android:textStyle="bold"
+                    android:fontFamily="monospace"
+                    android:letterSpacing="0.1"/>
+
+            </LinearLayout>
+
+            <!-- Active token -->
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="ACTIVE TOKEN"
+                android:textColor="#6B7280"
+                android:textSize="9sp"
+                android:fontFamily="monospace"
+                android:letterSpacing="0.08"
+                android:layout_marginBottom="4dp"/>
+
+            <EditText
+                android:id="@+id/etActiveToken"
+                android:layout_width="match_parent"
+                android:layout_height="@dimen/input_height"
+                android:background="@drawable/input_bg"
+                android:textColor="#FFFFFF"
+                android:textColorHint="#374151"
+                android:textSize="@dimen/input_text_size"
+                android:fontFamily="monospace"
+                android:hint="Token mint address..."
+                android:paddingStart="@dimen/input_padding_h"
+                android:paddingEnd="@dimen/input_padding_h"
+                android:inputType="text"
+                android:maxLines="1"
+                android:layout_marginBottom="10dp"/>
+
+            <!-- Mode + Strategy row -->
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="horizontal"
+                android:layout_marginBottom="10dp">
+
+                <LinearLayout
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:orientation="vertical"
+                    android:layout_marginEnd="6dp">
+
+                    <TextView
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="MODE"
+                        android:textColor="#6B7280"
+                        android:textSize="9sp"
+                        android:fontFamily="monospace"
+                        android:layout_marginBottom="4dp"/>
+
+                    <Spinner
+                        android:id="@+id/spMode"
+                        android:layout_width="match_parent"
+                        android:layout_height="@dimen/input_height"
+                        android:background="@drawable/input_bg"
+                        android:paddingStart="@dimen/input_padding_h"/>
+
+                </LinearLayout>
+
+                <LinearLayout
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:orientation="vertical"
+                    android:layout_marginStart="6dp">
+
+                    <TextView
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="STRATEGY"
+                        android:textColor="#6B7280"
+                        android:textSize="9sp"
+                        android:fontFamily="monospace"
+                        android:layout_marginBottom="4dp"/>
+
+                    <Spinner
+                        android:id="@+id/spStrategy"
+                        android:layout_width="match_parent"
+                        android:layout_height="@dimen/input_height"
+                        android:background="@drawable/input_bg"
+                        android:paddingStart="@dimen/input_padding_h"/>
+
+                </LinearLayout>
+
+            </LinearLayout>
+
+            <!-- Buy/Sell SOL + Slippage + Poll row -->
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="horizontal"
+                android:layout_marginBottom="10dp">
+
+                <LinearLayout
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:orientation="vertical"
+                    android:layout_marginEnd="4dp">
+
+                    <TextView
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="BUY SOL"
+                        android:textColor="#6B7280"
+                        android:textSize="9sp"
+                        android:fontFamily="monospace"
+                        android:layout_marginBottom="4dp"/>
+
+                    <EditText
+                        android:id="@+id/etBuySol"
+                        android:layout_width="match_parent"
+                        android:layout_height="@dimen/input_height"
+                        android:background="@drawable/input_bg"
+                        android:textColor="#FFFFFF"
+                        android:textSize="@dimen/input_text_size"
+                        android:fontFamily="monospace"
+                        android:paddingStart="@dimen/input_padding_h"
+                        android:inputType="numberDecimal"
+                        android:text="0.1"/>
+
+                </LinearLayout>
+
+                <LinearLayout
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:orientation="vertical"
+                    android:layout_marginStart="4dp"
+                    android:layout_marginEnd="4dp">
+
+                    <TextView
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="SLIPPAGE"
+                        android:textColor="#6B7280"
+                        android:textSize="9sp"
+                        android:fontFamily="monospace"
+                        android:layout_marginBottom="4dp"/>
+
+                    <EditText
+                        android:id="@+id/etSlippage"
+                        android:layout_width="match_parent"
+                        android:layout_height="@dimen/input_height"
+                        android:background="@drawable/input_bg"
+                        android:textColor="#FFFFFF"
+                        android:textSize="@dimen/input_text_size"
+                        android:fontFamily="monospace"
+                        android:paddingStart="@dimen/input_padding_h"
+                        android:inputType="number"
+                        android:text="200"/>
+
+                </LinearLayout>
+
+                <LinearLayout
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:orientation="vertical"
+                    android:layout_marginStart="4dp">
+
+                    <TextView
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="POLL (s)"
+                        android:textColor="#6B7280"
+                        android:textSize="9sp"
+                        android:fontFamily="monospace"
+                        android:layout_marginBottom="4dp"/>
+
+                    <EditText
+                        android:id="@+id/etPoll"
+                        android:layout_width="match_parent"
+                        android:layout_height="@dimen/input_height"
+                        android:background="@drawable/input_bg"
+                        android:textColor="#FFFFFF"
+                        android:textSize="@dimen/input_text_size"
+                        android:fontFamily="monospace"
+                        android:paddingStart="@dimen/input_padding_h"
+                        android:inputType="number"
+                        android:text="8"/>
+
+                </LinearLayout>
+
+            </LinearLayout>
+
+        </LinearLayout>
+
+        <!-- ═══════════════════════════════════════════════════════
+             TOP-UP STRATEGY CARD
+             ═══════════════════════════════════════════════════════ -->
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:background="@drawable/section_card_bg"
+            android:orientation="vertical"
+            android:padding="@dimen/card_padding"
+            android:layout_marginBottom="@dimen/card_margin_bottom">
+
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="horizontal"
+                android:gravity="center_vertical"
+                android:layout_marginBottom="10dp">
+
+                <View
+                    android:layout_width="3dp"
+                    android:layout_height="14dp"
+                    android:background="#9945FF"
+                    android:layout_marginEnd="8dp"/>
+
                 <TextView
                     android:layout_width="0dp"
                     android:layout_height="wrap_content"
                     android:layout_weight="1"
                     android:text="TOP-UP STRATEGY"
                     android:textColor="#9945FF"
-                    android:textSize="11sp"
+                    android:textSize="@dimen/section_title_size"
+                    android:textStyle="bold"
                     android:fontFamily="monospace"
-                    android:letterSpacing="0.12"/>
+                    android:letterSpacing="0.1"/>
+
                 <Switch
                     android:id="@+id/switchTopUp"
                     android:layout_width="wrap_content"
@@ -474,29 +480,31 @@
                     android:checked="true"
                     android:thumbTint="#9945FF"
                     android:trackTint="#1F2937"/>
+
             </LinearLayout>
 
             <TextView
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:text="Automatically adds to winning positions. Each add is smaller than the last."
-                android:textColor="#6B7280"
+                android:textColor="#4B5563"
                 android:textSize="10sp"
+                android:lineSpacingMultiplier="1.3"
                 android:layout_marginBottom="12dp"/>
 
-            <!-- Top-up settings grid -->
             <LinearLayout
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:orientation="horizontal"
-                android:layout_marginBottom="10dp">
-                
+                android:layout_marginBottom="8dp">
+
                 <LinearLayout
                     android:layout_width="0dp"
                     android:layout_height="wrap_content"
                     android:layout_weight="1"
                     android:orientation="vertical"
                     android:layout_marginEnd="6dp">
+
                     <TextView
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
@@ -505,25 +513,29 @@
                         android:textSize="9sp"
                         android:fontFamily="monospace"
                         android:layout_marginBottom="4dp"/>
+
                     <EditText
                         android:id="@+id/etTopUpMinGain"
                         android:layout_width="match_parent"
-                        android:layout_height="44dp"
+                        android:layout_height="@dimen/input_height"
                         android:background="@drawable/input_bg"
                         android:textColor="#FFFFFF"
-                        android:textSize="12sp"
+                        android:textColorHint="#374151"
+                        android:textSize="@dimen/input_text_size"
                         android:fontFamily="monospace"
-                        android:paddingStart="12dp"
+                        android:paddingStart="@dimen/input_padding_h"
                         android:inputType="numberDecimal"
                         android:hint="25"/>
+
                 </LinearLayout>
-                
+
                 <LinearLayout
                     android:layout_width="0dp"
                     android:layout_height="wrap_content"
                     android:layout_weight="1"
                     android:orientation="vertical"
                     android:layout_marginStart="6dp">
+
                     <TextView
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
@@ -532,31 +544,36 @@
                         android:textSize="9sp"
                         android:fontFamily="monospace"
                         android:layout_marginBottom="4dp"/>
+
                     <EditText
                         android:id="@+id/etTopUpGainStep"
                         android:layout_width="match_parent"
-                        android:layout_height="44dp"
+                        android:layout_height="@dimen/input_height"
                         android:background="@drawable/input_bg"
                         android:textColor="#FFFFFF"
-                        android:textSize="12sp"
+                        android:textColorHint="#374151"
+                        android:textSize="@dimen/input_text_size"
                         android:fontFamily="monospace"
-                        android:paddingStart="12dp"
+                        android:paddingStart="@dimen/input_padding_h"
                         android:inputType="numberDecimal"
                         android:hint="30"/>
+
                 </LinearLayout>
+
             </LinearLayout>
 
             <LinearLayout
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:orientation="horizontal">
-                
+
                 <LinearLayout
                     android:layout_width="0dp"
                     android:layout_height="wrap_content"
                     android:layout_weight="1"
                     android:orientation="vertical"
                     android:layout_marginEnd="6dp">
+
                     <TextView
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
@@ -565,25 +582,29 @@
                         android:textSize="9sp"
                         android:fontFamily="monospace"
                         android:layout_marginBottom="4dp"/>
+
                     <EditText
                         android:id="@+id/etTopUpMaxCount"
                         android:layout_width="match_parent"
-                        android:layout_height="44dp"
+                        android:layout_height="@dimen/input_height"
                         android:background="@drawable/input_bg"
                         android:textColor="#FFFFFF"
-                        android:textSize="12sp"
+                        android:textColorHint="#374151"
+                        android:textSize="@dimen/input_text_size"
                         android:fontFamily="monospace"
-                        android:paddingStart="12dp"
+                        android:paddingStart="@dimen/input_padding_h"
                         android:inputType="number"
                         android:hint="3"/>
+
                 </LinearLayout>
-                
+
                 <LinearLayout
                     android:layout_width="0dp"
                     android:layout_height="wrap_content"
                     android:layout_weight="1"
                     android:orientation="vertical"
                     android:layout_marginStart="6dp">
+
                     <TextView
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
@@ -592,42 +613,63 @@
                         android:textSize="9sp"
                         android:fontFamily="monospace"
                         android:layout_marginBottom="4dp"/>
+
                     <EditText
                         android:id="@+id/etTopUpMaxSol"
                         android:layout_width="match_parent"
-                        android:layout_height="44dp"
+                        android:layout_height="@dimen/input_height"
                         android:background="@drawable/input_bg"
                         android:textColor="#FFFFFF"
-                        android:textSize="12sp"
+                        android:textColorHint="#374151"
+                        android:textSize="@dimen/input_text_size"
                         android:fontFamily="monospace"
-                        android:paddingStart="12dp"
+                        android:paddingStart="@dimen/input_padding_h"
                         android:inputType="numberDecimal"
                         android:hint="0.50"/>
+
                 </LinearLayout>
+
             </LinearLayout>
+
         </LinearLayout>
 
-        <!-- ═══════════════════════════════
+        <!-- ═══════════════════════════════════════════════════════
              API KEYS CARD
-             ═══════════════════════════════ -->
+             ═══════════════════════════════════════════════════════ -->
         <LinearLayout
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:background="@drawable/section_card_bg"
             android:orientation="vertical"
-            android:padding="14dp"
-            android:layout_marginBottom="12dp">
+            android:padding="@dimen/card_padding"
+            android:layout_marginBottom="@dimen/card_margin_bottom">
 
-            <TextView
-                android:layout_width="wrap_content"
+            <LinearLayout
+                android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:text="API KEYS"
-                android:textColor="#9945FF"
-                android:textSize="11sp"
-                android:fontFamily="monospace"
-                android:letterSpacing="0.12"
-                android:layout_marginBottom="4dp"/>
-            
+                android:orientation="horizontal"
+                android:gravity="center_vertical"
+                android:layout_marginBottom="4dp">
+
+                <View
+                    android:layout_width="3dp"
+                    android:layout_height="14dp"
+                    android:background="#14F195"
+                    android:layout_marginEnd="8dp"/>
+
+                <TextView
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:text="API KEYS"
+                    android:textColor="#14F195"
+                    android:textSize="@dimen/section_title_size"
+                    android:textStyle="bold"
+                    android:fontFamily="monospace"
+                    android:letterSpacing="0.1"/>
+
+            </LinearLayout>
+
             <TextView
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
@@ -643,20 +685,21 @@
                 android:layout_height="wrap_content"
                 android:text="RPC URL"
                 android:textColor="#6B7280"
-                android:textSize="10sp"
+                android:textSize="9sp"
                 android:fontFamily="monospace"
+                android:letterSpacing="0.08"
                 android:layout_marginBottom="4dp"/>
             <EditText
                 android:id="@+id/etRpc"
                 android:layout_width="match_parent"
-                android:layout_height="44dp"
+                android:layout_height="@dimen/input_height"
                 android:background="@drawable/input_bg"
                 android:textColor="#FFFFFF"
                 android:textColorHint="#374151"
-                android:textSize="11sp"
+                android:textSize="10sp"
                 android:fontFamily="monospace"
                 android:hint="https://api.mainnet-beta.solana.com"
-                android:paddingStart="12dp"
+                android:paddingStart="@dimen/input_padding_h"
                 android:inputType="textUri"
                 android:layout_marginBottom="10dp"/>
 
@@ -665,23 +708,23 @@
                 android:id="@+id/tvHeliusHelp"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
-                android:text="HELIUS KEY - helius.dev"
+                android:text="HELIUS KEY ↗ helius.dev"
                 android:textColor="#14F195"
-                android:textSize="10sp"
+                android:textSize="9sp"
                 android:fontFamily="monospace"
                 android:layout_marginBottom="4dp"/>
             <EditText
                 android:id="@+id/etHeliusKey"
                 android:layout_width="match_parent"
-                android:layout_height="44dp"
+                android:layout_height="@dimen/input_height"
                 android:background="@drawable/input_bg"
                 android:textColor="#FFFFFF"
                 android:textColorHint="#374151"
-                android:textSize="12sp"
+                android:textSize="@dimen/input_text_size"
                 android:fontFamily="monospace"
                 android:hint="paste helius api key..."
                 android:inputType="textPassword"
-                android:paddingStart="12dp"
+                android:paddingStart="@dimen/input_padding_h"
                 android:layout_marginBottom="10dp"/>
 
             <!-- Birdeye -->
@@ -689,23 +732,23 @@
                 android:id="@+id/tvBirdeyeHelp"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
-                android:text="BIRDEYE KEY - birdeye.so"
+                android:text="BIRDEYE KEY ↗ birdeye.so"
                 android:textColor="#14F195"
-                android:textSize="10sp"
+                android:textSize="9sp"
                 android:fontFamily="monospace"
                 android:layout_marginBottom="4dp"/>
             <EditText
                 android:id="@+id/etBirdeyeKey"
                 android:layout_width="match_parent"
-                android:layout_height="44dp"
+                android:layout_height="@dimen/input_height"
                 android:background="@drawable/input_bg"
                 android:textColor="#FFFFFF"
                 android:textColorHint="#374151"
-                android:textSize="12sp"
+                android:textSize="@dimen/input_text_size"
                 android:fontFamily="monospace"
                 android:hint="paste birdeye api key..."
                 android:inputType="textPassword"
-                android:paddingStart="12dp"
+                android:paddingStart="@dimen/input_padding_h"
                 android:layout_marginBottom="10dp"/>
 
             <!-- Groq -->
@@ -713,23 +756,23 @@
                 android:id="@+id/tvGroqHelp"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
-                android:text="GROQ KEY - console.groq.com"
+                android:text="GROQ KEY ↗ console.groq.com"
                 android:textColor="#14F195"
-                android:textSize="10sp"
+                android:textSize="9sp"
                 android:fontFamily="monospace"
                 android:layout_marginBottom="4dp"/>
             <EditText
                 android:id="@+id/etGroqKey"
                 android:layout_width="match_parent"
-                android:layout_height="44dp"
+                android:layout_height="@dimen/input_height"
                 android:background="@drawable/input_bg"
                 android:textColor="#FFFFFF"
                 android:textColorHint="#374151"
-                android:textSize="12sp"
+                android:textSize="@dimen/input_text_size"
                 android:fontFamily="monospace"
                 android:hint="paste groq api key..."
                 android:inputType="textPassword"
-                android:paddingStart="12dp"
+                android:paddingStart="@dimen/input_padding_h"
                 android:layout_marginBottom="10dp"/>
 
             <!-- Gemini -->
@@ -737,23 +780,23 @@
                 android:id="@+id/tvGeminiHelp"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
-                android:text="GEMINI KEY - aistudio.google.com"
+                android:text="GEMINI KEY ↗ aistudio.google.com"
                 android:textColor="#6B7280"
-                android:textSize="10sp"
+                android:textSize="9sp"
                 android:fontFamily="monospace"
                 android:layout_marginBottom="4dp"/>
             <EditText
                 android:id="@+id/etGeminiKey"
                 android:layout_width="match_parent"
-                android:layout_height="44dp"
+                android:layout_height="@dimen/input_height"
                 android:background="@drawable/input_bg"
                 android:textColor="#FFFFFF"
                 android:textColorHint="#374151"
-                android:textSize="12sp"
+                android:textSize="@dimen/input_text_size"
                 android:fontFamily="monospace"
                 android:hint="paste gemini api key..."
                 android:inputType="textPassword"
-                android:paddingStart="12dp"
+                android:paddingStart="@dimen/input_padding_h"
                 android:layout_marginBottom="10dp"/>
 
             <!-- Jupiter -->
@@ -761,46 +804,62 @@
                 android:id="@+id/tvJupiterHelp"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
-                android:text="JUPITER KEY - portal.jup.ag"
+                android:text="JUPITER KEY ↗ portal.jup.ag"
                 android:textColor="#6B7280"
-                android:textSize="10sp"
+                android:textSize="9sp"
                 android:fontFamily="monospace"
                 android:layout_marginBottom="4dp"/>
             <EditText
                 android:id="@+id/etJupiterKey"
                 android:layout_width="match_parent"
-                android:layout_height="44dp"
+                android:layout_height="@dimen/input_height"
                 android:background="@drawable/input_bg"
                 android:textColor="#FFFFFF"
                 android:textColorHint="#374151"
-                android:textSize="12sp"
+                android:textSize="@dimen/input_text_size"
                 android:fontFamily="monospace"
                 android:hint="paste jupiter api key..."
                 android:inputType="textPassword"
-                android:paddingStart="12dp"/>
+                android:paddingStart="@dimen/input_padding_h"/>
+
         </LinearLayout>
 
-        <!-- ═══════════════════════════════
+        <!-- ═══════════════════════════════════════════════════════
              TELEGRAM CARD
-             ═══════════════════════════════ -->
+             ═══════════════════════════════════════════════════════ -->
         <LinearLayout
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:background="@drawable/section_card_bg"
             android:orientation="vertical"
-            android:padding="14dp"
-            android:layout_marginBottom="12dp">
+            android:padding="@dimen/card_padding"
+            android:layout_marginBottom="@dimen/card_margin_bottom">
 
-            <TextView
-                android:layout_width="wrap_content"
+            <LinearLayout
+                android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:text="TELEGRAM ALERTS"
-                android:textColor="#9945FF"
-                android:textSize="11sp"
-                android:fontFamily="monospace"
-                android:letterSpacing="0.12"
-                android:layout_marginBottom="4dp"/>
-            
+                android:orientation="horizontal"
+                android:gravity="center_vertical"
+                android:layout_marginBottom="4dp">
+
+                <View
+                    android:layout_width="3dp"
+                    android:layout_height="14dp"
+                    android:background="#3B82F6"
+                    android:layout_marginEnd="8dp"/>
+
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="TELEGRAM ALERTS"
+                    android:textColor="#3B82F6"
+                    android:textSize="@dimen/section_title_size"
+                    android:textStyle="bold"
+                    android:fontFamily="monospace"
+                    android:letterSpacing="0.1"/>
+
+            </LinearLayout>
+
             <TextView
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
@@ -815,21 +874,22 @@
                 android:layout_height="wrap_content"
                 android:text="BOT TOKEN"
                 android:textColor="#6B7280"
-                android:textSize="10sp"
+                android:textSize="9sp"
                 android:fontFamily="monospace"
+                android:letterSpacing="0.08"
                 android:layout_marginBottom="4dp"/>
             <EditText
                 android:id="@+id/etTgBotToken"
                 android:layout_width="match_parent"
-                android:layout_height="44dp"
+                android:layout_height="@dimen/input_height"
                 android:background="@drawable/input_bg"
                 android:textColor="#FFFFFF"
                 android:textColorHint="#374151"
-                android:textSize="12sp"
+                android:textSize="@dimen/input_text_size"
                 android:fontFamily="monospace"
                 android:hint="paste bot token..."
                 android:inputType="textPassword"
-                android:paddingStart="12dp"
+                android:paddingStart="@dimen/input_padding_h"
                 android:layout_marginBottom="10dp"/>
 
             <TextView
@@ -837,69 +897,92 @@
                 android:layout_height="wrap_content"
                 android:text="CHAT ID"
                 android:textColor="#6B7280"
-                android:textSize="10sp"
+                android:textSize="9sp"
                 android:fontFamily="monospace"
+                android:letterSpacing="0.08"
                 android:layout_marginBottom="4dp"/>
             <EditText
                 android:id="@+id/etTgChatId"
                 android:layout_width="match_parent"
-                android:layout_height="44dp"
+                android:layout_height="@dimen/input_height"
                 android:background="@drawable/input_bg"
                 android:textColor="#FFFFFF"
                 android:textColorHint="#374151"
-                android:textSize="12sp"
+                android:textSize="@dimen/input_text_size"
                 android:fontFamily="monospace"
                 android:hint="paste chat id..."
                 android:inputType="number"
-                android:paddingStart="12dp"/>
+                android:paddingStart="@dimen/input_padding_h"/>
+
         </LinearLayout>
 
-        <!-- ═══════════════════════════════
-             NOTIFICATIONS & SOUNDS CARD
-             ═══════════════════════════════ -->
+        <!-- ═══════════════════════════════════════════════════════
+             ALERTS & SOUNDS CARD
+             ═══════════════════════════════════════════════════════ -->
         <LinearLayout
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:background="@drawable/section_card_bg"
             android:orientation="vertical"
-            android:padding="14dp"
-            android:layout_marginBottom="12dp">
+            android:padding="@dimen/card_padding"
+            android:layout_marginBottom="@dimen/card_margin_bottom">
 
-            <TextView
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:text="ALERTS &amp; SOUNDS"
-                android:textColor="#9945FF"
-                android:textSize="11sp"
-                android:fontFamily="monospace"
-                android:letterSpacing="0.12"
-                android:layout_marginBottom="12dp"/>
-
-            <!-- Notifications Toggle -->
             <LinearLayout
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:orientation="horizontal"
                 android:gravity="center_vertical"
                 android:layout_marginBottom="12dp">
+
+                <View
+                    android:layout_width="3dp"
+                    android:layout_height="14dp"
+                    android:background="#9945FF"
+                    android:layout_marginEnd="8dp"/>
+
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="ALERTS &amp; SOUNDS"
+                    android:textColor="#9945FF"
+                    android:textSize="@dimen/section_title_size"
+                    android:textStyle="bold"
+                    android:fontFamily="monospace"
+                    android:letterSpacing="0.1"/>
+
+            </LinearLayout>
+
+            <!-- Toggle: Push Notifications -->
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="horizontal"
+                android:gravity="center_vertical"
+                android:layout_marginBottom="10dp">
+
                 <LinearLayout
                     android:layout_width="0dp"
                     android:layout_height="wrap_content"
                     android:layout_weight="1"
                     android:orientation="vertical">
+
                     <TextView
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
                         android:text="Push Notifications"
                         android:textColor="#FFFFFF"
                         android:textSize="13sp"/>
+
                     <TextView
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
                         android:text="Trade alerts, signals, updates"
-                        android:textColor="#6B7280"
-                        android:textSize="10sp"/>
+                        android:textColor="#4B5563"
+                        android:textSize="9sp"
+                        android:fontFamily="monospace"/>
+
                 </LinearLayout>
+
                 <Switch
                     android:id="@+id/switchNotifications"
                     android:layout_width="wrap_content"
@@ -907,33 +990,40 @@
                     android:checked="true"
                     android:thumbTint="#9945FF"
                     android:trackTint="#374151"/>
+
             </LinearLayout>
 
-            <!-- Vibration Toggle -->
+            <!-- Toggle: Vibration -->
             <LinearLayout
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:orientation="horizontal"
                 android:gravity="center_vertical"
-                android:layout_marginBottom="12dp">
+                android:layout_marginBottom="10dp">
+
                 <LinearLayout
                     android:layout_width="0dp"
                     android:layout_height="wrap_content"
                     android:layout_weight="1"
                     android:orientation="vertical">
+
                     <TextView
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
                         android:text="Vibration"
                         android:textColor="#FFFFFF"
                         android:textSize="13sp"/>
+
                     <TextView
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
                         android:text="Vibrate on trade alerts"
-                        android:textColor="#6B7280"
-                        android:textSize="10sp"/>
+                        android:textColor="#4B5563"
+                        android:textSize="9sp"
+                        android:fontFamily="monospace"/>
+
                 </LinearLayout>
+
                 <Switch
                     android:id="@+id/switchVibration"
                     android:layout_width="wrap_content"
@@ -941,33 +1031,40 @@
                     android:checked="true"
                     android:thumbTint="#9945FF"
                     android:trackTint="#374151"/>
+
             </LinearLayout>
 
-            <!-- Sounds Toggle -->
+            <!-- Toggle: Sound Effects -->
             <LinearLayout
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:orientation="horizontal"
                 android:gravity="center_vertical"
-                android:layout_marginBottom="12dp">
+                android:layout_marginBottom="10dp">
+
                 <LinearLayout
                     android:layout_width="0dp"
                     android:layout_height="wrap_content"
                     android:layout_weight="1"
                     android:orientation="vertical">
+
                     <TextView
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
                         android:text="Sound Effects"
                         android:textColor="#FFFFFF"
                         android:textSize="13sp"/>
+
                     <TextView
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
                         android:text="Audio for buy/sell executions"
-                        android:textColor="#6B7280"
-                        android:textSize="10sp"/>
+                        android:textColor="#4B5563"
+                        android:textSize="9sp"
+                        android:fontFamily="monospace"/>
+
                 </LinearLayout>
+
                 <Switch
                     android:id="@+id/switchSounds"
                     android:layout_width="wrap_content"
@@ -975,32 +1072,39 @@
                     android:checked="true"
                     android:thumbTint="#14F195"
                     android:trackTint="#374151"/>
+
             </LinearLayout>
 
-            <!-- Dark Mode Toggle -->
+            <!-- Toggle: Dark Mode -->
             <LinearLayout
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:orientation="horizontal"
                 android:gravity="center_vertical">
+
                 <LinearLayout
                     android:layout_width="0dp"
                     android:layout_height="wrap_content"
                     android:layout_weight="1"
                     android:orientation="vertical">
+
                     <TextView
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
                         android:text="Dark Mode"
                         android:textColor="#FFFFFF"
                         android:textSize="13sp"/>
+
                     <TextView
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
                         android:text="Switch to light theme"
-                        android:textColor="#6B7280"
-                        android:textSize="10sp"/>
+                        android:textColor="#4B5563"
+                        android:textSize="9sp"
+                        android:fontFamily="monospace"/>
+
                 </LinearLayout>
+
                 <androidx.appcompat.widget.SwitchCompat
                     android:id="@+id/switchDarkMode"
                     android:layout_width="wrap_content"
@@ -1008,29 +1112,46 @@
                     android:checked="true"
                     android:thumbTint="#14F195"
                     android:trackTint="#374151"/>
+
             </LinearLayout>
+
         </LinearLayout>
 
-        <!-- ═══════════════════════════════
+        <!-- ═══════════════════════════════════════════════════════
              WATCHLIST CARD
-             ═══════════════════════════════ -->
+             ═══════════════════════════════════════════════════════ -->
         <LinearLayout
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:background="@drawable/section_card_bg"
             android:orientation="vertical"
-            android:padding="14dp"
-            android:layout_marginBottom="12dp">
+            android:padding="@dimen/card_padding"
+            android:layout_marginBottom="@dimen/card_margin_bottom">
 
-            <TextView
-                android:layout_width="wrap_content"
+            <LinearLayout
+                android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:text="WATCHLIST"
-                android:textColor="#9945FF"
-                android:textSize="11sp"
-                android:fontFamily="monospace"
-                android:letterSpacing="0.12"
-                android:layout_marginBottom="4dp"/>
+                android:orientation="horizontal"
+                android:gravity="center_vertical"
+                android:layout_marginBottom="4dp">
+
+                <View
+                    android:layout_width="3dp"
+                    android:layout_height="14dp"
+                    android:background="#9945FF"
+                    android:layout_marginEnd="8dp"/>
+
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="WATCHLIST"
+                    android:textColor="#9945FF"
+                    android:textSize="@dimen/section_title_size"
+                    android:textStyle="bold"
+                    android:fontFamily="monospace"
+                    android:letterSpacing="0.1"/>
+
+            </LinearLayout>
 
             <TextView
                 android:layout_width="wrap_content"
@@ -1048,35 +1169,39 @@
                 android:background="@drawable/input_bg"
                 android:textColor="#FFFFFF"
                 android:textColorHint="#374151"
-                android:textSize="12sp"
+                android:textSize="@dimen/input_text_size"
                 android:fontFamily="monospace"
                 android:hint="mint1, mint2..."
-                android:paddingStart="12dp"
+                android:paddingStart="@dimen/input_padding_h"
                 android:paddingTop="10dp"
                 android:paddingBottom="10dp"
                 android:minLines="2"/>
+
         </LinearLayout>
 
-        <!-- ═══════════════════════════════
+        <!-- ═══════════════════════════════════════════════════════
              ACTION BUTTONS
-             ═══════════════════════════════ -->
+             ═══════════════════════════════════════════════════════ -->
+
+        <!-- Save — primary CTA -->
         <Button
             android:id="@+id/btnSave"
             android:layout_width="match_parent"
-            android:layout_height="48dp"
+            android:layout_height="@dimen/bottom_bar_button_height"
             android:text="Save Settings"
             android:textColor="#FFFFFF"
             android:textStyle="bold"
-            android:textSize="14sp"
+            android:textSize="@dimen/bottom_bar_button_text"
             android:backgroundTint="#9945FF"
             android:layout_marginBottom="8dp"/>
 
+        <!-- Export / Import row -->
         <LinearLayout
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:orientation="horizontal"
-            android:layout_marginBottom="8dp">
-            
+            android:layout_marginBottom="6dp">
+
             <Button
                 android:id="@+id/btnExportData"
                 android:layout_width="0dp"
@@ -1087,8 +1212,8 @@
                 android:textColor="#14F195"
                 android:textStyle="bold"
                 android:textSize="12sp"
-                android:backgroundTint="#1F2937"/>
-                
+                android:backgroundTint="#111827"/>
+
             <Button
                 android:id="@+id/btnImportData"
                 android:layout_width="0dp"
@@ -1099,9 +1224,11 @@
                 android:textColor="#3B82F6"
                 android:textStyle="bold"
                 android:textSize="12sp"
-                android:backgroundTint="#1F2937"/>
+                android:backgroundTint="#111827"/>
+
         </LinearLayout>
 
+        <!-- Clear API Keys -->
         <Button
             android:id="@+id/btnClearSettings"
             android:layout_width="match_parent"
@@ -1110,9 +1237,10 @@
             android:textColor="#EF4444"
             android:textStyle="bold"
             android:textSize="12sp"
-            android:backgroundTint="#1F2937"
-            android:layout_marginBottom="8dp"/>
+            android:backgroundTint="#111827"
+            android:layout_marginBottom="6dp"/>
 
+        <!-- Test Toast -->
         <Button
             android:id="@+id/btnTestToast"
             android:layout_width="match_parent"
@@ -1121,8 +1249,9 @@
             android:textColor="#10B981"
             android:textStyle="bold"
             android:textSize="12sp"
-            android:backgroundTint="#1F2937"
+            android:backgroundTint="#111827"
             android:layout_marginBottom="24dp"/>
 
     </LinearLayout>
+
 </androidx.core.widget.NestedScrollView>

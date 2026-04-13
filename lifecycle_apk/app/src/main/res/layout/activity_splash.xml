@@ -11,16 +11,23 @@
         android:layout_width="match_parent"
         android:layout_height="match_parent"/>
 
-    <!-- Subtle glow effect behind logo -->
+    <!-- Deep glow — layered radial halos for premium depth -->
     <View
         android:id="@+id/viewGlow"
-        android:layout_width="320dp"
-        android:layout_height="320dp"
+        android:layout_width="400dp"
+        android:layout_height="400dp"
         android:layout_gravity="center"
         android:background="@drawable/splash_glow"
-        android:alpha="0.3"/>
+        android:alpha="0.35"/>
 
-    <!-- Centered content -->
+    <!-- Scanline overlay — subtle horizontal lines like a terminal -->
+    <View
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:background="@drawable/scanline_overlay"
+        android:alpha="0.04"/>
+
+    <!-- Centred content -->
     <LinearLayout
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
@@ -29,70 +36,82 @@
         android:gravity="center"
         android:elevation="4dp">
 
-        <!-- AATE Logo -->
+        <!-- Logo -->
         <ImageView
             android:id="@+id/ivSplashLogo"
-            android:layout_width="280dp"
-            android:layout_height="280dp"
+            android:layout_width="260dp"
+            android:layout_height="260dp"
             android:src="@drawable/logo"
             android:scaleType="fitCenter"
             android:contentDescription="AATE Logo"/>
 
-        <!-- Tagline -->
+        <!-- Tagline — hidden until animation reveals it -->
         <TextView
             android:id="@+id/tvSplashTagline"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:layout_marginTop="24dp"
+            android:layout_marginTop="20dp"
             android:text="Autonomous Algorithmic Trading Engine"
             android:textColor="#64D2D2"
-            android:textSize="14sp"
+            android:textSize="12sp"
             android:fontFamily="monospace"
-            android:letterSpacing="0.05"
+            android:letterSpacing="0.08"
             android:visibility="invisible"/>
+
+        <!-- Loading bar — thin cyan pulse below tagline -->
+        <View
+            android:id="@+id/viewLoadBar"
+            android:layout_width="180dp"
+            android:layout_height="1dp"
+            android:layout_marginTop="20dp"
+            android:background="#14F195"
+            android:alpha="0.0"/>
 
     </LinearLayout>
 
-    <!-- Version at bottom -->
+    <!-- Version — animates in from bottom -->
     <TextView
         android:id="@+id/tvSplashVersion"
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
         android:layout_gravity="bottom|center_horizontal"
-        android:layout_marginBottom="80dp"
+        android:layout_marginBottom="88dp"
         android:text=""
-        android:textColor="#64D2D2"
-        android:textSize="16sp"
+        android:textColor="#14F195"
+        android:textSize="15sp"
         android:textStyle="bold"
         android:fontFamily="monospace"
+        android:letterSpacing="0.06"
         android:visibility="invisible"/>
 
-    <!-- Copyright and Trademark notice -->
+    <!-- Copyright footer -->
     <LinearLayout
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:layout_gravity="bottom"
         android:orientation="vertical"
         android:gravity="center"
-        android:padding="16dp">
+        android:paddingBottom="20dp"
+        android:paddingStart="16dp"
+        android:paddingEnd="16dp">
 
         <TextView
             android:id="@+id/tvSplashTrademark"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:text="AATE® is a registered trademark"
-            android:textColor="#374151"
-            android:textSize="10sp"
+            android:textColor="#1F2937"
+            android:textSize="9sp"
             android:fontFamily="monospace"/>
 
         <TextView
             android:id="@+id/tvSplashCopyright"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:layout_marginTop="4dp"
-            android:text="© 2024-2026 Lifecycle Technologies. All rights reserved."
-            android:textColor="#374151"
-            android:textSize="9sp"
+            android:layout_marginTop="3dp"
+            android:text="© 2024–2026 Lifecycle Technologies. All rights reserved."
+            android:textColor="#1F2937"
+            android:textSize="8sp"
             android:fontFamily="monospace"/>
 
     </LinearLayout>
