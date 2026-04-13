@@ -37,16 +37,16 @@
             <TextView
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
-                android:text="Behavior Tuning"
+                android:text="NEURAL PERSONALITY"
                 android:textColor="#FFFFFF"
-                android:textSize="16sp"
+                android:textSize="15sp"
                 android:textStyle="bold"
                 android:fontFamily="monospace"
-                android:letterSpacing="0.04"/>
+                android:letterSpacing="0.06"/>
             <TextView
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
-                android:text="Aggression · Learning · Neural Health"
+                android:text="Instinct  ·  Plasticity  ·  Layer Health"
                 android:textColor="#6B7280"
                 android:textSize="9sp"
                 android:fontFamily="monospace"/>
@@ -54,7 +54,7 @@
     </LinearLayout>
 
     <View android:layout_width="match_parent" android:layout_height="1dp"
-        android:background="#1F2937"/>
+        android:background="#111827"/>
 
     <ScrollView
         android:layout_width="match_parent"
@@ -82,8 +82,8 @@
                 <TextView
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
-                    android:text="AGGRESSION DIAL"
-                    android:textColor="#6B7280"
+                    android:text="INSTINCT DIAL"
+                    android:textColor="#F59E0B"
                     android:textSize="10sp"
                     android:letterSpacing="0.12"
                     android:fontFamily="monospace"
@@ -94,7 +94,7 @@
                 <LinearLayout
                     android:id="@+id/ledStrip"
                     android:layout_width="match_parent"
-                    android:layout_height="20dp"
+                    android:layout_height="22dp"
                     android:orientation="horizontal"
                     android:gravity="center"
                     android:layout_marginBottom="12dp">
@@ -145,7 +145,7 @@
                     android:layout_height="wrap_content"
                     android:text="NORMAL"
                     android:textColor="#14F195"
-                    android:textSize="28sp"
+                    android:textSize="30sp"
                     android:textStyle="bold"
                     android:fontFamily="monospace"
                     android:gravity="center"
@@ -157,9 +157,10 @@
                     android:layout_height="wrap_content"
                     android:text="Balanced buying and selling behavior"
                     android:textColor="#6B7280"
-                    android:textSize="12sp"
+                    android:textSize="11sp"
+                    android:fontFamily="monospace"
                     android:gravity="center"
-                    android:layout_marginTop="4dp"/>
+                    android:layout_marginTop="6dp"/>
             </LinearLayout>
 
             <!-- ══ FLUID LEARNING IMPACT ══ -->
@@ -370,7 +371,7 @@
                         android:layout_height="wrap_content"
                         android:layout_weight="1"
                         android:text="NEURAL NETWORK"
-                        android:textColor="#6B7280"
+                        android:textColor="#14F195"
                         android:textSize="10sp"
                         android:letterSpacing="0.10"
                         android:fontFamily="monospace"/>
@@ -508,7 +509,7 @@
                         android:layout_width="match_parent"
                         android:layout_height="wrap_content"
                         android:text="TOP PERFORMING LAYERS"
-                        android:textColor="#6B7280"
+                        android:textColor="#14F195"
                         android:textSize="9sp"
                         android:fontFamily="monospace"
                         android:letterSpacing="0.10"
