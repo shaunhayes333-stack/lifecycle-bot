@@ -20,12 +20,6 @@
         android:background="@drawable/splash_glow"
         android:alpha="0.35"/>
 
-    <!-- Scanline overlay — subtle horizontal lines like a terminal -->
-    <View
-        android:layout_width="match_parent"
-        android:layout_height="match_parent"
-        android:background="@drawable/scanline_overlay"
-        android:alpha="0.04"/>
 
     <!-- Centred content -->
     <LinearLayout
