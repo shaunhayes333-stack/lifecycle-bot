@@ -1198,8 +1198,8 @@ object PerpsTraderAI {
             PerpsMarketDataFetcher.getCachedPrice(market)?.price?.takeIf { it > 0 } ?: pos.currentPrice
         } catch (_: Exception) { pos.currentPrice }
 
-        val newSize = pos.size + additionalSol
-        val blendedEntry = (pos.entryPrice * pos.size + currentPrice * additionalSol) / newSize
+        val newSize = pos.sizeSol + additionalSol
+        val blendedEntry = (pos.entryPrice * pos.sizeSol + currentPrice * additionalSol) / newSize
 
         val tpDist = pos.takeProfitPrice?.let { kotlin.math.abs(it - pos.entryPrice) } ?: (pos.entryPrice * 0.05)
         val slDist = pos.stopLossPrice?.let { kotlin.math.abs(it - pos.entryPrice) } ?: (pos.entryPrice * 0.02)
@@ -1207,7 +1207,7 @@ object PerpsTraderAI {
         val newSl = if (direction == PerpsDirection.LONG) blendedEntry - slDist else blendedEntry + slDist
 
         val updated = pos.copy(
-            size = newSize,
+            sizeSol = newSize,
             entryPrice = blendedEntry,
             currentPrice = currentPrice,
             takeProfitPrice = newTp,
