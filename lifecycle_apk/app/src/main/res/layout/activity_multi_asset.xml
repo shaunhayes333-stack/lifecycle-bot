@@ -4,8 +4,7 @@
     xmlns:app="http://schemas.android.com/apk/res-auto"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
-    android:background="#0A0A0F"
-    android:fitsSystemWindows="true">
+    android:background="#0A0A0F">
 
     <!-- ═══════════════════════════════════════════════════════════════
          V5.7.6: MULTI-ASSET TRADING DASHBOARD
@@ -17,16 +16,19 @@
         android:layout_height="match_parent"
         android:orientation="vertical">
 
-        <!-- ── TOP BAR ── -->
+        <!-- ── TOP BAR (matches meme trader style) ── -->
         <LinearLayout
             android:layout_width="match_parent"
-            android:layout_height="@dimen/topbar_height"
+            android:layout_height="wrap_content"
             android:orientation="horizontal"
             android:gravity="center_vertical"
-            android:paddingStart="@dimen/screen_padding"
-            android:paddingEnd="@dimen/screen_padding"
+            android:paddingStart="16dp"
+            android:paddingEnd="16dp"
+            android:paddingTop="10dp"
+            android:paddingBottom="6dp"
             android:background="#0A0A0F">
 
+            <!-- Back button -->
             <TextView
                 android:id="@+id/btnBack"
                 android:layout_width="wrap_content"
@@ -38,12 +40,12 @@
                 android:clickable="true"
                 android:focusable="true"/>
 
+            <!-- Title -->
             <LinearLayout
                 android:layout_width="0dp"
                 android:layout_height="wrap_content"
                 android:layout_weight="1"
                 android:orientation="vertical">
-
                 <TextView
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
@@ -51,23 +53,20 @@
                     android:textColor="#FFFFFF"
                     android:textSize="16sp"
                     android:textStyle="bold"/>
-
                 <TextView
                     android:id="@+id/tvSubtitle"
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
-                    android:text="Perps · Stocks · Commodities · Metals · Forex"
-                    android:textColor="#4B5563"
-                    android:textSize="9sp"
-                    android:fontFamily="monospace"/>
-
+                    android:text="Perps • Stocks • Commodities • Metals • Forex"
+                    android:textColor="#6B7280"
+                    android:textSize="9sp"/>
             </LinearLayout>
 
-            <!-- Paper/Live mode toggle -->
+            <!-- Mode toggle pill -->
             <Button
                 android:id="@+id/btnModeToggle"
                 android:layout_width="wrap_content"
-                android:layout_height="30dp"
+                android:layout_height="32dp"
                 android:text="PAPER"
                 android:textColor="#000000"
                 android:textSize="9sp"
@@ -78,11 +77,11 @@
                 android:layout_marginEnd="6dp"
                 android:minWidth="50dp"/>
 
-            <!-- Start/Stop -->
+            <!-- Start/Stop pill -->
             <Button
                 android:id="@+id/btnMarketsToggle"
                 android:layout_width="wrap_content"
-                android:layout_height="30dp"
+                android:layout_height="32dp"
                 android:text="START"
                 android:textColor="#FFFFFF"
                 android:textSize="10sp"
@@ -91,24 +90,25 @@
                 android:paddingStart="14dp"
                 android:paddingEnd="14dp"
                 android:minWidth="70dp"/>
-
         </LinearLayout>
 
-        <!-- ── HERO BALANCE ── -->
+        <!-- ═══════════════════════════════════════════════════════════════
+             HERO BALANCE (matches meme trader style)
+             ═══════════════════════════════════════════════════════════════ -->
         <LinearLayout
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:orientation="vertical"
-            android:paddingStart="@dimen/screen_padding"
-            android:paddingEnd="@dimen/screen_padding"
-            android:paddingBottom="@dimen/inner_gap">
+            android:paddingStart="16dp"
+            android:paddingEnd="16dp"
+            android:paddingBottom="8dp">
 
             <TextView
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 android:text="BALANCE"
-                android:textColor="#4B5563"
-                android:textSize="9sp"
+                android:textColor="#6B7280"
+                android:textSize="10sp"
                 android:letterSpacing="0.12"
                 android:fontFamily="monospace"
                 android:layout_marginBottom="2dp"/>
@@ -129,12 +129,12 @@
                     android:layout_height="wrap_content"
                     android:text="$0.00"
                     android:textColor="#00FF88"
-                    android:textSize="@dimen/balance_text_size"
+                    android:textSize="28sp"
                     android:textStyle="bold"
                     android:maxLines="1"
                     android:autoSizeTextType="uniform"
                     android:autoSizeMinTextSize="14sp"
-                    android:autoSizeMaxTextSize="34sp"
+                    android:autoSizeMaxTextSize="28sp"
                     android:autoSizeStepGranularity="1sp"/>
 
                 <TextView
@@ -142,24 +142,24 @@
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
                     android:text=""
-                    android:textColor="#4B5563"
-                    android:textSize="@dimen/balance_secondary_size"
+                    android:textColor="#6B7280"
+                    android:textSize="12sp"
                     android:layout_marginStart="8dp"
                     android:layout_marginBottom="4dp"/>
-
             </LinearLayout>
-
         </LinearLayout>
 
-        <!-- ── QUICK STATS BAR ── -->
+        <!-- ═══════════════════════════════════════════════════════════════
+             QUICK STATS BAR (Markets-specific)
+             ═══════════════════════════════════════════════════════════════ -->
         <LinearLayout
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:orientation="horizontal"
-            android:paddingStart="@dimen/screen_padding"
-            android:paddingEnd="@dimen/screen_padding"
-            android:paddingTop="2dp"
-            android:layout_marginBottom="@dimen/inner_gap">
+            android:paddingStart="16dp"
+            android:paddingEnd="16dp"
+            android:paddingTop="4dp"
+            android:layout_marginBottom="6dp">
 
             <!-- 24h Trades -->
             <LinearLayout
@@ -183,9 +183,8 @@
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
                     android:text="24h"
-                    android:textColor="#4B5563"
-                    android:textSize="7sp"
-                    android:fontFamily="monospace"/>
+                    android:textColor="#6B7280"
+                    android:textSize="7sp"/>
             </LinearLayout>
 
             <!-- Win Rate -->
@@ -210,9 +209,8 @@
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
                     android:text="WR"
-                    android:textColor="#4B5563"
-                    android:textSize="7sp"
-                    android:fontFamily="monospace"/>
+                    android:textColor="#6B7280"
+                    android:textSize="7sp"/>
             </LinearLayout>
 
             <!-- Total P&L -->
@@ -237,9 +235,8 @@
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
                     android:text="P&amp;L"
-                    android:textColor="#4B5563"
-                    android:textSize="7sp"
-                    android:fontFamily="monospace"/>
+                    android:textColor="#6B7280"
+                    android:textSize="7sp"/>
             </LinearLayout>
 
             <!-- AI Score -->
@@ -263,35 +260,37 @@
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
                     android:text="AI"
-                    android:textColor="#4B5563"
-                    android:textSize="7sp"
-                    android:fontFamily="monospace"/>
+                    android:textColor="#6B7280"
+                    android:textSize="7sp"/>
             </LinearLayout>
-
         </LinearLayout>
 
-        <!-- ── READINESS GAUGE (compact) ── -->
+        <!-- ═══════════════════════════════════════════════════════════════
+             MARKETS LIVE READINESS GAUGE - COMPACT VERSION
+             ═══════════════════════════════════════════════════════════════ -->
         <LinearLayout
             android:id="@+id/cardMarketsReadiness"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:orientation="horizontal"
             android:background="@drawable/section_card_bg"
-            android:paddingStart="@dimen/screen_padding"
-            android:paddingEnd="@dimen/screen_padding"
+            android:paddingStart="10dp"
+            android:paddingEnd="10dp"
             android:paddingTop="6dp"
             android:paddingBottom="6dp"
-            android:layout_marginStart="@dimen/screen_padding"
-            android:layout_marginEnd="@dimen/screen_padding"
+            android:layout_marginStart="12dp"
+            android:layout_marginEnd="12dp"
             android:layout_marginBottom="4dp"
             android:gravity="center_vertical">
 
+            <!-- Left: Icon + Label -->
             <TextView
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 android:text="🚀"
                 android:textSize="12sp"/>
-
+            
+            <!-- Win Rate -->
             <TextView
                 android:id="@+id/tvMarketsWinRate"
                 android:layout_width="wrap_content"
@@ -301,23 +300,17 @@
                 android:textSize="12sp"
                 android:textStyle="bold"
                 android:layout_marginStart="6dp"/>
-
             <TextView
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 android:text="WR"
-                android:textColor="#4B5563"
+                android:textColor="#6B7280"
                 android:textSize="8sp"
-                android:fontFamily="monospace"
                 android:layout_marginStart="2dp"/>
-
-            <View
-                android:layout_width="1dp"
-                android:layout_height="14dp"
-                android:background="#1F2937"
-                android:layout_marginStart="8dp"
-                android:layout_marginEnd="8dp"/>
-
+            
+            <View android:layout_width="1dp" android:layout_height="14dp" android:background="#1F2937" android:layout_marginStart="8dp" android:layout_marginEnd="8dp"/>
+            
+            <!-- Trades -->
             <TextView
                 android:id="@+id/tvMarketsTrades"
                 android:layout_width="wrap_content"
@@ -326,14 +319,10 @@
                 android:textColor="#FFFFFF"
                 android:textSize="11sp"
                 android:fontFamily="monospace"/>
-
-            <View
-                android:layout_width="1dp"
-                android:layout_height="14dp"
-                android:background="#1F2937"
-                android:layout_marginStart="8dp"
-                android:layout_marginEnd="8dp"/>
-
+            
+            <View android:layout_width="1dp" android:layout_height="14dp" android:background="#1F2937" android:layout_marginStart="8dp" android:layout_marginEnd="8dp"/>
+            
+            <!-- Phase Badge -->
             <TextView
                 android:id="@+id/tvMarketsPhase"
                 android:layout_width="wrap_content"
@@ -343,12 +332,10 @@
                 android:textSize="9sp"
                 android:textStyle="bold"
                 android:fontFamily="monospace"/>
-
-            <View
-                android:layout_width="0dp"
-                android:layout_height="1dp"
-                android:layout_weight="1"/>
-
+            
+            <View android:layout_width="0dp" android:layout_height="1dp" android:layout_weight="1"/>
+            
+            <!-- Progress -->
             <TextView
                 android:id="@+id/tvMarketsProgressPct"
                 android:layout_width="wrap_content"
@@ -356,9 +343,9 @@
                 android:text="0%"
                 android:textColor="#FFD700"
                 android:textSize="10sp"
-                android:textStyle="bold"
-                android:fontFamily="monospace"/>
-
+                android:textStyle="bold"/>
+            
+            <!-- Status Badge -->
             <TextView
                 android:id="@+id/tvMarketsReadinessBadge"
                 android:layout_width="wrap_content"
@@ -369,208 +356,225 @@
                 android:textStyle="bold"
                 android:fontFamily="monospace"
                 android:background="@drawable/pill_bg_yellow"
-                android:paddingStart="6dp"
-                android:paddingEnd="6dp"
-                android:paddingTop="2dp"
-                android:paddingBottom="2dp"
+                android:paddingStart="5dp"
+                android:paddingEnd="5dp"
+                android:paddingTop="1dp"
+                android:paddingBottom="1dp"
                 android:layout_marginStart="6dp"/>
-
         </LinearLayout>
-
-        <!-- Progress bar -->
+        
+        <!-- Hidden views for compatibility -->
         <FrameLayout
             android:layout_width="match_parent"
-            android:layout_height="3dp"
-            android:layout_marginStart="@dimen/screen_padding"
-            android:layout_marginEnd="@dimen/screen_padding"
+            android:layout_height="4dp"
+            android:layout_marginStart="12dp"
+            android:layout_marginEnd="12dp"
             android:layout_marginBottom="4dp"
             android:background="@drawable/progress_bar_bg">
-
             <View
                 android:id="@+id/viewMarketsProgressBar"
                 android:layout_width="0dp"
                 android:layout_height="match_parent"
                 android:background="@drawable/progress_bar_fill_gold"/>
-
         </FrameLayout>
-
+        
         <TextView
             android:id="@+id/tvMarketsRecommendation"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:text=""
-            android:textColor="#4B5563"
+            android:textColor="#6B7280"
             android:textSize="9sp"
-            android:layout_marginStart="@dimen/screen_padding"
-            android:layout_marginEnd="@dimen/screen_padding"
+            android:layout_marginStart="12dp"
+            android:layout_marginEnd="12dp"
             android:layout_marginBottom="4dp"
             android:visibility="gone"/>
 
-        <!-- ── AI LAYERS BAR (compact) ── -->
+        <!-- ═══════════════════════════════════════════════════════════════
+             MARKETS AI LAYERS - ULTRA COMPACT
+             ═══════════════════════════════════════════════════════════════ -->
         <LinearLayout
             android:id="@+id/cardMarketsLayers"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:orientation="horizontal"
             android:background="@drawable/section_card_bg"
-            android:paddingStart="@dimen/screen_padding"
-            android:paddingEnd="@dimen/screen_padding"
-            android:paddingTop="5dp"
-            android:paddingBottom="5dp"
-            android:layout_marginStart="@dimen/screen_padding"
-            android:layout_marginEnd="@dimen/screen_padding"
+            android:paddingStart="8dp"
+            android:paddingEnd="8dp"
+            android:paddingTop="6dp"
+            android:paddingBottom="6dp"
+            android:layout_marginStart="12dp"
+            android:layout_marginEnd="12dp"
             android:layout_marginBottom="4dp"
             android:gravity="center_vertical">
 
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="🧠"
+                android:textSize="10sp"/>
+            
+            <!-- RSI -->
             <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
-                android:text="🧠" android:textSize="10sp"/>
-            <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
-                android:text="RSI" android:textColor="#4B5563" android:textSize="7sp" android:fontFamily="monospace" android:layout_marginStart="4dp"/>
+                android:text="RSI" android:textColor="#6B7280" android:textSize="7sp" android:layout_marginStart="4dp"/>
             <TextView android:id="@+id/tvLayerRsi" android:layout_width="wrap_content" android:layout_height="wrap_content"
                 android:text="--" android:textColor="#22C55E" android:textSize="9sp" android:textStyle="bold" android:layout_marginStart="2dp"/>
+            
+            <!-- MACD -->
             <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
-                android:text="MACD" android:textColor="#4B5563" android:textSize="7sp" android:fontFamily="monospace" android:layout_marginStart="6dp"/>
+                android:text="MACD" android:textColor="#6B7280" android:textSize="7sp" android:layout_marginStart="6dp"/>
             <TextView android:id="@+id/tvLayerMacd" android:layout_width="wrap_content" android:layout_height="wrap_content"
                 android:text="--" android:textColor="#22C55E" android:textSize="9sp" android:textStyle="bold" android:layout_marginStart="2dp"/>
+            
+            <!-- VOL -->
             <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
-                android:text="VOL" android:textColor="#4B5563" android:textSize="7sp" android:fontFamily="monospace" android:layout_marginStart="6dp"/>
+                android:text="VOL" android:textColor="#6B7280" android:textSize="7sp" android:layout_marginStart="6dp"/>
             <TextView android:id="@+id/tvLayerVolume" android:layout_width="wrap_content" android:layout_height="wrap_content"
                 android:text="--" android:textColor="#22C55E" android:textSize="9sp" android:textStyle="bold" android:layout_marginStart="2dp"/>
+            
+            <!-- S/R -->
             <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
-                android:text="S/R" android:textColor="#4B5563" android:textSize="7sp" android:fontFamily="monospace" android:layout_marginStart="6dp"/>
+                android:text="S/R" android:textColor="#6B7280" android:textSize="7sp" android:layout_marginStart="6dp"/>
             <TextView android:id="@+id/tvLayerSR" android:layout_width="wrap_content" android:layout_height="wrap_content"
                 android:text="--" android:textColor="#22C55E" android:textSize="9sp" android:textStyle="bold" android:layout_marginStart="2dp"/>
+            
+            <!-- MOM -->
             <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
-                android:text="MOM" android:textColor="#4B5563" android:textSize="7sp" android:fontFamily="monospace" android:layout_marginStart="6dp"/>
+                android:text="MOM" android:textColor="#6B7280" android:textSize="7sp" android:layout_marginStart="6dp"/>
             <TextView android:id="@+id/tvLayerMomentum" android:layout_width="wrap_content" android:layout_height="wrap_content"
                 android:text="--" android:textColor="#22C55E" android:textSize="9sp" android:textStyle="bold" android:layout_marginStart="2dp"/>
+            
+            <!-- SEC -->
             <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
-                android:text="SEC" android:textColor="#4B5563" android:textSize="7sp" android:fontFamily="monospace" android:layout_marginStart="6dp"/>
+                android:text="SEC" android:textColor="#6B7280" android:textSize="7sp" android:layout_marginStart="6dp"/>
             <TextView android:id="@+id/tvLayerSector" android:layout_width="wrap_content" android:layout_height="wrap_content"
                 android:text="--" android:textColor="#22C55E" android:textSize="9sp" android:textStyle="bold" android:layout_marginStart="2dp"/>
+            
+            <!-- COR -->
             <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
-                android:text="COR" android:textColor="#4B5563" android:textSize="7sp" android:fontFamily="monospace" android:layout_marginStart="6dp"/>
+                android:text="COR" android:textColor="#6B7280" android:textSize="7sp" android:layout_marginStart="6dp"/>
             <TextView android:id="@+id/tvLayerCorrel" android:layout_width="wrap_content" android:layout_height="wrap_content"
                 android:text="--" android:textColor="#22C55E" android:textSize="9sp" android:textStyle="bold" android:layout_marginStart="2dp"/>
-
+            
             <View android:layout_width="0dp" android:layout_height="1dp" android:layout_weight="1"/>
-
+            
+            <!-- Learn Events -->
             <TextView android:id="@+id/tvMarketsLearningEvents" android:layout_width="wrap_content" android:layout_height="wrap_content"
                 android:text="0" android:textColor="#00FF88" android:textSize="9sp" android:textStyle="bold"/>
             <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
                 android:text="📚" android:textSize="8sp" android:layout_marginStart="2dp"/>
+            
+            <!-- Cross-Sync -->
             <TextView android:id="@+id/tvMarketsCrossSync" android:layout_width="wrap_content" android:layout_height="wrap_content"
                 android:text="OK" android:textColor="#00FF88" android:textSize="8sp" android:textStyle="bold" android:layout_marginStart="6dp"/>
-
-            <!-- hidden compat field -->
+            
+            <!-- Hidden for compat -->
             <TextView android:id="@+id/tvMarketsLayerCount" android:layout_width="0dp" android:layout_height="0dp"
                 android:text="7" android:visibility="gone"/>
-
         </LinearLayout>
 
-        <!-- ── QUICK ACTIONS BAR ── -->
+        <!-- ═══════════════════════════════════════════════════════════════
+             QUICK ACTIONS BAR - COMPACT
+             ═══════════════════════════════════════════════════════════════ -->
         <LinearLayout
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:orientation="horizontal"
-            android:paddingStart="@dimen/screen_padding"
-            android:paddingEnd="@dimen/screen_padding"
+            android:paddingStart="12dp"
+            android:paddingEnd="12dp"
             android:layout_marginBottom="4dp">
 
+            <!-- Journal -->
             <LinearLayout
                 android:id="@+id/btnJournal"
                 android:layout_width="0dp"
-                android:layout_height="34dp"
+                android:layout_height="wrap_content"
                 android:layout_weight="1"
                 android:orientation="horizontal"
                 android:gravity="center"
+                android:padding="6dp"
                 android:background="@drawable/section_card_bg"
                 android:layout_marginEnd="3dp"
                 android:clickable="true"
                 android:focusable="true">
                 <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
-                    android:text="📒" android:textSize="11sp"/>
+                    android:text="📒" android:textSize="12sp"/>
                 <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
-                    android:text="Log" android:textColor="#6B7280" android:textSize="8sp"
-                    android:fontFamily="monospace" android:layout_marginStart="3dp"/>
+                    android:text="Log" android:textColor="#6B7280" android:textSize="8sp" android:layout_marginStart="3dp"/>
             </LinearLayout>
 
+            <!-- Tax Report -->
             <LinearLayout
                 android:id="@+id/btnTaxReport"
                 android:layout_width="0dp"
-                android:layout_height="34dp"
+                android:layout_height="wrap_content"
                 android:layout_weight="1"
                 android:orientation="horizontal"
                 android:gravity="center"
+                android:padding="6dp"
                 android:background="@drawable/section_card_bg"
                 android:layout_marginEnd="3dp"
                 android:clickable="true"
                 android:focusable="true">
                 <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
-                    android:text="📋" android:textSize="11sp"/>
+                    android:text="📋" android:textSize="12sp"/>
                 <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
-                    android:text="Tax" android:textColor="#6B7280" android:textSize="8sp"
-                    android:fontFamily="monospace" android:layout_marginStart="3dp"/>
+                    android:text="Tax" android:textColor="#6B7280" android:textSize="8sp" android:layout_marginStart="3dp"/>
             </LinearLayout>
 
+            <!-- Performance -->
             <LinearLayout
                 android:id="@+id/btnPerformance"
                 android:layout_width="0dp"
-                android:layout_height="34dp"
+                android:layout_height="wrap_content"
                 android:layout_weight="1"
                 android:orientation="horizontal"
                 android:gravity="center"
+                android:padding="6dp"
                 android:background="@drawable/section_card_bg"
                 android:layout_marginEnd="3dp"
                 android:clickable="true"
                 android:focusable="true">
                 <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
-                    android:text="📊" android:textSize="11sp"/>
+                    android:text="📊" android:textSize="12sp"/>
                 <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
-                    android:text="Stats" android:textColor="#6B7280" android:textSize="8sp"
-                    android:fontFamily="monospace" android:layout_marginStart="3dp"/>
+                    android:text="Stats" android:textColor="#6B7280" android:textSize="8sp" android:layout_marginStart="3dp"/>
             </LinearLayout>
 
+            <!-- Export -->
             <LinearLayout
                 android:id="@+id/btnExport"
                 android:layout_width="0dp"
-                android:layout_height="34dp"
+                android:layout_height="wrap_content"
                 android:layout_weight="1"
                 android:orientation="horizontal"
                 android:gravity="center"
+                android:padding="6dp"
                 android:background="@drawable/section_card_bg"
                 android:clickable="true"
                 android:focusable="true">
                 <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
-                    android:text="📤" android:textSize="11sp"/>
+                    android:text="📤" android:textSize="12sp"/>
                 <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
-                    android:text="Export" android:textColor="#6B7280" android:textSize="8sp"
-                    android:fontFamily="monospace" android:layout_marginStart="3dp"/>
+                    android:text="Export" android:textColor="#6B7280" android:textSize="8sp" android:layout_marginStart="3dp"/>
             </LinearLayout>
-
         </LinearLayout>
 
-        <!-- ── TABS ── -->
+        <!-- ── TAB LAYOUT ── -->
         <com.google.android.material.tabs.TabLayout
             android:id="@+id/tabLayout"
             android:layout_width="match_parent"
-            android:layout_height="38dp"
-            android:background="#0A0A0F"
+            android:layout_height="wrap_content"
+            android:background="#111118"
             app:tabMode="scrollable"
             app:tabGravity="start"
-            app:tabTextColor="#4B5563"
+            app:tabTextColor="#6B7280"
             app:tabSelectedTextColor="#00FF88"
             app:tabIndicatorColor="#00FF88"
             app:tabIndicatorHeight="2dp"
-            app:tabPaddingStart="@dimen/screen_padding"
-            app:tabPaddingEnd="@dimen/screen_padding"
+            app:tabPaddingStart="12dp"
+            app:tabPaddingEnd="12dp"
             app:tabMinWidth="80dp"/>
-
-        <!-- Accent line under tabs -->
-        <View
-            android:layout_width="match_parent"
-            android:layout_height="1dp"
-            android:background="#111827"/>
 
         <!-- ── MAIN CONTENT AREA ── -->
         <androidx.swiperefreshlayout.widget.SwipeRefreshLayout
@@ -583,130 +587,282 @@
                 android:layout_width="match_parent"
                 android:layout_height="match_parent"
                 android:fillViewport="true"
-                android:clipToPadding="false">
+                android:clipToPadding="false"
+                android:paddingBottom="100dp">
 
                 <LinearLayout
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
                     android:orientation="vertical"
-                    android:paddingStart="@dimen/screen_padding"
-                    android:paddingEnd="@dimen/screen_padding"
-                    android:paddingTop="@dimen/inner_gap"
+                    android:padding="12dp"
                     android:paddingBottom="120dp">
 
                     <!-- ═══════════════════════════════════════════════════
-                         ACTIVE POSITIONS
+                         SUMMARY CARDS ROW
+                         ═══════════════════════════════════════════════════ -->
+                    <LinearLayout
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:orientation="horizontal"
+                        android:layout_marginBottom="12dp">
+
+                        <!-- Active Positions -->
+                        <LinearLayout
+                            android:layout_width="0dp"
+                            android:layout_height="wrap_content"
+                            android:layout_weight="1"
+                            android:orientation="vertical"
+                            android:background="@drawable/section_card_bg"
+                            android:padding="10dp"
+                            android:layout_marginEnd="6dp">
+                            <TextView
+                                android:layout_width="wrap_content"
+                                android:layout_height="wrap_content"
+                                android:text="POSITIONS"
+                                android:textColor="#6B7280"
+                                android:textSize="9sp"/>
+                            <TextView
+                                android:id="@+id/tvActivePositions"
+                                android:layout_width="wrap_content"
+                                android:layout_height="wrap_content"
+                                android:text="0"
+                                android:textColor="#FFFFFF"
+                                android:textSize="20sp"
+                                android:textStyle="bold"/>
+                        </LinearLayout>
+
+                        <!-- Today's P&L -->
+                        <LinearLayout
+                            android:layout_width="0dp"
+                            android:layout_height="wrap_content"
+                            android:layout_weight="1"
+                            android:orientation="vertical"
+                            android:background="@drawable/section_card_bg"
+                            android:padding="10dp"
+                            android:layout_marginEnd="6dp">
+                            <TextView
+                                android:layout_width="wrap_content"
+                                android:layout_height="wrap_content"
+                                android:text="TODAY P&amp;L"
+                                android:textColor="#6B7280"
+                                android:textSize="9sp"/>
+                            <TextView
+                                android:id="@+id/tvTodayPnl"
+                                android:layout_width="wrap_content"
+                                android:layout_height="wrap_content"
+                                android:text="+0.00 ◎"
+                                android:textColor="#00FF88"
+                                android:textSize="16sp"
+                                android:textStyle="bold"/>
+                        </LinearLayout>
+
+                        <!-- Win Rate -->
+                        <LinearLayout
+                            android:layout_width="0dp"
+                            android:layout_height="wrap_content"
+                            android:layout_weight="1"
+                            android:orientation="vertical"
+                            android:background="@drawable/section_card_bg"
+                            android:padding="10dp">
+                            <TextView
+                                android:layout_width="wrap_content"
+                                android:layout_height="wrap_content"
+                                android:text="WIN RATE"
+                                android:textColor="#6B7280"
+                                android:textSize="9sp"/>
+                            <TextView
+                                android:id="@+id/tvWinRate"
+                                android:layout_width="wrap_content"
+                                android:layout_height="wrap_content"
+                                android:text="--"
+                                android:textColor="#FFD700"
+                                android:textSize="16sp"
+                                android:textStyle="bold"/>
+                        </LinearLayout>
+                    </LinearLayout>
+
+                    <!-- ═══════════════════════════════════════════════════
+                         CATEGORY HEADER (changes with tab)
+                         ═══════════════════════════════════════════════════ -->
+                    <LinearLayout
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:orientation="horizontal"
+                        android:gravity="center_vertical"
+                        android:layout_marginBottom="8dp">
+                        <TextView
+                            android:id="@+id/tvCategoryIcon"
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:text="📈"
+                            android:textSize="18sp"
+                            android:layout_marginEnd="8dp"/>
+                        <TextView
+                            android:id="@+id/tvCategoryTitle"
+                            android:layout_width="0dp"
+                            android:layout_height="wrap_content"
+                            android:layout_weight="1"
+                            android:text="TOKENIZED STOCKS"
+                            android:textColor="#FFFFFF"
+                            android:textSize="14sp"
+                            android:textStyle="bold"/>
+                        <TextView
+                            android:id="@+id/tvCategoryCount"
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:text="47 assets"
+                            android:textColor="#6B7280"
+                            android:textSize="11sp"/>
+                    </LinearLayout>
+
+                    <!-- ═══════════════════════════════════════════════════
+                         SPOT vs LEVERAGE TOGGLE
+                         ═══════════════════════════════════════════════════ -->
+                    <LinearLayout
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:orientation="horizontal"
+                        android:gravity="center"
+                        android:layout_marginBottom="12dp">
+
+                        <TextView
+                            android:id="@+id/btnSpotMode"
+                            android:layout_width="0dp"
+                            android:layout_height="wrap_content"
+                            android:layout_weight="1"
+                            android:text="💰 SPOT (1x)"
+                            android:textColor="#00FF88"
+                            android:textSize="12sp"
+                            android:textStyle="bold"
+                            android:gravity="center"
+                            android:padding="10dp"
+                            android:background="@drawable/tab_selected_bg"
+                            android:layout_marginEnd="4dp"
+                            android:clickable="true"
+                            android:focusable="true"/>
+
+                        <TextView
+                            android:id="@+id/btnLeverageMode"
+                            android:layout_width="0dp"
+                            android:layout_height="wrap_content"
+                            android:layout_weight="1"
+                            android:text="⚡ LEVERAGE"
+                            android:textColor="#6B7280"
+                            android:textSize="12sp"
+                            android:gravity="center"
+                            android:padding="10dp"
+                            android:background="@drawable/section_card_bg"
+                            android:layout_marginStart="4dp"
+                            android:clickable="true"
+                            android:focusable="true"/>
+                    </LinearLayout>
+
+                    <!-- ═══════════════════════════════════════════════════
+                         ACTIVE POSITIONS LIST
                          ═══════════════════════════════════════════════════ -->
                     <LinearLayout
                         android:layout_width="match_parent"
                         android:layout_height="wrap_content"
                         android:orientation="vertical"
                         android:background="@drawable/section_card_bg"
-                        android:padding="@dimen/card_padding"
-                        android:layout_marginBottom="@dimen/card_margin_bottom">
+                        android:padding="12dp"
+                        android:layout_marginBottom="12dp">
 
                         <LinearLayout
                             android:layout_width="match_parent"
                             android:layout_height="wrap_content"
                             android:orientation="horizontal"
                             android:gravity="center_vertical"
-                            android:layout_marginBottom="@dimen/inner_gap">
-
-                            <View
-                                android:layout_width="3dp"
-                                android:layout_height="14dp"
-                                android:background="#9945FF"
-                                android:layout_marginEnd="8dp"/>
-
+                            android:layout_marginBottom="8dp">
                             <TextView
                                 android:layout_width="0dp"
                                 android:layout_height="wrap_content"
                                 android:layout_weight="1"
-                                android:text="ACTIVE POSITIONS"
-                                android:textColor="#9945FF"
-                                android:textSize="@dimen/section_title_size"
-                                android:textStyle="bold"
-                                android:fontFamily="monospace"
-                                android:letterSpacing="0.1"/>
-
+                                android:text="Active Positions"
+                                android:textColor="#FFFFFF"
+                                android:textSize="13sp"
+                                android:textStyle="bold"/>
                             <TextView
-                                android:id="@+id/tvActivePositionsCount"
+                                android:id="@+id/btnCloseAll"
                                 android:layout_width="wrap_content"
                                 android:layout_height="wrap_content"
-                                android:text="0"
-                                android:textColor="#4B5563"
+                                android:text="Close All"
+                                android:textColor="#FF4444"
                                 android:textSize="10sp"
-                                android:fontFamily="monospace"/>
-
+                                android:padding="4dp"
+                                android:clickable="true"
+                                android:focusable="true"/>
+                            <TextView
+                                android:id="@+id/tvPositionCount"
+                                android:layout_width="wrap_content"
+                                android:layout_height="wrap_content"
+                                android:text="0 open"
+                                android:textColor="#6B7280"
+                                android:textSize="11sp"
+                                android:layout_marginStart="8dp"/>
                         </LinearLayout>
 
+                        <!-- Positions will be added here dynamically -->
                         <LinearLayout
                             android:id="@+id/positionsContainer"
                             android:layout_width="match_parent"
                             android:layout_height="wrap_content"
                             android:orientation="vertical">
 
+                            <!-- Empty state -->
                             <TextView
                                 android:id="@+id/tvNoPositions"
                                 android:layout_width="match_parent"
                                 android:layout_height="wrap_content"
                                 android:text="No active positions\nWaiting for signals..."
-                                android:textColor="#4B5563"
-                                android:textSize="11sp"
-                                android:fontFamily="monospace"
+                                android:textColor="#6B7280"
+                                android:textSize="12sp"
                                 android:gravity="center"
                                 android:padding="20dp"/>
-
                         </LinearLayout>
-
                     </LinearLayout>
 
                     <!-- ═══════════════════════════════════════════════════
-                         TOP MOVERS
+                         TOP MOVERS (Hot assets in current category)
                          ═══════════════════════════════════════════════════ -->
                     <LinearLayout
                         android:layout_width="match_parent"
                         android:layout_height="wrap_content"
                         android:orientation="vertical"
                         android:background="@drawable/section_card_bg"
-                        android:padding="@dimen/card_padding"
-                        android:layout_marginBottom="@dimen/card_margin_bottom">
+                        android:padding="12dp"
+                        android:layout_marginBottom="12dp">
 
                         <LinearLayout
                             android:layout_width="match_parent"
                             android:layout_height="wrap_content"
                             android:orientation="horizontal"
                             android:gravity="center_vertical"
-                            android:layout_marginBottom="@dimen/inner_gap">
-
-                            <View
-                                android:layout_width="3dp"
-                                android:layout_height="14dp"
-                                android:background="#F59E0B"
-                                android:layout_marginEnd="8dp"/>
-
+                            android:layout_marginBottom="8dp">
+                            <TextView
+                                android:layout_width="wrap_content"
+                                android:layout_height="wrap_content"
+                                android:text="🔥"
+                                android:textSize="14sp"
+                                android:layout_marginEnd="6dp"/>
                             <TextView
                                 android:layout_width="0dp"
                                 android:layout_height="wrap_content"
                                 android:layout_weight="1"
-                                android:text="🔥 TOP MOVERS"
-                                android:textColor="#F59E0B"
-                                android:textSize="@dimen/section_title_size"
-                                android:textStyle="bold"
-                                android:fontFamily="monospace"
-                                android:letterSpacing="0.1"/>
-
+                                android:text="Top Movers"
+                                android:textColor="#FFFFFF"
+                                android:textSize="13sp"
+                                android:textStyle="bold"/>
                             <TextView
                                 android:id="@+id/tvTopMoversTime"
                                 android:layout_width="wrap_content"
                                 android:layout_height="wrap_content"
                                 android:text="24h"
-                                android:textColor="#4B5563"
-                                android:textSize="9sp"
-                                android:fontFamily="monospace"/>
-
+                                android:textColor="#6B7280"
+                                android:textSize="10sp"/>
                         </LinearLayout>
 
+                        <!-- Top Movers Horizontal Scroll -->
                         <HorizontalScrollView
                             android:layout_width="match_parent"
                             android:layout_height="wrap_content"
@@ -715,9 +871,10 @@
                                 android:id="@+id/topMoversContainer"
                                 android:layout_width="wrap_content"
                                 android:layout_height="wrap_content"
-                                android:orientation="horizontal"/>
+                                android:orientation="horizontal">
+                                <!-- Top movers added dynamically -->
+                            </LinearLayout>
                         </HorizontalScrollView>
-
                     </LinearLayout>
 
                     <!-- ═══════════════════════════════════════════════════
@@ -728,70 +885,60 @@
                         android:layout_height="wrap_content"
                         android:orientation="vertical"
                         android:background="@drawable/section_card_bg"
-                        android:padding="@dimen/card_padding"
-                        android:layout_marginBottom="@dimen/card_margin_bottom">
+                        android:padding="12dp"
+                        android:layout_marginBottom="12dp">
 
                         <LinearLayout
                             android:layout_width="match_parent"
                             android:layout_height="wrap_content"
                             android:orientation="horizontal"
                             android:gravity="center_vertical"
-                            android:layout_marginBottom="@dimen/inner_gap">
-
-                            <View
-                                android:layout_width="3dp"
-                                android:layout_height="14dp"
-                                android:background="#00FF88"
-                                android:layout_marginEnd="8dp"/>
-
+                            android:layout_marginBottom="8dp">
+                            <TextView
+                                android:layout_width="wrap_content"
+                                android:layout_height="wrap_content"
+                                android:text="🤖"
+                                android:textSize="14sp"
+                                android:layout_marginEnd="6dp"/>
                             <TextView
                                 android:layout_width="0dp"
                                 android:layout_height="wrap_content"
                                 android:layout_weight="1"
-                                android:text="🤖 AI SIGNALS"
-                                android:textColor="#00FF88"
-                                android:textSize="@dimen/section_title_size"
-                                android:textStyle="bold"
-                                android:fontFamily="monospace"
-                                android:letterSpacing="0.1"/>
-
+                                android:text="AI Signals"
+                                android:textColor="#FFFFFF"
+                                android:textSize="13sp"
+                                android:textStyle="bold"/>
                             <View
                                 android:id="@+id/aiSignalDot"
-                                android:layout_width="6dp"
-                                android:layout_height="6dp"
+                                android:layout_width="8dp"
+                                android:layout_height="8dp"
                                 android:background="@drawable/dot_green"
                                 android:layout_marginEnd="4dp"/>
-
                             <TextView
                                 android:id="@+id/tvAiSignalStatus"
                                 android:layout_width="wrap_content"
                                 android:layout_height="wrap_content"
                                 android:text="Scanning..."
                                 android:textColor="#00FF88"
-                                android:textSize="9sp"
-                                android:fontFamily="monospace"/>
-
+                                android:textSize="10sp"/>
                         </LinearLayout>
 
+                        <!-- AI Signal Cards -->
                         <LinearLayout
                             android:id="@+id/aiSignalsContainer"
                             android:layout_width="match_parent"
                             android:layout_height="wrap_content"
                             android:orientation="vertical">
-
                             <TextView
                                 android:id="@+id/tvNoAiSignals"
                                 android:layout_width="match_parent"
                                 android:layout_height="wrap_content"
                                 android:text="AI analyzing markets..."
-                                android:textColor="#4B5563"
+                                android:textColor="#6B7280"
                                 android:textSize="11sp"
-                                android:fontFamily="monospace"
                                 android:gravity="center"
                                 android:padding="12dp"/>
-
                         </LinearLayout>
-
                     </LinearLayout>
 
                     <!-- ═══════════════════════════════════════════════════
@@ -802,100 +949,286 @@
                         android:layout_height="wrap_content"
                         android:orientation="vertical"
                         android:background="@drawable/section_card_bg"
-                        android:padding="@dimen/card_padding"
-                        android:layout_marginBottom="@dimen/card_margin_bottom">
+                        android:padding="12dp"
+                        android:layout_marginBottom="12dp">
 
                         <LinearLayout
                             android:layout_width="match_parent"
                             android:layout_height="wrap_content"
                             android:orientation="horizontal"
                             android:gravity="center_vertical"
-                            android:layout_marginBottom="@dimen/inner_gap">
-
-                            <View
-                                android:layout_width="3dp"
-                                android:layout_height="14dp"
-                                android:background="#3B82F6"
-                                android:layout_marginEnd="8dp"/>
-
+                            android:layout_marginBottom="8dp">
+                            <TextView
+                                android:layout_width="wrap_content"
+                                android:layout_height="wrap_content"
+                                android:text="🗺️"
+                                android:textSize="14sp"
+                                android:layout_marginEnd="6dp"/>
                             <TextView
                                 android:layout_width="0dp"
                                 android:layout_height="wrap_content"
                                 android:layout_weight="1"
-                                android:text="🗺️ SECTOR HEATMAP"
-                                android:textColor="#3B82F6"
-                                android:textSize="@dimen/section_title_size"
-                                android:textStyle="bold"
-                                android:fontFamily="monospace"
-                                android:letterSpacing="0.1"/>
-
+                                android:text="Sector Heatmap"
+                                android:textColor="#FFFFFF"
+                                android:textSize="13sp"
+                                android:textStyle="bold"/>
                         </LinearLayout>
 
+                        <!-- Heatmap Grid -->
                         <LinearLayout
                             android:id="@+id/heatmapContainer"
                             android:layout_width="match_parent"
                             android:layout_height="wrap_content"
                             android:orientation="vertical">
-
+                            <!-- Row 1 -->
                             <LinearLayout
                                 android:layout_width="match_parent"
                                 android:layout_height="wrap_content"
                                 android:orientation="horizontal"
                                 android:layout_marginBottom="4dp">
-
-                                <TextView android:id="@+id/heatTech"
-                                    android:layout_width="0dp" android:layout_height="40dp" android:layout_weight="1"
-                                    android:text="TECH\n+2.1%" android:textColor="#FFFFFF" android:textSize="9sp"
-                                    android:gravity="center" android:background="#1A10B981"
-                                    android:fontFamily="monospace" android:layout_marginEnd="3dp"/>
-
-                                <TextView android:id="@+id/heatFinance"
-                                    android:layout_width="0dp" android:layout_height="40dp" android:layout_weight="1"
-                                    android:text="FINANCE\n-0.8%" android:textColor="#FFFFFF" android:textSize="9sp"
-                                    android:gravity="center" android:background="#1AEF4444"
-                                    android:fontFamily="monospace" android:layout_marginEnd="3dp"/>
-
-                                <TextView android:id="@+id/heatEnergy"
-                                    android:layout_width="0dp" android:layout_height="40dp" android:layout_weight="1"
-                                    android:text="ENERGY\n+1.2%" android:textColor="#FFFFFF" android:textSize="9sp"
-                                    android:gravity="center" android:background="#1A10B981"
-                                    android:fontFamily="monospace"/>
-
+                                <TextView android:id="@+id/heatTech" android:layout_width="0dp" android:layout_height="40dp" android:layout_weight="1"
+                                    android:text="TECH\n+2.1%" android:textColor="#FFFFFF" android:textSize="9sp" android:gravity="center"
+                                    android:background="#1A10B981" android:layout_marginEnd="4dp"/>
+                                <TextView android:id="@+id/heatFinance" android:layout_width="0dp" android:layout_height="40dp" android:layout_weight="1"
+                                    android:text="FINANCE\n-0.8%" android:textColor="#FFFFFF" android:textSize="9sp" android:gravity="center"
+                                    android:background="#1AEF4444" android:layout_marginEnd="4dp"/>
+                                <TextView android:id="@+id/heatEnergy" android:layout_width="0dp" android:layout_height="40dp" android:layout_weight="1"
+                                    android:text="ENERGY\n+1.2%" android:textColor="#FFFFFF" android:textSize="9sp" android:gravity="center"
+                                    android:background="#1A10B981"/>
                             </LinearLayout>
-
+                            <!-- Row 2 -->
                             <LinearLayout
                                 android:layout_width="match_parent"
                                 android:layout_height="wrap_content"
                                 android:orientation="horizontal">
+                                <TextView android:id="@+id/heatMetals" android:layout_width="0dp" android:layout_height="40dp" android:layout_weight="1"
+                                    android:text="METALS\n+0.5%" android:textColor="#FFFFFF" android:textSize="9sp" android:gravity="center"
+                                    android:background="#1A10B981" android:layout_marginEnd="4dp"/>
+                                <TextView android:id="@+id/heatForex" android:layout_width="0dp" android:layout_height="40dp" android:layout_weight="1"
+                                    android:text="FOREX\n-0.2%" android:textColor="#FFFFFF" android:textSize="9sp" android:gravity="center"
+                                    android:background="#1AEF4444" android:layout_marginEnd="4dp"/>
+                                <TextView android:id="@+id/heatCrypto" android:layout_width="0dp" android:layout_height="40dp" android:layout_weight="1"
+                                    android:text="CRYPTO\n+3.5%" android:textColor="#FFFFFF" android:textSize="9sp" android:gravity="center"
+                                    android:background="#2010B981"/>
+                            </LinearLayout>
+                        </LinearLayout>
+                    </LinearLayout>
 
-                                <TextView android:id="@+id/heatMetals"
-                                    android:layout_width="0dp" android:layout_height="40dp" android:layout_weight="1"
-                                    android:text="METALS\n+0.3%" android:textColor="#FFFFFF" android:textSize="9sp"
-                                    android:gravity="center" android:background="#1A10B981"
-                                    android:fontFamily="monospace" android:layout_marginEnd="3dp"/>
+                    <!-- ═══════════════════════════════════════════════════
+                         RECENT SIGNALS / ACTIVITY
+                         ═══════════════════════════════════════════════════ -->
+                    <LinearLayout
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:orientation="vertical"
+                        android:background="@drawable/section_card_bg"
+                        android:padding="12dp"
+                        android:layout_marginBottom="12dp">
 
-                                <TextView android:id="@+id/heatForex"
-                                    android:layout_width="0dp" android:layout_height="40dp" android:layout_weight="1"
-                                    android:text="FOREX\n-0.1%" android:textColor="#FFFFFF" android:textSize="9sp"
-                                    android:gravity="center" android:background="#1AEF4444"
-                                    android:fontFamily="monospace" android:layout_marginEnd="3dp"/>
+                        <TextView
+                            android:layout_width="match_parent"
+                            android:layout_height="wrap_content"
+                            android:text="Recent Signals"
+                            android:textColor="#FFFFFF"
+                            android:textSize="13sp"
+                            android:textStyle="bold"
+                            android:layout_marginBottom="8dp"/>
 
-                                <TextView android:id="@+id/heatCrypto"
-                                    android:layout_width="0dp" android:layout_height="40dp" android:layout_weight="1"
-                                    android:text="CRYPTO\n+4.7%" android:textColor="#FFFFFF" android:textSize="9sp"
-                                    android:gravity="center" android:background="#2210B981"
-                                    android:fontFamily="monospace"/>
+                        <LinearLayout
+                            android:id="@+id/signalsContainer"
+                            android:layout_width="match_parent"
+                            android:layout_height="wrap_content"
+                            android:orientation="vertical">
 
+                            <TextView
+                                android:id="@+id/tvNoSignals"
+                                android:layout_width="match_parent"
+                                android:layout_height="wrap_content"
+                                android:text="Scanning markets..."
+                                android:textColor="#6B7280"
+                                android:textSize="12sp"
+                                android:gravity="center"
+                                android:padding="16dp"/>
+                        </LinearLayout>
+                    </LinearLayout>
+
+                    <!-- ═══════════════════════════════════════════════════
+                         ASSET CATEGORIES GRID (for current tab)
+                         ═══════════════════════════════════════════════════ -->
+                    <LinearLayout
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:orientation="vertical"
+                        android:background="@drawable/section_card_bg"
+                        android:padding="12dp"
+                        android:layout_marginBottom="12dp">
+
+                        <TextView
+                            android:layout_width="match_parent"
+                            android:layout_height="wrap_content"
+                            android:text="Available Assets"
+                            android:textColor="#FFFFFF"
+                            android:textSize="13sp"
+                            android:textStyle="bold"
+                            android:layout_marginBottom="8dp"/>
+
+                        <!-- Asset grid will be populated dynamically -->
+                        <LinearLayout
+                            android:id="@+id/assetsContainer"
+                            android:layout_width="match_parent"
+                            android:layout_height="wrap_content"
+                            android:orientation="vertical">
+
+                            <TextView
+                                android:id="@+id/tvNoAssets"
+                                android:layout_width="match_parent"
+                                android:layout_height="wrap_content"
+                                android:text="Loading assets..."
+                                android:textColor="#6B7280"
+                                android:textSize="12sp"
+                                android:gravity="center"
+                                android:padding="16dp"/>
+                        </LinearLayout>
+                    </LinearLayout>
+
+                    <!-- ═══════════════════════════════════════════════════
+                         ENGINE STATUS
+                         ═══════════════════════════════════════════════════ -->
+                    <LinearLayout
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:orientation="vertical"
+                        android:background="@drawable/section_card_bg"
+                        android:padding="12dp">
+
+                        <TextView
+                            android:layout_width="match_parent"
+                            android:layout_height="wrap_content"
+                            android:text="Engine Status"
+                            android:textColor="#FFFFFF"
+                            android:textSize="13sp"
+                            android:textStyle="bold"
+                            android:layout_marginBottom="8dp"/>
+
+                        <LinearLayout
+                            android:layout_width="match_parent"
+                            android:layout_height="wrap_content"
+                            android:orientation="horizontal">
+
+                            <!-- Stock Trader -->
+                            <LinearLayout
+                                android:layout_width="0dp"
+                                android:layout_height="wrap_content"
+                                android:layout_weight="1"
+                                android:orientation="vertical"
+                                android:gravity="center"
+                                android:padding="8dp">
+                                <View
+                                    android:id="@+id/dotStocks"
+                                    android:layout_width="8dp"
+                                    android:layout_height="8dp"
+                                    android:background="@drawable/dot_green"/>
+                                <TextView
+                                    android:layout_width="wrap_content"
+                                    android:layout_height="wrap_content"
+                                    android:text="Stocks"
+                                    android:textColor="#6B7280"
+                                    android:textSize="9sp"
+                                    android:layout_marginTop="4dp"/>
                             </LinearLayout>
 
-                        </LinearLayout>
+                            <!-- Commodities Trader -->
+                            <LinearLayout
+                                android:layout_width="0dp"
+                                android:layout_height="wrap_content"
+                                android:layout_weight="1"
+                                android:orientation="vertical"
+                                android:gravity="center"
+                                android:padding="8dp">
+                                <View
+                                    android:id="@+id/dotCommodities"
+                                    android:layout_width="8dp"
+                                    android:layout_height="8dp"
+                                    android:background="@drawable/dot_green"/>
+                                <TextView
+                                    android:layout_width="wrap_content"
+                                    android:layout_height="wrap_content"
+                                    android:text="Commodities"
+                                    android:textColor="#6B7280"
+                                    android:textSize="9sp"
+                                    android:layout_marginTop="4dp"/>
+                            </LinearLayout>
 
+                            <!-- Metals Trader -->
+                            <LinearLayout
+                                android:layout_width="0dp"
+                                android:layout_height="wrap_content"
+                                android:layout_weight="1"
+                                android:orientation="vertical"
+                                android:gravity="center"
+                                android:padding="8dp">
+                                <View
+                                    android:id="@+id/dotMetals"
+                                    android:layout_width="8dp"
+                                    android:layout_height="8dp"
+                                    android:background="@drawable/dot_green"/>
+                                <TextView
+                                    android:layout_width="wrap_content"
+                                    android:layout_height="wrap_content"
+                                    android:text="Metals"
+                                    android:textColor="#6B7280"
+                                    android:textSize="9sp"
+                                    android:layout_marginTop="4dp"/>
+                            </LinearLayout>
+
+                            <!-- Forex Trader -->
+                            <LinearLayout
+                                android:layout_width="0dp"
+                                android:layout_height="wrap_content"
+                                android:layout_weight="1"
+                                android:orientation="vertical"
+                                android:gravity="center"
+                                android:padding="8dp">
+                                <View
+                                    android:id="@+id/dotForex"
+                                    android:layout_width="8dp"
+                                    android:layout_height="8dp"
+                                    android:background="@drawable/dot_green"/>
+                                <TextView
+                                    android:layout_width="wrap_content"
+                                    android:layout_height="wrap_content"
+                                    android:text="Forex"
+                                    android:textColor="#6B7280"
+                                    android:textSize="9sp"
+                                    android:layout_marginTop="4dp"/>
+                            </LinearLayout>
+
+                            <!-- Perps Engine -->
+                            <LinearLayout
+                                android:layout_width="0dp"
+                                android:layout_height="wrap_content"
+                                android:layout_weight="1"
+                                android:orientation="vertical"
+                                android:gravity="center"
+                                android:padding="8dp">
+                                <View
+                                    android:id="@+id/dotPerps"
+                                    android:layout_width="8dp"
+                                    android:layout_height="8dp"
+                                    android:background="@drawable/dot_green"/>
+                                <TextView
+                                    android:layout_width="wrap_content"
+                                    android:layout_height="wrap_content"
+                                    android:text="Perps"
+                                    android:textColor="#6B7280"
+                                    android:textSize="9sp"
+                                    android:layout_marginTop="4dp"/>
+                            </LinearLayout>
+                        </LinearLayout>
                     </LinearLayout>
 
                 </LinearLayout>
-
             </androidx.core.widget.NestedScrollView>
-
         </androidx.swiperefreshlayout.widget.SwipeRefreshLayout>
 
     </LinearLayout>
