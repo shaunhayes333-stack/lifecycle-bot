@@ -1589,10 +1589,12 @@ class MultiAssetActivity : AppCompatActivity() {
             return
         }
 
-        // Determine direction from emoji
+        // FIX: PerpsDirection uses 📈 (LONG) and 📉 (SHORT) emojis.
+        // Previously only legacy meme-trader emojis were mapped, causing direction to
+        // always fall back to LONG for perps/stocks positions.
         val direction = when (pos.directionEmoji) {
-            "🟢", "▲", "↑" -> PerpsDirection.LONG
-            "🔴", "▼", "↓" -> PerpsDirection.SHORT
+            "📈", "🟢", "▲", "↑" -> PerpsDirection.LONG
+            "📉", "🔴", "▼", "↓" -> PerpsDirection.SHORT
             else -> PerpsDirection.LONG
         }
 
@@ -1604,9 +1606,15 @@ class MultiAssetActivity : AppCompatActivity() {
                     market.isMetal -> MetalsTrader.addToPosition(market, addSol)
                     market.isForex -> ForexTrader.addToPosition(market, addSol)
                     market.isCrypto -> {
-                        // For perps, add via PerpsExecutionEngine
-                        PerpsExecutionEngine.addToPosition(market, direction, addSol)
-                        true
+                        // FIX: Crypto positions can be managed by EITHER PerpsExecutionEngine
+                        // (direct perps) OR TokenizedStockTrader (which also scans crypto 24/7).
+                        // Try PerpsExecutionEngine first; if no position found there, fall back
+                        // to TokenizedStockTrader so TST-managed crypto can also be topped up.
+                        val perpsResult = try {
+                            PerpsExecutionEngine.addToPosition(market, direction, addSol)
+                        } catch (_: Exception) { false }
+                        if (perpsResult) true
+                        else TokenizedStockTrader.addToPosition(market, addSol)
                     }
                     else -> false
                 }
@@ -2192,15 +2200,18 @@ class MultiAssetActivity : AppCompatActivity() {
         return try {
             when (currentTab) {
                 AssetTab.PERPS -> {
-                    // V5.7.8: Show crypto positions from BOTH PerpsExecutionEngine AND TokenizedStockTrader
+                    // FIX: Deduplicate by symbol+direction to prevent double-showing when
+                    // both PerpsExecutionEngine AND TokenizedStockTrader hold the same crypto.
+                    val seenKeys = mutableSetOf<String>()
                     val perpsPositions = PerpsExecutionEngine.getActivePositions().map { pos ->
+                        seenKeys.add("${pos.market.symbol}:${pos.direction.symbol}")
                         val livePrice = PerpsMarketDataFetcher.getCachedPrice(pos.market)?.price?.takeIf { it > 0 } ?: pos.currentPrice
                         if (livePrice > 0 && livePrice != pos.currentPrice) pos.currentPrice = livePrice
                         val pnlSol = pos.getPnlSol()
                         PositionInfo(
                             symbol = pos.market.symbol,
                             directionEmoji = pos.direction.emoji,
-                            typeLabel = "${pos.leverage.toInt()}x",
+                            typeLabel = "${pos.leverage.toInt()}x PERP",
                             entryPrice = "$${pos.entryPrice.fmt(2)}",
                             currentPrice = "$${livePrice.fmt(2)}",
                             pnl = pnlSol,
@@ -2214,9 +2225,11 @@ class MultiAssetActivity : AppCompatActivity() {
                             leverage = pos.leverage
                         )
                     }
-                    // Also get crypto positions from TokenizedStockTrader
+                    // Also include TST-managed CRYPTO positions (TST scans 24/7 crypto too).
+                    // Filter to isCrypto only (excludes stock ETFs even if isStock=false edge cases).
+                    // Skip any already shown by PerpsExecutionEngine to avoid duplicates.
                     val cryptoFromTrader = TokenizedStockTrader.getAllPositions()
-                        .filter { !it.market.isStock }
+                        .filter { it.market.isCrypto && !seenKeys.contains("${it.market.symbol}:${it.direction.symbol}") }
                         .map { pos ->
                             val livePrice = PerpsMarketDataFetcher.getCachedPrice(pos.market)?.price?.takeIf { it > 0 } ?: pos.currentPrice
                             if (livePrice > 0 && livePrice != pos.currentPrice) pos.currentPrice = livePrice
@@ -2484,6 +2497,7 @@ class MultiAssetActivity : AppCompatActivity() {
         builder.show()
     }
 }
+
 
 
 
