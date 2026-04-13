@@ -882,6 +882,8 @@ class BotService : Service() {
         UnifiedModeOrchestrator.isPaperMode = preScanCfg.paperMode
         // V5.2.8: Set EfficiencyLayer paper mode for reduced cooldowns
         EfficiencyLayer.isPaperMode = preScanCfg.paperMode
+        // FIX: Propagate mode to FinalExecutionPermit so live trades are not blocked
+        FinalExecutionPermit.isPaperMode = preScanCfg.paperMode
         addLog("📋 GlobalTradeRegistry initialized with ${GlobalTradeRegistry.size()} tokens (paperMode=${preScanCfg.paperMode})")
 
         // Start full Solana market scanner
@@ -3139,7 +3141,25 @@ if (deferredCount > 0) {
                 }
             }
             
-            // Periodically persist session state - use synchronized copy
+            // HOT MODE SWITCH: Detect paperMode changes and propagate to all subsystems
+            // This fixes the ghost-town bug where switching PAPER→LIVE left all
+            // singletons still believing they were in paper mode.
+            val loopCfg = ConfigStore.load(applicationContext)
+            val loopIsPaper = loopCfg.paperMode
+            if (GlobalTradeRegistry.isPaperMode != loopIsPaper) {
+                ErrorLogger.info("BotService", "🔄 HOT MODE SWITCH DETECTED: paper=${GlobalTradeRegistry.isPaperMode} → $loopIsPaper")
+                GlobalTradeRegistry.isPaperMode = loopIsPaper
+                UnifiedModeOrchestrator.isPaperMode = loopIsPaper
+                EfficiencyLayer.isPaperMode = loopIsPaper
+                FinalExecutionPermit.isPaperMode = loopIsPaper
+                // Re-initialize V3 engine with new mode (hot-swap, preserves learning)
+                if (loopCfg.v3EngineEnabled) {
+                    com.lifecyclebot.v3.V3EngineManager.updateMode(loopCfg)
+                }
+                addLog("🔄 Mode switched to ${if (loopIsPaper) "📝 PAPER" else "🔴 LIVE"} — all AI layers updated")
+            }
+
+        // Periodically persist session state - use synchronized copy
             val tradeCount = synchronized(status.tokens) {
                 status.tokens.values.toList().sumOf { it.trades.size }
             }
@@ -7419,3 +7439,4 @@ if (deferredCount > 0) {
 private fun Double.fmt(decimals: Int = 4) = "%.${decimals}f".format(this)
 // Build trigger 1774627618
 // Build trigger 1774842659
+
