@@ -129,6 +129,7 @@ object TokenizedStockTrader {
     private var liveWalletBalance = 0.0  // Updated from connected wallet
     
     private var engineJob: Job? = null
+    private var monitorJob: Job? = null
     private val scope = CoroutineScope(Dispatchers.Default + SupervisorJob())
     
     // Positions - V5.7.6b: Separate SPOT and LEVERAGE tracking
@@ -353,31 +354,37 @@ object TokenizedStockTrader {
             try {
                 ErrorLogger.error(TAG, "📈📈📈 Running INITIAL stock scan NOW... 📈📈📈")
                 runScanCycle()
+            } catch (e: CancellationException) {
+                throw e
             } catch (e: Exception) {
                 ErrorLogger.error(TAG, "📈 Initial scan EXCEPTION: ${e.message}", e)
             }
-            
+
             // Run scan loop
             while (isRunning.get()) {
                 try {
                     delay(SCAN_INTERVAL_MS)
-                    
+
                     if (isEnabled.get()) {
                         runScanCycle()
                     } else {
                         ErrorLogger.debug(TAG, "📈 Stock trading DISABLED - skipping scan")
                     }
+                } catch (e: CancellationException) {
+                    throw e
                 } catch (e: Exception) {
                     ErrorLogger.error(TAG, "Scan cycle error: ${e.message}", e)
                 }
             }
         }
-        
+
         // Start position monitor
-        scope.launch {
+        monitorJob = scope.launch {
             while (isRunning.get()) {
                 try {
                     monitorPositions()
+                } catch (e: CancellationException) {
+                    throw e
                 } catch (e: Exception) {
                     ErrorLogger.error(TAG, "Monitor error: ${e.message}", e)
                 }
@@ -385,10 +392,11 @@ object TokenizedStockTrader {
             }
         }
     }
-    
+
     fun stop() {
         isRunning.set(false)
         engineJob?.cancel()
+        monitorJob?.cancel()
         ErrorLogger.info(TAG, "📈 TokenizedStockTrader STOPPED")
     }
     
@@ -476,6 +484,8 @@ object TokenizedStockTrader {
                 } else {
                     ErrorLogger.warn(TAG, "📈 ${market.symbol}: analyzeStock returned NULL")
                 }
+            } catch (e: CancellationException) {
+                throw e
             } catch (e: Exception) {
                 ErrorLogger.error(TAG, "📈 ${market.symbol}: EXCEPTION: ${e.message}", e)
             }

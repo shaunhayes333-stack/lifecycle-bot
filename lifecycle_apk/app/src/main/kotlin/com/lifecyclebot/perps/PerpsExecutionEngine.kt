@@ -63,6 +63,7 @@ object PerpsExecutionEngine {
     // Job references
     private var scanJob: Job? = null
     private var positionMonitorJob: Job? = null
+    private var engineScope: CoroutineScope? = null
     
     // ═══════════════════════════════════════════════════════════════════════════
     // LIFECYCLE
@@ -83,14 +84,17 @@ object PerpsExecutionEngine {
         
         isRunning.set(true)
         isPaused.set(false)
-        
+
+        val scope = CoroutineScope(Dispatchers.Default + SupervisorJob())
+        engineScope = scope
+
         // Start scan loop
-        scanJob = CoroutineScope(Dispatchers.Default).launch {
+        scanJob = scope.launch {
             runScanLoop()
         }
-        
+
         // Start position monitor loop
-        positionMonitorJob = CoroutineScope(Dispatchers.Default).launch {
+        positionMonitorJob = scope.launch {
             runPositionMonitorLoop()
         }
         
@@ -104,7 +108,9 @@ object PerpsExecutionEngine {
         isRunning.set(false)
         scanJob?.cancel()
         positionMonitorJob?.cancel()
-        
+        engineScope?.cancel()
+        engineScope = null
+
         // Save state
         PerpsTraderAI.save(force = true)
         PerpsLearningBridge.save()
@@ -180,6 +186,8 @@ object PerpsExecutionEngine {
                         ErrorLogger.debug(TAG, "⚡ PERPS SCAN SKIPPED - PerpsTraderAI disabled")
                     }
                 }
+            } catch (e: CancellationException) {
+                throw e
             } catch (e: Exception) {
                 ErrorLogger.error(TAG, "Scan loop error: ${e.message}", e)
             }
@@ -229,6 +237,8 @@ object PerpsExecutionEngine {
                         executeExit(position, currentPrice, exitSignal)
                     }
                 }
+            } catch (e: CancellationException) {
+                throw e
             } catch (e: Exception) {
                 ErrorLogger.error(TAG, "Position monitor error: ${e.message}", e)
             }

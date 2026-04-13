@@ -320,18 +320,52 @@ object PythOracle {
      */
     private fun getFallbackPrice(symbol: String): PythPrice {
         val fallbackPrices = mapOf(
-            "SOL" to 150.0,
-            "AAPL" to 195.50,
-            "TSLA" to 248.30,
-            "NVDA" to 875.20,
-            "GOOGL" to 175.80,
-            "AMZN" to 185.60,
-            "META" to 510.40,
-            "MSFT" to 420.15,
-            "COIN" to 245.80,
+            // Crypto
+            "SOL" to 150.0, "BTC" to 65000.0, "ETH" to 3200.0, "BNB" to 580.0,
+            "XRP" to 0.52, "ADA" to 0.46, "DOGE" to 0.15, "AVAX" to 38.0,
+            "DOT" to 7.5, "LINK" to 15.0, "MATIC" to 0.85, "SHIB" to 0.000024,
+            "LTC" to 85.0, "ATOM" to 8.5, "UNI" to 8.0, "ARB" to 1.20,
+            "OP" to 2.50, "APT" to 9.0, "SUI" to 1.40, "SEI" to 0.55,
+            "INJ" to 28.0, "TIA" to 8.5, "JUP" to 0.90, "PEPE" to 0.0000085,
+            "WIF" to 2.50, "BONK" to 0.000022, "TRX" to 0.12, "BCH" to 480.0,
+            "XLM" to 0.11, "XMR" to 165.0, "ETC" to 28.0, "DYDX" to 2.20,
+            "WLD" to 3.50, "JTO" to 3.80, "W" to 0.55, "STRK" to 1.20, "TAO" to 460.0,
+            // US Equities
+            "AAPL" to 195.50, "TSLA" to 248.30, "NVDA" to 875.20, "GOOGL" to 175.80,
+            "AMZN" to 185.60, "META" to 510.40, "MSFT" to 420.15, "NFLX" to 625.00,
+            "AMD" to 178.00, "INTC" to 31.00, "QCOM" to 168.00, "AVGO" to 1420.00,
+            "MU" to 115.00, "CRM" to 285.00, "ORCL" to 122.00, "PLTR" to 22.00,
+            "SNOW" to 165.00, "SHOP" to 72.00, "COIN" to 245.80, "PYPL" to 62.00,
+            "V" to 278.00, "MA" to 468.00, "JPM" to 195.00, "GS" to 410.00,
+            "DIS" to 112.00, "UBER" to 68.00, "ABNB" to 145.00, "NKE" to 93.00,
+            "SBUX" to 78.00, "MCD" to 288.00, "BA" to 188.00, "WMT" to 62.00,
+            "HD" to 345.00, "COST" to 785.00, "JNJ" to 152.00, "PFE" to 28.00,
+            "UNH" to 520.00, "KO" to 62.00, "PEP" to 170.00, "XOM" to 112.00,
+            "CVX" to 158.00, "AAVE" to 115.00,
+            // Commodities
+            "BRENT" to 83.0, "WTI" to 79.0, "NATGAS" to 2.20, "RBOB" to 2.80,
+            "HEATING" to 2.65, "CORN" to 4.40, "WHEAT" to 5.80, "SOYBEAN" to 11.50,
+            "COFFEE" to 195.0, "COCOA" to 4200.0, "SUGAR" to 22.5, "COTTON" to 80.0,
+            "LUMBER" to 520.0, "OJ" to 290.0, "CATTLE" to 185.0, "HOGS" to 82.0,
+            // Metals
+            "XAU" to 2300.0, "XAG" to 27.5, "XPT" to 950.0, "XPD" to 1020.0,
+            "XCU" to 4.20, "XAL" to 1.05, "XNI" to 8.50, "XTI" to 5.50,
+            "ZINC" to 1.25, "LEAD" to 0.97, "TIN" to 13.50, "IRON" to 110.0,
+            "COBALT" to 28.0, "LITHIUM" to 14.0, "URANIUM" to 88.0,
+            // Forex
+            "EURUSD" to 1.085, "GBPUSD" to 1.265, "USDJPY" to 153.0,
+            "AUDUSD" to 0.652, "USDCAD" to 1.365, "USDCHF" to 0.898, "NZDUSD" to 0.600,
+            "EURGBP" to 0.858, "EURJPY" to 165.9, "GBPJPY" to 193.5,
+            "AUDJPY" to 99.8, "CADJPY" to 112.1, "CHFJPY" to 170.4,
+            "USDMXN" to 17.15, "USDBRL" to 5.00, "USDINR" to 83.5, "USDCNY" to 7.24,
+            "USDZAR" to 18.7, "USDTRY" to 32.0, "USDRUB" to 92.0,
+            "USDSGD" to 1.345, "USDHKD" to 7.82, "USDKRW" to 1335.0,
         )
-        
-        val price = fallbackPrices[symbol] ?: 100.0
+
+        val price = fallbackPrices[symbol] ?: run {
+            ErrorLogger.warn(TAG, "No fallback price for $symbol — using 1.0")
+            1.0
+        }
         
         return PythPrice(
             symbol = symbol,
