@@ -3,93 +3,126 @@
     android:layout_width="match_parent"
     android:layout_height="match_parent"
     android:background="#0A0A0F"
-    android:orientation="vertical">
+    android:orientation="vertical"
+    android:fitsSystemWindows="true">
 
-    <!-- Header -->
-    <LinearLayout android:layout_width="match_parent" android:layout_height="60dp"
-        android:orientation="horizontal" android:gravity="center_vertical"
-        android:paddingStart="16dp" android:paddingEnd="16dp"
-        android:background="#111118">
-        <TextView android:id="@+id/btnInsiderBack"
-            android:layout_width="wrap_content" android:layout_height="wrap_content"
-            android:text="←" android:textColor="#9945FF" android:textSize="22sp"
-            android:paddingEnd="16dp" android:clickable="true" android:focusable="true"/>
-        <TextView android:layout_width="0dp" android:layout_height="wrap_content"
+    <!-- ── TOP BAR ── -->
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal"
+        android:gravity="center_vertical"
+        android:paddingStart="@dimen/screen_padding"
+        android:paddingEnd="@dimen/screen_padding"
+        android:paddingTop="10dp"
+        android:paddingBottom="8dp"
+        android:background="#0A0A0F">
+
+        <TextView
+            android:id="@+id/btnInsiderBack"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="←"
+            android:textColor="#FFFFFF"
+            android:textSize="22sp"
+            android:paddingEnd="12dp"
+            android:clickable="true"
+            android:focusable="true"/>
+
+        <LinearLayout
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
             android:layout_weight="1"
-            android:text="Insider Tracker" android:textColor="#FFFFFF"
-            android:textSize="18sp" android:textStyle="bold"/>
-        <TextView android:id="@+id/btnAddWallet"
-            android:layout_width="wrap_content" android:layout_height="wrap_content"
-            android:text="+ Add" android:textColor="#9945FF" android:textSize="13sp"
-            android:clickable="true" android:focusable="true"/>
-    </LinearLayout>
+            android:orientation="vertical">
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="Insider Tracker"
+                android:textColor="#FFFFFF"
+                android:textSize="16sp"
+                android:textStyle="bold"/>
+            <TextView android:id="@+id/tvWalletCount"
+                android:layout_width="wrap_content" android:layout_height="wrap_content"
+                android:text="0 wallets tracked" android:textColor="#6B7280"
+                android:textSize="9sp" android:fontFamily="monospace"/>
+        </LinearLayout>
 
-    <View android:layout_width="match_parent" android:layout_height="1dp"
-        android:background="#1F2937"/>
-
-    <!-- Category Tabs -->
-    <LinearLayout android:layout_width="match_parent" android:layout_height="44dp"
-        android:orientation="horizontal" android:gravity="center_vertical"
-        android:paddingStart="12dp" android:paddingEnd="12dp"
-        android:background="#0D0D14">
-        <TextView android:id="@+id/tabAll"
-            android:layout_width="0dp" android:layout_height="32dp"
-            android:layout_weight="1" android:gravity="center"
-            android:text="ALL" android:textColor="#9945FF" android:textSize="12sp"
-            android:textStyle="bold" android:background="#1A1A2E"
-            android:clickable="true" android:focusable="true"/>
-        <TextView android:id="@+id/tabPolitical"
-            android:layout_width="0dp" android:layout_height="32dp"
-            android:layout_weight="1" android:gravity="center"
-            android:text="POLITICAL" android:textColor="#6B7280" android:textSize="12sp"
-            android:clickable="true" android:focusable="true"/>
-        <TextView android:id="@+id/tabSmartMoney"
-            android:layout_width="0dp" android:layout_height="32dp"
-            android:layout_weight="1" android:gravity="center"
-            android:text="SMART MONEY" android:textColor="#6B7280" android:textSize="12sp"
-            android:clickable="true" android:focusable="true"/>
-        <TextView android:id="@+id/tabCustom"
-            android:layout_width="0dp" android:layout_height="32dp"
-            android:layout_weight="1" android:gravity="center"
-            android:text="CUSTOM" android:textColor="#6B7280" android:textSize="12sp"
-            android:clickable="true" android:focusable="true"/>
-    </LinearLayout>
-
-    <View android:layout_width="match_parent" android:layout_height="1dp"
-        android:background="#1F2937"/>
-
-    <!-- Stats Bar -->
-    <LinearLayout android:id="@+id/llStatsBar"
-        android:layout_width="match_parent" android:layout_height="wrap_content"
-        android:orientation="horizontal" android:gravity="center_vertical"
-        android:paddingStart="16dp" android:paddingEnd="16dp"
-        android:paddingTop="8dp" android:paddingBottom="8dp"
-        android:background="#0D0D14">
-        <TextView android:id="@+id/tvWalletCount"
-            android:layout_width="0dp" android:layout_height="wrap_content"
-            android:layout_weight="1"
-            android:text="5 wallets tracked" android:textColor="#6B7280"
-            android:textSize="11sp"/>
         <TextView android:id="@+id/btnRefreshAll"
             android:layout_width="wrap_content" android:layout_height="wrap_content"
-            android:text="Refresh All" android:textColor="#14F195" android:textSize="11sp"
+            android:text="↻" android:textColor="#14F195" android:textSize="18sp"
+            android:paddingEnd="10dp" android:clickable="true" android:focusable="true"/>
+
+        <TextView android:id="@+id/btnAddWallet"
+            android:layout_width="wrap_content" android:layout_height="32dp"
+            android:gravity="center"
+            android:text="+ Add" android:textColor="#000000" android:textSize="11sp"
+            android:textStyle="bold"
+            android:background="@drawable/pill_bg_green"
+            android:paddingStart="12dp" android:paddingEnd="12dp"
+            android:clickable="true" android:focusable="true"/>
+    </LinearLayout>
+
+    <!-- Category tabs -->
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="40dp"
+        android:orientation="horizontal"
+        android:paddingStart="@dimen/screen_padding"
+        android:paddingEnd="@dimen/screen_padding"
+        android:paddingTop="4dp"
+        android:paddingBottom="4dp"
+        android:background="#0A0A0F">
+
+        <TextView android:id="@+id/tabAll"
+            android:layout_width="0dp" android:layout_height="match_parent"
+            android:layout_weight="1" android:gravity="center"
+            android:text="ALL" android:textColor="#9945FF" android:textSize="11sp"
+            android:textStyle="bold" android:fontFamily="monospace"
+            android:background="@drawable/tab_active_bg"
+            android:layout_marginEnd="4dp"
+            android:clickable="true" android:focusable="true"/>
+        <TextView android:id="@+id/tabPolitical"
+            android:layout_width="0dp" android:layout_height="match_parent"
+            android:layout_weight="1" android:gravity="center"
+            android:text="POLITICAL" android:textColor="#6B7280" android:textSize="11sp"
+            android:fontFamily="monospace"
+            android:background="@drawable/tab_inactive_bg"
+            android:layout_marginEnd="4dp"
+            android:clickable="true" android:focusable="true"/>
+        <TextView android:id="@+id/tabSmartMoney"
+            android:layout_width="0dp" android:layout_height="match_parent"
+            android:layout_weight="1" android:gravity="center"
+            android:text="SMART $" android:textColor="#6B7280" android:textSize="11sp"
+            android:fontFamily="monospace"
+            android:background="@drawable/tab_inactive_bg"
+            android:layout_marginEnd="4dp"
+            android:clickable="true" android:focusable="true"/>
+        <TextView android:id="@+id/tabCustom"
+            android:layout_width="0dp" android:layout_height="match_parent"
+            android:layout_weight="1" android:gravity="center"
+            android:text="CUSTOM" android:textColor="#6B7280" android:textSize="11sp"
+            android:fontFamily="monospace"
+            android:background="@drawable/tab_inactive_bg"
             android:clickable="true" android:focusable="true"/>
     </LinearLayout>
 
     <View android:layout_width="match_parent" android:layout_height="1dp"
         android:background="#1F2937"/>
 
-    <!-- Loading indicator -->
     <ProgressBar android:id="@+id/progressLoading"
         android:layout_width="match_parent" android:layout_height="3dp"
         style="@android:style/Widget.ProgressBar.Horizontal"
         android:indeterminate="true"
+        android:progressTint="#9945FF"
         android:visibility="gone"/>
 
-    <!-- Wallet List -->
     <ScrollView android:layout_width="match_parent" android:layout_height="match_parent">
         <LinearLayout android:id="@+id/llWalletList"
             android:layout_width="match_parent" android:layout_height="wrap_content"
-            android:orientation="vertical" android:paddingBottom="24dp"/>
+            android:orientation="vertical"
+            android:paddingStart="@dimen/screen_padding"
+            android:paddingEnd="@dimen/screen_padding"
+            android:paddingTop="8dp"
+            android:paddingBottom="32dp"/>
     </ScrollView>
 </LinearLayout>
