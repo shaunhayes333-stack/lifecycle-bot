@@ -6952,21 +6952,40 @@ Trading outside hours may have wider spreads.
                 }
             }
 
-            // Open positions (top 3)
+            // Open positions (top 3) — programmatic rows, no separate layout needed
             llCryptoAltsPositions?.removeAllViews()
             val openPositions = altTrader.getAllPositions().take(3)
             for (pos in openPositions) {
                 try {
                     val pnlPct = pos.getPnlPct()
-                    val rowView = layoutInflater.inflate(R.layout.item_position_row, llCryptoAltsPositions, false)
-                        ?: continue
-                    rowView.findViewById<TextView>(R.id.tvPosSymbol)?.text = "${pos.market.emoji} ${pos.market.symbol}"
-                    rowView.findViewById<TextView>(R.id.tvPosDir)?.text = "${pos.direction.emoji} ${pos.leverageLabel}"
-                    rowView.findViewById<TextView>(R.id.tvPosPnl)?.apply {
-                        text = "${if (pnlPct >= 0) "+" else ""}${"%.2f".format(pnlPct)}%"
-                        setTextColor(if (pnlPct >= 0) 0xFF22C55E.toInt() else 0xFFEF4444.toInt())
+                    val pnlColor = if (pnlPct >= 0) 0xFF22C55E.toInt() else 0xFFEF4444.toInt()
+                    val row = android.widget.LinearLayout(this).apply {
+                        orientation = android.widget.LinearLayout.HORIZONTAL
+                        setPadding(0, 4, 0, 4)
                     }
-                    llCryptoAltsPositions?.addView(rowView)
+                    val tvSymbol = TextView(this).apply {
+                        text = "${pos.market.emoji} ${pos.market.symbol}"
+                        textSize = 11f
+                        setTextColor(0xFFFFFFFF.toInt())
+                        layoutParams = android.widget.LinearLayout.LayoutParams(0, android.widget.LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
+                    }
+                    val tvDir = TextView(this).apply {
+                        text = "${pos.direction.emoji} ${pos.leverageLabel}"
+                        textSize = 10f
+                        setTextColor(0xFF9CA3AF.toInt())
+                        layoutParams = android.widget.LinearLayout.LayoutParams(0, android.widget.LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
+                    }
+                    val tvPnl = TextView(this).apply {
+                        text = "${if (pnlPct >= 0) "+" else ""}${"%.2f".format(pnlPct)}%"
+                        textSize = 11f
+                        setTextColor(pnlColor)
+                        gravity = android.view.Gravity.END
+                        layoutParams = android.widget.LinearLayout.LayoutParams(0, android.widget.LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
+                    }
+                    row.addView(tvSymbol)
+                    row.addView(tvDir)
+                    row.addView(tvPnl)
+                    llCryptoAltsPositions?.addView(row)
                 } catch (_: Exception) {}
             }
         } catch (_: Exception) {}
