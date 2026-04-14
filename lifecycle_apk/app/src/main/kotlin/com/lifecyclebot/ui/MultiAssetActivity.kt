@@ -1198,6 +1198,9 @@ class MultiAssetActivity : AppCompatActivity() {
     }
     
     private fun updatePositions() {
+        // Detach tvNoPositions from any existing parent before removeAllViews
+        // to avoid "child already has a parent" crash on refresh
+        (tvNoPositions.parent as? android.view.ViewGroup)?.removeView(tvNoPositions)
         positionsContainer.removeAllViews()
         
         val positions = getCurrentPositions()
@@ -1214,6 +1217,7 @@ class MultiAssetActivity : AppCompatActivity() {
         
         positions.take(10).forEach { pos ->
             val view = createPositionCard(pos)
+            (view.parent as? android.view.ViewGroup)?.removeView(view)
             positionsContainer.addView(view)
         }
     }
