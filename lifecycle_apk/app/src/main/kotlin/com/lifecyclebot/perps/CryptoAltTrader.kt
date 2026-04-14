@@ -14,11 +14,11 @@ import com.lifecyclebot.v3.scoring.FluidLearningAI
 import com.lifecyclebot.v3.scoring.ManipulatedTraderAI
 import com.lifecyclebot.v3.scoring.MetaCognitionAI
 import com.lifecyclebot.v3.scoring.MoonshotTraderAI
-import com.lifecyclebot.v3.scoring.NarrativeFlowAI
+import com.lifecyclebot.v4.meta.NarrativeFlowAI
 import com.lifecyclebot.v3.scoring.QualityTraderAI
 import com.lifecyclebot.v3.scoring.ShitCoinExpress
 import com.lifecyclebot.v3.scoring.ShitCoinTraderAI
-import com.lifecyclebot.v3.scoring.StrategyTrustAI
+import com.lifecyclebot.v4.meta.StrategyTrustAI
 import com.lifecyclebot.v3.scoring.VolatilityRegimeAI
 import com.lifecyclebot.v4.meta.*
 import com.lifecyclebot.v4.meta.TradeLessonRecorder
@@ -1075,4 +1075,5 @@ object CryptoAltTrader {
 
     private fun Double.fmt(d: Int): String = "%.${d}f".format(this)
 }
+
 
