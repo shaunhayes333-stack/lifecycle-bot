@@ -95,6 +95,7 @@ class MultiAssetActivity : AppCompatActivity() {
     private lateinit var dotCommodities: View
     private lateinit var dotMetals: View
     private lateinit var dotForex: View
+    private var dotCrypto: View? = null  // optional — card shown in Markets only
     private lateinit var dotPerps: View
     
     // New UI elements
@@ -379,8 +380,12 @@ class MultiAssetActivity : AppCompatActivity() {
             override fun onTabReselected(tab: TabLayout.Tab) {}
         })
         
-        // Select Stocks tab by default
-        tabLayout.getTabAt(AssetTab.STOCKS.ordinal)?.select()
+        // Select Stocks tab by default, or tab from intent extra
+        val startTabName = try { intent?.getStringExtra("startTab") } catch (_: Exception) { null }
+        val startTab = if (startTabName != null) {
+            AssetTab.values().find { it.name == startTabName } ?: AssetTab.STOCKS
+        } else AssetTab.STOCKS
+        tabLayout.getTabAt(startTab.ordinal)?.select()
     }
     
     private fun setupClickListeners() {
