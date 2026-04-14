@@ -15,6 +15,7 @@ import com.lifecyclebot.R
 import com.lifecyclebot.engine.RunTracker30D
 import com.lifecyclebot.engine.UniversalBridgeEngine
 import com.lifecyclebot.engine.ShadowLearningEngine
+import com.lifecyclebot.engine.TreasuryManager
 import com.lifecyclebot.engine.AICrossTalk
 import com.lifecyclebot.engine.AdaptiveLearningEngine
 import com.lifecyclebot.engine.BehaviorLearning
@@ -224,10 +225,14 @@ class CryptoAltActivity : AppCompatActivity() {
 
     private fun buildFullDashboard() {
         llContent.removeAllViews()
+        buildTopStatusBar()     // HIVE MIND · SHADOW · REGIMES · LAYERS pills
         buildHeroSection()
+        buildOpenPositionsPanel()  // inline Open Positions list
         buildReadinessTile()
+        buildTreasuryTierPanel()   // locked SOL / next unlock
         buildProofRunTile()
-        buildModuleIconGrid()   // ← AATE-style 2-row icon grid
+        buildModuleIconGrid()   // AATE-style 2-row icon grid
+        buildNetworkSignalsPanel() // Network Signals from Collective Intelligence
         buildShadowFDGPanel()
         buildHiveMindPanel()
         buildSectorHeatPanel()
@@ -238,6 +243,217 @@ class CryptoAltActivity : AppCompatActivity() {
     // ═══════════════════════════════════════════════════════════════════════════
     // HERO
     // ═══════════════════════════════════════════════════════════════════════════
+
+    // ═══════════════════════════════════════════════════════════════════════════
+    // TOP STATUS BAR  —  HIVE MIND · SHADOW · REGIMES · LAYERS pills
+    // ═══════════════════════════════════════════════════════════════════════════
+
+    private fun buildTopStatusBar() {
+        val bar = hBox(0xFF0A0A14.toInt(), 0, 0).apply {
+            layoutParams = llp(match, wrap).apply { bottomMargin = 4 }
+            gravity = Gravity.CENTER_VERTICAL
+        }
+
+        // Hive Mind
+        val ciStats = CollectiveIntelligenceAI.getStats()
+        bar.addView(buildStatusPill(
+            "🐝 HIVE MIND",
+            "${ciStats.cachedPatterns}/${ciStats.cachedModes}",
+            if (ciStats.isEnabled) amber else muted
+        ))
+
+        // Shadow
+        val shadow = ShadowLearningEngine.getBlockedTradeStats()
+        bar.addView(buildStatusPill(
+            "👁 SHADOW",
+            "${shadow.wouldHaveWon}/${shadow.totalTracked}",
+            if (shadow.totalTracked > 0) indigo else muted
+        ))
+
+        // Regimes
+        val dominance = CryptoAltScannerAI.getDominanceCycleSignal()
+        val regShort = when {
+            dominance.contains("BULL", ignoreCase=true) -> "BULL"
+            dominance.contains("BEAR", ignoreCase=true) -> "BEAR"
+            dominance.contains("MEME", ignoreCase=true) -> "MEME"
+            dominance.contains("MID",  ignoreCase=true) -> "MID"
+            dominance.contains("NEU",  ignoreCase=true) -> "NEU"
+            else -> dominance.take(4).uppercase()
+        }
+        val regColor = when {
+            dominance.contains("BULL", ignoreCase=true) -> green
+            dominance.contains("BEAR", ignoreCase=true) -> red
+            else -> amber
+        }
+        bar.addView(buildStatusPill("📊 REGIMES", regShort, regColor))
+
+        // Layers
+        val plbLayers = PerpsLearningBridge.getConnectedLayerCount()
+        bar.addView(buildStatusPill(
+            "🔗 LAYERS",
+            "${plbLayers}L",
+            if (plbLayers > 0) blue else muted
+        ))
+
+        llContent.addView(bar)
+    }
+
+    private fun buildStatusPill(label: String, value: String, valueColor: Int): LinearLayout {
+        return vBox(card, 6, 0).apply {
+            layoutParams = llp(0, wrap, 1f).apply { marginEnd = 2 }
+            gravity = Gravity.CENTER
+            setPadding(4, 8, 4, 8)
+            addView(tv(label, 7f, muted, bold = true).apply { gravity = Gravity.CENTER })
+            addView(tv(value, 10f, valueColor, mono = true, bold = true).apply { gravity = Gravity.CENTER })
+        }
+    }
+
+    // ═══════════════════════════════════════════════════════════════════════════
+    // OPEN POSITIONS PANEL  —  inline position cards
+    // ═══════════════════════════════════════════════════════════════════════════
+
+    private fun buildOpenPositionsPanel() {
+        val openPos    = CryptoAltTrader.getAllPositions().filter { it.closeTime == null }
+        val totalRisk  = openPos.sumOf { it.sizeSol }
+        val totalPnl   = openPos.sumOf { it.getPnlSol() }
+        val solPrice   = WalletManager.lastKnownSolPrice
+
+        val tile = buildTile(card2, "Open Positions", "${openPos.size} open", white)
+
+        val headerRow = hBox().apply { layoutParams = llp(match, wrap).apply { topMargin = 4 } }
+        headerRow.addView(tv("${"%.3f".format(totalRisk)}◎ at risk", 10f, muted, mono=true).apply { layoutParams = llp(0, wrap, 1f) })
+        headerRow.addView(tv("${if (totalPnl >= 0) "+" else ""}${"%.4f".format(totalPnl)}◎",
+            10f, if (totalPnl >= 0) green else red, mono=true))
+        tile.addView(headerRow)
+
+        if (openPos.isEmpty()) {
+            tile.addView(tv("No open positions", 11f, muted).apply { setPadding(0, 8, 0, 4) })
+        } else {
+            openPos.forEach { pos ->
+                val pnlSol = pos.getPnlSol()
+                val pnlPct = pos.getPnlPct()
+                val elapsed = (System.currentTimeMillis() - pos.openTime) / 60_000
+
+                val row = hBox().apply {
+                    layoutParams = llp(match, wrap).apply { topMargin = 6 }
+                    gravity = Gravity.CENTER_VERTICAL
+                }
+
+                // Left: market + entry info
+                val leftCol = vBox(0, 0, 0).apply { layoutParams = llp(0, wrap, 1f) }
+                leftCol.addView(hBox().apply {
+                    addView(tv("🔵 ", 12f, blue))
+                    addView(tv(pos.market.displayName, 13f, white, bold = true).apply { layoutParams = llp(0, wrap, 1f) })
+                    addView(tv("${elapsed}m", 9f, muted, mono=true))
+                })
+                val entryStr  = if (pos.entryPrice > 0.01) "${"$%.4f".format(pos.entryPrice)}" else "${"$%.6f".format(pos.entryPrice)}"
+                val sizeStr   = "${"%.4f".format(pos.sizeSol)}◎"
+                leftCol.addView(tv("Entry: $entryStr  ·  $sizeStr", 9f, muted, mono = true))
+                leftCol.addView(tv("TP:+${((pos.takeProfitPrice/pos.entryPrice - 1)*100).toInt()}%  SL:-${((1 - pos.stopLossPrice/pos.entryPrice)*100).toInt()}%",
+                    8f, muted, mono = true))
+                row.addView(leftCol)
+
+                // Right: PnL
+                val rightCol = vBox(0, 0, 0).apply {
+                    gravity = Gravity.END or Gravity.CENTER_VERTICAL
+                    layoutParams = llp(wrap, wrap)
+                }
+                rightCol.addView(tv("${if (pnlPct >= 0) "+" else ""}${"%.1f".format(pnlPct)}%",
+                    13f, if (pnlPct >= 0) green else red, mono=true, bold=true).apply { gravity = Gravity.END })
+                rightCol.addView(tv("${if (pnlSol >= 0) "+" else ""}${"%.4f".format(pnlSol)}◎",
+                    10f, if (pnlSol >= 0) green else red, mono=true).apply { gravity = Gravity.END })
+                row.addView(rightCol)
+                tile.addView(row)
+                tile.addView(thinDivider())
+            }
+        }
+        llContent.addView(tile)
+    }
+
+    // ═══════════════════════════════════════════════════════════════════════════
+    // TREASURY TIER PANEL
+    // ═══════════════════════════════════════════════════════════════════════════
+
+    private fun buildTreasuryTierPanel() {
+        val treasurySol = TreasuryManager.treasurySol
+        if (treasurySol <= 0.0) return   // nothing locked yet
+
+        val solPrice    = WalletManager.lastKnownSolPrice
+        val usd         = treasurySol * solPrice
+        val mIdx        = TreasuryManager.highestMilestoneHit
+        val milestones  = TreasuryManager.MILESTONES
+        val currentLabel = if (mIdx >= 0) milestones[mIdx].label else "No milestone"
+        val nextLabel    = if (mIdx + 1 < milestones.size) "Next: ${"$"}${milestones[mIdx+1].thresholdUsd.toLong()}" else "MAX TIER"
+
+        val tile = buildTile(amber, "🏦 Treasury Tier", "Tier: $currentLabel", amber)
+        val row  = hBox().apply { layoutParams = llp(match, wrap).apply { topMargin = 8 } }
+        val lockedCol = vBox(0, 0, 0).apply { layoutParams = llp(0, wrap, 1f) }
+        lockedCol.addView(tv("LOCKED", 9f, muted, bold=true))
+        lockedCol.addView(tv("${"%.3f".format(treasurySol)} SOL", 16f, white, bold=true))
+        lockedCol.addView(tv("($${"%.0f".format(usd)})", 11f, muted, mono=true))
+        row.addView(lockedCol)
+        val nextCol = vBox(0, 0, 0).apply { gravity = Gravity.END or Gravity.CENTER_VERTICAL; layoutParams = llp(wrap, wrap) }
+        nextCol.addView(tv("NEXT UNLOCK", 9f, muted, bold=true).apply { gravity = Gravity.END })
+        nextCol.addView(tv(nextLabel, 13f, green, bold=true).apply { gravity = Gravity.END })
+        row.addView(nextCol)
+        tile.addView(row)
+        llContent.addView(tile)
+    }
+
+    // ═══════════════════════════════════════════════════════════════════════════
+    // NETWORK SIGNALS PANEL
+    // ═══════════════════════════════════════════════════════════════════════════
+
+    private fun buildNetworkSignalsPanel() {
+        val rawSignals = CollectiveIntelligenceAI.getActiveNetworkSignals()
+        val signals    = rawSignals.filter {
+            it.pnlPct.isFinite() && it.pnlPct > -101.0 && it.pnlPct < 1_000_000.0
+        }
+        if (signals.isEmpty()) return
+
+        val megaCount  = signals.count { it.signalType == "MEGA_WINNER" }
+        val hotCount   = signals.count { it.signalType == "HOT_TOKEN" }
+        val avoidCount = signals.count { it.signalType == "AVOID" }
+
+        val lastRefresh  = CollectiveIntelligenceAI.getLastRefreshTime()
+        val syncAgoSecs  = (System.currentTimeMillis() - lastRefresh) / 1000
+        val syncStr      = if (syncAgoSecs < 60) "Sync: ${syncAgoSecs}s" else "Sync: ${syncAgoSecs/60}m"
+
+        val tile = buildTile(blue, "📡 NETWORK SIGNALS", "${signals.size} active", green)
+
+        val statsRow = hBox().apply { layoutParams = llp(match, wrap).apply { topMargin = 6 } }
+        statsRow.addView(tv("MEGA: $megaCount",  10f, if (megaCount  > 0) amber else muted, mono=true).apply { layoutParams = llp(0,wrap,1f) })
+        statsRow.addView(tv("HOT: $hotCount",    10f, if (hotCount   > 0) green else muted, mono=true).apply { layoutParams = llp(0,wrap,1f) })
+        statsRow.addView(tv("AVOID: $avoidCount",10f, if (avoidCount > 0) red   else muted, mono=true).apply { layoutParams = llp(0,wrap,1f) })
+        statsRow.addView(tv(syncStr,             9f,  muted, mono=true))
+        tile.addView(statsRow)
+        tile.addView(thinDivider())
+
+        val sorted = signals.sortedWith(compareBy(
+            { when (it.signalType) { "MEGA_WINNER"->0; "HOT_TOKEN"->1; "AVOID"->2; else->3 } },
+            { -it.pnlPct }
+        )).take(10)
+
+        sorted.forEach { sig ->
+            val emoji = when (sig.signalType) { "MEGA_WINNER" -> "🔥"; "AVOID" -> "⚠️"; else -> "🌐" }
+            val sigColor = when (sig.signalType) {
+                "MEGA_WINNER" -> amber; "AVOID" -> red; else -> green
+            }
+            val pnlSign = if (sig.pnlPct >= 0) "+" else ""
+            val pnlCol  = if (sig.pnlPct >= 0) green else red
+
+            val row = hBox().apply { layoutParams = llp(match, wrap).apply { topMargin = 4 }; gravity = Gravity.CENTER_VERTICAL }
+            row.addView(tv(emoji, 13f, white).apply { layoutParams = llp(wrap, wrap).apply { marginEnd = 6 } })
+            row.addView(tv(sig.symbol.take(10), 12f, sigColor, bold=true).apply { layoutParams = llp(0, wrap, 0.35f) })
+            row.addView(tv("$pnlSign${sig.pnlPct.toInt()}%", 11f, pnlCol, mono=true, bold=true).apply { layoutParams = llp(0, wrap, 0.2f) })
+            row.addView(tv("from ${sig.broadcasterId.take(6)}...", 9f, muted, mono=true).apply { layoutParams = llp(0, wrap, 0.35f) })
+            if (sig.ackCount > 1) {
+                row.addView(tv("×${sig.ackCount}", 9f, blue, mono=true))
+            }
+            tile.addView(row)
+        }
+        llContent.addView(tile)
+    }
 
     private fun buildHeroSection() {
         val bal    = CryptoAltTrader.getBalance()
