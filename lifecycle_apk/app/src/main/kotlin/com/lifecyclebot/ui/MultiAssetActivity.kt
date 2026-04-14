@@ -663,7 +663,7 @@ class MultiAssetActivity : AppCompatActivity() {
                                 AssetTab.COMMODITIES -> PerpsMarket.values().filter { it.isCommodity }
                                 AssetTab.METALS -> PerpsMarket.values().filter { it.isMetal }
                                 AssetTab.FOREX -> PerpsMarket.values().filter { it.isForex }
-                                AssetTab.PERPS -> PerpsMarket.values().filter { it.isCrypto }.take(10)
+                                AssetTab.PERPS -> PerpsMarket.values().filter { it.isSolPerp }.take(10)
                             }
                             markets.forEach { market ->
                                 try {
@@ -1668,7 +1668,7 @@ class MultiAssetActivity : AppCompatActivity() {
                 AssetTab.COMMODITIES -> PerpsMarket.values().filter { it.isCommodity }.take(10)
                 AssetTab.METALS -> PerpsMarket.values().filter { it.isMetal }.take(10)
                 AssetTab.FOREX -> PerpsMarket.values().filter { it.isForex }.take(10)
-                AssetTab.PERPS -> PerpsMarket.values().filter { it.isCrypto }.take(5)
+                AssetTab.PERPS -> PerpsMarket.values().filter { it.isSolPerp }.take(5)
             }
             
             // V5.7.6b: Get LIVE prices from cache (non-blocking)
@@ -1803,7 +1803,7 @@ class MultiAssetActivity : AppCompatActivity() {
             AssetTab.COMMODITIES -> PerpsMarket.values().filter { it.isCommodity }
             AssetTab.METALS -> PerpsMarket.values().filter { it.isMetal }
             AssetTab.FOREX -> PerpsMarket.values().filter { it.isForex }
-            AssetTab.PERPS -> PerpsMarket.values().filter { it.isCrypto }
+            AssetTab.PERPS -> PerpsMarket.values().filter { it.isSolPerp }
         }
         if (markets.isEmpty()) {
             assetsContainer.addView(tvNoAssets)
@@ -1911,7 +1911,7 @@ class MultiAssetActivity : AppCompatActivity() {
                 AssetTab.COMMODITIES -> PerpsMarket.values().filter { it.isCommodity }.take(8)
                 AssetTab.METALS -> PerpsMarket.values().filter { it.isMetal }.take(8)
                 AssetTab.FOREX -> PerpsMarket.values().filter { it.isForex }.take(8)
-                AssetTab.PERPS -> PerpsMarket.values().filter { it.isCrypto }.take(5)
+                AssetTab.PERPS -> PerpsMarket.values().filter { it.isSolPerp }.take(5)
             }
 
             markets.forEach { market ->
@@ -2142,7 +2142,7 @@ class MultiAssetActivity : AppCompatActivity() {
     private fun getCurrentPositionCount(): Int {
         return try {
             when (currentTab) {
-                AssetTab.PERPS -> PerpsExecutionEngine.getActivePositions().size + TokenizedStockTrader.getAllPositions().count { !it.market.isStock }
+                AssetTab.PERPS -> PerpsExecutionEngine.getActivePositions().size + TokenizedStockTrader.getAllPositions().count { it.market.isCrypto }
                 AssetTab.STOCKS -> {
                     if (showSpotOnly) TokenizedStockTrader.getSpotPositions().size
                     else TokenizedStockTrader.getLeveragePositions().size
@@ -2166,7 +2166,7 @@ class MultiAssetActivity : AppCompatActivity() {
     private fun getCurrentPnl(): Double {
         return try {
             when (currentTab) {
-                AssetTab.PERPS -> PerpsExecutionEngine.getActivePositions().sumOf { it.getPnlSol() } + TokenizedStockTrader.getAllPositions().filter { !it.market.isStock }.sumOf { it.getPnlSol() }
+                AssetTab.PERPS -> PerpsExecutionEngine.getActivePositions().sumOf { it.getPnlSol() } + TokenizedStockTrader.getAllPositions().filter { it.market.isCrypto }.sumOf { it.getPnlSol() }
                 AssetTab.STOCKS -> {
                     val positions = if (showSpotOnly) TokenizedStockTrader.getSpotPositions()
                                    else TokenizedStockTrader.getLeveragePositions()
@@ -2497,6 +2497,7 @@ class MultiAssetActivity : AppCompatActivity() {
         builder.show()
     }
 }
+
 
 
 
