@@ -439,7 +439,7 @@ class CollectiveBrainActivity : AppCompatActivity() {
             // AVG HOLD — derive from local trade history (avgHoldMins field)
             val avgHoldMins = try {
                 val stats = com.lifecyclebot.engine.TradeHistoryStore.getStats()
-                stats.avgHoldMins
+                stats.avgHoldTimeMinutes.toDouble()
             } catch (_: Exception) { 0.0 }
             tvAvgHold.text = when {
                 avgHoldMins >= 60 -> "${(avgHoldMins / 60).toInt()}h"
