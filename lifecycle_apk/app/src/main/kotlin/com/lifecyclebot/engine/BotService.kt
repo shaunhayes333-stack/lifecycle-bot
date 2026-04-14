@@ -272,20 +272,6 @@ class BotService : Service() {
                 ErrorLogger.error("BotService", "TokenizedStockTrader start error: ${e.message}", e)
             }
 
-        // V2.0: Start CryptoAltTrader — gated by cryptoAltsEnabled setting, runs 24/7
-        val altCfg = ConfigStore.load(applicationContext)
-        if (altCfg.cryptoAltsEnabled) {
-            try {
-                com.lifecyclebot.perps.CryptoAltTrader.init(applicationContext)
-                com.lifecyclebot.perps.CryptoAltTrader.start()
-                ErrorLogger.info("BotService", "🪙 CryptoAltTrader STARTED - Alt Crypto Trading ACTIVE (live=${!altCfg.paperMode})")
-            } catch (e: Exception) {
-                ErrorLogger.error("BotService", "CryptoAltTrader start error: ${e.message}", e)
-            }
-        } else {
-            ErrorLogger.info("BotService", "🪙 CryptoAltTrader DISABLED by user settings")
-        }
-            
             // V5.7.6: Start CommoditiesTrader - Energy & Agricultural commodities
             try {
                 com.lifecyclebot.perps.CommoditiesTrader.initialize()
@@ -331,7 +317,21 @@ class BotService : Service() {
         } else {
             ErrorLogger.info("BotService", "📊 Markets Trader DISABLED by user settings")
         }
-        
+
+        // V2.0: Start CryptoAltTrader — gated by cryptoAltsEnabled, INDEPENDENT of Markets mode
+        val altCfg = ConfigStore.load(applicationContext)
+        if (altCfg.cryptoAltsEnabled) {
+            try {
+                com.lifecyclebot.perps.CryptoAltTrader.init(applicationContext)
+                com.lifecyclebot.perps.CryptoAltTrader.start()
+                ErrorLogger.info("BotService", "🪙 CryptoAltTrader STARTED - Alt Crypto Trading ACTIVE (live=${!altCfg.paperMode})")
+            } catch (e: Exception) {
+                ErrorLogger.error("BotService", "CryptoAltTrader start error: ${e.message}", e)
+            }
+        } else {
+            ErrorLogger.info("BotService", "🪙 CryptoAltTrader DISABLED by user settings")
+        }
+
         // V5.7.3: Start Network Signal Auto-Buyer (disabled by default, paper mode only)
         try {
             // Only start if user has explicitly enabled it
@@ -1505,8 +1505,10 @@ class BotService : Service() {
             .edit().putBoolean("was_running_before_shutdown", true).apply()
         // Acquire partial wake lock — keeps CPU alive during transaction confirmation
         val pm = getSystemService(Context.POWER_SERVICE) as PowerManager
-        wakeLock = pm.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "lifecyclebot:trading")
-            .also { it.acquire(12 * 60 * 60 * 1000L) }  // max 12h, released on stopBot
+        wakeLock = pm.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "lifecyclebot:trading").also {
+            it.setReferenceCounted(false)  // idempotent — safe to call acquire() multiple times
+            it.acquire()  // indefinite, released explicitly in stopBot()
+        }
         
         // Schedule a repeating keep-alive alarm every 60 seconds
         // This ensures the service restarts if Android kills it
@@ -2197,9 +2199,30 @@ class BotService : Service() {
                             com.lifecyclebot.perps.PerpsExecutionEngine.start(applicationContext)
                         }
                     }
-                    if (cfg.cryptoAltsEnabled && loopCount % 10 == 0 && !com.lifecyclebot.perps.CryptoAltTrader.isRunning()) {
-                        ErrorLogger.warn("BotService", "⚠️ [meme-off] CryptoAltTrader stopped — restarting…")
+                    // CryptoAltTrader watchdog (meme-off)
+                    if (cfg.cryptoAltsEnabled && loopCount % 10 == 0 && !com.lifecyclebot.perps.CryptoAltTrader.isHealthy()) {
+                        ErrorLogger.warn("BotService", "⚠️ [meme-off] CryptoAltTrader unhealthy — restarting…")
                         com.lifecyclebot.perps.CryptoAltTrader.start()
+                    }
+                    // TokenizedStockTrader watchdog (meme-off)
+                    if (marketsEnabled && loopCount % 10 == 0 && !com.lifecyclebot.perps.TokenizedStockTrader.isHealthy()) {
+                        ErrorLogger.warn("BotService", "⚠️ [meme-off] TokenizedStockTrader unhealthy — restarting…")
+                        com.lifecyclebot.perps.TokenizedStockTrader.start()
+                    }
+                    // CommoditiesTrader watchdog (meme-off)
+                    if (marketsEnabled && loopCount % 10 == 0 && !com.lifecyclebot.perps.CommoditiesTrader.isHealthy()) {
+                        ErrorLogger.warn("BotService", "⚠️ [meme-off] CommoditiesTrader unhealthy — restarting…")
+                        com.lifecyclebot.perps.CommoditiesTrader.start()
+                    }
+                    // MetalsTrader watchdog (meme-off)
+                    if (marketsEnabled && loopCount % 10 == 0 && !com.lifecyclebot.perps.MetalsTrader.isHealthy()) {
+                        ErrorLogger.warn("BotService", "⚠️ [meme-off] MetalsTrader unhealthy — restarting…")
+                        com.lifecyclebot.perps.MetalsTrader.start()
+                    }
+                    // ForexTrader watchdog (meme-off)
+                    if (marketsEnabled && loopCount % 10 == 0 && !com.lifecyclebot.perps.ForexTrader.isHealthy()) {
+                        ErrorLogger.warn("BotService", "⚠️ [meme-off] ForexTrader unhealthy — restarting…")
+                        com.lifecyclebot.perps.ForexTrader.start()
                     }
                 } catch (e: Exception) {
                     ErrorLogger.error("BotService", "Markets watchdog (meme-off) error: ${e.message}", e)
@@ -2408,11 +2431,32 @@ class BotService : Service() {
                             addLog("⚡ Markets engine restarted by watchdog")
                         }
                     }
-                    // Same watchdog for CryptoAltTrader
-                    if (cfg.cryptoAltsEnabled && !com.lifecyclebot.perps.CryptoAltTrader.isRunning()) {
-                        ErrorLogger.warn("BotService", "⚠️ CryptoAltTrader NOT RUNNING (loop #$loopCount) — restarting…")
-                        addLog("🪙 CryptoAlt watchdog: trader stopped, restarting…")
+                    // CryptoAltTrader watchdog
+                    if (cfg.cryptoAltsEnabled && !com.lifecyclebot.perps.CryptoAltTrader.isHealthy()) {
+                        ErrorLogger.warn("BotService", "⚠️ CryptoAltTrader unhealthy (loop #$loopCount) — restarting…")
+                        addLog("🪙 CryptoAlt watchdog: unhealthy, restarting…")
                         com.lifecyclebot.perps.CryptoAltTrader.start()
+                    }
+                    // TokenizedStockTrader watchdog
+                    if (marketsEnabled && !com.lifecyclebot.perps.TokenizedStockTrader.isHealthy()) {
+                        ErrorLogger.warn("BotService", "⚠️ TokenizedStockTrader unhealthy (loop #$loopCount) — restarting…")
+                        addLog("📈 Stock trader watchdog: unhealthy, restarting…")
+                        com.lifecyclebot.perps.TokenizedStockTrader.start()
+                    }
+                    // CommoditiesTrader watchdog
+                    if (marketsEnabled && !com.lifecyclebot.perps.CommoditiesTrader.isHealthy()) {
+                        ErrorLogger.warn("BotService", "⚠️ CommoditiesTrader unhealthy (loop #$loopCount) — restarting…")
+                        com.lifecyclebot.perps.CommoditiesTrader.start()
+                    }
+                    // MetalsTrader watchdog
+                    if (marketsEnabled && !com.lifecyclebot.perps.MetalsTrader.isHealthy()) {
+                        ErrorLogger.warn("BotService", "⚠️ MetalsTrader unhealthy (loop #$loopCount) — restarting…")
+                        com.lifecyclebot.perps.MetalsTrader.start()
+                    }
+                    // ForexTrader watchdog
+                    if (marketsEnabled && !com.lifecyclebot.perps.ForexTrader.isHealthy()) {
+                        ErrorLogger.warn("BotService", "⚠️ ForexTrader unhealthy (loop #$loopCount) — restarting…")
+                        com.lifecyclebot.perps.ForexTrader.start()
                     }
                 } catch (e: Exception) {
                     ErrorLogger.error("BotService", "Markets watchdog error: ${e.message}", e)
@@ -7514,6 +7558,7 @@ if (deferredCount > 0) {
 private fun Double.fmt(decimals: Int = 4) = "%.${decimals}f".format(this)
 // Build trigger 1774627618
 // Build trigger 1774842659
+
 
 
 
