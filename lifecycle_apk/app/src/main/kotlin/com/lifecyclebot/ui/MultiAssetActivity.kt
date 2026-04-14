@@ -47,7 +47,8 @@ class MultiAssetActivity : AppCompatActivity() {
         STOCKS("📈", "TOKENIZED STOCKS", "Stocks"),
         COMMODITIES("🛢️", "COMMODITIES", "Commod"),
         METALS("🥇", "METALS", "Metals"),
-        FOREX("💱", "FOREX", "Forex")
+        FOREX("💱", "FOREX", "Forex"),
+        CRYPTO("🪙", "CRYPTO ALTS", "Crypto")
     }
     
     // ═══════════════════════════════════════════════════════════════════════════
@@ -363,7 +364,9 @@ class MultiAssetActivity : AppCompatActivity() {
                             AssetTab.COMMODITIES -> PerpsMarket.values().filter { it.isCommodity }
                             AssetTab.METALS -> PerpsMarket.values().filter { it.isMetal }
                             AssetTab.FOREX -> PerpsMarket.values().filter { it.isForex }
+                AssetTab.CRYPTO -> PerpsMarket.values().filter { it.isCrypto && !it.isSolPerp }
                             AssetTab.PERPS -> PerpsMarket.values().filter { it.isSolPerp }.take(10)
+                            AssetTab.CRYPTO -> PerpsMarket.values().filter { it.isCrypto && !it.isSolPerp }.take(20)
                         }
                         tabMarkets.forEach { market ->
                             try { PerpsMarketDataFetcher.getMarketData(market) } catch (_: Exception) {}
@@ -474,6 +477,7 @@ class MultiAssetActivity : AppCompatActivity() {
         CommoditiesTrader.setLiveMode(live)
         MetalsTrader.setLiveMode(live)
         ForexTrader.setLiveMode(live)
+        CryptoAltTrader.setLiveMode(live)
         // FIX: Also update PerpsTraderAI so the SOL Perps tab actually trades live
         PerpsTraderAI.setTradingMode(isPaper = !live)
         
@@ -509,6 +513,7 @@ class MultiAssetActivity : AppCompatActivity() {
                 CommoditiesTrader.start()
                 MetalsTrader.start()
                 ForexTrader.start()
+                CryptoAltTrader.start()
                 PerpsExecutionEngine.start(this@MultiAssetActivity)
                 
                 withContext(Dispatchers.Main) {
@@ -523,6 +528,7 @@ class MultiAssetActivity : AppCompatActivity() {
                 CommoditiesTrader.stop()
                 MetalsTrader.stop()
                 ForexTrader.stop()
+                CryptoAltTrader.stop()
                 PerpsExecutionEngine.stop()
                 
                 withContext(Dispatchers.Main) {
@@ -721,6 +727,7 @@ class MultiAssetActivity : AppCompatActivity() {
                                 AssetTab.COMMODITIES -> PerpsMarket.values().filter { it.isCommodity }
                                 AssetTab.METALS -> PerpsMarket.values().filter { it.isMetal }
                                 AssetTab.FOREX -> PerpsMarket.values().filter { it.isForex }
+                AssetTab.CRYPTO -> PerpsMarket.values().filter { it.isCrypto && !it.isSolPerp }
                                 AssetTab.PERPS -> PerpsMarket.values().filter { it.isSolPerp }.take(10)
                             }
                             markets.forEach { market ->
@@ -1222,6 +1229,7 @@ class MultiAssetActivity : AppCompatActivity() {
             AssetTab.COMMODITIES -> "${PerpsMarket.values().count { it.isCommodity }} assets"
             AssetTab.METALS -> "${PerpsMarket.values().count { it.isMetal }} metals"
             AssetTab.FOREX -> "${PerpsMarket.values().count { it.isForex }} pairs"
+                AssetTab.CRYPTO -> "${PerpsMarket.values().count { it.isCrypto && !it.isSolPerp }} alts"
         }
         tvCategoryCount.text = count
     }
@@ -1245,6 +1253,7 @@ class MultiAssetActivity : AppCompatActivity() {
                 AssetTab.COMMODITIES -> "5x"
                 AssetTab.METALS -> "5x"
                 AssetTab.FOREX -> "10x"
+                AssetTab.CRYPTO -> "5x"
             }
             btnLeverageMode.text = "⚡ LEVERAGE ($leverage)"
         }
@@ -1738,7 +1747,8 @@ class MultiAssetActivity : AppCompatActivity() {
                 AssetTab.STOCKS -> PerpsMarket.values().filter { it.isStock }.take(15)
                 AssetTab.COMMODITIES -> PerpsMarket.values().filter { it.isCommodity }.take(10)
                 AssetTab.METALS -> PerpsMarket.values().filter { it.isMetal }.take(10)
-                AssetTab.FOREX -> PerpsMarket.values().filter { it.isForex }.take(10)
+                AssetTab.FOREX -> PerpsMarket.values().filter { it.isForex }
+                AssetTab.CRYPTO -> PerpsMarket.values().filter { it.isCrypto && !it.isSolPerp }.take(10)
                 AssetTab.PERPS -> PerpsMarket.values().filter { it.isSolPerp }.take(5)
             }
             
@@ -1876,6 +1886,7 @@ class MultiAssetActivity : AppCompatActivity() {
             AssetTab.COMMODITIES -> PerpsMarket.values().filter { it.isCommodity }
             AssetTab.METALS -> PerpsMarket.values().filter { it.isMetal }
             AssetTab.FOREX -> PerpsMarket.values().filter { it.isForex }
+                AssetTab.CRYPTO -> PerpsMarket.values().filter { it.isCrypto && !it.isSolPerp }
             AssetTab.PERPS -> PerpsMarket.values().filter { it.isSolPerp }
         }
         if (markets.isEmpty()) {
@@ -1941,7 +1952,7 @@ class MultiAssetActivity : AppCompatActivity() {
                 val dow = cal.get(java.util.Calendar.DAY_OF_WEEK)
                 dow == java.util.Calendar.SATURDAY || dow == java.util.Calendar.SUNDAY
             }
-            val isTraditionalMarket = currentTab in setOf(AssetTab.COMMODITIES, AssetTab.METALS, AssetTab.FOREX)
+            val isTraditionalMarket = currentTab in setOf(AssetTab.COMMODITIES, AssetTab.METALS, AssetTab.FOREX, AssetTab.CRYPTO)
             tvAiSignalStatus.text = if (isWeekend && isTraditionalMarket) "Closed (weekend)" else "Scanning..."
             aiSignalDot.setBackgroundResource(R.drawable.dot_green)
             return
@@ -1976,7 +1987,7 @@ class MultiAssetActivity : AppCompatActivity() {
             }
             // Tokenized stocks are Solana crypto tokens — 24/7 trading, no weekend restriction.
             // Only traditional markets (commodities, metals, forex) have weekend closures.
-            val isTraditionalMarket = currentTab in setOf(AssetTab.COMMODITIES, AssetTab.METALS, AssetTab.FOREX)
+            val isTraditionalMarket = currentTab in setOf(AssetTab.COMMODITIES, AssetTab.METALS, AssetTab.FOREX, AssetTab.CRYPTO)
             if (isWeekend && isTraditionalMarket) return emptyList()
 
             val signals = mutableListOf<AiSignal>()
@@ -1984,7 +1995,8 @@ class MultiAssetActivity : AppCompatActivity() {
                 AssetTab.STOCKS -> PerpsMarket.values().filter { it.isStock }.take(10)
                 AssetTab.COMMODITIES -> PerpsMarket.values().filter { it.isCommodity }.take(8)
                 AssetTab.METALS -> PerpsMarket.values().filter { it.isMetal }.take(8)
-                AssetTab.FOREX -> PerpsMarket.values().filter { it.isForex }.take(8)
+                AssetTab.FOREX -> PerpsMarket.values().filter { it.isForex }
+                AssetTab.CRYPTO -> PerpsMarket.values().filter { it.isCrypto && !it.isSolPerp }.take(8)
                 AssetTab.PERPS -> PerpsMarket.values().filter { it.isSolPerp }.take(5)
             }
 
@@ -2188,6 +2200,11 @@ class MultiAssetActivity : AppCompatActivity() {
             dotPerps.setBackgroundResource(
                 if (PerpsExecutionEngine.isRunning()) R.drawable.dot_green else R.drawable.dot_red
             )
+            try {
+                dotCrypto.setBackgroundResource(
+                    if (CryptoAltTrader.isRunning()) R.drawable.dot_green else R.drawable.dot_red
+                )
+            } catch (_: Exception) {}
         } catch (_: Exception) {}
     }
     
@@ -2233,6 +2250,10 @@ class MultiAssetActivity : AppCompatActivity() {
                     if (showSpotOnly) ForexTrader.getSpotPositions().size
                     else ForexTrader.getLeveragePositions().size
                 }
+                AssetTab.CRYPTO -> {
+                    if (showSpotOnly) CryptoAltTrader.getSpotPositions().size
+                    else CryptoAltTrader.getLeveragePositions().size
+                }
             }
         } catch (_: Exception) { 0 }
     }
@@ -2259,6 +2280,11 @@ class MultiAssetActivity : AppCompatActivity() {
                 AssetTab.FOREX -> {
                     val positions = if (showSpotOnly) ForexTrader.getSpotPositions()
                                    else ForexTrader.getLeveragePositions()
+                    positions.sumOf { it.getPnlSol() }
+                }
+                AssetTab.CRYPTO -> {
+                    val positions = if (showSpotOnly) CryptoAltTrader.getSpotPositions()
+                                   else CryptoAltTrader.getLeveragePositions()
                     positions.sumOf { it.getPnlSol() }
                 }
             }
@@ -2430,6 +2456,32 @@ class MultiAssetActivity : AppCompatActivity() {
                             sizeUsd = pos.size * solPrice,
                             openTime = pos.openTime,
                             leverage = pos.leverage
+                        )
+                    }
+                }
+                // ─── CRYPTO ALTS ──────────────────────────────────────────────
+                AssetTab.CRYPTO -> {
+                    val positions = if (showSpotOnly) CryptoAltTrader.getSpotPositions()
+                                   else CryptoAltTrader.getLeveragePositions()
+                    positions.map { pos ->
+                        val livePrice = PerpsMarketDataFetcher.getCachedPrice(pos.market)?.price?.takeIf { it > 0 } ?: pos.currentPrice
+                        if (livePrice > 0 && livePrice != pos.currentPrice) pos.currentPrice = livePrice
+                        val pnlSol = pos.getPnlSol()
+                        PositionInfo(
+                            symbol         = pos.market.symbol,
+                            directionEmoji = pos.direction.emoji,
+                            typeLabel      = pos.leverageLabel,
+                            entryPrice     = pos.entryPrice.fmt(4),
+                            currentPrice   = livePrice.fmt(4),
+                            pnl            = pnlSol,
+                            pnlUsd         = pnlSol * solPrice,
+                            pnlPct         = pos.getPnlPct(),
+                            takeProfitPrice= pos.takeProfitPrice.fmt(4),
+                            stopLossPrice  = pos.stopLossPrice.fmt(4),
+                            sizeSol        = pos.sizeSol,
+                            sizeUsd        = pos.sizeSol * solPrice,
+                            openTime       = pos.openTime,
+                            leverage       = pos.leverage
                         )
                     }
                 }
