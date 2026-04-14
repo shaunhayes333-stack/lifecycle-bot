@@ -223,7 +223,13 @@ class CryptoAltActivity : AppCompatActivity() {
     // FULL DASHBOARD
     // ═══════════════════════════════════════════════════════════════════════════
 
-    private fun buildFullDashboard() {
+    private fun formatMcap(usd: Double): String = when {
+        usd >= 1_000_000 -> "$%.2fM".format(usd / 1_000_000)
+        usd >= 1_000     -> "$%.1fK".format(usd / 1_000)
+        else             -> "$%.0f".format(usd)
+    }
+
+        private fun buildFullDashboard() {
         llContent.removeAllViews()
         buildTopStatusBar()     // HIVE MIND · SHADOW · REGIMES · LAYERS pills
         buildHeroSection()
@@ -539,15 +545,51 @@ class CryptoAltActivity : AppCompatActivity() {
     }
 
     private fun buildShitCoinTile() {
-        val stats   = ShitCoinTraderAI.getStats()
-        val mode    = ShitCoinTraderAI.getCurrentMode()
-        val tile    = buildTile(red, "💩 ShitCoin Degen", mode.name, if (mode == ShitCoinTraderAI.ShitCoinMode.HUNTING) orange else muted)
-        val row     = hBox().apply { layoutParams = llp(match, wrap).apply { topMargin = 6 } }
-        addStatChip(row, "Balance",  "◎${"%.3f".format(stats.balanceSol)}", white, 1f)
-        addStatChip(row, "Daily PnL","${if (stats.dailyPnlSol >= 0) "+" else ""}${"%.3f".format(stats.dailyPnlSol)}◎", if (stats.dailyPnlSol >= 0) green else red, 1f)
-        addStatChip(row, "Win Rate", "${"%.1f".format(stats.winRate)}%", if (stats.winRate >= 55) green else amber, 1f)
-        addStatChip(row, "Open",     "${stats.activePositions}", blue, 1f)
-        tile.addView(row); llContent.addView(tile)
+        val stats     = ShitCoinTraderAI.getStats()
+        val mode      = ShitCoinTraderAI.getCurrentMode()
+        val positions = ShitCoinTraderAI.getActivePositions()
+        val modeLabel = "${mode.name}  ${if (stats.winRate > 0) "· ${"%.1f".format(stats.winRate)}% WR" else ""}"
+        val tile      = buildTile(red, "💩 ShitCoin Degen", modeLabel, if (mode == ShitCoinTraderAI.ShitCoinMode.HUNTING) orange else muted)
+
+        val statsRow  = hBox().apply { layoutParams = llp(match, wrap).apply { topMargin = 6 } }
+        addStatChip(statsRow, "Balance",  "◎${"%.3f".format(stats.balanceSol)}", white, 1f)
+        addStatChip(statsRow, "Day PnL",  "${if (stats.dailyPnlSol >= 0) "+" else ""}${"%.3f".format(stats.dailyPnlSol)}◎", if (stats.dailyPnlSol >= 0) green else red, 1f)
+        addStatChip(statsRow, "Open",     "${positions.size}", blue, 1f)
+        tile.addView(statsRow)
+
+        if (positions.isNotEmpty()) {
+            tile.addView(thinDivider())
+            positions.forEach { pos ->
+                val currentPrice = try {
+                    com.lifecyclebot.engine.BotService.status.tokens[pos.mint]?.ref?.takeIf { it > 0 } ?: pos.entryPrice
+                } catch (_: Exception) { pos.entryPrice }
+                val gainPct = if (pos.entryPrice > 0) (currentPrice - pos.entryPrice) / pos.entryPrice * 100 else 0.0
+                val gainCol = if (gainPct >= 0) green else red
+                val pnlSol  = pos.entrySol * gainPct / 100.0
+                val elapsed = (System.currentTimeMillis() - pos.entryTime) / 60_000
+                val mcapLabel = formatMcap(pos.marketCapUsd)
+
+                val row = hBox().apply {
+                    layoutParams = llp(match, wrap).apply { topMargin = 8 }
+                    gravity = Gravity.CENTER_VERTICAL
+                }
+                val left = vBox(0, 0, 0).apply { layoutParams = llp(0, wrap, 1f) }
+                left.addView(hBox().apply {
+                    addView(tv("${pos.launchPlatform.emoji} ${pos.symbol}", 13f, orange, bold = true).apply { layoutParams = llp(0, wrap, 1f) })
+                    addView(tv("${elapsed}m", 9f, muted, mono = true))
+                })
+                left.addView(tv("Entry: ${pos.entryPrice.fmtPrice()}  ·  MCap: $mcapLabel", 9f, muted, mono = true))
+                left.addView(tv("TP:+${pos.takeProfitPct.toInt()}%  SL:${pos.stopLossPct.toInt()}%", 8f, muted, mono = true))
+                row.addView(left)
+                val right = vBox(0, 0, 0).apply { gravity = Gravity.END or Gravity.CENTER_VERTICAL; layoutParams = llp(wrap, wrap) }
+                right.addView(tv("%+.1f%%".format(gainPct), 13f, gainCol, bold = true, mono = true).apply { gravity = Gravity.END })
+                right.addView(tv("%+.4f◎".format(pnlSol),  9f,  gainCol, mono = true).apply { gravity = Gravity.END })
+                row.addView(right)
+                tile.addView(row)
+                tile.addView(thinDivider())
+            }
+        }
+        llContent.addView(tile)
     }
 
     private fun buildQualityTile() {
@@ -564,17 +606,58 @@ class CryptoAltActivity : AppCompatActivity() {
     }
 
     private fun buildBlueChipTile() {
-        val stats  = BlueChipTraderAI.getStats()
-        val wr     = BlueChipTraderAI.getWinRatePct().toDouble()
-        val bal    = BlueChipTraderAI.getCurrentBalance()
-        val pnl    = BlueChipTraderAI.getDailyPnlSol()
-        val tile   = buildTile(blue, "🔵 Blue Chip", "MCap \$1M+", blue)
-        val row    = hBox().apply { layoutParams = llp(match, wrap).apply { topMargin = 6 } }
-        addStatChip(row, "Balance",  "◎${"%.3f".format(bal)}", white, 1f)
-        addStatChip(row, "Daily PnL","${if (pnl >= 0) "+" else ""}${"%.3f".format(pnl)}◎", if (pnl >= 0) green else red, 1f)
-        addStatChip(row, "Win Rate", "${"%.1f".format(wr)}%", if (wr >= 55) green else amber, 1f)
-        addStatChip(row, "Open",     "${stats.activePositions}", blue, 1f)
-        tile.addView(row); llContent.addView(tile)
+        val stats     = BlueChipTraderAI.getStats()
+        val wr        = BlueChipTraderAI.getWinRatePct().toDouble()
+        val bal       = BlueChipTraderAI.getCurrentBalance()
+        val pnl       = BlueChipTraderAI.getDailyPnlSol()
+        val positions = BlueChipTraderAI.getActivePositions()
+        val totalRisk = positions.sumOf { it.entrySol }
+        val bcTotalPnlSol = positions.sumOf { p ->
+            val cp = try { com.lifecyclebot.engine.BotService.status.tokens[p.mint]?.ref?.takeIf { it > 0 } ?: p.entryPrice } catch (_: Exception) { p.entryPrice }
+            p.entrySol * (cp - p.entryPrice) / p.entryPrice
+        }
+        val tile      = buildTile(blue, "🔵 Blue Chip Trades", "${"%.3f".format(totalRisk)}◎  ${if (bcTotalPnlSol >= 0) "+" else ""}${"%.4f".format(bcTotalPnlSol)}◎", blue)
+
+        val statsRow  = hBox().apply { layoutParams = llp(match, wrap).apply { topMargin = 6 } }
+        addStatChip(statsRow, "Balance",  "◎${"%.3f".format(bal)}", white, 1f)
+        addStatChip(statsRow, "Day PnL",  "${if (pnl >= 0) "+" else ""}${"%.3f".format(pnl)}◎", if (pnl >= 0) green else red, 1f)
+        addStatChip(statsRow, "Win Rate", "${"%.1f".format(wr)}%", if (wr >= 55) green else amber, 1f)
+        addStatChip(statsRow, "Open",     "${positions.size}", blue, 1f)
+        tile.addView(statsRow)
+
+        if (positions.isNotEmpty()) {
+            tile.addView(thinDivider())
+            positions.forEach { pos ->
+                val currentPrice = try {
+                    com.lifecyclebot.engine.BotService.status.tokens[pos.mint]?.ref?.takeIf { it > 0 } ?: pos.entryPrice
+                } catch (_: Exception) { pos.entryPrice }
+                val gainPct = if (pos.entryPrice > 0) (currentPrice - pos.entryPrice) / pos.entryPrice * 100 else 0.0
+                val gainCol = if (gainPct >= 0) green else red
+                val pnlSol  = pos.entrySol * gainPct / 100.0
+                val elapsed = (System.currentTimeMillis() - pos.entryTime) / 60_000
+                val mcapLabel = formatMcap(pos.marketCapUsd)
+
+                val row = hBox().apply {
+                    layoutParams = llp(match, wrap).apply { topMargin = 8 }
+                    gravity = Gravity.CENTER_VERTICAL
+                }
+                val left = vBox(0, 0, 0).apply { layoutParams = llp(0, wrap, 1f) }
+                left.addView(hBox().apply {
+                    addView(tv("🔵 ${pos.symbol}", 13f, blue, bold = true).apply { layoutParams = llp(0, wrap, 1f) })
+                    addView(tv("${elapsed}m", 9f, muted, mono = true))
+                })
+                left.addView(tv("Entry: ${pos.entryPrice.fmtPrice()}  ·  MCap: $mcapLabel", 9f, muted, mono = true))
+                left.addView(tv("${"%.3f".format(pos.entrySol)}◎  TP:+${pos.takeProfitPct.toInt()}%  SL:${pos.stopLossPct.toInt()}%", 8f, muted, mono = true))
+                row.addView(left)
+                val right = vBox(0, 0, 0).apply { gravity = Gravity.END or Gravity.CENTER_VERTICAL; layoutParams = llp(wrap, wrap) }
+                right.addView(tv("%+.1f%%".format(gainPct), 13f, gainCol, bold = true, mono = true).apply { gravity = Gravity.END })
+                right.addView(tv("%+.4f◎".format(pnlSol),  9f,  gainCol, mono = true).apply { gravity = Gravity.END })
+                row.addView(right)
+                tile.addView(row)
+                tile.addView(thinDivider())
+            }
+        }
+        llContent.addView(tile)
     }
 
     private fun buildExpressTile() {
@@ -589,16 +672,52 @@ class CryptoAltActivity : AppCompatActivity() {
     }
 
     private fun buildMoonshotTile() {
-        val wr       = MoonshotTraderAI.getWinRatePct().toDouble()
-        val pnl      = MoonshotTraderAI.getDailyPnlSol()
-        val open     = MoonshotTraderAI.getActivePositions().size
-        val tile     = buildTile(purple, "🌙 Moonshot", "10x / 100x Hunters", purple)
-        val row      = hBox().apply { layoutParams = llp(match, wrap).apply { topMargin = 6 } }
-        addStatChip(row, "Win Rate", "${"%.1f".format(wr)}%", if (wr >= 55) green else amber, 1f)
-        addStatChip(row, "Daily PnL","${if (pnl >= 0) "+" else ""}${"%.3f".format(pnl)}◎", if (pnl >= 0) green else red, 1f)
-        addStatChip(row, "Open Pos", "$open", blue, 1f)
-        addStatChip(row, "10x Hits", "${MoonshotTraderAI.getLifetimeTenX()}", purple, 1f)
-        tile.addView(row); llContent.addView(tile)
+        val wr        = MoonshotTraderAI.getWinRatePct().toDouble()
+        val pnl       = MoonshotTraderAI.getDailyPnlSol()
+        val positions = MoonshotTraderAI.getActivePositions()
+        val msSubtitle = if (positions.isNotEmpty()) "${positions.size}W/${positions.size}L  ·  ${positions.first().spaceMode.displayName}" else "10x / 100x Hunters"
+        val tile      = buildTile(purple, "🌙 Moonshot", msSubtitle, purple)
+
+        val statsRow  = hBox().apply { layoutParams = llp(match, wrap).apply { topMargin = 6 } }
+        addStatChip(statsRow, "Win Rate",  "${"%.1f".format(wr)}%", if (wr >= 55) green else amber, 1f)
+        addStatChip(statsRow, "Day PnL",   "${if (pnl >= 0) "+" else ""}${"%.3f".format(pnl)}◎", if (pnl >= 0) green else red, 1f)
+        addStatChip(statsRow, "Open",      "${positions.size}", blue, 1f)
+        addStatChip(statsRow, "10x Hits",  "${MoonshotTraderAI.getLifetimeTenX()}", purple, 1f)
+        tile.addView(statsRow)
+
+        if (positions.isNotEmpty()) {
+            tile.addView(thinDivider())
+            positions.forEach { pos ->
+                val currentPrice = try {
+                    com.lifecyclebot.engine.BotService.status.tokens[pos.mint]?.ref?.takeIf { it > 0 } ?: pos.entryPrice
+                } catch (_: Exception) { pos.entryPrice }
+                val gainPct = if (pos.entryPrice > 0) (currentPrice - pos.entryPrice) / pos.entryPrice * 100 else 0.0
+                val gainCol = if (gainPct >= 0) green else red
+                val pnlSol  = pos.entrySol * gainPct / 100.0
+                val elapsed = (System.currentTimeMillis() - pos.entryTime) / 60_000
+                val mcapLabel = formatMcap(pos.marketCapUsd)
+
+                val row = hBox().apply {
+                    layoutParams = llp(match, wrap).apply { topMargin = 8 }
+                    gravity = Gravity.CENTER_VERTICAL
+                }
+                val left = vBox(0, 0, 0).apply { layoutParams = llp(0, wrap, 1f) }
+                left.addView(hBox().apply {
+                    addView(tv("${pos.spaceMode.emoji} ${pos.symbol}", 13f, purple, bold = true).apply { layoutParams = llp(0, wrap, 1f) })
+                    addView(tv("${elapsed}m", 9f, muted, mono = true))
+                })
+                left.addView(tv("${pos.entryPrice.fmtPrice()} → ${currentPrice.fmtPrice()}  ·  MCap: $mcapLabel", 9f, muted, mono = true))
+                left.addView(tv("TP:+${pos.takeProfitPct.toInt()}%  SL:${pos.stopLossPct.toInt()}%", 8f, muted, mono = true))
+                row.addView(left)
+                val right = vBox(0, 0, 0).apply { gravity = Gravity.END or Gravity.CENTER_VERTICAL; layoutParams = llp(wrap, wrap) }
+                right.addView(tv("%+.1f%%".format(gainPct), 13f, gainCol, bold = true, mono = true).apply { gravity = Gravity.END })
+                right.addView(tv("%+.4f◎".format(pnlSol),  9f,  gainCol, mono = true).apply { gravity = Gravity.END })
+                row.addView(right)
+                tile.addView(row)
+                tile.addView(thinDivider())
+            }
+        }
+        llContent.addView(tile)
     }
 
     private fun buildManipTile() {
