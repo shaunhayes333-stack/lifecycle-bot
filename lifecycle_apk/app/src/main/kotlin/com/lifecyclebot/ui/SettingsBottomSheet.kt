@@ -70,6 +70,7 @@ class SettingsBottomSheet : BottomSheetDialogFragment() {
     private lateinit var spTradingMode: Spinner
     private lateinit var switchMemeTrader: SwitchCompat
     private lateinit var switchMarketsTrader: SwitchCompat
+    private lateinit var switchCryptoAltsTrader: SwitchCompat
     
     fun setConfig(config: BotConfig) {
         currentConfig = config
@@ -137,6 +138,7 @@ class SettingsBottomSheet : BottomSheetDialogFragment() {
         spTradingMode = view.findViewById(R.id.spTradingMode)
         switchMemeTrader = view.findViewById(R.id.switchMemeTrader)
         switchMarketsTrader = view.findViewById(R.id.switchMarketsTrader)
+        switchCryptoAltsTrader = view.findViewById(R.id.switchCryptoAltsTrader)
     }
     
     private fun setupSpinners() {
@@ -179,6 +181,14 @@ class SettingsBottomSheet : BottomSheetDialogFragment() {
         // Also sync switches back to spinner
         switchMemeTrader.setOnCheckedChangeListener { _, _ -> syncTradingModeSpinner() }
         switchMarketsTrader.setOnCheckedChangeListener { _, _ -> syncTradingModeSpinner() }
+        switchCryptoAltsTrader.setOnCheckedChangeListener { _, isChecked ->
+            if (isChecked) {
+                if (!com.lifecyclebot.perps.CryptoAltTrader.isRunning()) {
+                    com.lifecyclebot.perps.CryptoAltTrader.init(requireContext())
+                    com.lifecyclebot.perps.CryptoAltTrader.start()
+                }
+            } else { com.lifecyclebot.perps.CryptoAltTrader.stop() }
+        }
     }
     
     private fun syncTradingModeSpinner() {
@@ -278,6 +288,7 @@ class SettingsBottomSheet : BottomSheetDialogFragment() {
         spTradingMode.setSelection(cfg.tradingMode.coerceIn(0, 2))
         switchMemeTrader.isChecked = cfg.memeTraderEnabled
         switchMarketsTrader.isChecked = cfg.marketsTraderEnabled
+        switchCryptoAltsTrader.isChecked = cfg.cryptoAltsEnabled
         
         etStopLoss.setText(cfg.stopLossPct.toString())
         etExitScore.setText(cfg.exitScoreThreshold.toString())
@@ -325,6 +336,7 @@ class SettingsBottomSheet : BottomSheetDialogFragment() {
             tradingMode = spTradingMode.selectedItemPosition,
             memeTraderEnabled = switchMemeTrader.isChecked,
             marketsTraderEnabled = switchMarketsTrader.isChecked,
+            cryptoAltsEnabled = switchCryptoAltsTrader.isChecked,
             stopLossPct = etStopLoss.text.toString().toDoubleOrNull() ?: cfg.stopLossPct,
             exitScoreThreshold = etExitScore.text.toString().toDoubleOrNull() ?: cfg.exitScoreThreshold,
             smallBuySol = etSmallBuy.text.toString().toDoubleOrNull() ?: cfg.smallBuySol,
@@ -359,3 +371,4 @@ class SettingsBottomSheet : BottomSheetDialogFragment() {
         dismiss()
     }
 }
+
