@@ -218,6 +218,27 @@ class MainActivity : AppCompatActivity() {
     private var tvPerpsTslaPrice: TextView? = null
     private var tvPerpsNvdaPrice: TextView? = null
     
+    // V1.0: Crypto Alts UI
+    private var cardCryptoAlts: android.view.View? = null
+    private var tvCryptoAltsModeBadge: TextView? = null
+    private var tvCryptoAltsBalance: TextView? = null
+    private var tvCryptoAltsPnl: TextView? = null
+    private var tvCryptoAltsWinRate: TextView? = null
+    private var tvCryptoAltsTrades: TextView? = null
+    private var tvCryptoAltsPhase: TextView? = null
+    private var viewCryptoAltsBar: android.view.View? = null
+    private var tvCryptoAltsReadiness: TextView? = null
+    private var tvCryptoAltsProgress: TextView? = null
+    private var tvAltsBtcPrice: TextView? = null
+    private var tvAltsBtcChange: TextView? = null
+    private var tvAltsEthPrice: TextView? = null
+    private var tvAltsEthChange: TextView? = null
+    private var tvAltsBnbPrice: TextView? = null
+    private var tvAltsBnbChange: TextView? = null
+    private var tvAltsXrpPrice: TextView? = null
+    private var tvAltsXrpChange: TextView? = null
+    private var llCryptoAltsPositions: LinearLayout? = null
+
     // V5.7.3: Tokenized Stocks UI
     private var cardTokenizedStocks: android.view.View? = null
     private var tvStocksModeBadge: TextView? = null
@@ -3566,6 +3587,7 @@ for legal compliance.
             // V5.7.6: ALWAYS update Tokenized Stocks card - it has its own engine
             // TokenizedStockTrader is independent of PerpsTraderAI
             updateTokenizedStocksCard()
+        updateCryptoAltsCard()
         } catch (_: Exception) { tvPerpsStats?.text = "—" }
         
         // AI Brain - show active/total layers
@@ -5053,6 +5075,22 @@ This cannot be undone!
         // V5.7.6: Multi-Asset Markets button → Opens dedicated trading UI
         findViewById<View>(R.id.btnQuickMarkets)?.setOnClickListener {
             startActivity(Intent(this, MultiAssetActivity::class.java))
+            performHaptic()
+        }
+
+        // V1.0: Crypto Alts tile → opens Markets screen on CRYPTO tab
+        findViewById<View>(R.id.btnQuickCryptoAlts)?.setOnClickListener {
+            val intent = Intent(this, MultiAssetActivity::class.java)
+            intent.putExtra("startTab", "CRYPTO")
+            startActivity(intent)
+            performHaptic()
+        }
+
+        // V1.0: "Open Full Crypto Alts Screen" button inside card
+        cardCryptoAlts?.findViewById<android.view.View>(R.id.btnOpenCryptoAltsMarkets)?.setOnClickListener {
+            val intent = Intent(this, MultiAssetActivity::class.java)
+            intent.putExtra("startTab", "CRYPTO")
+            startActivity(intent)
             performHaptic()
         }
     }
@@ -6821,6 +6859,126 @@ Trading outside hours may have wider spreads.
             com.lifecyclebot.engine.ErrorLogger.debug("MainActivity", "Stocks card update error: ${e.message}")
         }
     }
+
+    // ═══════════════════════════════════════════════════════════════════════
+    // V1.0: CRYPTO ALTS CARD — mirrors updateTokenizedStocksCard pattern
+    // ═══════════════════════════════════════════════════════════════════════
+    private fun updateCryptoAltsCard() {
+        try {
+            val altTrader = com.lifecyclebot.perps.CryptoAltTrader
+            if (!altTrader.isRunning()) {
+                cardCryptoAlts?.visibility = android.view.View.GONE
+                return
+            }
+            cardCryptoAlts?.visibility = android.view.View.VISIBLE
+
+            // Mode badge
+            val isLive = altTrader.isLiveMode()
+            tvCryptoAltsModeBadge?.text = if (isLive) "LIVE" else "PAPER"
+            tvCryptoAltsModeBadge?.setBackgroundResource(
+                if (isLive) R.drawable.pill_bg_red else R.drawable.pill_bg_yellow)
+            tvCryptoAltsModeBadge?.setTextColor(
+                if (isLive) 0xFFFFFFFF.toInt() else 0xFF000000.toInt())
+
+            // Balance
+            val bal = altTrader.getBalance()
+            tvCryptoAltsBalance?.text = "${"%.3f".format(bal)}◎"
+
+            // PnL
+            val pnl = altTrader.getTotalPnlSol()
+            tvCryptoAltsPnl?.text = "${if (pnl >= 0) "+" else ""}${"%.3f".format(pnl)}◎"
+            tvCryptoAltsPnl?.setTextColor(if (pnl >= 0) 0xFF22C55E.toInt() else 0xFFEF4444.toInt())
+
+            // Win rate
+            val wr = altTrader.getWinRate()
+            tvCryptoAltsWinRate?.text = "${wr.toInt()}%"
+            tvCryptoAltsWinRate?.setTextColor(when {
+                wr >= 55 -> 0xFF22C55E.toInt()
+                wr >= 45 -> 0xFFF59E0B.toInt()
+                else     -> 0xFFEF4444.toInt()
+            })
+
+            // Trades
+            tvCryptoAltsTrades?.text = "${altTrader.getTotalTrades()}"
+
+            // Readiness phase
+            val trades = altTrader.getTotalTrades()
+            val (phase, phasePct, phaseColor, phaseText) = when {
+                trades < 500  -> Quadruple("📚 BOOTSTRAP",  trades / 500.0,  0xFFF59E0B.toInt(), "Learning alt market patterns — paper mode only")
+                trades < 1500 -> Quadruple("🧠 LEARNING",   (trades - 500) / 1000.0,  0xFFF59E0B.toInt(), "Building alt pattern memory")
+                trades < 3000 -> Quadruple("🔬 VALIDATING", (trades - 1500) / 1500.0, 0xFF3B82F6.toInt(), "Validating signal reliability")
+                trades < 5000 -> Quadruple("⚡ MATURING",   (trades - 3000) / 2000.0, 0xFF8B5CF6.toInt(), "Refining alt execution strategy")
+                wr >= 55      -> Quadruple("✅ READY",       1.0, 0xFF22C55E.toInt(), "Alt trader is ready for live trading")
+                else          -> Quadruple("⚡ MATURING",   0.9, 0xFF8B5CF6.toInt(), "Improving win rate before live mode")
+            }
+            tvCryptoAltsPhase?.text = phase
+            tvCryptoAltsPhase?.setTextColor(phaseColor)
+            tvCryptoAltsProgress?.text = "${(phasePct * 100).toInt()}%"
+            tvCryptoAltsReadiness?.text = phaseText
+
+            // Progress bar width
+            viewCryptoAltsBar?.let { bar ->
+                val parent = bar.parent as? android.widget.FrameLayout ?: return@let
+                bar.post {
+                    val params = bar.layoutParams
+                    params.width = (parent.width * phasePct.coerceIn(0.0, 1.0)).toInt().coerceAtLeast(8)
+                    bar.layoutParams = params
+                }
+            }
+
+            // Price tickers — async, non-blocking
+            lifecycleScope.launch(kotlinx.coroutines.Dispatchers.IO) {
+                val priceTargets = listOf(
+                    com.lifecyclebot.perps.PerpsMarket.BTC  to (tvAltsBtcPrice  to tvAltsBtcChange),
+                    com.lifecyclebot.perps.PerpsMarket.ETH  to (tvAltsEthPrice  to tvAltsEthChange),
+                    com.lifecyclebot.perps.PerpsMarket.BNB  to (tvAltsBnbPrice  to tvAltsBnbChange),
+                    com.lifecyclebot.perps.PerpsMarket.XRP  to (tvAltsXrpPrice  to tvAltsXrpChange),
+                )
+                for ((market, views) in priceTargets) {
+                    val (priceView, changeView) = views
+                    try {
+                        val cached = com.lifecyclebot.perps.PerpsMarketDataFetcher.getCachedPrice(market)
+                        if (cached != null && cached.price > 0) {
+                            val price  = cached.price
+                            val change = cached.priceChange24hPct
+                            withContext(kotlinx.coroutines.Dispatchers.Main) {
+                                priceView?.text = if (price > 1000) "$${"%.0f".format(price)}"
+                                                  else "$${"%.4f".format(price)}"
+                                changeView?.text = "${if (change >= 0) "+" else ""}${"%.1f".format(change)}%"
+                                changeView?.setTextColor(if (change >= 0) 0xFF22C55E.toInt() else 0xFFEF4444.toInt())
+                            }
+                        }
+                    } catch (_: Exception) {}
+                }
+            }
+
+            // Open positions (top 3)
+            llCryptoAltsPositions?.removeAllViews()
+            val openPositions = altTrader.getAllPositions().take(3)
+            for (pos in openPositions) {
+                try {
+                    val pnlPct = pos.getPnlPct()
+                    val rowView = layoutInflater.inflate(R.layout.item_position_row, llCryptoAltsPositions, false)
+                        ?: continue
+                    rowView.findViewById<TextView>(R.id.tvPosSymbol)?.text = "${pos.market.emoji} ${pos.market.symbol}"
+                    rowView.findViewById<TextView>(R.id.tvPosDir)?.text = "${pos.direction.emoji} ${pos.leverageLabel}"
+                    rowView.findViewById<TextView>(R.id.tvPosPnl)?.apply {
+                        text = "${if (pnlPct >= 0) "+" else ""}${"%.2f".format(pnlPct)}%"
+                        setTextColor(if (pnlPct >= 0) 0xFF22C55E.toInt() else 0xFFEF4444.toInt())
+                    }
+                    llCryptoAltsPositions?.addView(rowView)
+                } catch (_: Exception) {}
+            }
+        } catch (_: Exception) {}
+    }
+
+    // Tiny helper for destructuring 4-tuples
+    private data class Quadruple<A,B,C,D>(val a:A, val b:B, val c:C, val d:D)
+    private operator fun <A,B,C,D> Quadruple<A,B,C,D>.component1() = a
+    private operator fun <A,B,C,D> Quadruple<A,B,C,D>.component2() = b
+    private operator fun <A,B,C,D> Quadruple<A,B,C,D>.component3() = c
+    private operator fun <A,B,C,D> Quadruple<A,B,C,D>.component4() = d
+
     
     /**
      * V5.7.5: Update the stocks positions list UI for TokenizedStockTrader
