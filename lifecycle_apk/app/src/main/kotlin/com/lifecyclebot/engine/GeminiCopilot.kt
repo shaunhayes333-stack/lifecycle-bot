@@ -360,7 +360,7 @@ object GeminiCopilot {
                     ?.optJSONObject("content")
                     ?.optJSONArray("parts")
                     ?.optJSONObject(0)
-                    ?.optString("text", null)
+                    ?.optString("text").takeIf { it?.isNotEmpty() == true }
 
                 rawText?.let { sanitizeJsonText(it) }
             }
