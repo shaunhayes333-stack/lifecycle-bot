@@ -193,21 +193,27 @@ class MultiAssetActivity : AppCompatActivity() {
     
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        setContentView(R.layout.activity_multi_asset)
-        
-        initViews()
-        setupTabs()
-        setupClickListeners()
+        try {
+            setContentView(R.layout.activity_multi_asset)
 
-        // Sync the Activity's isLiveMode flag with the actual trader state persisted from
-        // the last session. Without this, a user who closed the app in LIVE mode would see
-        // the mode button say "PAPER" while the balance still showed LIVE values.
-        isLiveMode = TokenizedStockTrader.isLiveMode()
-        updateModeButton()
+            initViews()
+            setupTabs()
+            setupClickListeners()
 
-        startUpdateLoop()
+            // Sync the Activity's isLiveMode flag with the actual trader state persisted from
+            // the last session. Without this, a user who closed the app in LIVE mode would see
+            // the mode button say "PAPER" while the balance still showed LIVE values.
+            isLiveMode = TokenizedStockTrader.isLiveMode()
+            updateModeButton()
 
-        ErrorLogger.info(TAG, "📊 MultiAssetActivity CREATED")
+            startUpdateLoop()
+
+            ErrorLogger.info(TAG, "📊 MultiAssetActivity CREATED")
+        } catch (e: Exception) {
+            ErrorLogger.crash(TAG, "MultiAssetActivity onCreate CRASH: ${e.javaClass.simpleName}: ${e.message}", e)
+            android.widget.Toast.makeText(this, "Markets failed to load: ${e.message?.take(80)}", android.widget.Toast.LENGTH_LONG).show()
+            finish()
+        }
     }
     
     override fun onDestroy() {
