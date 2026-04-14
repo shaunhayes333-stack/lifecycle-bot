@@ -2858,6 +2858,19 @@ for legal compliance.
                 }
             }
             
+            // V5.8.0: Token logo
+            val logoImgMs = android.widget.ImageView(this).apply {
+                layoutParams = LinearLayout.LayoutParams(40, 40).also { it.marginEnd = 10 }
+                scaleType = android.widget.ImageView.ScaleType.CENTER_CROP
+                try { background = androidx.core.content.ContextCompat.getDrawable(this@MainActivity, R.drawable.token_logo_bg) } catch (_: Exception) {}
+                load("https://cdn.dexscreener.com/tokens/solana/${pos.mint}") {
+                    crossfade(true); placeholder(R.drawable.ic_token_placeholder)
+                    error(R.drawable.ic_token_placeholder); allowHardware(false)
+                    transformations(coil.transform.CircleCropTransformation())
+                }
+            }
+            row.addView(logoImgMs)
+
             // Symbol
             val tvSymbol = TextView(this).apply {
                 text = pos.symbol
