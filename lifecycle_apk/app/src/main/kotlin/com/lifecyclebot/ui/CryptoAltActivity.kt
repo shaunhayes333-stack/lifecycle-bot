@@ -527,7 +527,7 @@ class CryptoAltActivity : AppCompatActivity() {
         tile.addView(row)
 
         if (best != null) {
-            tile.addView(tv("Best Variant: ${best.variantId}  •  Score: ${"%.2f".format(best.score)}",
+            tile.addView(tv("Best Variant: ${best.variantId}  •  WR: ${"%.1f".format(best.winRate)}%  AvgPnL: ${"%.3f".format(best.avgPnlPct)}",
                 9f, green).apply { layoutParams = llp(match, wrap).apply { topMargin = 4 } })
         }
 
@@ -537,7 +537,7 @@ class CryptoAltActivity : AppCompatActivity() {
                 layoutParams = llp(match, wrap).apply { topMargin = 4; bottomMargin = 2 }
             })
             insights.forEach { insight ->
-                tile.addView(tv("• ${insight.description}", 9f, muted).apply {
+                tile.addView(tv("• ${insight.message}", 9f, muted).apply {
                     layoutParams = llp(match, wrap).apply { bottomMargin = 1 }
                 })
             }
@@ -1088,3 +1088,4 @@ class CryptoAltActivity : AppCompatActivity() {
         else         -> muted
     }
 }
+
