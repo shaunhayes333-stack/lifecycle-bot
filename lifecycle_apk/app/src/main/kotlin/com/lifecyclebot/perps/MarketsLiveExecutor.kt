@@ -2,6 +2,7 @@ package com.lifecyclebot.perps
 
 import com.lifecyclebot.engine.ErrorLogger
 import com.lifecyclebot.engine.WalletManager
+import com.lifecyclebot.engine.UniversalBridgeEngine
 import com.lifecyclebot.network.JupiterApi
 import com.lifecyclebot.network.SolanaWallet
 import com.lifecyclebot.network.SwapQuote
@@ -222,19 +223,17 @@ object MarketsLiveExecutor {
         sizeSol: Double,
         priceUsd: Double,
     ): String? {
-        // Synthetic market: both directions post SOL→USDC collateral.
-        // P&L direction is tracked in app logic using Pyth oracle prices.
-        // LONG = buy/hold exposure, SHORT = sell/inverse exposure (app-side).
-        ErrorLogger.info(TAG, "  Executing STOCK trade: ${direction.emoji} ${market.symbol} (collateral post SOL→USDC)")
-
-        return executeJupiterSwap(
-            wallet = wallet,
-            walletAddress = walletAddress,
-            inputMint = SOL_MINT,
-            outputMint = USDC_MINT,
-            amountLamports = (sizeSol * 1_000_000_000).toLong(),
-            slippageBps = DEFAULT_SLIPPAGE_BPS,
-        )
+        // V2.0: Use UniversalBridgeEngine — works from ANY token, not just SOL
+        // Source = best token in wallet → bridge to USDC as collateral
+        val solPriceUsd = WalletManager.lastKnownSolPrice.takeIf { it > 0 } ?: 150.0
+        val sizeUsd     = sizeSol * solPriceUsd
+        ErrorLogger.info(TAG, "  Executing STOCK trade: ${direction.emoji} ${market.symbol} | \$${sizeUsd.fmt(2)} via UniversalBridge")
+        val bridge = UniversalBridgeEngine.prepareCapital(wallet, UniversalBridgeEngine.USDC_MINT, sizeUsd)
+        if (!bridge.success) {
+            ErrorLogger.warn(TAG, "  Bridge failed: ${bridge.errorMsg} — falling back to direct SOL swap")
+            return executeJupiterSwap(wallet, walletAddress, SOL_MINT, USDC_MINT, (sizeSol * 1_000_000_000).toLong(), DEFAULT_SLIPPAGE_BPS)
+        }
+        return bridge.swapTxSig ?: "bridge_no_swap_needed"
     }
 
     /**
@@ -248,16 +247,12 @@ object MarketsLiveExecutor {
         sizeSol: Double,
         priceUsd: Double,
     ): String? {
-        ErrorLogger.info(TAG, "  Executing COMMODITY trade: ${direction.emoji} ${market.symbol} (collateral post SOL→USDC)")
-
-        return executeJupiterSwap(
-            wallet = wallet,
-            walletAddress = walletAddress,
-            inputMint = SOL_MINT,
-            outputMint = USDC_MINT,
-            amountLamports = (sizeSol * 1_000_000_000).toLong(),
-            slippageBps = DEFAULT_SLIPPAGE_BPS,
-        )
+        val solPriceUsd = WalletManager.lastKnownSolPrice.takeIf { it > 0 } ?: 150.0
+        val sizeUsd     = sizeSol * solPriceUsd
+        ErrorLogger.info(TAG, "  Executing COMMODITY trade: ${direction.emoji} ${market.symbol} | \$${sizeUsd.fmt(2)} via UniversalBridge")
+        val bridge = UniversalBridgeEngine.prepareCapital(wallet, UniversalBridgeEngine.USDC_MINT, sizeUsd)
+        if (!bridge.success) { return executeJupiterSwap(wallet, walletAddress, SOL_MINT, USDC_MINT, (sizeSol * 1_000_000_000).toLong(), DEFAULT_SLIPPAGE_BPS) }
+        return bridge.swapTxSig ?: "bridge_no_swap_needed"
     }
 
     /**
@@ -294,16 +289,12 @@ object MarketsLiveExecutor {
         sizeSol: Double,
         priceUsd: Double,
     ): String? {
-        ErrorLogger.info(TAG, "  Executing FOREX trade: ${direction.emoji} ${market.symbol} (collateral post SOL→USDC)")
-
-        return executeJupiterSwap(
-            wallet = wallet,
-            walletAddress = walletAddress,
-            inputMint = SOL_MINT,
-            outputMint = USDC_MINT,
-            amountLamports = (sizeSol * 1_000_000_000).toLong(),
-            slippageBps = DEFAULT_SLIPPAGE_BPS,
-        )
+        val solPriceUsd = WalletManager.lastKnownSolPrice.takeIf { it > 0 } ?: 150.0
+        val sizeUsd     = sizeSol * solPriceUsd
+        ErrorLogger.info(TAG, "  Executing FOREX trade: ${direction.emoji} ${market.symbol} | \$${sizeUsd.fmt(2)} via UniversalBridge")
+        val bridge = UniversalBridgeEngine.prepareCapital(wallet, UniversalBridgeEngine.USDC_MINT, sizeUsd)
+        if (!bridge.success) { return executeJupiterSwap(wallet, walletAddress, SOL_MINT, USDC_MINT, (sizeSol * 1_000_000_000).toLong(), DEFAULT_SLIPPAGE_BPS) }
+        return bridge.swapTxSig ?: "bridge_no_swap_needed"
     }
     
     /**
