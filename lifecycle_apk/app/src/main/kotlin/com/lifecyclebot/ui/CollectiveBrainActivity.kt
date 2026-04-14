@@ -197,28 +197,12 @@ class CollectiveBrainActivity : AppCompatActivity() {
         
         // ═══════════════════════════════════════════════════════════════
         // V5.7.8: BOOST BUTTON — Scan/Backtest Collective Learning (24h cooldown)
+        // Uses XML btnBoost — removed duplicate programmatic button that was inserting into top bar
         // ═══════════════════════════════════════════════════════════════
         val boostPrefs = getSharedPreferences("collective_boost", android.content.Context.MODE_PRIVATE)
         
-        // Create boost button programmatically (below sync button)
-        val btnBoost = android.widget.Button(this).apply {
-            text = "⚡ BOOST — Scan & Backtest"
-            setTextColor(0xFF000000.toInt())
-            setBackgroundColor(0xFFFFD700.toInt())
-            textSize = 14f
-            typeface = android.graphics.Typeface.DEFAULT_BOLD
-            setPadding(dp(16), dp(12), dp(16), dp(12))
-        }
-        
-        // Find parent layout of sync button and add boost button after it
-        val syncParent = btnForceSync.parent as? android.view.ViewGroup
-        if (syncParent != null) {
-            val syncIndex = syncParent.indexOfChild(btnForceSync)
-            syncParent.addView(btnBoost, syncIndex + 1, android.widget.LinearLayout.LayoutParams(
-                android.widget.LinearLayout.LayoutParams.MATCH_PARENT,
-                android.widget.LinearLayout.LayoutParams.WRAP_CONTENT
-            ).apply { topMargin = dp(8) })
-        }
+        // Use the XML-defined boost button (in layout below the brain view)
+        val btnBoost = findViewById<android.widget.TextView>(R.id.btnBoost)
         
         // Check cooldown
         fun updateBoostState() {
@@ -229,13 +213,13 @@ class CollectiveBrainActivity : AppCompatActivity() {
                 val hoursLeft = ((cooldownMs - elapsed) / (60 * 60 * 1000.0)).toInt()
                 val minsLeft = (((cooldownMs - elapsed) % (60 * 60 * 1000L)) / (60 * 1000.0)).toInt()
                 btnBoost.text = "⚡ BOOST — ${hoursLeft}h ${minsLeft}m cooldown"
-                btnBoost.setBackgroundColor(0xFF333333.toInt())
+                btnBoost.setBackgroundResource(R.drawable.pill_bg)
                 btnBoost.setTextColor(0xFF888888.toInt())
                 btnBoost.isEnabled = false
                 btnBoost.alpha = 0.6f
             } else {
                 btnBoost.text = "⚡ BOOST — Scan & Backtest"
-                btnBoost.setBackgroundColor(0xFFFFD700.toInt())
+                btnBoost.setBackgroundResource(R.drawable.pill_bg_yellow)
                 btnBoost.setTextColor(0xFF000000.toInt())
                 btnBoost.isEnabled = true
                 btnBoost.alpha = 1.0f
@@ -252,6 +236,7 @@ class CollectiveBrainActivity : AppCompatActivity() {
             }
             
             btnBoost.text = "⚡ BOOSTING..."
+            btnBoost.setBackgroundResource(R.drawable.pill_bg)
             btnBoost.isEnabled = false
             btnBoost.alpha = 0.5f
             
