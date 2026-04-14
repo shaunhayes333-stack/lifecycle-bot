@@ -227,12 +227,7 @@ class CryptoAltActivity : AppCompatActivity() {
         buildHeroSection()
         buildReadinessTile()
         buildProofRunTile()
-        buildShitCoinTile()
-        buildQualityTile()
-        buildBlueChipTile()
-        buildExpressTile()
-        buildMoonshotTile()
-        buildManipTile()
+        buildModuleIconGrid()   // ← AATE-style 2-row icon grid
         buildShadowFDGPanel()
         buildHiveMindPanel()
         buildSectorHeatPanel()
@@ -400,6 +395,128 @@ class CryptoAltActivity : AppCompatActivity() {
         addStatChip(row, "Open Pos", "${stats.activeCount}", blue, 1f)
         addStatChip(row, "Caught",   "${stats.totalManipCaught}", pink, 1f)
         tile.addView(row); llContent.addView(tile)
+    }
+
+    // ═══════════════════════════════════════════════════════════════════════════
+    // MODULE ICON GRID  —  mirrors AATE main screen 2-row tile grid
+    // ═══════════════════════════════════════════════════════════════════════════
+
+    private fun buildModuleIconGrid() {
+        val grid = vBox(card, 12, 12).apply {
+            layoutParams = llp(match, wrap).apply { bottomMargin = 6 }
+        }
+
+        // ── Row 1: Active Traders ──────────────────────────────────────────────
+        val row1 = hBox().apply { layoutParams = llp(match, wrap) }
+
+        val scStats = ShitCoinTraderAI.getStats()
+        row1.addView(buildIconTile("💩", "Shit",
+            "${scStats.activePositions} | ${scStats.winRate.toInt()}%",
+            if (scStats.winRate >= 55) green else if (scStats.winRate >= 40) amber else red))
+
+        val qWr   = QualityTraderAI.getWinRate()
+        val qOpen = QualityTraderAI.getActivePositions().size
+        row1.addView(buildIconTile("💎", "Quality",
+            "$qOpen | ${qWr.toInt()}%",
+            if (qWr >= 55) green else if (qWr >= 40) amber else red))
+
+        val bcStats = BlueChipTraderAI.getStats()
+        row1.addView(buildIconTile("🔵", "Blue",
+            "${bcStats.activePositions} | ${bcStats.winRate.toInt()}%",
+            if (bcStats.winRate >= 55) green else if (bcStats.winRate >= 40) amber else red))
+
+        val exStats = ShitCoinExpress.getStats()
+        row1.addView(buildIconTile("⚡", "Express",
+            "${exStats.activeRides} | ${exStats.winRate.toInt()}%",
+            if (exStats.winRate >= 55) green else if (exStats.winRate >= 40) amber else red))
+
+        val maStats = ManipulatedTraderAI.getStats()
+        val maWr    = if (maStats.dailyWins + maStats.dailyLosses > 0)
+            (maStats.dailyWins.toDouble() / (maStats.dailyWins + maStats.dailyLosses) * 100).toInt() else 0
+        row1.addView(buildIconTile("🎭", "Manip",
+            "${maStats.activeCount} | $maWr%",
+            if (maWr >= 55) green else if (maWr >= 40) amber else red))
+
+        val moWr   = MoonshotTraderAI.getWinRatePct()
+        val moOpen = MoonshotTraderAI.getActivePositions().size
+        row1.addView(buildIconTile("🌙", "Moon",
+            "$moOpen | $moWr%",
+            if (moWr >= 55) green else if (moWr >= 40) amber else purple))
+
+        val flTrades = FluidLearningAI.getMarketsTradeCount()
+        val flPct    = (FluidLearningAI.getMarketsLearningProgress() * 100).toInt()
+        row1.addView(buildIconTile("🧠", "Learn",
+            "$flTrades | $flPct%",
+            if (flPct >= 80) green else if (flPct >= 40) blue else muted))
+
+        grid.addView(row1)
+
+        grid.addView(View(this).apply {
+            setBackgroundColor(divBg)
+            layoutParams = llp(match, 1).apply { topMargin = 8; bottomMargin = 8 }
+        })
+
+        // ── Row 2: Intelligence Modules ────────────────────────────────────────
+        val row2 = hBox().apply { layoutParams = llp(match, wrap) }
+
+        val ciStats = CollectiveIntelligenceAI.getStats()
+        row2.addView(buildIconTile("🐝", "Hive",
+            "${ciStats.cachedPatterns}/${ciStats.cachedModes}",
+            if (ciStats.isEnabled) amber else muted))
+
+        val shadow = ShadowLearningEngine.getBlockedTradeStats()
+        row2.addView(buildIconTile("👁️", "Shadow",
+            "${shadow.wouldHaveWon}/${shadow.totalTracked}",
+            if (shadow.totalTracked > 0) indigo else muted))
+
+        val dominance   = CryptoAltScannerAI.getDominanceCycleSignal()
+        val regimeShort = when {
+            dominance.contains("BULL", ignoreCase = true) -> "BULL"
+            dominance.contains("BEAR", ignoreCase = true) -> "BEAR"
+            dominance.contains("MEME", ignoreCase = true) -> "MEME"
+            dominance.contains("MID",  ignoreCase = true) -> "MID"
+            else -> dominance.take(4)
+        }
+        val regimeColor = when {
+            dominance.contains("BULL", ignoreCase = true) -> green
+            dominance.contains("BEAR", ignoreCase = true) -> red
+            else -> amber
+        }
+        row2.addView(buildIconTile("📊", "Regimes", regimeShort, regimeColor))
+
+        val plbLayers = PerpsLearningBridge.getConnectedLayerCount()
+        val plbSyncs  = PerpsLearningBridge.getCrossLayerSyncs()
+        row2.addView(buildIconTile("🔗", "Layers",
+            "${plbSyncs}s/${plbLayers}L",
+            if (plbLayers > 0) blue else muted))
+
+        val alCount = AdaptiveLearningEngine.getTradeCount()
+        row2.addView(buildIconTile("📐", "Adapt",
+            if (alCount > 0) "$alCount" else "NEW",
+            if (alCount > 100) green else if (alCount > 0) amber else muted))
+
+        val fg = CryptoAltScannerAI.getCryptoFearGreed()
+        row2.addView(buildIconTile("🌡️", "F&G",
+            "$fg/100",
+            if (fg > 60) green else if (fg < 30) red else amber))
+
+        val dynCount = DynamicAltTokenRegistry.getTokenCount()
+        row2.addView(buildIconTile("🌐", "Tokens",
+            "$dynCount",
+            if (dynCount > 100) teal else amber))
+
+        grid.addView(row2)
+        llContent.addView(grid)
+    }
+
+    private fun buildIconTile(emoji: String, label: String, stat: String, color: Int): LinearLayout {
+        return vBox(0xFF0D0D1A.toInt(), 4, 8).apply {
+            layoutParams = llp(0, wrap, 1f).apply { marginEnd = 3 }
+            gravity = android.view.Gravity.CENTER
+            addView(tv(emoji, 18f, white).apply { gravity = android.view.Gravity.CENTER })
+            addView(tv(label, 8f, muted).apply { gravity = android.view.Gravity.CENTER })
+            addView(tv(stat,  9f, color, mono = true).apply { gravity = android.view.Gravity.CENTER })
+        }
     }
 
     private fun buildShadowFDGPanel() {
