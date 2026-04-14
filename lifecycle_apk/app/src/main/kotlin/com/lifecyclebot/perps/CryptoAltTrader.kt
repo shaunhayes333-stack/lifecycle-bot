@@ -584,20 +584,21 @@ object CryptoAltTrader {
             } catch (_: Exception) {}
 
             // Execute via MarketsLiveExecutor (handles Jupiter swap + signing)
-            val txSig = MarketsLiveExecutor.executeLiveTrade(
-                market    = signal.market,
-                direction = signal.direction,
-                sizeSol   = sizeSol,
-                leverage  = if (isSpot) 1.0 else signal.leverage,
-                isPaper   = false
+            val (success, txSig) = MarketsLiveExecutor.executeLiveTrade(
+                market      = signal.market,
+                direction   = signal.direction,
+                sizeSol     = sizeSol,
+                leverage    = if (isSpot) 1.0 else signal.leverage,
+                priceUsd    = signal.price,
+                traderType  = "CryptoAlt"
             )
 
-            if (txSig != null) {
-                ErrorLogger.info(TAG, "🪙 LIVE TRADE EXECUTED: ${signal.market.symbol} tx=$txSig")
+            if (success) {
+                ErrorLogger.info(TAG, "🪙 LIVE TRADE EXECUTED: ${signal.market.symbol} tx=${txSig ?: "ok"}")
                 updateLiveBalance(balance - sizeSol)
                 true
             } else {
-                ErrorLogger.warn(TAG, "🪙 Live execution returned null for ${signal.market.symbol}")
+                ErrorLogger.warn(TAG, "🪙 Live execution returned failure for ${signal.market.symbol}")
                 false
             }
         } catch (e: Exception) {
