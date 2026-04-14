@@ -134,6 +134,60 @@ object PerpsTraderAI {
     // PERSISTENCE - SharedPreferences
     // ═══════════════════════════════════════════════════════════════════════════
     
+
+    // ═══════════════════════════════════════════════════════════════════════════
+    // V5.8.0: HIVEMIND PERPS MARKET WIN-RATE CACHE
+    // ═══════════════════════════════════════════════════════════════════════════
+
+    private val hivePerpsWinRates = ConcurrentHashMap<String, Pair<Double, Double>>()
+    private var hivePerpsLoadedAt = 0L
+    private const val HIVE_PERPS_TTL_MS = 30 * 60 * 1000L
+
+    private fun refreshHivePerpsRatesAsync() {
+        GlobalScope.launch(Dispatchers.IO) {
+            try {
+                val client = com.lifecyclebot.collective.CollectiveLearning.getClient() ?: return@launch
+                val rates = client.getPerpsMarketWinRates(minTrades = 10)
+                if (rates.isNotEmpty()) {
+                    hivePerpsWinRates.clear()
+                    hivePerpsWinRates.putAll(rates)
+                    hivePerpsLoadedAt = System.currentTimeMillis()
+                    ErrorLogger.info(TAG, "🧠 Hive perps cache refreshed: ${rates.size} market/dir pairs")
+                }
+            } catch (e: Exception) {
+                ErrorLogger.debug(TAG, "🧠 Hive perps refresh error: ${e.message}")
+            }
+        }
+    }
+
+    private fun hivePerpsAdjust(market: PerpsMarket, direction: PerpsDirection): Pair<Int, Int> {
+        if (System.currentTimeMillis() - hivePerpsLoadedAt > HIVE_PERPS_TTL_MS) {
+            refreshHivePerpsRatesAsync()
+        }
+        val key = "${market.symbol}_${direction.name}"
+        val stats = hivePerpsWinRates[key] ?: return Pair(0, 0)
+        val (winRate, avgPnl) = stats
+        if (winRate < 30.0) {
+            ErrorLogger.info(TAG, "🧠 Hive: ${market.symbol} ${direction.symbol} wr=${winRate.toInt()}% — crushing score")
+            return Pair(-25, -20)
+        }
+        val scoreAdj = when {
+            winRate >= 65.0 && avgPnl >= 3.0 -> +20
+            winRate >= 55.0                   -> +10
+            winRate < 40.0                    -> -15
+            winRate < 45.0                    -> -8
+            else                              -> 0
+        }
+        val confAdj = when {
+            winRate >= 65.0 -> +10
+            winRate >= 55.0 -> +5
+            winRate < 40.0  -> -10
+            winRate < 45.0  -> -5
+            else            -> 0
+        }
+        return Pair(scoreAdj, confAdj)
+    }
+
     private var prefs: android.content.SharedPreferences? = null
     private var lastSaveTime = 0L
     private const val SAVE_THROTTLE_MS = 10_000L
