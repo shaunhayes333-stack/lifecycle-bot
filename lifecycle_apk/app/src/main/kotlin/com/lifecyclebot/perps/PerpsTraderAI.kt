@@ -1,6 +1,9 @@
 package com.lifecyclebot.perps
 
 import com.lifecyclebot.engine.ErrorLogger
+import com.lifecyclebot.collective.PerpsTradeRecord
+import com.lifecyclebot.collective.PerpsPositionRecord
+import com.lifecyclebot.collective.CollectiveLearning
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.atomic.AtomicInteger
 import java.util.concurrent.atomic.AtomicLong
@@ -776,6 +779,39 @@ object PerpsTraderAI {
             ErrorLogger.debug(TAG, "Notification error: ${e.message}")
         }
         
+        // V5.8.0: Persist open position to Turso for cross-session learning
+        GlobalScope.launch(Dispatchers.IO) {
+            try {
+                val client = CollectiveLearning.getClient() ?: return@launch
+                val instanceId = CollectiveLearning.getInstanceId() ?: ""
+                val solPrice = try { PerpsMarketDataFetcher.getSolPrice() } catch (_: Exception) { 150.0 }
+                client.savePerpsPosition(PerpsPositionRecord(
+                    id = position.id,
+                    instanceId = instanceId,
+                    market = market.symbol,
+                    direction = direction.name,
+                    entryPrice = entryPrice,
+                    currentPrice = entryPrice,
+                    sizeSol = sizeSol,
+                    sizeUsd = sizeSol * solPrice,
+                    leverage = leverage,
+                    marginUsd = sizeSol * solPrice / leverage,
+                    liquidationPrice = position.liquidationPrice,
+                    entryTime = position.entryTime,
+                    riskTier = signal.recommendedRiskTier.name,
+                    takeProfitPrice = tpPrice,
+                    stopLossPrice = slPrice,
+                    aiScore = signal.score,
+                    aiConfidence = signal.confidence,
+                    paperMode = isPaper,
+                    status = "OPEN",
+                    lastUpdate = System.currentTimeMillis()
+                ))
+            } catch (e: Exception) {
+                ErrorLogger.debug(TAG, "📊 Position Turso persist error: ${e.message}")
+            }
+        }
+
         save()
         return position
     }
@@ -953,7 +989,57 @@ object PerpsTraderAI {
         try {
             PerpsCorrelationMatrix.recordReturn(position.market, pnlPct)
         } catch (e: Exception) {}
-        
+
+        // V5.8.0: Persist closed trade to Turso — this is how the bot REMEMBERS and LEARNS
+        GlobalScope.launch(Dispatchers.IO) {
+            try {
+                val client = CollectiveLearning.getClient() ?: return@launch
+                val instanceId = CollectiveLearning.getInstanceId() ?: ""
+                val holdMins = (trade.closeTime - trade.openTime) / 60_000.0
+
+                val tradeRecord = PerpsTradeRecord(
+                    tradeHash = "PERPS_${position.id}_${trade.closeTime}",
+                    instanceId = instanceId,
+                    market = position.market.symbol,
+                    direction = position.direction.name,
+                    entryPrice = position.entryPrice,
+                    exitPrice = exitPrice,
+                    sizeSol = position.sizeSol,
+                    leverage = position.leverage,
+                    pnlUsd = pnlUsd,
+                    pnlPct = pnlPct,
+                    openTime = position.entryTime,
+                    closeTime = trade.closeTime,
+                    closeReason = exitReason.displayName,
+                    riskTier = position.riskTier.name,
+                    aiScore = position.entryScore,
+                    aiConfidence = position.entryConfidence,
+                    paperMode = position.isPaper,
+                    isWin = isWin,
+                    holdMins = holdMins
+                )
+
+                val saved = client.savePerpsTradeRecord(tradeRecord)
+                if (saved) {
+                    ErrorLogger.debug(TAG, "📊 Perps trade persisted to Turso: ${position.market.symbol} ${position.direction.symbol} ${if (isWin) "WIN" else "LOSS"}")
+                    // Update per-market win-rate stats
+                    client.updatePerpsMarketStats(
+                        market = position.market.symbol,
+                        direction = position.direction.name,
+                        isWin = isWin,
+                        pnlPct = pnlPct,
+                        holdMins = holdMins
+                    )
+                    // Delete the open position record
+                    client.deletePerpsPosition(position.id)
+                } else {
+                    ErrorLogger.warn(TAG, "📊 Failed to persist perps trade for ${position.market.symbol}")
+                }
+            } catch (e: Exception) {
+                ErrorLogger.debug(TAG, "📊 Turso persist error: ${e.message}")
+            }
+        }
+
         save()
         return trade
     }
