@@ -580,7 +580,7 @@ object CryptoAltTrader {
 
             // Collect 0.1% trading fee first
             try {
-                MarketsLiveExecutor.collectTradingFeePublic(wallet, wallet.getPublicKeyOnly(), sizeSol)
+                MarketsLiveExecutor.collectTradingFeePublic(wallet, sizeSol * 0.001, signal.market.symbol, "OPEN")
             } catch (_: Exception) {}
 
             // Execute via MarketsLiveExecutor (handles Jupiter swap + signing)
