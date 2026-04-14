@@ -6609,4 +6609,241 @@ private fun Double.fmtMcap(): String = when {
     this >= 1_000_000  -> "$%.2fM".format(this / 1_000_000)
     this >= 1_000      -> "$%.1fK".format(this / 1_000)
     else               -> "$%.0f".format(this)
+
+    private fun setupStockButtonClickHandlers() {
+        try {
+            // Stock card click handlers
+            findViewById<View>(R.id.btnStocksAapl)?.setOnClickListener {
+                openQuickStockTrade(com.lifecyclebot.perps.PerpsMarket.AAPL)
+                performHaptic()
+            }
+            findViewById<View>(R.id.btnStocksTsla)?.setOnClickListener {
+                openQuickStockTrade(com.lifecyclebot.perps.PerpsMarket.TSLA)
+                performHaptic()
+            }
+            findViewById<View>(R.id.btnStocksNvda)?.setOnClickListener {
+                openQuickStockTrade(com.lifecyclebot.perps.PerpsMarket.NVDA)
+                performHaptic()
+            }
+            findViewById<View>(R.id.btnStocksGoogl)?.setOnClickListener {
+                openQuickStockTrade(com.lifecyclebot.perps.PerpsMarket.GOOGL)
+                performHaptic()
+            }
+            findViewById<View>(R.id.btnStocksAmzn)?.setOnClickListener {
+                openQuickStockTrade(com.lifecyclebot.perps.PerpsMarket.AMZN)
+                performHaptic()
+            }
+            findViewById<View>(R.id.btnStocksMeta)?.setOnClickListener {
+                openQuickStockTrade(com.lifecyclebot.perps.PerpsMarket.META)
+                performHaptic()
+            }
+            findViewById<View>(R.id.btnStocksMsft)?.setOnClickListener {
+                openQuickStockTrade(com.lifecyclebot.perps.PerpsMarket.MSFT)
+                performHaptic()
+            }
+            findViewById<View>(R.id.btnStocksCoin)?.setOnClickListener {
+                openQuickStockTrade(com.lifecyclebot.perps.PerpsMarket.COIN)
+                performHaptic()
+            }
+            
+            // Card click → V5.7.6: Navigate to MultiAssetActivity for proper Markets AI layers
+            cardTokenizedStocks?.setOnClickListener {
+                startActivity(Intent(this, MultiAssetActivity::class.java))
+                performHaptic()
+            }
+            
+            // Long press → show trade dialog
+            cardTokenizedStocks?.setOnLongClickListener {
+                showStockBuyDialog()
+                performHaptic()
+                true
+            }
+        } catch (_: Exception) {}
+    }
+
+    private fun showLearningStats() {
+        try {
+            val ws = vm.ui.value.walletState
+            val totalTrades = ws.totalTrades
+            val winRate = ws.winRate
+            val learningProgress = com.lifecyclebot.engine.FinalDecisionGate.getLearningProgress(totalTrades, winRate.toDouble())
+            val phase = com.lifecyclebot.engine.FinalDecisionGate.getLearningPhase(totalTrades)
+            
+            val phaseEmoji = when (phase) {
+                com.lifecyclebot.engine.FinalDecisionGate.LearningPhase.BOOTSTRAP -> "🌒"
+                com.lifecyclebot.engine.FinalDecisionGate.LearningPhase.LEARNING -> "🌗"
+                com.lifecyclebot.engine.FinalDecisionGate.LearningPhase.MATURE -> "🌕"
+            }
+            
+            val phaseName = when (phase) {
+                com.lifecyclebot.engine.FinalDecisionGate.LearningPhase.BOOTSTRAP -> "Bootstrap"
+                com.lifecyclebot.engine.FinalDecisionGate.LearningPhase.LEARNING -> "Learning"
+                com.lifecyclebot.engine.FinalDecisionGate.LearningPhase.MATURE -> "Mature"
+            }
+            
+            val tradesNeeded = when (phase) {
+                com.lifecyclebot.engine.FinalDecisionGate.LearningPhase.BOOTSTRAP -> maxOf(0, 50 - totalTrades)
+                com.lifecyclebot.engine.FinalDecisionGate.LearningPhase.LEARNING -> maxOf(0, 500 - totalTrades)
+                com.lifecyclebot.engine.FinalDecisionGate.LearningPhase.MATURE -> 0
+            }
+            
+            val message = """
+🧠 AI Learning Status
+
+$phaseEmoji Phase: $phaseName
+📊 Progress: ${"%.0f".format(learningProgress * 100)}%
+📈 Total Trades: $totalTrades
+🎯 Win Rate: $winRate%
+${if (tradesNeeded > 0) "⏳ Trades to next phase: $tradesNeeded" else "✅ Fully Mature!"}
+
+━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Learning Phases:
+• Bootstrap (0-50): Very loose thresholds
+• Learning (51-500): Gradually tightening
+• Mature (500+): Full AI strictness
+
+The brain fills as learning progresses.
+Keep trading to make it smarter!
+            """.trimIndent()
+            
+            AlertDialog.Builder(this, R.style.Theme_AATE_Dialog)
+                .setTitle("🧠 Brain Learning Status")
+                .setMessage(message)
+                .setPositiveButton("Got it!") { d, _ -> d.dismiss() }
+                .show()
+                
+            performHaptic()
+        } catch (_: Exception) {}
+    }
+
+    private fun updateCurrencySelectorText() {
+        try {
+            val info = currency.selectedInfo
+            btnCurrencySelector.text = "${info.code} ▼"
+        } catch (_: Exception) {}
+    }
+
+    private fun updateLearningInsightsPanel() {
+        try {
+            // Get insights data
+            val totalInsights = com.lifecyclebot.perps.PerpsLearningInsightsPanel.getTotalInsights()
+            val patterns = com.lifecyclebot.perps.PerpsLearningInsightsPanel.getPatternsCount()
+            val replays = com.lifecyclebot.perps.PerpsAutoReplayLearner.getTotalReplays()
+            val optimizations = com.lifecyclebot.perps.PerpsLearningInsightsPanel.getOptimizationsCount()
+            
+            // Update counts
+            tvInsightsCount?.text = "$totalInsights insights"
+            tvInsightsPatternsCount?.text = "$patterns"
+            tvInsightsReplaysCount?.text = "$replays"
+            tvInsightsOptimizations?.text = "$optimizations"
+            
+            // Update recent insights list
+            val insights = com.lifecyclebot.perps.PerpsLearningInsightsPanel.getRecentInsights(3)
+            llRecentInsights?.removeAllViews()
+            
+            for (insight in insights) {
+                val row = LinearLayout(this).apply {
+                    orientation = LinearLayout.HORIZONTAL
+                    gravity = android.view.Gravity.CENTER_VERTICAL
+                    layoutParams = LinearLayout.LayoutParams(
+                        LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT
+                    ).also { it.bottomMargin = 4 }
+                }
+                
+                val tvEmoji = TextView(this).apply {
+                    text = insight.type.emoji
+                    textSize = 12f
+                    layoutParams = LinearLayout.LayoutParams(
+                        LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT
+                    ).also { it.marginEnd = 6 }
+                }
+                
+                val tvText = TextView(this).apply {
+                    text = insight.title
+                    setTextColor(0xFFFFFFFF.toInt())
+                    textSize = 9f
+                    layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
+                }
+                
+                val tvTime = TextView(this).apply {
+                    text = insight.getTimeAgo()
+                    setTextColor(0xFF6B7280.toInt())
+                    textSize = 8f
+                }
+                
+                row.addView(tvEmoji)
+                row.addView(tvText)
+                row.addView(tvTime)
+                
+                row.setOnClickListener {
+                    showInsightDetailDialog(insight)
+                    performHaptic()
+                }
+                
+                llRecentInsights?.addView(row)
+            }
+            
+            // Setup view all button
+            btnViewAllInsights?.setOnClickListener {
+                showAllInsightsDialog()
+                performHaptic()
+            }
+            
+        } catch (e: Exception) {
+            com.lifecyclebot.engine.ErrorLogger.debug("MainActivity", "Insights panel update error: ${e.message}")
+        }
+    }
+
+    private fun showNetworkSignalAutoBuyerDialog() {
+        val autoBuyer = com.lifecyclebot.perps.NetworkSignalAutoBuyer
+        val stats = autoBuyer.getStats()
+        val config = autoBuyer.getConfig()
+        
+        val message = """
+📡 NETWORK SIGNAL AUTO-BUYER
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Status: ${if (stats.isEnabled) "🟢 ACTIVE" else "🔴 DISABLED"}
+Mode: ${if (stats.paperModeOnly) "📝 PAPER" else "💰 LIVE"}
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+📊 TODAY'S STATS
+───────────────────────────────
+Daily Auto-Buys: ${stats.dailyAutoBuys}/${stats.maxDailyAutoBuys}
+Successful: ${stats.successfulBuys}
+Failed: ${stats.failedBuys}
+Active Cooldowns: ${stats.activeCooldowns}
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+⚙️ CONFIGURATION
+───────────────────────────────
+🔥 MEGA_WINNER: ${if (config.autoBuyMegaWinners) "✅ Auto" else "❌ Skip"}
+🌐 HOT_TOKEN: ${if (config.autoBuyHotTokens) "✅ Auto" else "❌ Skip"}
+Min Acks: ${config.minAckCount}
+Min Confidence: ${config.minConfidence}%
+Min Liquidity: $${String.format("%,.0f", config.minLiquidityUsd)}
+Position Size: ${config.positionSizePct}%
+Cooldown: ${config.cooldownMinutes} min
+AI Confirmation: ${if (config.requireAIConfirmation) "✅" else "❌"}
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+        """.trimIndent()
+        
+        AlertDialog.Builder(this, R.style.Theme_AATE_Dialog)
+            .setTitle("📡 Network Signal Auto-Buyer")
+            .setMessage(message)
+            .setPositiveButton("Close") { d, _ -> d.dismiss() }
+            .setNegativeButton(if (stats.isEnabled) "Disable" else "Enable") { d, _ ->
+                if (stats.isEnabled) {
+                    autoBuyer.stop()
+                    Toast.makeText(this, "📡 Auto-buyer disabled", Toast.LENGTH_SHORT).show()
+                } else {
+                    autoBuyer.start()
+                    Toast.makeText(this, "📡 Auto-buyer enabled", Toast.LENGTH_SHORT).show()
+                }
+                d.dismiss()
+            }
+            .show()
+    }
 }
