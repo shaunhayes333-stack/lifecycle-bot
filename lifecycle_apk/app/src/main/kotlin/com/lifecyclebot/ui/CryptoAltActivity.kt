@@ -518,7 +518,7 @@ class CryptoAltActivity : AppCompatActivity() {
         val boost    = FluidLearningAI.getBootstrapConfidenceBoost()
         val sizeMult = FluidLearningAI.getBootstrapSizeMultiplier()
         val phase    = getPhaseLabel()
-        val tile     = buildTile(phaseColor(phase), "🚦 Live Readiness", phase, phaseColor(phase))
+        val tile     = buildTile(phaseColor(phase), "🚦 Live Readiness", phase, phaseColor(phase)) { showReadinessDetailDialog() }
         tile.addView(progressBar(phaseColor(phase), (FluidLearningAI.getMarketsLearningProgress() * 100).toInt()))
         val row = hBox().apply { layoutParams = llp(match, wrap).apply { topMargin = 6 } }
         addStatChip(row, "V3 Trades",  "$trades",    white,  1f)
@@ -535,7 +535,7 @@ class CryptoAltActivity : AppCompatActivity() {
         val wr        = if (total > 0) RunTracker30D.wins.toDouble() / total * 100 else 0.0
         val pnl       = RunTracker30D.totalRealizedPnlSol
         val integrity = if (isActive) RunTracker30D.integrityScore() else 0
-        val tile      = buildTile(teal, "📈 30-Day Proof Run", if (isActive) "Day $day / 30" else "NOT STARTED", if (isActive) teal else muted)
+        val tile      = buildTile(teal, "📈 30-Day Proof Run", if (isActive) "Day $day / 30" else "NOT STARTED", if (isActive) teal else muted) { showProofRunDetailDialog() }
         val row = hBox().apply { layoutParams = llp(match, wrap).apply { topMargin = 6 } }
         addStatChip(row, "Trades",    "$total", white, 1f)
         addStatChip(row, "Win Rate",  "${"%.1f".format(wr)}%", if (wr >= 55) green else amber, 1f)
@@ -549,7 +549,7 @@ class CryptoAltActivity : AppCompatActivity() {
         val mode      = ShitCoinTraderAI.getCurrentMode()
         val positions = ShitCoinTraderAI.getActivePositions()
         val modeLabel = "${mode.name}  ${if (stats.winRate > 0) "· ${"%.1f".format(stats.winRate)}% WR" else ""}"
-        val tile      = buildTile(red, "💩 ShitCoin Degen", modeLabel, if (mode == ShitCoinTraderAI.ShitCoinMode.HUNTING) orange else muted)
+        val tile      = buildTile(red, "💩 ShitCoin Degen", modeLabel, if (mode == ShitCoinTraderAI.ShitCoinMode.HUNTING) orange else muted) { showShitCoinDetailDialog() }
 
         val statsRow  = hBox().apply { layoutParams = llp(match, wrap).apply { topMargin = 6 } }
         addStatChip(statsRow, "Balance",  "◎${"%.3f".format(stats.balanceSol)}", white, 1f)
@@ -596,7 +596,7 @@ class CryptoAltActivity : AppCompatActivity() {
         val wr        = QualityTraderAI.getWinRate()
         val pnl       = QualityTraderAI.getDailyPnl()
         val positions = QualityTraderAI.getActivePositions()
-        val tile      = buildTile(teal, "💎 Quality Mode", "MCap \$100K–\$1M", teal)
+        val tile      = buildTile(teal, "💎 Quality Mode", "MCap \$100K–\$1M", teal) { showQualityDetailDialog() }
 
         val statsRow  = hBox().apply { layoutParams = llp(match, wrap).apply { topMargin = 6 } }
         addStatChip(statsRow, "Win Rate",  "${"%.1f".format(wr)}%", if (wr >= 55) green else amber, 1f)
@@ -647,7 +647,7 @@ class CryptoAltActivity : AppCompatActivity() {
             val cp = try { com.lifecyclebot.engine.BotService.status.tokens[p.mint]?.ref?.takeIf { it > 0 } ?: p.entryPrice } catch (_: Exception) { p.entryPrice }
             p.entrySol * (cp - p.entryPrice) / p.entryPrice
         }
-        val tile      = buildTile(blue, "🔵 Blue Chip Trades", "${"%.3f".format(totalRisk)}◎  ${if (bcTotalPnlSol >= 0) "+" else ""}${"%.4f".format(bcTotalPnlSol)}◎", blue)
+        val tile      = buildTile(blue, "🔵 Blue Chip Trades", "${"%.3f".format(totalRisk) { showBlueChipDetailDialog() }}◎  ${if (bcTotalPnlSol >= 0) "+" else ""}${"%.4f".format(bcTotalPnlSol)}◎", blue)
 
         val statsRow  = hBox().apply { layoutParams = llp(match, wrap).apply { topMargin = 6 } }
         addStatChip(statsRow, "Balance",  "◎${"%.3f".format(bal)}", white, 1f)
@@ -694,7 +694,7 @@ class CryptoAltActivity : AppCompatActivity() {
     private fun buildExpressTile() {
         val stats = ShitCoinExpress.getStats()
         val rides = ShitCoinExpress.getActiveRides()
-        val tile  = buildTile(orange, "⚡ Express Mode", "High Velocity  ${rides.size} riding", orange)
+        val tile  = buildTile(orange, "⚡ Express Mode", "High Velocity  ${rides.size} riding", orange) { showExpressDetailDialog() }
 
         val statsRow = hBox().apply { layoutParams = llp(match, wrap).apply { topMargin = 6 } }
         addStatChip(statsRow, "Win Rate",  "${"%.1f".format(stats.winRate)}%", if (stats.winRate >= 55) green else amber, 1f)
@@ -739,7 +739,7 @@ class CryptoAltActivity : AppCompatActivity() {
         val pnl       = MoonshotTraderAI.getDailyPnlSol()
         val positions = MoonshotTraderAI.getActivePositions()
         val msSubtitle = if (positions.isNotEmpty()) "${positions.size}W/${positions.size}L  ·  ${positions.first().spaceMode.displayName}" else "10x / 100x Hunters"
-        val tile      = buildTile(purple, "🌙 Moonshot", msSubtitle, purple)
+        val tile      = buildTile(purple, "🌙 Moonshot", msSubtitle, purple) { showMoonshotDetailDialog() }
 
         val statsRow  = hBox().apply { layoutParams = llp(match, wrap).apply { topMargin = 6 } }
         addStatChip(statsRow, "Win Rate",  "${"%.1f".format(wr)}%", if (wr >= 55) green else amber, 1f)
@@ -787,7 +787,7 @@ class CryptoAltActivity : AppCompatActivity() {
         val stats     = ManipulatedTraderAI.getStats()
         val positions = ManipulatedTraderAI.getActivePositions()
         val manipWr   = if (stats.dailyWins + stats.dailyLosses > 0) (stats.dailyWins.toDouble() / (stats.dailyWins + stats.dailyLosses) * 100) else 0.0
-        val tile      = buildTile(pink, "🎭 Manip Catch", "Caught: ${stats.totalManipCaught}  ${if (positions.isNotEmpty()) "· ${positions.size} open" else ""}", pink)
+        val tile      = buildTile(pink, "🎭 Manip Catch", "Caught: ${stats.totalManipCaught}  ${if (positions.isNotEmpty() { showManipDetailDialog() }) "· ${positions.size} open" else ""}", pink)
 
         val statsRow  = hBox().apply { layoutParams = llp(match, wrap).apply { topMargin = 6 } }
         addStatChip(statsRow, "Win Rate",  "${"%.1f".format(manipWr)}%", if (manipWr >= 55) green else amber, 1f)
@@ -1080,7 +1080,7 @@ class CryptoAltActivity : AppCompatActivity() {
     private fun buildShadowFDGPanel() {
         val shadow  = ShadowLearningEngine.getBlockedTradeStats()
         val topMode = ShadowLearningEngine.getTopTrackedMode() ?: "—"
-        val tile    = buildTile(indigo, "👁️ Shadow FDG", "Blocked Trade Analysis", indigo)
+        val tile    = buildTile(indigo, "👁️ Shadow FDG", "Blocked Trade Analysis", indigo) { showShadowFDGDetailDialog() }
         val row     = hBox().apply { layoutParams = llp(match, wrap).apply { topMargin = 6 } }
         addStatChip(row, "Tracked",   "${shadow.totalTracked}", white, 1f)
         addStatChip(row, "Would Win", "${shadow.wouldHaveWon}", green, 1f)
@@ -1092,7 +1092,7 @@ class CryptoAltActivity : AppCompatActivity() {
     private fun buildHiveMindPanel() {
         // ── Collective Intelligence AI ─────────────────────────────────────────
         val ci      = CollectiveIntelligenceAI.getStats()
-        val tile    = buildTile(amber, "🐝 Hive Mind", "Collective Intelligence", amber)
+        val tile    = buildTile(amber, "🐝 Hive Mind", "Collective Intelligence", amber) { showHiveMindDetailDialog() }
         val row1    = hBox().apply { layoutParams = llp(match, wrap).apply { topMargin = 6 } }
         addStatChip(row1, "Patterns",   "${ci.cachedPatterns}",   white,  1f)
         addStatChip(row1, "Modes",      "${ci.cachedModes}",      amber,  1f)
@@ -2036,7 +2036,7 @@ class CryptoAltActivity : AppCompatActivity() {
     // UI FACTORY HELPERS
     // ═══════════════════════════════════════════════════════════════════════════
 
-    private fun buildTile(accentColor: Int, title: String, badge: String, badgeColor: Int): LinearLayout {
+    private fun buildTile(accentColor: Int, title: String, badge: String, badgeColor: Int, onClick: (() -> Unit)? = null): LinearLayout {
         return vBox(card, 16, 14).apply {
             addView(View(this@CryptoAltActivity).apply {
                 setBackgroundColor(accentColor)
@@ -2047,7 +2047,16 @@ class CryptoAltActivity : AppCompatActivity() {
             header.addView(tv(badge, 9f, badgeColor, bold = true).apply {
                 setBackgroundColor(0xFF0D0D1A.toInt()); setPadding(6, 3, 6, 3)
             })
+            if (onClick != null) {
+                header.addView(tv(" ›", 16f, 0xFF4B5563.toInt()).apply { setPadding(4, 0, 0, 0) })
+            }
             addView(header)
+            if (onClick != null) {
+                isClickable = true; isFocusable = true
+                setOnClickListener { onClick() }
+                foreground = android.graphics.drawable.RippleDrawable(
+                    android.content.res.ColorStateList.valueOf(0x22FFFFFF), null, null)
+            }
         }
     }
 
@@ -2171,7 +2180,405 @@ class CryptoAltActivity : AppCompatActivity() {
         "READY"      -> green
         else         -> muted
     }
+
+    // ═══════════════════════════════════════════════════════════════════════════
+    // MODE DETAIL DIALOGS — tap any tile to see full stats
+    // ═══════════════════════════════════════════════════════════════════════════
+
+    private fun showReadinessDetailDialog() {
+        try {
+            val phase      = getPhaseLabel()
+            val wr         = CryptoAltTrader.getWinRate()
+            val trades     = CryptoAltTrader.getTotalTrades()
+            val flProgress = (FluidLearningAI.getMarketsLearningProgress() * 100).toInt()
+            val flTrades   = FluidLearningAI.getMarketsTradeCount()
+            val confBoost  = FluidLearningAI.getBootstrapConfidenceBoost()
+            val sizeMult   = FluidLearningAI.getBootstrapSizeMultiplier()
+            val threshold  = FluidLearningAI.getMarketsSpotScoreThreshold()
+            val msg = buildString {
+                appendLine("🚦 LIVE READINESS — ALT TRADER")
+                appendLine("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+                appendLine()
+                appendLine("Phase: $phase")
+                appendLine("Win Rate: ${"%.1f".format(wr)}%")
+                appendLine("Trades: $trades")
+                appendLine()
+                appendLine("📚 FLUID LEARNING")
+                appendLine("━━━━━━━━━━━━━━━━━")
+                appendLine("Progress: $flProgress%")
+                appendLine("Markets Trades: $flTrades")
+                appendLine("Confidence Boost: +${"%.1f".format(confBoost * 100)}%")
+                appendLine("Size Multiplier: ${"%.2f".format(sizeMult)}x")
+                appendLine("Score Threshold: $threshold")
+                appendLine()
+                appendLine("Requirements to go LIVE:")
+                appendLine("• 1000+ trades")
+                appendLine("• 55%+ win rate")
+                appendLine("• 30-day proof run complete")
+            }
+            AlertDialog.Builder(this)
+                .setTitle("🚦 Live Readiness")
+                .setMessage(msg)
+                .setPositiveButton("OK", null)
+                .show()
+        } catch (e: Exception) {
+            Toast.makeText(this, "Readiness: ${e.message}", Toast.LENGTH_SHORT).show()
+        }
+    }
+
+    private fun showProofRunDetailDialog() {
+        try {
+            val isActive  = RunTracker30D.isRunActive()
+            val day       = RunTracker30D.getCurrentDay()
+            val pnl       = RunTracker30D.totalRealizedPnlSol
+            val maxDD     = RunTracker30D.maxDrawdown
+            val integrity = RunTracker30D.getIntegrityScore()
+            val msg = buildString {
+                appendLine("📈 30-DAY PROOF RUN")
+                appendLine("━━━━━━━━━━━━━━━━━━")
+                appendLine()
+                if (isActive) {
+                    appendLine("Day: $day / 30")
+                    appendLine("Realized PnL: ${if (pnl >= 0) "+" else ""}${"%.4f".format(pnl)}◎")
+                    appendLine("Max Drawdown: ${"%.1f".format(maxDD)}%")
+                    appendLine("Integrity: $integrity / 100")
+                } else {
+                    appendLine("Status: NOT STARTED")
+                    appendLine()
+                    appendLine("Complete 30 consecutive trading")
+                    appendLine("days to qualify for live mode.")
+                }
+                appendLine()
+                appendLine("The proof run validates that the")
+                appendLine("AI is ready for real money.")
+            }
+            AlertDialog.Builder(this)
+                .setTitle("📈 30-Day Proof Run")
+                .setMessage(msg)
+                .setPositiveButton("OK", null)
+                .show()
+        } catch (e: Exception) {
+            Toast.makeText(this, "ProofRun: ${e.message}", Toast.LENGTH_SHORT).show()
+        }
+    }
+
+    private fun showShitCoinDetailDialog() {
+        try {
+            val stats   = ShitCoinTraderAI.getStats()
+            val mode    = ShitCoinTraderAI.getCurrentMode()
+            val modeEmoji = when (mode) {
+                ShitCoinTraderAI.ShitCoinMode.HUNTING    -> "🎯"
+                ShitCoinTraderAI.ShitCoinMode.POSITIONED -> "📍"
+                ShitCoinTraderAI.ShitCoinMode.CAUTIOUS   -> "⚠️"
+                ShitCoinTraderAI.ShitCoinMode.PAUSED     -> "⏸️"
+                ShitCoinTraderAI.ShitCoinMode.GRADUATION -> "🎓"
+            }
+            val msg = buildString {
+                appendLine("💩 SHITCOIN DEGEN")
+                appendLine("━━━━━━━━━━━━━━━━━")
+                appendLine()
+                appendLine("$modeEmoji Mode: ${mode.name}")
+                appendLine("Balance: ${"%.4f".format(stats.balanceSol)}◎")
+                appendLine()
+                appendLine("📊 DAILY STATS")
+                appendLine("W/L: ${stats.dailyWins} / ${stats.dailyLosses}")
+                appendLine("Trades: ${stats.dailyTradeCount}")
+                appendLine("Win Rate: ${"%.1f".format(stats.winRate)}%")
+                appendLine("Day PnL: ${if (stats.dailyPnlSol >= 0) "+" else ""}${"%.4f".format(stats.dailyPnlSol)}◎")
+                appendLine("Open: ${stats.activePositions}")
+                appendLine()
+                appendLine("🎰 TARGETS")
+                appendLine("MCap: < \$30K")
+                appendLine("Age: < 6 hours")
+                appendLine("Max Size: 0.20◎")
+                appendLine("Hold: < 15 min")
+            }
+            AlertDialog.Builder(this)
+                .setTitle("💩 ShitCoin Degen")
+                .setMessage(msg)
+                .setPositiveButton("OK", null)
+                .setNeutralButton("Reset Daily") { d, _ ->
+                    ShitCoinTraderAI.resetDaily()
+                    Toast.makeText(this, "ShitCoin daily reset", Toast.LENGTH_SHORT).show()
+                    d.dismiss()
+                }
+                .show()
+        } catch (e: Exception) {
+            Toast.makeText(this, "ShitCoin: ${e.message}", Toast.LENGTH_SHORT).show()
+        }
+    }
+
+    private fun showQualityDetailDialog() {
+        try {
+            val wr        = QualityTraderAI.getWinRate()
+            val pnl       = QualityTraderAI.getDailyPnl()
+            val positions = QualityTraderAI.getActivePositions()
+            val tp        = QualityTraderAI.getFluidTakeProfit()
+            val sl        = QualityTraderAI.getFluidStopLoss()
+            val posList   = if (positions.isEmpty()) "  (none)" else
+                positions.joinToString("
+") { "  • ${it.symbol}  \$${(it.entryMcap/1000).toInt()}K  ${((System.currentTimeMillis()-it.entryTime)/60000)}m" }
+            val msg = buildString {
+                appendLine("💎 QUALITY MODE  (\$100K–\$1M)")
+                appendLine("━━━━━━━━━━━━━━━━━━━━━━━━━━")
+                appendLine()
+                appendLine("Win Rate: ${"%.1f".format(wr)}%")
+                appendLine("Day PnL: ${if (pnl >= 0) "+" else ""}${"%.4f".format(pnl)}◎")
+                appendLine("Open: ${positions.size}")
+                appendLine("TP: +${tp.toInt()}%  SL: -${sl.toInt()}%")
+                appendLine()
+                appendLine("📍 POSITIONS")
+                appendLine(posList)
+                appendLine()
+                appendLine("CRITERIA")
+                appendLine("• MCap: \$100K – \$1M")
+                appendLine("• Age: 30+ min")
+                appendLine("• Holders: 50+")
+            }
+            AlertDialog.Builder(this)
+                .setTitle("💎 Quality Mode")
+                .setMessage(msg)
+                .setPositiveButton("OK", null)
+                .show()
+        } catch (e: Exception) {
+            Toast.makeText(this, "Quality: ${e.message}", Toast.LENGTH_SHORT).show()
+        }
+    }
+
+    private fun showBlueChipDetailDialog() {
+        try {
+            val stats     = BlueChipTraderAI.getStats()
+            val wr        = BlueChipTraderAI.getWinRatePct()
+            val pnl       = BlueChipTraderAI.getDailyPnlSol()
+            val bal       = BlueChipTraderAI.getCurrentBalance()
+            val positions = BlueChipTraderAI.getActivePositions()
+            val modeEmoji = when (stats.mode) {
+                BlueChipTraderAI.BlueChipMode.HUNTING    -> "🎯"
+                BlueChipTraderAI.BlueChipMode.POSITIONED -> "📊"
+                BlueChipTraderAI.BlueChipMode.CAUTIOUS   -> "⚠️"
+                BlueChipTraderAI.BlueChipMode.PAUSED     -> "⏸️"
+            }
+            val posList = if (positions.isEmpty()) "  (none)" else
+                positions.joinToString("
+") { "  • ${it.symbol}  \$${(it.marketCapUsd/1_000_000).let{ m -> if(m>=1) "${"%.1f".format(m)}M" else "${(it.marketCapUsd/1000).toInt()}K" }}  ${((System.currentTimeMillis()-it.entryTime)/60000)}m" }
+            val msg = buildString {
+                appendLine("🔵 BLUE CHIP TRADES  (\$1M+)")
+                appendLine("━━━━━━━━━━━━━━━━━━━━━━━━")
+                appendLine()
+                appendLine("$modeEmoji Mode: ${stats.mode.name}")
+                appendLine("Balance: ${"%.4f".format(bal)}◎")
+                appendLine("Win Rate: $wr%")
+                appendLine("Day PnL: ${if (pnl >= 0) "+" else ""}${"%.4f".format(pnl)}◎")
+                appendLine("Open: ${positions.size}")
+                appendLine()
+                appendLine("📍 POSITIONS")
+                appendLine(posList)
+                appendLine()
+                appendLine("CRITERIA")
+                appendLine("• MCap: \$1M+")
+                appendLine("• Liq: \$200K+")
+                appendLine("• TP: 10-20%  SL: -8%")
+            }
+            AlertDialog.Builder(this)
+                .setTitle("🔵 Blue Chip Trades")
+                .setMessage(msg)
+                .setPositiveButton("OK", null)
+                .setNeutralButton("Reset Daily") { d, _ ->
+                    BlueChipTraderAI.resetDaily()
+                    Toast.makeText(this, "BlueChip daily reset", Toast.LENGTH_SHORT).show()
+                    d.dismiss()
+                }
+                .show()
+        } catch (e: Exception) {
+            Toast.makeText(this, "BlueChip: ${e.message}", Toast.LENGTH_SHORT).show()
+        }
+    }
+
+    private fun showExpressDetailDialog() {
+        try {
+            val stats = ShitCoinExpress.getStats()
+            val rides = ShitCoinExpress.getActiveRides()
+            val msg = buildString {
+                appendLine("⚡ EXPRESS MODE")
+                appendLine("━━━━━━━━━━━━━━")
+                appendLine()
+                appendLine("Strategy: High Velocity Momentum")
+                appendLine("Win Rate: ${"%.1f".format(stats.winRate)}%")
+                appendLine("Day PnL: ${if (stats.dailyPnlSol >= 0) "+" else ""}${"%.4f".format(stats.dailyPnlSol)}◎")
+                appendLine("Daily Trades: ${stats.dailyTrades}")
+                appendLine("Active Rides: ${rides.size}")
+                appendLine()
+                if (rides.isNotEmpty()) {
+                    appendLine("🏇 ACTIVE RIDES")
+                    rides.forEach { r ->
+                        appendLine("  • ${r.symbol}  Mom:${"%.0f".format(r.entryMomentum)}  BP:${"%.0f".format(r.entryBuyPressure)}%  ${((System.currentTimeMillis()-r.entryTime)/60000)}m")
+                    }
+                }
+                appendLine()
+                appendLine("Exits on momentum fade or")
+                appendLine("buy pressure drop below 40%")
+            }
+            AlertDialog.Builder(this)
+                .setTitle("⚡ Express Mode")
+                .setMessage(msg)
+                .setPositiveButton("OK", null)
+                .show()
+        } catch (e: Exception) {
+            Toast.makeText(this, "Express: ${e.message}", Toast.LENGTH_SHORT).show()
+        }
+    }
+
+    private fun showMoonshotDetailDialog() {
+        try {
+            val wr        = MoonshotTraderAI.getWinRatePct()
+            val pnl       = MoonshotTraderAI.getDailyPnlSol()
+            val positions = MoonshotTraderAI.getActivePositions()
+            val tenX      = MoonshotTraderAI.getLifetimeTenX()
+            val hundredX  = MoonshotTraderAI.getLifetimeHundredX()
+            val thousandX = MoonshotTraderAI.getLifetimeThousandX()
+            val learn     = (MoonshotTraderAI.getLearningProgress() * 100).toInt()
+            val spaceModeStats = MoonshotTraderAI.getSpaceModeStats()
+            val posList = if (positions.isEmpty()) "  (none)" else
+                positions.joinToString("
+") { "  ${it.spaceMode.emoji} ${it.symbol}  ${((System.currentTimeMillis()-it.entryTime)/60000)}m  TP:+${it.takeProfitPct.toInt()}%" }
+            val msg = buildString {
+                appendLine("🌙 MOONSHOT MODE")
+                appendLine("━━━━━━━━━━━━━━━")
+                appendLine()
+                appendLine("Learning: $learn%")
+                appendLine("Win Rate: $wr%")
+                appendLine("Day PnL: ${if (pnl >= 0) "+" else ""}${"%.4f".format(pnl)}◎")
+                appendLine("W/L: ${MoonshotTraderAI.getDailyWins()}/${MoonshotTraderAI.getDailyLosses()}")
+                appendLine()
+                appendLine("🏆 LIFETIME HITS")
+                appendLine("🔟 10x: $tenX   💯 100x: $hundredX   🌌 1000x: $thousandX")
+                appendLine()
+                appendLine("📍 POSITIONS (${positions.size})")
+                appendLine(posList)
+                appendLine()
+                appendLine("SPACE MODES")
+                spaceModeStats.forEach { (mode, cnt) ->
+                    if (cnt > 0) appendLine("  ${mode.emoji} ${mode.displayName}: $cnt")
+                }
+            }
+            AlertDialog.Builder(this)
+                .setTitle("🌙 Moonshot Mode")
+                .setMessage(msg)
+                .setPositiveButton("OK", null)
+                .setNeutralButton("Reset Daily") { d, _ ->
+                    MoonshotTraderAI.resetDaily()
+                    Toast.makeText(this, "Moonshot daily reset", Toast.LENGTH_SHORT).show()
+                    d.dismiss()
+                }
+                .show()
+        } catch (e: Exception) {
+            Toast.makeText(this, "Moonshot: ${e.message}", Toast.LENGTH_SHORT).show()
+        }
+    }
+
+    private fun showManipDetailDialog() {
+        try {
+            val stats     = ManipulatedTraderAI.getStats()
+            val positions = ManipulatedTraderAI.getActivePositions()
+            val manipWr   = if (stats.dailyWins + stats.dailyLosses > 0)
+                (stats.dailyWins.toDouble() / (stats.dailyWins + stats.dailyLosses) * 100) else 0.0
+            val posList = if (positions.isEmpty()) "  (none)" else
+                positions.joinToString("
+") { "  🎭 ${it.symbol}  Score:${it.manipScore}  ${((System.currentTimeMillis()-it.entryTime)/60000)}m" }
+            val msg = buildString {
+                appendLine("🎭 MANIP CATCH")
+                appendLine("━━━━━━━━━━━━━")
+                appendLine()
+                appendLine("Strategy: Manipulation Detector")
+                appendLine("Total Caught: ${stats.totalManipCaught}")
+                appendLine("Win Rate: ${"%.1f".format(manipWr)}%")
+                appendLine("Day PnL: ${if (stats.dailyPnlSol >= 0) "+" else ""}${"%.4f".format(stats.dailyPnlSol)}◎")
+                appendLine("W/L: ${stats.dailyWins}/${stats.dailyLosses}")
+                appendLine("Open: ${stats.activeCount}")
+                appendLine()
+                appendLine("📍 POSITIONS")
+                appendLine(posList)
+                appendLine()
+                appendLine("Catches pump & dump patterns,")
+                appendLine("wash trading, and fake volume.")
+            }
+            AlertDialog.Builder(this)
+                .setTitle("🎭 Manip Catch")
+                .setMessage(msg)
+                .setPositiveButton("OK", null)
+                .show()
+        } catch (e: Exception) {
+            Toast.makeText(this, "Manip: ${e.message}", Toast.LENGTH_SHORT).show()
+        }
+    }
+
+    private fun showShadowFDGDetailDialog() {
+        try {
+            val shadow  = ShadowLearningEngine.getBlockedTradeStats()
+            val topMode = ShadowLearningEngine.getTopTrackedMode() ?: "—"
+            val msg = buildString {
+                appendLine("👁️ SHADOW FDG LEARNING")
+                appendLine("━━━━━━━━━━━━━━━━━━━━━")
+                appendLine()
+                appendLine("Blocked Trade Analysis")
+                appendLine("Total Tracked: ${shadow.totalTracked}")
+                appendLine("Would Have Won: ${shadow.wouldHaveWon}")
+                appendLine("Would Have Lost: ${shadow.wouldHaveLost}")
+                appendLine("Top Mode: $topMode")
+                appendLine()
+                val whr = if (shadow.totalTracked > 0)
+                    (shadow.wouldHaveWon.toDouble() / shadow.totalTracked * 100).toInt() else 0
+                appendLine("Shadow Win Rate: $whr%")
+                appendLine()
+                appendLine("Shadow learning tracks trades")
+                appendLine("that were blocked by FDG filters")
+                appendLine("to improve AI decision making.")
+            }
+            AlertDialog.Builder(this)
+                .setTitle("👁️ Shadow FDG")
+                .setMessage(msg)
+                .setPositiveButton("OK", null)
+                .show()
+        } catch (e: Exception) {
+            Toast.makeText(this, "Shadow: ${e.message}", Toast.LENGTH_SHORT).show()
+        }
+    }
+
+    private fun showHiveMindDetailDialog() {
+        try {
+            val ciStats = com.lifecyclebot.v3.scoring.CollectiveIntelligenceAI.getStats()
+            val clStats = com.lifecyclebot.collective.CollectiveLearning.getStats()
+            val msg = buildString {
+                appendLine("🐝 HIVE MIND")
+                appendLine("━━━━━━━━━━━")
+                appendLine()
+                appendLine("Collective Intelligence AI")
+                appendLine("Enabled: ${ciStats.isEnabled}")
+                appendLine("Cached Patterns: ${ciStats.cachedPatterns}")
+                appendLine("Cached Modes: ${ciStats.cachedModes}")
+                appendLine("Consensus: ${ciStats.cachedConsensus}")
+                appendLine("Conf Threshold: ${ciStats.dynamicConfThreshold}%")
+                appendLine("Anomalies: ${ciStats.anomaliesDetected}")
+                appendLine()
+                appendLine("🌐 COLLECTIVE LEARNING")
+                appendLine("Network: ${if (com.lifecyclebot.collective.CollectiveLearning.isEnabled()) "CONNECTED" else "OFFLINE"}")
+                appendLine("Patterns: ${clStats["patterns"]}")
+                appendLine("Blacklisted: ${clStats["blacklistedTokens"]}")
+                appendLine()
+                appendLine("MODE RECOMMENDATIONS")
+                listOf("ShitCoin","BlueChip","Express","Moonshot","Manip").forEach { mode ->
+                    val rec = com.lifecyclebot.v3.scoring.CollectiveIntelligenceAI.getModeRecommendation(mode)
+                    appendLine("  $mode → ${rec.name}")
+                }
+            }
+            AlertDialog.Builder(this)
+                .setTitle("🐝 Hive Mind")
+                .setMessage(msg)
+                .setPositiveButton("OK", null)
+                .show()
+        } catch (e: Exception) {
+            Toast.makeText(this, "HiveMind: ${e.message}", Toast.LENGTH_SHORT).show()
+        }
+    }
+
 }
-
-
-
