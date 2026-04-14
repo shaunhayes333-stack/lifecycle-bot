@@ -567,6 +567,29 @@
                         android:text="Markets" android:textColor="#FFD700" android:textSize="10sp"
                         android:layout_marginTop="2dp"/>
                 </LinearLayout>
+                <!-- V1.0: Crypto Alts Meme Tile — Cross-chain alts (BNB memes, Polygon, ETH alts, SOL alts) -->
+                <LinearLayout
+                    android:id="@+id/btnQuickCryptoAlts"
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:orientation="vertical"
+                    android:gravity="center"
+                    android:padding="10dp"
+                    android:background="@drawable/section_card_bg"
+                    android:layout_marginStart="6dp"
+                    android:clickable="true"
+                    android:focusable="true">
+                    <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+                        android:text="🌐" android:textSize="16sp"/>
+                    <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+                        android:text="Alts" android:textColor="#A78BFA" android:textSize="8sp"
+                        android:layout_marginTop="1dp"/>
+                    <TextView android:id="@+id/tvCryptoAltsStats"
+                        android:layout_width="wrap_content" android:layout_height="wrap_content"
+                        android:text="0/0" android:textColor="#7C3AED" android:textSize="6sp"
+                        android:fontFamily="monospace"/>
+                </LinearLayout>
 
             </LinearLayout>
 
@@ -1242,29 +1265,7 @@
                         android:fontFamily="monospace"/>
                 </LinearLayout>
 
-                <!-- V1.0: Crypto Alts Meme Tile — Cross-chain alts (BNB memes, Polygon, ETH alts, SOL alts) -->
-                <LinearLayout
-                    android:id="@+id/btnQuickCryptoAlts"
-                    android:layout_width="0dp"
-                    android:layout_height="wrap_content"
-                    android:layout_weight="1"
-                    android:orientation="vertical"
-                    android:gravity="center"
-                    android:padding="6dp"
-                    android:background="@drawable/section_card_bg"
-                    android:layout_marginEnd="3dp"
-                    android:clickable="true"
-                    android:focusable="true">
-                    <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
-                        android:text="🌐" android:textSize="16sp"/>
-                    <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
-                        android:text="Alts" android:textColor="#A78BFA" android:textSize="8sp"
-                        android:layout_marginTop="1dp"/>
-                    <TextView android:id="@+id/tvCryptoAltsStats"
-                        android:layout_width="wrap_content" android:layout_height="wrap_content"
-                        android:text="0/0" android:textColor="#7C3AED" android:textSize="6sp"
-                        android:fontFamily="monospace"/>
-                </LinearLayout>
+
 
                 <!-- V5.7.6: PERPS/STOCKS buttons removed - consolidated into Markets tile -->
                 <!-- PERPS / LEVERAGE MODE - V5.7 - HIDDEN -->
@@ -5769,3 +5770,4 @@
     </LinearLayout>
 
 </androidx.coordinatorlayout.widget.CoordinatorLayout>
+
