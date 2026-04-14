@@ -1,10 +1,27 @@
 package com.lifecyclebot.perps
 
 import android.content.Context
+import android.content.SharedPreferences
+import com.lifecyclebot.data.Trade
 import com.lifecyclebot.engine.ErrorLogger
+import com.lifecyclebot.engine.RunTracker30D
+import com.lifecyclebot.engine.ShadowLearningEngine
+import com.lifecyclebot.engine.TradeHistoryStore
 import com.lifecyclebot.engine.WalletManager
+import com.lifecyclebot.v3.scoring.BehaviorAI
+import com.lifecyclebot.v3.scoring.BlueChipTraderAI
 import com.lifecyclebot.v3.scoring.FluidLearningAI
+import com.lifecyclebot.v3.scoring.ManipulatedTraderAI
+import com.lifecyclebot.v3.scoring.MetaCognitionAI
+import com.lifecyclebot.v3.scoring.MoonshotTraderAI
+import com.lifecyclebot.v3.scoring.NarrativeFlowAI
+import com.lifecyclebot.v3.scoring.QualityTraderAI
+import com.lifecyclebot.v3.scoring.ShitCoinExpress
+import com.lifecyclebot.v3.scoring.ShitCoinTraderAI
+import com.lifecyclebot.v3.scoring.StrategyTrustAI
+import com.lifecyclebot.v3.scoring.VolatilityRegimeAI
 import com.lifecyclebot.v4.meta.*
+import com.lifecyclebot.v4.meta.TradeLessonRecorder
 import kotlinx.coroutines.*
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.atomic.AtomicBoolean
@@ -79,6 +96,17 @@ object CryptoAltTrader {
     private var monitorJob: Job? = null
     private val scope = CoroutineScope(Dispatchers.Default + SupervisorJob())
 
+    // Persistent SharedPreferences — fast, always-available learning fallback
+    private var ctx: Context? = null
+    private var prefs: SharedPreferences? = null
+    private const val PREFS_NAME  = "crypto_alt_trader_v2"
+    private const val KEY_BALANCE = "paper_balance"
+    private const val KEY_TRADES  = "total_trades"
+    private const val KEY_WINS    = "winning_trades"
+    private const val KEY_LOSSES  = "losing_trades"
+    private const val KEY_PNL     = "total_pnl_sol"
+    private const val KEY_LIVE    = "is_live_mode"
+
     // ─── Position model ───────────────────────────────────────────────────────
     data class AltPosition(
         val id            : String,
@@ -136,10 +164,23 @@ object CryptoAltTrader {
     // ═══════════════════════════════════════════════════════════════════════════
 
     fun init(context: Context) {
-        scope.launch {
-            loadPersistedState()
-        }
-        ErrorLogger.info(TAG, "🪙 CryptoAltTrader INITIALIZED | paper=${isPaperMode.get()} | balance=${"%.2f".format(paperBalance)} SOL")
+        ctx   = context.applicationContext
+        prefs = context.applicationContext.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+        loadFromSharedPrefs()
+        scope.launch { loadPersistedState() }
+        try { BehaviorAI.init(context.applicationContext) }        catch (e: Exception) { ErrorLogger.debug(TAG, "BehaviorAI: ${e.message}") }
+        try { StrategyTrustAI.init() }                             catch (e: Exception) { ErrorLogger.debug(TAG, "StrategyTrustAI: ${e.message}") }
+        try { NarrativeFlowAI.init() }                             catch (e: Exception) { ErrorLogger.debug(TAG, "NarrativeFlowAI: ${e.message}") }
+        try { RunTracker30D.init(context.applicationContext) }     catch (e: Exception) { ErrorLogger.debug(TAG, "RunTracker30D: ${e.message}") }
+        try { ShadowLearningEngine.init() }                        catch (e: Exception) { ErrorLogger.debug(TAG, "ShadowLearning: ${e.message}") }
+        try { TradeHistoryStore.init(context.applicationContext) } catch (e: Exception) { ErrorLogger.debug(TAG, "TradeHistory: ${e.message}") }
+        try { ShitCoinTraderAI.init(isPaperMode.get()) }           catch (e: Exception) { ErrorLogger.debug(TAG, "ShitCoinAI: ${e.message}") }
+        try { QualityTraderAI.init(isPaperMode.get()) }            catch (e: Exception) { ErrorLogger.debug(TAG, "QualityAI: ${e.message}") }
+        try { BlueChipTraderAI.init(isPaperMode.get()) }           catch (e: Exception) { ErrorLogger.debug(TAG, "BlueChipAI: ${e.message}") }
+        try { ShitCoinExpress.init(isPaperMode.get()) }            catch (e: Exception) { ErrorLogger.debug(TAG, "ShitCoinExpress: ${e.message}") }
+        try { MoonshotTraderAI.initialize(isPaperMode.get()) }     catch (e: Exception) { ErrorLogger.debug(TAG, "MoonshotAI: ${e.message}") }
+        try { ManipulatedTraderAI.init(isPaperMode.get()) }        catch (e: Exception) { ErrorLogger.debug(TAG, "ManipulatedAI: ${e.message}") }
+        ErrorLogger.info(TAG, "🪙 CryptoAltTrader INITIALIZED | paper=${isPaperMode.get()} | balance=${"%.2f".format(paperBalance)} SOL | trades=${totalTrades.get()}")
     }
 
     fun start() {
@@ -474,6 +515,67 @@ object CryptoAltTrader {
             }
         } catch (_: Exception) {}
 
+        // ── Layer 11: BehaviorAI — session sentiment ────────────────────────
+        try {
+            val bAdj    = BehaviorAI.getScoreAdjustment()
+            val confMod = BehaviorAI.getConfidenceModifier()
+            if (bAdj != 0 || confMod != 0) {
+                score += bAdj; confidence += confMod
+                reasons.add("🧠 BehaviorAI: ${BehaviorAI.getSentimentClassification()} (${if (bAdj >= 0) "+" else ""}$bAdj)")
+            }
+        } catch (_: Exception) {}
+
+        // ── Layer 12: VolatilityRegimeAI ─────────────────────────────────────
+        try {
+            when (VolatilityRegimeAI.getRegime(market.symbol).name) {
+                "HIGH"    -> { score -= 5; reasons.add("⚡ High vol") }
+                "LOW"     -> { confidence += 5; reasons.add("😴 Low vol — squeeze build?") }
+                "SQUEEZE" -> { score += 10; confidence += 8; reasons.add("🎯 Vol squeeze!"); layerVotes["VolSqueeze"] = direction }
+            }
+        } catch (_: Exception) {}
+
+        // ── Layer 13: NarrativeFlowAI ─────────────────────────────────────────
+        try {
+            val narHeat = NarrativeFlowAI.getNarrativeHeat(market.symbol)
+            if (narHeat > 0.6) {
+                val boost = ((NarrativeFlowAI.getNarrativeMultiplier(market.symbol) - 1.0) * 10).toInt().coerceIn(0, 15)
+                score += boost; confidence += boost / 2
+                reasons.add("📣 Narrative: ${"%.0f".format(narHeat * 100)}% (+$boost)")
+                layerVotes["NarrativeHeat"] = direction
+            }
+        } catch (_: Exception) {}
+
+        // ── Layer 14: StrategyTrustAI ─────────────────────────────────────────
+        try {
+            val trust    = StrategyTrustAI.getTrustScore("CryptoAltAI")
+            val trustMod = when {
+                trust > 0.7 -> { score += 8; confidence += 6; 8 }
+                trust > 0.5 -> { score += 3; 3 }
+                trust < 0.3 -> { score -= 8; confidence -= 5; -8 }
+                else        -> 0
+            }
+            if (trustMod != 0) reasons.add("🤝 Trust: ${"%.2f".format(trust)} (${if (trustMod >= 0) "+" else ""}$trustMod)")
+        } catch (_: Exception) {}
+
+        // ── Layer 15: CrossAssetLeadLagAI ─────────────────────────────────────
+        try {
+            CrossAssetLeadLagAI.recordReturn(market.symbol, change)
+            val lead = CrossAssetLeadLagAI.getLeadSignalFor(market.symbol)
+            if (lead != null && abs(change) > 1.0) {
+                score += 6; confidence += 4; reasons.add("🔗 Lead-lag: ${lead.leader}")
+            }
+        } catch (_: Exception) {}
+
+        // ── Layer 16: Fear & Greed override ───────────────────────────────────
+        try {
+            val fg = CryptoAltScannerAI.getCryptoFearGreed()
+            when {
+                fg >= 80 && direction == PerpsDirection.LONG  -> { score -= 10; reasons.add("⚠️ Extreme greed ($fg)") }
+                fg <= 20 && direction == PerpsDirection.SHORT -> { score -= 10; reasons.add("⚠️ Extreme fear ($fg)") }
+                fg in 35..65 -> confidence += 3
+            }
+        } catch (_: Exception) {}
+
         // ── Always-Trade floor (paper learning mode) ─────────────────────────
         if (score < 35)      score      = 35
         if (confidence < 30) confidence = 30
@@ -552,7 +654,51 @@ object CryptoAltTrader {
 
         if (isPaperMode.get()) paperBalance -= finalSize
 
+        // ── BehaviorAI tilt protection ──────────────────────────────────────
+        try {
+            if (BehaviorAI.isTiltProtectionActive()) {
+                ErrorLogger.warn(TAG, "🪙 BehaviorAI tilt — skip ${signal.market.symbol}")
+                return
+            }
+        } catch (_: Exception) {}
+
         try { FluidLearningAI.recordMarketsTradeStart() } catch (_: Exception) {}
+
+        // ── MetaCognitionAI — entry prediction ───────────────────────────────
+        try {
+            val metaSig = if (signal.direction == PerpsDirection.LONG)
+                MetaCognitionAI.SignalType.BULLISH else MetaCognitionAI.SignalType.BEARISH
+            MetaCognitionAI.recordEntryPredictions(
+                mint        = signal.market.symbol,
+                symbol      = signal.market.symbol,
+                predictions = mapOf(
+                    MetaCognitionAI.AILayer.AI_CROSSTALK       to Pair(metaSig, signal.confidence.toDouble()),
+                    MetaCognitionAI.AILayer.MOMENTUM_PREDICTOR to Pair(metaSig, signal.score.toDouble())
+                )
+            )
+        } catch (_: Exception) {}
+
+        // ── ShadowLearningEngine — track opportunity ─────────────────────────
+        try {
+            ShadowLearningEngine.onTradeOpportunity(
+                mint               = signal.market.symbol,
+                symbol             = signal.market.symbol,
+                currentPrice       = signal.price,
+                liveEntryScore     = signal.score,
+                liveEntryThreshold = 55,
+                liveSizeSol        = finalSize,
+                phase              = "CryptoAlt_${if (position.isSpot) "SPOT" else "LEV"}"
+            )
+        } catch (_: Exception) {}
+
+        // ── NarrativeFlowAI — record activity ────────────────────────────────
+        try {
+            NarrativeFlowAI.recordActivity(
+                symbol       = signal.market.symbol,
+                volumeSpike  = signal.score > 75,
+                priceMovePct = signal.priceChange24h
+            )
+        } catch (_: Exception) {}
 
         ErrorLogger.info(TAG, "🪙 OPENED: ${signal.direction.emoji} ${signal.market.symbol} @ ${"%.4f".format(signal.price)} | " +
             "${position.leverageLabel} | size=${finalSize.fmt(3)}◎ | score=${signal.score} | TP=${"%.4f".format(tp)} SL=${"%.4f".format(sl)}")
@@ -657,12 +803,80 @@ object CryptoAltTrader {
 
         if (isPaperMode.get()) paperBalance += (pos.sizeSol + pnlSol).coerceAtLeast(0.0)
 
-        ErrorLogger.info(TAG, "🪙 CLOSED: ${pos.market.symbol} | $reason | pnl=${pnlSol.fmt(3)}◎ | total_pnl=${totalPnlSol.fmt(3)}◎")
+        val pnlPct    = pos.getPnlPct()
+        val isWin     = pnlSol >= 0
+        val paper     = isPaperMode.get()
+        val modeStr   = if (paper) "paper" else "live"
+        val timestamp = System.currentTimeMillis()
+        val holdMs    = timestamp - pos.openTime
 
+        ErrorLogger.info(TAG, "🪙 CLOSED: ${pos.market.symbol} | $reason | pnl=${pnlSol.fmt(3)}◎ | wr=${"%.0f".format(getWinRate())}%")
+
+        try { PortfolioHeatAI.removePosition("ALT_${pos.market.symbol}") } catch (_: Exception) {}
+
+        // ── BehaviorAI ────────────────────────────────────────────────────────
+        try { BehaviorAI.recordTrade(pnlPct = pnlPct, reason = reason, mint = pos.market.symbol, isPaperMode = paper) } catch (_: Exception) {}
+
+        // ── TradeHistoryStore — cross-bot shared log ──────────────────────────
         try {
-            PortfolioHeatAI.removePosition("ALT_${pos.market.symbol}")
+            TradeHistoryStore.recordTrade(Trade(
+                side             = "SELL", mode = modeStr,
+                sol              = pos.sizeSol, price = pos.currentPrice,
+                ts               = timestamp, reason = "ALT:$reason",
+                pnlSol           = pnlSol, pnlPct = pnlPct,
+                score            = pos.aiScore.toDouble(),
+                tradingMode      = "CryptoAlt_${if (pos.isSpot) "SPOT" else "${pos.leverage.toInt()}x"}",
+                tradingModeEmoji = "🪙", mint = pos.market.symbol
+            ))
         } catch (_: Exception) {}
 
+        // ── RunTracker30D ─────────────────────────────────────────────────────
+        try {
+            if (RunTracker30D.isRunActive()) {
+                RunTracker30D.recordTrade(
+                    symbol = pos.market.symbol, mint = pos.market.symbol,
+                    entryPrice = pos.entryPrice, exitPrice = pos.currentPrice,
+                    sizeSol = pos.sizeSol, pnlPct = pnlPct,
+                    holdTimeSec = holdMs / 1000,
+                    mode = "CryptoAlt_${if (pos.isSpot) "SPOT" else "${pos.leverage.toInt()}x"}",
+                    score = pos.aiScore, confidence = pos.aiConfidence, decision = reason
+                )
+            }
+        } catch (_: Exception) {}
+
+        // ── TradeLessonRecorder — StrategyTrustAI cross-learning ─────────────
+        try {
+            val lessonCtx = TradeLessonRecorder.captureContext(
+                strategy = "CryptoAltAI", market = "CRYPTO_ALT",
+                symbol = pos.market.symbol, leverageUsed = pos.leverage,
+                executionRoute = if (paper) "PAPER" else "LIVE",
+                expectedFillPrice = pos.entryPrice
+            )
+            TradeLessonRecorder.completeLesson(
+                context = lessonCtx, outcomePct = pnlPct,
+                mfePct = if (isWin) pnlPct else 0.0, maePct = if (!isWin) pnlPct else 0.0,
+                holdSec = (holdMs / 1000).toInt().coerceAtLeast(1),
+                exitReason = reason, actualFillPrice = pos.currentPrice
+            )
+        } catch (_: Exception) {}
+
+        // ── MetaCognitionAI ───────────────────────────────────────────────────
+        try {
+            MetaCognitionAI.recordTradeOutcome(
+                mint = pos.market.symbol, symbol = pos.market.symbol,
+                pnlPct = pnlPct, holdTimeMs = holdMs, exitReason = reason
+            )
+        } catch (_: Exception) {}
+
+        // ── ShadowLearningEngine exit ─────────────────────────────────────────
+        try {
+            ShadowLearningEngine.onLiveTradeExit(
+                mint = pos.market.symbol, exitPrice = pos.currentPrice,
+                exitReason = reason, livePnlSol = pnlSol, isWin = isWin
+            )
+        } catch (_: Exception) {}
+
+        saveToSharedPrefs()
         savePersistedState()
         persistTradeToTurso(pos, pnlSol, reason)
     }
@@ -672,9 +886,34 @@ object CryptoAltTrader {
     // ═══════════════════════════════════════════════════════════════════════════
 
     private fun hiveEntryModifier(symbol: String): Triple<Boolean, Double, Double> {
-        // Simplified Hivemind stub — mirrors the TokenizedStockTrader approach
-        // Returns (shouldEnter, sizeMult, tpAdj)
-        return Triple(true, 1.0, 0.0)
+        val sizeMult = try {
+            (BehaviorAI.getSizingMultiplier().coerceIn(0.5, 2.0) *
+             NarrativeFlowAI.getNarrativeMultiplier(symbol).coerceIn(0.8, 1.5)).coerceIn(0.5, 2.0)
+        } catch (_: Exception) { 1.0 }
+        val tpAdj = try { if (StrategyTrustAI.getTrustMultiplier("CryptoAltAI") > 1.1) 1.5 else 0.0 } catch (_: Exception) { 0.0 }
+        return Triple(true, sizeMult, tpAdj)
+    }
+
+    private fun loadFromSharedPrefs() {
+        val p = prefs ?: return
+        paperBalance      = p.getFloat(KEY_BALANCE, 100.0f).toDouble()
+        totalTrades.set(   p.getInt(KEY_TRADES,  0))
+        winningTrades.set( p.getInt(KEY_WINS,    0))
+        losingTrades.set(  p.getInt(KEY_LOSSES,  0))
+        totalPnlSol       = p.getFloat(KEY_PNL,  0f).toDouble()
+        isPaperMode.set(  !p.getBoolean(KEY_LIVE, true))
+        ErrorLogger.debug(TAG, "🪙 SharedPrefs: bal=${paperBalance.fmt(2)} trades=${totalTrades.get()}")
+    }
+
+    private fun saveToSharedPrefs() {
+        prefs?.edit()
+            ?.putFloat(KEY_BALANCE,  paperBalance.toFloat())
+            ?.putInt(KEY_TRADES,     totalTrades.get())
+            ?.putInt(KEY_WINS,       winningTrades.get())
+            ?.putInt(KEY_LOSSES,     losingTrades.get())
+            ?.putFloat(KEY_PNL,      totalPnlSol.toFloat())
+            ?.putBoolean(KEY_LIVE,  !isPaperMode.get())
+            ?.apply()
     }
 
     // ═══════════════════════════════════════════════════════════════════════════
@@ -836,3 +1075,4 @@ object CryptoAltTrader {
 
     private fun Double.fmt(d: Int): String = "%.${d}f".format(this)
 }
+
