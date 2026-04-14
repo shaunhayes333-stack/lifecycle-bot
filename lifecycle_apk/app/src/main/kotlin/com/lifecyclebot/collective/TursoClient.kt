@@ -1510,4 +1510,21 @@ class TursoClient(
         }
     }
 
+
+    // ═══════════════════════════════════════════════════════════════════════════
+    // V5.8.0: PERPS POSITION LIFECYCLE
+    // ═══════════════════════════════════════════════════════════════════════════
+
+    /**
+     * Delete a closed perps position record from the open positions table.
+     */
+    suspend fun deletePerpsPosition(positionId: String): Boolean {
+        return try {
+            execute("DELETE FROM perps_positions WHERE id = ?", listOf(positionId)).success
+        } catch (e: Exception) {
+            Log.w(TAG, "deletePerpsPosition error: ${e.message}")
+            false
+        }
+    }
+
 }
