@@ -132,6 +132,81 @@ object TokenizedStockTrader {
     private var monitorJob: Job? = null
     private val scope = CoroutineScope(Dispatchers.Default + SupervisorJob())
     
+
+    // ═══════════════════════════════════════════════════════════════════════════
+    // V5.8.0: HIVEMIND WIN-RATE CACHE
+    // ═══════════════════════════════════════════════════════════════════════════
+
+    private val hiveWinRates = ConcurrentHashMap<String, Pair<Double, Double>>()
+    private var hiveWinRatesLoadedAt = 0L
+    private const val HIVE_CACHE_TTL_MS = 30 * 60 * 1000L
+    private val hiveHourlyProfiles = ConcurrentHashMap<String, Map<Int, Pair<Double, Int>>>()
+
+    private suspend fun refreshHiveWinRates() {
+        try {
+            val client = CollectiveLearning.getClient() ?: return
+            val rates = client.getAssetWinRates(minTrades = 15)
+            if (rates.isNotEmpty()) {
+                hiveWinRates.clear()
+                hiveWinRates.putAll(rates)
+                hiveWinRatesLoadedAt = System.currentTimeMillis()
+                ErrorLogger.info(TAG, "🧠 Hive win-rate cache refreshed: ${rates.size} assets")
+            }
+        } catch (e: Exception) {
+            ErrorLogger.debug(TAG, "🧠 Hive refresh error: ${e.message}")
+        }
+    }
+
+    private suspend fun getHourlyProfile(symbol: String): Map<Int, Pair<Double, Int>> {
+        hiveHourlyProfiles[symbol]?.let { return it }
+        return try {
+            val client = CollectiveLearning.getClient() ?: return emptyMap()
+            val profile = client.getHourlyWinProfile(symbol, minSamples = 5)
+            if (profile.isNotEmpty()) hiveHourlyProfiles[symbol] = profile
+            profile
+        } catch (e: Exception) {
+            emptyMap()
+        }
+    }
+
+    // Returns (blocked, sizeMultiplier, tpAdjust)
+    private fun hiveEntryModifier(symbol: String): Triple<Boolean, Double, Double> {
+        val stats = hiveWinRates[symbol] ?: return Triple(false, 1.0, 0.0)
+        val (winRate, avgPnl) = stats
+        if (winRate < 35.0) {
+            ErrorLogger.info(TAG, "🧠 HIVE BLOCK: $symbol wr=${winRate.toInt()}%")
+            return Triple(true, 1.0, 0.0)
+        }
+        val sizeMult = when {
+            winRate >= 65.0 && avgPnl >= 4.0 -> 1.4
+            winRate >= 55.0 && avgPnl >= 2.0 -> 1.2
+            winRate < 42.0                   -> 0.7
+            else                             -> 1.0
+        }
+        val tpAdj = when {
+            avgPnl >= 6.0 -> 2.0
+            avgPnl >= 3.0 -> 1.0
+            avgPnl < 0.0  -> -1.0
+            else          -> 0.0
+        }
+        return Triple(false, sizeMult, tpAdj)
+    }
+
+    private suspend fun hiveTimeOfDayAdjust(symbol: String): Int {
+        val hour = java.util.Calendar.getInstance().get(java.util.Calendar.HOUR_OF_DAY)
+        val profile = getHourlyProfile(symbol)
+        val (wr, samples) = profile[hour] ?: return 0
+        if (samples < 5) return 0
+        return when {
+            wr >= 65.0 -> +8
+            wr >= 55.0 -> +4
+            wr < 35.0  -> -8
+            wr < 45.0  -> -4
+            else       -> 0
+        }
+    }
+
+
     // Positions - V5.7.6b: Separate SPOT and LEVERAGE tracking
     private val positions = ConcurrentHashMap<String, StockPosition>()  // All positions
     private val spotPositions = ConcurrentHashMap<String, StockPosition>()      // SPOT (1x) only
