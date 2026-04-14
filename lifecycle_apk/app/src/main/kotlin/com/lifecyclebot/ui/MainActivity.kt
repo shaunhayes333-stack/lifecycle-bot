@@ -219,6 +219,7 @@ class MainActivity : AppCompatActivity() {
     private var tvPerpsNvdaPrice: TextView? = null
     
     // V1.0: Crypto Alts UI
+    private var tvCryptoAltsStats: TextView? = null
     private var cardCryptoAlts: android.view.View? = null
     private var tvCryptoAltsModeBadge: TextView? = null
     private var tvCryptoAltsBalance: TextView? = null
@@ -5078,19 +5079,15 @@ This cannot be undone!
             performHaptic()
         }
 
-        // V1.0: Crypto Alts tile → opens Markets screen on CRYPTO tab
+        // V1.0: Crypto Alts tile (in meme modes row) → opens CryptoAltActivity
         findViewById<View>(R.id.btnQuickCryptoAlts)?.setOnClickListener {
-            val intent = Intent(this, MultiAssetActivity::class.java)
-            intent.putExtra("startTab", "CRYPTO")
-            startActivity(intent)
+            startActivity(Intent(this, com.lifecyclebot.ui.CryptoAltActivity::class.java))
             performHaptic()
         }
 
-        // V1.0: "Open Full Crypto Alts Screen" button inside card
+        // V1.0: "Open Full Crypto Alts Screen" button inside card → same
         cardCryptoAlts?.findViewById<android.view.View>(R.id.btnOpenCryptoAltsMarkets)?.setOnClickListener {
-            val intent = Intent(this, MultiAssetActivity::class.java)
-            intent.putExtra("startTab", "CRYPTO")
-            startActivity(intent)
+            startActivity(Intent(this, com.lifecyclebot.ui.CryptoAltActivity::class.java))
             performHaptic()
         }
     }
@@ -6899,7 +6896,12 @@ Trading outside hours may have wider spreads.
             })
 
             // Trades
-            tvCryptoAltsTrades?.text = "${altTrader.getTotalTrades()}"
+            val totalTrades = altTrader.getTotalTrades()
+            tvCryptoAltsTrades?.text = "$totalTrades"
+
+            // Tile stats (positions/trades shown on the meme mode tile)
+            val openCount = altTrader.getAllPositions().size
+            tvCryptoAltsStats?.text = "$openCount/$totalTrades"
 
             // Readiness phase
             val trades = altTrader.getTotalTrades()
