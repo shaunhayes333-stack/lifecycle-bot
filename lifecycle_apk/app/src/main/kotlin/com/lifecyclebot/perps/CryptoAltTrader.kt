@@ -618,9 +618,14 @@ object CryptoAltTrader {
                 if (data.price <= 0) continue
 
                 val updated = position.copy(currentPrice = data.price)
-                positions[id]         = updated
-                spotPositions[id]     = updated.takeIf { it.isSpot }     ?: run { spotPositions.remove(id); continue }
-                leveragePositions[id] = updated.takeIf { !it.isSpot }    ?: run { leveragePositions.remove(id); continue }
+                positions[id] = updated
+                if (updated.isSpot) {
+                    spotPositions[id] = updated
+                    leveragePositions.remove(id)
+                } else {
+                    leveragePositions[id] = updated
+                    spotPositions.remove(id)
+                }
 
                 val tpPct = if (updated.isSpot) DEFAULT_TP_SPOT else DEFAULT_TP_LEV
                 val slPct = if (updated.isSpot) DEFAULT_SL_SPOT else DEFAULT_SL_LEV
@@ -731,7 +736,7 @@ object CryptoAltTrader {
                 val client = com.lifecyclebot.collective.CollectiveLearning.getClient() ?: return@launch
                 val instanceId = com.lifecyclebot.collective.CollectiveLearning.getInstanceId() ?: ""
                 // Reuse the Markets position schema
-                client.saveMarketsPosition(com.lifecyclebot.collective.MarketsPosition(
+                client.saveMarketsPosition(com.lifecyclebot.collective.MarketsPositionRecord(
                     positionId  = pos.id,
                     instanceId  = instanceId,
                     symbol      = pos.market.symbol,
