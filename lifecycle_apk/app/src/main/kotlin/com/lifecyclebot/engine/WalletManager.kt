@@ -359,7 +359,7 @@ class WalletManager private constructor(private val ctx: Context) {
         }
     }
 
-    private fun fetchSolPrice(): Double {
+    internal fun fetchSolPrice(): Double {
         // Try CoinGecko first (most reliable)
         val coinGeckoPrice = tryCoinGecko()
         if (coinGeckoPrice > 50.0) {  // Sanity check: SOL should be > $50
