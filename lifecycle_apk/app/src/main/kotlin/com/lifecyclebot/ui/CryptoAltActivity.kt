@@ -487,13 +487,12 @@ class CryptoAltActivity : AppCompatActivity() {
         val blTile   = buildTile(pink, "🧬 Behavior Learning", "Pattern Recognition", pink)
         val blRow    = hBox().apply { layoutParams = llp(match, wrap).apply { topMargin = 6 } }
         addStatChip(blRow, "Trades",    "${BehaviorLearning.getTradeCount()}", white,  1f)
-        addStatChip(blRow, "Good Pat",  "${bl.topPatterns.size}",              green,  1f)
-        addStatChip(blRow, "Bad Pat",   "${bl.worstPatterns.size}",            red,    1f)
-        val blHealth = try { BehaviorLearning.getInsights().healthStatus.summary() } catch (_: Exception) { "—" }
-        addStatChip(blRow, "Health",    blHealth.take(6),                      amber,  1f)
+        addStatChip(blRow, "Good Pat",  "${bl.totalGoodPatterns}",             green,  1f)
+        addStatChip(blRow, "Bad Pat",   "${bl.totalBadPatterns}",              red,    1f)
+        addStatChip(blRow, "Best Mode", bl.bestTradingMode.take(7),            amber,  1f)
         blTile.addView(blRow)
-        if (bl.topPatterns.isNotEmpty()) {
-            val top = bl.topPatterns.first()
+        if (bl.topGoodPatterns.isNotEmpty()) {
+            val top = bl.topGoodPatterns.first()
             blTile.addView(tv("Best: ${top.signature.take(28)} → WR ${"%.0f".format(top.winRate)}% avg ${"%.1f".format(top.avgPnl)}%", 9f, muted, mono = true).apply {
                 setPadding(0, 4, 0, 2)
             })
@@ -1155,22 +1154,32 @@ class CryptoAltActivity : AppCompatActivity() {
         val wts = try { AdaptiveLearningEngine.getDetailedWeights() } catch (_: Exception) { emptyMap<String, Double>() }
         wts.entries.sortedByDescending { it.value }.take(6).forEach { (k, v) ->
             val col = when { v > 1.5 -> green; v < 0.5 -> red; else -> muted }
-            addInfoRow("  $k", "${"%.3f".format(v)}×", col)
+            llContent.addView(hBox(card, 16, 10).apply {
+                layoutParams = llp(match, wrap).apply { bottomMargin = 2 }
+                gravity = Gravity.CENTER_VERTICAL
+                addView(tv("  $k", 13f, muted).apply { layoutParams = llp(0, wrap, 1f) })
+                addView(tv("${"%.3f".format(v)}×", 13f, col, mono = true))
+            })
+            llContent.addView(thinDivider())
         }
 
         // ── Behavior Learning Insights ───────────────────────────────────────
         addSectionHeader("🧬 Behavior Learning", pink)
         val bli = BehaviorLearning.getInsights()
-        addInfoRow("Total Trades", "${BehaviorLearning.getTradeCount()}")
-        if (bli.topPatterns.isNotEmpty()) {
+        addInfoRow("Total Trades",  "${BehaviorLearning.getTradeCount()}")
+        addInfoRow("Good Patterns", "${bli.totalGoodPatterns}")
+        addInfoRow("Bad Patterns",  "${bli.totalBadPatterns}")
+        addInfoRow("Best Mode",     bli.bestTradingMode)
+        addInfoRow("Worst Mode",    bli.worstTradingMode)
+        if (bli.topGoodPatterns.isNotEmpty()) {
             llContent.addView(tv("  ✅ Top Winning Patterns", 11f, green, bold = true).apply { setPadding(16, 8, 16, 4) })
-            bli.topPatterns.take(3).forEach { p ->
+            bli.topGoodPatterns.take(3).forEach { p ->
                 addInfoRow("  ${p.signature.take(24)}", "WR:${"%.0f".format(p.winRate)}% avg:${"%.1f".format(p.avgPnl)}%")
             }
         }
-        if (bli.worstPatterns.isNotEmpty()) {
+        if (bli.topBadPatterns.isNotEmpty()) {
             llContent.addView(tv("  ⛔ Top Losing Patterns", 11f, red, bold = true).apply { setPadding(16, 8, 16, 4) })
-            bli.worstPatterns.take(3).forEach { p ->
+            bli.topBadPatterns.take(3).forEach { p ->
                 addInfoRow("  ${p.signature.take(24)}", "WR:${"%.0f".format(p.winRate)}% avg:${"%.1f".format(p.avgPnl)}%")
             }
         }
@@ -1307,12 +1316,12 @@ class CryptoAltActivity : AppCompatActivity() {
         llContent.addView(thinDivider())
     }
 
-    private fun addInfoRow(label: String, value: String, valueColor: Int = white) {
+    private fun addInfoRow(label: String, value: String) {
         llContent.addView(hBox(card, 16, 10).apply {
             layoutParams = llp(match, wrap).apply { bottomMargin = 2 }
             gravity = Gravity.CENTER_VERTICAL
             addView(tv(label, 13f, muted).apply { layoutParams = llp(0, wrap, 1f) })
-            addView(tv(value, 13f, valueColor, mono = true))
+            addView(tv(value, 13f, white, mono = true))
         })
         llContent.addView(thinDivider())
     }
