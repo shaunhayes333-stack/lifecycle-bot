@@ -4180,7 +4180,7 @@ This cannot be undone!
             }
             scaleType = android.widget.ImageView.ScaleType.CENTER_CROP
             background = ContextCompat.getDrawable(this@MainActivity, R.drawable.token_logo_bg)
-            val logoUrl = "https://dd.dexscreener.com/ds-data/tokens/solana/${entry.mint}.png"
+            val logoUrl = "https://cdn.dexscreener.com/tokens/solana/${entry.mint}.png"
             load(logoUrl) {
                 crossfade(true)
                 placeholder(R.drawable.ic_token_placeholder)
@@ -4327,7 +4327,7 @@ This cannot be undone!
             }
             scaleType = android.widget.ImageView.ScaleType.CENTER_CROP
             background = ContextCompat.getDrawable(this@MainActivity, R.drawable.token_logo_bg)
-            val logoUrl = "https://dd.dexscreener.com/ds-data/tokens/solana/${ts.mint}.png"
+            val logoUrl = "https://cdn.dexscreener.com/tokens/solana/${ts.mint}.png"
             load(logoUrl) {
                 crossfade(true)
                 placeholder(R.drawable.ic_token_placeholder)
