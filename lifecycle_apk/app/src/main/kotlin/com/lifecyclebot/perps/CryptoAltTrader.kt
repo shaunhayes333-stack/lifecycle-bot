@@ -737,17 +737,25 @@ object CryptoAltTrader {
                 val instanceId = com.lifecyclebot.collective.CollectiveLearning.getInstanceId() ?: ""
                 // Reuse the Markets position schema
                 client.saveMarketsPosition(com.lifecyclebot.collective.MarketsPositionRecord(
-                    positionId  = pos.id,
-                    instanceId  = instanceId,
-                    symbol      = pos.market.symbol,
-                    direction   = pos.direction.name,
-                    entryPrice  = pos.entryPrice,
-                    currentPrice= pos.currentPrice,
-                    sizeSol     = pos.sizeSol,
-                    leverage    = pos.leverage,
-                    isSpot      = pos.isSpot,
-                    isPaper     = isPaperMode.get(),
-                    openTime    = pos.openTime
+                    id               = pos.id,
+                    instanceId       = instanceId,
+                    assetClass       = "CRYPTO_ALT",
+                    market           = pos.market.symbol,
+                    direction        = pos.direction.name,
+                    tradeType        = if (pos.isSpot) "SPOT" else "LEVERAGE",
+                    entryPrice       = pos.entryPrice,
+                    currentPrice     = pos.currentPrice,
+                    sizeSol          = pos.sizeSol,
+                    sizeUsd          = pos.sizeSol * pos.currentPrice,
+                    leverage         = pos.leverage,
+                    takeProfitPrice  = pos.takeProfitPrice,
+                    stopLossPrice    = pos.stopLossPrice,
+                    entryTime        = pos.openTime,
+                    aiScore          = pos.aiScore,
+                    aiConfidence     = pos.aiConfidence,
+                    paperMode        = isPaperMode.get(),
+                    status           = "OPEN",
+                    lastUpdate       = System.currentTimeMillis()
                 ))
             } catch (_: Exception) {}
         }
@@ -762,6 +770,11 @@ object CryptoAltTrader {
     // ═══════════════════════════════════════════════════════════════════════════
     // PUBLIC API
     // ═══════════════════════════════════════════════════════════════════════════
+
+    /** Public close — used by UI (CryptoAltActivity) */
+    fun requestClose(positionId: String) {
+        scope.launch { closePosition(positionId, "USER_REQUEST") }
+    }
 
     fun isRunning()  : Boolean = isRunning.get()
     fun isEnabled()  : Boolean = isEnabled.get()
