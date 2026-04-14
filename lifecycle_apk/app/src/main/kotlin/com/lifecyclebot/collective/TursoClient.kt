@@ -1376,4 +1376,138 @@ class TursoClient(
         }
     }
 
+
+    // ═══════════════════════════════════════════════════════════════════════════
+    // V5.8.0: HIVEMIND INTELLIGENCE QUERIES
+    // Read aggregated stats from 140k+ trades to drive real entry decisions
+    // ═══════════════════════════════════════════════════════════════════════════
+
+    /**
+     * Get per-asset historical win rate and avg PnL from markets_asset_performance.
+     * Returns a map of market symbol → Pair(winRate, avgPnlPct) for assets with
+     * at least [minTrades] recorded trades.
+     */
+    suspend fun getAssetWinRates(assetClass: String? = null, minTrades: Int = 10): Map<String, Pair<Double, Double>> {
+        return try {
+            val sql = if (assetClass != null) {
+                """SELECT market, total_spot_trades, total_leverage_trades,
+                          spot_win_rate, leverage_win_rate, avg_spot_pnl, avg_leverage_pnl
+                   FROM markets_asset_performance
+                   WHERE asset_class = ?
+                   AND (total_spot_trades + total_leverage_trades) >= ?"""
+            } else {
+                """SELECT market, total_spot_trades, total_leverage_trades,
+                          spot_win_rate, leverage_win_rate, avg_spot_pnl, avg_leverage_pnl
+                   FROM markets_asset_performance
+                   WHERE (total_spot_trades + total_leverage_trades) >= ?"""
+            }
+            val args: List<Any?> = if (assetClass != null) listOf(assetClass, minTrades) else listOf(minTrades)
+            val result = query(sql, args)
+            if (!result.success) return emptyMap()
+
+            val map = mutableMapOf<String, Pair<Double, Double>>()
+            for (row in result.rows) {
+                try {
+                    val symbol = row["market"] as? String ?: continue
+                    val spotTrades = (row["total_spot_trades"] as? Long)?.toInt() ?: 0
+                    val levTrades = (row["total_leverage_trades"] as? Long)?.toInt() ?: 0
+                    val totalTrades = spotTrades + levTrades
+                    if (totalTrades < minTrades) continue
+
+                    // Weighted blend: spot and leverage win rates, weighted by trade count
+                    val spotWr = (row["spot_win_rate"] as? Double) ?: 0.0
+                    val levWr  = (row["leverage_win_rate"] as? Double) ?: 0.0
+                    val blendedWr = if (totalTrades > 0) {
+                        (spotWr * spotTrades + levWr * levTrades) / totalTrades
+                    } else 0.0
+
+                    val spotPnl = (row["avg_spot_pnl"] as? Double) ?: 0.0
+                    val levPnl  = (row["avg_leverage_pnl"] as? Double) ?: 0.0
+                    val blendedPnl = if (totalTrades > 0) {
+                        (spotPnl * spotTrades + levPnl * levTrades) / totalTrades
+                    } else 0.0
+
+                    map[symbol] = Pair(blendedWr, blendedPnl)
+                } catch (_: Exception) {}
+            }
+            map
+        } catch (e: Exception) {
+            Log.w(TAG, "getAssetWinRates error: ${e.message}")
+            emptyMap()
+        }
+    }
+
+    /**
+     * Get per-market win rates from perps_market_stats.
+     * Returns map of "SYMBOL_LONG"/"SYMBOL_SHORT" → Pair(winRate, avgPnlPct)
+     * for markets with at least [minTrades] closed trades.
+     */
+    suspend fun getPerpsMarketWinRates(minTrades: Int = 10): Map<String, Pair<Double, Double>> {
+        return try {
+            val sql = """
+                SELECT market, direction, total_trades, wins, losses, avg_pnl_pct
+                FROM perps_market_stats
+                WHERE total_trades >= ?
+            """
+            val result = query(sql, listOf(minTrades))
+            if (!result.success) return emptyMap()
+
+            val map = mutableMapOf<String, Pair<Double, Double>>()
+            for (row in result.rows) {
+                try {
+                    val market    = row["market"] as? String ?: continue
+                    val direction = row["direction"] as? String ?: continue
+                    val trades    = (row["total_trades"] as? Long)?.toInt() ?: 0
+                    val wins      = (row["wins"] as? Long)?.toInt() ?: 0
+                    val avgPnl    = (row["avg_pnl_pct"] as? Double) ?: 0.0
+                    if (trades < minTrades) continue
+                    val winRate   = if (trades > 0) wins.toDouble() / trades * 100.0 else 0.0
+                    map["${market}_${direction}"] = Pair(winRate, avgPnl)
+                } catch (_: Exception) {}
+            }
+            map
+        } catch (e: Exception) {
+            Log.w(TAG, "getPerpsMarketWinRates error: ${e.message}")
+            emptyMap()
+        }
+    }
+
+    /**
+     * Get hourly win-rate profile for a given asset from v4_trade_lessons.
+     * Returns map of hour (0-23) → Pair(winRate, sampleCount).
+     * Only hours with at least [minSamples] trades are returned.
+     */
+    suspend fun getHourlyWinProfile(symbol: String, minSamples: Int = 5): Map<Int, Pair<Double, Int>> {
+        return try {
+            val sql = """
+                SELECT
+                    CAST((timestamp / 3600000) % 24 AS INTEGER) AS hour,
+                    COUNT(*) AS total,
+                    SUM(CASE WHEN outcome_pct > 0 THEN 1 ELSE 0 END) AS wins
+                FROM v4_trade_lessons
+                WHERE symbol = ?
+                GROUP BY hour
+                HAVING total >= ?
+            """
+            val result = query(sql, listOf(symbol, minSamples))
+            if (!result.success) return emptyMap()
+
+            val map = mutableMapOf<Int, Pair<Double, Int>>()
+            for (row in result.rows) {
+                try {
+                    val hour  = (row["hour"] as? Long)?.toInt() ?: continue
+                    val total = (row["total"] as? Long)?.toInt() ?: 0
+                    val wins  = (row["wins"] as? Long)?.toInt() ?: 0
+                    if (total < minSamples) continue
+                    val wr = if (total > 0) wins.toDouble() / total * 100.0 else 0.0
+                    map[hour] = Pair(wr, total)
+                } catch (_: Exception) {}
+            }
+            map
+        } catch (e: Exception) {
+            Log.w(TAG, "getHourlyWinProfile error: ${e.message}")
+            emptyMap()
+        }
+    }
+
 }
