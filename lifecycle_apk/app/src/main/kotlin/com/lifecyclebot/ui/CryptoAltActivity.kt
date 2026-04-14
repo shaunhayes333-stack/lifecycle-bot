@@ -496,7 +496,6 @@ class CryptoAltActivity : AppCompatActivity() {
         // ── Sort chips ─────────────────────────────────────────────────────
         val sortRow = hBox().apply {
             layoutParams = llp(match, wrap).apply { bottomMargin = 4 }
-            isHorizontalScrollContainer = true
         }
         val hScroll = HorizontalScrollView(this).apply { layoutParams = llp(match, wrap) }
         val sortInner = hBox().apply { setPadding(12, 4, 12, 4) }
