@@ -831,62 +831,190 @@ class CryptoAltActivity : AppCompatActivity() {
     // ═══════════════════════════════════════════════════════════════════════════
 
     private fun buildSettingsTab() {
-        addSectionHeader("⚙️ Crypto Alts Settings", 0xFF9CA3AF.toInt())
+        // ── Engine Controls ────────────────────────────────────────────────────
+        addSectionHeader("⚙️ Engine Controls", 0xFF9CA3AF.toInt())
         addToggleRow("🤖 Alt Trader Running", CryptoAltTrader.isRunning()) { on ->
-            if (on) CryptoAltTrader.start() else CryptoAltTrader.stop(); selectTab(3) }
+            if (on) CryptoAltTrader.start() else CryptoAltTrader.stop(); selectTab(3)
+        }
         addToggleRow("💰 Live Mode (real money)", CryptoAltTrader.isLiveMode()) { on ->
-            if (on) AlertDialog.Builder(this).setTitle("⚠️ Enable Live Trading?")
-                .setMessage("This will use REAL SOL. Only enable when win rate > 55%.")
-                .setPositiveButton("Enable Live") { _, _ -> CryptoAltTrader.setLiveMode(true); selectTab(3) }
+            if (on) AlertDialog.Builder(this)
+                .setTitle("⚠️ Enable Live Trading?")
+                .setMessage("This will use REAL SOL. Win rate must be > 55% before enabling.\n\nCurrent WR: ${CryptoAltTrader.getWinRate().toInt()}%")
+                .setPositiveButton("Enable Live") { _, _ ->
+                    CryptoAltTrader.setLiveMode(true)
+                    // Propagate live mode to all sub-AIs
+                    ShitCoinTraderAI.setTradingMode(false)
+                    BlueChipTraderAI.setTradingMode(false)
+                    ShitCoinExpress.init(false)
+                    MoonshotTraderAI.setTradingMode(false)
+                    ManipulatedTraderAI.init(false)
+                    selectTab(3)
+                }
                 .setNegativeButton("Cancel") { _, _ -> selectTab(3) }.show()
-            else { CryptoAltTrader.setLiveMode(false); selectTab(3) }
+            else {
+                CryptoAltTrader.setLiveMode(false)
+                ShitCoinTraderAI.setTradingMode(true)
+                BlueChipTraderAI.setTradingMode(true)
+                ShitCoinExpress.init(true)
+                MoonshotTraderAI.setTradingMode(true)
+                ManipulatedTraderAI.init(true)
+                selectTab(3)
+            }
         }
 
-        addSectionHeader("🌐 Token Universe", teal)
+        // ── Sub-AI Mode Controls ───────────────────────────────────────────────
+        addSectionHeader("🧠 Sub-AI Engine States", purple)
+        val scStats  = ShitCoinTraderAI.getStats()
+        val bcStats  = BlueChipTraderAI.getStats()
+        val exStats  = ShitCoinExpress.getStats()
+        val moWr     = MoonshotTraderAI.getWinRatePct()
+        val maStats  = ManipulatedTraderAI.getStats()
+        val maWr     = if (maStats.dailyWins + maStats.dailyLosses > 0) (maStats.dailyWins.toDouble() / (maStats.dailyWins + maStats.dailyLosses) * 100).toInt() else 0
+
+        llContent.addView(buildSubAiCard("💩 ShitCoin",
+            mode   = scStats.mode.name,
+            paper  = scStats.isPaperMode,
+            balance= scStats.balanceSol,
+            wr     = scStats.winRate.toInt(),
+            open   = scStats.activePositions,
+            pnl    = scStats.dailyPnlSol))
+        llContent.addView(thinDivider())
+
+        llContent.addView(buildSubAiCard("🔵 BlueChip",
+            mode   = bcStats.mode.name,
+            paper  = bcStats.isPaperMode,
+            balance= bcStats.balanceSol,
+            wr     = bcStats.winRate.toInt(),
+            open   = bcStats.activePositions,
+            pnl    = bcStats.dailyPnlSol))
+        llContent.addView(thinDivider())
+
+        llContent.addView(buildSubAiCard("⚡ Express",
+            mode   = if (exStats.isPaperMode) "PAPER" else "LIVE",
+            paper  = exStats.isPaperMode,
+            balance= 0.0,
+            wr     = exStats.winRate.toInt(),
+            open   = exStats.activeRides,
+            pnl    = exStats.dailyPnlSol))
+        llContent.addView(thinDivider())
+
+        llContent.addView(buildSubAiCard("🌙 Moonshot",
+            mode   = "ACTIVE",
+            paper  = MoonshotTraderAI.isPaperMode,
+            balance= MoonshotTraderAI.getBalance(MoonshotTraderAI.isPaperMode),
+            wr     = moWr,
+            open   = MoonshotTraderAI.getActivePositions().size,
+            pnl    = MoonshotTraderAI.getDailyPnlSol()))
+        llContent.addView(thinDivider())
+
+        llContent.addView(buildSubAiCard("🎭 Manip",
+            mode   = if (maStats.activeCount > 0) "POSITIONED" else "HUNTING",
+            paper  = ManipulatedTraderAI.isPaperMode,
+            balance= 0.0,
+            wr     = maWr,
+            open   = maStats.activeCount,
+            pnl    = maStats.dailyPnlSol))
+        llContent.addView(thinDivider())
+
+        // ── Token Universe Feed Stats ──────────────────────────────────────────
+        addSectionHeader("🌐 Token Universe (Scanner Feed)", teal)
         addInfoRow("Total Tokens",    "${DynamicAltTokenRegistry.getTokenCount()}")
         addInfoRow("Static (enum)",   "${DynamicAltTokenRegistry.getStaticCount()}")
         addInfoRow("Dynamic (live)",  "${DynamicAltTokenRegistry.getDynamicCount()}")
         addInfoRow("Trending Now",    "${DynamicAltTokenRegistry.getTrendingTokens().size}")
         addInfoRow("Boosted",         "${DynamicAltTokenRegistry.getBoostedTokens().size}")
         addInfoRow("Sources",         "DexScreener + CoinGecko + Jupiter")
+        addInfoRow("Scan Depth",      "200 tokens/batch × rotating universe")
+        addInfoRow("Scan Interval",   "30s dynamic + 12s PerpsMarket")
 
-        addSectionHeader("📊 Performance", purple)
-        addInfoRow("Balance",     "◎${"%.4f".format(CryptoAltTrader.getBalance())}")
-        addInfoRow("Total PnL",   "${if (CryptoAltTrader.getTotalPnlSol() >= 0) "+" else ""}${"%.4f".format(CryptoAltTrader.getTotalPnlSol())}◎")
-        addInfoRow("Win Rate",    "${CryptoAltTrader.getWinRate().toInt()}%")
-        addInfoRow("Total Trades","${CryptoAltTrader.getTotalTrades()}")
-        addInfoRow("Phase",       getPhaseLabel())
+        // ── Overall Performance ────────────────────────────────────────────────
+        addSectionHeader("📊 Alt Trader Performance", purple)
+        addInfoRow("Balance",      "◎${"%.4f".format(CryptoAltTrader.getBalance())}")
+        addInfoRow("Total PnL",    "${if (CryptoAltTrader.getTotalPnlSol() >= 0) "+" else ""}${"%.4f".format(CryptoAltTrader.getTotalPnlSol())}◎")
+        addInfoRow("Win Rate",     "${CryptoAltTrader.getWinRate().toInt()}%")
+        addInfoRow("Total Trades", "${CryptoAltTrader.getTotalTrades()}")
+        addInfoRow("Phase",        getPhaseLabel())
 
-        addSectionHeader("🧠 Fluid Learning", blue)
-        addInfoRow("V3 Trades",     "${FluidLearningAI.getTotalTradeCount()}")
-        addInfoRow("Mkts Trades",   "${FluidLearningAI.getMarketsTradeCount()}")
-        addInfoRow("V3 Progress",   "${(FluidLearningAI.getLearningProgress() * 100).toInt()}%")
-        addInfoRow("Conf Boost",    "+${(FluidLearningAI.getBootstrapConfidenceBoost() * 100).toInt()}%")
+        // ── Fluid Learning (shared across all layers) ──────────────────────────
+        addSectionHeader("🧠 Fluid Learning — All Layers", blue)
+        val flProgress = (FluidLearningAI.getLearningProgress() * 100).toInt()
+        val mkProgress = try { (FluidLearningAI.getMarketsLearningProgress() * 100).toInt() } catch (_: Exception) { 0 }
+        val flThresh   = try { FluidLearningAI.getMarketsSpotScoreThreshold() } catch (_: Exception) { 50 }
+        addInfoRow("V3 Trades",      "${FluidLearningAI.getTotalTradeCount()}")
+        addInfoRow("Markets Trades", "${FluidLearningAI.getMarketsTradeCount()}")
+        addInfoRow("V3 Progress",    "${flProgress}%")
+        addInfoRow("Markets Progress","${mkProgress}%")
+        addInfoRow("Conf Boost",     "+${(FluidLearningAI.getBootstrapConfidenceBoost() * 100).toInt()}%")
+        addInfoRow("Size Mult",      "${"%.2f".format(FluidLearningAI.getBootstrapSizeMultiplier())}×")
+        addInfoRow("Spot Score Thresh","${FluidLearningAI.getMarketsSpotScoreThreshold()}")
+        addInfoRow("Cross-Learn",    "ShitCoin + BlueChip + Express + Moonshot + Manip + AltTrader → FluidLearningAI")
 
-        addSectionHeader("📈 30-Day Run", teal)
-        addInfoRow("Day",         if (RunTracker30D.isRunActive()) "Day ${RunTracker30D.getCurrentDay()} / 30" else "Not started")
-        addInfoRow("Realized PnL","${if (RunTracker30D.totalRealizedPnlSol >= 0) "+" else ""}${"%.4f".format(RunTracker30D.totalRealizedPnlSol)}◎")
-        addInfoRow("Max Drawdown","${"%.1f".format(RunTracker30D.maxDrawdown)}%")
+        llContent.addView(progressBar(blue, flProgress).apply { layoutParams = llp(match, 8).apply { leftMargin = 16; rightMargin = 16; topMargin = 4; bottomMargin = 8 } })
 
-        addSectionHeader("👁️ Shadow / FDG", indigo)
+        // ── 30-Day Run ─────────────────────────────────────────────────────────
+        addSectionHeader("📈 30-Day Run Tracker", teal)
+        addInfoRow("Day",          if (RunTracker30D.isRunActive()) "Day ${RunTracker30D.getCurrentDay()} / 30" else "Not started")
+        addInfoRow("Realized PnL", "${if (RunTracker30D.totalRealizedPnlSol >= 0) "+" else ""}${"%.4f".format(RunTracker30D.totalRealizedPnlSol)}◎")
+        addInfoRow("Max Drawdown", "${"%.1f".format(RunTracker30D.maxDrawdown)}%")
+
+        // ── Shadow FDG ─────────────────────────────────────────────────────────
+        addSectionHeader("👁️ Shadow FDG Learning", indigo)
         val shadow = ShadowLearningEngine.getBlockedTradeStats()
-        addInfoRow("Tracked",   "${shadow.totalTracked}")
-        addInfoRow("Would Win", "${shadow.wouldHaveWon}")
-        addInfoRow("Top Mode",  ShadowLearningEngine.getTopTrackedMode() ?: "—")
+        addInfoRow("Total Tracked",   "${shadow.totalTracked}")
+        addInfoRow("Would Have Won",  "${shadow.wouldHaveWon}")
+        addInfoRow("Would Have Lost", "${shadow.wouldHaveLost}")
+        addInfoRow("Top Mode",        ShadowLearningEngine.getTopTrackedMode() ?: "—")
 
-        // Manual refresh button
-        llContent.addView(tv("🔄 Refresh Token Universe", 13f, teal, bold = true).apply {
-            setBackgroundColor(card); setPadding(16, 16, 16, 16)
-            gravity = Gravity.CENTER
-            layoutParams = llp(match, wrap).apply { topMargin = 12 }
-            setOnClickListener {
-                lifecycleScope.launch(Dispatchers.IO) {
-                    DynamicAltTokenRegistry.runDiscoveryCycle()
-                    withContext(Dispatchers.Main) { selectTab(3) }
+        // ── Sector Intelligence ────────────────────────────────────────────────
+        addSectionHeader("🌡️ Sector Intelligence", amber)
+        addInfoRow("Dominance",    CryptoAltScannerAI.getDominanceCycleSignal())
+        addInfoRow("Fear & Greed", "${CryptoAltScannerAI.getCryptoFearGreed()}/100")
+        val narratives = CryptoAltScannerAI.getActiveNarratives()
+        addInfoRow("Narratives",   if (narratives.isNotEmpty()) narratives.take(3).joinToString(", ") else "—")
+
+        // ── Manual Controls ────────────────────────────────────────────────────
+        addSectionHeader("🔧 Manual Actions", 0xFF9CA3AF.toInt())
+
+        llContent.addView(hBox(card, 12, 12).apply {
+            layoutParams = llp(match, wrap).apply { topMargin = 4; bottomMargin = 4 }
+
+            addView(tv("🔄 Refresh Universe", 12f, teal, bold = true).apply {
+                setBackgroundColor(0xFF0D2020.toInt()); setPadding(12, 10, 12, 10)
+                gravity = Gravity.CENTER
+                layoutParams = llp(0, wrap, 1f).apply { marginEnd = 4 }
+                setOnClickListener {
+                    lifecycleScope.launch(Dispatchers.IO) {
+                        DynamicAltTokenRegistry.runDiscoveryCycle()
+                        withContext(Dispatchers.Main) { selectTab(3) }
+                    }
                 }
-            }
+            })
+
+            addView(tv("🔄 Refresh UI", 12f, blue, bold = true).apply {
+                setBackgroundColor(0xFF0D1020.toInt()); setPadding(12, 10, 12, 10)
+                gravity = Gravity.CENTER
+                layoutParams = llp(0, wrap, 1f)
+                setOnClickListener { buildFullDashboard() }
+            })
         })
     }
+
+    private fun buildSubAiCard(name: String, mode: String, paper: Boolean, balance: Double, wr: Int, open: Int, pnl: Double): LinearLayout {
+        val pnlColor = if (pnl >= 0) green else red
+        val wrColor  = if (wr >= 55) green else if (wr >= 40) amber else red
+        return hBox(card, 14, 10).apply {
+            gravity = Gravity.CENTER_VERTICAL
+            addView(tv(name, 12f, white, bold = true).apply { layoutParams = llp(0, wrap, 2f) })
+            addView(tv(if (paper) "PAPER" else "LIVE", 9f, if (paper) amber else green, bold = true).apply {
+                setBackgroundColor(if (paper) 0xFF2D1A00.toInt() else 0xFF002D0D.toInt())
+                setPadding(5, 2, 5, 2); layoutParams = llp(wrap, wrap).apply { marginEnd = 6 }
+            })
+            addView(tv("$wr%WR", 11f, wrColor, mono = true).apply { layoutParams = llp(wrap, wrap).apply { marginEnd = 6 } })
+            addView(tv("$open open", 10f, blue, mono = true).apply { layoutParams = llp(wrap, wrap).apply { marginEnd = 6 } })
+            if (balance > 0) addView(tv("◎${"%.2f".format(balance)}", 10f, white, mono = true))
+        }
+    }
+
 
     // ═══════════════════════════════════════════════════════════════════════════
     // DIALOGS
