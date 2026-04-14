@@ -74,8 +74,21 @@ object PerpsExecutionEngine {
      */
     fun start(context: android.content.Context) {
         if (isRunning.get()) {
-            ErrorLogger.warn(TAG, "Already running")
-            return
+            // Check if jobs are actually alive — they may have died silently
+            val scanAlive     = scanJob?.isActive == true
+            val monitorAlive  = positionMonitorJob?.isActive == true
+            val scopeAlive    = engineScope?.isActive == true
+            if (scanAlive && monitorAlive && scopeAlive) {
+                ErrorLogger.warn(TAG, "Already running and loops are alive — no restart needed")
+                return
+            }
+            // Jobs died silently — force cleanup and restart
+            ErrorLogger.warn(TAG, "⚠️ isRunning=true but jobs are dead! Force-restarting loops…")
+            scanJob?.cancel()
+            positionMonitorJob?.cancel()
+            engineScope?.cancel()
+            engineScope = null
+            isRunning.set(false)
         }
         
         // Initialize all perps components
@@ -128,6 +141,17 @@ object PerpsExecutionEngine {
     
     fun isRunning(): Boolean = isRunning.get()
     fun isPaused(): Boolean = isPaused.get()
+
+    /**
+     * Returns true only if the engine is running AND the scan/monitor coroutine jobs are alive.
+     * Use this instead of isRunning() to detect silent loop deaths.
+     */
+    fun isHealthy(): Boolean {
+        if (!isRunning.get()) return false
+        val scanAlive    = scanJob?.isActive == true
+        val monitorAlive = positionMonitorJob?.isActive == true
+        return scanAlive && monitorAlive
+    }
     
     // ═══════════════════════════════════════════════════════════════════════════
     // SCAN LOOP - Detect opportunities
