@@ -2376,7 +2376,24 @@ for legal compliance.
             val row = LinearLayout(this).apply {
                 orientation = LinearLayout.HORIZONTAL
                 setPadding(0, 12, 0, 12)
+                gravity = android.view.Gravity.CENTER_VERTICAL
             }
+
+            // Token logo
+            val logoImgSc = android.widget.ImageView(this).apply {
+                val lp = LinearLayout.LayoutParams(40, 40).also { it.marginEnd = 10 }
+                layoutParams = lp
+                scaleType = android.widget.ImageView.ScaleType.CENTER_CROP
+                try { background = androidx.core.content.ContextCompat.getDrawable(this@MainActivity, R.drawable.token_logo_bg) } catch (_: Exception) {}
+                val logoUrl = "https://cdn.dexscreener.com/tokens/solana/${pos.mint}.png"
+                load(logoUrl) {
+                    crossfade(true)
+                    placeholder(R.drawable.ic_token_placeholder)
+                    error(R.drawable.ic_token_placeholder)
+                    transformations(coil.transform.CircleCropTransformation())
+                }
+            }
+            row.addView(logoImgSc)
 
             // Colour bar on left (orange for ShitCoin)
             val barColor = when (pos.launchPlatform) {
@@ -2478,7 +2495,25 @@ for legal compliance.
             val row = LinearLayout(this).apply {
                 orientation = LinearLayout.HORIZONTAL
                 setPadding(0, 12, 0, 12)
+                gravity = android.view.Gravity.CENTER_VERTICAL
             }
+
+            // Token logo
+            val logoImgEx = android.widget.ImageView(this).apply {
+                val lp = LinearLayout.LayoutParams(40, 40).also { it.marginEnd = 10 }
+                layoutParams = lp
+                scaleType = android.widget.ImageView.ScaleType.CENTER_CROP
+                try { background = androidx.core.content.ContextCompat.getDrawable(this@MainActivity, R.drawable.token_logo_bg) } catch (_: Exception) {}
+                val logoUrl = "https://cdn.dexscreener.com/tokens/solana/${ride.mint}.png"
+                load(logoUrl) {
+                    crossfade(true)
+                    placeholder(R.drawable.ic_token_placeholder)
+                    error(R.drawable.ic_token_placeholder)
+                    transformations(coil.transform.CircleCropTransformation())
+                }
+            }
+            row.addView(logoImgEx)
+
             val bar = View(this).apply {
                 layoutParams = LinearLayout.LayoutParams(4, LinearLayout.LayoutParams.MATCH_PARENT).also { it.marginEnd = 12 }
                 setBackgroundColor(0xFFFF4500.toInt()) // Deep orange for express
