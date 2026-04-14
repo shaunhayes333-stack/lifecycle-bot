@@ -2204,11 +2204,9 @@ class MultiAssetActivity : AppCompatActivity() {
             dotPerps.setBackgroundResource(
                 if (PerpsExecutionEngine.isRunning()) R.drawable.dot_green else R.drawable.dot_red
             )
-            try {
-                dotCrypto.setBackgroundResource(
-                    if (CryptoAltTrader.isRunning()) R.drawable.dot_green else R.drawable.dot_red
-                )
-            } catch (_: Exception) {}
+            dotCrypto?.setBackgroundResource(
+                if (CryptoAltTrader.isRunning()) R.drawable.dot_green else R.drawable.dot_red
+            )
         } catch (_: Exception) {}
     }
     
