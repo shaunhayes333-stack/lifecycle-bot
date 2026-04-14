@@ -57,6 +57,31 @@ object FluidLearningAI {
             "bootstrap=0-$BOOTSTRAP_PHASE_END | mature=$BOOTSTRAP_PHASE_END-$MATURE_PHASE_END | continuous=$MATURE_PHASE_END+ | " +
             "currentProgress=${(getLearningProgress() * 100).toInt()}%")
     }
+
+    /**
+     * V5.8.0: Call from BotService.onCreate() AFTER init().
+     * Loads persisted Markets trade/win counts so the progress bar
+     * survives app restarts and doesn't permanently show "Initializing".
+     */
+    fun initMarketsPrefs(context: android.content.Context) {
+        val prefs = context.getSharedPreferences(MARKETS_PREFS_NAME, android.content.Context.MODE_PRIVATE)
+        marketsPrefs = prefs
+        val savedTrades = prefs.getInt(KEY_MARKETS_TRADES, 0)
+        val savedWins   = prefs.getInt(KEY_MARKETS_WINS,   0)
+        if (savedTrades > 0) {
+            marketsSessionTrades.set(savedTrades)
+            marketsSessionWins.set(savedWins)
+            ErrorLogger.info(TAG, "📊 Markets counters restored: $savedTrades trades, $savedWins wins")
+        }
+    }
+
+    /** Save Markets counters to SharedPreferences. */
+    private fun saveMarketsPrefs() {
+        marketsPrefs?.edit()
+            ?.putInt(KEY_MARKETS_TRADES, marketsSessionTrades.get())
+            ?.putInt(KEY_MARKETS_WINS,   marketsSessionWins.get())
+            ?.apply()
+    }
     
     // ═══════════════════════════════════════════════════════════════════════════
     // LEARNING PROGRESS TRACKING
@@ -74,6 +99,12 @@ object FluidLearningAI {
     private val marketsSessionWins = AtomicInteger(0)
     private val marketsLastProgressUpdate = AtomicLong(0)
     private var marketsCachedProgress = 0.0
+
+    // V5.8.0: Persistent storage for Markets trade/win counts (survives app restart)
+    @Volatile private var marketsPrefs: android.content.SharedPreferences? = null
+    private const val MARKETS_PREFS_NAME = "fluid_learning_markets"
+    private const val KEY_MARKETS_TRADES = "markets_trades"
+    private const val KEY_MARKETS_WINS   = "markets_wins"
     
     // V5.6: EXTENDED Learning curve - Never fully closes
     //   Phase 1 Bootstrap (0-1000 trades):   progress 0.0→0.5 (permissive thresholds, learning mode)
@@ -512,6 +543,7 @@ object FluidLearningAI {
     fun recordMarketsTradeStart() {
         marketsSessionTrades.incrementAndGet()
         marketsLastProgressUpdate.set(0)  // Force progress recalculation
+        saveMarketsPrefs()  // V5.8.0: persist so count survives restart
         ErrorLogger.debug(TAG, "📊 Markets trade started | total=${getMarketsTradeCount()} | progress=${(getMarketsLearningProgress()*100).toInt()}%")
     }
     
