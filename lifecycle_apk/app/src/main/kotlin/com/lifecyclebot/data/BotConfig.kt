@@ -234,6 +234,7 @@ data class BotConfig(
     val tradingMode: Int = 2,  // Default: BOTH - run all traders
     val memeTraderEnabled: Boolean = true,      // Meme coin trader (original bot)
     val marketsTraderEnabled: Boolean = true,   // All market traders (Stocks, Commodities, Metals, Forex, Perps)
+    val cryptoAltsEnabled: Boolean = true,      // Crypto Alt trader (BNB/ETH/SOL/Polygon alts) — runs 24/7
 )
 
 /** Persists config — private key stored in EncryptedSharedPreferences */
@@ -372,6 +373,7 @@ object ConfigStore {
             putInt("trading_mode",                     cfg.tradingMode)
             putBoolean("meme_trader_enabled",          cfg.memeTraderEnabled)
             putBoolean("markets_trader_enabled",       cfg.marketsTraderEnabled)
+            putBoolean("crypto_alts_enabled",          cfg.cryptoAltsEnabled)
             apply()
         }
     }
@@ -510,6 +512,7 @@ object ConfigStore {
             tradingMode                 = p.getInt("trading_mode", 2),  // Default: BOTH
             memeTraderEnabled           = p.getBoolean("meme_trader_enabled", true),
             marketsTraderEnabled        = p.getBoolean("markets_trader_enabled", true),
+            cryptoAltsEnabled           = p.getBoolean("crypto_alts_enabled", true),
         )
     }
 
@@ -546,3 +549,4 @@ object ConfigStore {
 }
 // Build 1775478652
 // V5.6.11 - Paper→Live learning transfer
+
