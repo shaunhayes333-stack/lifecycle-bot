@@ -2188,10 +2188,10 @@ class MultiAssetActivity : AppCompatActivity() {
     private fun getCurrentPositionCount(): Int {
         return try {
             when (currentTab) {
-                AssetTab.PERPS -> PerpsExecutionEngine.getActivePositions().size + TokenizedStockTrader.getAllPositions().count { it.market.isCrypto }
+                AssetTab.PERPS -> PerpsExecutionEngine.getActivePositions().size + TokenizedStockTrader.getAllPositions().count { it.market.isSolPerp }
                 AssetTab.STOCKS -> {
-                    if (showSpotOnly) TokenizedStockTrader.getSpotPositions().size
-                    else TokenizedStockTrader.getLeveragePositions().size
+                    if (showSpotOnly) TokenizedStockTrader.getSpotPositions().count { it.market.isStock }
+                    else TokenizedStockTrader.getLeveragePositions().count { it.market.isStock }
                 }
                 AssetTab.COMMODITIES -> {
                     if (showSpotOnly) CommoditiesTrader.getSpotPositions().size
@@ -2212,10 +2212,10 @@ class MultiAssetActivity : AppCompatActivity() {
     private fun getCurrentPnl(): Double {
         return try {
             when (currentTab) {
-                AssetTab.PERPS -> PerpsExecutionEngine.getActivePositions().sumOf { it.getPnlSol() } + TokenizedStockTrader.getAllPositions().filter { it.market.isCrypto }.sumOf { it.getPnlSol() }
+                AssetTab.PERPS -> PerpsExecutionEngine.getActivePositions().sumOf { it.getPnlSol() } + TokenizedStockTrader.getAllPositions().filter { it.market.isSolPerp }.sumOf { it.getPnlSol() }
                 AssetTab.STOCKS -> {
-                    val positions = if (showSpotOnly) TokenizedStockTrader.getSpotPositions()
-                                   else TokenizedStockTrader.getLeveragePositions()
+                    val positions = if (showSpotOnly) TokenizedStockTrader.getSpotPositions().filter { it.market.isStock }
+                                   else TokenizedStockTrader.getLeveragePositions().filter { it.market.isStock }
                     positions.sumOf { it.getPnlSol() }
                 }
                 AssetTab.COMMODITIES -> {
