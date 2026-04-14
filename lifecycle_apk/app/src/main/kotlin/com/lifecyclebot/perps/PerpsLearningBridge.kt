@@ -746,14 +746,12 @@ object PerpsLearningBridge {
             try {
                 val client = com.lifecyclebot.collective.CollectiveLearning.getClient() ?: return@launch
                 for (layerName in contributingLayers) {
-                    val trust = layerPerpsTrust[layerName] ?: continue
                     client.updatePerpsLayerPerformance(
                         layerName = layerName,
                         market = trade.market.symbol,
                         direction = trade.direction.name,
                         isWin = trade.pnlPct > 0,
-                        pnlPct = trade.pnlPct,
-                        trustScore = trust
+                        pnlPct = trade.pnlPct
                     )
                 }
             } catch (e: Exception) {
