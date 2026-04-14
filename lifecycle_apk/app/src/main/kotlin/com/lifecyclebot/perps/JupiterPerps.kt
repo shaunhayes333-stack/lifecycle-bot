@@ -520,7 +520,7 @@ object JupiterPerps {
                 val responseBody = response.body?.string()
                 if (responseBody != null) {
                     val json = JSONObject(responseBody)
-                    return@withContext json.optString("transaction", null)
+                    return@withContext json.optString("transaction").takeIf { it.isNotEmpty() }
                 }
             }
             
@@ -596,7 +596,7 @@ object JupiterPerps {
                 val responseBody = response.body?.string()
                 if (responseBody != null) {
                     val json = JSONObject(responseBody)
-                    val txBase64 = json.optString("transaction", null)
+                    val txBase64 = json.optString("transaction").takeIf { it.isNotEmpty() }
                     
                     if (txBase64 != null) {
                         // Sign and send
