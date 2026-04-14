@@ -8,13 +8,21 @@ import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
 import androidx.lifecycle.lifecycleScope
 import com.lifecyclebot.R
+import com.lifecyclebot.engine.RunTracker30D
+import com.lifecyclebot.engine.ShadowLearningEngine
 import com.lifecyclebot.perps.CryptoAltTrader
 import com.lifecyclebot.perps.CryptoAltScannerAI
 import com.lifecyclebot.perps.PerpsMarket
 import com.lifecyclebot.perps.PerpsMarketDataFetcher
 import com.lifecyclebot.perps.PerpsMarketData
 import com.lifecyclebot.perps.WatchlistEngine
+import com.lifecyclebot.v3.scoring.BlueChipTraderAI
 import com.lifecyclebot.v3.scoring.FluidLearningAI
+import com.lifecyclebot.v3.scoring.ManipulatedTraderAI
+import com.lifecyclebot.v3.scoring.MoonshotTraderAI
+import com.lifecyclebot.v3.scoring.QualityTraderAI
+import com.lifecyclebot.v3.scoring.ShitCoinExpress
+import com.lifecyclebot.v3.scoring.ShitCoinTraderAI
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
@@ -25,29 +33,32 @@ import java.util.*
 
 /**
  * ═══════════════════════════════════════════════════════════════════════
- * CRYPTO ALTS ACTIVITY — V2.0  (AATE Unified UI)
+ * CRYPTO ALTS ACTIVITY — V2.1  (AATE Full Unified UI)
  * ═══════════════════════════════════════════════════════════════════════
  *
  * Full AATE-style tile dashboard for cross-chain alt tokens.
- * Mirrors the main MainActivity layout with:
- *   • Hero balance / PnL / phase banner
- *   • Live Readiness tile (readiness arc + progress bar)
- *   • 30-Day Proof Run tile
- *   • Strategy tiles: Alt V3 | Alt Treasury | Alt Blue | Alt Express | Alt Moonshot
- *   • Hive Mind / Dominance cycle / Narrative panel
- *   • Layer Confidence / Sector Heat dashboard
- *   • Top signal cards (live scanner feed)
- *   • Bottom tabs: Scanner | Watchlist | Positions | Settings
+ * ALL trading mode AIs are genuinely wired in:
  *
- * Chains: BNB ▪ ETH ▪ SOL ▪ Polygon
+ *   • ShitCoinTraderAI  — ShitCoin mode (stats, win rate, daily PnL, mode)
+ *   • QualityTraderAI   — Quality mode ($100K–$1M mcap)
+ *   • BlueChipTraderAI  — Blue Chip mode
+ *   • ShitCoinExpress   — Express high-velocity mode
+ *   • MoonshotTraderAI  — Moonshot / 10x+ mode (10x/100x counters)
+ *   • ManipulatedTraderAI — Manip catch mode
+ *   • FluidLearningAI   — Bootstrap arc, learning progress, thresholds
+ *   • RunTracker30D     — 30-day proof run (equity, drawdown, integrity)
+ *   • ShadowLearningEngine — Shadow / FDG blocked trade analysis
+ *   • CryptoAltScannerAI  — Dominance, sector heat, fear/greed, narratives
+ *
+ * Bottom tabs: Scanner | Watchlist | Positions | Settings
  */
 class CryptoAltActivity : AppCompatActivity() {
 
-    // ─── Colours (match AATE palette) ────────────────────────────────────────
+    // ─── Palette ─────────────────────────────────────────────────────────────
     private val bg      = 0xFF0A0A0F.toInt()
     private val card    = 0xFF1A1A2E.toInt()
     private val card2   = 0xFF12122A.toInt()
-    private val divider = 0xFF1F2937.toInt()
+    private val divBg   = 0xFF1F2937.toInt()
     private val white   = 0xFFFFFFFF.toInt()
     private val muted   = 0xFF6B7280.toInt()
     private val green   = 0xFF22C55E.toInt()
@@ -58,28 +69,23 @@ class CryptoAltActivity : AppCompatActivity() {
     private val teal    = 0xFF14B8A6.toInt()
     private val pink    = 0xFFF472B6.toInt()
     private val orange  = 0xFFFB923C.toInt()
+    private val indigo  = 0xFF818CF8.toInt()
     private val sdf     = SimpleDateFormat("MMM dd HH:mm", Locale.US)
 
-    // ─── Views ────────────────────────────────────────────────────────────────
-    private lateinit var scrollView : ScrollView
-    private lateinit var llMain     : LinearLayout   // master vertical container
-    private lateinit var progressBar: ProgressBar
+    // ─── Views ───────────────────────────────────────────────────────────────
+    private lateinit var progressBar : ProgressBar
+    private lateinit var llContent   : LinearLayout   // R.id.llCryptoAltContent
+    private lateinit var tabScanner  : TextView
+    private lateinit var tabWatchlist: TextView
+    private lateinit var tabPositions: TextView
+    private lateinit var tabSettings : TextView
 
     // Hero
-    private lateinit var tvHeroBalance  : TextView
-    private lateinit var tvHeroPnl      : TextView
-    private lateinit var tvHeroWinRate  : TextView
-    private lateinit var tvHeroPhase    : TextView
-    private lateinit var tvHeroTrades   : TextView
-
-    // Tabs
-    private lateinit var tabScanner   : TextView
-    private lateinit var tabWatchlist : TextView
-    private lateinit var tabPositions : TextView
-    private lateinit var tabSettings  : TextView
-
-    // Tab content container
-    private lateinit var llTabContent : LinearLayout
+    private lateinit var tvHeroBalance : TextView
+    private lateinit var tvHeroPnl     : TextView
+    private lateinit var tvHeroWinRate : TextView
+    private lateinit var tvHeroTrades  : TextView
+    private lateinit var tvHeroPhase   : TextView
 
     // State
     private var currentTab  = 0
@@ -98,7 +104,7 @@ class CryptoAltActivity : AppCompatActivity() {
         setContentView(R.layout.activity_crypto_alt)
         supportActionBar?.hide()
 
-        // Wire existing XML views
+        llContent    = findViewById(R.id.llCryptoAltContent)
         progressBar  = findViewById(R.id.progressCryptoAlt)
         tabScanner   = findViewById(R.id.tabCryptoAltScanner)
         tabWatchlist = findViewById(R.id.tabCryptoAltWatchlist)
@@ -108,7 +114,7 @@ class CryptoAltActivity : AppCompatActivity() {
         WatchlistEngine.init(applicationContext)
 
         findViewById<View>(R.id.btnCryptoAltBack).setOnClickListener { finish() }
-        findViewById<View>(R.id.btnCryptoAltScan).setOnClickListener { refreshDashboard() }
+        findViewById<View>(R.id.btnCryptoAltScan).setOnClickListener { buildFullDashboard() }
         findViewById<View>(R.id.btnCryptoAltAdd).setOnClickListener { showAddToWatchlistDialog() }
 
         tabScanner.setOnClickListener   { selectTab(0) }
@@ -116,612 +122,544 @@ class CryptoAltActivity : AppCompatActivity() {
         tabPositions.setOnClickListener { selectTab(2) }
         tabSettings.setOnClickListener  { selectTab(3) }
 
-        // The existing llCryptoAltContent becomes our tile container
-        llTabContent = findViewById(R.id.llCryptoAltContent)
-
         buildFullDashboard()
         startAutoRefresh()
     }
 
     // ═══════════════════════════════════════════════════════════════════════════
-    // AUTO REFRESH
+    // AUTO REFRESH (15s hero stats)
     // ═══════════════════════════════════════════════════════════════════════════
 
     private fun startAutoRefresh() {
         lifecycleScope.launch {
             while (isActive) {
                 delay(15_000L)
-                withContext(Dispatchers.Main) { refreshHeroStats() }
-            }
-        }
-    }
-
-    private fun refreshHeroStats() {
-        if (!::tvHeroBalance.isInitialized) return
-        val bal      = CryptoAltTrader.getBalance()
-        val pnl      = CryptoAltTrader.getTotalPnlSol()
-        val winRate  = CryptoAltTrader.getWinRate()
-        val trades   = CryptoAltTrader.getTotalTrades()
-        val phase    = getPhaseLabel()
-
-        tvHeroBalance.text = "◎ ${"%.4f".format(bal)}"
-        tvHeroPnl.text     = "${if (pnl >= 0) "+" else ""}${"%.4f".format(pnl)} SOL"
-        tvHeroPnl.setTextColor(if (pnl >= 0) green else red)
-        tvHeroWinRate.text = "${"%.1f".format(winRate)}% WR"
-        tvHeroTrades.text  = "$trades trades"
-        tvHeroPhase.text   = phase
-        tvHeroPhase.setTextColor(phaseColor(phase))
-    }
-
-    private fun refreshDashboard() {
-        buildFullDashboard()
-    }
-
-    // ═══════════════════════════════════════════════════════════════════════════
-    // FULL DASHBOARD BUILD
-    // ═══════════════════════════════════════════════════════════════════════════
-
-    private fun buildFullDashboard() {
-        llTabContent.removeAllViews()
-
-        // 1. Hero balance section
-        buildHeroSection()
-
-        // 2. Live Readiness tile
-        buildReadinessTile()
-
-        // 3. 30-Day Proof Run tile
-        buildProofRunTile()
-
-        // 4. Strategy tiles row 1 — Alt V3 | Alt Treasury
-        buildStrategyRow(
-            tile1Label = "🧠 Alt V3",
-            tile1Color = purple,
-            tile1Sub   = "Cross-chain AI",
-            tile2Label = "🏦 Alt Treasury",
-            tile2Color = teal,
-            tile2Sub   = "Stable alts"
-        )
-
-        // 5. Strategy tiles row 2 — Alt Blue | Alt Express
-        buildStrategyRow(
-            tile1Label = "💎 Alt Blue",
-            tile1Color = blue,
-            tile1Sub   = "Blue chip alts",
-            tile2Label = "⚡ Alt Express",
-            tile2Color = amber,
-            tile2Sub   = "Fast movers"
-        )
-
-        // 6. Strategy tile row 3 — Alt Moonshot | Alt Meme
-        buildStrategyRow(
-            tile1Label = "🚀 Alt Moonshot",
-            tile1Color = pink,
-            tile1Sub   = "High risk / reward",
-            tile2Label = "🐸 Alt Meme",
-            tile2Color = green,
-            tile2Sub   = "Meme season plays"
-        )
-
-        // 7. Hive Mind / Dominance / Narratives panel
-        buildHiveMindPanel()
-
-        // 8. Layer Confidence / Sector Heat dashboard
-        buildLayerConfidencePanel()
-
-        // 9. Signal cards (live scanner)
-        buildSignalCards()
-
-        // 10. Tab content area (Scanner / Watchlist / Positions / Settings)
-        addSectionDivider()
-        buildTabBar()
-        selectTab(currentTab)
-    }
-
-    // ═══════════════════════════════════════════════════════════════════════════
-    // HERO SECTION
-    // ═══════════════════════════════════════════════════════════════════════════
-
-    private fun buildHeroSection() {
-        val hero = LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL
-            setBackgroundColor(card2)
-            setPadding(20, 18, 20, 18)
-            layoutParams = llp(matchParent, wrapContent).apply { bottomMargin = 3 }
-        }
-
-        // Balance row
-        val balRow = LinearLayout(this).apply {
-            orientation = LinearLayout.HORIZONTAL
-            gravity = Gravity.CENTER_VERTICAL
-        }
-
-        val bal     = CryptoAltTrader.getBalance()
-        val pnl     = CryptoAltTrader.getTotalPnlSol()
-        val winRate = CryptoAltTrader.getWinRate()
-        val trades  = CryptoAltTrader.getTotalTrades()
-        val phase   = getPhaseLabel()
-
-        tvHeroBalance = TextView(this).apply {
-            text      = "◎ ${"%.4f".format(bal)}"
-            textSize  = 28f
-            setTextColor(white)
-            typeface  = android.graphics.Typeface.DEFAULT_BOLD
-            layoutParams = llp(0, wrapContent, 1f)
-        }
-
-        // Mode badge
-        val modeBadge = TextView(this).apply {
-            text = if (CryptoAltTrader.isLiveMode()) "● LIVE" else "● PAPER"
-            textSize = 10f
-            setTextColor(if (CryptoAltTrader.isLiveMode()) green else amber)
-            typeface = android.graphics.Typeface.DEFAULT_BOLD
-            setBackgroundColor(if (CryptoAltTrader.isLiveMode()) 0xFF052E16.toInt() else 0xFF451A03.toInt())
-            setPadding(8, 4, 8, 4)
-        }
-
-        balRow.addView(tvHeroBalance)
-        balRow.addView(modeBadge)
-        hero.addView(balRow)
-
-        // PnL + win rate row
-        val statsRow = LinearLayout(this).apply {
-            orientation = LinearLayout.HORIZONTAL
-            gravity = Gravity.CENTER_VERTICAL
-            layoutParams = llp(matchParent, wrapContent).apply { topMargin = 4 }
-        }
-
-        tvHeroPnl = TextView(this).apply {
-            text     = "${if (pnl >= 0) "+" else ""}${"%.4f".format(pnl)} SOL"
-            textSize = 14f
-            setTextColor(if (pnl >= 0) green else red)
-            typeface = android.graphics.Typeface.MONOSPACE
-            layoutParams = llp(0, wrapContent, 1f)
-        }
-
-        tvHeroWinRate = TextView(this).apply {
-            text     = "${"%.1f".format(winRate)}% WR"
-            textSize = 12f
-            setTextColor(purple)
-            typeface = android.graphics.Typeface.MONOSPACE
-            layoutParams = llp(0, wrapContent, 1f)
-        }
-
-        tvHeroTrades = TextView(this).apply {
-            text     = "$trades trades"
-            textSize = 12f
-            setTextColor(muted)
-            typeface = android.graphics.Typeface.MONOSPACE
-        }
-
-        statsRow.addView(tvHeroPnl)
-        statsRow.addView(tvHeroWinRate)
-        statsRow.addView(tvHeroTrades)
-        hero.addView(statsRow)
-
-        // Phase label
-        tvHeroPhase = TextView(this).apply {
-            text     = phase
-            textSize = 10f
-            setTextColor(phaseColor(phase))
-            typeface = android.graphics.Typeface.DEFAULT_BOLD
-            layoutParams = llp(matchParent, wrapContent).apply { topMargin = 6 }
-        }
-        hero.addView(tvHeroPhase)
-
-        // Chain chips row
-        val chainRow = LinearLayout(this).apply {
-            orientation = LinearLayout.HORIZONTAL
-            layoutParams = llp(matchParent, wrapContent).apply { topMargin = 10 }
-        }
-        for ((chain, label, color) in listOf(
-            Triple("BNB",   "BNB",     0xFFF59E0B.toInt()),
-            Triple("ETH",   "ETH",     0xFF60A5FA.toInt()),
-            Triple("SOL",   "SOL",     0xFF9333EA.toInt()),
-            Triple("MATIC", "POLY",    0xFF818CF8.toInt())
-        )) {
-            chainRow.addView(TextView(this).apply {
-                text = label; textSize = 9f; gravity = Gravity.CENTER
-                setTextColor(color)
-                setBackgroundColor(0xFF0D0D1A.toInt())
-                setPadding(8, 3, 8, 3)
-                layoutParams = llp(0, wrapContent, 1f).apply { marginEnd = 3 }
-            })
-        }
-        hero.addView(chainRow)
-
-        llTabContent.addView(hero)
-    }
-
-    // ═══════════════════════════════════════════════════════════════════════════
-    // LIVE READINESS TILE
-    // ═══════════════════════════════════════════════════════════════════════════
-
-    private fun buildReadinessTile() {
-        val phase     = getPhaseLabel()
-        val trades    = FluidLearningAI.getMarketsTradeCount()
-        val target    = when {
-            trades < 500  -> 500
-            trades < 1500 -> 1500
-            trades < 3000 -> 3000
-            trades < 5000 -> 5000
-            else          -> 5000
-        }
-        val progress  = ((trades.toFloat() / target) * 100).toInt().coerceIn(0, 100)
-        val winRate   = CryptoAltTrader.getWinRate()
-        val readyText = when (phase) {
-            "BOOTSTRAP"  -> "Collecting initial alt data..."
-            "LEARNING"   -> "Learning alt market patterns..."
-            "VALIDATING" -> "Validating cross-chain signals..."
-            "MATURING"   -> "Maturing AI strategy..."
-            "READY"      -> "🟢 Ready for live trading!"
-            else         -> "Building confidence..."
-        }
-
-        val tile = buildTileCard(purple)
-        addTileHeader(tile, "📡 Live Readiness", phase, phaseColor(phase))
-
-        // Progress bar
-        val pb = ProgressBar(this, null, android.R.attr.progressBarStyleHorizontal).apply {
-            max = 100; this.progress = progress
-            progressTintList = android.content.res.ColorStateList.valueOf(purple)
-            layoutParams = llp(matchParent, 6).apply { topMargin = 8; bottomMargin = 4 }
-        }
-        tile.addView(pb)
-
-        // Stats row
-        val row = LinearLayout(this).apply {
-            orientation = LinearLayout.HORIZONTAL
-            layoutParams = llp(matchParent, wrapContent).apply { topMargin = 4 }
-        }
-        addStatChip(row, "Trades", "$trades / $target", muted, 1f)
-        addStatChip(row, "Win Rate", "${"%.1f".format(winRate)}%", if (winRate >= 55) green else amber, 1f)
-        addStatChip(row, "Progress", "$progress%", purple, 1f)
-        tile.addView(row)
-
-        // Description
-        tile.addView(TextView(this).apply {
-            text = readyText; textSize = 10f; setTextColor(muted)
-            layoutParams = llp(matchParent, wrapContent).apply { topMargin = 6 }
-        })
-
-        llTabContent.addView(tile)
-    }
-
-    // ═══════════════════════════════════════════════════════════════════════════
-    // 30-DAY PROOF RUN TILE
-    // ═══════════════════════════════════════════════════════════════════════════
-
-    private fun buildProofRunTile() {
-        val trades  = CryptoAltTrader.getTotalTrades()
-        val winRate = CryptoAltTrader.getWinRate()
-        val pnl     = CryptoAltTrader.getTotalPnlSol()
-        val openPos = CryptoAltTrader.getAllPositions().count { it.closeTime == null }
-
-        val tile = buildTileCard(teal)
-        addTileHeader(tile, "📊 30-Day Proof Run", "ALTS", teal)
-
-        val row = LinearLayout(this).apply {
-            orientation = LinearLayout.HORIZONTAL
-            layoutParams = llp(matchParent, wrapContent).apply { topMargin = 8 }
-        }
-        addStatChip(row, "Total Trades", "$trades", white, 1f)
-        addStatChip(row, "Win Rate",     "${"%.1f".format(winRate)}%", if (winRate >= 55) green else amber, 1f)
-        addStatChip(row, "Total PnL",    "${if (pnl >= 0) "+" else ""}${"%.3f".format(pnl)}◎", if (pnl >= 0) green else red, 1f)
-        addStatChip(row, "Open",         "$openPos pos", blue, 1f)
-        tile.addView(row)
-
-        // Target indicator
-        val targetWr = 55.0
-        val gap = targetWr - winRate
-        tile.addView(TextView(this).apply {
-            text = if (winRate >= targetWr) "✅ Win rate target met — ready for live!"
-                   else "Need ${String.format("%.1f", gap)}% more win rate for live approval"
-            textSize = 10f
-            setTextColor(if (winRate >= targetWr) green else muted)
-            layoutParams = llp(matchParent, wrapContent).apply { topMargin = 6 }
-        })
-
-        llTabContent.addView(tile)
-    }
-
-    // ═══════════════════════════════════════════════════════════════════════════
-    // STRATEGY TILE ROWS
-    // ═══════════════════════════════════════════════════════════════════════════
-
-    private fun buildStrategyRow(
-        tile1Label: String, tile1Color: Int, tile1Sub: String,
-        tile2Label: String, tile2Color: Int, tile2Sub: String
-    ) {
-        val row = LinearLayout(this).apply {
-            orientation = LinearLayout.HORIZONTAL
-            layoutParams = llp(matchParent, wrapContent).apply { bottomMargin = 3 }
-        }
-
-        val trades   = CryptoAltTrader.getTotalTrades()
-        val winRate  = CryptoAltTrader.getWinRate()
-        val pnl      = CryptoAltTrader.getTotalPnlSol()
-        val openPos  = CryptoAltTrader.getAllPositions().count { it.closeTime == null }
-
-        // Tile 1
-        val t1 = buildMiniTile(tile1Label, tile1Color, tile1Sub, trades / 2, winRate, pnl / 2, openPos / 2)
-        t1.layoutParams = llp(0, wrapContent, 1f).apply { marginEnd = 3 }
-        row.addView(t1)
-
-        // Tile 2
-        val t2 = buildMiniTile(tile2Label, tile2Color, tile2Sub, trades / 2, winRate, pnl / 2, openPos / 2)
-        t2.layoutParams = llp(0, wrapContent, 1f)
-        row.addView(t2)
-
-        llTabContent.addView(row)
-    }
-
-    private fun buildMiniTile(
-        label: String, accentColor: Int, sub: String,
-        trades: Int, winRate: Double, pnl: Double, openPos: Int
-    ): LinearLayout {
-        return LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL
-            setBackgroundColor(card)
-            setPadding(14, 12, 14, 12)
-
-            // Header
-            addView(TextView(this@CryptoAltActivity).apply {
-                text = label; textSize = 12f; setTextColor(accentColor)
-                typeface = android.graphics.Typeface.DEFAULT_BOLD
-            })
-            addView(TextView(this@CryptoAltActivity).apply {
-                text = sub; textSize = 9f; setTextColor(muted)
-                layoutParams = llp(matchParent, wrapContent).apply { topMargin = 2 }
-            })
-
-            // Divider line
-            addView(View(this@CryptoAltActivity).apply {
-                setBackgroundColor(accentColor)
-                layoutParams = llp(matchParent, 1).apply { topMargin = 6; bottomMargin = 6 }
-                alpha = 0.3f
-            })
-
-            // Stats
-            addView(TextView(this@CryptoAltActivity).apply {
-                text = "$trades trades  •  ${"%.1f".format(winRate)}% WR"
-                textSize = 9f; setTextColor(muted)
-                typeface = android.graphics.Typeface.MONOSPACE
-            })
-            addView(TextView(this@CryptoAltActivity).apply {
-                text = "${if (pnl >= 0) "+" else ""}${"%.3f".format(pnl)}◎"
-                textSize = 11f; setTextColor(if (pnl >= 0) green else red)
-                typeface = android.graphics.Typeface.MONOSPACE
-                layoutParams = llp(matchParent, wrapContent).apply { topMargin = 2 }
-            })
-            addView(TextView(this@CryptoAltActivity).apply {
-                text = "$openPos open"
-                textSize = 9f; setTextColor(blue)
-                layoutParams = llp(matchParent, wrapContent).apply { topMargin = 1 }
-            })
-        }
-    }
-
-    // ═══════════════════════════════════════════════════════════════════════════
-    // HIVE MIND / DOMINANCE / NARRATIVES PANEL
-    // ═══════════════════════════════════════════════════════════════════════════
-
-    private fun buildHiveMindPanel() {
-        val tile = buildTileCard(orange)
-        addTileHeader(tile, "🐝 Hive Mind — Alt Intelligence", "AI", orange)
-
-        // Dominance signal
-        val dominance = CryptoAltScannerAI.getDominanceCycleSignal()
-        val domColor  = when (dominance) {
-            "ALT_SEASON"    -> green
-            "BTC_DOMINANCE" -> red
-            else            -> amber
-        }
-        val domRow = LinearLayout(this).apply {
-            orientation = LinearLayout.HORIZONTAL
-            gravity = Gravity.CENTER_VERTICAL
-            layoutParams = llp(matchParent, wrapContent).apply { topMargin = 8 }
-        }
-        domRow.addView(TextView(this).apply {
-            text = "Dominance Cycle:"; textSize = 11f; setTextColor(muted)
-            layoutParams = llp(0, wrapContent, 1f)
-        })
-        domRow.addView(TextView(this).apply {
-            text = dominance; textSize = 11f; setTextColor(domColor)
-            typeface = android.graphics.Typeface.DEFAULT_BOLD
-        })
-        tile.addView(domRow)
-
-        // Fear & Greed
-        val fg     = CryptoAltScannerAI.getCryptoFearGreed()
-        val fgLabel = when {
-            fg >= 75 -> "Extreme Greed 🔥"
-            fg >= 55 -> "Greed 📈"
-            fg >= 45 -> "Neutral 😐"
-            fg >= 25 -> "Fear 📉"
-            else     -> "Extreme Fear 🧊"
-        }
-        val fgColor = when {
-            fg >= 75 -> red
-            fg >= 55 -> orange
-            fg >= 45 -> amber
-            fg >= 25 -> blue
-            else     -> teal
-        }
-        val fgRow = LinearLayout(this).apply {
-            orientation = LinearLayout.HORIZONTAL
-            gravity = Gravity.CENTER_VERTICAL
-            layoutParams = llp(matchParent, wrapContent).apply { topMargin = 4 }
-        }
-        fgRow.addView(TextView(this).apply {
-            text = "Fear & Greed ($fg):"; textSize = 11f; setTextColor(muted)
-            layoutParams = llp(0, wrapContent, 1f)
-        })
-        fgRow.addView(TextView(this).apply {
-            text = fgLabel; textSize = 11f; setTextColor(fgColor)
-            typeface = android.graphics.Typeface.DEFAULT_BOLD
-        })
-        tile.addView(fgRow)
-
-        // Active Narratives
-        val narratives = CryptoAltScannerAI.getActiveNarratives()
-        if (narratives.isNotEmpty()) {
-            tile.addView(View(this).apply {
-                setBackgroundColor(divider)
-                layoutParams = llp(matchParent, 1).apply { topMargin = 8; bottomMargin = 4 }
-            })
-            tile.addView(TextView(this).apply {
-                text = "🔥 Active Narratives"; textSize = 10f; setTextColor(orange)
-                typeface = android.graphics.Typeface.DEFAULT_BOLD
-            })
-            val narRow = LinearLayout(this).apply {
-                orientation = LinearLayout.HORIZONTAL
-                layoutParams = llp(matchParent, wrapContent).apply { topMargin = 4 }
-            }
-            narratives.take(4).forEach { nar ->
-                narRow.addView(TextView(this).apply {
-                    text = nar.replace("_", " "); textSize = 9f
-                    setTextColor(amber); setBackgroundColor(0xFF451A03.toInt())
-                    setPadding(6, 3, 6, 3)
-                    layoutParams = llp(wrapContent, wrapContent).apply { marginEnd = 4 }
-                })
-            }
-            tile.addView(narRow)
-        }
-
-        llTabContent.addView(tile)
-    }
-
-    // ═══════════════════════════════════════════════════════════════════════════
-    // LAYER CONFIDENCE / SECTOR HEAT DASHBOARD
-    // ═══════════════════════════════════════════════════════════════════════════
-
-    private fun buildLayerConfidencePanel() {
-        val tile = buildTileCard(blue)
-        addTileHeader(tile, "🧬 Layer Confidence — Alt AI", "LAYERS", blue)
-
-        // Sector heat grid
-        tile.addView(TextView(this).apply {
-            text = "Sector Heat Map"; textSize = 10f; setTextColor(blue)
-            typeface = android.graphics.Typeface.DEFAULT_BOLD
-            layoutParams = llp(matchParent, wrapContent).apply { topMargin = 8; bottomMargin = 4 }
-        })
-
-        val sectors = listOf(
-            Triple("MEME",   CryptoAltScannerAI.getSectorHeat("DOGE"),  pink),
-            Triple("DeFi",   CryptoAltScannerAI.getSectorHeat("AAVE"),  teal),
-            Triple("L1",     CryptoAltScannerAI.getSectorHeat("ADA"),   purple),
-            Triple("L2",     CryptoAltScannerAI.getSectorHeat("ARB"),   blue),
-            Triple("Gaming", CryptoAltScannerAI.getSectorHeat("AXS"),   green),
-            Triple("AI",     CryptoAltScannerAI.getSectorHeat("RENDER"),amber)
-        )
-
-        // Two rows of 3
-        for (i in 0 until 2) {
-            val row = LinearLayout(this).apply {
-                orientation = LinearLayout.HORIZONTAL
-                layoutParams = llp(matchParent, wrapContent).apply { bottomMargin = 3 }
-            }
-            for (j in 0 until 3) {
-                val idx = i * 3 + j
-                if (idx >= sectors.size) break
-                val (sectorName, heat, color) = sectors[idx]
-                val heatPct = (heat * 100).toInt()
-                row.addView(LinearLayout(this).apply {
-                    orientation = LinearLayout.VERTICAL
-                    setBackgroundColor(card2)
-                    setPadding(8, 6, 8, 6)
-                    layoutParams = llp(0, wrapContent, 1f).apply { marginEnd = if (j < 2) 3 else 0 }
-
-                    addView(TextView(this@CryptoAltActivity).apply {
-                        text = sectorName; textSize = 9f; setTextColor(color)
-                        typeface = android.graphics.Typeface.DEFAULT_BOLD
-                    })
-                    addView(ProgressBar(this@CryptoAltActivity, null, android.R.attr.progressBarStyleHorizontal).apply {
-                        max = 100; progress = heatPct
-                        progressTintList = android.content.res.ColorStateList.valueOf(color)
-                        layoutParams = llp(matchParent, 4).apply { topMargin = 3; bottomMargin = 2 }
-                    })
-                    addView(TextView(this@CryptoAltActivity).apply {
-                        text = "$heatPct%"; textSize = 8f; setTextColor(muted)
-                        typeface = android.graphics.Typeface.MONOSPACE
-                    })
-                })
-            }
-            tile.addView(row)
-        }
-
-        // Alt beta summary
-        tile.addView(View(this).apply {
-            setBackgroundColor(divider)
-            layoutParams = llp(matchParent, 1).apply { topMargin = 6; bottomMargin = 4 }
-        })
-
-        val betaRow = LinearLayout(this).apply {
-            orientation = LinearLayout.HORIZONTAL
-            layoutParams = llp(matchParent, wrapContent)
-        }
-        listOf("BTC" to "BTC", "ETH" to "ETH", "DOGE" to "DOGE", "SHIB" to "SHIB").forEach { (sym, label) ->
-            val beta = CryptoAltScannerAI.getAltBeta(sym)
-            betaRow.addView(LinearLayout(this).apply {
-                orientation = LinearLayout.VERTICAL
-                layoutParams = llp(0, wrapContent, 1f)
-
-                addView(TextView(this@CryptoAltActivity).apply {
-                    text = label; textSize = 8f; setTextColor(muted); gravity = Gravity.CENTER
-                })
-                addView(TextView(this@CryptoAltActivity).apply {
-                    text = "${"%.1f".format(beta)}β"
-                    textSize = 10f
-                    setTextColor(if (beta > 1.5) red else if (beta > 1.0) amber else green)
-                    typeface = android.graphics.Typeface.MONOSPACE
-                    gravity = Gravity.CENTER
-                })
-            })
-        }
-        tile.addView(betaRow)
-
-        llTabContent.addView(tile)
-    }
-
-    // ═══════════════════════════════════════════════════════════════════════════
-    // SIGNAL CARDS (LIVE SCANNER FEED)
-    // ═══════════════════════════════════════════════════════════════════════════
-
-    private fun buildSignalCards() {
-        addSectionHeader("🔥 Top Alt Signals", purple)
-
-        val signalContainer = LinearLayout(this).apply {
-            id = View.generateViewId()
-            orientation = LinearLayout.VERTICAL
-            layoutParams = llp(matchParent, wrapContent)
-        }
-        llTabContent.addView(signalContainer)
-
-        progressBar.visibility = View.VISIBLE
-
-        lifecycleScope.launch(Dispatchers.IO) {
-            val results = mutableListOf<Pair<PerpsMarket, PerpsMarketData>>()
-            for (market in altMarkets.take(30)) {
-                try { results.add(market to PerpsMarketDataFetcher.getMarketData(market)) } catch (_: Exception) {}
-            }
-            results.sortByDescending { kotlin.math.abs(it.second.priceChange24hPct) }
-
-            withContext(Dispatchers.Main) {
-                progressBar.visibility = View.GONE
-                signalContainer.removeAllViews()
-                for ((market, data) in results.take(8)) {
-                    signalContainer.addView(buildSignalCard(market, data))
+                withContext(Dispatchers.Main) {
+                    if (::tvHeroBalance.isInitialized) refreshHeroStats()
                 }
             }
         }
     }
 
+    private fun refreshHeroStats() {
+        val bal     = CryptoAltTrader.getBalance()
+        val pnl     = CryptoAltTrader.getTotalPnlSol()
+        val wr      = CryptoAltTrader.getWinRate()
+        val trades  = CryptoAltTrader.getTotalTrades()
+        val phase   = getPhaseLabel()
+        tvHeroBalance.text = "◎ ${"%.4f".format(bal)}"
+        tvHeroPnl.text     = "${if (pnl >= 0) "+" else ""}${"%.4f".format(pnl)} SOL"
+        tvHeroPnl.setTextColor(if (pnl >= 0) green else red)
+        tvHeroWinRate.text = "${"%.1f".format(wr)}% WR"
+        tvHeroTrades.text  = "$trades trades"
+        tvHeroPhase.text   = phase
+        tvHeroPhase.setTextColor(phaseColor(phase))
+    }
+
+    // ═══════════════════════════════════════════════════════════════════════════
+    // FULL DASHBOARD
+    // ═══════════════════════════════════════════════════════════════════════════
+
+    private fun buildFullDashboard() {
+        llContent.removeAllViews()
+
+        buildHeroSection()
+        buildReadinessTile()
+        buildProofRunTile()
+        buildShitCoinTile()
+        buildQualityTile()
+        buildBlueChipTile()
+        buildExpressTile()
+        buildMoonshotTile()
+        buildManipTile()
+        buildShadowFDGPanel()
+        buildHiveMindPanel()
+        buildSectorHeatPanel()
+        buildSignalCards()
+        addDivider()
+        buildTabContent()
+    }
+
+    // ═══════════════════════════════════════════════════════════════════════════
+    // HERO
+    // ═══════════════════════════════════════════════════════════════════════════
+
+    private fun buildHeroSection() {
+        val bal    = CryptoAltTrader.getBalance()
+        val pnl    = CryptoAltTrader.getTotalPnlSol()
+        val wr     = CryptoAltTrader.getWinRate()
+        val trades = CryptoAltTrader.getTotalTrades()
+        val phase  = getPhaseLabel()
+
+        val tile = vBox(card2, 20, 18)
+
+        // Balance + badge row
+        val balRow = hBox()
+        tvHeroBalance = tv("◎ ${"%.4f".format(bal)}", 28f, white, bold = true).apply {
+            layoutParams = llp(0, wrap, 1f)
+        }
+        val badge = tv(if (CryptoAltTrader.isLiveMode()) "● LIVE" else "● PAPER", 10f,
+            if (CryptoAltTrader.isLiveMode()) green else amber, bold = true).apply {
+            setBackgroundColor(if (CryptoAltTrader.isLiveMode()) 0xFF052E16.toInt() else 0xFF451A03.toInt())
+            setPadding(8, 4, 8, 4)
+        }
+        balRow.addView(tvHeroBalance); balRow.addView(badge)
+        tile.addView(balRow)
+
+        // Stats row
+        val statsRow = hBox().apply { layoutParams = llp(match, wrap).apply { topMargin = 4 } }
+        tvHeroPnl = tv("${if (pnl >= 0) "+" else ""}${"%.4f".format(pnl)} SOL", 14f,
+            if (pnl >= 0) green else red, mono = true).apply { layoutParams = llp(0, wrap, 1f) }
+        tvHeroWinRate = tv("${"%.1f".format(wr)}% WR", 12f, purple, mono = true).apply { layoutParams = llp(0, wrap, 1f) }
+        tvHeroTrades  = tv("$trades trades", 12f, muted, mono = true)
+        statsRow.addView(tvHeroPnl); statsRow.addView(tvHeroWinRate); statsRow.addView(tvHeroTrades)
+        tile.addView(statsRow)
+
+        // Phase
+        tvHeroPhase = tv(phase, 10f, phaseColor(phase), bold = true).apply {
+            layoutParams = llp(match, wrap).apply { topMargin = 4 }
+        }
+        tile.addView(tvHeroPhase)
+
+        // Chain chips
+        val chainRow = hBox().apply { layoutParams = llp(match, wrap).apply { topMargin = 10 } }
+        listOf("BNB" to amber, "ETH" to blue, "SOL" to purple, "POLY" to indigo).forEach { (label, col) ->
+            chainRow.addView(tv(label, 9f, col).apply {
+                setBackgroundColor(0xFF0D0D1A.toInt()); setPadding(8, 3, 8, 3)
+                layoutParams = llp(0, wrap, 1f).apply { marginEnd = 3 }; gravity = Gravity.CENTER
+            })
+        }
+        tile.addView(chainRow)
+
+        llContent.addView(tile)
+    }
+
+    // ═══════════════════════════════════════════════════════════════════════════
+    // LIVE READINESS TILE (FluidLearningAI)
+    // ═══════════════════════════════════════════════════════════════════════════
+
+    private fun buildReadinessTile() {
+        val trades   = FluidLearningAI.getTotalTradeCount()
+        val mTrades  = FluidLearningAI.getMarketsTradeCount()
+        val progress = FluidLearningAI.getLearningProgress()
+        val mProgress= FluidLearningAI.getMarketsLearningProgress()
+        val phase    = getPhaseLabel()
+        val boost    = FluidLearningAI.getBootstrapConfidenceBoost()
+        val sizeMult = FluidLearningAI.getBootstrapSizeMultiplier()
+        val status   = FluidLearningAI.getBootstrapStatus()
+
+        val tile = buildTile(purple, "📡 Live Readiness", phase, phaseColor(phase))
+
+        // Fluid learning progress bar
+        tile.addView(tv("Fluid Learning", 9f, muted).apply { layoutParams = llp(match, wrap).apply { topMargin = 6 } })
+        tile.addView(progressBar(purple, (progress * 100).toInt()))
+
+        tile.addView(tv("Markets Learning", 9f, muted).apply { layoutParams = llp(match, wrap).apply { topMargin = 4 } })
+        tile.addView(progressBar(teal, (mProgress * 100).toInt()))
+
+        val row = hBox().apply { layoutParams = llp(match, wrap).apply { topMargin = 6 } }
+        addStatChip(row, "V3 Trades",  "$trades",    white,  1f)
+        addStatChip(row, "Mkts Trades","$mTrades",   teal,   1f)
+        addStatChip(row, "Conf Boost", "+${(boost*100).toInt()}%", purple, 1f)
+        addStatChip(row, "Size Mult",  "${"%.2f".format(sizeMult)}x", amber, 1f)
+        tile.addView(row)
+
+        tile.addView(tv(status, 9f, muted).apply { layoutParams = llp(match, wrap).apply { topMargin = 6 } })
+
+        llContent.addView(tile)
+    }
+
+    // ═══════════════════════════════════════════════════════════════════════════
+    // 30-DAY PROOF RUN TILE (RunTracker30D)
+    // ═══════════════════════════════════════════════════════════════════════════
+
+    private fun buildProofRunTile() {
+        val isActive = RunTracker30D.isRunActive()
+        val day      = RunTracker30D.getCurrentDay()
+        val wins     = RunTracker30D.wins
+        val losses   = RunTracker30D.losses
+        val total    = RunTracker30D.totalTrades
+        val wr       = if (total > 0) wins.toDouble() / total * 100 else 0.0
+        val pnl      = RunTracker30D.totalRealizedPnlSol
+        val startBal = RunTracker30D.startBalance
+        val currBal  = RunTracker30D.currentBalance
+        val peak     = RunTracker30D.peakBalance
+        val dd       = RunTracker30D.maxDrawdown
+        val integrity= if (isActive) RunTracker30D.integrityScore() else 0
+        val equity   = RunTracker30D.getEquityLabel()
+        val dayLabel = if (isActive) "Day $day / 30" else "NOT STARTED"
+
+        val tile = buildTile(teal, "📊 30-Day Proof Run", dayLabel, if (isActive) teal else muted)
+
+        val row1 = hBox().apply { layoutParams = llp(match, wrap).apply { topMargin = 8 } }
+        addStatChip(row1, "Trades",    "$total",             white, 1f)
+        addStatChip(row1, "Win Rate",  "${"%.1f".format(wr)}%", if (wr >= 55) green else amber, 1f)
+        addStatChip(row1, "Realized",  "${if (pnl >= 0) "+" else ""}${"%.3f".format(pnl)}◎", if (pnl >= 0) green else red, 1f)
+        addStatChip(row1, "Integrity", "$integrity/100",     if (integrity >= 80) green else amber, 1f)
+        tile.addView(row1)
+
+        val row2 = hBox().apply { layoutParams = llp(match, wrap).apply { topMargin = 4 } }
+        addStatChip(row2, "Start",     "◎${"%.2f".format(startBal)}", muted,  1f)
+        addStatChip(row2, "Current",   "◎${"%.2f".format(currBal)}", white,  1f)
+        addStatChip(row2, "Peak",      "◎${"%.2f".format(peak)}",    green,  1f)
+        addStatChip(row2, "Max DD",    "${"%.1f".format(dd)}%",       red,    1f)
+        tile.addView(row2)
+
+        tile.addView(tv(equity, 9f, muted).apply { layoutParams = llp(match, wrap).apply { topMargin = 6 } })
+
+        if (!isActive) {
+            tile.addView(tv("⚠️ Run not started — call RunTracker30D.startRun() to begin", 9f, amber).apply {
+                layoutParams = llp(match, wrap).apply { topMargin = 4 }
+            })
+        }
+
+        llContent.addView(tile)
+    }
+
+    // ═══════════════════════════════════════════════════════════════════════════
+    // SHITCOIN TILE (ShitCoinTraderAI)
+    // ═══════════════════════════════════════════════════════════════════════════
+
+    private fun buildShitCoinTile() {
+        val stats    = ShitCoinTraderAI.getStats()
+        val mode     = stats.mode.name
+        val modeEmoji= when (mode) { "HUNTING" -> "🎯"; "POSITIONED" -> "📊"; else -> "💤" }
+        val openPos  = stats.activePositions
+        val wr       = stats.winRate
+        val pnl      = stats.dailyPnlSol
+        val bal      = stats.balanceSol
+        val paper    = stats.isPaperMode
+
+        val tile = buildTile(orange, "💩 ShitCoin Trader", "$modeEmoji $mode", orange)
+
+        val row = hBox().apply { layoutParams = llp(match, wrap).apply { topMargin = 8 } }
+        addStatChip(row, "Balance",  "◎${"%.3f".format(bal)}", white,  1f)
+        addStatChip(row, "Daily PnL","${if (pnl >= 0) "+" else ""}${"%.3f".format(pnl)}◎", if (pnl >= 0) green else red, 1f)
+        addStatChip(row, "Win Rate", "${"%.1f".format(wr)}%", if (wr >= 55) green else amber, 1f)
+        addStatChip(row, "Open",     "$openPos pos", blue, 1f)
+        tile.addView(row)
+
+        val row2 = hBox().apply { layoutParams = llp(match, wrap).apply { topMargin = 4 } }
+        addStatChip(row2, "Score Min",  "${stats.minScoreThreshold}", muted,  1f)
+        addStatChip(row2, "Conf Min",   "${stats.minConfThreshold}",  muted,  1f)
+        addStatChip(row2, "Rugged Devs","${stats.ruggedDevsCount}",   red,    1f)
+        addStatChip(row2, "Mode",       if (paper) "PAPER" else "LIVE", if (paper) amber else green, 1f)
+        tile.addView(row2)
+
+        // Daily wins/losses
+        tile.addView(tv("Today: ${stats.dailyWins}W / ${stats.dailyLosses}L  •  Max Loss: ${"%.3f".format(stats.dailyMaxLossSol)}◎",
+            9f, muted).apply { layoutParams = llp(match, wrap).apply { topMargin = 4 } })
+
+        llContent.addView(tile)
+    }
+
+    // ═══════════════════════════════════════════════════════════════════════════
+    // QUALITY TILE (QualityTraderAI)
+    // ═══════════════════════════════════════════════════════════════════════════
+
+    private fun buildQualityTile() {
+        val wr      = QualityTraderAI.getWinRate()
+        val dailyPnl= QualityTraderAI.getDailyPnl()
+        val openPos = QualityTraderAI.getActivePositions().size
+        val tp      = QualityTraderAI.getFluidTakeProfit()
+        val sl      = QualityTraderAI.getFluidStopLoss()
+
+        val tile = buildTile(blue, "💎 Quality Trader", "$100K–$1M mcap", blue)
+
+        val row = hBox().apply { layoutParams = llp(match, wrap).apply { topMargin = 8 } }
+        addStatChip(row, "Win Rate",  "${"%.1f".format(wr)}%",               if (wr >= 55) green else amber, 1f)
+        addStatChip(row, "Daily PnL", "${if (dailyPnl >= 0) "+" else ""}${"%.3f".format(dailyPnl)}◎", if (dailyPnl >= 0) green else red, 1f)
+        addStatChip(row, "Open Pos",  "$openPos",                             blue, 1f)
+        tile.addView(row)
+
+        val row2 = hBox().apply { layoutParams = llp(match, wrap).apply { topMargin = 4 } }
+        addStatChip(row2, "TP",  "${"%.1f".format(tp)}%", green, 1f)
+        addStatChip(row2, "SL",  "${"%.1f".format(sl)}%", red,   1f)
+        tile.addView(row2)
+
+        llContent.addView(tile)
+    }
+
+    // ═══════════════════════════════════════════════════════════════════════════
+    // BLUE CHIP TILE (BlueChipTraderAI)
+    // ═══════════════════════════════════════════════════════════════════════════
+
+    private fun buildBlueChipTile() {
+        val stats   = BlueChipTraderAI.getStats()
+        val wr      = BlueChipTraderAI.getWinRatePct()
+        val mode    = stats.mode.name
+        val bal     = BlueChipTraderAI.getCurrentBalance()
+        val pnl     = BlueChipTraderAI.getDailyPnlSol()
+        val openPos = stats.activePositions
+        val tp      = BlueChipTraderAI.getFluidTakeProfit()
+        val sl      = BlueChipTraderAI.getFluidStopLoss()
+
+        val tile = buildTile(teal, "🔵 Blue Chip Trader", mode, teal)
+
+        val row = hBox().apply { layoutParams = llp(match, wrap).apply { topMargin = 8 } }
+        addStatChip(row, "Balance",  "◎${"%.3f".format(bal)}",               white,                    1f)
+        addStatChip(row, "Daily PnL","${if (pnl >= 0) "+" else ""}${"%.3f".format(pnl)}◎", if (pnl >= 0) green else red, 1f)
+        addStatChip(row, "Win Rate", "$wr%",                                  if (wr >= 55) green else amber, 1f)
+        addStatChip(row, "Open",     "$openPos",                              blue, 1f)
+        tile.addView(row)
+
+        val row2 = hBox().apply { layoutParams = llp(match, wrap).apply { topMargin = 4 } }
+        addStatChip(row2, "TP", "${"%.1f".format(tp)}%", green, 1f)
+        addStatChip(row2, "SL", "${"%.1f".format(sl)}%", red,   1f)
+        addStatChip(row2, "Score Min", "${BlueChipTraderAI.getFluidScoreThreshold()}", muted, 1f)
+        tile.addView(row2)
+
+        llContent.addView(tile)
+    }
+
+    // ═══════════════════════════════════════════════════════════════════════════
+    // EXPRESS TILE (ShitCoinExpress)
+    // ═══════════════════════════════════════════════════════════════════════════
+
+    private fun buildExpressTile() {
+        val stats  = ShitCoinExpress.getStats()
+        val wr     = stats.winRate
+        val pnl    = stats.dailyPnlSol
+        val active = stats.activeRides
+        val rides  = stats.dailyRides
+        val paper  = stats.isPaperMode
+
+        val tile = buildTile(amber, "⚡ ShitCoin Express", "Fast Rides", amber)
+
+        val row = hBox().apply { layoutParams = llp(match, wrap).apply { topMargin = 8 } }
+        addStatChip(row, "Daily Rides", "$rides",                              white, 1f)
+        addStatChip(row, "Win Rate",    "${"%.1f".format(wr)}%",               if (wr >= 55) green else amber, 1f)
+        addStatChip(row, "Daily PnL",   "${if (pnl >= 0) "+" else ""}${"%.3f".format(pnl)}◎", if (pnl >= 0) green else red, 1f)
+        addStatChip(row, "Active",      "$active rides",                       blue, 1f)
+        tile.addView(row)
+
+        tile.addView(tv("${stats.dailyWins}W / ${stats.dailyLosses}L  •  Mode: ${if (paper) "PAPER" else "LIVE"}",
+            9f, muted).apply { layoutParams = llp(match, wrap).apply { topMargin = 4 } })
+
+        llContent.addView(tile)
+    }
+
+    // ═══════════════════════════════════════════════════════════════════════════
+    // MOONSHOT TILE (MoonshotTraderAI)
+    // ═══════════════════════════════════════════════════════════════════════════
+
+    private fun buildMoonshotTile() {
+        val wr       = MoonshotTraderAI.getWinRatePct()
+        val pnl      = MoonshotTraderAI.getDailyPnlSol()
+        val openPos  = MoonshotTraderAI.getActivePositions().size
+        val progress = MoonshotTraderAI.getLearningProgress()
+        val tenX     = MoonshotTraderAI.getDailyTenX()
+        val hundredX = MoonshotTraderAI.getDailyHundredX()
+        val ltTenX   = MoonshotTraderAI.getLifetimeTenX()
+        val ltHundredX = MoonshotTraderAI.getLifetimeHundredX()
+        val dWins    = MoonshotTraderAI.getDailyWins()
+        val dLosses  = MoonshotTraderAI.getDailyLosses()
+
+        val tile = buildTile(pink, "🚀 Moonshot Trader", "10x / 100x", pink)
+
+        tile.addView(tv("Learning", 9f, muted).apply { layoutParams = llp(match, wrap).apply { topMargin = 6 } })
+        tile.addView(progressBar(pink, (progress * 100).toInt()))
+
+        val row = hBox().apply { layoutParams = llp(match, wrap).apply { topMargin = 6 } }
+        addStatChip(row, "Win Rate",  "$wr%",                               if (wr >= 55) green else amber, 1f)
+        addStatChip(row, "Daily PnL", "${if (pnl >= 0) "+" else ""}${"%.3f".format(pnl)}◎", if (pnl >= 0) green else red, 1f)
+        addStatChip(row, "Open",      "$openPos",                           blue, 1f)
+        tile.addView(row)
+
+        val row2 = hBox().apply { layoutParams = llp(match, wrap).apply { topMargin = 4 } }
+        addStatChip(row2, "Today 10x",   "$tenX 🚀",   green,  1f)
+        addStatChip(row2, "Today 100x",  "$hundredX 🌕", pink,  1f)
+        addStatChip(row2, "Life 10x",    "$ltTenX",    green,  1f)
+        addStatChip(row2, "Life 100x",   "$ltHundredX",pink,   1f)
+        tile.addView(row2)
+
+        tile.addView(tv("Today: ${dWins}W / ${dLosses}L", 9f, muted).apply {
+            layoutParams = llp(match, wrap).apply { topMargin = 4 }
+        })
+
+        llContent.addView(tile)
+    }
+
+    // ═══════════════════════════════════════════════════════════════════════════
+    // MANIP TILE (ManipulatedTraderAI)
+    // ═══════════════════════════════════════════════════════════════════════════
+
+    private fun buildManipTile() {
+        val stats  = ManipulatedTraderAI.getStats()
+        val wr     = if ((stats.dailyWins + stats.dailyLosses) > 0)
+            stats.dailyWins.toDouble() / (stats.dailyWins + stats.dailyLosses) * 100 else 0.0
+        val pnl    = stats.dailyPnlSol
+        val caught = stats.totalManipCaught
+        val active = stats.activeCount
+
+        val tile = buildTile(red, "☠️ Manip Catcher", "Catch & Ride", red)
+
+        val row = hBox().apply { layoutParams = llp(match, wrap).apply { topMargin = 8 } }
+        addStatChip(row, "Win Rate", "${"%.1f".format(wr)}%",               if (wr >= 55) green else amber, 1f)
+        addStatChip(row, "Daily PnL","${if (pnl >= 0) "+" else ""}${"%.3f".format(pnl)}◎", if (pnl >= 0) green else red, 1f)
+        addStatChip(row, "Caught",   "$caught",                              red,   1f)
+        addStatChip(row, "Active",   "$active",                              blue,  1f)
+        tile.addView(row)
+
+        tile.addView(tv("Today: ${stats.dailyWins}W / ${stats.dailyLosses}L  •  Score Min: ${ManipulatedTraderAI.getFluidScoreThreshold()}",
+            9f, muted).apply { layoutParams = llp(match, wrap).apply { topMargin = 4 } })
+
+        llContent.addView(tile)
+    }
+
+    // ═══════════════════════════════════════════════════════════════════════════
+    // SHADOW / FDG PANEL (ShadowLearningEngine)
+    // ═══════════════════════════════════════════════════════════════════════════
+
+    private fun buildShadowFDGPanel() {
+        val stats   = ShadowLearningEngine.getBlockedTradeStats()
+        val topMode = ShadowLearningEngine.getTopTrackedMode() ?: "—"
+        val best    = ShadowLearningEngine.getBestVariant()
+        val insights= ShadowLearningEngine.getInsights(3)
+
+        val tile = buildTile(indigo, "👁️ Shadow / FDG Learning", "AI Watcher", indigo)
+
+        val row = hBox().apply { layoutParams = llp(match, wrap).apply { topMargin = 8 } }
+        addStatChip(row, "Tracked",  "${stats.totalTracked}",  white,  1f)
+        addStatChip(row, "Would Win","${stats.wouldHaveWon}",  green,  1f)
+        addStatChip(row, "Would Lose","${stats.wouldHaveLost}",red,    1f)
+        addStatChip(row, "Top Mode", topMode,                  indigo, 1f)
+        tile.addView(row)
+
+        if (best != null) {
+            tile.addView(tv("Best Variant: ${best.variantId}  •  Score: ${"%.2f".format(best.score)}",
+                9f, green).apply { layoutParams = llp(match, wrap).apply { topMargin = 4 } })
+        }
+
+        if (insights.isNotEmpty()) {
+            tile.addView(divLine())
+            tile.addView(tv("🧠 Insights", 9f, indigo, bold = true).apply {
+                layoutParams = llp(match, wrap).apply { topMargin = 4; bottomMargin = 2 }
+            })
+            insights.forEach { insight ->
+                tile.addView(tv("• ${insight.description}", 9f, muted).apply {
+                    layoutParams = llp(match, wrap).apply { bottomMargin = 1 }
+                })
+            }
+        }
+
+        llContent.addView(tile)
+    }
+
+    // ═══════════════════════════════════════════════════════════════════════════
+    // HIVE MIND (CryptoAltScannerAI)
+    // ═══════════════════════════════════════════════════════════════════════════
+
+    private fun buildHiveMindPanel() {
+        val dominance  = CryptoAltScannerAI.getDominanceCycleSignal()
+        val fg         = CryptoAltScannerAI.getCryptoFearGreed()
+        val narratives = CryptoAltScannerAI.getActiveNarratives()
+        val domColor   = when (dominance) { "ALT_SEASON" -> green; "BTC_DOMINANCE" -> red; else -> amber }
+        val fgLabel    = when { fg >= 75 -> "Extreme Greed 🔥"; fg >= 55 -> "Greed 📈"; fg >= 45 -> "Neutral 😐"; fg >= 25 -> "Fear 📉"; else -> "Extreme Fear 🧊" }
+        val fgColor    = when { fg >= 75 -> red; fg >= 55 -> orange; fg >= 45 -> amber; fg >= 25 -> blue; else -> teal }
+
+        val tile = buildTile(orange, "🐝 Hive Mind — Alt Intelligence", "AI", orange)
+
+        val row = hBox().apply { layoutParams = llp(match, wrap).apply { topMargin = 8 } }
+        addStatChip(row, "Dominance", dominance,  domColor, 1f)
+        addStatChip(row, "Fear/Greed","$fg — $fgLabel", fgColor, 2f)
+        tile.addView(row)
+
+        if (narratives.isNotEmpty()) {
+            tile.addView(divLine())
+            tile.addView(tv("🔥 Active Narratives", 9f, orange, bold = true).apply {
+                layoutParams = llp(match, wrap).apply { topMargin = 4; bottomMargin = 4 }
+            })
+            val narRow = hBox()
+            narratives.take(4).forEach { nar ->
+                narRow.addView(tv(nar.replace("_", " "), 9f, amber).apply {
+                    setBackgroundColor(0xFF451A03.toInt()); setPadding(6, 3, 6, 3)
+                    layoutParams = llp(wrap, wrap).apply { marginEnd = 4 }
+                })
+            }
+            tile.addView(narRow)
+        }
+
+        llContent.addView(tile)
+    }
+
+    // ═══════════════════════════════════════════════════════════════════════════
+    // SECTOR HEAT (CryptoAltScannerAI)
+    // ═══════════════════════════════════════════════════════════════════════════
+
+    private fun buildSectorHeatPanel() {
+        val tile = buildTile(blue, "🧬 Sector Heat Map", "6 sectors", blue)
+
+        val sectors = listOf(
+            Triple("MEME",   CryptoAltScannerAI.getSectorHeat("DOGE"),   pink),
+            Triple("DeFi",   CryptoAltScannerAI.getSectorHeat("AAVE"),   teal),
+            Triple("L1",     CryptoAltScannerAI.getSectorHeat("ADA"),    purple),
+            Triple("L2",     CryptoAltScannerAI.getSectorHeat("ARB"),    blue),
+            Triple("Gaming", CryptoAltScannerAI.getSectorHeat("AXS"),    green),
+            Triple("AI",     CryptoAltScannerAI.getSectorHeat("RENDER"), amber)
+        )
+
+        for (i in 0 until 2) {
+            val row = hBox().apply { layoutParams = llp(match, wrap).apply { topMargin = 4 } }
+            for (j in 0 until 3) {
+                val (name, heat, color) = sectors[i * 3 + j]
+                val pct = (heat * 100).toInt()
+                row.addView(vBox(card2, 8, 6).apply {
+                    layoutParams = llp(0, wrap, 1f).apply { marginEnd = if (j < 2) 3 else 0 }
+                    addView(tv(name, 9f, color, bold = true))
+                    addView(progressBar(color, pct).apply { layoutParams = llp(match, 4).apply { topMargin = 2; bottomMargin = 1 } })
+                    addView(tv("$pct%", 8f, muted, mono = true))
+                })
+            }
+            tile.addView(row)
+        }
+
+        // Alt beta row
+        tile.addView(divLine())
+        val betaRow = hBox().apply { layoutParams = llp(match, wrap).apply { topMargin = 4 } }
+        listOf("BTC", "ETH", "DOGE", "SHIB").forEach { sym ->
+            val beta = CryptoAltScannerAI.getAltBeta(sym)
+            betaRow.addView(vBox(0, 0, 0).apply {
+                layoutParams = llp(0, wrap, 1f)
+                addView(tv(sym, 8f, muted).apply { gravity = Gravity.CENTER })
+                addView(tv("${"%.1f".format(beta)}β", 10f,
+                    if (beta > 1.5) red else if (beta > 1.0) amber else green, mono = true).apply { gravity = Gravity.CENTER })
+            })
+        }
+        tile.addView(betaRow)
+
+        llContent.addView(tile)
+    }
+
+    // ═══════════════════════════════════════════════════════════════════════════
+    // SIGNAL CARDS
+    // ═══════════════════════════════════════════════════════════════════════════
+
+    private fun buildSignalCards() {
+        addSectionHeader("🔥 Top Alt Signals", purple)
+        val container = vBox(0, 0, 0).apply { layoutParams = llp(match, wrap) }
+        llContent.addView(container)
+
+        progressBar.visibility = View.VISIBLE
+        lifecycleScope.launch(Dispatchers.IO) {
+            val results = mutableListOf<Pair<PerpsMarket, PerpsMarketData>>()
+            for (m in altMarkets.take(30)) {
+                try { results.add(m to PerpsMarketDataFetcher.getMarketData(m)) } catch (_: Exception) {}
+            }
+            results.sortByDescending { kotlin.math.abs(it.second.priceChange24hPct) }
+            withContext(Dispatchers.Main) {
+                progressBar.visibility = View.GONE
+                container.removeAllViews()
+                results.take(8).forEach { (market, data) -> container.addView(buildSignalCard(market, data)) }
+            }
+        }
+    }
+
     private fun buildSignalCard(market: PerpsMarket, data: PerpsMarketData): LinearLayout {
-        val change   = data.priceChange24hPct
-        val heat     = CryptoAltScannerAI.getSectorHeat(market.symbol)
-        val beta     = CryptoAltScannerAI.getAltBeta(market.symbol)
-        val signal   = when {
+        val change  = data.priceChange24hPct
+        val heat    = CryptoAltScannerAI.getSectorHeat(market.symbol)
+        val beta    = CryptoAltScannerAI.getAltBeta(market.symbol)
+        val signal  = when {
             change > 8 && heat > 0.6  -> "🟢 STRONG BUY"
             change > 3                 -> "🟢 BUY"
             change < -8 && heat < 0.4  -> "🔴 STRONG SELL"
@@ -736,69 +674,30 @@ class CryptoAltActivity : AppCompatActivity() {
             else                           -> amber
         }
 
-        return LinearLayout(this).apply {
-            orientation = LinearLayout.HORIZONTAL
+        return hBox(card, 16, 12).apply {
+            layoutParams = llp(match, wrap).apply { bottomMargin = 2 }
             gravity = Gravity.CENTER_VERTICAL
-            setBackgroundColor(card)
-            setPadding(16, 12, 16, 12)
-            layoutParams = llp(matchParent, wrapContent).apply { bottomMargin = 2 }
-
-            // Symbol
-            addView(TextView(this@CryptoAltActivity).apply {
-                text = "${market.emoji} ${market.symbol}"
-                textSize = 13f; setTextColor(white)
-                typeface = android.graphics.Typeface.DEFAULT_BOLD
-                layoutParams = llp(0, wrapContent, 2f)
-            })
-
-            // Price
-            addView(TextView(this@CryptoAltActivity).apply {
-                text = if (data.price > 1) "$%.2f".format(data.price) else "$%.5f".format(data.price)
-                textSize = 11f; setTextColor(white)
-                typeface = android.graphics.Typeface.MONOSPACE
-                layoutParams = llp(0, wrapContent, 2f)
-            })
-
-            // Change %
-            addView(TextView(this@CryptoAltActivity).apply {
-                text = "${if (change >= 0) "+" else ""}%.1f%%".format(change)
-                textSize = 11f; setTextColor(if (change >= 0) green else red)
-                typeface = android.graphics.Typeface.MONOSPACE
-                layoutParams = llp(0, wrapContent, 1.5f)
-            })
-
-            // Signal
-            addView(TextView(this@CryptoAltActivity).apply {
-                text = signal; textSize = 9f; setTextColor(sigColor)
-                typeface = android.graphics.Typeface.DEFAULT_BOLD
-                layoutParams = llp(0, wrapContent, 2f)
-            })
-
-            // Beta badge
-            addView(TextView(this@CryptoAltActivity).apply {
-                text = "${"%.1f".format(beta)}β"
-                textSize = 9f; setTextColor(if (beta > 1.5) red else muted)
-                typeface = android.graphics.Typeface.MONOSPACE
-            })
-
-            setOnClickListener { showSignalDialog(market, data, signal, beta) }
+            addView(tv("${market.emoji} ${market.symbol}", 13f, white, bold = true).apply { layoutParams = llp(0, wrap, 2f) })
+            addView(tv(if (data.price > 1) "$%.2f".format(data.price) else "$%.5f".format(data.price), 11f, white, mono = true).apply { layoutParams = llp(0, wrap, 2f) })
+            addView(tv("${if (change >= 0) "+" else ""}%.1f%%".format(change), 11f, if (change >= 0) green else red, mono = true).apply { layoutParams = llp(0, wrap, 1.5f) })
+            addView(tv(signal, 9f, sigColor, bold = true).apply { layoutParams = llp(0, wrap, 2f) })
+            addView(tv("${"%.1f".format(beta)}β", 9f, if (beta > 1.5) red else muted, mono = true))
+            setOnClickListener { showSignalDetail(market, data, signal, beta) }
         }
     }
 
-    private fun showSignalDialog(market: PerpsMarket, data: PerpsMarketData, signal: String, beta: Double) {
-        val change   = data.priceChange24hPct
-        val heat     = (CryptoAltScannerAI.getSectorHeat(market.symbol) * 100).toInt()
-        val price    = if (data.price > 1) "$%.2f".format(data.price) else "$%.6f".format(data.price)
-        val vol      = "%.0fM".format(data.volume24h / 1_000_000)
+    private fun showSignalDetail(market: PerpsMarket, data: PerpsMarketData, signal: String, beta: Double) {
+        val change = data.priceChange24hPct
+        val heat   = (CryptoAltScannerAI.getSectorHeat(market.symbol) * 100).toInt()
         AlertDialog.Builder(this)
-            .setTitle("${market.emoji} ${market.symbol} — Alt Signal")
+            .setTitle("${market.emoji} ${market.symbol}")
             .setMessage(
-                "Price: $price\n" +
-                "24h Change: ${if (change >= 0) "+" else ""}%.1f%%\n".format(change) +
-                "Volume: $$vol\n" +
-                "Signal: $signal\n" +
+                "Price:       ${if (data.price > 1) "$%.2f".format(data.price) else "$%.6f".format(data.price)}\n" +
+                "24h Change:  ${if (change >= 0) "+" else ""}%.1f%%\n".format(change) +
+                "Volume 24h:  $%.0fM\n".format(data.volume24h / 1_000_000) +
+                "Signal:      $signal\n" +
                 "Sector Heat: $heat%\n" +
-                "BTC Beta: ${"%.2f".format(beta)}x"
+                "BTC Beta:    ${"%.2f".format(beta)}x"
             )
             .setPositiveButton("⭐ Watchlist") { _, _ -> addSymbolToWatchlist(market.symbol) }
             .setNegativeButton("Close", null)
@@ -806,309 +705,233 @@ class CryptoAltActivity : AppCompatActivity() {
     }
 
     // ═══════════════════════════════════════════════════════════════════════════
-    // BOTTOM TAB BAR
-    // ═══════════════════════════════════════════════════════════════════════════
-
-    private fun buildTabBar() {
-        // Tab bar is already in XML — just update tab content below it
-        llTabContent.addView(View(this).apply {
-            setBackgroundColor(divider)
-            layoutParams = llp(matchParent, 1)
-        })
-    }
-
-    // ═══════════════════════════════════════════════════════════════════════════
     // TABS
     // ═══════════════════════════════════════════════════════════════════════════
 
+    private fun buildTabContent() {
+        // Marker so we know where to trim on tab switch
+        llContent.addView(View(this).apply { tag = "TAB_START"; layoutParams = llp(match, 0) })
+        selectTab(currentTab)
+    }
+
     private fun selectTab(tab: Int) {
         currentTab = tab
-        val tabs   = listOf(tabScanner, tabWatchlist, tabPositions, tabSettings)
         val colors = listOf(purple, green, amber, 0xFF9CA3AF.toInt())
         val bgs    = listOf(0xFF1A1528.toInt(), 0xFF1A2E1A.toInt(), 0xFF2E2A1A.toInt(), 0xFF1F2937.toInt())
-        tabs.forEachIndexed { i, tv ->
+        listOf(tabScanner, tabWatchlist, tabPositions, tabSettings).forEachIndexed { i, tv ->
             if (i == tab) { tv.setTextColor(colors[i]); tv.setBackgroundColor(bgs[i]) }
             else          { tv.setTextColor(muted);     tv.setBackgroundColor(0) }
         }
 
-        // Remove previous tab content (everything added after the divider)
-        val startIdx = llTabContent.indexOfChild(
-            llTabContent.findViewWithTag<View>("TAB_CONTENT_START")
-        )
-        if (startIdx >= 0) {
-            while (llTabContent.childCount > startIdx + 1) {
-                llTabContent.removeViewAt(startIdx + 1)
-            }
-        } else {
-            // First time — add a tag marker
-            val marker = View(this).apply {
-                tag = "TAB_CONTENT_START"
-                layoutParams = llp(matchParent, 0)
-            }
-            llTabContent.addView(marker)
-        }
+        // Remove old tab content
+        val marker = llContent.findViewWithTag<View>("TAB_START")
+        val idx    = llContent.indexOfChild(marker)
+        while (llContent.childCount > idx + 1) llContent.removeViewAt(idx + 1)
 
         when (tab) {
-            0 -> buildScannerTabContent()
-            1 -> buildWatchlistTabContent()
-            2 -> buildPositionsTabContent()
-            3 -> buildSettingsTabContent()
+            0 -> buildScannerTab()
+            1 -> buildWatchlistTab()
+            2 -> buildPositionsTab()
+            3 -> buildSettingsTab()
         }
     }
 
-    // ─── SCANNER TAB ──────────────────────────────────────────────────────────
+    // ─── SCANNER ─────────────────────────────────────────────────────────────
 
-    private fun buildScannerTabContent() {
+    private fun buildScannerTab() {
         addSectionHeader("🔍 Full Alt Scanner", purple)
         addChainFilterRow()
-
         val markets = getFilteredMarkets()
         if (markets.isEmpty()) { addEmptyState("No alt markets match filter"); return }
 
         progressBar.visibility = View.VISIBLE
         lifecycleScope.launch(Dispatchers.IO) {
             val results = mutableListOf<Pair<PerpsMarket, PerpsMarketData>>()
-            for (market in markets.take(50)) {
-                try { results.add(market to PerpsMarketDataFetcher.getMarketData(market)) } catch (_: Exception) {}
+            for (m in markets.take(50)) {
+                try { results.add(m to PerpsMarketDataFetcher.getMarketData(m)) } catch (_: Exception) {}
             }
             results.sortByDescending { kotlin.math.abs(it.second.priceChange24hPct) }
             withContext(Dispatchers.Main) {
                 progressBar.visibility = View.GONE
-                results.forEach { (market, data) -> addMarketRow(market, data) }
+                results.forEach { (market, data) ->
+                    val change = data.priceChange24hPct
+                    val row = hBox(card, 16, 10).apply {
+                        layoutParams = llp(match, wrap).apply { bottomMargin = 2 }
+                        gravity = Gravity.CENTER_VERTICAL
+                        addView(tv("${market.emoji} ${market.symbol}", 13f, white, bold = true).apply { layoutParams = llp(0, wrap, 2f) })
+                        addView(tv(if (data.price > 1) "$%.2f".format(data.price) else "$%.6f".format(data.price), 12f, white, mono = true).apply { layoutParams = llp(0, wrap, 2f) })
+                        addView(tv("${if (change >= 0) "+" else ""}%.1f%%".format(change), 12f, if (change >= 0) green else red, mono = true).apply { gravity = Gravity.END; layoutParams = llp(0, wrap, 1f) })
+                        addView(tv("+", 16f, purple).apply {
+                            setPadding(16, 0, 8, 0)
+                            setOnClickListener { addSymbolToWatchlist(market.symbol) }
+                        })
+                        setOnClickListener { showSignalDetail(market, data,
+                            if (change > 3) "🟢 BUY" else if (change < -3) "🔴 SELL" else "🟡 HOLD",
+                            CryptoAltScannerAI.getAltBeta(market.symbol)) }
+                    }
+                    llContent.addView(row); llContent.addView(thinDivider())
+                }
                 findViewById<TextView>(R.id.tvCryptoAltStats)?.text = "${results.size} alts scanned"
             }
         }
     }
 
     private fun addChainFilterRow() {
-        val row = LinearLayout(this).apply {
-            orientation = LinearLayout.HORIZONTAL
-            setPadding(16, 8, 16, 8)
-        }
-        val chains = listOf<Pair<String?, String>>(
-            null to "All", "BNB" to "BNB", "ETH" to "ETH", "SOL" to "SOL", "MATIC" to "Polygon"
-        )
-        for ((chain, label) in chains) {
-            row.addView(TextView(this).apply {
-                text = label; textSize = 11f; gravity = Gravity.CENTER; setPadding(16, 6, 16, 6)
-                setTextColor(if (chainFilter == chain) white else muted)
-                setBackgroundColor(if (chainFilter == chain) purple else divider)
-                layoutParams = llp(0, wrapContent, 1f).apply { marginEnd = 4 }
+        val row = hBox().apply { setPadding(16, 8, 16, 8) }
+        listOf<Pair<String?, String>>(null to "All", "BNB" to "BNB", "ETH" to "ETH", "SOL" to "SOL", "MATIC" to "Poly").forEach { (chain, label) ->
+            row.addView(tv(label, 11f, if (chainFilter == chain) white else muted).apply {
+                gravity = Gravity.CENTER; setPadding(16, 6, 16, 6)
+                setBackgroundColor(if (chainFilter == chain) purple else divBg)
+                layoutParams = llp(0, wrap, 1f).apply { marginEnd = 4 }
                 setOnClickListener { chainFilter = chain; selectTab(0) }
             })
         }
-        llTabContent.addView(row)
+        llContent.addView(row)
     }
 
     private fun getFilteredMarkets(): List<PerpsMarket> {
-        val bnbSymbols   = setOf("DOGE","SHIB","FLOKI","BABYDOGE","PEPE","WIF","BONK","CAKE","BNB","ONE","TWT")
-        val ethSymbols   = setOf("ETH","LINK","UNI","AAVE","MKR","SNX","COMP","ENS","GRT","LDO","IMX","ARB","OP")
-        val solSymbols   = setOf("SOL","RAY","ORCA","JUP","PYTH","DRIFT","MNGO","BONK","WIF","BOME","MEW")
-        val maticSymbols = setOf("MATIC","QUICK","GHST","SAND","MANA","AXS","AAVE")
+        val bnb   = setOf("DOGE","SHIB","FLOKI","BABYDOGE","PEPE","WIF","BONK","CAKE","BNB","ONE","TWT")
+        val eth   = setOf("ETH","LINK","UNI","AAVE","MKR","SNX","COMP","ENS","GRT","LDO","IMX","ARB","OP")
+        val sol   = setOf("SOL","RAY","ORCA","JUP","PYTH","DRIFT","MNGO","BONK","WIF","BOME","MEW")
+        val matic = setOf("MATIC","QUICK","GHST","SAND","MANA","AXS","AAVE")
         return when (chainFilter) {
-            "BNB"   -> altMarkets.filter { it.symbol in bnbSymbols }
-            "ETH"   -> altMarkets.filter { it.symbol in ethSymbols }
-            "SOL"   -> altMarkets.filter { it.symbol in solSymbols }
-            "MATIC" -> altMarkets.filter { it.symbol in maticSymbols }
+            "BNB"   -> altMarkets.filter { it.symbol in bnb }
+            "ETH"   -> altMarkets.filter { it.symbol in eth }
+            "SOL"   -> altMarkets.filter { it.symbol in sol }
+            "MATIC" -> altMarkets.filter { it.symbol in matic }
             else    -> altMarkets
         }
     }
 
-    private fun addMarketRow(market: PerpsMarket, data: PerpsMarketData) {
-        val change = data.priceChange24hPct
-        val row = LinearLayout(this).apply {
-            orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL
-            setPadding(16, 10, 16, 10); setBackgroundColor(card)
-            layoutParams = llp(matchParent, wrapContent).apply { bottomMargin = 2 }
-        }
-        row.addView(TextView(this).apply {
-            text = "${market.emoji} ${market.symbol}"; textSize = 13f; setTextColor(white)
-            typeface = android.graphics.Typeface.DEFAULT_BOLD
-            layoutParams = llp(0, wrapContent, 2f)
-        })
-        row.addView(TextView(this).apply {
-            text = if (data.price > 1) "$%.2f".format(data.price) else "$%.6f".format(data.price)
-            textSize = 12f; setTextColor(white); typeface = android.graphics.Typeface.MONOSPACE
-            layoutParams = llp(0, wrapContent, 2f)
-        })
-        row.addView(TextView(this).apply {
-            text = "${if (change >= 0) "+" else ""}%.1f%%".format(change)
-            textSize = 12f; setTextColor(if (change >= 0) green else red)
-            typeface = android.graphics.Typeface.MONOSPACE; gravity = Gravity.END
-            layoutParams = llp(0, wrapContent, 1f)
-        })
-        row.addView(TextView(this).apply {
-            text = "+"; textSize = 16f; setTextColor(purple); setPadding(16, 0, 8, 0)
-            setOnClickListener { addSymbolToWatchlist(market.symbol) }
-        })
-        row.setOnClickListener { showSignalDialog(market, data,
-            if (change > 3) "🟢 BUY" else if (change < -3) "🔴 SELL" else "🟡 HOLD",
-            CryptoAltScannerAI.getAltBeta(market.symbol))
-        }
-        llTabContent.addView(row)
-        addThinDivider()
-    }
+    // ─── WATCHLIST ────────────────────────────────────────────────────────────
 
-    // ─── WATCHLIST TAB ────────────────────────────────────────────────────────
-
-    private fun buildWatchlistTabContent() {
+    private fun buildWatchlistTab() {
         addSectionHeader("⭐ Alt Watchlist", green)
         val items = WatchlistEngine.getWatchlist().filter { item -> altMarkets.any { it.symbol == item.symbol } }
         if (items.isEmpty()) { addEmptyState("No alts in watchlist yet. Tap + to add."); return }
 
         progressBar.visibility = View.VISIBLE
         lifecycleScope.launch(Dispatchers.IO) {
-            val results = mutableListOf<Triple<WatchlistEngine.WatchlistItem, PerpsMarket?, PerpsMarketData?>>()
-            for (item in items) {
+            val results = items.map { item ->
                 val market = altMarkets.find { it.symbol == item.symbol }
                 val data   = market?.let { runCatching { PerpsMarketDataFetcher.getMarketData(it) }.getOrNull() }
-                results.add(Triple(item, market, data))
+                Triple(item, market, data)
             }
             withContext(Dispatchers.Main) {
                 progressBar.visibility = View.GONE
-                results.forEach { (item, market, data) -> addWatchlistRow(item, market, data) }
+                results.forEach { (item, market, data) ->
+                    val change = data?.priceChange24hPct ?: 0.0
+                    val row = hBox(card, 16, 10).apply {
+                        layoutParams = llp(match, wrap).apply { bottomMargin = 2 }
+                        gravity = Gravity.CENTER_VERTICAL
+                        addView(tv("${market?.emoji ?: "🪙"} ${item.symbol}", 13f, white, bold = true).apply { layoutParams = llp(0, wrap, 2f) })
+                        addView(tv(data?.let { if (it.price > 1) "$%.2f".format(it.price) else "$%.6f".format(it.price) } ?: "—", 12f, white, mono = true).apply { layoutParams = llp(0, wrap, 2f) })
+                        addView(tv("${if (change >= 0) "+" else ""}%.1f%%".format(change), 12f, if (change >= 0) green else red, mono = true).apply { gravity = Gravity.END; layoutParams = llp(0, wrap, 1f) })
+                        addView(tv("✕", 14f, red).apply { setPadding(16, 0, 8, 0); setOnClickListener { WatchlistEngine.removeFromWatchlist(item.symbol); selectTab(1) } })
+                        if (market != null && data != null) setOnClickListener { showSignalDetail(market, data, if (change > 3) "🟢 BUY" else if (change < -3) "🔴 SELL" else "🟡 HOLD", CryptoAltScannerAI.getAltBeta(market.symbol)) }
+                    }
+                    llContent.addView(row); llContent.addView(thinDivider())
+                }
             }
         }
     }
 
-    private fun addWatchlistRow(item: WatchlistEngine.WatchlistItem, market: PerpsMarket?, data: PerpsMarketData?) {
-        val change = data?.priceChange24hPct ?: 0.0
-        val row = LinearLayout(this).apply {
-            orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL
-            setPadding(16, 10, 16, 10); setBackgroundColor(card)
-            layoutParams = llp(matchParent, wrapContent).apply { bottomMargin = 2 }
-        }
-        row.addView(TextView(this).apply {
-            text = "${market?.emoji ?: "🪙"} ${item.symbol}"; textSize = 13f; setTextColor(white)
-            typeface = android.graphics.Typeface.DEFAULT_BOLD
-            layoutParams = llp(0, wrapContent, 2f)
-        })
-        row.addView(TextView(this).apply {
-            text = data?.let { if (it.price > 1) "$%.2f".format(it.price) else "$%.6f".format(it.price) } ?: "—"
-            textSize = 12f; setTextColor(white); typeface = android.graphics.Typeface.MONOSPACE
-            layoutParams = llp(0, wrapContent, 2f)
-        })
-        row.addView(TextView(this).apply {
-            text = "${if (change >= 0) "+" else ""}%.1f%%".format(change)
-            textSize = 12f; setTextColor(if (change >= 0) green else red)
-            typeface = android.graphics.Typeface.MONOSPACE; gravity = Gravity.END
-            layoutParams = llp(0, wrapContent, 1f)
-        })
-        row.addView(TextView(this).apply {
-            text = "✕"; textSize = 14f; setTextColor(red); setPadding(16, 0, 8, 0)
-            setOnClickListener { WatchlistEngine.removeFromWatchlist(item.symbol); selectTab(1) }
-        })
-        if (market != null && data != null) row.setOnClickListener {
-            showSignalDialog(market, data,
-                if (change > 3) "🟢 BUY" else if (change < -3) "🔴 SELL" else "🟡 HOLD",
-                CryptoAltScannerAI.getAltBeta(market.symbol))
-        }
-        llTabContent.addView(row)
-        addThinDivider()
-    }
+    // ─── POSITIONS ───────────────────────────────────────────────────────────
 
-    // ─── POSITIONS TAB ────────────────────────────────────────────────────────
-
-    private fun buildPositionsTabContent() {
+    private fun buildPositionsTab() {
         val allPos    = CryptoAltTrader.getAllPositions()
         val openPos   = allPos.filter { it.closeTime == null }
         val closedPos = allPos.filter { it.closeTime != null }.take(20)
+        val totalPnl  = allPos.sumOf { it.getPnlSol() }
 
         addSectionHeader("📂 Open Positions (${openPos.size})", amber)
         if (openPos.isEmpty()) addEmptyState("No open positions")
-        else openPos.forEach { addPositionRow(it, isOpen = true) }
+        else openPos.forEach { addPositionRow(it, true) }
 
         addSectionHeader("📜 Recent Closed (${closedPos.size})", muted)
         if (closedPos.isEmpty()) addEmptyState("No closed positions yet")
-        else closedPos.forEach { addPositionRow(it, isOpen = false) }
+        else closedPos.forEach { addPositionRow(it, false) }
 
-        val totalPnl = allPos.sumOf { it.getPnlSol() }
         findViewById<TextView>(R.id.tvCryptoAltStats)?.text =
             "${openPos.size} open | PnL: ${if (totalPnl >= 0) "+" else ""}%.4f◎".format(totalPnl)
     }
 
     private fun addPositionRow(pos: CryptoAltTrader.AltPosition, isOpen: Boolean) {
         val pnlPct = pos.getPnlPct()
-        val row = LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL; setPadding(16, 12, 16, 12); setBackgroundColor(card)
-            layoutParams = llp(matchParent, wrapContent).apply { bottomMargin = 2 }
+        val tile = vBox(card, 16, 12).apply {
+            layoutParams = llp(match, wrap).apply { bottomMargin = 2 }
         }
-        val header = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL }
-        header.addView(TextView(this).apply {
-            text = "${pos.market.emoji} ${pos.market.symbol}  ${pos.direction.emoji} ${pos.leverageLabel}"
-            textSize = 13f; setTextColor(white); typeface = android.graphics.Typeface.DEFAULT_BOLD
-            layoutParams = llp(0, wrapContent, 1f)
-        })
-        header.addView(TextView(this).apply {
-            text = "${if (pnlPct >= 0) "+" else ""}%.2f%%".format(pnlPct)
-            textSize = 13f; setTextColor(if (pnlPct >= 0) green else red)
-            typeface = android.graphics.Typeface.MONOSPACE
-        })
-        row.addView(header)
-        row.addView(TextView(this).apply {
-            text = "Entry: %.6f  Now: %.6f  Size: %.4f◎".format(pos.entryPrice, pos.currentPrice, pos.sizeSol)
-            textSize = 10f; setTextColor(muted); typeface = android.graphics.Typeface.MONOSPACE
-        })
-        if (isOpen) row.setOnClickListener { showPositionDialog(pos) }
-        llTabContent.addView(row)
-        addThinDivider()
-    }
-
-    private fun showPositionDialog(pos: CryptoAltTrader.AltPosition) {
-        val pnlPct   = pos.getPnlPct()
-        val pnlStr   = "${if (pnlPct >= 0) "+" else ""}%.2f%%".format(pnlPct)
-        val openedAt = sdf.format(Date(pos.openTime))
-        AlertDialog.Builder(this)
-            .setTitle("${pos.market.emoji} ${pos.market.symbol} — ${pos.direction.emoji} ${pos.leverageLabel}")
-            .setMessage("Size: %.4f◎\nEntry: %.6f\nCurrent: %.6f\nP&L: $pnlStr\nOpened: $openedAt".format(
-                pos.sizeSol, pos.entryPrice, pos.currentPrice))
-            .setPositiveButton("Close Position") { _, _ ->
-                lifecycleScope.launch(Dispatchers.IO) {
-                    CryptoAltTrader.requestClose(pos.id)
-                    withContext(Dispatchers.Main) { selectTab(2) }
+        val header = hBox().apply { gravity = Gravity.CENTER_VERTICAL }
+        header.addView(tv("${pos.market.emoji} ${pos.market.symbol}  ${pos.direction.emoji} ${pos.leverageLabel}", 13f, white, bold = true).apply { layoutParams = llp(0, wrap, 1f) })
+        header.addView(tv("${if (pnlPct >= 0) "+" else ""}%.2f%%".format(pnlPct), 13f, if (pnlPct >= 0) green else red, mono = true))
+        tile.addView(header)
+        tile.addView(tv("Entry: %.6f  Now: %.6f  Size: %.4f◎".format(pos.entryPrice, pos.currentPrice, pos.sizeSol), 10f, muted, mono = true))
+        if (isOpen) tile.setOnClickListener {
+            AlertDialog.Builder(this)
+                .setTitle("${pos.market.emoji} ${pos.market.symbol} — ${pos.direction.emoji} ${pos.leverageLabel}")
+                .setMessage("Size: %.4f◎\nEntry: %.6f\nCurrent: %.6f\nP&L: ${if (pnlPct >= 0) "+" else ""}%.2f%%\nOpened: %s".format(
+                    pos.sizeSol, pos.entryPrice, pos.currentPrice, pnlPct, sdf.format(Date(pos.openTime))))
+                .setPositiveButton("Close Position") { _, _ ->
+                    lifecycleScope.launch(Dispatchers.IO) {
+                        CryptoAltTrader.requestClose(pos.id)
+                        withContext(Dispatchers.Main) { selectTab(2) }
+                    }
                 }
-            }
-            .setNegativeButton("Cancel", null)
-            .show()
+                .setNegativeButton("Cancel", null).show()
+        }
+        llContent.addView(tile); llContent.addView(thinDivider())
     }
 
-    // ─── SETTINGS TAB ─────────────────────────────────────────────────────────
+    // ─── SETTINGS ─────────────────────────────────────────────────────────────
 
-    private fun buildSettingsTabContent() {
+    private fun buildSettingsTab() {
         addSectionHeader("⚙️ Crypto Alts Settings", 0xFF9CA3AF.toInt())
 
         addToggleRow("🤖 Alt Trader Running", CryptoAltTrader.isRunning()) { on ->
-            if (on) CryptoAltTrader.start() else CryptoAltTrader.stop()
-            selectTab(3)
-        }
+            if (on) CryptoAltTrader.start() else CryptoAltTrader.stop(); selectTab(3) }
         addToggleRow("💰 Live Mode (real money)", CryptoAltTrader.isLiveMode()) { on ->
-            if (on) {
-                AlertDialog.Builder(this)
-                    .setTitle("⚠️ Enable Live Trading?")
-                    .setMessage("This will use REAL SOL. Only enable when win rate > 55%.")
-                    .setPositiveButton("Enable Live") { _, _ -> CryptoAltTrader.setLiveMode(true); selectTab(3) }
-                    .setNegativeButton("Cancel")      { _, _ -> selectTab(3) }
-                    .show()
-            } else { CryptoAltTrader.setLiveMode(false); selectTab(3) }
+            if (on) AlertDialog.Builder(this)
+                .setTitle("⚠️ Enable Live Trading?")
+                .setMessage("This will use REAL SOL. Only enable when win rate > 55%.")
+                .setPositiveButton("Enable Live") { _, _ -> CryptoAltTrader.setLiveMode(true); selectTab(3) }
+                .setNegativeButton("Cancel") { _, _ -> selectTab(3) }.show()
+            else { CryptoAltTrader.setLiveMode(false); selectTab(3) }
         }
 
         addSectionHeader("📊 Performance", purple)
-        addInfoRow("Balance",     "%.4f◎".format(CryptoAltTrader.getBalance()))
-        addInfoRow("Total PnL",   "${if (CryptoAltTrader.getTotalPnlSol() >= 0) "+" else ""}%.4f◎".format(CryptoAltTrader.getTotalPnlSol()))
+        addInfoRow("Balance",     "◎${"%.4f".format(CryptoAltTrader.getBalance())}")
+        addInfoRow("Total PnL",   "${if (CryptoAltTrader.getTotalPnlSol() >= 0) "+" else ""}${"%.4f".format(CryptoAltTrader.getTotalPnlSol())}◎")
         addInfoRow("Win Rate",    "${CryptoAltTrader.getWinRate().toInt()}%")
-        addInfoRow("Trades",      "${CryptoAltTrader.getTotalTrades()}")
+        addInfoRow("Total Trades","${CryptoAltTrader.getTotalTrades()}")
         addInfoRow("Open Pos",    "${CryptoAltTrader.getAllPositions().count { it.closeTime == null }}")
         addInfoRow("Phase",       getPhaseLabel())
 
-        addSectionHeader("🧠 Learning System", blue)
-        addInfoRow("AI Trade Count", "${FluidLearningAI.getMarketsTradeCount()}")
-        addInfoRow("Dominance",      CryptoAltScannerAI.getDominanceCycleSignal())
-        addInfoRow("Fear & Greed",   "${CryptoAltScannerAI.getCryptoFearGreed()}")
+        addSectionHeader("🧠 Fluid Learning", blue)
+        addInfoRow("V3 Trades",        "${FluidLearningAI.getTotalTradeCount()}")
+        addInfoRow("Markets Trades",   "${FluidLearningAI.getMarketsTradeCount()}")
+        addInfoRow("V3 Progress",      "${(FluidLearningAI.getLearningProgress() * 100).toInt()}%")
+        addInfoRow("Mkts Progress",    "${(FluidLearningAI.getMarketsLearningProgress() * 100).toInt()}%")
+        addInfoRow("Conf Boost",       "+${(FluidLearningAI.getBootstrapConfidenceBoost() * 100).toInt()}%")
 
-        addSectionHeader("🌐 Chain Coverage", teal)
-        addInfoRow("Total alts", "${altMarkets.size} tokens")
-        addInfoRow("BNB alts",   "${altMarkets.count { it.symbol in setOf("DOGE","SHIB","FLOKI","PEPE","WIF","BONK","CAKE") }}")
-        addInfoRow("ETH alts",   "${altMarkets.count { it.symbol in setOf("ETH","LINK","UNI","AAVE","MKR","ARB","OP","LDO","GRT") }}")
+        addSectionHeader("📈 30-Day Run", teal)
+        addInfoRow("Day",        if (RunTracker30D.isRunActive()) "Day ${RunTracker30D.getCurrentDay()} / 30" else "Not started")
+        addInfoRow("Trades",     "${RunTracker30D.totalTrades}")
+        addInfoRow("Win Rate",   if (RunTracker30D.totalTrades > 0) "${(RunTracker30D.wins.toDouble() / RunTracker30D.totalTrades * 100).toInt()}%" else "—")
+        addInfoRow("Realized PnL","${if (RunTracker30D.totalRealizedPnlSol >= 0) "+" else ""}${"%.4f".format(RunTracker30D.totalRealizedPnlSol)}◎")
+        addInfoRow("Max Drawdown","${"%.1f".format(RunTracker30D.maxDrawdown)}%")
+        addInfoRow("Integrity",   if (RunTracker30D.isRunActive()) "${RunTracker30D.integrityScore()}/100" else "—")
+
+        addSectionHeader("👁️ Shadow / FDG", indigo)
+        val shadow = ShadowLearningEngine.getBlockedTradeStats()
+        addInfoRow("Tracked",     "${shadow.totalTracked}")
+        addInfoRow("Would Win",   "${shadow.wouldHaveWon}")
+        addInfoRow("Would Lose",  "${shadow.wouldHaveLost}")
+        addInfoRow("Top Mode",    ShadowLearningEngine.getTopTrackedMode() ?: "—")
+
+        addSectionHeader("🌐 Alt Intel", orange)
+        addInfoRow("Dominance",   CryptoAltScannerAI.getDominanceCycleSignal())
+        addInfoRow("Fear & Greed","${CryptoAltScannerAI.getCryptoFearGreed()}")
+        addInfoRow("Total Alts",  "${altMarkets.size} tokens")
     }
 
     // ═══════════════════════════════════════════════════════════════════════════
@@ -1120,8 +943,7 @@ class CryptoAltActivity : AppCompatActivity() {
         AlertDialog.Builder(this)
             .setTitle("Add Alt to Watchlist")
             .setItems(labels) { _, which -> addSymbolToWatchlist(altMarkets[which].symbol) }
-            .setNegativeButton("Cancel", null)
-            .show()
+            .setNegativeButton("Cancel", null).show()
     }
 
     private fun addSymbolToWatchlist(symbol: String) {
@@ -1131,141 +953,121 @@ class CryptoAltActivity : AppCompatActivity() {
     }
 
     // ═══════════════════════════════════════════════════════════════════════════
-    // UI HELPERS
+    // UI FACTORY HELPERS
     // ═══════════════════════════════════════════════════════════════════════════
 
-    private fun buildTileCard(accentColor: Int): LinearLayout {
-        return LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL
-            setBackgroundColor(card)
-            setPadding(16, 14, 16, 14)
-            layoutParams = llp(matchParent, wrapContent).apply { bottomMargin = 3 }
-
-            // Top accent line
-            val accent = View(this@CryptoAltActivity).apply {
+    private fun buildTile(accentColor: Int, title: String, badge: String, badgeColor: Int): LinearLayout {
+        return vBox(card, 16, 14).apply {
+            // Accent line
+            addView(View(this@CryptoAltActivity).apply {
                 setBackgroundColor(accentColor)
-                layoutParams = llp(matchParent, 2).apply { bottomMargin = 8 }
-            }
-            addView(accent)
+                layoutParams = llp(match, 2).apply { bottomMargin = 8 }
+            })
+            // Header row
+            val header = hBox().apply { gravity = Gravity.CENTER_VERTICAL }
+            header.addView(tv(title, 13f, white, bold = true).apply { layoutParams = llp(0, wrap, 1f) })
+            header.addView(tv(badge, 9f, badgeColor, bold = true).apply {
+                setBackgroundColor(0xFF0D0D1A.toInt()); setPadding(6, 3, 6, 3)
+            })
+            addView(header)
         }
-    }
-
-    private fun addTileHeader(tile: LinearLayout, title: String, badge: String, badgeColor: Int) {
-        val row = LinearLayout(this).apply {
-            orientation = LinearLayout.HORIZONTAL
-            gravity = Gravity.CENTER_VERTICAL
-        }
-        row.addView(TextView(this).apply {
-            text = title; textSize = 13f; setTextColor(white)
-            typeface = android.graphics.Typeface.DEFAULT_BOLD
-            layoutParams = llp(0, wrapContent, 1f)
-        })
-        row.addView(TextView(this).apply {
-            text = badge; textSize = 9f; setTextColor(badgeColor)
-            typeface = android.graphics.Typeface.DEFAULT_BOLD
-            setBackgroundColor(0xFF0D0D1A.toInt())
-            setPadding(6, 3, 6, 3)
-        })
-        tile.addView(row)
     }
 
     private fun addStatChip(parent: LinearLayout, label: String, value: String, valueColor: Int, weight: Float) {
-        parent.addView(LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL
+        parent.addView(vBox(0xFF111128.toInt(), 8, 6).apply {
+            layoutParams = llp(0, wrap, weight).apply { marginEnd = 3 }
             gravity = Gravity.CENTER
-            setBackgroundColor(0xFF111128.toInt())
-            setPadding(8, 6, 8, 6)
-            layoutParams = llp(0, wrapContent, weight).apply { marginEnd = 3 }
-
-            addView(TextView(this@CryptoAltActivity).apply {
-                text = value; textSize = 12f; setTextColor(valueColor)
-                typeface = android.graphics.Typeface.MONOSPACE
-                gravity = Gravity.CENTER
-            })
-            addView(TextView(this@CryptoAltActivity).apply {
-                text = label; textSize = 8f; setTextColor(muted)
-                gravity = Gravity.CENTER
-            })
+            addView(tv(value, 12f, valueColor, mono = true).apply { gravity = Gravity.CENTER })
+            addView(tv(label, 8f, muted).apply { gravity = Gravity.CENTER })
         })
     }
 
     private fun addSectionHeader(text: String, color: Int) {
-        llTabContent.addView(TextView(this).apply {
-            this.text = text; textSize = 12f; setTextColor(color)
-            typeface = android.graphics.Typeface.DEFAULT_BOLD; setPadding(16, 14, 16, 6)
-        })
-    }
-
-    private fun addSectionDivider() {
-        llTabContent.addView(View(this).apply {
-            setBackgroundColor(divider)
-            layoutParams = llp(matchParent, 1).apply { topMargin = 8; bottomMargin = 8 }
-        })
+        llContent.addView(tv(text, 12f, color, bold = true).apply { setPadding(16, 14, 16, 6) })
     }
 
     private fun addEmptyState(msg: String) {
-        llTabContent.addView(TextView(this).apply {
-            text = msg; textSize = 13f; setTextColor(muted); gravity = Gravity.CENTER
-            setPadding(16, 32, 16, 32)
-            layoutParams = llp(matchParent, wrapContent)
+        llContent.addView(tv(msg, 13f, muted).apply {
+            gravity = Gravity.CENTER; setPadding(16, 32, 16, 32)
+            layoutParams = llp(match, wrap)
         })
     }
 
-    private fun addThinDivider() {
-        llTabContent.addView(View(this).apply {
-            setBackgroundColor(divider)
-            layoutParams = llp(matchParent, 1)
+    private fun addDivider() {
+        llContent.addView(View(this).apply {
+            setBackgroundColor(divBg)
+            layoutParams = llp(match, 1).apply { topMargin = 8; bottomMargin = 8 }
         })
+    }
+
+    private fun thinDivider() = View(this).apply {
+        setBackgroundColor(divBg); layoutParams = llp(match, 1)
+    }
+
+    private fun divLine() = View(this).apply {
+        setBackgroundColor(divBg)
+        layoutParams = llp(match, 1).apply { topMargin = 6; bottomMargin = 4 }
     }
 
     private fun addToggleRow(label: String, current: Boolean, onChange: (Boolean) -> Unit) {
-        val row = LinearLayout(this).apply {
-            orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL
-            setPadding(16, 12, 16, 12); setBackgroundColor(card)
-            layoutParams = llp(matchParent, wrapContent).apply { bottomMargin = 2 }
-        }
-        row.addView(TextView(this).apply {
-            text = label; textSize = 13f; setTextColor(white)
-            layoutParams = llp(0, wrapContent, 1f)
+        llContent.addView(hBox(card, 16, 12).apply {
+            layoutParams = llp(match, wrap).apply { bottomMargin = 2 }
+            gravity = Gravity.CENTER_VERTICAL
+            addView(tv(label, 13f, white).apply { layoutParams = llp(0, wrap, 1f) })
+            addView(Switch(this@CryptoAltActivity).apply { isChecked = current; setOnCheckedChangeListener { _, v -> onChange(v) } })
         })
-        row.addView(Switch(this).apply { isChecked = current; setOnCheckedChangeListener { _, v -> onChange(v) } })
-        llTabContent.addView(row)
-        addThinDivider()
+        llContent.addView(thinDivider())
     }
 
     private fun addInfoRow(label: String, value: String) {
-        val row = LinearLayout(this).apply {
-            orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL
-            setPadding(16, 10, 16, 10); setBackgroundColor(card)
-            layoutParams = llp(matchParent, wrapContent).apply { bottomMargin = 2 }
-        }
-        row.addView(TextView(this).apply {
-            text = label; textSize = 13f; setTextColor(muted)
-            layoutParams = llp(0, wrapContent, 1f)
+        llContent.addView(hBox(card, 16, 10).apply {
+            layoutParams = llp(match, wrap).apply { bottomMargin = 2 }
+            gravity = Gravity.CENTER_VERTICAL
+            addView(tv(label, 13f, muted).apply { layoutParams = llp(0, wrap, 1f) })
+            addView(tv(value, 13f, white, mono = true))
         })
-        row.addView(TextView(this).apply {
-            text = value; textSize = 13f; setTextColor(white)
-            typeface = android.graphics.Typeface.MONOSPACE
-        })
-        llTabContent.addView(row)
-        addThinDivider()
+        llContent.addView(thinDivider())
     }
 
-    // ═══════════════════════════════════════════════════════════════════════════
-    // LAYOUT PARAMS SHORTHAND
-    // ═══════════════════════════════════════════════════════════════════════════
+    private fun progressBar(color: Int, pct: Int) = ProgressBar(this, null, android.R.attr.progressBarStyleHorizontal).apply {
+        max = 100; progress = pct
+        progressTintList = android.content.res.ColorStateList.valueOf(color)
+        layoutParams = llp(match, 6).apply { topMargin = 2; bottomMargin = 2 }
+    }
 
-    private val matchParent = LinearLayout.LayoutParams.MATCH_PARENT
-    private val wrapContent = LinearLayout.LayoutParams.WRAP_CONTENT
+    // ─── View factories ──────────────────────────────────────────────────────
+
+    private fun tv(text: String, size: Float, color: Int, bold: Boolean = false, mono: Boolean = false) = TextView(this).apply {
+        this.text = text; textSize = size; setTextColor(color)
+        if (bold) typeface = android.graphics.Typeface.DEFAULT_BOLD
+        if (mono) typeface = android.graphics.Typeface.MONOSPACE
+    }
+
+    private fun hBox(bg: Int = 0, padH: Int = 0, padV: Int = 0) = LinearLayout(this).apply {
+        orientation = LinearLayout.HORIZONTAL
+        if (bg != 0) setBackgroundColor(bg)
+        if (padH > 0 || padV > 0) setPadding(padH, padV, padH, padV)
+        layoutParams = llp(match, wrap)
+    }
+
+    private fun vBox(bg: Int = 0, padH: Int = 0, padV: Int = 0) = LinearLayout(this).apply {
+        orientation = LinearLayout.VERTICAL
+        if (bg != 0) setBackgroundColor(bg)
+        if (padH > 0 || padV > 0) setPadding(padH, padV, padH, padV)
+        layoutParams = llp(match, wrap).apply { bottomMargin = 3 }
+    }
+
+    // ─── Layout params ────────────────────────────────────────────────────────
+
+    private val match = LinearLayout.LayoutParams.MATCH_PARENT
+    private val wrap  = LinearLayout.LayoutParams.WRAP_CONTENT
 
     private fun llp(w: Int, h: Int, weight: Float = 0f) = LinearLayout.LayoutParams(w, h, weight)
 
-    // ═══════════════════════════════════════════════════════════════════════════
-    // PHASE / COLOUR HELPERS
-    // ═══════════════════════════════════════════════════════════════════════════
+    // ─── Phase helpers ────────────────────────────────────────────────────────
 
     private fun getPhaseLabel(): String {
-        val trades = FluidLearningAI.getMarketsTradeCount()
+        val trades = FluidLearningAI.getTotalTradeCount()
         val wr     = CryptoAltTrader.getWinRate()
         return when {
             trades < 500  -> "BOOTSTRAP"
