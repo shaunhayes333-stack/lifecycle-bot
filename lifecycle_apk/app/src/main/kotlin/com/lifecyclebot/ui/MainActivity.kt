@@ -1198,6 +1198,29 @@ for legal compliance.
             }
             axisRight.isEnabled = false
         }
+        // V5.8.0: Setup CandleStick chart styling
+        candleChart.apply {
+            setBackgroundColor(Color.TRANSPARENT)
+            setDrawGridBackground(false)
+            description.isEnabled = false
+            legend.isEnabled      = false
+            setTouchEnabled(true)
+            setPinchZoom(true)
+            setScaleEnabled(true)
+            xAxis.apply {
+                isEnabled  = false
+                position   = XAxis.XAxisPosition.BOTTOM
+            }
+            axisLeft.apply {
+                setDrawGridLines(true)
+                gridColor    = 0xFF1F2937.toInt()
+                textColor    = muted
+                textSize     = 9f
+                axisLineColor = Color.TRANSPARENT
+                setDrawAxisLine(false)
+            }
+            axisRight.isEnabled = false
+        }
     }
 
     private fun appendChart(price: Double) {
@@ -1216,6 +1239,53 @@ for legal compliance.
         }
         priceChart.data = LineData(ds)
         priceChart.invalidate()
+    }
+
+    // V5.8.0: Update candle chart from token history with timeframe selection
+    private fun updateCandleChart(ts: TokenState?) {
+        if (ts == null) {
+            candleChart.clear()
+            return
+        }
+        
+        // Pick the right history bucket based on chartTimeRange
+        val sourceHistory: List<com.lifecyclebot.data.Candle> = try {
+            when (chartTimeRange) {
+                "5m"  -> synchronized(ts.history5m) { ts.history5m.toList() }
+                "15m" -> synchronized(ts.history15m) { ts.history15m.toList() }
+                "1h"  -> synchronized(ts.history15m) { ts.history15m.toList() } // aggregate into hour candles
+                else  -> synchronized(ts.history) { ts.history.toList() }       // 1m default
+            }
+        } catch (_: Exception) { emptyList() }
+        
+        if (sourceHistory.isEmpty()) {
+            candleChart.clear()
+            return
+        }
+        
+        val entries = ArrayList<com.github.mikephil.charting.data.CandleEntry>()
+        sourceHistory.forEachIndexed { idx, candle ->
+            val close = candle.priceUsd.toFloat()
+            val open  = if (candle.openUsd > 0) candle.openUsd.toFloat() else close
+            val high  = if (candle.highUsd > 0) candle.highUsd.toFloat() else maxOf(open, close) * 1.001f
+            val low   = if (candle.lowUsd  > 0) candle.lowUsd.toFloat()  else minOf(open, close) * 0.999f
+            entries.add(com.github.mikephil.charting.data.CandleEntry(idx.toFloat(), high, low, open, close))
+        }
+        
+        val ds = com.github.mikephil.charting.data.CandleDataSet(entries, "").apply {
+            setDrawIcons(false)
+            shadowColor = 0xFF6B7280.toInt()
+            shadowWidth = 0.7f
+            decreasingColor = 0xFFEF4444.toInt()
+            decreasingPaintStyle = android.graphics.Paint.Style.FILL
+            increasingColor = 0xFF10B981.toInt()
+            increasingPaintStyle = android.graphics.Paint.Style.FILL
+            neutralColor = 0xFF6B7280.toInt()
+            setDrawValues(false)
+        }
+        
+        candleChart.data = com.github.mikephil.charting.data.CandleData(ds)
+        candleChart.invalidate()
     }
 
     // ── update UI ─────────────────────────────────────────────────────
@@ -1477,6 +1547,7 @@ for legal compliance.
         } else if (ts?.lastPrice != null && ts.lastPrice > 0) {
             // Append new price point
             appendChart(ts.lastPrice)
+            updateCandleChart(ts)  // V5.8.0: keep candle chart in sync
             
             // V5.6: Update metrics on each tick
             updateChartMetrics(ts)
@@ -1998,7 +2069,22 @@ for legal compliance.
             val row = LinearLayout(this).apply {
                 orientation = LinearLayout.HORIZONTAL
                 setPadding(0, 12, 0, 12)
+                gravity = android.view.Gravity.CENTER_VERTICAL
             }
+
+            // V5.8.0: Token logo
+            val logoImg = android.widget.ImageView(this).apply {
+                layoutParams = LinearLayout.LayoutParams(40, 40).also { it.marginEnd = 10 }
+                scaleType = android.widget.ImageView.ScaleType.CENTER_CROP
+                try { background = androidx.core.content.ContextCompat.getDrawable(this@MainActivity, R.drawable.token_logo_bg) } catch (_: Exception) {}
+                val cachedLogo = try { ts.logoUrl.ifBlank { null } } catch (_: Exception) { null }
+                load(cachedLogo ?: "https://cdn.dexscreener.com/tokens/solana/${ts.mint}") {
+                    crossfade(true); placeholder(R.drawable.ic_token_placeholder)
+                    error(R.drawable.ic_token_placeholder); allowHardware(false)
+                    transformations(coil.transform.CircleCropTransformation())
+                }
+            }
+            row.addView(logoImg)
 
             // Colour bar on left
             val bar = View(this).apply {
@@ -2126,7 +2212,21 @@ for legal compliance.
             val row = LinearLayout(this).apply {
                 orientation = LinearLayout.HORIZONTAL
                 setPadding(0, 12, 0, 12)
+                gravity = android.view.Gravity.CENTER_VERTICAL
             }
+
+            // V5.8.0: Token logo
+            val logoImg = android.widget.ImageView(this).apply {
+                layoutParams = LinearLayout.LayoutParams(40, 40).also { it.marginEnd = 10 }
+                scaleType = android.widget.ImageView.ScaleType.CENTER_CROP
+                try { background = androidx.core.content.ContextCompat.getDrawable(this@MainActivity, R.drawable.token_logo_bg) } catch (_: Exception) {}
+                load("https://cdn.dexscreener.com/tokens/solana/${pos.mint}") {
+                    crossfade(true); placeholder(R.drawable.ic_token_placeholder)
+                    error(R.drawable.ic_token_placeholder); allowHardware(false)
+                    transformations(coil.transform.CircleCropTransformation())
+                }
+            }
+            row.addView(logoImg)
 
             // Colour bar on left (gold for treasury)
             val bar = View(this).apply {
@@ -2216,7 +2316,21 @@ for legal compliance.
             val row = LinearLayout(this).apply {
                 orientation = LinearLayout.HORIZONTAL
                 setPadding(0, 12, 0, 12)
+                gravity = android.view.Gravity.CENTER_VERTICAL
             }
+
+            // V5.8.0: Token logo
+            val logoImg = android.widget.ImageView(this).apply {
+                layoutParams = LinearLayout.LayoutParams(40, 40).also { it.marginEnd = 10 }
+                scaleType = android.widget.ImageView.ScaleType.CENTER_CROP
+                try { background = androidx.core.content.ContextCompat.getDrawable(this@MainActivity, R.drawable.token_logo_bg) } catch (_: Exception) {}
+                load("https://cdn.dexscreener.com/tokens/solana/${pos.mint}") {
+                    crossfade(true); placeholder(R.drawable.ic_token_placeholder)
+                    error(R.drawable.ic_token_placeholder); allowHardware(false)
+                    transformations(coil.transform.CircleCropTransformation())
+                }
+            }
+            row.addView(logoImg)
 
             // Colour bar on left (blue for Blue Chip)
             val bar = View(this).apply {
@@ -2303,7 +2417,21 @@ for legal compliance.
             val row = LinearLayout(this).apply {
                 orientation = LinearLayout.HORIZONTAL
                 setPadding(0, 12, 0, 12)
+                gravity = android.view.Gravity.CENTER_VERTICAL
             }
+
+            // V5.8.0: Token logo
+            val logoImg = android.widget.ImageView(this).apply {
+                layoutParams = LinearLayout.LayoutParams(40, 40).also { it.marginEnd = 10 }
+                scaleType = android.widget.ImageView.ScaleType.CENTER_CROP
+                try { background = androidx.core.content.ContextCompat.getDrawable(this@MainActivity, R.drawable.token_logo_bg) } catch (_: Exception) {}
+                load("https://cdn.dexscreener.com/tokens/solana/${pos.mint}") {
+                    crossfade(true); placeholder(R.drawable.ic_token_placeholder)
+                    error(R.drawable.ic_token_placeholder); allowHardware(false)
+                    transformations(coil.transform.CircleCropTransformation())
+                }
+            }
+            row.addView(logoImg)
 
             // Amber colour bar for Quality
             val bar = View(this).apply {
@@ -2621,7 +2749,21 @@ for legal compliance.
             val row = LinearLayout(this).apply {
                 orientation = LinearLayout.HORIZONTAL
                 setPadding(0, 12, 0, 12)
+                gravity = android.view.Gravity.CENTER_VERTICAL
             }
+            // V5.8.0: Token logo
+            val logoImg = android.widget.ImageView(this).apply {
+                layoutParams = LinearLayout.LayoutParams(40, 40).also { it.marginEnd = 10 }
+                scaleType = android.widget.ImageView.ScaleType.CENTER_CROP
+                try { background = androidx.core.content.ContextCompat.getDrawable(this@MainActivity, R.drawable.token_logo_bg) } catch (_: Exception) {}
+                load("https://cdn.dexscreener.com/tokens/solana/${pos.mint}") {
+                    crossfade(true); placeholder(R.drawable.ic_token_placeholder)
+                    error(R.drawable.ic_token_placeholder); allowHardware(false)
+                    transformations(coil.transform.CircleCropTransformation())
+                }
+            }
+            row.addView(logoImg)
+
             val bar = View(this).apply {
                 layoutParams = LinearLayout.LayoutParams(4, LinearLayout.LayoutParams.MATCH_PARENT).also { it.marginEnd = 12 }
                 setBackgroundColor(0xFFB91C1C.toInt()) // Dark red for manipulated
@@ -3039,6 +3181,9 @@ for legal compliance.
                     b?.setTextColor(if (r == range) 0xFFFFFFFF.toInt() else 0xFF6B7280.toInt())
                     b?.setBackgroundColor(if (r == range) 0xFF3B82F6.toInt() else 0xFF2A2A2A.toInt())
                 }
+                // V5.8.0: Refresh candle chart for new timeframe
+                val activeTs = try { com.lifecyclebot.engine.BotService.status.activeToken } catch (_: Exception) { null }
+                updateCandleChart(activeTs)
             }
         }
         
