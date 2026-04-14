@@ -154,6 +154,37 @@
                     android:layout_height="wrap_content"
                     android:checked="true"/>
             </LinearLayout>
+
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="horizontal"
+                android:gravity="center_vertical"
+                android:layout_marginTop="8dp">
+                <LinearLayout
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:orientation="vertical">
+                    <TextView
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="🪙 Crypto Alts Trader"
+                        android:textColor="#FFFFFF"
+                        android:textSize="12sp"/>
+                    <TextView
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="BNB • ETH • SOL alts — learns &amp; trades 24/7"
+                        android:textColor="#6B7280"
+                        android:textSize="9sp"/>
+                </LinearLayout>
+                <androidx.appcompat.widget.SwitchCompat
+                    android:id="@+id/switchCryptoAltsTrader"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:checked="true"/>
+            </LinearLayout>
         </LinearLayout>
 
         <!-- ═══════════════════════════════
@@ -1092,3 +1123,4 @@
 
     </LinearLayout>
 </androidx.core.widget.NestedScrollView>
+
