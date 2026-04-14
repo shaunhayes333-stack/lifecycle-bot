@@ -388,6 +388,25 @@ object PerpsLearningBridge {
                 layerPerpsTrust[name] = config.trustWeight
             }
         }
+
+        // V5.8.0: Load persisted trust scores from Turso (async, blends with local prefs)
+        GlobalScope.launch(Dispatchers.IO) {
+            try {
+                val client = com.lifecyclebot.collective.CollectiveLearning.getClient() ?: return@launch
+                val perfsFromTurso = client.getPerpsLayerRankings()
+                for (perf in perfsFromTurso) {
+                    val localTrust = layerPerpsTrust[perf.layerName] ?: continue
+                    // 60% Turso (cross-session), 40% local (this session)
+                    val blended = (perf.trustScore * 0.6 + localTrust * 0.4).coerceIn(0.05, 1.0)
+                    layerPerpsTrust[perf.layerName] = blended
+                }
+                if (perfsFromTurso.isNotEmpty()) {
+                    ErrorLogger.info(TAG, "🧠 Loaded ${perfsFromTurso.size} layer trust scores from Turso (cross-session)")
+                }
+            } catch (e: Exception) {
+                ErrorLogger.debug(TAG, "🧠 Turso trust load error: ${e.message}")
+            }
+        }
         
         // Initialize market thresholds
         PerpsMarket.values().forEach { market ->
@@ -721,7 +740,27 @@ object PerpsLearningBridge {
         
         crossLayerSyncs.incrementAndGet()
         save()
-        
+
+        // V5.8.0: Persist updated layer trust to Turso (fire-and-forget)
+        GlobalScope.launch(Dispatchers.IO) {
+            try {
+                val client = com.lifecyclebot.collective.CollectiveLearning.getClient() ?: return@launch
+                for (layerName in contributingLayers) {
+                    val trust = layerPerpsTrust[layerName] ?: continue
+                    client.updatePerpsLayerPerformance(
+                        layerName = layerName,
+                        market = trade.market.symbol,
+                        direction = trade.direction.name,
+                        isWin = trade.pnlPct > 0,
+                        pnlPct = trade.pnlPct,
+                        trustScore = trust
+                    )
+                }
+            } catch (e: Exception) {
+                ErrorLogger.debug(TAG, "🧠 Trust persist error: ${e.message}")
+            }
+        }
+
         ErrorLogger.info(TAG, "🧠 Perps learning: ${trade.market.symbol} ${trade.direction.symbol} " +
             "${if (isWin) "WIN" else "LOSS"} ${trade.pnlPct.fmt(1)}% | " +
             "Layers: ${contributingLayers.size}")
