@@ -1251,8 +1251,11 @@ for legal compliance.
         val balanceLabel: String
         
         if (config.paperMode) {
-            // PAPER MODE: Show simulated paper balance
-            displayBalance = com.lifecyclebot.engine.FluidLearning.getSimulatedBalance()
+            // PAPER MODE: FluidLearning → BotService.paperWalletSol → fallback 5 SOL
+            val fluidBal = com.lifecyclebot.engine.FluidLearning.getSimulatedBalance()
+            displayBalance = if (fluidBal > 0.001) fluidBal
+                             else com.lifecyclebot.engine.BotService.status.paperWalletSol.takeIf { it > 0.001 }
+                             ?: 5.0
             balanceLabel = "PAPER"
         } else {
             // LIVE MODE: Show real wallet balance
@@ -1276,13 +1279,22 @@ for legal compliance.
             tvBalanceLarge.text = "—"
             tvBalanceUsd.text   = ""
         }
-        
         // ── Live SOL Price ──────────────────────────────────────────────
         val solPrice = com.lifecyclebot.engine.WalletManager.lastKnownSolPrice
-        if (solPrice > 0) {
+        if (solPrice >= 10) {
             tvSolPrice.text = "$${solPrice.toInt()}"
         } else {
             tvSolPrice.text = "$—"
+            kotlinx.coroutines.MainScope().launch(kotlinx.coroutines.Dispatchers.IO) {
+                try {
+                    val freshPrice = com.lifecyclebot.engine.WalletManager.getInstance(applicationContext).fetchSolPrice()
+                    if (freshPrice >= 10) {
+                        kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Main) {
+                            tvSolPrice.text = "$${"%.0f".format(freshPrice)}"
+                        }
+                    }
+                } catch (_: Exception) {}
+            }
         }
 
         val pnl    = ws.totalPnlSol
@@ -1359,11 +1371,13 @@ for legal compliance.
         tvTokenName.text  = ts?.symbol?.ifBlank { "No token selected" } ?: "No token selected"
         
         // Load token logo from DexScreener
-        if (ts != null && ts.logoUrl.isNotEmpty()) {
-            ivTokenLogo.load(ts.logoUrl) {
+        if (ts != null) {
+            val heroLogoUrl = ts.logoUrl.ifBlank { "https://cdn.dexscreener.com/tokens/solana/${ts.mint}.png" }
+            ivTokenLogo.load(heroLogoUrl) {
                 crossfade(true)
                 placeholder(R.drawable.ic_token_placeholder)
                 error(R.drawable.ic_token_placeholder)
+                allowHardware(false)
                 transformations(CircleCropTransformation())
             }
         } else {
@@ -2364,8 +2378,10 @@ for legal compliance.
         val sdf = java.text.SimpleDateFormat("HH:mm", java.util.Locale.US)
         
         positions.forEach { pos ->
+            if (pos.entryPrice <= 0 || pos.entrySol <= 0 || pos.mint.isBlank()) return@forEach
             val currentPrice = try {
                 com.lifecyclebot.engine.BotService.status.tokens[pos.mint]?.ref
+                    ?.takeIf { it > 0 }
                     ?: pos.highWaterMark.takeIf { it > pos.entryPrice }
                     ?: pos.entryPrice
             } catch (_: Exception) { pos.entryPrice }
@@ -2385,11 +2401,14 @@ for legal compliance.
                 layoutParams = lp
                 scaleType = android.widget.ImageView.ScaleType.CENTER_CROP
                 try { background = androidx.core.content.ContextCompat.getDrawable(this@MainActivity, R.drawable.token_logo_bg) } catch (_: Exception) {}
-                val logoUrl = "https://cdn.dexscreener.com/tokens/solana/${pos.mint}.png"
+                val cachedLogoUrl = try { com.lifecyclebot.engine.BotService.status.tokens[pos.mint]?.logoUrl } catch (_: Exception) { null }
+                val logoUrl = if (!cachedLogoUrl.isNullOrBlank()) cachedLogoUrl
+                              else "https://cdn.dexscreener.com/tokens/solana/${pos.mint}.png"
                 load(logoUrl) {
                     crossfade(true)
                     placeholder(R.drawable.ic_token_placeholder)
                     error(R.drawable.ic_token_placeholder)
+                    allowHardware(false)
                     transformations(coil.transform.CircleCropTransformation())
                 }
             }
@@ -2484,8 +2503,11 @@ for legal compliance.
         llExpressPositions.removeAllViews()
         val sdf = java.text.SimpleDateFormat("HH:mm", java.util.Locale.US)
         rides.forEach { ride ->
+            if (ride.entryPrice <= 0 || ride.entrySol <= 0 || ride.mint.isBlank()) return@forEach
             val currentPrice = try {
-                com.lifecyclebot.engine.BotService.status.tokens[ride.mint]?.ref ?: ride.entryPrice
+                com.lifecyclebot.engine.BotService.status.tokens[ride.mint]?.ref
+                    ?.takeIf { it > 0 }
+                    ?: ride.entryPrice
             } catch (_: Exception) { ride.entryPrice }
             val gainPct = if (ride.entryPrice > 0) (currentPrice - ride.entryPrice) / ride.entryPrice * 100 else 0.0
             val gainCol = if (gainPct >= 0) green else red
@@ -2504,11 +2526,14 @@ for legal compliance.
                 layoutParams = lp
                 scaleType = android.widget.ImageView.ScaleType.CENTER_CROP
                 try { background = androidx.core.content.ContextCompat.getDrawable(this@MainActivity, R.drawable.token_logo_bg) } catch (_: Exception) {}
-                val logoUrl = "https://cdn.dexscreener.com/tokens/solana/${ride.mint}.png"
+                val cachedLogoUrlEx = try { com.lifecyclebot.engine.BotService.status.tokens[ride.mint]?.logoUrl } catch (_: Exception) { null }
+                val logoUrl = if (!cachedLogoUrlEx.isNullOrBlank()) cachedLogoUrlEx
+                              else "https://cdn.dexscreener.com/tokens/solana/${ride.mint}.png"
                 load(logoUrl) {
                     crossfade(true)
                     placeholder(R.drawable.ic_token_placeholder)
                     error(R.drawable.ic_token_placeholder)
+                    allowHardware(false)
                     transformations(coil.transform.CircleCropTransformation())
                 }
             }
