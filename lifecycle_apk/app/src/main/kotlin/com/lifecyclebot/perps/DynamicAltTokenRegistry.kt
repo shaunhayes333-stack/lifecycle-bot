@@ -345,8 +345,8 @@ object DynamicAltTokenRegistry {
                 val arr = JSONArray(body)
                 for (i in 0 until arr.length()) {
                     val obj    = arr.getJSONObject(i)
-                    val symbol = obj.optString("symbol", "").uppercase().ifBlank { continue }
-                    val id     = obj.optString("id", "").ifBlank { continue }
+                    val symbol = obj.optString("symbol", "").uppercase(); if (symbol.isBlank()) continue
+                    val id     = obj.optString("id", ""); if (id.isBlank()) continue
                     val name   = obj.optString("name", "")
                     val logo   = obj.optString("image", "")
                     val price  = obj.optDouble("current_price", 0.0)
