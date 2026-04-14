@@ -271,6 +271,15 @@ class BotService : Service() {
             } catch (e: Exception) {
                 ErrorLogger.error("BotService", "TokenizedStockTrader start error: ${e.message}", e)
             }
+
+        // V1.0: Start CryptoAltTrader - dedicated alt-crypto trading engine
+        try {
+            com.lifecyclebot.perps.CryptoAltTrader.init(applicationContext)
+            com.lifecyclebot.perps.CryptoAltTrader.start()
+            ErrorLogger.info("BotService", "🪙 CryptoAltTrader STARTED - Alt Crypto Trading ACTIVE")
+        } catch (e: Exception) {
+            ErrorLogger.error("BotService", "CryptoAltTrader start error: ${e.message}", e)
+        }
             
             // V5.7.6: Start CommoditiesTrader - Energy & Agricultural commodities
             try {
