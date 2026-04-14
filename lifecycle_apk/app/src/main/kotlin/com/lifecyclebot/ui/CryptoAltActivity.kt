@@ -170,12 +170,17 @@ class CryptoAltActivity : AppCompatActivity() {
     // ═══════════════════════════════════════════════════════════════════════════
 
     private fun startAutoRefresh() {
+        // Fast refresh: hero stats + live PnL on active tab every 10s
         lifecycleScope.launch {
             while (isActive) {
-                delay(15_000L)
+                delay(10_000L)
                 withContext(Dispatchers.Main) {
                     if (::tvHeroBalance.isInitialized) refreshHeroStats()
-                    if (currentTab == 2) selectTab(2)
+                    val hasOpenPos = CryptoAltTrader.getAllPositions().any { it.closeTime == null }
+                    when {
+                        currentTab == 2                      -> selectTab(2)      // positions always
+                        hasOpenPos && currentTab in 0..1     -> buildTabContent() // scanner/watchlist: live PnL
+                    }
                 }
             }
         }
@@ -1509,62 +1514,384 @@ class CryptoAltActivity : AppCompatActivity() {
     private fun showTokenDetailDialog(tok: DynToken, openPositions: List<CryptoAltTrader.AltPosition>) {
         val solPrice = WalletManager.lastKnownSolPrice
         val change   = tok.priceChange24h
-        val msg = buildString {
-            appendLine("💰 LIVE PRICE")
-            appendLine("Current:  ${tok.fmtPrice()}")
-            appendLine("24h:      ${if (change >= 0) "+" else ""}${"%.2f".format(change)}%")
-            appendLine("MCap:     ${tok.fmtMcap()}")
-            appendLine("Liq:      ${tok.liquidityUsd.fmtVol()}")
-            appendLine("Volume:   ${tok.volume24h.fmtVol()}")
-            appendLine("Buys/Sells: ${tok.buys24h}/${tok.sells24h}")
-            if (tok.sector.isNotBlank()) appendLine("Sector:   ${tok.sector}")
-            appendLine()
-            if (openPositions.isNotEmpty()) {
-                appendLine("📍 OPEN POSITIONS (${openPositions.size})")
-                appendLine("━━━━━━━━━━━━━━━━━━━━━━━━")
-                openPositions.forEach { pos ->
-                    val pnlPct  = pos.getPnlPct()
-                    val pnlSol  = pos.getPnlSol()
-                    val pnlUsd  = pnlSol * solPrice
-                    val valSol  = pos.sizeSol + pnlSol
-                    val valUsd  = valSol * solPrice
-                    val elapsed = (System.currentTimeMillis() - pos.openTime) / 60_000
-                    appendLine("${pos.direction.emoji} ${pos.leverageLabel}  Size: ${"%.4f".format(pos.sizeSol)}◎")
-                    appendLine("Entry:  ${fmtPrice(pos.entryPrice)}")
-                    appendLine("Now:    ${tok.fmtPrice()}")
-                    appendLine("P&L:    ${if (pnlPct >= 0) "+" else ""}${"%.2f".format(pnlPct)}%  ${if (pnlSol >= 0) "+" else ""}${"%.4f".format(pnlSol)}◎${if (solPrice > 0) "  ≈\$${"%.2f".format(pnlUsd)}" else ""}")
-                    appendLine("Value:  ${"%.4f".format(valSol)}◎${if (solPrice > 0) "  ≈\$${"%.2f".format(valUsd)}" else ""}")
-                    appendLine("Time:   ${elapsed}m open")
-                    appendLine("TP: +${((pos.takeProfitPrice/pos.entryPrice-1)*100).toInt()}%  SL: -${((1-pos.stopLossPrice/pos.entryPrice)*100).toInt()}%")
-                    appendLine()
-                }
+        val changeCol = if (change >= 0) green else red
+
+        // ── Root scroll layout ──────────────────────────────────────────────
+        val scroll = android.widget.ScrollView(this).apply {
+            setBackgroundColor(bg)
+            layoutParams = android.widget.FrameLayout.LayoutParams(
+                android.widget.FrameLayout.LayoutParams.MATCH_PARENT,
+                android.widget.FrameLayout.LayoutParams.MATCH_PARENT
+            )
+        }
+        val root = vBox(bg, 0, 0)
+
+        // ── Header: logo + symbol + close button ───────────────────────────
+        val header = hBox(0xFF0D0D1A.toInt(), 16, 14).apply { gravity = Gravity.CENTER_VERTICAL }
+        val logoSz = (44 * resources.displayMetrics.density).toInt()
+        val logoImg = android.widget.ImageView(this).apply {
+            layoutParams = LinearLayout.LayoutParams(logoSz, logoSz).also { it.marginEnd = 12 }
+            scaleType = android.widget.ImageView.ScaleType.CENTER_CROP
+            try { background = androidx.core.content.ContextCompat.getDrawable(this@CryptoAltActivity, R.drawable.token_logo_bg) } catch (_: Exception) {}
+            val logoUrl = tok.logoUrl.ifBlank { DynamicAltTokenRegistry.getCoinGeckoLogoUrl(tok.symbol) }
+            if (logoUrl.isNotBlank()) load(logoUrl) {
+                crossfade(true); placeholder(R.drawable.ic_token_placeholder)
+                error(R.drawable.ic_token_placeholder); allowHardware(false)
+                transformations(CircleCropTransformation())
+            } else setImageResource(R.drawable.ic_token_placeholder)
+        }
+        header.addView(logoImg)
+        val titleCol = vBox().apply { layoutParams = llp(0, wrap, 1f) }
+        titleCol.addView(tv("${tok.emoji} ${tok.symbol}", 20f, white, bold = true))
+        titleCol.addView(tv(tok.name.take(24), 11f, muted))
+        if (tok.sector.isNotBlank()) titleCol.addView(tv(tok.sector, 10f, teal))
+        header.addView(titleCol)
+        root.addView(header)
+
+        // ── Live price section ─────────────────────────────────────────────
+        val priceSection = vBox(card2, 20, 14)
+        val priceRow = hBox().apply { gravity = Gravity.BOTTOM }
+        priceRow.addView(tv(tok.fmtPrice(), 26f, white, bold = true, mono = true).apply { layoutParams = llp(0, wrap, 1f) })
+        val changeBg = if (change >= 0) 0xFF052E16.toInt() else 0xFF2E0A0A.toInt()
+        priceRow.addView(tv("${if (change >= 0) "▲" else "▼"}${"%.2f".format(kotlin.math.abs(change))}%",
+            13f, changeCol, bold = true).apply {
+            setBackgroundColor(changeBg); setPadding(8, 4, 8, 4)
+        })
+        priceSection.addView(priceRow)
+
+        // Stats grid
+        val statsGrid = hBox().apply { layoutParams = llp(match, wrap).apply { topMargin = 12 } }
+        fun statBox(label: String, value: String, col: Int = white) = vBox(0xFF0F0F1E.toInt(), 8, 8).apply {
+            layoutParams = llp(0, wrap, 1f).apply { marginEnd = 4 }
+            gravity = Gravity.CENTER
+            addView(tv(label, 8f, muted).apply { gravity = Gravity.CENTER })
+            addView(tv(value, 12f, col, mono = true, bold = true).apply { gravity = Gravity.CENTER })
+        }
+        statsGrid.addView(statBox("MCap", tok.fmtMcap(), blue))
+        statsGrid.addView(statBox("Volume", tok.volume24h.fmtVol(), teal))
+        statsGrid.addView(statBox("Liquidity", tok.liquidityUsd.fmtVol(), purple))
+        statsGrid.addView(statBox("Buys/Sells", "${tok.buys24h}/${tok.sells24h}",
+            if (tok.buys24h > tok.sells24h) green else red))
+        priceSection.addView(statsGrid)
+        root.addView(priceSection)
+        root.addView(thinDivider())
+
+        // ── Mini price chart (canvas) ──────────────────────────────────────
+        val chartContainer = vBox(0xFF08080F.toInt(), 12, 8)
+        chartContainer.addView(tv("📊 Price Chart  (loading…)", 10f, muted, bold = true).apply {
+            tag = "chartLabel"
+        })
+        val chartView = MiniPriceChartView(this).apply {
+            val dp = resources.displayMetrics.density
+            layoutParams = llp(match, (120 * dp).toInt())
+        }
+        chartContainer.addView(chartView)
+
+        // Timeframe buttons
+        val tfRow = hBox().apply {
+            layoutParams = llp(match, wrap).apply { topMargin = 6 }
+            gravity = Gravity.CENTER
+        }
+        val timeframes = listOf("1m", "5m", "15m", "1H")
+        var selectedTf = "15m"
+        val tfBtns = mutableListOf<TextView>()
+
+        fun loadChart(tf: String) {
+            selectedTf = tf
+            tfBtns.forEach { btn ->
+                val isSelected = btn.text == tf
+                btn.setTextColor(if (isSelected) green else muted)
+                btn.setBackgroundColor(if (isSelected) 0xFF0D2E1A.toInt() else 0x00000000)
+            }
+            val labelTv = chartContainer.findViewWithTag<TextView>("chartLabel")
+            labelTv?.text = "📊 Price Chart  ($tf)"
+            lifecycleScope.launch(Dispatchers.IO) {
+                try {
+                    // Use BirdeyeApi for Solana mints, fallback to fabricating from current price for CoinGecko tokens
+                    val mint = tok.mint
+                    val candles = if (!mint.startsWith("cg:") && mint.length > 20) {
+                        try { BirdeyeApi().getCandles(mint, tf, 60) } catch (_: Exception) { emptyList() }
+                    } else emptyList()
+
+                    withContext(Dispatchers.Main) {
+                        if (candles.isNotEmpty()) {
+                            chartView.setCandles(candles)
+                            labelTv?.text = "📊 Price Chart  ($tf)  ${candles.size} candles"
+                        } else {
+                            // Fallback: use current price + 24h change to draw a basic 2-point line
+                            val nowPrice  = tok.price
+                            val prevPrice = if (tok.priceChange24h != 0.0) nowPrice / (1 + tok.priceChange24h / 100.0) else nowPrice
+                            chartView.setSimpleLine(listOf(prevPrice, nowPrice))
+                            labelTv?.text = "📊 Price Chart  (24h snapshot)"
+                        }
+                    }
+                } catch (_: Exception) {}
             }
         }
-        val builder = AlertDialog.Builder(this)
-            .setTitle("${tok.emoji} ${tok.symbol} — ${tok.name}")
-            .setMessage(msg)
-            .setNeutralButton("Close", null)
-        if (openPositions.isNotEmpty()) {
-            builder.setNegativeButton("📌 Watch") { _, _ ->
-                WatchlistEngine.addToWatchlist(tok.symbol)
-                Toast.makeText(this, "📌 ${tok.symbol} added to watchlist", Toast.LENGTH_SHORT).show()
+
+        timeframes.forEach { tf ->
+            val btn = tv(tf, 11f, muted).apply {
+                setPadding(14, 6, 14, 6)
+                setOnClickListener { loadChart(tf) }
             }
-            builder.setPositiveButton("🔴 Close All") { _, _ ->
+            tfBtns.add(btn)
+            tfRow.addView(btn)
+        }
+        chartContainer.addView(tfRow)
+        root.addView(chartContainer)
+        root.addView(thinDivider())
+
+        // ── Open Positions ─────────────────────────────────────────────────
+        if (openPositions.isNotEmpty()) {
+            val posSection = vBox(card, 16, 12)
+            posSection.addView(tv("📍 Open Positions (${openPositions.size})", 13f, green, bold = true).apply {
+                layoutParams = llp(match, wrap).apply { bottomMargin = 8 }
+            })
+            openPositions.forEach { pos ->
+                val pnlPct  = pos.getPnlPct()
+                val pnlSol  = pos.getPnlSol()
+                val pnlUsd  = pnlSol * solPrice
+                val valSol  = pos.sizeSol + pnlSol
+                val valUsd  = valSol * solPrice
+                val pnlCol  = if (pnlPct >= 0) green else red
+                val elapsed = (System.currentTimeMillis() - pos.openTime) / 60_000
+
+                // Direction badge
+                val posHeader = hBox().apply { gravity = Gravity.CENTER_VERTICAL }
+                posHeader.addView(tv("${pos.direction.emoji} ${pos.leverageLabel}", 12f,
+                    if (pos.direction.name == "LONG") green else red, bold = true).apply {
+                    layoutParams = llp(0, wrap, 1f)
+                })
+                posHeader.addView(tv("${elapsed}m ago", 10f, muted, mono = true))
+                posSection.addView(posHeader)
+
+                // Entry → current price
+                val entryCurrentRow = hBox().apply {
+                    layoutParams = llp(match, wrap).apply { topMargin = 4 }
+                    gravity = Gravity.CENTER_VERTICAL
+                }
+                entryCurrentRow.addView(tv("Entry", 9f, muted).apply { layoutParams = llp(0, wrap, 1f) })
+                entryCurrentRow.addView(tv("${fmtPrice(pos.entryPrice)}  →  ${tok.fmtPrice()}", 11f, white, mono = true))
+                posSection.addView(entryCurrentRow)
+
+                // P&L row — big and prominent
+                val pnlBlock = vBox(if (pnlPct >= 0) 0xFF052E16.toInt() else 0xFF2E0A0A.toInt(), 8, 10).apply {
+                    layoutParams = llp(match, wrap).apply { topMargin = 6 }
+                }
+                val pnlMainRow = hBox().apply { gravity = Gravity.CENTER_VERTICAL }
+                pnlMainRow.addView(tv("P&L", 10f, muted).apply { layoutParams = llp(0, wrap, 1f) })
+                pnlMainRow.addView(tv("${if (pnlPct >= 0) "+" else ""}${"%.2f".format(pnlPct)}%",
+                    18f, pnlCol, bold = true, mono = true))
+                pnlBlock.addView(pnlMainRow)
+
+                val pnlSubRow = hBox().apply { layoutParams = llp(match, wrap).apply { topMargin = 2 } }
+                pnlSubRow.addView(tv("Unrealised", 9f, muted).apply { layoutParams = llp(0, wrap, 1f) })
+                val pnlDetail = "${if (pnlSol >= 0) "+" else ""}${"%.4f".format(pnlSol)}◎" +
+                    if (solPrice > 0) "  ≈\$${"%.2f".format(pnlUsd)}" else ""
+                pnlSubRow.addView(tv(pnlDetail, 10f, pnlCol, mono = true))
+                pnlBlock.addView(pnlSubRow)
+                posSection.addView(pnlBlock)
+
+                // Current value row
+                val valRow = hBox().apply { layoutParams = llp(match, wrap).apply { topMargin = 6 } }
+                valRow.addView(tv("Current Value", 10f, muted).apply { layoutParams = llp(0, wrap, 1f) })
+                val valStr = "${"%.4f".format(valSol)}◎" + if (solPrice > 0) "  ≈\$${"%.2f".format(valUsd)}" else ""
+                valRow.addView(tv(valStr, 11f, white, mono = true))
+                posSection.addView(valRow)
+
+                // TP / SL row
+                val tpPct = if (pos.entryPrice > 0) ((pos.takeProfitPrice / pos.entryPrice - 1) * 100).toInt() else 0
+                val slPct = if (pos.entryPrice > 0) ((1 - pos.stopLossPrice / pos.entryPrice) * 100).toInt() else 0
+                val tpSlRow = hBox().apply { layoutParams = llp(match, wrap).apply { topMargin = 4 } }
+                tpSlRow.addView(tv("TP: +$tpPct%", 10f, green, mono = true).apply { layoutParams = llp(0, wrap, 1f) })
+                tpSlRow.addView(tv("SL: -$slPct%", 10f, red, mono = true))
+                posSection.addView(tpSlRow)
+
+                // Size row
+                val sizeRow = hBox().apply { layoutParams = llp(match, wrap).apply { topMargin = 2 } }
+                sizeRow.addView(tv("Size", 10f, muted).apply { layoutParams = llp(0, wrap, 1f) })
+                sizeRow.addView(tv("${"%.4f".format(pos.sizeSol)}◎", 10f, muted, mono = true))
+                posSection.addView(sizeRow)
+
+                posSection.addView(thinDivider())
+            }
+
+            // Close All button
+            val closeBtn = tv("🔴  Close All Positions", 13f, red, bold = true).apply {
+                setBackgroundColor(0xFF2E0A0A.toInt())
+                setPadding(16, 12, 16, 12)
+                gravity = Gravity.CENTER
+                layoutParams = llp(match, wrap).apply { topMargin = 8 }
+            }
+            posSection.addView(closeBtn)
+            root.addView(posSection)
+            root.addView(thinDivider())
+        }
+
+        // ── Market Details section ─────────────────────────────────────────
+        val detailSection = vBox(card, 16, 12)
+        detailSection.addView(tv("📈 Market Details", 12f, muted, bold = true).apply {
+            layoutParams = llp(match, wrap).apply { bottomMargin = 6 }
+        })
+        fun detailRow(label: String, value: String, col: Int = white) {
+            val r = hBox().apply { layoutParams = llp(match, wrap).apply { topMargin = 3 } }
+            r.addView(tv(label, 10f, muted).apply { layoutParams = llp(0, wrap, 1f) })
+            r.addView(tv(value, 10f, col, mono = true))
+            detailSection.addView(r)
+        }
+        detailRow("Price", tok.fmtPrice())
+        detailRow("24h Change", "${if (change >= 0) "+" else ""}${"%.2f".format(change)}%", changeCol)
+        detailRow("Market Cap", tok.fmtMcap(), blue)
+        detailRow("Liquidity", tok.liquidityUsd.fmtVol(), teal)
+        detailRow("Volume 24h", tok.volume24h.fmtVol())
+        detailRow("Buys 24h", tok.buys24h.toString(), green)
+        detailRow("Sells 24h", tok.sells24h.toString(), red)
+        detailRow("Buy/Sell Ratio", if ((tok.buys24h + tok.sells24h) > 0)
+            "${"%.1f".format(tok.buys24h.toDouble() / (tok.buys24h + tok.sells24h) * 100)}% buys" else "—",
+            if (tok.buys24h > tok.sells24h) green else red)
+        if (tok.sector.isNotBlank()) detailRow("Sector", tok.sector, teal)
+        if (tok.ageHours > 0) detailRow("Age", "${"%.1f".format(tok.ageHours)}h")
+        detailRow("Source", tok.source)
+        root.addView(detailSection)
+
+        // ── Bottom action buttons ──────────────────────────────────────────
+        val actionRow = hBox(0xFF0D0D1A.toInt(), 16, 14)
+        val watchBtn = tv("📌 Watch", 13f, blue, bold = true).apply {
+            setBackgroundColor(0xFF0A1929.toInt()); setPadding(16, 10, 16, 10)
+            layoutParams = llp(0, wrap, 1f).apply { marginEnd = 8 }
+            gravity = Gravity.CENTER
+        }
+        actionRow.addView(watchBtn)
+        root.addView(actionRow)
+
+        scroll.addView(root)
+
+        // ── Build & show dialog ────────────────────────────────────────────
+        val dialog = android.app.Dialog(this, android.R.style.Theme_Black_NoTitleBar_Fullscreen)
+        dialog.setContentView(scroll)
+        dialog.window?.setBackgroundDrawableResource(android.R.color.transparent)
+
+        // Wire buttons now that dialog exists
+        watchBtn.setOnClickListener {
+            WatchlistEngine.addToWatchlist(tok.symbol)
+            Toast.makeText(this, "📌 ${tok.symbol} added to watchlist", Toast.LENGTH_SHORT).show()
+        }
+        if (openPositions.isNotEmpty()) {
+            val closeBtn = root.findViewWithTag<TextView?>(null) // find by traversal
+            // We set the close action directly on the button in posSection
+            // The button was not tagged — find it by searching root children
+            fun findCloseBtn(vg: android.view.ViewGroup): TextView? {
+                for (i in 0 until vg.childCount) {
+                    val ch = vg.getChildAt(i)
+                    if (ch is TextView && ch.text.toString().contains("Close All")) return ch
+                    if (ch is android.view.ViewGroup) findCloseBtn(ch)?.let { return it }
+                }
+                return null
+            }
+            findCloseBtn(root)?.setOnClickListener {
                 lifecycleScope.launch(Dispatchers.IO) {
                     openPositions.forEach { CryptoAltTrader.requestClose(it.id) }
                     withContext(Dispatchers.Main) {
-                        Toast.makeText(this@CryptoAltActivity, "Closing ${openPositions.size} position(s)", Toast.LENGTH_SHORT).show()
-                        selectTab(0)
+                        dialog.dismiss()
+                        Toast.makeText(this@CryptoAltActivity, "🔴 Closing ${openPositions.size} position(s)", Toast.LENGTH_SHORT).show()
+                        selectTab(2)
                     }
                 }
             }
-        } else {
-            builder.setPositiveButton("📌 Watch") { _, _ ->
-                WatchlistEngine.addToWatchlist(tok.symbol)
-                Toast.makeText(this, "📌 ${tok.symbol} added to watchlist", Toast.LENGTH_SHORT).show()
-            }
         }
-        builder.show()
+
+        // Close on back tap anywhere outside content
+        scroll.setOnClickListener { /* consume */ }
+        dialog.show()
+
+        // Kick off chart load
+        loadChart("15m")
+    }
+
+    /**
+     * Simple canvas line/sparkline chart for token price display.
+     * Draws last N close prices as a smooth line with gradient fill.
+     */
+    inner class MiniPriceChartView @JvmOverloads constructor(
+        ctx: android.content.Context, attrs: android.util.AttributeSet? = null
+    ) : android.view.View(ctx, attrs) {
+
+        private var prices: List<Double> = emptyList()
+        private val linePaint = android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG).apply {
+            strokeWidth = 2.5f * resources.displayMetrics.density
+            style = android.graphics.Paint.Style.STROKE
+            strokeCap = android.graphics.Paint.Cap.ROUND
+            strokeJoin = android.graphics.Paint.Join.ROUND
+        }
+        private val fillPaint = android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG).apply {
+            style = android.graphics.Paint.Style.FILL
+        }
+        private val labelPaint = android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG).apply {
+            color     = 0xFF4A5E70.toInt()
+            textSize  = 9f * resources.displayMetrics.scaledDensity
+            typeface  = android.graphics.Typeface.MONOSPACE
+        }
+
+        fun setCandles(candles: List<com.lifecyclebot.data.Candle>) {
+            prices = candles.map { it.priceUsd }.filter { it > 0 }
+            invalidate()
+        }
+
+        fun setSimpleLine(pts: List<Double>) {
+            prices = pts.filter { it > 0 }
+            invalidate()
+        }
+
+        override fun onDraw(canvas: android.graphics.Canvas) {
+            if (prices.size < 2) {
+                val p = android.graphics.Paint().apply { color = 0xFF2A3A4A.toInt(); textSize = 12f * resources.displayMetrics.scaledDensity; isAntiAlias = true }
+                canvas.drawText("Waiting for price data…", 16f, height / 2f, p)
+                return
+            }
+            val padL = 48f; val padR = 12f; val padT = 12f; val padB = 24f
+            val w = width.toFloat() - padL - padR
+            val h = height.toFloat() - padT - padB
+            val mn = prices.min()
+            val mx = prices.max()
+            val range = if (mx > mn) mx - mn else mn * 0.01
+
+            val isPositive = prices.last() >= prices.first()
+            val lineColor  = if (isPositive) 0xFF22C55E.toInt() else 0xFFEF4444.toInt()
+            val fillColor  = if (isPositive) 0x1422C55E.toInt() else 0x14EF4444.toInt()
+            linePaint.color = lineColor
+            fillPaint.color = fillColor
+
+            fun px(i: Int) = padL + i.toFloat() / (prices.size - 1) * w
+            fun py(v: Double) = padT + h - ((v - mn) / range * h).toFloat()
+
+            // Fill path
+            val fillPath = android.graphics.Path()
+            fillPath.moveTo(px(0), padT + h)
+            prices.forEachIndexed { i, v -> fillPath.lineTo(px(i), py(v)) }
+            fillPath.lineTo(px(prices.size - 1), padT + h)
+            fillPath.close()
+            canvas.drawPath(fillPath, fillPaint)
+
+            // Line path
+            val linePath = android.graphics.Path()
+            prices.forEachIndexed { i, v ->
+                if (i == 0) linePath.moveTo(px(i), py(v)) else linePath.lineTo(px(i), py(v))
+            }
+            canvas.drawPath(linePath, linePaint)
+
+            // Y axis labels (min/max/last)
+            fun fmtLabel(v: Double) = when {
+                v >= 1000 -> "$%.0f".format(v)
+                v >= 1    -> "$%.4f".format(v)
+                v >= 0.001 -> "$%.6f".format(v)
+                else       -> "$%.8f".format(v)
+            }
+            canvas.drawText(fmtLabel(mx), 2f, padT + 4, labelPaint)
+            canvas.drawText(fmtLabel(mn), 2f, padT + h, labelPaint)
+            val lastY = py(prices.last())
+            val dotPaint = android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG).apply { color = lineColor; style = android.graphics.Paint.Style.FILL }
+            canvas.drawCircle(px(prices.size - 1), lastY, 4f * resources.displayMetrics.density, dotPaint)
+        }
     }
 
     // ═══════════════════════════════════════════════════════════════════════════
