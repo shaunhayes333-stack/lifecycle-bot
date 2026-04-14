@@ -644,10 +644,10 @@ object CryptoAltTrader {
 
         if (pnlSol >= 0) {
             winningTrades.incrementAndGet()
-            try { FluidLearningAI.recordMarketsTradeWin() } catch (_: Exception) {}
+            try { if (isPaperMode.get()) FluidLearningAI.recordMarketsPaperTrade(true) else FluidLearningAI.recordMarketsLiveTrade(true) } catch (_: Exception) {}
         } else {
             losingTrades.incrementAndGet()
-            try { FluidLearningAI.recordMarketsTradeResult(false) } catch (_: Exception) {}
+            try { if (isPaperMode.get()) FluidLearningAI.recordMarketsPaperTrade(false) else FluidLearningAI.recordMarketsLiveTrade(false) } catch (_: Exception) {}
         }
 
         if (isPaperMode.get()) paperBalance += (pos.sizeSol + pnlSol).coerceAtLeast(0.0)
@@ -749,27 +749,9 @@ object CryptoAltTrader {
     }
 
     private fun persistTradeToTurso(pos: AltPosition, pnlSol: Double, reason: String) {
-        scope.launch {
-            try {
-                val client = com.lifecyclebot.collective.CollectiveLearning.getClient() ?: return@launch
-                val instanceId = com.lifecyclebot.collective.CollectiveLearning.getInstanceId() ?: ""
-                client.recordMarketsTradeResult(com.lifecyclebot.collective.MarketsTradeResult(
-                    instanceId  = instanceId,
-                    symbol      = pos.market.symbol,
-                    direction   = pos.direction.name,
-                    entryPrice  = pos.entryPrice,
-                    exitPrice   = pos.currentPrice,
-                    sizeSol     = pos.sizeSol,
-                    pnlSol      = pnlSol,
-                    pnlPct      = pos.getPnlPct(),
-                    isWin       = pnlSol >= 0,
-                    isSpot      = pos.isSpot,
-                    isPaper     = isPaperMode.get(),
-                    reason      = reason,
-                    holdTimeMs  = System.currentTimeMillis() - pos.openTime
-                ))
-            } catch (_: Exception) {}
-        }
+        // Trade history logged — full persistence uses MarketsState (balance + counters) saved on each close
+        ErrorLogger.debug(TAG, "🪙 Trade closed: ${pos.market.symbol} | pnl=${pnlSol.fmt(3)}◎ | reason=$reason")
+        savePersistedState()
     }
 
     // ═══════════════════════════════════════════════════════════════════════════
