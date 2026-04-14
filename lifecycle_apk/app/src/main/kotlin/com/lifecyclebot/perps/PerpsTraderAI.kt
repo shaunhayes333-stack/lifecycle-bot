@@ -480,7 +480,17 @@ object PerpsTraderAI {
             confidence += 5
             reasons.add("🎯 High discipline score: $discipline")
         }
-        
+
+        // V5.8.0: Hivemind historical win-rate adjustment
+        val (hiveScoreAdj, hiveConfAdj) = hivePerpsAdjust(market, direction)
+        if (hiveScoreAdj != 0 || hiveConfAdj != 0) {
+            score += hiveScoreAdj
+            confidence += hiveConfAdj
+            val hiveWrStr = hivePerpsWinRates["${market.symbol}_${direction.name}"]
+                ?.first?.let { "${"%.0f".format(it)}%" } ?: "?"
+            reasons.add("🧠 Hive: hist WR=$hiveWrStr → score${if(hiveScoreAdj>=0)"+$hiveScoreAdj" else "$hiveScoreAdj"}")
+        }
+
         val aiReasoning = buildString {
             append("${direction.emoji} ${direction.symbol} ${market.symbol} @ ${riskTier.emoji} ${riskTier.displayName}\n")
             append("Leverage: ${recommendedLeverage.fmt(1)}x | Size: ${recommendedSizePct.fmt(1)}%\n")
