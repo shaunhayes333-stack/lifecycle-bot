@@ -272,13 +272,18 @@ class BotService : Service() {
                 ErrorLogger.error("BotService", "TokenizedStockTrader start error: ${e.message}", e)
             }
 
-        // V1.0: Start CryptoAltTrader - dedicated alt-crypto trading engine
-        try {
-            com.lifecyclebot.perps.CryptoAltTrader.init(applicationContext)
-            com.lifecyclebot.perps.CryptoAltTrader.start()
-            ErrorLogger.info("BotService", "🪙 CryptoAltTrader STARTED - Alt Crypto Trading ACTIVE")
-        } catch (e: Exception) {
-            ErrorLogger.error("BotService", "CryptoAltTrader start error: ${e.message}", e)
+        // V2.0: Start CryptoAltTrader — gated by cryptoAltsEnabled setting, runs 24/7
+        val altCfg = ConfigStore.load(applicationContext)
+        if (altCfg.cryptoAltsEnabled) {
+            try {
+                com.lifecyclebot.perps.CryptoAltTrader.init(applicationContext)
+                com.lifecyclebot.perps.CryptoAltTrader.start()
+                ErrorLogger.info("BotService", "🪙 CryptoAltTrader STARTED - Alt Crypto Trading ACTIVE (live=${!altCfg.paperMode})")
+            } catch (e: Exception) {
+                ErrorLogger.error("BotService", "CryptoAltTrader start error: ${e.message}", e)
+            }
+        } else {
+            ErrorLogger.info("BotService", "🪙 CryptoAltTrader DISABLED by user settings")
         }
             
             // V5.7.6: Start CommoditiesTrader - Energy & Agricultural commodities
@@ -7461,4 +7466,5 @@ if (deferredCount > 0) {
 private fun Double.fmt(decimals: Int = 4) = "%.${decimals}f".format(this)
 // Build trigger 1774627618
 // Build trigger 1774842659
+
 
