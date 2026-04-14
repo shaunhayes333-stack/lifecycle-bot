@@ -1761,6 +1761,7 @@ class MultiAssetActivity : AppCompatActivity() {
     // ═══════════════════════════════════════════════════════════════════════════
 
     private fun updateRecentSignals() {
+        (tvNoSignals.parent as? android.view.ViewGroup)?.removeView(tvNoSignals)
         signalsContainer.removeAllViews()
         val signals = getAiSignals()
         if (signals.isEmpty()) {
@@ -1815,6 +1816,7 @@ class MultiAssetActivity : AppCompatActivity() {
     // ═══════════════════════════════════════════════════════════════════════════
 
     private fun updateAvailableAssets() {
+        (tvNoAssets.parent as? android.view.ViewGroup)?.removeView(tvNoAssets)
         assetsContainer.removeAllViews()
         val markets = when (currentTab) {
             AssetTab.STOCKS -> PerpsMarket.values().filter { it.isStock }
@@ -1872,6 +1874,7 @@ class MultiAssetActivity : AppCompatActivity() {
     // ═══════════════════════════════════════════════════════════════════════════
     
     private fun updateAiSignals() {
+        (tvNoAiSignals.parent as? android.view.ViewGroup)?.removeView(tvNoAiSignals)
         aiSignalsContainer.removeAllViews()
 
         // Get AI signals
