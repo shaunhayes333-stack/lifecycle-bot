@@ -787,12 +787,20 @@ object TokenizedStockTrader {
         }
         val leverage = if (isSpot) 1.0 else signal.leverage
         
+        // V5.8.0: Apply Hivemind size/TP modifier
+        val (_, hiveSizeMult, hiveTpAdj) = hiveEntryModifier(signal.market.symbol)
+        val hiveSizeSol = (sizeSol * hiveSizeMult).coerceIn(0.01, balance * 0.30)
+        val hiveTpPct = (tpPct + hiveTpAdj).coerceAtLeast(1.5)
+        if (hiveSizeMult != 1.0 || hiveTpAdj != 0.0) {
+            ErrorLogger.info(TAG, "📈 ${signal.market.symbol}: Hive adj → size×${"%.2f".format(hiveSizeMult)} tp+${hiveTpAdj}%")
+        }
+
         val (tp, sl) = when (signal.direction) {
             PerpsDirection.LONG -> {
-                signal.price * (1 + tpPct / 100) to signal.price * (1 - slPct / 100)
+                signal.price * (1 + hiveTpPct / 100) to signal.price * (1 - slPct / 100)
             }
             PerpsDirection.SHORT -> {
-                signal.price * (1 - tpPct / 100) to signal.price * (1 + slPct / 100)
+                signal.price * (1 - hiveTpPct / 100) to signal.price * (1 + slPct / 100)
             }
         }
         
@@ -802,7 +810,7 @@ object TokenizedStockTrader {
             direction = signal.direction,
             entryPrice = signal.price,
             currentPrice = signal.price,
-            sizeSol = sizeSol,
+            sizeSol = hiveSizeSol,
             leverage = leverage,
             takeProfitPrice = tp,
             stopLossPrice = sl,
@@ -820,9 +828,9 @@ object TokenizedStockTrader {
         }
         totalTrades.incrementAndGet()
         
-        // Deduct from balance
+        // Deduct from balance (Hive-adjusted size)
         if (isPaperMode.get()) {
-            paperBalance -= sizeSol
+            paperBalance -= hiveSizeSol
         }
         
         // Notify FluidLearningAI
