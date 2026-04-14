@@ -529,6 +529,13 @@ enum class PerpsMarket(
     // ═══════════════════════════════════════════════════════════════════════════
     
     val isCrypto: Boolean get() = !isStock && tradingHours == "24/7" && !isCommodity && !isMetal
+    // V5.8: True SOL Perps tab markets — only the tokens Jupiter Perps actually supports
+    val isSolPerp: Boolean get() = isCrypto && symbol in listOf(
+        "SOL", "BTC", "ETH", "BNB", "XRP", "ADA", "DOGE", "AVAX", "DOT", "LINK",
+        "MATIC", "LTC", "ATOM", "UNI", "ARB", "OP", "APT", "SUI", "INJ", "JUP",
+        "PEPE", "WIF", "BONK", "NEAR", "TIA", "PYTH", "RAY", "ORCA", "DRIFT",
+        "WLD", "JTO", "W", "STRK", "TAO", "GMX", "DYDX", "ENA", "PENDLE"
+    )
     val isCommodity: Boolean get() = symbol in listOf("BRENT", "WTI", "NATGAS", "RBOB", "HEATING", 
         "CORN", "WHEAT", "SOYBEAN", "COFFEE", "COCOA", "SUGAR", "COTTON", "LUMBER", "OJ", "CATTLE", "HOGS")
     val isMetal: Boolean get() = symbol in listOf("XAU", "XAG", "XPT", "XPD", "XCU", "XAL", "XNI", "XTI",
@@ -839,3 +846,4 @@ fun Double.fmt(decimals: Int): String = String.format("%.${decimals}f", this)
 fun Double.formatUsd(): String = "$${String.format("%.2f", this)}"
 fun Double.formatPct(): String = "${String.format("%.2f", this)}%"
 fun Double.formatLeverage(): String = "${String.format("%.1f", this)}x"
+
