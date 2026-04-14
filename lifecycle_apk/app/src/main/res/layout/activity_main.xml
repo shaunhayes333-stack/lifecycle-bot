@@ -568,8 +568,6 @@
                         android:layout_marginTop="2dp"/>
                 </LinearLayout>
 
-                <!-- V1.0: Crypto Alts Quick-Action Tile -->
-                <LinearLayout
             </LinearLayout>
 
             <!-- ═══════════════════════════════════════════════════════════════
