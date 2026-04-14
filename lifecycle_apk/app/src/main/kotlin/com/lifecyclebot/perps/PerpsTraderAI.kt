@@ -1028,7 +1028,8 @@ object PerpsTraderAI {
                         direction = position.direction.name,
                         isWin = isWin,
                         pnlPct = pnlPct,
-                        holdMins = holdMins
+                        holdMins = holdMins,
+                        leverage = position.leverage
                     )
                     // Delete the open position record
                     client.deletePerpsPosition(position.id)
