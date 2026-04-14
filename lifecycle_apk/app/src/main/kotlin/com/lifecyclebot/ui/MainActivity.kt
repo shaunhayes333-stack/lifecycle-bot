@@ -3195,7 +3195,12 @@ for legal compliance.
                     b?.setBackgroundColor(if (r == range) 0xFF3B82F6.toInt() else 0xFF2A2A2A.toInt())
                 }
                 // V5.8.0: Refresh candle chart for new timeframe
-                val activeTs = try { com.lifecyclebot.engine.BotService.status.activeToken } catch (_: Exception) { null }
+                val activeTs = try {
+                    val mint = selectedChartMint
+                    if (!mint.isNullOrBlank()) com.lifecyclebot.engine.BotService.status.tokens[mint]
+                    else com.lifecyclebot.engine.BotService.status.tokens.values.firstOrNull { it.position.isOpen }
+                        ?: com.lifecyclebot.engine.BotService.status.tokens.values.firstOrNull()
+                } catch (_: Exception) { null }
                 updateCandleChart(activeTs)
             }
         }
