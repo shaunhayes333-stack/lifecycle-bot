@@ -2937,7 +2937,7 @@ class BotService : Service() {
                                         name = merged.symbol,
                                         candleTimeframeMinutes = 1,
                                         source = merged.allScanners.joinToString(","),
-                                        logoUrl = "https://dd.dexscreener.com/ds-data/tokens/solana/${merged.mint}.png",
+                                        logoUrl = "https://cdn.dexscreener.com/tokens/solana/${merged.mint}.png",
                                     )
                                 }
                                 // ALWAYS seed liquidity from scanner - even for existing TokenState
@@ -2978,7 +2978,7 @@ class BotService : Service() {
                                             name = result.symbol,
                                             candleTimeframeMinutes = 1,
                                             source = "PROBATION",
-                                            logoUrl = "https://dd.dexscreener.com/ds-data/tokens/solana/${result.mint}.png",
+                                            logoUrl = "https://cdn.dexscreener.com/tokens/solana/${result.mint}.png",
                                         )
                                     }
                                     if (ts.lastLiquidityUsd <= 0 && probLiq > 0) {
@@ -3386,7 +3386,7 @@ if (deferredCount > 0) {
                     pairAddress = pair.pairAddress,
                     pairUrl    = pair.url,
                     source     = "WATCHLIST",  // Tokens loaded from config
-                    logoUrl    = "https://dd.dexscreener.com/ds-data/tokens/solana/$mint.png",
+                    logoUrl    = "https://cdn.dexscreener.com/tokens/solana/$mint.png",
                 )
             }
             val ts = status.tokens[mint] ?: return
