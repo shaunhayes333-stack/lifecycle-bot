@@ -53,13 +53,13 @@ object CryptoAltScannerAI {
         "INFRA"   to setOf("FIL", "RENDER", "GRT", "STX", "ICP", "VET", "NEAR"),
         "L1"      to setOf("BNB", "ADA", "AVAX", "DOT", "FTM", "ALGO", "HBAR", "EOS", "XTZ", "ETC"),
         "SOLANA"  to setOf("RAY", "ORCA", "MNGO", "PYTH", "JUP", "DRIFT"),
-        "EXCHANGE"to setOf("BNB"),
+        "EXCHANGE" to setOf("BNB"),
         "PRIVACY" to setOf("XMR", "ZEC"),
         "LAYER2"  to setOf("ARB", "OP", "STX", "IMX", "STRK"),
         "OG"      to setOf("BTC", "ETH", "LTC", "BCH", "XMR", "ZEC", "XRP", "XLM", "TRX", "TON"),
         "CHAIN"   to setOf("LINK", "ATOM", "DOT", "RUNE", "W", "ENS"),
         "AI"      to setOf("RENDER", "GRT", "TAO", "WLD"),
-        "EXCHANGE2"to setOf("BNB", "CRO"),
+        "EXCHANGE2" to setOf("BNB", "CRO"),
     )
 
     // Symbol → sector map (computed once)
