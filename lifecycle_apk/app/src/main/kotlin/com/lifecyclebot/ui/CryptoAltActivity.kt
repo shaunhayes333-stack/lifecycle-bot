@@ -347,7 +347,7 @@ class CryptoAltActivity : AppCompatActivity() {
 
     private fun buildBlueChipTile() {
         val stats  = BlueChipTraderAI.getStats()
-        val wr     = BlueChipTraderAI.getWinRatePct()
+        val wr     = BlueChipTraderAI.getWinRatePct().toDouble()
         val bal    = BlueChipTraderAI.getCurrentBalance()
         val pnl    = BlueChipTraderAI.getDailyPnlSol()
         val tile   = buildTile(blue, "🔵 Blue Chip", "MCap \$1M+", blue)
@@ -371,7 +371,7 @@ class CryptoAltActivity : AppCompatActivity() {
     }
 
     private fun buildMoonshotTile() {
-        val wr       = MoonshotTraderAI.getWinRatePct()
+        val wr       = MoonshotTraderAI.getWinRatePct().toDouble()
         val pnl      = MoonshotTraderAI.getDailyPnlSol()
         val open     = MoonshotTraderAI.getActivePositions().size
         val tile     = buildTile(purple, "🌙 Moonshot", "10x / 100x Hunters", purple)
@@ -1210,4 +1210,6 @@ class CryptoAltActivity : AppCompatActivity() {
         else         -> muted
     }
 }
+
+
 
