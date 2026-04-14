@@ -81,23 +81,28 @@ class SettingsBottomSheet : BottomSheetDialogFragment() {
 
     override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
         super.onViewCreated(view, savedInstanceState)
-
-        // Make bottom sheet expanded by default
-        dialog?.setOnShowListener {
-            val bottomSheet = dialog?.findViewById<View>(com.google.android.material.R.id.design_bottom_sheet)
-            bottomSheet?.let {
-                val behavior = BottomSheetBehavior.from(it)
-                behavior.state = BottomSheetBehavior.STATE_EXPANDED
-                behavior.skipCollapsed = true
-                it.layoutParams.height = (resources.displayMetrics.heightPixels * 0.9).toInt()
+        try {
+            // Make bottom sheet expanded by default
+            dialog?.setOnShowListener {
+                val bottomSheet = dialog?.findViewById<View>(com.google.android.material.R.id.design_bottom_sheet)
+                bottomSheet?.let {
+                    val behavior = BottomSheetBehavior.from(it)
+                    behavior.state = BottomSheetBehavior.STATE_EXPANDED
+                    behavior.skipCollapsed = true
+                    it.layoutParams.height = (resources.displayMetrics.heightPixels * 0.9).toInt()
+                }
             }
-        }
 
-        bindViews(view)
-        setupSpinners()
-        setupClickListeners(view)
-        setupApiKeyLinks(view)
-        populateFromConfig()
+            bindViews(view)
+            setupSpinners()
+            setupClickListeners(view)
+            setupApiKeyLinks(view)
+            populateFromConfig()
+        } catch (e: Exception) {
+            com.lifecyclebot.engine.ErrorLogger.crash("SettingsBottomSheet", "onViewCreated CRASH: ${e.javaClass.simpleName}: ${e.message}", e)
+            android.widget.Toast.makeText(requireContext(), "Settings failed to load: ${e.message?.take(80)}", android.widget.Toast.LENGTH_LONG).show()
+            dismissAllowingStateLoss()
+        }
     }
 
     private fun bindViews(view: View) {
