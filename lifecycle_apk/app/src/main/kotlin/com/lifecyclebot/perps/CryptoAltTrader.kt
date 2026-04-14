@@ -190,8 +190,18 @@ object CryptoAltTrader {
 
     fun start() {
         if (isRunning.get()) {
-            ErrorLogger.debug(TAG, "Already running")
-            return
+            // Detect silent loop death — check if jobs are actually alive
+            val engineAlive  = engineJob?.isActive == true
+            val monitorAlive = monitorJob?.isActive == true
+            if (engineAlive && monitorAlive) {
+                ErrorLogger.debug(TAG, "Already running and jobs alive — skip restart")
+                return
+            }
+            // Jobs died silently — force cleanup and restart
+            ErrorLogger.warn(TAG, "⚠️ isRunning=true but jobs dead — force-restarting...")
+            engineJob?.cancel()
+            monitorJob?.cancel()
+            isRunning.set(false)
         }
         isRunning.set(true)
 
@@ -1221,7 +1231,13 @@ object CryptoAltTrader {
         scope.launch { closePosition(positionId, "USER_REQUEST") }
     }
 
-    fun isRunning()  : Boolean = isRunning.get()
+    fun isRunning(): Boolean = isRunning.get()
+
+    /** Returns true only if running AND engine/monitor coroutines are actually alive. */
+    fun isHealthy(): Boolean {
+        if (!isRunning.get()) return false
+        return (engineJob?.isActive == true) && (monitorJob?.isActive == true)
+    }
     fun isEnabled()  : Boolean = isEnabled.get()
     fun isPaperMode(): Boolean = isPaperMode.get()
     fun isLiveMode() : Boolean = !isPaperMode.get()
@@ -1281,5 +1297,6 @@ object CryptoAltTrader {
 
     private fun Double.fmt(d: Int): String = "%.${d}f".format(this)
 }
+
 
 
