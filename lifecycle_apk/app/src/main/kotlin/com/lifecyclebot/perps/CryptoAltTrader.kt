@@ -22,6 +22,7 @@ import com.lifecyclebot.v4.meta.StrategyTrustAI
 import com.lifecyclebot.v3.scoring.VolatilityRegimeAI
 import com.lifecyclebot.v4.meta.*
 import com.lifecyclebot.v4.meta.TradeLessonRecorder
+import com.lifecyclebot.perps.DynamicAltTokenRegistry
 import kotlinx.coroutines.*
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.atomic.AtomicBoolean
@@ -57,8 +58,10 @@ object CryptoAltTrader {
     private const val TAG = "🪙CryptoAltTrader"
 
     // ─── Constants ────────────────────────────────────────────────────────────
-    private const val MAX_POSITIONS         = 30            // Up to 30 concurrent alt positions
+    private const val MAX_POSITIONS         = 50            // Up to 50 concurrent alt positions
     private const val SCAN_INTERVAL_MS      = 12_000L       // 12-second scan cycle
+    private const val DYN_SCAN_INTERVAL_MS  = 30_000L       // Dynamic token scan every 30s
+    private const val DYN_BATCH_SIZE        = 200           // Tokens per dynamic scan batch
     private const val DEFAULT_SIZE_PCT      = 5.0           // 5% of balance per trade
     private const val DEFAULT_LEVERAGE      = 3.0           // Default leverage (when not SPOT)
     private const val DEFAULT_TP_SPOT       = 6.0           // SPOT take-profit %
@@ -92,8 +95,10 @@ object CryptoAltTrader {
     @Volatile private var liveWalletBalance = 0.0
     @Volatile private var totalPnlSol     = 0.0
 
-    private var engineJob : Job? = null
-    private var monitorJob: Job? = null
+    private var engineJob    : Job? = null
+    private var monitorJob   : Job? = null
+    private var dynScanJob   : Job? = null
+    private var dynBatchIdx  = 0       // rotating batch cursor for dynamic token scan
     private val scope = CoroutineScope(Dispatchers.Default + SupervisorJob())
 
     // Persistent SharedPreferences — fast, always-available learning fallback
@@ -218,18 +223,219 @@ object CryptoAltTrader {
                 delay(5_000)
             }
         }
+
+        // Dynamic token scan — feeds entire DynamicAltTokenRegistry universe into AI learning
+        dynScanJob = scope.launch {
+            delay(10_000) // stagger start after main engine
+            while (isRunning.get()) {
+                try {
+                    if (isEnabled.get()) runDynamicTokenScan()
+                } catch (e: CancellationException) { throw e }
+                  catch (e: Exception) { ErrorLogger.error(TAG, "DynScan error: ${e.message}", e) }
+                delay(DYN_SCAN_INTERVAL_MS)
+            }
+        }
     }
 
     fun stop() {
         isRunning.set(false)
         engineJob?.cancel()
         monitorJob?.cancel()
+        dynScanJob?.cancel()
         ErrorLogger.info(TAG, "🪙 CryptoAltTrader STOPPED")
     }
 
     // ═══════════════════════════════════════════════════════════════════════════
     // SCAN CYCLE
     // ═══════════════════════════════════════════════════════════════════════════
+
+    // ═══════════════════════════════════════════════════════════════════════════
+    // DYNAMIC TOKEN SCAN — feeds DynamicAltTokenRegistry universe into sub-AI engines
+    // Runs every 30s in rotating batches of 200 tokens so ALL discovered tokens
+    // (DexScreener/CoinGecko/Jupiter = thousands) get assessed for learning signals.
+    // The sub-AIs record every evaluation for FluidLearningAI cross-layer learning.
+    // ═══════════════════════════════════════════════════════════════════════════
+
+    private suspend fun runDynamicTokenScan() = withContext(Dispatchers.Default) {
+        val allTokens = DynamicAltTokenRegistry.getAllTokens(DynamicAltTokenRegistry.SortMode.QUALITY)
+        if (allTokens.isEmpty()) return@withContext
+
+        val totalBatches = maxOf(1, (allTokens.size + DYN_BATCH_SIZE - 1) / DYN_BATCH_SIZE)
+        val batchIdx     = dynBatchIdx % totalBatches
+        val batchStart   = batchIdx * DYN_BATCH_SIZE
+        val batchEnd     = minOf(batchStart + DYN_BATCH_SIZE, allTokens.size)
+        dynBatchIdx++
+
+        val batch = allTokens.subList(batchStart, batchEnd)
+        ErrorLogger.debug(TAG, "🪙⚡ DynScan batch ${batchIdx + 1}/$totalBatches | size=${batch.size} | universe=${allTokens.size}")
+
+        var scanned = 0
+        var signals = 0
+
+        for (tok in batch) {
+            try {
+                if (SOL_PERPS_SYMBOLS.contains(tok.symbol)) continue
+                val price   = tok.price.takeIf  { it > 0 }       ?: continue
+                val vol     = tok.volume24h
+                val mcap    = tok.mcap
+                val liq     = tok.liquidityUsd
+                val change  = tok.priceChange24h
+                val buys1h  = tok.buys24h  / 24
+                val sells1h = tok.sells24h / 24
+                val buyPct  = if (buys1h + sells1h > 0) (buys1h.toDouble() / (buys1h + sells1h) * 100.0) else 50.0
+                val momentum= change   // use 24h change as momentum proxy
+                val isMeme  = tok.sector.lowercase().let { it.contains("meme") || it.contains("gaming") }
+
+                scanned++
+
+                // Feed sector intelligence layer
+                try {
+                    val btcPrice = PerpsMarketDataFetcher.getCachedPrice(PerpsMarket.BTC)?.price ?: 0.0
+                    CryptoAltScannerAI.recordPrice(tok.symbol, price, btcPrice)
+                    CrossAssetLeadLagAI.recordReturn(tok.symbol, change)
+                    CrossMarketRegimeAI.updateMarketState(tok.symbol, price, change, vol)
+                } catch (_: Exception) {}
+
+                // ── ShitCoin sub-AI (low-cap / meme tokens) ──────────────────────────
+                if (mcap < 50_000_000.0 || isMeme) {
+                    if (!ShitCoinTraderAI.hasPosition(tok.symbol)) {
+                        try {
+                            val sig = ShitCoinTraderAI.evaluate(
+                                mint              = tok.symbol,
+                                symbol            = tok.symbol,
+                                currentPrice      = price,
+                                marketCapUsd      = mcap,
+                                liquidityUsd      = liq,
+                                topHolderPct      = 0.0,
+                                buyPressurePct    = buyPct,
+                                momentum          = momentum,
+                                volatility        = kotlin.math.abs(change),
+                                tokenAgeMinutes   = 9999.0,  // established token
+                                launchPlatform    = ShitCoinTraderAI.LaunchPlatform.OTHER,
+                                isDexBoosted      = tok.isBoosted,
+                                dexTrendingRank   = if (tok.isTrending) tok.trendingRank else -1
+                            )
+                            if (sig.shouldEnter) {
+                                signals++
+                                ErrorLogger.info(TAG, "🪙💩 DynSig ShitCoin: ${tok.symbol} conf=${sig.confidence}")
+                                try { FluidLearningAI.recordMarketsTradeStart() } catch (_: Exception) {}
+                            }
+                        } catch (_: Exception) {}
+                    }
+                }
+
+                // ── BlueChip sub-AI (large-cap, liquid) ──────────────────────────────
+                if (mcap > 500_000_000.0 && liq > 1_000_000.0) {
+                    if (!BlueChipTraderAI.hasPosition(tok.symbol)) {
+                        try {
+                            val sig = BlueChipTraderAI.evaluate(
+                                mint           = tok.symbol,
+                                symbol         = tok.symbol,
+                                currentPrice   = price,
+                                marketCapUsd   = mcap,
+                                liquidityUsd   = liq,
+                                topHolderPct   = 0.0,
+                                buyPressurePct = buyPct,
+                                v3Score        = 60,
+                                v3Confidence   = 60,
+                                momentum       = momentum,
+                                volatility     = kotlin.math.abs(change)
+                            )
+                            if (sig.shouldEnter) {
+                                signals++
+                                ErrorLogger.info(TAG, "🪙🔵 DynSig BlueChip: ${tok.symbol} conf=${sig.confidence}")
+                                try { FluidLearningAI.recordMarketsTradeStart() } catch (_: Exception) {}
+                            }
+                        } catch (_: Exception) {}
+                    }
+                }
+
+                // ── Express sub-AI (high-momentum tokens) ────────────────────────────
+                if (kotlin.math.abs(change) > 5.0 && vol > 100_000.0) {
+                    if (!ShitCoinExpress.hasRide(tok.symbol)) {
+                        try {
+                            val sig = ShitCoinExpress.evaluate(
+                                mint            = tok.symbol,
+                                symbol          = tok.symbol,
+                                currentPrice    = price,
+                                marketCapUsd    = mcap,
+                                liquidityUsd    = liq,
+                                momentum        = momentum,
+                                buyPressurePct  = buyPct,
+                                volumeChange    = if (vol > 0) 1.5 else 1.0,
+                                priceChange5Min = change / 288.0,
+                                isTrending      = tok.isTrending,
+                                isBoosted       = tok.isBoosted,
+                                tokenAgeMinutes = 9999.0
+                            )
+                            if (sig.shouldEnter) {
+                                signals++
+                                ErrorLogger.info(TAG, "🪙⚡ DynSig Express: ${tok.symbol}")
+                                try { FluidLearningAI.recordMarketsTradeStart() } catch (_: Exception) {}
+                            }
+                        } catch (_: Exception) {}
+                    }
+                }
+
+                // ── Moonshot sub-AI (ultra-low mcap, trending) ───────────────────────
+                if (mcap in 100_000.0..50_000_000.0 || tok.isTrending) {
+                    if (!MoonshotTraderAI.hasPosition(tok.symbol)) {
+                        try {
+                            val sig = MoonshotTraderAI.scoreToken(
+                                mint           = tok.symbol,
+                                symbol         = tok.symbol,
+                                marketCapUsd   = mcap,
+                                liquidityUsd   = liq,
+                                volumeScore    = minOf(100, (vol / 10_000).toInt()),
+                                buyPressurePct = buyPct,
+                                rugcheckScore  = if (tok.source.contains("Jupiter")) 5 else 3,
+                                v3EntryScore   = 60.0,
+                                v3Confidence   = 60.0,
+                                phase          = "DynamicAlt",
+                                isPaper        = isPaperMode.get()
+                            )
+                            if (sig.shouldEnter) {
+                                signals++
+                                ErrorLogger.info(TAG, "🪙🌙 DynSig Moonshot: ${tok.symbol}")
+                                try { FluidLearningAI.recordMarketsTradeStart() } catch (_: Exception) {}
+                            }
+                        } catch (_: Exception) {}
+                    }
+                }
+
+                // ── Manipulated sub-AI (pump signals) ────────────────────────────────
+                if (!ManipulatedTraderAI.hasPosition(tok.symbol)) {
+                    try {
+                        val sig = ManipulatedTraderAI.evaluate(
+                            mint          = tok.symbol,
+                            symbol        = tok.symbol,
+                            currentPrice  = price,
+                            marketCapUsd  = mcap,
+                            liquidityUsd  = liq,
+                            momentum      = momentum,
+                            buyPressurePct= buyPct,
+                            bundlePct     = 0.0,
+                            source        = tok.source,
+                            ageMinutes    = 9999.0,
+                            rugcheckScore = if (tok.source.contains("Jupiter")) 5 else 3,
+                            isPaper       = isPaperMode.get()
+                        )
+                        if (sig.shouldEnter) {
+                            signals++
+                            ErrorLogger.info(TAG, "🪙🎭 DynSig Manip: ${tok.symbol}")
+                            try { FluidLearningAI.recordMarketsTradeStart() } catch (_: Exception) {}
+                        }
+                    } catch (_: Exception) {}
+                }
+
+            } catch (e: CancellationException) { throw e }
+              catch (_: Exception) {}
+        }
+
+        if (signals > 0 || scanned % 200 == 0) {
+            ErrorLogger.info(TAG, "🪙⚡ DynScan done: scanned=$scanned signals=$signals (universe=${allTokens.size})")
+        }
+    }
 
     private suspend fun runScanCycle() {
         scanCount.incrementAndGet()
