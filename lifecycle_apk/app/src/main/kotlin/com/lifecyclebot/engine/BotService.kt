@@ -2184,7 +2184,26 @@ class BotService : Service() {
             // V5.7.6: Skip meme trading logic if meme trader is disabled
             val memeEnabled = cfg.memeTraderEnabled || cfg.tradingMode == 0 || cfg.tradingMode == 2
             if (!memeEnabled) {
-                // Meme trader disabled - just sleep and continue (let Markets traders handle things)
+                // Meme trader disabled — still run markets watchdog before sleeping
+                try {
+                    val marketsEnabled = cfg.marketsTraderEnabled || cfg.tradingMode == 1 || cfg.tradingMode == 2
+                    if (marketsEnabled && loopCount % 10 == 0) {
+                        val healthy = com.lifecyclebot.perps.PerpsExecutionEngine.isHealthy()
+                        if (!healthy) {
+                            ErrorLogger.warn("BotService", "⚠️ [meme-off] PerpsExecutionEngine unhealthy — restarting…")
+                            addLog("⚡ Markets engine watchdog (meme-off): restarting…")
+                            com.lifecyclebot.perps.PerpsExecutionEngine.stop()
+                            delay(500)
+                            com.lifecyclebot.perps.PerpsExecutionEngine.start(applicationContext)
+                        }
+                    }
+                    if (cfg.cryptoAltsEnabled && loopCount % 10 == 0 && !com.lifecyclebot.perps.CryptoAltTrader.isRunning()) {
+                        ErrorLogger.warn("BotService", "⚠️ [meme-off] CryptoAltTrader stopped — restarting…")
+                        com.lifecyclebot.perps.CryptoAltTrader.start()
+                    }
+                } catch (e: Exception) {
+                    ErrorLogger.error("BotService", "Markets watchdog (meme-off) error: ${e.message}", e)
+                }
                 delay(cfg.pollSeconds * 1000L)
                 continue
             }
@@ -2371,6 +2390,35 @@ class BotService : Service() {
                 }
             }
             
+            // ═══════════════════════════════════════════════════════════════════
+            // MARKETS ENGINE WATCHDOG — every 10 loops
+            // Detects when PerpsExecutionEngine loop died silently and restarts it
+            // ═══════════════════════════════════════════════════════════════════
+            if (loopCount % 10 == 0) {
+                try {
+                    val marketsEnabled = cfg.marketsTraderEnabled || cfg.tradingMode == 1 || cfg.tradingMode == 2
+                    if (marketsEnabled) {
+                        val healthy = com.lifecyclebot.perps.PerpsExecutionEngine.isHealthy()
+                        if (!healthy) {
+                            ErrorLogger.warn("BotService", "⚠️ PerpsExecutionEngine NOT HEALTHY (loop #$loopCount) — restarting…")
+                            addLog("⚡ Markets engine watchdog: engine unhealthy, restarting…")
+                            com.lifecyclebot.perps.PerpsExecutionEngine.stop()
+                            delay(500)
+                            com.lifecyclebot.perps.PerpsExecutionEngine.start(applicationContext)
+                            addLog("⚡ Markets engine restarted by watchdog")
+                        }
+                    }
+                    // Same watchdog for CryptoAltTrader
+                    if (cfg.cryptoAltsEnabled && !com.lifecyclebot.perps.CryptoAltTrader.isRunning()) {
+                        ErrorLogger.warn("BotService", "⚠️ CryptoAltTrader NOT RUNNING (loop #$loopCount) — restarting…")
+                        addLog("🪙 CryptoAlt watchdog: trader stopped, restarting…")
+                        com.lifecyclebot.perps.CryptoAltTrader.start()
+                    }
+                } catch (e: Exception) {
+                    ErrorLogger.error("BotService", "Markets watchdog error: ${e.message}", e)
+                }
+            }
+
             // ═══════════════════════════════════════════════════════════════════
             // PENDING SELL QUEUE PROCESSING - every 5 loops (~25 seconds) in live mode
             // Retries sells that failed due to wallet disconnect or other issues
@@ -7466,5 +7514,6 @@ if (deferredCount > 0) {
 private fun Double.fmt(decimals: Int = 4) = "%.${decimals}f".format(this)
 // Build trigger 1774627618
 // Build trigger 1774842659
+
 
 
