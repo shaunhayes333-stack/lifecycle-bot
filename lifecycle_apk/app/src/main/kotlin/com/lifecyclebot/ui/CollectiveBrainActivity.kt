@@ -39,6 +39,8 @@ class CollectiveBrainActivity : AppCompatActivity() {
     private lateinit var tvBlacklistedTokens: TextView
     private lateinit var tvTopMode: TextView
     private lateinit var tvWorstMode: TextView
+    private lateinit var tvWinRate: TextView
+    private lateinit var tvAvgHold: TextView
     private lateinit var llModeStats: LinearLayout
     private lateinit var tvDataSource: TextView
     private lateinit var tvSyncStatus: TextView
@@ -138,6 +140,8 @@ class CollectiveBrainActivity : AppCompatActivity() {
         llModeStats = findViewById(R.id.llBrainModeStats)
         tvDataSource = findViewById(R.id.tvBrainDataSource)
         tvSyncStatus = findViewById(R.id.tvSyncStatus)
+        tvWinRate = try { findViewById(R.id.tvBrainWinRate) } catch (_: Exception) { TextView(this) }
+        tvAvgHold = try { findViewById(R.id.tvBrainAvgHold) } catch (_: Exception) { TextView(this) }
         btnForceSync = findViewById(R.id.btnForceSync)
         
         // V4.20: Force sync button
@@ -421,6 +425,29 @@ class CollectiveBrainActivity : AppCompatActivity() {
             tvPatternsLearned.text = "$collectivePatterns"
             tvBlacklistedTokens.text = "$collectiveBlacklisted"
             
+            // WIN RATE and AVG HOLD — use collective data when available, local otherwise
+            val displayWrFinal = if (hasCollectiveData && collectiveStats != null)
+                collectiveStats.winRate else displayWinRate
+            tvWinRate.text = if (displayWrFinal > 0) "${displayWrFinal.toInt()}%" else "--"
+            tvWinRate.setTextColor(when {
+                displayWrFinal >= 60 -> green
+                displayWrFinal >= 50 -> 0xFF10B981.toInt()
+                displayWrFinal > 0  -> 0xFFF59E0B.toInt()
+                else -> muted
+            })
+            
+            // AVG HOLD — derive from local trade history (avgHoldMins field)
+            val avgHoldMins = try {
+                val stats = com.lifecyclebot.engine.TradeHistoryStore.getStats()
+                stats.avgHoldMins
+            } catch (_: Exception) { 0.0 }
+            tvAvgHold.text = when {
+                avgHoldMins >= 60 -> "${(avgHoldMins / 60).toInt()}h"
+                avgHoldMins > 0  -> "${avgHoldMins.toInt()}m"
+                else -> "--"
+            }
+            tvAvgHold.setTextColor(white)
+
             // V4.0: Show top mode from collective ranking
             if (topModes.isNotEmpty()) {
                 val best = topModes.first()
