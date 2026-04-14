@@ -362,7 +362,7 @@ class MultiAssetActivity : AppCompatActivity() {
                             AssetTab.PERPS -> PerpsMarket.values().filter { it.isSolPerp }.take(10)
                         }
                         tabMarkets.forEach { market ->
-                            try { PerpsMarketDataFetcher.fetchPrice(market) } catch (_: Exception) {}
+                            try { PerpsMarketDataFetcher.getMarketData(market) } catch (_: Exception) {}
                         }
                     } catch (_: Exception) {}
                     kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Main) { refreshData() }
