@@ -102,7 +102,20 @@ object MetalsTrader {
     }
     
     fun start() {
-        if (isRunning.get()) return
+        if (isRunning.get()) {
+            // Detect silent loop death — check if jobs are actually alive
+            val engineAlive  = engineJob?.isActive == true
+            val monitorAlive = monitorJob?.isActive == true
+            if (engineAlive && monitorAlive) {
+                ErrorLogger.debug(TAG, "Already running and jobs alive — skip restart")
+                return
+            }
+            // Jobs died silently — force cleanup and restart
+            ErrorLogger.warn(TAG, "⚠️ isRunning=true but jobs dead — force-restarting...")
+            engineJob?.cancel()
+            monitorJob?.cancel()
+            isRunning.set(false)
+        }
         isRunning.set(true)
         
         engineJob = scope.launch {
@@ -636,6 +649,12 @@ object MetalsTrader {
     }
     
     fun isRunning(): Boolean = isRunning.get()
+
+    /** Returns true only if running AND engine/monitor coroutines are actually alive. */
+    fun isHealthy(): Boolean {
+        if (!isRunning.get()) return false
+        return (engineJob?.isActive == true) && (monitorJob?.isActive == true)
+    }
     
     // ═══════════════════════════════════════════════════════════════════════════
     // V5.7.6b: LIVE TRADING MODE
@@ -692,5 +711,6 @@ object MetalsTrader {
     }
 
 }
+
 
 
