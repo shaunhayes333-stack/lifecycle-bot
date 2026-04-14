@@ -163,7 +163,10 @@ object PerpsTraderAI {
         }
         
         save()
-        
+
+        // V5.8.0: Kick off Hivemind perps cache load
+        refreshHivePerpsRatesAsync()
+
         ErrorLogger.info(TAG, "📊 PerpsTraderAI ONLINE - Ready for leverage trading (enabled=${isEnabled.get()}, paper=$isPaperMode, riskAck=${hasAcknowledgedRisk.get()})")
     }
     
