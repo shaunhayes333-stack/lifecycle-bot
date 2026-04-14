@@ -10,6 +10,7 @@ import androidx.lifecycle.lifecycleScope
 import androidx.swiperefreshlayout.widget.SwipeRefreshLayout
 import com.google.android.material.tabs.TabLayout
 import com.lifecyclebot.R
+import com.lifecyclebot.engine.BotService
 import com.lifecyclebot.engine.ErrorLogger
 import com.lifecyclebot.engine.WalletManager
 import com.lifecyclebot.perps.*
@@ -132,6 +133,9 @@ class MultiAssetActivity : AppCompatActivity() {
     private lateinit var balanceContainer: View
     private var marketsRunning = false
     private var isLiveMode = false  // V5.7.6b: Track LIVE vs PAPER mode
+    /** True if the user explicitly pressed STOP on the markets toggle.
+     *  When set, the auto-follow logic will NOT restart markets even if the main bot is running. */
+    private var userManuallyStopped = false
     
     private lateinit var tvLayerCorrel: TextView
     private lateinit var tvMarketsLearningEvents: TextView
@@ -495,6 +499,8 @@ class MultiAssetActivity : AppCompatActivity() {
         
         lifecycleScope.launch(Dispatchers.IO) {
             if (marketsRunning) {
+                // User manually started — clear the manual-stop flag so auto-follow can work again
+                userManuallyStopped = false
                 // Check and refresh balance before starting
                 checkAndRefreshBalance()
                 
@@ -510,6 +516,8 @@ class MultiAssetActivity : AppCompatActivity() {
                         "✅ Markets Trading STARTED", android.widget.Toast.LENGTH_SHORT).show()
                 }
             } else {
+                // User manually stopped — remember this so auto-follow won't restart them
+                userManuallyStopped = true
                 // Stop all Markets traders
                 TokenizedStockTrader.stop()
                 CommoditiesTrader.stop()
@@ -531,6 +539,7 @@ class MultiAssetActivity : AppCompatActivity() {
     }
     
     // V5.7.6b: Update the toggle button state
+    // V5.8.1: Markets follow the main bot — auto-start when main bot is running (unless user manually stopped)
     private fun updateToggleButton() {
         val anyRunning = TokenizedStockTrader.isRunning() || 
                         CommoditiesTrader.isRunning() || 
@@ -540,12 +549,31 @@ class MultiAssetActivity : AppCompatActivity() {
         
         marketsRunning = anyRunning
         
-        btnMarketsToggle.text = if (anyRunning) "STOP" else "START"
+        // V5.8.1: Auto-follow main bot — if main bot is running and markets are all stopped
+        // and the user hasn't deliberately stopped them, restart them automatically
+        val mainBotRunning = try { BotService.status.running } catch (_: Exception) { false }
+        if (mainBotRunning && !anyRunning && !userManuallyStopped) {
+            lifecycleScope.launch(Dispatchers.IO) {
+                try {
+                    TokenizedStockTrader.start()
+                    CommoditiesTrader.start()
+                    MetalsTrader.start()
+                    ForexTrader.start()
+                    PerpsExecutionEngine.start(this@MultiAssetActivity)
+                    ErrorLogger.info(TAG, "Markets auto-started: following main bot")
+                } catch (e: Exception) {
+                    ErrorLogger.error(TAG, "Markets auto-start failed: ${e.message}", e)
+                }
+            }
+            marketsRunning = true
+        }
+        
+        btnMarketsToggle.text = if (marketsRunning) "STOP" else "START"
         btnMarketsToggle.setBackgroundResource(
-            if (anyRunning) R.drawable.pill_bg_yellow else R.drawable.pill_bg_green
+            if (marketsRunning) R.drawable.pill_bg_yellow else R.drawable.pill_bg_green
         )
         btnMarketsToggle.setTextColor(
-            if (anyRunning) 0xFF000000.toInt() else 0xFFFFFFFF.toInt()
+            if (marketsRunning) 0xFF000000.toInt() else 0xFFFFFFFF.toInt()
         )
     }
     
