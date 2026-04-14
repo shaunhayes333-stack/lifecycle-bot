@@ -31,8 +31,10 @@ object ServiceWatchdog {
      * Call this once from Application.onCreate() or MainActivity.
      */
     fun schedule(context: Context) {
+        // No network constraint — watchdog just restarts the service;
+        // BotService handles its own network reconnection on start.
         val constraints = Constraints.Builder()
-            .setRequiredNetworkType(NetworkType.CONNECTED)
+            .setRequiredNetworkType(NetworkType.NOT_REQUIRED)
             .build()
         
         val workRequest = PeriodicWorkRequestBuilder<WatchdogWorker>(
@@ -168,3 +170,4 @@ object ServiceWatchdog {
         }
     }
 }
+
