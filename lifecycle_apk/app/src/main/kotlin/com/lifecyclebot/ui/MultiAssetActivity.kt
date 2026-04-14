@@ -2271,11 +2271,11 @@ class MultiAssetActivity : AppCompatActivity() {
                             leverage = pos.leverage
                         )
                     }
-                    // Also include TST-managed CRYPTO positions (TST scans 24/7 crypto too).
-                    // Filter to isCrypto only (excludes stock ETFs even if isStock=false edge cases).
+                    // Also include TST-managed SOL Perps positions (TST scans crypto 24/7).
+                    // Filter to isSolPerp only — actual perp-supported tokens, not all crypto.
                     // Skip any already shown by PerpsExecutionEngine to avoid duplicates.
                     val cryptoFromTrader = TokenizedStockTrader.getAllPositions()
-                        .filter { it.market.isCrypto && !seenKeys.contains("${it.market.symbol}:${it.direction.symbol}") }
+                        .filter { it.market.isSolPerp && !seenKeys.contains("${it.market.symbol}:${it.direction.symbol}") }
                         .map { pos ->
                             val livePrice = PerpsMarketDataFetcher.getCachedPrice(pos.market)?.price?.takeIf { it > 0 } ?: pos.currentPrice
                             if (livePrice > 0 && livePrice != pos.currentPrice) pos.currentPrice = livePrice
@@ -2300,8 +2300,10 @@ class MultiAssetActivity : AppCompatActivity() {
                     perpsPositions + cryptoFromTrader
                 }
                 AssetTab.STOCKS -> {
-                    val positions = if (showSpotOnly) TokenizedStockTrader.getSpotPositions()
-                                   else TokenizedStockTrader.getLeveragePositions()
+                    val allStockPos = if (showSpotOnly) TokenizedStockTrader.getSpotPositions()
+                                     else TokenizedStockTrader.getLeveragePositions()
+                    // Filter: STOCKS tab only shows actual tokenized stocks, not crypto
+                    val positions = allStockPos.filter { it.market.isStock }
                     positions.map { pos ->
                         val livePrice = PerpsMarketDataFetcher.getCachedPrice(pos.market)?.price?.takeIf { it > 0 } ?: pos.currentPrice
                         // V5.7.8: Sync position price with live price before PnL calc
