@@ -271,7 +271,7 @@ class CryptoAltActivity : AppCompatActivity() {
         val trades   = FluidLearningAI.getTotalTradeCount()
         val mTrades  = FluidLearningAI.getMarketsTradeCount()
         val boost    = FluidLearningAI.getBootstrapConfidenceBoost()
-        val sizeMult = FluidLearningAI.getAdaptiveSizeMultiplier()
+        val sizeMult = FluidLearningAI.getBootstrapSizeMultiplier()
         val phase    = getPhaseLabel()
         val tile     = buildTile(phaseColor(phase), "🚦 Live Readiness", phase, phaseColor(phase))
         tile.addView(progressBar(phaseColor(phase), (FluidLearningAI.getLearningProgress() * 100).toInt()))
@@ -301,12 +301,12 @@ class CryptoAltActivity : AppCompatActivity() {
 
     private fun buildShitCoinTile() {
         val stats   = ShitCoinTraderAI.getStats()
-        val mode    = ShitCoinTraderAI.getMode()
-        val tile    = buildTile(red, "💩 ShitCoin Degen", mode, if (mode == "HUNTING") orange else muted)
+        val mode    = ShitCoinTraderAI.getCurrentMode()
+        val tile    = buildTile(red, "💩 ShitCoin Degen", mode.name, if (mode == ShitCoinTraderAI.ShitCoinMode.HUNTING) orange else muted)
         val row     = hBox().apply { layoutParams = llp(match, wrap).apply { topMargin = 6 } }
-        addStatChip(row, "Balance",  "◎${"%.3f".format(stats.balance)}", white, 1f)
+        addStatChip(row, "Balance",  "◎${"%.3f".format(stats.balanceSol)}", white, 1f)
         addStatChip(row, "Daily PnL","${if (stats.dailyPnlSol >= 0) "+" else ""}${"%.3f".format(stats.dailyPnlSol)}◎", if (stats.dailyPnlSol >= 0) green else red, 1f)
-        addStatChip(row, "Win Rate", "${"%.1f".format(stats.winRatePct)}%", if (stats.winRatePct >= 55) green else amber, 1f)
+        addStatChip(row, "Win Rate", "${"%.1f".format(stats.winRate)}%", if (stats.winRate >= 55) green else amber, 1f)
         addStatChip(row, "Open",     "${stats.activePositions}", blue, 1f)
         tile.addView(row); llContent.addView(tile)
     }
@@ -342,9 +342,9 @@ class CryptoAltActivity : AppCompatActivity() {
         val stats  = ShitCoinExpress.getStats()
         val tile   = buildTile(orange, "⚡ Express Mode", "High Velocity", orange)
         val row    = hBox().apply { layoutParams = llp(match, wrap).apply { topMargin = 6 } }
-        addStatChip(row, "Win Rate", "${"%.1f".format(stats.winRatePct)}%", if (stats.winRatePct >= 55) green else amber, 1f)
+        addStatChip(row, "Win Rate", "${"%.1f".format(stats.winRate)}%", if (stats.winRate >= 55) green else amber, 1f)
         addStatChip(row, "Daily PnL","${if (stats.dailyPnlSol >= 0) "+" else ""}${"%.3f".format(stats.dailyPnlSol)}◎", if (stats.dailyPnlSol >= 0) green else red, 1f)
-        addStatChip(row, "Open Pos", "${stats.activePositions}", blue, 1f)
+        addStatChip(row, "Open Pos", "${stats.activeRides}", blue, 1f)
         addStatChip(row, "Speed",    "FAST", orange, 1f)
         tile.addView(row); llContent.addView(tile)
     }
@@ -358,7 +358,7 @@ class CryptoAltActivity : AppCompatActivity() {
         addStatChip(row, "Win Rate", "${"%.1f".format(wr)}%", if (wr >= 55) green else amber, 1f)
         addStatChip(row, "Daily PnL","${if (pnl >= 0) "+" else ""}${"%.3f".format(pnl)}◎", if (pnl >= 0) green else red, 1f)
         addStatChip(row, "Open Pos", "$open", blue, 1f)
-        addStatChip(row, "10x Hits", "${MoonshotTraderAI.getTenXCount()}", purple, 1f)
+        addStatChip(row, "10x Hits", "${MoonshotTraderAI.getLifetimeTenX()}", purple, 1f)
         tile.addView(row); llContent.addView(tile)
     }
 
@@ -366,9 +366,10 @@ class CryptoAltActivity : AppCompatActivity() {
         val stats  = ManipulatedTraderAI.getStats()
         val tile   = buildTile(pink, "🎭 Manip Catch", "Manipulation Detector", pink)
         val row    = hBox().apply { layoutParams = llp(match, wrap).apply { topMargin = 6 } }
-        addStatChip(row, "Win Rate", "${"%.1f".format(stats.winRatePct)}%", if (stats.winRatePct >= 55) green else amber, 1f)
+        val manipWr = if (stats.dailyWins + stats.dailyLosses > 0) (stats.dailyWins.toDouble() / (stats.dailyWins + stats.dailyLosses) * 100) else 0.0
+        addStatChip(row, "Win Rate", "${"%.1f".format(manipWr)}%", if (manipWr >= 55) green else amber, 1f)
         addStatChip(row, "Daily PnL","${if (stats.dailyPnlSol >= 0) "+" else ""}${"%.3f".format(stats.dailyPnlSol)}◎", if (stats.dailyPnlSol >= 0) green else red, 1f)
-        addStatChip(row, "Open Pos", "${stats.activePositions}", blue, 1f)
+        addStatChip(row, "Open Pos", "${stats.activeCount}", blue, 1f)
         addStatChip(row, "Caught",   "${stats.totalManipCaught}", pink, 1f)
         tile.addView(row); llContent.addView(tile)
     }
@@ -392,7 +393,7 @@ class CryptoAltActivity : AppCompatActivity() {
     }
 
     private fun buildSectorHeatPanel() {
-        val sectors  = CryptoAltScannerAI.getSectorHeatmap()
+        val sectors  = CryptoAltScannerAI.getSectorHeatSummary()
         val dominant = CryptoAltScannerAI.getDominanceCycleSignal()
         val fg       = CryptoAltScannerAI.getCryptoFearGreed()
         val tile     = buildTile(teal, "🌡️ Sector Heat", dominant, teal)
@@ -694,7 +695,8 @@ class CryptoAltActivity : AppCompatActivity() {
             return
         }
 
-        symbols.forEach { symbol ->
+        symbols.forEach { item ->
+            val symbol = item.symbol
             val tok = DynamicAltTokenRegistry.getTokenBySymbol(symbol)
             if (tok != null) {
                 val row = buildDynTokenRow(tok)
@@ -707,7 +709,6 @@ class CryptoAltActivity : AppCompatActivity() {
                 llContent.addView(row)
             } else {
                 // Fallback for symbols not in dynamic registry
-                val change = 0.0
                 val row = hBox(card, 16, 10).apply { gravity = Gravity.CENTER_VERTICAL }
                 row.addView(tv("⚪ $symbol", 13f, white, bold = true).apply { layoutParams = llp(0, wrap, 1f) })
                 row.addView(tv("✕", 12f, red).apply {
@@ -1043,3 +1044,4 @@ class CryptoAltActivity : AppCompatActivity() {
         else         -> muted
     }
 }
+
