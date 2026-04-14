@@ -13,6 +13,7 @@ import coil.load
 import coil.transform.CircleCropTransformation
 import com.lifecyclebot.R
 import com.lifecyclebot.engine.RunTracker30D
+import com.lifecyclebot.engine.UniversalBridgeEngine
 import com.lifecyclebot.engine.ShadowLearningEngine
 import com.lifecyclebot.engine.WalletManager
 import com.lifecyclebot.perps.CryptoAltScannerAI
@@ -119,6 +120,13 @@ class CryptoAltActivity : AppCompatActivity() {
 
         WatchlistEngine.init(applicationContext)
 
+        // ── Self-init: ensure CryptoAltTrader is ready even if BotService hasn't started it ──
+        if (!CryptoAltTrader.isRunning()) {
+            try { CryptoAltTrader.init(applicationContext) } catch (_: Exception) {}
+        }
+        // Restore Markets FluidLearning counters from prefs so UI never shows "INIT"
+        try { FluidLearningAI.initMarketsPrefs(applicationContext) } catch (_: Exception) {}
+
         // Seed static tokens immediately so scanner isn't blank on first open
         DynamicAltTokenRegistry.seedStaticTokens()
 
@@ -188,6 +196,19 @@ class CryptoAltActivity : AppCompatActivity() {
         tvHeroTrades.text  = "$trades trades"
         tvHeroPhase.text   = phase
         tvHeroPhase.setTextColor(phaseColor(phase))
+    }
+
+    private fun refreshWalletCapacityAsync() {
+        lifecycleScope.launch(Dispatchers.IO) {
+            try {
+                val wallet = com.lifecyclebot.engine.WalletManager.getWallet() ?: return@launch
+                val cap    = UniversalBridgeEngine.scanWalletCapacity(wallet)
+                withContext(Dispatchers.Main) {
+                    val msg = "💼 \$${cap.totalUsdValue.let { "%.0f".format(it) }} across ${cap.allBalances.size} tokens"
+                    Toast.makeText(this@CryptoAltActivity, msg, Toast.LENGTH_SHORT).show()
+                }
+            } catch (_: Exception) {}
+        }
     }
 
     // ═══════════════════════════════════════════════════════════════════════════
@@ -268,13 +289,13 @@ class CryptoAltActivity : AppCompatActivity() {
     // ═══════════════════════════════════════════════════════════════════════════
 
     private fun buildReadinessTile() {
-        val trades   = FluidLearningAI.getTotalTradeCount()
+        val trades   = FluidLearningAI.getMarketsTradeCount()
         val mTrades  = FluidLearningAI.getMarketsTradeCount()
         val boost    = FluidLearningAI.getBootstrapConfidenceBoost()
         val sizeMult = FluidLearningAI.getBootstrapSizeMultiplier()
         val phase    = getPhaseLabel()
         val tile     = buildTile(phaseColor(phase), "🚦 Live Readiness", phase, phaseColor(phase))
-        tile.addView(progressBar(phaseColor(phase), (FluidLearningAI.getLearningProgress() * 100).toInt()))
+        tile.addView(progressBar(phaseColor(phase), (FluidLearningAI.getMarketsLearningProgress() * 100).toInt()))
         val row = hBox().apply { layoutParams = llp(match, wrap).apply { topMargin = 6 } }
         addStatChip(row, "V3 Trades",  "$trades",    white,  1f)
         addStatChip(row, "Mkts Trades","$mTrades",   teal,   1f)
@@ -937,10 +958,10 @@ class CryptoAltActivity : AppCompatActivity() {
 
         // ── Fluid Learning (shared across all layers) ──────────────────────────
         addSectionHeader("🧠 Fluid Learning — All Layers", blue)
-        val flProgress = (FluidLearningAI.getLearningProgress() * 100).toInt()
+        val flProgress = (FluidLearningAI.getMarketsLearningProgress() * 100).toInt()
         val mkProgress = try { (FluidLearningAI.getMarketsLearningProgress() * 100).toInt() } catch (_: Exception) { 0 }
         val flThresh   = try { FluidLearningAI.getMarketsSpotScoreThreshold() } catch (_: Exception) { 50 }
-        addInfoRow("V3 Trades",      "${FluidLearningAI.getTotalTradeCount()}")
+        addInfoRow("V3 Trades",      "${FluidLearningAI.getMarketsTradeCount()}")
         addInfoRow("Markets Trades", "${FluidLearningAI.getMarketsTradeCount()}")
         addInfoRow("V3 Progress",    "${flProgress}%")
         addInfoRow("Markets Progress","${mkProgress}%")
@@ -971,6 +992,22 @@ class CryptoAltActivity : AppCompatActivity() {
         addInfoRow("Fear & Greed", "${CryptoAltScannerAI.getCryptoFearGreed()}/100")
         val narratives = CryptoAltScannerAI.getActiveNarratives()
         addInfoRow("Narratives",   if (narratives.isNotEmpty()) narratives.take(3).joinToString(", ") else "—")
+
+        // ── Universal Wallet Bridge ───────────────────────────────────────────────
+        addSectionHeader("🌉 Universal Wallet Bridge", orange)
+        addInfoRow("Supported Input", "SOL · USDC · USDT · WBTC · WETH · BNB · AVAX")
+        addInfoRow("Bridge Route",    "Source → USDC → Target (Jupiter, max 2 hops)")
+        addInfoRow("Bridges Done",    "${UniversalBridgeEngine.getBridgeStats()["executed"]}")
+        addInfoRow("Bridge Failures", "${UniversalBridgeEngine.getBridgeStats()["failed"]}")
+        addInfoRow("Success Rate",    "${UniversalBridgeEngine.getBridgeStats()["successRate"]}")
+
+        llContent.addView(tv("🔍 Scan Wallet Capacity", 12f, teal, bold = true).apply {
+            setBackgroundColor(card); setPadding(16, 14, 16, 14)
+            gravity = Gravity.CENTER
+            layoutParams = llp(match, wrap).apply { topMargin = 4; bottomMargin = 4 }
+            setOnClickListener { refreshWalletCapacityAsync() }
+        })
+        llContent.addView(thinDivider())
 
         // ── Manual Controls ────────────────────────────────────────────────────
         addSectionHeader("🔧 Manual Actions", 0xFF9CA3AF.toInt())
@@ -1151,18 +1188,20 @@ class CryptoAltActivity : AppCompatActivity() {
     private fun llp(w: Int, h: Int, weight: Float = 0f) = LinearLayout.LayoutParams(w, h, weight)
 
     private fun getPhaseLabel(): String {
-        val trades = FluidLearningAI.getTotalTradeCount()
+        // Use Markets-specific trade counter so progress is independent of meme bot
+        val trades = FluidLearningAI.getMarketsTradeCount()
         val wr     = CryptoAltTrader.getWinRate()
         return when {
-            trades < 500  -> "BOOTSTRAP"
-            trades < 1500 -> "LEARNING"
-            trades < 3000 -> "VALIDATING"
-            trades < 5000 -> "MATURING"
-            wr >= 55.0    -> "READY"
-            else          -> "MATURING"
+            trades == 0   -> "INIT — tap ▶ Run"
+            trades < 50   -> "SEEDING ($trades/50)"
+            trades < 500  -> "BOOTSTRAP ($trades/500)"
+            trades < 1500 -> "LEARNING ($trades/1500)"
+            trades < 3000 -> "VALIDATING ($trades/3000)"
+            trades < 5000 -> "MATURING ($trades/5000)"
+            wr >= 55.0    -> "READY ✅"
+            else          -> "MATURING ($trades)"
         }
     }
-
     private fun phaseColor(phase: String) = when (phase) {
         "BOOTSTRAP"  -> muted
         "LEARNING"   -> blue
