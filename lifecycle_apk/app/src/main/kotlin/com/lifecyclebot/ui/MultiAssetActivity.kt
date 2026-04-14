@@ -365,7 +365,6 @@ class MultiAssetActivity : AppCompatActivity() {
                             AssetTab.COMMODITIES -> PerpsMarket.values().filter { it.isCommodity }
                             AssetTab.METALS -> PerpsMarket.values().filter { it.isMetal }
                             AssetTab.FOREX -> PerpsMarket.values().filter { it.isForex }
-                AssetTab.CRYPTO -> PerpsMarket.values().filter { it.isCrypto && !it.isSolPerp }
                             AssetTab.PERPS -> PerpsMarket.values().filter { it.isSolPerp }.take(10)
                             AssetTab.CRYPTO -> PerpsMarket.values().filter { it.isCrypto && !it.isSolPerp }.take(20)
                         }
