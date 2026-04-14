@@ -15,6 +15,13 @@ import com.lifecyclebot.R
 import com.lifecyclebot.engine.RunTracker30D
 import com.lifecyclebot.engine.UniversalBridgeEngine
 import com.lifecyclebot.engine.ShadowLearningEngine
+import com.lifecyclebot.engine.AICrossTalk
+import com.lifecyclebot.engine.AdaptiveLearningEngine
+import com.lifecyclebot.engine.BehaviorLearning
+import com.lifecyclebot.collective.CollectiveLearning
+import com.lifecyclebot.v3.scoring.CollectiveIntelligenceAI
+import com.lifecyclebot.v4.meta.CrossTalkFusionEngine
+import com.lifecyclebot.perps.PerpsLearningBridge
 import com.lifecyclebot.engine.WalletManager
 import com.lifecyclebot.perps.CryptoAltScannerAI
 import com.lifecyclebot.perps.CryptoAltTrader
@@ -408,9 +415,107 @@ class CryptoAltActivity : AppCompatActivity() {
     }
 
     private fun buildHiveMindPanel() {
-        val tile = buildTile(amber, "🐝 Hive Mind", "Cross-Wallet Intelligence", amber)
-        tile.addView(tv("Consensus signals from aggregated wallet behaviour", 11f, muted))
+        // ── Collective Intelligence AI ─────────────────────────────────────────
+        val ci      = CollectiveIntelligenceAI.getStats()
+        val tile    = buildTile(amber, "🐝 Hive Mind", "Collective Intelligence", amber)
+        val row1    = hBox().apply { layoutParams = llp(match, wrap).apply { topMargin = 6 } }
+        addStatChip(row1, "Patterns",   "${ci.cachedPatterns}",   white,  1f)
+        addStatChip(row1, "Modes",      "${ci.cachedModes}",      amber,  1f)
+        addStatChip(row1, "Consensus",  "${ci.cachedConsensus}",  green,  1f)
+        addStatChip(row1, "Anomalies",  "${ci.anomaliesDetected}",red,    1f)
+        tile.addView(row1)
+
+        val row2    = hBox().apply { layoutParams = llp(match, wrap).apply { topMargin = 4 } }
+        addStatChip(row2, "Conf Thresh","${ci.dynamicConfThreshold}%", purple, 1f)
+        val enabled = if (ci.isEnabled) "LIVE" else "OFFLINE"
+        val enabledCol = if (ci.isEnabled) green else muted
+        addStatChip(row2, "Network",    enabled,                  enabledCol, 1f)
+        val hotMints = CollectiveIntelligenceAI.getNetworkHotMints().size
+        addStatChip(row2, "Hot Mints",  "$hotMints",              orange, 1f)
+        val activeSignals = CollectiveIntelligenceAI.getActiveNetworkSignals().size
+        addStatChip(row2, "Signals",    "$activeSignals",         blue,   1f)
+        tile.addView(row2)
         llContent.addView(tile)
+
+        // ── AI Cross-Talk ──────────────────────────────────────────────────────
+        val ctStats  = AICrossTalk.getStats()          // returns a formatted String
+        val ctTile   = buildTile(indigo, "🔗 AI Cross-Talk", "Multi-AI Coordination", indigo)
+        ctTile.addView(tv(ctStats, 10f, muted, mono = true).apply {
+            setPadding(0, 6, 0, 4)
+        })
+
+        // Cross-Talk Fusion snapshot
+        val snap = CrossTalkFusionEngine.getSnapshot()
+        if (snap != null) {
+            val snapRow = hBox().apply { layoutParams = llp(match, wrap).apply { topMargin = 4 } }
+            val fusionSources = CrossTalkFusionEngine.getStats()["activeSources"] ?: 0
+            val fusionSignals = CrossTalkFusionEngine.getStats()["totalSignals"] ?: 0
+            addStatChip(snapRow, "Sources",  "$fusionSources",  blue,  1f)
+            addStatChip(snapRow, "Signals",  "$fusionSignals",  amber, 1f)
+            ctTile.addView(snapRow)
+        }
+        llContent.addView(ctTile)
+
+        // ── Adaptive Learning Engine ───────────────────────────────────────────
+        val alTile  = buildTile(teal, "📐 Adaptive Learning", "Feature-Weight Optimizer", teal)
+        val alRow   = hBox().apply { layoutParams = llp(match, wrap).apply { topMargin = 6 } }
+        val alCount = AdaptiveLearningEngine.getTradeCount()
+        val alStatus = AdaptiveLearningEngine.getStatus()
+        addStatChip(alRow, "Trades",  "$alCount",   white, 1f)
+        addStatChip(alRow, "Status",  alStatus.take(8), teal, 2f)
+        alTile.addView(alRow)
+
+        // Top feature weights
+        val weights = try { AdaptiveLearningEngine.getDetailedWeights() } catch (_: Exception) { emptyMap<String, Double>() }
+        if (weights.isNotEmpty()) {
+            val wRow = hBox().apply { layoutParams = llp(match, wrap).apply { topMargin = 4 } }
+            weights.entries.sortedByDescending { it.value }.take(4).forEach { (k, v) ->
+                val col = when {
+                    v > 1.5  -> green
+                    v > 1.0  -> amber
+                    v < 0.5  -> red
+                    else     -> muted
+                }
+                addStatChip(wRow, k.take(6), "${"%.2f".format(v)}×", col, 1f)
+            }
+            alTile.addView(wRow)
+        }
+        llContent.addView(alTile)
+
+        // ── Behavior Learning ──────────────────────────────────────────────────
+        val bl       = BehaviorLearning.getInsights()
+        val blTile   = buildTile(pink, "🧬 Behavior Learning", "Pattern Recognition", pink)
+        val blRow    = hBox().apply { layoutParams = llp(match, wrap).apply { topMargin = 6 } }
+        addStatChip(blRow, "Trades",    "${BehaviorLearning.getTradeCount()}", white,  1f)
+        addStatChip(blRow, "Good Pat",  "${bl.topPatterns.size}",              green,  1f)
+        addStatChip(blRow, "Bad Pat",   "${bl.worstPatterns.size}",            red,    1f)
+        val blHealth = try { BehaviorLearning.getInsights().healthStatus.summary() } catch (_: Exception) { "—" }
+        addStatChip(blRow, "Health",    blHealth.take(6),                      amber,  1f)
+        blTile.addView(blRow)
+        if (bl.topPatterns.isNotEmpty()) {
+            val top = bl.topPatterns.first()
+            blTile.addView(tv("Best: ${top.signature.take(28)} → WR ${"%.0f".format(top.winRate)}% avg ${"%.1f".format(top.avgPnl)}%", 9f, muted, mono = true).apply {
+                setPadding(0, 4, 0, 2)
+            })
+        }
+        llContent.addView(blTile)
+
+        // ── Perps Learning Bridge ──────────────────────────────────────────────
+        val plbTile  = buildTile(orange, "🌉 Learning Bridge", "Cross-Layer Sync", orange)
+        val plbRow   = hBox().apply { layoutParams = llp(match, wrap).apply { topMargin = 6 } }
+        val plbEvents= PerpsLearningBridge.getTotalLearningEvents()
+        val plbSyncs = PerpsLearningBridge.getCrossLayerSyncs()
+        val plbLayers= PerpsLearningBridge.getConnectedLayerCount()
+        addStatChip(plbRow, "Events",  "$plbEvents", white,  1f)
+        addStatChip(plbRow, "Syncs",   "$plbSyncs",  green,  1f)
+        addStatChip(plbRow, "Layers",  "$plbLayers", blue,   1f)
+        val plbStats = PerpsLearningBridge.getLayerPerpsStats()
+        val bestLayer = plbStats.maxByOrNull { it.value.first }
+        if (bestLayer != null) {
+            addStatChip(plbRow, bestLayer.key.take(5), "${"%.0f".format(bestLayer.value.first)}%WR", orange, 1f)
+        }
+        plbTile.addView(plbRow)
+        llContent.addView(plbTile)
     }
 
     private fun buildSectorHeatPanel() {
@@ -1008,6 +1113,78 @@ class CryptoAltActivity : AppCompatActivity() {
         })
         llContent.addView(thinDivider())
 
+        // ── AI Cross-Talk Tuning ──────────────────────────────────────────────────
+        addSectionHeader("🔗 AI Cross-Talk Tuning", indigo)
+        llContent.addView(tv(AICrossTalk.getStats(), 10f, muted, mono = true).apply {
+            setPadding(16, 4, 16, 8)
+            layoutParams = llp(match, wrap)
+        })
+
+        // ── Collective Learning Network ────────────────────────────────────────
+        addSectionHeader("🌐 Collective Learning Network", amber)
+        val clStats = CollectiveLearning.getStats()
+        addInfoRow("Network",            if (CollectiveLearning.isEnabled()) "CONNECTED" else "OFFLINE (needs TursoDB)")
+        addInfoRow("Patterns Cached",    "${clStats["patterns"]}")
+        addInfoRow("Mode Stats",         "${clStats["modeStats"]}")
+        addInfoRow("Blacklisted Tokens", "${clStats["blacklistedTokens"]}")
+        val bestMode = try { CollectiveLearning.getBestMode("NEUTRAL", "MID") } catch (_: Exception) { null }
+        if (bestMode != null) addInfoRow("Best Mode", bestMode)
+
+        // ── CollectiveIntelligenceAI Mode Recommendations ────────────────────
+        addSectionHeader("🧠 Collective Intelligence Recommendations", purple)
+        val ciS = CollectiveIntelligenceAI.getStats()
+        addInfoRow("CI Patterns",   "${ciS.cachedPatterns}")
+        addInfoRow("CI Modes",      "${ciS.cachedModes}")
+        addInfoRow("Conf Threshold","${ciS.dynamicConfThreshold}%")
+        addInfoRow("Anomalies",     "${ciS.anomaliesDetected}")
+        listOf("ShitCoin", "BlueChip", "Express", "Moonshot", "Manip").forEach { mode ->
+            val rec = CollectiveIntelligenceAI.getModeRecommendation(mode)
+            val recColor = when (rec.name) { "PREFER" -> green; "AVOID" -> red; else -> muted }
+            llContent.addView(hBox(card, 16, 8).apply {
+                layoutParams = llp(match, wrap).apply { bottomMargin = 1 }
+                addView(tv("  $mode", 12f, muted).apply { layoutParams = llp(0, wrap, 1f) })
+                addView(tv(rec.name, 12f, recColor, bold = true))
+            })
+            llContent.addView(thinDivider())
+        }
+
+        // ── Adaptive Learning Engine ─────────────────────────────────────────
+        addSectionHeader("📐 Adaptive Learning", teal)
+        addInfoRow("Trade Count",  "${AdaptiveLearningEngine.getTradeCount()}")
+        addInfoRow("Status",       AdaptiveLearningEngine.getStatus())
+        val wts = try { AdaptiveLearningEngine.getDetailedWeights() } catch (_: Exception) { emptyMap<String, Double>() }
+        wts.entries.sortedByDescending { it.value }.take(6).forEach { (k, v) ->
+            val col = when { v > 1.5 -> green; v < 0.5 -> red; else -> muted }
+            addInfoRow("  $k", "${"%.3f".format(v)}×", col)
+        }
+
+        // ── Behavior Learning Insights ───────────────────────────────────────
+        addSectionHeader("🧬 Behavior Learning", pink)
+        val bli = BehaviorLearning.getInsights()
+        addInfoRow("Total Trades", "${BehaviorLearning.getTradeCount()}")
+        if (bli.topPatterns.isNotEmpty()) {
+            llContent.addView(tv("  ✅ Top Winning Patterns", 11f, green, bold = true).apply { setPadding(16, 8, 16, 4) })
+            bli.topPatterns.take(3).forEach { p ->
+                addInfoRow("  ${p.signature.take(24)}", "WR:${"%.0f".format(p.winRate)}% avg:${"%.1f".format(p.avgPnl)}%")
+            }
+        }
+        if (bli.worstPatterns.isNotEmpty()) {
+            llContent.addView(tv("  ⛔ Top Losing Patterns", 11f, red, bold = true).apply { setPadding(16, 8, 16, 4) })
+            bli.worstPatterns.take(3).forEach { p ->
+                addInfoRow("  ${p.signature.take(24)}", "WR:${"%.0f".format(p.winRate)}% avg:${"%.1f".format(p.avgPnl)}%")
+            }
+        }
+
+        // ── Perps Learning Bridge ─────────────────────────────────────────────
+        addSectionHeader("🌉 Cross-Layer Bridge", orange)
+        addInfoRow("Learning Events",  "${PerpsLearningBridge.getTotalLearningEvents()}")
+        addInfoRow("Cross-Layer Syncs","${PerpsLearningBridge.getCrossLayerSyncs()}")
+        addInfoRow("Connected Layers", "${PerpsLearningBridge.getConnectedLayerCount()}")
+        llContent.addView(tv(PerpsLearningBridge.getDiagnostics(), 9f, muted, mono = true).apply {
+            setPadding(16, 4, 16, 8)
+            layoutParams = llp(match, wrap)
+        })
+
         // ── Manual Controls ────────────────────────────────────────────────────
         addSectionHeader("🔧 Manual Actions", 0xFF9CA3AF.toInt())
 
@@ -1130,12 +1307,12 @@ class CryptoAltActivity : AppCompatActivity() {
         llContent.addView(thinDivider())
     }
 
-    private fun addInfoRow(label: String, value: String) {
+    private fun addInfoRow(label: String, value: String, valueColor: Int = white) {
         llContent.addView(hBox(card, 16, 10).apply {
             layoutParams = llp(match, wrap).apply { bottomMargin = 2 }
             gravity = Gravity.CENTER_VERTICAL
             addView(tv(label, 13f, muted).apply { layoutParams = llp(0, wrap, 1f) })
-            addView(tv(value, 13f, white, mono = true))
+            addView(tv(value, 13f, valueColor, mono = true))
         })
         llContent.addView(thinDivider())
     }
