@@ -672,6 +672,7 @@ object FluidLearningAI {
             marketsCachedProgress = 0.0  // Force recalculation
         }
         
+        saveMarketsPrefs()  // V5.8.0: persist count
         ErrorLogger.debug(TAG, "📊 MARKETS PAPER trade | Progress: ${(getMarketsLearningProgress()*100).toInt()}%")
     }
     
@@ -692,6 +693,7 @@ object FluidLearningAI {
             marketsCachedProgress = 0.0  // Force recalculation
         }
         
+        saveMarketsPrefs()  // V5.8.0: persist count
         ErrorLogger.debug(TAG, "📊 MARKETS LIVE trade | Progress: ${(getMarketsLearningProgress()*100).toInt()}%")
     }
     
