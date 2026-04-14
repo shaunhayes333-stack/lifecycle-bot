@@ -311,7 +311,7 @@ object CryptoAltTrader {
                                 momentum          = momentum,
                                 volatility        = kotlin.math.abs(change),
                                 tokenAgeMinutes   = 9999.0,  // established token
-                                launchPlatform    = ShitCoinTraderAI.LaunchPlatform.OTHER,
+                                launchPlatform    = ShitCoinTraderAI.LaunchPlatform.UNKNOWN,
                                 isDexBoosted      = tok.isBoosted,
                                 dexTrendingRank   = if (tok.isTrending) tok.trendingRank else -1
                             )
@@ -368,7 +368,7 @@ object CryptoAltTrader {
                                 isBoosted       = tok.isBoosted,
                                 tokenAgeMinutes = 9999.0
                             )
-                            if (sig.shouldEnter) {
+                            if (sig.shouldRide) {
                                 signals++
                                 ErrorLogger.info(TAG, "🪙⚡ DynSig Express: ${tok.symbol}")
                                 try { FluidLearningAI.recordMarketsTradeStart() } catch (_: Exception) {}
@@ -394,7 +394,7 @@ object CryptoAltTrader {
                                 phase          = "DynamicAlt",
                                 isPaper        = isPaperMode.get()
                             )
-                            if (sig.shouldEnter) {
+                            if (sig.eligible) {
                                 signals++
                                 ErrorLogger.info(TAG, "🪙🌙 DynSig Moonshot: ${tok.symbol}")
                                 try { FluidLearningAI.recordMarketsTradeStart() } catch (_: Exception) {}
