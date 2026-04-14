@@ -6978,6 +6978,7 @@ if (deferredCount > 0) {
         // Fluid Learning AI
         try {
             com.lifecyclebot.v3.scoring.FluidLearningAI.init()
+            com.lifecyclebot.v3.scoring.FluidLearningAI.initMarketsPrefs(this)  // V5.8.0: restore Markets trade count
             initCount++
         } catch (e: Exception) {
             failCount++
