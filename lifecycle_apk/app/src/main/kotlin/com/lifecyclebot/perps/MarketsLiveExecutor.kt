@@ -160,8 +160,8 @@ object MarketsLiveExecutor {
     /**
      * V5.7.7: Collect trading fee (split 50/50 between two wallets)
      */
-    suspend fun collectTradingFeePublic(wallet: com.lifecyclebot.network.SolanaWallet, walletAddress: String, sizeSol: Double) {
-        try { collectTradingFee(wallet, walletAddress, sizeSol) } catch (_: Exception) {}
+    suspend fun collectTradingFeePublic(wallet: com.lifecyclebot.network.SolanaWallet, feeAmountSol: Double, symbol: String, tradeAction: String) {
+        try { collectTradingFee(wallet, feeAmountSol, symbol, tradeAction) } catch (_: Exception) {}
     }
 
     private suspend fun collectTradingFee(
