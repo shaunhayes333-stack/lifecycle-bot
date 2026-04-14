@@ -350,7 +350,23 @@ class MultiAssetActivity : AppCompatActivity() {
             override fun onTabSelected(tab: TabLayout.Tab) {
                 currentTab = AssetTab.values()[tab.position]
                 updateCategoryHeader()
-                refreshData()
+                // Kick off background price fetch for this tab's markets so
+                // Top Movers and Available Assets show real data (not stale crypto)
+                lifecycleScope.launch(kotlinx.coroutines.Dispatchers.IO) {
+                    try {
+                        val tabMarkets = when (currentTab) {
+                            AssetTab.STOCKS -> PerpsMarket.values().filter { it.isStock }.take(20)
+                            AssetTab.COMMODITIES -> PerpsMarket.values().filter { it.isCommodity }
+                            AssetTab.METALS -> PerpsMarket.values().filter { it.isMetal }
+                            AssetTab.FOREX -> PerpsMarket.values().filter { it.isForex }
+                            AssetTab.PERPS -> PerpsMarket.values().filter { it.isSolPerp }.take(10)
+                        }
+                        tabMarkets.forEach { market ->
+                            try { PerpsMarketDataFetcher.fetchPrice(market) } catch (_: Exception) {}
+                        }
+                    } catch (_: Exception) {}
+                    kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Main) { refreshData() }
+                }
             }
             override fun onTabUnselected(tab: TabLayout.Tab) {}
             override fun onTabReselected(tab: TabLayout.Tab) {}
@@ -1115,12 +1131,21 @@ class MultiAssetActivity : AppCompatActivity() {
                     if (isLiveMode && liveWalletSol > 0) {
                         val usdValue = liveWalletSol * solPriceUsd
                         tvTotalBalance.text = "\$${"%,.0f".format(usdValue)} LIVE"
+                        // Auto-shrink for large values: enforce match_parent so autoSize can kick in
+                        (tvTotalBalance.layoutParams as? android.view.ViewGroup.LayoutParams)?.let {
+                            it.width = android.view.ViewGroup.LayoutParams.MATCH_PARENT
+                            tvTotalBalance.layoutParams = it
+                        }
                         tvTotalBalance.setTextColor(0xFF00FF88.toInt())
                         balanceContainer.contentDescription =
                             "Live: \$${"%,.0f".format(usdValue)} (${"%.2f".format(liveWalletSol)} SOL)"
                     } else {
                         val usdValue = paperBalanceSol * solPriceUsd
                         tvTotalBalance.text = "\$${"%,.0f".format(usdValue)} PAPER"
+                        (tvTotalBalance.layoutParams as? android.view.ViewGroup.LayoutParams)?.let {
+                            it.width = android.view.ViewGroup.LayoutParams.MATCH_PARENT
+                            tvTotalBalance.layoutParams = it
+                        }
                         tvTotalBalance.setTextColor(0xFFF59E0B.toInt())
                         balanceContainer.contentDescription =
                             "Paper: \$${"%,.0f".format(usdValue)} (${"%.2f".format(paperBalanceSol)} SOL)"
