@@ -1933,6 +1933,18 @@ class BotService : Service() {
         tradingModesInitialized = false
         allTradingLayersReady = false
         
+        // V5.8.1: Also stop all markets traders when main bot stops
+        try {
+            com.lifecyclebot.perps.TokenizedStockTrader.stop()
+            com.lifecyclebot.perps.CommoditiesTrader.stop()
+            com.lifecyclebot.perps.MetalsTrader.stop()
+            com.lifecyclebot.perps.ForexTrader.stop()
+            com.lifecyclebot.perps.PerpsExecutionEngine.stop()
+            ErrorLogger.info("BotService", "Markets traders stopped alongside main bot")
+        } catch (e: Exception) {
+            ErrorLogger.error("BotService", "Error stopping markets traders: ${e.message}", e)
+        }
+        
         addLog("Bot stopped. All positions closed. Wallet remains connected.")
         
         // Show Toast on UI thread for immediate feedback
