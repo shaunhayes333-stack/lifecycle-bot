@@ -167,6 +167,12 @@ object DynamicAltTokenRegistry {
 
     // ─── Discovery cycle ─────────────────────────────────────────────────────
 
+    /** Force a discovery cycle, bypassing TTL — used by manual scan button */
+    suspend fun forceDiscoveryCycle() {
+        lastDiscoveryCycle.set(0L)  // Reset TTL so next call always runs
+        runDiscoveryCycle()
+    }
+
     suspend fun runDiscoveryCycle() {
         val now = System.currentTimeMillis()
         // Always fetch on first run (registry too small), otherwise respect TTL

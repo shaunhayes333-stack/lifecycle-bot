@@ -188,10 +188,22 @@ class CryptoAltActivity : AppCompatActivity() {
 
         findViewById<View>(R.id.btnCryptoAltBack).setOnClickListener { finish() }
         findViewById<View>(R.id.btnCryptoAltScan).setOnClickListener {
-            // Force a fresh discovery cycle
+            // V5.9.1: Force fresh discovery — bypasses TTL so button always works
+            val btn = it
+            btn.isEnabled = false
+            btn.alpha = 0.5f
             lifecycleScope.launch(Dispatchers.IO) {
-                DynamicAltTokenRegistry.runDiscoveryCycle()
-                withContext(Dispatchers.Main) { buildFullDashboard() }
+                try {
+                    DynamicAltTokenRegistry.forceDiscoveryCycle()
+                } catch (e: Exception) {
+                    com.lifecyclebot.engine.ErrorLogger.error("CryptoAltActivity", "Scan error: ${e.message}", e)
+                }
+                withContext(Dispatchers.Main) {
+                    btn.isEnabled = true
+                    btn.alpha = 1.0f
+                    buildFullDashboard()
+                    android.widget.Toast.makeText(this@CryptoAltActivity, "🔄 Universe refreshed: ${DynamicAltTokenRegistry.getTokenCount()} tokens", android.widget.Toast.LENGTH_SHORT).show()
+                }
             }
         }
         findViewById<View>(R.id.btnCryptoAltAdd).setOnClickListener { showAddToWatchlistDialog() }
@@ -204,11 +216,13 @@ class CryptoAltActivity : AppCompatActivity() {
         // Swipe-to-refresh
         swipeRefresh.setColorSchemeColors(0xFFA78BFA.toInt(), 0xFF9945FF.toInt())
         swipeRefresh.setOnRefreshListener {
+            // V5.9.1: Force bypass TTL on pull-to-refresh too
             lifecycleScope.launch(Dispatchers.IO) {
-                DynamicAltTokenRegistry.runDiscoveryCycle()
+                try { DynamicAltTokenRegistry.forceDiscoveryCycle() } catch (_: Exception) {}
                 withContext(Dispatchers.Main) {
                     buildFullDashboard()
                     swipeRefresh.isRefreshing = false
+                    android.widget.Toast.makeText(this@CryptoAltActivity, "🔄 ${DynamicAltTokenRegistry.getTokenCount()} tokens loaded", android.widget.Toast.LENGTH_SHORT).show()
                 }
             }
         }
