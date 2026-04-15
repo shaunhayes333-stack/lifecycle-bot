@@ -923,7 +923,7 @@ class MultiAssetActivity : AppCompatActivity() {
                 CommoditiesTrader.getTotalTrades() +
                 MetalsTrader.getTotalTrades() +
                 ForexTrader.getTotalTrades() +
-                PerpsTraderAI.getTotalTrades() +
+                PerpsTraderAI.getLifetimeTrades() +
                 CryptoAltTrader.getTotalTrades()
 
             val allWins = TokenizedStockTrader.getWinningTrades() +
@@ -937,7 +937,7 @@ class MultiAssetActivity : AppCompatActivity() {
                 CommoditiesTrader.getTotalPnlSol() +
                 MetalsTrader.getTotalPnlSol() +
                 ForexTrader.getTotalPnlSol() +
-                PerpsTraderAI.getTotalPnlSol() +
+                PerpsTraderAI.getLifetimePnlSol() +
                 CryptoAltTrader.getTotalPnlSol()
 
             tvStats24hTrades.text = allTrades.toString()
@@ -2520,7 +2520,7 @@ class MultiAssetActivity : AppCompatActivity() {
                 CommoditiesTrader.getTotalPnlSol() +
                 MetalsTrader.getTotalPnlSol() +
                 ForexTrader.getTotalPnlSol() +
-                PerpsTraderAI.getTotalPnlSol() +
+                PerpsTraderAI.getLifetimePnlSol() +
                 CryptoAltTrader.getTotalPnlSol()
         } catch (_: Exception) { 0.0 }
     }
