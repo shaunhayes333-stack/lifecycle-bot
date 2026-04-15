@@ -663,6 +663,10 @@ object ForexTrader {
 
     fun isRunning(): Boolean = isRunning.get()
 
+    /** V5.9.3: UI toggle compatibility — Commod/Metals/Forex open both spot+lev automatically */
+    fun setPreferLeverage(lev: Boolean) {}
+    fun isPreferLeverage(): Boolean = false
+
     /** Returns true only if running AND engine/monitor coroutines are actually alive. */
     fun isHealthy(): Boolean {
         if (!isRunning.get()) return false
