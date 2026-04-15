@@ -2967,15 +2967,10 @@ class BotService : Service() {
                     }
 
                     // ── Shared paper wallet: broadcast paper balance to all traders ──────
+                    // V5.9.7: All traders delegate to FluidLearning — one call syncs all
                     val curPaperSol = status.paperWalletSol
                     if (curPaperSol > 0.0) {
-                           // V5.9.3: Broadcast paper balance to ALL 6 Markets traders
-                        try { com.lifecyclebot.perps.CryptoAltTrader.setPaperBalance(curPaperSol) }    catch (_: Exception) {}
-                        try { com.lifecyclebot.perps.TokenizedStockTrader.setPaperBalance(curPaperSol) } catch (_: Exception) {}
-                        try { com.lifecyclebot.perps.PerpsTraderAI.setPaperBalance(curPaperSol) }      catch (_: Exception) {}
-                        try { com.lifecyclebot.perps.CommoditiesTrader.setPaperBalance(curPaperSol) }  catch (_: Exception) {}
-                        try { com.lifecyclebot.perps.MetalsTrader.setPaperBalance(curPaperSol) }       catch (_: Exception) {}
-                        try { com.lifecyclebot.perps.ForexTrader.setPaperBalance(curPaperSol) }        catch (_: Exception) {}
+                        com.lifecyclebot.engine.FluidLearning.forceSetBalance(curPaperSol)
                     }
 
                     // Treasury milestone check — live mode uses real wallet; paper uses paper balance
