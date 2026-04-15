@@ -1401,9 +1401,6 @@ fun isLiveReady(): Boolean = totalTrades.get() >= 5000 && getWinRate() >= 50.0
     }
     
     /** Sync paper wallet balance — delegates to shared FluidLearning pool */
-    fun setPaperBalance(sol: Double) {
-        if (sol > 0.0) com.lifecyclebot.engine.FluidLearning.forceSetBalance(sol)
-    }
 
     /** Update live wallet balance from connected wallet */
     fun updateLiveBalance(balanceSol: Double) {

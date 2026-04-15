@@ -761,7 +761,6 @@ object CommoditiesTrader {
     fun isRunning(): Boolean = isRunning.get()
 
     /** V5.9.3: Receive paper balance broadcast from BotService */
-    fun setPaperBalance(sol: Double) { if (sol > 0.0) com.lifecyclebot.engine.FluidLearning.forceSetBalance(sol) }
 
     /** V5.9.3: UI toggle compatibility — Commod/Metals/Forex open both spot+lev automatically */
     fun setPreferLeverage(lev: Boolean) {}
