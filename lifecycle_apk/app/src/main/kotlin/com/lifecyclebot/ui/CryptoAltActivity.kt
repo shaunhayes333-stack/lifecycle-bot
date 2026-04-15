@@ -2803,8 +2803,11 @@ class CryptoAltActivity : AppCompatActivity() {
                 BlueChipTraderAI.BlueChipMode.PAUSED     -> "⏸️"
             }
             val posList = if (positions.isEmpty()) "  (none)" else
-                positions.joinToString("
-") { "  • ${it.symbol}  \$${(it.marketCapUsd/1_000_000).let{ m -> if(m>=1) "${"%.1f".format(m)}M" else "${(it.marketCapUsd/1000).toInt()}K" }}  ${((System.currentTimeMillis()-it.entryTime)/60000)}m" }
+                positions.joinToString("\n") { pos ->
+                    val mcapM = pos.marketCapUsd / 1_000_000
+                    val mcapStr = if (mcapM >= 1) "${"%.1f".format(mcapM)}M" else "${(pos.marketCapUsd / 1_000).toInt()}K"
+                    "  • ${pos.symbol}  \$$mcapStr  ${((System.currentTimeMillis() - pos.entryTime) / 60_000)}m"
+                }
             val msg = buildString {
                 appendLine("🔵 BLUE CHIP TRADES  (\$1M+)")
                 appendLine("━━━━━━━━━━━━━━━━━━━━━━━━")
@@ -2849,7 +2852,7 @@ class CryptoAltActivity : AppCompatActivity() {
                 appendLine("Strategy: High Velocity Momentum")
                 appendLine("Win Rate: ${"%.1f".format(stats.winRate)}%")
                 appendLine("Day PnL: ${if (stats.dailyPnlSol >= 0) "+" else ""}${"%.4f".format(stats.dailyPnlSol)}◎")
-                appendLine("Daily Trades: ${stats.dailyTrades}")
+                appendLine("Daily Rides: ${stats.dailyRides}")
                 appendLine("Active Rides: ${rides.size}")
                 appendLine()
                 if (rides.isNotEmpty()) {
@@ -2883,8 +2886,7 @@ class CryptoAltActivity : AppCompatActivity() {
             val learn     = (MoonshotTraderAI.getLearningProgress() * 100).toInt()
             val spaceModeStats = MoonshotTraderAI.getSpaceModeStats()
             val posList = if (positions.isEmpty()) "  (none)" else
-                positions.joinToString("
-") { "  ${it.spaceMode.emoji} ${it.symbol}  ${((System.currentTimeMillis()-it.entryTime)/60000)}m  TP:+${it.takeProfitPct.toInt()}%" }
+                positions.joinToString("\n") { "  ${it.spaceMode.emoji} ${it.symbol}  ${((System.currentTimeMillis() - it.entryTime) / 60_000)}m  TP:+${it.takeProfitPct.toInt()}%" }
             val msg = buildString {
                 appendLine("🌙 MOONSHOT MODE")
                 appendLine("━━━━━━━━━━━━━━━")
@@ -2927,8 +2929,7 @@ class CryptoAltActivity : AppCompatActivity() {
             val manipWr   = if (stats.dailyWins + stats.dailyLosses > 0)
                 (stats.dailyWins.toDouble() / (stats.dailyWins + stats.dailyLosses) * 100) else 0.0
             val posList = if (positions.isEmpty()) "  (none)" else
-                positions.joinToString("
-") { "  🎭 ${it.symbol}  Score:${it.manipScore}  ${((System.currentTimeMillis()-it.entryTime)/60000)}m" }
+                positions.joinToString("\n") { "  🎭 ${it.symbol}  Score:${it.manipScore}  ${((System.currentTimeMillis() - it.entryTime) / 60_000)}m" }
             val msg = buildString {
                 appendLine("🎭 MANIP CATCH")
                 appendLine("━━━━━━━━━━━━━")
