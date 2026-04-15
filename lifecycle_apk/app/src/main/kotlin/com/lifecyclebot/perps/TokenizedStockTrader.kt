@@ -124,6 +124,7 @@ object TokenizedStockTrader {
     private val isRunning = AtomicBoolean(false)
     private val isPaperMode = AtomicBoolean(true)  // V5.7.6b: Default to paper, can be switched to LIVE
     private val isEnabled = AtomicBoolean(true)
+    private val preferLeverage = AtomicBoolean(false)  // V5.9.3: mirrors UI SPOT/LEVERAGE toggle
     
     // V5.7.6b: Live trading state
     private var liveWalletBalance = 0.0  // Updated from connected wallet
@@ -405,7 +406,14 @@ object TokenizedStockTrader {
     fun getPhaseLabel(): String = calculateLearningPhase()
 
     /** Whether this trader has met all requirements to go live */
-    fun isLiveReady(): Boolean = totalTrades.get() >= 5000 && getWinRate() >= 50.0
+fun isLiveReady(): Boolean = totalTrades.get() >= 5000 && getWinRate() >= 50.0
+
+    /** V5.9.3: Called from MAA when user taps SPOT/LEVERAGE toggle on Stocks tab */
+    fun setPreferLeverage(lev: Boolean) {
+        preferLeverage.set(lev)
+        ErrorLogger.info(TAG, "📈 Mode → ${if (lev) "LEVERAGE (${DEFAULT_LEVERAGE.toInt()}x)" else "SPOT"}")
+    }
+    fun isPreferLeverage(): Boolean = preferLeverage.get()
 
     private fun calculateLearningPhase(): String {
         val trades = totalTrades.get()
@@ -614,8 +622,8 @@ object TokenizedStockTrader {
                 break
             }
             
-            // V5.7.8: V4 Meta-Intelligence gated scoring
-            val useSpotDefault = (positions.size % 2 == 0)
+            // V5.9.3: Respect UI SPOT/LEVERAGE toggle; removed parity alternation
+            val useSpotDefault = !preferLeverage.get()
             var useSpot = useSpotDefault
             var leverage = if (useSpot) 1.0 else DEFAULT_LEVERAGE
             try {

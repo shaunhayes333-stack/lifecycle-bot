@@ -509,13 +509,12 @@ object PerpsMarketDataFetcher {
                     }
                     
                     // Real 24h change from PriceAggregator (CoinGecko/Binance — cached 3s)
-                    val real24hChange: Double = if (market.isCrypto) {
-                        try { kotlinx.coroutines.runBlocking { PriceAggregator.getPrice(market.symbol)?.change24h }
-                            ?: calculateChange(pythPrice.price, pythPrice.emaPrice) }
-                        catch (_: Exception) { calculateChange(pythPrice.price, pythPrice.emaPrice) }
-                    } else {
-                        calculateChange(pythPrice.price, pythPrice.emaPrice)
-                    }
+                    // V5.9.3: Use PriceAggregator for ALL markets — stocks had calculateChange
+                    // returning ~0 (Pyth price ≈ EMA price at rest) which killed signal generation.
+                    val real24hChange: Double = try {
+                        kotlinx.coroutines.runBlocking { PriceAggregator.getPrice(market.symbol)?.change24h }
+                            ?: calculateChange(pythPrice.price, pythPrice.emaPrice)
+                    } catch (_: Exception) { calculateChange(pythPrice.price, pythPrice.emaPrice) }
                     return PerpsMarketData(
                         market = market,
                         price = pythPrice.price,

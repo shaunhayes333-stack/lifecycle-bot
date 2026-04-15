@@ -425,7 +425,14 @@ class MultiAssetActivity : AppCompatActivity() {
         btnSpotMode.setOnClickListener {
             showSpotOnly = true
             // V5.9.3: Tell the active trader to prefer SPOT
-            if (currentTab == AssetTab.CRYPTO) CryptoAltTrader.setPreferLeverage(false)
+            when (currentTab) {
+                AssetTab.CRYPTO  -> CryptoAltTrader.setPreferLeverage(false)
+                AssetTab.STOCKS  -> TokenizedStockTrader.setPreferLeverage(false)
+                AssetTab.COMMODITIES -> CommoditiesTrader.setPreferLeverage(false)
+                AssetTab.METALS  -> MetalsTrader.setPreferLeverage(false)
+                AssetTab.FOREX   -> ForexTrader.setPreferLeverage(false)
+                else -> {}
+            }
             updateModeToggle()
             refreshData()
         }
@@ -433,7 +440,14 @@ class MultiAssetActivity : AppCompatActivity() {
         btnLeverageMode.setOnClickListener {
             showSpotOnly = false
             // V5.9.3: Tell the active trader to prefer LEVERAGE
-            if (currentTab == AssetTab.CRYPTO) CryptoAltTrader.setPreferLeverage(true)
+            when (currentTab) {
+                AssetTab.CRYPTO  -> CryptoAltTrader.setPreferLeverage(true)
+                AssetTab.STOCKS  -> TokenizedStockTrader.setPreferLeverage(true)
+                AssetTab.COMMODITIES -> CommoditiesTrader.setPreferLeverage(true)
+                AssetTab.METALS  -> MetalsTrader.setPreferLeverage(true)
+                AssetTab.FOREX   -> ForexTrader.setPreferLeverage(true)
+                else -> {}
+            }
             updateModeToggle()
             refreshData()
         }
@@ -1283,8 +1297,12 @@ class MultiAssetActivity : AppCompatActivity() {
             AssetTab.METALS -> "${PerpsMarket.values().count { it.isMetal }} metals"
             AssetTab.FOREX -> "${PerpsMarket.values().count { it.isForex }} pairs"
                 AssetTab.CRYPTO -> "${PerpsMarket.values().count { it.isCrypto && !it.isSolPerp }} alts".also {
-                    // V5.9.3: Sync toggle to trader state when entering CRYPTO tab
                     showSpotOnly = !CryptoAltTrader.isPreferLeverage()
+                    updateModeToggle()
+                }
+                AssetTab.STOCKS -> "${PerpsMarket.values().count { it.isStock }} stocks".also {
+                    // V5.9.3: Sync toggle for STOCKS tab
+                    showSpotOnly = !TokenizedStockTrader.isPreferLeverage()
                     updateModeToggle()
                 }
         }
