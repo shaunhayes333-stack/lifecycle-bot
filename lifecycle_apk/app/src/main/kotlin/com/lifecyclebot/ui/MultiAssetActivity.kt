@@ -1386,9 +1386,6 @@ class MultiAssetActivity : AppCompatActivity() {
         } catch (_: Exception) {
             tvWinRate.text = "--"
         }
-        } catch (_: Exception) {
-            tvWinRate.text = "--"
-        }
     }
     
     private fun updateCategoryHeader() {
