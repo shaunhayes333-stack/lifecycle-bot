@@ -157,9 +157,28 @@ class CryptoAltActivity : AppCompatActivity() {
         if (!CryptoAltTrader.isRunning()) {
             try { CryptoAltTrader.init(applicationContext) } catch (_: Exception) {}
         }
-        // If balance is 0 (not yet set by MultiAssetActivity shared pool), use standalone default
-        if (CryptoAltTrader.getBalance() <= 0.0) {
-            CryptoAltTrader.setBalance(50.0) // Standalone fallback: 50 SOL
+        // V5.9.1: Sync real wallet balance immediately on open
+        lifecycleScope.launch(Dispatchers.IO) {
+            try {
+                if (CryptoAltTrader.isLiveMode()) {
+                    // Live mode — always fetch real on-chain balance
+                    val sol = com.lifecyclebot.engine.WalletManager.getWallet()?.getSolBalance() ?: 0.0
+                    if (sol > 0.0) {
+                        CryptoAltTrader.updateLiveBalance(sol)
+                        ErrorLogger.info("CryptoAltActivity", "Synced live wallet: ${"%.4f".format(sol)} SOL")
+                    }
+                } else {
+                    // Paper mode — only set fallback if genuinely zero (never been set)
+                    if (CryptoAltTrader.getBalance() <= 0.0) {
+                        CryptoAltTrader.setBalance(5.0) // Real paper default matches BotConfig default
+                    }
+                }
+            } catch (e: Exception) {
+                ErrorLogger.warn("CryptoAltActivity", "Balance sync error: ${e.message}")
+            }
+            withContext(Dispatchers.Main) {
+                if (::tvHeroBalance.isInitialized) refreshHeroStats()
+            }
         }
         // Restore Markets FluidLearning counters from prefs so UI never shows "INIT"
         try { FluidLearningAI.initMarketsPrefs(applicationContext) } catch (_: Exception) {}
@@ -265,6 +284,21 @@ class CryptoAltActivity : AppCompatActivity() {
     }
 
     private fun refreshHeroStats() {
+        // V5.9.1: Keep live balance in sync — fetch wallet in background, update when ready
+        if (CryptoAltTrader.isLiveMode()) {
+            lifecycleScope.launch(Dispatchers.IO) {
+                try {
+                    val sol = com.lifecyclebot.engine.WalletManager.getWallet()?.getSolBalance() ?: 0.0
+                    if (sol > 0.0) CryptoAltTrader.updateLiveBalance(sol)
+                } catch (_: Exception) {}
+                withContext(Dispatchers.Main) { applyHeroStats() }
+            }
+        } else {
+            applyHeroStats()
+        }
+    }
+
+    private fun applyHeroStats() {
         val bal    = CryptoAltTrader.getBalance()
         val pnl    = CryptoAltTrader.getTotalPnlSol()
         val wr     = CryptoAltTrader.getWinRate()
@@ -664,14 +698,15 @@ class CryptoAltActivity : AppCompatActivity() {
         }
         balRow.addView(tvHeroBalance)
 
-        // PAPER / LIVE badge
-        val modeLabel = if (CryptoAltTrader.isLiveMode()) "LIVE" else "PAPER"
-        val modeBg    = if (CryptoAltTrader.isLiveMode()) 0xFF052E16.toInt() else 0xFF1C1400.toInt()
+        // PAPER / LIVE badge — V5.9.1: show "LIVE" in green, "PAPER" in amber
+        val modeLabel  = if (CryptoAltTrader.isLiveMode()) "LIVE" else "PAPER"
+        val modeBg     = if (CryptoAltTrader.isLiveMode()) 0xFF052E16.toInt() else 0xFF1C1400.toInt()
+        val badgeColor = if (CryptoAltTrader.isLiveMode()) green else amber
         val midCol = vBox().apply {
             layoutParams = llp(wrap, wrap).apply { marginEnd = 8; bottomMargin = 4 }
             gravity = Gravity.END
         }
-        midCol.addView(tv("📝 $modeLabel ◎ ${"%.4f".format(bal)}", 10f, amber, mono = true).apply {
+        midCol.addView(tv("${if (CryptoAltTrader.isLiveMode()) "🟢" else "📝"} $modeLabel ◎ ${"%.4f".format(bal)}", 10f, badgeColor, mono = true).apply {
             setBackgroundColor(modeBg); setPadding(6, 3, 6, 3)
         })
         balRow.addView(midCol)

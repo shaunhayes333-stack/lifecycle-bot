@@ -190,6 +190,15 @@ object CryptoAltTrader {
         try { ManipulatedTraderAI.init(isPaperMode.get()) }        catch (e: Exception) { ErrorLogger.debug(TAG, "ManipulatedAI: ${e.message}") }
         try { PerpsLearningBridge.init(context.applicationContext) } catch (e: Exception) { ErrorLogger.debug(TAG, "PerpsLearningBridge: ${e.message}") }
         try { FluidLearningAI.initMarketsPrefs(context.applicationContext) } catch (e: Exception) { ErrorLogger.debug(TAG, "FluidLearningAI.initMarketsPrefs: ${e.message}") }
+        // V5.9.1: Eagerly sync real wallet balance on init (live mode)
+        if (!isPaperMode.get()) {
+            scope.launch(kotlinx.coroutines.Dispatchers.IO) {
+                try {
+                    val sol = WalletManager.getWallet()?.getSolBalance() ?: 0.0
+                    if (sol > 0.0) updateLiveBalance(sol)
+                } catch (_: Exception) {}
+            }
+        }
         ErrorLogger.info(TAG, "🪙 CryptoAltTrader INITIALIZED | paper=${isPaperMode.get()} | balance=${"%.2f".format(paperBalance)} SOL | trades=${totalTrades.get()}")
     }
 
