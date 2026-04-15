@@ -340,7 +340,7 @@ class CryptoAltActivity : AppCompatActivity() {
     private fun updateWalletPill() {
         val wallet = WalletManager.getWallet()
         if (wallet != null) {
-            val addr = wallet.publicKey.toBase58()
+            val addr = wallet.publicKeyB58
             tvWalletShort.text = "${addr.take(4)}..${addr.takeLast(4)}"
             tvWalletShort.setTextColor(0xFF10B981.toInt())
             tvWalletDot.setBackgroundResource(R.drawable.dot_green)
