@@ -58,11 +58,11 @@ object CryptoAltTrader {
     private const val TAG = "🪙CryptoAltTrader"
 
     // ─── Constants ────────────────────────────────────────────────────────────
-    private const val MAX_POSITIONS         = 50            // Up to 50 concurrent alt positions
+    private const val MAX_POSITIONS         = 20            // Max concurrent positions (20 × 5% = 100% exposure max)
     private const val SCAN_INTERVAL_MS      = 12_000L       // 12-second scan cycle
     private const val DYN_SCAN_INTERVAL_MS  = 30_000L       // Dynamic token scan every 30s
     private const val DYN_BATCH_SIZE        = 200           // Tokens per dynamic scan batch
-    private const val DEFAULT_SIZE_PCT      = 5.0           // 5% of balance per trade
+    private const val DEFAULT_SIZE_PCT      = 3.0           // 3% of balance per trade (20 pos max = 60% total exposure)
     private const val DEFAULT_LEVERAGE      = 3.0           // Default leverage (when not SPOT)
     private const val DEFAULT_TP_SPOT       = 6.0           // SPOT take-profit %
     private const val DEFAULT_SL_SPOT       = 3.5           // SPOT stop-loss %
@@ -916,6 +916,13 @@ object CryptoAltTrader {
 
         // V5.9.5 FIX: Sanity-check entry price vs last cached price.
         // Bad data (decimal shift, wrong feed ID, stale fallback) causes fake 1000x PnL.
+
+        // V5.9.5: Total exposure cap — never risk more than 80% of balance
+        val totalRisk = positions.values.sumOf { it.sizeSol }
+        if (totalRisk + sizeSol > balance * 0.80) {
+            ErrorLogger.info(TAG, "🛑 Exposure cap: ${"%.2f".format(totalRisk)} SOL at risk (${"%.0f".format(totalRisk/balance*100)}%) — skipping ${signal.market.symbol}")
+            return
+        }
         val cachedPriceData = PerpsMarketDataFetcher.getCachedPrice(signal.market)
         if (signal.price <= 0.0) {
             ErrorLogger.warn(TAG, "🪙 PRICE ZERO: ${signal.market.symbol} — REJECTING trade")
