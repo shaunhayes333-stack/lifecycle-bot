@@ -235,16 +235,16 @@ class CryptoAltActivity : AppCompatActivity() {
         else             -> "$%.0f".format(usd)
     }
 
-        private fun buildFullDashboard() {
+    private fun buildFullDashboard() {
         llContent.removeAllViews()
-        buildTopStatusBar()     // HIVE MIND · SHADOW · REGIMES · LAYERS pills
-        buildHeroSection()
-        buildOpenPositionsPanel()  // inline Open Positions list
-        buildReadinessTile()
-        buildTreasuryTierPanel()   // locked SOL / next unlock
-        buildProofRunTile()
-        buildModuleIconGrid()   // AATE-style 2-row icon grid
-        buildNetworkSignalsPanel() // Network Signals from Collective Intelligence
+        buildHeroSection()          // BALANCE label → big number → stat pills → chain chips
+        buildOpenPositionsPanel()   // inline Open Positions list (if any)
+        buildReadinessTile()        // 🚦 Live Readiness
+        buildProofRunTile()         // 📈 30-Day Proof Run
+        buildModuleIconGrid()       // AATE-style 2-row trader/intelligence icon grid
+        buildTopStatusBar()         // HIVE MIND · SHADOW · REGIMES · LAYERS pills (below grid)
+        buildTreasuryTierPanel()    // locked SOL / next unlock
+        buildNetworkSignalsPanel()  // Network Signals
         buildShadowFDGPanel()
         buildHiveMindPanel()
         buildSectorHeatPanel()
@@ -498,44 +498,101 @@ class CryptoAltActivity : AppCompatActivity() {
         val trades = CryptoAltTrader.getTotalTrades()
         val phase  = getPhaseLabel()
         val dynCnt = DynamicAltTokenRegistry.getTokenCount()
+        val open   = CryptoAltTrader.getAllPositions().count { it.closeTime == null }
+        val solUsd = com.lifecyclebot.engine.WalletManager.lastKnownSolPrice
 
-        val tile = vBox(card2, 20, 18)
+        // ── BALANCE label ──────────────────────────────────────────────────────
+        llContent.addView(tv("BALANCE", 10f, muted, mono = true).apply {
+            letterSpacing = 0.12f
+            setPadding(20, 12, 20, 0)
+        })
 
-        val balRow = hBox()
-        tvHeroBalance = tv("◎ ${"%.4f".format(bal)}", 28f, white, bold = true).apply { layoutParams = llp(0, wrap, 1f) }
-        val badge = tv(if (CryptoAltTrader.isLiveMode()) "● LIVE" else "● PAPER", 10f,
-            if (CryptoAltTrader.isLiveMode()) green else amber, bold = true).apply {
-            setBackgroundColor(if (CryptoAltTrader.isLiveMode()) 0xFF052E16.toInt() else 0xFF451A03.toInt())
-            setPadding(8, 4, 8, 4)
+        // ── Balance row: large number + PAPER badge + SOL price ───────────────
+        val balRow = hBox().apply {
+            setPadding(20, 4, 20, 0)
+            gravity = Gravity.BOTTOM
         }
-        balRow.addView(tvHeroBalance); balRow.addView(badge)
-        tile.addView(balRow)
+        tvHeroBalance = tv("◎ ${"%.4f".format(bal)}", 28f, white, bold = true).apply {
+            layoutParams = llp(0, wrap, 1f)
+        }
+        balRow.addView(tvHeroBalance)
 
-        val statsRow = hBox().apply { layoutParams = llp(match, wrap).apply { topMargin = 4 } }
+        // PAPER / LIVE badge + SOL amount
+        val modeLabel = if (CryptoAltTrader.isLiveMode()) "LIVE" else "PAPER"
+        val modeBg    = if (CryptoAltTrader.isLiveMode()) 0xFF052E16.toInt() else 0xFF1C1400.toInt()
+        val modeCol   = if (CryptoAltTrader.isLiveMode()) green else amber
+        val midCol = vBox().apply {
+            layoutParams = llp(wrap, wrap).apply { marginEnd = 8; bottomMargin = 4 }
+            gravity = Gravity.END
+        }
+        midCol.addView(tv("📝 $modeLabel ◎ ${"%.4f".format(bal)}", 10f, amber, mono = true).apply {
+            setBackgroundColor(modeBg); setPadding(6, 3, 6, 3)
+        })
+        balRow.addView(midCol)
+
+        // SOL/USD price (top right)
+        val priceCol = vBox().apply {
+            layoutParams = llp(wrap, wrap).apply { bottomMargin = 4 }
+            gravity = Gravity.END
+        }
+        val solPriceStr = if (solUsd >= 10) "$${"%.0f".format(solUsd)}" else "$—"
+        priceCol.addView(tv(solPriceStr, 18f, teal, bold = true, mono = true).apply { gravity = Gravity.END })
+        priceCol.addView(tv("SOL/USD", 9f, muted, mono = true).apply { gravity = Gravity.END })
+        balRow.addView(priceCol)
+        llContent.addView(balRow)
+
+        // ── PnL row ────────────────────────────────────────────────────────────
+        val pnlRow = hBox().apply {
+            setPadding(20, 2, 20, 8)
+            gravity = Gravity.CENTER_VERTICAL
+        }
         tvHeroPnl = tv("${if (pnl >= 0) "+" else ""}${"%.4f".format(pnl)} SOL", 14f,
             if (pnl >= 0) green else red, mono = true).apply { layoutParams = llp(0, wrap, 1f) }
         tvHeroWinRate = tv("${"%.1f".format(wr)}% WR", 12f, purple, mono = true).apply { layoutParams = llp(0, wrap, 1f) }
         tvHeroTrades  = tv("$trades trades", 12f, muted, mono = true)
-        statsRow.addView(tvHeroPnl); statsRow.addView(tvHeroWinRate); statsRow.addView(tvHeroTrades)
-        tile.addView(statsRow)
+        pnlRow.addView(tvHeroPnl); pnlRow.addView(tvHeroWinRate); pnlRow.addView(tvHeroTrades)
+        llContent.addView(pnlRow)
 
-        tvHeroPhase = tv(phase, 10f, phaseColor(phase), bold = true).apply { layoutParams = llp(match, wrap).apply { topMargin = 4 } }
-        tile.addView(tvHeroPhase)
+        // ── Phase label ────────────────────────────────────────────────────────
+        tvHeroPhase = tv(phase, 10f, phaseColor(phase), bold = true).apply {
+            setPadding(20, 0, 20, 4)
+        }
+        llContent.addView(tvHeroPhase)
 
-        // Token universe counter
-        tile.addView(tv("🌐 $dynCnt tokens in universe", 10f, teal, mono = true).apply {
-            layoutParams = llp(match, wrap).apply { topMargin = 4 }
+        // ── 4 Stat pills (matches AATE style exactly) ─────────────────────────
+        val pillRow = hBox().apply {
+            setPadding(20, 8, 20, 12)
+        }
+        fun statPill(value: String, label: String, valColor: Int, weight: Float = 1f, last: Boolean = false): LinearLayout {
+            return vBox(0xFF111827.toInt(), 8, 8).apply {
+                layoutParams = llp(0, wrap, weight).apply { if (!last) marginEnd = 6 }
+                gravity = Gravity.CENTER
+                addView(tv(value, 16f, valColor, bold = true).apply { gravity = Gravity.CENTER })
+                addView(tv(label,  9f, muted).apply { gravity = Gravity.CENTER })
+            }
+        }
+        pillRow.addView(statPill("$trades", "24h Trades", white))
+        pillRow.addView(statPill("${"%.0f".format(wr)}%", "Win Rate",
+            if (wr >= 60) green else if (wr >= 40) amber else red))
+        pillRow.addView(statPill("$open", "Open", if (open > 0) purple else muted))
+        pillRow.addView(statPill(phase, "Phase", phaseColor(phase), last = true))
+        llContent.addView(pillRow)
+
+        // ── Token universe + chain chips ───────────────────────────────────────
+        val chainRow = hBox().apply {
+            setPadding(20, 0, 20, 8)
+        }
+        chainRow.addView(tv("🌐 $dynCnt tokens", 10f, teal, mono = true).apply {
+            layoutParams = llp(0, wrap, 1f)
+            gravity = Gravity.CENTER_VERTICAL
         })
-
-        val chainRow = hBox().apply { layoutParams = llp(match, wrap).apply { topMargin = 10 } }
         listOf("BNB" to amber, "ETH" to blue, "SOL" to purple, "POLY" to indigo).forEach { (label, col) ->
             chainRow.addView(tv(label, 9f, col).apply {
                 setBackgroundColor(0xFF0D0D1A.toInt()); setPadding(8, 3, 8, 3)
-                layoutParams = llp(0, wrap, 1f).apply { marginEnd = 3 }; gravity = Gravity.CENTER
+                layoutParams = llp(wrap, wrap).apply { marginStart = 4 }; gravity = Gravity.CENTER
             })
         }
-        tile.addView(chainRow)
-        llContent.addView(tile)
+        llContent.addView(chainRow)
     }
 
     // ═══════════════════════════════════════════════════════════════════════════
@@ -1089,20 +1146,23 @@ class CryptoAltActivity : AppCompatActivity() {
     }
 
         private fun buildIconTile(emoji: String, label: String, stat: String, color: Int, onClick: (() -> Unit)? = null): LinearLayout {
-        return vBox(0xFF0D0D1A.toInt(), 4, 8).apply {
-            layoutParams = llp(0, wrap, 1f).apply { marginEnd = 3 }
+        return vBox(card, 10, 8).apply {
+            layoutParams = llp(0, wrap, 1f).apply { marginEnd = 6 }
             gravity = android.view.Gravity.CENTER
-            addView(tv(emoji, 18f, white).apply { gravity = android.view.Gravity.CENTER })
-            addView(tv(label, 8f, muted).apply { gravity = android.view.Gravity.CENTER })
-            addView(tv(stat,  9f, color, mono = true).apply { gravity = android.view.Gravity.CENTER })
+            addView(tv(emoji, 20f, white).apply { gravity = android.view.Gravity.CENTER })
+            addView(tv(label, 10f, muted).apply {
+                gravity = android.view.Gravity.CENTER
+                layoutParams = llp(wrap, wrap).apply { topMargin = 2 }
+            })
+            addView(tv(stat, 9f, color, mono = true).apply {
+                gravity = android.view.Gravity.CENTER
+                layoutParams = llp(wrap, wrap).apply { topMargin = 1 }
+            })
             if (onClick != null) {
-                isClickable = true
-                isFocusable = true
+                isClickable = true; isFocusable = true
                 setOnClickListener { onClick() }
                 foreground = android.graphics.drawable.RippleDrawable(
-                    android.content.res.ColorStateList.valueOf(0x33FFFFFF),
-                    null, null
-                )
+                    android.content.res.ColorStateList.valueOf(0x33FFFFFF), null, null)
             }
         }
     }
@@ -2506,10 +2566,10 @@ class CryptoAltActivity : AppCompatActivity() {
     }
 
     private fun addStatChip(parent: LinearLayout, label: String, value: String, valueColor: Int, weight: Float) {
-        parent.addView(vBox(0xFF111128.toInt(), 8, 6).apply {
+        parent.addView(vBox(0xFF111827.toInt(), 8, 6).apply {
             layoutParams = llp(0, wrap, weight).apply { marginEnd = 3 }
             gravity = Gravity.CENTER
-            addView(tv(value, 12f, valueColor, mono = true).apply { gravity = Gravity.CENTER })
+            addView(tv(value, 13f, valueColor, mono = true, bold = true).apply { gravity = Gravity.CENTER })
             addView(tv(label, 8f, muted).apply { gravity = Gravity.CENTER })
         })
     }
