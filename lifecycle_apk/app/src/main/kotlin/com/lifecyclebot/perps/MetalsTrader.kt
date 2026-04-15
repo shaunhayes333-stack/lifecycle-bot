@@ -46,6 +46,17 @@ object MetalsTrader {
     private val scanCount = AtomicInteger(0)
     
     @Volatile private var paperBalance = 50.0  // 50 SOL for metals
+    private val totalTrades   = java.util.concurrent.atomic.AtomicInteger(0)
+    private val winningTrades = java.util.concurrent.atomic.AtomicInteger(0)
+    private val losingTrades  = java.util.concurrent.atomic.AtomicInteger(0)
+    @Volatile private var totalPnlSol = 0.0
+    @Volatile private var appCtx: android.content.Context? = null
+    private val PREFS_NAME = "metals_trader_v1"
+    private val KEY_BALANCE = "paper_balance"
+    private val KEY_TRADES  = "total_trades"
+    private val KEY_WINS    = "winning_trades"
+    private val KEY_LOSSES  = "losing_trades"
+    private val KEY_PNL     = "total_pnl_sol"
     private var engineJob: Job? = null
     private var monitorJob: Job? = null
     private val scope = CoroutineScope(Dispatchers.Default + SupervisorJob())
@@ -158,6 +169,12 @@ object MetalsTrader {
                 }
             }
         }
+    }
+
+    // V5.9.5: Call this from Activity/Service to provide context for persistence
+    fun initContext(ctx: android.content.Context) {
+        appCtx = ctx.applicationContext
+        loadState()
     }
 
     fun stop() {
@@ -546,6 +563,10 @@ object MetalsTrader {
             } catch (_: Exception) {}
         } else {
             paperBalance += position.size + pnl
+            totalPnlSol  += pnl
+            totalTrades.incrementAndGet()
+            if (isWin) winningTrades.incrementAndGet() else losingTrades.incrementAndGet()
+            saveState()
         }
         positionMap.remove(position.id)
 
@@ -642,6 +663,36 @@ object MetalsTrader {
     fun getLeveragePositions(): List<MetalPosition> = leveragePositions.values.toList()
     fun getAllPositions(): List<MetalPosition> = spotPositions.values.toList() + leveragePositions.values.toList()
     fun getBalance(): Double = paperBalance
+    fun getTotalTrades(): Int = totalTrades.get()
+    fun getWinRate(): Double {
+        val t = winningTrades.get() + losingTrades.get()
+        return if (t > 0) winningTrades.get().toDouble() / t * 100.0 else 0.0
+    }
+
+    // V5.9.5: Local persistence — survives app restarts without needing Turso
+    private fun prefs() = appCtx?.getSharedPreferences(PREFS_NAME, android.content.Context.MODE_PRIVATE)
+
+    private fun saveState() {
+        val p = prefs() ?: return
+        p.edit()
+            .putFloat(KEY_BALANCE, paperBalance.toFloat())
+            .putInt(KEY_TRADES,    totalTrades.get())
+            .putInt(KEY_WINS,      winningTrades.get())
+            .putInt(KEY_LOSSES,    losingTrades.get())
+            .putFloat(KEY_PNL,     totalPnlSol.toFloat())
+            .apply()
+    }
+
+    private fun loadState() {
+        val p = prefs() ?: return
+        val savedBal = p.getFloat(KEY_BALANCE, 0f).toDouble()
+        if (savedBal > 0.0) paperBalance = savedBal
+        totalTrades.set(  p.getInt(KEY_TRADES,  0))
+        winningTrades.set(p.getInt(KEY_WINS,    0))
+        losingTrades.set( p.getInt(KEY_LOSSES,  0))
+        totalPnlSol = p.getFloat(KEY_PNL, 0f).toDouble()
+        ErrorLogger.info(TAG, "[MetalsTrader] Loaded: bal=${"%.2f".format(paperBalance)} trades=${totalTrades.get()} wr=${"%.0f".format(getWinRate())}%")
+    }
     
     // V5.7.6b: Set balance for paper trading
     fun setBalance(balance: Double) {

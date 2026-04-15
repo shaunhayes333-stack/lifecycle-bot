@@ -228,6 +228,10 @@ class MultiAssetActivity : AppCompatActivity() {
         }
         // Restore manually-stopped preference so auto-start respects user's last choice
         try { userManuallyStopped = marketsPrefs.getBoolean("user_manually_stopped", false) } catch (_: Exception) {}
+        // V5.9.5: Provide context to traders so they can persist trade state locally
+        try { CommoditiesTrader.initContext(applicationContext) } catch (_: Exception) {}
+        try { MetalsTrader.initContext(applicationContext) } catch (_: Exception) {}
+        try { ForexTrader.initContext(applicationContext) } catch (_: Exception) {}
         try { startUpdateLoop() } catch (e: Exception) {
             ErrorLogger.crash(TAG, "startUpdateLoop CRASH: ${e.javaClass.simpleName}: ${e.message}", e)
             android.widget.Toast.makeText(this, "Markets updateLoop: ${e.javaClass.simpleName}: ${e.message?.take(60)}", android.widget.Toast.LENGTH_LONG).show()
