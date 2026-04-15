@@ -1490,72 +1490,211 @@ class CryptoAltActivity : AppCompatActivity() {
     }
 
     private fun buildDynTokenRow(tok: DynToken): LinearLayout {
-        val change   = tok.priceChange24h
-        val col      = if (change >= 0) green else red
-        val solPrice = WalletManager.lastKnownSolPrice
-
+        val change    = tok.priceChange24h
+        val changeCol = if (change >= 0) green else red
         val openPos   = CryptoAltTrader.getAllPositions().filter {
             it.closeTime == null && it.market.symbol.equals(tok.symbol, ignoreCase = true)
         }
-        val hasPosition = openPos.isNotEmpty()
-        val cardBg      = if (hasPosition) 0xFF0D1F2D.toInt() else card
+        val hasPos = openPos.isNotEmpty()
 
-        val row = hBox(cardBg, 12, 8).apply { gravity = Gravity.CENTER_VERTICAL }
+        // Scale factor (single column, full width)
+        val scale = 1.0f
 
-        // ── Left: emoji circle instead of heavy ImageView ─────────────────────
-        val emojiBox = tv(tok.emoji, 18f, white).apply {
-            val dp = resources.displayMetrics.density
-            val sz = (36 * dp).toInt()
-            layoutParams = LinearLayout.LayoutParams(sz, sz).also { it.marginEnd = 8 }
-            gravity = Gravity.CENTER
-            setBackgroundColor(0xFF111827.toInt())
-            try {
-                background = androidx.core.content.ContextCompat.getDrawable(
-                    this@CryptoAltActivity, R.drawable.token_logo_bg)
-            } catch (_: Exception) { setBackgroundColor(0xFF111827.toInt()) }
+        // ── Card root ──────────────────────────────────────────────────────────
+        val card = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            val pH = (10 * scale).toInt(); val pV = (10 * scale).toInt()
+            setPadding(pH, pV, pH, pV)
+            isClickable = true; isFocusable = true
+            background = try {
+                if (hasPos)
+                    ContextCompat.getDrawable(this@CryptoAltActivity, R.drawable.card_selected_bg)
+                else
+                    ContextCompat.getDrawable(this@CryptoAltActivity, R.drawable.card_bg)
+            } catch (_: Exception) {
+                null.also { setBackgroundColor(if (hasPos) 0xFF0D1F2D.toInt() else 0xFF0C1018.toInt()) }
+            }
+            setOnClickListener { showTokenDetailDialog(tok, openPos) }
         }
-        row.addView(emojiBox)
 
-        // ── Middle ─────────────────────────────────────────────────────────────
-        val mid = vBox().apply { layoutParams = llp(0, wrap, 1f) }
-        val nameRow = hBox().apply { gravity = Gravity.CENTER_VERTICAL }
-        nameRow.addView(tv(tok.symbol, 13f, white, bold = true))
-        if (tok.isTrending && tok.trendingRank in 0..4)
-            nameRow.addView(tv(" 🔥${tok.trendingRank + 1}", 9f, orange).apply { setPadding(3, 0, 0, 0) })
-        if (tok.isBoosted)
-            nameRow.addView(tv(" ⚡", 9f, purple).apply { setPadding(2, 0, 0, 0) })
-        if (hasPosition)
-            nameRow.addView(tv("  ●", 8f, green, bold = true))
-        mid.addView(nameRow)
-
-        val sub = buildString {
-            if (tok.mcap > 0) append("MC:${tok.fmtMcap()}")
-            if (tok.volume24h > 0) { if (isNotEmpty()) append("  "); append("V:${tok.volume24h.fmtVol()}") }
-            if (tok.sector.isNotBlank() && tok.sector != "Other") { if (isNotEmpty()) append("  "); append(tok.sector) }
+        // ── Row 1: Logo | Symbol+MCap | % Change ──────────────────────────────
+        val row1 = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = android.view.Gravity.CENTER_VERTICAL
         }
-        if (sub.isNotBlank()) mid.addView(tv(sub, 9f, muted, mono = true))
 
-        if (hasPosition) {
+        // Logo — exact same as MainActivity
+        val logoSize = (32 * scale).toInt()
+        val logoView = android.widget.ImageView(this).apply {
+            layoutParams = LinearLayout.LayoutParams(logoSize, logoSize).also {
+                it.marginEnd = (8 * scale).toInt()
+            }
+            scaleType = android.widget.ImageView.ScaleType.CENTER_CROP
+            background = try {
+                ContextCompat.getDrawable(this@CryptoAltActivity, R.drawable.token_logo_bg)
+            } catch (_: Exception) { null }
+            // Use dexscreener CDN if we have a real mint, else fallback to logoUrl
+            val logoUrl = when {
+                tok.mint.length > 20 && !tok.mint.startsWith("static:") && !tok.mint.startsWith("cg:") ->
+                    "https://cdn.dexscreener.com/tokens/solana/${tok.mint}.png"
+                tok.logoUrl.isNotBlank() -> tok.logoUrl
+                else -> DynamicAltTokenRegistry.getCoinGeckoLogoUrl(tok.symbol)
+            }
+            if (logoUrl.isNotBlank()) {
+                load(logoUrl) {
+                    crossfade(true)
+                    placeholder(R.drawable.ic_token_placeholder)
+                    error(R.drawable.ic_token_placeholder)
+                    allowHardware(false)
+                    transformations(CircleCropTransformation())
+                }
+            } else {
+                setImageResource(R.drawable.ic_token_placeholder)
+            }
+        }
+        row1.addView(logoView)
+
+        // Symbol + MCap/Vol column
+        val symbolCol = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
+        }
+        symbolCol.addView(TextView(this).apply {
+            text = tok.symbol
+            textSize = 16f * scale
+            setTextColor(white)
+            typeface = android.graphics.Typeface.DEFAULT_BOLD
+        })
+        val mcapStr = tok.fmtMcap()
+        val liqStr  = when {
+            tok.liquidityUsd >= 1_000_000 -> "${"$"}%.1fM".format(tok.liquidityUsd / 1_000_000)
+            tok.liquidityUsd >= 1_000     -> "${"$"}%.0fK".format(tok.liquidityUsd / 1_000)
+            tok.liquidityUsd > 0          -> "${"$"}%.0f".format(tok.liquidityUsd)
+            else                           -> "—"
+        }
+        symbolCol.addView(TextView(this).apply {
+            text = "MC:$mcapStr L:$liqStr"
+            textSize = 11f * scale
+            setTextColor(muted)
+        })
+        row1.addView(symbolCol)
+
+        // % change (right-aligned, bold)
+        row1.addView(TextView(this).apply {
+            text = if (change != 0.0) "%+.1f%%".format(change) else "—"
+            textSize = 15f * scale
+            setTextColor(if (change != 0.0) changeCol else muted)
+            typeface = android.graphics.Typeface.DEFAULT_BOLD
+        })
+        card.addView(row1)
+
+        // ── Row 2: Source badge | RC | trending/boosted tags ──────────────────
+        val row2 = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = android.view.Gravity.CENTER_VERTICAL
+            setPadding(0, (4 * scale).toInt(), 0, 0)
+        }
+
+        // Source badge — same style as MainActivity (green, badge_bg)
+        val sourceShort = when {
+            tok.source.contains("dex_boosted",   true) -> "BS"
+            tok.source.contains("jupiter",        true) -> "JUP"
+            tok.source.contains("coingecko",      true) -> "CG"
+            tok.source.contains("trending",       true) -> "TR"
+            tok.source.contains("keyword",        true) -> "DX"
+            tok.source.contains("static",         true) -> "ST"
+            else -> tok.source.take(3).uppercase()
+        }
+        row2.addView(TextView(this).apply {
+            text = sourceShort
+            textSize = 8f * scale
+            setTextColor(0xFF14F195.toInt())   // same green as MainActivity
+            setPadding(3, 1, 3, 1)
+            background = try {
+                ContextCompat.getDrawable(this@CryptoAltActivity, R.drawable.badge_bg)
+            } catch (_: Exception) { null.also { setBackgroundColor(0xFF0A2A1A.toInt()) } }
+        })
+
+        // Sector
+        if (tok.sector.isNotBlank() && tok.sector != "Other") {
+            row2.addView(TextView(this).apply {
+                text = " ${tok.sector}"
+                textSize = 9f * scale
+                setTextColor(teal)
+                typeface = android.graphics.Typeface.MONOSPACE
+            })
+        }
+
+        // Volume
+        if (tok.volume24h > 0) {
+            val volStr = when {
+                tok.volume24h >= 1_000_000 -> "V:${"$"}%.1fM".format(tok.volume24h / 1_000_000)
+                tok.volume24h >= 1_000     -> "V:${"$"}%.0fK".format(tok.volume24h / 1_000)
+                else                        -> "V:${"$"}%.0f".format(tok.volume24h)
+            }
+            row2.addView(TextView(this).apply {
+                text = " $volStr"
+                textSize = 9f * scale
+                setTextColor(muted)
+                typeface = android.graphics.Typeface.MONOSPACE
+            })
+        }
+
+        // Trending rank
+        if (tok.isTrending && tok.trendingRank >= 0) {
+            row2.addView(TextView(this).apply {
+                text = " 🔥#${tok.trendingRank + 1}"
+                textSize = 9f * scale
+                setTextColor(orange)
+            })
+        } else if (tok.isBoosted) {
+            row2.addView(TextView(this).apply {
+                text = " ⚡"
+                textSize = 9f * scale
+                setTextColor(purple)
+            })
+        }
+
+        // Open position indicator
+        if (hasPos) {
+            row2.addView(TextView(this).apply {
+                text = "  ● OPEN"
+                textSize = 8f * scale
+                setTextColor(green)
+                typeface = android.graphics.Typeface.DEFAULT_BOLD
+            })
+        }
+        card.addView(row2)
+
+        // ── Row 3: Phase / PnL (only when relevant) ───────────────────────────
+        if (hasPos) {
             val pct = openPos.sumOf { it.getPnlPct() } / openPos.size
             val sol = openPos.sumOf { it.getPnlSol() }
-            mid.addView(tv("${if (pct >= 0) "+" else ""}${"%.2f".format(pct)}%  ${if (sol >= 0) "+" else ""}${"%.4f".format(sol)}◎",
-                9f, if (pct >= 0) green else red, mono = true, bold = true))
+            val pnlCol = if (pct >= 0) green else red
+            val row3 = LinearLayout(this).apply {
+                orientation = LinearLayout.HORIZONTAL
+                gravity = android.view.Gravity.CENTER_VERTICAL
+                setPadding(0, (3 * scale).toInt(), 0, 0)
+            }
+            row3.addView(TextView(this).apply {
+                text = "${if (pct >= 0) "+" else ""}${"%.2f".format(pct)}%  ${if (sol >= 0) "+" else ""}${"%.4f".format(sol)}◎"
+                textSize = 9f * scale
+                setTextColor(pnlCol)
+                typeface = android.graphics.Typeface.MONOSPACE
+                android.graphics.Typeface.DEFAULT_BOLD
+            })
+            card.addView(row3)
         }
-        row.addView(mid)
 
-        // ── Right: price + change ──────────────────────────────────────────────
-        val right = vBox().apply { gravity = Gravity.END }
-        if (tok.price > 0)
-            right.addView(tv(fmtPrice(tok.price), 12f, white, mono = true).apply { gravity = Gravity.END })
-        right.addView(tv(
-            if (change != 0.0) "${if (change >= 0) "+" else ""}${"%.2f".format(change)}%" else "—",
-            11f, if (change != 0.0) col else muted, mono = true
-        ).apply { gravity = Gravity.END })
-        row.addView(right)
-
-        row.setOnClickListener { showTokenDetailDialog(tok, openPos) }
-        return row
+        // ── Wrapper with bottom margin (same as MainActivity) ─────────────────
+        val wrapper = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(0, 0, 0, (6 * scale).toInt())
+        }
+        wrapper.addView(card)
+        return wrapper
     }
+
 
 
     private fun showTokenDetailDialog(tok: DynToken, openPositions: List<CryptoAltTrader.AltPosition>) {
@@ -1949,125 +2088,329 @@ class CryptoAltActivity : AppCompatActivity() {
         val watchlistItems   = WatchlistEngine.getWatchlist()
         val probationEntries = com.lifecyclebot.engine.GlobalTradeRegistry.getProbationEntries()
 
-        // ── Probation section (compact horizontal scroll) ──────────────────────
-        if (probationEntries.isNotEmpty()) {
-            llContent.addView(tv("⏳ Probation (${probationEntries.size})", 11f, amber, bold = true).apply {
-                setPadding(16, 10, 16, 4)
+        // ── Column visibility (mirrors MainActivity 3-column layout) ───────────
+        val openPositions = CryptoAltTrader.getAllPositions().filter { it.closeTime == null }
+        val hasProb  = probationEntries.isNotEmpty()
+        val hasOpen  = openPositions.isNotEmpty()
+        val colCount = listOfNotNull(
+            if (hasProb) "prob" else null,
+            "watch",
+            if (hasOpen) "pos" else null
+        ).size
+        val scaleFactor = when (colCount) { 3 -> 0.85f; 2 -> 0.92f; else -> 1.0f }
+
+        // ── Header row: Probation(n) | Watchlist(n) | Positions(n) ───────────
+        val headerRow = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            layoutParams = llp(match, wrap).apply { bottomMargin = 4 }
+        }
+        if (hasProb) {
+            headerRow.addView(TextView(this).apply {
+                text = "⏳ Probation (${probationEntries.size})"
+                textSize = 11f * scaleFactor
+                setTextColor(amber); typeface = android.graphics.Typeface.DEFAULT_BOLD
+                layoutParams = LinearLayout.LayoutParams(0, wrap, 1f)
             })
-            val probScroll = android.widget.HorizontalScrollView(this).apply {
-                layoutParams = llp(match, wrap).apply { bottomMargin = 8 }
+        }
+        headerRow.addView(TextView(this).apply {
+            text = "⭐ Watchlist (${watchlistItems.size})"
+            textSize = 11f * scaleFactor
+            setTextColor(blue); typeface = android.graphics.Typeface.DEFAULT_BOLD
+            layoutParams = LinearLayout.LayoutParams(0, wrap, 1.4f)
+        })
+        if (hasOpen) {
+            headerRow.addView(TextView(this).apply {
+                text = "🟢 Positions (${openPositions.size})"
+                textSize = 11f * scaleFactor
+                setTextColor(green); typeface = android.graphics.Typeface.DEFAULT_BOLD
+                layoutParams = LinearLayout.LayoutParams(0, wrap, 1f)
+            })
+        }
+        llContent.addView(headerRow)
+        llContent.addView(thinDivider())
+
+        // ── Main 3-column row ──────────────────────────────────────────────────
+        val columnsRow = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            layoutParams = llp(match, wrap)
+            gravity = android.view.Gravity.TOP
+        }
+
+        // ── PROBATION COLUMN ───────────────────────────────────────────────────
+        if (hasProb) {
+            val probCol = LinearLayout(this).apply {
+                orientation = LinearLayout.VERTICAL
+                layoutParams = LinearLayout.LayoutParams(0, wrap, 1f).apply { marginEnd = 4 }
             }
-            val probRow = hBox().apply { setPadding(12, 0, 12, 0) }
             probationEntries.forEach { entry ->
                 val elapsed = (System.currentTimeMillis() - entry.addedAt) / 1000
-                val elapsedStr = if (elapsed < 60) "${elapsed}s" else "${elapsed/60}m"
-                val chip = vBox(card, 8, 6).apply {
-                    layoutParams = llp(wrap, wrap).apply { marginEnd = 6 }
-                    minWidth = (80 * resources.displayMetrics.density).toInt()
+                val elapsedStr = if (elapsed < 60) "${elapsed}s" else "${elapsed / 60}m"
+                val probCard = LinearLayout(this).apply {
+                    orientation = LinearLayout.VERTICAL
+                    val p = (8 * scaleFactor).toInt()
+                    setPadding(p, p, p, p)
+                    background = try {
+                        ContextCompat.getDrawable(this@CryptoAltActivity, R.drawable.card_bg)
+                    } catch (_: Exception) { null.also { setBackgroundColor(0xFF0C1018.toInt()) } }
                 }
-                chip.addView(tv(entry.symbol.take(8), 11f, amber, bold = true).apply { gravity = Gravity.CENTER })
-                chip.addView(tv(elapsedStr, 9f, muted, mono = true).apply { gravity = Gravity.CENTER })
-                chip.addView(tv(entry.source.take(12), 8f, muted).apply { gravity = Gravity.CENTER })
-                probRow.addView(chip)
-            }
-            probScroll.addView(probRow)
-            llContent.addView(probScroll)
-            llContent.addView(thinDivider())
-        }
-
-        // ── Watchlist header ───────────────────────────────────────────────────
-        llContent.addView(tv("⭐ Watchlist (${watchlistItems.size})", 11f, blue, bold = true).apply {
-            setPadding(16, 8, 16, 6)
-        })
-
-        if (watchlistItems.isEmpty()) {
-            addEmptyState("No tokens on watchlist.\nTap a token in Scanner and choose 📌 Watch.")
-            return
-        }
-
-        // ── Compact 2-column grid ──────────────────────────────────────────────
-        val solPriceW = WalletManager.lastKnownSolPrice
-        var i = 0
-        while (i < watchlistItems.size) {
-            val rowLayout = hBox().apply {
-                layoutParams = llp(match, wrap).apply { bottomMargin = 5 }
-                setPadding(12, 0, 12, 0)
-            }
-
-            listOf(
-                watchlistItems.getOrNull(i),
-                watchlistItems.getOrNull(i + 1)
-            ).forEach { item ->
-                if (item == null) {
-                    rowLayout.addView(View(this).apply { layoutParams = llp(0, 1, 1f).apply { marginStart = 4 } })
-                    return@forEach
+                // Row 1: Logo + Symbol + Timer
+                val r1 = LinearLayout(this).apply {
+                    orientation = LinearLayout.HORIZONTAL
+                    gravity = android.view.Gravity.CENTER_VERTICAL
                 }
-                val symbol = item.symbol
-                val tok    = DynamicAltTokenRegistry.getTokenBySymbol(symbol)
-                val change = tok?.priceChange24h ?: 0.0
-                val col    = if (change >= 0) green else red
-                val openPos = CryptoAltTrader.getAllPositions().filter {
-                    it.closeTime == null && it.market.symbol.equals(symbol, ignoreCase = true)
+                val logoSz = (28 * scaleFactor).toInt()
+                val logoV = android.widget.ImageView(this).apply {
+                    layoutParams = LinearLayout.LayoutParams(logoSz, logoSz).also { it.marginEnd = (6 * scaleFactor).toInt() }
+                    scaleType = android.widget.ImageView.ScaleType.CENTER_CROP
+                    background = try { ContextCompat.getDrawable(this@CryptoAltActivity, R.drawable.token_logo_bg) } catch (_: Exception) { null }
+                    load("https://cdn.dexscreener.com/tokens/solana/${entry.mint}.png") {
+                        crossfade(true); placeholder(R.drawable.ic_token_placeholder)
+                        error(R.drawable.ic_token_placeholder)
+                        transformations(coil.transform.CircleCropTransformation())
+                    }
                 }
-                val hasPos = openPos.isNotEmpty()
-
-                val wCard = vBox(if (hasPos) 0xFF0D1F2D.toInt() else card, 8, 8).apply {
-                    layoutParams = llp(0, wrap, 1f).apply { marginStart = 4 }
-                    isClickable = true; isFocusable = true
-                    if (tok != null) setOnClickListener { showTokenDetailDialog(tok, openPos) }
-                }
-
-                // Row 1: emoji + symbol + remove X
-                val r1 = hBox().apply { gravity = Gravity.CENTER_VERTICAL }
-                r1.addView(tv(tok?.emoji ?: "⚪", 14f, white).apply {
-                    layoutParams = llp(wrap, wrap).apply { marginEnd = 4 }
+                r1.addView(logoV)
+                r1.addView(TextView(this).apply {
+                    text = entry.symbol; textSize = 11f * scaleFactor
+                    setTextColor(amber); typeface = android.graphics.Typeface.DEFAULT_BOLD
+                    layoutParams = LinearLayout.LayoutParams(0, wrap, 1f)
                 })
-                r1.addView(tv(symbol.take(8), 12f, white, bold = true).apply { layoutParams = llp(0, wrap, 1f) })
-                if (hasPos) r1.addView(tv("●", 8f, green).apply { setPadding(2, 0, 4, 0) })
-                r1.addView(tv("✕", 10f, muted).apply {
-                    setPadding(4, 2, 2, 2)
-                    setOnClickListener { WatchlistEngine.removeFromWatchlist(symbol); selectTab(1) }
+                r1.addView(TextView(this).apply { text = elapsedStr; textSize = 9f * scaleFactor; setTextColor(muted) })
+                probCard.addView(r1)
+                // Row 2: reason badge
+                val r2 = LinearLayout(this).apply {
+                    orientation = LinearLayout.HORIZONTAL
+                    gravity = android.view.Gravity.CENTER_VERTICAL
+                    setPadding(0, (3 * scaleFactor).toInt(), 0, 0)
+                }
+                val reasonShort = when {
+                    entry.isSingleSource -> "1-src"
+                    entry.isEstimatedLiquidity -> "est-$"
+                    entry.initialConfidence < 50 -> "low-c"
+                    else -> "wait"
+                }
+                r2.addView(TextView(this).apply {
+                    text = reasonShort; textSize = 9f * scaleFactor
+                    setTextColor(amber); setPadding(3, 1, 3, 1)
+                    background = try { ContextCompat.getDrawable(this@CryptoAltActivity, R.drawable.badge_bg) } catch (_: Exception) { null }
+                })
+                if (entry.rcScore >= 0) {
+                    r2.addView(TextView(this).apply {
+                        text = " RC:${entry.rcScore}"; textSize = 9f * scaleFactor
+                        setTextColor(if (entry.rcScore >= 30) green else if (entry.rcScore >= 15) 0xFFFFCC00.toInt() else red)
+                        typeface = android.graphics.Typeface.MONOSPACE
+                    })
+                }
+                probCard.addView(r2)
+                val wrap = LinearLayout(this).apply {
+                    orientation = LinearLayout.VERTICAL
+                    setPadding(0, 0, 0, (4 * scaleFactor).toInt())
+                }
+                wrap.addView(probCard)
+                probCol.addView(wrap)
+            }
+            columnsRow.addView(probCol)
+            // Divider
+            columnsRow.addView(android.view.View(this).apply {
+                layoutParams = LinearLayout.LayoutParams(1, LinearLayout.LayoutParams.MATCH_PARENT).also {
+                    it.marginStart = 2; it.marginEnd = 4
+                }
+                setBackgroundColor(divBg)
+            })
+        }
+
+        // ── WATCHLIST COLUMN ───────────────────────────────────────────────────
+        val watchCol = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            layoutParams = LinearLayout.LayoutParams(0, wrap, 1.4f).apply {
+                marginEnd = if (hasOpen) 4 else 0
+            }
+        }
+        if (watchlistItems.isEmpty()) {
+            watchCol.addView(TextView(this).apply {
+                text = "(empty — tap Scanner → 📌 Add)"; textSize = 10f; setTextColor(muted)
+                setPadding(4, 8, 4, 4)
+            })
+        } else {
+            watchlistItems.forEach { item ->
+                val sym  = item.symbol
+                val tok  = DynamicAltTokenRegistry.getTokenBySymbol(sym)
+                val chg  = tok?.priceChange24h ?: item.change24hPct
+                val col  = if (chg >= 0) green else red
+                val pos  = openPositions.filter { it.market.symbol.equals(sym, ignoreCase = true) }
+                val hasP = pos.isNotEmpty()
+
+                val wCard = LinearLayout(this).apply {
+                    orientation = LinearLayout.VERTICAL
+                    val p = (10 * scaleFactor).toInt()
+                    setPadding(p, p, p, p)
+                    isClickable = true; isFocusable = true
+                    if (tok != null) setOnClickListener { showTokenDetailDialog(tok, pos) }
+                    background = try {
+                        if (hasP) ContextCompat.getDrawable(this@CryptoAltActivity, R.drawable.card_selected_bg)
+                        else ContextCompat.getDrawable(this@CryptoAltActivity, R.drawable.card_bg)
+                    } catch (_: Exception) { null.also { setBackgroundColor(if (hasP) 0xFF0D1F2D.toInt() else 0xFF0C1018.toInt()) } }
+                }
+
+                // Row 1: Logo + symbol + % change
+                val r1 = LinearLayout(this).apply {
+                    orientation = LinearLayout.HORIZONTAL
+                    gravity = android.view.Gravity.CENTER_VERTICAL
+                }
+                val logoSz = (28 * scaleFactor).toInt()
+                val logoV = android.widget.ImageView(this).apply {
+                    layoutParams = LinearLayout.LayoutParams(logoSz, logoSz).also { it.marginEnd = (6 * scaleFactor).toInt() }
+                    scaleType = android.widget.ImageView.ScaleType.CENTER_CROP
+                    background = try { ContextCompat.getDrawable(this@CryptoAltActivity, R.drawable.token_logo_bg) } catch (_: Exception) { null }
+                    val logoUrl = when {
+                        tok != null && tok.mint.length > 20 && !tok.mint.startsWith("static:") && !tok.mint.startsWith("cg:") ->
+                            "https://cdn.dexscreener.com/tokens/solana/${tok.mint}.png"
+                        tok?.logoUrl?.isNotBlank() == true -> tok.logoUrl
+                        else -> ""
+                    }
+                    if (logoUrl.isNotBlank()) load(logoUrl) {
+                        crossfade(true); placeholder(R.drawable.ic_token_placeholder)
+                        error(R.drawable.ic_token_placeholder)
+                        transformations(coil.transform.CircleCropTransformation())
+                    } else setImageResource(R.drawable.ic_token_placeholder)
+                }
+                r1.addView(logoV)
+                val symCol = LinearLayout(this).apply {
+                    orientation = LinearLayout.VERTICAL
+                    layoutParams = LinearLayout.LayoutParams(0, wrap, 1f)
+                }
+                symCol.addView(TextView(this).apply {
+                    text = sym.take(10); textSize = 13f * scaleFactor
+                    setTextColor(white); typeface = android.graphics.Typeface.DEFAULT_BOLD
+                })
+                if (tok != null) {
+                    symCol.addView(TextView(this).apply {
+                        text = "MC:${tok.fmtMcap()}"; textSize = 9f * scaleFactor; setTextColor(muted)
+                    })
+                }
+                r1.addView(symCol)
+                r1.addView(TextView(this).apply {
+                    text = if (chg != 0.0) "%+.1f%%".format(chg) else "—"
+                    textSize = 13f * scaleFactor
+                    setTextColor(if (chg != 0.0) col else muted)
+                    typeface = android.graphics.Typeface.DEFAULT_BOLD
                 })
                 wCard.addView(r1)
 
-                // Row 2: price + change
-                val r2 = hBox().apply { setPadding(0, 2, 0, 0) }
-                if (tok != null && tok.price > 0)
-                    r2.addView(tv(fmtPrice(tok.price), 10f, white, mono = true).apply { layoutParams = llp(0, wrap, 1f) })
-                else
-                    r2.addView(tv("—", 10f, muted, mono = true).apply { layoutParams = llp(0, wrap, 1f) })
-                r2.addView(tv(
-                    if (change != 0.0) "${if (change >= 0) "+" else ""}${"%.1f".format(change)}%" else "—",
-                    10f, if (change != 0.0) col else muted, mono = true
-                ))
+                // Row 2: source badge + remove X
+                val r2 = LinearLayout(this).apply {
+                    orientation = LinearLayout.HORIZONTAL
+                    gravity = android.view.Gravity.CENTER_VERTICAL
+                    setPadding(0, (3 * scaleFactor).toInt(), 0, 0)
+                }
+                if (tok != null) {
+                    val srcShort = when {
+                        tok.isTrending -> "TR"
+                        tok.isBoosted  -> "BS"
+                        tok.source.contains("jupiter", true) -> "JUP"
+                        tok.source.contains("coingecko", true) -> "CG"
+                        tok.source.contains("static", true) -> "ST"
+                        else -> tok.source.take(3).uppercase()
+                    }
+                    r2.addView(TextView(this).apply {
+                        text = srcShort; textSize = 8f * scaleFactor
+                        setTextColor(0xFF14F195.toInt()); setPadding(3, 1, 3, 1)
+                        background = try { ContextCompat.getDrawable(this@CryptoAltActivity, R.drawable.badge_bg) } catch (_: Exception) { null }
+                    })
+                }
+                if (tok?.price != null && tok.price > 0) {
+                    r2.addView(TextView(this).apply {
+                        text = "  ${fmtPrice(tok.price)}"; textSize = 9f * scaleFactor
+                        setTextColor(white); typeface = android.graphics.Typeface.MONOSPACE
+                        layoutParams = LinearLayout.LayoutParams(0, wrap, 1f)
+                    })
+                } else {
+                    r2.addView(android.view.View(this).apply { layoutParams = LinearLayout.LayoutParams(0, 1, 1f) })
+                }
+                r2.addView(TextView(this).apply {
+                    text = "✕"; textSize = 11f * scaleFactor; setTextColor(red); setPadding(6, 2, 2, 2)
+                    setOnClickListener { WatchlistEngine.removeFromWatchlist(sym); selectTab(1) }
+                })
                 wCard.addView(r2)
 
-                // Row 3: MCap (compact)
-                if (tok != null && tok.mcap > 0) {
-                    wCard.addView(tv("MC:${tok.fmtMcap()}", 8f, muted, mono = true))
+                if (hasP) {
+                    val pct = pos.sumOf { it.getPnlPct() } / pos.size
+                    val sol = pos.sumOf { it.getPnlSol() }
+                    wCard.addView(TextView(this).apply {
+                        text = "${if (pct >= 0) "+" else ""}${"%.2f".format(pct)}%  ${if (sol >= 0) "+" else ""}${"%.4f".format(sol)}◎"
+                        textSize = 9f * scaleFactor
+                        setTextColor(if (pct >= 0) green else red)
+                        typeface = android.graphics.Typeface.MONOSPACE
+                    })
                 }
 
-                // PnL if open
-                if (hasPos) {
-                    val pct = openPos.sumOf { it.getPnlPct() } / openPos.size
-                    val sol = openPos.sumOf { it.getPnlSol() }
-                    val pnlCol = if (pct >= 0) green else red
-                    wCard.addView(tv("${if (pct >= 0) "+" else ""}${"%.1f".format(pct)}% · ${if (sol >= 0) "+" else ""}${"%.3f".format(sol)}◎",
-                        9f, pnlCol, mono = true, bold = true))
+                val wrapV = LinearLayout(this).apply {
+                    orientation = LinearLayout.VERTICAL
+                    setPadding(0, 0, 0, (6 * scaleFactor).toInt())
                 }
-
-                rowLayout.addView(wCard)
+                wrapV.addView(wCard)
+                watchCol.addView(wrapV)
             }
-            llContent.addView(rowLayout)
-            i += 2
+        }
+        columnsRow.addView(watchCol)
+
+        // ── POSITIONS COLUMN (right) ───────────────────────────────────────────
+        if (hasOpen) {
+            columnsRow.addView(android.view.View(this).apply {
+                layoutParams = LinearLayout.LayoutParams(1, LinearLayout.LayoutParams.MATCH_PARENT).also {
+                    it.marginStart = 2; it.marginEnd = 4
+                }
+                setBackgroundColor(divBg)
+            })
+            val posCol = LinearLayout(this).apply {
+                orientation = LinearLayout.VERTICAL
+                layoutParams = LinearLayout.LayoutParams(0, wrap, 1f)
+            }
+            val solPrice = WalletManager.lastKnownSolPrice
+            openPositions.forEach { pos ->
+                val pct    = pos.getPnlPct()
+                val sol    = pos.getPnlSol()
+                val pnlCol = if (pct >= 0) green else red
+                val pCard  = LinearLayout(this).apply {
+                    orientation = LinearLayout.VERTICAL
+                    val p = (8 * scaleFactor).toInt(); setPadding(p, p, p, p)
+                    background = try { ContextCompat.getDrawable(this@CryptoAltActivity, R.drawable.card_selected_bg) } catch (_: Exception) { null.also { setBackgroundColor(0xFF0D1F2D.toInt()) } }
+                }
+                pCard.addView(TextView(this).apply {
+                    text = pos.market.symbol; textSize = 12f * scaleFactor
+                    setTextColor(white); typeface = android.graphics.Typeface.DEFAULT_BOLD
+                })
+                pCard.addView(TextView(this).apply {
+                    text = "${if (pct >= 0) "+" else ""}${"%.2f".format(pct)}%"
+                    textSize = 11f * scaleFactor; setTextColor(pnlCol)
+                    typeface = android.graphics.Typeface.DEFAULT_BOLD
+                })
+                pCard.addView(TextView(this).apply {
+                    text = "${if (sol >= 0) "+" else ""}${"%.4f".format(sol)}◎"
+                    textSize = 9f * scaleFactor; setTextColor(pnlCol); typeface = android.graphics.Typeface.MONOSPACE
+                })
+                if (solPrice > 0) {
+                    pCard.addView(TextView(this).apply {
+                        text = "≈$${"%.2f".format(sol * solPrice)}"
+                        textSize = 8f * scaleFactor; setTextColor(muted); typeface = android.graphics.Typeface.MONOSPACE
+                    })
+                }
+                val wrapV = LinearLayout(this).apply {
+                    orientation = LinearLayout.VERTICAL
+                    setPadding(0, 0, 0, (6 * scaleFactor).toInt())
+                }
+                wrapV.addView(pCard); posCol.addView(wrapV)
+            }
+            columnsRow.addView(posCol)
         }
 
-        // Add to watchlist hint
-        llContent.addView(tv("Tap a token in Scanner → 📌 Add to Watchlist", 10f, muted).apply {
-            setPadding(16, 12, 16, 8); gravity = Gravity.CENTER
-            layoutParams = llp(match, wrap)
-        })
+        llContent.addView(columnsRow)
+
+        if (watchlistItems.isEmpty() && !hasProb && !hasOpen) {
+            addEmptyState("No tokens on watchlist.\nTap Scanner → 📌 Add to Watchlist")
+        }
     }
+
 
 
     // ═══════════════════════════════════════════════════════════════════════════
