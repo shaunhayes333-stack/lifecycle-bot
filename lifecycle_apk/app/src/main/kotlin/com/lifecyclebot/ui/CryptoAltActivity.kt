@@ -932,7 +932,7 @@ class CryptoAltActivity : AppCompatActivity() {
     private fun buildBlueChipTile() {
         val stats     = BlueChipTraderAI.getStats()
         val wr        = BlueChipTraderAI.getWinRatePct().toDouble()
-        val bal       = BlueChipTraderAI.getCurrentBalance()
+        val bal       = CryptoAltTrader.getBalance()  // V5.9.5: shared wallet
         val pnl       = BlueChipTraderAI.getDailyPnlSol()
         val positions = BlueChipTraderAI.getActivePositions()
         val totalRisk = positions.sumOf { it.entrySol }
@@ -1168,9 +1168,9 @@ class CryptoAltActivity : AppCompatActivity() {
         ) { showAiDialog("🔵 Blue Chip",
             buildString {
                 append("MCap Range: \$1M+\n")
-                append("Balance: ${"%.3f".format(BlueChipTraderAI.getCurrentBalance())}◎\n")
+                append("Balance (shared): ${"%.4f".format(CryptoAltTrader.getBalance())}◎\n")
                 append("Daily PnL: ${if (BlueChipTraderAI.getDailyPnlSol() >= 0) "+" else ""}${"%.3f".format(BlueChipTraderAI.getDailyPnlSol())}◎\n")
-                append("Win Rate: ${"%.1f".format(BlueChipTraderAI.getWinRatePct())}%\n")
+                append("Win Rate: ${BlueChipTraderAI.getWinRatePct()}%\n")
                 append("Open Positions: ${bcStats.activePositions}")
             }) })
 
@@ -3117,7 +3117,7 @@ class CryptoAltActivity : AppCompatActivity() {
         llContent.addView(buildSubAiCard("💩 ShitCoin",
             mode   = scStats.mode.name,
             paper  = scStats.isPaperMode,
-            balance= scStats.balanceSol,
+            balance= CryptoAltTrader.getBalance(),  // shared wallet
             wr     = scStats.winRate.toInt(),
             open   = scStats.activePositions,
             pnl    = scStats.dailyPnlSol))
@@ -3126,7 +3126,7 @@ class CryptoAltActivity : AppCompatActivity() {
         llContent.addView(buildSubAiCard("🔵 BlueChip",
             mode   = bcStats.mode.name,
             paper  = bcStats.isPaperMode,
-            balance= bcStats.balanceSol,
+            balance= CryptoAltTrader.getBalance(),  // V5.9.5: shared wallet
             wr     = bcStats.winRate.toInt(),
             open   = bcStats.activePositions,
             pnl    = bcStats.dailyPnlSol))
@@ -3144,7 +3144,7 @@ class CryptoAltActivity : AppCompatActivity() {
         llContent.addView(buildSubAiCard("🌙 Moonshot",
             mode   = "ACTIVE",
             paper  = MoonshotTraderAI.isPaperMode,
-            balance= MoonshotTraderAI.getBalance(MoonshotTraderAI.isPaperMode),
+            balance= CryptoAltTrader.getBalance(),  // shared wallet
             wr     = moWr,
             open   = MoonshotTraderAI.getActivePositions().size,
             pnl    = MoonshotTraderAI.getDailyPnlSol()))
@@ -3694,7 +3694,7 @@ class CryptoAltActivity : AppCompatActivity() {
             val stats     = BlueChipTraderAI.getStats()
             val wr        = BlueChipTraderAI.getWinRatePct()
             val pnl       = BlueChipTraderAI.getDailyPnlSol()
-            val bal       = BlueChipTraderAI.getCurrentBalance()
+            val bal       = CryptoAltTrader.getBalance()  // V5.9.5: shared wallet
             val positions = BlueChipTraderAI.getActivePositions()
             val modeEmoji = when (stats.mode) {
                 BlueChipTraderAI.BlueChipMode.HUNTING    -> "🎯"
