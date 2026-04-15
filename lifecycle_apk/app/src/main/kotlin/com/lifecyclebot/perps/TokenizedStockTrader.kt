@@ -1047,7 +1047,8 @@ fun isLiveReady(): Boolean = totalTrades.get() >= 5000 && getWinRate() >= 50.0
         // Record to FluidLearningAI
         // V5.7.6b: Use Markets-specific recording to avoid affecting Meme thresholds
         try {
-            FluidLearningAI.recordMarketsPaperTrade(isWin)
+            if (isPaperMode.get()) FluidLearningAI.recordMarketsPaperTrade(isWin)
+            else FluidLearningAI.recordMarketsLiveTrade(isWin)
         } catch (_: Exception) {}
         
         // V5.7.6: Record to PerpsLearningBridge for unified tracking

@@ -542,7 +542,7 @@ object FluidLearningAI {
      * Call this when Markets traders open a position.
      */
     fun recordMarketsTradeStart() {
-        marketsSessionTrades.incrementAndGet()
+    // Trade open noted — learning credit recorded at close via recordMarketsPaperTrade/recordMarketsLiveTrade
         marketsLastProgressUpdate.set(0)  // Force progress recalculation
         saveMarketsPrefs()  // V5.8.0: persist so count survives restart
         ErrorLogger.debug(TAG, "📊 Markets trade started | total=${getMarketsTradeCount()} | progress=${(getMarketsLearningProgress()*100).toInt()}%")
