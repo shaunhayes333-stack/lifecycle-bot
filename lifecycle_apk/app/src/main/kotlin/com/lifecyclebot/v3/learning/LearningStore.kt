@@ -38,6 +38,14 @@ data class LearningEvent(
  */
 class LearningStore {
     private val events = mutableListOf<LearningEvent>()
+    private var shadowBlockedCount    = 0L
+    private var shadowBlockedWouldWin = 0L
+    private var shadowPassedCount     = 0L
+    private var shadowPassedWins      = 0L
+    fun recordShadowBlock(wouldHaveWon: Boolean) { shadowBlockedCount++; if (wouldHaveWon) shadowBlockedWouldWin++ }
+    fun recordShadowPass(wasWin: Boolean) { shadowPassedCount++; if (wasWin) shadowPassedWins++ }
+    private fun computeFalseBlockRate() = if (shadowBlockedCount > 0) (shadowBlockedWouldWin.toDouble() / shadowBlockedCount * 100.0).coerceIn(0.0, 100.0) else 0.0
+    private fun computeMissedWinnerRate() = if (shadowPassedCount > 0) (shadowPassedWins.toDouble() / shadowPassedCount * 100.0).coerceIn(0.0, 100.0) else 0.0
     
     fun record(event: LearningEvent) {
         events.add(event)
@@ -63,18 +71,8 @@ class LearningStore {
             classifiedTrades = events.size,
             last20WinRatePct = if (recent20.isNotEmpty()) (wins.toDouble() / recent20.size) * 100 else 0.0,
             payoffRatio = if (avgLoss > 0) avgWin / avgLoss else 1.0,
-            falseBlockRatePct = run {
-                // V5.9: ratio of BLOCK decisions that were actually wins (from shadow)
-                val blocked = shadowBlockedCount.get().toDouble()
-                val falseBlocks = shadowBlockedWouldWin.get().toDouble()
-                if (blocked > 0) (falseBlocks / blocked * 100.0).coerceIn(0.0, 100.0) else 0.0
-            },
-            missedWinnerRatePct = run {
-                // V5.9: ratio of passed trades that were winners (from shadow)
-                val passed = shadowPassedCount.get().toDouble()
-                val wins = shadowPassedWins.get().toDouble()
-                if (passed > 0) (wins / passed * 100.0).coerceIn(0.0, 100.0) else 0.0
-            }
+            falseBlockRatePct = computeFalseBlockRate(),
+            missedWinnerRatePct = computeMissedWinnerRate()
         )
     }
     

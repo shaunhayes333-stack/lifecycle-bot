@@ -59,6 +59,7 @@ object OnDeviceMLEngine {
     // Statistics for normalization
     private var featureMeans = FloatArray(NUM_FEATURES) { 0f }
     private var featureStds = FloatArray(NUM_FEATURES) { 1f }
+    private var isNormalized = false
     
     /**
      * Feature vector extracted from a trade for training/inference.
@@ -569,8 +570,8 @@ object OnDeviceMLEngine {
     private fun loadNormalizationStats(context: Context) {
         // V5.9: restore normalization stats from SharedPreferences
         val prefs = context.getSharedPreferences("ml_norm_stats", android.content.Context.MODE_PRIVATE)
-        featureMeans = FloatArray(FEATURE_DIM) { i -> prefs.getFloat("mean_$i", 0f) }
-        featureStds  = FloatArray(FEATURE_DIM) { i -> prefs.getFloat("std_$i", 1f).coerceAtLeast(1e-6f) }
+        featureMeans = FloatArray(NUM_FEATURES) { i -> prefs.getFloat("mean_$i", 0f) }
+        featureStds  = FloatArray(NUM_FEATURES) { i -> prefs.getFloat("std_$i", 1f).coerceAtLeast(1e-6f) }
         isNormalized = prefs.getBoolean("is_normalized", false)
     }
 

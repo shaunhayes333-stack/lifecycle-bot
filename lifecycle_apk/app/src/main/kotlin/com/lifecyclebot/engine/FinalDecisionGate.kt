@@ -683,8 +683,8 @@ object FinalDecisionGate {
                 holderCount = ts.history.lastOrNull()?.holderCount ?: 0,
                 holderGrowthPct = run {
                     // V5.9: estimate from token age vs holder count
-                    val hc = holderCount.toDouble().coerceAtLeast(1.0)
-                    val ageH = tokenAgeHours.coerceAtLeast(0.01)
+                    val hc = (ts.history.lastOrNull()?.holderCount ?: 0).toDouble().coerceAtLeast(1.0)
+                    val ageH = ((System.currentTimeMillis() - ts.addedToWatchlistAt) / 3_600_000.0).coerceAtLeast(0.01)
                     ((hc / ageH) / 100.0).coerceIn(0.0, 100.0)
                 },
                 rugcheckScore = ts.safety.rugcheckScore.takeIf { it >= 0 } ?: 50,

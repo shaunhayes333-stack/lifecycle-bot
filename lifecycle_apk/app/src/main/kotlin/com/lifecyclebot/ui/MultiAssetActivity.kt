@@ -1608,11 +1608,11 @@ class MultiAssetActivity : AppCompatActivity() {
                     val result = PerpsTraderAI.closePosition(
                         positionId = pos.id,
                         exitPrice  = currentPrice,
-                        exitReason = PerpsExitSignal.MANUAL_CLOSE
+                        exitReason = PerpsExitSignal.AI_EXIT
                     )
                     withContext(Dispatchers.Main) {
                         val msg = if (result != null)
-                            "✅ ${pos.symbol} closed | PnL: ${if (result.pnlSol >= 0) "+" else ""}${"%.4f".format(result.pnlSol)} SOL"
+                            "✅ ${pos.symbol} closed | PnL: ${if (result.pnlSol >= 0) "+" else ""}${"%.4f".format(result.sizeSol * result.pnlPct / 100.0)} SOL"
                         else "⚠️ Could not close ${pos.symbol} — position not found"
                         android.widget.Toast.makeText(this@MultiAssetActivity, msg, android.widget.Toast.LENGTH_LONG).show()
                         refreshData()
@@ -1646,8 +1646,8 @@ class MultiAssetActivity : AppCompatActivity() {
                 PerpsTraderAI.getActivePositions().forEach { perpsPos ->
                     try {
                         val mkt = PerpsMarket.values().find { it.symbol == perpsPos.market.symbol }
-                        val price = if (mkt != null) PerpsMarketDataFetcher.getMarketData(mkt).price else perpsPos.markPrice
-                        val r = PerpsTraderAI.closePosition(perpsPos.id, price, PerpsExitSignal.MANUAL_CLOSE)
+                        val price = if (mkt != null) PerpsMarketDataFetcher.getMarketData(mkt).price else perpsPos.entryPrice
+                        val r = PerpsTraderAI.closePosition(perpsPos.id, price, PerpsExitSignal.AI_EXIT)
                         if (r != null) closed++ else failed++
                     } catch (_: Exception) { failed++ }
                 }
@@ -2285,7 +2285,9 @@ class MultiAssetActivity : AppCompatActivity() {
         val sizeSol: Double = 0.0,
         val sizeUsd: Double = 0.0,
         val openTime: Long = 0L,
-        val leverage: Double = 1.0
+        val leverage: Double = 1.0,
+        val id: String = "",
+        val markPrice: Double = 0.0
     )
     
     private fun getCurrentPositionCount(): Int {
@@ -2633,14 +2635,14 @@ class MultiAssetActivity : AppCompatActivity() {
                     .filter { period == "all" || run {
                         val cal = java.util.Calendar.getInstance()
                         when (period) {
-                            "ytd"   -> { cal.set(java.util.Calendar.DAY_OF_YEAR, 1); it.exitTime >= cal.timeInMillis }
-                            "q"     -> { cal.set(java.util.Calendar.DAY_OF_MONTH, 1); cal.add(java.util.Calendar.MONTH, -(cal.get(java.util.Calendar.MONTH) % 3)); it.exitTime >= cal.timeInMillis }
-                            "month" -> { cal.set(java.util.Calendar.DAY_OF_MONTH, 1); it.exitTime >= cal.timeInMillis }
+                            "ytd"   -> { cal.set(java.util.Calendar.DAY_OF_YEAR, 1); it.closeTime >= cal.timeInMillis }
+                            "q"     -> { cal.set(java.util.Calendar.DAY_OF_MONTH, 1); cal.add(java.util.Calendar.MONTH, -(cal.get(java.util.Calendar.MONTH) % 3)); it.closeTime >= cal.timeInMillis }
+                            "month" -> { cal.set(java.util.Calendar.DAY_OF_MONTH, 1); it.closeTime >= cal.timeInMillis }
                             else    -> true
                         }
                     }}
                     .forEach { t ->
-                        sb.append("${fmt.format(java.util.Date(t.exitTime))},${t.market.symbol},${t.direction.name},${t.entryPrice},${t.exitPrice},${t.sizeSol},${t.pnlSol},${t.pnlPct},${if (t.isPaper) "PAPER" else "LIVE"}\n")
+                        sb.append("${fmt.format(java.util.Date(t.closeTime))},${t.market.symbol},${t.direction.name},${t.entryPrice},${t.exitPrice},${t.sizeSol},${"%.6f".format(t.sizeSol * t.pnlPct / 100.0)},${t.pnlPct},${if (t.isPaper) "PAPER" else "LIVE"}\n")
                     }
                 val dir = android.os.Environment.getExternalStoragePublicDirectory(android.os.Environment.DIRECTORY_DOWNLOADS)
                 val file = java.io.File(dir, "aate_tax_${period}_${System.currentTimeMillis()}.csv")
