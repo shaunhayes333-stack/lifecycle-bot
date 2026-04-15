@@ -976,7 +976,7 @@ object PerpsTraderAI {
         // V5.7.5: Remove trailing stop tracking
         try {
             PerpsTrailingStop.removePosition(position.id)
-        } catch (e: Exception) {}
+        } catch (e: Exception) { ErrorLogger.warn(TAG, "⚠️ Caught: ${e.message}") }
         
         // V5.7.5: Send notification
         try {
@@ -994,7 +994,7 @@ object PerpsTraderAI {
         // V5.7.5: Record correlation data
         try {
             PerpsCorrelationMatrix.recordReturn(position.market, pnlPct)
-        } catch (e: Exception) {}
+        } catch (e: Exception) { ErrorLogger.warn(TAG, "⚠️ Caught: ${e.message}") }
 
         // V5.8.0: Persist closed trade to Turso — this is how the bot REMEMBERS and LEARNS
         GlobalScope.launch(Dispatchers.IO) {

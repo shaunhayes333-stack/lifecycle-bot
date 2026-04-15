@@ -6206,7 +6206,7 @@ if (deferredCount > 0) {
                     } else {
                         com.lifecyclebot.v3.scoring.FluidLearningAI.recordLiveTrade(true)
                     }
-                } catch (e: Exception) {}
+                } catch (e: Exception) { ErrorLogger.warn(TAG, "⚠️ Caught: ${e.message}") }
             }
         } catch (transEx: Exception) {
             ErrorLogger.debug("BotService", "Layer transition check failed: ${transEx.message}")
