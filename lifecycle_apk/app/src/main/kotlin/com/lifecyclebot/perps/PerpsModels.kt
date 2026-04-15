@@ -207,7 +207,7 @@ enum class PerpsMarket(
     SUSHI("SUSHI", "🍱", "SushiSwap", false, 20.0, "24/7", "#FA52A0"),
     BAL("BAL", "⚖️", "Balancer", false, 20.0, "24/7", "#1E1E1E"),
     OSMO("OSMO", "🔮", "Osmosis", false, 20.0, "24/7", "#750BBB"),
-    CVX("CVX", "🔒", "Convex Finance", false, 20.0, "24/7", "#3A3A3A"),
+    CVXF("CVXF", "🔒", "Convex Finance", false, 20.0, "24/7", "#3A3A3A"),
     FXS("FXS", "💲", "Frax Share", false, 20.0, "24/7", "#000000"),
     LQTY("LQTY", "🏦", "Liquity", false, 20.0, "24/7", "#745DDF"),
     SPELL("SPELL", "🧙", "Spell Token", false, 20.0, "24/7", "#7B2BF9"),
