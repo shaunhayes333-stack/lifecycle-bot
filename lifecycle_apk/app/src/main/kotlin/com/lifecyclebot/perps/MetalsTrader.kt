@@ -130,7 +130,7 @@ object MetalsTrader {
         isRunning.set(true)
         
         engineJob = scope.launch {
-            ErrorLogger.error(TAG, "🥇🥇🥇 MetalsTrader ENGINE STARTED 🥇🥇🥇")
+            ErrorLogger.info(TAG, "🥇🥇🥇 MetalsTrader ENGINE STARTED 🥇🥇🥇")
             
             // Initial scan
             try {
@@ -212,12 +212,12 @@ object MetalsTrader {
 
         
         val totalPositions = spotPositions.size + leveragePositions.size
-        ErrorLogger.error(TAG, "🥇 ═══════════════════════════════════════════════")
-        ErrorLogger.error(TAG, "🥇 METALS SCAN #$scanNum | spot=${spotPositions.size} | lev=${leveragePositions.size} | total=$totalPositions/$MAX_POSITIONS | balance=${"%.2f".format(paperBalance)} SOL")
+        ErrorLogger.info(TAG, "🥇 ═══════════════════════════════════════════════")
+        ErrorLogger.info(TAG, "🥇 METALS SCAN #$scanNum | spot=${spotPositions.size} | lev=${leveragePositions.size} | total=$totalPositions/$MAX_POSITIONS | balance=${"%.2f".format(paperBalance)} SOL")
         
         // Get all metal markets
         val metalMarkets = PerpsMarket.values().filter { it.isMetal }
-        ErrorLogger.error(TAG, "🥇 Found ${metalMarkets.size} metals: ${metalMarkets.map { it.symbol }}")
+        ErrorLogger.info(TAG, "🥇 Found ${metalMarkets.size} metals: ${metalMarkets.map { it.symbol }}")
         
         val spotSignals = mutableListOf<MetalSignal>()
         val leverageSignals = mutableListOf<MetalSignal>()
@@ -256,16 +256,16 @@ object MetalsTrader {
         // Execute top SPOT signals
         val topSpotSignals = spotSignals.sortedByDescending { it.score }.take(4)
         if (topSpotSignals.isNotEmpty()) {
-            ErrorLogger.error(TAG, "🥇 TOP SPOT: ${topSpotSignals.map { "${it.market.symbol}(${it.score})" }}")
+            ErrorLogger.info(TAG, "🥇 TOP SPOT: ${topSpotSignals.map { "${it.market.symbol}(${it.score})" }}")
         }
         
         // Execute top LEVERAGE signals
         val topLeverageSignals = leverageSignals.sortedByDescending { it.score }.take(2)
         if (topLeverageSignals.isNotEmpty()) {
-            ErrorLogger.error(TAG, "🥇 TOP LEVERAGE: ${topLeverageSignals.map { "${it.market.symbol}(${it.score})" }}")
+            ErrorLogger.info(TAG, "🥇 TOP LEVERAGE: ${topLeverageSignals.map { "${it.market.symbol}(${it.score})" }}")
         }
         
-        ErrorLogger.error(TAG, "🥇 ═══════════════════════════════════════════════")
+        ErrorLogger.info(TAG, "🥇 ═══════════════════════════════════════════════")
         
         for (signal in topSpotSignals) {
             if (spotPositions.size + leveragePositions.size >= MAX_POSITIONS) break
@@ -480,7 +480,7 @@ object MetalsTrader {
             paperBalance -= POSITION_SIZE_SOL
         }
         
-        ErrorLogger.error(TAG, "🥇 OPENED: $typeLabel ${signal.direction.emoji} ${signal.market.symbol} @ \$${signal.price.fmt(2)} | size=${POSITION_SIZE_SOL}◎ | score=${signal.score}")
+        ErrorLogger.info(TAG, "🥇 OPENED: $typeLabel ${signal.direction.emoji} ${signal.market.symbol} @ \$${signal.price.fmt(2)} | size=${POSITION_SIZE_SOL}◎ | score=${signal.score}")
         
         // V5.7.6b: Record trade start for Markets learning counter
         try {
@@ -581,7 +581,7 @@ object MetalsTrader {
 
         val typeLabel = if (position.leverage == 1.0) "💰" else "⚡"
         val emoji = if (isWin) "✅" else "❌"
-        ErrorLogger.error(TAG, "🥇 CLOSED: $typeLabel $emoji ${position.market.symbol} | PnL: ${if (pnl >= 0) "+" else ""}${"%.4f".format(pnl)}◎ | $reason")
+        ErrorLogger.info(TAG, "🥇 CLOSED: $typeLabel $emoji ${position.market.symbol} | PnL: ${if (pnl >= 0) "+" else ""}${"%.4f".format(pnl)}◎ | $reason")
         
         // Record to FluidLearningAI for unified learning
         // V5.7.6b: Use Markets-specific recording to avoid affecting Meme thresholds

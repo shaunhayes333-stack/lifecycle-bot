@@ -445,12 +445,12 @@ fun isLiveReady(): Boolean = totalTrades.get() >= 5000 && getWinRate() >= 50.0
         
         engineJob = scope.launch {
             // V5.7.6: Use error-level logging to ensure visibility
-            ErrorLogger.error(TAG, "📈📈📈 TokenizedStockTrader ENGINE STARTED 📈📈📈")
-            ErrorLogger.error(TAG, "📈 Scanning every ${SCAN_INTERVAL_MS/1000}s | enabled=${isEnabled.get()}")
+            ErrorLogger.info(TAG, "📈📈📈 TokenizedStockTrader ENGINE STARTED 📈📈📈")
+            ErrorLogger.info(TAG, "📈 Scanning every ${SCAN_INTERVAL_MS/1000}s | enabled=${isEnabled.get()}")
             
             // V5.7.6: Run first scan immediately (no initial delay)
             try {
-                ErrorLogger.error(TAG, "📈📈📈 Running INITIAL stock scan NOW... 📈📈📈")
+                ErrorLogger.info(TAG, "📈📈📈 Running INITIAL stock scan NOW... 📈📈📈")
                 runScanCycle()
             } catch (e: CancellationException) {
                 throw e
@@ -517,10 +517,10 @@ fun isLiveReady(): Boolean = totalTrades.get() >= 5000 && getWinRate() >= 50.0
         // The underlying NYSE/NASDAQ stock market hours do NOT apply here.
         val marketHoursNote = ""
         
-        ErrorLogger.error(TAG, "📈 ═══════════════════════════════════════════════════")
-        ErrorLogger.error(TAG, "📈 STOCK SCAN #$scanNum STARTING$marketHoursNote")
-        ErrorLogger.error(TAG, "📈 positions=${positions.size}/$MAX_STOCK_POSITIONS | balance=${"%.2f".format(getBalance())} SOL")
-        ErrorLogger.error(TAG, "📈 ═══════════════════════════════════════════════════")
+        ErrorLogger.info(TAG, "📈 ═══════════════════════════════════════════════════")
+        ErrorLogger.info(TAG, "📈 STOCK SCAN #$scanNum STARTING$marketHoursNote")
+        ErrorLogger.info(TAG, "📈 positions=${positions.size}/$MAX_STOCK_POSITIONS | balance=${"%.2f".format(getBalance())} SOL")
+        ErrorLogger.info(TAG, "📈 ═══════════════════════════════════════════════════")
         
         // V5.7.7: PRIORITIZE Pyth-supported stocks for reliable price feeds
         val pythSupported = PythOracle.getSupportedSymbols()

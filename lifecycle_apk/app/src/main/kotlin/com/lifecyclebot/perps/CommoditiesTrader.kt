@@ -147,7 +147,7 @@ object CommoditiesTrader {
         isRunning.set(true)
         
         engineJob = scope.launch {
-            ErrorLogger.error(TAG, "🛢️🛢️🛢️ CommoditiesTrader ENGINE STARTED 🛢️🛢️🛢️")
+            ErrorLogger.info(TAG, "🛢️🛢️🛢️ CommoditiesTrader ENGINE STARTED 🛢️🛢️🛢️")
             
             // Initial scan
             try {
@@ -229,12 +229,12 @@ object CommoditiesTrader {
 
         
         val totalPositions = spotPositions.size + leveragePositions.size
-        ErrorLogger.error(TAG, "🛢️ ═══════════════════════════════════════════════")
-        ErrorLogger.error(TAG, "🛢️ COMMODITY SCAN #$scanNum | spot=${spotPositions.size} | leverage=${leveragePositions.size} | total=$totalPositions/$MAX_POSITIONS | balance=${"%.2f".format(paperBalance)} SOL")
+        ErrorLogger.info(TAG, "🛢️ ═══════════════════════════════════════════════")
+        ErrorLogger.info(TAG, "🛢️ COMMODITY SCAN #$scanNum | spot=${spotPositions.size} | leverage=${leveragePositions.size} | total=$totalPositions/$MAX_POSITIONS | balance=${"%.2f".format(paperBalance)} SOL")
         
         // Get all commodity markets
         val commodityMarkets = PerpsMarket.values().filter { it.isCommodity }
-        ErrorLogger.error(TAG, "🛢️ Found ${commodityMarkets.size} commodities: ${commodityMarkets.map { it.symbol }}")
+        ErrorLogger.info(TAG, "🛢️ Found ${commodityMarkets.size} commodities: ${commodityMarkets.map { it.symbol }}")
         
         val spotSignals = mutableListOf<CommoditySignal>()
         val leverageSignals = mutableListOf<CommoditySignal>()
@@ -280,16 +280,16 @@ object CommoditiesTrader {
         // Execute top SPOT signals (lower risk, more positions)
         val topSpotSignals = spotSignals.sortedByDescending { it.score }.take(4)
         if (topSpotSignals.isNotEmpty()) {
-            ErrorLogger.error(TAG, "🛢️ TOP SPOT: ${topSpotSignals.map { "${it.market.symbol}(${it.score})" }}")
+            ErrorLogger.info(TAG, "🛢️ TOP SPOT: ${topSpotSignals.map { "${it.market.symbol}(${it.score})" }}")
         }
         
         // Execute top LEVERAGE signals (higher risk, fewer positions)
         val topLeverageSignals = leverageSignals.sortedByDescending { it.score }.take(2)
         if (topLeverageSignals.isNotEmpty()) {
-            ErrorLogger.error(TAG, "🛢️ TOP LEVERAGE: ${topLeverageSignals.map { "${it.market.symbol}(${it.score})" }}")
+            ErrorLogger.info(TAG, "🛢️ TOP LEVERAGE: ${topLeverageSignals.map { "${it.market.symbol}(${it.score})" }}")
         }
         
-        ErrorLogger.error(TAG, "🛢️ ═══════════════════════════════════════════════")
+        ErrorLogger.info(TAG, "🛢️ ═══════════════════════════════════════════════")
         
         // Execute signals
         for (signal in topSpotSignals) {
@@ -496,7 +496,7 @@ object CommoditiesTrader {
         }
         
         val leverageStr = if (signal.tradeType == TradeType.SPOT) "1x SPOT" else "${signal.tradeType.leverage.toInt()}x LEV"
-        ErrorLogger.error(TAG, "🛢️ OPENED: ${signal.tradeType.emoji} ${signal.direction.emoji} ${signal.market.symbol} @ \$${signal.price.fmt(2)} | $leverageStr | size=${POSITION_SIZE_SOL}◎ | score=${signal.score}")
+        ErrorLogger.info(TAG, "🛢️ OPENED: ${signal.tradeType.emoji} ${signal.direction.emoji} ${signal.market.symbol} @ \$${signal.price.fmt(2)} | $leverageStr | size=${POSITION_SIZE_SOL}◎ | score=${signal.score}")
         
         // V5.7.6b: Record trade start for Markets learning counter
         try {
@@ -599,7 +599,7 @@ object CommoditiesTrader {
 
         val emoji = if (isWin) "✅" else "❌"
         val typeEmoji = position.tradeType.emoji
-        ErrorLogger.error(TAG, "🛢️ CLOSED: $typeEmoji $emoji ${position.market.symbol} | PnL: ${if (pnl >= 0) "+" else ""}${"%.4f".format(pnl)}◎ (${position.tradeType.name}) | $reason")
+        ErrorLogger.info(TAG, "🛢️ CLOSED: $typeEmoji $emoji ${position.market.symbol} | PnL: ${if (pnl >= 0) "+" else ""}${"%.4f".format(pnl)}◎ (${position.tradeType.name}) | $reason")
         
         // Record to FluidLearningAI for unified learning
         // V5.7.6b: Use Markets-specific recording to avoid affecting Meme thresholds

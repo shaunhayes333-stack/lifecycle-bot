@@ -224,11 +224,11 @@ object CryptoAltTrader {
         isRunning.set(true)
 
         engineJob = scope.launch {
-            ErrorLogger.error(TAG, "🪙🪙🪙 CryptoAltTrader ENGINE STARTED 🪙🪙🪙")
-            ErrorLogger.error(TAG, "🪙 Scanning every ${SCAN_INTERVAL_MS / 1000}s | enabled=${isEnabled.get()}")
+            ErrorLogger.info(TAG, "🪙🪙🪙 CryptoAltTrader ENGINE STARTED 🪙🪙🪙")
+            ErrorLogger.info(TAG, "🪙 Scanning every ${SCAN_INTERVAL_MS / 1000}s | enabled=${isEnabled.get()}")
 
             try {
-                ErrorLogger.error(TAG, "🪙🪙🪙 Running INITIAL alt scan NOW... 🪙🪙🪙")
+                ErrorLogger.info(TAG, "🪙🪙🪙 Running INITIAL alt scan NOW... 🪙🪙🪙")
                 runScanCycle()
             } catch (e: CancellationException) { throw e }
               catch (e: Exception) { ErrorLogger.error(TAG, "🪙 Initial scan error: ${e.message}", e) }
@@ -527,10 +527,10 @@ object CryptoAltTrader {
             try { PerpsLearningBridge.save() } catch (_: Exception) {}
         }
 
-        ErrorLogger.error(TAG, "🪙 ═══════════════════════════════════════════════════")
-        ErrorLogger.error(TAG, "🪙 ALT SCAN #$scanNum STARTING")
-        ErrorLogger.error(TAG, "🪙 positions=${positions.size}/$MAX_POSITIONS | balance=${"%.2f".format(getBalance())} SOL")
-        ErrorLogger.error(TAG, "🪙 ═══════════════════════════════════════════════════")
+        ErrorLogger.info(TAG, "🪙 ═══════════════════════════════════════════════════")
+        ErrorLogger.info(TAG, "🪙 ALT SCAN #$scanNum STARTING")
+        ErrorLogger.info(TAG, "🪙 positions=${positions.size}/$MAX_POSITIONS | balance=${"%.2f".format(getBalance())} SOL")
+        ErrorLogger.info(TAG, "🪙 ═══════════════════════════════════════════════════")
 
         // All crypto markets that are NOT covered by the SOL perps engine
         val altMarkets = PerpsMarket.values().filter { m ->
