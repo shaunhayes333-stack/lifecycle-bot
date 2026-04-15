@@ -417,30 +417,30 @@ class CryptoAltActivity : AppCompatActivity() {
 
     private fun buildFullDashboard() {
         llContent.removeAllViews()
-        buildHeroSection()
+        // V5.9.5: each section wrapped so one crash shows error label instead of killing app
+        fun safe(name: String, block: () -> Unit) {
+            try { block() } catch (e: Exception) {
+                android.util.Log.e("CryptoAltAct", "CRASH ${'$'}name: ${'$'}{e.message}", e)
+                try {
+                    llContent.addView(tv("\u26a0\ufe0f ${'$'}name: ${'$'}{e.javaClass.simpleName}: ${'$'}{e.message?.take(80)}",
+                        10f, 0xFFEF4444.toInt()).apply { setPadding(16,4,16,4) })
+                } catch (_: Exception) {}
+            }
+        }
+        safe("HeroSection")       { buildHeroSection() }
         when (currentTab) {
             0 -> {
-                // Scanner: Readiness + ProofRun + Module grid + Status bar + Open Positions, then scanner tab
-                buildReadinessTile()
-                buildProofRunTile()
-                buildModuleIconGrid()
-                buildTopStatusBar()
-                buildTreasuryTierPanel()
-                buildOpenPositionsPanel()
-                buildTabContent()
+                safe("ReadinessTile")     { buildReadinessTile() }
+                safe("ProofRunTile")      { buildProofRunTile() }
+                safe("ModuleIconGrid")    { buildModuleIconGrid() }
+                safe("TopStatusBar")      { buildTopStatusBar() }
+                safe("TreasuryTierPanel") { buildTreasuryTierPanel() }
+                safe("OpenPositions")     { buildOpenPositionsPanel() }
+                safe("TabContent")        { buildTabContent() }
             }
-            1 -> {
-                // Watchlist: just the watchlist content
-                buildTabContent()
-            }
-            2 -> {
-                // Positions: just positions
-                buildTabContent()
-            }
-            else -> {
-                // Settings
-                buildTabContent()
-            }
+            1 -> safe("TabContent") { buildTabContent() }
+            2 -> safe("TabContent") { buildTabContent() }
+            else -> safe("TabContent") { buildTabContent() }
         }
     }
 
