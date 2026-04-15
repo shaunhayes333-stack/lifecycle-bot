@@ -602,13 +602,11 @@ object ForexTrader {
         try {
             if (isPaperMode.get()) FluidLearningAI.recordMarketsPaperTrade(isWin)
             // V5.9.6: Sync P&L back to shared FluidLearning pool so main bot balance updates
-            try {
-                com.lifecyclebot.engine.FluidLearning.recordPaperSell(
-                    mint = position.market.symbol,
-                    originalSol = position.sizeSol,
-                    pnlSol = netPnlSol
-                )
-            } catch (_: Exception) {}
+            try { com.lifecyclebot.engine.FluidLearning.recordPaperSell(
+                mint = position.symbol,
+                originalSol = position.size,
+                pnlSol = pnl
+            ) } catch (_: Exception) {}
             else FluidLearningAI.recordMarketsLiveTrade(isWin)
         } catch (_: Exception) {}
         
