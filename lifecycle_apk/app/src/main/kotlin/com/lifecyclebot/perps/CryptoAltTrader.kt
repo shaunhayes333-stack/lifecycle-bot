@@ -950,12 +950,8 @@ object CryptoAltTrader {
                 return false
             }
 
-            // Collect 0.1% trading fee first
-            try {
-                MarketsLiveExecutor.collectTradingFeePublic(wallet, sizeSol * 0.001, signal.market.symbol, "OPEN")
-            } catch (_: Exception) {}
-
             // Execute via MarketsLiveExecutor (handles Jupiter swap + signing)
+            // Fee collection (0.5% spot / 1% leverage) is handled inside MarketsLiveExecutor.executeLiveTrade
             val (success, txSig) = MarketsLiveExecutor.executeLiveTrade(
                 market      = signal.market,
                 direction   = signal.direction,
@@ -1027,7 +1023,28 @@ object CryptoAltTrader {
             try { if (isPaperMode.get()) FluidLearningAI.recordMarketsPaperTrade(false) else FluidLearningAI.recordMarketsLiveTrade(false) } catch (_: Exception) {}
         }
 
-        if (isPaperMode.get()) paperBalance += (pos.sizeSol + pnlSol).coerceAtLeast(0.0)
+        if (isPaperMode.get()) {
+            paperBalance += (pos.sizeSol + pnlSol).coerceAtLeast(0.0)
+        } else {
+            // Live mode: execute on-chain close + collect 0.5% sell fee via MarketsLiveExecutor
+            kotlinx.coroutines.GlobalScope.launch(kotlinx.coroutines.Dispatchers.IO) {
+                try {
+                    MarketsLiveExecutor.closeLivePosition(
+                        market     = pos.market,
+                        direction  = pos.direction,
+                        sizeSol    = pos.sizeSol,
+                        leverage   = pos.leverage,
+                        traderType = "CryptoAlt"
+                    )
+                } catch (e: Exception) {
+                    ErrorLogger.warn(TAG, "🪙 Live close failed for ${pos.market.symbol}: ${e.message}")
+                }
+            }
+            try {
+                val newBal = com.lifecyclebot.engine.WalletManager.getWallet()?.getSolBalance() ?: liveWalletBalance
+                updateLiveBalance(newBal)
+            } catch (_: Exception) {}
+        }
 
         val pnlPct    = pos.getPnlPct()
         val isWin     = pnlSol >= 0
