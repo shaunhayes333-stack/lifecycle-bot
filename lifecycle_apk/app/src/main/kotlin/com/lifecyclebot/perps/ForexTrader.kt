@@ -29,7 +29,7 @@ object ForexTrader {
     
     private const val MAX_POSITIONS = 25
     private const val SCAN_INTERVAL_MS = 15_000L  // 15 seconds (forex is fast)
-    private const val POSITION_SIZE_SOL = 2.0
+    private const val DEFAULT_SIZE_PCT = 5.0  // 5% of balance per trade (matches TokenizedStockTrader)
     private const val TP_PERCENT = 3.0           // Tighter TP for forex
     private const val SL_PERCENT = 2.0           // Tighter SL for forex
     private const val SPOT_TRADING_FEE_PERCENT = 0.005     // 0.5% for spot (1x)
@@ -449,7 +449,7 @@ object ForexTrader {
             } catch (_: Exception) {}
         }
         val balance = getEffectiveBalance()
-        if (balance < POSITION_SIZE_SOL) {
+        if (balance < positionSizeSol) {
             ErrorLogger.warn(TAG, "💱 Insufficient balance for ${signal.market.symbol}")
             return
         }
@@ -481,7 +481,7 @@ object ForexTrader {
             direction = signal.direction,
             entryPrice = signal.price,
             currentPrice = signal.price,
-            size = POSITION_SIZE_SOL,
+            size = positionSizeSol,
             leverage = signal.leverage,
             takeProfit = tp,
             stopLoss = sl,
@@ -492,10 +492,10 @@ object ForexTrader {
         
         // Deduct from appropriate balance
         if (isPaperMode.get()) {
-            paperBalance -= POSITION_SIZE_SOL
+            paperBalance -= positionSizeSol
         }
         
-        ErrorLogger.info(TAG, "💱 OPENED: $typeLabel ${signal.direction.emoji} ${signal.market.symbol} @ ${signal.price.fmt(5)} | size=${POSITION_SIZE_SOL}◎ | score=${signal.score}")
+        ErrorLogger.info(TAG, "💱 OPENED: $typeLabel ${signal.direction.emoji} ${signal.market.symbol} @ ${signal.price.fmt(5)} | size=${positionSizeSol}◎ | score=${signal.score}")
         
         // V5.7.6b: Record trade start for Markets learning counter
         try {
@@ -511,7 +511,7 @@ object ForexTrader {
         val (success, txSignature) = MarketsLiveExecutor.executeLiveTrade(
             market = signal.market,
             direction = signal.direction,
-            sizeSol = POSITION_SIZE_SOL,
+            sizeSol = positionSizeSol,
             leverage = signal.leverage,
             priceUsd = signal.price,
             traderType = "Forex",

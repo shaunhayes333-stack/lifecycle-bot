@@ -1352,10 +1352,23 @@ class MultiAssetActivity : AppCompatActivity() {
         tvTodayPnl.text = "${if (pnlUsd >= 0) "+" else ""}\$${"%,.2f".format(pnlUsd)}"
         tvTodayPnl.setTextColor(if (pnlUsd >= 0) 0xFF00FF88.toInt() else 0xFFFF4444.toInt())
         
-        // Win rate - use PerpsTraderAI stats (Markets-specific, not Meme stats)
+        // Win rate — aggregate across ALL Markets traders
         try {
-            val wr = com.lifecyclebot.perps.PerpsTraderAI.getLifetimeWinRatePct()
-            tvWinRate.text = if (wr > 0) "${wr}%" else "--"
+            val allWins = com.lifecyclebot.perps.TokenizedStockTrader.getWinningTrades() +
+                com.lifecyclebot.perps.CommoditiesTrader.getWinningTrades() +
+                com.lifecyclebot.perps.MetalsTrader.getWinningTrades() +
+                com.lifecyclebot.perps.ForexTrader.getWinningTrades() +
+                com.lifecyclebot.perps.CryptoAltTrader.getWinCount()
+            val allTrades = com.lifecyclebot.perps.TokenizedStockTrader.getTotalTrades() +
+                com.lifecyclebot.perps.CommoditiesTrader.getTotalTrades() +
+                com.lifecyclebot.perps.MetalsTrader.getTotalTrades() +
+                com.lifecyclebot.perps.ForexTrader.getTotalTrades() +
+                com.lifecyclebot.perps.CryptoAltTrader.getTotalTrades()
+            val wr = if (allTrades > 0) allWins * 100 / allTrades else 0
+            tvWinRate.text = if (wr > 0) "$wr%" else "--"
+        } catch (_: Exception) {
+            tvWinRate.text = "--"
+        }
         } catch (_: Exception) {
             tvWinRate.text = "--"
         }

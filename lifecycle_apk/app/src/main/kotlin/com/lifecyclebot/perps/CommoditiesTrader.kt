@@ -28,7 +28,7 @@ object CommoditiesTrader {
     
     private const val MAX_POSITIONS = 20
     private const val SCAN_INTERVAL_MS = 20_000L  // 20 seconds
-    private const val POSITION_SIZE_SOL = 3.0
+    private const val DEFAULT_SIZE_PCT = 5.0  // 5% of balance per trade (matches TokenizedStockTrader)
     private const val TP_PERCENT_SPOT = 4.0       // Tighter TP for spot
     private const val SL_PERCENT_SPOT = 3.0       // Tighter SL for spot
     private const val TP_PERCENT_LEVERAGE = 8.0   // Wider for leverage
@@ -448,7 +448,7 @@ object CommoditiesTrader {
             } catch (_: Exception) {}
         }
         val balance = getEffectiveBalance()
-        if (balance < POSITION_SIZE_SOL) {
+        if (balance < positionSizeSol) {
             ErrorLogger.warn(TAG, "🛢️ Insufficient balance for ${signal.market.symbol}")
             return
         }
@@ -484,7 +484,7 @@ object CommoditiesTrader {
             tradeType = signal.tradeType,
             entryPrice = signal.price,
             currentPrice = signal.price,
-            size = POSITION_SIZE_SOL,
+            size = positionSizeSol,
             takeProfit = tp,
             stopLoss = sl,
             reasons = signal.reasons
@@ -499,11 +499,11 @@ object CommoditiesTrader {
         
         // Deduct from appropriate balance
         if (isPaperMode.get()) {
-            paperBalance -= POSITION_SIZE_SOL
+            paperBalance -= positionSizeSol
         }
         
         val leverageStr = if (signal.tradeType == TradeType.SPOT) "1x SPOT" else "${signal.tradeType.leverage.toInt()}x LEV"
-        ErrorLogger.info(TAG, "🛢️ OPENED: ${signal.tradeType.emoji} ${signal.direction.emoji} ${signal.market.symbol} @ \$${signal.price.fmt(2)} | $leverageStr | size=${POSITION_SIZE_SOL}◎ | score=${signal.score}")
+        ErrorLogger.info(TAG, "🛢️ OPENED: ${signal.tradeType.emoji} ${signal.direction.emoji} ${signal.market.symbol} @ \$${signal.price.fmt(2)} | $leverageStr | size=${positionSizeSol}◎ | score=${signal.score}")
         
         // V5.7.6b: Record trade start for Markets learning counter
         try {
@@ -513,7 +513,7 @@ object CommoditiesTrader {
     
     /** V5.7.6b: Execute LIVE trade via MarketsLiveExecutor */
     private suspend fun executeLiveTrade(signal: CommoditySignal): Boolean {
-        val sizeSol = POSITION_SIZE_SOL
+        val sizeSol = positionSizeSol
         
         ErrorLogger.info(TAG, "🔴 LIVE COMMODITY TRADE: ${signal.direction.emoji} ${signal.market.symbol}")
         ErrorLogger.info(TAG, "🔴 Price: \$${signal.price.fmt(2)} | ${signal.tradeType.name}")
