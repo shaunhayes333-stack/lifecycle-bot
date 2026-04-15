@@ -234,14 +234,22 @@ class MultiAssetActivity : AppCompatActivity() {
         }
         ErrorLogger.info(TAG, "📊 MultiAssetActivity CREATED")
 
-        // V5.9.3: Auto-resume traders if Activity is recreated (e.g. nav back)
+        // V5.9.4: Auto-start markets on Activity create.
+        // Priority 1: main bot running → always start (was_running pref not needed)
+        // Priority 2: was_running pref = true and user didn't manually stop → start
         lifecycleScope.launch(Dispatchers.IO) {
             try {
-                val wasRunning = marketsPrefs.getBoolean("markets_was_running", false)
                 val anyAlreadyRunning = TokenizedStockTrader.isRunning() ||
                     CommoditiesTrader.isRunning() || MetalsTrader.isRunning() ||
-                    ForexTrader.isRunning() || CryptoAltTrader.isRunning()
-                if (wasRunning && !anyAlreadyRunning && !userManuallyStopped) {
+                    ForexTrader.isRunning() || CryptoAltTrader.isRunning() ||
+                    PerpsExecutionEngine.isRunning()
+                if (anyAlreadyRunning) return@launch  // Already running — nothing to do
+
+                val mainBotRunning = try { BotService.status.running } catch (_: Exception) { false }
+                val wasRunning = marketsPrefs.getBoolean("markets_was_running", false)
+                val shouldStart = (mainBotRunning || wasRunning) && !userManuallyStopped
+
+                if (shouldStart) {
                     val cfg = com.lifecyclebot.data.ConfigStore.load(this@MultiAssetActivity)
                     if (cfg.stocksEnabled)       TokenizedStockTrader.start()
                     if (cfg.commoditiesEnabled)  CommoditiesTrader.start()
@@ -249,11 +257,12 @@ class MultiAssetActivity : AppCompatActivity() {
                     if (cfg.forexEnabled)        ForexTrader.start()
                     if (cfg.cryptoAltsEnabled)   CryptoAltTrader.start()
                     if (cfg.perpsEnabled)        PerpsExecutionEngine.start(this@MultiAssetActivity)
-                    checkAndRefreshBalance()
-                    ErrorLogger.info(TAG, "Markets auto-resumed on Activity create")
+                    marketsPrefs.edit().putBoolean("markets_was_running", true).apply()
+                    try { checkAndRefreshBalance() } catch (_: Exception) {}
+                    ErrorLogger.info(TAG, "V5.9.4 Markets auto-started on create: mainBot=$mainBotRunning wasRunning=$wasRunning")
                 }
             } catch (e: Exception) {
-                ErrorLogger.warn(TAG, "Markets auto-resume failed: ${e.message}")
+                ErrorLogger.warn(TAG, "Markets auto-start on create failed: ${e.message}")
             }
         }
     }
@@ -272,14 +281,23 @@ class MultiAssetActivity : AppCompatActivity() {
                 val anyRunning = TokenizedStockTrader.isRunning() || CommoditiesTrader.isRunning() ||
                     MetalsTrader.isRunning() || ForexTrader.isRunning() ||
                     CryptoAltTrader.isRunning() || PerpsExecutionEngine.isRunning()
-                val userStopped = try { marketsPrefs.getBoolean("user_manually_stopped", false) } catch (_: Exception) { false }
+                var userStopped = try { marketsPrefs.getBoolean("user_manually_stopped", false) } catch (_: Exception) { false }
+                // V5.9.4: If main bot just started, clear the manual-stop flag so markets follow it
+                if (mainBotRunning && userStopped && !anyRunning) {
+                    userStopped = false
+                    userManuallyStopped = false
+                    marketsPrefs.edit().putBoolean("user_manually_stopped", false).apply()
+                    ErrorLogger.info(TAG, "V5.9.4 Cleared manual-stop flag — main bot is running")
+                }
                 if (mainBotRunning && !anyRunning && !userStopped) {
                     val cfg = com.lifecyclebot.data.ConfigStore.load(this@MultiAssetActivity)
-                    if (cfg.stocksEnabled)      TokenizedStockTrader.start()
-                    if (cfg.commoditiesEnabled) CommoditiesTrader.start()
-                    if (cfg.metalsEnabled)      MetalsTrader.start()
-                    if (cfg.forexEnabled)       ForexTrader.start()
-                    if (cfg.perpsEnabled)       PerpsExecutionEngine.start(this@MultiAssetActivity)
+                    if (cfg.stocksEnabled)       TokenizedStockTrader.start()
+                    if (cfg.commoditiesEnabled)  CommoditiesTrader.start()
+                    if (cfg.metalsEnabled)       MetalsTrader.start()
+                    if (cfg.forexEnabled)        ForexTrader.start()
+                    if (cfg.cryptoAltsEnabled)   CryptoAltTrader.start()
+                    if (cfg.perpsEnabled)        PerpsExecutionEngine.start(this@MultiAssetActivity)
+                    try { checkAndRefreshBalance() } catch (_: Exception) {}
                     ErrorLogger.info(TAG, "Markets auto-restarted on resume")
                 }
             } catch (e: Exception) {
