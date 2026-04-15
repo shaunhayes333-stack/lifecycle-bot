@@ -1351,7 +1351,7 @@ class MultiAssetActivity : AppCompatActivity() {
         // V5.9.5: Total open across ALL traders
         val positions = try {
             PerpsExecutionEngine.getActivePositions().size +
-                TokenizedStockTrader.getAllPositions().count { it.closeTime == null } +
+                TokenizedStockTrader.getAllPositions().size +
                 CommoditiesTrader.getSpotPositions().size + CommoditiesTrader.getLeveragePositions().size +
                 MetalsTrader.getSpotPositions().size + MetalsTrader.getLeveragePositions().size +
                 ForexTrader.getSpotPositions().size + ForexTrader.getLeveragePositions().size +
