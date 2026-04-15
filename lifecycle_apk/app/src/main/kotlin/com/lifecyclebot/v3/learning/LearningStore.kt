@@ -63,8 +63,18 @@ class LearningStore {
             classifiedTrades = events.size,
             last20WinRatePct = if (recent20.isNotEmpty()) (wins.toDouble() / recent20.size) * 100 else 0.0,
             payoffRatio = if (avgLoss > 0) avgWin / avgLoss else 1.0,
-            falseBlockRatePct = 0.0, // TODO: Track from shadow outcomes
-            missedWinnerRatePct = 0.0 // TODO: Track from shadow outcomes
+            falseBlockRatePct = run {
+                // V5.9: ratio of BLOCK decisions that were actually wins (from shadow)
+                val blocked = shadowBlockedCount.get().toDouble()
+                val falseBlocks = shadowBlockedWouldWin.get().toDouble()
+                if (blocked > 0) (falseBlocks / blocked * 100.0).coerceIn(0.0, 100.0) else 0.0
+            },
+            missedWinnerRatePct = run {
+                // V5.9: ratio of passed trades that were winners (from shadow)
+                val passed = shadowPassedCount.get().toDouble()
+                val wins = shadowPassedWins.get().toDouble()
+                if (passed > 0) (wins / passed * 100.0).coerceIn(0.0, 100.0) else 0.0
+            }
         )
     }
     

@@ -681,7 +681,12 @@ object FinalDecisionGate {
                 liquidityUsd = ts.lastLiquidityUsd,
                 mcap = ts.lastMcap,
                 holderCount = ts.history.lastOrNull()?.holderCount ?: 0,
-                holderGrowthPct = 0.0,  // TODO: calculate from history
+                holderGrowthPct = run {
+                    // V5.9: estimate from token age vs holder count
+                    val hc = holderCount.toDouble().coerceAtLeast(1.0)
+                    val ageH = tokenAgeHours.coerceAtLeast(0.01)
+                    ((hc / ageH) / 100.0).coerceIn(0.0, 100.0)
+                },
                 rugcheckScore = ts.safety.rugcheckScore.takeIf { it >= 0 } ?: 50,
                 mintRevoked = ts.safety.mintAuthorityDisabled ?: false,
                 freezeRevoked = ts.safety.freezeAuthorityDisabled ?: false,
