@@ -58,7 +58,7 @@ object CryptoAltTrader {
     private const val TAG = "🪙CryptoAltTrader"
 
     // ─── Constants ────────────────────────────────────────────────────────────
-    private const val MAX_POSITIONS         = 20            // Max concurrent positions (20 × 5% = 100% exposure max)
+    private const val MAX_POSITIONS         = 50            // Hard ceiling — exposure cap controls real concurrency
     private const val SCAN_INTERVAL_MS      = 12_000L       // 12-second scan cycle
     private const val DYN_SCAN_INTERVAL_MS  = 30_000L       // Dynamic token scan every 30s
     private const val DYN_BATCH_SIZE        = 200           // Tokens per dynamic scan batch
@@ -917,10 +917,12 @@ object CryptoAltTrader {
         // V5.9.5 FIX: Sanity-check entry price vs last cached price.
         // Bad data (decimal shift, wrong feed ID, stale fallback) causes fake 1000x PnL.
 
-        // V5.9.5: Total exposure cap — never risk more than 80% of balance
+        // V5.9.5: Dynamic exposure cap — never exceed 80% of balance at risk.
+        // Naturally allows more concurrent positions as wallet grows.
         val totalRisk = positions.values.sumOf { it.sizeSol }
-        if (totalRisk + sizeSol > balance * 0.80) {
-            ErrorLogger.info(TAG, "🛑 Exposure cap: ${"%.2f".format(totalRisk)} SOL at risk (${"%.0f".format(totalRisk/balance*100)}%) — skipping ${signal.market.symbol}")
+        val maxRisk   = balance * 0.80
+        if (totalRisk + sizeSol > maxRisk) {
+            ErrorLogger.info(TAG, "🛑 Exposure cap: ${"%.2f".format(totalRisk)}◎ at risk / ${"%.2f".format(maxRisk)}◎ max — skipping ${signal.market.symbol}")
             return
         }
         val cachedPriceData = PerpsMarketDataFetcher.getCachedPrice(signal.market)
