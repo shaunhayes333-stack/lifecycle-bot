@@ -448,6 +448,7 @@ object CommoditiesTrader {
             } catch (_: Exception) {}
         }
         val balance = getEffectiveBalance()
+        val positionSizeSol = (balance * DEFAULT_SIZE_PCT / 100.0).coerceAtLeast(0.01)
         if (balance < positionSizeSol) {
             ErrorLogger.warn(TAG, "🛢️ Insufficient balance for ${signal.market.symbol}")
             return
