@@ -401,14 +401,20 @@ object TokenizedStockTrader {
         }
     }
     
+    /** Public phase label for UI (mirrors meme trader) */
+    fun getPhaseLabel(): String = calculateLearningPhase()
+
+    /** Whether this trader has met all requirements to go live */
+    fun isLiveReady(): Boolean = totalTrades.get() >= 5000 && getWinRate() >= 50.0
+
     private fun calculateLearningPhase(): String {
         val trades = totalTrades.get()
         return when {
-            trades < 50 -> "BOOTSTRAP"
-            trades < 200 -> "LEARNING"
-            trades < 500 -> "VALIDATING"
-            trades < 1000 -> "MATURING"
-            else -> "READY"
+            trades < 500  -> "📚 BOOTSTRAP"
+            trades < 1500 -> "🧠 LEARNING"
+            trades < 3000 -> "🔬 VALIDATING"
+            trades < 5000 -> "⚡ MATURING"
+            else          -> "✅ READY"
         }
     }
     
@@ -1333,10 +1339,24 @@ object TokenizedStockTrader {
     
     /** Switch to LIVE mode - REAL MONEY TRADING */
     fun setLiveMode(live: Boolean) {
+        if (live) {
+            // Live readiness gate: 5000 paper trades + 50% win rate required
+            // Stocks are mean-reverting → 50% WR threshold is sufficient for profitability
+            val trades = totalTrades.get()
+            val wr     = getWinRate()
+            if (trades < 5000) {
+                ErrorLogger.warn(TAG, "📈 LIVE BLOCKED: only $trades/5000 paper trades completed")
+                return
+            }
+            if (wr < 50.0) {
+                ErrorLogger.warn(TAG, "📈 LIVE BLOCKED: win rate ${wr.toInt()}% < 50% required for stock profitability")
+                return
+            }
+        }
         isPaperMode.set(!live)
         ErrorLogger.info(TAG, "📈 TokenizedStockTrader mode: ${if (live) "🔴 LIVE" else "📄 PAPER"}")
         if (live) {
-            // Fetch actual wallet balance so live trading doesn't start at 0
+            // Sync actual wallet balance so live trading doesn't start at 0
             try {
                 val balance = com.lifecyclebot.engine.WalletManager.getWallet()?.getSolBalance() ?: 0.0
                 if (balance > 0) updateLiveBalance(balance)
@@ -1345,6 +1365,13 @@ object TokenizedStockTrader {
         }
     }
     
+    /** Sync paper wallet balance from BotService (keeps paper consistent across all traders) */
+    fun setPaperBalance(sol: Double) {
+        if (isPaperMode.get() && sol > 0.0) {
+            paperBalance = sol
+        }
+    }
+
     /** Update live wallet balance from connected wallet */
     fun updateLiveBalance(balanceSol: Double) {
         liveWalletBalance = balanceSol
