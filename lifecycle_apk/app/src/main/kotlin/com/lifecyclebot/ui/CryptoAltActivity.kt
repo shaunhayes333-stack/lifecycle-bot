@@ -316,6 +316,7 @@ class CryptoAltActivity : AppCompatActivity() {
     }
 
     private fun applyHeroStats() {
+        // V5.9.5: reads from FluidLearning shared pool — same balance as main AATE
         val bal    = CryptoAltTrader.getBalance()
         val pnl    = CryptoAltTrader.getTotalPnlSol()
         val wr     = CryptoAltTrader.getWinRate()
@@ -690,6 +691,7 @@ class CryptoAltActivity : AppCompatActivity() {
     }
 
     private fun buildHeroSection() {
+        // V5.9.5: reads from FluidLearning shared pool — same balance as main AATE
         val bal    = CryptoAltTrader.getBalance()
         val pnl    = CryptoAltTrader.getTotalPnlSol()
         val wr     = CryptoAltTrader.getWinRate()

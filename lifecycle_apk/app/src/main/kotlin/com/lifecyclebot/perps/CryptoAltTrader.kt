@@ -938,7 +938,10 @@ object CryptoAltTrader {
 
         // Note: totalTrades incremented at CLOSE, not open, for accurate win rate
 
-        if (isPaperMode.get()) paperBalance -= finalSize
+        if (isPaperMode.get()) {
+            // V5.9.5: Deduct from shared FluidLearning pool
+            try { com.lifecyclebot.engine.FluidLearning.recordPaperBuy(signal.market.symbol, finalSize) } catch (_: Exception) {}
+        }
 
         // ── BehaviorAI tilt protection ──────────────────────────────────────
         try {
@@ -1086,7 +1089,10 @@ object CryptoAltTrader {
         }
 
         if (isPaperMode.get()) {
-            paperBalance += (pos.sizeSol + pnlSol).coerceAtLeast(0.0)
+            // V5.9.5: Return funds to shared FluidLearning pool
+            try { com.lifecyclebot.engine.FluidLearning.recordPaperSell(pos.market.symbol, pos.sizeSol, pnlSol) } catch (_: Exception) {}
+            // Keep local paperBalance in sync for persistence/Turso
+            paperBalance = com.lifecyclebot.engine.FluidLearning.getSimulatedBalance()
         } else {
             // Live mode: execute on-chain close + collect 0.5% sell fee via MarketsLiveExecutor
             kotlinx.coroutines.GlobalScope.launch(kotlinx.coroutines.Dispatchers.IO) {
@@ -1400,10 +1406,16 @@ object CryptoAltTrader {
     fun isPaperMode(): Boolean = isPaperMode.get()
     fun isLiveMode() : Boolean = !isPaperMode.get()
 
+    // V5.9.5: In paper mode, read from shared FluidLearning pool (same as main AATE)
     fun getBalance()          : Double = getEffectiveBalance()
-    fun getEffectiveBalance() : Double = if (isPaperMode.get()) paperBalance else liveWalletBalance
+    fun getEffectiveBalance() : Double = if (isPaperMode.get())
+        com.lifecyclebot.engine.FluidLearning.getSimulatedBalance()
+        else liveWalletBalance
 
-    fun setBalance(bal: Double)        { paperBalance = bal }
+    fun setBalance(bal: Double) {
+        paperBalance = bal
+        // V5.9.5: No-op — balance is owned by FluidLearning shared pool
+    }
     fun setEnabled(enabled: Boolean)   { isEnabled.set(enabled); ErrorLogger.info(TAG, "🪙 Enabled: $enabled") }
     fun setLiveMode(live: Boolean) {
         if (live && !isLiveReady()) {
