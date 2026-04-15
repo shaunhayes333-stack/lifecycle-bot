@@ -230,6 +230,12 @@ class MultiAssetActivity : AppCompatActivity() {
         try { userManuallyStopped = marketsPrefs.getBoolean("user_manually_stopped", false) } catch (_: Exception) {}
         // V5.9.5: Init FluidLearning so balance is available immediately
         try { com.lifecyclebot.engine.FluidLearning.init(applicationContext) } catch (_: Exception) {}
+        // V5.9.5: Init FluidLearningAI and restore Markets trade counters from SharedPrefs
+        //         Must be called here so counters survive restarts even when BotService isn't running
+        try {
+            com.lifecyclebot.v3.scoring.FluidLearningAI.init()
+            com.lifecyclebot.v3.scoring.FluidLearningAI.initMarketsPrefs(applicationContext)
+        } catch (_: Exception) {}
         // V5.9.5: Init all traders so they load persisted state before first scan
         try { TokenizedStockTrader.init() } catch (_: Exception) {}
         // V5.9.5: Provide context to traders so they can persist trade state locally
