@@ -81,6 +81,9 @@ object CryptoAltTrader {
     private val positions        = ConcurrentHashMap<String, AltPosition>()
     private val spotPositions    = ConcurrentHashMap<String, AltPosition>()
     private val leveragePositions= ConcurrentHashMap<String, AltPosition>()
+    // V5.7.7: Closed positions archive — retained so Positions tab shows real win rate + history
+    private val closedPositions  = java.util.concurrent.CopyOnWriteArrayList<AltPosition>()
+    private val MAX_CLOSED_HISTORY = 500
 
     private val isRunning        = AtomicBoolean(false)
     private val isEnabled        = AtomicBoolean(true)
@@ -1053,6 +1056,18 @@ object CryptoAltTrader {
         val timestamp = System.currentTimeMillis()
         val holdMs    = timestamp - pos.openTime
 
+        // V5.7.7: Archive closed position for Positions tab history
+        val closedPos = pos.copy(
+            currentPrice  = pos.currentPrice,
+            closeTime     = timestamp,
+            closePrice    = pos.currentPrice,
+            realizedPnl   = pnlSol
+        )
+        closedPositions.add(0, closedPos)
+        if (closedPositions.size > MAX_CLOSED_HISTORY) {
+            closedPositions.subList(MAX_CLOSED_HISTORY, closedPositions.size).clear()
+        }
+
         ErrorLogger.info(TAG, "🪙 CLOSED: ${pos.market.symbol} | $reason | pnl=${pnlSol.fmt(3)}◎ | wr=${"%.0f".format(getWinRate())}%")
 
         try { PortfolioHeatAI.removePosition("ALT_${pos.market.symbol}") } catch (_: Exception) {}
@@ -1347,7 +1362,13 @@ object CryptoAltTrader {
         if (isPaperMode.get() && sol > 0.0) paperBalance = sol
     }
 
-    fun getAllPositions()      : List<AltPosition> = positions.values.toList()
+    /**
+     * Returns ALL positions (open + closed) so the Positions tab can show win rate, avg hold,
+     * and closed trade history. Open positions have closeTime == null; closed have closeTime set.
+     */
+    fun getAllPositions()      : List<AltPosition> = positions.values.toList() + closedPositions.toList()
+    fun getOpenPositions()     : List<AltPosition> = positions.values.toList()
+    fun getClosedPositions()   : List<AltPosition> = closedPositions.toList()
     fun getSpotPositions()    : List<AltPosition> = spotPositions.values.toList()
     fun getLeveragePositions(): List<AltPosition> = leveragePositions.values.toList()
     fun hasPosition(market: PerpsMarket): Boolean = positions.values.any { it.market == market }
