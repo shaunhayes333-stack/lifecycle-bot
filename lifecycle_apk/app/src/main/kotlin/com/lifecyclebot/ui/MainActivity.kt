@@ -1337,42 +1337,42 @@ for legal compliance.
         }
 
         // ── hero balance ──────────────────────────────────────────────
-        // V4.0 FIX: Show PAPER balance when in paper mode, REAL wallet balance when live
+        // Single source of truth: FluidLearning for paper, real wallet for live
         val config = com.lifecyclebot.data.ConfigStore.load(applicationContext)
-        val displayBalance: Double
+        val displayBalanceUsd: Double
+        val displayBalanceSol: Double
         val balanceLabel: String
-        
+
         if (config.paperMode) {
-            // PAPER MODE: FluidLearning SOL balance × SOL price → USD
             val fluidBalSol = com.lifecyclebot.engine.FluidLearning.getSimulatedBalance()
             val solPriceUsd = com.lifecyclebot.engine.WalletManager.lastKnownSolPrice
-                .takeIf { it > 10.0 } ?: 85.0  // cached price; suspend getSolPrice() not usable here
-            val rawSol = if (fluidBalSol > 0.001) fluidBalSol
-                         else com.lifecyclebot.engine.BotService.status.paperWalletSol.takeIf { it > 0.001 } ?: 5.0
-            displayBalance = rawSol * solPriceUsd
-            balanceLabel = "PAPER"
+                .takeIf { it > 10.0 } ?: 85.0
+            displayBalanceSol  = if (fluidBalSol > 0.001) fluidBalSol
+                                 else com.lifecyclebot.engine.BotService.status.paperWalletSol
+                                     .coerceAtLeast(0.001)
+            displayBalanceUsd  = displayBalanceSol * solPriceUsd
+            balanceLabel       = "PAPER"
         } else {
-            // LIVE MODE: Show real wallet balance
-            displayBalance = ws.solBalance
-            balanceLabel = ""
+            displayBalanceSol  = ws.solBalance
+            displayBalanceUsd  = ws.solBalance
+            balanceLabel       = ""
         }
-        
-        if (displayBalance > 0) {
-            tvBalanceLarge.text = currency.format(displayBalance)
-            // Secondary: show mode indicator or SOL amount
+
+        if (displayBalanceUsd > 0) {
+            tvBalanceLarge.text = currency.format(displayBalanceUsd)
             tvBalanceUsd.text = if (config.paperMode) {
-                "📝 $balanceLabel ◎ %.4f".format(displayBalance)
+                "📝 PAPER ◎ ${"%.4f".format(displayBalanceSol)}"
             } else if (currency.selectedCurrency != "SOL") {
-                "◎ %.4f".format(displayBalance)
+                "◎ ${"%.4f".format(displayBalanceSol)}"
             } else ""
         } else if (ws.isConnected && ws.solBalance > 0) {
-            // Fallback to wallet if paper balance is 0
             tvBalanceLarge.text = currency.format(ws.solBalance)
             tvBalanceUsd.text = if (config.paperMode) "📝 PAPER" else ""
         } else {
             tvBalanceLarge.text = "—"
             tvBalanceUsd.text   = ""
         }
+
         // ── Live SOL Price ──────────────────────────────────────────────
         val solPrice = com.lifecyclebot.engine.WalletManager.lastKnownSolPrice
         if (solPrice >= 10) {
