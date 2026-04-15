@@ -512,7 +512,7 @@ object ForexTrader {
         val (success, txSignature) = MarketsLiveExecutor.executeLiveTrade(
             market = signal.market,
             direction = signal.direction,
-            sizeSol = positionSizeSol,
+            sizeSol = (getEffectiveBalance() * (DEFAULT_SIZE_PCT / 100.0)).coerceAtLeast(0.01),
             leverage = signal.leverage,
             priceUsd = signal.price,
             traderType = "Forex",

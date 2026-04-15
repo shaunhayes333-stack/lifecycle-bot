@@ -2480,7 +2480,7 @@ class MultiAssetActivity : AppCompatActivity() {
         return try {
             when (currentTab) {
                 AssetTab.PERPS -> PerpsExecutionEngine.getActivePositions().sumOf { it.getPnlSol() } +
-                    TokenizedStockTrader.getAllPositions().filter { it.closeTime == null }.sumOf { it.getPnlSol() }
+                    TokenizedStockTrader.getAllPositions().sumOf { it.getPnlSol() }
                 AssetTab.STOCKS -> {
                     val positions = if (showSpotOnly) TokenizedStockTrader.getSpotPositions().filter { it.market.isStock }
                     else TokenizedStockTrader.getLeveragePositions().filter { it.market.isStock }

@@ -514,7 +514,7 @@ object CommoditiesTrader {
     
     /** V5.7.6b: Execute LIVE trade via MarketsLiveExecutor */
     private suspend fun executeLiveTrade(signal: CommoditySignal): Boolean {
-        val sizeSol = positionSizeSol
+        val sizeSol = (getEffectiveBalance() * (DEFAULT_SIZE_PCT / 100.0)).coerceAtLeast(0.01)
         
         ErrorLogger.info(TAG, "🔴 LIVE COMMODITY TRADE: ${signal.direction.emoji} ${signal.market.symbol}")
         ErrorLogger.info(TAG, "🔴 Price: \$${signal.price.fmt(2)} | ${signal.tradeType.name}")
