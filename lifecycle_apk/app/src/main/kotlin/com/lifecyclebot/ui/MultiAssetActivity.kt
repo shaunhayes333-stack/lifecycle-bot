@@ -1080,7 +1080,27 @@ class MultiAssetActivity : AppCompatActivity() {
     
     private fun calculateMarketsReadiness(): MarketsReadiness {
         // V5.7.6b: Use Markets-specific counters (separate from Meme mode)
-        val paperTrades = FluidLearningAI.getMarketsTradeCount()
+        // V5.9.6: Count actual completed trades from all traders — not the weighted FluidLearningAI
+        // accumulator (which needs 10 paper trades to count 1, so always shows near-zero)
+        val paperTrades = try {
+            com.lifecyclebot.perps.TokenizedStockTrader.getTotalTrades() +
+                com.lifecyclebot.perps.CommoditiesTrader.getTotalTrades() +
+                com.lifecyclebot.perps.MetalsTrader.getTotalTrades() +
+                com.lifecyclebot.perps.ForexTrader.getTotalTrades() +
+                com.lifecyclebot.perps.CryptoAltTrader.getTotalTrades() +
+                PerpsTraderAI.getLifetimeTrades()
+        } catch (_: Exception) { 0 }
+
+        // Real win rate from actual trader win counts
+        val allWins = try {
+            com.lifecyclebot.perps.TokenizedStockTrader.getWinningTrades() +
+                com.lifecyclebot.perps.CommoditiesTrader.getWinningTrades() +
+                com.lifecyclebot.perps.MetalsTrader.getWinningTrades() +
+                com.lifecyclebot.perps.ForexTrader.getWinningTrades() +
+                com.lifecyclebot.perps.CryptoAltTrader.getWinCount() +
+                PerpsTraderAI.getLifetimeWins()
+        } catch (_: Exception) { 0 }
+        val winRate = if (paperTrades > 0) allWins.toDouble() * 100.0 / paperTrades else 0.0
         val marketsProgress = FluidLearningAI.getMarketsLearningProgress()
         
         // Also get win rate from PerpsTraderAI for display (it tracks Markets trades too)
