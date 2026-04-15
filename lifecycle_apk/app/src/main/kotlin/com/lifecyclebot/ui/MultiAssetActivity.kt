@@ -235,6 +235,35 @@ class MultiAssetActivity : AppCompatActivity() {
         ErrorLogger.info(TAG, "📊 MultiAssetActivity CREATED")
     }
     
+    override fun onResume() {
+        super.onResume()
+        // V5.9.2: Restart update loop if it died while we were away
+        if (updateJob?.isActive != true) {
+            try { startUpdateLoop() } catch (_: Exception) {}
+        }
+        // Re-check auto-start — traders are objects and survive navigation,
+        // but if for any reason they died while MAA was backgrounded, restart them
+        lifecycleScope.launch(Dispatchers.IO) {
+            try {
+                val mainBotRunning = try { BotService.status.running } catch (_: Exception) { false }
+                val anyRunning = TokenizedStockTrader.isRunning() || CommoditiesTrader.isRunning() ||
+                    MetalsTrader.isRunning() || ForexTrader.isRunning() || PerpsExecutionEngine.isRunning()
+                val userStopped = try { marketsPrefs.getBoolean("user_manually_stopped", false) } catch (_: Exception) { false }
+                if (mainBotRunning && !anyRunning && !userStopped) {
+                    val cfg = com.lifecyclebot.data.ConfigStore.load(this@MultiAssetActivity)
+                    if (cfg.stocksEnabled)      TokenizedStockTrader.start()
+                    if (cfg.commoditiesEnabled) CommoditiesTrader.start()
+                    if (cfg.metalsEnabled)      MetalsTrader.start()
+                    if (cfg.forexEnabled)       ForexTrader.start()
+                    if (cfg.perpsEnabled)       PerpsExecutionEngine.start(this@MultiAssetActivity)
+                    ErrorLogger.info(TAG, "Markets auto-restarted on resume")
+                }
+            } catch (e: Exception) {
+                ErrorLogger.warn(TAG, "onResume auto-start failed: ${e.message}")
+            }
+        }
+    }
+
     override fun onDestroy() {
         super.onDestroy()
         updateJob?.cancel()

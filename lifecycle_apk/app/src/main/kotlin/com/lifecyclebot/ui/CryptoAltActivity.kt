@@ -152,6 +152,8 @@ class CryptoAltActivity : AppCompatActivity() {
         tvWalletDot     = findViewById(R.id.tvWalletDotCryptoAlt)
 
         WatchlistEngine.init(applicationContext)
+        // V5.9.2: BlueChipTraderAI requires init() for SharedPreferences — without it getStats() NPEs
+        try { BlueChipTraderAI.init(applicationContext) } catch (_: Exception) {}
 
         // Self-init: ensure CryptoAltTrader is ready even if BotService hasn't started it
         if (!CryptoAltTrader.isRunning()) {

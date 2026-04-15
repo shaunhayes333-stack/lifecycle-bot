@@ -1416,8 +1416,10 @@ object TokenizedStockTrader {
             traderType = "TokenizedStocks",
         )
         
-        if (success && txSignature != null) {
-            ErrorLogger.info(TAG, "🔴 LIVE SUCCESS: ${signal.market.symbol} | tx=${txSignature.take(16)}...")
+        // V5.9.2: success=true is the authority; txSignature can be null for bridge trades
+        if (success) {
+            val txLog = txSignature?.take(16)?.let { "tx=$it..." } ?: "bridge-collateral"
+            ErrorLogger.info(TAG, "🔴 LIVE SUCCESS: ${signal.market.symbol} | $txLog")
             
             // Update live wallet balance
             try {

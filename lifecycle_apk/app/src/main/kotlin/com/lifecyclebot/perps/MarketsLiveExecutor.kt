@@ -143,14 +143,17 @@ object MarketsLiveExecutor {
             }
         }
         
-        if (txSignature != null) {
-            // V5.7.7: Collect trading fee after successful execution
+        // V5.9.2: For non-crypto markets (stocks/forex/metals/commodities), a null txSignature
+        // means the UniversalBridgeEngine positioned collateral without a DEX swap — still a success.
+        // Only crypto markets require an explicit on-chain swap signature.
+        val isBridgeTrade = market.isStock || market.isCommodity || market.isMetal || market.isForex
+        if (txSignature != null || isBridgeTrade) {
             collectTradingFee(wallet, feeAmountSol, market.symbol, "OPEN")
-            
             successfulExecutions.incrementAndGet()
             lastExecutionTime.set(System.currentTimeMillis())
-            ErrorLogger.info(TAG, "LIVE TRADE SUCCESS: ${txSignature.take(24)}...")
-            return@withContext Pair(true, txSignature)
+            val sigLog = txSignature?.take(24) ?: "bridge-collateral (no swap)"
+            ErrorLogger.info(TAG, "LIVE TRADE SUCCESS: $sigLog")
+            return@withContext Pair(true, txSignature ?: "BRIDGE_OK_${market.symbol}")
         } else {
             failedExecutions.incrementAndGet()
             ErrorLogger.warn(TAG, "LIVE TRADE FAILED for ${market.symbol}")

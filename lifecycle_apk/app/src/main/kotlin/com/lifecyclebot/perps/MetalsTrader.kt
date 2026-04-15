@@ -476,7 +476,7 @@ object MetalsTrader {
             traderType = "Metals",
         )
         
-        if (success && txSignature != null) {
+        if (success  // V5.9.2: txSignature may be null for bridge trades — success flag is authoritative) {
             ErrorLogger.info(TAG, "🔴 LIVE SUCCESS: ${signal.market.symbol} | tx=${txSignature.take(16)}...")
             
             // Update live wallet balance

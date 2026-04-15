@@ -295,6 +295,7 @@ object CryptoAltTrader {
 
         var scanned = 0
         var signals = 0
+        val dynExecutableSignals = mutableListOf<AltSignal>()
 
         for (tok in batch) {
             try {
@@ -343,6 +344,13 @@ object CryptoAltTrader {
                                 signals++
                                 ErrorLogger.info(TAG, "🪙💩 DynSig ShitCoin: ${tok.symbol} conf=${sig.confidence}")
                                 try { FluidLearningAI.recordMarketsTradeStart() } catch (_: Exception) {}
+                                // V5.9.2: Convert to tradeable AltSignal
+                                val dynMarket = PerpsMarket.values().find { it.symbol == tok.symbol }
+                                if (dynMarket != null) dynExecutableSignals.add(AltSignal(
+                                    market = dynMarket, direction = if (change >= 0) PerpsDirection.LONG else PerpsDirection.SHORT,
+                                    score = sig.confidence, confidence = sig.confidence, price = price,
+                                    priceChange24h = change, reasons = listOf("DynScan ShitCoin score=${sig.confidence}")
+                                ))
                             }
                         } catch (_: Exception) {}
                     }
@@ -369,6 +377,12 @@ object CryptoAltTrader {
                                 signals++
                                 ErrorLogger.info(TAG, "🪙🔵 DynSig BlueChip: ${tok.symbol} conf=${sig.confidence}")
                                 try { FluidLearningAI.recordMarketsTradeStart() } catch (_: Exception) {}
+                                val dynMarket = PerpsMarket.values().find { it.symbol == tok.symbol }
+                                if (dynMarket != null) dynExecutableSignals.add(AltSignal(
+                                    market = dynMarket, direction = if (change >= 0) PerpsDirection.LONG else PerpsDirection.SHORT,
+                                    score = sig.confidence + 5, confidence = sig.confidence, price = price,
+                                    priceChange24h = change, reasons = listOf("DynScan BlueChip mcap=\$${(mcap/1_000_000).toInt()}M")
+                                ))
                             }
                         } catch (_: Exception) {}
                     }
@@ -422,6 +436,12 @@ object CryptoAltTrader {
                                 signals++
                                 ErrorLogger.info(TAG, "🪙🌙 DynSig Moonshot: ${tok.symbol}")
                                 try { FluidLearningAI.recordMarketsTradeStart() } catch (_: Exception) {}
+                                val dynMarket = PerpsMarket.values().find { it.symbol == tok.symbol }
+                                if (dynMarket != null) dynExecutableSignals.add(AltSignal(
+                                    market = dynMarket, direction = if (change >= 0) PerpsDirection.LONG else PerpsDirection.SHORT,
+                                    score = sig.score.coerceAtMost(95), confidence = sig.score.coerceAtMost(95), price = price,
+                                    priceChange24h = change, reasons = listOf("DynScan Moonshot trending=${tok.isTrending}")
+                                ))
                             }
                         } catch (_: Exception) {}
                     }
@@ -456,8 +476,25 @@ object CryptoAltTrader {
               catch (_: Exception) {}
         }
 
+        // V5.9.2: Execute top DynScan signals — previously these were logged but never acted on
+        // Now we convert high-confidence DynToken signals into real AltSignal trades
+        if (dynExecutableSignals.isNotEmpty() && positions.size < MAX_POSITIONS) {
+            val scoreThresh = try { FluidLearningAI.getMarketsSpotScoreThreshold() } catch (_: Exception) { 60 }
+            val confThresh  = try { FluidLearningAI.getMarketsSpotConfThreshold() }  catch (_: Exception) { 55 }
+            val topDyn = dynExecutableSignals
+                .filter { it.score >= scoreThresh && it.confidence >= confThresh }
+                .sortedByDescending { it.score }
+                .take(3) // max 3 new positions per DynScan cycle
+            for (sig in topDyn) {
+                if (positions.size >= MAX_POSITIONS) break
+                if (hasPosition(sig.market)) continue
+                ErrorLogger.info(TAG, "🪙⚡ DynScan EXECUTE: ${sig.market.symbol} score=${sig.score} conf=${sig.confidence}")
+                executeSignal(sig, isSpot = true)
+            }
+        }
+
         if (signals > 0 || scanned % 200 == 0) {
-            ErrorLogger.info(TAG, "🪙⚡ DynScan done: scanned=$scanned signals=$signals (universe=${allTokens.size})")
+            ErrorLogger.info(TAG, "🪙⚡ DynScan done: scanned=$scanned execSignals=${dynExecutableSignals.size} (universe=${allTokens.size})")
         }
     }
 
