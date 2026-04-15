@@ -1966,14 +1966,25 @@ class BotService : Service() {
         tradingModesInitialized = false
         allTradingLayersReady = false
         
-        // V5.8.1: Also stop all markets traders when main bot stops
+        // V5.9.5: Close all Markets positions then stop all traders when main bot stops
+        try {
+            com.lifecyclebot.perps.TokenizedStockTrader.closeAllPositions()
+            com.lifecyclebot.perps.CommoditiesTrader.closeAllPositions()
+            com.lifecyclebot.perps.MetalsTrader.closeAllPositions()
+            com.lifecyclebot.perps.ForexTrader.closeAllPositions()
+            com.lifecyclebot.perps.CryptoAltTrader.closeAllPositions()
+            com.lifecyclebot.perps.PerpsExecutionEngine.closeAllPositions()
+        } catch (e: Exception) {
+            ErrorLogger.error("BotService", "Error closing markets positions: ${e.message}", e)
+        }
         try {
             com.lifecyclebot.perps.TokenizedStockTrader.stop()
             com.lifecyclebot.perps.CommoditiesTrader.stop()
             com.lifecyclebot.perps.MetalsTrader.stop()
             com.lifecyclebot.perps.ForexTrader.stop()
+            com.lifecyclebot.perps.CryptoAltTrader.stop()
             com.lifecyclebot.perps.PerpsExecutionEngine.stop()
-            ErrorLogger.info("BotService", "Markets traders stopped alongside main bot")
+            ErrorLogger.info("BotService", "All Markets traders stopped + positions closed alongside main bot")
         } catch (e: Exception) {
             ErrorLogger.error("BotService", "Error stopping markets traders: ${e.message}", e)
         }
