@@ -1304,11 +1304,31 @@ object CryptoAltTrader {
 
     fun setBalance(bal: Double)        { paperBalance = bal }
     fun setEnabled(enabled: Boolean)   { isEnabled.set(enabled); ErrorLogger.info(TAG, "🪙 Enabled: $enabled") }
-    fun setLiveMode(live: Boolean)     {
+    fun setLiveMode(live: Boolean) {
+        if (live && !isLiveReady()) {
+            // Live readiness gate: 5000 paper trades + 52% win rate required
+            // Crypto alts are volatile (spot + leverage) → 52% WR ensures profitability after fees
+            val trades = FluidLearningAI.getMarketsTradeCount()
+            val wr     = getWinRate()
+            ErrorLogger.warn(TAG, "🪙 LIVE BLOCKED: trades=$trades/5000 WR=${wr.toInt()}%/52%")
+            return
+        }
         isPaperMode.set(!live)
-        ErrorLogger.info(TAG, "🪙 Mode switched to ${if (live) "LIVE" else "PAPER"}")
+        ErrorLogger.info(TAG, "🪙 Mode switched to ${if (live) "🔴 LIVE" else "📄 PAPER"}")
+        if (live) {
+            // Sync wallet balance immediately on mode switch
+            try {
+                val sol = WalletManager.getWallet()?.getSolBalance() ?: 0.0
+                if (sol > 0.0) updateLiveBalance(sol)
+            } catch (_: Exception) {}
+        }
     }
     fun updateLiveBalance(sol: Double) { liveWalletBalance = sol }
+
+    /** Sync paper wallet balance from BotService (consistent across all traders) */
+    fun setPaperBalance(sol: Double) {
+        if (isPaperMode.get() && sol > 0.0) paperBalance = sol
+    }
 
     fun getAllPositions()      : List<AltPosition> = positions.values.toList()
     fun getSpotPositions()    : List<AltPosition> = spotPositions.values.toList()
@@ -1342,15 +1362,19 @@ object CryptoAltTrader {
 
     private fun getPhaseLabel(): String {
         val trades = FluidLearningAI.getMarketsTradeCount()
+        val wr     = getWinRate()
         return when {
-            trades < 500   -> "BOOTSTRAP"
-            trades < 1500  -> "LEARNING"
-            trades < 3000  -> "VALIDATING"
-            trades < 5000  -> "MATURING"
-            getWinRate() >= 55.0 -> "READY"
-            else           -> "MATURING"
+            trades < 500  -> "📚 BOOTSTRAP"
+            trades < 1500 -> "🧠 LEARNING"
+            trades < 3000 -> "🔬 VALIDATING"
+            trades < 5000 -> "⚡ MATURING"
+            wr >= 52.0    -> "✅ READY"
+            else          -> "⚡ MATURING"
         }
     }
+
+    /** Whether this trader has met all requirements to go live */
+    fun isLiveReady(): Boolean = FluidLearningAI.getMarketsTradeCount() >= 5000 && getWinRate() >= 52.0
 
     private fun Double.fmt(d: Int): String = "%.${d}f".format(this)
 }
