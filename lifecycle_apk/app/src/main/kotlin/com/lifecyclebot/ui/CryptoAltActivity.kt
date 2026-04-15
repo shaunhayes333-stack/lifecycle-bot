@@ -1386,7 +1386,7 @@ class CryptoAltActivity : AppCompatActivity() {
         // ── Sort chips ─────────────────────────────────────────────────────
         val hScroll = HorizontalScrollView(this).apply { layoutParams = llp(match, wrap) }
         val sortInner = hBox().apply { setPadding(12, 4, 12, 4) }
-        listOf(
+        val sortOptions = listOf(
             "Quality" to SortMode.QUALITY,
             "Trending" to SortMode.TRENDING,
             "Volume" to SortMode.VOLUME,
@@ -1394,18 +1394,19 @@ class CryptoAltActivity : AppCompatActivity() {
             "% Change" to SortMode.CHANGE,
             "Newest" to SortMode.NEW,
             "Boosted" to SortMode.BOOSTED,
-        ).forEach { (label, mode) ->
+        )
+        for ((label, mode) in sortOptions) {
             val isActive = scannerSortMode == mode
-            sortInner.addView(tv(label, 10f, if (isActive) white else muted, bold = isActive).apply {
-                setBackgroundColor(if (isActive) indigo else card)
-                setPadding(10, 4, 10, 4)
-                layoutParams = llp(wrap, wrap).apply { marginEnd = 4 }
-                setOnClickListener {
-                    scannerSortMode = mode
-                    scannerPage     = 0
-                    renderTokenList()
-                }
-            })
+            val chip = tv(label, 10f, if (isActive) white else muted, bold = isActive)
+            chip.setBackgroundColor(if (isActive) indigo else card)
+            chip.setPadding(10, 4, 10, 4)
+            chip.layoutParams = llp(wrap, wrap).apply { marginEnd = 4 }
+            chip.setOnClickListener {
+                scannerSortMode = mode
+                scannerPage     = 0
+                renderTokenList()
+            }
+            sortInner.addView(chip)
         }
         hScroll.addView(sortInner)
         llContent.addView(hScroll)
@@ -1414,18 +1415,18 @@ class CryptoAltActivity : AppCompatActivity() {
         val sectors = listOf("All") + DynamicAltTokenRegistry.getAllTokens().map { it.sector }.filter { it.isNotEmpty() }.distinct().sorted()
         val secScroll = HorizontalScrollView(this).apply { layoutParams = llp(match, wrap) }
         val secInner  = hBox().apply { setPadding(12, 2, 12, 6) }
-        sectors.forEach { sec ->
+        for (sec in sectors) {
             val isActive = sec == scannerSector
-            secInner.addView(tv(sec, 9f, if (isActive) white else muted).apply {
-                setBackgroundColor(if (isActive) 0xFF6D28D9.toInt() else 0xFF111827.toInt())
-                setPadding(8, 3, 8, 3)
-                layoutParams = llp(wrap, wrap).apply { marginEnd = 3 }
-                setOnClickListener {
-                    scannerSector = sec
-                    scannerPage   = 0
-                    renderTokenList()
-                }
-            })
+            val chip = tv(sec, 9f, if (isActive) white else muted)
+            chip.setBackgroundColor(if (isActive) 0xFF6D28D9.toInt() else 0xFF111827.toInt())
+            chip.setPadding(8, 3, 8, 3)
+            chip.layoutParams = llp(wrap, wrap).apply { marginEnd = 3 }
+            chip.setOnClickListener {
+                scannerSector = sec
+                scannerPage   = 0
+                renderTokenList()
+            }
+            secInner.addView(chip)
         }
         secScroll.addView(secInner)
         llContent.addView(secScroll)
@@ -1834,11 +1835,10 @@ class CryptoAltActivity : AppCompatActivity() {
             }
         }
 
-        timeframes.forEach { tf ->
-            val btn = tv(tf, 11f, muted).apply {
-                setPadding(14, 6, 14, 6)
-                setOnClickListener { loadChart(tf) }
-            }
+        for (tf in timeframes) {
+            val btn = tv(tf, 11f, muted)
+            btn.setPadding(14, 6, 14, 6)
+            btn.setOnClickListener { loadChart(tf) }
             tfBtns.add(btn)
             tfRow.addView(btn)
         }
