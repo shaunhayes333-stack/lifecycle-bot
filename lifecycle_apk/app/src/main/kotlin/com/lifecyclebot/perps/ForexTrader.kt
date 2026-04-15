@@ -686,6 +686,7 @@ object ForexTrader {
     fun getAllPositions(): List<ForexPosition> = spotPositions.values.toList() + leveragePositions.values.toList()
     fun getBalance(): Double = if (isPaperMode.get()) com.lifecyclebot.engine.FluidLearning.getSimulatedBalance() else liveWalletBalance
     fun getTotalTrades(): Int = totalTrades.get()
+    fun getTotalPnlSol(): Double = totalPnlSol
     fun getWinningTrades(): Int = winningTrades.get()
     fun getWinRate(): Double {
         val t = winningTrades.get() + losingTrades.get()
