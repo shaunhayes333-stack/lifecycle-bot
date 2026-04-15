@@ -138,6 +138,9 @@ class MultiAssetActivity : AppCompatActivity() {
     /** True if the user explicitly pressed STOP on the markets toggle.
      *  When set, the auto-follow logic will NOT restart markets even if the main bot is running. */
     private var userManuallyStopped = false
+    private val marketsPrefs by lazy {
+        getSharedPreferences("markets_state", android.content.Context.MODE_PRIVATE)
+    }
     
     private lateinit var tvLayerCorrel: TextView
     private lateinit var tvMarketsLearningEvents: TextView
@@ -223,6 +226,8 @@ class MultiAssetActivity : AppCompatActivity() {
             ErrorLogger.crash(TAG, "isLiveMode CRASH: ${e.javaClass.simpleName}: ${e.message}", e)
             android.widget.Toast.makeText(this, "Markets liveMode: ${e.javaClass.simpleName}: ${e.message?.take(60)}", android.widget.Toast.LENGTH_LONG).show()
         }
+        // Restore manually-stopped preference so auto-start respects user's last choice
+        try { userManuallyStopped = marketsPrefs.getBoolean("user_manually_stopped", false) } catch (_: Exception) {}
         try { startUpdateLoop() } catch (e: Exception) {
             ErrorLogger.crash(TAG, "startUpdateLoop CRASH: ${e.javaClass.simpleName}: ${e.message}", e)
             android.widget.Toast.makeText(this, "Markets updateLoop: ${e.javaClass.simpleName}: ${e.message?.take(60)}", android.widget.Toast.LENGTH_LONG).show()
@@ -509,6 +514,7 @@ class MultiAssetActivity : AppCompatActivity() {
             if (marketsRunning) {
                 // User manually started — clear the manual-stop flag so auto-follow can work again
                 userManuallyStopped = false
+                marketsPrefs.edit().putBoolean("user_manually_stopped", false).apply()
                 // Check and refresh balance before starting
                 checkAndRefreshBalance()
                 
@@ -525,8 +531,9 @@ class MultiAssetActivity : AppCompatActivity() {
                         "✅ Markets Trading STARTED", android.widget.Toast.LENGTH_SHORT).show()
                 }
             } else {
-                // User manually stopped — remember this so auto-follow won't restart them
+                // User manually stopped — persist so auto-follow won't restart them even after reopen
                 userManuallyStopped = true
+                marketsPrefs.edit().putBoolean("user_manually_stopped", true).apply()
                 // Stop all Markets traders
                 TokenizedStockTrader.stop()
                 CommoditiesTrader.stop()
