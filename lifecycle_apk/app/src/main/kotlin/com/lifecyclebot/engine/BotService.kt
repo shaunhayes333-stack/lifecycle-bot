@@ -2946,8 +2946,6 @@ class BotService : Service() {
                         val flSol = com.lifecyclebot.engine.FluidLearning.getSimulatedBalance()
                         if (flSol > 0.001) status.paperWalletSol = flSol
                     }
-                        }
-                    }
 
                     // ── Shared paper wallet: broadcast paper balance to all traders ──────
                     // V5.9.7: All traders delegate to FluidLearning — one call syncs all
