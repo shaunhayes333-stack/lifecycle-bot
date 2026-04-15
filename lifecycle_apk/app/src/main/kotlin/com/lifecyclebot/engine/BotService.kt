@@ -2948,11 +2948,6 @@ class BotService : Service() {
                     }
 
                     // ── Shared paper wallet: broadcast paper balance to all traders ──────
-                    // V5.9.7: All traders delegate to FluidLearning — one call syncs all
-                    val curPaperSol = status.paperWalletSol
-                    if (curPaperSol > 0.0) {
-                        com.lifecyclebot.engine.FluidLearning.forceSetBalance(curPaperSol)
-                    }
 
                     // Treasury milestone check — live mode uses real wallet; paper uses paper balance
                     // V5.5 FIX: Paper mode now also triggers milestones so scaling tiers work in testing

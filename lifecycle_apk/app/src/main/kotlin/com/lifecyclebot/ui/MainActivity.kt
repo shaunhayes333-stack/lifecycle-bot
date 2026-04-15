@@ -1336,38 +1336,19 @@ for legal compliance.
             }
         }
 
-        // ── hero balance ──────────────────────────────────────────────
-        // Single source of truth: FluidLearning for paper, real wallet for live
+        // ── hero balance — CryptoAltTrader is the single wallet for the whole app ──
         val config = com.lifecyclebot.data.ConfigStore.load(applicationContext)
-        val displayBalanceUsd: Double
-        val displayBalanceSol: Double
-        val balanceLabel: String
+        val balSol = com.lifecyclebot.perps.CryptoAltTrader.getBalance()
+        val solPx  = com.lifecyclebot.engine.WalletManager.lastKnownSolPrice.takeIf { it > 10.0 } ?: 85.0
+        val balUsd = balSol * solPx
 
-        if (config.paperMode) {
-            val fluidBalSol = com.lifecyclebot.engine.FluidLearning.getSimulatedBalance()
-            val solPriceUsd = com.lifecyclebot.engine.WalletManager.lastKnownSolPrice
-                .takeIf { it > 10.0 } ?: 85.0
-            displayBalanceSol  = if (fluidBalSol > 0.001) fluidBalSol
-                                 else com.lifecyclebot.engine.BotService.status.paperWalletSol
-                                     .coerceAtLeast(0.001)
-            displayBalanceUsd  = displayBalanceSol * solPriceUsd
-            balanceLabel       = "PAPER"
-        } else {
-            displayBalanceSol  = ws.solBalance
-            displayBalanceUsd  = ws.solBalance
-            balanceLabel       = ""
-        }
-
-        if (displayBalanceUsd > 0) {
-            tvBalanceLarge.text = currency.format(displayBalanceUsd)
-            tvBalanceUsd.text = if (config.paperMode) {
-                "📝 PAPER ◎ ${"%.4f".format(displayBalanceSol)}"
-            } else if (currency.selectedCurrency != "SOL") {
-                "◎ ${"%.4f".format(displayBalanceSol)}"
-            } else ""
+        if (balSol > 0.001) {
+            tvBalanceLarge.text = currency.format(balUsd)
+            tvBalanceUsd.text   = if (config.paperMode) "📝 PAPER ◎ ${"%.4f".format(balSol)}"
+                                  else "◎ ${"%.4f".format(balSol)}"
         } else if (ws.isConnected && ws.solBalance > 0) {
-            tvBalanceLarge.text = currency.format(ws.solBalance)
-            tvBalanceUsd.text = if (config.paperMode) "📝 PAPER" else ""
+            tvBalanceLarge.text = currency.format(ws.solBalance * solPx)
+            tvBalanceUsd.text   = "◎ ${"%.4f".format(ws.solBalance)}"
         } else {
             tvBalanceLarge.text = "—"
             tvBalanceUsd.text   = ""
