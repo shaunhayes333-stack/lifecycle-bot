@@ -1018,6 +1018,7 @@ fun isLiveReady(): Boolean = totalTrades.get() >= 5000 && getWinRate() >= 50.0
         val isWin = netPnlPct > 0
         
         // Update stats (use net P&L)
+        totalTrades.incrementAndGet()
         if (isWin) winningTrades.incrementAndGet() else losingTrades.incrementAndGet()
         totalPnlSol += netPnlSol
         
