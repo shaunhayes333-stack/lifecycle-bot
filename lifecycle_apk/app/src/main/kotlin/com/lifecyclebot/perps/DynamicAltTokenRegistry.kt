@@ -479,15 +479,43 @@ object DynamicAltTokenRegistry {
 
     private fun upsert(tok: DynToken) {
         if (tok.mint.isBlank() || tok.symbol.isBlank()) return
+
+        // V5.9.3: If this symbol already maps to a static:XXX token, enrich that
+        // token directly instead of creating a duplicate cg:/dex: entry.
+        // This is what makes SAND/ENJ/etc show real MCap, volume, liquidity.
+        val staticKey = symbolIndex[tok.symbol.uppercase()]
+        val staticTok = staticKey?.let { registry[it] }?.takeIf { it.isStatic }
+
+        if (staticTok != null && staticKey != null) {
+            registry[staticKey] = staticTok.copy(
+                price         = tok.price.takeIf { it > 0 } ?: staticTok.price,
+                priceChange24h= tok.priceChange24h.takeIf { it != 0.0 } ?: staticTok.priceChange24h,
+                mcap          = tok.mcap.takeIf { it > 0 } ?: staticTok.mcap,
+                liquidityUsd  = tok.liquidityUsd.takeIf { it > 0 } ?: staticTok.liquidityUsd,
+                volume24h     = tok.volume24h.takeIf { it > 0 } ?: staticTok.volume24h,
+                buys24h       = tok.buys24h.takeIf { it > 0 } ?: staticTok.buys24h,
+                sells24h      = tok.sells24h.takeIf { it > 0 } ?: staticTok.sells24h,
+                isTrending    = tok.isTrending || staticTok.isTrending,
+                trendingRank  = if (tok.trendingRank >= 0) tok.trendingRank else staticTok.trendingRank,
+                isBoosted     = tok.isBoosted || staticTok.isBoosted,
+                logoUrl       = staticTok.logoUrl.ifBlank { tok.logoUrl },
+                lastUpdatedMs = System.currentTimeMillis(),
+            )
+            // Don't remap symbolIndex — static key stays authoritative
+            return
+        }
+
         val existing = registry[tok.mint]
         if (existing?.isStatic == true) {
-            // Enrich static with live price data only
+            // Direct mint match — enrich static token
             registry[tok.mint] = existing.copy(
                 price         = tok.price.takeIf { it > 0 } ?: existing.price,
                 priceChange24h= tok.priceChange24h.takeIf { it != 0.0 } ?: existing.priceChange24h,
                 mcap          = tok.mcap.takeIf { it > 0 } ?: existing.mcap,
                 liquidityUsd  = tok.liquidityUsd.takeIf { it > 0 } ?: existing.liquidityUsd,
                 volume24h     = tok.volume24h.takeIf { it > 0 } ?: existing.volume24h,
+                buys24h       = tok.buys24h.takeIf { it > 0 } ?: existing.buys24h,
+                sells24h      = tok.sells24h.takeIf { it > 0 } ?: existing.sells24h,
                 isTrending    = tok.isTrending || existing.isTrending,
                 trendingRank  = if (tok.trendingRank >= 0) tok.trendingRank else existing.trendingRank,
                 isBoosted     = tok.isBoosted || existing.isBoosted,
@@ -496,8 +524,8 @@ object DynamicAltTokenRegistry {
             )
         } else {
             registry[tok.mint] = tok.copy(lastUpdatedMs = System.currentTimeMillis())
+            if (tok.symbol.isNotBlank()) symbolIndex[tok.symbol.uppercase()] = tok.mint
         }
-        if (tok.symbol.isNotBlank()) symbolIndex[tok.symbol] = tok.mint
     }
 
     private fun meetsQualityGate(pair: PairInfo?): Boolean {

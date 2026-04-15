@@ -2192,6 +2192,56 @@ class CryptoAltActivity : AppCompatActivity() {
 
         // Kick off chart load
         loadChart("15m")
+
+        // V5.9.3: Live data refresh for static_enum tokens — they start with 0 price/mcap
+        // until PerpsMarketDataFetcher and discovery cycle populate them.
+        // Fetch price now so the dialog shows real data immediately.
+        if (tok.source.contains("static") || tok.price <= 0.0) {
+            lifecycleScope.launch(Dispatchers.IO) {
+                try {
+                    // Find the PerpsMarket for this symbol
+                    val market = com.lifecyclebot.perps.PerpsMarket.values()
+                        .firstOrNull { it.symbol.equals(tok.symbol, ignoreCase = true) }
+                    if (market != null) {
+                        val data = com.lifecyclebot.perps.PerpsMarketDataFetcher.getMarketData(market)
+                        if (data.price > 0) {
+                            // Feed back into registry
+                            DynamicAltTokenRegistry.updateStaticPrice(
+                                symbol    = market.symbol,
+                                price     = data.price,
+                                change24h = data.priceChange24hPct,
+                                mcap      = 0.0,
+                                vol24h    = data.volume24h,
+                            )
+                            // Update dialog UI
+                            val livePrice     = data.price
+                            val liveChange    = data.priceChange24hPct
+                            val liveChangeCol = if (liveChange >= 0) green else red
+                            withContext(Dispatchers.Main) {
+                                // Refresh price row — find the big price TextView (first child of priceSection)
+                                (priceSection.getChildAt(0) as? android.view.ViewGroup)?.let { row ->
+                                    (row.getChildAt(0) as? TextView)?.text = fmtPrice(livePrice)
+                                    (row.getChildAt(1) as? TextView)?.apply {
+                                        text = "${if (liveChange >= 0) "▲" else "▼"}${"%.2f".format(kotlin.math.abs(liveChange))}%"
+                                        setTextColor(liveChangeCol)
+                                    }
+                                }
+                                // Refresh detail rows — find by position in detailSection
+                                // detailSection children: header(0), price-row(1), change-row(2), ...
+                                fun updateDetailRow(idx: Int, newVal: String, col: Int = white) {
+                                    (detailSection.getChildAt(idx) as? android.view.ViewGroup)
+                                        ?.let { (it.getChildAt(1) as? TextView)?.apply { text = newVal; setTextColor(col) } }
+                                }
+                                updateDetailRow(1, fmtPrice(livePrice))
+                                updateDetailRow(2, "${if (liveChange >= 0) "+" else ""}${"%.2f".format(liveChange)}%", liveChangeCol)
+                                if (data.volume24h > 0)
+                                    updateDetailRow(4, data.volume24h.fmtVol())
+                            }
+                        }
+                    }
+                } catch (_: Exception) {}
+            }
+        }
     }
 
     /**
