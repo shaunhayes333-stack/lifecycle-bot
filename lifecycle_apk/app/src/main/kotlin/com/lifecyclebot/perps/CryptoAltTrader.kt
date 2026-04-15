@@ -91,7 +91,7 @@ object CryptoAltTrader {
     private val winningTrades    = AtomicInteger(0)
     private val losingTrades     = AtomicInteger(0)
 
-    @Volatile private var paperBalance    = 100.0   // 100 SOL paper start (mirrors meme trader)
+    @Volatile private var paperBalance    = 0.0    // Balance managed by MultiAssetActivity shared pool
     @Volatile private var liveWalletBalance = 0.0
     @Volatile private var totalPnlSol     = 0.0
 
@@ -1169,7 +1169,7 @@ object CryptoAltTrader {
 
     private fun loadFromSharedPrefs() {
         val p = prefs ?: return
-        paperBalance      = p.getFloat(KEY_BALANCE, 100.0f).toDouble()
+        paperBalance      = p.getFloat(KEY_BALANCE, 0.0f).toDouble()
         totalTrades.set(   p.getInt(KEY_TRADES,  0))
         winningTrades.set( p.getInt(KEY_WINS,    0))
         losingTrades.set(  p.getInt(KEY_LOSSES,  0))
@@ -1201,7 +1201,7 @@ object CryptoAltTrader {
                 // Reuse MarketsState schema — prefix instanceId so it's separate from stocks
                 val state = tursoClient.loadMarketsState("ALT_$instanceId")
                 if (state != null) {
-                    paperBalance = if (state.paperBalanceSol > 1.0) state.paperBalanceSol else 100.0
+                    paperBalance = if (state.paperBalanceSol > 1.0) state.paperBalanceSol else 0.0
                     totalTrades.set(state.totalTrades)
                     winningTrades.set(state.totalWins)
                     losingTrades.set(state.totalLosses)
