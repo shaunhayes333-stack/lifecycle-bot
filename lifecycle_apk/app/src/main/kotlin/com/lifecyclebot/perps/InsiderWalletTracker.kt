@@ -477,43 +477,79 @@ object InsiderWalletTracker {
      * Scan all active insider wallets for new activity and generate signals.
      * Call this periodically from the bot's main loop.
      */
+    // V5.9: previous holdings snapshot for delta-based signal detection
+    private val prevHoldingsSnapshot = ConcurrentHashMap<String, Map<String, Double>>()
+
     suspend fun scanForSignals(): List<InsiderSignal> = withContext(Dispatchers.IO) {
         val signals = mutableListOf<InsiderSignal>()
 
         getActiveWallets().forEach { wallet ->
             try {
-                val holdings = fetchHoldings(wallet.address)
-                val prevHoldings = holdingsCache[wallet.address]
+                val current = fetchHoldings(wallet.address) ?: return@forEach
+                val currentMap = current.holdings.associate { it.mint to it.amount }
+                val prevMap    = prevHoldingsSnapshot[wallet.address] ?: emptyMap()
 
-                // Check for new or significantly changed positions
-                holdings?.holdings?.forEach { holding ->
-                    if (holding.usdValue > 1000) { // Only signal on meaningful positions
-                        val confidence = when (wallet.category) {
-                            InsiderCategory.POLITICAL -> 85
-                            InsiderCategory.SMART_MONEY -> 75
-                            InsiderCategory.CUSTOM -> 60
-                        }
+                val confidence = when (wallet.category) {
+                    InsiderCategory.POLITICAL  -> 85
+                    InsiderCategory.SMART_MONEY -> 75
+                    InsiderCategory.CUSTOM     -> 60
+                }
 
-                        signals.add(InsiderSignal(
-                            walletLabel = wallet.label,
-                            walletAddress = wallet.address,
-                            category = wallet.category,
-                            tokenSymbol = holding.symbol,
-                            tokenMint = holding.mint,
-                            action = "HOLDING",
-                            usdValue = holding.usdValue,
-                            timestamp = System.currentTimeMillis(),
+                // NEW or changed positions
+                currentMap.forEach { (mint, amount) ->
+                    val prev    = prevMap[mint] ?: 0.0
+                    val holding = current.holdings.find { it.mint == mint } ?: return@forEach
+                    if (holding.usdValue < 500) return@forEach
+
+                    when {
+                        prev == 0.0 -> signals.add(InsiderSignal(
+                            walletLabel = wallet.label, walletAddress = wallet.address,
+                            category = wallet.category, tokenSymbol = holding.symbol,
+                            tokenMint = mint, action = "NEW_POSITION",
+                            usdValue = holding.usdValue, timestamp = System.currentTimeMillis(),
+                            confidence = (confidence + 10).coerceAtMost(95)
+                        )).also { ErrorLogger.info(TAG, "🔍 NEW: ${wallet.label} opened ${holding.symbol} (\$${holding.usdValue.toInt()})") }
+
+                        amount > prev * 1.25 -> signals.add(InsiderSignal(
+                            walletLabel = wallet.label, walletAddress = wallet.address,
+                            category = wallet.category, tokenSymbol = holding.symbol,
+                            tokenMint = mint, action = "ACCUMULATION",
+                            usdValue = holding.usdValue, timestamp = System.currentTimeMillis(),
+                            confidence = confidence
+                        ))
+
+                        amount < prev * 0.75 -> signals.add(InsiderSignal(
+                            walletLabel = wallet.label, walletAddress = wallet.address,
+                            category = wallet.category, tokenSymbol = holding.symbol,
+                            tokenMint = mint, action = "DISTRIBUTION",
+                            usdValue = holding.usdValue, timestamp = System.currentTimeMillis(),
                             confidence = confidence
                         ))
                     }
                 }
+
+                // Full exits
+                prevMap.keys.filter { it !in currentMap }.forEach { mint ->
+                    val sym = tokenSymbolCache[mint] ?: (mint.take(4) + "..")
+                    signals.add(InsiderSignal(
+                        walletLabel = wallet.label, walletAddress = wallet.address,
+                        category = wallet.category, tokenSymbol = sym,
+                        tokenMint = mint, action = "SELL",
+                        usdValue = 0.0, timestamp = System.currentTimeMillis(),
+                        confidence = confidence
+                    ))
+                    ErrorLogger.info(TAG, "🚨 EXIT: ${wallet.label} closed $sym")
+                }
+
+                prevHoldingsSnapshot[wallet.address] = currentMap
+                kotlinx.coroutines.delay(150)
             } catch (e: Exception) {
                 ErrorLogger.debug(TAG, "Signal scan error for ${wallet.label}: ${e.message}")
             }
         }
 
         // Fire callbacks for high-value signals
-        signals.filter { it.usdValue > 10_000 }.forEach { signal ->
+        signals.filter { it.usdValue > 5_000 || it.action == "NEW_POSITION" }.forEach { signal ->
             onInsiderSignalCallback?.invoke(signal)
         }
 
