@@ -236,9 +236,10 @@ class MultiAssetActivity : AppCompatActivity() {
             com.lifecyclebot.v3.scoring.FluidLearningAI.init()
             com.lifecyclebot.v3.scoring.FluidLearningAI.initMarketsPrefs(applicationContext)
         } catch (_: Exception) {}
-        // V5.9.5: Init all traders so they load persisted state before first scan
+        // V5.9.5: Init traders — each guards against double-init internally.
+        // Safe to call every onCreate; they skip loadState if already running.
         try { TokenizedStockTrader.init() } catch (_: Exception) {}
-        // V5.9.5: Provide context to traders so they can persist trade state locally
+        try { CryptoAltTrader.init(applicationContext) } catch (_: Exception) {}
         try { CommoditiesTrader.initContext(applicationContext) } catch (_: Exception) {}
         try { MetalsTrader.initContext(applicationContext) } catch (_: Exception) {}
         try { ForexTrader.initContext(applicationContext) } catch (_: Exception) {}

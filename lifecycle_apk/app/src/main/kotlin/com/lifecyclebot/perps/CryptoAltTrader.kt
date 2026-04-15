@@ -175,7 +175,13 @@ object CryptoAltTrader {
     // LIFECYCLE
     // ═══════════════════════════════════════════════════════════════════════════
 
+    @Volatile private var altInited = false
     fun init(context: Context) {
+        if (altInited) {
+            ErrorLogger.debug(TAG, "🪙 init: already inited — skipping to preserve running state")
+            return
+        }
+        altInited = true
         ctx   = context.applicationContext
         prefs = context.applicationContext.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
         loadFromSharedPrefs()

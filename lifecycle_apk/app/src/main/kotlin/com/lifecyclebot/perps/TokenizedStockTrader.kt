@@ -308,7 +308,13 @@ object TokenizedStockTrader {
     // INITIALIZATION
     // ═══════════════════════════════════════════════════════════════════════════
     
+    @Volatile private var tstInited = false
     fun init() {
+        if (tstInited) {
+            ErrorLogger.debug(TAG, "📈 init: already inited — skipping to preserve running state")
+            return
+        }
+        tstInited = true
         // V5.7.7: Load persisted state from Turso
         scope.launch {
             loadPersistedState()

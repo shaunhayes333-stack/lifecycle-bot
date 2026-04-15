@@ -173,9 +173,16 @@ object ForexTrader {
     }
 
     // V5.9.5: Call this from Activity/Service to provide context for persistence
+    @Volatile private var ctxInited = false
     fun initContext(ctx: android.content.Context) {
         appCtx = ctx.applicationContext
-        loadState()
+        if (!ctxInited) {
+            ctxInited = true
+            loadState()
+            ErrorLogger.info(TAG, "💱 initContext: state loaded for first time")
+        } else {
+            ErrorLogger.debug(TAG, "💱 initContext: already inited — skipping loadState to preserve running state")
+        }
     }
 
     fun stop() {
