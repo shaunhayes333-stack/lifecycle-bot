@@ -648,6 +648,12 @@ object MetalsTrader {
         ErrorLogger.info(TAG, "🥇 MetalsTrader balance set to ${"%.2f".format(balance)} SOL")
     }
     
+    fun setEnabled(enabled: Boolean) {
+        isEnabled.set(enabled)
+        ErrorLogger.info(TAG, "🥇 Metals Trader enabled: $enabled")
+    }
+    fun isEnabled(): Boolean = isEnabled.get()
+
     fun isRunning(): Boolean = isRunning.get()
 
     /** Returns true only if running AND engine/monitor coroutines are actually alive. */
