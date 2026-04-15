@@ -163,7 +163,20 @@ object PriceAggregator {
                 "TRX", "TON", "BCH", "XLM", "XMR", "ETC", "ZEC", "XTZ", "EOS",
                 "CAKE", "GMX", "DYDX", "ENA", "PENDLE",
                 "WLD", "JTO", "W", "STRK", "TAO",
-                "FLOKI", "NOT", "POPCAT", "TRUMP") -> AssetType.CRYPTO
+                "FLOKI", "NOT", "POPCAT", "TRUMP",
+                // V5.9: expanded to match full PerpsMarket enum
+                "FIL", "WIN", "ONT", "ONE", "KMNO", "CVXF", "TURBO", "XDC", "FTM",
+                "FXS", "WAVES", "GALA", "BABYDOGE", "STETH", "THETA", "EGLD", "ZIL",
+                "IOTA", "DASH", "ZEN", "DCR", "QTUM", "SC", "BTT", "JST", "KAS",
+                "COTI", "CELR", "ROSE", "CELO", "FLOW", "KAVA", "FLR", "ICX", "ZRX",
+                "ANKR", "SKL", "GNO", "METIS", "MANTLE", "MANTA", "ZK", "COMP",
+                "SUSHI", "BAL", "OSMO", "LQTY", "SPELL", "PERP", "DODO", "ALPHA",
+                "FIDA", "ALT", "IO", "VIRTUAL", "HYPE", "MOVE", "TNSR", "PIXEL",
+                "RON", "MAGIC", "ENJ", "CHZ", "AUDIO", "WBTC", "PAXG", "MSOL",
+                "WOJAK", "MOG", "NEIRO", "BRETT", "DEGEN", "JASMY", "HBAR", "ICP",
+                "VET", "RENDER", "GRT", "AAVE", "MKR", "SNX", "CRV", "RUNE", "STX",
+                "IMX", "SAND", "MANA", "AXS", "ENS", "LDO", "RPL", "PYTH", "RAY",
+                "ORCA", "DRIFT", "NEAR", "ALGO") -> AssetType.CRYPTO
             
             // Forex detection
             symbol.length == 6 && symbol.matches(Regex("[A-Z]{6}")) -> AssetType.FOREX
