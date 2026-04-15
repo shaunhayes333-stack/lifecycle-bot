@@ -1048,7 +1048,8 @@ class MultiAssetActivity : AppCompatActivity() {
             // Update recommendation
             tvMarketsRecommendation.text = readiness.recommendation
             
-        } catch (_: Exception) {
+        } catch (e: Exception) {
+        ErrorLogger.error(TAG, "updateMarketsReadiness crash: ${e.javaClass.simpleName}: ${e.message}")
             tvMarketsReadinessBadge.text = "INIT"
             tvMarketsWinRate.text = "--"
             tvMarketsTrades.text = "0/5000"
