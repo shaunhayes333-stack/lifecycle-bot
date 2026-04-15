@@ -377,7 +377,7 @@ class CryptoAltActivity : AppCompatActivity() {
                     addView(tv("${elapsed}m", 9f, muted, mono=true))
                 })
                 val entryStr  = if (pos.entryPrice > 0.01) "${"$%.4f".format(pos.entryPrice)}" else "${"$%.6f".format(pos.entryPrice)}"
-                val currentStr = dynTok?.let { t -> if (t.price > 0) " → ${t.fmtPrice()}" else "" } ?: ""
+                val currentStr = dynTok?.let { t -> if (t.price > 0) " → ${fmtPrice(t.price)}" else "" } ?: ""
                 val sizeStr   = "${"%.4f".format(pos.sizeSol)}◎"
                 leftCol.addView(tv("Entry: $entryStr$currentStr", 9f, muted, mono = true))
                 leftCol.addView(tv("$sizeStr  TP:+${((pos.takeProfitPrice/pos.entryPrice - 1)*100).toInt()}%  SL:-${((1 - pos.stopLossPrice/pos.entryPrice)*100).toInt()}%",
@@ -608,7 +608,7 @@ class CryptoAltActivity : AppCompatActivity() {
                     addView(tv("${pos.launchPlatform.emoji} ${pos.symbol}", 13f, orange, bold = true).apply { layoutParams = llp(0, wrap, 1f) })
                     addView(tv("${elapsed}m", 9f, muted, mono = true))
                 })
-                left.addView(tv("Entry: ${pos.entryPrice.fmtPrice()}  ·  MCap: $mcapLabel", 9f, muted, mono = true))
+                left.addView(tv("Entry: ${fmtPrice(pos.entryPrice)}  ·  MCap: $mcapLabel", 9f, muted, mono = true))
                 left.addView(tv("TP:+${pos.takeProfitPct.toInt()}%  SL:${pos.stopLossPct.toInt()}%", 8f, muted, mono = true))
                 row.addView(left)
                 val right = vBox(0, 0, 0).apply { gravity = Gravity.END or Gravity.CENTER_VERTICAL; layoutParams = llp(wrap, wrap) }
@@ -652,7 +652,7 @@ class CryptoAltActivity : AppCompatActivity() {
                     addView(tv("💎 ${pos.symbol}", 13f, teal, bold = true).apply { layoutParams = llp(0, wrap, 1f) })
                     addView(tv("${elapsed}m", 9f, muted, mono = true))
                 })
-                left.addView(tv("Entry: ${pos.entryPrice.fmtPrice()}  ·  MCap: ${formatMcap(pos.entryMcap)}", 9f, muted, mono = true))
+                left.addView(tv("Entry: ${fmtPrice(pos.entryPrice)}  ·  MCap: ${formatMcap(pos.entryMcap)}", 9f, muted, mono = true))
                 left.addView(tv("${"%.3f".format(pos.entrySol)}◎  TP:+${pos.takeProfitPct.toInt()}%  SL:${pos.stopLossPct.toInt()}%", 8f, muted, mono = true))
                 row.addView(left)
                 val right = vBox(0, 0, 0).apply { gravity = Gravity.END or Gravity.CENTER_VERTICAL; layoutParams = llp(wrap, wrap) }
@@ -677,7 +677,7 @@ class CryptoAltActivity : AppCompatActivity() {
             val cp = try { com.lifecyclebot.engine.BotService.status.tokens[p.mint]?.ref?.takeIf { it > 0 } ?: p.entryPrice } catch (_: Exception) { p.entryPrice }
             p.entrySol * (cp - p.entryPrice) / p.entryPrice
         }
-        val tile      = buildTile(blue, "🔵 Blue Chip Trades", "${"%.3f".format(totalRisk) { showBlueChipDetailDialog() }}◎  ${if (bcTotalPnlSol >= 0) "+" else ""}${"%.4f".format(bcTotalPnlSol)}◎", blue)
+        val tile      = buildTile(blue, "🔵 Blue Chip Trades", "${"%.3f".format(totalRisk)}◎  ${if (bcTotalPnlSol >= 0) "+" else ""}${"%.4f".format(bcTotalPnlSol)}◎", blue)
 
         val statsRow  = hBox().apply { layoutParams = llp(match, wrap).apply { topMargin = 6 } }
         addStatChip(statsRow, "Balance",  "◎${"%.3f".format(bal)}", white, 1f)
@@ -707,7 +707,7 @@ class CryptoAltActivity : AppCompatActivity() {
                     addView(tv("🔵 ${pos.symbol}", 13f, blue, bold = true).apply { layoutParams = llp(0, wrap, 1f) })
                     addView(tv("${elapsed}m", 9f, muted, mono = true))
                 })
-                left.addView(tv("Entry: ${pos.entryPrice.fmtPrice()}  ·  MCap: $mcapLabel", 9f, muted, mono = true))
+                left.addView(tv("Entry: ${fmtPrice(pos.entryPrice)}  ·  MCap: $mcapLabel", 9f, muted, mono = true))
                 left.addView(tv("${"%.3f".format(pos.entrySol)}◎  TP:+${pos.takeProfitPct.toInt()}%  SL:${pos.stopLossPct.toInt()}%", 8f, muted, mono = true))
                 row.addView(left)
                 val right = vBox(0, 0, 0).apply { gravity = Gravity.END or Gravity.CENTER_VERTICAL; layoutParams = llp(wrap, wrap) }
@@ -750,7 +750,7 @@ class CryptoAltActivity : AppCompatActivity() {
                     addView(tv("⚡ ${ride.symbol}", 13f, orange, bold = true).apply { layoutParams = llp(0, wrap, 1f) })
                     addView(tv("${elapsed}m", 9f, muted, mono = true))
                 })
-                left.addView(tv("Entry: ${ride.entryPrice.fmtPrice()}  ·  Mom: ${"%.0f".format(ride.entryMomentum)}", 9f, muted, mono = true))
+                left.addView(tv("Entry: ${fmtPrice(ride.entryPrice)}  ·  Mom: ${"%.0f".format(ride.entryMomentum)}", 9f, muted, mono = true))
                 left.addView(tv("${"%.3f".format(ride.entrySol)}◎  BP: ${"%.0f".format(ride.entryBuyPressure)}%", 8f, muted, mono = true))
                 row.addView(left)
                 val right = vBox(0, 0, 0).apply { gravity = Gravity.END or Gravity.CENTER_VERTICAL; layoutParams = llp(wrap, wrap) }
@@ -799,7 +799,7 @@ class CryptoAltActivity : AppCompatActivity() {
                     addView(tv("${pos.spaceMode.emoji} ${pos.symbol}", 13f, purple, bold = true).apply { layoutParams = llp(0, wrap, 1f) })
                     addView(tv("${elapsed}m", 9f, muted, mono = true))
                 })
-                left.addView(tv("${pos.entryPrice.fmtPrice()} → ${currentPrice.fmtPrice()}  ·  MCap: $mcapLabel", 9f, muted, mono = true))
+                left.addView(tv("${fmtPrice(pos.entryPrice)} → ${fmtPrice(currentPrice)}  ·  MCap: $mcapLabel", 9f, muted, mono = true))
                 left.addView(tv("TP:+${pos.takeProfitPct.toInt()}%  SL:${pos.stopLossPct.toInt()}%", 8f, muted, mono = true))
                 row.addView(left)
                 val right = vBox(0, 0, 0).apply { gravity = Gravity.END or Gravity.CENTER_VERTICAL; layoutParams = llp(wrap, wrap) }
@@ -817,7 +817,7 @@ class CryptoAltActivity : AppCompatActivity() {
         val stats     = ManipulatedTraderAI.getStats()
         val positions = ManipulatedTraderAI.getActivePositions()
         val manipWr   = if (stats.dailyWins + stats.dailyLosses > 0) (stats.dailyWins.toDouble() / (stats.dailyWins + stats.dailyLosses) * 100) else 0.0
-        val tile      = buildTile(pink, "🎭 Manip Catch", "Caught: ${stats.totalManipCaught}  ${if (positions.isNotEmpty() { showManipDetailDialog() }) "· ${positions.size} open" else ""}", pink)
+        val tile      = buildTile(pink, "🎭 Manip Catch", "Caught: ${stats.totalManipCaught}  ${if (positions.isNotEmpty()) "· ${positions.size} open" else ""}", pink)
 
         val statsRow  = hBox().apply { layoutParams = llp(match, wrap).apply { topMargin = 6 } }
         addStatChip(statsRow, "Win Rate",  "${"%.1f".format(manipWr)}%", if (manipWr >= 55) green else amber, 1f)
@@ -843,7 +843,7 @@ class CryptoAltActivity : AppCompatActivity() {
                     addView(tv("🎭 ${pos.symbol}", 13f, pink, bold = true).apply { layoutParams = llp(0, wrap, 1f) })
                     addView(tv("${elapsed}m", 9f, muted, mono = true))
                 })
-                left.addView(tv("Entry: ${pos.entryPrice.fmtPrice()}  ·  Manip: ${pos.manipScore}", 9f, muted, mono = true))
+                left.addView(tv("Entry: ${fmtPrice(pos.entryPrice)}  ·  Manip: ${pos.manipScore}", 9f, muted, mono = true))
                 left.addView(tv("${"%.3f".format(pos.entrySol)}◎  TP:+${pos.takeProfitPct.toInt()}%  SL:${pos.stopLossPct.toInt()}%", 8f, muted, mono = true))
                 row.addView(left)
                 val right = vBox(0, 0, 0).apply { gravity = Gravity.END or Gravity.CENTER_VERTICAL; layoutParams = llp(wrap, wrap) }
@@ -1491,7 +1491,7 @@ class CryptoAltActivity : AppCompatActivity() {
         // Right column — current price + 24h change
         val right = vBox().apply { gravity = Gravity.END }
         if (tok.price > 0)
-            right.addView(tv(tok.fmtPrice(), 12f, white, mono = true).apply { gravity = Gravity.END })
+            right.addView(tv(fmtPrice(tok.price), 12f, white, mono = true).apply { gravity = Gravity.END })
         if (change != 0.0)
             right.addView(tv("${if (change >= 0) "+" else ""}${"%.2f".format(change)}%", 11f, col, mono = true).apply { gravity = Gravity.END })
         else
@@ -1552,7 +1552,7 @@ class CryptoAltActivity : AppCompatActivity() {
         // ── Live price section ─────────────────────────────────────────────
         val priceSection = vBox(card2, 20, 14)
         val priceRow = hBox().apply { gravity = Gravity.BOTTOM }
-        priceRow.addView(tv(tok.fmtPrice(), 26f, white, bold = true, mono = true).apply { layoutParams = llp(0, wrap, 1f) })
+        priceRow.addView(tv(fmtPrice(tok.price), 26f, white, bold = true, mono = true).apply { layoutParams = llp(0, wrap, 1f) })
         val changeBg = if (change >= 0) 0xFF052E16.toInt() else 0xFF2E0A0A.toInt()
         priceRow.addView(tv("${if (change >= 0) "▲" else "▼"}${"%.2f".format(kotlin.math.abs(change))}%",
             13f, changeCol, bold = true).apply {
@@ -1672,7 +1672,7 @@ class CryptoAltActivity : AppCompatActivity() {
                     gravity = Gravity.CENTER_VERTICAL
                 }
                 entryCurrentRow.addView(tv("Entry", 9f, muted).apply { layoutParams = llp(0, wrap, 1f) })
-                entryCurrentRow.addView(tv("${fmtPrice(pos.entryPrice)}  →  ${tok.fmtPrice()}", 11f, white, mono = true))
+                entryCurrentRow.addView(tv("${fmtPrice(pos.entryPrice)}  →  ${fmtPrice(tok.price)}", 11f, white, mono = true))
                 posSection.addView(entryCurrentRow)
 
                 // P&L row — big and prominent
@@ -1740,7 +1740,7 @@ class CryptoAltActivity : AppCompatActivity() {
             r.addView(tv(value, 10f, col, mono = true))
             detailSection.addView(r)
         }
-        detailRow("Price", tok.fmtPrice())
+        detailRow("Price", fmtPrice(tok.price))
         detailRow("24h Change", "${if (change >= 0) "+" else ""}${"%.2f".format(change)}%", changeCol)
         detailRow("Market Cap", tok.fmtMcap(), blue)
         detailRow("Liquidity", tok.liquidityUsd.fmtVol(), teal)
@@ -2025,7 +2025,7 @@ class CryptoAltActivity : AppCompatActivity() {
                 // Row 2: live price + 24h change
                 if (tok != null) {
                     val r2 = hBox().apply { setPadding(0, 2, 0, 0) }
-                    r2.addView(tv(tok.fmtPrice(), 9f, white, mono = true).apply { layoutParams = llp(0, wrap, 1f) })
+                    r2.addView(tv(fmtPrice(tok.price), 9f, white, mono = true).apply { layoutParams = llp(0, wrap, 1f) })
                     r2.addView(tv("${if (change >= 0) "+" else ""}${"%.2f".format(change)}%", 9f, col, mono = true))
                     wCard.addView(r2)
                     // Row 3: MCap + volume
