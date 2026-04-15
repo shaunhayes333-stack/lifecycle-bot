@@ -1,5 +1,6 @@
 package com.lifecyclebot.v3.scoring
 
+import com.lifecyclebot.perps.PriceAggregator
 import com.lifecyclebot.engine.ErrorLogger
 import com.lifecyclebot.engine.TradeHistoryStore
 import java.util.concurrent.atomic.AtomicInteger
@@ -1461,7 +1462,7 @@ object FluidLearningAI {
         var minPct = ROUND_TRIP_FEE_PCT * 100  // 0.6%
         
         // Add estimated price impact based on liquidity
-        val solPrice = 150.0  // Approximate - could be passed in
+        val solPrice = try { kotlinx.coroutines.runBlocking { PriceAggregator.getPrice("SOL")?.price } ?: 150.0 } catch (_: Exception) { 150.0 } // V5.9: live price
         val positionUsd = positionSizeSol * solPrice
         
         val priceImpactPct = when {

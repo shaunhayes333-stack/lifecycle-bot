@@ -35,7 +35,7 @@ class MultiAssetActivity : AppCompatActivity() {
         private const val TAG = "MultiAssetActivity"
         // V5.7.6b: Balance refresh threshold (15000 USD worth of SOL)
         private const val MIN_BALANCE_USD = 15000.0
-        private const val SOL_PRICE_USD = 150.0  // Approximate, will be fetched live
+        private var SOL_PRICE_USD = 150.0  // V5.9: updated dynamically via refreshSolPrice()
     }
     
     // ═══════════════════════════════════════════════════════════════════════════
