@@ -708,9 +708,11 @@ class MultiAssetActivity : AppCompatActivity() {
                 }
                 .setNeutralButton(if (liveWalletSol > 0) "Use LIVE" else "Connect Wallet") { _, _ ->
                     if (liveWalletSol > 0) {
-                        // TODO: Switch to LIVE mode
-                        android.widget.Toast.makeText(this@MultiAssetActivity, 
-                            "⚠️ LIVE trading coming soon! Currently paper only.", android.widget.Toast.LENGTH_LONG).show()
+                        // V5.9: Switch to LIVE mode via PerpsTraderAI
+                        PerpsTraderAI.setTradingMode(isPaper = false)
+                        android.widget.Toast.makeText(this@MultiAssetActivity,
+                            "🔴 LIVE mode enabled — real funds at risk!", android.widget.Toast.LENGTH_LONG).show()
+                        refreshData()
                     } else {
                         // Open settings to connect wallet
                         android.widget.Toast.makeText(this@MultiAssetActivity, 
@@ -1597,7 +1599,30 @@ class MultiAssetActivity : AppCompatActivity() {
         builder.setMessage("Close ${pos.symbol} position?\n\nCurrent P&L: ${if (pos.pnl >= 0) "+" else ""}${"%.4f".format(pos.pnl)} SOL (${if (pos.pnlPct >= 0) "+" else ""}${"%.2f".format(pos.pnlPct)}%)")
         builder.setPositiveButton("Close Position") { _, _ ->
             android.widget.Toast.makeText(this, "Closing ${pos.symbol}...", android.widget.Toast.LENGTH_SHORT).show()
-            // TODO: Implement actual position close
+            // V5.9: Close via PerpsTraderAI
+            scope.launch {
+                try {
+                    val currentPrice = PerpsMarketDataFetcher.getMarketData(
+                        PerpsMarket.values().find { it.symbol == pos.symbol } ?: return@launch
+                    ).price
+                    val result = PerpsTraderAI.closePosition(
+                        positionId = pos.id,
+                        exitPrice  = currentPrice,
+                        exitReason = PerpsExitSignal.MANUAL_CLOSE
+                    )
+                    withContext(Dispatchers.Main) {
+                        val msg = if (result != null)
+                            "✅ ${pos.symbol} closed | PnL: ${if (result.pnlSol >= 0) "+" else ""}${"%.4f".format(result.pnlSol)} SOL"
+                        else "⚠️ Could not close ${pos.symbol} — position not found"
+                        android.widget.Toast.makeText(this@MultiAssetActivity, msg, android.widget.Toast.LENGTH_LONG).show()
+                        refreshData()
+                    }
+                } catch (e: Exception) {
+                    withContext(Dispatchers.Main) {
+                        android.widget.Toast.makeText(this@MultiAssetActivity, "❌ Close failed: ${e.message}", android.widget.Toast.LENGTH_LONG).show()
+                    }
+                }
+            }
         }
         builder.setNegativeButton("Cancel", null)
         builder.show()
@@ -1615,7 +1640,24 @@ class MultiAssetActivity : AppCompatActivity() {
         builder.setMessage("Are you sure you want to close ALL $count positions?\n\nThis action cannot be undone.")
         builder.setPositiveButton("Close All") { _, _ ->
             android.widget.Toast.makeText(this, "Closing all positions...", android.widget.Toast.LENGTH_SHORT).show()
-            // TODO: Implement close all
+            // V5.9: Close all via PerpsTraderAI
+            scope.launch {
+                var closed = 0; var failed = 0
+                PerpsTraderAI.getActivePositions().forEach { perpsPos ->
+                    try {
+                        val mkt = PerpsMarket.values().find { it.symbol == perpsPos.market.symbol }
+                        val price = if (mkt != null) PerpsMarketDataFetcher.getMarketData(mkt).price else perpsPos.markPrice
+                        val r = PerpsTraderAI.closePosition(perpsPos.id, price, PerpsExitSignal.MANUAL_CLOSE)
+                        if (r != null) closed++ else failed++
+                    } catch (_: Exception) { failed++ }
+                }
+                withContext(Dispatchers.Main) {
+                    android.widget.Toast.makeText(this@MultiAssetActivity,
+                        "✅ Closed $closed position(s)${if (failed > 0) " | ❌ $failed failed" else ""}",
+                        android.widget.Toast.LENGTH_LONG).show()
+                    refreshData()
+                }
+            }
         }
         builder.setNegativeButton("Cancel", null)
         builder.show()
@@ -2575,10 +2617,42 @@ class MultiAssetActivity : AppCompatActivity() {
     
     private fun exportTaxReport(period: String) {
         android.widget.Toast.makeText(this, "Generating $period tax report...", android.widget.Toast.LENGTH_SHORT).show()
-        // TODO: Implement actual tax report generation from PerpsTraderAI trade history
-        lifecycleScope.launch {
-            delay(1500)
-            android.widget.Toast.makeText(this@MultiAssetActivity, "Tax report exported to Downloads", android.widget.Toast.LENGTH_LONG).show()
+        // V5.9: Generate real CSV from PerpsTraderAI trade history
+        lifecycleScope.launch(Dispatchers.IO) {
+            try {
+                val trades = PerpsTraderAI.getRecentTrades()
+                if (trades.isEmpty()) {
+                    withContext(Dispatchers.Main) {
+                        android.widget.Toast.makeText(this@MultiAssetActivity, "No trades found for $period report", android.widget.Toast.LENGTH_SHORT).show()
+                    }
+                    return@launch
+                }
+                val sb = StringBuilder("Date,Symbol,Direction,Entry,Exit,Size SOL,PnL SOL,PnL %,Type\n")
+                val fmt = java.text.SimpleDateFormat("yyyy-MM-dd HH:mm:ss", java.util.Locale.US)
+                trades
+                    .filter { period == "all" || run {
+                        val cal = java.util.Calendar.getInstance()
+                        when (period) {
+                            "ytd"   -> { cal.set(java.util.Calendar.DAY_OF_YEAR, 1); it.exitTime >= cal.timeInMillis }
+                            "q"     -> { cal.set(java.util.Calendar.DAY_OF_MONTH, 1); cal.add(java.util.Calendar.MONTH, -(cal.get(java.util.Calendar.MONTH) % 3)); it.exitTime >= cal.timeInMillis }
+                            "month" -> { cal.set(java.util.Calendar.DAY_OF_MONTH, 1); it.exitTime >= cal.timeInMillis }
+                            else    -> true
+                        }
+                    }}
+                    .forEach { t ->
+                        sb.append("${fmt.format(java.util.Date(t.exitTime))},${t.market.symbol},${t.direction.name},${t.entryPrice},${t.exitPrice},${t.sizeSol},${t.pnlSol},${t.pnlPct},${if (t.isPaper) "PAPER" else "LIVE"}\n")
+                    }
+                val dir = android.os.Environment.getExternalStoragePublicDirectory(android.os.Environment.DIRECTORY_DOWNLOADS)
+                val file = java.io.File(dir, "aate_tax_${period}_${System.currentTimeMillis()}.csv")
+                file.writeText(sb.toString())
+                withContext(Dispatchers.Main) {
+                    android.widget.Toast.makeText(this@MultiAssetActivity, "✅ Tax report saved: ${file.name} (${trades.size} trades)", android.widget.Toast.LENGTH_LONG).show()
+                }
+            } catch (e: Exception) {
+                withContext(Dispatchers.Main) {
+                    android.widget.Toast.makeText(this@MultiAssetActivity, "❌ Export failed: ${e.message}", android.widget.Toast.LENGTH_LONG).show()
+                }
+            }
         }
     }
     
