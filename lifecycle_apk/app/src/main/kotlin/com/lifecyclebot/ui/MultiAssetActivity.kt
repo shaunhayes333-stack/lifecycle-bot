@@ -1612,7 +1612,7 @@ class MultiAssetActivity : AppCompatActivity() {
                     )
                     withContext(Dispatchers.Main) {
                         val msg = if (result != null)
-                            "✅ ${pos.symbol} closed | PnL: ${if (result.pnlSol >= 0) "+" else ""}${"%.4f".format(result.sizeSol * result.pnlPct / 100.0)} SOL"
+                            "✅ ${pos.symbol} closed | PnL: ${if ((result.sizeSol * result.pnlPct) >= 0) "+" else ""}${"%.4f".format(result.sizeSol * result.pnlPct / 100.0)} SOL"
                         else "⚠️ Could not close ${pos.symbol} — position not found"
                         android.widget.Toast.makeText(this@MultiAssetActivity, msg, android.widget.Toast.LENGTH_LONG).show()
                         refreshData()
