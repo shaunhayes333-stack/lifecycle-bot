@@ -145,6 +145,25 @@ class BotService : Service() {
                 if (ts != null && c.copyTradingEnabled) {
                     autoMode.triggerCopy(mint, wallet)
                     addLog("📋 COPY BUY triggered: ${mint.take(8)}… from ${wallet.take(8)}…", mint)
+                    // V5.9: also fire copy-perps trade on SOL via MarketsLiveExecutor
+                    if (!c.paperMode && c.heliusApiKey.isNotBlank()) {
+                        kotlinx.coroutines.GlobalScope.launch(kotlinx.coroutines.Dispatchers.IO) {
+                            try {
+                                val copySizeSol = (c.smallBuySol * 0.5).coerceIn(0.01, 0.5)
+                                val result = com.lifecyclebot.perps.MarketsLiveExecutor.executeLiveTrade(
+                                    market      = com.lifecyclebot.perps.PerpsMarket.SOL,
+                                    direction   = com.lifecyclebot.perps.PerpsDirection.LONG,
+                                    sizeSol     = copySizeSol,
+                                    leverage    = 2.0,
+                                    priceUsd    = ts.lastPrice,
+                                    traderType  = "CopyTrade"
+                                )
+                                addLog("📋 COPY PERPS: ${if (result.first) "✅ LONG SOL ${copySizeSol}◎" else "❌ failed"}", mint)
+                            } catch (e: Exception) {
+                                ErrorLogger.warn("BotService", "Copy perps error: ${e.message}")
+                            }
+                        }
+                    }
                 }
             },
             onLog = { msg -> addLog(msg) }
