@@ -681,7 +681,7 @@ object MetalsTrader {
     // V5.9.5: Local persistence — survives app restarts without needing Turso
     private fun prefs() = appCtx?.getSharedPreferences(PREFS_NAME, android.content.Context.MODE_PRIVATE)
 
-    private fun saveState() {
+    fun saveState() {
         val p = prefs() ?: return
         p.edit()
             .putFloat(KEY_BALANCE, paperBalance.toFloat())
@@ -692,7 +692,7 @@ object MetalsTrader {
             .apply()
     }
 
-    private fun loadState() {
+    fun loadState() {
         val p = prefs() ?: return
         val savedBal = p.getFloat(KEY_BALANCE, 0f).toDouble()
         if (savedBal > 0.0) paperBalance = savedBal

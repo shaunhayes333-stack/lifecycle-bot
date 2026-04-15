@@ -1331,7 +1331,7 @@ object CryptoAltTrader {
         }
     }
 
-    private fun savePersistedState() {
+    fun savePersistedState() {
         scope.launch {
             try {
                 val tursoClient = com.lifecyclebot.collective.CollectiveLearning.getClient()

@@ -318,6 +318,20 @@ class MultiAssetActivity : AppCompatActivity() {
         }
     }
 
+    override fun onStop() {
+        super.onStop()
+        // V5.9.5 FIX: Save all trader state when Activity goes to background / user navigates away.
+        // Without this, balance, positions and trade history reset every time you return to menu.
+        try { TokenizedStockTrader.savePersistedState() } catch (_: Exception) {}
+        try { CryptoAltTrader.savePersistedState() } catch (_: Exception) {}
+        try { MetalsTrader.saveState() } catch (_: Exception) {}
+        try { CommoditiesTrader.saveState() } catch (_: Exception) {}
+        try { ForexTrader.saveState() } catch (_: Exception) {}
+        try { PerpsTraderAI.save(force = true) } catch (_: Exception) {}
+        try { com.lifecyclebot.v3.scoring.FluidLearningAI.saveMarketsPrefs() } catch (_: Exception) {}
+        ErrorLogger.info(TAG, "📊 MAA onStop — all trader state saved")
+    }
+
     override fun onDestroy() {
         super.onDestroy()
         updateJob?.cancel()

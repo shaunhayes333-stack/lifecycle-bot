@@ -377,7 +377,7 @@ object TokenizedStockTrader {
     /**
      * V5.7.7: Save current state to Turso
      */
-    private fun savePersistedState() {
+    fun savePersistedState() {
         scope.launch {
             try {
                 val tursoClient = com.lifecyclebot.collective.CollectiveLearning.getClient()
