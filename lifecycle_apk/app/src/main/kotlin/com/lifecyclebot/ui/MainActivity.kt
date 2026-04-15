@@ -1345,10 +1345,8 @@ for legal compliance.
         if (config.paperMode) {
             // PAPER MODE: FluidLearning SOL balance × SOL price → USD
             val fluidBalSol = com.lifecyclebot.engine.FluidLearning.getSimulatedBalance()
-            val solPriceUsd = try {
-                com.lifecyclebot.engine.WalletManager.lastKnownSolPrice.takeIf { it > 10.0 }
-                    ?: com.lifecyclebot.perps.PerpsMarketDataFetcher.getSolPrice()
-            } catch (_: Exception) { 85.0 }
+            val solPriceUsd = com.lifecyclebot.engine.WalletManager.lastKnownSolPrice
+                .takeIf { it > 10.0 } ?: 85.0  // cached price; suspend getSolPrice() not usable here
             val rawSol = if (fluidBalSol > 0.001) fluidBalSol
                          else com.lifecyclebot.engine.BotService.status.paperWalletSol.takeIf { it > 0.001 } ?: 5.0
             displayBalance = rawSol * solPriceUsd

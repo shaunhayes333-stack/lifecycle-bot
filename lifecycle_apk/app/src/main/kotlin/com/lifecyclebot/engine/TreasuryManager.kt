@@ -411,7 +411,7 @@ object TreasuryManager {
         treasuryUsd = 500.00
         lifetimeLocked = 5.8824
         ErrorLogger.info("Treasury", "🏦 Seeded starting treasury: 5.8824 SOL ($500 USD)")
-        persist(ctx)
+        save(ctx)
     }
     }
     
