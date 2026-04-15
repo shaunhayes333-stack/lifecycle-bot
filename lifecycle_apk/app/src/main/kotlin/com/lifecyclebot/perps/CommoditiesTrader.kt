@@ -701,6 +701,7 @@ object CommoditiesTrader {
     fun getAllPositions(): List<CommodityPosition> = spotPositions.values.toList() + leveragePositions.values.toList()
     fun getBalance(): Double = if (isPaperMode.get()) com.lifecyclebot.engine.FluidLearning.getSimulatedBalance() else liveWalletBalance
     fun getTotalTrades(): Int = totalTrades.get()
+    fun getWinningTrades(): Int = winningTrades.get()
     fun getWinRate(): Double {
         val t = winningTrades.get() + losingTrades.get()
         return if (t > 0) winningTrades.get().toDouble() / t * 100.0 else 0.0

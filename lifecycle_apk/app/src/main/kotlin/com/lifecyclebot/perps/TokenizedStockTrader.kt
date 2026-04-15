@@ -1285,6 +1285,7 @@ fun isLiveReady(): Boolean = totalTrades.get() >= 5000 && getWinRate() >= 50.0
     }
     
     fun getTotalTrades(): Int = totalTrades.get()
+    fun getWinningTrades(): Int = winningTrades.get()
     
     fun getTotalPnlSol(): Double = totalPnlSol
     
