@@ -273,6 +273,13 @@ object CryptoAltTrader {
         ErrorLogger.info(TAG, "🪙 CryptoAltTrader STOPPED")
     }
 
+    /** Close all open positions immediately (called on STOP). */
+    fun closeAllPositions() {
+        val ids = positions.keys.toList()
+        ids.forEach { id -> try { closePosition(id, "USER_STOP") } catch (_: Exception) {} }
+        ErrorLogger.info(TAG, "🪙 All crypto alt positions closed on STOP (${ids.size} positions)")
+    }
+
     // ═══════════════════════════════════════════════════════════════════════════
     // SCAN CYCLE
     // ═══════════════════════════════════════════════════════════════════════════

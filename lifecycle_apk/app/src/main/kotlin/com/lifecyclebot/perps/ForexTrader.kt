@@ -184,6 +184,15 @@ object ForexTrader {
         monitorJob?.cancel()
         ErrorLogger.info(TAG, "💱 ForexTrader STOPPED")
     }
+
+    /** Close all open positions immediately (called on STOP). */
+    fun closeAllPositions() {
+        val all = spotPositions.values.toList() + leveragePositions.values.toList()
+        all.forEach { pos ->
+            try { val map = if (pos.isSpot) spotPositions else leveragePositions; closePosition(pos, map) } catch (_: Exception) {}
+        }
+        ErrorLogger.info(TAG, "💱 All forex positions closed on STOP (${all.size} positions)")
+    }
     
     // ═══════════════════════════════════════════════════════════════════════════
     // SCAN CYCLE - V5.7.6: SPOT + LEVERAGE

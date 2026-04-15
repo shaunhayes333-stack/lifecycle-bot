@@ -637,6 +637,13 @@ class MultiAssetActivity : AppCompatActivity() {
                 // User manually stopped — persist so auto-follow won't restart them even after reopen
                 userManuallyStopped = true
                 marketsPrefs.edit().putBoolean("user_manually_stopped", true).apply()
+                // V5.9.5: Close ALL open positions before stopping engines
+                try { TokenizedStockTrader.closeAllPositions() } catch (_: Exception) {}
+                try { CommoditiesTrader.closeAllPositions() } catch (_: Exception) {}
+                try { MetalsTrader.closeAllPositions() } catch (_: Exception) {}
+                try { ForexTrader.closeAllPositions() } catch (_: Exception) {}
+                try { CryptoAltTrader.closeAllPositions() } catch (_: Exception) {}
+                try { PerpsExecutionEngine.closeAllPositions() } catch (_: Exception) {}
                 // Stop all Markets traders
                 TokenizedStockTrader.stop()
                 CommoditiesTrader.stop()
@@ -648,7 +655,7 @@ class MultiAssetActivity : AppCompatActivity() {
                 marketsPrefs.edit().putBoolean("markets_was_running", false).apply()
                 withContext(Dispatchers.Main) {
                     android.widget.Toast.makeText(this@MultiAssetActivity,
-                        "⏹️ Markets Trading STOPPED", android.widget.Toast.LENGTH_SHORT).show()
+                        "⏹️ Markets Trading STOPPED — all positions closed", android.widget.Toast.LENGTH_SHORT).show()
                 }
             }
             

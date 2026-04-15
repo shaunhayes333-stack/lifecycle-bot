@@ -497,6 +497,13 @@ fun isLiveReady(): Boolean = totalTrades.get() >= 5000 && getWinRate() >= 50.0
         monitorJob?.cancel()
         ErrorLogger.info(TAG, "📈 TokenizedStockTrader STOPPED")
     }
+
+    /** Close all open positions immediately (called on STOP). */
+    fun closeAllPositions() {
+        val ids = positions.keys.toList()
+        ids.forEach { id -> try { closePosition(id, "USER_STOP") } catch (_: Exception) {} }
+        ErrorLogger.info(TAG, "📈 All stock positions closed on STOP (${ids.size} positions)")
+    }
     
     // ═══════════════════════════════════════════════════════════════════════════
     // SCAN CYCLE - Find stock opportunities

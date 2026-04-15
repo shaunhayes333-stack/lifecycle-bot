@@ -183,6 +183,15 @@ object MetalsTrader {
         monitorJob?.cancel()
         ErrorLogger.info(TAG, "🥇 MetalsTrader STOPPED")
     }
+
+    /** Close all open positions immediately (called on STOP). */
+    fun closeAllPositions() {
+        val all = spotPositions.values.toList() + leveragePositions.values.toList()
+        all.forEach { pos ->
+            try { val map = if (pos.isSpot) spotPositions else leveragePositions; closePosition(pos, map) } catch (_: Exception) {}
+        }
+        ErrorLogger.info(TAG, "🥇 All metals positions closed on STOP (${all.size} positions)")
+    }
     
     // ═══════════════════════════════════════════════════════════════════════════
     // SCAN CYCLE - V5.7.6: Now generates BOTH SPOT and LEVERAGE signals
