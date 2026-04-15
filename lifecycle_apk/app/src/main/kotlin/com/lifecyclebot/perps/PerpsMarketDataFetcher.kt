@@ -1,6 +1,7 @@
 package com.lifecyclebot.perps
 
 import com.lifecyclebot.engine.ErrorLogger
+import com.lifecyclebot.perps.DynamicAltTokenRegistry
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import okhttp3.OkHttpClient
@@ -457,7 +458,17 @@ object PerpsMarketDataFetcher {
         val markets = PerpsMarket.values().toList()
         markets.forEach { market ->
             try {
-                getMarketData(market)
+                val data = getMarketData(market)
+                // V5.8: feed price back into DynamicAltTokenRegistry so alt tiles show real MC/L
+                if (data.price > 0) {
+                    DynamicAltTokenRegistry.updateStaticPrice(
+                        symbol    = market.symbol,
+                        price     = data.price,
+                        change24h = data.priceChange24hPct,
+                        mcap      = 0.0,
+                        vol24h    = data.volume24h,
+                    )
+                }
             } catch (_: Exception) {}
         }
     }
