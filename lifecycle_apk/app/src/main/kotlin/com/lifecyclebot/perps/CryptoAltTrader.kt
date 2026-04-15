@@ -349,7 +349,8 @@ object CryptoAltTrader {
                                 if (dynMarket != null) dynExecutableSignals.add(AltSignal(
                                     market = dynMarket, direction = if (change >= 0) PerpsDirection.LONG else PerpsDirection.SHORT,
                                     score = sig.confidence, confidence = sig.confidence, price = price,
-                                    priceChange24h = change, reasons = listOf("DynScan ShitCoin score=${sig.confidence}")
+                                    priceChange24h = change, reasons = listOf("DynScan ShitCoin score=${sig.confidence}"),
+                                    layerVotes = emptyMap()
                                 ))
                             }
                         } catch (_: Exception) {}
@@ -381,7 +382,8 @@ object CryptoAltTrader {
                                 if (dynMarket != null) dynExecutableSignals.add(AltSignal(
                                     market = dynMarket, direction = if (change >= 0) PerpsDirection.LONG else PerpsDirection.SHORT,
                                     score = sig.confidence + 5, confidence = sig.confidence, price = price,
-                                    priceChange24h = change, reasons = listOf("DynScan BlueChip mcap=\$${(mcap/1_000_000).toInt()}M")
+                                    priceChange24h = change, reasons = listOf("DynScan BlueChip mcap=\$${(mcap/1_000_000).toInt()}M"),
+                                    layerVotes = emptyMap()
                                 ))
                             }
                         } catch (_: Exception) {}
@@ -440,7 +442,8 @@ object CryptoAltTrader {
                                 if (dynMarket != null) dynExecutableSignals.add(AltSignal(
                                     market = dynMarket, direction = if (change >= 0) PerpsDirection.LONG else PerpsDirection.SHORT,
                                     score = sig.score.coerceAtMost(95), confidence = sig.score.coerceAtMost(95), price = price,
-                                    priceChange24h = change, reasons = listOf("DynScan Moonshot trending=${tok.isTrending}")
+                                    priceChange24h = change, reasons = listOf("DynScan Moonshot trending=${tok.isTrending}"),
+                                    layerVotes = emptyMap()
                                 ))
                             }
                         } catch (_: Exception) {}

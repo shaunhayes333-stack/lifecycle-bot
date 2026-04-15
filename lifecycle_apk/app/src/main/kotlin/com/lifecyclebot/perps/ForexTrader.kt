@@ -484,7 +484,8 @@ object ForexTrader {
             traderType = "Forex",
         )
         
-        if (success  // V5.9.2: txSignature may be null for bridge trades — success flag is authoritative) {
+        // V5.9.2: success is authoritative — txSignature null = bridge trade (no swap needed)
+        if (success) {
             ErrorLogger.info(TAG, "🔴 LIVE SUCCESS: ${signal.market.symbol} | tx=${txSignature.take(16)}...")
             
             // Update live wallet balance

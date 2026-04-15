@@ -1,5 +1,6 @@
 package com.lifecyclebot.ui
 
+import com.lifecyclebot.engine.ErrorLogger
 import android.os.Bundle
 import android.text.Editable
 import android.text.TextWatcher
