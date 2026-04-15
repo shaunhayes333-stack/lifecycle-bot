@@ -180,7 +180,7 @@ object PerpsExecutionEngine {
                     
                     // V5.7.3: In paper mode, lower threshold to priority >= 3 for learning
                     // In live mode, require priority >= 5 for safety
-                    val priorityThreshold = if (isPaper) 3 else 5
+                    val priorityThreshold = if (isPaper) 1 else 5  // V5.9.5: paper trades on ANY signal
                     val highPrioritySignals = scanResults.filter { it.priority >= priorityThreshold && it.signal != null }
                     
                     if (highPrioritySignals.isNotEmpty()) {

@@ -177,13 +177,18 @@ object PerpsMarketScanners {
         val hasMomentum = abs(change24h) > momentumThreshold
         
         if (!hasMomentum) {
-            return listOf(ScanResult(
-                scanner = ScannerType.SOL_MOMENTUM,
-                market = PerpsMarket.SOL,
-                signal = null,
-                priority = 1,
-                reasoning = listOf("No momentum detected (need >${momentumThreshold}%, got ${change24h.fmt(1)}%)"),
-            ))
+            // V5.9.5: In paper mode, still trade flat markets to accumulate learning data
+            if (!isPaperMode) {
+                return listOf(ScanResult(
+                    scanner = ScannerType.SOL_MOMENTUM,
+                    market = PerpsMarket.SOL,
+                    signal = null,
+                    priority = 1,
+                    reasoning = listOf("No momentum detected (need >${momentumThreshold}%, got ${change24h.fmt(1)}%)"),
+                ))
+            }
+            // Paper mode: proceed with neutral direction (use recent trend or default LONG)
+            reasoning.add("📊 Flat market — paper learning trade (${change24h.fmt(2)}%)")
         }
         
         val direction = if (change24h > 0) PerpsDirection.LONG else PerpsDirection.SHORT
