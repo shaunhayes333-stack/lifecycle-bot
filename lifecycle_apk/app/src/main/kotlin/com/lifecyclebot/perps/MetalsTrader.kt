@@ -662,7 +662,7 @@ object MetalsTrader {
     fun getSpotPositions(): List<MetalPosition> = spotPositions.values.toList()
     fun getLeveragePositions(): List<MetalPosition> = leveragePositions.values.toList()
     fun getAllPositions(): List<MetalPosition> = spotPositions.values.toList() + leveragePositions.values.toList()
-    fun getBalance(): Double = paperBalance
+    fun getBalance(): Double = if (isPaperMode.get()) com.lifecyclebot.engine.FluidLearning.getSimulatedBalance() else liveWalletBalance
     fun getTotalTrades(): Int = totalTrades.get()
     fun getWinRate(): Double {
         val t = winningTrades.get() + losingTrades.get()
@@ -747,7 +747,7 @@ object MetalsTrader {
         liveWalletBalance = balanceSol
     }
     
-    fun getEffectiveBalance(): Double = if (isPaperMode.get()) paperBalance else liveWalletBalance
+    fun getEffectiveBalance(): Double = if (isPaperMode.get()) com.lifecyclebot.engine.FluidLearning.getSimulatedBalance() else liveWalletBalance
 
     /**
      * Add SOL to an existing open position (scale-in / pyramid).

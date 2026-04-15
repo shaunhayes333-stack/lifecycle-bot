@@ -1254,7 +1254,7 @@ fun isLiveReady(): Boolean = totalTrades.get() >= 5000 && getWinRate() >= 50.0
     // PUBLIC API
     // ═══════════════════════════════════════════════════════════════════════════
     
-    fun getBalance(): Double = paperBalance
+    fun getBalance(): Double = if (isPaperMode.get()) com.lifecyclebot.engine.FluidLearning.getSimulatedBalance() else liveWalletBalance
     
     // V5.7.6b: Set balance for paper trading
     fun setBalance(balance: Double) {
@@ -1387,8 +1387,11 @@ fun isLiveReady(): Boolean = totalTrades.get() >= 5000 && getWinRate() >= 50.0
     }
     
     /** Get balance based on current mode */
+    // V5.9.5: Read from shared FluidLearning pool — same wallet as main AATE
     fun getEffectiveBalance(): Double {
-        return if (isPaperMode.get()) paperBalance else liveWalletBalance
+        return if (isPaperMode.get())
+            com.lifecyclebot.engine.FluidLearning.getSimulatedBalance()
+        else liveWalletBalance
     }
     
     /** Execute LIVE trade via MarketsLiveExecutor
