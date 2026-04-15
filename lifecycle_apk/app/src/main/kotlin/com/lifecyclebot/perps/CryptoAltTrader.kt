@@ -98,6 +98,7 @@ object CryptoAltTrader {
     @Volatile private var paperBalance    = 0.0    // Balance managed by MultiAssetActivity shared pool
     @Volatile private var liveWalletBalance = 0.0
     @Volatile private var totalPnlSol     = 0.0
+    @Volatile private var initialBalance  = 0.0  // V5.9.5: balance at session start for correct pnl%
 
     private var engineJob    : Job? = null
     private var monitorJob   : Job? = null
