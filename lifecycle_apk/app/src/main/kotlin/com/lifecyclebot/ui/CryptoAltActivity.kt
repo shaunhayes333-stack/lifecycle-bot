@@ -1411,7 +1411,7 @@ class CryptoAltActivity : AppCompatActivity() {
         llContent.addView(hScroll)
 
         // ── Sector filter chips ────────────────────────────────────────────
-        val sectors = listOf("All") + DynamicAltTokenRegistry.getAllSectors()
+        val sectors = listOf("All") + DynamicAltTokenRegistry.getAllTokens().map { it.sector }.filter { it.isNotEmpty() }.distinct().sorted()
         val secScroll = HorizontalScrollView(this).apply { layoutParams = llp(match, wrap) }
         val secInner  = hBox().apply { setPadding(12, 2, 12, 6) }
         sectors.forEach { sec ->
