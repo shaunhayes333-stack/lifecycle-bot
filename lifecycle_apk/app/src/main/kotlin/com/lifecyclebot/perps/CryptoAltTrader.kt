@@ -1491,6 +1491,7 @@ object CryptoAltTrader {
     fun hasPosition(market: PerpsMarket): Boolean = positions.values.any { it.market == market }
 
     fun getTotalTrades(): Int    = totalTrades.get()
+    fun getWinCount(): Int       = winningTrades.get()
     fun getWinRate(): Double {
         val total = totalTrades.get()
         return if (total > 0) winningTrades.get().toDouble() / total * 100 else 0.0
