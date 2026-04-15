@@ -228,6 +228,8 @@ class MultiAssetActivity : AppCompatActivity() {
         }
         // Restore manually-stopped preference so auto-start respects user's last choice
         try { userManuallyStopped = marketsPrefs.getBoolean("user_manually_stopped", false) } catch (_: Exception) {}
+        // V5.9.5: Init FluidLearning so balance is available immediately
+        try { com.lifecyclebot.engine.FluidLearning.init(applicationContext) } catch (_: Exception) {}
         // V5.9.5: Provide context to traders so they can persist trade state locally
         try { CommoditiesTrader.initContext(applicationContext) } catch (_: Exception) {}
         try { MetalsTrader.initContext(applicationContext) } catch (_: Exception) {}
@@ -1258,23 +1260,15 @@ class MultiAssetActivity : AppCompatActivity() {
                     wallet?.getSolBalance() ?: -1.0
                 } catch (_: Exception) { -1.0 }
 
-                // Sum paper balances across all Markets traders.
-                // Fallback to a non-zero default so the display is never blank.
+                // V5.9.5: Always use FluidLearning shared pool — single source of truth
+                // Ensure FluidLearning is initialised (it persists its own SharedPrefs)
                 val paperBalanceSol = try {
-                    // Use FluidLearning (meme bot) as the master balance source
-                    val master = com.lifecyclebot.engine.FluidLearning.getSimulatedBalance()
-                    if (master > 0.0) master
-                    else {
-                        // Fallback: sum sub-traders if FluidLearning not yet initialised
-                        val stock = TokenizedStockTrader.getBalance()
-                        val commod = CommoditiesTrader.getBalance()
-                        val metals = MetalsTrader.getBalance()
-                        val forex = ForexTrader.getBalance()
-                        val perps = PerpsExecutionEngine.getPaperBalance()
-                        val cryptoAlts = CryptoAltTrader.getBalance()
-                        (stock + commod + metals + forex + perps + cryptoAlts).coerceAtLeast(0.0)
+                    if (com.lifecyclebot.engine.FluidLearning.getSimulatedBalance() <= 0.0) {
+                        com.lifecyclebot.engine.FluidLearning.init(applicationContext)
                     }
-                } catch (_: Exception) { 250.0 }
+                    com.lifecyclebot.engine.FluidLearning.getSimulatedBalance()
+                        .coerceAtLeast(0.0)
+                } catch (_: Exception) { 0.0 }
 
                 // Get SOL price — Pyth first, cached fallback
                 val solPriceUsd = try {
