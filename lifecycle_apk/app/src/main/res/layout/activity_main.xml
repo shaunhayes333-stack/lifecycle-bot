@@ -481,7 +481,8 @@
                     android:background="@drawable/section_card_bg"
                     android:layout_marginEnd="6dp"
                     android:clickable="true"
-                    android:focusable="true">
+                    android:focusable="true"
+        android:visibility="gone">
                     <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
                         android:text="🔔" android:textSize="20sp"/>
                     <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
