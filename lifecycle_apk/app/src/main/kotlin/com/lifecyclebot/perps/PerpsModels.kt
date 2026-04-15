@@ -159,6 +159,99 @@ enum class PerpsMarket(
     TRUMP("TRUMP", "🎩", "OFFICIAL TRUMP", false, 20.0, "24/7", "#FF0000"),
 
     // ═══════════════════════════════════════════════════════════════════════════
+    // CRYPTO ALTS — EXPANDED UNIVERSE (Top 200+ non-SOL-meme altcoins)
+    // ═══════════════════════════════════════════════════════════════════════════
+
+    // ── Privacy coins ────────────────────────────────────────────────────────
+    // ZEC, XMR already listed above
+
+    // ── Established OG alts ──────────────────────────────────────────────────
+    THETA("THETA", "θ", "Theta Network", false, 20.0, "24/7", "#2CADCA"),
+    EGLD("EGLD", "⚡", "MultiversX", false, 20.0, "24/7", "#1B46C2"),
+    ZIL("ZIL", "🟣", "Zilliqa", false, 20.0, "24/7", "#49C1BF"),
+    ONE("ONE", "1️⃣", "Harmony", false, 20.0, "24/7", "#00AEE9"),
+    IOTA("IOTA", "🔺", "IOTA", false, 20.0, "24/7", "#242424"),
+    DASH("DASH", "🔵", "Dash", false, 20.0, "24/7", "#008CE7"),
+    ZEN("ZEN", "🛡️", "Horizen", false, 20.0, "24/7", "#0E9DE5"),
+    WAVES("WAVES", "〰️", "Waves", false, 20.0, "24/7", "#0055FF"),
+    DCR("DCR", "🔷", "Decred", false, 20.0, "24/7", "#2ED6A1"),
+    QTUM("QTUM", "🔵", "Qtum", false, 20.0, "24/7", "#2895D8"),
+    ONT("ONT", "🦋", "Ontology", false, 20.0, "24/7", "#32A4BE"),
+    SC("SC", "🌥️", "Siacoin", false, 20.0, "24/7", "#20EE82"),
+    BTT("BTT", "🔵", "BitTorrent", false, 20.0, "24/7", "#CC1C1C"),
+    WIN("WIN", "🎰", "WINkLink", false, 20.0, "24/7", "#FF4C4C"),
+    JST("JST", "⚡", "JUST", false, 20.0, "24/7", "#FCAD23"),
+    KAS("KAS", "⚡", "Kaspa", false, 20.0, "24/7", "#49DECE"),
+    COTI("COTI", "💠", "COTI", false, 20.0, "24/7", "#00A9FF"),
+    CELR("CELR", "🌐", "Celer Network", false, 20.0, "24/7", "#8EF5C8"),
+    XDC("XDC", "🔵", "XDC Network", false, 20.0, "24/7", "#2187DC"),
+    ROSE("ROSE", "🌹", "Oasis Network", false, 20.0, "24/7", "#00E2FF"),
+    CELO("CELO", "🌿", "Celo", false, 20.0, "24/7", "#FCFF52"),
+    FLOW("FLOW", "🌊", "Flow", false, 20.0, "24/7", "#04FECF"),
+    KAVA("KAVA", "🟠", "Kava", false, 20.0, "24/7", "#FF5734"),
+    FLR("FLR", "🔥", "Flare", false, 20.0, "24/7", "#E62058"),
+    ICX("ICX", "🔮", "ICON", false, 20.0, "24/7", "#1FC5C9"),
+    ZRX("ZRX", "⬛", "0x Protocol", false, 20.0, "24/7", "#231815"),
+    ANKR("ANKR", "🔵", "Ankr", false, 20.0, "24/7", "#2E65F3"),
+    SKL("SKL", "⬟", "SKALE", false, 20.0, "24/7", "#000000"),
+    GNO("GNO", "🦉", "Gnosis", false, 20.0, "24/7", "#1D6A96"),
+    // ── Layer 2 expanded ─────────────────────────────────────────────────────
+    METIS("METIS", "⚡", "Metis", false, 20.0, "24/7", "#00D2FF"),
+    BLAST("BLAST", "💥", "Blast", false, 20.0, "24/7", "#FCFC03"),
+    MANTLE("MANTLE", "🔷", "Mantle", false, 20.0, "24/7", "#000000"),
+    MANTA("MANTA", "🐋", "Manta Network", false, 20.0, "24/7", "#1EAAF1"),
+    SCROLL("SCROLL", "📜", "Scroll", false, 20.0, "24/7", "#FFEEDA"),
+    ZK("ZK", "🔐", "ZKsync", false, 20.0, "24/7", "#8B5CF6"),
+    // ── DeFi expanded ────────────────────────────────────────────────────────
+    COMP("COMP", "🏦", "Compound", false, 20.0, "24/7", "#00D395"),
+    SUSHI("SUSHI", "🍱", "SushiSwap", false, 20.0, "24/7", "#FA52A0"),
+    BAL("BAL", "⚖️", "Balancer", false, 20.0, "24/7", "#1E1E1E"),
+    OSMO("OSMO", "🔮", "Osmosis", false, 20.0, "24/7", "#750BBB"),
+    CVX("CVX", "🔒", "Convex Finance", false, 20.0, "24/7", "#3A3A3A"),
+    FXS("FXS", "💲", "Frax Share", false, 20.0, "24/7", "#000000"),
+    LQTY("LQTY", "🏦", "Liquity", false, 20.0, "24/7", "#745DDF"),
+    SPELL("SPELL", "🧙", "Spell Token", false, 20.0, "24/7", "#7B2BF9"),
+    PERP("PERP", "📊", "Perpetual Protocol", false, 20.0, "24/7", "#3CEAAA"),
+    DODO("DODO", "🐦", "DODO", false, 20.0, "24/7", "#FEE902"),
+    ALPHA("ALPHA", "α", "Alpha Venture DAO", false, 20.0, "24/7", "#1A1A2E"),
+    FIDA("FIDA", "🔵", "Bonfida", false, 20.0, "24/7", "#B8A4FF"),
+    // ── AI / Compute / Data expanded ─────────────────────────────────────────
+    ALT("ALT", "🤖", "AltLayer", false, 20.0, "24/7", "#8A2BE2"),
+    IO("IO", "🖥️", "io.net", false, 20.0, "24/7", "#00F5FF"),
+    VIRTUAL("VIRTUAL", "🤖", "Virtuals Protocol", false, 20.0, "24/7", "#7C3AED"),
+    HYPE("HYPE", "⚡", "Hyperliquid", false, 20.0, "24/7", "#00FF87"),
+    MOVE("MOVE", "🔄", "Movement", false, 20.0, "24/7", "#FF6B35"),
+    // ── Infrastructure / Interop ─────────────────────────────────────────────
+    TNSR("TNSR", "⚡", "Tensor", false, 20.0, "24/7", "#00B4D8"),
+    KMNO("KMNO", "💧", "Kamino", false, 20.0, "24/7", "#00D4AA"),
+    PIXEL("PIXEL", "🎮", "Pixels", false, 20.0, "24/7", "#FF69B4"),
+    PORTAL("PORTAL", "🌀", "Portal Gaming", false, 20.0, "24/7", "#6366F1"),
+    // ── Gaming / NFT expanded ────────────────────────────────────────────────
+    RON("RON", "⚔️", "Ronin", false, 20.0, "24/7", "#1273EA"),
+    MAGIC("MAGIC", "✨", "Treasure", false, 20.0, "24/7", "#DC2626"),
+    ENJ("ENJ", "💎", "Enjin Coin", false, 20.0, "24/7", "#624DBF"),
+    CHZ("CHZ", "⚽", "Chiliz", false, 20.0, "24/7", "#CD0124"),
+    AUDIO("AUDIO", "🎵", "Audius", false, 20.0, "24/7", "#CC0FE0"),
+    GALA("GALA", "🎮", "Gala", false, 20.0, "24/7", "#0078FF"),
+    // ── Stablecoins / Liquid staking (tradeable) ─────────────────────────────
+    WBTC("WBTC", "₿", "Wrapped Bitcoin", false, 20.0, "24/7", "#F7931A"),
+    PAXG("PAXG", "🥇", "PAX Gold", false, 20.0, "24/7", "#D4A84B"),
+    MSOL("MSOL", "◎", "Marinade SOL", false, 20.0, "24/7", "#00D18C"),
+    STETH("STETH", "⟠", "Lido Staked ETH", false, 20.0, "24/7", "#00A3FF"),
+    // ── Meme coins — Ethereum / cross-chain ──────────────────────────────────
+    BABYDOGE("BABYDOGE", "🐶", "Baby Doge Coin", false, 20.0, "24/7", "#F3BA2F"),
+    WOJAK("WOJAK", "😢", "Wojak", false, 20.0, "24/7", "#7CB9E8"),
+    TURBO("TURBO", "🚀", "Turbo", false, 20.0, "24/7", "#FF4500"),
+    MOG("MOG", "😼", "Mog Coin", false, 20.0, "24/7", "#8A2BE2"),
+    NEIRO("NEIRO", "🐕", "Neiro", false, 20.0, "24/7", "#F4A460"),
+    BRETT("BRETT", "🐸", "Brett", false, 20.0, "24/7", "#4169E1"),
+    DEGEN("DEGEN", "🎩", "Degen", false, 20.0, "24/7", "#A855F7"),
+    // ── Newer cycle tokens ───────────────────────────────────────────────────
+    JASMY("JASMY", "🔷", "JasmyCoin", false, 20.0, "24/7", "#2775CA"),
+    STG("STG", "🌉", "Stargate Finance", false, 20.0, "24/7", "#999999"),
+    BLUR("BLUR", "🎨", "Blur", false, 20.0, "24/7", "#FF6600"),
+
+    // ═══════════════════════════════════════════════════════════════════════════
     // TOKENIZED STOCKS - All available on Solana via Pyth Oracle
     // ═══════════════════════════════════════════════════════════════════════════
     
