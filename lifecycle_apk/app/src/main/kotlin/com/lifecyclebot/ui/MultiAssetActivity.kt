@@ -982,81 +982,67 @@ class MultiAssetActivity : AppCompatActivity() {
     // ═══════════════════════════════════════════════════════════════════════════
     
     private fun updateMarketsReadiness() {
+        // V5.9.6: Each section individually guarded — no more silent INIT fallback
+        val readiness = try {
+            calculateMarketsReadiness()
+        } catch (e: Exception) {
+            ErrorLogger.error(TAG, "calculateMarketsReadiness failed: ${e.javaClass.simpleName}: ${e.message}")
+            return  // leave UI as-is rather than showing wrong INIT state
+        }
+
+        try { tvMarketsReadinessBadge.text = readiness.phase.shortName } catch (_: Exception) {}
         try {
-            val readiness = calculateMarketsReadiness()
-            
-            // Update badge
-            tvMarketsReadinessBadge.text = readiness.phase.name
             tvMarketsReadinessBadge.setBackgroundResource(
                 when (readiness.phase) {
                     MarketsPhase.BOOTSTRAP -> R.drawable.pill_bg_yellow
-                    MarketsPhase.LEARNING -> R.drawable.pill_bg
+                    MarketsPhase.LEARNING  -> R.drawable.pill_bg
                     MarketsPhase.VALIDATING -> R.drawable.pill_bg
-                    MarketsPhase.MATURING -> R.drawable.pill_bg
-                    MarketsPhase.READY -> R.drawable.pill_bg_green
-                    MarketsPhase.LIVE -> R.drawable.pill_bg_green
+                    MarketsPhase.MATURING  -> R.drawable.pill_bg
+                    MarketsPhase.READY     -> R.drawable.pill_bg_green
+                    MarketsPhase.LIVE      -> R.drawable.pill_bg_green
                 }
             )
-            tvMarketsReadinessBadge.setTextColor(
-                when (readiness.phase) {
-                    MarketsPhase.BOOTSTRAP -> 0xFF000000.toInt()
-                    MarketsPhase.LEARNING -> 0xFFFFFFFF.toInt()
-                    MarketsPhase.VALIDATING -> 0xFFFFFFFF.toInt()
-                    MarketsPhase.MATURING -> 0xFFFFFFFF.toInt()
-                    MarketsPhase.READY -> 0xFF000000.toInt()
-                    MarketsPhase.LIVE -> 0xFF000000.toInt()
-                }
-            )
-            
-            // Update stats
+        } catch (_: Exception) {}
+
+        try {
             tvMarketsWinRate.text = if (readiness.winRate > 0) "${"%.1f".format(readiness.winRate)}%" else "--"
-            tvMarketsWinRate.setTextColor(
-                when {
-                    readiness.winRate >= 55 -> 0xFF00FF88.toInt()
-                    readiness.winRate >= 45 -> 0xFFF59E0B.toInt()
-                    readiness.winRate > 0 -> 0xFFFF4444.toInt()
-                    else -> 0xFF6B7280.toInt()
-                }
-            )
-            
-            tvMarketsTrades.text = "${readiness.paperTrades}/${readiness.requiredTrades}"
+            tvMarketsWinRate.setTextColor(when {
+                readiness.winRate >= 55 -> 0xFF00FF88.toInt()
+                readiness.winRate >= 45 -> 0xFFF59E0B.toInt()
+                readiness.winRate > 0   -> 0xFFFF4444.toInt()
+                else                    -> 0xFF6B7280.toInt()
+            })
+        } catch (_: Exception) {}
+
+        try { tvMarketsTrades.text = "${readiness.paperTrades}/${readiness.requiredTrades}" } catch (_: Exception) {}
+        try {
             tvMarketsPhase.text = readiness.phase.shortName
-            tvMarketsPhase.setTextColor(
-                when (readiness.phase) {
-                    MarketsPhase.BOOTSTRAP -> 0xFFF59E0B.toInt()
-                    MarketsPhase.LEARNING -> 0xFF3B82F6.toInt()
-                    MarketsPhase.VALIDATING -> 0xFF8B5CF6.toInt()
-                    MarketsPhase.MATURING -> 0xFF06B6D4.toInt()  // Cyan for maturing
-                    MarketsPhase.READY -> 0xFF10B981.toInt()
-                    MarketsPhase.LIVE -> 0xFF00FF88.toInt()
-                }
-            )
-            
-            // Update progress bar
-            tvMarketsProgressPct.text = "${readiness.progressPct}%"
-            val params = viewMarketsProgressBar.layoutParams ?: return
-            params.width = 0
-            viewMarketsProgressBar.layoutParams = params
+            tvMarketsPhase.setTextColor(when (readiness.phase) {
+                MarketsPhase.BOOTSTRAP  -> 0xFFF59E0B.toInt()
+                MarketsPhase.LEARNING   -> 0xFF3B82F6.toInt()
+                MarketsPhase.VALIDATING -> 0xFF8B5CF6.toInt()
+                MarketsPhase.MATURING   -> 0xFF06B6D4.toInt()
+                MarketsPhase.READY      -> 0xFF10B981.toInt()
+                MarketsPhase.LIVE       -> 0xFF00FF88.toInt()
+            })
+        } catch (_: Exception) {}
+
+        try { tvMarketsProgressPct.text = "${readiness.progressPct}%" } catch (_: Exception) {}
+
+        // Progress bar width — safe parent cast
+        try {
             viewMarketsProgressBar.post {
-                val parentWidth = (viewMarketsProgressBar.parent as? View)?.width ?: 0
-                val newWidth = (parentWidth * readiness.progressPct / 100).toInt()
-                val newParams = viewMarketsProgressBar.layoutParams
-                newParams.width = newWidth
-                viewMarketsProgressBar.layoutParams = newParams
+                try {
+                    val parent = viewMarketsProgressBar.parent as? View ?: return@post
+                    val newWidth = (parent.width * readiness.progressPct / 100).toInt()
+                    val p = viewMarketsProgressBar.layoutParams ?: return@post
+                    p.width = newWidth
+                    viewMarketsProgressBar.layoutParams = p
+                } catch (_: Exception) {}
             }
-            
-            // Update recommendation
-            tvMarketsRecommendation.text = readiness.recommendation
-            
-        } catch (e: Exception) {
-        ErrorLogger.error(TAG, "updateMarketsReadiness crash: ${e.javaClass.simpleName}: ${e.message}")
-            tvMarketsReadinessBadge.text = "INIT"
-            tvMarketsWinRate.text = "--"
-            tvMarketsTrades.text = "0/5000"
-            tvMarketsPhase.text = "BOOT"
-            tvMarketsProgressPct.text = "0%"
-            tvMarketsRecommendation.text = "Initializing Markets trading system..."
-        }
+        } catch (_: Exception) {}
+
+        try { tvMarketsRecommendation.text = readiness.recommendation } catch (_: Exception) {}
     }
     
     enum class MarketsPhase(val shortName: String) {
