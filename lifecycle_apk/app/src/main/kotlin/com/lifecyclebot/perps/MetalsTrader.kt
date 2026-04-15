@@ -478,7 +478,7 @@ object MetalsTrader {
         
         // V5.9.2: success is authoritative — txSignature null = bridge trade (no swap needed)
         if (success) {
-            ErrorLogger.info(TAG, "🔴 LIVE SUCCESS: ${signal.market.symbol} | tx=${txSignature.take(16)}...")
+            ErrorLogger.info(TAG, "🔴 LIVE SUCCESS: ${signal.market.symbol} | tx=${txSignature?.take(16) ?: "bridge"}")
             
             // Update live wallet balance
             try {
