@@ -52,7 +52,8 @@ object JupiterPerps {
     private const val PERPS_PROGRAM_ID = "PERPHjGBqRHArX4DySjwM6UJHiR3sWAatqfdBS2qQJu"
     
     // API Endpoints
-    private const val JUPITER_PERPS_API = "https://perps-api.jup.ag"
+    // V5.9: Real Jupiter Perpetuals API (v2 production endpoint)
+    private const val JUPITER_PERPS_API = "https://api.jup.ag/perps/v2"
     private const val JUPITER_PRICE_API = "https://price.jup.ag/v4"
     
     // Pool addresses (mainnet)
@@ -149,7 +150,7 @@ object JupiterPerps {
      */
     suspend fun getPoolInfo(market: PerpsMarket = PerpsMarket.SOL): PoolInfo? = withContext(Dispatchers.IO) {
         try {
-            val url = "$JUPITER_PERPS_API/v1/pool-info"
+            val url = "$JUPITER_PERPS_API/pool-info"  // V5.9: fixed path (no /v1/ double prefix)
             val request = Request.Builder()
                 .url(url)
                 .addHeader("Accept", "application/json")
@@ -466,7 +467,7 @@ object JupiterPerps {
             }
             
             val request = Request.Builder()
-                .url("$JUPITER_PERPS_API/v1/quote")
+                .url("$JUPITER_PERPS_API/quote")  // V5.9: fixed path
                 .post(body.toString().toRequestBody("application/json".toMediaType()))
                 .header("Content-Type", "application/json")
                 .build()
@@ -509,7 +510,7 @@ object JupiterPerps {
             }
             
             val request = Request.Builder()
-                .url("$JUPITER_PERPS_API/v1/transaction")
+                .url("$JUPITER_PERPS_API/transaction")  // V5.9: fixed path
                 .post(body.toString().toRequestBody("application/json".toMediaType()))
                 .header("Content-Type", "application/json")
                 .build()
@@ -585,7 +586,7 @@ object JupiterPerps {
             }
             
             val request = Request.Builder()
-                .url("$JUPITER_PERPS_API/v1/close")
+                .url("$JUPITER_PERPS_API/close")  // V5.9: fixed path
                 .post(body.toString().toRequestBody("application/json".toMediaType()))
                 .header("Content-Type", "application/json")
                 .build()
