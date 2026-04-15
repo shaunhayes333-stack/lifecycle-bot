@@ -1973,7 +1973,7 @@ class BotService : Service() {
             com.lifecyclebot.perps.MetalsTrader.closeAllPositions()
             com.lifecyclebot.perps.ForexTrader.closeAllPositions()
             com.lifecyclebot.perps.CryptoAltTrader.closeAllPositions()
-            com.lifecyclebot.perps.PerpsExecutionEngine.closeAllPositions()
+            kotlinx.coroutines.runBlocking { com.lifecyclebot.perps.PerpsExecutionEngine.closeAllPositions() }
         } catch (e: Exception) {
             ErrorLogger.error("BotService", "Error closing markets positions: ${e.message}", e)
         }

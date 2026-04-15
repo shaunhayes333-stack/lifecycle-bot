@@ -195,7 +195,7 @@ object MetalsTrader {
     fun closeAllPositions() {
         val all = spotPositions.values.toList() + leveragePositions.values.toList()
         all.forEach { pos ->
-            try { val map = if (pos.isSpot) spotPositions else leveragePositions; closePosition(pos, map) } catch (_: Exception) {}
+            try { val map = if (pos.leverage == 1.0) spotPositions else leveragePositions; closePosition(pos, map, "STOP — all positions closed") } catch (_: Exception) {}
         }
         ErrorLogger.info(TAG, "🥇 All metals positions closed on STOP (${all.size} positions)")
     }
