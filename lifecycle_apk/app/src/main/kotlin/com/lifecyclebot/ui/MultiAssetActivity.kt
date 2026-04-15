@@ -288,13 +288,8 @@ class MultiAssetActivity : AppCompatActivity() {
                 val wasRunning = marketsPrefs.getBoolean("markets_was_running", false)
                 val userStopped = marketsPrefs.getBoolean("user_manually_stopped", false)
 
-                // Clear manual-stop if main bot is running — bot takes priority
-                if (mainBotRunning && userStopped) {
-                    userManuallyStopped = false
-                    marketsPrefs.edit()
-                        .putBoolean("user_manually_stopped", false)
-                        .apply()
-                }
+                // V5.9.5: Do NOT override userManuallyStopped — user's explicit STOP is always respected.
+                // If user pressed STOP on markets, keep them stopped even if main bot is running.
 
                 val shouldRun = (mainBotRunning || wasRunning) &&
                                 !marketsPrefs.getBoolean("user_manually_stopped", false)
