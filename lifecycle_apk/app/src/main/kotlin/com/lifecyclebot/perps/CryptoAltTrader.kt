@@ -913,6 +913,21 @@ object CryptoAltTrader {
         if (sizeSol < 0.01) {
             ErrorLogger.warn(TAG, "Insufficient balance for ${signal.market.symbol} (${sizeSol} SOL)")
             return
+
+        // V5.9.5 FIX: Sanity-check entry price vs last cached price.
+        // Bad data (decimal shift, wrong feed ID, stale fallback) causes fake 1000x PnL.
+        val cachedPriceData = PerpsMarketDataFetcher.getCachedPrice(signal.market)
+        if (signal.price <= 0.0) {
+            ErrorLogger.warn(TAG, "🪙 PRICE ZERO: ${signal.market.symbol} — REJECTING trade")
+            return
+        }
+        if (cachedPriceData != null && cachedPriceData.price > 0) {
+            val priceDiffPct = kotlin.math.abs(signal.price - cachedPriceData.price) / cachedPriceData.price * 100.0
+            if (priceDiffPct > 90.0) {
+                ErrorLogger.warn(TAG, "🪙 PRICE SANITY FAIL: ${signal.market.symbol} signal=\$${signal.price} cached=\$${cachedPriceData.price} diff=${priceDiffPct.toInt()}% — REJECTING")
+                return
+            }
+        }
         }
 
         val tpPct  = if (isSpot) DEFAULT_TP_SPOT else DEFAULT_TP_LEV
@@ -1061,6 +1076,14 @@ object CryptoAltTrader {
                 val data = PerpsMarketDataFetcher.getMarketData(position.market)
                 if (data.price <= 0) continue
 
+
+                // V5.9.5 FIX: Spike guard — reject price if >10x or <0.1x entry price.
+                // Prevents false TP/SL triggers from bad API responses.
+                val priceRatio = if (position.entryPrice > 0) data.price / position.entryPrice else 1.0
+                if (priceRatio > 10.0 || priceRatio < 0.1) {
+                    ErrorLogger.warn(TAG, "🪙 SPIKE GUARD: ${position.market.symbol} entry=\$${position.entryPrice} new=\$${data.price} ratio=${"%.2f".format(priceRatio)}x — skipping")
+                    continue
+                }
                 val updated = position.copy(currentPrice = data.price)
                 positions[id] = updated
                 if (updated.isSpot) {
