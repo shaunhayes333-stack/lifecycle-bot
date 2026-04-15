@@ -2795,7 +2795,7 @@ class CryptoAltActivity : AppCompatActivity() {
      */
     private fun showAltPositionDetailDialog(
         pos     : CryptoAltTrader.AltPosition,
-        dynTok  : com.lifecyclebot.perps.DynToken?,
+        dynTok  : DynamicAltTokenRegistry.DynToken?,
         solPrice: Double
     ) {
         val pnlPct   = pos.getPnlPct()
