@@ -169,7 +169,9 @@ object DynamicAltTokenRegistry {
 
     suspend fun runDiscoveryCycle() {
         val now = System.currentTimeMillis()
-        if (now - lastDiscoveryCycle.get() < DISCOVERY_TTL_MS) return
+        // Always fetch on first run (registry too small), otherwise respect TTL
+        val tooSmall = registry.size < 200
+        if (!tooSmall && now - lastDiscoveryCycle.get() < DISCOVERY_TTL_MS) return
         lastDiscoveryCycle.set(now)
 
         ErrorLogger.info(TAG, "Discovery cycle starting (${registry.size} tokens currently)")
