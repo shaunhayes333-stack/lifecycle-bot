@@ -850,6 +850,7 @@ class BotService : Service() {
         addLog("✓ Creating data orchestrator...")
         try {
             orchestrator = DataOrchestrator(
+                copyTradeEngine    = copyTradeEngine,
                 cfg                = { ConfigStore.load(applicationContext) },
                 status             = status,
                 onLog              = ::addLog,
