@@ -1,188 +1,371 @@
 <?xml version="1.0" encoding="utf-8"?>
-<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+<androidx.coordinatorlayout.widget.CoordinatorLayout
+    xmlns:android="http://schemas.android.com/apk/res/android"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
-    android:background="#0A0A0F"
-    android:orientation="vertical"
-    android:fitsSystemWindows="true">
+    android:background="#0A0A0F">
 
-    <!-- TOP BAR -->
-    <LinearLayout
+    <!-- PULL TO REFRESH -->
+    <androidx.swiperefreshlayout.widget.SwipeRefreshLayout
+        android:id="@+id/swipeRefreshCryptoAlt"
         android:layout_width="match_parent"
-        android:layout_height="@dimen/topbar_height"
-        android:orientation="horizontal"
-        android:gravity="center_vertical"
-        android:paddingStart="@dimen/screen_padding"
-        android:paddingEnd="@dimen/screen_padding"
-        android:background="#0A0A0F">
-
-        <TextView
-            android:id="@+id/btnCryptoAltBack"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:text="&#8592;"
-            android:textColor="#FFFFFF"
-            android:textSize="22sp"
-            android:paddingEnd="12dp"
-            android:clickable="true"
-            android:focusable="true"/>
-
-        <LinearLayout
-            android:layout_width="0dp"
-            android:layout_height="wrap_content"
-            android:layout_weight="1"
-            android:orientation="vertical">
-
-            <LinearLayout
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:orientation="horizontal"
-                android:gravity="center_vertical">
-                <TextView
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:text="&#127760; Crypto Alts"
-                    android:textColor="#A78BFA"
-                    android:textSize="16sp"
-                    android:textStyle="bold"/>
-                <View
-                    android:layout_width="5dp"
-                    android:layout_height="5dp"
-                    android:layout_marginStart="6dp"
-                    android:layout_marginBottom="1dp"
-                    android:background="@drawable/dot_green"/>
-            </LinearLayout>
-
-            <TextView
-                android:id="@+id/tvCryptoAltStats"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:text="BNB &#183; ETH &#183; SOL &#183; Polygon"
-                android:textColor="#4B5563"
-                android:textSize="9sp"
-                android:fontFamily="monospace"/>
-        </LinearLayout>
-
-        <!-- Scan button -->
-        <TextView
-            android:id="@+id/btnCryptoAltScan"
-            android:layout_width="wrap_content"
-            android:layout_height="30dp"
-            android:gravity="center"
-            android:text="&#8635; Scan"
-            android:textColor="#A78BFA"
-            android:textSize="11sp"
-            android:textStyle="bold"
-            android:fontFamily="monospace"
-            android:paddingStart="10dp"
-            android:paddingEnd="10dp"
-            android:layout_marginEnd="6dp"
-            android:background="@drawable/pill_bg"
-            android:clickable="true"
-            android:focusable="true"/>
-
-        <!-- Add button -->
-        <TextView
-            android:id="@+id/btnCryptoAltAdd"
-            android:layout_width="wrap_content"
-            android:layout_height="30dp"
-            android:gravity="center"
-            android:text="+ Add"
-            android:textColor="#000000"
-            android:textSize="11sp"
-            android:textStyle="bold"
-            android:background="@drawable/pill_bg_yellow"
-            android:paddingStart="12dp"
-            android:paddingEnd="12dp"
-            android:clickable="true"
-            android:focusable="true"/>
-
-    </LinearLayout>
-
-    <!-- TABS -->
-    <LinearLayout
-        android:layout_width="match_parent"
-        android:layout_height="36dp"
-        android:orientation="horizontal"
-        android:paddingStart="@dimen/screen_padding"
-        android:paddingEnd="@dimen/screen_padding"
-        android:background="#0D0D14">
-
-        <TextView
-            android:id="@+id/tabCryptoAltScanner"
-            android:layout_width="0dp"
-            android:layout_height="match_parent"
-            android:layout_weight="1"
-            android:gravity="center"
-            android:text="&#128269; Scanner"
-            android:textColor="#A78BFA"
-            android:textSize="11sp"
-            android:textStyle="bold"
-            android:clickable="true"
-            android:focusable="true"/>
-
-        <TextView
-            android:id="@+id/tabCryptoAltWatchlist"
-            android:layout_width="0dp"
-            android:layout_height="match_parent"
-            android:layout_weight="1"
-            android:gravity="center"
-            android:text="&#11088; Watchlist"
-            android:textColor="#6B7280"
-            android:textSize="11sp"
-            android:clickable="true"
-            android:focusable="true"/>
-
-        <TextView
-            android:id="@+id/tabCryptoAltPositions"
-            android:layout_width="0dp"
-            android:layout_height="match_parent"
-            android:layout_weight="1"
-            android:gravity="center"
-            android:text="&#128194; Positions"
-            android:textColor="#6B7280"
-            android:textSize="11sp"
-            android:clickable="true"
-            android:focusable="true"/>
-
-        <TextView
-            android:id="@+id/tabCryptoAltSettings"
-            android:layout_width="0dp"
-            android:layout_height="match_parent"
-            android:layout_weight="1"
-            android:gravity="center"
-            android:text="&#9881;&#65039; Settings"
-            android:textColor="#6B7280"
-            android:textSize="11sp"
-            android:clickable="true"
-            android:focusable="true"/>
-
-    </LinearLayout>
-
-    <!-- PROGRESS -->
-    <ProgressBar
-        android:id="@+id/progressCryptoAlt"
-        android:layout_width="match_parent"
-        android:layout_height="2dp"
-        style="?android:attr/progressBarStyleHorizontal"
-        android:indeterminate="true"
-        android:indeterminateTint="#A78BFA"
-        android:visibility="gone"/>
+        android:layout_height="match_parent">
 
     <!-- SCROLLABLE CONTENT -->
-    <ScrollView
+    <androidx.core.widget.NestedScrollView
+        android:id="@+id/cryptoAltScrollView"
         android:layout_width="match_parent"
-        android:layout_height="0dp"
-        android:layout_weight="1"
+        android:layout_height="match_parent"
+        android:paddingBottom="@dimen/content_bottom_padding"
+        android:clipToPadding="false"
         android:fillViewport="true">
 
         <LinearLayout
-            android:id="@+id/llCryptoAltContent"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:orientation="vertical"
-            android:paddingBottom="24dp"/>
+            android:fitsSystemWindows="true">
 
-    </ScrollView>
+            <!-- ═══════════════════════════════
+                 TOP BAR (Matches Main AATE)
+                 ═══════════════════════════════ -->
+            <LinearLayout
+                android:id="@+id/topBarContainerCryptoAlt"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:minHeight="48dp"
+                android:orientation="horizontal"
+                android:gravity="center_vertical"
+                android:paddingStart="@dimen/screen_padding"
+                android:paddingEnd="@dimen/screen_padding"
+                android:paddingTop="8dp"
+                android:paddingBottom="4dp"
+                android:background="#0A0A0F">
 
-</LinearLayout>
+                <!-- Back arrow -->
+                <TextView
+                    android:id="@+id/btnCryptoAltBack"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="&#8592;"
+                    android:textColor="#FFFFFF"
+                    android:textSize="20sp"
+                    android:paddingEnd="8dp"
+                    android:clickable="true"
+                    android:focusable="true"/>
+
+                <!-- Left: Title + subtitle -->
+                <LinearLayout
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:orientation="vertical">
+                    <LinearLayout
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:orientation="horizontal"
+                        android:gravity="center_vertical">
+                        <TextView
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:text="AATE"
+                            android:textColor="#FFFFFF"
+                            android:textSize="14sp"
+                            android:textStyle="bold"/>
+                        <View
+                            android:layout_width="5dp"
+                            android:layout_height="5dp"
+                            android:layout_marginStart="6dp"
+                            android:background="@drawable/dot_green"/>
+                    </LinearLayout>
+                    <TextView
+                        android:id="@+id/tvCryptoAltStats"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="Crypto Alts"
+                        android:textColor="#6B7280"
+                        android:textSize="9sp"/>
+                </LinearLayout>
+
+                <!-- Spacer -->
+                <View
+                    android:layout_width="0dp"
+                    android:layout_height="1dp"
+                    android:layout_weight="1"/>
+
+                <!-- Scan button -->
+                <TextView
+                    android:id="@+id/btnCryptoAltScan"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="&#8635; Scan"
+                    android:textColor="#A78BFA"
+                    android:textSize="10sp"
+                    android:fontFamily="monospace"
+                    android:textStyle="bold"
+                    android:background="@drawable/pill_bg"
+                    android:paddingStart="8dp"
+                    android:paddingEnd="8dp"
+                    android:paddingTop="4dp"
+                    android:paddingBottom="4dp"
+                    android:layout_marginEnd="6dp"
+                    android:clickable="true"
+                    android:focusable="true"/>
+
+                <!-- Add button -->
+                <TextView
+                    android:id="@+id/btnCryptoAltAdd"
+                    android:layout_width="wrap_content"
+                    android:layout_height="30dp"
+                    android:gravity="center"
+                    android:text="+ Add"
+                    android:textColor="#000000"
+                    android:textSize="10sp"
+                    android:textStyle="bold"
+                    android:background="@drawable/pill_bg_yellow"
+                    android:paddingStart="8dp"
+                    android:paddingEnd="8dp"
+                    android:layout_marginEnd="6dp"
+                    android:clickable="true"
+                    android:focusable="true"/>
+
+                <!-- Brain Learning Indicator -->
+                <FrameLayout
+                    android:id="@+id/brainContainerCryptoAlt"
+                    android:layout_width="32dp"
+                    android:layout_height="32dp"
+                    android:layout_marginEnd="6dp">
+
+                    <View
+                        android:layout_width="match_parent"
+                        android:layout_height="match_parent"
+                        android:background="@drawable/brain_bg"/>
+
+                    <ProgressBar
+                        android:id="@+id/pbBrainProgressCryptoAlt"
+                        style="?android:attr/progressBarStyleHorizontal"
+                        android:layout_width="match_parent"
+                        android:layout_height="match_parent"
+                        android:indeterminate="false"
+                        android:max="100"
+                        android:progress="0"
+                        android:progressDrawable="@drawable/brain_progress_ring"
+                        android:rotation="-90"/>
+
+                    <TextView
+                        android:id="@+id/tvBrainEmojiCryptoAlt"
+                        android:layout_width="match_parent"
+                        android:layout_height="match_parent"
+                        android:text="&#129504;"
+                        android:textSize="14sp"
+                        android:gravity="center"/>
+                </FrameLayout>
+
+                <!-- Wallet pill -->
+                <LinearLayout
+                    android:id="@+id/btnWalletTopCryptoAlt"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:orientation="horizontal"
+                    android:gravity="center_vertical"
+                    android:background="@drawable/pill_bg"
+                    android:paddingStart="6dp"
+                    android:paddingEnd="6dp"
+                    android:paddingTop="4dp"
+                    android:paddingBottom="4dp"
+                    android:clickable="true"
+                    android:focusable="true">
+
+                    <View
+                        android:id="@+id/tvWalletDotCryptoAlt"
+                        android:layout_width="6dp"
+                        android:layout_height="6dp"
+                        android:background="@drawable/dot_bg"
+                        android:layout_marginEnd="4dp"/>
+
+                    <TextView
+                        android:id="@+id/tvWalletShortCryptoAlt"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="Connect"
+                        android:textColor="#6B7280"
+                        android:textSize="10sp"
+                        android:maxWidth="80dp"
+                        android:ellipsize="end"
+                        android:singleLine="true"/>
+                </LinearLayout>
+
+                <!-- Logo -->
+                <ImageView
+                    android:id="@+id/ivLogoCryptoAlt"
+                    android:layout_width="40dp"
+                    android:layout_height="40dp"
+                    android:src="@drawable/logo"
+                    android:scaleType="centerCrop"
+                    android:contentDescription="AATE Logo"
+                    android:layout_marginStart="6dp"
+                    android:background="@drawable/logo_bg"
+                    android:padding="2dp"/>
+            </LinearLayout>
+
+            <!-- ═══════════════════════════════
+                 TABS (Scanner | Watchlist | Positions | Settings)
+                 ═══════════════════════════════ -->
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="36dp"
+                android:orientation="horizontal"
+                android:paddingStart="@dimen/screen_padding"
+                android:paddingEnd="@dimen/screen_padding"
+                android:background="#0D0D14">
+
+                <TextView
+                    android:id="@+id/tabCryptoAltScanner"
+                    android:layout_width="0dp"
+                    android:layout_height="match_parent"
+                    android:layout_weight="1"
+                    android:gravity="center"
+                    android:text="Scanner"
+                    android:textColor="#A78BFA"
+                    android:textSize="11sp"
+                    android:textStyle="bold"
+                    android:clickable="true"
+                    android:focusable="true"/>
+
+                <TextView
+                    android:id="@+id/tabCryptoAltWatchlist"
+                    android:layout_width="0dp"
+                    android:layout_height="match_parent"
+                    android:layout_weight="1"
+                    android:gravity="center"
+                    android:text="Watchlist"
+                    android:textColor="#6B7280"
+                    android:textSize="11sp"
+                    android:clickable="true"
+                    android:focusable="true"/>
+
+                <TextView
+                    android:id="@+id/tabCryptoAltPositions"
+                    android:layout_width="0dp"
+                    android:layout_height="match_parent"
+                    android:layout_weight="1"
+                    android:gravity="center"
+                    android:text="Positions"
+                    android:textColor="#6B7280"
+                    android:textSize="11sp"
+                    android:clickable="true"
+                    android:focusable="true"/>
+
+                <TextView
+                    android:id="@+id/tabCryptoAltSettings"
+                    android:layout_width="0dp"
+                    android:layout_height="match_parent"
+                    android:layout_weight="1"
+                    android:gravity="center"
+                    android:text="Settings"
+                    android:textColor="#6B7280"
+                    android:textSize="11sp"
+                    android:clickable="true"
+                    android:focusable="true"/>
+
+            </LinearLayout>
+
+            <!-- PROGRESS -->
+            <ProgressBar
+                android:id="@+id/progressCryptoAlt"
+                android:layout_width="match_parent"
+                android:layout_height="2dp"
+                style="?android:attr/progressBarStyleHorizontal"
+                android:indeterminate="true"
+                android:indeterminateTint="#A78BFA"
+                android:visibility="gone"/>
+
+            <!-- DYNAMIC CONTENT (Programmatic UI) -->
+            <LinearLayout
+                android:id="@+id/llCryptoAltContent"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="vertical"
+                android:paddingBottom="24dp"/>
+
+        </LinearLayout>
+    </androidx.core.widget.NestedScrollView>
+
+    </androidx.swiperefreshlayout.widget.SwipeRefreshLayout>
+
+    <!-- ═══════════════════════════════
+         FIXED BOTTOM CONTAINER (Status + Button)
+         ═══════════════════════════════ -->
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_gravity="bottom"
+        android:orientation="vertical"
+        android:background="@drawable/bottom_bar_bg"
+        android:elevation="8dp">
+
+        <!-- Status row -->
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal"
+            android:gravity="center_vertical"
+            android:paddingStart="@dimen/bottom_bar_padding_h"
+            android:paddingEnd="@dimen/bottom_bar_padding_h"
+            android:paddingTop="10dp"
+            android:paddingBottom="8dp">
+
+            <View android:id="@+id/statusDotCryptoAlt"
+                android:layout_width="@dimen/dot_size" android:layout_height="@dimen/dot_size"
+                android:background="@drawable/dot_bg"
+                android:layout_marginEnd="@dimen/dot_margin"/>
+
+            <TextView android:id="@+id/tvBotStatusCryptoAlt"
+                android:layout_width="0dp" android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:text="Alt trader stopped"
+                android:textColor="#6B7280" android:textSize="13sp"
+                android:maxLines="1" android:ellipsize="end"/>
+
+            <LinearLayout android:layout_width="wrap_content" android:layout_height="wrap_content"
+                android:orientation="horizontal" android:gravity="center_vertical">
+
+                <!-- Auto mode badge -->
+                <TextView android:id="@+id/tvAutoModeCryptoAlt"
+                    android:layout_width="wrap_content" android:layout_height="wrap_content"
+                    android:text="SCAN"
+                    android:textColor="#3B82F6" android:textSize="10sp"
+                    android:fontFamily="monospace" android:textStyle="bold"
+                    android:background="@drawable/chip_neutral_bg"
+                    android:paddingStart="8dp" android:paddingEnd="8dp"
+                    android:paddingTop="3dp" android:paddingBottom="3dp"
+                    android:layout_marginEnd="6dp"/>
+
+                <!-- Paper/Live badge -->
+                <TextView android:id="@+id/tvModeCryptoAlt"
+                    android:layout_width="wrap_content" android:layout_height="wrap_content"
+                    android:text="PAPER"
+                    android:textColor="#F59E0B" android:textSize="10sp"
+                    android:fontFamily="monospace" android:textStyle="bold"
+                    android:background="@drawable/chip_warn_bg"
+                    android:paddingStart="8dp" android:paddingEnd="8dp"
+                    android:paddingTop="3dp" android:paddingBottom="3dp"/>
+            </LinearLayout>
+        </LinearLayout>
+
+        <!-- Start/Stop Button -->
+        <Button android:id="@+id/btnToggleCryptoAlt"
+            android:layout_width="match_parent"
+            android:layout_height="@dimen/bottom_bar_button_height"
+            android:layout_marginStart="16dp"
+            android:layout_marginEnd="16dp"
+            android:layout_marginTop="4dp"
+            android:layout_marginBottom="16dp"
+            android:text="Start Alt Trader"
+            android:textColor="#FFFFFF"
+            android:textSize="@dimen/bottom_bar_button_text"
+            android:textStyle="bold"
+            android:backgroundTint="#9945FF"
+            android:stateListAnimator="@null"/>
+    </LinearLayout>
+
+</androidx.coordinatorlayout.widget.CoordinatorLayout>

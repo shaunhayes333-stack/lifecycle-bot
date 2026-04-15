@@ -10,6 +10,7 @@ import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.lifecycleScope
+import androidx.swiperefreshlayout.widget.SwipeRefreshLayout
 import coil.load
 import coil.transform.CircleCropTransformation
 import com.lifecyclebot.R
@@ -104,6 +105,17 @@ class CryptoAltActivity : AppCompatActivity() {
     private lateinit var tvHeroTrades  : TextView
     private lateinit var tvHeroPhase   : TextView
 
+    // Bottom bar + Brain + Wallet (mirrors MainActivity)
+    private lateinit var swipeRefresh       : SwipeRefreshLayout
+    private lateinit var btnToggle          : Button
+    private lateinit var tvBotStatus        : TextView
+    private lateinit var statusDot          : View
+    private lateinit var tvMode             : TextView
+    private lateinit var tvAutoMode         : TextView
+    private lateinit var pbBrainProgress    : ProgressBar
+    private lateinit var tvWalletShort      : TextView
+    private lateinit var tvWalletDot        : View
+
     // State
     private var currentTab       = 0
     private var scannerSortMode  = SortMode.QUALITY
@@ -128,9 +140,20 @@ class CryptoAltActivity : AppCompatActivity() {
         tabPositions = findViewById(R.id.tabCryptoAltPositions)
         tabSettings  = findViewById(R.id.tabCryptoAltSettings)
 
+        // New elements matching main AATE layout
+        swipeRefresh    = findViewById(R.id.swipeRefreshCryptoAlt)
+        btnToggle       = findViewById(R.id.btnToggleCryptoAlt)
+        tvBotStatus     = findViewById(R.id.tvBotStatusCryptoAlt)
+        statusDot       = findViewById(R.id.statusDotCryptoAlt)
+        tvMode          = findViewById(R.id.tvModeCryptoAlt)
+        tvAutoMode      = findViewById(R.id.tvAutoModeCryptoAlt)
+        pbBrainProgress = findViewById(R.id.pbBrainProgressCryptoAlt)
+        tvWalletShort   = findViewById(R.id.tvWalletShortCryptoAlt)
+        tvWalletDot     = findViewById(R.id.tvWalletDotCryptoAlt)
+
         WatchlistEngine.init(applicationContext)
 
-        // ── Self-init: ensure CryptoAltTrader is ready even if BotService hasn't started it ──
+        // Self-init: ensure CryptoAltTrader is ready even if BotService hasn't started it
         if (!CryptoAltTrader.isRunning()) {
             try { CryptoAltTrader.init(applicationContext) } catch (_: Exception) {}
         }
@@ -155,7 +178,43 @@ class CryptoAltActivity : AppCompatActivity() {
         tabPositions.setOnClickListener { selectTab(2) }
         tabSettings.setOnClickListener  { selectTab(3) }
 
+        // Swipe-to-refresh
+        swipeRefresh.setColorSchemeColors(0xFFA78BFA.toInt(), 0xFF9945FF.toInt())
+        swipeRefresh.setOnRefreshListener {
+            lifecycleScope.launch(Dispatchers.IO) {
+                DynamicAltTokenRegistry.runDiscoveryCycle()
+                withContext(Dispatchers.Main) {
+                    buildFullDashboard()
+                    swipeRefresh.isRefreshing = false
+                }
+            }
+        }
+
+        // Bottom bar: Start / Stop toggle
+        btnToggle.setOnClickListener {
+            if (CryptoAltTrader.isRunning()) {
+                CryptoAltTrader.stop()
+            } else {
+                try { CryptoAltTrader.init(applicationContext) } catch (_: Exception) {}
+                CryptoAltTrader.start()
+            }
+            updateBottomBar()
+        }
+
+        // Wallet pill tap → show wallet info
+        findViewById<View>(R.id.btnWalletTopCryptoAlt).setOnClickListener {
+            refreshWalletCapacityAsync()
+        }
+
+        // Brain indicator tap → show learning details
+        findViewById<View>(R.id.brainContainerCryptoAlt).setOnClickListener {
+            showReadinessDetailDialog()
+        }
+
         buildFullDashboard()
+        updateBottomBar()
+        updateBrainIndicator()
+        updateWalletPill()
         startAutoRefresh()
 
         // Kick off first discovery cycle in background
@@ -178,6 +237,9 @@ class CryptoAltActivity : AppCompatActivity() {
                 delay(10_000L)
                 withContext(Dispatchers.Main) {
                     if (::tvHeroBalance.isInitialized) refreshHeroStats()
+                    updateBottomBar()
+                    updateBrainIndicator()
+                    updateWalletPill()
                     val hasOpenPos = CryptoAltTrader.getAllPositions().any { it.closeTime == null }
                     when {
                         currentTab == 2                      -> selectTab(2)      // positions always
@@ -227,6 +289,68 @@ class CryptoAltActivity : AppCompatActivity() {
     }
 
     // ═══════════════════════════════════════════════════════════════════════════
+    // BOTTOM BAR, BRAIN INDICATOR, WALLET PILL — mirrors MainActivity
+    // ═══════════════════════════════════════════════════════════════════════════
+
+    private fun updateBottomBar() {
+        val running = CryptoAltTrader.isRunning()
+        val live    = CryptoAltTrader.isLiveMode()
+        val open    = CryptoAltTrader.getAllPositions().count { it.closeTime == null }
+        val phase   = getPhaseLabel()
+
+        // Status dot: green = running, red = stopped
+        statusDot.setBackgroundResource(if (running) R.drawable.dot_green else R.drawable.dot_bg)
+
+        // Status text
+        tvBotStatus.text = if (running) {
+            "Scanning $open open"
+        } else {
+            "Alt trader stopped"
+        }
+        tvBotStatus.setTextColor(if (running) 0xFF10B981.toInt() else 0xFF6B7280.toInt())
+
+        // Mode badge: PAPER / LIVE
+        tvMode.text = if (live) "LIVE" else "PAPER"
+        tvMode.setTextColor(if (live) 0xFF10B981.toInt() else 0xFFF59E0B.toInt())
+
+        // Auto mode badge
+        val phaseShort = when {
+            phase.contains("READY")      -> "READY"
+            phase.contains("MATURING")   -> "MATURE"
+            phase.contains("VALIDATING") -> "VALID"
+            phase.contains("LEARNING")   -> "LEARN"
+            phase.contains("BOOTSTRAP")  -> "BOOT"
+            phase.contains("SEEDING")    -> "SEED"
+            else                         -> "SCAN"
+        }
+        tvAutoMode.text = phaseShort
+
+        // Toggle button
+        btnToggle.text = if (running) "Stop Alt Trader" else "Start Alt Trader"
+        btnToggle.backgroundTintList = android.content.res.ColorStateList.valueOf(
+            if (running) 0xFFEF4444.toInt() else 0xFF9945FF.toInt()
+        )
+    }
+
+    private fun updateBrainIndicator() {
+        val progress = (FluidLearningAI.getMarketsLearningProgress() * 100).toInt()
+        pbBrainProgress.progress = progress.coerceIn(0, 100)
+    }
+
+    private fun updateWalletPill() {
+        val wallet = WalletManager.getWallet()
+        if (wallet != null) {
+            val addr = wallet.publicKey.toBase58()
+            tvWalletShort.text = "${addr.take(4)}..${addr.takeLast(4)}"
+            tvWalletShort.setTextColor(0xFF10B981.toInt())
+            tvWalletDot.setBackgroundResource(R.drawable.dot_green)
+        } else {
+            tvWalletShort.text = "Connect"
+            tvWalletShort.setTextColor(0xFF6B7280.toInt())
+        }
+    }
+
+    // ═══════════════════════════════════════════════════════════════════════════
     // FULL DASHBOARD
     // ═══════════════════════════════════════════════════════════════════════════
 
@@ -241,12 +365,13 @@ class CryptoAltActivity : AppCompatActivity() {
         buildHeroSection()
         when (currentTab) {
             0 -> {
-                // Scanner: Readiness + ProofRun + Module grid + Status bar, then scanner tab
+                // Scanner: Readiness + ProofRun + Module grid + Status bar + Open Positions, then scanner tab
                 buildReadinessTile()
                 buildProofRunTile()
                 buildModuleIconGrid()
                 buildTopStatusBar()
                 buildTreasuryTierPanel()
+                buildOpenPositionsPanel()
                 buildTabContent()
             }
             1 -> {
