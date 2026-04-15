@@ -39,6 +39,7 @@ import com.lifecyclebot.v3.scoring.MoonshotTraderAI
 import com.lifecyclebot.v3.scoring.QualityTraderAI
 import com.lifecyclebot.v3.scoring.ShitCoinExpress
 import com.lifecyclebot.v3.scoring.ShitCoinTraderAI
+import com.lifecyclebot.network.BirdeyeApi
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
@@ -920,7 +921,7 @@ class CryptoAltActivity : AppCompatActivity() {
                 append("Win Rate: ${"%.1f".format(exStats.winRate)}%\n")
                 append("Daily PnL: ${if (exStats.dailyPnlSol >= 0) "+" else ""}${"%.3f".format(exStats.dailyPnlSol)}◎\n")
                 append("Active Rides: ${exStats.activeRides}\n")
-                append("Daily Trades: ${exStats.dailyTrades}")
+                append("Daily Rides: ${exStats.dailyRides}")
             }) })
 
         val maStats = ManipulatedTraderAI.getStats()
@@ -1961,7 +1962,7 @@ class CryptoAltActivity : AppCompatActivity() {
                 r1.addView(tv(elapsedStr, 9f, muted, mono = true))
                 probCard.addView(r1)
                 // Reason
-                probCard.addView(tv(entry.reason.take(28), 8f, muted))
+                probCard.addView(tv(entry.source.take(28), 8f, muted))
                 probCol.addView(probCard)
             }
             columnsRow.addView(probCol)
@@ -2676,7 +2677,7 @@ class CryptoAltActivity : AppCompatActivity() {
             val day       = RunTracker30D.getCurrentDay()
             val pnl       = RunTracker30D.totalRealizedPnlSol
             val maxDD     = RunTracker30D.maxDrawdown
-            val integrity = RunTracker30D.getIntegrityScore()
+            val integrity = RunTracker30D.integrityScore()
             val msg = buildString {
                 appendLine("📈 30-DAY PROOF RUN")
                 appendLine("━━━━━━━━━━━━━━━━━━")
@@ -2760,8 +2761,9 @@ class CryptoAltActivity : AppCompatActivity() {
             val tp        = QualityTraderAI.getFluidTakeProfit()
             val sl        = QualityTraderAI.getFluidStopLoss()
             val posList   = if (positions.isEmpty()) "  (none)" else
-                positions.joinToString("
-") { "  • ${it.symbol}  \$${(it.entryMcap/1000).toInt()}K  ${((System.currentTimeMillis()-it.entryTime)/60000)}m" }
+                positions.joinToString("\n") { pos ->
+                    "  • ${pos.symbol}  \$${(pos.entryMcap / 1_000).toInt()}K  ${((System.currentTimeMillis() - pos.entryTime) / 60_000)}m"
+                }
             val msg = buildString {
                 appendLine("💎 QUALITY MODE  (\$100K–\$1M)")
                 appendLine("━━━━━━━━━━━━━━━━━━━━━━━━━━")
