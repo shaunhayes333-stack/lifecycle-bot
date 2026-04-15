@@ -353,8 +353,12 @@ class CryptoAltActivity : AppCompatActivity() {
 
                 // Logo
                 val dynTok = DynamicAltTokenRegistry.getTokenBySymbol(pos.market.symbol)
-                val logoUrl2 = dynTok?.logoUrl?.ifBlank { DynamicAltTokenRegistry.getCoinGeckoLogoUrl(pos.market.symbol) }
-                    ?: DynamicAltTokenRegistry.getCoinGeckoLogoUrl(pos.market.symbol)
+                val logoUrl2 = when {
+                    dynTok != null && dynTok.mint.length > 20 && !dynTok.mint.startsWith("static:") && !dynTok.mint.startsWith("cg:") ->
+                        "https://cdn.dexscreener.com/tokens/solana/${dynTok.mint}.png"
+                    dynTok?.logoUrl?.isNotBlank() == true -> dynTok.logoUrl
+                    else -> DynamicAltTokenRegistry.getCoinGeckoLogoUrl(pos.market.symbol)
+                }
                 val logoImg2 = android.widget.ImageView(this).apply {
                     val sz = (36 * resources.displayMetrics.density).toInt()
                     layoutParams = LinearLayout.LayoutParams(sz, sz).also { it.marginEnd = 8 }
@@ -2459,8 +2463,12 @@ class CryptoAltActivity : AppCompatActivity() {
 
         // Try to get logo from registry first
         val dynTok  = DynamicAltTokenRegistry.getTokenBySymbol(pos.market.symbol)
-        val logoUrl = dynTok?.logoUrl?.ifBlank { DynamicAltTokenRegistry.getCoinGeckoLogoUrl(pos.market.symbol) }
-            ?: DynamicAltTokenRegistry.getCoinGeckoLogoUrl(pos.market.symbol)
+        val logoUrl = when {
+            dynTok != null && dynTok.mint.length > 20 && !dynTok.mint.startsWith("static:") && !dynTok.mint.startsWith("cg:") ->
+                "https://cdn.dexscreener.com/tokens/solana/${dynTok.mint}.png"
+            dynTok?.logoUrl?.isNotBlank() == true -> dynTok.logoUrl
+            else -> DynamicAltTokenRegistry.getCoinGeckoLogoUrl(pos.market.symbol)
+        }
 
         val logoImg = android.widget.ImageView(this).apply {
             val sz = (40 * resources.displayMetrics.density).toInt()
