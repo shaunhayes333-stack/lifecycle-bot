@@ -918,44 +918,53 @@ class MultiAssetActivity : AppCompatActivity() {
     
     private fun updateQuickStats() {
         try {
-            // V5.7.7: Get stats from Markets traders, not PerpsTraderAI
-            val stockTrades = TokenizedStockTrader.getTotalTrades()
-            val stockWinRate = TokenizedStockTrader.getWinRate()
-            val stockPnlSol = TokenizedStockTrader.getTotalPnlSol()
-            
-            // 24h Trades - from Markets traders
-            tvStats24hTrades.text = stockTrades.toString()
-            
-            // Win Rate from Markets
-            val winRate = stockWinRate.toInt()
-            tvStatsWinRate.text = if (winRate > 0) "$winRate%" else "—%"
-            tvStatsWinRate.setTextColor(
-                when {
-                    winRate >= 55 -> 0xFF10B981.toInt()  // Green
-                    winRate >= 45 -> 0xFFF59E0B.toInt()  // Yellow
-                    winRate > 0 -> 0xFFEF4444.toInt()    // Red
-                    else -> 0xFF6B7280.toInt()           // Gray
-                }
-            )
-            
-            // Total P&L in USD (all markets combined)
+            // V5.9.5: Aggregate across ALL Markets traders — combined totals
+            val allTrades = TokenizedStockTrader.getTotalTrades() +
+                CommoditiesTrader.getTotalTrades() +
+                MetalsTrader.getTotalTrades() +
+                ForexTrader.getTotalTrades() +
+                PerpsTraderAI.getTotalTrades() +
+                CryptoAltTrader.getTotalTrades()
+
+            val allWins = TokenizedStockTrader.getWinningTrades() +
+                CommoditiesTrader.getWinningTrades() +
+                MetalsTrader.getWinningTrades() +
+                ForexTrader.getWinningTrades() +
+                PerpsTraderAI.getLifetimeWins() +
+                CryptoAltTrader.getWinCount()
+
+            val allPnlSol = TokenizedStockTrader.getTotalPnlSol() +
+                CommoditiesTrader.getTotalPnlSol() +
+                MetalsTrader.getTotalPnlSol() +
+                ForexTrader.getTotalPnlSol() +
+                PerpsTraderAI.getTotalPnlSol() +
+                CryptoAltTrader.getTotalPnlSol()
+
+            tvStats24hTrades.text = allTrades.toString()
+
+            val combinedWr = if (allTrades > 0) allWins * 100 / allTrades else 0
+            tvStatsWinRate.text = if (combinedWr > 0) "$combinedWr%" else "—%"
+            tvStatsWinRate.setTextColor(when {
+                combinedWr >= 55 -> 0xFF10B981.toInt()
+                combinedWr >= 45 -> 0xFFF59E0B.toInt()
+                combinedWr >  0  -> 0xFFEF4444.toInt()
+                else             -> 0xFF6B7280.toInt()
+            })
+
             val solPrice = try {
                 PerpsMarketDataFetcher.getCachedPrice(PerpsMarket.SOL)?.price ?: SOL_PRICE_USD
             } catch (_: Exception) { SOL_PRICE_USD }
-            val totalPnlUsd = stockPnlSol * solPrice
+            val totalPnlUsd = allPnlSol * solPrice
             tvStatsTotalPnl.text = "${if (totalPnlUsd >= 0) "+" else ""}\$${"%,.0f".format(totalPnlUsd)}"
             tvStatsTotalPnl.setTextColor(if (totalPnlUsd >= 0) 0xFF00FF88.toInt() else 0xFFFF4444.toInt())
-            
-            // AI Score - based on Markets learning progress
+
             val readiness = calculateMarketsReadiness()
             tvStatsAiScore.text = "${readiness.readinessScore}"
-            tvStatsAiScore.setTextColor(
-                when {
-                    readiness.readinessScore >= 75 -> 0xFF10B981.toInt()
-                    readiness.readinessScore >= 50 -> 0xFFF59E0B.toInt()
-                    else -> 0xFFEF4444.toInt()
-                }
-            )
+            tvStatsAiScore.setTextColor(when {
+                readiness.readinessScore >= 75 -> 0xFF10B981.toInt()
+                readiness.readinessScore >= 50 -> 0xFFF59E0B.toInt()
+                else -> 0xFFEF4444.toInt()
+            })
         } catch (_: Exception) {
             tvStats24hTrades.text = "0"
             tvStatsWinRate.text = "—%"
@@ -1339,11 +1348,19 @@ class MultiAssetActivity : AppCompatActivity() {
     }
     
     private fun updateSummaryCards() {
-        val positions = getCurrentPositionCount()
+        // V5.9.5: Total open across ALL traders
+        val positions = try {
+            PerpsExecutionEngine.getActivePositions().size +
+                TokenizedStockTrader.getAllPositions().count { it.closeTime == null } +
+                CommoditiesTrader.getSpotPositions().size + CommoditiesTrader.getLeveragePositions().size +
+                MetalsTrader.getSpotPositions().size + MetalsTrader.getLeveragePositions().size +
+                ForexTrader.getSpotPositions().size + ForexTrader.getLeveragePositions().size +
+                CryptoAltTrader.getAllPositions().count { it.closeTime == null }
+        } catch (_: Exception) { 0 }
         tvActivePositions.text = positions.toString()
         
         // Calculate today's P&L in USD
-        val pnlSol = getCurrentPnl()
+        val pnlSol = getAllTradersTotalPnlSol()
         val solPrice = try {
             PerpsMarketDataFetcher.getCachedPrice(PerpsMarket.SOL)?.price ?: SOL_PRICE_USD
         } catch (_: Exception) { SOL_PRICE_USD }
@@ -2462,35 +2479,49 @@ class MultiAssetActivity : AppCompatActivity() {
     }
     
     private fun getCurrentPnl(): Double {
+        // V5.9.5: Total unrealised PnL across ALL open positions on current tab
         return try {
             when (currentTab) {
-                AssetTab.PERPS -> PerpsExecutionEngine.getActivePositions().sumOf { it.getPnlSol() } + TokenizedStockTrader.getAllPositions().filter { it.market.isSolPerp }.sumOf { it.getPnlSol() }
+                AssetTab.PERPS -> PerpsExecutionEngine.getActivePositions().sumOf { it.getPnlSol() } +
+                    TokenizedStockTrader.getAllPositions().filter { it.closeTime == null }.sumOf { it.getPnlSol() }
                 AssetTab.STOCKS -> {
                     val positions = if (showSpotOnly) TokenizedStockTrader.getSpotPositions().filter { it.market.isStock }
-                                   else TokenizedStockTrader.getLeveragePositions().filter { it.market.isStock }
+                    else TokenizedStockTrader.getLeveragePositions().filter { it.market.isStock }
                     positions.sumOf { it.getPnlSol() }
                 }
                 AssetTab.COMMODITIES -> {
                     val positions = if (showSpotOnly) CommoditiesTrader.getSpotPositions()
-                                   else CommoditiesTrader.getLeveragePositions()
+                    else CommoditiesTrader.getLeveragePositions()
                     positions.sumOf { it.getPnlSol() }
                 }
                 AssetTab.METALS -> {
                     val positions = if (showSpotOnly) MetalsTrader.getSpotPositions()
-                                   else MetalsTrader.getLeveragePositions()
+                    else MetalsTrader.getLeveragePositions()
                     positions.sumOf { it.getPnlSol() }
                 }
                 AssetTab.FOREX -> {
                     val positions = if (showSpotOnly) ForexTrader.getSpotPositions()
-                                   else ForexTrader.getLeveragePositions()
+                    else ForexTrader.getLeveragePositions()
                     positions.sumOf { it.getPnlSol() }
                 }
                 AssetTab.CRYPTO -> {
                     val positions = if (showSpotOnly) CryptoAltTrader.getSpotPositions()
-                                   else CryptoAltTrader.getLeveragePositions()
+                    else CryptoAltTrader.getLeveragePositions()
                     positions.sumOf { it.getPnlSol() }
                 }
             }
+        } catch (_: Exception) { 0.0 }
+    }
+
+    /** Total realised PnL across ALL traders — used for the P&L summary tile. */
+    private fun getAllTradersTotalPnlSol(): Double {
+        return try {
+            TokenizedStockTrader.getTotalPnlSol() +
+                CommoditiesTrader.getTotalPnlSol() +
+                MetalsTrader.getTotalPnlSol() +
+                ForexTrader.getTotalPnlSol() +
+                PerpsTraderAI.getTotalPnlSol() +
+                CryptoAltTrader.getTotalPnlSol()
         } catch (_: Exception) { 0.0 }
     }
     
