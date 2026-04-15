@@ -613,13 +613,15 @@ object CommoditiesTrader {
         // V5.7.6b: Use Markets-specific recording to avoid affecting Meme thresholds
         try {
             if (isPaperMode.get()) FluidLearningAI.recordMarketsPaperTrade(isWin)
-            // V5.9.6: Sync P&L back to shared FluidLearning pool so main bot balance updates
-            try { com.lifecyclebot.engine.FluidLearning.recordPaperSell(
+            else FluidLearningAI.recordMarketsLiveTrade(isWin)
+        } catch (_: Exception) {}
+        // V5.9.6: Sync closed P&L to shared FluidLearning pool so main bot balance updates
+        if (isPaperMode.get()) try {
+            com.lifecyclebot.engine.FluidLearning.recordPaperSell(
                 mint = position.market.symbol,
                 originalSol = position.size,
                 pnlSol = pnl
-            ) } catch (_: Exception) {}
-            else FluidLearningAI.recordMarketsLiveTrade(isWin)
+            )
         } catch (_: Exception) {}
         
         // Record pattern for AI memory
