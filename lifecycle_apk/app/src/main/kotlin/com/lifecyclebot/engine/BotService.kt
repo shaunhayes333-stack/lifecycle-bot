@@ -348,7 +348,7 @@ class BotService : Service() {
         
         // V5.7.4: Start Insider Tracker AI (Trump/Pelosi/Whale wallet monitoring)
         try {
-            com.lifecyclebot.v3.scoring.InsiderTrackerAI.start { signal ->
+            com.lifecyclebot.v3.scoring.InsiderTrackerAI.start(heliusApiKey = cfg.heliusApiKey) { signal ->
                 // Real-time alert callback for alpha signals
                 if (signal.wallet.riskLevel == com.lifecyclebot.v3.scoring.InsiderTrackerAI.RiskLevel.ALPHA) {
                     ErrorLogger.info("BotService", "🔍 INSIDER ALERT: ${signal.wallet.label} | ${signal.signalType.name} | ${signal.tokenSymbol ?: "?"}")
