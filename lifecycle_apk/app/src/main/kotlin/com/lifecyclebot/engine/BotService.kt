@@ -2941,11 +2941,6 @@ class BotService : Service() {
                         try { com.lifecyclebot.perps.PerpsTraderAI.setLiveBalance(freshSol) } catch (_: Exception) {}
                     }
                     
-                    // V5.9.7: paperWalletSol mirrors FluidLearning — single source of truth
-                    if (cfg.paperMode) {
-                        val flSol = com.lifecyclebot.engine.FluidLearning.getSimulatedBalance()
-                        if (flSol > 0.001) status.paperWalletSol = flSol
-                    }
 
                     // ── Shared paper wallet: broadcast paper balance to all traders ──────
 
