@@ -879,7 +879,7 @@ object CryptoAltTrader {
         if (isSpot) spotPositions[position.id]     = position
         else        leveragePositions[position.id]  = position
 
-        totalTrades.incrementAndGet()
+        // Note: totalTrades incremented at CLOSE, not open, for accurate win rate
 
         if (isPaperMode.get()) paperBalance -= finalSize
 
@@ -1018,6 +1018,8 @@ object CryptoAltTrader {
         val pnlSol = pos.getPnlSol()
         totalPnlSol += pnlSol
 
+        // V5.7.7: Count trades at close so win rate is accurate (wins+losses / total)
+        totalTrades.incrementAndGet()
         if (pnlSol >= 0) {
             winningTrades.incrementAndGet()
             try { if (isPaperMode.get()) FluidLearningAI.recordMarketsPaperTrade(true) else FluidLearningAI.recordMarketsLiveTrade(true) } catch (_: Exception) {}
@@ -1067,6 +1069,8 @@ object CryptoAltTrader {
         if (closedPositions.size > MAX_CLOSED_HISTORY) {
             closedPositions.subList(MAX_CLOSED_HISTORY, closedPositions.size).clear()
         }
+        // Persist counters immediately so win rate survives restarts
+        try { saveToSharedPrefs() } catch (_: Exception) {}
 
         ErrorLogger.info(TAG, "🪙 CLOSED: ${pos.market.symbol} | $reason | pnl=${pnlSol.fmt(3)}◎ | wr=${"%.0f".format(getWinRate())}%")
 
