@@ -618,7 +618,8 @@ class MultiAssetActivity : AppCompatActivity() {
             CommoditiesTrader.getBalance() +
             MetalsTrader.getBalance() +
             ForexTrader.getBalance() +
-            PerpsTraderAI.getBalance()
+            PerpsTraderAI.getBalance() +
+            CryptoAltTrader.getBalance()
         } catch (_: Exception) { 0.0 }
     }
     
@@ -632,6 +633,7 @@ class MultiAssetActivity : AppCompatActivity() {
         MetalsTrader.setBalance(perTraderSol)
         ForexTrader.setBalance(perTraderSol)
         PerpsTraderAI.setBalance(perTraderSol)
+        CryptoAltTrader.setBalance(perTraderSol)
         
         ErrorLogger.info(TAG, "💰 All Markets balances set to ${"%.2f".format(perTraderSol)} SOL each")
     }
@@ -680,6 +682,7 @@ class MultiAssetActivity : AppCompatActivity() {
                 |• Metals: ${"%.2f".format(MetalsTrader.getBalance())} SOL
                 |• Forex: ${"%.2f".format(ForexTrader.getBalance())} SOL
                 |• Perps: ${"%.2f".format(PerpsTraderAI.getBalance())} SOL
+                |• CryptoAlts: ${"%.2f".format(CryptoAltTrader.getBalance())} SOL
                 |$liveStatus
                 |${if (totalPaperUsd < MIN_BALANCE_USD) "⚠️ Paper below minimum ($${MIN_BALANCE_USD.toInt()})" else ""}
             """.trimMargin()
@@ -1154,7 +1157,8 @@ class MultiAssetActivity : AppCompatActivity() {
                     val metals = MetalsTrader.getBalance()
                     val forex = ForexTrader.getBalance()
                     val perps = PerpsExecutionEngine.getPaperBalance()
-                    (stock + commod + metals + forex + perps).coerceAtLeast(0.0)
+                    val cryptoAlts = CryptoAltTrader.getBalance()
+                    (stock + commod + metals + forex + perps + cryptoAlts).coerceAtLeast(0.0)
                 } catch (_: Exception) { 250.0 }
 
                 // Get SOL price — Pyth first, cached fallback
