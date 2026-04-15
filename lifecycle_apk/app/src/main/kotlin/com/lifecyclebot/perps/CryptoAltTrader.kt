@@ -491,8 +491,11 @@ object CryptoAltTrader {
             for (sig in topDyn) {
                 if (positions.size >= MAX_POSITIONS) break
                 if (hasPosition(sig.market)) continue
-                ErrorLogger.info(TAG, "🪙⚡ DynScan EXECUTE: ${sig.market.symbol} score=${sig.score} conf=${sig.confidence}")
-                executeSignal(sig, isSpot = true)
+                // V5.9.3: respect UI toggle for DynScan signals too
+                val dynSpot = !preferLeverage.get()
+                val dynLev  = if (dynSpot) 1.0 else DEFAULT_LEVERAGE
+                ErrorLogger.info(TAG, "🪙⚡ DynScan EXECUTE: ${sig.market.symbol} score=${sig.score} conf=${sig.confidence} ${if (dynSpot) "SPOT" else "${dynLev.toInt()}x"}")
+                executeSignal(sig.copy(leverage = dynLev), isSpot = dynSpot)
             }
         }
 
@@ -595,7 +598,8 @@ object CryptoAltTrader {
                 break
             }
 
-            val useSpotDefault = (positions.size % 2 == 0)
+            // V5.9.3: Respect the UI SPOT/LEVERAGE toggle instead of alternating by parity
+            val useSpotDefault = !preferLeverage.get()
             var useSpot  = useSpotDefault
             var leverage = if (useSpot) 1.0 else DEFAULT_LEVERAGE
 
@@ -1466,6 +1470,13 @@ object CryptoAltTrader {
 
     /** Whether this trader has met all requirements to go live */
     fun isLiveReady(): Boolean = FluidLearningAI.getMarketsTradeCount() >= 5000 && getWinRate() >= 52.0
+
+    /** V5.9.3: Called from MAA when user taps SPOT/LEVERAGE toggle */
+    fun setPreferLeverage(lev: Boolean) {
+        preferLeverage.set(lev)
+        ErrorLogger.info(TAG, "🪙 Mode → ${if (lev) "LEVERAGE (${DEFAULT_LEVERAGE.toInt()}x)" else "SPOT"}")
+    }
+    fun isPreferLeverage(): Boolean = preferLeverage.get()
 
     private fun Double.fmt(d: Int): String = "%.${d}f".format(this)
 }

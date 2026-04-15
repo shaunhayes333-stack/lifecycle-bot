@@ -424,12 +424,16 @@ class MultiAssetActivity : AppCompatActivity() {
     private fun setupClickListeners() {
         btnSpotMode.setOnClickListener {
             showSpotOnly = true
+            // V5.9.3: Tell the active trader to prefer SPOT
+            if (currentTab == AssetTab.CRYPTO) CryptoAltTrader.setPreferLeverage(false)
             updateModeToggle()
             refreshData()
         }
         
         btnLeverageMode.setOnClickListener {
             showSpotOnly = false
+            // V5.9.3: Tell the active trader to prefer LEVERAGE
+            if (currentTab == AssetTab.CRYPTO) CryptoAltTrader.setPreferLeverage(true)
             updateModeToggle()
             refreshData()
         }
@@ -1278,7 +1282,11 @@ class MultiAssetActivity : AppCompatActivity() {
             AssetTab.COMMODITIES -> "${PerpsMarket.values().count { it.isCommodity }} assets"
             AssetTab.METALS -> "${PerpsMarket.values().count { it.isMetal }} metals"
             AssetTab.FOREX -> "${PerpsMarket.values().count { it.isForex }} pairs"
-                AssetTab.CRYPTO -> "${PerpsMarket.values().count { it.isCrypto && !it.isSolPerp }} alts"
+                AssetTab.CRYPTO -> "${PerpsMarket.values().count { it.isCrypto && !it.isSolPerp }} alts".also {
+                    // V5.9.3: Sync toggle to trader state when entering CRYPTO tab
+                    showSpotOnly = !CryptoAltTrader.isPreferLeverage()
+                    updateModeToggle()
+                }
         }
         tvCategoryCount.text = count
     }
