@@ -1034,11 +1034,11 @@ class MultiAssetActivity : AppCompatActivity() {
             
             // Update progress bar
             tvMarketsProgressPct.text = "${readiness.progressPct}%"
-            val params = viewMarketsProgressBar.layoutParams as android.widget.FrameLayout.LayoutParams
+            val params = viewMarketsProgressBar.layoutParams ?: return
             params.width = 0
             viewMarketsProgressBar.layoutParams = params
             viewMarketsProgressBar.post {
-                val parentWidth = (viewMarketsProgressBar.parent as View).width
+                val parentWidth = (viewMarketsProgressBar.parent as? View)?.width ?: 0
                 val newWidth = (parentWidth * readiness.progressPct / 100).toInt()
                 val newParams = viewMarketsProgressBar.layoutParams
                 newParams.width = newWidth
