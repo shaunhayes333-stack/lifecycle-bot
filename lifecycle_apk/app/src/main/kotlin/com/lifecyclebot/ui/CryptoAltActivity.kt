@@ -109,7 +109,7 @@ class CryptoAltActivity : AppCompatActivity() {
     private var scannerSector    = "All"
     private var scannerSearch    = ""
     private var scannerPage      = 0
-    private val PAGE_SIZE        = 50
+    private val PAGE_SIZE        = 75
 
     // ═══════════════════════════════════════════════════════════════════════════
     // LIFECYCLE
@@ -1494,83 +1494,69 @@ class CryptoAltActivity : AppCompatActivity() {
         val col      = if (change >= 0) green else red
         val solPrice = WalletManager.lastKnownSolPrice
 
-        // Check if there's an open position for this token
-        val openPos = CryptoAltTrader.getAllPositions().filter {
-            it.closeTime == null && (it.market.symbol.equals(tok.symbol, ignoreCase = true))
+        val openPos   = CryptoAltTrader.getAllPositions().filter {
+            it.closeTime == null && it.market.symbol.equals(tok.symbol, ignoreCase = true)
         }
         val hasPosition = openPos.isNotEmpty()
-        val posCardBg   = if (hasPosition) 0xFF0D1F2D.toInt() else card  // blue tint if active
+        val cardBg      = if (hasPosition) 0xFF0D1F2D.toInt() else card
 
-        val row = hBox(posCardBg, 14, 10).apply { gravity = Gravity.CENTER_VERTICAL }
+        val row = hBox(cardBg, 12, 8).apply { gravity = Gravity.CENTER_VERTICAL }
 
-        // Token logo
-        val logoImg = android.widget.ImageView(this).apply {
-            val sz = (34 * resources.displayMetrics.density).toInt()
+        // ── Left: emoji circle instead of heavy ImageView ─────────────────────
+        val emojiBox = tv(tok.emoji, 18f, white).apply {
+            val dp = resources.displayMetrics.density
+            val sz = (36 * dp).toInt()
             layoutParams = LinearLayout.LayoutParams(sz, sz).also { it.marginEnd = 8 }
-            scaleType = android.widget.ImageView.ScaleType.CENTER_CROP
-            try { background = androidx.core.content.ContextCompat.getDrawable(this@CryptoAltActivity, R.drawable.token_logo_bg) } catch (_: Exception) {}
-            val logoUrl = tok.logoUrl.ifBlank { DynamicAltTokenRegistry.getCoinGeckoLogoUrl(tok.symbol) }
-            if (logoUrl.isNotBlank()) {
-                load(logoUrl) {
-                    crossfade(true); placeholder(R.drawable.ic_token_placeholder)
-                    error(R.drawable.ic_token_placeholder); allowHardware(false)
-                    transformations(CircleCropTransformation())
-                }
-            } else setImageResource(R.drawable.ic_token_placeholder)
+            gravity = Gravity.CENTER
+            setBackgroundColor(0xFF111827.toInt())
+            try {
+                background = androidx.core.content.ContextCompat.getDrawable(
+                    this@CryptoAltActivity, R.drawable.token_logo_bg)
+            } catch (_: Exception) { setBackgroundColor(0xFF111827.toInt()) }
         }
-        row.addView(logoImg)
+        row.addView(emojiBox)
 
-        // Middle column
+        // ── Middle ─────────────────────────────────────────────────────────────
         val mid = vBox().apply { layoutParams = llp(0, wrap, 1f) }
-        val headerRow = hBox()
-        headerRow.addView(tv("${tok.emoji} ${tok.symbol}", 13f, white, bold = true))
-        if (tok.isTrending && tok.trendingRank in 0..2)
-            headerRow.addView(tv(" 🔥#${tok.trendingRank + 1}", 9f, orange).apply { setPadding(4, 0, 0, 0) })
+        val nameRow = hBox().apply { gravity = Gravity.CENTER_VERTICAL }
+        nameRow.addView(tv(tok.symbol, 13f, white, bold = true))
+        if (tok.isTrending && tok.trendingRank in 0..4)
+            nameRow.addView(tv(" 🔥${tok.trendingRank + 1}", 9f, orange).apply { setPadding(3, 0, 0, 0) })
         if (tok.isBoosted)
-            headerRow.addView(tv(" ⚡", 9f, purple).apply { setPadding(2, 0, 0, 0) })
+            nameRow.addView(tv(" ⚡", 9f, purple).apply { setPadding(2, 0, 0, 0) })
         if (hasPosition)
-            headerRow.addView(tv(" ● OPEN", 8f, green, bold = true).apply { setPadding(4, 0, 0, 0) })
-        mid.addView(headerRow)
-        mid.addView(tv("${tok.name.take(18)}  ${if (tok.sector.isNotBlank()) "· ${tok.sector}" else ""}", 9f, muted))
-        if (tok.mcap > 0 || tok.volume24h > 0)
-            mid.addView(tv("MC:${tok.fmtMcap()}  Vol:${tok.volume24h.fmtVol()}", 9f, muted, mono = true))
+            nameRow.addView(tv("  ●", 8f, green, bold = true))
+        mid.addView(nameRow)
 
-        // If open position: show live PnL line
+        val sub = buildString {
+            if (tok.mcap > 0) append("MC:${tok.fmtMcap()}")
+            if (tok.volume24h > 0) { if (isNotEmpty()) append("  "); append("V:${tok.volume24h.fmtVol()}") }
+            if (tok.sector.isNotBlank() && tok.sector != "Other") { if (isNotEmpty()) append("  "); append(tok.sector) }
+        }
+        if (sub.isNotBlank()) mid.addView(tv(sub, 9f, muted, mono = true))
+
         if (hasPosition) {
-            val totalPnlPct = openPos.sumOf { it.getPnlPct() } / openPos.size
-            val totalPnlSol = openPos.sumOf { it.getPnlSol() }
-            val totalPnlUsd = totalPnlSol * solPrice
-            val pnlCol      = if (totalPnlPct >= 0) green else red
-            val pnlStr      = "${if (totalPnlPct >= 0) "+" else ""}${"%.2f".format(totalPnlPct)}%  " +
-                              "${if (totalPnlSol >= 0) "+" else ""}${"%.4f".format(totalPnlSol)}◎" +
-                              if (solPrice > 0) "  ≈\$${"%.2f".format(totalPnlUsd)}" else ""
-            mid.addView(tv(pnlStr, 9f, pnlCol, mono = true, bold = true))
+            val pct = openPos.sumOf { it.getPnlPct() } / openPos.size
+            val sol = openPos.sumOf { it.getPnlSol() }
+            mid.addView(tv("${if (pct >= 0) "+" else ""}${"%.2f".format(pct)}%  ${if (sol >= 0) "+" else ""}${"%.4f".format(sol)}◎",
+                9f, if (pct >= 0) green else red, mono = true, bold = true))
         }
         row.addView(mid)
 
-        // Right column — current price + 24h change
+        // ── Right: price + change ──────────────────────────────────────────────
         val right = vBox().apply { gravity = Gravity.END }
         if (tok.price > 0)
             right.addView(tv(fmtPrice(tok.price), 12f, white, mono = true).apply { gravity = Gravity.END })
-        if (change != 0.0)
-            right.addView(tv("${if (change >= 0) "+" else ""}${"%.2f".format(change)}%", 11f, col, mono = true).apply { gravity = Gravity.END })
-        else
-            right.addView(tv("—", 11f, muted, mono = true).apply { gravity = Gravity.END })
-
-        // If open position: current value on right
-        if (hasPosition) {
-            val totalVal    = openPos.sumOf { it.sizeSol + it.getPnlSol() }
-            val totalValUsd = totalVal * solPrice
-            right.addView(tv("${"%.4f".format(totalVal)}◎", 10f, muted, mono = true).apply { gravity = Gravity.END })
-            if (solPrice > 0)
-                right.addView(tv("≈\$${"%.2f".format(totalValUsd)}", 9f, muted, mono = true).apply { gravity = Gravity.END })
-        }
+        right.addView(tv(
+            if (change != 0.0) "${if (change >= 0) "+" else ""}${"%.2f".format(change)}%" else "—",
+            11f, if (change != 0.0) col else muted, mono = true
+        ).apply { gravity = Gravity.END })
         row.addView(right)
 
-        // Click → show full detail dialog
         row.setOnClickListener { showTokenDetailDialog(tok, openPos) }
         return row
     }
+
 
     private fun showTokenDetailDialog(tok: DynToken, openPositions: List<CryptoAltTrader.AltPosition>) {
         val solPrice = WalletManager.lastKnownSolPrice
@@ -1963,168 +1949,126 @@ class CryptoAltActivity : AppCompatActivity() {
         val watchlistItems   = WatchlistEngine.getWatchlist()
         val probationEntries = com.lifecyclebot.engine.GlobalTradeRegistry.getProbationEntries()
 
-        // ── 3-column layout: Probation | Watchlist | (empty state) ─────────────
-        val hasProb = probationEntries.isNotEmpty()
-
-        // Section headers row
-        val headerRow = hBox().apply { layoutParams = llp(match, wrap).apply { bottomMargin = 4 } }
-        if (hasProb) {
-            headerRow.addView(tv("⏳ Probation (${probationEntries.size})", 11f, amber, bold = true).apply {
-                layoutParams = llp(0, wrap, 1f)
+        // ── Probation section (compact horizontal scroll) ──────────────────────
+        if (probationEntries.isNotEmpty()) {
+            llContent.addView(tv("⏳ Probation (${probationEntries.size})", 11f, amber, bold = true).apply {
+                setPadding(16, 10, 16, 4)
             })
-            headerRow.addView(View(this).apply {
-                layoutParams = llp(1, LinearLayout.LayoutParams.MATCH_PARENT).apply { marginStart = 6; marginEnd = 6 }
-                setBackgroundColor(divBg)
-            })
-        }
-        headerRow.addView(tv("👀 Watchlist (${watchlistItems.size})", 11f, blue, bold = true).apply {
-            layoutParams = llp(0, wrap, 1f)
-        })
-        llContent.addView(headerRow)
-        llContent.addView(thinDivider())
-
-        if (!hasProb && watchlistItems.isEmpty()) {
-            addEmptyState("No tokens on watchlist. Tap a token in Scanner and choose 📌 Watch.")
-            return
-        }
-
-        // ── Main columns ───────────────────────────────────────────────────────
-        val columnsRow = hBox().apply {
-            layoutParams = llp(match, wrap)
-            gravity = Gravity.TOP
-        }
-
-        // ── PROBATION COLUMN ───────────────────────────────────────────────────
-        if (hasProb) {
-            val probCol = vBox(0, 0, 0).apply { layoutParams = llp(0, wrap, 1f).apply { marginEnd = 4 } }
+            val probScroll = android.widget.HorizontalScrollView(this).apply {
+                layoutParams = llp(match, wrap).apply { bottomMargin = 8 }
+            }
+            val probRow = hBox().apply { setPadding(12, 0, 12, 0) }
             probationEntries.forEach { entry ->
                 val elapsed = (System.currentTimeMillis() - entry.addedAt) / 1000
                 val elapsedStr = if (elapsed < 60) "${elapsed}s" else "${elapsed/60}m"
-
-                val probCard = vBox(card, 8, 8).apply {
-                    layoutParams = llp(match, wrap).apply { bottomMargin = 4 }
+                val chip = vBox(card, 8, 6).apply {
+                    layoutParams = llp(wrap, wrap).apply { marginEnd = 6 }
+                    minWidth = (80 * resources.displayMetrics.density).toInt()
                 }
-                // Logo + symbol row
-                val r1 = hBox().apply { gravity = Gravity.CENTER_VERTICAL }
-                val logoImg = android.widget.ImageView(this).apply {
-                    val sz = (28 * resources.displayMetrics.density).toInt()
-                    layoutParams = LinearLayout.LayoutParams(sz, sz).also { it.marginEnd = 6 }
-                    scaleType = android.widget.ImageView.ScaleType.CENTER_CROP
-                    try { background = androidx.core.content.ContextCompat.getDrawable(this@CryptoAltActivity, R.drawable.token_logo_bg) } catch (_: Exception) {}
-                    load("https://cdn.dexscreener.com/tokens/solana/${entry.mint}.png") {
-                        crossfade(true); placeholder(R.drawable.ic_token_placeholder)
-                        error(R.drawable.ic_token_placeholder); allowHardware(false)
-                        transformations(coil.transform.CircleCropTransformation())
-                    }
-                }
-                r1.addView(logoImg)
-                r1.addView(tv(entry.symbol.take(8), 11f, amber, bold = true).apply { layoutParams = llp(0, wrap, 1f) })
-                r1.addView(tv(elapsedStr, 9f, muted, mono = true))
-                probCard.addView(r1)
-                // Reason
-                probCard.addView(tv(entry.source.take(28), 8f, muted))
-                probCol.addView(probCard)
+                chip.addView(tv(entry.symbol.take(8), 11f, amber, bold = true).apply { gravity = Gravity.CENTER })
+                chip.addView(tv(elapsedStr, 9f, muted, mono = true).apply { gravity = Gravity.CENTER })
+                chip.addView(tv(entry.source.take(12), 8f, muted).apply { gravity = Gravity.CENTER })
+                probRow.addView(chip)
             }
-            columnsRow.addView(probCol)
-
-            // Vertical divider
-            columnsRow.addView(View(this).apply {
-                layoutParams = LinearLayout.LayoutParams(1, LinearLayout.LayoutParams.MATCH_PARENT).also {
-                    it.marginStart = 2; it.marginEnd = 4
-                }
-                setBackgroundColor(divBg)
-            })
+            probScroll.addView(probRow)
+            llContent.addView(probScroll)
+            llContent.addView(thinDivider())
         }
 
-        // ── WATCHLIST COLUMN ───────────────────────────────────────────────────
-        val watchCol = vBox(0, 0, 0).apply { layoutParams = llp(0, wrap, if (hasProb) 1.4f else 1f) }
+        // ── Watchlist header ───────────────────────────────────────────────────
+        llContent.addView(tv("⭐ Watchlist (${watchlistItems.size})", 11f, blue, bold = true).apply {
+            setPadding(16, 8, 16, 6)
+        })
+
         if (watchlistItems.isEmpty()) {
-            watchCol.addView(tv("(empty)", 11f, muted).apply { setPadding(4, 8, 4, 4) })
-        } else {
-            val solPriceW = WalletManager.lastKnownSolPrice
-            watchlistItems.forEach { item ->
-                val symbol   = item.symbol
-                val tok      = DynamicAltTokenRegistry.getTokenBySymbol(symbol)
-                val change   = tok?.priceChange24h ?: 0.0
-                val col      = if (change >= 0) green else red
-                val openPos  = CryptoAltTrader.getAllPositions().filter {
+            addEmptyState("No tokens on watchlist.\nTap a token in Scanner and choose 📌 Watch.")
+            return
+        }
+
+        // ── Compact 2-column grid ──────────────────────────────────────────────
+        val solPriceW = WalletManager.lastKnownSolPrice
+        var i = 0
+        while (i < watchlistItems.size) {
+            val rowLayout = hBox().apply {
+                layoutParams = llp(match, wrap).apply { bottomMargin = 5 }
+                setPadding(12, 0, 12, 0)
+            }
+
+            listOf(
+                watchlistItems.getOrNull(i),
+                watchlistItems.getOrNull(i + 1)
+            ).forEach { item ->
+                if (item == null) {
+                    rowLayout.addView(View(this).apply { layoutParams = llp(0, 1, 1f).apply { marginStart = 4 } })
+                    return@forEach
+                }
+                val symbol = item.symbol
+                val tok    = DynamicAltTokenRegistry.getTokenBySymbol(symbol)
+                val change = tok?.priceChange24h ?: 0.0
+                val col    = if (change >= 0) green else red
+                val openPos = CryptoAltTrader.getAllPositions().filter {
                     it.closeTime == null && it.market.symbol.equals(symbol, ignoreCase = true)
                 }
-                val hasPos   = openPos.isNotEmpty()
-                val cardBg   = if (hasPos) 0xFF0D1F2D.toInt() else card
+                val hasPos = openPos.isNotEmpty()
 
-                val wCard = vBox(cardBg, 8, 8).apply {
-                    layoutParams = llp(match, wrap).apply { bottomMargin = 4 }
+                val wCard = vBox(if (hasPos) 0xFF0D1F2D.toInt() else card, 8, 8).apply {
+                    layoutParams = llp(0, wrap, 1f).apply { marginStart = 4 }
+                    isClickable = true; isFocusable = true
+                    if (tok != null) setOnClickListener { showTokenDetailDialog(tok, openPos) }
                 }
-                // Row 1: Logo + symbol + remove button
+
+                // Row 1: emoji + symbol + remove X
                 val r1 = hBox().apply { gravity = Gravity.CENTER_VERTICAL }
-                if (tok != null) {
-                    val logoImg = android.widget.ImageView(this).apply {
-                        val sz = (28 * resources.displayMetrics.density).toInt()
-                        layoutParams = LinearLayout.LayoutParams(sz, sz).also { it.marginEnd = 6 }
-                        scaleType = android.widget.ImageView.ScaleType.CENTER_CROP
-                        try { background = androidx.core.content.ContextCompat.getDrawable(this@CryptoAltActivity, R.drawable.token_logo_bg) } catch (_: Exception) {}
-                        val logoUrl = tok.logoUrl.ifBlank { DynamicAltTokenRegistry.getCoinGeckoLogoUrl(tok.symbol) }
-                        if (logoUrl.isNotBlank()) load(logoUrl) {
-                            crossfade(true); placeholder(R.drawable.ic_token_placeholder)
-                            error(R.drawable.ic_token_placeholder); allowHardware(false)
-                            transformations(coil.transform.CircleCropTransformation())
-                        } else setImageResource(R.drawable.ic_token_placeholder)
-                    }
-                    r1.addView(logoImg)
-                }
-                val symbolLabel = tv("${tok?.emoji ?: "⚪"} $symbol", 11f, white, bold = true).apply { layoutParams = llp(0, wrap, 1f) }
-                if (hasPos) symbolLabel.append("  ●")
-                r1.addView(symbolLabel)
-                r1.addView(tv("✕", 11f, red).apply {
-                    setPadding(6, 2, 6, 2)
+                r1.addView(tv(tok?.emoji ?: "⚪", 14f, white).apply {
+                    layoutParams = llp(wrap, wrap).apply { marginEnd = 4 }
+                })
+                r1.addView(tv(symbol.take(8), 12f, white, bold = true).apply { layoutParams = llp(0, wrap, 1f) })
+                if (hasPos) r1.addView(tv("●", 8f, green).apply { setPadding(2, 0, 4, 0) })
+                r1.addView(tv("✕", 10f, muted).apply {
+                    setPadding(4, 2, 2, 2)
                     setOnClickListener { WatchlistEngine.removeFromWatchlist(symbol); selectTab(1) }
                 })
                 wCard.addView(r1)
 
-                // Row 2: live price + 24h change
-                if (tok != null) {
-                    val r2 = hBox().apply { setPadding(0, 2, 0, 0) }
-                    r2.addView(tv(fmtPrice(tok.price), 9f, white, mono = true).apply { layoutParams = llp(0, wrap, 1f) })
-                    r2.addView(tv("${if (change >= 0) "+" else ""}${"%.2f".format(change)}%", 9f, col, mono = true))
-                    wCard.addView(r2)
-                    // Row 3: MCap + volume
-                    val r3 = hBox().apply { setPadding(0, 1, 0, 0) }
-                    r3.addView(tv("MC:${tok.fmtMcap()}", 8f, muted, mono = true).apply { layoutParams = llp(0, wrap, 1f) })
-                    r3.addView(tv("V:${tok.volume24h.fmtVol()}", 8f, muted, mono = true))
-                    wCard.addView(r3)
+                // Row 2: price + change
+                val r2 = hBox().apply { setPadding(0, 2, 0, 0) }
+                if (tok != null && tok.price > 0)
+                    r2.addView(tv(fmtPrice(tok.price), 10f, white, mono = true).apply { layoutParams = llp(0, wrap, 1f) })
+                else
+                    r2.addView(tv("—", 10f, muted, mono = true).apply { layoutParams = llp(0, wrap, 1f) })
+                r2.addView(tv(
+                    if (change != 0.0) "${if (change >= 0) "+" else ""}${"%.1f".format(change)}%" else "—",
+                    10f, if (change != 0.0) col else muted, mono = true
+                ))
+                wCard.addView(r2)
+
+                // Row 3: MCap (compact)
+                if (tok != null && tok.mcap > 0) {
+                    wCard.addView(tv("MC:${tok.fmtMcap()}", 8f, muted, mono = true))
                 }
 
-                // Row 4: PnL if open position
+                // PnL if open
                 if (hasPos) {
-                    val totalPnlPct = openPos.sumOf { it.getPnlPct() } / openPos.size
-                    val totalPnlSol = openPos.sumOf { it.getPnlSol() }
-                    val totalPnlUsd = totalPnlSol * solPriceW
-                    val pnlCol      = if (totalPnlPct >= 0) green else red
-                    val pnlRow = hBox().apply { setPadding(0, 3, 0, 0) }
-                    pnlRow.addView(tv("P&L", 8f, muted).apply { layoutParams = llp(0, wrap, 1f) })
-                    val pnlStr = "${if (totalPnlPct >= 0) "+" else ""}${"%.2f".format(totalPnlPct)}%  ${if (totalPnlSol >= 0) "+" else ""}${"%.4f".format(totalPnlSol)}◎"
-                    pnlRow.addView(tv(pnlStr, 9f, pnlCol, mono = true, bold = true))
-                    wCard.addView(pnlRow)
-                    if (solPriceW > 0) {
-                        val valSol    = openPos.sumOf { it.sizeSol + it.getPnlSol() }
-                        val valUsd    = valSol * solPriceW
-                        val usdRow    = hBox()
-                        usdRow.addView(tv("Value", 8f, muted).apply { layoutParams = llp(0, wrap, 1f) })
-                        usdRow.addView(tv("${"%.4f".format(valSol)}◎  ≈\$${"%.2f".format(valUsd)}", 9f, muted, mono = true))
-                        wCard.addView(usdRow)
-                    }
+                    val pct = openPos.sumOf { it.getPnlPct() } / openPos.size
+                    val sol = openPos.sumOf { it.getPnlSol() }
+                    val pnlCol = if (pct >= 0) green else red
+                    wCard.addView(tv("${if (pct >= 0) "+" else ""}${"%.1f".format(pct)}% · ${if (sol >= 0) "+" else ""}${"%.3f".format(sol)}◎",
+                        9f, pnlCol, mono = true, bold = true))
                 }
 
-                wCard.setOnClickListener {
-                    if (tok != null) showTokenDetailDialog(tok, openPos)
-                }
-                watchCol.addView(wCard)
+                rowLayout.addView(wCard)
             }
+            llContent.addView(rowLayout)
+            i += 2
         }
-        columnsRow.addView(watchCol)
-        llContent.addView(columnsRow)
+
+        // Add to watchlist hint
+        llContent.addView(tv("Tap a token in Scanner → 📌 Add to Watchlist", 10f, muted).apply {
+            setPadding(16, 12, 16, 8); gravity = Gravity.CENTER
+            layoutParams = llp(match, wrap)
+        })
     }
+
 
     // ═══════════════════════════════════════════════════════════════════════════
     // POSITIONS TAB
