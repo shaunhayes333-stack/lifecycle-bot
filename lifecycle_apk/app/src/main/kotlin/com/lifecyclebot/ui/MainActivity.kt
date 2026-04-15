@@ -1336,10 +1336,13 @@ for legal compliance.
             }
         }
 
-        // ── hero balance — CryptoAltTrader is the single wallet for the whole app ──
+        // ── hero balance — BotService.status is the single source of truth ──
         val config = com.lifecyclebot.data.ConfigStore.load(applicationContext)
-        val balSol = com.lifecyclebot.perps.CryptoAltTrader.getBalance()
         val solPx  = com.lifecyclebot.engine.WalletManager.lastKnownSolPrice.takeIf { it > 10.0 } ?: 85.0
+        val balSol = if (config.paperMode)
+            com.lifecyclebot.engine.BotService.status.paperWalletSol
+        else
+            ws.solBalance
         val balUsd = balSol * solPx
 
         if (balSol > 0.001) {

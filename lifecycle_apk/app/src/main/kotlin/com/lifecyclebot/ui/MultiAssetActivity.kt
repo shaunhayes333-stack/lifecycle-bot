@@ -1292,7 +1292,7 @@ class MultiAssetActivity : AppCompatActivity() {
                 } catch (_: Exception) { -1.0 }
 
                 // CryptoAltTrader is the single wallet — all screens read from it
-        val paperBalanceSol = com.lifecyclebot.perps.CryptoAltTrader.getBalance()
+        val paperBalanceSol = com.lifecyclebot.engine.BotService.status.paperWalletSol
 
 
                 // Get SOL price — Pyth first, cached fallback
