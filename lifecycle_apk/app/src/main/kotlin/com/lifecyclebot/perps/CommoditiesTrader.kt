@@ -47,7 +47,10 @@ object CommoditiesTrader {
     private val isPaperMode = AtomicBoolean(true)
     private val scanCount = AtomicInteger(0)
     
-    @Volatile private var paperBalance = 50.0  // 50 SOL for commodities
+    // V5.9.7: paperBalance now delegates to shared FluidLearning pool
+    private var paperBalance: Double
+        get() = com.lifecyclebot.engine.FluidLearning.getSimulatedBalance()
+        set(value) { com.lifecyclebot.engine.FluidLearning.forceSetBalance(value) }
     private val totalTrades   = java.util.concurrent.atomic.AtomicInteger(0)
     private val winningTrades = java.util.concurrent.atomic.AtomicInteger(0)
     private val losingTrades  = java.util.concurrent.atomic.AtomicInteger(0)
@@ -500,7 +503,7 @@ object CommoditiesTrader {
         
         // Deduct from appropriate balance
         if (isPaperMode.get()) {
-            paperBalance -= positionSizeSol
+            com.lifecyclebot.engine.FluidLearning.recordPaperBuy("CommoditiesTrader", positionSizeSol.coerceAtLeast(0.0))
         }
         
         val leverageStr = if (signal.tradeType == TradeType.SPOT) "1x SPOT" else "${signal.tradeType.leverage.toInt()}x LEV"
@@ -597,7 +600,7 @@ object CommoditiesTrader {
                 updateLiveBalance(newBal)
             } catch (_: Exception) {}
         } else {
-            paperBalance += position.size + pnl
+            // V5.9.7: balance update handled by FluidLearning.recordPaperSell below
             totalPnlSol  += pnl
             totalTrades.incrementAndGet()
             if (isWin) winningTrades.incrementAndGet() else losingTrades.incrementAndGet()
@@ -745,7 +748,7 @@ object CommoditiesTrader {
     
     // V5.7.6b: Set balance for paper trading
     fun setBalance(balance: Double) {
-        paperBalance = balance
+        com.lifecyclebot.engine.FluidLearning.forceSetBalance(balance)
         ErrorLogger.info(TAG, "🛢️ CommoditiesTrader balance set to ${"%.2f".format(balance)} SOL")
     }
     
@@ -758,7 +761,7 @@ object CommoditiesTrader {
     fun isRunning(): Boolean = isRunning.get()
 
     /** V5.9.3: Receive paper balance broadcast from BotService */
-    fun setPaperBalance(sol: Double) { if (sol > 0.0) paperBalance = sol }
+    fun setPaperBalance(sol: Double) { if (sol > 0.0) com.lifecyclebot.engine.FluidLearning.forceSetBalance(sol) }
 
     /** V5.9.3: UI toggle compatibility — Commod/Metals/Forex open both spot+lev automatically */
     fun setPreferLeverage(lev: Boolean) {}

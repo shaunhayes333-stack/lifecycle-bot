@@ -219,7 +219,10 @@ object TokenizedStockTrader {
     private val winningTrades = AtomicInteger(0)
     private val losingTrades = AtomicInteger(0)
     private val scanCount = AtomicLong(0)
-    private var paperBalance = 100.0  // Starting paper balance in SOL
+    // V5.9.7: paperBalance now delegates to shared FluidLearning pool
+    private var paperBalance: Double
+        get() = com.lifecyclebot.engine.FluidLearning.getSimulatedBalance()
+        set(value) { com.lifecyclebot.engine.FluidLearning.forceSetBalance(value) }
     private var totalPnlSol = 0.0
     
     // ═══════════════════════════════════════════════════════════════════════════
@@ -364,7 +367,7 @@ object TokenizedStockTrader {
                 val instanceId = com.lifecyclebot.collective.CollectiveLearning.getInstanceId() ?: ""
                 val state = tursoClient.loadMarketsState(instanceId)
                 if (state != null) {
-                    paperBalance = state.paperBalanceSol
+                    com.lifecyclebot.engine.FluidLearning.forceSetBalance(state.paperBalanceSol)
                     totalTrades.set(state.totalTrades)
                     winningTrades.set(state.totalWins)
                     losingTrades.set(state.totalLosses)
@@ -941,7 +944,7 @@ fun isLiveReady(): Boolean = totalTrades.get() >= 5000 && getWinRate() >= 50.0
         
         // Deduct from balance (Hive-adjusted size)
         if (isPaperMode.get()) {
-            paperBalance -= hiveSizeSol
+            com.lifecyclebot.engine.FluidLearning.recordPaperBuy("TokenizedStockTrader", hiveSizeSol.coerceAtLeast(0.0))
         }
         
         // Notify FluidLearningAI
@@ -1042,7 +1045,7 @@ fun isLiveReady(): Boolean = totalTrades.get() >= 5000 && getWinRate() >= 50.0
                 updateLiveBalance(newBal)
             } catch (_: Exception) {}
         } else {
-            paperBalance += position.sizeSol + netPnlSol
+            // V5.9.7: balance update handled by FluidLearning.recordPaperSell below
         }
         
         // Record to FluidLearningAI
@@ -1281,7 +1284,7 @@ fun isLiveReady(): Boolean = totalTrades.get() >= 5000 && getWinRate() >= 50.0
     
     // V5.7.6b: Set balance for paper trading
     fun setBalance(balance: Double) {
-        paperBalance = balance
+        com.lifecyclebot.engine.FluidLearning.forceSetBalance(balance)
         ErrorLogger.info(TAG, "📈 TokenizedStockTrader balance set to ${"%.2f".format(balance)} SOL")
     }
     
@@ -1398,9 +1401,9 @@ fun isLiveReady(): Boolean = totalTrades.get() >= 5000 && getWinRate() >= 50.0
     }
     
     /** Sync paper wallet balance from BotService (keeps paper consistent across all traders) */
-    fun setPaperBalance(sol: Double) {
+    fun setPaperBalance(sol: Double) { if (sol > 0.0) com.lifecyclebot.engine.FluidLearning.forceSetBalance(sol) }
         if (isPaperMode.get() && sol > 0.0) {
-            paperBalance = sol
+            com.lifecyclebot.engine.FluidLearning.forceSetBalance(sol)
         }
     }
 

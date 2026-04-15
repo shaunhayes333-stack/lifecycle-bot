@@ -130,6 +130,15 @@ object FluidLearning {
      */
     fun getSimulatedBalance(): Double = simulatedBalanceSol
 
+
+    /** Directly set the simulated balance — used when syncing from external traders */
+    fun forceSetBalance(sol: Double) {
+        if (sol > 0.0) {
+            simulatedBalanceSol = sol
+            if (sol > simulatedPeakSol) simulatedPeakSol = sol
+            saveState()
+        }
+    }
     /**
      * Backward compatibility alias
      */
