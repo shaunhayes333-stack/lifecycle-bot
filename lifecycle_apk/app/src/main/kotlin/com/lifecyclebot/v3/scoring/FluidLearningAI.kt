@@ -922,24 +922,24 @@ object FluidLearningAI {
     // ═══════════════════════════════════════════════════════════════════════════
     
     // SPOT trading thresholds - BROADENED like meme trader
-    private const val MARKETS_SPOT_SCORE_BOOTSTRAP = 15    // V5.7.6b: Was 25, now matches meme's aggression
-    private const val MARKETS_SPOT_SCORE_MATURE = 35       // V5.7.6b: Was 40, still selective when mature
-    private const val MARKETS_SPOT_CONF_BOOTSTRAP = 10     // V5.7.6b: Was 20, very loose at start
-    private const val MARKETS_SPOT_CONF_MATURE = 30        // V5.7.6b: Was 35
+    private const val MARKETS_SPOT_SCORE_BOOTSTRAP = 40    // min viable signal quality at bootstrap
+    private const val MARKETS_SPOT_SCORE_MATURE = 60       // selective when mature
+    private const val MARKETS_SPOT_CONF_BOOTSTRAP = 45     // was 10 — far too loose, bled balance
+    private const val MARKETS_SPOT_CONF_MATURE = 65
     
     // LEVERAGE trading thresholds - BROADENED but slightly stricter than SPOT
-    private const val MARKETS_LEV_SCORE_BOOTSTRAP = 20     // V5.7.6b: Was 30, now more aggressive
-    private const val MARKETS_LEV_SCORE_MATURE = 40        // V5.7.6b: Was 50
-    private const val MARKETS_LEV_CONF_BOOTSTRAP = 15      // V5.7.6b: Was 25, loose at start
-    private const val MARKETS_LEV_CONF_MATURE = 35         // V5.7.6b: Was 40
+    private const val MARKETS_LEV_SCORE_BOOTSTRAP = 50     // leverage needs higher quality signals
+    private const val MARKETS_LEV_SCORE_MATURE = 70
+    private const val MARKETS_LEV_CONF_BOOTSTRAP = 55      // was 15 — dangerously low for leveraged trades
+    private const val MARKETS_LEV_CONF_MATURE = 70
     
     // Take Profit targets - WIDER range for learning
-    private const val MARKETS_TP_BOOTSTRAP = 2.0    // V5.7.6b: Was 3%, now 2% quick scalps
-    private const val MARKETS_TP_MATURE = 12.0      // V5.7.6b: Was 8%, now 12% let winners run
+    private const val MARKETS_TP_BOOTSTRAP = 4.0    // was 2% — must exceed SL for positive EV
+    private const val MARKETS_TP_MATURE = 8.0       // realistic target, scales with learning
     
     // Stop Loss targets - WIDER at bootstrap for learning
-    private const val MARKETS_SL_BOOTSTRAP = -12.0  // V5.7.6b: Was -8%, now -12% room to breathe
-    private const val MARKETS_SL_MATURE = -5.0      // V5.7.6b: Was -4%, slightly looser
+    private const val MARKETS_SL_BOOTSTRAP = -3.0   // was -12% — catastrophic, burned balance fast
+    private const val MARKETS_SL_MATURE = -4.0      // tight stops = more losses cut early
     
     // Position size as % of balance - MORE AGGRESSIVE
     private const val MARKETS_SIZE_BOOTSTRAP = 2.0  // V5.7.6b: Was 3%, start smaller for safety
