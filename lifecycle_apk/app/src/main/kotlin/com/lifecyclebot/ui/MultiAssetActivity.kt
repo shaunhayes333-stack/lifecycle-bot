@@ -518,13 +518,14 @@ class MultiAssetActivity : AppCompatActivity() {
                 // Check and refresh balance before starting
                 checkAndRefreshBalance()
                 
-                // Start all Markets traders
-                TokenizedStockTrader.start()
-                CommoditiesTrader.start()
-                MetalsTrader.start()
-                ForexTrader.start()
-                CryptoAltTrader.start()
-                PerpsExecutionEngine.start(this@MultiAssetActivity)
+                // Start all Markets traders (V5.7.7: respect individual sub-trader flags)
+                val startCfg = com.lifecyclebot.data.ConfigStore.load(this@MultiAssetActivity)
+                if (startCfg.stocksEnabled)      TokenizedStockTrader.start()
+                if (startCfg.commoditiesEnabled) CommoditiesTrader.start()
+                if (startCfg.metalsEnabled)      MetalsTrader.start()
+                if (startCfg.forexEnabled)       ForexTrader.start()
+                if (startCfg.cryptoAltsEnabled)  CryptoAltTrader.start()
+                if (startCfg.perpsEnabled)       PerpsExecutionEngine.start(this@MultiAssetActivity)
                 
                 withContext(Dispatchers.Main) {
                     android.widget.Toast.makeText(this@MultiAssetActivity, 
@@ -572,11 +573,12 @@ class MultiAssetActivity : AppCompatActivity() {
         if (mainBotRunning && !anyRunning && !userManuallyStopped) {
             lifecycleScope.launch(Dispatchers.IO) {
                 try {
-                    TokenizedStockTrader.start()
-                    CommoditiesTrader.start()
-                    MetalsTrader.start()
-                    ForexTrader.start()
-                    PerpsExecutionEngine.start(this@MultiAssetActivity)
+                    val followCfg = com.lifecyclebot.data.ConfigStore.load(this@MultiAssetActivity)
+                    if (followCfg.stocksEnabled)  TokenizedStockTrader.start()
+                    if (followCfg.commoditiesEnabled) CommoditiesTrader.start()
+                    if (followCfg.metalsEnabled)  MetalsTrader.start()
+                    if (followCfg.forexEnabled)   ForexTrader.start()
+                    if (followCfg.perpsEnabled)   PerpsExecutionEngine.start(this@MultiAssetActivity)
                     ErrorLogger.info(TAG, "Markets auto-started: following main bot")
                 } catch (e: Exception) {
                     ErrorLogger.error(TAG, "Markets auto-start failed: ${e.message}", e)
