@@ -57,6 +57,29 @@ object PriceAggregator {
     
     // Unified price cache
     private val priceCache = ConcurrentHashMap<String, CachedPrice>()
+    // V5.9.5: Track previous prices to calculate real 24h change for on-chain sources
+    private val prevPriceCache = ConcurrentHashMap<String, Double>()
+    private val prevPriceTime  = ConcurrentHashMap<String, Long>()
+
+    /** Calculate real % change from price delta vs previous cached price (max 24h old) */
+    private fun calcChange(symbol: String, currentPrice: Double): Double {
+        val prev = prevPriceCache[symbol] ?: run {
+            prevPriceCache[symbol] = currentPrice
+            prevPriceTime[symbol]  = System.currentTimeMillis()
+            return 0.0
+        }
+        val ageMs = System.currentTimeMillis() - (prevPriceTime[symbol] ?: 0L)
+        // Only use delta if we have a reference price from > 1 min ago
+        return if (ageMs > 60_000L && prev > 0.0) {
+            val pct = (currentPrice - prev) / prev * 100.0
+            // Update reference periodically (every ~1h) so change doesn't accumulate forever
+            if (ageMs > 3_600_000L) {
+                prevPriceCache[symbol] = currentPrice
+                prevPriceTime[symbol]  = System.currentTimeMillis()
+            }
+            pct
+        } else 0.0
+    }
     private const val CACHE_TTL_MS = 3_000L  // 3 second cache
     
     // Source success tracking
@@ -208,10 +231,9 @@ object PriceAggregator {
                 DataSource.SWITCHBOARD
             )
             AssetType.STOCK, AssetType.ETF -> listOf(
-                DataSource.JUPITER,      // V5.7.7: Jupiter has xStocks (TSLAx, AAPLx, NVDAx) - 24/7 on-chain!
-                DataSource.BIRDEYE,      // V5.7.7: Birdeye for Solana token prices
-                DataSource.DEXSCREENER,  // V5.7.7: DexScreener for DEX prices
-                DataSource.PYTH,
+                // V5.9.5: Yahoo first — it returns REAL 24h % change. On-chain sources
+                // (Jupiter, Birdeye, DexScreener, Pyth) all hardcode change24h=0.0 which
+                // kills signal generation (analyzeStock needs non-zero change for momentum).
                 DataSource.YAHOO_V7,
                 DataSource.YAHOO_V8,
                 DataSource.STOOQ,
@@ -224,7 +246,12 @@ object PriceAggregator {
                 DataSource.IEX,
                 DataSource.POLYGON,
                 DataSource.TIINGO,
-                DataSource.MARKETSTACK
+                DataSource.MARKETSTACK,
+                // On-chain fallback for price only (change will be calculated from cache delta)
+                DataSource.PYTH,
+                DataSource.JUPITER,
+                DataSource.BIRDEYE,
+                DataSource.DEXSCREENER
             )
             AssetType.FOREX -> listOf(
                 DataSource.PYTH,
@@ -300,7 +327,7 @@ object PriceAggregator {
         return try {
             val data = PythOracle.getPrice(symbol)
             if (data != null && data.price > 0) {
-                PriceResult(data.price, 0.0, "PYTH", data.confidence)
+                PriceResult(data.price, calcChange(symbol, data.price), "PYTH", data.confidence)
             } else null
         } catch (e: Exception) { null }
     }
@@ -309,7 +336,7 @@ object PriceAggregator {
         return try {
             val data = SwitchboardOracle.getPrice(symbol)
             if (data != null && data.price > 0) {
-                PriceResult(data.price, 0.0, "SWITCHBOARD")
+                PriceResult(data.price, calcChange(symbol, data.price), "SWITCHBOARD")
             } else null
         } catch (e: Exception) { null }
     }
@@ -322,7 +349,7 @@ object PriceAggregator {
         return try {
             val price = JupiterPriceOracle.getPrice(symbol)
             if (price != null && price > 0) {
-                PriceResult(price, 0.0, "JUPITER")
+                PriceResult(price, calcChange(symbol, price), "JUPITER")
             } else null
         } catch (e: Exception) { null }
     }
@@ -513,7 +540,7 @@ object PriceAggregator {
             val price = BirdeyeOracle.getPriceByAddress(mint)
             if (price != null && price > 0) {
                 ErrorLogger.debug(TAG, "🐦 Birdeye: $symbol = \$${"%.4f".format(price)}")
-                PriceResult(price, 0.0, "BIRDEYE")
+                PriceResult(price, calcChange(symbol, price), "BIRDEYE")
             } else null
         } catch (e: Exception) { null }
     }
@@ -525,7 +552,7 @@ object PriceAggregator {
             val price = DexScreenerOracle.getPriceByAddress(mint)
             if (price != null && price > 0) {
                 ErrorLogger.debug(TAG, "📊 DexScreener: $symbol = \$${"%.4f".format(price)}")
-                PriceResult(price, 0.0, "DEXSCREENER")
+                PriceResult(price, calcChange(symbol, price), "DEXSCREENER")
             } else null
         } catch (e: Exception) { null }
     }
