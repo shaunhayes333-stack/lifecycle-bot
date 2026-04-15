@@ -234,21 +234,12 @@ class MultiAssetActivity : AppCompatActivity() {
         }
         ErrorLogger.info(TAG, "📊 MultiAssetActivity CREATED")
 
-        // V5.9.4: Auto-start markets on Activity create.
-        // Priority 1: main bot running → always start (was_running pref not needed)
-        // Priority 2: was_running pref = true and user didn't manually stop → start
+        // V5.9.5: Auto-start on create — same logic as onResume (idempotent start calls)
         lifecycleScope.launch(Dispatchers.IO) {
             try {
-                val anyAlreadyRunning = TokenizedStockTrader.isRunning() ||
-                    CommoditiesTrader.isRunning() || MetalsTrader.isRunning() ||
-                    ForexTrader.isRunning() || CryptoAltTrader.isRunning() ||
-                    PerpsExecutionEngine.isRunning()
-                if (anyAlreadyRunning) return@launch  // Already running — nothing to do
-
                 val mainBotRunning = try { BotService.status.running } catch (_: Exception) { false }
                 val wasRunning = marketsPrefs.getBoolean("markets_was_running", false)
                 val shouldStart = (mainBotRunning || wasRunning) && !userManuallyStopped
-
                 if (shouldStart) {
                     val cfg = com.lifecyclebot.data.ConfigStore.load(this@MultiAssetActivity)
                     if (cfg.stocksEnabled)       TokenizedStockTrader.start()
@@ -259,7 +250,7 @@ class MultiAssetActivity : AppCompatActivity() {
                     if (cfg.perpsEnabled)        PerpsExecutionEngine.start(this@MultiAssetActivity)
                     marketsPrefs.edit().putBoolean("markets_was_running", true).apply()
                     try { checkAndRefreshBalance() } catch (_: Exception) {}
-                    ErrorLogger.info(TAG, "V5.9.4 Markets auto-started on create: mainBot=$mainBotRunning wasRunning=$wasRunning")
+                    ErrorLogger.info(TAG, "V5.9.5 Markets auto-started on create: mainBot=$mainBotRunning wasRunning=$wasRunning")
                 }
             } catch (e: Exception) {
                 ErrorLogger.warn(TAG, "Markets auto-start on create failed: ${e.message}")
@@ -269,37 +260,44 @@ class MultiAssetActivity : AppCompatActivity() {
     
     override fun onResume() {
         super.onResume()
-        // V5.9.2: Restart update loop if it died while we were away
+        // Restart update loop if it died
         if (updateJob?.isActive != true) {
             try { startUpdateLoop() } catch (_: Exception) {}
         }
-        // Re-check auto-start — traders are objects and survive navigation,
-        // but if for any reason they died while MAA was backgrounded, restart them
+        // V5.9.5: Always attempt to start traders on resume.
+        // start() on each trader is idempotent — if already running it returns immediately.
+        // This means: come back from MainActivity? Traders start. Every time. No conditions missed.
         lifecycleScope.launch(Dispatchers.IO) {
             try {
                 val mainBotRunning = try { BotService.status.running } catch (_: Exception) { false }
-                val anyRunning = TokenizedStockTrader.isRunning() || CommoditiesTrader.isRunning() ||
-                    MetalsTrader.isRunning() || ForexTrader.isRunning() ||
-                    CryptoAltTrader.isRunning() || PerpsExecutionEngine.isRunning()
-                var userStopped = try { marketsPrefs.getBoolean("user_manually_stopped", false) } catch (_: Exception) { false }
-                // V5.9.4: If main bot just started, clear the manual-stop flag so markets follow it
-                if (mainBotRunning && userStopped && !anyRunning) {
-                    userStopped = false
+                val wasRunning = marketsPrefs.getBoolean("markets_was_running", false)
+                val userStopped = marketsPrefs.getBoolean("user_manually_stopped", false)
+
+                // Clear manual-stop if main bot is running — bot takes priority
+                if (mainBotRunning && userStopped) {
                     userManuallyStopped = false
-                    marketsPrefs.edit().putBoolean("user_manually_stopped", false).apply()
-                    ErrorLogger.info(TAG, "V5.9.4 Cleared manual-stop flag — main bot is running")
+                    marketsPrefs.edit()
+                        .putBoolean("user_manually_stopped", false)
+                        .apply()
                 }
-                if (mainBotRunning && !anyRunning && !userStopped) {
+
+                val shouldRun = (mainBotRunning || wasRunning) &&
+                                !marketsPrefs.getBoolean("user_manually_stopped", false)
+
+                if (shouldRun) {
                     val cfg = com.lifecyclebot.data.ConfigStore.load(this@MultiAssetActivity)
+                    // start() is safe to call even if already running — it checks internally
                     if (cfg.stocksEnabled)       TokenizedStockTrader.start()
                     if (cfg.commoditiesEnabled)  CommoditiesTrader.start()
                     if (cfg.metalsEnabled)       MetalsTrader.start()
                     if (cfg.forexEnabled)        ForexTrader.start()
                     if (cfg.cryptoAltsEnabled)   CryptoAltTrader.start()
                     if (cfg.perpsEnabled)        PerpsExecutionEngine.start(this@MultiAssetActivity)
+                    marketsPrefs.edit().putBoolean("markets_was_running", true).apply()
                     try { checkAndRefreshBalance() } catch (_: Exception) {}
-                    ErrorLogger.info(TAG, "Markets auto-restarted on resume")
+                    ErrorLogger.info(TAG, "V5.9.5 Markets start-on-resume: mainBot=$mainBotRunning wasRunning=$wasRunning")
                 }
+                withContext(Dispatchers.Main) { updateToggleButton() }
             } catch (e: Exception) {
                 ErrorLogger.warn(TAG, "onResume auto-start failed: ${e.message}")
             }
@@ -659,10 +657,9 @@ class MultiAssetActivity : AppCompatActivity() {
         
         marketsRunning = anyRunning
         
-        // V5.8.1: Auto-follow main bot — if main bot is running and markets are all stopped
-        // and the user hasn't deliberately stopped them, restart them automatically
+        // V5.9.5: Auto-follow — start() is idempotent, safe to call every toggle update
         val mainBotRunning = try { BotService.status.running } catch (_: Exception) { false }
-        if (mainBotRunning && !anyRunning && !userManuallyStopped) {
+        if ((mainBotRunning || marketsPrefs.getBoolean("markets_was_running", false)) && !userManuallyStopped) {
             lifecycleScope.launch(Dispatchers.IO) {
                 try {
                     val followCfg = com.lifecyclebot.data.ConfigStore.load(this@MultiAssetActivity)
@@ -673,7 +670,6 @@ class MultiAssetActivity : AppCompatActivity() {
                     if (followCfg.cryptoAltsEnabled)  CryptoAltTrader.start()
                     if (followCfg.perpsEnabled)       PerpsExecutionEngine.start(this@MultiAssetActivity)
                     try { checkAndRefreshBalance() } catch (_: Exception) {}
-                    ErrorLogger.info(TAG, "Markets auto-started: following main bot")
                 } catch (e: Exception) {
                     ErrorLogger.error(TAG, "Markets auto-start failed: ${e.message}", e)
                 }
