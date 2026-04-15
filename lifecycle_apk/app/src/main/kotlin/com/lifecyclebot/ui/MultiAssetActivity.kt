@@ -1101,16 +1101,6 @@ class MultiAssetActivity : AppCompatActivity() {
                 PerpsTraderAI.getLifetimeWins()
         } catch (_: Exception) { 0 }
         val winRate = if (paperTrades > 0) allWins.toDouble() * 100.0 / paperTrades else 0.0
-        val marketsProgress = FluidLearningAI.getMarketsLearningProgress()
-        
-        // Also get win rate from PerpsTraderAI for display (it tracks Markets trades too)
-        val wins = PerpsTraderAI.getLifetimeWins()
-        val losses = PerpsTraderAI.getLifetimeLosses()
-        val winRate = if (paperTrades > 0) {
-            // Use Markets-specific win rate calculation
-            (marketsProgress * 50 + 25).coerceIn(0.0, 100.0)  // Rough approximation
-        } else 0.0
-        
         // V5.7.6b: Requirements - Match meme trader's 5000 trade maturity
         val requiredTrades = 5000
         val requiredWinRate = 55.0
