@@ -2893,6 +2893,13 @@ class BotService : Service() {
                     walletManager.refreshBalance()
                     val freshSol = walletManager.state.value.solBalance
                     status.walletSol = freshSol
+
+                    // ── Shared wallet: broadcast live SOL balance to all traders ──────────
+                    if (freshSol > 0.0) {
+                        try { com.lifecyclebot.perps.CryptoAltTrader.updateLiveBalance(freshSol) } catch (_: Exception) {}
+                        try { com.lifecyclebot.perps.TokenizedStockTrader.updateLiveBalance(freshSol) } catch (_: Exception) {}
+                        try { com.lifecyclebot.perps.PerpsTraderAI.setLiveBalance(freshSol) } catch (_: Exception) {}
+                    }
                     
                     // Initialize paper wallet with $1000 worth of SOL for realistic testing
                     val cfg = ConfigStore.load(applicationContext)
@@ -2917,6 +2924,14 @@ class BotService : Service() {
                                 addLog("🔄 Paper wallet refreshed: ${"%.2f".format(targetSol)} SOL (~\$1,000) — 12h top-up")
                             }
                         }
+                    }
+
+                    // ── Shared paper wallet: broadcast paper balance to all traders ──────
+                    val curPaperSol = status.paperWalletSol
+                    if (curPaperSol > 0.0) {
+                        try { com.lifecyclebot.perps.CryptoAltTrader.setPaperBalance(curPaperSol) } catch (_: Exception) {}
+                        try { com.lifecyclebot.perps.TokenizedStockTrader.setPaperBalance(curPaperSol) } catch (_: Exception) {}
+                        try { com.lifecyclebot.perps.PerpsTraderAI.setPaperBalance(curPaperSol) } catch (_: Exception) {}
                     }
 
                     // Treasury milestone check — live mode uses real wallet; paper uses paper balance
