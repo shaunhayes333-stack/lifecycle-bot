@@ -237,20 +237,33 @@ class CryptoAltActivity : AppCompatActivity() {
 
     private fun buildFullDashboard() {
         llContent.removeAllViews()
-        buildHeroSection()          // BALANCE label → big number → stat pills → chain chips
-        buildOpenPositionsPanel()   // inline Open Positions list (if any)
-        buildReadinessTile()        // 🚦 Live Readiness
-        buildProofRunTile()         // 📈 30-Day Proof Run
-        buildModuleIconGrid()       // AATE-style 2-row trader/intelligence icon grid
-        buildTopStatusBar()         // HIVE MIND · SHADOW · REGIMES · LAYERS pills (below grid)
-        buildTreasuryTierPanel()    // locked SOL / next unlock
-        buildNetworkSignalsPanel()  // Network Signals
-        buildShadowFDGPanel()
-        buildHiveMindPanel()
-        buildSectorHeatPanel()
-        addDivider()
-        buildTabContent()
+        buildHeroSection()
+        when (currentTab) {
+            0 -> {
+                // Scanner: Readiness + ProofRun + Module grid + Status bar, then scanner tab
+                buildReadinessTile()
+                buildProofRunTile()
+                buildModuleIconGrid()
+                buildTopStatusBar()
+                buildTreasuryTierPanel()
+                buildTabContent()
+            }
+            1 -> {
+                // Watchlist: just the watchlist content
+                buildTabContent()
+            }
+            2 -> {
+                // Positions: just positions
+                buildTabContent()
+            }
+            else -> {
+                // Settings
+                buildTabContent()
+            }
+        }
     }
+
+
 
     // ═══════════════════════════════════════════════════════════════════════════
     // HERO
@@ -508,10 +521,10 @@ class CryptoAltActivity : AppCompatActivity() {
         // ── BALANCE label ──────────────────────────────────────────────────────
         llContent.addView(tv("BALANCE", 10f, muted, mono = true).apply {
             letterSpacing = 0.12f
-            setPadding(20, 12, 20, 0)
+            setPadding(20, 14, 20, 0)
         })
 
-        // ── Balance row: large number + PAPER badge + SOL price ───────────────
+        // ── Balance row: large number + PAPER/LIVE badge + SOL/USD price ─────
         val balRow = hBox().apply {
             setPadding(20, 4, 20, 0)
             gravity = Gravity.BOTTOM
@@ -521,10 +534,9 @@ class CryptoAltActivity : AppCompatActivity() {
         }
         balRow.addView(tvHeroBalance)
 
-        // PAPER / LIVE badge + SOL amount
+        // PAPER / LIVE badge
         val modeLabel = if (CryptoAltTrader.isLiveMode()) "LIVE" else "PAPER"
         val modeBg    = if (CryptoAltTrader.isLiveMode()) 0xFF052E16.toInt() else 0xFF1C1400.toInt()
-        val modeCol   = if (CryptoAltTrader.isLiveMode()) green else amber
         val midCol = vBox().apply {
             layoutParams = llp(wrap, wrap).apply { marginEnd = 8; bottomMargin = 4 }
             gravity = Gravity.END
@@ -534,70 +546,76 @@ class CryptoAltActivity : AppCompatActivity() {
         })
         balRow.addView(midCol)
 
-        // SOL/USD price (top right)
+        // SOL/USD price top-right
+        val solPriceStr = if (solUsd >= 10) "$${"%.0f".format(solUsd)}" else "$—"
         val priceCol = vBox().apply {
             layoutParams = llp(wrap, wrap).apply { bottomMargin = 4 }
             gravity = Gravity.END
         }
-        val solPriceStr = if (solUsd >= 10) "$${"%.0f".format(solUsd)}" else "$—"
-        priceCol.addView(tv(solPriceStr, 18f, teal, bold = true, mono = true).apply { gravity = Gravity.END })
+        priceCol.addView(tv(solPriceStr, 18f, 0xFF2DD4BF.toInt(), bold = true, mono = true).apply { gravity = Gravity.END })
         priceCol.addView(tv("SOL/USD", 9f, muted, mono = true).apply { gravity = Gravity.END })
         balRow.addView(priceCol)
         llContent.addView(balRow)
 
-        // ── PnL row ────────────────────────────────────────────────────────────
-        val pnlRow = hBox().apply {
-            setPadding(20, 2, 20, 8)
-            gravity = Gravity.CENTER_VERTICAL
-        }
-        tvHeroPnl = tv("${if (pnl >= 0) "+" else ""}${"%.4f".format(pnl)} SOL", 14f,
-            if (pnl >= 0) green else red, mono = true).apply { layoutParams = llp(0, wrap, 1f) }
-        tvHeroWinRate = tv("${"%.1f".format(wr)}% WR", 12f, purple, mono = true).apply { layoutParams = llp(0, wrap, 1f) }
-        tvHeroTrades  = tv("$trades trades", 12f, muted, mono = true)
-        pnlRow.addView(tvHeroPnl); pnlRow.addView(tvHeroWinRate); pnlRow.addView(tvHeroTrades)
-        llContent.addView(pnlRow)
+        // ── PnL row: "$ -143.00  -2319.8%  •  29% wins" ────────────────────
+        val pnlUsd = pnl * solUsd
+        val pnlPct = if (bal > 0) (pnl / bal) * 100.0 else 0.0
+        val winPct = wr.toInt()
+        val pnlColor = if (pnl >= 0) green else red
+        tvHeroPnl = tv(
+            "${if (pnlUsd >= 0) "" else ""}${"$"}${"%.2f".format(pnlUsd)}  ${if (pnlPct >= 0) "+" else ""}${"%.1f".format(pnlPct)}%  •  ${winPct}% wins",
+            12f, pnlColor, mono = true
+        ).apply { setPadding(20, 4, 20, 8) }
+        tvHeroWinRate = TextView(this)  // unused — data merged into pnl row
+        tvHeroTrades  = TextView(this)  // unused — data merged into pnl row
+        llContent.addView(tvHeroPnl)
 
-        // ── Phase label ────────────────────────────────────────────────────────
-        tvHeroPhase = tv(phase, 10f, phaseColor(phase), bold = true).apply {
-            setPadding(20, 0, 20, 4)
-        }
-        llContent.addView(tvHeroPhase)
-
-        // ── 4 Stat pills (matches AATE style exactly) ─────────────────────────
-        val pillRow = hBox().apply {
-            setPadding(20, 8, 20, 12)
-        }
-        fun statPill(value: String, label: String, valColor: Int, weight: Float = 1f, last: Boolean = false): LinearLayout {
+        // ── 4 Stat pills ───────────────────────────────────────────────────
+        val pillRow = hBox().apply { setPadding(16, 4, 16, 8) }
+        fun statPill(value: String, label: String, valColor: Int, last: Boolean = false): LinearLayout {
             return vBox(0xFF111827.toInt(), 8, 8).apply {
-                layoutParams = llp(0, wrap, weight).apply { if (!last) marginEnd = 6 }
+                layoutParams = llp(0, wrap, 1f).apply { if (!last) marginEnd = 6 }
                 gravity = Gravity.CENTER
                 addView(tv(value, 16f, valColor, bold = true).apply { gravity = Gravity.CENTER })
-                addView(tv(label,  9f, muted).apply { gravity = Gravity.CENTER })
+                addView(tv(label, 9f, muted).apply { gravity = Gravity.CENTER })
             }
         }
+        val aiConf = try { CryptoAltScannerAI.getCryptoFearGreed() } catch (_: Exception) { 0 }
         pillRow.addView(statPill("$trades", "24h Trades", white))
         pillRow.addView(statPill("${"%.0f".format(wr)}%", "Win Rate",
             if (wr >= 60) green else if (wr >= 40) amber else red))
-        pillRow.addView(statPill("$open", "Open", if (open > 0) purple else muted))
-        pillRow.addView(statPill(phase, "Phase", phaseColor(phase), last = true))
+        pillRow.addView(statPill("$open", "Open", if (open > 0) 0xFFA78BFA.toInt() else muted))
+        pillRow.addView(statPill(
+            if (aiConf > 0) "$aiConf" else phase,
+            "Fear/Greed",
+            if (aiConf >= 60) green else if (aiConf >= 40) amber else phaseColor(phase),
+            last = true
+        ))
         llContent.addView(pillRow)
 
-        // ── Token universe + chain chips ───────────────────────────────────────
-        val chainRow = hBox().apply {
-            setPadding(20, 0, 20, 8)
-        }
-        chainRow.addView(tv("🌐 $dynCnt tokens", 10f, teal, mono = true).apply {
+        // ── Token universe + chain chips ───────────────────────────────────
+        val chainRow = hBox().apply { setPadding(16, 0, 16, 10) }
+        chainRow.addView(tv("🌐 $dynCnt tokens", 10f, 0xFF2DD4BF.toInt(), mono = true).apply {
             layoutParams = llp(0, wrap, 1f)
             gravity = Gravity.CENTER_VERTICAL
         })
-        listOf("BNB" to amber, "ETH" to blue, "SOL" to purple, "POLY" to indigo).forEach { (label, col) ->
+        listOf("BNB" to amber, "ETH" to 0xFF60A5FA.toInt(), "SOL" to 0xFFA78BFA.toInt(), "POLY" to 0xFF818CF8.toInt()).forEach { (label, col) ->
             chainRow.addView(tv(label, 9f, col).apply {
                 setBackgroundColor(0xFF0D0D1A.toInt()); setPadding(8, 3, 8, 3)
-                layoutParams = llp(wrap, wrap).apply { marginStart = 4 }; gravity = Gravity.CENTER
+                layoutParams = llp(wrap, wrap).apply { marginStart = 4 }
+                gravity = Gravity.CENTER
             })
         }
         llContent.addView(chainRow)
+
+        // ── Phase strip (small, like main UI's phase label) ────────────────
+        tvHeroPhase = tv(phase, 10f, phaseColor(phase), bold = true).apply {
+            setPadding(16, 0, 16, 6)
+        }
+        llContent.addView(tvHeroPhase)
     }
+
+
 
     // ═══════════════════════════════════════════════════════════════════════════
     // TRADER TILES (same as v3, collapsed for brevity)
@@ -1332,14 +1350,12 @@ class CryptoAltActivity : AppCompatActivity() {
     // ═══════════════════════════════════════════════════════════════════════════
 
     private fun buildScannerTab() {
-        val total     = DynamicAltTokenRegistry.getTokenCount()
-        val dynCount  = DynamicAltTokenRegistry.getDynamicCount()
-        val trending  = DynamicAltTokenRegistry.getTrendingTokens().size
-        val boosted   = DynamicAltTokenRegistry.getBoostedTokens().size
+        val total    = DynamicAltTokenRegistry.getTokenCount()
+        val trending = DynamicAltTokenRegistry.getTrendingTokens().size
+        val boosted  = DynamicAltTokenRegistry.getBoostedTokens().size
 
-        // ── Stats bar ──────────────────────────────────────────────────────
-        val statsRow = hBox(card2, 16, 8).apply { gravity = Gravity.CENTER_VERTICAL }
-        statsRow.addView(tv("🌐 $total tokens", 11f, teal, bold = true).apply { layoutParams = llp(0, wrap, 1f) })
+        // ── Thin stats strip (compact, no duplication with hero chain row) ─
+        val statsRow = hBox(0xFF0D0D14.toInt(), 12, 6).apply { gravity = Gravity.CENTER_VERTICAL }
         statsRow.addView(tv("🔥 $trending trending", 10f, orange).apply { layoutParams = llp(0, wrap, 1f) })
         statsRow.addView(tv("⚡ $boosted boosted", 10f, purple))
         llContent.addView(statsRow)
@@ -1353,7 +1369,7 @@ class CryptoAltActivity : AppCompatActivity() {
             setPadding(16, 10, 16, 10)
             textSize = 13f
             setText(scannerSearch)
-            layoutParams = llp(match, wrap).apply { topMargin = 4; bottomMargin = 4 }
+            layoutParams = llp(match, wrap).apply { topMargin = 2; bottomMargin = 2 }
             addTextChangedListener(object : TextWatcher {
                 override fun beforeTextChanged(s: CharSequence?, st: Int, c: Int, a: Int) {}
                 override fun onTextChanged(s: CharSequence?, st: Int, b: Int, c: Int) {}
@@ -1367,9 +1383,6 @@ class CryptoAltActivity : AppCompatActivity() {
         llContent.addView(searchBox)
 
         // ── Sort chips ─────────────────────────────────────────────────────
-        val sortRow = hBox().apply {
-            layoutParams = llp(match, wrap).apply { bottomMargin = 4 }
-        }
         val hScroll = HorizontalScrollView(this).apply { layoutParams = llp(match, wrap) }
         val sortInner = hBox().apply { setPadding(12, 4, 12, 4) }
         listOf(
@@ -1396,29 +1409,30 @@ class CryptoAltActivity : AppCompatActivity() {
         hScroll.addView(sortInner)
         llContent.addView(hScroll)
 
-        // ── Sector chips ───────────────────────────────────────────────────
-        val sectorScroll = HorizontalScrollView(this).apply { layoutParams = llp(match, wrap).apply { bottomMargin = 4 } }
-        val sectorInner  = hBox().apply { setPadding(12, 4, 12, 4) }
-        val sectors = listOf("All","L1","L2","DEX","Lending","Oracle","DePIN","Gaming","Meme","Political","AI/Agent","LST","NFT","Other")
-        sectors.forEach { sector ->
-            val isActive = scannerSector == sector
-            sectorInner.addView(tv(sector, 9f, if (isActive) white else muted).apply {
-                setBackgroundColor(if (isActive) teal else card)
+        // ── Sector filter chips ────────────────────────────────────────────
+        val sectors = listOf("All") + DynamicAltTokenRegistry.getAllSectors()
+        val secScroll = HorizontalScrollView(this).apply { layoutParams = llp(match, wrap) }
+        val secInner  = hBox().apply { setPadding(12, 2, 12, 6) }
+        sectors.forEach { sec ->
+            val isActive = sec == scannerSector
+            secInner.addView(tv(sec, 9f, if (isActive) white else muted).apply {
+                setBackgroundColor(if (isActive) 0xFF6D28D9.toInt() else 0xFF111827.toInt())
                 setPadding(8, 3, 8, 3)
                 layoutParams = llp(wrap, wrap).apply { marginEnd = 3 }
                 setOnClickListener {
-                    scannerSector = sector
+                    scannerSector = sec
                     scannerPage   = 0
                     renderTokenList()
                 }
             })
         }
-        sectorScroll.addView(sectorInner)
-        llContent.addView(sectorScroll)
+        secScroll.addView(secInner)
+        llContent.addView(secScroll)
 
-        // ── Token list (rendered separately so we can refresh without rebuilding controls) ──
+        // ── Token list ─────────────────────────────────────────────────────
         renderTokenList()
     }
+
 
     // Token list anchor tag — we re-add from this index
     private var tokenListStartIdx = -1
