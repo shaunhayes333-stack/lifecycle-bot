@@ -87,6 +87,7 @@ object CryptoAltTrader {
 
     private val isRunning        = AtomicBoolean(false)
     private val isEnabled        = AtomicBoolean(true)
+    private val preferLeverage   = AtomicBoolean(false)  // V5.9.3: mirrors UI SPOT/LEVERAGE toggle
     private val isPaperMode      = AtomicBoolean(true)
     private val scanCount        = AtomicInteger(0)
     private val positionCounter  = AtomicInteger(0)

@@ -233,6 +233,29 @@ class MultiAssetActivity : AppCompatActivity() {
             android.widget.Toast.makeText(this, "Markets updateLoop: ${e.javaClass.simpleName}: ${e.message?.take(60)}", android.widget.Toast.LENGTH_LONG).show()
         }
         ErrorLogger.info(TAG, "📊 MultiAssetActivity CREATED")
+
+        // V5.9.3: Auto-resume traders if Activity is recreated (e.g. nav back)
+        lifecycleScope.launch(Dispatchers.IO) {
+            try {
+                val wasRunning = marketsPrefs.getBoolean("markets_was_running", false)
+                val anyAlreadyRunning = TokenizedStockTrader.isRunning() ||
+                    CommoditiesTrader.isRunning() || MetalsTrader.isRunning() ||
+                    ForexTrader.isRunning() || CryptoAltTrader.isRunning()
+                if (wasRunning && !anyAlreadyRunning && !userManuallyStopped) {
+                    val cfg = com.lifecyclebot.data.ConfigStore.load(this@MultiAssetActivity)
+                    if (cfg.stocksEnabled)       TokenizedStockTrader.start()
+                    if (cfg.commoditiesEnabled)  CommoditiesTrader.start()
+                    if (cfg.metalsEnabled)       MetalsTrader.start()
+                    if (cfg.forexEnabled)        ForexTrader.start()
+                    if (cfg.cryptoAltsEnabled)   CryptoAltTrader.start()
+                    if (cfg.perpsEnabled)        PerpsExecutionEngine.start(this@MultiAssetActivity)
+                    checkAndRefreshBalance()
+                    ErrorLogger.info(TAG, "Markets auto-resumed on Activity create")
+                }
+            } catch (e: Exception) {
+                ErrorLogger.warn(TAG, "Markets auto-resume failed: ${e.message}")
+            }
+        }
     }
     
     override fun onResume() {
@@ -247,7 +270,8 @@ class MultiAssetActivity : AppCompatActivity() {
             try {
                 val mainBotRunning = try { BotService.status.running } catch (_: Exception) { false }
                 val anyRunning = TokenizedStockTrader.isRunning() || CommoditiesTrader.isRunning() ||
-                    MetalsTrader.isRunning() || ForexTrader.isRunning() || PerpsExecutionEngine.isRunning()
+                    MetalsTrader.isRunning() || ForexTrader.isRunning() ||
+                    CryptoAltTrader.isRunning() || PerpsExecutionEngine.isRunning()
                 val userStopped = try { marketsPrefs.getBoolean("user_manually_stopped", false) } catch (_: Exception) { false }
                 if (mainBotRunning && !anyRunning && !userStopped) {
                     val cfg = com.lifecyclebot.data.ConfigStore.load(this@MultiAssetActivity)
@@ -574,8 +598,9 @@ class MultiAssetActivity : AppCompatActivity() {
                 if (startCfg.cryptoAltsEnabled)  CryptoAltTrader.start()
                 if (startCfg.perpsEnabled)       PerpsExecutionEngine.start(this@MultiAssetActivity)
                 
+                marketsPrefs.edit().putBoolean("markets_was_running", true).apply()
                 withContext(Dispatchers.Main) {
-                    android.widget.Toast.makeText(this@MultiAssetActivity, 
+                    android.widget.Toast.makeText(this@MultiAssetActivity,
                         "✅ Markets Trading STARTED", android.widget.Toast.LENGTH_SHORT).show()
                 }
             } else {
@@ -590,8 +615,9 @@ class MultiAssetActivity : AppCompatActivity() {
                 CryptoAltTrader.stop()
                 PerpsExecutionEngine.stop()
                 
+                marketsPrefs.edit().putBoolean("markets_was_running", false).apply()
                 withContext(Dispatchers.Main) {
-                    android.widget.Toast.makeText(this@MultiAssetActivity, 
+                    android.widget.Toast.makeText(this@MultiAssetActivity,
                         "⏹️ Markets Trading STOPPED", android.widget.Toast.LENGTH_SHORT).show()
                 }
             }
@@ -606,10 +632,11 @@ class MultiAssetActivity : AppCompatActivity() {
     // V5.7.6b: Update the toggle button state
     // V5.8.1: Markets follow the main bot — auto-start when main bot is running (unless user manually stopped)
     private fun updateToggleButton() {
-        val anyRunning = TokenizedStockTrader.isRunning() || 
-                        CommoditiesTrader.isRunning() || 
-                        MetalsTrader.isRunning() || 
+        val anyRunning = TokenizedStockTrader.isRunning() ||
+                        CommoditiesTrader.isRunning() ||
+                        MetalsTrader.isRunning() ||
                         ForexTrader.isRunning() ||
+                        CryptoAltTrader.isRunning() ||
                         PerpsExecutionEngine.isRunning()
         
         marketsRunning = anyRunning
@@ -621,11 +648,13 @@ class MultiAssetActivity : AppCompatActivity() {
             lifecycleScope.launch(Dispatchers.IO) {
                 try {
                     val followCfg = com.lifecyclebot.data.ConfigStore.load(this@MultiAssetActivity)
-                    if (followCfg.stocksEnabled)  TokenizedStockTrader.start()
+                    if (followCfg.stocksEnabled)      TokenizedStockTrader.start()
                     if (followCfg.commoditiesEnabled) CommoditiesTrader.start()
-                    if (followCfg.metalsEnabled)  MetalsTrader.start()
-                    if (followCfg.forexEnabled)   ForexTrader.start()
-                    if (followCfg.perpsEnabled)   PerpsExecutionEngine.start(this@MultiAssetActivity)
+                    if (followCfg.metalsEnabled)      MetalsTrader.start()
+                    if (followCfg.forexEnabled)       ForexTrader.start()
+                    if (followCfg.cryptoAltsEnabled)  CryptoAltTrader.start()
+                    if (followCfg.perpsEnabled)       PerpsExecutionEngine.start(this@MultiAssetActivity)
+                    try { checkAndRefreshBalance() } catch (_: Exception) {}
                     ErrorLogger.info(TAG, "Markets auto-started: following main bot")
                 } catch (e: Exception) {
                     ErrorLogger.error(TAG, "Markets auto-start failed: ${e.message}", e)
@@ -776,9 +805,18 @@ class MultiAssetActivity : AppCompatActivity() {
     // ═══════════════════════════════════════════════════════════════════════════
     
     private fun startUpdateLoop() {
+        var balanceSyncCounter = 0
         updateJob = scope.launch {
             while (isActive) {
                 try {
+                    // V5.9.3: Sync Markets balance from meme bot every 10 loops (~30s)
+                    balanceSyncCounter++
+                    if (balanceSyncCounter >= 10) {
+                        balanceSyncCounter = 0
+                        withContext(Dispatchers.IO) {
+                            try { checkAndRefreshBalance() } catch (_: Exception) {}
+                        }
+                    }
                     // Refresh LIVE prices before updating UI so cache is populated
                     withContext(Dispatchers.IO) {
                         try {

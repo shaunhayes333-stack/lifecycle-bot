@@ -663,6 +663,9 @@ object ForexTrader {
 
     fun isRunning(): Boolean = isRunning.get()
 
+    /** V5.9.3: Receive paper balance broadcast from BotService */
+    fun setPaperBalance(sol: Double) { if (sol > 0.0) paperBalance = sol }
+
     /** V5.9.3: UI toggle compatibility — Commod/Metals/Forex open both spot+lev automatically */
     fun setPreferLeverage(lev: Boolean) {}
     fun isPreferLeverage(): Boolean = false
