@@ -68,13 +68,19 @@ object PerpsTraderAI {
     private const val DAILY_MAX_TRADES_PAPER = 999999     // V5.7.4: UNLIMITED trades in paper mode for learning
     
     // Readiness thresholds
-    private const val MIN_PAPER_TRADES_FOR_LIVE = 50
-    private const val MIN_WIN_RATE_FOR_LIVE = 45.0
+    private const val MIN_PAPER_TRADES_FOR_LIVE = 5000
+    private const val MIN_WIN_RATE_FOR_LIVE = 55.0
     private const val MIN_READINESS_SCORE_FOR_LIVE = 75
     
     // Learning thresholds
     private const val LEARNING_BOOTSTRAP_TRADES = 20
     private const val LEARNING_MATURE_TRADES = 100
+
+    // Phase progression thresholds (mirrors meme trader)
+    private const val PHASE_BOOTSTRAP_MAX  =  500
+    private const val PHASE_LEARNING_MAX   = 1500
+    private const val PHASE_VALIDATING_MAX = 3000
+    private const val PHASE_MATURING_MAX   = 5000
     
     // Leverage intelligence
     private const val BASE_LEVERAGE_PAPER = 5.0
@@ -1220,9 +1226,9 @@ object PerpsTraderAI {
             else -> 0
         }
         
-        // Determine phase
+        // Determine phase (mirrors meme trader progression)
         val phase = when {
-            readiness >= 75 && trades >= MIN_PAPER_TRADES_FOR_LIVE && winRate >= MIN_WIN_RATE_FOR_LIVE -> ReadinessPhase.READY
+            trades >= MIN_PAPER_TRADES_FOR_LIVE && winRate >= MIN_WIN_RATE_FOR_LIVE && readiness >= MIN_READINESS_SCORE_FOR_LIVE -> ReadinessPhase.READY
             consecutiveLoss >= 5 || maxDrawdown > 40.0 -> ReadinessPhase.CAUTION
             trades >= 20 -> ReadinessPhase.PRACTICING
             else -> ReadinessPhase.LEARNING
@@ -1288,6 +1294,20 @@ object PerpsTraderAI {
     // V5.7.6b: Simple getBalance for UI (defaults to paper)
     fun getBalance(): Double = paperBalanceBps.get() / 10000.0
     
+    // Shared wallet: sync live SOL balance from WalletManager (called by BotService)
+    fun setLiveBalance(sol: Double) {
+        liveBalanceBps.set((sol * 10000).toLong())
+    }
+
+    // Shared wallet: sync paper balance from BotService (consistent across all traders)
+    fun setPaperBalance(sol: Double) {
+        if (isPaperMode && sol > 0.0) paperBalanceBps.set((sol * 10000).toLong())
+    }
+
+    // Effective balance depending on mode
+    fun getEffectiveBalance(): Double =
+        if (isPaperMode) paperBalanceBps.get() / 10000.0 else liveBalanceBps.get() / 10000.0
+
     // V5.7.6b: Set balance for paper trading
     fun setBalance(balanceSol: Double) {
         paperBalanceBps.set((balanceSol * 10000).toLong())
