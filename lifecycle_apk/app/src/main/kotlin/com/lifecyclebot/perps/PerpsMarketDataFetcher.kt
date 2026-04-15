@@ -29,6 +29,7 @@ import java.util.concurrent.TimeUnit
 object PerpsMarketDataFetcher {
     
     private const val TAG = "📊PerpsData"
+    private val networkRetry = com.lifecyclebot.network.NetworkRetry("PerpsData", maxRetries = 2, baseDelayMs = 1_000L, failureThreshold = 10, openDurationMs = 30_000L)
     
     // Cache for market data
     private val marketDataCache = ConcurrentHashMap<PerpsMarket, PerpsMarketData>()
@@ -426,20 +427,36 @@ object PerpsMarketDataFetcher {
         // Check cache
         val cached = marketDataCache[market]
         val lastFetch = lastFetchTime[market] ?: 0
-        
         if (cached != null && System.currentTimeMillis() - lastFetch < CACHE_TTL_MS) {
             return cached
         }
-        
-        // Fetch fresh data using Pyth Oracle
-        val freshData = fetchFromPythOracle(market)
 
-        // Only cache valid (non-zero) prices to avoid poisoning the cache
+        // V5.9: Try Pyth first, then CoinGecko/PriceAggregator fallback
+        var freshData = fetchFromPythOracle(market)
+
+        // If Pyth returned zero (totally down), try PriceAggregator as fallback
+        if (freshData.price <= 0 && market.isCrypto) {
+            try {
+                val pa = PriceAggregator.getPrice(market.symbol)
+                if (pa != null && pa.price > 0) {
+                    ErrorLogger.info(TAG, "📡 Pyth down for ${market.symbol} — using PriceAggregator fallback: \$${pa.price}")
+                    networkRetry.recordFailure()
+                    freshData = freshData.copy(
+                        price = pa.price,
+                        indexPrice = pa.price,
+                        markPrice = pa.price,
+                        priceChange24hPct = pa.change24h,
+                    )
+                }
+            } catch (_: Exception) {}
+        } else if (freshData.price > 0) {
+            networkRetry.recordSuccess()
+        }
+
         if (freshData.price > 0) {
             marketDataCache[market] = freshData
             lastFetchTime[market] = System.currentTimeMillis()
         }
-
         return freshData
     }
     

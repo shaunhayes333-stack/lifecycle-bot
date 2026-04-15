@@ -52,6 +52,8 @@ object JupiterPerps {
     private const val PERPS_PROGRAM_ID = "PERPHjGBqRHArX4DySjwM6UJHiR3sWAatqfdBS2qQJu"
     
     // API Endpoints
+    private val networkRetry = com.lifecyclebot.network.NetworkRetry("JupiterPerps", maxRetries = 3, baseDelayMs = 800L)
+
     // V5.9: Real Jupiter Perpetuals API (v2 production endpoint)
     private const val JUPITER_PERPS_API = "https://api.jup.ag/perps/v2"
     private const val JUPITER_PRICE_API = "https://price.jup.ag/v4"

@@ -2644,11 +2644,30 @@ class MultiAssetActivity : AppCompatActivity() {
                     .forEach { t ->
                         sb.append("${fmt.format(java.util.Date(t.closeTime))},${t.market.symbol},${t.direction.name},${t.entryPrice},${t.exitPrice},${t.sizeSol},${"%.6f".format(t.sizeSol * t.pnlPct / 100.0)},${t.pnlPct},${if (t.isPaper) "PAPER" else "LIVE"}\n")
                     }
-                val dir = android.os.Environment.getExternalStoragePublicDirectory(android.os.Environment.DIRECTORY_DOWNLOADS)
-                val file = java.io.File(dir, "aate_tax_${period}_${System.currentTimeMillis()}.csv")
-                file.writeText(sb.toString())
+                // V5.9: Use MediaStore on Android 10+ (avoids WRITE_EXTERNAL_STORAGE permission)
+                val fileName = "aate_tax_${period}_${System.currentTimeMillis()}.csv"
+                val savedName = if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.Q) {
+                    val values = android.content.ContentValues().apply {
+                        put(android.provider.MediaStore.Downloads.DISPLAY_NAME, fileName)
+                        put(android.provider.MediaStore.Downloads.MIME_TYPE, "text/csv")
+                        put(android.provider.MediaStore.Downloads.IS_PENDING, 1)
+                    }
+                    val uri = contentResolver.insert(android.provider.MediaStore.Downloads.EXTERNAL_CONTENT_URI, values)
+                    uri?.let { u ->
+                        contentResolver.openOutputStream(u)?.use { it.write(sb.toString().toByteArray()) }
+                        values.clear(); values.put(android.provider.MediaStore.Downloads.IS_PENDING, 0)
+                        contentResolver.update(u, values, null, null)
+                    }
+                    fileName
+                } else {
+                    @Suppress("DEPRECATION")
+                    val dir = android.os.Environment.getExternalStoragePublicDirectory(android.os.Environment.DIRECTORY_DOWNLOADS)
+                    val file = java.io.File(dir, fileName)
+                    file.writeText(sb.toString())
+                    file.name
+                }
                 withContext(Dispatchers.Main) {
-                    android.widget.Toast.makeText(this@MultiAssetActivity, "✅ Tax report saved: ${file.name} (${trades.size} trades)", android.widget.Toast.LENGTH_LONG).show()
+                    android.widget.Toast.makeText(this@MultiAssetActivity, "✅ Tax report saved: $savedName (${trades.size} trades)", android.widget.Toast.LENGTH_LONG).show()
                 }
             } catch (e: Exception) {
                 withContext(Dispatchers.Main) {
