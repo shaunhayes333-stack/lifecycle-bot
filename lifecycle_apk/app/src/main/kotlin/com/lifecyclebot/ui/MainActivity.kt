@@ -1343,11 +1343,15 @@ for legal compliance.
         val balanceLabel: String
         
         if (config.paperMode) {
-            // PAPER MODE: FluidLearning → BotService.paperWalletSol → fallback 5 SOL
-            val fluidBal = com.lifecyclebot.engine.FluidLearning.getSimulatedBalance()
-            displayBalance = if (fluidBal > 0.001) fluidBal
-                             else com.lifecyclebot.engine.BotService.status.paperWalletSol.takeIf { it > 0.001 }
-                             ?: 5.0
+            // PAPER MODE: FluidLearning SOL balance × SOL price → USD
+            val fluidBalSol = com.lifecyclebot.engine.FluidLearning.getSimulatedBalance()
+            val solPriceUsd = try {
+                com.lifecyclebot.engine.WalletManager.lastKnownSolPrice.takeIf { it > 10.0 }
+                    ?: com.lifecyclebot.perps.PerpsMarketDataFetcher.getSolPrice()
+            } catch (_: Exception) { 85.0 }
+            val rawSol = if (fluidBalSol > 0.001) fluidBalSol
+                         else com.lifecyclebot.engine.BotService.status.paperWalletSol.takeIf { it > 0.001 } ?: 5.0
+            displayBalance = rawSol * solPriceUsd
             balanceLabel = "PAPER"
         } else {
             // LIVE MODE: Show real wallet balance
