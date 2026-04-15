@@ -596,25 +596,20 @@ class MultiAssetActivity : AppCompatActivity() {
     
     // V5.7.6b: Check balance and refresh if below threshold
     private suspend fun checkAndRefreshBalance() {
-        val totalBalanceSol = getTotalMarketsBalance()
-        val solPrice = try {
-            PerpsMarketDataFetcher.getSolPrice()
-        } catch (_: Exception) { SOL_PRICE_USD }
-        
-        val totalBalanceUsd = totalBalanceSol * solPrice
-        
-        // If balance is 0, negative, or below $15,000 USD - refresh to $15,000 USD
-        if (totalBalanceUsd <= 0 || totalBalanceUsd < MIN_BALANCE_USD) {
-            val requiredSol = MIN_BALANCE_USD / solPrice
-            refreshAllBalances(requiredSol)
-            
-            withContext(Dispatchers.Main) {
-                android.widget.Toast.makeText(this@MultiAssetActivity, 
-                    "💰 Balance refreshed to $${MIN_BALANCE_USD.toInt()} (${"%.2f".format(requiredSol)} SOL)", 
-                    android.widget.Toast.LENGTH_SHORT).show()
-            }
-            
-            ErrorLogger.info(TAG, "💰 Balance auto-refreshed: ${totalBalanceUsd.fmt(2)} USD -> $MIN_BALANCE_USD USD (${"%.2f".format(requiredSol)} SOL)")
+        // Sync Markets sub-traders from FluidLearning (meme bot master balance)
+        val masterSol = try {
+            com.lifecyclebot.engine.FluidLearning.getSimulatedBalance()
+        } catch (_: Exception) { 0.0 }
+
+        if (masterSol <= 0.0) return // Nothing to sync yet
+
+        val totalMarkets = getTotalMarketsBalance()
+
+        // Only re-distribute if sub-traders are empty or significantly out of sync (>10% drift)
+        val drift = if (masterSol > 0) kotlin.math.abs(totalMarkets - masterSol) / masterSol else 1.0
+        if (totalMarkets <= 0.0 || drift > 0.1) {
+            refreshAllBalances(masterSol)
+            ErrorLogger.info(TAG, "💰 Markets synced from meme balance: ${"%.4f".format(masterSol)} SOL → ${"%.4f".format(masterSol / 6.0)} SOL each")
         }
     }
     
@@ -632,8 +627,8 @@ class MultiAssetActivity : AppCompatActivity() {
     
     // V5.7.6b: Refresh all trader balances
     private fun refreshAllBalances(totalSol: Double) {
-        // Distribute balance across traders (weighted by asset count)
-        val perTraderSol = totalSol / 5.0  // Equal split for now
+        // Split meme master balance equally across all 6 Markets sub-traders
+        val perTraderSol = totalSol / 6.0  // Equal split across 6 Markets sub-traders
         
         TokenizedStockTrader.setBalance(perTraderSol)
         CommoditiesTrader.setBalance(perTraderSol)
@@ -642,7 +637,7 @@ class MultiAssetActivity : AppCompatActivity() {
         PerpsTraderAI.setBalance(perTraderSol)
         CryptoAltTrader.setBalance(perTraderSol)
         
-        ErrorLogger.info(TAG, "💰 All Markets balances set to ${"%.2f".format(perTraderSol)} SOL each")
+        ErrorLogger.info(TAG, "💰 Markets balances synced: ${"%.4f".format(totalSol)} SOL ÷ 6 = ${"%.4f".format(perTraderSol)} SOL each")
     }
     
     // V5.7.6b: Show balance dialog with refresh option
@@ -1159,13 +1154,19 @@ class MultiAssetActivity : AppCompatActivity() {
                 // Sum paper balances across all Markets traders.
                 // Fallback to a non-zero default so the display is never blank.
                 val paperBalanceSol = try {
-                    val stock = TokenizedStockTrader.getBalance()
-                    val commod = CommoditiesTrader.getBalance()
-                    val metals = MetalsTrader.getBalance()
-                    val forex = ForexTrader.getBalance()
-                    val perps = PerpsExecutionEngine.getPaperBalance()
-                    val cryptoAlts = CryptoAltTrader.getBalance()
-                    (stock + commod + metals + forex + perps + cryptoAlts).coerceAtLeast(0.0)
+                    // Use FluidLearning (meme bot) as the master balance source
+                    val master = com.lifecyclebot.engine.FluidLearning.getSimulatedBalance()
+                    if (master > 0.0) master
+                    else {
+                        // Fallback: sum sub-traders if FluidLearning not yet initialised
+                        val stock = TokenizedStockTrader.getBalance()
+                        val commod = CommoditiesTrader.getBalance()
+                        val metals = MetalsTrader.getBalance()
+                        val forex = ForexTrader.getBalance()
+                        val perps = PerpsExecutionEngine.getPaperBalance()
+                        val cryptoAlts = CryptoAltTrader.getBalance()
+                        (stock + commod + metals + forex + perps + cryptoAlts).coerceAtLeast(0.0)
+                    }
                 } catch (_: Exception) { 250.0 }
 
                 // Get SOL price — Pyth first, cached fallback
