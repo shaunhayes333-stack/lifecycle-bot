@@ -1293,13 +1293,17 @@ class MultiAssetActivity : AppCompatActivity() {
 
                 // V5.9.5: Always use FluidLearning shared pool — single source of truth
                 // Ensure FluidLearning is initialised (it persists its own SharedPrefs)
-                val paperBalanceSol = try {
-                    if (com.lifecyclebot.engine.FluidLearning.getSimulatedBalance() <= 0.0) {
-                        com.lifecyclebot.engine.FluidLearning.init(applicationContext)
-                    }
-                    com.lifecyclebot.engine.FluidLearning.getSimulatedBalance()
-                        .coerceAtLeast(0.0)
-                } catch (_: Exception) { 0.0 }
+        val paperBalanceSol = try {
+            val base = if (com.lifecyclebot.engine.FluidLearning.getSimulatedBalance() <= 0.0) {
+                com.lifecyclebot.engine.FluidLearning.init(applicationContext)
+                com.lifecyclebot.engine.FluidLearning.getSimulatedBalance()
+            } else {
+                com.lifecyclebot.engine.FluidLearning.getSimulatedBalance()
+            }
+            // V5.9.6: Add realised P&L from all traders so balance reflects actual gains
+            val realisedPnlSol = getAllTradersTotalPnlSol()
+            (base + realisedPnlSol).coerceAtLeast(0.0)
+        } catch (_: Exception) { 0.0 }
 
                 // Get SOL price — Pyth first, cached fallback
                 val solPriceUsd = try {
