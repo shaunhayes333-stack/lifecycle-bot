@@ -26,8 +26,8 @@ object FluidLearning {
     // SIMULATED BALANCE TRACKING
     // ═══════════════════════════════════════════════════════════════════════════
 
-    @Volatile private var simulatedBalanceSol: Double = 5.0
-    @Volatile private var simulatedPeakSol: Double = 5.0
+    @Volatile private var simulatedBalanceSol: Double = 11.7647  // V5.9.7: $1000 USD wallet
+    @Volatile private var simulatedPeakSol: Double = 11.7647
     @Volatile private var totalPaperPnlSol: Double = 0.0
     @Volatile private var paperTradeCount: Int = 0
     @Volatile private var paperWinCount: Int = 0
@@ -108,7 +108,7 @@ object FluidLearning {
     /**
      * Initialize with context for persistence
      */
-    fun init(ctx: Context, startingBalance: Double = 5.0) {
+    fun init(ctx: Context, startingBalance: Double = 11.7647) {
         prefs = ctx.getSharedPreferences("fluid_learning", Context.MODE_PRIVATE)
         loadState()
 
@@ -326,8 +326,8 @@ object FluidLearning {
 
     private fun loadState() {
         prefs?.let { p ->
-            simulatedBalanceSol = p.getFloat("simulated_balance", 5.0f).toDouble()
-            simulatedPeakSol = p.getFloat("simulated_peak", 5.0f).toDouble()
+            simulatedBalanceSol = p.getFloat("simulated_balance", 11.7647f).toDouble()
+            simulatedPeakSol = p.getFloat("simulated_peak", 11.7647f).toDouble()
             totalPaperPnlSol = p.getFloat("total_pnl", 0.0f).toDouble()
             paperTradeCount = p.getInt("trade_count", 0)
             paperWinCount = p.getInt("win_count", 0)
@@ -338,7 +338,7 @@ object FluidLearning {
     /**
      * Reset simulated balance to starting amount
      */
-    fun reset(startingBalance: Double = 5.0) {
+    fun reset(startingBalance: Double = 11.7647) {
         simulatedBalanceSol = startingBalance
         simulatedPeakSol = startingBalance
         totalPaperPnlSol = 0.0

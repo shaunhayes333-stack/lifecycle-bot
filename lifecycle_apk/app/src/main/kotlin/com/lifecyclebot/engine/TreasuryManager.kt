@@ -404,6 +404,15 @@ object TreasuryManager {
         if (!restored) {
             ErrorLogger.warn("Treasury", "No treasury state found - starting fresh")
         }
+
+    // V5.9.7: Seed treasury with $500 USD starting capital if empty
+    if (treasurySol <= 0.0) {
+        treasurySol = 5.8824  // $500 USD / $85 SOL price
+        treasuryUsd = 500.00
+        lifetimeLocked = 5.8824
+        ErrorLogger.info("Treasury", "🏦 Seeded starting treasury: 5.8824 SOL ($500 USD)")
+        persist(ctx)
+    }
     }
     
     private fun restoreFromJson(json: String) {
