@@ -157,6 +157,10 @@ class CryptoAltActivity : AppCompatActivity() {
         if (!CryptoAltTrader.isRunning()) {
             try { CryptoAltTrader.init(applicationContext) } catch (_: Exception) {}
         }
+        // If balance is 0 (not yet set by MultiAssetActivity shared pool), use standalone default
+        if (CryptoAltTrader.getBalance() <= 0.0) {
+            CryptoAltTrader.setBalance(50.0) // Standalone fallback: 50 SOL
+        }
         // Restore Markets FluidLearning counters from prefs so UI never shows "INIT"
         try { FluidLearningAI.initMarketsPrefs(applicationContext) } catch (_: Exception) {}
 
