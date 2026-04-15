@@ -322,8 +322,11 @@ class CryptoAltActivity : AppCompatActivity() {
         val wr     = CryptoAltTrader.getWinRate()
         val trades = CryptoAltTrader.getTotalTrades()
         val phase  = getPhaseLabel()
-        tvHeroBalance.text = "◎ ${"%.4f".format(bal)}"
-        tvHeroPnl.text     = "${if (pnl >= 0) "+" else ""}${"%.4f".format(pnl)} SOL"
+        // V5.9.5: Show USD as main balance
+        val solUsdPrice = com.lifecyclebot.engine.WalletManager.lastKnownSolPrice
+        tvHeroBalance.text = if (solUsdPrice >= 1.0) "$${"%,.0f".format(bal * solUsdPrice)}" else "◎ ${"%.4f".format(bal)}"
+        val pnlUsd = pnl * solUsdPrice
+        tvHeroPnl.text     = "${if (pnlUsd >= 0) "+" else ""}$${"%.2f".format(pnlUsd)} (${if (pnl >= 0) "+" else ""}${"%.4f".format(pnl)} SOL)"
         tvHeroPnl.setTextColor(if (pnl >= 0) green else red)
         tvHeroWinRate.text = "${"%.1f".format(wr)}% WR"
         tvHeroTrades.text  = "$trades trades"
@@ -712,7 +715,9 @@ class CryptoAltActivity : AppCompatActivity() {
             setPadding(20, 4, 20, 0)
             gravity = Gravity.BOTTOM
         }
-        tvHeroBalance = tv("◎ ${"%.4f".format(bal)}", 28f, white, bold = true).apply {
+        // V5.9.5: Show USD as main balance (same as main AATE), SOL in badge
+        val balUsdStr = if (solUsd >= 1.0) "$${"%,.0f".format(bal * solUsd)}" else "◎ ${"%.4f".format(bal)}"
+        tvHeroBalance = tv(balUsdStr, 28f, white, bold = true).apply {
             layoutParams = llp(0, wrap, 1f)
         }
         balRow.addView(tvHeroBalance)
