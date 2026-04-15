@@ -741,7 +741,9 @@ class CryptoAltActivity : AppCompatActivity() {
 
         // ── PnL row: "$ -143.00  -2319.8%  •  29% wins" ────────────────────
         val pnlUsd = pnl * solUsd
-        val pnlPct = if (bal > 0) (pnl / bal) * 100.0 else 0.0
+        // V5.9.5: Use initialBalance for pnl% — dividing by current balance gives wrong %
+        val initBal = CryptoAltTrader.getInitialBalance().takeIf { it > 0.0 } ?: bal
+        val pnlPct = if (initBal > 0) (pnl / initBal) * 100.0 else 0.0
         val winPct = wr.toInt()
         val pnlColor = if (pnl >= 0) green else red
         tvHeroPnl = tv(
