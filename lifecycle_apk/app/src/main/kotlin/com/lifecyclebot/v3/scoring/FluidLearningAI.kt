@@ -76,7 +76,7 @@ object FluidLearningAI {
     }
 
     /** Save Markets counters to SharedPreferences. */
-    private fun saveMarketsPrefs() {
+    fun saveMarketsPrefs() {
         marketsPrefs?.edit()
             ?.putInt(KEY_MARKETS_TRADES, marketsSessionTrades.get())
             ?.putInt(KEY_MARKETS_WINS,   marketsSessionWins.get())

@@ -185,6 +185,8 @@ object CryptoAltTrader {
         try { ShitCoinExpress.init(isPaperMode.get()) }            catch (e: Exception) { ErrorLogger.debug(TAG, "ShitCoinExpress: ${e.message}") }
         try { MoonshotTraderAI.initialize(isPaperMode.get()) }     catch (e: Exception) { ErrorLogger.debug(TAG, "MoonshotAI: ${e.message}") }
         try { ManipulatedTraderAI.init(isPaperMode.get()) }        catch (e: Exception) { ErrorLogger.debug(TAG, "ManipulatedAI: ${e.message}") }
+        try { PerpsLearningBridge.init(context.applicationContext) } catch (e: Exception) { ErrorLogger.debug(TAG, "PerpsLearningBridge: ${e.message}") }
+        try { FluidLearningAI.initMarketsPrefs(context.applicationContext) } catch (e: Exception) { ErrorLogger.debug(TAG, "FluidLearningAI.initMarketsPrefs: ${e.message}") }
         ErrorLogger.info(TAG, "🪙 CryptoAltTrader INITIALIZED | paper=${isPaperMode.get()} | balance=${"%.2f".format(paperBalance)} SOL | trades=${totalTrades.get()}")
     }
 
@@ -450,6 +452,14 @@ object CryptoAltTrader {
     private suspend fun runScanCycle() {
         scanCount.incrementAndGet()
         val scanNum = scanCount.get()
+
+        // Periodic persistence — save learning state every 10 scan cycles
+        if (scanNum % 10 == 0) {
+            saveToSharedPrefs()
+            savePersistedState()
+            try { FluidLearningAI.saveMarketsPrefs() } catch (_: Exception) {}
+            try { PerpsLearningBridge.save() } catch (_: Exception) {}
+        }
 
         ErrorLogger.error(TAG, "🪙 ═══════════════════════════════════════════════════")
         ErrorLogger.error(TAG, "🪙 ALT SCAN #$scanNum STARTING")
@@ -1091,6 +1101,53 @@ object CryptoAltTrader {
                 exitReason = reason, livePnlSol = pnlSol, isWin = isWin
             )
         } catch (_: Exception) {}
+
+        // ── PerpsLearningBridge — cross-layer learning from alt trade ─────────
+        try {
+            val perpsTrade = PerpsTrade(
+                id          = pos.id,
+                market      = pos.market,
+                direction   = pos.direction,
+                side        = "CLOSE",
+                entryPrice  = pos.entryPrice,
+                exitPrice   = pos.currentPrice,
+                sizeSol     = pos.sizeSol,
+                leverage    = pos.leverage,
+                pnlUsd      = pnlSol * WalletManager.lastKnownSolPrice,
+                pnlPct      = pnlPct,
+                openTime    = pos.openTime,
+                closeTime   = timestamp,
+                closeReason = reason,
+                isPaper     = paper,
+                aiScore     = pos.aiScore,
+                aiConfidence= pos.aiConfidence,
+                riskTier    = if (pos.isSpot) PerpsRiskTier.SNIPER else if (pos.leverage <= 3.0) PerpsRiskTier.TACTICAL else PerpsRiskTier.ASSAULT
+            )
+            PerpsLearningBridge.learnFromPerpsTrade(
+                trade = perpsTrade,
+                contributingLayers = pos.reasons.mapNotNull { r ->
+                    when {
+                        r.contains("ShitCoin")     -> "ShitCoinTraderAI"
+                        r.contains("BlueChip")     -> "BlueChipTraderAI"
+                        r.contains("Quality")      -> "QualityTraderAI"
+                        r.contains("Express")      -> "ShitCoinExpress"
+                        r.contains("Moonshot")     -> "MoonshotTraderAI"
+                        r.contains("Manip")        -> "ManipulatedTraderAI"
+                        r.contains("Momentum")     -> "MomentumPredictorAI"
+                        r.contains("Technical")    -> "PerpsAdvancedAI"
+                        r.contains("NarrativeHeat")-> "NarrativeFlowAI"
+                        r.contains("Trust")        -> "StrategyTrustAI"
+                        r.contains("BehaviorAI")   -> "BehaviorAI"
+                        else                       -> null
+                    }
+                }.distinct().ifEmpty { listOf("CryptoAltAI") },
+                predictedDirection = pos.direction
+            )
+            ErrorLogger.debug(TAG, "🪙🧠 PerpsLearningBridge: ${pos.market.symbol} | pnl=${pnlPct.fmt(1)}% | cross-learn OK")
+        } catch (_: Exception) {}
+
+        // ── FluidLearningAI persistence ───────────────────────────────────────
+        try { FluidLearningAI.saveMarketsPrefs() } catch (_: Exception) {}
 
         saveToSharedPrefs()
         savePersistedState()

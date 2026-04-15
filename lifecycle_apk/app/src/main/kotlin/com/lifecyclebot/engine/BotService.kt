@@ -251,85 +251,73 @@ class BotService : Service() {
             ErrorLogger.error("BotService", "PerpsLearningBridge init error: ${e.message}", e)
         }
         
-        // V5.7.3: Start PerpsExecutionEngine for FULLY AUTOMATIC perps trading
-        // V5.7.6: Respects tradingMode setting (only starts if Markets mode enabled)
-        val marketsEnabled = cfg.marketsTraderEnabled || cfg.tradingMode == 1 || cfg.tradingMode == 2
-        
-        if (marketsEnabled) {
-            try {
-                com.lifecyclebot.perps.PerpsExecutionEngine.start(applicationContext)
-                ErrorLogger.info("BotService", "⚡ PerpsExecutionEngine STARTED - Fully Automatic Trading ACTIVE (enabled=${com.lifecyclebot.perps.PerpsTraderAI.isEnabled()}, paper=${com.lifecyclebot.perps.PerpsTraderAI.isPaperMode})")
-            } catch (e: Exception) {
-                ErrorLogger.error("BotService", "PerpsExecutionEngine start error: ${e.message}", e)
-            }
-            
-            // V5.7.5: Start TokenizedStockTrader - DEDICATED stock trading engine
-            try {
-                com.lifecyclebot.perps.TokenizedStockTrader.init()
-                com.lifecyclebot.perps.TokenizedStockTrader.start()
-                ErrorLogger.info("BotService", "📈 TokenizedStockTrader STARTED - Dedicated Stock Trading ACTIVE")
-            } catch (e: Exception) {
-                ErrorLogger.error("BotService", "TokenizedStockTrader start error: ${e.message}", e)
-            }
-
-            // V5.7.6: Start CommoditiesTrader - Energy & Agricultural commodities
-            try {
-                com.lifecyclebot.perps.CommoditiesTrader.initialize()
-                com.lifecyclebot.perps.CommoditiesTrader.start()
-                ErrorLogger.info("BotService", "🛢️ CommoditiesTrader STARTED - Oil, Gas, Agriculture ACTIVE")
-            } catch (e: Exception) {
-                ErrorLogger.error("BotService", "CommoditiesTrader start error: ${e.message}", e)
-            }
-            
-            // V5.7.6: Start MetalsTrader - Precious & Industrial metals
-            try {
-                com.lifecyclebot.perps.MetalsTrader.initialize()
-                com.lifecyclebot.perps.MetalsTrader.start()
-                ErrorLogger.info("BotService", "🥇 MetalsTrader STARTED - Gold, Silver, Industrial Metals ACTIVE")
-            } catch (e: Exception) {
-                ErrorLogger.error("BotService", "MetalsTrader start error: ${e.message}", e)
-            }
-            
-            // V5.7.6: Start ForexTrader - Currency pairs
-            try {
-                com.lifecyclebot.perps.ForexTrader.initialize()
-                com.lifecyclebot.perps.ForexTrader.start()
-                ErrorLogger.info("BotService", "💱 ForexTrader STARTED - Major, Cross, EM Pairs ACTIVE")
-            } catch (e: Exception) {
-                ErrorLogger.error("BotService", "ForexTrader start error: ${e.message}", e)
-            }
-            
-            // V5.7.3: Start PerpsAutoReplayLearner for CONTINUOUS learning
-            try {
-                com.lifecyclebot.perps.PerpsAutoReplayLearner.start()
-                ErrorLogger.info("BotService", "🎬 PerpsAutoReplayLearner STARTED - Always Learning Mode ACTIVE")
-            } catch (e: Exception) {
-                ErrorLogger.error("BotService", "PerpsAutoReplayLearner start error: ${e.message}", e)
-            }
-            
-            // V5.7.4: Start Learning Insights Panel for continuous analysis
-            try {
-                com.lifecyclebot.perps.PerpsLearningInsightsPanel.start()
-                ErrorLogger.info("BotService", "🧠 PerpsLearningInsightsPanel STARTED - Continuous Analysis Mode ACTIVE")
-            } catch (e: Exception) {
-                ErrorLogger.debug("BotService", "PerpsLearningInsightsPanel start error: ${e.message}")
-            }
-        } else {
-            ErrorLogger.info("BotService", "📊 Markets Trader DISABLED by user settings")
+        // V5.7.3: Start ALL market traders — ALWAYS run when bot is active
+        try {
+            com.lifecyclebot.perps.PerpsExecutionEngine.start(applicationContext)
+            ErrorLogger.info("BotService", "⚡ PerpsExecutionEngine STARTED - Fully Automatic Trading ACTIVE")
+        } catch (e: Exception) {
+            ErrorLogger.error("BotService", "PerpsExecutionEngine start error: ${e.message}", e)
         }
 
-        // V2.0: Start CryptoAltTrader — gated by cryptoAltsEnabled, INDEPENDENT of Markets mode
-        val altCfg = ConfigStore.load(applicationContext)
-        if (altCfg.cryptoAltsEnabled) {
-            try {
-                com.lifecyclebot.perps.CryptoAltTrader.init(applicationContext)
-                com.lifecyclebot.perps.CryptoAltTrader.start()
-                ErrorLogger.info("BotService", "🪙 CryptoAltTrader STARTED - Alt Crypto Trading ACTIVE (live=${!altCfg.paperMode})")
-            } catch (e: Exception) {
-                ErrorLogger.error("BotService", "CryptoAltTrader start error: ${e.message}", e)
-            }
-        } else {
-            ErrorLogger.info("BotService", "🪙 CryptoAltTrader DISABLED by user settings")
+        // V5.7.5: Start TokenizedStockTrader - DEDICATED stock trading engine
+        try {
+            com.lifecyclebot.perps.TokenizedStockTrader.init()
+            com.lifecyclebot.perps.TokenizedStockTrader.start()
+            ErrorLogger.info("BotService", "📈 TokenizedStockTrader STARTED - Dedicated Stock Trading ACTIVE")
+        } catch (e: Exception) {
+            ErrorLogger.error("BotService", "TokenizedStockTrader start error: ${e.message}", e)
+        }
+
+        // V5.7.6: Start CommoditiesTrader - Energy & Agricultural commodities
+        try {
+            com.lifecyclebot.perps.CommoditiesTrader.initialize()
+            com.lifecyclebot.perps.CommoditiesTrader.start()
+            ErrorLogger.info("BotService", "🛢️ CommoditiesTrader STARTED - Oil, Gas, Agriculture ACTIVE")
+        } catch (e: Exception) {
+            ErrorLogger.error("BotService", "CommoditiesTrader start error: ${e.message}", e)
+        }
+
+        // V5.7.6: Start MetalsTrader - Precious & Industrial metals
+        try {
+            com.lifecyclebot.perps.MetalsTrader.initialize()
+            com.lifecyclebot.perps.MetalsTrader.start()
+            ErrorLogger.info("BotService", "🥇 MetalsTrader STARTED - Gold, Silver, Industrial Metals ACTIVE")
+        } catch (e: Exception) {
+            ErrorLogger.error("BotService", "MetalsTrader start error: ${e.message}", e)
+        }
+
+        // V5.7.6: Start ForexTrader - Currency pairs
+        try {
+            com.lifecyclebot.perps.ForexTrader.initialize()
+            com.lifecyclebot.perps.ForexTrader.start()
+            ErrorLogger.info("BotService", "💱 ForexTrader STARTED - Major, Cross, EM Pairs ACTIVE")
+        } catch (e: Exception) {
+            ErrorLogger.error("BotService", "ForexTrader start error: ${e.message}", e)
+        }
+
+        // V5.7.3: Start PerpsAutoReplayLearner for CONTINUOUS learning
+        try {
+            com.lifecyclebot.perps.PerpsAutoReplayLearner.start()
+            ErrorLogger.info("BotService", "🎬 PerpsAutoReplayLearner STARTED - Always Learning Mode ACTIVE")
+        } catch (e: Exception) {
+            ErrorLogger.error("BotService", "PerpsAutoReplayLearner start error: ${e.message}", e)
+        }
+
+        // V5.7.4: Start Learning Insights Panel for continuous analysis
+        try {
+            com.lifecyclebot.perps.PerpsLearningInsightsPanel.start()
+            ErrorLogger.info("BotService", "🧠 PerpsLearningInsightsPanel STARTED - Continuous Analysis Mode ACTIVE")
+        } catch (e: Exception) {
+            ErrorLogger.debug("BotService", "PerpsLearningInsightsPanel start error: ${e.message}")
+        }
+
+        // V2.0: Start CryptoAltTrader — ALWAYS runs when bot is active (same as meme trader)
+        try {
+            com.lifecyclebot.perps.CryptoAltTrader.init(applicationContext)
+            com.lifecyclebot.perps.CryptoAltTrader.start()
+            ErrorLogger.info("BotService", "🪙 CryptoAltTrader STARTED - Alt Crypto Trading ACTIVE")
+        } catch (e: Exception) {
+            ErrorLogger.error("BotService", "CryptoAltTrader start error: ${e.message}", e)
         }
 
         // V5.7.3: Start Network Signal Auto-Buyer (disabled by default, paper mode only)
@@ -2199,8 +2187,8 @@ class BotService : Service() {
                             com.lifecyclebot.perps.PerpsExecutionEngine.start(applicationContext)
                         }
                     }
-                    // CryptoAltTrader watchdog (meme-off)
-                    if (cfg.cryptoAltsEnabled && loopCount % 10 == 0 && !com.lifecyclebot.perps.CryptoAltTrader.isHealthy()) {
+                    // CryptoAltTrader watchdog (meme-off) — ALWAYS runs
+                    if (loopCount % 10 == 0 && !com.lifecyclebot.perps.CryptoAltTrader.isHealthy()) {
                         ErrorLogger.warn("BotService", "⚠️ [meme-off] CryptoAltTrader unhealthy — restarting…")
                         com.lifecyclebot.perps.CryptoAltTrader.start()
                     }
@@ -2419,42 +2407,40 @@ class BotService : Service() {
             // ═══════════════════════════════════════════════════════════════════
             if (loopCount % 10 == 0) {
                 try {
-                    val marketsEnabled = cfg.marketsTraderEnabled || cfg.tradingMode == 1 || cfg.tradingMode == 2
-                    if (marketsEnabled) {
-                        val healthy = com.lifecyclebot.perps.PerpsExecutionEngine.isHealthy()
-                        if (!healthy) {
-                            ErrorLogger.warn("BotService", "⚠️ PerpsExecutionEngine NOT HEALTHY (loop #$loopCount) — restarting…")
-                            addLog("⚡ Markets engine watchdog: engine unhealthy, restarting…")
-                            com.lifecyclebot.perps.PerpsExecutionEngine.stop()
-                            delay(500)
-                            com.lifecyclebot.perps.PerpsExecutionEngine.start(applicationContext)
-                            addLog("⚡ Markets engine restarted by watchdog")
-                        }
+                    // PerpsExecutionEngine watchdog — ALWAYS runs
+                    val healthy = com.lifecyclebot.perps.PerpsExecutionEngine.isHealthy()
+                    if (!healthy) {
+                        ErrorLogger.warn("BotService", "⚠️ PerpsExecutionEngine NOT HEALTHY (loop #$loopCount) — restarting…")
+                        addLog("⚡ Markets engine watchdog: engine unhealthy, restarting…")
+                        com.lifecyclebot.perps.PerpsExecutionEngine.stop()
+                        delay(500)
+                        com.lifecyclebot.perps.PerpsExecutionEngine.start(applicationContext)
+                        addLog("⚡ Markets engine restarted by watchdog")
                     }
-                    // CryptoAltTrader watchdog
-                    if (cfg.cryptoAltsEnabled && !com.lifecyclebot.perps.CryptoAltTrader.isHealthy()) {
+                    // CryptoAltTrader watchdog — ALWAYS runs
+                    if (!com.lifecyclebot.perps.CryptoAltTrader.isHealthy()) {
                         ErrorLogger.warn("BotService", "⚠️ CryptoAltTrader unhealthy (loop #$loopCount) — restarting…")
                         addLog("🪙 CryptoAlt watchdog: unhealthy, restarting…")
                         com.lifecyclebot.perps.CryptoAltTrader.start()
                     }
-                    // TokenizedStockTrader watchdog
-                    if (marketsEnabled && !com.lifecyclebot.perps.TokenizedStockTrader.isHealthy()) {
+                    // TokenizedStockTrader watchdog — ALWAYS runs
+                    if (!com.lifecyclebot.perps.TokenizedStockTrader.isHealthy()) {
                         ErrorLogger.warn("BotService", "⚠️ TokenizedStockTrader unhealthy (loop #$loopCount) — restarting…")
                         addLog("📈 Stock trader watchdog: unhealthy, restarting…")
                         com.lifecyclebot.perps.TokenizedStockTrader.start()
                     }
-                    // CommoditiesTrader watchdog
-                    if (marketsEnabled && !com.lifecyclebot.perps.CommoditiesTrader.isHealthy()) {
+                    // CommoditiesTrader watchdog — ALWAYS runs
+                    if (!com.lifecyclebot.perps.CommoditiesTrader.isHealthy()) {
                         ErrorLogger.warn("BotService", "⚠️ CommoditiesTrader unhealthy (loop #$loopCount) — restarting…")
                         com.lifecyclebot.perps.CommoditiesTrader.start()
                     }
-                    // MetalsTrader watchdog
-                    if (marketsEnabled && !com.lifecyclebot.perps.MetalsTrader.isHealthy()) {
+                    // MetalsTrader watchdog — ALWAYS runs
+                    if (!com.lifecyclebot.perps.MetalsTrader.isHealthy()) {
                         ErrorLogger.warn("BotService", "⚠️ MetalsTrader unhealthy (loop #$loopCount) — restarting…")
                         com.lifecyclebot.perps.MetalsTrader.start()
                     }
-                    // ForexTrader watchdog
-                    if (marketsEnabled && !com.lifecyclebot.perps.ForexTrader.isHealthy()) {
+                    // ForexTrader watchdog — ALWAYS runs
+                    if (!com.lifecyclebot.perps.ForexTrader.isHealthy()) {
                         ErrorLogger.warn("BotService", "⚠️ ForexTrader unhealthy (loop #$loopCount) — restarting…")
                         com.lifecyclebot.perps.ForexTrader.start()
                     }
